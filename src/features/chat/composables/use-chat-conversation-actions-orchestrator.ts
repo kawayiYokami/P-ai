@@ -10,25 +10,17 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
       : [];
   }
 
-  async function createUnarchivedConversation(input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellWorkMode?: ShellWorkMode; shellAutonomousMode?: boolean }) {
-    const departmentId =
-      String(input?.departmentId || "").trim()
-      || bindings.defaultCreateConversationDepartmentId.value;
-    const selectedOption = Array.isArray(bindings.createConversationDepartmentOptions?.value)
-      ? bindings.createConversationDepartmentOptions.value.find((item: any) =>
-        String(item.departmentId || item.id || "").trim() === departmentId
-        && (!input?.agentId || String(item.agentId || "").trim() === String(input.agentId || "").trim())
-      )
-      : null;
-    const agentId = String(input?.agentId || selectedOption?.agentId || "").trim();
-    if (!departmentId) return "";
+  async function createUnarchivedConversation(input?: { title?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellWorkMode?: ShellWorkMode; shellAutonomousMode?: boolean }) {
+    const agentId =
+      String(input?.agentId || "").trim()
+      || String(bindings.defaultCreateConversationAgentId.value || "").trim();
+    if (!agentId) return "";
     try {
       const copySourceConversationId = input?.copyCurrent
         ? String(bindings.currentChatConversationId.value || "").trim()
         : "";
       const importPath = String(input?.importPath || "").trim();
       const request = {
-        departmentId,
         agentId: agentId || null,
         title: String(input?.title || "").trim() || null,
         shellWorkspaces: input?.shellWorkspaces || null,
@@ -99,16 +91,15 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     }
   }
 
-  // 在草稿历史区切换部门/人格/模型/标题：直接改写草稿会话字段
-  async function updateDraftConversation(patch: { departmentId?: string; agentId?: string; preferredApiConfigId?: string | null; title?: string | null }) {
+  // 在草稿历史区切换人格/模型/标题：直接改写草稿会话字段
+  async function updateDraftConversation(patch: { agentId?: string; preferredApiConfigId?: string | null; title?: string | null }) {
     const conversationId = String(bindings.currentChatConversationId.value || "").trim();
     if (!conversationId) return false;
     try {
       const input: Record<string, unknown> = { conversationId };
-      if (patch.departmentId !== undefined) input.departmentId = patch.departmentId;
       if (patch.agentId !== undefined) input.agentId = patch.agentId;
       if (patch.preferredApiConfigId !== undefined) {
-        // undefined 不修改；null 清空回部门默认；字符串为指定模型
+        // undefined 不修改；null 清空回人格默认；字符串为指定模型
         input.preferredApiConfigId = patch.preferredApiConfigId;
       }
       if (patch.title !== undefined) {
@@ -337,7 +328,6 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
   async function userAsyncDelegateFromSelection(payload: {
     count: number;
     messageIds: string[];
-    departmentId: string;
     agentId: string;
     presetId: string;
     why: string;
@@ -345,12 +335,11 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     todo: string;
   }) {
     const conversationId = String(bindings.currentChatConversationId.value || "").trim();
-    const targetDepartmentId = String(payload?.departmentId || "").trim();
     const targetAgentId = String(payload?.agentId || "").trim();
     const selectedMessageIds = normalizeSelectedMessageIds(payload?.messageIds);
     const goal = String(payload?.goal || "").trim();
     const todo = String(payload?.todo || "").trim();
-    if (!conversationId || !targetDepartmentId || !targetAgentId || !goal) return false;
+    if (!conversationId || !targetAgentId || !goal) return false;
     const sourceAgentId = String(bindings.currentForegroundAgentId.value || "").trim();
     if (sourceAgentId && sourceAgentId === targetAgentId) {
       bindings.setStatus(bindings.tr("status.asyncDelegateSelfSyncOnly"));
@@ -366,7 +355,6 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
       }>("delegate.submit", {
         input: {
           conversationId,
-          targetDepartmentId,
           targetAgentId,
           presetId: String(payload?.presetId || "review").trim() || "review",
           why: String(payload?.why || "").trim(),

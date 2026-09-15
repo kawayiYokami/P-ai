@@ -35,7 +35,7 @@ function normalizeWebAccessPort(value: unknown): number {
 export function applyConversationApiBootstrapUpdate(bindings: {
   config: AppConfig;
 }, payload: Record<string, unknown>) {
-  bindings.config.assistantDepartmentApiConfigId = String(payload.assistantDepartmentApiConfigId ?? "").trim();
+  bindings.config.expertApiConfigId = String(payload.expertApiConfigId ?? "").trim();
   bindings.config.visionApiConfigId = payload.visionApiConfigId as string | undefined;
   bindings.config.toolReviewApiConfigId = payload.toolReviewApiConfigId as string | undefined;
   bindings.config.sttApiConfigId = payload.sttApiConfigId as string | undefined;
@@ -43,7 +43,7 @@ export function applyConversationApiBootstrapUpdate(bindings: {
 }
 
 export function applyChatSettingsBootstrapUpdate(bindings: {
-  assistantDepartmentAgentId: Ref<string>;
+  assistantAgentId: Ref<string>;
   personaEditorId: Ref<string>;
   userAlias: Ref<string>;
   selectedResponseStyleId: Ref<string>;
@@ -52,9 +52,9 @@ export function applyChatSettingsBootstrapUpdate(bindings: {
   backgroundVoiceScreenshotMode: Ref<"desktop" | "focused_window">;
   instructionPresets: Ref<PromptCommandPreset[]>;
 }, payload: Record<string, unknown>) {
-  if ("assistantDepartmentAgentId" in payload) {
-    const nextAgentId = String(payload.assistantDepartmentAgentId ?? "").trim();
-    bindings.assistantDepartmentAgentId.value = nextAgentId;
+  if ("assistantAgentId" in payload) {
+    const nextAgentId = String(payload.assistantAgentId ?? "").trim();
+    bindings.assistantAgentId.value = nextAgentId;
     if (bindings.personaEditorId.value !== nextAgentId) bindings.personaEditorId.value = nextAgentId;
   }
   if ("userAlias" in payload) bindings.userAlias.value = String(payload.userAlias ?? "");
@@ -109,7 +109,7 @@ export function applyConfigBootstrapUpdate(bindings: {
     bindings.config.maxRecordSeconds = normalized.maxRecordSeconds;
   }
   if ("selectedApiConfigId" in payload) bindings.config.selectedApiConfigId = String(payload.selectedApiConfigId ?? "").trim();
-  if ("assistantDepartmentApiConfigId" in payload) bindings.config.assistantDepartmentApiConfigId = String(payload.assistantDepartmentApiConfigId ?? "").trim();
+  if ("expertApiConfigId" in payload) bindings.config.expertApiConfigId = String(payload.expertApiConfigId ?? "").trim();
   if ("visionApiConfigId" in payload) bindings.config.visionApiConfigId = payload.visionApiConfigId as string | undefined;
   if ("imageProviders" in payload) {
     bindings.config.imageProviders = normalizeImageGenerationProviders(payload.imageProviders);
@@ -160,8 +160,5 @@ export function applyConfigBootstrapUpdate(bindings: {
       }))
       : [bindings.createApiConfig("default")]),
   );
-  bindings.config.departments = Array.isArray(payload.departments)
-    ? payload.departments.map((item: any) => ({ ...item, agentIds: Array.isArray(item.agentIds) ? [...item.agentIds] : [] }))
-    : [];
   bindings.lastSavedConfigJson.value = bindings.buildConfigSnapshotJson();
 }

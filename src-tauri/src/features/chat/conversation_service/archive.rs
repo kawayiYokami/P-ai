@@ -1,14 +1,13 @@
 fn build_archive_replacement_conversation(
     state: &AppState,
     agents: &[AgentProfile],
-    assistant_department_agent_id: &str,
+    assistant_agent_id: &str,
     selected_api: &ApiConfig,
     _source: &Conversation,
 ) -> Result<Conversation, String> {
     let mut conversation = build_conversation_record(
         &selected_api.id,
         "",
-        ASSISTANT_DEPARTMENT_ID,
         "",
         CONVERSATION_KIND_CHAT,
         None,
@@ -16,7 +15,7 @@ fn build_archive_replacement_conversation(
     );
     let profile_snapshot = agents
         .iter()
-        .find(|item| item.id == assistant_department_agent_id)
+        .find(|item| item.id == assistant_agent_id)
         .and_then(|agent| match build_user_profile_snapshot_block(&state.data_path, agent, 12) {
             Ok(snapshot) => snapshot,
             Err(err) => {

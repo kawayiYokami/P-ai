@@ -105,99 +105,6 @@ fn parse_version_parts(input: &str) -> Vec<u64> {
         .collect()
 }
 
-fn validate_department_names_unique(config: &AppConfig) -> Result<(), String> {
-    let mut seen = std::collections::HashSet::<String>::new();
-    for department in &config.departments {
-        let name = department.name.trim();
-        if name.is_empty() {
-            return Err("部门名称不能为空".to_string());
-        }
-        let key = name.to_ascii_lowercase();
-        if !seen.insert(key) {
-            return Err(format!("部门名称不能重复：{name}"));
-        }
-    }
-    Ok(())
-}
-
-fn changed_department_ids(old_config: &AppConfig, new_config: &AppConfig) -> Vec<String> {
-    let old_by_id = old_config
-        .departments
-        .iter()
-        .map(|item| (item.id.clone(), item.clone()))
-        .collect::<std::collections::HashMap<_, _>>();
-    let new_by_id = new_config
-        .departments
-        .iter()
-        .map(|item| (item.id.clone(), item.clone()))
-        .collect::<std::collections::HashMap<_, _>>();
-    old_by_id
-        .keys()
-        .chain(new_by_id.keys())
-        .cloned()
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .filter(|id| old_by_id.get(id) != new_by_id.get(id))
-        .collect::<Vec<_>>()
-}
-
-fn changed_department_tree_ids(old_config: &AppConfig, new_config: &AppConfig) -> Vec<String> {
-    let old_children = old_config
-        .departments
-        .iter()
-        .map(|item| {
-            (
-                item.id.clone(),
-                normalize_department_child_ids(&item.child_department_ids, &item.id),
-            )
-        })
-        .collect::<std::collections::HashMap<_, _>>();
-    let new_children = new_config
-        .departments
-        .iter()
-        .map(|item| {
-            (
-                item.id.clone(),
-                normalize_department_child_ids(&item.child_department_ids, &item.id),
-            )
-        })
-        .collect::<std::collections::HashMap<_, _>>();
-    old_children
-        .keys()
-        .chain(new_children.keys())
-        .cloned()
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .filter(|id| old_children.get(id) != new_children.get(id))
-        .collect::<Vec<_>>()
-}
-
-fn changed_department_content_ids(old_config: &AppConfig, new_config: &AppConfig) -> Vec<String> {
-    let strip_tree = |department: &DepartmentConfig| {
-        let mut cloned = department.clone();
-        cloned.child_department_ids = Vec::new();
-        cloned
-    };
-    let old_by_id = old_config
-        .departments
-        .iter()
-        .map(|item| (item.id.clone(), strip_tree(item)))
-        .collect::<std::collections::HashMap<_, _>>();
-    let new_by_id = new_config
-        .departments
-        .iter()
-        .map(|item| (item.id.clone(), strip_tree(item)))
-        .collect::<std::collections::HashMap<_, _>>();
-    old_by_id
-        .keys()
-        .chain(new_by_id.keys())
-        .cloned()
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .filter(|id| old_by_id.get(id) != new_by_id.get(id))
-        .collect::<Vec<_>>()
-}
-
 fn config_provider_domain_changed(old_config: &AppConfig, new_config: &AppConfig) -> bool {
     let old_providers = serde_json::to_string(&old_config.api_providers).unwrap_or_default();
     let new_providers = serde_json::to_string(&new_config.api_providers).unwrap_or_default();
@@ -205,8 +112,8 @@ fn config_provider_domain_changed(old_config: &AppConfig, new_config: &AppConfig
     let new_api_configs = serde_json::to_string(&new_config.api_configs).unwrap_or_default();
     old_providers != new_providers
         || old_api_configs != new_api_configs
-        || old_config.assistant_department_api_config_id
-            != new_config.assistant_department_api_config_id
+        || old_config.expert_api_config_id
+            != new_config.expert_api_config_id
         || old_config.tool_review_api_config_id != new_config.tool_review_api_config_id
         || old_config.selected_api_config_id != new_config.selected_api_config_id
 }
@@ -219,39 +126,8 @@ fn broadcast_sidebar_persona_changed() {
     ide_chat_broadcast_simple_notification("persona.changed");
 }
 
-fn broadcast_sidebar_department_changed() {
-    ide_chat_broadcast_simple_notification("department.changed");
-}
-
-fn broadcast_sidebar_department_tree_changed() {
-    ide_chat_broadcast_simple_notification("departmentTree.changed");
-}
-
 fn broadcast_sidebar_provider_changed() {
     ide_chat_broadcast_simple_notification("provider.changed");
-}
-
-fn split_main_config_departments(departments: &[DepartmentConfig]) -> Vec<DepartmentConfig> {
-    departments
-        .iter()
-        .filter(|item| !is_private_workspace_source(&item.source))
-        .cloned()
-        .collect::<Vec<_>>()
-}
-
-fn persist_departments_by_source(
-    state: &AppState,
-    runtime_config: &AppConfig,
-) -> Result<AppConfig, String> {
-    sync_private_departments_to_workspace(
-        &state.data_path,
-        runtime_config,
-        &runtime_config.departments,
-    )?;
-    let mut main_config = runtime_config.clone();
-    main_config.departments = split_main_config_departments(&runtime_config.departments);
-    state_write_config_cached(state, &main_config)?;
-    Ok(main_config)
 }
 
 fn runtime_config_with_private_organization(
@@ -423,24 +299,16 @@ fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     load_config_inner(&state)
 }
 
-#[tauri::command]
-fn get_department_default_draft(
-    state: State<'_, AppState>,
-    department_id: String,
-) -> Result<DepartmentConfig, String> {
-    get_department_default_draft_inner(&state, &department_id)
-}
-
-fn get_department_default_draft_inner(
-    state: &AppState,
-    department_id: &str,
-) -> Result<DepartmentConfig, String> {
-    let config = load_config_inner(state)?;
-    default_department_draft(department_id, &config.ui_language)
-}
-
 fn load_config_inner(state: &AppState) -> Result<AppConfig, String> {
     require_message_store_migration_completed_for_runtime(state, "加载应用配置")?;
+    let mut result = state_read_config_cached(&state)?;
+    normalize_app_config(&mut result);
+    // 数据迁移会读取 app_config.toml 里的旧结构（旧键、旧 departments）并直接改写磁盘，
+    // 而任何一次配置落盘都会丢掉这些旧结构。因此迁移必须先于下面的补齐写盘执行；
+    // 这一步的补齐只改内存，仅作为迁移的上下文，落盘放到迁移之后。
+    let _ = ensure_default_shell_workspace_in_config(&mut result, &state);
+    let _ = run_app_data_migrations_with_state(&state, &result)?;
+    // 迁移可能已改写磁盘配置，按 mtime 重新读取，避免把迁移前的旧快照回写覆盖。
     let mut result = state_read_config_cached(&state)?;
     normalize_app_config(&mut result);
     let workspace_changed = ensure_default_shell_workspace_in_config(&mut result, &state);
@@ -449,7 +317,6 @@ fn load_config_inner(state: &AppState) -> Result<AppConfig, String> {
     if workspace_changed || remote_im_private_state_migrated {
         state_write_config_cached(&state, &result)?;
     }
-    let _ = run_app_data_migrations_with_state(&state, &result)?;
     // 无可用 LLM 时强制进入简单设置模式，方便首次启动用户直接配置供应商。
     if !has_usable_text_llm(&result) {
         result.simple_setup_mode = true;
@@ -464,13 +331,17 @@ fn read_app_bootstrap_snapshot(state: &AppState) -> Result<AppBootstrapSnapshot,
     require_message_store_migration_completed_for_runtime(state, "加载应用启动快照")?;
     let mut config = state_read_config_cached(state)?;
     normalize_app_config(&mut config);
+    // 同 load_config_inner：迁移必须早于任何配置落盘，否则旧键与旧 departments 会被新快照抹掉。
+    let _ = ensure_default_shell_workspace_in_config(&mut config, state);
+    let _ = run_app_data_migrations_with_state(state, &config)?;
+    let mut config = state_read_config_cached(state)?;
+    normalize_app_config(&mut config);
     let workspace_changed = ensure_default_shell_workspace_in_config(&mut config, state);
     let remote_im_private_state_migrated =
         remote_im_migrate_channel_private_states(state, &mut config)?;
     if workspace_changed || remote_im_private_state_migrated {
         state_write_config_cached(state, &config)?;
     }
-    let _ = run_app_data_migrations_with_state(state, &config)?;
     // 无可用 LLM 时强制进入简单设置模式，方便首次启动用户直接配置供应商。
     if !has_usable_text_llm(&config) {
         config.simple_setup_mode = true;
@@ -484,7 +355,7 @@ fn read_app_bootstrap_snapshot(state: &AppState) -> Result<AppBootstrapSnapshot,
     let mut runtime_data = AppData::default();
     runtime_data.agents = runtime_snapshot.agents.clone();
     let chat_settings = ChatSettings {
-        assistant_department_agent_id: state_service_get_assistant_department_agent_id(state)?,
+        assistant_agent_id: state_service_get_assistant_agent_id(state)?,
         user_alias: user_persona_name(&runtime_data),
         response_style_id: state_service_get_response_style_id(state)?,
         pdf_read_mode: state_service_get_pdf_read_mode(state)?,
@@ -742,17 +613,7 @@ fn save_config_inner(
         return Err("至少需要配置一个 API 配置。".to_string());
     }
     let mut config = config;
-    let repairs = normalize_app_config(&mut config);
-    if !repairs.is_empty() {
-        runtime_log_info(format!(
-            "[配置] 保存自修复完成: count={}, departments={:?}",
-            repairs.len(),
-            repairs
-                .iter()
-                .map(|item| format!("{}:{}->{}", item.department_id, item.department_name, item.agent_id))
-                .collect::<Vec<_>>()
-        ));
-    }
+    normalize_app_config(&mut config);
     remote_im_migrate_channel_private_states(&state, &mut config)?;
     let _ = ensure_default_shell_workspace_in_config(&mut config, &state);
     set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
@@ -762,20 +623,10 @@ fn save_config_inner(
     data.agents = agents;
     let base_config = state_read_config_cached(&state)?;
     let removed_remote_im_channels = removed_remote_im_channels(&base_config, &config);
-    let previous_runtime_config = runtime_config_with_private_organization(&state, &base_config, &data)?;
-    let departments_changed = changed_department_ids(&previous_runtime_config, &config);
-    let department_content_changed = !changed_department_content_ids(&previous_runtime_config, &config).is_empty();
-    let department_tree_changed = !changed_department_tree_ids(&previous_runtime_config, &config).is_empty();
     let provider_changed = config_provider_domain_changed(&base_config, &config);
     let shell_workspaces_changed = base_config.shell_workspaces != config.shell_workspaces;
-    validate_department_names_unique(&config)?;
-    let main_config = persist_departments_by_source(&state, &config)?;
-    if !departments_changed.is_empty() {
-        mark_prompt_cache_rebuild_for_system_sources_by_departments(
-            &state,
-            &departments_changed,
-        );
-    }
+    let main_config = config.clone();
+    state_write_config_cached(&state, &main_config)?;
     if shell_workspaces_changed {
         mark_prompt_cache_rebuild_for_all_system_environments(&state);
     }
@@ -840,19 +691,12 @@ fn save_config_inner(
     if assistant_workspace_label_synced > 0 {
         emit_unarchived_conversation_overview_updated_from_state(&state)?;
     }
-    if department_content_changed {
-        broadcast_sidebar_department_changed();
-    }
-    if department_tree_changed {
-        broadcast_sidebar_department_tree_changed();
-    }
     if provider_changed {
         broadcast_sidebar_provider_changed();
     }
     stop_removed_remote_im_channel_runtimes(state.clone(), removed_remote_im_channels);
     Ok(SaveConfigOutput {
         config: runtime_config,
-        repairs,
     })
 }
 

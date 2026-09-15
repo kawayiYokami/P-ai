@@ -67,7 +67,7 @@
         normalize_app_config(&mut cfg);
         assert_eq!(startup_window_label_for_config(&cfg), "main");
 
-        let api_id = cfg.assistant_department_api_config_id.clone();
+        let api_id = cfg.expert_api_config_id.clone();
         let api = cfg
             .api_configs
             .iter_mut()
@@ -123,7 +123,7 @@
     #[test]
     fn startup_window_label_should_allow_codex_local_auth_without_api_key() {
         let mut cfg = AppConfig::default();
-        let api_id = cfg.assistant_department_api_config_id.clone();
+        let api_id = cfg.expert_api_config_id.clone();
         let api = cfg
             .api_configs
             .iter_mut()
@@ -139,22 +139,16 @@
     }
 
     #[test]
-    fn startup_window_label_should_require_assistant_department_binding() {
+    fn startup_window_label_should_require_expert_model_binding() {
         let mut cfg = AppConfig::default();
-        let api_id = cfg.assistant_department_api_config_id.clone();
+        let api_id = cfg.expert_api_config_id.clone();
         let api = cfg
             .api_configs
             .iter_mut()
             .find(|item| item.id == api_id)
             .expect("default chat api exists");
         api.api_key = "sk-test".to_string();
-        for department in &mut cfg.departments {
-            if department.id == ASSISTANT_DEPARTMENT_ID {
-                department.api_config_id.clear();
-                department.api_config_ids.clear();
-            }
-        }
-        cfg.assistant_department_api_config_id.clear();
+        cfg.expert_api_config_id.clear();
         assert_eq!(startup_window_label_for_config(&cfg), "main");
     }
 
@@ -182,7 +176,7 @@
             desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             desktop_operate_enabled: default_desktop_operate_enabled(),
             selected_api_config_id: "a1".to_string(),
-            assistant_department_api_config_id: "a1".to_string(),
+            expert_api_config_id: "a1".to_string(),
             simple_setup_mode: false,
             vision_api_config_id: None,
             image_generation_model_id: None,
@@ -194,7 +188,6 @@
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
             remote_im_channels: Vec::new(),
-            departments: Vec::new(),
             api_configs: vec![
                 ApiConfig {
                     id: "a1".to_string(),
@@ -292,7 +285,7 @@
             desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             desktop_operate_enabled: default_desktop_operate_enabled(),
             selected_api_config_id: "edit-b".to_string(),
-            assistant_department_api_config_id: "chat-a".to_string(),
+            expert_api_config_id: "chat-a".to_string(),
             vision_api_config_id: None,
             image_generation_model_id: None,
             image_providers: Vec::new(),
@@ -304,7 +297,6 @@
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
             remote_im_channels: Vec::new(),
-            departments: Vec::new(),
             api_configs: vec![
                 ApiConfig {
                     id: "chat-a".to_string(),
@@ -371,752 +363,26 @@
         normalize_app_config(&mut cfg);
         assert_eq!(cfg.selected_api_config_id, "edit-b::edit-b-model-default".to_string());
         assert_eq!(
-            cfg.assistant_department_api_config_id,
+            cfg.expert_api_config_id,
             "chat-a::chat-a-model-default".to_string()
         );
     }
 
     #[test]
-    fn normalize_app_config_should_preserve_shared_child_departments_and_keep_unresolved_refs() {
-        let mut cfg = AppConfig::default();
-        let mut primary = default_assistant_department("");
-        primary.id = "department-primary".to_string();
-        primary.name = "主部门".to_string();
-        primary.is_built_in_assistant = false;
-        primary.agent_ids = vec!["agent-a".to_string()];
-        primary.child_department_ids = vec![
-            "department-shared".to_string(),
-            "department-primary".to_string(),
-            "missing-department".to_string(),
-        ];
-
-        let mut parent_b = default_assistant_department("");
-        parent_b.id = "department-parent-b".to_string();
-        parent_b.name = "项目二".to_string();
-        parent_b.is_built_in_assistant = false;
-        parent_b.agent_ids = vec!["agent-b".to_string()];
-        parent_b.child_department_ids = vec!["department-shared".to_string()];
-
-        let mut shared = default_assistant_department("");
-        shared.id = "department-shared".to_string();
-        shared.name = "共享施工队".to_string();
-        shared.is_built_in_assistant = false;
-        shared.agent_ids = vec!["agent-c".to_string()];
-
-        cfg.departments = vec![primary, parent_b, shared];
-
-        normalize_app_config(&mut cfg);
-
-        let primary = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == "department-primary")
-            .expect("primary department");
-        assert_eq!(
-            primary.child_department_ids,
-            vec![
-                "department-shared".to_string(),
-                "missing-department".to_string()
-            ]
-        );
-
-        let parent_b = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == "department-parent-b")
-            .expect("department-parent-b");
-        assert_eq!(
-            parent_b.child_department_ids,
-            vec!["department-shared".to_string()]
-        );
-    }
-
-    #[test]
-    fn runtime_organization_snapshot_should_filter_missing_children_after_private_merge() {
-        let root = std::env::temp_dir().join(format!("eca-runtime-org-{}", Uuid::new_v4()));
-        let data_path = root.join("config").join("config_mark");
-        let departments_dir = root
-            .join("llm-workspace")
-            .join("private-organization")
-            .join("departments");
-        std::fs::create_dir_all(&departments_dir).expect("create private departments dir");
-        std::fs::write(
-            departments_dir.join("department-private.json"),
-            r#"{
-  "id": "department-private",
-  "name": "私域部门",
-  "agentIds": ["private-agent"]
-}"#,
-        )
-        .expect("write private department");
-
-        let mut cfg = AppConfig::default();
-        let mut primary = default_assistant_department(&cfg.assistant_department_api_config_id);
-        primary.id = "department-primary".to_string();
-        primary.name = "主部门".to_string();
-        primary.is_built_in_assistant = false;
-        primary.agent_ids = vec!["parent-agent".to_string()];
-        primary.child_department_ids = vec![
-            "department-private".to_string(),
-            "missing-department".to_string(),
-            "department-primary".to_string(),
-        ];
-        cfg.departments.push(primary);
-
-        let mut parent_agent = default_agent();
-        parent_agent.id = "parent-agent".to_string();
-        parent_agent.name = "主部门人格".to_string();
-        let mut private_agent = default_agent();
-        private_agent.id = "private-agent".to_string();
-        private_agent.name = "私域部门人格".to_string();
-
-        let snapshot = build_runtime_organization_snapshot_from_parts(
-            &data_path,
-            &cfg,
-            &[parent_agent, private_agent, default_user_persona()],
-        )
-        .expect("build runtime organization snapshot");
-        let primary = runtime_department_by_id(&snapshot, "department-primary")
-            .expect("runtime primary department");
-
-        assert_eq!(
-            primary.child_department_ids,
-            vec!["department-private".to_string()]
-        );
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
     fn startup_self_check_should_be_noop_after_deputy_semantics_removed() {
         let mut cfg = AppConfig::default();
-        let snapshot = serde_json::to_string(&cfg.departments).expect("departments snapshot");
+        let snapshot = serde_json::to_string(&cfg).expect("config snapshot");
         assert!(!run_startup_self_checks(&mut cfg));
         assert_eq!(
             snapshot,
-            serde_json::to_string(&cfg.departments).expect("departments snapshot after self check")
+            serde_json::to_string(&cfg).expect("config snapshot after self check")
         );
-    }
-
-    #[test]
-    fn normalize_app_config_should_restore_missing_deputy_without_rewriting_assistant_children() {
-        let mut cfg = AppConfig::default();
-        cfg.departments
-            .retain(|item| item.id != DEPUTY_DEPARTMENT_ID);
-        if let Some(assistant) = cfg
-            .departments
-            .iter_mut()
-            .find(|item| item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant)
-        {
-            assistant.child_department_ids.clear();
-        }
-
-        normalize_app_config(&mut cfg);
-
-        let deputy = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == DEPUTY_DEPARTMENT_ID)
-            .expect("deputy department");
-        assert!(!deputy.is_deputy);
-        assert_eq!(deputy.name, "explorer");
-        assert!(deputy.summary.contains("大范围摸底"));
-        assert_eq!(deputy.agent_ids, vec![DEPUTY_AGENT_ID.to_string()]);
-
-        let assistant = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant)
-            .expect("assistant department");
-        assert!(assistant.child_department_ids.is_empty());
-    }
-
-    #[test]
-    fn normalize_app_config_should_preserve_preset_department_customizations_and_multi_parent_tree() {
-        let mut cfg = AppConfig::default();
-        for department in &mut cfg.departments {
-            if department.id == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant {
-                department.child_department_ids.clear();
-            }
-            if department.id == DEPUTY_DEPARTMENT_ID {
-                department.name = "自定义探索".to_string();
-                department.summary = "自定义概述".to_string();
-                department.guide = "自定义指南".to_string();
-                department.api_config_ids = vec![MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string()];
-                department.api_config_id = MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string();
-                department.model_failure_fallback_enabled = true;
-                department.permission_control = DepartmentPermissionControl::default();
-                department.child_department_ids = vec![REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()];
-            }
-            if department.id == REVIEWER_DEPARTMENT_ID {
-                department.name = "自定义审查".to_string();
-                department.summary = "自定义概述".to_string();
-                department.guide = "自定义指南".to_string();
-                department.api_config_ids = vec![MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string()];
-                department.api_config_id = MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string();
-                department.model_failure_fallback_enabled = true;
-                department.permission_control = department_whitelist_permission_control(&["read"], &[]);
-                department.child_department_ids = vec![REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()];
-            }
-            if department.id == SADDLER_DEPARTMENT_ID {
-                department.name = "自定义能力资产".to_string();
-                department.summary = "自定义概述".to_string();
-                department.guide = "自定义指南".to_string();
-                department.api_config_ids = vec![MODEL_ROLE_QUICK_API_CONFIG_ID.to_string()];
-                department.api_config_id = MODEL_ROLE_QUICK_API_CONFIG_ID.to_string();
-                department.permission_control = DepartmentPermissionControl::default();
-                department.child_department_ids = vec![REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()];
-            }
-        }
-
-        let mut parent = default_assistant_department(MODEL_ROLE_EXPERT_API_CONFIG_ID);
-        parent.id = "department-other".to_string();
-        parent.is_built_in_assistant = false;
-        parent.child_department_ids = vec![
-            DEPUTY_DEPARTMENT_ID.to_string(),
-            REVIEWER_DEPARTMENT_ID.to_string(),
-            SADDLER_DEPARTMENT_ID.to_string(),
-        ];
-        cfg.departments.push(parent);
-
-        normalize_app_config(&mut cfg);
-
-        let assistant = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == ASSISTANT_DEPARTMENT_ID)
-            .expect("assistant department");
-        assert!(assistant.child_department_ids.is_empty());
-
-        let explorer = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == DEPUTY_DEPARTMENT_ID)
-            .expect("explorer department");
-        assert_eq!(explorer.name, "自定义探索");
-        assert_eq!(explorer.summary, "自定义概述");
-        assert_eq!(explorer.guide, "自定义指南");
-        assert_eq!(explorer.api_config_id, MODEL_ROLE_EXPERT_API_CONFIG_ID);
-        assert!(explorer.model_failure_fallback_enabled);
-        assert_eq!(
-            explorer.child_department_ids,
-            vec![REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()]
-        );
-        assert_eq!(explorer.permission_control, DepartmentPermissionControl::default());
-
-        let reviewer = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == REVIEWER_DEPARTMENT_ID)
-            .expect("reviewer department");
-        assert_eq!(reviewer.name, "自定义审查");
-        assert_eq!(reviewer.summary, "自定义概述");
-        assert_eq!(reviewer.guide, "自定义指南");
-        assert_eq!(reviewer.api_config_id, MODEL_ROLE_EXPERT_API_CONFIG_ID);
-        assert!(reviewer.model_failure_fallback_enabled);
-        assert_eq!(
-            reviewer.child_department_ids,
-            vec![REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()]
-        );
-        assert_eq!(
-            reviewer.permission_control,
-            department_whitelist_permission_control(&["read"], &[])
-        );
-        assert!(department_permission_allows_any_name(
-            Some(reviewer),
-            DepartmentPermissionCategory::BuiltinTool,
-            &["read"],
-        ));
-        assert!(!department_permission_allows_any_name(
-            Some(reviewer),
-            DepartmentPermissionCategory::BuiltinTool,
-            &["exec"],
-        ));
-
-        let saddler = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == SADDLER_DEPARTMENT_ID)
-            .expect("saddler department");
-        assert_eq!(saddler.name, "自定义能力资产");
-        assert_eq!(saddler.summary, "自定义概述");
-        assert_eq!(saddler.guide, "自定义指南");
-        assert_eq!(saddler.api_config_id, MODEL_ROLE_QUICK_API_CONFIG_ID);
-        assert_eq!(
-            saddler.child_department_ids,
-            vec![REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()]
-        );
-        assert_eq!(saddler.permission_control, DepartmentPermissionControl::default());
-
-        let other = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == "department-other")
-            .expect("other department");
-        assert_eq!(
-            other.child_department_ids,
-            vec![
-                DEPUTY_DEPARTMENT_ID.to_string(),
-                REVIEWER_DEPARTMENT_ID.to_string(),
-                SADDLER_DEPARTMENT_ID.to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn default_department_draft_should_return_backend_preset() {
-        let leader = default_department_draft(LEADER_DEPARTMENT_ID, "zh-CN")
-            .expect("leader default draft");
-        assert_eq!(leader.api_config_id, MODEL_ROLE_EXPERT_API_CONFIG_ID);
-        assert_eq!(
-            leader.permission_control,
-            leader_department_permission_control()
-        );
-
-        let reviewer = default_department_draft(REVIEWER_DEPARTMENT_ID, "zh-CN")
-            .expect("reviewer default draft");
-        assert_eq!(reviewer.api_config_id, MODEL_ROLE_QUICK_API_CONFIG_ID);
-        assert_eq!(
-            reviewer.permission_control,
-            reviewer_department_permission_control()
-        );
-
-        let saddler = default_department_draft(SADDLER_DEPARTMENT_ID, "zh-CN")
-            .expect("saddler default draft");
-        assert_eq!(saddler.api_config_id, MODEL_ROLE_EXPERT_API_CONFIG_ID);
-        assert_eq!(
-            saddler.permission_control,
-            saddler_department_permission_control()
-        );
-
-        let remote_customer_service =
-            default_department_draft(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID, "zh-CN")
-                .expect("remote customer service default draft");
-        assert_eq!(
-            remote_customer_service.permission_control,
-            remote_customer_service_department_permission_control()
-        );
-
-        let assistant = default_department_draft(ASSISTANT_DEPARTMENT_ID, "en-US")
-            .expect("assistant default draft");
-        assert_eq!(assistant.name, "Assistant Department");
-
-        let config = AppConfig::default();
-        for department_id in [
-            ASSISTANT_DEPARTMENT_ID,
-            LEADER_DEPARTMENT_ID,
-            DEPUTY_DEPARTMENT_ID,
-            REVIEWER_DEPARTMENT_ID,
-            SADDLER_DEPARTMENT_ID,
-            REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID,
-        ] {
-            let department = config
-                .departments
-                .iter()
-                .find(|department| department.id == department_id)
-                .expect("default preset department");
-            assert!(
-                department_permission_allows_any_name(
-                    Some(department),
-                    DepartmentPermissionCategory::Skill,
-                    &["memory-generation"],
-                ),
-                "{department_id} should allow memory-generation",
-            );
-        }
-
-        assert!(default_department_draft("department-custom", "zh-CN").is_err());
-    }
-
-    #[test]
-    fn hr_department_should_be_frozen_preset() {
-        // 默认配置里人力部存在且字段来自 yaml 预设
-        let config = AppConfig::default();
-        let preset = default_hr_department("");
-        let hr = config
-            .departments
-            .iter()
-            .find(|department| department.id == HR_DEPARTMENT_ID)
-            .expect("hr preset department");
-        assert_eq!(hr.name, preset.name);
-        assert_eq!(hr.summary, preset.summary);
-        assert_eq!(hr.guide, preset.guide);
-        assert!(!hr.guide.trim().is_empty());
-        assert_eq!(hr.agent_ids, vec![DEFAULT_AGENT_ID.to_string()]);
-        assert!(!hr.permission_control.enabled);
-
-        // normalize 强制覆盖被篡改的冻结字段，仅保留可写的 agent_ids
-        let mut config = AppConfig::default();
-        {
-            let hr = config
-                .departments
-                .iter_mut()
-                .find(|department| department.id == HR_DEPARTMENT_ID)
-                .expect("hr preset department");
-            hr.name = "被改过的名字".to_string();
-            hr.summary = "被改过的简介".to_string();
-            hr.guide = "被改过的指南".to_string();
-            hr.permission_control.enabled = true;
-            hr.agent_ids = vec!["custom-agent".to_string()];
-        }
-        normalize_departments(&mut config);
-        let hr = config
-            .departments
-            .iter()
-            .find(|department| department.id == HR_DEPARTMENT_ID)
-            .expect("hr preset department");
-        assert_eq!(hr.name, preset.name);
-        assert_eq!(hr.summary, preset.summary);
-        assert_eq!(hr.guide, preset.guide);
-        assert!(!hr.permission_control.enabled);
-        assert_eq!(hr.agent_ids, vec!["custom-agent".to_string()]);
-
-        // 预设草稿可还原
-        let draft = default_department_draft(HR_DEPARTMENT_ID, "zh-CN").expect("hr default draft");
-        assert_eq!(draft.name, preset.name);
-    }
-
-    #[test]
-    fn normalize_departments_should_restore_builtin_members_and_report_repairs() {
-        // 内置部门成员被清空时按自身预设恢复，并把每条修复记录上报给保存链路（允许自修复，不允许静默）
-        let mut config = AppConfig::default();
-        for department in &mut config.departments {
-            department.agent_ids.clear();
-        }
-        let repairs = normalize_departments(&mut config);
-
-        assert!(!repairs.is_empty(), "内置部门回填必须产生修复记录");
-        for department in &config.departments {
-            assert!(
-                !department.agent_ids.is_empty(),
-                "内置部门成员不得为空：department_id={}",
-                department.id
-            );
-        }
-        let deputy = config
-            .departments
-            .iter()
-            .find(|department| department.id == DEPUTY_DEPARTMENT_ID)
-            .expect("deputy department");
-        assert_eq!(deputy.agent_ids, vec![DEPUTY_AGENT_ID.to_string()]);
-        assert!(repairs
-            .iter()
-            .any(|repair| repair.department_id == DEPUTY_DEPARTMENT_ID
-                && repair.agent_id == DEPUTY_AGENT_ID));
-    }
-
-    #[test]
-    fn normalize_departments_should_leave_custom_empty_department_untouched() {
-        // 自定义部门缺就缺：不回填，也不产生修复记录
-        let mut config = AppConfig::default();
-        let mut custom = default_deputy_department(MODEL_ROLE_QUICK_API_CONFIG_ID);
-        custom.id = "custom-dept".to_string();
-        custom.is_built_in_assistant = false;
-        custom.agent_ids.clear();
-        config.departments.push(custom);
-
-        let repairs = normalize_departments(&mut config);
-        let stored = config
-            .departments
-            .iter()
-            .find(|department| department.id == "custom-dept")
-            .expect("custom department");
-        assert!(stored.agent_ids.is_empty());
-        assert!(!repairs
-            .iter()
-            .any(|repair| repair.department_id == "custom-dept"));
     }
 
     #[test]
     fn app_data_default_should_include_deputy_agent() {
         let data = AppData::default();
         assert!(data.agents.iter().any(|agent| agent.id == DEPUTY_AGENT_ID));
-    }
-
-    #[test]
-    fn normalize_app_config_should_drop_invalid_department_models_without_clearing_expert_model() {
-        let mut cfg = AppConfig {
-            hotkey: "Alt+·".to_string(),
-            ui_language: default_ui_language(),
-            ui_font: default_ui_font(),
-            code_font: default_code_font(),
-            ui_size_scale: default_ui_size_scale(),
-            web_access_port: default_web_access_port(),
-            web_access_enabled: default_web_access_enabled(),
-            web_access_password: default_web_access_password(),
-            github_update_method: default_github_update_method(),
-            skipped_github_update_version: String::new(),
-            record_hotkey: "Alt".to_string(),
-            record_background_wake_enabled: false,
-            min_record_seconds: 1,
-            max_record_seconds: 60,
-            tool_max_iterations: 10,
-            llm_round_log_capacity: default_llm_round_log_capacity(),
-            message_notification_enabled: default_message_notification_enabled(),
-            message_notification_sound_enabled: default_message_notification_sound_enabled(),
-            desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
-            desktop_operate_enabled: default_desktop_operate_enabled(),
-            selected_api_config_id: "embed-a".to_string(),
-            assistant_department_api_config_id: "chat-a".to_string(),
-            vision_api_config_id: None,
-            image_generation_model_id: None,
-            image_providers: Vec::new(),
-            stt_api_config_id: None,
-            stt_auto_send: false,
-            simple_setup_mode: false,
-            provider_non_stream_base_urls: Vec::new(),
-            terminal_shell_kind: default_terminal_shell_kind(),
-            shell_workspaces: Vec::new(),
-            mcp_servers: Vec::new(),
-            remote_im_channels: Vec::new(),
-            departments: vec![
-                DepartmentConfig {
-                    id: ASSISTANT_DEPARTMENT_ID.to_string(),
-                    name: "助理部门".to_string(),
-                    summary: String::new(),
-                    guide: String::new(),
-                    api_config_ids: vec!["embed-a".to_string()],
-                    api_config_id: "embed-a".to_string(),
-                    model_failure_fallback_enabled: false,
-                    agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-                    child_department_ids: Vec::new(),
-                    created_at: "2026-03-10T00:00:00Z".to_string(),
-                    updated_at: "2026-03-10T00:00:00Z".to_string(),
-                    order_index: 1,
-                    is_built_in_assistant: true,
-                    is_deputy: false,
-                    source: default_main_source(),
-                    scope: default_global_scope(),
-                    permission_control: DepartmentPermissionControl::default(),
-                },
-                DepartmentConfig {
-                    id: "department-research".to_string(),
-                    name: "资料部".to_string(),
-                    summary: String::new(),
-                    guide: String::new(),
-                    api_config_ids: vec!["stt-a".to_string()],
-                    api_config_id: "stt-a".to_string(),
-                    model_failure_fallback_enabled: false,
-                    agent_ids: vec![],
-                    child_department_ids: Vec::new(),
-                    created_at: "2026-03-10T00:00:00Z".to_string(),
-                    updated_at: "2026-03-10T00:00:00Z".to_string(),
-                    order_index: 2,
-                    is_built_in_assistant: false,
-                    is_deputy: false,
-                    source: default_main_source(),
-                    scope: default_global_scope(),
-                    permission_control: DepartmentPermissionControl::default(),
-                },
-            ],
-            api_configs: vec![
-                ApiConfig {
-                    id: "embed-a".to_string(),
-                    name: "embed-a".to_string(),
-                    request_format: RequestFormat::OpenAIEmbedding,
-                    allow_concurrent_requests: false,
-                    max_concurrent_requests: None,
-                    enable_text: true,
-                    enable_image: false,
-                    enable_audio: false,
-                    enable_video: false,
-                    enable_tools: false,
-                    tools: vec![],
-                    base_url: "https://api.openai.com/v1".to_string(),
-                    api_key: "k".to_string(),
-                    codex_auth_mode: default_codex_auth_mode(),
-                    codex_local_auth_path: default_codex_local_auth_path(),
-                    codex_custom_url: None,
-                    codex_custom_api_key: None,
-                    codex_originator: default_codex_originator(),
-                    codex_residency_requirement: None,
-                    model: "embed".to_string(),
-                    reasoning_effort: default_reasoning_effort(),
-                    temperature: 1.0,
-                    custom_temperature_enabled: false,
-                    context_window_tokens: 128_000,
-                    max_output_tokens: 4_096,
-                    custom_max_output_tokens_enabled: false,
-                    failure_retry_count: 0,
-                },
-                ApiConfig {
-                    id: "stt-a".to_string(),
-                    name: "stt-a".to_string(),
-                    request_format: RequestFormat::OpenAIStt,
-                    allow_concurrent_requests: false,
-                    max_concurrent_requests: None,
-                    enable_text: false,
-                    enable_image: false,
-                    enable_audio: false,
-                    enable_video: false,
-                    enable_tools: false,
-                    tools: vec![],
-                    base_url: "https://api.openai.com/v1".to_string(),
-                    api_key: "k".to_string(),
-                    codex_auth_mode: default_codex_auth_mode(),
-                    codex_local_auth_path: default_codex_local_auth_path(),
-                    codex_custom_url: None,
-                    codex_custom_api_key: None,
-                    codex_originator: default_codex_originator(),
-                    codex_residency_requirement: None,
-                    model: "stt".to_string(),
-                    reasoning_effort: default_reasoning_effort(),
-                    temperature: 1.0,
-                    custom_temperature_enabled: false,
-                    context_window_tokens: 128_000,
-                    max_output_tokens: 4_096,
-                    custom_max_output_tokens_enabled: false,
-                    failure_retry_count: 0,
-                },
-                ApiConfig {
-                    id: "chat-a".to_string(),
-                    name: "chat-a".to_string(),
-                    request_format: RequestFormat::OpenAI,
-                    allow_concurrent_requests: false,
-                    max_concurrent_requests: None,
-                    enable_text: true,
-                    enable_image: true,
-                    enable_audio: false,
-                    enable_video: false,
-                    enable_tools: false,
-                    tools: vec![],
-                    base_url: "https://api.openai.com/v1".to_string(),
-                    api_key: "k".to_string(),
-                    codex_auth_mode: default_codex_auth_mode(),
-                    codex_local_auth_path: default_codex_local_auth_path(),
-                    codex_custom_url: None,
-                    codex_custom_api_key: None,
-                    codex_originator: default_codex_originator(),
-                    codex_residency_requirement: None,
-                    model: "chat".to_string(),
-                    reasoning_effort: default_reasoning_effort(),
-                    temperature: 1.0,
-                    custom_temperature_enabled: false,
-                    context_window_tokens: 128_000,
-                    max_output_tokens: 4_096,
-                    custom_max_output_tokens_enabled: false,
-                    failure_retry_count: 0,
-                },
-            ],
-            api_providers: Vec::new(),
-            tool_review_api_config_id: None,
-        };
-
-        normalize_app_config(&mut cfg);
-
-        assert_eq!(
-            cfg.assistant_department_api_config_id,
-            "chat-a::chat-a-model-default"
-        );
-        let assistant = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == ASSISTANT_DEPARTMENT_ID)
-            .expect("assistant department");
-        assert_eq!(assistant.api_config_id, MODEL_ROLE_EXPERT_API_CONFIG_ID);
-        assert_eq!(assistant.api_config_ids, vec![MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string()]);
-        let research = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == "department-research")
-            .expect("research department");
-        assert_eq!(research.api_config_id, MODEL_ROLE_EXPERT_API_CONFIG_ID);
-        assert_eq!(research.api_config_ids, vec![MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string()]);
-    }
-
-    #[test]
-    fn normalize_app_config_should_preserve_empty_expert_model_while_defaulting_department_role() {
-        let mut cfg = AppConfig {
-            hotkey: "Alt+·".to_string(),
-            ui_language: default_ui_language(),
-            ui_font: default_ui_font(),
-            code_font: default_code_font(),
-            ui_size_scale: default_ui_size_scale(),
-            web_access_port: default_web_access_port(),
-            web_access_enabled: default_web_access_enabled(),
-            web_access_password: default_web_access_password(),
-            github_update_method: default_github_update_method(),
-            skipped_github_update_version: String::new(),
-            record_hotkey: "Alt".to_string(),
-            record_background_wake_enabled: false,
-            min_record_seconds: 1,
-            max_record_seconds: 60,
-            tool_max_iterations: 10,
-            llm_round_log_capacity: default_llm_round_log_capacity(),
-            message_notification_enabled: default_message_notification_enabled(),
-            message_notification_sound_enabled: default_message_notification_sound_enabled(),
-            desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
-            desktop_operate_enabled: default_desktop_operate_enabled(),
-            selected_api_config_id: "chat-a".to_string(),
-            assistant_department_api_config_id: String::new(),
-            vision_api_config_id: None,
-            image_generation_model_id: None,
-            image_providers: Vec::new(),
-            stt_api_config_id: None,
-            stt_auto_send: false,
-            simple_setup_mode: false,
-            provider_non_stream_base_urls: Vec::new(),
-            terminal_shell_kind: default_terminal_shell_kind(),
-            shell_workspaces: Vec::new(),
-            mcp_servers: Vec::new(),
-            remote_im_channels: Vec::new(),
-            departments: vec![DepartmentConfig {
-                id: ASSISTANT_DEPARTMENT_ID.to_string(),
-                name: "助理部门".to_string(),
-                summary: String::new(),
-                guide: String::new(),
-                api_config_ids: Vec::new(),
-                api_config_id: String::new(),
-                model_failure_fallback_enabled: false,
-                agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-                child_department_ids: Vec::new(),
-                created_at: "2026-03-10T00:00:00Z".to_string(),
-                updated_at: "2026-03-10T00:00:00Z".to_string(),
-                order_index: 1,
-                is_built_in_assistant: true,
-                is_deputy: false,
-                source: default_main_source(),
-                scope: default_global_scope(),
-                permission_control: DepartmentPermissionControl::default(),
-            }],
-            api_configs: vec![ApiConfig {
-                id: "chat-a".to_string(),
-                name: "chat-a".to_string(),
-                request_format: RequestFormat::OpenAI,
-                allow_concurrent_requests: false,
-                max_concurrent_requests: None,
-                enable_text: true,
-                enable_image: true,
-                enable_audio: false,
-                enable_video: false,
-                enable_tools: false,
-                tools: vec![],
-                base_url: "https://api.openai.com/v1".to_string(),
-                api_key: "k".to_string(),
-                codex_auth_mode: default_codex_auth_mode(),
-                codex_local_auth_path: default_codex_local_auth_path(),
-                codex_custom_url: None,
-                codex_custom_api_key: None,
-                codex_originator: default_codex_originator(),
-                codex_residency_requirement: None,
-                model: "chat".to_string(),
-                reasoning_effort: default_reasoning_effort(),
-                temperature: 1.0,
-                custom_temperature_enabled: false,
-                context_window_tokens: 128_000,
-                max_output_tokens: 4_096,
-                custom_max_output_tokens_enabled: false,
-                failure_retry_count: 0,
-            }],
-            api_providers: Vec::new(),
-            tool_review_api_config_id: None,
-        };
-
-        normalize_app_config(&mut cfg);
-
-        assert_eq!(cfg.assistant_department_api_config_id, "");
-        assert_eq!(cfg.departments[0].api_config_id, MODEL_ROLE_EXPERT_API_CONFIG_ID);
-        assert_eq!(cfg.departments[0].api_config_ids, vec![MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string()]);
     }
 
     #[test]
@@ -1139,52 +405,6 @@
             .expect("resolved api config");
 
         assert_eq!(resolved.reasoning_effort, Some("none".to_string()));
-    }
-
-    #[test]
-    fn normalize_app_config_should_not_copy_builtin_department_model_to_expert_model() {
-        let mut chat_a = ApiConfig::default();
-        chat_a.id = "chat-a".to_string();
-        chat_a.name = "chat-a".to_string();
-        chat_a.request_format = RequestFormat::OpenAI;
-        chat_a.enable_text = true;
-        chat_a.base_url = "https://api.openai.com/v1".to_string();
-        chat_a.api_key = "k".to_string();
-        chat_a.model = "chat-a".to_string();
-
-        let mut chat_b = chat_a.clone();
-        chat_b.id = "chat-b".to_string();
-        chat_b.name = "chat-b".to_string();
-        chat_b.model = "chat-b".to_string();
-
-        let mut assistant = default_assistant_department("chat-b");
-        assistant.api_config_id = "chat-b".to_string();
-        assistant.api_config_ids = vec!["chat-b".to_string()];
-
-        let mut cfg = AppConfig {
-            selected_api_config_id: "chat-a".to_string(),
-            assistant_department_api_config_id: "chat-a".to_string(),
-            departments: vec![assistant],
-            api_configs: vec![chat_a, chat_b],
-            api_providers: Vec::new(),
-            ..AppConfig::default()
-        };
-
-        normalize_app_config(&mut cfg);
-
-        assert_eq!(
-            cfg.assistant_department_api_config_id,
-            "chat-a::chat-a-model-default"
-        );
-        let assistant = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == ASSISTANT_DEPARTMENT_ID)
-            .expect("assistant department");
-        assert_eq!(
-            assistant.api_config_id,
-            "chat-b::chat-b-model-default"
-        );
     }
 
     #[test]
@@ -1236,7 +456,7 @@
     fn normalize_app_config_should_migrate_legacy_api_configs_into_providers() {
         let mut cfg = AppConfig {
             selected_api_config_id: "legacy-openai".to_string(),
-            assistant_department_api_config_id: "legacy-openai".to_string(),
+            expert_api_config_id: "legacy-openai".to_string(),
             api_providers: Vec::new(),
             tool_review_api_config_id: None,
             api_configs: vec![ApiConfig {
@@ -1392,92 +612,6 @@ enableTools = true
     }
 
     #[test]
-    fn app_config_should_deserialize_legacy_departments_without_timestamps() {
-        let mut cfg: AppConfig = toml::from_str(
-            r#"
-hotkey = "Alt+·"
-selectedApiConfigId = "legacy-openai"
-assistantDepartmentApiConfigId = "legacy-openai"
-
-[[departments]]
-id = "assistant-department"
-name = "助理部门"
-agentIds = ["default-agent"]
-apiConfigIds = ["legacy-openai"]
-
-[[apiConfigs]]
-id = "legacy-openai"
-name = "Legacy OpenAI"
-requestFormat = "openai"
-enableText = true
-enableImage = false
-enableAudio = false
-enableTools = true
-baseUrl = "https://api.openai.com/v1"
-apiKey = "legacy-key"
-model = "gpt-4.1"
-"#,
-        )
-        .expect("legacy department toml should deserialize");
-
-        normalize_app_config(&mut cfg);
-
-        let assistant = cfg
-            .departments
-            .iter()
-            .find(|department| department.id == ASSISTANT_DEPARTMENT_ID)
-            .expect("assistant department should exist");
-        assert!(!assistant.created_at.trim().is_empty());
-        assert_eq!(assistant.updated_at, assistant.created_at);
-        assert!(assistant.order_index > 0);
-    }
-
-    #[test]
-    fn private_department_id_conflict_should_be_skipped_with_repair_hint() {
-        let root = std::env::temp_dir().join(format!("eca-private-org-conflict-{}", Uuid::new_v4()));
-        let data_path = root.join("config").join("config_mark");
-        let departments_dir = root
-            .join("llm-workspace")
-            .join("private-organization")
-            .join("departments");
-        std::fs::create_dir_all(&departments_dir).expect("create private departments dir");
-        let conflict_id = "literature-knowledge-center";
-        std::fs::write(
-            departments_dir.join("literature-knowledge-center.json"),
-            r#"{
-  "id": "literature-knowledge-center",
-  "name": "文学知识中心",
-  "agentIds": ["default-agent"]
-}"#,
-        )
-        .expect("write private department");
-
-        let mut cfg = AppConfig::default();
-        let mut conflicting_department = cfg.departments[0].clone();
-        conflicting_department.id = conflict_id.to_string();
-        conflicting_department.name = "主配置文学知识中心".to_string();
-        conflicting_department.is_built_in_assistant = false;
-        cfg.departments.push(conflicting_department);
-        let mut data = AppData::default();
-
-        let result = merge_private_organization_into_runtime_data(&data_path, &mut cfg, &mut data)
-            .expect("merge private organization should not fail globally");
-
-        assert!(result.private_departments_loaded.is_empty());
-        assert_eq!(result.private_departments_failed.len(), 1);
-        let error = &result.private_departments_failed[0];
-        assert!(error.skipped);
-        assert!(error.error.contains("私有部门 id 与主配置冲突"));
-        assert!(error.hint.contains("修改该私有部门 id"));
-        assert_eq!(
-            cfg.departments.iter().filter(|department| department.id == conflict_id).count(),
-            1
-        );
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
     fn consume_api_key_for_request_should_rotate_provider_keys_across_same_provider_models() {
         let provider_id = format!(
             "provider-{}",
@@ -1490,7 +624,7 @@ model = "gpt-4.1"
         let model_b = "model-b".to_string();
         let mut cfg = AppConfig {
             selected_api_config_id: api_endpoint_id(&provider_id, &model_a),
-            assistant_department_api_config_id: api_endpoint_id(&provider_id, &model_a),
+            expert_api_config_id: api_endpoint_id(&provider_id, &model_a),
             api_providers: vec![ApiProviderConfig {
                 id: provider_id.clone(),
                 name: "OpenAI".to_string(),
@@ -1581,7 +715,7 @@ model = "gpt-4.1"
         let model_id = "codex-model".to_string();
         let mut cfg = AppConfig {
             selected_api_config_id: api_endpoint_id(&provider_id, &model_id),
-            assistant_department_api_config_id: api_endpoint_id(&provider_id, &model_id),
+            expert_api_config_id: api_endpoint_id(&provider_id, &model_id),
             api_providers: vec![ApiProviderConfig {
                 id: provider_id.clone(),
                 name: "SharedChat".to_string(),
@@ -1671,6 +805,14 @@ model = "gpt-4.1"
             memory_recall_mode: default_agent_memory_recall_mode(),
             source: default_main_source(),
             scope: default_global_scope(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
         });
         assert!(write_agents_shard(&data_path, &agents).expect("write agents shard"));
         assert_eq!(
@@ -1851,7 +993,6 @@ model = "gpt-4.1"
             id: id.to_string(),
             title: title.to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -1987,4 +1128,123 @@ model = "gpt-4.1"
 
     fn storage_and_stt_test_state() -> AppState {
         config_test_state()
+    }
+
+    /// 以真实本机快照数据独立驱动 V5 组织迁移（不依赖运行态、不依赖 AppConfig 解析结果）。
+    /// 标记 `#[ignore]`：输入位于未被 git 跟踪的 `.pai/temp/`，CI 与全新克隆环境必然缺失，
+    /// 不能进常驻测试集（否则整仓测试变红）。手动执行：
+    /// `cargo test migration_should_convert_snapshot -- --ignored`
+    #[test]
+    #[ignore = "依赖本机未跟踪快照 .pai/temp/local-data-snapshot-20260915，需手动 --ignored 运行"]
+    fn migration_should_convert_snapshot_departments_into_agent_organization() {
+        // CARGO_MANIFEST_DIR = <repo>/.pai/.worktree/drop-department/src-tauri
+        let snapshot = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../temp/local-data-snapshot-20260915");
+        let snapshot_config = snapshot.join("config/app_config.toml");
+        let snapshot_agents = snapshot.join("config/agents.json");
+        assert!(
+            snapshot_config.exists() && snapshot_agents.exists(),
+            "本机快照缺失，无法验证迁移：{}",
+            snapshot.display()
+        );
+
+        let state = config_test_state();
+        let root = state
+            .config_path
+            .parent()
+            .expect("config path parent")
+            .to_path_buf();
+        std::fs::create_dir_all(root.join("config")).expect("create config dir");
+        std::fs::create_dir_all(root.join("llm-workspace/skills")).expect("create skills dir");
+        std::fs::copy(&snapshot_config, &state.config_path).expect("copy snapshot config");
+        std::fs::copy(&snapshot_agents, root.join("config/agents.json")).expect("copy snapshot agents");
+
+        // 用默认配置作为迁移上下文：不含自定义工作区，skill 写出被隔离到临时目录。
+        let config = AppConfig::default();
+        let context = crate::DataMigrationContext {
+            state: &state,
+            config: &config,
+        };
+        let stats = crate::migrate_departments_into_agent_organization(&context)
+            .expect("run v5 organization migration");
+        assert!(stats.data_changed, "迁移应产生人格数据变化");
+
+        let agents = crate::read_agents_shard(&state.data_path).expect("read migrated agents");
+        let by_id = |id: &str| {
+            agents
+                .iter()
+                .find(|agent| agent.id == id)
+                .unwrap_or_else(|| panic!("agent {id} 不存在"))
+        };
+
+        // 自定义部门「八重堂」溶解进 yae-miko。
+        let yae = by_id("yae-miko");
+        assert!(!yae.summary.trim().is_empty(), "人格简介应接替部门 summary");
+        assert!(
+            yae.resident_skill_names.iter().any(|name| name == "八重堂"),
+            "八重堂应转为常驻 skill"
+        );
+        assert!(!yae.api_config_ids.is_empty(), "部门模型应并入人格");
+        assert!(yae.permission_control.enabled, "部门权限应并入人格且启用");
+
+        // 自定义部门「全栈工程师」溶解进 persona-1781792413924。
+        let engineer = by_id("persona-1781792413924");
+        assert!(
+            engineer
+                .resident_skill_names
+                .iter()
+                .any(|name| name == "全栈工程师"),
+            "全栈工程师应转为常驻 skill"
+        );
+        assert!(engineer.permission_control.enabled, "全栈工程师权限应并入人格");
+
+        // 主助理根是 default-agent，其下级应含内置人格与八重堂成员。
+        // 内置 5 个人格（leader/reviewer/saddler/support/hr）由代码预设补齐，
+        // 它们与根的层级来自代码预设而非迁移推导，迁移只补自定义部门相关的人-人边。
+        let assistants = by_id(DEFAULT_AGENT_ID);
+        let assistants_children = &assistants.child_agent_ids;
+        assert!(assistants_children.iter().any(|id| id == DEPUTY_AGENT_ID));
+        assert!(assistants_children.iter().any(|id| id == "yae-miko"));
+        for node_id in ["leader", "reviewer", "saddler", "support", "hr"] {
+            assert!(
+                assistants_children.iter().any(|id| id == node_id),
+                "内置人格 {node_id} 应由代码预设挂到根"
+            );
+        }
+
+        // 原部门层级保留：文本整理员成员挂在全栈工程师人格下。
+        assert!(
+            engineer
+                .child_agent_ids
+                .iter()
+                .any(|id| id == "agent-1788547230"),
+            "文本整理员成员应挂在全栈工程师人格下"
+        );
+        // 文本整理员不应越过全栈工程师直接挂到根。
+        assert!(
+            !assistants_children.iter().any(|id| id == "agent-1788547230"),
+            "文本整理员成员不应直接挂根"
+        );
+        // 不应残留指向不存在人格的悬空边。
+        for agent in &agents {
+            for child in &agent.child_agent_ids {
+                assert!(
+                    agents.iter().any(|other| &other.id == child),
+                    "悬空下级边: {} -> {}",
+                    agent.id,
+                    child
+                );
+            }
+        }
+
+        // 自定义部门 skill 已写出到工作区。
+        let skills_root = state.llm_workspace_path.join("skills");
+        assert!(skills_root.join("八重堂/SKILL.md").exists());
+        assert!(skills_root.join("全栈工程师/SKILL.md").exists());
+        assert!(skills_root.join("文本整理员/SKILL.md").exists());
+
+        // 幂等：重复迁移不再产生变化。
+        let second = crate::migrate_departments_into_agent_organization(&context)
+            .expect("rerun v5 organization migration");
+        assert!(!second.data_changed, "重复迁移应幂等");
     }

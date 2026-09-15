@@ -3,19 +3,14 @@ impl ConversationServiceV2 {
         &self,
         state: &AppState,
         title: &str,
-        department_id: &str,
         agent_id: &str,
         root_conversation_id: &str,
     ) -> Result<Conversation, String> {
         let normalized_title = title.trim();
-        let normalized_department_id = department_id.trim();
         let normalized_agent_id = agent_id.trim();
         let normalized_root_conversation_id = root_conversation_id.trim();
         if normalized_title.is_empty() {
             return Err("title is required.".to_string());
-        }
-        if normalized_department_id.is_empty() {
-            return Err("departmentId is required.".to_string());
         }
         if normalized_agent_id.is_empty() {
             return Err("agentId is required.".to_string());
@@ -31,7 +26,6 @@ impl ConversationServiceV2 {
             let mut conversation = build_conversation_record(
                 "",
                 normalized_agent_id,
-                normalized_department_id,
                 normalized_title,
                 CONVERSATION_KIND_REMOTE_IM_CONTACT,
                 Some(normalized_root_conversation_id.to_string()),
@@ -68,7 +62,7 @@ impl ConversationServiceV2 {
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut app_config = state_read_config_cached(state)?;
         let agents = state_read_agents_cached(state)?;
-        let assistant_department_agent_id = assistant_department_agent_id_downgraded(state);
+        let assistant_agent_id = assistant_agent_id_downgraded(state);
         let (main_conversation_id, main_conversation_id_readable) =
             match state_service_get_main_conversation_id(state) {
                 Ok(value) => (value, true),
@@ -83,7 +77,7 @@ impl ConversationServiceV2 {
             state,
             &mut app_config,
             &agents,
-            &assistant_department_agent_id,
+            &assistant_agent_id,
             input.agent_id.as_deref().unwrap_or_default(),
         )?;
         let requested_conversation_id = input
@@ -240,13 +234,13 @@ impl ConversationServiceV2 {
         }
 
         let mut app_config = state_read_config_cached(state)?;
-        let assistant_department_agent_id = assistant_department_agent_id_downgraded(state);
+        let assistant_agent_id = assistant_agent_id_downgraded(state);
         let agents = state_read_agents_cached(state)?;
         let effective_agent_id = self.resolve_effective_agent_id_for_read(
             state,
             &mut app_config,
             &agents,
-            &assistant_department_agent_id,
+            &assistant_agent_id,
             agent_id.unwrap_or_default(),
         )?;
         if let Some(target_conversation_id) =

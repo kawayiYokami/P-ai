@@ -43,7 +43,7 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
     desktopOperationNoticeEnabled: true,
     desktopOperateEnabled: true,
     selectedApiConfigId: "",
-    assistantDepartmentApiConfigId: "",
+    expertApiConfigId: "",
     visionApiConfigId: undefined,
     imageGenerationModelId: undefined,
     toolReviewApiConfigId: undefined,
@@ -53,7 +53,6 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
     shellWorkspaces: [],
     mcpServers: [],
     remoteImChannels: [],
-    departments: [],
     apiProviders: [],
     imageProviders: [],
     apiConfigs: [],
@@ -78,7 +77,7 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
   const currentChatConversationId = ref("");
   const currentChatPreferredApiConfigId = ref("");
   const personas = ref<PersonaProfile[]>([]);
-  const assistantDepartmentAgentId = ref("default-agent");
+  const assistantAgentId = ref("default-agent");
   const personaEditorId = ref("default-agent");
   const userAlias = ref(options.t("archives.roleUser"));
   const selectedResponseStyleId = ref("concise");
@@ -146,7 +145,7 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
     currentChatConversationId,
     currentChatPreferredApiConfigId,
     personas,
-    assistantDepartmentAgentId,
+    assistantAgentId,
     personaEditorId,
     userAlias,
     selectedResponseStyleId,

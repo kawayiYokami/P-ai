@@ -222,7 +222,6 @@ describe("统一传输通知适配器", () => {
       session: {
         apiConfigId: "api-1",
         agentId: "agent-1",
-        departmentId: "department-1",
         conversationId: "conversation-native-send",
       },
       traceId: "trace-native-send",

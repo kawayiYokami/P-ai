@@ -415,12 +415,6 @@ impl ConversationServiceV2 {
             drop(guard);
             return Err("未找到可创建会话分支的已选消息".to_string());
         }
-        let department = runtime_department_by_id(
-            &runtime_snapshot,
-            source_conversation_meta.department_id.trim(),
-        )
-        .cloned()
-        .ok_or_else(|| "源会话所属部门不存在".to_string())?;
         let branch_summary_title = build_branch_conversation_summary_title(
             &source_conversation_meta.title,
             source_conversation_meta.latest_summary_title.as_deref(),
@@ -433,7 +427,6 @@ impl ConversationServiceV2 {
             &state.data_path,
             &agents,
             &source_conversation_meta,
-            &department,
             &branch_summary_title,
             latest_compaction_message.as_ref(),
             &selected_messages,

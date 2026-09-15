@@ -23,7 +23,165 @@ fn default_agent() -> AgentProfile {
         memory_recall_mode: default_agent_memory_recall_mode(),
         source: default_main_source(),
         scope: default_global_scope(),
+        summary: "主助理人格：理解用户需求、决定是否委派、汇总下级结果并继续推进主对话。".to_string(),
+        resident_skill_names: Vec::new(),
+        optional_skill_names: Vec::new(),
+        api_config_ids: Vec::new(),
+        api_config_id: String::new(),
+        model_failure_fallback_enabled: false,
+        permission_control: AgentPermissionControl::default(),
+        child_agent_ids: built_in_assistant_child_agent_ids(),
     }
+}
+
+/// 内置组织骨架的完整层级：父人格 id → 直接下级人格 id。
+/// 内置人格之间的上下级只在这里定义；旧 `departments` 的迁移不再推导内置↔内置边，
+/// 以免原内置部门「多根 + leader 反过来指向助理」造成环。迁移只负责自定义部门相关的人-人边。
+/// 内置组织以 `assistants`（人格 id `default-agent`）为根，其直接下级是唯一一条内置层级：
+/// 原内置无上级的（leader/support/hr）与 reviewer/saddler、explorer（`deputy-agent`）都挂到根下。
+fn built_in_organization_child_edges() -> Vec<(&'static str, Vec<&'static str>)> {
+    vec![(
+        DEFAULT_AGENT_ID,
+        vec![
+            DEPUTY_AGENT_ID,
+            REVIEWER_AGENT_ID,
+            SADDLER_AGENT_ID,
+            LEADER_AGENT_ID,
+            SUPPORT_AGENT_ID,
+            HR_AGENT_ID,
+        ],
+    )]
+}
+
+/// `assistants`（人格 id `default-agent`）的直接下级，取自内置层级预设。
+fn built_in_assistant_child_agent_ids() -> Vec<String> {
+    built_in_organization_child_edges()
+        .into_iter()
+        .find(|(parent_id, _)| *parent_id == DEFAULT_AGENT_ID)
+        .map(|(_, children)| children.into_iter().map(|child| child.to_string()).collect())
+        .unwrap_or_default()
+}
+
+/// 判断人格 id 是否是内置人格（迁移用来区分「内置↔内置边」与「自定义相关边」）。
+fn is_built_in_organization_agent_id(agent_id: &str) -> bool {
+    matches!(
+        agent_id.trim(),
+        DEFAULT_AGENT_ID
+            | DEPUTY_AGENT_ID
+            | LEADER_AGENT_ID
+            | REVIEWER_AGENT_ID
+            | SADDLER_AGENT_ID
+            | SUPPORT_AGENT_ID
+            | HR_AGENT_ID
+    )
+}
+
+/// 内置人格的公共构造：只读内置、无模型、无权限、无下级。
+/// 标记与 `default-agent`（派师傅）保持一致：**不带系统标记**——「内置」与「系统」是两件事，
+/// 前者是出厂预设、靠一份写死的 id 名单实现只读；后者是「只作为系统播报、不在选择器出现」的隐藏标记。
+/// 内置人格是组织成员，要能被看到、被选为上下级，故只走前者。
+/// 详细职责由其常驻的内置 guide skill 承担（常驻 skill 全文注入，结论 24），
+/// 故 system_prompt 只留一句自我介绍。
+fn built_in_organization_agent(
+    id: &str,
+    name: &str,
+    summary: &str,
+    system_prompt: &str,
+    resident_skill_name: &str,
+) -> AgentProfile {
+    let now = now_iso();
+    AgentProfile {
+        id: id.to_string(),
+        name: name.to_string(),
+        system_prompt: system_prompt.to_string(),
+        tools: default_agent_tools(),
+        created_at: now.clone(),
+        updated_at: now,
+        avatar_path: None,
+        avatar_updated_at: None,
+        is_built_in_user: false,
+        is_built_in_system: false,
+        private_memory_enabled: false,
+        memory_recall_mode: default_agent_memory_recall_mode(),
+        source: default_main_source(),
+        scope: default_global_scope(),
+        summary: summary.to_string(),
+        resident_skill_names: vec![resident_skill_name.to_string()],
+        optional_skill_names: Vec::new(),
+        api_config_ids: Vec::new(),
+        api_config_id: String::new(),
+        model_failure_fallback_enabled: false,
+        permission_control: AgentPermissionControl::default(),
+        child_agent_ids: Vec::new(),
+    }
+}
+
+fn default_leader_agent() -> AgentProfile {
+    let mut agent = built_in_organization_agent(
+        LEADER_AGENT_ID,
+        "leader",
+        "当复杂任务需要澄清目标、拆解流程、协调下级人格并汇总结果时，请委托给我。",
+        "你是谁：你是 leader，负责协调复杂工作流：理解目标、澄清边界、拆解任务、跟踪子任务并把结果综合成结论。详细职责见你的常驻 skill。\n台词技巧：先给结论，再给依据；结构清晰，不铺陈。\n性格画像：沉稳、有条理、善于统筹。",
+        "leader",
+    );
+    agent.permission_control = leader_permission_control();
+    agent
+}
+
+fn default_reviewer_agent() -> AgentProfile {
+    let mut agent = built_in_organization_agent(
+        REVIEWER_AGENT_ID,
+        "reviewer",
+        "当你完成复杂功能、关键修复或高风险改动后，请委托我进行代码审查。",
+        "你是谁：你是 reviewer，负责对已完成的实现做独立审查，只报告真实、可复现、影响正确性/稳定性/安全的缺陷。详细职责见你的常驻 skill。\n台词技巧：先列问题再下判断；有证据才说，没有就说没有。\n性格画像：严谨、克制、就事论事。",
+        "reviewer",
+    );
+    agent.permission_control = reviewer_permission_control();
+    agent
+}
+
+fn default_saddler_agent() -> AgentProfile {
+    let mut agent = built_in_organization_agent(
+        SADDLER_AGENT_ID,
+        "saddler",
+        "当项目需要沉淀协作规范、AGENTS.md、Skill、workflow 或其他 .pai 能力资产时，请委托给我。",
+        "你是谁：你是 saddler，专门在当前项目 `.pai/` 目录下生成和维护能力资产。详细职责见你的常驻 skill。\n台词技巧：说清写在哪、为什么这么定；不越界改业务代码。\n性格画像：细致、有规范意识、克制。",
+        "saddler",
+    );
+    agent.permission_control = saddler_permission_control();
+    agent
+}
+
+fn default_support_agent() -> AgentProfile {
+    let mut agent = built_in_organization_agent(
+        SUPPORT_AGENT_ID,
+        "support",
+        SUPPORT_AGENT_SUMMARY,
+        "你是谁：你是 support，负责远程客服场景的应答，处理外部联系人的咨询与消息。详细职责见你的常驻 skill。\n台词技巧：礼貌、清楚、直接回应对方诉求，不寒暄过度。\n性格画像：耐心、稳妥、有服务意识。",
+        "support",
+    );
+    agent.permission_control = support_permission_control();
+    agent
+}
+
+fn default_hr_agent() -> AgentProfile {
+    built_in_organization_agent(
+        HR_AGENT_ID,
+        "HR",
+        "负责招募专家：通过对话帮用户查重、创建合适的人格并维护组织关系",
+        "你是谁：你是 HR，负责帮用户招募新专家：查重、创建合适的人格并维护组织。详细职责见你的常驻 skill。\n台词技巧：先问清需求与边界，再动手；必要信息缺失时先确认。\n性格画像：亲和、耐心、有条理。",
+        "hr",
+    )
+}
+
+fn built_in_organization_agents() -> Vec<AgentProfile> {
+    vec![
+        default_leader_agent(),
+        default_reviewer_agent(),
+        default_saddler_agent(),
+        default_support_agent(),
+        default_hr_agent(),
+    ]
 }
 
 #[allow(dead_code)]
@@ -44,6 +202,14 @@ fn default_deputy_agent() -> AgentProfile {
         memory_recall_mode: default_agent_memory_recall_mode(),
         source: default_main_source(),
         scope: default_global_scope(),
+        summary: "围绕明确主题做大范围摸底：搜集证据、定位文件与调用链、梳理影响面与风险。".to_string(),
+        resident_skill_names: Vec::new(),
+        optional_skill_names: Vec::new(),
+        api_config_ids: Vec::new(),
+        api_config_id: String::new(),
+        model_failure_fallback_enabled: false,
+        permission_control: explorer_permission_control(),
+        child_agent_ids: Vec::new(),
     }
 }
 
@@ -64,6 +230,14 @@ fn default_user_persona() -> AgentProfile {
         memory_recall_mode: default_agent_memory_recall_mode(),
         source: default_main_source(),
         scope: default_global_scope(),
+        summary: String::new(),
+        resident_skill_names: Vec::new(),
+        optional_skill_names: Vec::new(),
+        api_config_ids: Vec::new(),
+        api_config_id: String::new(),
+        model_failure_fallback_enabled: false,
+        permission_control: AgentPermissionControl::default(),
+        child_agent_ids: Vec::new(),
     }
 }
 
@@ -84,6 +258,14 @@ fn default_system_persona() -> AgentProfile {
         memory_recall_mode: default_agent_memory_recall_mode(),
         source: default_main_source(),
         scope: default_global_scope(),
+        summary: String::new(),
+        resident_skill_names: Vec::new(),
+        optional_skill_names: Vec::new(),
+        api_config_ids: Vec::new(),
+        api_config_id: String::new(),
+        model_failure_fallback_enabled: false,
+        permission_control: AgentPermissionControl::default(),
+        child_agent_ids: Vec::new(),
     }
 }
 

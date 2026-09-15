@@ -5,10 +5,9 @@ impl ConversationServiceV2 {
         keyword: Option<&str>,
     ) -> Result<Vec<ToolSessionTargetSummary>, String> {
         let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-        let config = runtime_snapshot.config;
         let agents = runtime_snapshot.agents;
         let local_items = self
-            .collect_unarchived_conversation_summaries_cached(state, &config)?
+            .collect_unarchived_conversation_summaries_cached(state)?
             .into_iter()
             .filter(|item| !item.is_system_notification_conversation)
             .filter_map(|item| {
@@ -22,17 +21,6 @@ impl ConversationServiceV2 {
                     .find(|agent| agent.id == conversation_meta.agent_id)
                     .map(|agent| agent.name.trim().to_string())
                     .filter(|name| !name.is_empty());
-                let department_name = department_by_id(&config, &conversation_meta.department_id)
-                    .map(|department| department.name.trim().to_string())
-                    .filter(|name| !name.is_empty())
-                    .or_else(|| {
-                        let name = item.department_name.trim();
-                        if name.is_empty() {
-                            None
-                        } else {
-                            Some(name.to_string())
-                        }
-                    });
                 let title = if !item.title.trim().is_empty() {
                     item.title.trim().to_string()
                 } else if let Some(summary_title) = item.summary_title.as_deref().map(str::trim) {
@@ -43,7 +31,6 @@ impl ConversationServiceV2 {
                 let haystacks = vec![
                     title.clone(),
                     item.summary_title.unwrap_or_default(),
-                    department_name.clone().unwrap_or_default(),
                     persona_name.clone().unwrap_or_default(),
                 ];
                 if !session_search_hit(&haystacks, keyword) {
@@ -53,7 +40,6 @@ impl ConversationServiceV2 {
                     session_id: item.conversation_id.clone(),
                     kind: "local_unarchived".to_string(),
                     title,
-                    department_name,
                     persona_name,
                     remote_contact_id: None,
                     remote_contact_name: None,
@@ -67,17 +53,6 @@ impl ConversationServiceV2 {
             .list_remote_im_contact_conversations(state)?
             .into_iter()
             .filter_map(|item| {
-                let department_name = item
-                    .bound_department_id
-                    .as_deref()
-                    .and_then(|department_id| {
-                        config
-                            .departments
-                            .iter()
-                            .find(|department| department.id.trim() == department_id.trim())
-                            .map(|department| department.name.trim().to_string())
-                    })
-                    .filter(|value| !value.is_empty());
                 let persona_name = item
                     .bound_agent_id
                     .as_deref()
@@ -92,7 +67,6 @@ impl ConversationServiceV2 {
                     item.title.clone(),
                     item.contact_display_name.clone(),
                     item.channel_name.clone().unwrap_or_default(),
-                    department_name.clone().unwrap_or_default(),
                     persona_name.clone().unwrap_or_default(),
                 ];
                 if !session_search_hit(&haystacks, keyword) {
@@ -102,7 +76,6 @@ impl ConversationServiceV2 {
                     session_id: item.conversation_id,
                     kind: "remote_im_contact".to_string(),
                     title: item.title,
-                    department_name,
                     persona_name,
                     remote_contact_id: Some(item.contact_id),
                     remote_contact_name: Some(item.contact_display_name),
@@ -159,25 +132,14 @@ impl ConversationServiceV2 {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(ToOwned::to_owned);
-            let previous_bound_department_id = contact
-                .bound_department_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned);
             let previous_bound_agent_id = contact
                 .bound_agent_id
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(ToOwned::to_owned);
-            let binding_pair = match resolve_department_agent_pair(
-                state,
-                contact.bound_department_id.as_deref(),
-                contact.bound_agent_id.as_deref(),
-                &config,
-            ) {
-                Ok(pair) => Some(pair),
+            let binding_agent_id = match resolve_contact_agent_id(state, contact.bound_agent_id.as_deref()) {
+                Ok(agent_id) => Some(agent_id),
                 Err(err) => {
                     runtime_log_warn(format!(
                         "[远程IM] 跳过，任务=同步联系人会话绑定，contact_id={}，原因={}",
@@ -186,8 +148,7 @@ impl ConversationServiceV2 {
                     None
                 }
             };
-            if let Some((department_id, agent_id)) = binding_pair.as_ref() {
-                contact.bound_department_id = Some(department_id.clone());
+            if let Some(agent_id) = binding_agent_id.as_ref() {
                 contact.bound_agent_id = Some(agent_id.clone());
             }
             let target_key = remote_im_contact_conversation_key(contact);
@@ -230,8 +191,6 @@ impl ConversationServiceV2 {
             };
             contact.bound_conversation_id = Some(conversation_id.clone());
             let binding_changed = previous_bound_conversation_id.as_deref() != Some(conversation_id.as_str())
-                || previous_bound_department_id.as_deref()
-                    != contact.bound_department_id.as_deref().map(str::trim)
                 || previous_bound_agent_id.as_deref()
                     != contact.bound_agent_id.as_deref().map(str::trim);
             if binding_changed {
@@ -243,7 +202,7 @@ impl ConversationServiceV2 {
                 ));
             }
             resolved_pairs.push((contact.clone(), conversation_id.clone()));
-            if binding_pair.is_some() {
+            if binding_agent_id.is_some() {
                 sync_pairs.push((contact.clone(), conversation_id));
             }
         }
@@ -266,27 +225,10 @@ impl ConversationServiceV2 {
             }
         }
         for (contact, conversation_id) in &sync_pairs {
-            let binding_pair = match resolve_department_agent_pair(
-                state,
-                contact.bound_department_id.as_deref(),
-                contact.bound_agent_id.as_deref(),
-                &config,
-            ) {
-                Ok(pair) => pair,
-                Err(err) => {
-                    runtime_log_warn(format!(
-                        "[联系人会话] 跳过会话路由同步，contact_id={}，conversation_id={}，error={}",
-                        contact.id, conversation_id, err
-                    ));
-                    continue;
-                }
-            };
             if let Err(err) = sync_remote_im_contact_conversation_binding(
                 state,
                 contact,
                 conversation_id,
-                &binding_pair.0,
-                &binding_pair.1,
             ) {
                 runtime_log_warn(format!(
                     "[联系人会话] 会话列表继续返回，路由同步降级，contact_id={}，conversation_id={}，error={}",
@@ -323,7 +265,6 @@ impl ConversationServiceV2 {
                     channel_enabled: channel.as_ref().map(|item| item.enabled).unwrap_or(false),
                     platform: contact.platform.clone(),
                     contact_display_name: remote_im_contact_display_name(&contact),
-                    bound_department_id: contact.bound_department_id.clone(),
                     bound_agent_id: contact.bound_agent_id.clone(),
                     processing_mode: normalize_contact_processing_mode(&contact.processing_mode),
                     preview_messages,
@@ -348,7 +289,6 @@ impl ConversationServiceV2 {
                     channel_enabled: channel.as_ref().map(|item| item.enabled).unwrap_or(false),
                     platform: contact.platform.clone(),
                     contact_display_name: remote_im_contact_display_name(&contact),
-                    bound_department_id: contact.bound_department_id.clone(),
                     bound_agent_id: contact.bound_agent_id.clone(),
                     processing_mode: normalize_contact_processing_mode(&contact.processing_mode),
                     preview_messages: build_conversation_preview_messages(&conversation, 2),
@@ -1096,7 +1036,7 @@ impl ConversationServiceV2 {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
-        let (_, _, conversation_id, _contact) =
+        let (_, conversation_id, _contact) =
             remote_im_resolve_contact_session_target_atomic(
                 state,
                 normalized_remote_contact_id,

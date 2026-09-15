@@ -1,6 +1,6 @@
 use super::*;
 
-fn hidden_skill_summaries_cache(
+pub(crate) fn hidden_skill_summaries_cache(
 ) -> &'static std::sync::Mutex<std::collections::HashMap<String, Vec<SkillSummaryItem>>> {
     static CACHE: OnceLock<
         std::sync::Mutex<std::collections::HashMap<String, Vec<SkillSummaryItem>>>,
@@ -8,7 +8,7 @@ fn hidden_skill_summaries_cache(
     CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-fn hidden_skill_cache_scope_key(state: &AppState) -> String {
+pub(crate) fn hidden_skill_cache_scope_key(state: &AppState) -> String {
     state.data_path.display().to_string()
 }
 
@@ -402,16 +402,16 @@ pub(crate) fn render_skill_summary(skills: &[SkillSummaryItem]) -> String {
     lines.join("\n")
 }
 
-fn filter_skills_for_department(
-    department: Option<&DepartmentConfig>,
+fn filter_skills_for_agent(
+    agent: Option<&AgentProfile>,
     skills: &[SkillSummaryItem],
 ) -> Vec<SkillSummaryItem> {
     skills
         .iter()
         .filter(|item| {
-            department_permission_allows_any_name(
-                department,
-                DepartmentPermissionCategory::Skill,
+            agent_permission_allows_any_name(
+                agent,
+                AgentPermissionCategory::Skill,
                 &[item.name.as_str()],
             )
         })
@@ -466,7 +466,7 @@ pub(crate) fn update_hidden_skill_snapshot_cache(
     skills: &[SkillSummaryItem],
     scan_error: Option<&str>,
 ) -> Result<String, String> {
-    // 全局关闭的 Skill 不进入提示词注入链路，也不参与部门白名单过滤。
+    // 全局关闭的 Skill 不进入提示词注入链路，也不参与人格白名单过滤。
     let injectable = skills
         .iter()
         .filter(|item| item.enabled)
@@ -509,11 +509,11 @@ pub(crate) fn build_hidden_skill_snapshot_block(state: &AppState) -> String {
     }
 }
 
-pub(crate) fn build_hidden_skill_snapshot_block_for_department(
+pub(crate) fn build_hidden_skill_snapshot_block_for_agent(
     state: &AppState,
-    department: Option<&DepartmentConfig>,
+    agent: Option<&AgentProfile>,
 ) -> String {
-    if department
+    if agent
         .map(|item| !item.permission_control.enabled)
         .unwrap_or(true)
     {
@@ -526,7 +526,7 @@ pub(crate) fn build_hidden_skill_snapshot_block_for_department(
         .and_then(|guard| guard.get(&cache_key).cloned());
     match cached_skills {
         Some(skills) => {
-            let filtered = filter_skills_for_department(department, &skills);
+            let filtered = filter_skills_for_agent(agent, &skills);
             render_hidden_skill_snapshot_block(state, &filtered, None)
         }
         None => {
@@ -537,6 +537,100 @@ pub(crate) fn build_hidden_skill_snapshot_block_for_department(
             build_hidden_skill_snapshot_block(state)
         }
     }
+}
+
+/// 某人格当前可用的 skill（已启用 + 权限允许）。
+fn agent_available_skills(state: &AppState, agent: &AgentProfile) -> Vec<SkillSummaryItem> {
+    let cache_key = hidden_skill_cache_scope_key(state);
+    let cached_skills = hidden_skill_summaries_cache()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.get(&cache_key).cloned());
+    match cached_skills {
+        Some(skills) => filter_skills_for_agent(Some(agent), &skills),
+        None => {
+            runtime_log_warn(
+                "[技能工作区] 人格 skill 注入未命中结构化缓存，本次跳过注入；如需更新请显式刷新技能工作区。"
+                    .to_string(),
+            );
+            Vec::new()
+        }
+    }
+}
+
+/// 常驻 skill 全文注入（结论 24）：把这些 SKILL.md 的正文整段拼进该人格系统提示词，模型无需读文件。
+/// skill 不在或未启用（或权限不允许）时直接跳过，不阻断装配。
+pub(crate) fn build_resident_skill_fulltext_block(state: &AppState, agent: &AgentProfile) -> String {
+    if agent.resident_skill_names.is_empty() {
+        return String::new();
+    }
+    let available = agent_available_skills(state, agent);
+    let mut sections = Vec::<String>::new();
+    for name in &agent.resident_skill_names {
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let Some(skill) = available.iter().find(|item| item.name.trim() == name) else {
+            continue;
+        };
+        let description = skill.description.trim();
+        let header = if description.is_empty() {
+            format!("### {}", skill.name.trim())
+        } else {
+            format!("### {}：{description}", skill.name.trim())
+        };
+        sections.push(format!("{header}\n\n{}", skill.content.trim()));
+    }
+    if sections.is_empty() {
+        return String::new();
+    }
+    prompt_xml_block(
+        "resident skills",
+        format!(
+            "## 你的常驻技能\n以下技能说明已全文注入，无需再读取文件。\n\n{}",
+            sections.join("\n\n")
+        ),
+    )
+}
+
+/// 可选 skill 只注入引用（结论 8）：给名字与 SKILL.md 路径，需要时模型自行读取。
+pub(crate) fn build_optional_skill_reference_block(state: &AppState, agent: &AgentProfile) -> String {
+    if agent.optional_skill_names.is_empty() {
+        return String::new();
+    }
+    let available = agent_available_skills(state, agent);
+    let mut lines = Vec::<String>::new();
+    for name in &agent.optional_skill_names {
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let Some(skill) = available.iter().find(|item| item.name.trim() == name) else {
+            continue;
+        };
+        let description = skill.description.trim();
+        if description.is_empty() {
+            lines.push(format!("- {}：{}", skill.name.trim(), skill.path.trim()));
+        } else {
+            lines.push(format!(
+                "- {}（{}）：{}",
+                skill.name.trim(),
+                description,
+                skill.path.trim()
+            ));
+        }
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    prompt_xml_block(
+        "optional skills",
+        format!(
+            "## 你的可选技能\n需要时自行读取对应 SKILL.md，不必全文记忆。\n\n{}",
+            lines.join("\n")
+        ),
+    )
 }
 
 fn format_workspace_named_item(name: &str, id: &str) -> String {
@@ -555,9 +649,7 @@ fn build_workspace_loaded_groups(
     servers: &[McpServerConfig],
     skills: &[SkillSummaryItem],
     agents: &[AgentProfile],
-    departments: &[DepartmentConfig],
     private_agent_ids: &[String],
-    private_department_ids: &[String],
 ) -> Vec<WorkspaceLoadedGroup> {
     let mcp_items = servers
         .iter()
@@ -574,16 +666,6 @@ fn build_workspace_loaded_groups(
                 .iter()
                 .find(|agent| agent.id == *id)
                 .map(|agent| format_workspace_named_item(&agent.name, &agent.id))
-                .unwrap_or_else(|| id.clone())
-        })
-        .collect::<Vec<_>>();
-    let private_department_items = private_department_ids
-        .iter()
-        .map(|id| {
-            departments
-                .iter()
-                .find(|department| department.id == *id)
-                .map(|department| format_workspace_named_item(&department.name, &department.id))
                 .unwrap_or_else(|| id.clone())
         })
         .collect::<Vec<_>>();
@@ -606,12 +688,6 @@ fn build_workspace_loaded_groups(
             count: private_agent_items.len(),
             items: private_agent_items,
         },
-        WorkspaceLoadedGroup {
-            kind: "private_department".to_string(),
-            label: "私有部门".to_string(),
-            count: private_department_items.len(),
-            items: private_department_items,
-        },
     ]
 }
 
@@ -619,7 +695,6 @@ fn build_workspace_failed_groups(
     mcp_failed: &[WorkspaceLoadError],
     skills_failed: &[WorkspaceLoadError],
     private_agents_failed: &[WorkspaceLoadError],
-    private_departments_failed: &[WorkspaceLoadError],
 ) -> Vec<WorkspaceFailedGroup> {
     vec![
         WorkspaceFailedGroup {
@@ -639,12 +714,6 @@ fn build_workspace_failed_groups(
             label: "私有人格".to_string(),
             count: private_agents_failed.len(),
             items: private_agents_failed.to_vec(),
-        },
-        WorkspaceFailedGroup {
-            kind: "private_department".to_string(),
-            label: "私有部门".to_string(),
-            count: private_departments_failed.len(),
-            items: private_departments_failed.to_vec(),
         },
     ]
 }
@@ -718,21 +787,17 @@ fn finalize_workspace_load_result(
     mut result: RefreshMcpAndSkillsResult,
     servers: &[McpServerConfig],
     merged_agents: &[AgentProfile],
-    merged_departments: &[DepartmentConfig],
 ) -> RefreshMcpAndSkillsResult {
     let loaded_groups = build_workspace_loaded_groups(
         servers,
         &result.skills,
         merged_agents,
-        merged_departments,
         &result.private_agents_loaded,
-        &result.private_departments_loaded,
     );
     let failed_groups = build_workspace_failed_groups(
         &result.mcp_failed,
         &result.skills_failed,
         &result.private_agents_failed,
-        &result.private_departments_failed,
     );
     let total_loaded = loaded_groups.iter().map(|group| group.count).sum::<usize>();
     let total_failed = failed_groups.iter().map(|group| group.count).sum::<usize>();
@@ -761,7 +826,7 @@ fn finalize_workspace_load_result(
 
 fn collect_workspace_load_snapshot(
     state: &AppState,
-) -> Result<(RefreshMcpAndSkillsResult, Vec<McpServerConfig>, Vec<AgentProfile>, Vec<DepartmentConfig>), String> {
+) -> Result<(RefreshMcpAndSkillsResult, Vec<McpServerConfig>, Vec<AgentProfile>), String> {
     ensure_workspace_mcp_layout(state)?;
     ensure_workspace_skills_layout(state)?;
     ensure_workspace_private_organization_layout(state)?;
@@ -774,9 +839,9 @@ fn collect_workspace_load_snapshot(
             err
         ));
     }
-    let mut config = read_config(&state.config_path)?;
+    let config = read_config(&state.config_path)?;
     let mut agents = state_read_agents_cached(state)?;
-    let private_org = merge_private_organization_into_runtime(&state.data_path, &mut config, &mut agents)?;
+    let private_org = merge_private_organization_into_runtime(&state.data_path, &config, &mut agents)?;
     let mcp_loaded = servers.iter().map(|s| s.id.clone()).collect::<Vec<_>>();
     let skills_loaded = skills
         .iter()
@@ -808,8 +873,6 @@ fn collect_workspace_load_snapshot(
         skill_summary,
         private_agents_loaded: private_org.private_agents_loaded,
         private_agents_failed: private_org.private_agents_failed,
-        private_departments_loaded: private_org.private_departments_loaded,
-        private_departments_failed: private_org.private_departments_failed,
         loaded_groups: Vec::new(),
         failed_groups: Vec::new(),
         total_loaded: 0,
@@ -820,7 +883,7 @@ fn collect_workspace_load_snapshot(
         repair_items: Vec::new(),
         needs_repair: false,
     };
-    Ok((result, servers, agents, config.departments))
+    Ok((result, servers, agents))
 }
 
 async fn disconnect_workspace_mcp_runtime_clients(state: &AppState) {
@@ -839,8 +902,7 @@ async fn disconnect_workspace_mcp_runtime_clients(state: &AppState) {
 }
 
 pub(crate) async fn load_workspace(state: &AppState) -> Result<RefreshMcpAndSkillsResult, String> {
-    let (mut result, servers, merged_agents, merged_departments) =
-        collect_workspace_load_snapshot(state)?;
+    let (mut result, servers, merged_agents) = collect_workspace_load_snapshot(state)?;
     match mcp_start_supervisor_probe_all_from_policy(state.clone(), "workspace_load") {
         Ok(()) => {}
         Err(err) => {
@@ -853,12 +915,7 @@ pub(crate) async fn load_workspace(state: &AppState) -> Result<RefreshMcpAndSkil
     }
     refresh_global_tool_schema_cache(state);
     mark_prompt_cache_rebuild_for_all_final_system_sources(state);
-    Ok(finalize_workspace_load_result(
-        result,
-        &servers,
-        &merged_agents,
-        &merged_departments,
-    ))
+    Ok(finalize_workspace_load_result(result, &servers, &merged_agents))
 }
 
 pub(crate) async fn reload_workspace(

@@ -352,7 +352,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "save_config" => ide_chat_save_config_for_web_settings(state, app, ide_context_runtime, request.params),
         "load_agents" => ide_chat_load_agents_for_web_settings(state),
         "convert_private_agent_to_main" => {
-            ide_chat_convert_private_agent_to_main_for_web_settings(state, app, request.params)
+            ide_chat_convert_private_agent_to_main_for_web_settings(state, request.params)
         }
         "save_agent_avatar" => ide_chat_save_agent_avatar_for_web_settings(state, request.params),
         "clear_agent_avatar" => ide_chat_clear_agent_avatar_for_web_settings(state, request.params),
@@ -375,7 +375,7 @@ async fn ide_chat_handle_jsonrpc_request(
             let input = ide_chat_parse_param_field::<AvatarDataPathInput>(request.params, "input")?;
             ide_chat_serialize(read_avatar_data_url_inner(input, state)?)
         })(),
-        "save_agents" => ide_chat_save_agents_for_web_settings(state, app, request.params),
+        "save_agents" => ide_chat_save_agents_for_web_settings(state, request.params),
         "load_chat_settings" => ide_chat_load_chat_settings_for_web_settings(state),
         "save_chat_settings" => ide_chat_save_chat_settings_for_web_settings(state, app, request.params),
         "patch_chat_settings" => ide_chat_patch_chat_settings_for_web_settings(state, app, request.params),
@@ -397,7 +397,7 @@ async fn ide_chat_handle_jsonrpc_request(
             ide_chat_list_terminal_shell_candidates_for_web_settings(state)
         }
         "list_tool_catalog" => ide_chat_list_tool_catalog_for_web_settings(state).await,
-        "list_department_permission_catalog" => ide_chat_list_department_permission_catalog_for_web_settings(state).await,
+        "list_permission_catalog" => ide_chat_list_permission_catalog_for_web_settings(state).await,
         "get_app_version" => Ok(serde_json::json!(env!("CARGO_PKG_VERSION").to_string())),
         "stt_transcribe" => ide_chat_stt_transcribe_for_web_settings(state, request.params).await,
         "get_project_repository_url" => Ok(serde_json::json!(GITHUB_REPO_PAGE.to_string())),
@@ -428,9 +428,6 @@ async fn ide_chat_handle_jsonrpc_request(
         }
         "clear_recent_runtime_logs" => clear_recent_runtime_logs().and_then(ide_chat_serialize),
         "set_github_update_method" => ide_chat_set_github_update_method_for_web_settings(state, app, request.params),
-        "get_department_default_draft" => {
-            ide_chat_get_department_default_draft_for_web_settings(state, request.params)
-        }
         "set_skipped_github_update_version" => {
             ide_chat_set_skipped_github_update_version_for_web_settings(state, app, request.params)
         },
@@ -545,7 +542,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "remote_im_update_contact_allow_send_files" => ide_chat_remote_im_update_contact_allow_send_files_for_web_settings(state, request.params),
         "remote_im_update_contact_blocked_message_prefixes" => ide_chat_remote_im_update_contact_blocked_message_prefixes_for_web_settings(state, request.params),
         "remote_im_update_contact_activation" => ide_chat_remote_im_update_contact_activation_for_web_settings(state, request.params),
-        "remote_im_update_contact_department_binding" => ide_chat_remote_im_update_contact_department_binding_for_web_settings(state, request.params),
+        "remote_im_update_contact_agent_binding" => ide_chat_remote_im_update_contact_agent_binding_for_web_settings(state, request.params),
         "remote_im_update_contact_processing_mode" => ide_chat_remote_im_update_contact_processing_mode_for_web_settings(state, request.params),
         "remote_im_update_contact_workspace" => ide_chat_remote_im_update_contact_workspace_for_web_settings(state, request.params),
         "remote_im_delete_contact" => ide_chat_remote_im_delete_contact_for_web_settings(state, request.params),
@@ -659,8 +656,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "rename_unarchived_conversation" => ide_chat_rename_conversation_command(state, request.params),
         "toggle_unarchived_conversation_pin" => ide_chat_toggle_pin_command(state, request.params),
         "set_conversation_auto_push_remote_contact" => ide_chat_set_auto_push_command(state, request.params),
-        "set_department_primary_api_config" => ide_chat_set_department_primary_api_command(state, app, request.params),
-        "department.primaryApi.set" => ide_chat_set_department_primary_api_command(state, app, request.params),
+        "set_agent_primary_api_config" => ide_chat_set_agent_primary_api_command(state, app, request.params),
         "set_ui_language" => ide_chat_set_ui_language_command(state, app, request.params),
         "app.language.set" => ide_chat_set_ui_language_command(state, app, request.params),
         "dump_memory_cache_stats" => ide_chat_dump_memory_cache_stats_command(state),
@@ -1104,7 +1100,6 @@ mod web_native_capability_tests {
             },
             "session": {
                 "apiConfigId": null,
-                "departmentId": "department-1",
                 "agentId": "agent-1",
                 "conversationId": "conversation-1"
             }
@@ -1112,7 +1107,6 @@ mod web_native_capability_tests {
         let stop = serde_json::json!({
             "session": {
                 "apiConfigId": null,
-                "departmentId": "department-1",
                 "agentId": "agent-1",
                 "conversationId": "conversation-1"
             },
@@ -1122,7 +1116,6 @@ mod web_native_capability_tests {
         let rewind = serde_json::json!({
             "session": {
                 "apiConfigId": null,
-                "departmentId": "department-1",
                 "agentId": "agent-1",
                 "conversationId": "conversation-1"
             },

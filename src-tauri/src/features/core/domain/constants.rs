@@ -10,20 +10,27 @@ const APP_DATA_SCHEMA_VERSION: u32 = 1;
 //   1. 在 app_data_layout.rs 的 data_migration_steps() 注册一个 DataMigrationStep；
 //   2. 在此处新增 DATA_MIGRATION_VERSION_V2 常量，并把 CURRENT_VERSION 提到它。
 const DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES: u32 = 2;
-const DATA_MIGRATION_VERSION_V4_MESSAGE_GROUP_ZSTD: u32 = 4;
-const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V4_MESSAGE_GROUP_ZSTD;
+/// 消息存储迁移（会话分片 V2→V3→V4）自己的版本。
+/// 它记在独立的 kv `message_store_migration_version`，**不得**与全局 `DATA_MIGRATION_CURRENT_VERSION` 共用一个常量：
+/// 否则任何一次纯应用数据迁移（如 V5 部门转人格）都会把已完成消息存储迁移的老用户重新拦在门闩外。
+const MESSAGE_STORE_MIGRATION_CURRENT_VERSION: u32 = 4;
+/// V5：把「部门」承载的权责（模型/权限/提示词/下级）迁到人格身上，部门退场。
+/// 旧结构 `AppConfig.departments` 只允许在 `agent_org_migration.rs` 内读取。
+const DATA_MIGRATION_VERSION_V5_DEPARTMENTS_TO_AGENT_ORGANIZATION: u32 = 5;
+const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V5_DEPARTMENTS_TO_AGENT_ORGANIZATION;
 const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
 const DEFAULT_AGENT_ID: &str = "default-agent";
 const DEPUTY_AGENT_ID: &str = "deputy-agent";
+/// 内置人格 id：原内置部门在新组织里的身份。
+/// `assistants`（显示名）复用 `default-agent`、`explorer`（显示名）复用 `deputy-agent`，
+/// 故这两个不新增常量；其余 5 个是新建的人格 id。
+const LEADER_AGENT_ID: &str = "leader";
+const REVIEWER_AGENT_ID: &str = "reviewer";
+const SADDLER_AGENT_ID: &str = "saddler";
+const SUPPORT_AGENT_ID: &str = "support";
+const HR_AGENT_ID: &str = "hr";
 const USER_PERSONA_ID: &str = "user-persona";
 const SYSTEM_PERSONA_ID: &str = "system-persona";
-const ASSISTANT_DEPARTMENT_ID: &str = "assistant-department";
-const LEADER_DEPARTMENT_ID: &str = "leader-department";
-const DEPUTY_DEPARTMENT_ID: &str = "deputy-department";
-const REVIEWER_DEPARTMENT_ID: &str = "reviewer-department";
-const SADDLER_DEPARTMENT_ID: &str = "saddler-department";
-const REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID: &str = "remote-customer-service-department";
-const HR_DEPARTMENT_ID: &str = "hr-department";
 const DELEGATE_TOOL_KIND_DELEGATE: &str = "delegate";
 const DELEGATE_TOOL_KIND_USER_MENTION: &str = "user_async_delegate";
 /// 深度回忆委托：仅此类委托会话挂载 deeprecall_search / deeprecall_context。

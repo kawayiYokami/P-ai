@@ -53,6 +53,26 @@ const WORKSPACE_PRESET_SKILLS: &[WorkspacePresetSkill] = &[
         dir_name: "memory-generation",
         skill_md: include_str!("../../../resources/preset-skills/memory-generation/SKILL.md"),
     },
+    WorkspacePresetSkill {
+        dir_name: "leader",
+        skill_md: include_str!("../../../resources/preset-skills/leader/SKILL.md"),
+    },
+    WorkspacePresetSkill {
+        dir_name: "reviewer",
+        skill_md: include_str!("../../../resources/preset-skills/reviewer/SKILL.md"),
+    },
+    WorkspacePresetSkill {
+        dir_name: "saddler",
+        skill_md: include_str!("../../../resources/preset-skills/saddler/SKILL.md"),
+    },
+    WorkspacePresetSkill {
+        dir_name: "support",
+        skill_md: include_str!("../../../resources/preset-skills/support/SKILL.md"),
+    },
+    WorkspacePresetSkill {
+        dir_name: "hr",
+        skill_md: include_str!("../../../resources/preset-skills/hr/SKILL.md"),
+    },
 ];
 
 #[allow(dead_code)]

@@ -73,8 +73,6 @@ fn remote_im_reply_delegate_register(
             kind: "remote_im_reply".to_string(),
             conversation_id: conversation_id.to_string(),
             parent_delegate_id: None,
-            source_department_id: session_info.department_id.clone(),
-            target_department_id: session_info.department_id.clone(),
             source_agent_id: session_info.agent_id.clone(),
             target_agent_id: session_info.agent_id.clone(),
             title: format!("远程应答 · {}", contact_id),
@@ -795,7 +793,6 @@ fn spawn_remote_im_reply_delegate(
                 },
                 session: Some(SessionSelector {
                     api_config_id: None,
-                    department_id: Some(session_info.department_id.clone()),
                     agent_id: session_info.agent_id.clone(),
                     conversation_id: Some(conversation_id.clone()),
                 }),

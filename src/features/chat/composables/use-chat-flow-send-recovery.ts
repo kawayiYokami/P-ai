@@ -1,7 +1,7 @@
 import type { Ref } from "vue";
 import type { RoundState } from "./use-chat-flow-types";
 
-type SendSession = { apiConfigId: string; agentId: string; departmentId?: string; conversationId?: string };
+type SendSession = { apiConfigId: string; agentId: string; conversationId?: string };
 
 type UseChatFlowSendRecoveryOptions = {
   chatting: Ref<boolean>;

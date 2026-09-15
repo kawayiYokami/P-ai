@@ -92,7 +92,6 @@ fn delegate_parent_shell_workspace(
             id: conversation_meta.id,
             title: conversation_meta.title,
             agent_id: conversation_meta.agent_id,
-            department_id: conversation_meta.department_id,
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -199,7 +198,6 @@ fn delegate_runtime_thread_build(
     let mut conversation = build_conversation_record(
         target_api_config_id,
         &delegate.target_agent_id,
-        &delegate.target_department_id,
         &delegate.title,
         CONVERSATION_KIND_DELEGATE,
         Some(delegate.conversation_id.clone()),

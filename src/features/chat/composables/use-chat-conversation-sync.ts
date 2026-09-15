@@ -547,9 +547,8 @@ export function useChatConversationSync(bindings: Record<string, any>) {
   function conversationOverviewItemSignature(item: Record<string, any>): string {
     return [
       String(item.conversationId || "").trim(),
-      // 切换人格/部门只改这两个字段，不带动 updatedAt；漏判会把这类概览项更新当成无变化丢弃
+      // 切换人格只改这个字段，不带动 updatedAt；漏判会把这类概览项更新当成无变化丢弃
       String(item.agentId || "").trim(),
-      String(item.departmentId || "").trim(),
       String(item.updatedAt || "").trim(),
       String(item.lastMessageAt || "").trim(),
       String(item.runtimeState || "").trim(),

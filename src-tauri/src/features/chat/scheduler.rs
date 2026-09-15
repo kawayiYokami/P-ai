@@ -83,7 +83,6 @@ fn default_chat_queue_mode() -> ChatQueueMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ChatSessionInfo {
-    pub department_id: String,
     pub agent_id: String,
 }
 
@@ -190,7 +189,6 @@ pub(crate) struct ConversationRuntimeSnapshot {
 pub(crate) struct ConversationStreamRuntimeCacheSnapshot {
     pub activation_id: String,
     pub request_id: String,
-    pub department_id: String,
     pub agent_id: String,
     pub assistant_text: String,
     pub tool_status_text: String,
@@ -796,7 +794,6 @@ async fn process_conversation_batch(
                 let current_assistant =
                     remote_im_secretary_current_assistant_context(state, conversation_id)?;
                 activating_session_info = Some(ChatSessionInfo {
-                    department_id: current_assistant.department_id.clone(),
                     agent_id: current_assistant.agent_id.clone(),
                 });
                 let previous_history_messages = persisted_recent_messages_before_flush.as_slice();
@@ -988,7 +985,6 @@ async fn process_conversation_batch(
                         conversation_id,
                         &trigger_message,
                         &ChatSessionInfo {
-                            department_id: current_assistant.department_id.clone(),
                             agent_id: current_assistant.agent_id.clone(),
                         },
                         source,
@@ -1340,22 +1336,12 @@ async fn activate_main_assistant(
     if runtime_context.executor_agent_id.is_none() {
         runtime_context.executor_agent_id = Some(session_info.agent_id.clone());
     }
-    if runtime_context.executor_department_id.is_none() {
-        runtime_context.executor_department_id = Some(session_info.department_id.clone());
-    }
     let executor_agent_id = runtime_context
         .executor_agent_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(session_info.agent_id.as_str())
-        .to_string();
-    let executor_department_id = runtime_context
-        .executor_department_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(session_info.department_id.as_str())
         .to_string();
     let activation_id = trace_id.clone();
     let activation_reason = resolve_activation_reason(&runtime_context);
@@ -1394,7 +1380,6 @@ async fn activate_main_assistant(
         conversation_id,
         activation_id.as_str(),
         trace_id.as_str(),
-        executor_department_id.as_str(),
         executor_agent_id.as_str(),
         assistant_message_id.as_str(),
         stream_started_at.as_str(),
@@ -1407,7 +1392,6 @@ async fn activate_main_assistant(
         trace_id.as_str(),
         assistant_message_id.as_str(),
         activation_reason.as_str(),
-        executor_department_id.as_str(),
         executor_agent_id.as_str(),
         stream_started_at.as_str(),
         stream_started_at_ms,
@@ -1482,7 +1466,6 @@ async fn activate_main_assistant(
         trigger_only: true, // 不写入新消息，只触发助理回复
         session: Some(SessionSelector {
             api_config_id: None,
-            department_id: Some(executor_department_id.clone()),
             agent_id: executor_agent_id.clone(),
             conversation_id: Some(conversation_id.to_string()),
         }),

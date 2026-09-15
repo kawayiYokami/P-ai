@@ -125,31 +125,4 @@ describe("buildRemoteConversationSections", () => {
       "contact-2",
     ]);
   });
-
-  it("falls back to the channel prefix embedded in departmentName", () => {
-    const sections = buildRemoteConversationSections([
-      {
-        conversationId: "contact-1",
-        title: "Alice",
-        kind: "remote_im_contact",
-        departmentName: "微信 · 主部门",
-        messageCount: 1,
-      },
-      {
-        conversationId: "contact-2",
-        title: "Bob",
-        kind: "remote_im_contact",
-        departmentName: "钉钉 · 销售部",
-        messageCount: 1,
-      },
-    ], {
-      fallbackTitle: "其他会话",
-      locale: "zh-CN",
-    });
-
-    expect(sections.map((section) => section.title)).toEqual([
-      "钉钉",
-      "微信",
-    ]);
-  });
 });

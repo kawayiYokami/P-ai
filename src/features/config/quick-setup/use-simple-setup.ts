@@ -9,7 +9,6 @@ import { applyUiSizeScale } from "../../shell/composables/use-ui-size-appearance
 import { defaultToolBindings } from "../utils/builtin-tools";
 import { normalizeApiRequestFormat } from "../utils/api-request-format";
 import { apiConfigDisplayName } from "../utils/api-config-display";
-import { MODEL_ROLE_EXPERT_API_CONFIG_ID } from "../utils/model-role-options";
 import { hasUsableTextLlm } from "./usable-text-llm";
 
 export type SimpleProviderId = "deepseek" | "opencode" | "custom";
@@ -268,14 +267,13 @@ export function useSimpleSetup() {
       desktopOperationNoticeEnabled: true,
       desktopOperateEnabled: true,
       selectedApiConfigId: "",
-      assistantDepartmentApiConfigId: "",
+      expertApiConfigId: "",
       toolReviewApiConfigId: "",
       sttApiConfigId: "",
       sttAutoSend: false,
       shellWorkspaces: [],
       mcpServers: [],
       remoteImChannels: [],
-      departments: [],
       apiProviders: [],
       imageProviders: [],
       apiConfigs: [],
@@ -284,7 +282,7 @@ export function useSimpleSetup() {
 
   function defaultChatSettings(): ChatSettings {
     return {
-      assistantDepartmentAgentId: "default-agent",
+      assistantAgentId: "default-agent",
       userAlias: t("sidebar.quickSetupUserAlias"),
       responseStyleId: "none",
       pdfReadMode: "text",
@@ -304,10 +302,6 @@ export function useSimpleSetup() {
       && !!String(api.baseUrl || "").trim()
       && !!String(api.apiKey || "").trim()
       && !!String(api.model || "").trim();
-  }
-
-  function assistantDepartment() {
-    return (config.departments || []).find((item) => item.id === "assistant-department" || item.isBuiltInAssistant);
   }
 
   function providerPresetFromConfig(requestFormat: ApiRequestFormat, baseUrl: string): SimpleProviderPreset {
@@ -645,22 +639,16 @@ export function useSimpleSetup() {
       ...endpoints,
     ];
     config.selectedApiConfigId = SIMPLE_SETUP_ENDPOINT_IDS.expert;
-    config.assistantDepartmentApiConfigId = SIMPLE_SETUP_ENDPOINT_IDS.expert;
+    config.expertApiConfigId = SIMPLE_SETUP_ENDPOINT_IDS.expert;
     config.toolReviewApiConfigId = SIMPLE_SETUP_ENDPOINT_IDS.quick;
     const includeVision = draft.providerId === "custom" || !!selectedProvider.value.visionModel;
     config.visionApiConfigId = includeVision ? SIMPLE_SETUP_ENDPOINT_IDS.vision : "";
-    const department = assistantDepartment();
-    if (department) {
-      department.apiConfigId = MODEL_ROLE_EXPERT_API_CONFIG_ID;
-      department.apiConfigIds = [MODEL_ROLE_EXPERT_API_CONFIG_ID];
-      department.updatedAt = new Date().toISOString();
-    }
   }
 
   async function saveChatSettingsOnly() {
     const saved = await invokeTauri<ChatSettings>("patch_chat_settings", {
       input: {
-        assistantDepartmentAgentId: chatSettings.assistantDepartmentAgentId,
+        assistantAgentId: chatSettings.assistantAgentId,
         userAlias: chatSettings.userAlias,
         responseStyleId: draft.responseStyleId,
       },

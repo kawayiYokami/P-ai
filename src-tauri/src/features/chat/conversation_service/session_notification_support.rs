@@ -17,32 +17,26 @@ fn session_search_hit(haystacks: &[String], keyword: Option<&str>) -> bool {
 
 fn session_notification_source_label(
     title: &str,
-    department_name: Option<&str>,
     persona_name: Option<&str>,
 ) -> String {
     let title = title.trim();
-    let department_name = department_name.unwrap_or("").trim();
     let persona_name = persona_name.unwrap_or("").trim();
     let left = if title.is_empty() { "未命名会话" } else { title };
-    let middle = if department_name.is_empty() { "未绑定部门" } else { department_name };
     let right = if persona_name.is_empty() { "未绑定人格" } else { persona_name };
-    format!("[{}·{}·{}]", left, middle, right)
+    format!("[{}·{}]", left, right)
 }
 
-fn delegate_completion_notification_label(
-    department_name: Option<&str>,
-    persona_name: Option<&str>,
-) -> String {
-    let department_name = department_name.unwrap_or("").trim();
+fn delegate_completion_notification_label(persona_name: Option<&str>) -> String {
     let persona_name = persona_name.unwrap_or("").trim();
-    let left = if department_name.is_empty() { "未绑定部门" } else { department_name };
-    let right = if persona_name.is_empty() { "未绑定人格" } else { persona_name };
-    format!("{}·{}", left, right)
+    if persona_name.is_empty() {
+        "未绑定人格".to_string()
+    } else {
+        persona_name.to_string()
+    }
 }
 
 fn build_delegate_completion_notification_body(
     state: &AppState,
-    target_department_id: &str,
     target_agent_id: &str,
     delegate_title: &str,
     content: &str,
@@ -56,21 +50,12 @@ fn build_delegate_completion_notification_body(
         return Err("通知正文不能为空".to_string());
     }
     let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-    let department_name = runtime_snapshot
-        .config
-        .departments
-        .iter()
-        .find(|department| department.id.trim() == target_department_id.trim())
-        .map(|department| department.name.trim().to_string());
     let persona_name = runtime_snapshot
         .agents
         .iter()
         .find(|agent| agent.id.trim() == target_agent_id.trim())
         .map(|agent| agent.name.trim().to_string());
-    let label = delegate_completion_notification_label(
-        department_name.as_deref(),
-        persona_name.as_deref(),
-    );
+    let label = delegate_completion_notification_label(persona_name.as_deref());
     Ok(format!(
         "{label}的{normalized_title}委托执行成功，以下是汇报内容：\n{normalized_content}"
     ))
@@ -93,13 +78,6 @@ fn build_session_notification_body(
     let conversation_meta = conversation_service_v2()
         .get_conversation_meta(state, normalized_conversation_id)
         .map_err(|_| "来源会话不存在".to_string())?;
-    let department_name = runtime_snapshot
-        .config
-        .departments
-        .iter()
-        .find(|department| department.id.trim() == conversation_meta.department_id.trim())
-        .map(|department| department.name.trim().to_string())
-        .filter(|value| !value.is_empty());
     let persona_name = runtime_snapshot
         .agents
         .iter()
@@ -108,7 +86,6 @@ fn build_session_notification_body(
         .filter(|value| !value.is_empty());
     let label = session_notification_source_label(
         &conversation_meta.title,
-        department_name.as_deref(),
         persona_name.as_deref(),
     );
     Ok(format!("{label}:{normalized_content}"))
@@ -373,7 +350,6 @@ async fn process_session_notification_dispatch_request(
         .clone()
         .or_else(|| Some(target_conversation_id.clone()));
     runtime_context.executor_agent_id = Some(conversation.agent_id.clone());
-    runtime_context.executor_department_id = Some(conversation.department_id.clone());
     let event = ChatPendingEvent {
         id: format!("session-notification-{}", Uuid::new_v4()),
         conversation_id: target_conversation_id.clone(),
@@ -384,7 +360,6 @@ async fn process_session_notification_dispatch_request(
         activate_assistant: true,
         assistant_message_id: None,
         session_info: ChatSessionInfo {
-            department_id: conversation.department_id.clone(),
             agent_id: conversation.agent_id.clone(),
         },
         runtime_context: Some(runtime_context),

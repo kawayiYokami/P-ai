@@ -9,14 +9,14 @@ import {
 
 type ViewMode = "chat" | "archives" | "config";
 type ConversationApiSettingsPayload = {
-  assistantDepartmentApiConfigId: string;
+  expertApiConfigId: string;
   visionApiConfigId?: string;
   toolReviewApiConfigId?: string;
   sttApiConfigId?: string;
   sttAutoSend?: boolean;
 };
 type ChatSettingsPayload = {
-  assistantDepartmentAgentId: string;
+  assistantAgentId: string;
   userAlias: string;
   responseStyleId: string;
   pdfReadMode?: "text" | "image";

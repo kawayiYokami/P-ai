@@ -29,8 +29,6 @@ function cloneMention(item: ChatMentionTarget): ChatMentionTarget {
   return {
     agentId: String(item.agentId || "").trim(),
     agentName: String(item.agentName || "").trim(),
-    departmentId: String(item.departmentId || "").trim(),
-    departmentName: String(item.departmentName || "").trim(),
     avatarUrl: String(item.avatarUrl || "").trim() || undefined,
   };
 }
@@ -79,7 +77,7 @@ export function useChatComposerDrafts(options: UseChatComposerDraftsOptions) {
       chatInput: String(options.chatInput.value || ""),
       selectedMentions: (Array.isArray(options.selectedMentions.value) ? options.selectedMentions.value : [])
         .map(cloneMention)
-        .filter((item) => !!item.agentId && !!item.departmentId),
+        .filter((item) => !!item.agentId),
       clipboardImages: (Array.isArray(options.clipboardImages.value) ? options.clipboardImages.value : [])
         .map(cloneClipboardImage)
         .filter((item) => !!item.mime && (!!item.bytesBase64 || !!item.savedPath)),

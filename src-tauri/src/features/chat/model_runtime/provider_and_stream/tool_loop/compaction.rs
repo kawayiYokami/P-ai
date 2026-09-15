@@ -173,7 +173,6 @@ fn persist_tool_loop_compaction_checkpoint(
         let persist_result = conversation_service_v2().persist_stop_chat_partial_message(
             state,
             Some(context.conversation_id.as_str()),
-            None,
             &context.agent.id,
             partial_assistant_text,
             partial_activity_reasoning_text,

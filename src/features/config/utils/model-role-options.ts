@@ -8,11 +8,11 @@ export function isModelRoleApiConfigId(value: unknown): boolean {
 
 export function resolveModelRoleApiConfigId(
   value: unknown,
-  config: { assistantDepartmentApiConfigId?: string; toolReviewApiConfigId?: string | null },
+  config: { expertApiConfigId?: string; toolReviewApiConfigId?: string | null },
 ): string {
   const normalized = String(value || "").trim();
   if (normalized === MODEL_ROLE_EXPERT_API_CONFIG_ID) {
-    return String(config.assistantDepartmentApiConfigId || "").trim();
+    return String(config.expertApiConfigId || "").trim();
   }
   if (normalized === MODEL_ROLE_QUICK_API_CONFIG_ID) {
     return String(config.toolReviewApiConfigId || "").trim();

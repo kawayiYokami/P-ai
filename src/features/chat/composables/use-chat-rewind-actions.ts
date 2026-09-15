@@ -133,16 +133,12 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       if (!item || typeof item !== "object") continue;
       const entry = item as Record<string, unknown>;
       const agentId = String(entry.agentId || "").trim();
-      const departmentId = String(entry.departmentId || "").trim();
-      if (!agentId || !departmentId) continue;
-      const dedupKey = `${agentId}::${departmentId}`;
-      if (seen.has(dedupKey)) continue;
-      seen.add(dedupKey);
+      if (!agentId) continue;
+      if (seen.has(agentId)) continue;
+      seen.add(agentId);
       mentions.push({
         agentId,
         agentName: String(entry.agentName || agentId).trim() || agentId,
-        departmentId,
-        departmentName: String(entry.departmentName || departmentId).trim() || departmentId,
         avatarUrl: undefined,
       });
     }

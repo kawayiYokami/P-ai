@@ -17,7 +17,6 @@ type UseShellDialogFlowsOptions = {
   chatUsagePercent: Readonly<Ref<number>>;
   currentForegroundApiConfigId: Ref<string>;
   currentForegroundAgentId: Ref<string>;
-  currentForegroundDepartmentId: Ref<string>;
   currentChatConversationId: Ref<string>;
   unarchivedConversations: Ref<UnarchivedConversationSummary[]>;
   setStatus: (message: string) => void;

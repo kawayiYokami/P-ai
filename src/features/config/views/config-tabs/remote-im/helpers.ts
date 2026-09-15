@@ -167,7 +167,7 @@ export function contactRouteLabel(_item: RemoteImContact): string {
 }
 
 export function contactRoutingHint(_item: RemoteImContact): string {
-  return "部门将在该联系人的独立会话中处理消息";
+  return "人格将在该联系人的独立会话中处理消息";
 }
 
 export function processingModeHint(item: RemoteImContact): string {
@@ -188,7 +188,7 @@ export function contactResponseStrategyHint(item: RemoteImContact): string {
   if (mode === "smart_judge") {
     return "智能判断：先用快速模型检查这批消息是否真的需要回复。";
   }
-  return "始终回复：一旦允许入场，就直接交给处理部门回复。";
+  return "始终回复：一旦允许入场，就直接交给处理人格回复。";
 }
 
 export function contactCommunicationToggleEnabled(item: Pick<RemoteImContact, "allowReceive" | "allowSend">): boolean {

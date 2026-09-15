@@ -1794,17 +1794,8 @@ function firstActiveApiConfigIdExcluding(excludedIds: Set<string>): string {
 function clearRemovedApiConfigReferences(removedIds: string[]) {
   const removedSet = new Set(removedIds.map((id) => String(id || "").trim()).filter(Boolean));
   if (removedSet.size === 0) return;
-  for (const department of props.config.departments || []) {
-    const nextIds = (Array.isArray(department.apiConfigIds) ? department.apiConfigIds : [])
-      .map((id) => String(id || "").trim())
-      .filter((id) => !!id && !removedSet.has(id));
-    department.apiConfigIds = nextIds;
-    if (removedSet.has(String(department.apiConfigId || "").trim())) {
-      department.apiConfigId = nextIds[0] || "";
-    }
-  }
-  if (removedSet.has(String(props.config.assistantDepartmentApiConfigId || "").trim())) {
-    props.config.assistantDepartmentApiConfigId = "";
+  if (removedSet.has(String(props.config.expertApiConfigId || "").trim())) {
+    props.config.expertApiConfigId = "";
   }
   if (removedSet.has(String(props.config.sttApiConfigId || "").trim())) {
     props.config.sttApiConfigId = undefined;

@@ -2,14 +2,6 @@ fn ide_chat_load_config_for_web_settings(state: &AppState) -> Result<Value, Stri
     ide_chat_serialize(load_config_inner(state)?)
 }
 
-fn ide_chat_get_department_default_draft_for_web_settings(
-    state: &AppState,
-    params: Value,
-) -> Result<Value, String> {
-    let department_id = ide_chat_parse_param_field::<String>(params, "departmentId")?;
-    ide_chat_serialize(get_department_default_draft_inner(state, &department_id)?)
-}
-
 fn ide_chat_load_app_bootstrap_snapshot_for_web_settings(state: &AppState) -> Result<Value, String> {
     ide_chat_serialize(read_app_bootstrap_snapshot(state)?)
 }
@@ -94,11 +86,10 @@ async fn ide_chat_get_system_prompt_preview_for_web_settings(
 
 fn ide_chat_save_agents_for_web_settings(
     state: &AppState,
-    app: &AppHandle,
     params: Value,
 ) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<SaveAgentsInput>(params, "input")?;
-    ide_chat_serialize(save_agents_inner(input, app, state)?)
+    ide_chat_serialize(save_agents_inner(input, state)?)
 }
 
 fn ide_chat_load_chat_settings_for_web_settings(state: &AppState) -> Result<Value, String> {
@@ -112,7 +103,7 @@ fn ide_chat_save_chat_settings_for_web_settings(
 ) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<ChatSettings>(params, "input")?;
     let patch = ChatSettingsPatch {
-        assistant_department_agent_id: Some(input.assistant_department_agent_id),
+        assistant_agent_id: Some(input.assistant_agent_id),
         user_alias: Some(input.user_alias),
         response_style_id: Some(input.response_style_id),
         pdf_read_mode: Some(input.pdf_read_mode),
@@ -148,7 +139,7 @@ fn ide_chat_save_conversation_api_settings_for_web_settings(
 ) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<ConversationApiSettings>(params, "input")?;
     let patch = ConversationApiSettingsPatch {
-        assistant_department_api_config_id: Some(input.assistant_department_api_config_id),
+        expert_api_config_id: Some(input.expert_api_config_id),
         vision_api_config_id: Some(input.vision_api_config_id),
         tool_review_api_config_id: Some(input.tool_review_api_config_id),
         stt_api_config_id: Some(input.stt_api_config_id),
@@ -237,10 +228,10 @@ async fn ide_chat_list_tool_catalog_for_web_settings(state: &AppState) -> Result
     ide_chat_serialize(list_tool_catalog_inner(state).await?)
 }
 
-async fn ide_chat_list_department_permission_catalog_for_web_settings(
+async fn ide_chat_list_permission_catalog_for_web_settings(
     state: &AppState,
 ) -> Result<Value, String> {
-    ide_chat_serialize(list_department_permission_catalog_inner(state).await?)
+    ide_chat_serialize(list_permission_catalog_inner(state).await?)
 }
 
 async fn ide_chat_web_access_info_for_web_settings(
@@ -442,11 +433,10 @@ fn ide_chat_clear_agent_avatar_for_web_settings(
 
 fn ide_chat_convert_private_agent_to_main_for_web_settings(
     state: &AppState,
-    app: &AppHandle,
     params: Value,
 ) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<ConvertPrivateAgentToMainInput>(params, "input")?;
-    ide_chat_serialize(convert_private_agent_to_main_inner(input, app, state)?)
+    ide_chat_serialize(convert_private_agent_to_main_inner(input, state)?)
 }
 
 fn ide_chat_check_tools_status_for_web_settings(

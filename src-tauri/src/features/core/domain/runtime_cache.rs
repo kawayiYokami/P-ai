@@ -923,7 +923,6 @@ fn preserve_field_level_conversation_metadata(
 ) {
     target.title = source.title.clone();
     target.agent_id = source.agent_id.clone();
-    target.department_id = source.department_id.clone();
     target.bound_conversation_id = source.bound_conversation_id.clone();
     target.parent_conversation_id = source.parent_conversation_id.clone();
     target.child_conversation_ids = source.child_conversation_ids.clone();
@@ -1313,7 +1312,7 @@ fn state_schedule_conversation_persist(
     let has_field_metadata_authority =
         lock_cached_conversation_field_metadata_ids(state).contains(&conversation.id);
     if has_field_metadata_authority {
-        // 字段级 metadata API 是部门、人格、路由、工作区、Todo 等字段的权威写入面。
+        // 字段级 metadata API 是人格、路由、工作区、Todo 等字段的权威写入面。
         // 标记独立于 pending 批次保存，避免 worker take/落盘后旧完整快照再次回滚这些字段。
         // messages 仍来自传入快照；完整快照若要修改 metadata，应改走字段级 API。
         apply_cached_conversation_metadata(state, &mut conversation_for_cache)?;

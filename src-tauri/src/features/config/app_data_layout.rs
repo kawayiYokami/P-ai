@@ -423,11 +423,18 @@ struct DataMigrationStep {
 }
 
 fn data_migration_steps() -> Vec<DataMigrationStep> {
-    vec![DataMigrationStep {
-        version: DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES,
-        name: "v2_assistant_workspace_for_empty_shell_workspaces",
-        run: migrate_empty_shell_workspaces_to_assistant_workspace,
-    }]
+    vec![
+        DataMigrationStep {
+            version: DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES,
+            name: "v2_assistant_workspace_for_empty_shell_workspaces",
+            run: migrate_empty_shell_workspaces_to_assistant_workspace,
+        },
+        DataMigrationStep {
+            version: DATA_MIGRATION_VERSION_V5_DEPARTMENTS_TO_AGENT_ORGANIZATION,
+            name: "v5_departments_to_agent_organization",
+            run: migrate_departments_into_agent_organization,
+        },
+    ]
 }
 
 fn conversation_shell_workspace_path_key(path: &str) -> String {

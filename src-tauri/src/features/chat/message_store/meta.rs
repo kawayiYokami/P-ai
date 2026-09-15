@@ -7,7 +7,6 @@ pub(super) struct ConversationPersistMeta {
     id: String,
     title: String,
     agent_id: String,
-    department_id: String,
     bound_conversation_id: Option<String>,
     parent_conversation_id: Option<String>,
     child_conversation_ids: Vec<String>,
@@ -138,8 +137,6 @@ pub(super) struct ConversationShardMeta {
     id: String,
     title: String,
     agent_id: String,
-    #[serde(default)]
-    department_id: String,
     #[serde(default)]
     bound_conversation_id: Option<String>,
     #[serde(default)]
@@ -293,10 +290,6 @@ impl ConversationShardMeta {
 
     pub(super) fn agent_id(&self) -> &str {
         self.agent_id.as_str()
-    }
-
-    pub(super) fn department_id(&self) -> &str {
-        self.department_id.as_str()
     }
 
     pub(super) fn conversation_kind(&self) -> &str {
@@ -474,7 +467,6 @@ impl ConversationShardMeta {
     pub(super) fn apply_to_conversation(&self, target: &mut Conversation) {
         target.title = self.title.clone();
         target.agent_id = self.agent_id.clone();
-        target.department_id = self.department_id.clone();
         target.bound_conversation_id = self.bound_conversation_id.clone();
         target.parent_conversation_id = self.parent_conversation_id.clone();
         target.child_conversation_ids = self.child_conversation_ids.clone();
@@ -510,7 +502,6 @@ impl ConversationShardMeta {
     pub(super) fn apply_metadata_fields_from_conversation(&mut self, source: &Conversation) {
         self.title = source.title.clone();
         self.agent_id = source.agent_id.clone();
-        self.department_id = source.department_id.clone();
         self.bound_conversation_id = source.bound_conversation_id.clone();
         self.parent_conversation_id = source.parent_conversation_id.clone();
         self.child_conversation_ids = source.child_conversation_ids.clone();
@@ -546,7 +537,6 @@ impl ConversationShardMeta {
     pub(super) fn apply_metadata_fields_from_meta(&mut self, source: &ConversationShardMeta) {
         self.title = source.title.clone();
         self.agent_id = source.agent_id.clone();
-        self.department_id = source.department_id.clone();
         self.bound_conversation_id = source.bound_conversation_id.clone();
         self.parent_conversation_id = source.parent_conversation_id.clone();
         self.child_conversation_ids = source.child_conversation_ids.clone();
@@ -581,7 +571,6 @@ impl ConversationShardMeta {
     pub(super) fn apply_metadata_fields_from_meta_view(&mut self, source: &ConversationMetaView) {
         self.title = source.title.clone();
         self.agent_id = source.agent_id.clone();
-        self.department_id = source.department_id.clone();
         self.parent_conversation_id = source.parent_conversation_id.clone();
         self.child_conversation_ids = source.child_conversation_ids.clone();
         self.fork_message_cursor = source.fork_message_cursor.clone();
@@ -854,7 +843,6 @@ impl ConversationShardMeta {
             id: conversation.id.clone(),
             title: conversation.title.clone(),
             agent_id: conversation.agent_id.clone(),
-            department_id: conversation.department_id.clone(),
             bound_conversation_id: conversation.bound_conversation_id.clone(),
             parent_conversation_id: conversation.parent_conversation_id.clone(),
             child_conversation_ids: conversation.child_conversation_ids.clone(),
@@ -952,7 +940,6 @@ impl ConversationShardMeta {
             id: meta.id.clone(),
             title: meta.title.clone(),
             agent_id: meta.agent_id.clone(),
-            department_id: meta.department_id.clone(),
             bound_conversation_id: meta.bound_conversation_id.clone(),
             parent_conversation_id: meta.parent_conversation_id.clone(),
             child_conversation_ids: meta.child_conversation_ids.clone(),
@@ -1001,7 +988,6 @@ impl ConversationShardMeta {
             id: self.id.clone(),
             title: self.title.clone(),
             agent_id: self.agent_id.clone(),
-            department_id: self.department_id.clone(),
             bound_conversation_id: self.bound_conversation_id.clone(),
             parent_conversation_id: self.parent_conversation_id.clone(),
             child_conversation_ids: self.child_conversation_ids.clone(),
@@ -1049,7 +1035,6 @@ impl ConversationShardMeta {
             id: self.id,
             title: self.title,
             agent_id: self.agent_id,
-            department_id: self.department_id,
             bound_conversation_id: self.bound_conversation_id,
             parent_conversation_id: self.parent_conversation_id,
             child_conversation_ids: self.child_conversation_ids,
@@ -1132,7 +1117,6 @@ mod message_store_meta_tests {
             id: "conversation-meta".to_string(),
             title: "元数据会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             bound_conversation_id: Some("bound-a".to_string()),
             parent_conversation_id: Some("parent-a".to_string()),
             child_conversation_ids: vec!["child-a".to_string()],

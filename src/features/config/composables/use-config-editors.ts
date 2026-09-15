@@ -9,7 +9,7 @@ type UseConfigEditorsOptions = {
   config: AppConfig;
   personas: Ref<PersonaProfile[]>;
   assistantPersonas: ComputedRef<PersonaProfile[]>;
-  assistantDepartmentAgentId: Ref<string>;
+  assistantAgentId: Ref<string>;
   personaEditorId: Ref<string>;
   selectedPersonaEditor: ComputedRef<PersonaProfile | null>;
   createApiConfig: (seed?: string) => ApiConfigItem;
@@ -20,14 +20,14 @@ type UseConfigEditorsOptions = {
   saveConfig: () => Promise<boolean>;
 };
 
-export type PersonaDepartmentToggleStatus =
+export type PersonaChildAgentsUpdateStatus =
   | "applied"
   | "unchanged"
   | "overridden"
   | "failed"
   | "rejected";
 
-export type PersonaDepartmentToggleResult = { status: PersonaDepartmentToggleStatus };
+export type PersonaChildAgentsUpdateResult = { status: PersonaChildAgentsUpdateStatus };
 
 export function useConfigEditors(options: UseConfigEditorsOptions) {
   function firstActiveApiConfigId(): string {
@@ -73,17 +73,14 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
       provider.deprecated = true;
       provider.models = (provider.models || []).map((item) => ({ ...item, deprecated: true }));
     }
-    for (const department of options.config.departments || []) {
-      const nextIds = (Array.isArray(department.apiConfigIds) ? department.apiConfigIds : [])
+    for (const persona of options.personas.value || []) {
+      if (!Array.isArray(persona.apiConfigIds)) continue;
+      persona.apiConfigIds = persona.apiConfigIds
         .map((id) => String(id || "").trim())
         .filter((id) => !!id && id !== removedId);
-      department.apiConfigIds = nextIds;
-      if (String(department.apiConfigId || "").trim() === removedId) {
-        department.apiConfigId = nextIds[0] || "";
-      }
     }
-    if (options.config.assistantDepartmentApiConfigId === removedId) {
-      options.config.assistantDepartmentApiConfigId = "";
+    if (options.config.expertApiConfigId === removedId) {
+      options.config.expertApiConfigId = "";
     }
     if (options.config.sttApiConfigId === removedId) {
       options.config.sttApiConfigId = undefined;
@@ -110,7 +107,7 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
           }))
         : [],
     }));
-    const previousAssistantDepartmentAgentId = options.assistantDepartmentAgentId.value;
+    const previousAssistantAgentId = options.assistantAgentId.value;
     const previousPersonaEditorId = options.personaEditorId.value;
     const id = `persona-${Date.now()}`;
     const now = new Date().toISOString();
@@ -129,13 +126,15 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
       isBuiltInSystem: false,
       source: "main_config",
       scope: "global",
+      childAgentIds: [],
+      apiConfigIds: [],
     });
-    options.assistantDepartmentAgentId.value = id;
+    options.assistantAgentId.value = id;
     options.personaEditorId.value = id;
     const saved = await options.savePersonas();
     if (!saved) {
       options.personas.value = previousPersonas;
-      options.assistantDepartmentAgentId.value = previousAssistantDepartmentAgentId;
+      options.assistantAgentId.value = previousAssistantAgentId;
       options.personaEditorId.value = previousPersonaEditorId;
       return;
     }
@@ -143,44 +142,44 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
   }
 
   /**
-   * 勾选/取消人格与部门的归属关系，立即落盘。
-   * 私域部门由私有工作区文件维护，不在这里改。
+   * 改写某个人格的直属下级人格，立即落盘。
+   * 私有人格由私有工作区文件维护，不在这里改。
    *
-   * 返回结构化结果：后端在保存时会自修复（内置部门缺人格回默认人格），
-   * 那种情况下用户请求的状态不会落地，调用方必须能区分，不能一律当成已生效。
+   * 返回结构化结果：保存会做归一化，用户请求的状态不一定原样落地，
+   * 调用方必须能区分，不能一律当成已生效。
    */
-  async function togglePersonaDepartmentMember(input: {
+  async function setPersonaChildAgents(input: {
     agentId: string;
-    departmentId: string;
-    member: boolean;
-  }): Promise<PersonaDepartmentToggleResult> {
+    childAgentIds: string[];
+  }): Promise<PersonaChildAgentsUpdateResult> {
     const agentId = String(input?.agentId || "").trim();
-    const departmentId = String(input?.departmentId || "").trim();
-    if (!agentId || !departmentId) return { status: "rejected" };
-    const department = (options.config.departments || []).find(
-      (item) => String(item.id || "").trim() === departmentId,
+    if (!agentId) return { status: "rejected" };
+    const persona = options.personas.value.find(
+      (item) => String(item.id || "").trim() === agentId,
     );
-    if (!department || String(department.source || "").trim() === "private_workspace") {
-      return { status: "rejected" };
+    if (!persona) return { status: "rejected" };
+    const next = Array.from(
+      new Set((input.childAgentIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
+    );
+    const previous = Array.isArray(persona.childAgentIds) ? [...persona.childAgentIds] : [];
+    const sameLength = previous.length === next.length;
+    if (sameLength && previous.every((id, index) => id === next[index])) {
+      return { status: "unchanged" };
     }
-    const previousAgentIds = Array.isArray(department.agentIds) ? [...department.agentIds] : [];
-    const isMember = previousAgentIds.some((id) => String(id || "").trim() === agentId);
-    if (isMember === !!input.member) return { status: "unchanged" };
-    department.agentIds = input.member
-      ? [...previousAgentIds, agentId]
-      : previousAgentIds.filter((id) => String(id || "").trim() !== agentId);
-    const saved = await options.saveConfig();
+    persona.childAgentIds = next;
+    const saved = await options.savePersonas();
     if (!saved) {
-      department.agentIds = previousAgentIds;
+      persona.childAgentIds = previous;
       return { status: "failed" };
     }
-    // 保存会把归一化后的配置回写进来，据此确认请求的状态是否真的落地
-    const savedDepartment = (options.config.departments || []).find(
-      (item) => String(item.id || "").trim() === departmentId,
+    const savedPersona = options.personas.value.find(
+      (item) => String(item.id || "").trim() === agentId,
     );
-    const appliedAgentIds = Array.isArray(savedDepartment?.agentIds) ? savedDepartment.agentIds : [];
-    const applied = appliedAgentIds.some((id) => String(id || "").trim() === agentId);
-    return { status: applied === !!input.member ? "applied" : "overridden" };
+    const applied = Array.isArray(savedPersona?.childAgentIds)
+      ? savedPersona.childAgentIds.map((id) => String(id || "").trim())
+      : [];
+    const appliedSame = applied.length === next.length && applied.every((id, index) => id === next[index]);
+    return { status: appliedSame ? "applied" : "overridden" };
   }
 
   function removeSelectedPersona() {
@@ -189,8 +188,8 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     if (!target || target.isBuiltInUser || target.isBuiltInSystem) return;
     const idx = options.personas.value.findIndex((p) => p.id === target.id);
     if (idx >= 0) options.personas.value.splice(idx, 1);
-    if (options.assistantDepartmentAgentId.value === target.id) {
-      options.assistantDepartmentAgentId.value = options.assistantPersonas.value[0]?.id || "default-agent";
+    if (options.assistantAgentId.value === target.id) {
+      options.assistantAgentId.value = options.assistantPersonas.value[0]?.id || "default-agent";
     }
     options.personaEditorId.value = options.assistantPersonas.value[0]?.id || "default-agent";
   }
@@ -199,7 +198,7 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     addApiConfig,
     removeSelectedApiConfig,
     addPersona,
-    togglePersonaDepartmentMember,
+    setPersonaChildAgents,
     removeSelectedPersona,
   };
 }

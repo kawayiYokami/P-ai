@@ -237,7 +237,6 @@ type TaskTriggerInputWire = {
 
 type TaskCreateInputWire = {
   conversationId: string;
-  departmentId?: string;
   agentId?: string;
   targetScope: "desktop";
   goal: string;
@@ -249,7 +248,6 @@ type TaskCreateInputWire = {
 type TaskUpdateInputWire = {
   taskId: string;
   conversationId?: string;
-  departmentId?: string;
   agentId?: string;
   goal: string;
   why: string;

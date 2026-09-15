@@ -1073,7 +1073,7 @@ async fn invoke_expert_model_json_result(
     }
     let app_config =
         state_read_config_cached(state).map_err(QuickModelJsonCallError::from_message)?;
-    let expert_id = app_config.assistant_department_api_config_id.trim().to_string();
+    let expert_id = app_config.expert_api_config_id.trim().to_string();
     if expert_id.is_empty() {
         return Err(QuickModelJsonCallError::from_message(
             "未配置专家模型（请在对话设置中配置专家模型）",

@@ -115,14 +115,7 @@ impl ConversationServiceV2 {
     fn collect_unarchived_conversation_summaries_cached(
         &self,
         state: &AppState,
-        app_config: &AppConfig,
     ) -> Result<Vec<UnarchivedConversationSummary>, String> {
-        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-        let runtime_app_config = if runtime_snapshot.config.departments.is_empty() {
-            app_config.clone()
-        } else {
-            runtime_snapshot.config
-        };
         let main_conversation_id = main_conversation_id_downgraded(state)
             .map(|id| id.trim().to_string())
             .unwrap_or_default();
@@ -168,7 +161,6 @@ impl ConversationServiceV2 {
                     self.fill_summary_preview_messages_fallback(state, conversation_meta);
                 build_unarchived_conversation_summary_from_meta_view(
                     state,
-                    &runtime_app_config,
                     &main_conversation_id,
                     &pinned_conversation_ids,
                     &hydrated_conversation_meta,

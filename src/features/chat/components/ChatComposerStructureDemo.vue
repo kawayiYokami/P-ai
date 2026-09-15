@@ -62,8 +62,8 @@
           persona-name="纳西妲"
           :persona-name-map="demoPersonaNameMap"
           :persona-avatar-url-map="{}"
-          :create-conversation-department-options="[]"
-          default-create-conversation-department-id=""
+          :create-conversation-agent-options="[]"
+          default-create-conversation-agent-id=""
           :ide-context-groups="demoIdeGroups"
           :attached-ide-context-references="demoAttachedRefs"
           :show-conversation-actions="true"
@@ -142,9 +142,9 @@ const demoInstructions = ref([
   { id: "p3", prompt: "用中文总结这段 changelog" },
 ]);
 const mentionCandidates = ref([
-  { agentId: "a1", agentName: "纳西妲", departmentName: "智慧殿" },
-  { agentId: "a2", agentName: "红豆", departmentName: "用户组" },
-  { agentId: "a3", agentName: "派蒙", departmentName: "向导组" },
+  { agentId: "a1", agentName: "纳西妲" },
+  { agentId: "a2", agentName: "红豆" },
+  { agentId: "a3", agentName: "派蒙" },
 ]);
 
 const demoInstructionPresets = computed(() =>
@@ -155,9 +155,6 @@ const demoMentionEntries = computed<ChatMentionEntry[]>(() =>
   mentionCandidates.value.map((item) => ({
     agentId: item.agentId,
     agentName: item.agentName,
-    departmentId: "d-demo",
-    departmentName: item.departmentName,
-    departmentNames: [item.departmentName],
     isFrontSpeaking: false,
     hasBackgroundTask: false,
     mentionable: true,
@@ -237,7 +234,7 @@ const demoChatModelOptions = computed<ApiConfigItem[]>(() => [
 ]);
 
 function makeDemoMentions(): ChatMentionTarget[] {
-  return [{ agentId: "a1", agentName: "纳西妲", departmentId: "d1", departmentName: "智慧殿" }];
+  return [{ agentId: "a1", agentName: "纳西妲" }];
 }
 
 function resetDemoMentions(): void {
@@ -247,29 +244,23 @@ function resetDemoMentions(): void {
 function handleDemoAddMention(item: ChatMentionTarget): void {
   const agentId = String(item?.agentId || "").trim();
   if (!agentId) return;
-  const departmentId = String(item?.departmentId || "d-demo").trim() || "d-demo";
-  if (demoMentions.value.some((m) => m.agentId === agentId && m.departmentId === departmentId)) return;
+  if (demoMentions.value.some((m) => m.agentId === agentId)) return;
   demoMentions.value = [
     ...demoMentions.value,
     {
       agentId,
       agentName: String(item?.agentName || agentId),
-      departmentId,
-      departmentName: String(item?.departmentName || ""),
     },
   ];
 }
 
-function handleDemoRemoveMention(value: string | { agentId: string; departmentId?: string }): void {
+function handleDemoRemoveMention(value: string | { agentId: string }): void {
   if (typeof value === "string") {
     demoMentions.value = demoMentions.value.filter((m) => m.agentId !== value);
     return;
   }
   const agentId = String(value?.agentId || "").trim();
-  const departmentId = String(value?.departmentId || "").trim();
-  demoMentions.value = demoMentions.value.filter((m) =>
-    departmentId ? !(m.agentId === agentId && m.departmentId === departmentId) : m.agentId !== agentId,
-  );
+  demoMentions.value = demoMentions.value.filter((m) => m.agentId !== agentId);
 }
 
 function makeDemoImages(): Array<{ mime: string; label: string; previewDataUrl?: string }> {

@@ -1282,16 +1282,12 @@ function resolveMessageMentions(message: ChatMessage): ChatMentionTarget[] {
     if (!item || typeof item !== "object") continue;
     const mention = item as Record<string, unknown>;
     const agentId = String(mention.agentId || "").trim();
-    const departmentId = String(mention.departmentId || "").trim();
-    if (!agentId || !departmentId) continue;
-    const dedupKey = `${agentId}::${departmentId}`;
-    if (seen.has(dedupKey)) continue;
-    seen.add(dedupKey);
+    if (!agentId) continue;
+    if (seen.has(agentId)) continue;
+    seen.add(agentId);
     mentions.push({
       agentId,
       agentName: String(mention.agentName || agentId).trim() || agentId,
-      departmentId,
-      departmentName: String(mention.departmentName || departmentId).trim() || departmentId,
       avatarUrl: undefined,
     });
   }

@@ -4,7 +4,6 @@ export function useChatRuntimeWatchers(bindings: Record<string, any>) {
   watch(
     () => ({
       mode: bindings.viewMode.value,
-      departmentId: String(bindings.currentForegroundDepartmentId.value || "").trim(),
       agentId: String(bindings.currentForegroundAgentId.value || "").trim(),
     }),
     ({ mode }) => {

@@ -78,15 +78,9 @@ impl ConversationServiceV2 {
             .filter(|archive_meta| current_archived_ids.contains(archive_meta.id.trim()))
             .filter(|archive_meta| archive_meta.status.trim() == "archived")
             .map(|archive_meta| {
-                let api_config_id = runtime_department_by_id(
-                    &runtime_snapshot,
-                    archive_meta.department_id.trim(),
-                )
-                .or_else(|| {
-                    runtime_department_for_agent(&runtime_snapshot, archive_meta.agent_id.as_str())
-                })
-                .map(department_primary_api_config_id)
-                .unwrap_or_default();
+                let api_config_id = agent_by_id(&runtime_snapshot.agents, archive_meta.agent_id.as_str())
+                    .map(agent_primary_api_config_id)
+                    .unwrap_or_default();
                 let title = archive_meta.title.trim().to_string();
                 ArchiveSummary {
                     archive_id: archive_meta.id.to_string(),
@@ -255,25 +249,6 @@ impl ConversationServiceV2 {
             drop(guard);
             return Err("当前没有可归档的活动对话。".to_string());
         }
-        let department_id = source_meta.department_id.trim();
-        let department = if department_id.is_empty() {
-            runtime_log_warn(format!(
-                "[归档] 跳过部门校验，任务=resolve_archive_request_conversation_by_id，conversation_id={}，原因=会话未绑定部门，改为直接归档并跳过归档反思",
-                source_meta.id
-            ));
-            None
-        } else {
-            match runtime_department_by_id(&runtime_snapshot, department_id) {
-                Some(department) => Some(department),
-                None => {
-                    runtime_log_warn(format!(
-                        "[归档] 跳过部门校验，任务=resolve_archive_request_conversation_by_id，conversation_id={}，department_id={}，原因=会话绑定部门不存在，改为直接归档并跳过归档反思",
-                        source_meta.id, department_id
-                    ));
-                    None
-                }
-            }
-        };
         let effective_agent_id = source_meta.agent_id.trim();
         let effective_agent_id = if effective_agent_id.is_empty() {
             runtime_log_warn(format!(
@@ -299,9 +274,10 @@ impl ConversationServiceV2 {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .and_then(|api_id| resolve_department_chat_api_config_id(app_config, api_id));
+            .and_then(|api_id| resolve_chat_api_config_id(app_config, api_id));
         let selected_api_id = preferred_api_id.or_else(|| {
-            department.and_then(|department| department_primary_chat_api_config_id(app_config, department))
+            agent_by_id(&runtime_snapshot.agents, &effective_agent_id)
+                .and_then(|agent| agent_primary_chat_api_config_id(app_config, agent))
         });
         let selected_api = resolve_selected_api_config(app_config, selected_api_id.as_deref())
             .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
@@ -322,7 +298,7 @@ impl ConversationServiceV2 {
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut main_conversation_id = state_service_get_main_conversation_id(state)?;
-        let assistant_department_agent_id = state_service_get_assistant_department_agent_id(state)?;
+        let assistant_agent_id = state_service_get_assistant_agent_id(state)?;
         let agents = state_read_agents_cached(state)?;
         let source_conversation = read_conversation_for_backup_cleanup(state, &source.id)
             .map_err(|_| "活动对话已变化，请重试归档。".to_string())?;
@@ -383,7 +359,7 @@ impl ConversationServiceV2 {
             let replacement = build_archive_replacement_conversation(
                 state,
                 &agents,
-                &assistant_department_agent_id,
+                &assistant_agent_id,
                 selected_api,
                 &source_conversation,
             )?;
@@ -735,7 +711,7 @@ impl ConversationServiceV2 {
                     return Err("当前没有可归档的活动对话。".to_string());
                 }
 
-                let assistant_department_agent_id = state_service_get_assistant_department_agent_id(state)?;
+                let assistant_agent_id = state_service_get_assistant_agent_id(state)?;
                 let runtime_snapshot = load_runtime_organization_snapshot(state)?;
                 let agents = runtime_snapshot.agents;
                 let chat_index = state_read_chat_index_cached(state)?;
@@ -768,7 +744,7 @@ impl ConversationServiceV2 {
                     let conversation = build_archive_replacement_conversation(
                         state,
                         &agents,
-                        &assistant_department_agent_id,
+                        &assistant_agent_id,
                         selected_api,
                         source,
                     )?;

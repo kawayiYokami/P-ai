@@ -52,6 +52,30 @@ struct AgentProfile {
     source: String,
     #[serde(default = "default_global_scope")]
     scope: String,
+    /// 人格简介：一句话描述这个人格擅长什么。
+    /// 用于人格列表展示，并接替原部门 `summary` 在委托清单里对目标人格的说明位。
+    /// 必须独立于 skill：人格可能一个 skill 都没有，且一个人格可常驻多个 skill、各自的 description 只描述自己。
+    #[serde(default)]
+    summary: String,
+    /// 常驻 skill：这些 skill 的说明会**全文注入**该人格的系统提示词，模型无需读文件。
+    #[serde(default)]
+    resident_skill_names: Vec<String>,
+    /// 可选 skill：只把这些 skill 的**引用**（名字）注入系统提示词，模型需要时自行读取。
+    #[serde(default)]
+    optional_skill_names: Vec<String>,
+    /// 人格驱动模型（会话基线，可被会话级首选覆盖）。
+    #[serde(default)]
+    api_config_ids: Vec<String>,
+    #[serde(default)]
+    api_config_id: String,
+    #[serde(default)]
+    model_failure_fallback_enabled: bool,
+    /// 人格权限：强制约束该人格所有会话的工具/技能/MCP 可见性。
+    #[serde(default)]
+    permission_control: AgentPermissionControl,
+    /// 下级人格 id：组织树的父子边，父子边语义为「可直接委托」。
+    #[serde(default)]
+    child_agent_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -473,8 +497,6 @@ struct Conversation {
     title: String,
     agent_id: String,
     #[serde(default)]
-    department_id: String,
-    #[serde(default)]
     bound_conversation_id: Option<String>,
     #[serde(default)]
     parent_conversation_id: Option<String>,
@@ -535,8 +557,6 @@ struct Conversation {
 
 #[derive(Debug, Clone)]
 struct RemoteImConversationAssistantContext {
-    department_id: String,
-    department_name: String,
     agent_id: String,
     agent_name: String,
 }
@@ -556,7 +576,6 @@ struct ConversationRuntimeSlot {
 struct ConversationStreamRuntimeCache {
     activation_id: String,
     request_id: String,
-    department_id: String,
     agent_id: String,
     assistant_text: String,
     activity_reasoning_text: String,

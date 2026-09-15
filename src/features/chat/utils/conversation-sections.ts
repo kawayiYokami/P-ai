@@ -287,14 +287,7 @@ function resolveRemoteConversationSectionMeta(
   fallbackTitle: string,
 ): { channelId: string; channelName: string; hasChannel: boolean; title: string; key: string } {
   const channelId = String(item.channelId || "").trim();
-  let channelName = String(item.channelName || "").trim();
-  if (!channelName) {
-    const departmentName = String(item.departmentName || "").trim();
-    const separatorIndex = departmentName.indexOf(" · ");
-    if (separatorIndex > 0) {
-      channelName = departmentName.slice(0, separatorIndex).trim();
-    }
-  }
+  const channelName = String(item.channelName || "").trim();
   const hasChannel = !!(channelId || channelName);
   const title = channelName || channelId || fallbackTitle;
   return {

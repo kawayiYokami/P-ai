@@ -261,7 +261,7 @@ fn prepared_prompt_latest_user_text_blocks(prepared: &PreparedPrompt) -> Vec<Str
 #[serde(rename_all = "camelCase")]
 struct ChatSettings {
     #[serde(alias = "selectedAgentId", alias = "selected_agent_id")]
-    assistant_department_agent_id: String,
+    assistant_agent_id: String,
     user_alias: String,
     #[serde(default = "default_response_style_id")]
     response_style_id: String,
@@ -287,7 +287,7 @@ struct AppBootstrapSnapshot {
 #[serde(rename_all = "camelCase")]
 struct ConversationApiSettings {
     #[serde(alias = "chatApiConfigId", alias = "chat_api_config_id")]
-    assistant_department_api_config_id: String,
+    expert_api_config_id: String,
     #[serde(default)]
     vision_api_config_id: Option<String>,
     #[serde(default)]

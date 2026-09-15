@@ -50,6 +50,7 @@ include!("features/core/time_semantics.rs");
 // ==================== 配置与存储 ====================
 include!("features/config/storage_and_stt.rs");
 include!("features/config/app_data_layout.rs");
+include!("features/config/agent_org_migration.rs");
 include!("features/state/mod.rs");
 include!("features/chat/message_store/mod.rs");
 use easy_call_ai::pai_config_tool;
@@ -503,7 +504,7 @@ async fn run_deferred_setup(app_handle: AppHandle) {
                 if let Err(err) = state_write_config_cached(app_state.inner(), &config) {
                     runtime_log_error(format!("[启动自检] 写入修复后的配置失败: {err}"));
                 } else {
-                    runtime_log_info(format!("[启动自检] 完成，已将副手部门模型从默认人格修正为副手"));
+                    runtime_log_info(format!("[启动自检] 完成，已将副手模型从默认人格修正为副手"));
                 }
             }
         }
@@ -1170,6 +1171,11 @@ fn main() {
 
             // ========== 阶段 1：最小启动，尽快让前端可见 ==========
             let app_state = app_handle.state::<AppState>();
+            // 旧配置键只在迁移模块内可见，且任何一次配置落盘都会让它消失；
+            // 这里必须早于启动窗口判定与后续所有配置写。
+            if let Err(err) = agent_org_salvage_legacy_expert_model_key(app_state.inner()) {
+                runtime_log_warn(format!("[启动] 抢救旧专家模型配置键失败: {err}"));
+            }
             initialize_window_layout_store(&app_handle);
             attach_window_layout_persistence(&app_handle);
             hide_on_close(&app_handle);
@@ -1247,7 +1253,6 @@ fn main() {
             set_skipped_github_update_version,
             set_ui_language,
             load_config,
-            get_department_default_draft,
             generate_image,
             check_message_store_migration,
             run_message_store_migration,
@@ -1286,7 +1291,7 @@ fn main() {
             sync_tray_icon,
             save_conversation_api_settings,
             patch_conversation_api_settings,
-            set_department_primary_api_config,
+            set_agent_primary_api_config,
             get_chat_snapshot,
             list_unarchived_conversations,
             list_unarchived_conversations_changed_since,
@@ -1445,7 +1450,7 @@ fn main() {
             codex_logout,
             check_tools_status,
             list_tool_catalog,
-            list_department_permission_catalog,
+            list_permission_catalog,
             get_image_text_cache_stats,
             clear_image_text_cache,
             list_recent_llm_round_logs,
@@ -1473,7 +1478,7 @@ fn main() {
             remote_im_update_contact_activation,
             remote_im_update_contact_remark,
             remote_im_update_contact_route_mode,
-            remote_im_update_contact_department_binding,
+            remote_im_update_contact_agent_binding,
             remote_im_update_contact_processing_mode,
             remote_im_update_contact_workspace,
             remote_im_delete_contact,

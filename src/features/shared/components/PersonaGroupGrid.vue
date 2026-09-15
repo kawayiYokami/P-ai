@@ -2,22 +2,17 @@
   <ChatConversationFloatingScroll class="h-full">
     <div ref="contentRef" class="flex flex-col gap-4 p-4 sm:flex-row sm:flex-wrap sm:gap-x-2 sm:gap-y-4">
       <div
-        v-for="group in departmentGroups"
-        :key="group.departmentId"
         class="relative w-full min-w-0 flex flex-col gap-1 rounded-xl border-x border-t border-base-300 bg-base-100 p-2 transition-colors sm:w-auto sm:min-w-[16rem]"
       >
-        <div class="absolute -top-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap bg-base-100 px-2 text-center text-xs font-semibold text-base-content/70">
-          {{ group.departmentName }}
-        </div>
         <div
-          v-if="group.agents.every((option) => option.personaMissing)"
+          v-if="options.every((option) => option.personaMissing)"
           class="w-full px-2 py-4 text-center text-xs text-base-content/60"
         >
-          {{ t("chat.departmentNoAvailableAgent") }}
+          {{ t("chat.noAvailableAgent") }}
         </div>
         <div v-else class="grid grid-cols-3 gap-1 sm:flex sm:flex-wrap sm:justify-center">
           <button
-            v-for="option in group.agents"
+            v-for="option in options"
             :key="option.id"
             type="button"
             class="flex min-w-0 w-full flex-col items-center gap-1 rounded-lg px-1 py-1 transition-colors hover:bg-base-200 sm:w-20"
@@ -63,13 +58,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import ChatConversationFloatingScroll from "../../chat/components/ChatConversationFloatingScroll.vue";
-import type { DepartmentPersonaOption } from "../department-persona-options";
+import type { AgentPersonaOption } from "../agent-persona-options";
 
 const props = withDefaults(defineProps<{
-  options?: DepartmentPersonaOption[];
+  options?: AgentPersonaOption[];
   selectedId?: string;
   avatarUrlMap?: Record<string, string>;
 }>(), {
@@ -79,38 +74,13 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-  select: [option: DepartmentPersonaOption];
+  select: [option: AgentPersonaOption];
 }>();
 
 const { t } = useI18n();
 
 const contentRef = ref<HTMLElement | null>(null);
 defineExpose({ contentRef });
-
-type AgentGroup = {
-  departmentId: string;
-  departmentName: string;
-  agents: DepartmentPersonaOption[];
-};
-
-const departmentGroups = computed<AgentGroup[]>(() => {
-  const groups = new Map<string, AgentGroup>();
-  for (const option of props.options) {
-    const departmentId = String(option.departmentId || "").trim();
-    if (!departmentId) continue;
-    const existing = groups.get(departmentId);
-    if (existing) {
-      existing.agents.push(option);
-      continue;
-    }
-    groups.set(departmentId, {
-      departmentId,
-      departmentName: String(option.departmentName || "").trim() || departmentId,
-      agents: [option],
-    });
-  }
-  return Array.from(groups.values());
-});
 
 function resolveAvatarUrl(agentId: string): string {
   return props.avatarUrlMap?.[agentId] || "";

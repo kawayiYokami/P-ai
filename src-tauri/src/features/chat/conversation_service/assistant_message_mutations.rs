@@ -448,7 +448,6 @@ impl ConversationServiceV2 {
         &self,
         state: &AppState,
         requested_conversation_id: Option<&str>,
-        requested_department_id: Option<&str>,
         agent_id: &str,
         partial_assistant_text: &str,
         partial_activity_reasoning_text: &str,
@@ -467,9 +466,10 @@ impl ConversationServiceV2 {
             });
         }
 
-        let app_config = load_runtime_organization_snapshot(state)?.config;
+        let organization = load_runtime_organization_snapshot(state)?;
+        let app_config = organization.config;
         let api_config_id =
-            resolve_stop_chat_api_config_id(&app_config, requested_department_id, agent_id)?;
+            resolve_stop_chat_api_config_id(&app_config, &organization.agents, agent_id)?;
         if !app_config.api_configs.iter().any(|api| api.id == api_config_id) {
             return Err(format!("Selected API config '{api_config_id}' not found."));
         }

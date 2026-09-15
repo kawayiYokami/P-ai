@@ -99,7 +99,7 @@ impl ConversationServiceV2 {
             &agents,
         )?;
         let runtime_agents = runtime_snapshot.agents;
-        let assistant_department_agent_id = assistant_department_agent_id_downgraded(state);
+        let assistant_agent_id = assistant_agent_id_downgraded(state);
         let requested_agent_id = input.agent_id.trim();
         let effective_agent_id = if !requested_agent_id.is_empty() {
             if runtime_agents
@@ -112,9 +112,9 @@ impl ConversationServiceV2 {
             }
         } else if runtime_agents
             .iter()
-            .any(|agent| agent.id == assistant_department_agent_id && !agent.is_built_in_user)
+            .any(|agent| agent.id == assistant_agent_id && !agent.is_built_in_user)
         {
-            assistant_department_agent_id.clone()
+            assistant_agent_id.clone()
         } else {
             runtime_agents
                 .iter()

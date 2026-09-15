@@ -296,7 +296,7 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
         BuiltinTerminalExecTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
-            executor_department_id: String::new(),
+            executor_agent_id: String::new(),
         }
         .provider_tool_definition(),
         BuiltinConfigTool {
@@ -306,25 +306,25 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
         BuiltinWriteFileTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
-            executor_department_id: String::new(),
+            executor_agent_id: String::new(),
         }
         .provider_tool_definition(),
         BuiltinDeleteFileTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
-            executor_department_id: String::new(),
+            executor_agent_id: String::new(),
         }
         .provider_tool_definition(),
         BuiltinUpdateFileTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
-            executor_department_id: String::new(),
+            executor_agent_id: String::new(),
         }
         .provider_tool_definition(),
         BuiltinMoveFileTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
-            executor_department_id: String::new(),
+            executor_agent_id: String::new(),
         }
         .provider_tool_definition(),
         BuiltinPlanTool {
@@ -366,7 +366,6 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
             api_config_id: String::new(),
-            executor_department_id: String::new(),
             executor_agent_id: preview_agent_id.clone(),
         }
         .provider_tool_definition(),
@@ -374,7 +373,6 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
             source_agent_id: preview_agent_id.clone(),
-            source_department_id: String::new(),
         }
         .provider_tool_definition(),
         BuiltinDeepRecallSearchTool {
@@ -393,7 +391,6 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
             source_agent_id: preview_agent_id,
-            source_department_id: String::new(),
         }
         .provider_tool_definition(),
         BuiltinMemeTool { app_state: state.clone() }.provider_tool_definition(),
@@ -475,16 +472,6 @@ fn read_global_tool_schema_cache(_state: Option<&AppState>) -> Vec<CachedRuntime
         Err(err) => runtime_log_warn(format!("[工具Schema缓存] 读取失败，缓存锁已损坏: {err}")),
     }
     Vec::new()
-}
-
-fn resolve_runtime_tool_current_department<'a>(
-    app_config: &'a AppConfig,
-    executor_department_id: Option<&str>,
-) -> Option<&'a DepartmentConfig> {
-    executor_department_id
-        .map(str::trim)
-        .filter(|department_id| !department_id.is_empty())
-        .and_then(|department_id| department_by_id(app_config, department_id))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -664,7 +651,7 @@ struct ResolvedLegalRuntimeTools {
 fn runtime_tool_denied_reason(
     app_config: &AppConfig,
     selected_api: &ApiConfig,
-    current_department: Option<&DepartmentConfig>,
+    current_agent: &AgentProfile,
     runtime_policy: &RuntimeToolPolicy,
     memory_context: Option<&MemoryAgentContext>,
     tool: &CachedRuntimeToolSchema,
@@ -709,13 +696,8 @@ fn runtime_tool_denied_reason(
             if matches!(tool_name, "remember" | "recall") && memory_context.is_none() {
                 return Some("当前人格记忆上下文不可用".to_string());
             }
-            if tool_name == "task" && current_department.is_none() {
-                return Some("缺少当前执行部门，无法使用任务工具".to_string());
-            }
             if tool_name == "delegate" {
-                if let Some(reason) =
-                    delegate_builtin_tool_unavailable_reason(app_config, current_department)
-                {
+                if let Some(reason) = agent_delegate_unavailable_reason(Some(current_agent)) {
                     return Some(reason);
                 }
             }
@@ -725,29 +707,23 @@ fn runtime_tool_denied_reason(
             {
                 return None;
             }
-            let Some(department) = current_department else {
-                return Some("缺少当前执行部门，部门受控工具已降级为不可用".to_string());
-            };
-            tool_restricted_by_department(Some(department), tool_name)
+            tool_restricted_by_agent_permission(current_agent, tool_name)
         }
         CachedRuntimeToolSource::Mcp { .. } => {
-            let Some(department) = current_department else {
-                return Some("缺少当前执行部门，MCP 工具已降级为不可用".to_string());
-            };
             let candidate_names = tool
                 .permission_candidate_names
                 .iter()
                 .map(String::as_str)
                 .collect::<Vec<_>>();
-            if department_permission_allows_any_name(
-                Some(department),
-                DepartmentPermissionCategory::McpTool,
+            if agent_permission_allows_any_name(
+                Some(current_agent),
+                AgentPermissionCategory::McpTool,
                 &candidate_names,
             ) {
                 None
             } else {
                 Some(format!(
-                    "当前部门权限不允许 MCP 工具 `{}`",
+                    "当前人格权限不允许 MCP 工具 `{}`",
                     tool.permission_candidate_names
                         .first()
                         .map(String::as_str)
@@ -758,10 +734,10 @@ fn runtime_tool_denied_reason(
     }
 }
 
-fn resolve_legal_runtime_tools_for_department(
+fn resolve_legal_runtime_tools(
     app_config: &AppConfig,
     selected_api: &ApiConfig,
-    current_department: Option<&DepartmentConfig>,
+    current_agent: &AgentProfile,
     runtime_policy: &RuntimeToolPolicy,
     memory_context: Option<&MemoryAgentContext>,
     discoverable_tools: &[CachedRuntimeToolSchema],
@@ -797,13 +773,13 @@ fn resolve_legal_runtime_tools_for_department(
         if let Some(reason) = runtime_tool_denied_reason(
             app_config,
             selected_api,
-            current_department,
+            current_agent,
             runtime_policy,
             memory_context,
             tool,
         ) {
             let manifest_source = if tool.definition.name == "delegate"
-                && delegate_builtin_tool_unavailable_reason(app_config, current_department).is_some()
+                && agent_delegate_unavailable_reason(Some(current_agent)).is_some()
             {
                 "runtime_policy".to_string()
             } else {
@@ -838,14 +814,14 @@ struct AuthorizationCheckedRuntimeTool {
     app_state: AppState,
     tool_name: String,
     tool_session_id: String,
-    executor_department_id: String,
+    executor_agent_id: String,
 }
 
 fn runtime_builtin_tool_authorization_error(
     state: &AppState,
     tool_name: &str,
     tool_session_id: &str,
-    executor_department_id: &str,
+    executor_agent_id: &str,
 ) -> Option<String> {
     let runtime_policy = runtime_tool_policy_from_session(
         Some(state),
@@ -855,22 +831,25 @@ fn runtime_builtin_tool_authorization_error(
     if let Some(reason) = runtime_policy.tool_unavailable_reason(tool_name) {
         return Some(reason);
     }
-    if !builtin_tool_is_department_controlled(tool_name) {
+    if !builtin_tool_is_permission_controlled(tool_name) {
         return None;
     }
-    let app_config = match state_read_config_cached(state) {
-        Ok(config) => config,
+    let agents = match state_read_agents_cached(state) {
+        Ok(agents) => agents,
         Err(err) => return Some(format!("读取最新权限失败，已跳过本工具：{err}")),
     };
-    let current_department = department_by_id(&app_config, executor_department_id);
+    let current_agent = agents
+        .iter()
+        .find(|agent| agent.id.trim() == executor_agent_id.trim());
     if tool_name == "delegate" {
-        if let Some(reason) =
-            delegate_builtin_tool_unavailable_reason(&app_config, current_department)
-        {
+        if let Some(reason) = agent_delegate_unavailable_reason(current_agent) {
             return Some(reason);
         }
     }
-    tool_restricted_by_department(current_department, tool_name)
+    let Some(current_agent) = current_agent else {
+        return Some("缺少当前执行人格，人格受控工具已降级为不可用".to_string());
+    };
+    tool_restricted_by_agent_permission(current_agent, tool_name)
 }
 
 impl RuntimeToolDyn for AuthorizationCheckedRuntimeTool {
@@ -891,7 +870,7 @@ impl RuntimeToolDyn for AuthorizationCheckedRuntimeTool {
             &self.app_state,
             &self.tool_name,
             &self.tool_session_id,
-            &self.executor_department_id,
+            &self.executor_agent_id,
         ) {
             let tool_name = self.tool_name.clone();
             return Box::pin(async move {
@@ -919,7 +898,6 @@ pub(crate) async fn assemble_runtime_tools(
     agent: &AgentProfile,
     app_state: Option<&AppState>,
     tool_session_id: &str,
-    executor_department_id: Option<&str>,
 ) -> RuntimeToolAssembly {
     if !selected_api.enable_tools {
         return empty_runtime_tool_assembly(Vec::new());
@@ -928,13 +906,8 @@ pub(crate) async fn assemble_runtime_tools(
         runtime_log_warn("[工具装配] 跳过，原因=缺少AppState，聊天继续但本轮不挂载工具".to_string());
         return empty_runtime_tool_assembly(Vec::new());
     };
-    let current_department = resolve_runtime_tool_current_department(app_config, executor_department_id);
-    if current_department.is_none() {
-        runtime_log_warn(format!(
-            "[工具装配] 降级，原因=执行部门不存在，department_id={}，部门受控工具与MCP将跳过",
-            executor_department_id.unwrap_or_default()
-        ));
-    }
+    // 执行上下文就是当前人格本身：权限、下级、模型全部从人格上取。
+    let executor_agent = agent;
     let runtime_tool_policy = runtime_tool_policy_from_session(app_state, tool_session_id, true);
     let memory_context = match memory_agent_context_from_agent(agent) {
         Ok(context) => Some(context),
@@ -959,10 +932,10 @@ pub(crate) async fn assemble_runtime_tools(
         discoverable_tools.retain(|tool| tool.definition.name != OPERATE_TOOL_NAME);
         runtime_log_info("[工具装配] 电脑使用已关闭，operate 工具不挂载".to_string());
     }
-    let resolved = resolve_legal_runtime_tools_for_department(
+    let resolved = resolve_legal_runtime_tools(
         app_config,
         selected_api,
-        current_department,
+        executor_agent,
         &runtime_tool_policy,
         memory_context.as_ref(),
         &discoverable_tools,
@@ -978,7 +951,6 @@ pub(crate) async fn assemble_runtime_tools(
                 agent,
                 memory_context.as_ref(),
                 tool_session_id,
-                executor_department_id.unwrap_or_default(),
                 &descriptor.definition.name,
             ),
             CachedRuntimeToolSource::Mcp {
@@ -989,7 +961,7 @@ pub(crate) async fn assemble_runtime_tools(
                 build_cached_mcp_runtime_tool_executor(
                     state,
                     server_id,
-                    executor_department_id.unwrap_or_default(),
+                    agent.id.trim(),
                     runtime_tool_name,
                     &descriptor.definition,
                 )
@@ -1048,11 +1020,11 @@ fn build_builtin_runtime_tool_executor(
     agent: &AgentProfile,
     memory_context: Option<&MemoryAgentContext>,
     tool_session_id: &str,
-    executor_department_id: &str,
     tool_name: &str,
 ) -> Result<Box<dyn RuntimeToolDyn>, String> {
     let state = state.clone();
     let memory_context = memory_context.cloned();
+    let executor_agent_id = agent.id.trim().to_string();
     let tool: Box<dyn RuntimeToolDyn> = match tool_name {
         "fetch" => Box::new(BuiltinFetchTool { app_state: state.clone() }),
         "websearch" => Box::new(BuiltinBingSearchTool { app_state: state.clone() }),
@@ -1084,28 +1056,28 @@ fn build_builtin_runtime_tool_executor(
         "exec" => Box::new(BuiltinTerminalExecTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
-            executor_department_id: executor_department_id.to_string(),
+            executor_agent_id: executor_agent_id.clone(),
         }),
         "config" => Box::new(BuiltinConfigTool { app_state: state.clone() }),
         "write" => Box::new(BuiltinWriteFileTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
-            executor_department_id: executor_department_id.to_string(),
+            executor_agent_id: executor_agent_id.clone(),
         }),
         "delete" => Box::new(BuiltinDeleteFileTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
-            executor_department_id: executor_department_id.to_string(),
+            executor_agent_id: executor_agent_id.clone(),
         }),
         "update" => Box::new(BuiltinUpdateFileTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
-            executor_department_id: executor_department_id.to_string(),
+            executor_agent_id: executor_agent_id.clone(),
         }),
         "move" => Box::new(BuiltinMoveFileTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
-            executor_department_id: executor_department_id.to_string(),
+            executor_agent_id: executor_agent_id.clone(),
         }),
         "plan" => Box::new(BuiltinPlanTool {
             app_state: state.clone(),
@@ -1139,20 +1111,17 @@ fn build_builtin_runtime_tool_executor(
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
             api_config_id: selected_api.id.clone(),
-            executor_department_id: executor_department_id.to_string(),
             executor_agent_id: agent.id.trim().to_string(),
         }),
         "delegate" => Box::new(BuiltinDelegateTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
             source_agent_id: agent.id.trim().to_string(),
-            source_department_id: executor_department_id.to_string(),
         }),
         "deeprecall" => Box::new(BuiltinDeepRecallTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
             source_agent_id: agent.id.trim().to_string(),
-            source_department_id: executor_department_id.to_string(),
         }),
         "deeprecall_search" => Box::new(BuiltinDeepRecallSearchTool {
             app_state: state.clone(),
@@ -1179,7 +1148,7 @@ fn build_builtin_runtime_tool_executor(
             app_state: state,
             tool_name: tool_name.to_string(),
             tool_session_id: tool_session_id.to_string(),
-            executor_department_id: executor_department_id.to_string(),
+            executor_agent_id: executor_agent_id.clone(),
         }));
     }
     Ok(tool)
@@ -1188,7 +1157,7 @@ fn build_builtin_runtime_tool_executor(
 fn build_cached_mcp_runtime_tool_executor(
     state: &AppState,
     server_id: &str,
-    executor_department_id: &str,
+    executor_agent_id: &str,
     runtime_tool_name: &str,
     definition: &ProviderToolDefinition,
 ) -> Result<Box<dyn RuntimeToolDyn>, String> {
@@ -1212,7 +1181,7 @@ fn build_cached_mcp_runtime_tool_executor(
     Ok(Box::new(CachedMcpRuntimeTool {
         app_state: state.clone(),
         server_id: server.id,
-        executor_department_id: executor_department_id.to_string(),
+        executor_agent_id: executor_agent_id.to_string(),
         runtime_tool_name: runtime_tool_name.to_string(),
         definition: runtime_definition,
     }))
@@ -1496,18 +1465,18 @@ mod tool_assembly_permission_tests {
         }
     }
 
-    fn whitelist_department(names: &[&str]) -> DepartmentConfig {
-        let mut department = default_assistant_department("api-a");
-        department.id = "department-a".to_string();
-        department.is_built_in_assistant = false;
-        department.permission_control = DepartmentPermissionControl {
+    fn whitelist_agent(names: &[&str]) -> AgentProfile {
+        let mut agent = default_agent();
+        agent.id = "agent-a".to_string();
+        agent.permission_control = AgentPermissionControl {
             enabled: true,
             mode: "whitelist".to_string(),
             builtin_tool_names: names.iter().map(|name| (*name).to_string()).collect(),
             skill_names: Vec::new(),
             mcp_tool_names: Vec::new(),
         };
-        department
+        agent.child_agent_ids = vec!["child-agent".to_string()];
+        agent
     }
 
     fn test_api() -> ApiConfig {
@@ -1535,15 +1504,8 @@ mod tool_assembly_permission_tests {
 
     #[test]
     fn legal_tool_resolver_should_not_attach_unchecked_config_in_whitelist() {
-        let mut department = whitelist_department(&["delegate"]);
-        department.child_department_ids = vec!["department-child".to_string()];
-        let mut child = default_assistant_department("api-a");
-        child.id = "department-child".to_string();
-        child.is_built_in_assistant = false;
-        let config = AppConfig {
-            departments: vec![department.clone(), child],
-            ..AppConfig::default()
-        };
+        let agent = whitelist_agent(&["delegate"]);
+        let config = AppConfig::default();
         let policy = RuntimeToolPolicy {
             conversation_resolved: true,
             local_conversation: true,
@@ -1555,10 +1517,10 @@ mod tool_assembly_permission_tests {
             CachedRuntimeToolSchema::builtin(test_definition("todo")),
         ];
         let memory = test_memory_context(true);
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            Some(&department),
+            &agent,
             &policy,
             Some(&memory),
             &tools,
@@ -1576,7 +1538,7 @@ mod tool_assembly_permission_tests {
     }
 
     #[test]
-    fn legal_tool_resolver_should_apply_default_preset_department_whitelists() {
+    fn legal_tool_resolver_should_apply_default_preset_agent_whitelists() {
         let mut config = AppConfig::default();
         config.vision_api_config_id = Some("vision-a".to_string());
         config.image_generation_model_id = Some("provider-a::model-a".to_string());
@@ -1602,15 +1564,11 @@ mod tool_assembly_permission_tests {
         ];
         let memory = test_memory_context(true);
 
-        let explorer = config
-            .departments
-            .iter()
-            .find(|department| department.id == DEPUTY_DEPARTMENT_ID)
-            .expect("explorer department");
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let explorer = default_deputy_agent();
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            Some(explorer),
+            &explorer,
             &policy,
             Some(&memory),
             &tools,
@@ -1622,15 +1580,11 @@ mod tool_assembly_permission_tests {
             .collect::<Vec<_>>();
         assert_eq!(names, vec!["read", "read_media", "exec", "fetch", "websearch"]);
 
-        let leader = config
-            .departments
-            .iter()
-            .find(|department| department.id == LEADER_DEPARTMENT_ID)
-            .expect("leader department");
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let leader = default_leader_agent();
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            Some(leader),
+            &leader,
             &policy,
             Some(&memory),
             &tools,
@@ -1642,49 +1596,41 @@ mod tool_assembly_permission_tests {
             .collect::<Vec<_>>();
         assert_eq!(
             names,
-            vec!["read", "read_media", "exec", "fetch", "websearch", "delegate"]
+            vec!["read", "read_media", "exec", "fetch", "websearch"]
         );
-        assert!(department_permission_allows_any_name(
-            Some(leader),
-            DepartmentPermissionCategory::Skill,
+        assert!(agent_permission_allows_any_name(
+            Some(&leader),
+            AgentPermissionCategory::Skill,
             &["memory-generation"],
         ));
-        assert!(!department_permission_allows_any_name(
-            Some(leader),
-            DepartmentPermissionCategory::Skill,
+        assert!(!agent_permission_allows_any_name(
+            Some(&leader),
+            AgentPermissionCategory::Skill,
             &["news-analyst"],
         ));
 
-        let reviewer = config
-            .departments
-            .iter()
-            .find(|department| department.id == REVIEWER_DEPARTMENT_ID)
-            .expect("reviewer department");
-        assert!(department_permission_allows_any_name(
-            Some(reviewer),
-            DepartmentPermissionCategory::Skill,
+        let reviewer = default_reviewer_agent();
+        assert!(agent_permission_allows_any_name(
+            Some(&reviewer),
+            AgentPermissionCategory::Skill,
             &["code-review"],
         ));
-        assert!(!department_permission_allows_any_name(
-            Some(reviewer),
-            DepartmentPermissionCategory::Skill,
+        assert!(!agent_permission_allows_any_name(
+            Some(&reviewer),
+            AgentPermissionCategory::Skill,
             &["assistant-space-guide"],
         ));
-        assert!(department_permission_allows_any_name(
-            Some(reviewer),
-            DepartmentPermissionCategory::Skill,
+        assert!(agent_permission_allows_any_name(
+            Some(&reviewer),
+            AgentPermissionCategory::Skill,
             &["memory-generation"],
         ));
 
-        let saddler = config
-            .departments
-            .iter()
-            .find(|department| department.id == SADDLER_DEPARTMENT_ID)
-            .expect("saddler department");
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let saddler = default_saddler_agent();
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            Some(saddler),
+            &saddler,
             &policy,
             Some(&memory),
             &tools,
@@ -1696,15 +1642,11 @@ mod tool_assembly_permission_tests {
             .collect::<Vec<_>>();
         assert_eq!(names, vec!["read", "exec", "write", "update"]);
 
-        let remote_customer_service = config
-            .departments
-            .iter()
-            .find(|department| department.id == REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID)
-            .expect("remote customer service department");
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let support = default_support_agent();
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            Some(remote_customer_service),
+            &support,
             &policy,
             Some(&memory),
             &tools,
@@ -1726,21 +1668,22 @@ mod tool_assembly_permission_tests {
                 "image_edit",
             ]
         );
-        assert!(department_permission_allows_any_name(
-            Some(remote_customer_service),
-            DepartmentPermissionCategory::Skill,
+        assert!(agent_permission_allows_any_name(
+            Some(&support),
+            AgentPermissionCategory::Skill,
             &["news-analyst"],
         ));
-        assert!(department_permission_allows_any_name(
-            Some(remote_customer_service),
-            DepartmentPermissionCategory::Skill,
+        assert!(agent_permission_allows_any_name(
+            Some(&support),
+            AgentPermissionCategory::Skill,
             &["memory-generation"],
         ));
     }
 
     #[test]
-    fn legal_tool_resolver_should_degrade_missing_department_without_stopping_fixed_tools() {
+    fn legal_tool_resolver_should_degrade_missing_agent_without_stopping_fixed_tools() {
         let config = AppConfig::default();
+        let agent = whitelist_agent(&[]);
         let policy = RuntimeToolPolicy {
             conversation_resolved: true,
             local_conversation: true,
@@ -1758,10 +1701,10 @@ mod tool_assembly_permission_tests {
             ),
         ];
         let memory = test_memory_context(true);
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            None,
+            &agent,
             &policy,
             Some(&memory),
             &tools,
@@ -1776,12 +1719,9 @@ mod tool_assembly_permission_tests {
 
     #[test]
     fn legal_tool_resolver_should_keep_mcp_permission_compatibility_names() {
-        let mut department = whitelist_department(&[]);
-        department.permission_control.mcp_tool_names = vec!["server-id::search".to_string()];
-        let config = AppConfig {
-            departments: vec![department.clone()],
-            ..AppConfig::default()
-        };
+        let mut agent = whitelist_agent(&[]);
+        agent.permission_control.mcp_tool_names = vec!["server-id::search".to_string()];
+        let config = AppConfig::default();
         let policy = RuntimeToolPolicy {
             conversation_resolved: true,
             local_conversation: true,
@@ -1795,25 +1735,21 @@ mod tool_assembly_permission_tests {
             test_definition("search"),
         )];
         let memory = test_memory_context(true);
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            Some(&department),
+            &agent,
             &policy,
             Some(&memory),
             &tools,
         );
         assert_eq!(resolved.attached.len(), 1);
 
-        department.permission_control.mcp_tool_names = vec!["search".to_string()];
-        let config = AppConfig {
-            departments: vec![department.clone()],
-            ..AppConfig::default()
-        };
-        let resolved = resolve_legal_runtime_tools_for_department(
+        agent.permission_control.mcp_tool_names = vec!["search".to_string()];
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            Some(&department),
+            &agent,
             &policy,
             Some(&memory),
             &tools,
@@ -1835,10 +1771,10 @@ mod tool_assembly_permission_tests {
             Some("MCP 组成员名规范化后没有可用字符，工具无法挂载".to_string()),
             test_definition("search"),
         )];
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let resolved = resolve_legal_runtime_tools(
             &AppConfig::default(),
             &test_api(),
-            None,
+            &whitelist_agent(&[]),
             &policy,
             Some(&test_memory_context(true)),
             &tools,
@@ -1853,11 +1789,8 @@ mod tool_assembly_permission_tests {
 
     #[test]
     fn legal_tool_resolver_should_remove_memory_tools_when_agent_memory_is_disabled() {
-        let department = whitelist_department(&[]);
-        let config = AppConfig {
-            departments: vec![department.clone()],
-            ..AppConfig::default()
-        };
+        let agent = whitelist_agent(&[]);
+        let config = AppConfig::default();
         let policy = RuntimeToolPolicy {
             conversation_resolved: true,
             local_conversation: true,
@@ -1868,10 +1801,10 @@ mod tool_assembly_permission_tests {
             CachedRuntimeToolSchema::builtin(test_definition("recall")),
         ];
         let memory = test_memory_context(false);
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            Some(&department),
+            &agent,
             &policy,
             Some(&memory),
             &tools,
@@ -1886,11 +1819,8 @@ mod tool_assembly_permission_tests {
 
     #[test]
     fn legal_tool_resolver_should_skip_media_tools_without_default_models() {
-        let department = whitelist_department(&["image_generate", "image_edit", "read_media"]);
-        let mut config = AppConfig {
-            departments: vec![department.clone()],
-            ..AppConfig::default()
-        };
+        let agent = whitelist_agent(&["image_generate", "image_edit", "read_media"]);
+        let mut config = AppConfig::default();
         config.image_generation_model_id = None;
         config.vision_api_config_id = None;
         let policy = RuntimeToolPolicy {
@@ -1904,10 +1834,10 @@ mod tool_assembly_permission_tests {
             CachedRuntimeToolSchema::builtin(test_definition("read_media")),
         ];
         let memory = test_memory_context(true);
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            Some(&department),
+            &agent,
             &policy,
             Some(&memory),
             &tools,
@@ -1917,10 +1847,10 @@ mod tool_assembly_permission_tests {
 
         config.image_generation_model_id = Some("provider-a::model-a".to_string());
         config.vision_api_config_id = Some("vision-a".to_string());
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            Some(&department),
+            &agent,
             &policy,
             Some(&memory),
             &tools,
@@ -1935,21 +1865,18 @@ mod tool_assembly_permission_tests {
 
     #[test]
     fn legal_tool_resolver_should_skip_context_sensitive_tools_when_conversation_read_fails() {
-        let department = whitelist_department(&[]);
-        let config = AppConfig {
-            departments: vec![department.clone()],
-            ..AppConfig::default()
-        };
+        let agent = whitelist_agent(&[]);
+        let config = AppConfig::default();
         let tools = vec![
             CachedRuntimeToolSchema::builtin(test_definition("task")),
             CachedRuntimeToolSchema::builtin(test_definition("plan")),
             CachedRuntimeToolSchema::builtin(test_definition("todo")),
         ];
         let memory = test_memory_context(true);
-        let resolved = resolve_legal_runtime_tools_for_department(
+        let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
-            Some(&department),
+            &agent,
             &RuntimeToolPolicy::default(),
             Some(&memory),
             &tools,

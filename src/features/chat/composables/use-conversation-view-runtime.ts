@@ -43,7 +43,6 @@ type ConversationViewRuntimeOptions = {
   conversationId: Ref<string>;
   apiConfigId: Ref<string>;
   agentId: Ref<string>;
-  departmentId: Ref<string>;
   subscriptionSlot?: ExclusiveChatViewSubscriptionSlot;
   t: (key: string, params?: Record<string, unknown>) => string;
   requestRecallMode?: (payload: {
@@ -335,7 +334,7 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
       const apiConfigId = String(preferredApiConfigId.value || options.apiConfigId.value || "").trim();
       const agentId = String(options.agentId.value || "").trim();
       if (!apiConfigId || !agentId) return null;
-      return { apiConfigId, agentId, departmentId: String(options.departmentId.value || "").trim() };
+      return { apiConfigId, agentId };
     },
     getConversationId: currentConversationId,
     chatInput,

@@ -284,7 +284,6 @@ struct ToolLoopAutoCompactionContext {
     prompt_mode: PromptBuildMode,
     agent: AgentProfile,
     agents: Vec<AgentProfile>,
-    departments: Vec<DepartmentConfig>,
     user_name: String,
     user_intro: String,
     response_style_id: String,
@@ -424,7 +423,6 @@ fn build_tool_loop_prepared_for_continuation(
         &conversation,
         &context.agent,
         &context.agents,
-        &context.departments,
         &context.user_name,
         &context.user_intro,
         &context.response_style_id,
@@ -2295,7 +2293,7 @@ mod tool_loop_tests {
                 &mut guard,
                 &mut batch_signatures,
                 "delegate",
-                r#"{"department_id":"deputy-department","mode":"sync"}"#,
+                r#"{"agent_id":"deputy-agent","mode":"sync"}"#,
             );
             assert!(
                 streak <= REPEATED_TOOL_CALL_BLOCK_THRESHOLD,

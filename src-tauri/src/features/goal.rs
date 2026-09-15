@@ -442,11 +442,9 @@ mod goal_tests {
     fn goal_prompt_test_prepared(messages: Vec<ChatMessage>) -> PreparedPrompt {
         let agent = default_agent();
         let agents = vec![agent.clone(), default_user_persona()];
-        let departments = default_departments("api-1");
         let mut conversation = build_conversation_record(
             "",
             DEFAULT_AGENT_ID,
-            ASSISTANT_DEPARTMENT_ID,
             "goal prompt test",
             CONVERSATION_KIND_CHAT,
             None,
@@ -458,7 +456,6 @@ mod goal_tests {
             &conversation,
             &agent,
             &agents,
-            &departments,
             "测试用户",
             "",
             "default",

@@ -89,9 +89,8 @@
           <div ref="chatContentRoot" class="flex min-w-0 shrink-0 flex-col">
           <DraftRecipientCard
             v-if="activeConversationIsDraft"
-            :options="props.createConversationDepartmentOptions"
+            :options="props.createConversationAgentOptions"
             :recent-options="draftRecentRecipientOptions"
-            :selected-department-id="draftSelectedDepartmentId"
             :selected-agent-id="draftSelectedAgentId"
             :avatar-url-map="props.personaAvatarUrlMap"
             :title="draftConversationTitle"
@@ -148,7 +147,7 @@
                     <div class="h-px flex-1 bg-base-300/80"></div>
                   </div>
                   <div v-else-if="item.kind === 'message'"
-                    v-memo="[...messageMemoKey(item.block, item.renderId, item.blockIndex, item.compactWithPrevious), departmentNameMapSignature]">
+                    v-memo="[...messageMemoKey(item.block, item.renderId, item.blockIndex, item.compactWithPrevious), agentNameMapSignature]">
                     <div class="ecall-elastic-item-shell">
                       <ChatMessageItem
                         :active-conversation-id="activeConversationId" :block="item.block"
@@ -157,7 +156,7 @@
                         :chatting="chatting" :busy="conversationInteractionBusy" :frozen="frozen"
                         :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
                         :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
-                        :department-name-map="departmentNameMap"
+                        :agent-name-map="agentNameMap"
                         :markdown-is-dark="markdownIsDark"
                         :playing-audio-id="playingAudioId" :active-turn-user="false"
                         :compact-with-previous="item.compactWithPrevious"
@@ -498,8 +497,7 @@
               <!-- 操作区：选择器占剩余宽度，按钮组固定 -->
               <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <div class="min-w-0 flex-1">
-                  <DepartmentPersonaSelect
-                    v-model:department-id="repairRecipientDepartmentId"
+                  <AgentPersonaSelect
                     v-model:agent-id="repairRecipientAgentId"
                     :options="repairRecipientOptions"
                     :persona-avatar-url-map="props.personaAvatarUrlMap"
@@ -558,8 +556,8 @@
             :remote-im-contact-conversations="remoteImContactConversations"
             :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
             :persona-name="personaName" :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
-            :create-conversation-department-options="createConversationDepartmentOptions"
-            :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
+            :create-conversation-agent-options="createConversationAgentOptions"
+            :default-create-conversation-agent-id="defaultCreateConversationAgentId"
             :ide-context-groups="mergedVisibleIdeContextGroups" :attached-ide-context-references="attachedIdeContextReferences"
             :current-theme="currentTheme"
             :show-conversation-actions="showConversationActions"
@@ -615,9 +613,8 @@
           :open="codeReviewDialogOpen"
           :submitting="!!toolReviewSubmittingBatchKey"
           :error-text="codeReviewErrorText"
-          :current-department-id="props.currentDepartmentId"
           :current-agent-id="props.activeAgentId"
-          :department-options="props.createConversationDepartmentOptions"
+          :agent-options="props.createConversationAgentOptions"
           :persona-avatar-url-map="props.personaAvatarUrlMap"
           :commit-options="commitOptions"
           :commit-options-loading="commitOptionsLoading"
@@ -772,8 +769,8 @@
             :markdown-is-dark="markdownIsDark"
             :active-conversation-id="activeConversationId"
             :current-workspace-name="currentWorkspaceName" :current-workspace-root-path="currentWorkspaceRootPath"
-            :workspaces="workspaces" :current-department-id="currentDepartmentId"
-            :department-options="toolReviewDepartmentOptions"
+            :workspaces="workspaces"
+            :agent-options="toolReviewAgentOptions"
             :delegate-statuses="delegateStatuses"
             :delegate-statuses-error-text="delegateStatusesErrorText"
             :persona-avatar-url-map="personaAvatarUrlMap"
@@ -828,7 +825,7 @@ import ChatThinkingPreviewBar from "../components/ChatThinkingPreviewBar.vue";
 import TimelineSnakeBoard from "../components/TimelineSnakeBoard.vue";
 import { FROST_GLASS, FROST_SURFACE } from "../components/session-float-styles";
 import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyDashboard.vue";
-import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
+import AgentPersonaSelect from "../../shared/components/AgentPersonaSelect.vue";
 import FileLinkContextMenu from "../../shared/components/FileLinkContextMenu.vue";
 import { useFileLinkContextMenu } from "../../shared/composables/use-file-link-context-menu";
 import DraftRecipientCard from "../components/DraftRecipientCard.vue";
@@ -878,7 +875,7 @@ import type { ToolReviewCodeReviewScope, ToolReviewCommitOption } from "../compo
 import type { ChatMonitorPanelMode, ChatRightPanelMode } from "../composables/chat-ui-layout-storage";
 import { useChatBlockTracking } from "../composables/use-chat-block-tracking";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
-import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
+import type { AgentPersonaOption } from "../../shared/agent-persona-options";
 import { clearNativeTextSelection } from "../../../utils/native-selection";
 
 // ==================== props / emits ====================
@@ -908,7 +905,7 @@ const props = defineProps<{
   configShellWorkspaces?: ShellWorkspace[];
   saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
-  currentDepartmentId: string; activeAgentId: string; activeConversationId: string; currentTodos: ChatTodoItem[];
+  activeAgentId: string; activeConversationId: string; currentTodos: ChatTodoItem[];
   goalActive: boolean; goalTitle: string; goalDialogOpen: boolean;
   goalSaving: boolean; goalError: string;
   activeGoalTask: { taskId: string; goal: string; why: string; todo: string; endAtLocal: string; remainingHours: number } | null;
@@ -924,9 +921,9 @@ const props = defineProps<{
   sideChatPanelEnabled?: boolean;
   /** 右侧主页「追问」卡片数据；追问会话由宿主容器持有 */
   sideChatItems?: Array<{ id: string; title: string }>;
-  createConversationDepartmentOptions: DepartmentPersonaOption[];
+  createConversationAgentOptions: AgentPersonaOption[];
   recipientOptionsReady?: boolean;
-  defaultCreateConversationDepartmentId: string;
+  defaultCreateConversationAgentId: string;
   ideContextGroups: IdeContextWorkspaceGroup[];
   terminalApprovals?: TerminalApprovalConversationItem[];
   terminalApprovalResolving?: boolean;
@@ -940,7 +937,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:chatInput", value: string): void;
   (e: "addMention", value: ChatMentionTarget): void;
-  (e: "removeMention", value: string | { agentId: string; departmentId?: string }): void;
+  (e: "removeMention", value: string | { agentId: string }): void;
   (e: "sideConversationListVisibleChange", value: boolean): void;
   (e: "toolReviewPanelOpenChange", value: boolean): void;
   (e: "openChatReaderFile", path: string, line?: number): void;
@@ -979,9 +976,9 @@ const emit = defineEmits<{
   (e: "archiveConversation", conversationId: string): void;
   (e: "exportConversation", conversationId: string): void;
   (e: "deleteConversation", conversationId: string): void;
-  (e: "rebindConversationRecipient", payload: { conversationId: string; departmentId: string; agentId: string }): void;
-  (e: "updateDraftConversation", payload: { conversationId: string; departmentId?: string; agentId?: string; preferredApiConfigId?: string | null; title?: string | null }): void;
-  (e: "createConversation", input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellWorkMode?: ShellWorkMode; shellAutonomousMode?: boolean }): void;
+  (e: "rebindConversationRecipient", payload: { conversationId: string; agentId: string }): void;
+  (e: "updateDraftConversation", payload: { conversationId: string; agentId?: string; preferredApiConfigId?: string | null; title?: string | null }): void;
+  (e: "createConversation", input?: { title?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellWorkMode?: ShellWorkMode; shellAutonomousMode?: boolean }): void;
   (e: "loadOlderHistory"): void; (e: "loadOlderCompactionSegment"): void; (e: "reachedBottom"): void;
   (e: "jumpToConversationBottom"): void;
   (e: "refreshToolReviewMessage", payload: { conversationId: string; messageId: string }): void;
@@ -989,7 +986,7 @@ const emit = defineEmits<{
   (e: "selectionActionCopyError", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; error: string }): void;
   (e: "selectionActionBranch", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string }): void;
   (e: "selectionActionForward", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; target: ConversationForwardTarget }): void;
-  (e: "selectionActionDelegate", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }): void;
+  (e: "selectionActionDelegate", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; agentId: string; presetId: string; why: string; goal: string; todo: string }): void;
   (e: "selectionActionShare", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; exportFormat?: "html" | "png" | "copyPng" }): void;
   (e: "approveTerminalApproval", requestId: string, reason?: string): void;
   (e: "denyTerminalApproval", requestId: string, reason?: string): void;
@@ -1211,7 +1208,6 @@ const activeConversationIsDraft = computed(() => {
     locallyPromotedConversationId.value === conversationId;
   return !!activeConversationSummary.value?.isDraft && !locallyPromoted;
 });
-const draftSelectedDepartmentId = ref("");
 const draftSelectedAgentId = ref("");
 
 // 草稿卡自定义标题：默认显示会话原标题（可能为空），用户修改后写入草稿字段
@@ -1221,9 +1217,9 @@ const draftConversationTitle = computed(() =>
 
 const DRAFT_RECENT_RECIPIENT_LIMIT = 6;
 
-const draftRecentRecipientOptions = computed<DepartmentPersonaOption[]>(() => {
-  const allOptions = Array.isArray(props.createConversationDepartmentOptions)
-    ? props.createConversationDepartmentOptions
+const draftRecentRecipientOptions = computed<AgentPersonaOption[]>(() => {
+  const allOptions = Array.isArray(props.createConversationAgentOptions)
+    ? props.createConversationAgentOptions
     : [];
   const activeConversationId = String(props.activeConversationId || "").trim();
   const items = [...(props.unarchivedConversationItems || [])].sort((a, b) => {
@@ -1232,19 +1228,16 @@ const draftRecentRecipientOptions = computed<DepartmentPersonaOption[]>(() => {
     return timeOf(b).localeCompare(timeOf(a));
   });
   const seen = new Set<string>();
-  const recents: DepartmentPersonaOption[] = [];
+  const recents: AgentPersonaOption[] = [];
   for (const item of items) {
-    const departmentId = String(item.departmentId || "").trim();
     const agentId = String(item.agentId || "").trim();
-    if (!departmentId || !agentId) continue;
+    if (!agentId) continue;
     if (String(item.conversationId || "").trim() === activeConversationId) continue;
-    // 按「部门+人格」组合去重：同一人格挂多个部门时，每个部门各占一个行星卡片
-    const key = `${departmentId}\u0000${agentId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    // 按人格去重：每个目标人格各占一个行星卡片
+    if (seen.has(agentId)) continue;
+    seen.add(agentId);
     const option = allOptions.find((candidate) =>
-      String(candidate.departmentId || "").trim() === departmentId
-      && String(candidate.agentId || "").trim() === agentId
+      String(candidate.agentId || "").trim() === agentId
       && !candidate.unavailable
       && !candidate.personaMissing
     );
@@ -1259,24 +1252,21 @@ watch(
   [activeConversationIsDraft, () => props.activeConversationId],
   ([isDraft]) => {
     if (!isDraft) return;
-    draftSelectedDepartmentId.value = String(activeConversationSummary.value?.departmentId || "").trim();
     draftSelectedAgentId.value = String(activeConversationSummary.value?.agentId || "").trim();
   },
   { immediate: true },
 );
 
-function handleDraftPersonaChange(payload: { departmentId: string; agentId: string }) {
-  draftSelectedDepartmentId.value = payload.departmentId;
+function handleDraftPersonaChange(payload: { agentId: string }) {
   draftSelectedAgentId.value = payload.agentId;
   emit("updateDraftConversation", {
     conversationId: String(props.activeConversationId || "").trim(),
-    departmentId: payload.departmentId,
     agentId: payload.agentId,
   });
 }
 
 function handleRecruitClick() {
-  handleDraftPersonaChange({ departmentId: "hr-department", agentId: "default-agent" });
+  handleDraftPersonaChange({ agentId: "default-agent" });
 }
 
 function handleDraftTitleChange(title: string) {
@@ -1294,24 +1284,20 @@ const { snapshot: remoteImContactDashboardSnapshot } = useRemoteImContactDashboa
   contactId: remoteImContactDashboardContactId,
   enabled: activeConversationIsRemoteContact,
 });
-const repairRecipientDepartmentId = ref("");
 const repairRecipientAgentId = ref("");
 const repairRecipientOptions = computed(() =>
-  (Array.isArray(props.createConversationDepartmentOptions) ? props.createConversationDepartmentOptions : [])
+  (Array.isArray(props.createConversationAgentOptions) ? props.createConversationAgentOptions : [])
     .filter((option) =>
       !option.unavailable
-      && !!String(option.departmentId || "").trim()
       && !!String(option.agentId || "").trim()
     ),
 );
 
-function findRecipientOption(departmentId: string, agentId: string): DepartmentPersonaOption | null {
-  const normalizedDepartmentId = String(departmentId || "").trim();
+function findRecipientOption(agentId: string): AgentPersonaOption | null {
   const normalizedAgentId = String(agentId || "").trim();
-  if (!normalizedDepartmentId || !normalizedAgentId) return null;
+  if (!normalizedAgentId) return null;
   return repairRecipientOptions.value.find((option) =>
-    String(option.departmentId || "").trim() === normalizedDepartmentId
-    && String(option.agentId || "").trim() === normalizedAgentId
+    String(option.agentId || "").trim() === normalizedAgentId
     && !option.personaMissing
   ) || null;
 }
@@ -1323,20 +1309,19 @@ const activeConversationRecipientMissing = computed(() => {
   if (!conversationId) return false;
   const summary = activeConversationSummary.value;
   if (!summary) return false;
-  const departmentId = String(summary.departmentId || "").trim();
   const agentId = String(summary.agentId || "").trim();
-  return !findRecipientOption(departmentId, agentId);
+  return !findRecipientOption(agentId);
 });
 const repairRecipientSelectedOption = computed(() =>
-  findRecipientOption(repairRecipientDepartmentId.value, repairRecipientAgentId.value),
+  findRecipientOption(repairRecipientAgentId.value),
 );
 
-function defaultRepairRecipientOption(): DepartmentPersonaOption | null {
-  const defaultDepartmentId = String(props.defaultCreateConversationDepartmentId || "").trim();
-  const hasValidPersona = (option: DepartmentPersonaOption) => !option.personaMissing;
+function defaultRepairRecipientOption(): AgentPersonaOption | null {
+  const defaultAgentId = String(props.defaultCreateConversationAgentId || "").trim();
+  const hasValidPersona = (option: AgentPersonaOption) => !option.personaMissing;
   return repairRecipientOptions.value.find((option) =>
     hasValidPersona(option)
-    && defaultDepartmentId && String(option.departmentId || "").trim() === defaultDepartmentId
+    && defaultAgentId && String(option.agentId || "").trim() === defaultAgentId
   ) || repairRecipientOptions.value.find(hasValidPersona)
     || repairRecipientOptions.value[0] || null;
 }
@@ -1345,36 +1330,35 @@ watch(
   () => [
     activeConversationRecipientMissing.value,
     props.activeConversationId,
-    props.defaultCreateConversationDepartmentId,
-    repairRecipientOptions.value.map((option) => `${option.departmentId}:${option.agentId}`).join("|"),
+    props.defaultCreateConversationAgentId,
+    repairRecipientOptions.value.map((option) => option.agentId).join("|"),
   ] as const,
   () => {
     if (!activeConversationRecipientMissing.value) return;
     if (repairRecipientSelectedOption.value) return;
     const option = defaultRepairRecipientOption();
-    repairRecipientDepartmentId.value = String(option?.departmentId || "").trim();
     repairRecipientAgentId.value = String(option?.agentId || "").trim();
   },
   { immediate: true },
 );
 
-const toolReviewDepartmentOptions = computed(() =>
-  // 用户主动发起代码审查不受 AI delegate 工具的“直接下级部门”限制。
-  (Array.isArray(props.createConversationDepartmentOptions) ? props.createConversationDepartmentOptions : []),
+const toolReviewAgentOptions = computed(() =>
+  // 用户主动发起代码审查不受 AI delegate 工具的“直接下级人格”限制。
+  (Array.isArray(props.createConversationAgentOptions) ? props.createConversationAgentOptions : []),
 );
 
-const departmentNameMap = computed<Record<string, string>>(() => {
+const agentNameMap = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
-  for (const option of props.createConversationDepartmentOptions || []) {
-    const departmentId = String(option.departmentId || "").trim();
-    if (!departmentId || map[departmentId]) continue;
-    map[departmentId] = String(option.departmentName || option.name || departmentId).trim() || departmentId;
+  for (const option of props.createConversationAgentOptions || []) {
+    const agentId = String(option.agentId || "").trim();
+    if (!agentId || map[agentId]) continue;
+    map[agentId] = String(option.agentName || option.name || agentId).trim() || agentId;
   }
   return map;
 });
 
-const departmentNameMapSignature = computed(() =>
-  Object.entries(departmentNameMap.value)
+const agentNameMapSignature = computed(() =>
+  Object.entries(agentNameMap.value)
     .map(([id, name]) => `${id}:${name}`)
     .sort()
     .join("|"),
@@ -2625,8 +2609,6 @@ const {
 } = useChatToolReviewHandlers({
   activeConversationId: toRef(props, "activeConversationId"),
   toolReviewRefreshTick: toRef(props, "toolReviewRefreshTick"),
-  currentDepartmentId: toRef(props, "currentDepartmentId"),
-  departmentOptions: toolReviewDepartmentOptions,
   initialPanelOpen: toRef(props, "initialToolReviewPanelOpen"),
   activeTab: toolReviewSidebarActiveTab,
   homePreviewActive: computed(() => props.chatRightPanelMode === "home"),
@@ -3434,7 +3416,7 @@ async function loadCodeReviewCommitOptions(page = 1) {
     commitOptionsLoading.value = false;
   }
 }
-async function handleSubmitCodeReview(input: { scope: ToolReviewCodeReviewScope; target?: string; departmentId: string; agentId: string }) {
+async function handleSubmitCodeReview(input: { scope: ToolReviewCodeReviewScope; target?: string; agentId: string }) {
   const conversationId = String(props.activeConversationId || "").trim();
   if (!conversationId || toolReviewSubmittingBatchKey.value) return;
   codeReviewErrorText.value = "";
@@ -3442,7 +3424,6 @@ async function handleSubmitCodeReview(input: { scope: ToolReviewCodeReviewScope;
     conversationId,
     scope: input.scope,
     target: String(input.target || "").trim() || undefined,
-    departmentId: String(input.departmentId || "").trim() || undefined,
     agentId: String(input.agentId || "").trim() || undefined,
   });
   if (!report) {
@@ -3532,10 +3513,9 @@ function handleBatchArchiveCompleted(payload: { archivedConversationIds: string[
 function handleRebindConversationRecipient() {
   const option = repairRecipientSelectedOption.value;
   const conversationId = String(props.activeConversationId || "").trim();
-  const departmentId = String(option?.departmentId || repairRecipientDepartmentId.value || "").trim();
   const agentId = String(option?.agentId || repairRecipientAgentId.value || "").trim();
-  if (!conversationId || !departmentId || !agentId) return;
-  emit("rebindConversationRecipient", { conversationId, departmentId, agentId });
+  if (!conversationId || !agentId) return;
+  emit("rebindConversationRecipient", { conversationId, agentId });
 }
 
 // 「当前项目」分组只允许在 VS Code 侧边栏显示：

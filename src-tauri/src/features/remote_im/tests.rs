@@ -16,7 +16,6 @@
             dingtalk_session_webhook_expired_time: None,
             session: SessionSelector {
                 api_config_id: None,
-                department_id: None,
                 agent_id: "agent".to_string(),
                 conversation_id: Some("conv-1".to_string()),
             },
@@ -76,7 +75,6 @@
             dingtalk_session_webhook_expired_time: None,
             session: SessionSelector {
                 api_config_id: None,
-                department_id: None,
                 agent_id: "agent".to_string(),
                 conversation_id: Some("conv-1".to_string()),
             },
@@ -147,7 +145,6 @@
             dingtalk_session_webhook_expired_time: None,
             session: SessionSelector {
                 api_config_id: None,
-                department_id: None,
                 agent_id: "agent".to_string(),
                 conversation_id: None,
             },
@@ -272,7 +269,6 @@
             platform_message_id: None,
         };
         let session_info = || ChatSessionInfo {
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
         };
 
@@ -307,63 +303,38 @@
     }
 
     #[test]
-    fn resolve_department_agent_pair_should_tolerate_membership_and_fall_back_when_binding_is_gone() {
+    fn resolve_contact_agent_id_should_fall_back_to_assistant_persona_when_binding_is_gone() {
         let mut api = ApiConfig::default();
         api.id = "api-a".to_string();
         api.enable_text = true;
         api.model = "gpt-4o-mini".to_string();
-        let mut department = default_assistant_department(&api.id);
-        department.id = "dept-a".to_string();
-        department.is_built_in_assistant = false;
-        department.agent_ids = vec!["agent-a".to_string()];
         let config = AppConfig {
-            departments: vec![department],
             api_configs: vec![api],
+            expert_api_config_id: "api-a".to_string(),
             ..AppConfig::default()
         };
 
         let state = remote_im_test_state();
-        let explicit = resolve_department_agent_pair(
+        write_config(&state.config_path, &config).expect("write config");
+        state_write_agents_cached(
             &state,
-            Some("dept-a"),
-            Some("agent-a"),
-            &config,
+            &[remote_im_test_agent(DEFAULT_AGENT_ID, "主助理"), default_user_persona()],
         )
-        .expect("explicit pair");
-        assert_eq!(explicit, ("dept-a".to_string(), "agent-a".to_string()));
+        .expect("write agents");
 
-        let legacy = resolve_department_agent_pair(&state, Some("dept-a"), None, &config)
-            .expect("legacy department-only binding should be solidified");
-        assert_eq!(legacy, ("dept-a".to_string(), "agent-a".to_string()));
+        // 显式绑定的人格存在时原样使用
+        let explicit = resolve_contact_agent_id(&state, Some(DEFAULT_AGENT_ID))
+            .expect("explicit agent");
+        assert_eq!(explicit, DEFAULT_AGENT_ID);
 
-        // 部门成员列表只是归属配置，不作为路由资格：显式配对原样使用
-        let tolerance = resolve_department_agent_pair(
-            &state,
-            Some("dept-a"),
-            Some("agent-b"),
-            &config,
-        )
-        .expect("membership is not a routing gate");
-        assert_eq!(tolerance, ("dept-a".to_string(), "agent-b".to_string()));
-
-        // 绑定的部门已被删除时回落到助理部门，而不是让这条路由断掉
-        let fell_back = resolve_department_agent_pair(
-            &state,
-            Some("dept-removed"),
-            Some("agent-a"),
-            &config,
-        )
-        .expect("missing department should fall back");
-        assert_eq!(fell_back, ("dept-a".to_string(), "agent-a".to_string()));
-
-        // 部门成员被清空时回落到当前助理人格
-        let mut emptied_config = config.clone();
-        emptied_config.departments[0].agent_ids.clear();
-        let default_agent_id = state_service_get_assistant_department_agent_id(&state)
+        // 绑定的人格已被删除时回落到助理人格，而不是让这条路由断掉
+        let default_agent_id = state_service_get_assistant_agent_id(&state)
             .expect("runtime default persona");
-        let emptied = resolve_department_agent_pair(&state, Some("dept-a"), None, &emptied_config)
-            .expect("empty members should fall back to the current assistant persona");
-        assert_eq!(emptied, ("dept-a".to_string(), default_agent_id));
+        let fell_back = resolve_contact_agent_id(&state, Some("agent-removed"))
+            .expect("missing agent should fall back");
+        assert_eq!(fell_back, default_agent_id);
+
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
     #[test]
@@ -405,7 +376,6 @@
                 id: "conversation-main".to_string(),
                 title: "main".to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: String::new(),
                 bound_conversation_id: None,
                 parent_conversation_id: None,
                 child_conversation_ids: Vec::new(),
@@ -441,7 +411,6 @@
                 id: "conversation-sub".to_string(),
                 title: "sub".to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: String::new(),
                 bound_conversation_id: None,
                 parent_conversation_id: None,
                 child_conversation_ids: Vec::new(),
@@ -489,7 +458,6 @@
             dingtalk_session_webhook_expired_time: None,
             session: SessionSelector {
                 api_config_id: None,
-                department_id: None,
                 agent_id: DEFAULT_AGENT_ID.to_string(),
                 conversation_id: Some("conversation-sub".to_string()),
             },
@@ -527,7 +495,6 @@
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: None,
             bound_agent_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
@@ -547,7 +514,7 @@
             state_write_conversation_cached(&state, conversation).expect("write conversation");
         }
 
-        let (_, _, conversation_id) =
+        let (_, conversation_id) =
             resolve_contact_session_target(&state, &mut contact)
                 .expect("resolve route");
 
@@ -566,7 +533,6 @@
                 id: "conversation-main".to_string(),
                 title: "main".to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: String::new(),
                 bound_conversation_id: None,
                 parent_conversation_id: None,
                 child_conversation_ids: Vec::new(),
@@ -602,7 +568,6 @@
                 id: "conversation-sub".to_string(),
                 title: "sub".to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: String::new(),
                 bound_conversation_id: None,
                 parent_conversation_id: None,
                 child_conversation_ids: Vec::new(),
@@ -650,7 +615,6 @@
             dingtalk_session_webhook_expired_time: None,
             session: SessionSelector {
                 api_config_id: None,
-                department_id: None,
                 agent_id: DEFAULT_AGENT_ID.to_string(),
                 conversation_id: Some("conversation-sub".to_string()),
             },
@@ -688,7 +652,6 @@
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: None,
             bound_agent_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
@@ -708,7 +671,7 @@
             state_write_conversation_cached(&state, conversation).expect("write conversation");
         }
 
-        let (_, _, conversation_id) =
+        let (_, conversation_id) =
             resolve_contact_session_target(&state, &mut contact)
                 .expect("resolve route");
 
@@ -736,7 +699,6 @@
             id: "conv-1".to_string(),
             title: "联系人".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: String::new(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -805,7 +767,6 @@
             id: "conv-1".to_string(),
             title: "联系人".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: String::new(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -882,7 +843,6 @@
             dingtalk_session_webhook_expired_time: None,
             session: SessionSelector {
                 api_config_id: None,
-                department_id: None,
                 agent_id: String::new(),
                 conversation_id: None,
             },
@@ -1480,7 +1440,6 @@
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
             bound_agent_id: None,
             bound_conversation_id: Some(conversation_id.to_string()),
             processing_mode: "continuous".to_string(),
@@ -1536,7 +1495,6 @@
             dingtalk_session_webhook_expired_time: None,
             session: SessionSelector {
                 api_config_id: None,
-                department_id: None,
                 agent_id: String::new(),
                 conversation_id: Some("conversation-image".to_string()),
             },
@@ -1651,8 +1609,6 @@
 
     fn remote_im_test_secretary_assistant_context() -> RemoteImConversationAssistantContext {
         RemoteImConversationAssistantContext {
-            department_id: "dept-sales".to_string(),
-            department_name: "售前部门".to_string(),
             agent_id: "agent-sales".to_string(),
             agent_name: "售前助理".to_string(),
         }
@@ -1674,6 +1630,14 @@
             memory_recall_mode: default_agent_memory_recall_mode(),
             source: "manual".to_string(),
             scope: "global".to_string(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
         }
     }
 
@@ -1692,13 +1656,12 @@
         let resolved = remote_im_secretary_current_assistant_context(&state, "conversation-a")
             .expect("resolve runtime assistant");
 
-        assert_eq!(resolved.department_id, assistant.department_id);
         assert_eq!(resolved.agent_id, assistant.agent_id);
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
     #[test]
-    fn remote_im_resolve_contact_assistant_context_should_require_bound_department() {
+    fn remote_im_resolve_contact_assistant_context_should_require_bound_agent() {
         let state = remote_im_test_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         state_write_agents_cached(
@@ -1707,17 +1670,17 @@
         )
         .expect("write agents");
         let mut contact = remote_im_test_contact("contact-a", "conversation-a");
-        contact.bound_department_id = None;
+        contact.bound_agent_id = None;
 
         let err = remote_im_resolve_contact_assistant_context(&state, &contact)
-            .expect_err("missing department should fail");
+            .expect_err("missing agent should fail");
 
-        assert!(err.contains("未设置应答部门"));
+        assert!(err.contains("未设置应答人格"));
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
     #[test]
-    fn remote_im_resolve_contact_assistant_context_should_resolve_department_and_agent_names() {
+    fn remote_im_resolve_contact_assistant_context_should_resolve_agent_name() {
         let state = remote_im_test_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         state_write_agents_cached(
@@ -1725,13 +1688,12 @@
             &[remote_im_test_agent(DEFAULT_AGENT_ID, "主助理"), default_user_persona()],
         )
         .expect("write agents");
-        let contact = remote_im_test_contact("contact-a", "conversation-a");
+        let mut contact = remote_im_test_contact("contact-a", "conversation-a");
+        contact.bound_agent_id = Some(DEFAULT_AGENT_ID.to_string());
 
         let resolved = remote_im_resolve_contact_assistant_context(&state, &contact)
             .expect("resolve assistant context");
 
-        assert_eq!(resolved.department_id, REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID);
-        assert_eq!(resolved.department_name, "远程客服");
         assert_eq!(resolved.agent_id, DEFAULT_AGENT_ID);
         assert_eq!(resolved.agent_name, "主助理");
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
@@ -1746,7 +1708,8 @@
             &[remote_im_test_agent("agent-other", "其他助理"), default_user_persona()],
         )
         .expect("write agents");
-        let contact = remote_im_test_contact("contact-a", "conversation-a");
+        let mut contact = remote_im_test_contact("contact-a", "conversation-a");
+        contact.bound_agent_id = Some(DEFAULT_AGENT_ID.to_string());
 
         let err = remote_im_resolve_contact_assistant_context(&state, &contact)
             .expect_err("missing agent profile should fail");
@@ -1757,35 +1720,37 @@
     }
 
     #[test]
-    fn ensure_remote_im_contact_conversation_id_should_accept_private_bound_department() {
+    fn ensure_remote_im_contact_conversation_id_should_accept_private_bound_agent() {
         let state = remote_im_test_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let private_departments_dir = app_root_from_data_path(&state.data_path)
+        let mut api = ApiConfig::default();
+        api.id = "api-a".to_string();
+        api.enable_text = true;
+        api.model = "gpt-4o-mini".to_string();
+        let config = AppConfig {
+            api_configs: vec![api],
+            expert_api_config_id: "api-a".to_string(),
+            ..AppConfig::default()
+        };
+        write_config(&state.config_path, &config).expect("write config");
+        let private_personas_dir = app_root_from_data_path(&state.data_path)
             .join("llm-workspace")
             .join("private-organization")
-            .join("departments");
-        std::fs::create_dir_all(&private_departments_dir)
-            .expect("create private departments dir");
+            .join("personas");
+        std::fs::create_dir_all(&private_personas_dir)
+            .expect("create private personas dir");
         std::fs::write(
-            private_departments_dir.join("dept-private.json"),
+            private_personas_dir.join("private-agent.json"),
             r#"{
-  "id": "dept-private",
-  "name": "私域客服",
-  "agentIds": ["private-agent"]
+  "id": "private-agent",
+  "name": "私域助理",
+  "systemPrompt": "你是私域助理，负责接待私有渠道的联系人。"
 }"#,
         )
-        .expect("write private department");
-        state_write_agents_cached(
-            &state,
-            &[
-                remote_im_test_agent("private-agent", "私域助理"),
-                default_user_persona(),
-            ],
-        )
-        .expect("write agents");
+        .expect("write private persona");
+        state_write_agents_cached(&state, &[default_user_persona()]).expect("write agents");
 
         let mut contact = remote_im_test_contact("contact-private", "");
-        contact.bound_department_id = Some("dept-private".to_string());
+        contact.bound_agent_id = Some("private-agent".to_string());
         contact.bound_conversation_id = None;
 
         let conversation_id = ensure_remote_im_contact_conversation_id(&state, &mut contact)
@@ -1793,7 +1758,6 @@
         let conversation =
             state_read_conversation_cached(&state, &conversation_id).expect("read conversation");
 
-        assert_eq!(conversation.department_id, "dept-private");
         assert_eq!(conversation.agent_id, "private-agent");
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
@@ -1885,6 +1849,14 @@
             memory_recall_mode: default_agent_memory_recall_mode(),
             source: "manual".to_string(),
             scope: "global".to_string(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
         }];
         let current_assistant = remote_im_test_secretary_assistant_context();
         let mut messages = Vec::<ChatMessage>::new();
@@ -2029,7 +2001,6 @@
             id: "conversation-a".to_string(),
             title: "群会话".to_string(),
             agent_id: "agent-a".to_string(),
-            department_id: "department-a".to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -2062,8 +2033,6 @@
             is_draft: false,
         };
         let assistant = RemoteImConversationAssistantContext {
-            department_id: "department-a".to_string(),
-            department_name: "客服部".to_string(),
             agent_id: "agent-a".to_string(),
             agent_name: "客服".to_string(),
         };
@@ -2076,7 +2045,6 @@
 
         assert_eq!(input.kind, "remote_im_departure_reflection");
         assert_eq!(input.conversation_id, "conversation-a");
-        assert_eq!(input.target_department_id, "department-a");
         assert_eq!(input.target_agent_id, "agent-a");
         assert!(!input.notify_assistant_when_done);
     }
@@ -2233,7 +2201,6 @@
             dingtalk_session_webhook_expired_time: None,
             session: SessionSelector {
                 api_config_id: None,
-                department_id: None,
                 agent_id: String::new(),
                 conversation_id: None,
             },
@@ -2302,7 +2269,6 @@
                 dingtalk_session_webhook_expired_time: None,
                 session: SessionSelector {
                     api_config_id: None,
-                    department_id: None,
                     agent_id: String::new(),
                     conversation_id: None,
                 },
@@ -2382,7 +2348,6 @@
                 dingtalk_session_webhook_expired_time: None,
                 session: SessionSelector {
                     api_config_id: None,
-                    department_id: None,
                     agent_id: String::new(),
                     conversation_id: None,
                 },
@@ -2605,7 +2570,6 @@
             &state,
             RemoteImContactSettingsPatchInput {
                 contact_id: "contact-patch".to_string(),
-                department_id: None,
                 agent_id: None,
                 processing_mode: "qa".to_string(),
                 blocked_message_prefixes: vec!["#".to_string()],
@@ -2649,7 +2613,6 @@
             &state,
             RemoteImContactSettingsPatchInput {
                 contact_id: "contact-private-patch".to_string(),
-                department_id: None,
                 agent_id: None,
                 processing_mode: "qa".to_string(),
                 blocked_message_prefixes: vec!["[bot]".to_string()],
@@ -2691,7 +2654,6 @@
             &state,
             RemoteImContactSettingsPatchInput {
                 contact_id: contact.id.clone(),
-                department_id: Some("department-config-degraded".to_string()),
                 agent_id: Some("agent-config-degraded".to_string()),
                 processing_mode: "qa".to_string(),
                 blocked_message_prefixes: vec!["[skip]".to_string()],
@@ -2712,10 +2674,6 @@
         )
         .expect("full patch should save despite organization read failure");
 
-        assert_eq!(
-            updated.bound_department_id.as_deref(),
-            Some("department-config-degraded")
-        );
         assert_eq!(
             updated.bound_agent_id.as_deref(),
             Some("agent-config-degraded")
@@ -3152,14 +3110,12 @@
             "contact-binding-cas",
             "conversation-binding-old",
         );
-        contact.bound_department_id = Some("department-old".to_string());
         contact.bound_agent_id = Some("agent-old".to_string());
         let baseline = remote_im_contact_binding_snapshot(&contact);
         let mut stale_resolved = baseline.clone();
         stale_resolved.bound_conversation_id = Some("conversation-resolved-old".to_string());
         state_service_upsert_remote_im_contact(&state, &contact).expect("seed contact");
         remote_im_mutate_contact(&state, &contact.id, |latest| {
-            latest.bound_department_id = Some("department-new".to_string());
             latest.bound_agent_id = Some("agent-new".to_string());
             latest.bound_conversation_id = Some("conversation-new".to_string());
             Ok(())
@@ -3178,10 +3134,6 @@
         let persisted = state_service_get_remote_im_contact(&state, &contact.id)
             .expect("read contact")
             .expect("contact exists");
-        assert_eq!(
-            persisted.bound_department_id.as_deref(),
-            Some("department-new")
-        );
         assert_eq!(persisted.bound_agent_id.as_deref(), Some("agent-new"));
         assert_eq!(
             persisted.bound_conversation_id.as_deref(),
@@ -3193,21 +3145,6 @@
     fn ensure_contact_conversation_should_not_sync_routing_before_authoritative_commit() {
         let state = remote_im_test_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let private_departments_dir = app_root_from_data_path(&state.data_path)
-            .join("llm-workspace")
-            .join("private-organization")
-            .join("departments");
-        std::fs::create_dir_all(&private_departments_dir)
-            .expect("create private departments dir");
-        std::fs::write(
-            private_departments_dir.join("dept-new.json"),
-            r#"{
-  "id": "dept-new",
-  "name": "新部门",
-  "agentIds": ["agent-new"]
-}"#,
-        )
-        .expect("write private department");
         state_write_agents_cached(
             &state,
             &[
@@ -3237,17 +3174,12 @@
             .expect("seed legacy preferred provider");
 
         let mut candidate = authoritative.clone();
-        candidate.bound_department_id = Some("dept-new".to_string());
         candidate.bound_agent_id = Some("agent-new".to_string());
         ensure_remote_im_contact_conversation_id(&state, &mut candidate)
             .expect("reuse conversation without side effect");
         let before_commit = conversation_service_v2()
             .get_conversation_meta(&state, &conversation_id)
             .expect("read conversation before commit");
-        assert_eq!(
-            before_commit.department_id,
-            REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID
-        );
         assert_eq!(before_commit.agent_id, DEFAULT_AGENT_ID);
 
         remote_im_mutate_contact(&state, &authoritative.id, |contact| {
@@ -3262,41 +3194,20 @@
             &state,
             &candidate,
             &conversation_id,
-            "dept-new",
-            "agent-new",
         )
         .expect("sync committed route");
         let after_commit = conversation_service_v2()
             .get_conversation_meta(&state, &conversation_id)
             .expect("read conversation after commit");
-        assert_eq!(after_commit.department_id, "dept-new");
         assert_eq!(after_commit.agent_id, "agent-new");
         assert!(after_commit.preferred_api_config_id.is_none());
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
     #[test]
-    fn concurrent_department_updates_should_leave_conversation_on_authoritative_route() {
+    fn concurrent_agent_updates_should_leave_conversation_on_authoritative_route() {
         let state = remote_im_test_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let private_departments_dir = app_root_from_data_path(&state.data_path)
-            .join("llm-workspace")
-            .join("private-organization")
-            .join("departments");
-        std::fs::create_dir_all(&private_departments_dir)
-            .expect("create private departments dir");
-        for (department_id, agent_id) in [
-            ("dept-concurrent-a", "agent-concurrent-a"),
-            ("dept-concurrent-b", "agent-concurrent-b"),
-        ] {
-            std::fs::write(
-                private_departments_dir.join(format!("{department_id}.json")),
-                format!(
-                    "{{\n  \"id\": \"{department_id}\",\n  \"name\": \"并发部门\",\n  \"agentIds\": [\"{agent_id}\"]\n}}"
-                ),
-            )
-            .expect("write private department");
-        }
         state_write_agents_cached(
             &state,
             &[
@@ -3307,7 +3218,7 @@
             ],
         )
         .expect("write agents");
-        let mut contact = remote_im_test_contact("contact-department-concurrent", "");
+        let mut contact = remote_im_test_contact("contact-agent-concurrent", "");
         contact.bound_agent_id = Some(DEFAULT_AGENT_ID.to_string());
         contact.bound_conversation_id = None;
         let conversation_id = ensure_remote_im_contact_conversation_id(&state, &mut contact)
@@ -3316,19 +3227,15 @@
 
         let barrier = Arc::new(std::sync::Barrier::new(3));
         let mut handles = Vec::new();
-        for (department_id, agent_id) in [
-            ("dept-concurrent-a", "agent-concurrent-a"),
-            ("dept-concurrent-b", "agent-concurrent-b"),
-        ] {
+        for agent_id in ["agent-concurrent-a", "agent-concurrent-b"] {
             let state = state.clone();
             let barrier = barrier.clone();
             handles.push(std::thread::spawn(move || {
                 barrier.wait();
-                remote_im_update_contact_department_binding_inner(
+                remote_im_update_contact_agent_binding_inner(
                     &state,
-                    RemoteImContactDepartmentBindingUpdateInput {
-                        contact_id: "contact-department-concurrent".to_string(),
-                        department_id: Some(department_id.to_string()),
+                    RemoteImContactAgentBindingUpdateInput {
+                        contact_id: "contact-agent-concurrent".to_string(),
                         agent_id: Some(agent_id.to_string()),
                     },
                 )
@@ -3349,10 +3256,6 @@
             .get_conversation_meta(&state, &conversation_id)
             .expect("read conversation");
         assert_eq!(
-            conversation.department_id,
-            persisted.bound_department_id.unwrap_or_default()
-        );
-        assert_eq!(
             conversation.agent_id,
             persisted.bound_agent_id.unwrap_or_default()
         );
@@ -3372,11 +3275,9 @@
             .get_conversation_meta(&state, &conversation_id)
             .expect("read original route");
         let mut written_contact = contact.clone();
-        written_contact.bound_department_id = Some("stale-department".to_string());
         written_contact.bound_agent_id = Some("stale-agent".to_string());
         let stale_root = remote_im_contact_conversation_key(&written_contact);
         state_update_conversation_metadata_cached(&state, &conversation_id, |conversation| {
-            conversation.department_id = "stale-department".to_string();
             conversation.agent_id = "stale-agent".to_string();
             conversation.root_conversation_id = Some(stale_root);
             Ok(())
@@ -3388,7 +3289,6 @@
             &conversation_id,
             &original,
             &written_contact,
-            "stale-department",
             "stale-agent",
         )
         .expect("restore route");
@@ -3396,12 +3296,10 @@
         let restored = conversation_service_v2()
             .get_conversation_meta(&state, &conversation_id)
             .expect("read restored route");
-        assert_eq!(restored.department_id, original.department_id);
         assert_eq!(restored.agent_id, original.agent_id);
         assert_eq!(restored.root_conversation_id, original.root_conversation_id);
 
         state_update_conversation_metadata_cached(&state, &conversation_id, |conversation| {
-            conversation.department_id = "new-authoritative-department".to_string();
             conversation.agent_id = "new-authoritative-agent".to_string();
             conversation.root_conversation_id = Some("new-authoritative-root".to_string());
             Ok(())
@@ -3412,14 +3310,12 @@
             &conversation_id,
             &original,
             &written_contact,
-            "stale-department",
             "stale-agent",
         )
         .expect("skip stale rollback");
         let preserved = conversation_service_v2()
             .get_conversation_meta(&state, &conversation_id)
             .expect("read preserved route");
-        assert_eq!(preserved.department_id, "new-authoritative-department");
         assert_eq!(preserved.agent_id, "new-authoritative-agent");
         assert_eq!(
             preserved.root_conversation_id.as_deref(),
@@ -3429,34 +3325,25 @@
     }
 
     #[tokio::test]
-    async fn department_binding_should_persist_when_organization_snapshot_is_unreadable() {
+    async fn agent_binding_should_persist_when_organization_snapshot_is_unreadable() {
         let state = remote_im_test_state();
         std::fs::create_dir_all(&state.config_path).expect("make config path unreadable as file");
         let contact = remote_im_test_contact("contact-config-degraded", "conversation-existing");
         state_service_upsert_remote_im_contact(&state, &contact).expect("seed contact");
 
-        let updated = remote_im_update_contact_department_binding_inner(
+        let updated = remote_im_update_contact_agent_binding_inner(
             &state,
-            RemoteImContactDepartmentBindingUpdateInput {
+            RemoteImContactAgentBindingUpdateInput {
                 contact_id: contact.id.clone(),
-                department_id: Some("department-offline".to_string()),
                 agent_id: Some("agent-offline".to_string()),
             },
         )
         .expect("save raw binding despite config read failure");
 
-        assert_eq!(
-            updated.bound_department_id.as_deref(),
-            Some("department-offline")
-        );
         assert_eq!(updated.bound_agent_id.as_deref(), Some("agent-offline"));
         let persisted = state_service_get_remote_im_contact(&state, &contact.id)
             .expect("read persisted contact")
             .expect("contact exists");
-        assert_eq!(
-            persisted.bound_department_id.as_deref(),
-            Some("department-offline")
-        );
         assert_eq!(persisted.bound_agent_id.as_deref(), Some("agent-offline"));
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
@@ -3500,7 +3387,6 @@
             dingtalk_session_webhook_expired_time: None,
             session: SessionSelector {
                 api_config_id: None,
-                department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
                 conversation_id: None,
             },
@@ -3546,7 +3432,6 @@
             dingtalk_session_webhook_expired_time: None,
             session: SessionSelector {
                 api_config_id: None,
-                department_id: None,
                 agent_id: String::new(),
                 conversation_id: None,
             },
@@ -3664,7 +3549,6 @@
             vec![remote_im_test_group_user_message("user-a")],
             true,
             ChatSessionInfo {
-                department_id: "department-a".to_string(),
                 agent_id: "agent-a".to_string(),
             },
             RemoteImMessageSource {
@@ -3862,8 +3746,6 @@
             "- [运行中] 委托 ID：delegate-a；任务：\"交期确认\"",
         );
 
-        assert!(prompt.latest_user_text.contains("当前应答部门："));
-        assert!(prompt.latest_user_text.contains("名称：售前部门"));
         assert!(prompt.latest_user_text.contains("当前助理："));
         assert!(prompt.latest_user_text.contains("名称：售前助理"));
         assert!(prompt.latest_user_text.contains("当前联系人："));
@@ -4207,7 +4089,6 @@
                 vec![message],
                 true,
                 ChatSessionInfo {
-                    department_id: "department-a".to_string(),
                     agent_id: "agent-a".to_string(),
                 },
                 RemoteImMessageSource {
@@ -4282,7 +4163,6 @@
             vec![message],
             true,
             ChatSessionInfo {
-                department_id: "department-a".to_string(),
                 agent_id: "agent-a".to_string(),
             },
             RemoteImMessageSource {
@@ -4352,7 +4232,6 @@
             vec![message],
             true,
             ChatSessionInfo {
-                department_id: "department-a".to_string(),
                 agent_id: "agent-a".to_string(),
             },
             RemoteImMessageSource {
@@ -4700,7 +4579,6 @@
             vec![message],
             true,
             ChatSessionInfo {
-                department_id: "department-a".to_string(),
                 agent_id: "agent-a".to_string(),
             },
             RemoteImMessageSource {

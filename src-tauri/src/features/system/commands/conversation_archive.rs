@@ -412,18 +412,6 @@ fn prepare_batch_archive_conversation(
         return Err("系统通知会话暂不支持归档。".to_string());
     }
     let effective_agent_id = resolve_batch_archive_effective_agent_id(&runtime_snapshot, &source);
-    if source_meta.department_id.trim().is_empty() {
-        runtime_log_warn(format!(
-            "[批量归档] 跳过部门校验，任务=批量归档元数据校验，conversation_id={}，原因=会话未绑定部门，改为直接归档并跳过归档反思",
-            source.id
-        ));
-    } else if runtime_department_by_id(&runtime_snapshot, source_meta.department_id.trim()).is_none() {
-        runtime_log_warn(format!(
-            "[批量归档] 跳过部门校验，任务=批量归档元数据校验，conversation_id={}，department_id={}，原因=会话绑定部门不存在，改为直接归档并跳过归档反思",
-            source.id,
-            source_meta.department_id
-        ));
-    }
     let conversation_runtime_state = get_conversation_runtime_state(state, &source.id)?;
     let disabled_reason = match conversation_runtime_state {
         MainSessionState::AssistantStreaming => Some("当前会话正在流式输出，请稍后再归档。"),

@@ -194,9 +194,8 @@ impl ConversationServiceV2 {
         &self,
         state: &AppState,
     ) -> Result<UnarchivedConversationOverviewUpdatedPayload, String> {
-        let app_config = state_read_config_cached(state)?;
         let unarchived_conversations =
-            self.collect_unarchived_conversation_summaries_cached(state, &app_config)?;
+            self.collect_unarchived_conversation_summaries_cached(state)?;
         Ok(UnarchivedConversationOverviewUpdatedPayload {
             preferred_conversation_id: unarchived_conversations
                 .first()
@@ -209,8 +208,7 @@ impl ConversationServiceV2 {
         &self,
         state: &AppState,
     ) -> Result<ListUnarchivedConversationsMutationResult, String> {
-        let app_config = state_read_config_cached(state)?;
-        let summaries = self.collect_unarchived_conversation_summaries_cached(state, &app_config)?;
+        let summaries = self.collect_unarchived_conversation_summaries_cached(state)?;
         Ok(ListUnarchivedConversationsMutationResult { summaries })
     }
 
@@ -225,7 +223,7 @@ impl ConversationServiceV2 {
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut app_config = state_read_config_cached(state)?;
         let agents = state_read_agents_cached(state)?;
-        let assistant_department_agent_id = assistant_department_agent_id_downgraded(state);
+        let assistant_agent_id = assistant_agent_id_downgraded(state);
         let (main_conversation_id, main_conversation_id_readable) =
             match state_service_get_main_conversation_id(state) {
                 Ok(value) => (value, true),
@@ -240,7 +238,7 @@ impl ConversationServiceV2 {
             state,
             &mut app_config,
             &agents,
-            &assistant_department_agent_id,
+            &assistant_agent_id,
             input.agent_id.as_deref().unwrap_or_default(),
         )?;
         let requested_conversation_id = input
@@ -371,13 +369,6 @@ impl ConversationServiceV2 {
             return Ok(None);
         }
         let guard = lock_conversation_with_metrics(state, "read_unarchived_conversation_summary")?;
-        let app_config = state_read_config_cached(state)?;
-        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-        let runtime_app_config = if runtime_snapshot.config.departments.is_empty() {
-            app_config
-        } else {
-            runtime_snapshot.config
-        };
         let main_conversation_id = state_service_get_main_conversation_id(state)?
             .map(|id| id.trim().to_string())
             .unwrap_or_default();
@@ -419,7 +410,6 @@ impl ConversationServiceV2 {
             .collect::<Vec<_>>();
         let summary = build_unarchived_conversation_summary_from_meta_view(
             state,
-            &runtime_app_config,
             &main_conversation_id,
             &pinned_conversation_ids,
             &conversation_meta,

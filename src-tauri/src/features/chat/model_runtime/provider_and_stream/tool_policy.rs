@@ -2,7 +2,7 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BuiltinToolPermissionClass {
-    DepartmentControlled,
+    PermissionControlled,
     SystemExempt,
     LocalConversationExempt,
     ContactCapabilityExempt,
@@ -40,15 +40,15 @@ struct BuiltinToolPolicy {
     permission_class: BuiltinToolPermissionClass,
     runtime_scope: BuiltinToolRuntimeScope,
     prompt_rule_id: Option<&'static str>,
-    visible_in_department_permissions: bool,
+    visible_in_permission_lists: bool,
 }
 
 const DEFAULT_BUILTIN_TOOL_POLICY: BuiltinToolPolicy = BuiltinToolPolicy {
     id: "",
-    permission_class: BuiltinToolPermissionClass::DepartmentControlled,
+    permission_class: BuiltinToolPermissionClass::PermissionControlled,
     runtime_scope: BuiltinToolRuntimeScope::Any,
     prompt_rule_id: None,
-    visible_in_department_permissions: true,
+    visible_in_permission_lists: true,
 };
 
 const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
@@ -87,13 +87,13 @@ const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
         ..DEFAULT_BUILTIN_TOOL_POLICY
     },
     // background 是 exec 的伴生工具（同会话作用域）：与 exec 共用 prompt rule 与 origin 门槛，
-    // 强制挂载档（SystemExempt 跳过部门权限检查），不允许部门禁用
+    // 强制挂载档（SystemExempt 跳过人格权限检查），不允许人格禁用
     BuiltinToolPolicy {
         id: "background",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::Any,
         prompt_rule_id: Some("exec"),
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "config",
@@ -129,21 +129,21 @@ const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::LocalConversation,
         prompt_rule_id: None,
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "deeprecall_search",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::DeepRecallDelegate,
         prompt_rule_id: Some("deeprecall"),
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "deeprecall_context",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::DeepRecallDelegate,
         prompt_rule_id: Some("deeprecall"),
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "meme",
@@ -163,84 +163,84 @@ const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::Any,
         prompt_rule_id: None,
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "recall",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::Any,
         prompt_rule_id: None,
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "todo",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::Any,
         prompt_rule_id: Some("todo"),
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "task",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::ResolvedTaskConversation,
         prompt_rule_id: Some("task"),
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "create_goal",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::NotRemoteGroup,
         prompt_rule_id: Some("goal"),
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "update_goal",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::NotRemoteGroup,
         prompt_rule_id: Some("goal"),
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "get_session",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::Any,
         prompt_rule_id: Some("session"),
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "inform_session",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::Any,
         prompt_rule_id: Some("session"),
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "plan",
         permission_class: BuiltinToolPermissionClass::LocalConversationExempt,
         runtime_scope: BuiltinToolRuntimeScope::LocalConversation,
         prompt_rule_id: Some("plan"),
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "contact_send_files",
         permission_class: BuiltinToolPermissionClass::ContactCapabilityExempt,
         runtime_scope: BuiltinToolRuntimeScope::BoundContactWithFileSending,
         prompt_rule_id: Some("contact_tools"),
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "contact_reply",
         permission_class: BuiltinToolPermissionClass::ContactCapabilityExempt,
         runtime_scope: BuiltinToolRuntimeScope::NeverAttach,
         prompt_rule_id: None,
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
         id: "contact_no_reply",
         permission_class: BuiltinToolPermissionClass::ContactCapabilityExempt,
         runtime_scope: BuiltinToolRuntimeScope::NeverAttach,
         prompt_rule_id: None,
-        visible_in_department_permissions: false,
+        visible_in_permission_lists: false,
     },
 ];
 
@@ -276,14 +276,14 @@ fn builtin_tool_is_contact_only_hidden_from_policy(tool_id: &str) -> bool {
         == BuiltinToolPermissionClass::ContactCapabilityExempt
 }
 
-fn builtin_tool_is_department_controlled_from_policy(tool_id: &str) -> bool {
+fn builtin_tool_is_permission_controlled_from_policy(tool_id: &str) -> bool {
     !tool_id.trim().is_empty()
         && builtin_tool_policy(tool_id).permission_class
-            == BuiltinToolPermissionClass::DepartmentControlled
+            == BuiltinToolPermissionClass::PermissionControlled
 }
 
-fn builtin_tool_visible_in_department_permissions_from_policy(tool_id: &str) -> bool {
-    builtin_tool_policy(tool_id).visible_in_department_permissions
+fn builtin_tool_visible_in_permission_lists_from_policy(tool_id: &str) -> bool {
+    builtin_tool_policy(tool_id).visible_in_permission_lists
 }
 
 fn runtime_tool_origin_scope_from_contact_type(contact_type: &str) -> RuntimeToolOriginScope {
@@ -401,7 +401,7 @@ fn builtin_tool_ids_for_prompt_rule(prompt_rule_id: &str) -> Vec<&'static str> {
 }
 
 fn builtin_tool_requires_execution_reauthorization(tool_id: &str) -> bool {
-    builtin_tool_is_department_controlled_from_policy(tool_id)
+    builtin_tool_is_permission_controlled_from_policy(tool_id)
         || !matches!(
             builtin_tool_policy(tool_id).runtime_scope,
             BuiltinToolRuntimeScope::Any | BuiltinToolRuntimeScope::NeverAttach
@@ -413,11 +413,11 @@ mod builtin_tool_policy_tests {
     use super::*;
 
     #[test]
-    fn fixed_tools_should_not_participate_in_department_permission_lists() {
-        assert!(!builtin_tool_is_department_controlled_from_policy("task"));
-        assert!(!builtin_tool_is_department_controlled_from_policy("contact_send_files"));
-        assert!(!builtin_tool_is_department_controlled_from_policy("create_goal"));
-        assert!(builtin_tool_is_department_controlled_from_policy("delegate"));
+    fn fixed_tools_should_not_participate_in_permission_lists() {
+        assert!(!builtin_tool_is_permission_controlled_from_policy("task"));
+        assert!(!builtin_tool_is_permission_controlled_from_policy("contact_send_files"));
+        assert!(!builtin_tool_is_permission_controlled_from_policy("create_goal"));
+        assert!(builtin_tool_is_permission_controlled_from_policy("delegate"));
     }
 
     #[test]

@@ -8,10 +8,10 @@ import { readMessagePlainText } from "./use-chat-flow-utils";
 type UseChatFlowStopOptions = {
   chatting: Ref<boolean>;
   allMessages: Ref<ChatMessage[]>;
-  getSession: () => { apiConfigId: string; agentId: string; departmentId?: string } | null;
+  getSession: () => { apiConfigId: string; agentId: string } | null;
   getConversationId?: () => string;
   invokeStopChatMessage?: (input: {
-    session: { apiConfigId: string; agentId: string; departmentId?: string; conversationId?: string };
+    session: { apiConfigId: string; agentId: string; conversationId?: string };
     partialAssistantText: string;
     partialStreamBlocks: AssistantStreamBlock[];
   }) => Promise<{

@@ -222,8 +222,6 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
               mentions: mentions.map((item) => ({
                 agentId: item.agentId,
                 agentName: item.agentName,
-                departmentId: item.departmentId,
-                departmentName: item.departmentName,
               })),
             }
         : undefined,

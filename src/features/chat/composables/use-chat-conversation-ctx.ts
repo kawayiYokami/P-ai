@@ -166,11 +166,7 @@ export function useChatConversationCtx(
 
   const selectedMentionKeys = computed(() =>
     (Array.isArray(props.selectedMentions) ? props.selectedMentions : [])
-      .map((item) => {
-        const agentId = String(item?.agentId || "").trim();
-        const departmentId = String(item?.departmentId || "").trim();
-        return agentId && departmentId ? `${agentId}:${departmentId}` : "";
-      })
+      .map((item) => String(item?.agentId || "").trim())
       .filter((value, index, list) => !!value && list.indexOf(value) === index),
   );
 

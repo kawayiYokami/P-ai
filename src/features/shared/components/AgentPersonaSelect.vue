@@ -79,25 +79,23 @@
 import { ChevronDown } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ApiConfigItem, DepartmentConfig, PersonaProfile } from "../../../types/app";
+import type { ApiConfigItem, PersonaProfile } from "../../../types/app";
 import ApiConfigPicker from "../../config/components/ApiConfigPicker.vue";
 import PersonaGroupGrid from "./PersonaGroupGrid.vue";
 import {
-  buildDepartmentPersonaOptions,
-  departmentPersonaOptionId,
-  type DepartmentPersonaOption,
-} from "../department-persona-options";
+  buildAgentPersonaOptions,
+  agentPersonaOptionId,
+  type AgentPersonaOption,
+} from "../agent-persona-options";
 
 const props = withDefaults(defineProps<{
-  departmentId?: string;
   agentId?: string;
   apiConfigId?: string;
-  departments?: DepartmentConfig[];
   personas?: PersonaProfile[];
   apiConfigs?: ApiConfigItem[];
-  assistantDepartmentApiConfigId?: string;
+  expertApiConfigId?: string;
   toolReviewApiConfigId?: string | null;
-  options?: DepartmentPersonaOption[];
+  options?: AgentPersonaOption[];
   placeholder?: string;
   disabled?: boolean;
   showModel?: boolean;
@@ -105,10 +103,9 @@ const props = withDefaults(defineProps<{
   preserveCurrent?: boolean;
   personaAvatarUrlMap?: Record<string, string>;
 }>(), {
-  departmentId: "",
   agentId: "",
   apiConfigId: "",
-  assistantDepartmentApiConfigId: "",
+  expertApiConfigId: "",
   placeholder: "",
   disabled: false,
   showModel: true,
@@ -117,10 +114,9 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-  "update:departmentId": [value: string];
   "update:agentId": [value: string];
   "update:apiConfigId": [value: string];
-  change: [value: { departmentId: string; agentId: string; option: DepartmentPersonaOption | null }];
+  change: [value: { agentId: string; option: AgentPersonaOption | null }];
 }>();
 
 const { t } = useI18n();
@@ -140,21 +136,13 @@ const DROPDOWN_MAX_HEIGHT = 520;
 const baseOptions = computed(() => (
   Array.isArray(props.options) && props.options.length > 0
     ? props.options
-    : buildDepartmentPersonaOptions({
-      departments: props.departments || [],
+    : buildAgentPersonaOptions({
       personas: props.personas || [],
       apiConfigs: props.apiConfigs || [],
-      assistantDepartmentApiConfigId: props.assistantDepartmentApiConfigId,
+      expertApiConfigId: props.expertApiConfigId,
       toolReviewApiConfigId: props.toolReviewApiConfigId,
     })
 ));
-
-function findDepartmentName(departmentId: string): string {
-  const option = baseOptions.value.find((item) => item.departmentId === departmentId);
-  if (option?.departmentName) return option.departmentName;
-  const department = (props.departments || []).find((item) => String(item.id || "").trim() === departmentId);
-  return String(department?.name || "").trim() || departmentId;
-}
 
 function findAgentName(agentId: string): string {
   const option = baseOptions.value.find((item) => item.agentId === agentId);
@@ -163,20 +151,17 @@ function findAgentName(agentId: string): string {
   return String(persona?.name || "").trim() || agentId;
 }
 
-function buildCurrentMissingOption(departmentId: string, agentId: string): DepartmentPersonaOption {
-  const departmentName = findDepartmentName(departmentId);
+function buildCurrentMissingOption(agentId: string): AgentPersonaOption {
   const agentName = findAgentName(agentId);
   return {
-    id: departmentPersonaOptionId(departmentId, agentId),
-    departmentId,
+    id: agentPersonaOptionId(agentId),
     agentId,
-    departmentName,
     agentName,
-    label: `${departmentName} / ${agentName} (${t("chat.personaRemoved")})`,
-    name: departmentName,
+    label: `${agentName} (${t("chat.personaRemoved")})`,
+    name: agentName,
     ownerAgentId: agentId,
     ownerName: agentName,
-    childDepartmentIds: [],
+    childAgentIds: [],
     unavailable: true,
   };
 }
@@ -184,23 +169,20 @@ function buildCurrentMissingOption(departmentId: string, agentId: string): Depar
 const normalizedOptions = computed(() => {
   const options = [...baseOptions.value];
   if (!props.preserveCurrent) return options;
-  const departmentId = String(props.departmentId || "").trim();
   const agentId = String(props.agentId || "").trim();
-  if (!departmentId || !agentId) return options;
-  const key = departmentPersonaOptionId(departmentId, agentId);
+  if (!agentId) return options;
+  const key = agentPersonaOptionId(agentId);
   if (options.some((option) => option.id === key)) return options;
-  return [buildCurrentMissingOption(departmentId, agentId), ...options];
+  return [buildCurrentMissingOption(agentId), ...options];
 });
 
-const selectedDepartmentId = computed(() => String(props.departmentId || "").trim());
 const selectedAgentId = computed(() => String(props.agentId || "").trim());
 const selectedApiConfigId = computed(() => String(props.apiConfigId || "").trim());
 
 const selectedValue = computed(() => {
-  const departmentId = selectedDepartmentId.value;
   const agentId = selectedAgentId.value;
-  if (!departmentId || !agentId) return "";
-  const key = departmentPersonaOptionId(departmentId, agentId);
+  if (!agentId) return "";
+  const key = agentPersonaOptionId(agentId);
   if (normalizedOptions.value.some((option) => option.id === key)) return key;
   return "";
 });
@@ -217,30 +199,26 @@ const showModelSelector = computed(() => props.showModel && textApiConfigs.value
 
 const selectedSummaryLabel = computed(() => {
   if (selectedOption.value) {
-    const departmentName = String(selectedOption.value.departmentName || "").trim();
     const agentName = String(selectedOption.value.agentName || "").trim();
     const modelName = String(selectedOption.value.modelName || "").trim();
-    return [departmentName, agentName, modelName].filter(Boolean).join(" · ");
+    return [agentName, modelName].filter(Boolean).join(" · ");
   }
   if (props.placeholder) return props.placeholder;
   const firstOption = normalizedOptions.value[0];
   if (!firstOption) return "";
   return [
-    String(firstOption.departmentName || "").trim(),
     String(firstOption.agentName || "").trim(),
     String(firstOption.modelName || "").trim(),
   ].filter(Boolean).join(" · ");
 });
 
-function emitSelection(option: DepartmentPersonaOption | null) {
-  const departmentId = String(option?.departmentId || "").trim();
+function emitSelection(option: AgentPersonaOption | null) {
   const agentId = String(option?.agentId || "").trim();
-  emit("update:departmentId", departmentId);
   emit("update:agentId", agentId);
-  emit("change", { departmentId, agentId, option });
+  emit("change", { agentId, option });
 }
 
-function selectOption(option: DepartmentPersonaOption) {
+function selectOption(option: AgentPersonaOption) {
   emitSelection(option);
   const configId = String(option.apiConfigId || "").trim();
   if (configId) {
@@ -315,7 +293,7 @@ function handleDocumentPointerDown(event: PointerEvent) {
 }
 
 watch(
-  () => [props.departmentId, props.agentId, normalizedOptions.value.map((option) => option.id).join("|")] as const,
+  () => [props.agentId, normalizedOptions.value.map((option) => option.id).join("|")] as const,
   () => {
     if (!props.autoSelectFirst) return;
     if (selectedValue.value || normalizedOptions.value.length === 0) return;

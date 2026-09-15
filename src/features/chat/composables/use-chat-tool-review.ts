@@ -33,7 +33,6 @@ export type ToolReviewReportRecord = {
   status: "pending" | "failed" | "success" | string;
   scope: string;
   target: string;
-  departmentId?: string;
   agentId?: string;
   delegateId?: string;
   workspacePath: string;
@@ -112,7 +111,6 @@ type SubmitToolReviewCodeInput = {
   conversationId: string;
   scope: ToolReviewCodeReviewScope;
   target?: string;
-  departmentId?: string;
   agentId?: string;
 };
 
@@ -256,7 +254,6 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
         conversationId,
         scope,
         target: String(input.target || "").trim(),
-        departmentId: String(input.departmentId || "").trim(),
         agentId: String(input.agentId || "").trim(),
       });
       const result = await requestToolReview<SubmitToolReviewTaskOutput>("submit_tool_review_code", {
@@ -264,7 +261,6 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
           conversationId,
           scope,
           target: String(input.target || "").trim() || undefined,
-          departmentId: String(input.departmentId || "").trim() || undefined,
           agentId: String(input.agentId || "").trim() || undefined,
         },
       });

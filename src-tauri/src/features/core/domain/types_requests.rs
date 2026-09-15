@@ -56,9 +56,6 @@ struct UserMentionTargetInput {
     agent_id: String,
     #[serde(default)]
     agent_name: Option<String>,
-    department_id: String,
-    #[serde(default)]
-    department_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,8 +174,6 @@ struct StopChatResult {
 #[serde(rename_all = "camelCase")]
 struct SessionSelector {
     api_config_id: Option<String>,
-    #[serde(default)]
-    department_id: Option<String>,
     agent_id: String,
     #[serde(default)]
     conversation_id: Option<String>,
@@ -199,8 +194,6 @@ struct RuntimeContext {
     root_conversation_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     executor_agent_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    executor_department_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     model_config_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -482,7 +475,7 @@ struct ToolLoadStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DepartmentPermissionCatalogItem {
+struct PermissionCatalogItem {
     name: String,
     description: String,
     #[serde(default)]
@@ -491,10 +484,10 @@ struct DepartmentPermissionCatalogItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DepartmentPermissionCatalog {
-    builtin_tools: Vec<DepartmentPermissionCatalogItem>,
-    skills: Vec<DepartmentPermissionCatalogItem>,
-    mcp_tools: Vec<DepartmentPermissionCatalogItem>,
+struct PermissionCatalog {
+    builtin_tools: Vec<PermissionCatalogItem>,
+    skills: Vec<PermissionCatalogItem>,
+    mcp_tools: Vec<PermissionCatalogItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

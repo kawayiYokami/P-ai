@@ -1,6 +1,6 @@
 import { computed } from "vue";
 import type { ApiRequestFormat, AppConfig } from "../../../types/app";
-import { isModelRoleApiConfigId, resolveModelRoleApiConfigId } from "../../config/utils/model-role-options";
+import { isModelRoleApiConfigId, MODEL_ROLE_EXPERT_API_CONFIG_ID, resolveModelRoleApiConfigId } from "../../config/utils/model-role-options";
 
 export function useChatConfigDerivedState(config: AppConfig) {
   const TEXT_REQUEST_FORMATS = new Set<ApiRequestFormat>([
@@ -54,59 +54,56 @@ export function useChatConfigDerivedState(config: AppConfig) {
     config.apiConfigs.filter((a) => a.requestFormat === "openai_stt" || a.requestFormat === "mimo_asr"),
   );
 
-  function departmentPrimaryApiConfigId(
-    department?: { apiConfigId?: string; apiConfigIds?: string[] } | null,
+  function agentPrimaryApiConfigId(
+    agent?: { apiConfigId?: string; apiConfigIds?: string[] } | null,
   ): string {
-    const ids = Array.isArray(department?.apiConfigIds)
-      ? department.apiConfigIds.map((id) => String(id || "").trim()).filter(Boolean)
+    const ids = Array.isArray(agent?.apiConfigIds)
+      ? agent.apiConfigIds.map((id) => String(id || "").trim()).filter(Boolean)
       : [];
     if (ids.length > 0) return ids[0];
-    return String(department?.apiConfigId || "").trim();
+    return String(agent?.apiConfigId || "").trim();
   }
 
-  function departmentOrderedApiConfigIds(
-    department?: { apiConfigId?: string; apiConfigIds?: string[]; modelFailureFallbackEnabled?: boolean } | null,
+  function agentOrderedApiConfigIds(
+    agent?: { apiConfigId?: string; apiConfigIds?: string[] } | null,
   ): string[] {
     const ordered = Array.from(new Set([
-      ...((Array.isArray(department?.apiConfigIds) ? department.apiConfigIds : []).map((id) => String(id || "").trim()).filter(Boolean)),
-      String(department?.apiConfigId || "").trim(),
+      ...((Array.isArray(agent?.apiConfigIds) ? agent.apiConfigIds : []).map((id) => String(id || "").trim()).filter(Boolean)),
+      String(agent?.apiConfigId || "").trim(),
     ].filter(Boolean)));
-    return department?.modelFailureFallbackEnabled ? ordered : ordered.slice(0, 1);
+    // 模型失败自动降级已停用：只保留主模型。
+    return ordered.slice(0, 1);
   }
 
-  function departmentConversationApiConfigId(
-    department?: { id?: string; isBuiltInAssistant?: boolean; apiConfigId?: string; apiConfigIds?: string[] } | null,
+  function agentConversationApiConfigId(
+    agent?: { id?: string; isBuiltInAssistant?: boolean; apiConfigId?: string; apiConfigIds?: string[] } | null,
   ): string {
-    const directId = departmentPrimaryApiConfigId(department);
-    if (directId) return resolveModelRoleApiConfigId(directId, config);
-    if (department?.id === "assistant-department" || department?.isBuiltInAssistant) {
-      return String(config.assistantDepartmentApiConfigId || "").trim();
-    }
-    return "";
+    const directId = agentPrimaryApiConfigId(agent);
+    // 人格未显式指定模型时回退到「专家」模型角色，与后端 agent_api_config_ids 的默认一致。
+    const rawId = directId || MODEL_ROLE_EXPERT_API_CONFIG_ID;
+    return resolveModelRoleApiConfigId(rawId, config);
   }
 
-  function applyDepartmentPrimaryApiConfigLocally(
-    department: { id?: string; isBuiltInAssistant?: boolean; apiConfigId?: string; apiConfigIds?: string[]; modelFailureFallbackEnabled?: boolean; updatedAt?: string } | null | undefined,
+  function applyAgentPrimaryApiConfigLocally(
+    agent: { id?: string; isBuiltInAssistant?: boolean; apiConfigId?: string; apiConfigIds?: string[]; updatedAt?: string } | null | undefined,
     apiConfigId: string,
   ): boolean {
-    if (!department) return false;
+    if (!agent) return false;
     const nextId = String(apiConfigId || "").trim();
     if (!nextId) return false;
-    const next = departmentOrderedApiConfigIds(department);
+    const next = agentOrderedApiConfigIds(agent);
     if ((next[0] || "") === nextId) {
       if (!isModelRoleApiConfigId(nextId)) {
         config.selectedApiConfigId = nextId;
       }
       return false;
     }
-    const filtered = department.modelFailureFallbackEnabled
-      ? next.filter((item) => item.toLowerCase() !== nextId.toLowerCase())
-      : [];
+    const filtered: string[] = [];
     filtered.unshift(nextId);
     const deduped = Array.from(new Set(filtered.filter(Boolean)));
-    department.apiConfigIds = deduped;
-    department.apiConfigId = deduped[0] || "";
-    department.updatedAt = new Date().toISOString();
+    agent.apiConfigIds = deduped;
+    agent.apiConfigId = deduped[0] || "";
+    agent.updatedAt = new Date().toISOString();
     if (!isModelRoleApiConfigId(nextId)) {
       config.selectedApiConfigId = nextId;
     }
@@ -146,11 +143,11 @@ export function useChatConfigDerivedState(config: AppConfig) {
     return { minRecordSeconds, maxRecordSeconds };
   }
 
-  const assistantDepartmentApiConfigId = computed(
-    () => String(config.assistantDepartmentApiConfigId || "").trim(),
+  const expertApiConfigId = computed(
+    () => String(config.expertApiConfigId || "").trim(),
   );
-  const assistantDepartmentApiConfig = computed(
-    () => config.apiConfigs.find((a) => a.id === assistantDepartmentApiConfigId.value) ?? null,
+  const assistantAgentApiConfig = computed(
+    () => config.apiConfigs.find((a) => a.id === expertApiConfigId.value) ?? null,
   );
   const hasVisionFallback = computed(() =>
     !!config.visionApiConfigId
@@ -176,13 +173,13 @@ export function useChatConfigDerivedState(config: AppConfig) {
     textCapableApiConfigs,
     imageCapableApiConfigs,
     sttCapableApiConfigs,
-    departmentPrimaryApiConfigId,
-    departmentOrderedApiConfigIds,
-    departmentConversationApiConfigId,
-    applyDepartmentPrimaryApiConfigLocally,
+    agentPrimaryApiConfigId,
+    agentOrderedApiConfigIds,
+    agentConversationApiConfigId,
+    applyAgentPrimaryApiConfigLocally,
     normalizeRuntimeConfigNumbers,
-    assistantDepartmentApiConfigId,
-    assistantDepartmentApiConfig,
+    expertApiConfigId,
+    assistantAgentApiConfig,
     hasVisionFallback,
     activeSttApiConfig,
     shouldUseRemoteStt,

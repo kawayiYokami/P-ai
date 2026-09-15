@@ -7,8 +7,6 @@ export type ConfigSearchTab =
   | "skill"
   | "catalog"
   | "persona"
-  | "department"
-  | "departmentTree"
   | "demo"
   | "chatSettings"
   | "notification"
@@ -48,8 +46,6 @@ const CONFIG_SEARCH_SOURCES: ConfigSearchSource[] = [
   { tab: "skill", titleKey: "config.tabs.skill", titleFallback: "Skill", prefixes: [] },
   { tab: "catalog", titleKey: "config.tabs.catalog", titleFallback: "Store", prefixes: ["config.catalog"] },
   { tab: "persona", titleKey: "config.tabs.persona", titleFallback: "Persona", prefixes: ["config.persona"] },
-  { tab: "department", titleKey: "config.tabs.department", titleFallback: "Department", prefixes: ["config.department"] },
-  { tab: "departmentTree", titleKey: "config.tabs.departmentTree", titleFallback: "Department Tree", prefixes: ["config.departmentTree"] },
   ...(import.meta.env.DEV ? [{ tab: "demo", titleKey: "config.tabs.demo", titleFallback: "Demo", prefixes: ["config.demo"] } satisfies ConfigSearchSource] : []),
   { tab: "chatSettings", titleKey: "config.tabs.chatSettings", titleFallback: "Chat", prefixes: ["config.chatSettings"] },
   { tab: "notification", titleKey: "config.tabs.notification", titleFallback: "Notification", prefixes: ["config.notification"] },

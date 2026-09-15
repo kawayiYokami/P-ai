@@ -61,10 +61,6 @@ fn normalize_system_notification_conversation(conversation: &mut Conversation) -
         conversation.title = expected_title;
         changed = true;
     }
-    if conversation.department_id.trim().is_empty() {
-        conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
-        changed = true;
-    }
     if conversation.status.trim().is_empty() {
         conversation.status = "active".to_string();
         changed = true;
@@ -90,39 +86,11 @@ fn available_non_user_agent<'a>(
         .find(|agent| agent.id == agent_id && !agent.is_built_in_user)
 }
 
-fn first_available_department_agent<'a>(
-    department: &DepartmentConfig,
-    agents: &'a [AgentProfile],
-) -> Option<&'a AgentProfile> {
-    department
-        .agent_ids
-        .iter()
-        .map(|id| id.trim())
-        .find_map(|agent_id| available_non_user_agent(agents, agent_id))
-}
-
 fn resolve_conversation_bound_agent<'a>(
     conversation: &Conversation,
     agents: &'a [AgentProfile],
-    departments: &[DepartmentConfig],
 ) -> Result<&'a AgentProfile, String> {
     let conversation_id = conversation.id.trim();
-    let department_id = conversation.department_id.trim();
-    let bound_department = if department_id.is_empty() {
-        None
-    } else {
-        Some(
-            departments
-                .iter()
-                .find(|department| department.id.trim() == department_id)
-                .ok_or_else(|| {
-                    format!(
-                        "会话绑定部门不存在: conversation_id={}, department_id={}",
-                        conversation_id, department_id
-                    )
-                })?,
-        )
-    };
     let bound_agent_id = conversation.agent_id.trim();
     if !bound_agent_id.is_empty() {
         if let Some(agent) = available_non_user_agent(agents, bound_agent_id) {
@@ -133,18 +101,9 @@ fn resolve_conversation_bound_agent<'a>(
             conversation_id, bound_agent_id
         ));
     }
-
-    if let Some(department) = bound_department {
-        return first_available_department_agent(department, agents).ok_or_else(|| {
-            format!(
-                "会话绑定部门没有可用人格: conversation_id={}, department_id={}",
-                conversation_id, department_id
-            )
-        });
-    }
     Err(format!(
-        "会话缺少有效人格绑定: conversation_id={}, department_id={}",
-        conversation_id, department_id
+        "会话缺少有效人格绑定: conversation_id={}",
+        conversation_id
     ))
 }
 
@@ -163,8 +122,8 @@ fn main_conversation_id_downgraded(state: &AppState) -> Option<String> {
 
 /// 读取默认助理人格 ID；失败时记 warn 并按「无默认人格」降级（空串），
 /// 由调用方 fallback 到第一个非 built-in agent，不阻断会话选择/快照路径。
-fn assistant_department_agent_id_downgraded(state: &AppState) -> String {
-    match state_service_get_assistant_department_agent_id(state) {
+fn assistant_agent_id_downgraded(state: &AppState) -> String {
+    match state_service_get_assistant_agent_id(state) {
         Ok(value) => value,
         Err(err) => {
             runtime_log_warn(format!(
@@ -739,7 +698,6 @@ mod summary_context_title_tests {
             id: "conversation-a".to_string(),
             title: String::new(),
             agent_id: "agent-a".to_string(),
-            department_id: "dept-a".to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -1073,7 +1031,6 @@ fn sanitize_tool_history_events(events: &[Value]) -> Vec<Value> {
 fn build_conversation_record(
     _api_config_id: &str,
     agent_id: &str,
-    department_id: &str,
     title: &str,
     conversation_kind: &str,
     root_conversation_id: Option<String>,
@@ -1084,7 +1041,6 @@ fn build_conversation_record(
         id: Uuid::new_v4().to_string(),
         title: title.trim().to_string(),
         agent_id: agent_id.to_string(),
-        department_id: department_id.trim().to_string(),
         bound_conversation_id: None,
         parent_conversation_id: None,
         child_conversation_ids: Vec::new(),
@@ -1123,7 +1079,6 @@ fn build_system_notification_conversation_record() -> Conversation {
     let mut conversation = build_conversation_record(
         "",
         DEFAULT_AGENT_ID,
-        ASSISTANT_DEPARTMENT_ID,
         &system_notification_conversation_title(),
         CONVERSATION_KIND_SYSTEM_NOTIFICATION,
         None,
@@ -2204,7 +2159,6 @@ fn render_prompt_user_text_only(message: &ChatMessage) -> String {
     let outcome = project_message_attachments(
         message,
         &MessageProjectionContext {
-            current_department_id: String::new(),
             current_agent_id: String::new(),
         },
     );
@@ -2583,7 +2537,6 @@ fn resolve_media_from_message(
     let projected = project_message_attachments(
         message,
         &MessageProjectionContext {
-            current_department_id: String::new(),
             current_agent_id: String::new(),
         },
     );
@@ -2869,143 +2822,86 @@ fn collect_prompt_media_parts(
 }
 
 #[derive(Debug, Clone)]
-struct PromptDepartmentCard {
+struct PromptAgentCard {
     name: String,
     summary: String,
 }
 
 #[derive(Debug, Clone)]
-struct PromptDepartmentContext {
-    current: PromptDepartmentCard,
-    available: Vec<PromptDepartmentCard>,
+struct PromptAgentContext {
+    current: PromptAgentCard,
+    available: Vec<PromptAgentCard>,
 }
 
-struct DepartmentPromptLabels {
+struct AgentPromptLabels {
     current_name_label: &'static str,
-    current_guide_label: &'static str,
     available_title: &'static str,
     available_empty: &'static str,
     available_summary_label: &'static str,
     empty_summary: &'static str,
-    empty_guide: &'static str,
 }
 
-fn department_prompt_labels(_ui_language: &str) -> DepartmentPromptLabels {
-    DepartmentPromptLabels {
-        current_name_label: "部门",
-        current_guide_label: "部门办事指南",
-        available_title: "你的直属下级部门",
-        available_empty: "当前没有可用的直属下级部门。",
+fn agent_prompt_labels(_ui_language: &str) -> AgentPromptLabels {
+    AgentPromptLabels {
+        current_name_label: "人格",
+        available_title: "你的直属下级人格",
+        available_empty: "当前没有可用的直属下级人格。",
         available_summary_label: "概述",
         empty_summary: "未提供",
-        empty_guide: "尚未配置办事指南。",
     }
 }
 
-fn prompt_department_card_from_config(
-    department: &DepartmentConfig,
-    empty_summary: &str,
-) -> PromptDepartmentCard {
-    PromptDepartmentCard {
-        name: department.name.trim().to_string(),
-        summary: if department.summary.trim().is_empty() {
+fn prompt_agent_card(agent: &AgentProfile, empty_summary: &str) -> PromptAgentCard {
+    PromptAgentCard {
+        name: agent.name.trim().to_string(),
+        summary: if agent.summary.trim().is_empty() {
             empty_summary.to_string()
         } else {
-            department.summary.trim().to_string()
+            agent.summary.trim().to_string()
         },
     }
 }
 
-fn departments_only_config(departments: &[DepartmentConfig]) -> AppConfig {
-    AppConfig {
-        hotkey: String::new(),
-        ui_language: String::new(),
-        ui_font: String::new(),
-        code_font: default_code_font(),
-        ui_size_scale: default_ui_size_scale(),
-        web_access_port: default_web_access_port(),
-        web_access_enabled: default_web_access_enabled(),
-        web_access_password: default_web_access_password(),
-        github_update_method: default_github_update_method(),
-        skipped_github_update_version: default_skipped_github_update_version(),
-        record_hotkey: String::new(),
-        record_background_wake_enabled: false,
-        min_record_seconds: 0,
-        max_record_seconds: 0,
-        tool_max_iterations: 0,
-        llm_round_log_capacity: default_llm_round_log_capacity(),
-        message_notification_enabled: default_message_notification_enabled(),
-        message_notification_sound_enabled: default_message_notification_sound_enabled(),
-        desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
-        desktop_operate_enabled: default_desktop_operate_enabled(),
-        selected_api_config_id: String::new(),
-        assistant_department_api_config_id: String::new(),
-        vision_api_config_id: None,
-        tool_review_api_config_id: None,
-        stt_api_config_id: None,
-        image_generation_model_id: None,
-        stt_auto_send: false,
-        terminal_shell_kind: default_terminal_shell_kind(),
-        simple_setup_mode: false,
-        shell_workspaces: Vec::new(),
-        mcp_servers: Vec::new(),
-        remote_im_channels: Vec::new(),
-        departments: departments.to_vec(),
-        provider_non_stream_base_urls: Vec::new(),
-        api_providers: Vec::new(),
-        image_providers: Vec::new(),
-        api_configs: Vec::new(),
-    }
-}
-
-fn build_departments_prompt_block(
-    _conversation: &Conversation,
-    current_department_id: &str,
-    departments: &[DepartmentConfig],
+fn build_organization_prompt_block(
+    current_agent_id: &str,
+    agents: &[AgentProfile],
     ui_language: &str,
 ) -> String {
-    if departments.is_empty() {
+    if agents.is_empty() {
         return String::new();
     }
-    let labels = department_prompt_labels(ui_language);
-    let config = departments_only_config(departments);
-    let current_department = department_by_id(&config, current_department_id);
-    let prompt_context = current_department.map(|department| PromptDepartmentContext {
-        current: prompt_department_card_from_config(department, labels.empty_summary),
-        available: department_direct_child_departments(&config, department)
-            .into_iter()
-            .filter(|item| item.id != department.id)
-            .map(|item| prompt_department_card_from_config(item, labels.empty_summary))
-            .collect::<Vec<_>>(),
-    });
-    let Some(prompt_context) = prompt_context else {
+    let labels = agent_prompt_labels(ui_language);
+    let Some(current_agent) = agent_by_id(agents, current_agent_id) else {
         return String::new();
     };
-    let guide = current_department
-        .map(|department| department.guide.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| labels.empty_guide.to_string());
+    let prompt_context = PromptAgentContext {
+        current: prompt_agent_card(current_agent, labels.empty_summary),
+        available: agent_direct_child_agents(agents, current_agent)
+            .into_iter()
+            .filter(|item| item.id != current_agent.id)
+            .map(|item| prompt_agent_card(item, labels.empty_summary))
+            .collect::<Vec<_>>(),
+    };
     let mut lines = vec![
         format!("{}：{}", labels.current_name_label, prompt_context.current.name),
-        format!("{}：{}", labels.current_guide_label, guide),
         String::new(),
         format!("{}：", labels.available_title),
     ];
     if prompt_context.available.is_empty() {
         lines.push(labels.available_empty.to_string());
     } else {
-        for department in prompt_context.available {
+        for agent in prompt_context.available {
             lines.push(format!(
                 "{}：{} | {}：{}",
                 labels.current_name_label,
-                department.name,
+                agent.name,
                 labels.available_summary_label,
-                department.summary
+                agent.summary
             ));
         }
     }
     lines.push(String::new());
-    prompt_xml_block("department context", lines.join("\n"))
+    prompt_xml_block("agent context", lines.join("\n"))
 }
 
 fn build_memory_rag_rule_block() -> String {
@@ -3090,12 +2986,12 @@ fn build_builtin_tool_rule_block(tool_id: &str, rg_installed: bool) -> Option<St
         "delegate" => (
             "delegate tool rule",
             "## 何时优先使用\n\
-             - 当前工作有职责或能力更匹配的直属下级部门时，优先使用 delegate。\n\
+             - 当前工作有职责或能力更匹配的直属下级人格时，优先使用 delegate。\n\
              - 子任务不需要完整当前上下文，只要用 `why`、`goal`、`todo` 就能独立说明清楚时，优先委托。\n\
-             - 简单但繁琐的搜索、排查、比对、整理、验证、资料收集、影响面摸底等工作，适合委托给下级部门完成。\n\
+             - 简单但繁琐的搜索、排查、比对、整理、验证、资料收集、影响面摸底等工作，适合委托给下级人格完成。\n\
              - 主线程需要这个结果继续下一步时，也可以委托，但必须使用 `mode: \"wait\"` 等待结果。`wait` 可以并发发出多个委托，它只表示等待结果，不表示串行。\n\n\
              ## 何时不要使用\n\
-             - 没有合适的直属下级部门。\n\
+             - 没有合适的直属下级人格。\n\
              - 子任务无法脱离完整当前上下文，压缩成背景后会丢失关键判断依据。\n\
              - 用户要求你本人直接完成，或任务需要你立即和用户连续澄清。\n\n\
              ## 使用要求\n\
@@ -3104,7 +3000,7 @@ fn build_builtin_tool_rule_block(tool_id: &str, rg_installed: bool) -> Option<St
              - 只有用户明确要求后台运行、不等待结果时，才使用 `mode: \"background\"`。\n\
              - 当前已经在委托线程中再次委托时，只允许使用 `wait`。\n\
              - 若目标岗位由你本人兼任，只允许使用 `wait`。\n\
-             - `department_id` 直接填「你的直属下级部门」清单中的部门名称即可（也兼容部门 ID）。\n\
+             - `agent_id` 直接填「你的直属下级人格」清单中的人格名称即可（也兼容人格 ID）。\n\
              - `why` 写清父任务、已知事实、必要上下文、约束和前序结果；不要只写一句空泛背景。\n\
              - `goal` 写清本次子任务要完成什么，目标应可判断是否完成。\n\
              - `todo` 写清优先关注点、范围边界、交付要求和需要避免的方向。\n\
@@ -3134,23 +3030,16 @@ fn build_builtin_tool_rule_block(tool_id: &str, rg_installed: bool) -> Option<St
     Some(prompt_xml_block(block_name, body))
 }
 
-fn department_builtin_tool_enabled(
-    department_config: &AppConfig,
-    current_department: Option<&DepartmentConfig>,
-    id: &str,
-) -> bool {
-    if !builtin_tool_is_department_controlled(id) {
+fn agent_builtin_tool_enabled(current_agent: Option<&AgentProfile>, id: &str) -> bool {
+    if !builtin_tool_is_permission_controlled(id) {
         return builtin_tool_is_fixed_system(id);
     }
-    if builtin_tool_unavailable_reason(department_config, current_department, id).is_some() {
+    if agent_builtin_tool_unavailable_reason(current_agent, id).is_some() {
         return false;
     }
-    if tool_forced_by_department(current_department, id) {
-        return true;
-    }
-    if !department_permission_allows_any_name(
-        current_department,
-        DepartmentPermissionCategory::BuiltinTool,
+    if !agent_permission_allows_any_name(
+        current_agent,
+        AgentPermissionCategory::BuiltinTool,
         &[id],
     ) {
         return false;
@@ -3162,20 +3051,17 @@ fn department_builtin_tool_enabled(
 }
 
 fn build_system_tools_rule_blocks(
-    current_department_id: &str,
-    departments: &[DepartmentConfig],
+    current_agent_id: &str,
+    agents: &[AgentProfile],
     rg_installed: bool,
 ) -> Vec<String> {
-    let department_config = departments_only_config(departments);
-    let current_department = department_by_id(&department_config, current_department_id);
+    let current_agent = agent_by_id(agents, current_agent_id);
     let mut blocks = Vec::<String>::new();
     let mut any_builtin_enabled = false;
     for rule_id in ["delegate", "task", "exec", "file_edit"] {
         let rule_enabled = builtin_tool_ids_for_prompt_rule(rule_id)
             .into_iter()
-            .any(|tool_id| {
-                department_builtin_tool_enabled(&department_config, current_department, tool_id)
-            });
+            .any(|tool_id| agent_builtin_tool_enabled(current_agent, tool_id));
         if rule_enabled {
             any_builtin_enabled = true;
             if let Some(block) = build_builtin_tool_rule_block(rule_id, rg_installed) {
@@ -3263,7 +3149,6 @@ fn build_prompt(
     conversation: &Conversation,
     agent: &AgentProfile,
     agents: &[AgentProfile],
-    departments: &[DepartmentConfig],
     user_name: &str,
     user_intro: &str,
     response_style_id: &str,
@@ -3276,7 +3161,6 @@ fn build_prompt(
         conversation,
         agent,
         agents,
-        departments,
         user_name,
         user_intro,
         response_style_id,
@@ -3293,7 +3177,6 @@ fn build_prompt_with_stage_logger(
     conversation: &Conversation,
     agent: &AgentProfile,
     agents: &[AgentProfile],
-    departments: &[DepartmentConfig],
     user_name: &str,
     user_intro: &str,
     response_style_id: &str,
@@ -3307,7 +3190,6 @@ fn build_prompt_with_stage_logger(
         conversation,
         agent,
         agents,
-        departments,
         Some((user_name, user_intro)),
         response_style_id,
         ui_language,
@@ -3323,7 +3205,6 @@ fn build_delegate_prompt(
     conversation: &Conversation,
     agent: &AgentProfile,
     agents: &[AgentProfile],
-    departments: &[DepartmentConfig],
     response_style_id: &str,
     ui_language: &str,
     data_path: Option<&PathBuf>,
@@ -3334,7 +3215,6 @@ fn build_delegate_prompt(
         conversation,
         agent,
         agents,
-        departments,
         response_style_id,
         ui_language,
         data_path,
@@ -3349,7 +3229,6 @@ fn build_delegate_prompt_with_stage_logger(
     conversation: &Conversation,
     agent: &AgentProfile,
     agents: &[AgentProfile],
-    departments: &[DepartmentConfig],
     response_style_id: &str,
     ui_language: &str,
     data_path: Option<&PathBuf>,
@@ -3361,7 +3240,6 @@ fn build_delegate_prompt_with_stage_logger(
         conversation,
         agent,
         agents,
-        departments,
         None,
         response_style_id,
         ui_language,
@@ -3650,7 +3528,6 @@ fn build_prompt_with_mode(
     conversation: &Conversation,
     _agent: &AgentProfile,
     agents: &[AgentProfile],
-    departments: &[DepartmentConfig],
     user_profile: Option<(&str, &str)>,
     response_style_id: &str,
     ui_language: &str,
@@ -3659,7 +3536,7 @@ fn build_prompt_with_mode(
     stage_logger: Option<&dyn Fn(&str)>,
     _resolved_api: Option<&ResolvedApiConfig>,
 ) -> Result<PreparedPrompt, String> {
-    let prompt_agent = resolve_conversation_bound_agent(conversation, agents, departments)?;
+    let prompt_agent = resolve_conversation_bound_agent(conversation, agents)?;
     let source_messages = match find_last_context_compaction_index(
         &conversation.messages,
         &prompt_agent.id,
@@ -3674,7 +3551,6 @@ fn build_prompt_with_mode(
         id: conversation.id.clone(),
         title: conversation.title.clone(),
         agent_id: conversation.agent_id.clone(),
-        department_id: conversation.department_id.clone(),
         bound_conversation_id: conversation.bound_conversation_id.clone(),
         parent_conversation_id: conversation.parent_conversation_id.clone(),
         child_conversation_ids: conversation.child_conversation_ids.clone(),
@@ -3756,7 +3632,6 @@ fn build_prompt_with_mode(
     let preamble = build_core_system_prompt_text(
         &enriched_conversation,
         prompt_agent,
-        departments,
         user_profile,
         response_style_id,
         ui_language,

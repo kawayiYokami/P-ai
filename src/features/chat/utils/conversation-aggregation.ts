@@ -19,7 +19,7 @@ export function conversationLastUsedMs(item: ChatConversationOverviewItem): numb
 /**
  * 分组内聚合「同一目录 + 同一 agentId」的会话：每组最新会话保留为完整条目（排在组内最新成员的原位置），
  * 其余同目录同 agentId 会话转为简单条目（按更新时间倒序）紧跟其后。agentId 为空时不聚合。
- * 目录以 workspaceRootPath 判定（空路径视为默认目录），不参与部门（departmentId）判定。
+ * 目录以 workspaceRootPath 判定（空路径视为默认目录）。
  * 搜索模式下不聚合，保持原顺序原形态。
  */
 export function aggregateConversationItems(

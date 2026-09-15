@@ -123,17 +123,17 @@ fn state_service_set_main_conversation_id(
 
 // ---------- 标量字符串配置 ----------
 
-fn state_service_get_assistant_department_agent_id(state: &AppState) -> Result<String, String> {
-    Ok(state_service_get_kv(state, "assistant_department_agent_id")?
+fn state_service_get_assistant_agent_id(state: &AppState) -> Result<String, String> {
+    Ok(state_service_get_kv(state, "assistant_agent_id")?
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(default_assistant_department_agent_id))
+        .unwrap_or_else(default_assistant_agent_id))
 }
 
-fn state_service_set_assistant_department_agent_id(
+fn state_service_set_assistant_agent_id(
     state: &AppState,
     value: &str,
 ) -> Result<(), String> {
-    state_service_set_kv(state, "assistant_department_agent_id", value)
+    state_service_set_kv(state, "assistant_agent_id", value)
 }
 
 fn state_service_get_response_style_id(state: &AppState) -> Result<String, String> {

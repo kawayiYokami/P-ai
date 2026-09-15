@@ -194,12 +194,6 @@ fn task_row_to_record_stored(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRe
         conversation_id: Some(task_normalize_bound_conversation_id(
             row.get::<_, Option<String>>("conversation_id")?.as_deref(),
         )),
-        department_id: row
-            .get::<_, Option<String>>("department_id")?
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned),
         agent_id: row
             .get::<_, Option<String>>("agent_id")?
             .as_deref()
@@ -306,15 +300,14 @@ fn task_store_create_task(data_path: &PathBuf, input: &TaskCreateInput) -> Resul
     let todos = task_legacy_todos_from_todo(&input.todo);
     conn.execute(
         "INSERT INTO task_record (
-            task_id, conversation_id, department_id, agent_id, target_scope, order_index, title, cause, goal, flow, todos_json, status_summary,
+            task_id, conversation_id, agent_id, target_scope, order_index, title, cause, goal, flow, todos_json, status_summary,
             completion_state, completion_conclusion, progress_notes_json, stage_key, stage_updated_at_utc,
             trigger_kind, run_at_utc, cron_expression, every_minutes, end_at_utc, created_at_utc, updated_at_utc,
             last_triggered_at_utc, completed_at_utc
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, '', ?14, '', NULL, ?15, ?16, ?17, ?18, ?19, ?20, ?21, NULL, NULL)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, '', ?13, '', NULL, ?14, ?15, ?16, ?17, ?18, ?19, ?20, NULL, NULL)",
         params![
             task_id,
             conversation_id,
-            input.department_id.as_deref().map(str::trim).filter(|value| !value.is_empty()),
             input.agent_id.as_deref().map(str::trim).filter(|value| !value.is_empty()),
             target_scope,
             order_index,
@@ -384,13 +377,6 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
             .as_deref()
             .or(existing.conversation_id.as_deref()),
     );
-    let department_id = input
-        .department_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or(existing.department_id.clone());
     let agent_id = input
         .agent_id
         .as_deref()
@@ -411,29 +397,27 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
     conn.execute(
         "UPDATE task_record SET
             conversation_id = ?2,
-            department_id = ?3,
-            agent_id = ?4,
-            target_scope = ?5,
-            title = ?6,
-            cause = ?7,
-            goal = ?8,
-            flow = ?9,
-            todos_json = ?10,
-            status_summary = ?11,
-            progress_notes_json = ?12,
-            stage_key = ?13,
-            stage_updated_at_utc = ?14,
-            trigger_kind = ?15,
-            run_at_utc = ?16,
-            cron_expression = ?17,
-            every_minutes = ?18,
-            end_at_utc = ?19,
-            updated_at_utc = ?20
+            agent_id = ?3,
+            target_scope = ?4,
+            title = ?5,
+            cause = ?6,
+            goal = ?7,
+            flow = ?8,
+            todos_json = ?9,
+            status_summary = ?10,
+            progress_notes_json = ?11,
+            stage_key = ?12,
+            stage_updated_at_utc = ?13,
+            trigger_kind = ?14,
+            run_at_utc = ?15,
+            cron_expression = ?16,
+            every_minutes = ?17,
+            end_at_utc = ?18,
+            updated_at_utc = ?19
          WHERE task_id = ?1",
         params![
             input.task_id,
             conversation_id,
-            department_id.as_deref(),
             agent_id.as_deref(),
             target_scope,
             task_legacy_title_from_goal(&next_goal),

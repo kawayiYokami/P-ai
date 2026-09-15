@@ -367,7 +367,6 @@ async fn process_persisted_remote_im_events_individually_now(
             conversation_id,
             &trigger_message,
             &ChatSessionInfo {
-                department_id: current_assistant.department_id.clone(),
                 agent_id: current_assistant.agent_id.clone(),
             },
             source,

@@ -1,7 +1,7 @@
 import { computed } from "vue";
 import type { ChatMentionEntry } from "../../../types/app";
 import { resolveModelRoleApiConfigId } from "../../config/utils/model-role-options";
-import { buildDepartmentPersonaOptions } from "../../shared/department-persona-options";
+import { buildAgentPersonaOptions } from "../../shared/agent-persona-options";
 
 export function useChatPersonaConversationDerivedState(bindings: Record<string, any>) {
   const userPersona = computed(
@@ -12,9 +12,9 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
       !p.isBuiltInUser && !p.isBuiltInSystem && p.id !== "user-persona" && p.id !== "system-persona",
     ),
   );
-  const assistantDepartmentPersona = computed(
+  const assistantPersona = computed(
     () =>
-      assistantPersonas.value.find((p: any) => p.id === bindings.assistantDepartmentAgentId.value)
+      assistantPersonas.value.find((p: any) => p.id === bindings.assistantAgentId.value)
       ?? assistantPersonas.value[0]
       ?? null,
   );
@@ -32,17 +32,15 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
       || null
     );
   });
-  const currentForegroundDepartmentId = computed(
-    () => String(currentForegroundConversationSummary.value?.departmentId || "").trim(),
-  );
-  const currentForegroundDepartment = computed(
-    () =>
-      bindings.config.departments.find((item: any) => String(item.id || "").trim() === currentForegroundDepartmentId.value)
-      || bindings.config.departments.find((item: any) => item.id === "assistant-department" || item.isBuiltInAssistant)
-      || null,
-  );
   const currentForegroundAgentId = computed(
     () => String(currentForegroundConversationSummary.value?.agentId || "").trim(),
+  );
+  const currentForegroundPersona = computed(
+    () =>
+      bindings.personas.value.find((p: any) => p.id === currentForegroundAgentId.value)
+      ?? assistantPersona.value
+      ?? assistantPersonas.value[0]
+      ?? null,
   );
   function resolveForegroundTextApiConfigId(apiConfigId: string): string {
     const resolvedId = resolveModelRoleApiConfigId(apiConfigId, bindings.config);
@@ -56,16 +54,16 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
     return resolveForegroundTextApiConfigId(apiConfigId);
   });
   const currentForegroundApiConfigIds = computed(() => {
-    const departmentIds = bindings.departmentOrderedApiConfigIds(currentForegroundDepartment.value);
+    const agentIds = bindings.agentOrderedApiConfigIds(currentForegroundPersona.value);
     return Array.from(new Set([
       currentConversationPreferredApiConfigId.value,
-      ...departmentIds,
+      ...agentIds,
     ].map((item: string) => resolveForegroundTextApiConfigId(String(item || "").trim())).filter(Boolean)));
   });
   const currentForegroundApiConfigId = computed(
     () => {
       return currentForegroundApiConfigIds.value[0]
-        || resolveForegroundTextApiConfigId(bindings.departmentConversationApiConfigId(currentForegroundDepartment.value));
+        || resolveForegroundTextApiConfigId(bindings.agentConversationApiConfigId(currentForegroundPersona.value));
     },
   );
   const currentForegroundApiConfig = computed(
@@ -74,30 +72,25 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
       return bindings.config.apiConfigs.find((a: any) => a.id === resolvedId) ?? null;
     },
   );
-  const currentForegroundPersona = computed(
-    () =>
-      assistantPersonas.value.find((p: any) => p.id === currentForegroundAgentId.value)
-      ?? assistantDepartmentPersona.value
-      ?? assistantPersonas.value[0]
-      ?? null,
-  );
   const selectedPersonaEditor = computed(
     () => bindings.personas.value.find((p: any) => p.id === bindings.personaEditorId.value) ?? null,
   );
-  const toolDepartment = computed(() =>
-    bindings.config.departments.find((item: any) => item.id === "assistant-department" || item.isBuiltInAssistant)
-    ?? bindings.config.departments.find((item: any) => (item.agentIds || []).includes(bindings.assistantDepartmentAgentId.value))
+  const toolPersona = computed(() =>
+    bindings.personas.value.find((p: any) => p.id === bindings.assistantAgentId.value)
+    ?? assistantPersona.value
     ?? null,
   );
-  const toolApiConfig = computed(() =>
-    bindings.config.apiConfigs.find((a: any) => a.id === (toolDepartment.value?.apiConfigId || "")) ?? null,
-  );
+  const toolApiConfig = computed(() => {
+    const resolvedId = bindings.agentConversationApiConfigId(toolPersona.value);
+    if (!resolvedId) return null;
+    return bindings.config.apiConfigs.find((a: any) => a.id === resolvedId) ?? null;
+  });
   const userAvatarUrl = computed(
     () => bindings.resolveAvatarUrl(userPersona.value?.avatarPath, userPersona.value?.avatarUpdatedAt),
   );
   const userPersonaAvatarUrl = computed(() => userAvatarUrl.value);
   const selectedPersonaAvatarUrl = computed(
-    () => bindings.resolveAvatarUrl(assistantDepartmentPersona.value?.avatarPath, assistantDepartmentPersona.value?.avatarUpdatedAt),
+    () => bindings.resolveAvatarUrl(assistantPersona.value?.avatarPath, assistantPersona.value?.avatarUpdatedAt),
   );
   const currentForegroundPersonaAvatarUrl = computed(
     () => bindings.resolveAvatarUrl(currentForegroundPersona.value?.avatarPath, currentForegroundPersona.value?.avatarUpdatedAt),
@@ -132,23 +125,12 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
   const chatMentionEntries = computed<ChatMentionEntry[]>(() => {
     const localeName = bindings.config.uiLanguage === "en-US" ? "en" : "zh-CN";
     const currentAgentId = String(currentForegroundAgentId.value || "").trim();
-    const currentDepartmentId = String(currentForegroundDepartmentId.value || "").trim();
     const textCapableApiIds = new Set(
       (bindings.config.apiConfigs || [])
         .filter((api: any) => !!api.enableText && bindings.isTextRequestFormat(api.requestFormat))
         .map((api: any) => String(api.id || "").trim())
         .filter(Boolean),
     );
-    const departmentsByPersonaId = new Map<string, typeof bindings.config.departments>();
-    for (const department of bindings.config.departments || []) {
-      for (const rawAgentId of department.agentIds || []) {
-        const agentId = String(rawAgentId || "").trim();
-        if (!agentId) continue;
-        const current = departmentsByPersonaId.get(agentId) || [];
-        current.push(department);
-        departmentsByPersonaId.set(agentId, current);
-      }
-    }
     const items: ChatMentionEntry[] = [];
     for (const persona of bindings.personas.value) {
       if (persona.isBuiltInSystem || persona.id === "system-persona") continue;
@@ -160,76 +142,37 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
         String(bindings.currentChatConversationId.value || "").trim(),
         agentId,
       );
-      const boundDepartments = (departmentsByPersonaId.get(agentId) || [])
-        .map((department: any) => ({
-          departmentId: String(department.id || "").trim(),
-          departmentName: String(department.name || "").trim() || String(department.id || "").trim(),
-          apiConfigIds: bindings.departmentOrderedApiConfigIds(department),
-        }))
-        .filter((item: any, index: number, list: any[]) =>
-          !!item.departmentId && list.findIndex((candidate) => candidate.departmentId === item.departmentId) === index,
-        );
-
-      if (boundDepartments.length === 0) {
-        const isUserPersona = agentId === "user-persona" || persona.isBuiltInUser;
-        items.push({
-          agentId,
-          agentName,
-          avatarUrl,
-          departmentName: isUserPersona ? "用户" : "未归属部门",
-          departmentNames: [],
-          isFrontSpeaking: false,
-          hasBackgroundTask: backgroundTaskCount > 0,
-          mentionable: false,
-          hidden: isUserPersona,
-          unavailableReason: isUserPersona
-            ? bindings.t("chat.mentionUnavailableUserPersona")
-            : bindings.t("chat.mentionUnavailableUnassigned"),
-        });
-        continue;
+      const isUserPersona = agentId === "user-persona" || persona.isBuiltInUser;
+      const isCurrentRuntimeAgent = agentId === currentAgentId;
+      const hasTextModel = bindings.agentOrderedApiConfigIds(persona).some((apiConfigId: string) => {
+        const resolvedId = resolveModelRoleApiConfigId(apiConfigId, bindings.config);
+        return textCapableApiIds.has(resolvedId);
+      });
+      let mentionable = true;
+      let unavailableReason = "";
+      let hidden = false;
+      if (isUserPersona) {
+        mentionable = false;
+        hidden = true;
+        unavailableReason = bindings.t("chat.mentionUnavailableUserPersona");
+      } else if (isCurrentRuntimeAgent) {
+        mentionable = false;
+        hidden = true;
+        unavailableReason = bindings.t("chat.mentionUnavailableSelf");
+      } else if (!hasTextModel) {
+        mentionable = false;
+        unavailableReason = bindings.t("chat.mentionUnavailableNoModel");
       }
-
-      for (const department of boundDepartments) {
-        const isCurrentRuntimeAgent = department.departmentId === currentDepartmentId && agentId === currentAgentId;
-        const hasTextModel = department.apiConfigIds.some((apiConfigId: string) => {
-          const resolvedId = resolveModelRoleApiConfigId(apiConfigId, bindings.config);
-          return textCapableApiIds.has(resolvedId);
-        });
-        let mentionable = true;
-        let unavailableReason = "";
-        let hidden = false;
-        if (agentId === "user-persona" || persona.isBuiltInUser) {
-          mentionable = false;
-          hidden = true;
-          unavailableReason = bindings.t("chat.mentionUnavailableUserPersona");
-        } else if (!department.departmentId) {
-          mentionable = false;
-          unavailableReason = bindings.t("chat.mentionUnavailableUnassigned");
-        } else if (isCurrentRuntimeAgent) {
-          mentionable = false;
-          hidden = true;
-          unavailableReason = bindings.t("chat.mentionUnavailableSelf");
-        } else if (!currentDepartmentId) {
-          mentionable = false;
-          unavailableReason = bindings.t("chat.mentionUnavailableNoForegroundDepartment");
-        } else if (!hasTextModel) {
-          mentionable = false;
-          unavailableReason = bindings.t("chat.mentionUnavailableNoModel");
-        }
-        items.push({
-          agentId,
-          agentName,
-          avatarUrl,
-          departmentId: department.departmentId,
-          departmentName: department.departmentName,
-          departmentNames: boundDepartments.map((item: any) => item.departmentName),
-          isFrontSpeaking: isCurrentRuntimeAgent,
-          hasBackgroundTask: backgroundTaskCount > 0,
-          mentionable,
-          hidden,
-          unavailableReason: unavailableReason || undefined,
-        });
-      }
+      items.push({
+        agentId,
+        agentName,
+        avatarUrl,
+        isFrontSpeaking: isCurrentRuntimeAgent,
+        hasBackgroundTask: backgroundTaskCount > 0,
+        mentionable,
+        hidden,
+        unavailableReason: unavailableReason || undefined,
+      });
     }
     return items.sort((left, right) => {
       if (left.isFrontSpeaking !== right.isFrontSpeaking) return left.isFrontSpeaking ? -1 : 1;
@@ -237,27 +180,22 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
       if (left.hasBackgroundTask !== right.hasBackgroundTask) return left.hasBackgroundTask ? -1 : 1;
       if (left.agentId === "user-persona" && right.agentId !== "user-persona") return -1;
       if (right.agentId === "user-persona" && left.agentId !== "user-persona") return 1;
-      const nameCompare = left.agentName.localeCompare(right.agentName, localeName);
-      if (nameCompare !== 0) return nameCompare;
-      return left.departmentName.localeCompare(right.departmentName, localeName);
+      return left.agentName.localeCompare(right.agentName, localeName);
     });
   });
-  const createConversationDepartmentOptions = computed(() =>
-    buildDepartmentPersonaOptions({
-      departments: bindings.config.departments || [],
+  const createConversationAgentOptions = computed(() =>
+    buildAgentPersonaOptions({
       personas: bindings.personas.value || [],
       apiConfigs: bindings.config.apiConfigs || [],
-      assistantDepartmentApiConfigId: bindings.config.assistantDepartmentApiConfigId,
+      expertApiConfigId: bindings.config.expertApiConfigId,
       toolReviewApiConfigId: bindings.config.toolReviewApiConfigId,
     }),
   );
   return {
     userPersona,
     assistantPersonas,
-    assistantDepartmentPersona,
+    assistantPersona,
     currentForegroundConversationSummary,
-    currentForegroundDepartmentId,
-    currentForegroundDepartment,
     currentForegroundAgentId,
     currentConversationPreferredApiConfigId,
     currentForegroundApiConfigIds,
@@ -265,7 +203,7 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
     currentForegroundApiConfig,
     currentForegroundPersona,
     selectedPersonaEditor,
-    toolDepartment,
+    toolPersona,
     toolApiConfig,
     userAvatarUrl,
     userPersonaAvatarUrl,
@@ -275,6 +213,6 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
     chatPersonaNameMap,
     chatPersonaAvatarUrlMap,
     chatMentionEntries,
-    createConversationDepartmentOptions,
+    createConversationAgentOptions,
   };
 }

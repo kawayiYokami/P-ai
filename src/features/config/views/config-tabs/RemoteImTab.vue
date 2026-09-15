@@ -318,7 +318,7 @@
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center justify-between gap-2">
                       <div class="min-w-0 flex-1 truncate font-semibold text-sm">
-                        <span class="font-normal opacity-60 text-xs">[{{ contactDepartmentLabel(item) }}]</span>
+                        <span class="font-normal opacity-60 text-xs">[{{ contactAgentLabel(item) }}]</span>
                         {{ " " }}
                         {{ contactSafeDisplayName(item) }}
                         <span class="text-xs font-normal opacity-50">（{{ contactSecondaryText(item) }}）</span>
@@ -862,18 +862,16 @@
           <div class="flex-1 overflow-y-auto">
             <ul class="list gap-2">
               <li class="list-row flex items-start justify-between gap-3">
-                <div class="font-medium">{{ t("config.remoteIm.processingDepartment") }}</div>
+                <div class="font-medium">{{ t("config.remoteIm.processingAgent") }}</div>
                 <div class="flex w-[28rem] max-w-full flex-col gap-1">
-                  <DepartmentPersonaSelect
-                    v-model:department-id="contactDraft.boundDepartmentId"
+                  <AgentPersonaSelect
                     v-model:agent-id="contactDraft.boundAgentId"
-                    :departments="config.departments"
                     :personas="personas"
                     :persona-avatar-url-map="personaAvatarUrlMap"
                     :api-configs="config.apiConfigs"
-                    :assistant-department-api-config-id="config.assistantDepartmentApiConfigId"
+                    :expert-api-config-id="config.expertApiConfigId"
                     :tool-review-api-config-id="config.toolReviewApiConfigId"
-                    :placeholder="t('config.department.assistantBadge')"
+                    :placeholder="t('config.remoteIm.processingAgentPlaceholder')"
                     :show-model="false"
                     :disabled="contactsDisabled"
                   />
@@ -1084,9 +1082,9 @@ import {
   Users,
 } from "@lucide/vue";
 import { invokeTauri, openTransportFileDialog } from "../../../../services/tauri-api";
-import type { AppConfig, DepartmentConfig, PersonaProfile, RemoteImChannelConfig, RemoteImContact, RemoteImPlatform, ShellWorkspace } from "../../../../types/app";
+import type { AppConfig, PersonaProfile, RemoteImChannelConfig, RemoteImContact, RemoteImPlatform, ShellWorkspace } from "../../../../types/app";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
-import DepartmentPersonaSelect from "../../../shared/components/DepartmentPersonaSelect.vue";
+import AgentPersonaSelect from "../../../shared/components/AgentPersonaSelect.vue";
 import ChannelBehaviorSettingsModal from "./remote-im/ChannelBehaviorSettingsModal.vue";
 import type { ChannelConnectionStatus, ChannelLogEntry, WeixinLoginStatus } from "./remote-im/types";
 import { buildContactLogDisplayItem, type ContactLogDisplayItem } from "./remote-im/contact-log-display";
@@ -1130,7 +1128,6 @@ type ContactPillMenuState = {
   options: ContactPillMenuOption[];
 };
 type ContactSettingsClipboard = {
-  boundDepartmentId: string;
   boundAgentId: string;
   processingMode: "qa" | "continuous";
   activationMode: RemoteImContact["activationMode"];
@@ -1466,9 +1463,9 @@ const filteredCurrentContacts = computed(() => {
   if (!q) return all;
   return all.filter((c) => {
     const name = contactSafeDisplayName(c).toLowerCase();
-    const dept = contactDepartmentLabel(c).toLowerCase();
+    const agent = contactAgentLabel(c).toLowerCase();
     const sec = contactSecondaryText(c).toLowerCase();
-    return name.includes(q) || dept.includes(q) || sec.includes(q);
+    return name.includes(q) || agent.includes(q) || sec.includes(q);
   });
 });
 
@@ -1531,7 +1528,6 @@ const contactLogsTitle = computed(() => {
   return contactSafeDisplayName(target);
 });
 type ContactEditDraft = {
-  boundDepartmentId: string;
   boundAgentId: string;
   processingMode: "qa" | "continuous";
   activationMode: RemoteImContact["activationMode"];
@@ -1594,7 +1590,6 @@ const contactKeywordDrafts = ref<Record<string, string>>({});
 
 function buildContactDraftFromContact(item: RemoteImContact): ContactEditDraft {
   return {
-    boundDepartmentId: String(item.boundDepartmentId || ""),
     boundAgentId: String(item.boundAgentId || ""),
     processingMode: normalizeProcessingMode(item.processingMode),
     activationMode: isPrivateContact(item) ? "always" : normalizeActivationMode(item.activationMode || "never"),
@@ -1618,7 +1613,6 @@ function buildContactDraftFromContact(item: RemoteImContact): ContactEditDraft {
 function buildContactSettingsClipboard(item: RemoteImContact): ContactSettingsClipboard {
   const isPrivate = isPrivateContact(item);
   return {
-    boundDepartmentId: String(item.boundDepartmentId || ""),
     boundAgentId: String(item.boundAgentId || ""),
     processingMode: normalizeProcessingMode(item.processingMode),
     activationMode: isPrivate ? "always" : normalizeActivationMode(item.activationMode || "never"),
@@ -2062,7 +2056,6 @@ function buildContactClipboardPatch(
 ) {
   const isPrivate = isPrivateContact(target);
   return {
-    boundDepartmentId: clipboard.boundDepartmentId,
     boundAgentId: clipboard.boundAgentId,
     processingMode: clipboard.processingMode,
     activationMode: isPrivate ? "always" : clipboard.activationMode,
@@ -2084,8 +2077,7 @@ async function pasteContactSettings(item: RemoteImContact) {
       const updated = await invokeTauri<RemoteImContact>("remote_im_patch_contact_settings", {
         input: {
           contactId: item.id,
-          departmentId: patch.boundDepartmentId || null,
-          agentId: patch.boundDepartmentId && patch.boundAgentId ? patch.boundAgentId : null,
+          agentId: patch.boundAgentId || null,
           processingMode: patch.processingMode,
           activationMode: patch.activationMode,
           activationKeywords: patch.activationKeywords,
@@ -2280,29 +2272,23 @@ async function moveContactActivationMode(item: RemoteImContact, direction: -1 | 
   });
 }
 
-async function onContactDepartmentChange(
+async function onContactAgentChange(
   item: RemoteImContact,
-  departmentIdRaw: string,
   agentIdRaw: string,
 ) {
-  const oldDepartmentId = item.boundDepartmentId;
   const oldAgentId = item.boundAgentId;
-  const nextDepartmentId = String(departmentIdRaw || "").trim() || "";
   const nextAgentId = String(agentIdRaw || "").trim() || "";
-  item.boundDepartmentId = nextDepartmentId || undefined;
-  item.boundAgentId = nextDepartmentId && nextAgentId ? nextAgentId : undefined;
+  item.boundAgentId = nextAgentId || undefined;
   try {
-    await invokeTauri<RemoteImContact>("remote_im_update_contact_department_binding", {
+    await invokeTauri<RemoteImContact>("remote_im_update_contact_agent_binding", {
       input: {
         contactId: item.id,
-        departmentId: nextDepartmentId || null,
-        agentId: nextDepartmentId && nextAgentId ? nextAgentId : null,
+        agentId: nextAgentId || null,
       },
     });
     props.setStatusAction(t('config.remoteIm.contactContinueSession'));
     await refreshContacts();
   } catch (error) {
-    item.boundDepartmentId = oldDepartmentId;
     item.boundAgentId = oldAgentId;
     props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
   }
@@ -2476,12 +2462,10 @@ async function saveContactDraft() {
   const draft = contactDraft.value;
   contactSaving.value = true;
   try {
-    const nextDepartmentId = String(draft.boundDepartmentId || "").trim();
     const nextAgentId = String(draft.boundAgentId || "").trim();
-    const currentDepartmentId = String(item.boundDepartmentId || "").trim();
     const currentAgentId = String(item.boundAgentId || "").trim();
-    if (nextDepartmentId !== currentDepartmentId || nextAgentId !== currentAgentId) {
-      await onContactDepartmentChange(item, nextDepartmentId, nextAgentId);
+    if (nextAgentId !== currentAgentId) {
+      await onContactAgentChange(item, nextAgentId);
     }
 
     const nextProcessingMode = normalizeProcessingMode(draft.processingMode);
@@ -2769,27 +2753,11 @@ async function deleteContact(item: RemoteImContact) {
   }
 }
 
-function contactDepartmentLabel(item: RemoteImContact): string {
-  const departmentId = String(item.boundDepartmentId || "").trim();
+function contactAgentLabel(item: RemoteImContact): string {
   const agentId = String(item.boundAgentId || "").trim();
-  const department = departmentId
-    ? (props.config.departments || []).find((dept) => String(dept.id || "").trim() === departmentId)
-    : (props.config.departments || []).find((dept) => dept.id === "assistant-department" || dept.isBuiltInAssistant);
-  const departmentName = department
-    ? departmentDisplayName(department)
-    : departmentId || t("config.department.assistantBadge");
-  if (!agentId) return departmentName;
+  if (!agentId) return t("config.remoteIm.processingAgentDefault");
   const persona = (props.personas || []).find((agent) => String(agent.id || "").trim() === agentId);
-  const personaName = String(persona?.name || "").trim() || agentId;
-  return `${departmentName} / ${personaName}`;
-}
-
-function departmentDisplayName(dept: DepartmentConfig): string {
-  const id = String(dept.id || "").trim();
-  if (id === "remote-customer-service-department") {
-    return t("config.department.defaults.remoteCustomerServiceName");
-  }
-  return String(dept.name || "").trim() || id;
+  return String(persona?.name || "").trim() || agentId;
 }
 
 function contactProcessingModeLabel(item: RemoteImContact): string {

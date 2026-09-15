@@ -13,7 +13,7 @@ function createBaseConfig(): AppConfig {
     minRecordSeconds: 1,
     maxRecordSeconds: 60,
     selectedApiConfigId: "",
-    assistantDepartmentApiConfigId: "",
+    expertApiConfigId: "",
     visionApiConfigId: undefined,
     sttApiConfigId: undefined,
     sttAutoSend: false,
@@ -21,7 +21,6 @@ function createBaseConfig(): AppConfig {
     shellWorkspaces: [],
     mcpServers: [],
     remoteImChannels: [],
-    departments: [],
     apiProviders: [],
     apiConfigs: [],
   };

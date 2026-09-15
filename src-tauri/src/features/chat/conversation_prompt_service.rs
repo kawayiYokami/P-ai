@@ -32,7 +32,7 @@ struct ConversationPromptSnapshot {
     conversation_id: String,
     agent_id: String,
     revisions: ConversationPromptRevisions,
-    department_prompt: String,
+    core_prompt: String,
     environment_prompt: String,
     abstract_messages: Vec<AbstractConversationMessageProjection>,
 }
@@ -570,7 +570,7 @@ impl ConversationPromptService {
     fn build_prompt_revisions(
         &self,
         conversation: &Conversation,
-        department_prompt: &str,
+        core_prompt: &str,
         environment_prompt: &str,
         abstract_messages: &[AbstractConversationMessageProjection],
     ) -> ConversationPromptRevisions {
@@ -580,7 +580,7 @@ impl ConversationPromptService {
             "message_count": conversation.messages.len(),
             "abstract_messages": abstract_messages,
         }));
-        let prompt_revision = stable_revision_hash(&[department_prompt, environment_prompt]);
+        let prompt_revision = stable_revision_hash(&[core_prompt, environment_prompt]);
         ConversationPromptRevisions {
             conversation_revision,
             prompt_revision,
@@ -643,7 +643,7 @@ impl ConversationPromptService {
         mode_label: &str,
         conversation: &Conversation,
         agent: &AgentProfile,
-        departments: &[DepartmentConfig],
+        agents: &[AgentProfile],
         ui_language: &str,
         selected_api: Option<&ApiConfig>,
         fixed_system_prompt_text: &str,
@@ -652,20 +652,8 @@ impl ConversationPromptService {
         system_preamble_blocks: &[String],
         chat_overrides: Option<&ChatPromptOverrides>,
     ) -> ConversationPromptSnapshot {
-        let department_snapshot = get_or_build_department_system_prompt_snapshot(
-            state,
-            conversation,
-            agent,
-            departments,
-            chat_overrides
-                .and_then(|overrides| overrides.executor_department_id.as_deref())
-                .unwrap_or_default(),
-            ui_language,
-        );
-        let department_config = departments_only_config(departments);
-        let current_department = chat_overrides
-            .and_then(|overrides| overrides.executor_department_id.as_deref())
-            .and_then(|department_id| department_by_id(&department_config, department_id));
+        let agent_snapshot =
+            get_or_build_agent_system_prompt_snapshot(state, agent, agents, ui_language);
         let prompt_origin_scope = chat_overrides
             .and_then(|overrides| {
                 runtime_tool_origin_scope_from_activation_sources(
@@ -686,7 +674,7 @@ impl ConversationPromptService {
         tool_rule_blocks.push(build_memory_rag_rule_block());
         let mut deferred_tool_blocks = Vec::<String>::new();
         let mut task_block = None;
-        for block in department_snapshot.department_tool_rule_blocks.iter().cloned() {
+        for block in agent_snapshot.agent_tool_rule_blocks.iter().cloned() {
             if block.contains("<task tool rule>") {
                 task_block = Some(block);
             } else {
@@ -750,7 +738,7 @@ impl ConversationPromptService {
         let meme_rule_enabled = builtin_tool_ids_for_prompt_rule("meme")
             .into_iter()
             .any(|tool_id| {
-                department_builtin_tool_enabled(&department_config, current_department, tool_id)
+                agent_builtin_tool_enabled(Some(agent), tool_id)
             });
         if meme_rule_enabled
             && builtin_tool_prompt_rule_allowed_in_origin("meme", prompt_origin_scope)
@@ -795,19 +783,19 @@ impl ConversationPromptService {
             &im_extra_blocks,
         );
 
-        let mut department_blocks = Vec::<String>::new();
+        let mut core_prompt_blocks = Vec::<String>::new();
         let fixed = fixed_system_prompt_text.trim();
         if !fixed.is_empty() {
-            department_blocks.push(fixed.to_string());
+            core_prompt_blocks.push(fixed.to_string());
         }
         if let Some(model_block) = driving_model_prompt_block(selected_api) {
-            department_blocks.push(model_block);
+            core_prompt_blocks.push(model_block);
         }
-        let department_prompt_block = department_snapshot.department_prompt_block.trim();
-        if !department_prompt_block.is_empty() {
-            department_blocks.push(department_prompt_block.to_string());
+        let agent_prompt_block = agent_snapshot.agent_prompt_block.trim();
+        if !agent_prompt_block.is_empty() {
+            core_prompt_blocks.push(agent_prompt_block.to_string());
         }
-        department_blocks.extend(
+        core_prompt_blocks.extend(
             tool_rule_blocks
                 .into_iter()
                 .map(|value| value.trim().to_string())
@@ -817,9 +805,9 @@ impl ConversationPromptService {
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            department_blocks.push(profile_block.to_string());
+            core_prompt_blocks.push(profile_block.to_string());
         }
-        let department_prompt = flatten_system_prompt_blocks(&department_blocks);
+        let core_prompt = flatten_system_prompt_blocks(&core_prompt_blocks);
         let environment_prompt = flatten_system_prompt_blocks(
             &environment_snapshot
                 .runtime_blocks
@@ -831,7 +819,7 @@ impl ConversationPromptService {
             self.get_or_build_abstract_message_projection(state, conversation, agent);
         let revisions = self.build_prompt_revisions(
             conversation,
-            &department_prompt,
+            &core_prompt,
             &environment_prompt,
             &abstract_messages,
         );
@@ -839,7 +827,7 @@ impl ConversationPromptService {
             conversation_id: conversation.id.clone(),
             agent_id: agent.id.clone(),
             revisions,
-            department_prompt,
+            core_prompt,
             environment_prompt,
             abstract_messages,
         }
@@ -877,27 +865,24 @@ impl ConversationPromptService {
         &self,
         state: Option<&AppState>,
         conversation: &Conversation,
-        _agent: &AgentProfile,
-        departments: &[DepartmentConfig],
+        agent: &AgentProfile,
         ui_language: &str,
         overrides: &ChatPromptOverrides,
         stage_logger: Option<&dyn Fn(&str)>,
     ) -> Vec<String> {
         let mut blocks = Vec::<String>::new();
         if let Some(state) = state {
-            let department_config = departments_only_config(departments);
-            if let Some(current_department) = overrides
-                .executor_department_id
-                .as_deref()
-                .and_then(|department_id| department_by_id(&department_config, department_id))
-            {
-                blocks.push(build_hidden_skill_snapshot_block_for_department(
-                    state,
-                    Some(current_department),
-                ));
-            }
+            blocks.push(build_hidden_skill_snapshot_block_for_agent(state, Some(agent)));
             if let Some(log_stage) = stage_logger {
                 log_stage("prepare_context.skill_snapshot_ready");
+            }
+            blocks.push(build_resident_skill_fulltext_block(state, agent));
+            if let Some(log_stage) = stage_logger {
+                log_stage("prepare_context.resident_skills_ready");
+            }
+            blocks.push(build_optional_skill_reference_block(state, agent));
+            if let Some(log_stage) = stage_logger {
+                log_stage("prepare_context.optional_skills_ready");
             }
             let remote_contact_type = resolve_human_interface_remote_contact_type(
                 Some(state),
@@ -1046,7 +1031,7 @@ impl ConversationPromptService {
         mode_label: &str,
         conversation: &Conversation,
         agent: &AgentProfile,
-        departments: &[DepartmentConfig],
+        agents: &[AgentProfile],
         selected_api: Option<&ApiConfig>,
         ui_language: &str,
         fixed_system_prompt_text: &str,
@@ -1055,18 +1040,10 @@ impl ConversationPromptService {
         overrides: &ChatPromptOverrides,
         stage_logger: Option<&dyn Fn(&str)>,
     ) -> String {
-        let department_id = normalize_executor_department_id(
-            departments,
-            overrides
-                .executor_department_id
-                .as_deref()
-                .unwrap_or_default(),
-        );
         let final_cache_key = format!(
-            "scope={}|conversation_id={}|department={}|agent={}|model={}",
+            "scope={}|conversation_id={}|agent={}|model={}",
             prompt_cache_scope_key(state),
             conversation.id.trim(),
-            department_id,
             agent.id.trim(),
             selected_api_prompt_model_name(selected_api).unwrap_or_default(),
         );
@@ -1084,10 +1061,9 @@ impl ConversationPromptService {
             }
         }
         runtime_log_info(format!(
-            "[系统提示词] 开始重建 conversation_id={} agent_id={} department_id={} reason={}",
+            "[系统提示词] 开始重建 conversation_id={} agent_id={} reason={}",
             conversation.id.trim(),
             agent.id.trim(),
-            department_id,
             rebuild_reason
         ));
         let terminal_block = self.resolve_terminal_block(
@@ -1101,7 +1077,6 @@ impl ConversationPromptService {
             state,
             conversation,
             agent,
-            departments,
             ui_language,
             overrides,
             stage_logger,
@@ -1111,7 +1086,7 @@ impl ConversationPromptService {
             mode_label,
             conversation,
             agent,
-            departments,
+            agents,
             ui_language,
             selected_api,
             fixed_system_prompt_text,
@@ -1121,7 +1096,7 @@ impl ConversationPromptService {
             Some(overrides),
         );
         let prompt_text = flatten_system_prompt_blocks(&vec![
-            snapshot.department_prompt.clone(),
+            snapshot.core_prompt.clone(),
             snapshot.environment_prompt.clone(),
         ]);
         let mut cache = cache_lock_recover("system_prompt_text_cache", system_prompt_text_cache());
@@ -1130,7 +1105,6 @@ impl ConversationPromptService {
             FinalSystemPromptCacheEntry {
                 conversation_id: conversation.id.trim().to_string(),
                 agent_id: agent.id.trim().to_string(),
-                department_id,
                 text: prompt_text.clone(),
                 dirty_state: FinalSystemPromptDirtyState::default(),
             },
@@ -1179,7 +1153,6 @@ impl ConversationPromptService {
         conversation: &Conversation,
         agent: &AgentProfile,
         agents: &[AgentProfile],
-        departments: &[DepartmentConfig],
         user_name: &str,
         user_intro: &str,
         response_style_id: &str,
@@ -1199,7 +1172,6 @@ impl ConversationPromptService {
                     conversation,
                     agent,
                     agents,
-                    departments,
                     user_name,
                     user_intro,
                     response_style_id,
@@ -1215,7 +1187,7 @@ impl ConversationPromptService {
                     "chat",
                     conversation,
                     agent,
-                    departments,
+                    agents,
                     selected_api,
                     ui_language,
                     &prepared.preamble,
@@ -1258,7 +1230,6 @@ impl ConversationPromptService {
                     conversation,
                     agent,
                     agents,
-                    departments,
                     response_style_id,
                     ui_language,
                     data_path,
@@ -1272,7 +1243,7 @@ impl ConversationPromptService {
                     "delegate",
                     conversation,
                     agent,
-                    departments,
+                    agents,
                     selected_api,
                     ui_language,
                     &prepared.preamble,

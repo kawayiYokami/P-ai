@@ -37,8 +37,6 @@ export function useChatConversationItemsDerivedState(bindings: Record<string, an
         hasAssistantReply: item.hasAssistantReply !== false,
         unreadCount: Number(item.unreadCount || 0),
         agentId: String(item.agentId || "").trim(),
-        departmentId: String(item.departmentId || "").trim(),
-        departmentName: String(item.departmentName || "").trim(),
         parentConversationId: String(item.parentConversationId || "").trim() || undefined,
         forkMessageCursor: String(item.forkMessageCursor || "").trim() || undefined,
         workspaceLabel: String(item.workspaceLabel || "").trim() || "默认会话目录",
@@ -80,15 +78,6 @@ export function useChatConversationItemsDerivedState(bindings: Record<string, an
     });
   });
 
-  function resolveRemoteConversationDepartmentName(boundDepartmentId?: string): string {
-    const normalizedDepartmentId = String(boundDepartmentId || "").trim();
-    if (!normalizedDepartmentId) return "主部门";
-    return (
-      bindings.config.departments.find((item: any) => String(item.id || "").trim() === normalizedDepartmentId)?.name
-      || normalizedDepartmentId
-    );
-  }
-
   const chatRemoteImConversationItems = computed<ChatConversationOverviewItem[]>(() =>
     bindings.remoteImContactConversations.value.map((item: any) => ({
       conversationId: String(item.conversationId || "").trim(),
@@ -99,11 +88,7 @@ export function useChatConversationItemsDerivedState(bindings: Record<string, an
       channelId: String(item.channelId || item.channel_id || "").trim() || undefined,
       channelName: String(item.channelName || item.channel_name || "").trim() || undefined,
       messageCount: Number(item.messageCount || 0),
-      departmentId: String(item.boundDepartmentId || "").trim() || undefined,
-      departmentName: [
-        String(item.channelName || item.channel_name || "").trim(),
-        resolveRemoteConversationDepartmentName(item.boundDepartmentId),
-      ].filter(Boolean).join(" · "),
+      agentId: String(item.boundAgentId || "").trim() || undefined,
       runtimeState: String(item.runtimeState || "").trim() || undefined,
       updatedAt: item.lastMessageAt || item.updatedAt || "",
       lastMessageAt: item.lastMessageAt || item.updatedAt || "",
@@ -119,7 +104,6 @@ export function useChatConversationItemsDerivedState(bindings: Record<string, an
   return {
     CONVERSATION_COLORS,
     chatUnarchivedConversationItems,
-    resolveRemoteConversationDepartmentName,
     chatRemoteImConversationItems,
     chatConversationItems,
   };

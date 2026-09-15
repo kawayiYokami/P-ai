@@ -35,7 +35,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -102,7 +101,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -143,7 +141,6 @@
         let fixed_system_prompt = build_core_system_prompt_text(
             &conv,
             &agent,
-            &[],
             Some(("用户", "我是测试用户")),
             DEFAULT_RESPONSE_STYLE_ID,
             "zh-CN",
@@ -155,7 +152,7 @@
             "chat",
             &conv,
             &agent,
-            &[],
+            &[agent.clone()],
             "zh-CN",
             None,
             &fixed_system_prompt,
@@ -169,7 +166,7 @@
             "chat",
             &conv,
             &agent,
-            &[],
+            &[agent.clone()],
             "zh-CN",
             None,
             &fixed_system_prompt,
@@ -180,7 +177,7 @@
         );
 
         assert_eq!(first.revisions, second.revisions);
-        assert_eq!(first.department_prompt, second.department_prompt);
+        assert_eq!(first.core_prompt, second.core_prompt);
         assert_eq!(first.environment_prompt, second.environment_prompt);
         assert_eq!(first.abstract_messages, second.abstract_messages);
     }
@@ -206,7 +203,7 @@
             "chat",
             &conversation,
             &agent,
-            &[],
+            &[agent.clone()],
             "zh-CN",
             None,
             "固定系统提示词",
@@ -223,7 +220,7 @@
             "chat",
             &conversation,
             &agent,
-            &[],
+            &[agent.clone()],
             "zh-CN",
             None,
             "固定系统提示词",
@@ -233,21 +230,18 @@
             None,
         );
 
-        assert!(!group_snapshot.department_prompt.contains("<goal tool rule>"));
-        assert!(local_snapshot.department_prompt.contains("<goal tool rule>"));
+        assert!(!group_snapshot.core_prompt.contains("<goal tool rule>"));
+        assert!(local_snapshot.core_prompt.contains("<goal tool rule>"));
     }
 
     #[test]
     fn conversation_prompt_service_should_align_task_and_plan_rules_with_conversation_scope() {
         let now = now_iso();
         let agent = default_agent();
-        let mut department = default_assistant_department("api-a");
-        department.id = "assistant-department".to_string();
-        let mut local = test_active_conversation_with_messages(
+        let local = test_active_conversation_with_messages(
             vec![test_text_message("user", "本地消息", &now)],
             Some(now.clone()),
         );
-        local.department_id = department.id.clone();
         let mut delegate = local.clone();
         delegate.conversation_kind = CONVERSATION_KIND_DELEGATE.to_string();
         let mut remote_contact = local.clone();
@@ -255,17 +249,14 @@
         remote_contact.root_conversation_id = Some(
             "remote_im_contact:channel-group:group:group-1".to_string(),
         );
-        let overrides = ChatPromptOverrides {
-            executor_department_id: Some(department.id.clone()),
-            ..Default::default()
-        };
+        let overrides = ChatPromptOverrides::default();
 
         let local_snapshot = conversation_prompt_service().build_prompt_snapshot(
             None,
             "chat",
             &local,
             &agent,
-            &[department.clone()],
+            &[agent.clone()],
             "zh-CN",
             None,
             "固定系统提示词",
@@ -279,7 +270,7 @@
             "delegate",
             &delegate,
             &agent,
-            &[department.clone()],
+            &[agent.clone()],
             "zh-CN",
             None,
             "固定系统提示词",
@@ -293,7 +284,7 @@
             "chat",
             &remote_contact,
             &agent,
-            &[department],
+            &[agent.clone()],
             "zh-CN",
             None,
             "固定系统提示词",
@@ -303,15 +294,15 @@
             Some(&overrides),
         );
 
-        assert!(local_snapshot.department_prompt.contains("<task tool rule>"));
-        assert!(local_snapshot.department_prompt.contains("<plan tool rule>"));
-        assert!(!delegate_snapshot.department_prompt.contains("<task tool rule>"));
-        assert!(!delegate_snapshot.department_prompt.contains("<plan tool rule>"));
+        assert!(local_snapshot.core_prompt.contains("<task tool rule>"));
+        assert!(local_snapshot.core_prompt.contains("<plan tool rule>"));
+        assert!(!delegate_snapshot.core_prompt.contains("<task tool rule>"));
+        assert!(!delegate_snapshot.core_prompt.contains("<plan tool rule>"));
         assert!(remote_contact_snapshot
-            .department_prompt
+            .core_prompt
             .contains("<task tool rule>"));
         assert!(!remote_contact_snapshot
-            .department_prompt
+            .core_prompt
             .contains("<plan tool rule>"));
     }
 
@@ -330,7 +321,6 @@
         let fixed_system_prompt = build_core_system_prompt_text(
             &conv,
             &agent,
-            &[],
             Some(("用户", "我是测试用户")),
             DEFAULT_RESPONSE_STYLE_ID,
             "zh-CN",
@@ -355,7 +345,6 @@
         let fixed_system_prompt = build_core_system_prompt_text(
             &conv,
             &agent,
-            &[],
             Some(("用户", "我是测试用户")),
             DEFAULT_RESPONSE_STYLE_ID,
             "zh-CN",
@@ -366,7 +355,7 @@
             "chat",
             &conv,
             &agent,
-            &[],
+            &[agent.clone()],
             "zh-CN",
             None,
             &fixed_system_prompt,
@@ -387,7 +376,6 @@
         let fixed_after = build_core_system_prompt_text(
             &with_conversation_side_blocks,
             &agent,
-            &[],
             Some(("用户", "我是测试用户")),
             DEFAULT_RESPONSE_STYLE_ID,
             "zh-CN",
@@ -398,7 +386,7 @@
             "chat",
             &with_conversation_side_blocks,
             &agent,
-            &[],
+            &[agent.clone()],
             "zh-CN",
             None,
             &fixed_after,
@@ -423,7 +411,6 @@
         let fixed_system_prompt = build_core_system_prompt_text(
             &conv,
             &agent,
-            &[],
             Some(("用户", "我是测试用户")),
             "none",
             "zh-CN",
@@ -492,7 +479,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona(), system_persona.clone()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -699,7 +685,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -978,6 +963,14 @@
             memory_recall_mode: default_agent_memory_recall_mode(),
             source: default_private_workspace_source(),
             scope: default_assistant_private_scope(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
         };
         let private_worker_memory_context =
             memory_agent_context_from_agent(&private_worker).expect("private worker memory context");
@@ -1133,7 +1126,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -1166,7 +1158,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -1557,7 +1548,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -1661,7 +1651,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -1797,31 +1786,11 @@
         ];
         let mut conv = test_active_conversation_with_messages(messages, Some(now));
         conv.agent_id = agent.id.clone();
-        conv.department_id = "dept-a".to_string();
 
         let prepared = build_prompt(
             &conv,
             &wrong_agent,
             &[agent.clone(), wrong_agent.clone(), default_user_persona()],
-            &[DepartmentConfig {
-                id: "dept-a".to_string(),
-                name: "部门 A".to_string(),
-                summary: String::new(),
-                guide: String::new(),
-                api_config_ids: vec!["provider-a".to_string()],
-                api_config_id: "provider-a".to_string(),
-                model_failure_fallback_enabled: false,
-                agent_ids: vec![agent.id.clone()],
-                child_department_ids: Vec::new(),
-                created_at: now_utc_rfc3339(),
-                updated_at: now_utc_rfc3339(),
-                order_index: 1,
-                is_built_in_assistant: false,
-                is_deputy: false,
-                source: "main_config".to_string(),
-                scope: "global".to_string(),
-                permission_control: DepartmentPermissionControl::default(),
-            }],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -1851,81 +1820,24 @@
         let agent = default_agent();
         let mut conv = test_active_conversation_with_messages(Vec::new(), Some(now));
         conv.agent_id = "missing-agent".to_string();
-        conv.department_id = "dept-a".to_string();
         let agents = vec![agent.clone(), default_user_persona()];
-        let departments = vec![DepartmentConfig {
-            id: "dept-a".to_string(),
-            name: "部门 A".to_string(),
-            summary: String::new(),
-            guide: String::new(),
-            api_config_ids: vec!["provider-a".to_string()],
-            api_config_id: "provider-a".to_string(),
-            model_failure_fallback_enabled: false,
-            agent_ids: vec![agent.id.clone()],
-            child_department_ids: Vec::new(),
-            created_at: now_utc_rfc3339(),
-            updated_at: now_utc_rfc3339(),
-            order_index: 1,
-            is_built_in_assistant: false,
-            is_deputy: false,
-            source: "main_config".to_string(),
-            scope: "global".to_string(),
-            permission_control: DepartmentPermissionControl::default(),
-        }];
 
-        let err = resolve_conversation_bound_agent(&conv, &agents, &departments)
+        let err = resolve_conversation_bound_agent(&conv, &agents)
             .expect_err("missing bound agent should fail");
 
         assert!(err.contains("会话绑定人格不存在或不可用"));
     }
 
     #[test]
-    fn resolve_conversation_bound_agent_should_use_department_first_agent_when_agent_empty() {
-        let now = now_iso();
-        let mut agent = default_agent();
-        agent.id = "agent-a".to_string();
-        let mut conv = test_active_conversation_with_messages(Vec::new(), Some(now));
-        conv.agent_id = String::new();
-        conv.department_id = "dept-a".to_string();
-        let agents = vec![agent.clone(), default_user_persona()];
-        let departments = vec![DepartmentConfig {
-            id: "dept-a".to_string(),
-            name: "部门 A".to_string(),
-            summary: String::new(),
-            guide: String::new(),
-            api_config_ids: vec!["provider-a".to_string()],
-            api_config_id: "provider-a".to_string(),
-            model_failure_fallback_enabled: false,
-            agent_ids: vec![agent.id.clone()],
-            child_department_ids: Vec::new(),
-            created_at: now_utc_rfc3339(),
-            updated_at: now_utc_rfc3339(),
-            order_index: 1,
-            is_built_in_assistant: false,
-            is_deputy: false,
-            source: "main_config".to_string(),
-            scope: "global".to_string(),
-            permission_control: DepartmentPermissionControl::default(),
-        }];
-
-        let resolved = resolve_conversation_bound_agent(&conv, &agents, &departments)
-            .expect("empty bound agent should use department first agent");
-
-        assert_eq!(resolved.id, "agent-a");
-    }
-
-    #[test]
-    fn resolve_conversation_bound_agent_should_error_when_agent_and_department_missing() {
+    fn resolve_conversation_bound_agent_should_error_when_agent_missing_without_department() {
         let now = now_iso();
         let agent = default_agent();
         let mut conv = test_active_conversation_with_messages(Vec::new(), Some(now));
         conv.agent_id = "missing-agent".to_string();
-        conv.department_id = String::new();
 
         let err = resolve_conversation_bound_agent(
             &conv,
             &[agent, default_user_persona()],
-            &[],
         )
         .expect_err("missing agent and department should fail");
 
@@ -2144,15 +2056,11 @@
                 "mentions": [
                     {
                         "agentId": "agent-fairy",
-                        "agentName": "fairy",
-                        "departmentId": "department-fairy",
-                        "departmentName": "测试部门"
+                        "agentName": "fairy"
                     },
                     {
                         "agentId": "agent-zhongli",
-                        "agentName": "钟离",
-                        "departmentId": "department-zhongli",
-                        "departmentName": "璃月顾问组"
+                        "agentName": "钟离"
                     }
                 ]
             }
@@ -2163,7 +2071,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -2254,7 +2161,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -2329,7 +2235,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -2408,7 +2313,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -2474,7 +2378,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -2519,7 +2422,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -2552,7 +2454,6 @@
             &conv,
             &agent,
             &[agent.clone(), default_user_persona()],
-            &[],
             "用户",
             "我是...",
             DEFAULT_RESPONSE_STYLE_ID,
@@ -2704,7 +2605,6 @@
                 activate_assistant: true,
                 assistant_message_id: None,
                 session_info: ChatSessionInfo {
-                    department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                     agent_id: DEFAULT_AGENT_ID.to_string(),
                 },
                 runtime_context: None,
@@ -2720,7 +2620,6 @@
                 activate_assistant: true,
                 assistant_message_id: None,
                 session_info: ChatSessionInfo {
-                    department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                     agent_id: DEFAULT_AGENT_ID.to_string(),
                 },
                 runtime_context: None,
@@ -2736,7 +2635,6 @@
                 activate_assistant: true,
                 assistant_message_id: None,
                 session_info: ChatSessionInfo {
-                    department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                     agent_id: DEFAULT_AGENT_ID.to_string(),
                 },
                 runtime_context: None,
@@ -2752,7 +2650,6 @@
                 activate_assistant: true,
                 assistant_message_id: None,
                 session_info: ChatSessionInfo {
-                    department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                     agent_id: DEFAULT_AGENT_ID.to_string(),
                 },
                 runtime_context: None,
@@ -2828,7 +2725,6 @@
             activate_assistant: true,
             assistant_message_id: None,
             session_info: ChatSessionInfo {
-                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
             },
             runtime_context: None,
@@ -2928,7 +2824,6 @@
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: None,
             bound_agent_id: None,
             bound_conversation_id: Some(conversation_id.clone()),
             processing_mode: "continuous".to_string(),
@@ -3134,7 +3029,6 @@
             vec![trigger],
             true,
             ChatSessionInfo {
-                department_id: "department-a".to_string(),
                 agent_id: "agent-a".to_string(),
             },
             RemoteImMessageSource {
@@ -3254,7 +3148,6 @@
                         vec![remote_im_test_group_user_message("user-a")],
                         true,
                         ChatSessionInfo {
-                            department_id: "department-a".to_string(),
                             agent_id: "agent-a".to_string(),
                         },
                         RemoteImMessageSource {
@@ -3437,6 +3330,14 @@
             memory_recall_mode: default_agent_memory_recall_mode(),
             source: "global".to_string(),
             scope: "global".to_string(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
         };
         let usage = conversation_prompt_service()
             .latest_real_prompt_usage(&conversation, &ApiConfig::default())
@@ -3598,6 +3499,14 @@
             memory_recall_mode: default_agent_memory_recall_mode(),
             source: "global".to_string(),
             scope: "global".to_string(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
         };
         let prepared = PreparedPrompt {
             preamble: "系统提示词".to_string(),
@@ -3748,6 +3657,14 @@
             memory_recall_mode: default_agent_memory_recall_mode(),
             source: "global".to_string(),
             scope: "global".to_string(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
         };
         let prepared = PreparedPrompt {
             preamble: "系统提示词".to_string(),
@@ -3801,6 +3718,14 @@
             memory_recall_mode: default_agent_memory_recall_mode(),
             source: "global".to_string(),
             scope: "global".to_string(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
         };
         let prepared = PreparedPrompt {
             preamble: "系统提示词".to_string(),
@@ -3975,7 +3900,6 @@
             activate_assistant: true,
             assistant_message_id: None,
             session_info: ChatSessionInfo {
-                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
             },
             runtime_context: None,
@@ -4009,7 +3933,6 @@
         conversation.root_conversation_id = Some(
             "remote_im_contact:channel-group:group:group-1".to_string(),
         );
-        conversation.department_id = "assistant-department".to_string();
         conversation.active_goal = Some(ConversationGoalState {
             goal_id: "legacy-group-goal".to_string(),
             status: "active".to_string(),
@@ -4034,7 +3957,6 @@
             id: conversation_id.to_string(),
             title: conversation_id.to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: String::new(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -4304,7 +4226,7 @@
         write_conversation_shard(&state.data_path, &conversation).expect("write archived conversation");
         state_service_set_message_store_migration_version(
             &state,
-            DATA_MIGRATION_CURRENT_VERSION,
+            MESSAGE_STORE_MIGRATION_CURRENT_VERSION,
         )
         .expect("mark message store migration complete");
 
@@ -4787,7 +4709,6 @@
             &conversation.id,
             |conversation| {
                 conversation.agent_id = "字段级agent".to_string();
-                conversation.department_id = "字段级department".to_string();
                 conversation.root_conversation_id = Some("字段级root".to_string());
                 conversation.conversation_kind = CONVERSATION_KIND_REMOTE_IM_CONTACT.to_string();
                 conversation.user_profile_snapshot = "字段级画像".to_string();
@@ -4804,7 +4725,6 @@
         stale_full_snapshot.status = "active".to_string();
         stale_full_snapshot.archived_at = None;
         stale_full_snapshot.agent_id = DEFAULT_AGENT_ID.to_string();
-        stale_full_snapshot.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
         stale_full_snapshot.root_conversation_id = None;
         stale_full_snapshot.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
         stale_full_snapshot.current_todos = Vec::new();
@@ -4835,7 +4755,6 @@
         assert_eq!(cached.user_profile_snapshot, "字段级画像");
         assert_eq!(cached.memory_recall_table, vec!["memory-a".to_string()]);
         assert_eq!(cached.agent_id, "字段级agent");
-        assert_eq!(cached.department_id, "字段级department");
         assert_eq!(cached.root_conversation_id.as_deref(), Some("字段级root"));
         assert_eq!(
             cached.conversation_kind,
@@ -5288,7 +5207,6 @@
         let now = now_iso();
         let mut conversation = test_chat_conversation("conversation-v2-meta-read", "active", &now);
         conversation.title = "Meta读取标题".to_string();
-        conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
         conversation.agent_id = DEFAULT_AGENT_ID.to_string();
         conversation.current_todos = vec![ConversationTodoItem {
             content: "检查 meta view".to_string(),
@@ -5303,7 +5221,6 @@
         assert_eq!(meta.id, conversation.id);
         assert_eq!(meta.title, "Meta读取标题");
         assert_eq!(meta.agent_id, DEFAULT_AGENT_ID);
-        assert_eq!(meta.department_id, ASSISTANT_DEPARTMENT_ID);
         assert_eq!(meta.current_todos.len(), 1);
     }
 
@@ -5323,7 +5240,6 @@
             "not-a-valid-rfc3339-time",
         );
         conversation.title = String::new();
-        conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
         conversation.agent_id = DEFAULT_AGENT_ID.to_string();
         state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
 
@@ -5433,7 +5349,6 @@
                 &CreateUnarchivedConversationInput {
                     api_config_id: None,
                     agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-                    department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
                     title: Some("V2创建会话".to_string()),
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
@@ -5578,7 +5493,6 @@
                 &CreateUnarchivedConversationInput {
                     api_config_id: None,
                     agent_id: None,
-                    department_id: None,
                     title: None,
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
@@ -5594,7 +5508,6 @@
             .expect("draft conversation should exist");
         assert!(draft.is_draft, "draft flag should be set on creation");
         assert!(draft.title.is_empty(), "draft title should stay empty");
-        assert!(!draft.department_id.is_empty(), "draft department should fall back to default");
         assert!(!draft.agent_id.is_empty(), "draft agent should fall back to default");
 
         let meta = conversation_service_v2()
@@ -5612,7 +5525,7 @@
     }
 
     #[test]
-    fn conversation_service_v2_should_create_draft_with_current_assistant_persona_outside_department() {
+    fn conversation_service_v2_should_create_draft_with_current_assistant_persona_outside_org() {
         let state = test_chat_runtime_state();
         let git_init = std::process::Command::new("git")
             .args(["init", "--quiet"])
@@ -5621,13 +5534,7 @@
             .expect("initialize git workspace");
         assert!(git_init.status.success(), "git init should succeed");
 
-        // 助理部门成员只有 default-agent，当前助理人格刻意留在成员列表之外
-        let mut config = AppConfig::default();
-        for department in &mut config.departments {
-            if department.id == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant {
-                department.agent_ids = vec![DEFAULT_AGENT_ID.to_string()];
-            }
-        }
+        let config = AppConfig::default();
         write_config(&state.config_path, &config).expect("write config");
         state_write_agents_cached(
             &state,
@@ -5643,7 +5550,7 @@
             ],
         )
         .expect("write agents");
-        state_service_set_assistant_department_agent_id(&state, "persona-outside-department")
+        state_service_set_assistant_agent_id(&state, "persona-outside-department")
             .expect("write assistant department agent id");
 
         let created = conversation_service_v2()
@@ -5652,7 +5559,6 @@
                 &CreateUnarchivedConversationInput {
                     api_config_id: None,
                     agent_id: None,
-                    department_id: None,
                     title: None,
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
@@ -5668,7 +5574,7 @@
             .expect("draft conversation should exist");
         assert_eq!(
             draft.agent_id, "persona-outside-department",
-            "draft must use the current assistant persona even when it is not a member of the assistant department"
+            "draft must use the current assistant persona even when it has no structural relationship to the assistant root"
         );
     }
 
@@ -5688,7 +5594,6 @@
                 &CreateUnarchivedConversationInput {
                     api_config_id: None,
                     agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-                    department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
                     title: None,
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
@@ -5725,7 +5630,6 @@
                 &CreateUnarchivedConversationInput {
                     api_config_id: None,
                     agent_id: None,
-                    department_id: None,
                     title: None,
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
@@ -5776,10 +5680,6 @@
                 .expect("read next draft meta");
             assert!(next_meta.is_draft, "backup draft must keep is_draft=true");
             assert_eq!(
-                next_meta.department_id, promoted_meta.department_id,
-                "backup draft should inherit department"
-            );
-            assert_eq!(
                 next_meta.agent_id, promoted_meta.agent_id,
                 "backup draft should inherit agent"
             );
@@ -5787,7 +5687,7 @@
     }
 
     #[test]
-    fn conversation_service_v2_should_reject_draft_agent_outside_department() {
+    fn conversation_service_v2_should_reject_unknown_draft_agent() {
         let state = test_chat_runtime_state();
         let git_init = std::process::Command::new("git")
             .args(["init", "--quiet"])
@@ -5796,13 +5696,9 @@
             .expect("initialize git workspace");
         assert!(git_init.status.success(), "git init should succeed");
 
-        // 人格校验复用草稿更新路径的部门归属校验：不存在的部门必须拒绝
-        let result = validate_draft_agent_for_department(
-            &state,
-            "department-not-exists",
-            DEFAULT_AGENT_ID,
-        );
-        assert!(result.is_err(), "unknown department must be rejected");
+        // 草稿人格必须存在于当前组织：不存在的人格必须拒绝
+        let result = validate_draft_agent(&state, "agent-not-exists");
+        assert!(result.is_err(), "unknown agent must be rejected");
     }
 
     #[test]
@@ -5821,7 +5717,6 @@
                 &CreateUnarchivedConversationInput {
                     api_config_id: None,
                     agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-                    department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
                     title: Some("独立工作树会话".to_string()),
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
@@ -5856,7 +5751,6 @@
             &CreateUnarchivedConversationInput {
                 api_config_id: None,
                 agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-                department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
                 title: Some("只读隔离会话".to_string()),
                 copy_source_conversation_id: None,
                 shell_workspaces: Some(vec![ShellWorkspaceConfig {
@@ -5895,7 +5789,6 @@
             &CreateUnarchivedConversationInput {
                 api_config_id: None,
                 agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-                department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
                 title: Some("只读独立工作树会话".to_string()),
                 copy_source_conversation_id: None,
                 shell_workspaces: Some(vec![ShellWorkspaceConfig {
@@ -5967,16 +5860,15 @@
         )
         .expect("seed profile memory");
         let agents = state_read_agents_cached(&state).expect("read agents");
-        let assistant_department_agent_id =
-            state_service_get_assistant_department_agent_id(&state).expect("read agent id");
+        let assistant_agent_id =
+            state_service_get_assistant_agent_id(&state).expect("read agent id");
 
         let conversation = build_unarchived_conversation_record_from_runtime(
             &state.data_path,
             &agents,
-            &assistant_department_agent_id,
+            &assistant_agent_id,
             "api-1",
             DEFAULT_AGENT_ID,
-            ASSISTANT_DEPARTMENT_ID,
             "新会话",
         );
 
@@ -6696,8 +6588,6 @@
                 kind: "delegate".to_string(),
                 conversation_id: "root-conversation".to_string(),
                 parent_delegate_id: None,
-                source_department_id: "source-department".to_string(),
-                target_department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 source_agent_id: "source-agent".to_string(),
                 target_agent_id: DEFAULT_AGENT_ID.to_string(),
                 title: "委托启动测试".to_string(),
@@ -6761,8 +6651,6 @@
                 kind: "remote_im_reply".to_string(),
                 conversation_id: root_conversation.id.clone(),
                 parent_delegate_id: None,
-                source_department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
-                target_department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 source_agent_id: DEFAULT_AGENT_ID.to_string(),
                 target_agent_id: DEFAULT_AGENT_ID.to_string(),
                 title: "远程应答".to_string(),
@@ -7638,13 +7526,12 @@
             api_config.api_key = "k".to_string();
             api_config.model = "gpt-4o-mini".to_string();
         }
-        config.assistant_department_api_config_id = "api-archive".to_string();
+        config.expert_api_config_id = "api-archive".to_string();
         let expected_api_id = api_endpoint_id("api-archive", "api-archive-model-default");
         write_config(&state.config_path, &config).expect("write config");
         let now = now_iso();
         let mut source = test_chat_conversation("conversation-archive-missing-dept", "active", &now);
         source.agent_id = String::new();
-        source.department_id = String::new();
         source.messages = vec![
             test_text_message("user", "第一轮问题", &now),
             test_text_message("assistant", "第一轮回复", &now),
@@ -7733,7 +7620,6 @@
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
             bound_agent_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
@@ -7765,25 +7651,6 @@
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut config = AppConfig::default();
-        config.departments.push(DepartmentConfig {
-            id: "dept-session".to_string(),
-            name: "通知部门".to_string(),
-            summary: String::new(),
-            guide: String::new(),
-            agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-            api_config_id: "api-session".to_string(),
-            api_config_ids: vec!["api-session".to_string()],
-            model_failure_fallback_enabled: false,
-            child_department_ids: Vec::new(),
-            order_index: 0,
-            is_built_in_assistant: false,
-            is_deputy: false,
-            created_at: now.clone(),
-            updated_at: now.clone(),
-            source: "main_config".to_string(),
-            scope: "global".to_string(),
-            permission_control: DepartmentPermissionControl::default(),
-        });
         config.remote_im_channels.push(RemoteImChannelConfig {
             id: "remote-channel-a".to_string(),
             name: "测试渠道".to_string(),
@@ -7807,7 +7674,6 @@
 
         let mut source = test_chat_conversation("source-session", "active", &now);
         source.title = "源会话".to_string();
-        source.department_id = "dept-session".to_string();
         source.messages.push(test_text_message("user", "第一条原消息", &now));
         source.messages.push(test_text_message("assistant", "第二条原消息", &now));
         source.last_assistant_at = Some(now.clone());
@@ -7815,7 +7681,6 @@
 
         let mut target_local = test_chat_conversation("target-local-session", "active", &now);
         target_local.title = "本地目标".to_string();
-        target_local.department_id = "dept-session".to_string();
         state_schedule_conversation_persist(&state, &target_local).expect("persist local target");
 
         let contact = RemoteImContact {
@@ -7838,7 +7703,6 @@
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: Some("dept-session".to_string()),
             bound_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
             bound_conversation_id: Some("target-remote-session".to_string()),
             processing_mode: "continuous".to_string(),
@@ -7856,7 +7720,6 @@
         let mut target_remote = build_conversation_record(
             "",
             DEFAULT_AGENT_ID,
-            "dept-session",
             "联系人会话",
             CONVERSATION_KIND_REMOTE_IM_CONTACT,
             Some(remote_im_contact_conversation_key(&contact)),
@@ -7971,7 +7834,7 @@
         );
         match &notification.parts[0] {
             MessagePart::Text { text, .. } => {
-                assert_eq!(text, "[源会话·通知部门·通知人格]:请跟进");
+                assert_eq!(text, "[源会话·通知人格]:请跟进");
             }
             _ => panic!("expected text notification"),
         }
@@ -7991,7 +7854,7 @@
         assert_eq!(target.messages.len(), 1);
         match &target.messages[0].parts[0] {
             MessagePart::Text { text, .. } => {
-                assert_eq!(text, "[源会话·通知部门·通知人格]:同步一下");
+                assert_eq!(text, "[源会话·通知人格]:同步一下");
             }
             _ => panic!("expected text notification"),
         }
@@ -8020,7 +7883,7 @@
         assert_eq!(target.messages.len(), 1);
         match &target.messages[0].parts[0] {
             MessagePart::Text { text, .. } => {
-                assert_eq!(text, "[源会话·通知部门·通知人格]:自动推送正文");
+                assert_eq!(text, "[源会话·通知人格]:自动推送正文");
             }
             _ => panic!("expected text notification"),
         }
@@ -8058,7 +7921,7 @@
             MessagePart::Text { text, .. } => {
                 assert_eq!(
                     text,
-                    "[源会话·通知部门·通知人格]:[用户]: 第一条原消息\n\n[助手]: 第二条原消息"
+                    "[源会话·通知人格]:[用户]: 第一条原消息\n\n[助手]: 第二条原消息"
                 );
             }
             _ => panic!("expected text notification"),
@@ -8104,7 +7967,6 @@
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
             bound_agent_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
@@ -8124,7 +7986,6 @@
         let mut conversation = build_conversation_record(
             "",
             "",
-            REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID,
             "联系人 · 测试群",
             CONVERSATION_KIND_REMOTE_IM_CONTACT,
             Some(remote_im_contact_conversation_key(&contact)),
@@ -8155,10 +8016,6 @@
         let updated_conversation =
             state_read_conversation_cached(&state, "conversation-contact-old")
                 .expect("read rebound conversation");
-        assert_eq!(
-            updated_conversation.department_id,
-            REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID
-        );
         assert_eq!(updated_conversation.agent_id, DEFAULT_AGENT_ID);
     }
 
@@ -8187,7 +8044,6 @@
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
             bound_agent_id: None,
             bound_conversation_id: Some("conversation-contact-old".to_string()),
             processing_mode: "continuous".to_string(),
@@ -8207,7 +8063,6 @@
         let mut conversation = build_conversation_record(
             "",
             "",
-            REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID,
             "联系人 · 测试群",
             CONVERSATION_KIND_REMOTE_IM_CONTACT,
             Some(remote_im_contact_conversation_key(&contact)),
@@ -8262,7 +8117,6 @@
         let mut conversation = build_conversation_record(
             "",
             DEFAULT_AGENT_ID,
-            REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID,
             "联系人 · 测试群",
             CONVERSATION_KIND_REMOTE_IM_CONTACT,
             Some("remote_im_contact:channel-a:group:remote-a".to_string()),
@@ -8290,7 +8144,6 @@
         let input = RewindConversationInput {
             session: SessionSelector {
                 api_config_id: None,
-                department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
                 conversation_id: Some(conversation.id.clone()),
             },
@@ -8343,7 +8196,6 @@
         let mut conversation = build_conversation_record(
             "",
             DEFAULT_AGENT_ID,
-            ASSISTANT_DEPARTMENT_ID,
             "撤回重建 metadata",
             CONVERSATION_KIND_CHAT,
             None,
@@ -8399,7 +8251,6 @@
         let input = RewindConversationInput {
             session: SessionSelector {
                 api_config_id: None,
-                department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
                 conversation_id: Some(conversation.id.clone()),
             },
@@ -8443,7 +8294,6 @@
         let mut conversation = build_conversation_record(
             "",
             DEFAULT_AGENT_ID,
-            ASSISTANT_DEPARTMENT_ID,
             "撤回忙碌态测试",
             CONVERSATION_KIND_CHAT,
             None,
@@ -8467,7 +8317,6 @@
         let input = RewindConversationInput {
             session: SessionSelector {
                 api_config_id: None,
-                department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
                 conversation_id: Some(conversation.id.clone()),
             },
@@ -9051,17 +8900,17 @@
     }
 
     #[test]
-    fn notification_title_from_parts_should_append_department_and_failure_suffix() {
+    fn notification_title_from_parts_should_append_failure_suffix() {
         assert_eq!(
-            notification_title_from_parts("会话标题", Some("客服部"), "zh-CN", false),
-            "会话标题 · 客服部"
+            notification_title_from_parts("会话标题", "zh-CN", false),
+            "会话标题"
         );
         assert_eq!(
-            notification_title_from_parts("会话标题", Some("客服部"), "zh-CN", true),
-            "会话标题 · 客服部 · 失败"
+            notification_title_from_parts("会话标题", "zh-CN", true),
+            "会话标题 · 失败"
         );
         assert_eq!(
-            notification_title_from_parts("Session", None, "en-US", true),
+            notification_title_from_parts("Session", "en-US", true),
             "Session · Failed"
         );
     }
@@ -9118,19 +8967,11 @@
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
 
-        let mut data = test_user_switched_to_sub_conversation_data();
-        if let Some(conversation) = data
-            .conversations
-            .iter_mut()
-            .find(|conversation| conversation.id == "conversation-sub")
-        {
-            conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
-        }
+        let data = test_user_switched_to_sub_conversation_data();
         state_write_app_data_cached(&state, &data).expect("write app data");
         let task = TaskRecordStored {
             task_id: "task-a".to_string(),
             conversation_id: Some("conversation-sub".to_string()),
-            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
             agent_id: Some(DEFAULT_AGENT_ID.to_string()),
             target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
@@ -9171,19 +9012,11 @@
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
 
-        let mut data = test_user_switched_to_sub_conversation_data();
-        if let Some(conversation) = data
-            .conversations
-            .iter_mut()
-            .find(|conversation| conversation.id == "conversation-sub")
-        {
-            conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
-        }
+        let data = test_user_switched_to_sub_conversation_data();
         state_write_app_data_cached(&state, &data).expect("write app data");
         let task = TaskRecordStored {
             task_id: "task-missing-owner".to_string(),
             conversation_id: Some("conversation-sub".to_string()),
-            department_id: None,
             agent_id: None,
             target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
@@ -9216,7 +9049,6 @@
             .expect("dispatch session");
 
         assert_eq!(session.conversation_id, "conversation-sub");
-        assert_eq!(session.department_id, ASSISTANT_DEPARTMENT_ID);
         assert_eq!(session.agent_id, DEFAULT_AGENT_ID);
     }
 
@@ -9224,19 +9056,11 @@
     fn task_resolve_dispatch_session_should_return_none_when_bound_conversation_missing() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let mut data = test_user_switched_to_sub_conversation_data();
-        if let Some(conversation) = data
-            .conversations
-            .iter_mut()
-            .find(|conversation| conversation.id == "conversation-main")
-        {
-            conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
-        }
+        let data = test_user_switched_to_sub_conversation_data();
         state_write_app_data_cached(&state, &data).expect("write app data");
         let task = TaskRecordStored {
             task_id: "task-b".to_string(),
             conversation_id: Some("conversation-missing".to_string()),
-            department_id: None,
             agent_id: None,
             target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
@@ -9282,7 +9106,6 @@
         let task = TaskRecordStored {
             task_id: "task-system".to_string(),
             conversation_id: Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string()),
-            department_id: None,
             agent_id: None,
             target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
@@ -9315,7 +9138,6 @@
             .expect("dispatch session");
 
         assert_eq!(session.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
-        assert_eq!(session.department_id, ASSISTANT_DEPARTMENT_ID);
         assert_eq!(session.agent_id, DEFAULT_AGENT_ID);
         assert!(session.system_task);
     }
@@ -9346,7 +9168,6 @@
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
             bound_agent_id: None,
             bound_conversation_id: Some("conversation-contact-missing".to_string()),
             processing_mode: "continuous".to_string(),
@@ -9366,7 +9187,6 @@
         let task = TaskRecordStored {
             task_id: "task-contact".to_string(),
             conversation_id: Some("conversation-contact-missing".to_string()),
-            department_id: None,
             agent_id: None,
             target_scope: TASK_TARGET_SCOPE_CONTACT.to_string(),
             order_index: 1,
@@ -9400,24 +9220,9 @@
     }
 
     #[test]
-    fn task_resolve_dispatch_session_should_use_bound_private_department() {
+    fn task_resolve_dispatch_session_should_use_bound_agent() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let private_departments_dir = app_root_from_data_path(&state.data_path)
-            .join("llm-workspace")
-            .join("private-organization")
-            .join("departments");
-        std::fs::create_dir_all(&private_departments_dir)
-            .expect("create private departments dir");
-        std::fs::write(
-            private_departments_dir.join("dept-private.json"),
-            r#"{
-  "id": "dept-private",
-  "name": "私域任务部门",
-  "agentIds": ["private-agent"]
-}"#,
-        )
-        .expect("write private department");
         state_write_agents_cached(
             &state,
             &[{
@@ -9428,12 +9233,9 @@
             }, default_user_persona()],
         )
         .expect("write agents");
-        state_service_set_assistant_department_agent_id(&state, "private-agent")
-            .expect("write assistant department agent id");
         let task = TaskRecordStored {
-            task_id: "task-private-dept".to_string(),
+            task_id: "task-private-agent".to_string(),
             conversation_id: None,
-            department_id: Some("dept-private".to_string()),
             agent_id: Some("private-agent".to_string()),
             target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
@@ -9467,7 +9269,6 @@
         let conversation =
             state_read_conversation_cached(&state, &session.conversation_id).expect("read conversation");
 
-        assert_eq!(session.department_id, "dept-private");
         assert_eq!(session.agent_id, "private-agent");
         assert_eq!(session.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
         assert!(session.system_task);
@@ -9494,7 +9295,6 @@
             task_store_create_task(&state.data_path, &TaskCreateInput {
                 goal: goal.to_string(),
                 conversation_id: Some(conversation_id.to_string()),
-                department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
                 agent_id: Some(DEFAULT_AGENT_ID.to_string()),
                 target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
                 why: String::new(),
@@ -9531,20 +9331,12 @@
     fn task_build_dispatch_candidates_should_use_conversation_owner_for_legacy_task() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let mut data = test_user_switched_to_sub_conversation_data();
-        if let Some(conversation) = data
-            .conversations
-            .iter_mut()
-            .find(|conversation| conversation.id == "conversation-main")
-        {
-            conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
-        }
+        let data = test_user_switched_to_sub_conversation_data();
         state_write_app_data_cached(&state, &data).expect("write app data");
 
         let missing_owner = task_store_create_task(&state.data_path, &TaskCreateInput {
             goal: "missing owner".to_string(),
             conversation_id: Some("conversation-main".to_string()),
-            department_id: None,
             agent_id: None,
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
@@ -9560,7 +9352,6 @@
         let valid = task_store_create_task(&state.data_path, &TaskCreateInput {
             goal: "valid".to_string(),
             conversation_id: Some("conversation-sub".to_string()),
-            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
             agent_id: Some(DEFAULT_AGENT_ID.to_string()),
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
@@ -9585,7 +9376,6 @@
 
         assert_eq!(candidates.len(), 2);
         assert_eq!(candidates[0].task.task_id, missing_owner.task_id);
-        assert_eq!(candidates[0].session.department_id, ASSISTANT_DEPARTMENT_ID);
         assert_eq!(candidates[0].session.agent_id, DEFAULT_AGENT_ID);
         assert_eq!(candidates[1].task.task_id, valid.task_id);
         let legacy_task = task_store_get_task_record(&state.data_path, &missing_owner.task_id)
@@ -9604,7 +9394,6 @@
             task_store_create_task(&state.data_path, &TaskCreateInput {
                 goal: goal.to_string(),
                 conversation_id: Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string()),
-                department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
                 agent_id: Some(DEFAULT_AGENT_ID.to_string()),
                 target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
                 why: String::new(),
@@ -9651,7 +9440,6 @@
         let created = task_store_create_task(&state.data_path, &TaskCreateInput {
             goal: "busy".to_string(),
             conversation_id: Some("conversation-main".to_string()),
-            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
             agent_id: Some(DEFAULT_AGENT_ID.to_string()),
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
@@ -9682,7 +9470,6 @@
         let task = TaskRecordStored {
             task_id: "task-trigger-shape".to_string(),
             conversation_id: Some("conversation-main".to_string()),
-            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
             agent_id: Some(DEFAULT_AGENT_ID.to_string()),
             target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
@@ -9732,7 +9519,6 @@
         let created = task_store_create_task(&state.data_path, &TaskCreateInput {
             goal: "idle overdue".to_string(),
             conversation_id: Some("conversation-main".to_string()),
-            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
             agent_id: Some(DEFAULT_AGENT_ID.to_string()),
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
@@ -9780,7 +9566,6 @@
         task_store_create_task(&state.data_path, &TaskCreateInput {
             goal: "late".to_string(),
             conversation_id: Some("conversation-main".to_string()),
-            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
             agent_id: Some(DEFAULT_AGENT_ID.to_string()),
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
@@ -9796,7 +9581,6 @@
         task_store_create_task(&state.data_path, &TaskCreateInput {
             goal: "soon".to_string(),
             conversation_id: Some("conversation-sub".to_string()),
-            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
             agent_id: Some(DEFAULT_AGENT_ID.to_string()),
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
@@ -9829,7 +9613,6 @@
         task_store_create_task(&state.data_path, &TaskCreateInput {
             goal: "busy overdue".to_string(),
             conversation_id: Some("conversation-main".to_string()),
-            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
             agent_id: Some(DEFAULT_AGENT_ID.to_string()),
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
@@ -9890,27 +9673,26 @@
     }
 
     #[test]
-    fn inflight_chat_key_should_use_department_not_agent() {
-        assert_eq!(
-            inflight_chat_key("dept-a", Some("conversation-main")),
-            "dept-a::conversation-main"
-        );
+    fn inflight_chat_key_should_join_agent_and_conversation() {
         assert_eq!(
             inflight_chat_key("agent-a", Some("conversation-main")),
             "agent-a::conversation-main"
         );
+        assert_eq!(
+            inflight_chat_key("agent-b", Some("conversation-main")),
+            "agent-b::conversation-main"
+        );
         assert_ne!(
-            inflight_chat_key("dept-a", Some("conversation-main")),
-            inflight_chat_key("agent-a", Some("conversation-main"))
+            inflight_chat_key("agent-a", Some("conversation-main")),
+            inflight_chat_key("agent-b", Some("conversation-main"))
         );
     }
 
     #[test]
-    fn delegate_thread_chat_key_should_use_thread_department() {
+    fn delegate_thread_chat_key_should_use_thread_agent() {
         let mut conversation = build_conversation_record(
             "api-a",
             "agent-a",
-            "dept-delegate",
             "委托线程",
             CONVERSATION_KIND_DELEGATE,
             Some("conversation-root".to_string()),
@@ -9920,17 +9702,17 @@
         let thread = DelegateRuntimeThread {
             delegate_id: "delegate-a".to_string(),
             root_conversation_id: "conversation-root".to_string(),
-            target_agent_id: "agent-a".to_string(),
+            target_agent_id: "agent-b".to_string(),
             title: "委托线程".to_string(),
-            call_stack: vec!["dept-parent".to_string(), "dept-delegate".to_string()],
-            parent_chat_session_key: Some("dept-parent::conversation-root".to_string()),
+            call_stack: vec!["agent-root".to_string(), "agent-a".to_string()],
+            parent_chat_session_key: Some("agent-root::conversation-root".to_string()),
             archived_at: None,
             conversation,
         };
 
         assert_eq!(
             delegate_thread_chat_key(&thread),
-            "dept-delegate::delegate-a"
+            "agent-a::delegate-a"
         );
     }
 
@@ -9966,7 +9748,6 @@
             id: "conversation-root".to_string(),
             title: "主会话".to_string(),
             agent_id: "agent-root".to_string(),
-            department_id: "dept-root".to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -10011,7 +9792,6 @@
         let mut session_conversation = build_conversation_record(
             "api-a",
             "agent-root",
-            "dept-root",
             "当前运行会话",
             CONVERSATION_KIND_CHAT,
             None,
@@ -10044,8 +9824,6 @@
             kind: DELEGATE_TOOL_KIND_USER_MENTION.to_string(),
             conversation_id: "conversation-root".to_string(),
             parent_delegate_id: None,
-            source_department_id: "dept-root".to_string(),
-            target_department_id: "dept-child".to_string(),
             source_agent_id: "agent-root".to_string(),
             target_agent_id: "agent-child".to_string(),
             title: "异步委托".to_string(),
@@ -10053,7 +9831,7 @@
             goal: "目标".to_string(),
             todo: "待办".to_string(),
             notify_assistant_when_done: false,
-            call_stack: vec!["dept-root".to_string(), "dept-child".to_string()],
+            call_stack: vec!["agent-root".to_string(), "agent-child".to_string()],
             created_at: now.clone(),
             updated_at: now,
             status: "pending".to_string(),
@@ -10100,7 +9878,6 @@
         let mut session_conversation = build_conversation_record(
             "api-a",
             "agent-root",
-            "dept-root",
             "当前运行会话",
             CONVERSATION_KIND_CHAT,
             None,
@@ -10132,8 +9909,6 @@
             kind: DELEGATE_TOOL_KIND_USER_MENTION.to_string(),
             conversation_id: "conversation-root".to_string(),
             parent_delegate_id: None,
-            source_department_id: "dept-root".to_string(),
-            target_department_id: "dept-child".to_string(),
             source_agent_id: "agent-root".to_string(),
             target_agent_id: "agent-child".to_string(),
             title: "异步委托".to_string(),
@@ -10141,7 +9916,7 @@
             goal: "目标".to_string(),
             todo: "待办".to_string(),
             notify_assistant_when_done: false,
-            call_stack: vec!["dept-root".to_string(), "dept-child".to_string()],
+            call_stack: vec!["agent-root".to_string(), "agent-child".to_string()],
             created_at: now.clone(),
             updated_at: now,
             status: "pending".to_string(),
@@ -10171,20 +9946,14 @@
     }
 
     #[test]
-    fn runtime_control_should_keep_conversation_agent_after_department_changes() {
+    fn runtime_control_should_keep_conversation_bound_agent() {
         let state = test_chat_runtime_state();
         let mut old_agent = default_agent();
         old_agent.id = "old-agent".to_string();
         let mut new_agent = default_agent();
         new_agent.id = "new-agent".to_string();
 
-        let mut department = default_assistant_department("api-a");
-        department.id = "dept-stop".to_string();
-        department.name = "停止测试部门".to_string();
-        department.is_built_in_assistant = false;
-        department.agent_ids = vec![new_agent.id.clone()];
         let config = AppConfig {
-            departments: vec![department],
             ..AppConfig::default()
         };
         write_config(&state.config_path, &config).expect("write config");
@@ -10197,7 +9966,6 @@
         let mut conversation = build_conversation_record(
             "api-a",
             &old_agent.id,
-            "dept-stop",
             "旧人格会话",
             CONVERSATION_KIND_CHAT,
             None,
@@ -10207,37 +9975,30 @@
         state_schedule_conversation_persist(&state, &conversation)
             .expect("persist conversation");
 
-        let (department_id, agent_id) = resolve_runtime_control_department_and_agent(
+        let agent_id = resolve_runtime_control_agent_id(
             &state,
-            Some("dept-stop"),
             Some("new-agent"),
             Some("conversation-stop"),
         )
         .expect("resolve runtime control identity");
 
-        assert_eq!(department_id, "dept-stop");
         assert_eq!(agent_id, "old-agent");
         assert_eq!(
-            inflight_chat_key(&department_id, Some("conversation-stop")),
-            "dept-stop::conversation-stop"
+            inflight_chat_key(&agent_id, Some("conversation-stop")),
+            "old-agent::conversation-stop"
         );
         assert_ne!(
-            inflight_chat_key(&department_id, Some("conversation-stop")),
-            inflight_chat_key(&old_agent.id, Some("conversation-stop"))
+            inflight_chat_key(&agent_id, Some("conversation-stop")),
+            inflight_chat_key("new-agent", Some("conversation-stop"))
         );
     }
 
     #[test]
-    fn runtime_control_should_use_department_first_agent_when_conversation_agent_empty() {
+    fn runtime_control_should_fallback_to_requested_agent_when_conversation_agent_empty() {
         let state = test_chat_runtime_state();
         let mut agent = default_agent();
         agent.id = "fallback-agent".to_string();
-        let mut department = default_assistant_department("api-a");
-        department.id = "dept-control".to_string();
-        department.is_built_in_assistant = false;
-        department.agent_ids = vec![agent.id.clone()];
         let config = AppConfig {
-            departments: vec![department],
             ..AppConfig::default()
         };
         write_config(&state.config_path, &config).expect("write config");
@@ -10247,7 +10008,6 @@
         let mut conversation = build_conversation_record(
             "api-a",
             &agent.id,
-            "dept-control",
             "缺少固化人格",
             CONVERSATION_KIND_CHAT,
             None,
@@ -10258,24 +10018,30 @@
         state_schedule_conversation_persist(&state, &conversation)
             .expect("persist conversation");
 
-        let (department_id, agent_id) = resolve_runtime_control_department_and_agent(
+        let agent_id = resolve_runtime_control_agent_id(
             &state,
-            Some("dept-control"),
             Some(&agent.id),
             Some("conversation-empty-agent"),
         )
-        .expect("conversation legacy binding should use department first agent");
+        .expect("empty conversation agent should fall back to requested agent");
 
-        assert_eq!(department_id, "dept-control");
         assert_eq!(agent_id, "fallback-agent");
     }
 
     #[test]
-    fn assemble_runtime_tools_should_gate_delegate_by_executor_department() {
+    fn assemble_runtime_tools_should_gate_delegate_by_executor_agent() {
         let state = test_chat_runtime_state();
         let mut shared_agent = default_agent();
         shared_agent.id = "shared-agent".to_string();
         shared_agent.name = "共享人格".to_string();
+        shared_agent.child_agent_ids = Vec::new();
+        shared_agent.permission_control = AgentPermissionControl {
+            enabled: true,
+            mode: "whitelist".to_string(),
+            builtin_tool_names: vec!["fetch".to_string()],
+            skill_names: Vec::new(),
+            mcp_tool_names: Vec::new(),
+        };
 
         let mut selected_api = ApiConfig::default();
         selected_api.id = "api-a".to_string();
@@ -10287,29 +10053,7 @@
         selected_api.api_key = "k".to_string();
         selected_api.model = "gpt-4o-mini".to_string();
 
-        let mut parent = default_assistant_department(&selected_api.id);
-        parent.id = "dept-parent".to_string();
-        parent.name = "父部门".to_string();
-        parent.is_built_in_assistant = false;
-        parent.agent_ids = vec![shared_agent.id.clone()];
-        parent.child_department_ids = vec!["dept-child".to_string()];
-
-        let mut child = default_assistant_department(&selected_api.id);
-        child.id = "dept-child".to_string();
-        child.name = "子部门".to_string();
-        child.is_built_in_assistant = false;
-        child.agent_ids = vec![shared_agent.id.clone()];
-        child.child_department_ids = Vec::new();
-        child.permission_control = DepartmentPermissionControl {
-            enabled: true,
-            mode: "whitelist".to_string(),
-            builtin_tool_names: vec!["fetch".to_string()],
-            skill_names: Vec::new(),
-            mcp_tool_names: Vec::new(),
-        };
-
         let config = AppConfig {
-            departments: vec![parent, child],
             api_configs: vec![selected_api.clone()],
             api_providers: Vec::new(),
             ..AppConfig::default()
@@ -10321,8 +10065,7 @@
         let conversation = build_conversation_record(
             &selected_api.id,
             &shared_agent.id,
-            "dept-child",
-            "叶子部门会话",
+            "叶子人格会话",
             CONVERSATION_KIND_CHAT,
             None,
             None,
@@ -10339,7 +10082,6 @@
                 &shared_agent,
                 Some(&state),
                 &session_id,
-                Some("dept-child"),
             ));
 
         assert!(assembly.tool_manifest.iter().any(|item| {
@@ -10347,7 +10089,7 @@
                 && item.get("name").and_then(Value::as_str) == Some("delegate")
                 && item.get("enabled").and_then(Value::as_bool) == Some(false)
                 && item.get("reason").and_then(Value::as_str)
-                    == Some("当前部门没有直接下级，无法使用委托")
+                    == Some("当前人格没有直接下级，无法使用委托")
         }));
         assert!(!assembly.tools.iter().any(|tool| tool.name() == "delegate"));
         assert!(assembly.tool_definitions.iter().any(|tool| tool.name == "fetch"));
@@ -10372,16 +10114,7 @@
         selected_api.api_key = "k".to_string();
         selected_api.model = "gpt-4o-mini".to_string();
 
-        let mut department = default_assistant_department(&selected_api.id);
-        department.id = "assistant-department".to_string();
-        department.is_built_in_assistant = true;
-        department.agent_ids = vec![agent.id.clone()];
-        department.permission_control.enabled = true;
-        department.permission_control.mode = "whitelist".to_string();
-        department.permission_control.builtin_tool_names = Vec::new();
-
         let mut config = AppConfig {
-            departments: vec![department],
             api_configs: vec![selected_api.clone()],
             api_providers: Vec::new(),
             ..AppConfig::default()
@@ -10406,7 +10139,6 @@
         let local_without_goal = build_conversation_record(
             &selected_api.id,
             &agent.id,
-            "assistant-department",
             "普通会话",
             CONVERSATION_KIND_CHAT,
             None,
@@ -10415,7 +10147,6 @@
         let mut local_with_goal = build_conversation_record(
             &selected_api.id,
             &agent.id,
-            "assistant-department",
             "目标会话",
             CONVERSATION_KIND_CHAT,
             None,
@@ -10451,7 +10182,6 @@
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: Some("assistant-department".to_string()),
             bound_agent_id: Some(agent.id.clone()),
             bound_conversation_id: Some("conversation-remote-private".to_string()),
             processing_mode: "continuous".to_string(),
@@ -10486,7 +10216,6 @@
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: Some("assistant-department".to_string()),
             bound_agent_id: Some(agent.id.clone()),
             bound_conversation_id: Some("conversation-remote-group".to_string()),
             processing_mode: "continuous".to_string(),
@@ -10507,7 +10236,6 @@
         let mut remote_private_contact = build_conversation_record(
             &selected_api.id,
             &agent.id,
-            "assistant-department",
             "私聊联系人会话",
             CONVERSATION_KIND_REMOTE_IM_CONTACT,
             Some(remote_im_contact_conversation_key(&private_contact)),
@@ -10517,7 +10245,6 @@
         let mut remote_group_contact = build_conversation_record(
             &selected_api.id,
             &agent.id,
-            "assistant-department",
             "群聊联系人会话",
             CONVERSATION_KIND_REMOTE_IM_CONTACT,
             Some(remote_im_contact_conversation_key(&group_contact)),
@@ -10527,7 +10254,6 @@
         let mut delegate_conversation = build_conversation_record(
             &selected_api.id,
             &agent.id,
-            "assistant-department",
             "委托会话",
             CONVERSATION_KIND_DELEGATE,
             Some(local_without_goal.id.clone()),
@@ -10537,7 +10263,6 @@
         let mut system_conversation = build_conversation_record(
             &selected_api.id,
             &agent.id,
-            "assistant-department",
             "系统通知会话",
             CONVERSATION_KIND_SYSTEM_NOTIFICATION,
             None,
@@ -10567,7 +10292,6 @@
                     &agent,
                     Some(&state),
                     &session_id,
-                    Some("assistant-department"),
                 ))
         };
         let has_attached_schema = |assembly: &RuntimeToolAssembly, name: &str| {
@@ -10676,7 +10400,6 @@
             &agent,
             Some(&state),
             &remote_group_delegate_session,
-            Some("assistant-department"),
         ));
         assert!(!has_attached_schema(&remote_group_delegate_assembly, "create_goal"));
         assert!(!has_executor(&remote_group_delegate_assembly, "create_goal"));
@@ -10689,7 +10412,6 @@
                 &state,
                 &remote_group_delegate_session,
                 &selected_api.id,
-                "assistant-department",
                 &agent.id,
                 TaskToolArgsWire {
                     action: "create".to_string(),
@@ -10749,7 +10471,6 @@
             &agent,
             Some(&state),
             &remote_group_delegate_session,
-            Some("assistant-department"),
         ));
         assert!(!has_attached_schema(&disabled_channel_assembly, "create_goal"));
         assert!(!has_executor(&disabled_channel_assembly, "create_goal"));
@@ -10793,7 +10514,6 @@
         let mut delegate_conversation = build_conversation_record(
             "api-a",
             &agent.id,
-            "assistant-department",
             "委托会话",
             CONVERSATION_KIND_DELEGATE,
             Some("conversation-root".to_string()),
@@ -10809,7 +10529,6 @@
                 &state,
                 &session_id,
                 "api-a",
-                "assistant-department",
                 &agent.id,
                 TaskToolArgsWire {
                     action: "create".to_string(),
@@ -10841,7 +10560,7 @@
     }
 
     #[test]
-    fn common_delegate_preflight_should_resolve_source_department_from_delegate_thread() {
+    fn common_delegate_preflight_should_resolve_source_agent_from_delegate_thread() {
         let state = test_chat_runtime_state();
         let mut shared_agent = default_agent();
         shared_agent.id = "shared-agent".to_string();
@@ -10849,34 +10568,9 @@
 
         let mut target_agent = default_agent();
         target_agent.id = "target-agent".to_string();
-        target_agent.name = "孙部门人格".to_string();
+        target_agent.name = "目标人格".to_string();
+        shared_agent.child_agent_ids = vec![target_agent.id.clone()];
 
-        let mut parent = default_assistant_department("api-a");
-        parent.id = "dept-parent".to_string();
-        parent.name = "父部门".to_string();
-        parent.is_built_in_assistant = false;
-        parent.agent_ids = vec![shared_agent.id.clone()];
-        parent.child_department_ids = vec!["dept-child".to_string()];
-
-        let mut child = default_assistant_department("api-a");
-        child.id = "dept-child".to_string();
-        child.name = "子部门".to_string();
-        child.is_built_in_assistant = false;
-        child.agent_ids = vec![shared_agent.id.clone()];
-        child.child_department_ids = vec!["dept-grandchild".to_string()];
-
-        let mut grandchild = default_assistant_department("api-a");
-        grandchild.id = "dept-grandchild".to_string();
-        grandchild.name = "孙部门".to_string();
-        grandchild.is_built_in_assistant = false;
-        grandchild.agent_ids = vec![target_agent.id.clone()];
-        grandchild.child_department_ids = Vec::new();
-
-        let config = AppConfig {
-            departments: vec![parent, child, grandchild],
-            ..AppConfig::default()
-        };
-        write_config(&state.config_path, &config).expect("write config");
         state_write_agents_cached(
             &state,
             &[
@@ -10890,8 +10584,7 @@
         let mut delegate_conversation = build_conversation_record(
             "api-a",
             &shared_agent.id,
-            "dept-child",
-            "子部门委托线程",
+            "委托线程",
             CONVERSATION_KIND_DELEGATE,
             Some("conversation-root".to_string()),
             Some("delegate-child".to_string()),
@@ -10901,8 +10594,8 @@
             delegate_id: "delegate-child".to_string(),
             root_conversation_id: "conversation-root".to_string(),
             target_agent_id: shared_agent.id.clone(),
-            title: "子部门委托线程".to_string(),
-            call_stack: vec!["dept-parent".to_string(), "dept-child".to_string()],
+            title: "委托线程".to_string(),
+            call_stack: vec![shared_agent.id.clone()],
             parent_chat_session_key: Some(format!("{}::conversation-root", shared_agent.id)),
             archived_at: None,
             conversation: delegate_conversation,
@@ -10916,67 +10609,90 @@
         let preflight = common_delegate_preflight(
             &state,
             &shared_agent.id,
-            None,
             Some("delegate-child"),
-            "dept-grandchild",
-            Some(&target_agent.id),
+            &target_agent.id,
         )
         .expect("resolve nested sync delegate preflight");
         let call_stack = resolve_delegate_call_stack(
             preflight.current_thread.as_ref(),
-            &preflight.source_department,
-            &preflight.target_department,
+            &preflight.source_agent,
+            &preflight.target_agent,
         )
         .expect("resolve call stack");
 
-        assert_eq!(preflight.source_department.id, "dept-child");
-        assert_eq!(preflight.target_department.id, "dept-grandchild");
-        assert_eq!(preflight.target_agent_id, target_agent.id);
+        assert_eq!(preflight.source_agent.id, "shared-agent");
+        assert_eq!(preflight.target_agent.id, "target-agent");
         assert_eq!(preflight.root_conversation_id, "conversation-root");
         assert_eq!(
             call_stack,
-            vec![
-                "dept-parent".to_string(),
-                "dept-child".to_string(),
-                "dept-grandchild".to_string(),
-            ]
+            vec!["shared-agent".to_string(), "target-agent".to_string()]
         );
     }
 
     #[test]
-    fn common_delegate_preflight_should_prefer_explicit_source_department() {
+    fn common_delegate_preflight_should_resolve_source_agent_from_source_conversation() {
         let state = test_chat_runtime_state();
         let mut shared_agent = default_agent();
         shared_agent.id = "shared-agent-explicit-source".to_string();
         shared_agent.name = "共享人格".to_string();
 
-        let mut parent = default_assistant_department("api-a");
-        parent.id = "dept-explicit-parent".to_string();
-        parent.name = "显式源部门".to_string();
-        parent.is_built_in_assistant = false;
-        parent.agent_ids = vec![shared_agent.id.clone()];
-        parent.child_department_ids = vec!["dept-explicit-child".to_string()];
+        let mut other_agent = default_agent();
+        other_agent.id = "other-agent".to_string();
+        other_agent.name = "传入但非来源人格".to_string();
 
-        let mut child = default_assistant_department("api-a");
-        child.id = "dept-explicit-child".to_string();
-        child.name = "会话原部门".to_string();
-        child.is_built_in_assistant = false;
-        child.agent_ids = vec![shared_agent.id.clone()];
-        child.child_department_ids = Vec::new();
-
-        let config = AppConfig {
-            departments: vec![parent, child],
-            ..AppConfig::default()
-        };
+        let config = AppConfig::default();
         write_config(&state.config_path, &config).expect("write config");
-        state_write_agents_cached(&state, &[shared_agent.clone(), default_user_persona()])
+        state_write_agents_cached(
+            &state,
+            &[
+                shared_agent.clone(),
+                other_agent.clone(),
+                default_user_persona(),
+            ],
+        )
+        .expect("write agents");
+
+        let conversation = build_conversation_record(
+            "api-a",
+            &shared_agent.id,
+            "来源会话人格优先",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        state_schedule_conversation_persist(&state, &conversation)
+            .expect("persist conversation");
+
+        // 传入的 source_agent_id 与来源会话不一致时，以来源会话上的人格为准。
+        let preflight = common_delegate_preflight(
+            &state,
+            &other_agent.id,
+            Some(&conversation.id),
+            &shared_agent.id,
+        )
+        .expect("resolve delegate preflight");
+
+        assert_eq!(preflight.source_agent.id, shared_agent.id);
+        assert_eq!(preflight.target_agent.id, shared_agent.id);
+        assert_eq!(preflight.root_conversation_id, conversation.id);
+    }
+
+    #[test]
+    fn common_delegate_preflight_should_reject_unknown_target_agent() {
+        let state = test_chat_runtime_state();
+        let mut source_agent = default_agent();
+        source_agent.id = "source-agent".to_string();
+        source_agent.name = "源人格".to_string();
+
+        let config = AppConfig::default();
+        write_config(&state.config_path, &config).expect("write config");
+        state_write_agents_cached(&state, &[source_agent.clone(), default_user_persona()])
             .expect("write agents");
 
         let conversation = build_conversation_record(
             "api-a",
-            &shared_agent.id,
-            "dept-explicit-child",
-            "会话部门不是执行部门",
+            &source_agent.id,
+            "源人格会话",
             CONVERSATION_KIND_CHAT,
             None,
             None,
@@ -10984,114 +10700,29 @@
         state_schedule_conversation_persist(&state, &conversation)
             .expect("persist conversation");
 
-        let preflight = common_delegate_preflight(
+        let result = common_delegate_preflight(
             &state,
-            &shared_agent.id,
-            Some("dept-explicit-parent"),
-            Some(&conversation.id),
-            "dept-explicit-child",
-            Some(&shared_agent.id),
-        )
-        .expect("resolve delegate preflight");
-
-        assert_eq!(preflight.source_department.id, "dept-explicit-parent");
-        assert_eq!(preflight.target_department.id, "dept-explicit-child");
-    }
-
-    #[test]
-    fn common_delegate_preflight_should_resolve_target_department_by_name() {
-        let state = test_chat_runtime_state();
-        let mut source_agent = default_agent();
-        source_agent.id = "source-agent-by-name".to_string();
-        source_agent.name = "源部门人格".to_string();
-
-        let mut target_agent = default_agent();
-        target_agent.id = "target-agent-by-name".to_string();
-        target_agent.name = "目标部门人格".to_string();
-
-        let mut parent = default_assistant_department("api-a");
-        parent.id = "dept-parent-by-name".to_string();
-        parent.name = "父部门".to_string();
-        parent.is_built_in_assistant = false;
-        parent.agent_ids = vec![source_agent.id.clone()];
-        parent.child_department_ids = vec!["dept-child-by-name".to_string()];
-
-        let mut child = default_assistant_department("api-a");
-        child.id = "dept-child-by-name".to_string();
-        child.name = "研究员部门".to_string();
-        child.is_built_in_assistant = false;
-        child.agent_ids = vec![target_agent.id.clone()];
-
-        let config = AppConfig {
-            departments: vec![parent, child],
-            ..AppConfig::default()
-        };
-        write_config(&state.config_path, &config).expect("write config");
-        state_write_agents_cached(
-            &state,
-            &[
-                source_agent.clone(),
-                target_agent.clone(),
-                default_user_persona(),
-            ],
-        )
-        .expect("write agents");
-
-        let conversation = build_conversation_record(
-            "api-a",
             &source_agent.id,
-            "dept-parent-by-name",
-            "按名称寻址测试",
-            CONVERSATION_KIND_CHAT,
-            None,
-            None,
+            Some(&conversation.id),
+            "missing-agent",
         );
-        state_schedule_conversation_persist(&state, &conversation)
-            .expect("persist conversation");
 
-        // 传入部门名称而非 ID，应能解析到目标部门。
-        let preflight = common_delegate_preflight(
-            &state,
-            &source_agent.id,
-            Some("dept-parent-by-name"),
-            Some(&conversation.id),
-            "研究员部门",
-            Some(&target_agent.id),
-        )
-        .expect("resolve delegate preflight by department name");
-
-        assert_eq!(preflight.target_department.id, "dept-child-by-name");
-        assert_eq!(preflight.target_department.name, "研究员部门");
+        assert!(result.is_err());
     }
 
     #[test]
-    fn common_delegate_preflight_should_not_require_direct_child_department() {
+    fn common_delegate_preflight_should_reject_non_direct_child_target_in_validation() {
         let state = test_chat_runtime_state();
         let mut source_agent = default_agent();
         source_agent.id = "source-agent".to_string();
-        source_agent.name = "源部门人格".to_string();
+        source_agent.name = "源人格".to_string();
+        source_agent.child_agent_ids = Vec::new();
 
         let mut target_agent = default_agent();
         target_agent.id = "target-agent".to_string();
-        target_agent.name = "目标部门人格".to_string();
+        target_agent.name = "目标人格".to_string();
 
-        let mut source_department = default_assistant_department("api-a");
-        source_department.id = "dept-source".to_string();
-        source_department.name = "源部门".to_string();
-        source_department.is_built_in_assistant = false;
-        source_department.agent_ids = vec![source_agent.id.clone()];
-        source_department.child_department_ids = Vec::new();
-
-        let mut target_department = default_assistant_department("api-a");
-        target_department.id = "dept-target".to_string();
-        target_department.name = "目标部门".to_string();
-        target_department.is_built_in_assistant = false;
-        target_department.agent_ids = vec![target_agent.id.clone()];
-
-        let config = AppConfig {
-            departments: vec![source_department, target_department],
-            ..AppConfig::default()
-        };
+        let config = AppConfig::default();
         write_config(&state.config_path, &config).expect("write config");
         state_write_agents_cached(
             &state,
@@ -11106,8 +10737,7 @@
         let conversation = build_conversation_record(
             "api-a",
             &source_agent.id,
-            "dept-source",
-            "源部门会话",
+            "源人格会话",
             CONVERSATION_KIND_CHAT,
             None,
             None,
@@ -11118,185 +10748,31 @@
         let preflight = common_delegate_preflight(
             &state,
             &source_agent.id,
-            None,
             Some(&conversation.id),
-            "dept-target",
-            Some(&target_agent.id),
+            &target_agent.id,
         )
-        .expect("delegate scheduling should allow any target department");
+        .expect("delegate scheduling should allow any target agent");
 
-        assert_eq!(preflight.source_department.id, "dept-source");
-        assert_eq!(preflight.target_department.id, "dept-target");
-        assert_eq!(preflight.target_agent_id, target_agent.id);
+        assert_eq!(preflight.source_agent.id, source_agent.id);
+        assert_eq!(preflight.target_agent.id, target_agent.id);
         assert_eq!(preflight.root_conversation_id, conversation.id);
         assert!(validate_delegate_tool_direct_child_target(&preflight).is_err());
     }
 
     #[test]
-    fn common_delegate_preflight_should_default_to_target_department_first_agent() {
+    fn common_delegate_preflight_should_accept_direct_child_agent() {
         let state = test_chat_runtime_state();
-        let mut source_agent = default_agent();
-        source_agent.id = "source-agent-default-target".to_string();
-        source_agent.name = "源部门人格".to_string();
-
-        let mut first_agent = default_agent();
-        first_agent.id = "target-first-agent".to_string();
-        first_agent.name = "目标部门第一人格".to_string();
-
-        let mut second_agent = default_agent();
-        second_agent.id = "target-second-agent".to_string();
-        second_agent.name = "目标部门第二人格".to_string();
-
-        let mut source_department = default_assistant_department("api-a");
-        source_department.id = "dept-source-default-target".to_string();
-        source_department.name = "源部门".to_string();
-        source_department.is_built_in_assistant = false;
-        source_department.agent_ids = vec![source_agent.id.clone()];
-        source_department.child_department_ids = vec!["dept-target-default-agent".to_string()];
-
-        let mut target_department = default_assistant_department("api-a");
-        target_department.id = "dept-target-default-agent".to_string();
-        target_department.name = "目标部门".to_string();
-        target_department.is_built_in_assistant = false;
-        target_department.agent_ids = vec![first_agent.id.clone(), second_agent.id.clone()];
-
-        let config = AppConfig {
-            departments: vec![source_department, target_department],
-            ..AppConfig::default()
-        };
-        write_config(&state.config_path, &config).expect("write config");
-        state_write_agents_cached(
-            &state,
-            &[
-                source_agent.clone(),
-                first_agent.clone(),
-                second_agent,
-                default_user_persona(),
-            ],
-        )
-        .expect("write agents");
-
-        let conversation = build_conversation_record(
-            "api-a",
-            &source_agent.id,
-            "dept-source-default-target",
-            "源部门会话",
-            CONVERSATION_KIND_CHAT,
-            None,
-            None,
-        );
-        state_schedule_conversation_persist(&state, &conversation)
-            .expect("persist conversation");
-
-        let preflight = common_delegate_preflight(
-            &state,
-            &source_agent.id,
-            None,
-            Some(&conversation.id),
-            "dept-target-default-agent",
-            None,
-        )
-        .expect("resolve delegate preflight");
-
-        assert_eq!(preflight.target_agent_id, first_agent.id);
-    }
-
-    #[test]
-    fn common_delegate_preflight_should_fallback_to_deputy_agent_when_target_department_empty() {
-        let state = test_chat_runtime_state();
-        let mut source_agent = default_agent();
-        source_agent.id = "source-agent-empty-target".to_string();
-        source_agent.name = "源部门人格".to_string();
-
-        let deputy_agent = default_deputy_agent();
-
-        let mut source_department = default_assistant_department("api-a");
-        source_department.id = "dept-source-empty-target".to_string();
-        source_department.name = "源部门".to_string();
-        source_department.is_built_in_assistant = false;
-        source_department.agent_ids = vec![source_agent.id.clone()];
-        source_department.child_department_ids = vec!["dept-empty-target".to_string()];
-
-        let mut target_department = default_assistant_department("api-a");
-        target_department.id = "dept-empty-target".to_string();
-        target_department.name = "空目标部门".to_string();
-        target_department.is_built_in_assistant = false;
-        target_department.agent_ids = Vec::new();
-
-        let config = AppConfig {
-            departments: vec![source_department, target_department],
-            ..AppConfig::default()
-        };
-        write_config(&state.config_path, &config).expect("write config");
-        state_write_agents_cached(
-            &state,
-            &[source_agent.clone(), deputy_agent.clone(), default_user_persona()],
-        )
-        .expect("write agents");
-
-        let conversation = build_conversation_record(
-            "api-a",
-            &source_agent.id,
-            "dept-source-empty-target",
-            "源部门会话",
-            CONVERSATION_KIND_CHAT,
-            None,
-            None,
-        );
-        state_schedule_conversation_persist(&state, &conversation)
-            .expect("persist conversation");
-
-        let preflight = common_delegate_preflight(
-            &state,
-            &source_agent.id,
-            None,
-            Some(&conversation.id),
-            "dept-empty-target",
-            None,
-        )
-        .expect("resolve delegate preflight");
-
-        assert_eq!(preflight.target_agent_id, deputy_agent.id);
-    }
-
-    #[test]
-    fn common_delegate_preflight_should_accept_private_child_department_agent() {
-        let state = test_chat_runtime_state();
-        let private_departments_dir = app_root_from_data_path(&state.data_path)
-            .join("llm-workspace")
-            .join("private-organization")
-            .join("departments");
-        std::fs::create_dir_all(&private_departments_dir)
-            .expect("create private departments dir");
-        std::fs::write(
-            private_departments_dir.join("dept-private.json"),
-            r#"{
-  "id": "dept-private",
-  "name": "私域子部门",
-  "agentIds": ["private-agent"]
-}"#,
-        )
-        .expect("write private department");
-
         let mut parent_agent = default_agent();
         parent_agent.id = "parent-agent".to_string();
-        parent_agent.name = "主部门人格".to_string();
+        parent_agent.name = "主负责人格".to_string();
 
         let mut private_agent = default_agent();
         private_agent.id = "private-agent".to_string();
-        private_agent.name = "私域部门人格".to_string();
+        private_agent.name = "私域人格".to_string();
 
-        let mut parent = default_assistant_department("api-a");
-        parent.id = "dept-parent".to_string();
-        parent.name = "主部门".to_string();
-        parent.is_built_in_assistant = false;
-        parent.agent_ids = vec![parent_agent.id.clone()];
-        parent.child_department_ids = vec!["dept-private".to_string()];
+        parent_agent.child_agent_ids = vec![private_agent.id.clone()];
 
-        let config = AppConfig {
-            departments: vec![parent],
-            ..AppConfig::default()
-        };
+        let config = AppConfig::default();
         write_config(&state.config_path, &config).expect("write config");
         state_write_agents_cached(
             &state,
@@ -11311,8 +10787,7 @@
         let conversation = build_conversation_record(
             "api-a",
             &parent_agent.id,
-            "dept-parent",
-            "主部门会话",
+            "主负责人格会话",
             CONVERSATION_KIND_CHAT,
             None,
             None,
@@ -11323,38 +10798,20 @@
         let preflight = common_delegate_preflight(
             &state,
             &parent_agent.id,
-            None,
             Some(&conversation.id),
-            "dept-private",
-            Some(&private_agent.id),
+            &private_agent.id,
         )
         .expect("resolve private child delegate preflight");
 
-        assert_eq!(preflight.source_department.id, "dept-parent");
-        assert_eq!(preflight.target_department.id, "dept-private");
-        assert_eq!(preflight.target_agent_id, private_agent.id);
+        assert_eq!(preflight.source_agent.id, parent_agent.id);
+        assert_eq!(preflight.target_agent.id, private_agent.id);
         assert_eq!(preflight.root_conversation_id, conversation.id);
+        assert!(validate_delegate_tool_direct_child_target(&preflight).is_ok());
     }
 
     #[test]
-    fn resolve_user_async_delegate_plan_should_accept_private_child_department() {
+    fn resolve_user_async_delegate_plan_should_accept_direct_child_agent() {
         let state = test_chat_runtime_state();
-        let private_departments_dir = app_root_from_data_path(&state.data_path)
-            .join("llm-workspace")
-            .join("private-organization")
-            .join("departments");
-        std::fs::create_dir_all(&private_departments_dir)
-            .expect("create private departments dir");
-        std::fs::write(
-            private_departments_dir.join("dept-private.json"),
-            r#"{
-  "id": "dept-private",
-  "name": "私域子部门",
-  "agentIds": ["private-agent"]
-}"#,
-        )
-        .expect("write private department");
-
         let mut selected_api = ApiConfig::default();
         selected_api.id = "api-a".to_string();
         selected_api.name = "测试模型".to_string();
@@ -11367,25 +10824,20 @@
 
         let mut parent_agent = default_agent();
         parent_agent.id = "parent-agent".to_string();
-        parent_agent.name = "主部门人格".to_string();
+        parent_agent.name = "主负责人格".to_string();
 
         let mut private_agent = default_agent();
         private_agent.id = "private-agent".to_string();
-        private_agent.name = "私域部门人格".to_string();
-
-        let mut parent = default_assistant_department(&selected_api.id);
-        parent.id = "dept-parent".to_string();
-        parent.name = "主部门".to_string();
-        parent.is_built_in_assistant = false;
-        parent.agent_ids = vec![parent_agent.id.clone()];
-        parent.child_department_ids = vec!["dept-private".to_string()];
+        private_agent.name = "私域人格".to_string();
+        private_agent.api_config_ids =
+            vec![api_endpoint_id("api-a", "api-a-model-default")];
+        private_agent.api_config_id = api_endpoint_id("api-a", "api-a-model-default");
 
         let config = AppConfig {
-            departments: vec![parent],
             api_configs: vec![selected_api.clone()],
             api_providers: Vec::new(),
             selected_api_config_id: selected_api.id.clone(),
-            assistant_department_api_config_id: selected_api.id.clone(),
+            expert_api_config_id: selected_api.id.clone(),
             ..AppConfig::default()
         };
         write_config(&state.config_path, &config).expect("write config");
@@ -11402,8 +10854,7 @@
         let conversation = build_conversation_record(
             &selected_api.id,
             &parent_agent.id,
-            "dept-parent",
-            "主部门会话",
+            "主负责人格会话",
             CONVERSATION_KIND_CHAT,
             None,
             None,
@@ -11415,7 +10866,6 @@
             &state,
             &SubmitUserAsyncDelegateInput {
                 conversation_id: conversation.id.clone(),
-                target_department_id: "dept-private".to_string(),
                 target_agent_id: Some(private_agent.id.clone()),
                 preset_id: None,
                 why: None,
@@ -11431,11 +10881,9 @@
 
         assert_eq!(selected_count, 0);
         assert_eq!(plan.root_conversation_id, conversation.id);
-        assert_eq!(plan.source_department_id, "dept-parent");
         assert_eq!(plan.source_agent_id, parent_agent.id);
-        assert_eq!(plan.target_department_id, "dept-private");
         assert_eq!(plan.target_agent_id, private_agent.id);
-        assert_eq!(plan.target_agent_name, "私域部门人格");
+        assert_eq!(plan.target_agent_name, "私域人格");
         assert_eq!(
             plan.target_api_config_ids,
             vec![api_endpoint_id("api-a", "api-a-model-default")]
@@ -11477,27 +10925,14 @@
             api_providers: Vec::new(),
             ..AppConfig::default()
         };
-        let department = DepartmentConfig {
-            id: "dept-a".to_string(),
-            name: "部门 A".to_string(),
-            summary: String::new(),
-            guide: String::new(),
-            api_config_ids: vec!["provider-a::model-a".to_string(), "provider-a".to_string()],
-            api_config_id: "provider-a::model-a".to_string(),
-            model_failure_fallback_enabled: true,
-            agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-            child_department_ids: Vec::new(),
-            created_at: now_utc_rfc3339(),
-            updated_at: now_utc_rfc3339(),
-            order_index: 1,
-            is_built_in_assistant: false,
-            is_deputy: false,
-            source: "main_config".to_string(),
-            scope: "global".to_string(),
-            permission_control: DepartmentPermissionControl::default(),
-        };
+        let mut agent = default_agent();
+        agent.id = "agent-a".to_string();
+        agent.name = "人格 A".to_string();
+        agent.api_config_ids = vec!["provider-a::model-a".to_string(), "provider-a".to_string()];
+        agent.api_config_id = "provider-a::model-a".to_string();
+        agent.model_failure_fallback_enabled = true;
 
-        let resolved = delegate_target_chat_api_config_ids(&app_config, &department);
+        let resolved = delegate_target_chat_api_config_ids(&app_config, &agent);
 
         assert_eq!(resolved, vec!["provider-a::model-a".to_string()]);
     }
@@ -11568,265 +11003,46 @@
                 },
             ],
             api_providers: Vec::new(),
-            assistant_department_api_config_id: expert_id.to_string(),
+            expert_api_config_id: expert_id.to_string(),
             tool_review_api_config_id: Some(quick_id.to_string()),
             ..AppConfig::default()
         };
-        let department = DepartmentConfig {
-            id: "dept-a".to_string(),
-            name: "部门 A".to_string(),
-            summary: String::new(),
-            guide: String::new(),
-            api_config_ids: vec![
-                MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string(),
-                MODEL_ROLE_QUICK_API_CONFIG_ID.to_string(),
-            ],
-            api_config_id: MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string(),
-            model_failure_fallback_enabled: false,
-            agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-            child_department_ids: Vec::new(),
-            created_at: now_utc_rfc3339(),
-            updated_at: now_utc_rfc3339(),
-            order_index: 1,
-            is_built_in_assistant: false,
-            is_deputy: false,
-            source: "main_config".to_string(),
-            scope: "global".to_string(),
-            permission_control: DepartmentPermissionControl::default(),
-        };
+        let mut agent = default_agent();
+        agent.id = "agent-a".to_string();
+        agent.name = "人格 A".to_string();
+        agent.api_config_ids = vec![
+            MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string(),
+            MODEL_ROLE_QUICK_API_CONFIG_ID.to_string(),
+        ];
+        agent.api_config_id = MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string();
+        agent.model_failure_fallback_enabled = false;
 
-        let resolved = delegate_target_chat_api_config_ids(&app_config, &department);
+        let resolved = delegate_target_chat_api_config_ids(&app_config, &agent);
 
         assert_eq!(resolved, vec![expert_id.to_string()]);
     }
 
     #[test]
-    fn build_departments_prompt_block_should_keep_same_persona_child_departments() {
-        let agent = default_agent();
-        let conversation = build_conversation_record(
-            "测试会话",
-            &agent.id,
-            "dept-parent",
-            "",
-            CONVERSATION_KIND_CHAT,
-            None,
-            None,
-        );
-
-        let mut parent = default_assistant_department("api-a");
-        parent.id = "dept-parent".to_string();
-        parent.name = "父部门".to_string();
+    fn build_organization_prompt_block_should_keep_same_persona_child_agents() {
+        let mut parent = default_agent();
+        parent.id = "agent-parent".to_string();
+        parent.name = "父人格".to_string();
         parent.summary = "当任务需要总控时叫我".to_string();
-        parent.guide = "你负责统筹和推进".to_string();
-        parent.is_built_in_assistant = false;
-        parent.agent_ids = vec![agent.id.clone()];
-        parent.child_department_ids = vec!["dept-child".to_string()];
+        parent.child_agent_ids = vec!["agent-child".to_string()];
 
-        let mut child = default_assistant_department("api-a");
-        child.id = "dept-child".to_string();
-        child.name = "同人格子部门".to_string();
+        let mut child = default_agent();
+        child.id = "agent-child".to_string();
+        child.name = "同人格下级".to_string();
         child.summary = "当任务需要专项摸底时叫我".to_string();
-        child.is_built_in_assistant = false;
-        child.agent_ids = vec![agent.id.clone()];
 
-        let block = build_departments_prompt_block(
-            &conversation,
-            "dept-parent",
-            &[parent, child],
-            "zh-CN",
-        );
+        let agents = vec![parent, child];
+        let block = build_organization_prompt_block("agent-parent", &agents, "zh-CN");
 
-        assert!(block.contains("部门：父部门"));
-        assert!(block.contains("部门办事指南：你负责统筹和推进"));
-        assert!(!block.contains("部门概述：当任务需要总控时叫我"));
-        assert!(block.contains("同人格子部门"));
+        assert!(block.contains("人格：父人格"));
+        assert!(block.contains("你的直属下级人格："));
+        assert!(!block.contains("当任务需要总控时叫我"));
+        assert!(block.contains("同人格下级"));
         assert!(block.contains("概述：当任务需要专项摸底时叫我"));
-    }
-
-    #[test]
-    fn department_prompt_cache_should_include_executor_department_id() {
-        let mut agent = default_agent();
-        agent.id = "shared-agent-cache".to_string();
-        agent.name = "共享人格".to_string();
-        let conversation = build_conversation_record(
-            "api-a",
-            &agent.id,
-            "dept-alpha",
-            "缓存测试会话",
-            CONVERSATION_KIND_CHAT,
-            None,
-            None,
-        );
-
-        let mut alpha = default_assistant_department("api-a");
-        alpha.id = "dept-alpha".to_string();
-        alpha.name = "Alpha 部门".to_string();
-        alpha.guide = "Alpha 专属指南".to_string();
-        alpha.is_built_in_assistant = false;
-        alpha.agent_ids = vec![agent.id.clone()];
-
-        let mut beta = default_assistant_department("api-a");
-        beta.id = "dept-beta".to_string();
-        beta.name = "Beta 部门".to_string();
-        beta.guide = "Beta 专属指南".to_string();
-        beta.is_built_in_assistant = false;
-        beta.agent_ids = vec![agent.id.clone()];
-
-        let departments = vec![alpha.clone(), beta.clone()];
-        let alpha_snapshot = get_or_build_department_system_prompt_snapshot(
-            None,
-            &conversation,
-            &agent,
-            &departments,
-            "dept-alpha",
-            "zh-CN",
-        );
-        let beta_snapshot = get_or_build_department_system_prompt_snapshot(
-            None,
-            &conversation,
-            &agent,
-            &departments,
-            "dept-beta",
-            "zh-CN",
-        );
-
-        assert!(alpha_snapshot
-            .department_prompt_block
-            .contains("Alpha 专属指南"));
-        assert!(!alpha_snapshot
-            .department_prompt_block
-            .contains("Beta 专属指南"));
-        assert!(beta_snapshot
-            .department_prompt_block
-            .contains("Beta 专属指南"));
-        assert!(!beta_snapshot
-            .department_prompt_block
-            .contains("Alpha 专属指南"));
-    }
-
-    #[test]
-    fn final_system_prompt_cache_should_include_executor_department_id() {
-        let mut agent = default_agent();
-        agent.id = "shared-agent-final-cache".to_string();
-        agent.name = "共享人格".to_string();
-        agent.system_prompt = "人格系统提示词".to_string();
-        let user = default_user_persona();
-        let conversation = build_conversation_record(
-            "api-a",
-            &agent.id,
-            "dept-alpha-final",
-            "最终提示词缓存测试",
-            CONVERSATION_KIND_CHAT,
-            None,
-            None,
-        );
-
-        let mut alpha = default_assistant_department("api-a");
-        alpha.id = "dept-alpha-final".to_string();
-        alpha.name = "Alpha 最终部门".to_string();
-        alpha.guide = "Alpha 最终指南".to_string();
-        alpha.is_built_in_assistant = false;
-        alpha.agent_ids = vec![agent.id.clone()];
-
-        let mut beta = default_assistant_department("api-a");
-        beta.id = "dept-beta-final".to_string();
-        beta.name = "Beta 最终部门".to_string();
-        beta.guide = "Beta 最终指南".to_string();
-        beta.is_built_in_assistant = false;
-        beta.agent_ids = vec![agent.id.clone()];
-
-        let departments = vec![alpha.clone(), beta.clone()];
-        let agents = vec![agent.clone(), user];
-        let selected_api = ApiConfig::default();
-
-        let alpha_prepared = build_prepared_prompt_for_mode(
-            PromptBuildMode::Chat,
-            &conversation,
-            &agent,
-            &agents,
-            &departments,
-            "用户",
-            "",
-            DEFAULT_RESPONSE_STYLE_ID,
-            "zh-CN",
-            None,
-            None,
-            None,
-            Some(ChatPromptOverrides {
-                executor_department_id: Some("dept-alpha-final".to_string()),
-                ..Default::default()
-            }),
-            None,
-            Some(&selected_api),
-            None,
-        )
-        .expect("build alpha prepared prompt");
-        let beta_prepared = build_prepared_prompt_for_mode(
-            PromptBuildMode::Chat,
-            &conversation,
-            &agent,
-            &agents,
-            &departments,
-            "用户",
-            "",
-            DEFAULT_RESPONSE_STYLE_ID,
-            "zh-CN",
-            None,
-            None,
-            None,
-            Some(ChatPromptOverrides {
-                executor_department_id: Some("dept-beta-final".to_string()),
-                ..Default::default()
-            }),
-            None,
-            Some(&selected_api),
-            None,
-        )
-        .expect("build beta prepared prompt");
-
-        assert!(alpha_prepared.preamble.contains("Alpha 最终指南"));
-        assert!(!alpha_prepared.preamble.contains("Beta 最终指南"));
-        assert!(beta_prepared.preamble.contains("Beta 最终指南"));
-        assert!(!beta_prepared.preamble.contains("Alpha 最终指南"));
-    }
-
-    #[test]
-    fn system_tool_rules_should_use_executor_department_not_shared_agent() {
-        let mut agent = default_agent();
-        agent.id = "shared-agent-tools".to_string();
-
-        let mut parent = default_assistant_department("api-a");
-        parent.id = "dept-tool-parent".to_string();
-        parent.name = "工具父部门".to_string();
-        parent.is_built_in_assistant = false;
-        parent.agent_ids = vec![agent.id.clone()];
-        parent.child_department_ids = vec!["dept-tool-child".to_string()];
-
-        let mut child = default_assistant_department("api-a");
-        child.id = "dept-tool-child".to_string();
-        child.name = "工具子部门".to_string();
-        child.is_built_in_assistant = false;
-        child.agent_ids = vec![agent.id.clone()];
-        child.child_department_ids = Vec::new();
-
-        let departments = vec![parent, child];
-        let parent_rules = build_system_tools_rule_blocks("dept-tool-parent", &departments, true);
-        let child_rules = build_system_tools_rule_blocks("dept-tool-child", &departments, true);
-
-        let parent_delegate_rule = parent_rules
-            .iter()
-            .find(|block| block.contains("<delegate tool rule>"))
-            .expect("parent delegate tool rule");
-        assert!(parent_delegate_rule.contains("当前工作有职责或能力更匹配的直属下级部门时，优先使用 delegate"));
-        assert!(parent_delegate_rule.contains("简单但繁琐"));
-        assert!(parent_delegate_rule.contains("除非用户明确指示后台运行，否则一律使用"));
-        assert!(parent_delegate_rule.contains("需要并发委托时，也应使用 `wait`"));
-        assert!(parent_delegate_rule.contains("关键结论"));
-        assert!(parent_delegate_rule.contains("不要盲目相信"));
-        assert!(!parent_delegate_rule.contains("滥用 delegate"));
-        assert!(!child_rules
-            .iter()
-            .any(|block| block.contains("<delegate tool rule>")));
     }
 
     #[test]
@@ -11881,27 +11097,14 @@
             api_providers: Vec::new(),
             ..AppConfig::default()
         };
-        let department = DepartmentConfig {
-            id: "dept-a".to_string(),
-            name: "部门 A".to_string(),
-            summary: String::new(),
-            guide: String::new(),
-            api_config_ids: vec!["provider-a".to_string()],
-            api_config_id: "provider-a".to_string(),
-            model_failure_fallback_enabled: false,
-            agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-            child_department_ids: Vec::new(),
-            created_at: now_utc_rfc3339(),
-            updated_at: now_utc_rfc3339(),
-            order_index: 1,
-            is_built_in_assistant: false,
-            is_deputy: false,
-            source: "main_config".to_string(),
-            scope: "global".to_string(),
-            permission_control: DepartmentPermissionControl::default(),
-        };
+        let mut agent = default_agent();
+        agent.id = "agent-a".to_string();
+        agent.name = "人格 A".to_string();
+        agent.api_config_ids = vec!["provider-a".to_string()];
+        agent.api_config_id = "provider-a".to_string();
+        agent.model_failure_fallback_enabled = false;
 
-        let resolved = delegate_target_chat_api_config_ids(&app_config, &department);
+        let resolved = delegate_target_chat_api_config_ids(&app_config, &agent);
 
         assert!(resolved.is_empty());
     }
@@ -11915,7 +11118,6 @@
             id: "conversation-summary-only".to_string(),
             title: "摘要会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: String::new(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -11974,7 +11176,6 @@
             id: "conversation-main".to_string(),
             title: "主会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: String::new(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -12046,7 +11247,6 @@
             id: "conversation-main".to_string(),
             title: "主会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: String::new(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -12527,7 +11727,6 @@
                 &conversation,
                 &agent,
                 &[agent.clone(), user.clone()],
-                &[],
                 "用户",
                 "我是性能探针里的用户。",
                 DEFAULT_RESPONSE_STYLE_ID,
@@ -13619,4 +12818,82 @@
         // 非 delegate- 前缀键不触发读盘回退
         let plain = schedule_event_list_runs_inner(&state, "plain-conversation").expect("list plain runs");
         assert!(plain.is_empty());
+    }
+    fn test_skill_summary(name: &str, description: &str, content: &str) -> SkillSummaryItem {
+        SkillSummaryItem {
+            name: name.to_string(),
+            description: description.to_string(),
+            content: content.to_string(),
+            path: format!("/skills/{name}/SKILL.md"),
+            additional_files: Vec::new(),
+            is_builtin: true,
+            enabled: true,
+        }
+    }
+
+    fn test_agent_with_skill_lists(
+        resident: Vec<&str>,
+        optional: Vec<&str>,
+        permission_mode: Option<&str>,
+        permission_skills: Vec<&str>,
+    ) -> AgentProfile {
+        let mut agent = default_agent();
+        agent.resident_skill_names = resident.into_iter().map(|value| value.to_string()).collect();
+        agent.optional_skill_names = optional.into_iter().map(|value| value.to_string()).collect();
+        if let Some(mode) = permission_mode {
+            agent.permission_control = AgentPermissionControl {
+                enabled: true,
+                mode: mode.to_string(),
+                builtin_tool_names: Vec::new(),
+                skill_names: permission_skills
+                    .into_iter()
+                    .map(|value| value.to_string())
+                    .collect(),
+                mcp_tool_names: Vec::new(),
+            };
+        }
+        agent
+    }
+
+    #[test]
+    fn resident_skill_should_inject_fulltext_and_skip_unavailable() {
+        let state = test_chat_runtime_state();
+        let scope_key = hidden_skill_cache_scope_key(&state);
+        hidden_skill_summaries_cache()
+            .lock()
+            .expect("lock skill cache")
+            .insert(
+                scope_key,
+                vec![
+                    test_skill_summary("leader", "统筹", "正文：先给结论，再给依据。"),
+                    test_skill_summary(
+                        "assistant-space-guide",
+                        "助理空间",
+                        "空间正文",
+                    ),
+                ],
+            );
+
+        // 常驻 skill 正文全文注入；清单里没有的名字直接跳过，不报错。
+        let agent = test_agent_with_skill_lists(vec!["leader", "not-installed"], vec![], None, vec![]);
+        let block = build_resident_skill_fulltext_block(&state, &agent);
+        assert!(block.contains("正文：先给结论，再给依据。"), "got: {block}");
+        assert!(block.contains("你的常驻技能"), "got: {block}");
+        assert!(!block.contains("not-installed"), "got: {block}");
+
+        // 可选 skill 只给引用：名字 + 描述 + 路径，不注入正文。
+        let agent =
+            test_agent_with_skill_lists(vec![], vec!["assistant-space-guide"], None, vec![]);
+        let block = build_optional_skill_reference_block(&state, &agent);
+        assert!(block.contains("/skills/assistant-space-guide/SKILL.md"), "got: {block}");
+        assert!(!block.contains("空间正文"), "got: {block}");
+
+        // 权限白名单未放行的 skill 不注入。
+        let agent = test_agent_with_skill_lists(
+            vec!["leader"],
+            vec![],
+            Some("whitelist"),
+            vec!["other-skill"],
+        );
+        assert!(build_resident_skill_fulltext_block(&state, &agent).is_empty());
     }

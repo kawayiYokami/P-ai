@@ -205,7 +205,7 @@ impl ConversationServiceV2 {
         state: &AppState,
         app_config: &mut AppConfig,
         runtime_agents: &[AgentProfile],
-        assistant_department_agent_id: &str,
+        assistant_agent_id: &str,
         requested_agent_id: &str,
     ) -> Result<String, String> {
         let runtime_snapshot =
@@ -223,9 +223,9 @@ impl ConversationServiceV2 {
             return Err(format!("Selected agent '{requested_agent_id}' not found."));
         }
         if runtime_agents.iter().any(|agent| {
-            agent.id == assistant_department_agent_id && !agent.is_built_in_user
+            agent.id == assistant_agent_id && !agent.is_built_in_user
         }) {
-            return Ok(assistant_department_agent_id.to_string());
+            return Ok(assistant_agent_id.to_string());
         }
         runtime_agents
             .iter()

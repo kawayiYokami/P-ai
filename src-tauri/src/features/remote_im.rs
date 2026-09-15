@@ -137,8 +137,6 @@ struct RemoteImContactBehaviorUpdateInput {
 struct RemoteImContactSettingsPatchInput {
     contact_id: String,
     #[serde(default)]
-    department_id: Option<String>,
-    #[serde(default)]
     agent_id: Option<String>,
     #[serde(default = "default_remote_im_contact_processing_mode")]
     processing_mode: String,
@@ -212,10 +210,8 @@ struct RemoteImContactRouteModeUpdateInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct RemoteImContactDepartmentBindingUpdateInput {
+struct RemoteImContactAgentBindingUpdateInput {
     contact_id: String,
-    #[serde(default)]
-    department_id: Option<String>,
     #[serde(default)]
     agent_id: Option<String>,
 }
@@ -262,7 +258,6 @@ struct RemoteImContactConversationSummary {
     channel_enabled: bool,
     platform: RemoteImPlatform,
     contact_display_name: String,
-    bound_department_id: Option<String>,
     bound_agent_id: Option<String>,
     processing_mode: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -360,7 +355,6 @@ fn remote_im_upsert_contact_for_inbound(
         mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
         activation_cooldown_seconds: 0,
         route_mode: "dedicated_contact_conversation".to_string(),
-        bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
         bound_agent_id: None,
         bound_conversation_id: None,
         processing_mode: "continuous".to_string(),

@@ -585,14 +585,9 @@ const DEEP_RECALL_WORKFLOW_WHY: &str = "这是深度回忆任务：发起者要�
 
 const DEEP_RECALL_WORKFLOW_TODO: &str = "1. 你拥有两个记忆检索工具：deeprecall_search（按关键词检索全部历史聊天正文，命中返回会话序号与消息序号）、deeprecall_context（按会话序号与起止消息序号展开那段真实对话）。\n2. 把回忆目标拆成多个检索角度，用 deeprecall_search 多轮检索：换关键词、换说法、换时间线索，命中不足就换角度继续，不要只搜一次。\n3. 对可信命中用 deeprecall_context 展开前后文，核对来龙去脉、时间顺序与结论演变，把散落的片段串成一条线。\n4. 整合成一份回忆报告：时间线、关键结论、分歧点与演变过程，并为每条结论标注来源坐标（会话 00XX / 消息 00XX）。\n5. 检索不到就如实说明搜过什么、为什么没找到，禁止虚构任何未检索到的内容。";
 
-fn deep_recall_delegate_args(
-    source_agent_id: &str,
-    source_department_id: &str,
-    query: &str,
-) -> DelegateToolArgs {
+fn deep_recall_delegate_args(source_agent_id: &str, query: &str) -> DelegateToolArgs {
     DelegateToolArgs {
-        department_id: source_department_id.trim().to_string(),
-        target_agent_id: Some(source_agent_id.trim().to_string()),
+        agent_id: source_agent_id.trim().to_string(),
         mode: Some("wait".to_string()),
         why: Some(DEEP_RECALL_WORKFLOW_WHY.to_string()),
         goal: Some(format!("深度回忆：{}", query.trim())),
@@ -603,32 +598,11 @@ fn deep_recall_delegate_args(
     }
 }
 
-/// 解析发起委托所需的执行部门：优先用运行期执行部门，缺失时回落到当前会话所属部门。
-fn deep_recall_resolve_department_id(
-    state: &AppState,
-    session_id: &str,
-    executor_department_id: &str,
-) -> String {
-    let trimmed = executor_department_id.trim();
-    if !trimmed.is_empty() {
-        return trimmed.to_string();
-    }
-    let Some(conversation_id) = delegate_session_conversation_id(session_id) else {
-        return String::new();
-    };
-    conversation_service_v2()
-        .get_conversation_meta(state, &conversation_id)
-        .ok()
-        .map(|meta| meta.department_id.trim().to_string())
-        .unwrap_or_default()
-}
-
 /// deeprecall 工具主体：委托发起者自己去回忆，同步等待结束再回填报告。
 async fn builtin_deep_recall(
     app_state: &AppState,
     session_id: &str,
     source_agent_id: &str,
-    source_department_id: &str,
     args: DeepRecallToolArgs,
 ) -> Result<Value, String> {
     let query = args.query.trim();
@@ -648,16 +622,6 @@ async fn builtin_deep_recall(
             "message": "深度回忆工具执行失败"
         }));
     }
-    let department_id =
-        deep_recall_resolve_department_id(app_state, session_id, source_department_id);
-    if department_id.is_empty() {
-        return Ok(serde_json::json!({
-            "ok": false,
-            "status": "深度回忆无法发起",
-            "reason": "无法确定当前会话所属部门",
-            "message": "深度回忆工具执行失败"
-        }));
-    }
 
     runtime_log_info(format!(
         "[深度回忆] 发起回忆委托 query_len={} agent_id={}",
@@ -668,9 +632,8 @@ async fn builtin_deep_recall(
         app_state,
         session_id,
         Some(source_agent_id),
-        Some(department_id.as_str()),
         DELEGATE_TOOL_KIND_DEEP_RECALL,
-        deep_recall_delegate_args(source_agent_id, &department_id, query),
+        deep_recall_delegate_args(source_agent_id, query),
     )
     .await;
     // 委托已结束，按本次委托会话释放它占用的内存索引；归属不明时兜底清理。
@@ -896,9 +859,8 @@ mod deep_recall_tests {
 
     #[test]
     fn deep_recall_delegate_args_should_target_self_in_wait_mode() {
-        let args = deep_recall_delegate_args("agent-a", "dept-1", "上个月我们讨论过的部署方案");
-        assert_eq!(args.department_id, "dept-1");
-        assert_eq!(args.target_agent_id.as_deref(), Some("agent-a"));
+        let args = deep_recall_delegate_args("agent-a", "上个月我们讨论过的部署方案");
+        assert_eq!(args.agent_id, "agent-a");
         assert_eq!(args.mode.as_deref(), Some("wait"));
         assert_eq!(
             args.goal.as_deref(),

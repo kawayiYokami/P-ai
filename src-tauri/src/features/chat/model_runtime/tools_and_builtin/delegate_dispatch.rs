@@ -1,17 +1,14 @@
 fn delegate_resolve_context(
     app_state: &AppState,
     source_agent_id: &str,
-    source_department_id: Option<&str>,
     source_conversation_id: Option<&str>,
-    target_department_id: &str,
-    target_agent_id: Option<&str>,
+    target_agent_id: &str,
 ) -> Result<
     (
         AppConfig,
         Vec<AgentProfile>,
-        DepartmentConfig,
-        DepartmentConfig,
-        String,
+        AgentProfile,
+        AgentProfile,
         String,
         Option<DelegateRuntimeThread>,
     ),
@@ -20,17 +17,14 @@ fn delegate_resolve_context(
     let resolved = conversation_service_v2().resolve_delegate_context(
         app_state,
         source_agent_id,
-        source_department_id,
         source_conversation_id,
-        target_department_id,
         target_agent_id,
     )?;
     Ok((
         resolved.config,
         resolved.agents,
-        resolved.source_department,
-        resolved.target_department,
-        resolved.target_agent_id,
+        resolved.source_agent,
+        resolved.target_agent,
         resolved.source_conversation_id,
         resolved.thread_context,
     ))
@@ -41,8 +35,6 @@ fn delegate_create_record(
     kind: &str,
     root_conversation_id: &str,
     parent_delegate_id: Option<String>,
-    source_department_id: &str,
-    target_department_id: &str,
     source_agent_id: &str,
     target_agent_id: &str,
     title: &str,
@@ -58,8 +50,6 @@ fn delegate_create_record(
             kind: kind.to_string(),
             conversation_id: root_conversation_id.to_string(),
             parent_delegate_id,
-            source_department_id: source_department_id.to_string(),
-            target_department_id: target_department_id.to_string(),
             source_agent_id: source_agent_id.to_string(),
             target_agent_id: target_agent_id.to_string(),
             title: title.to_string(),
@@ -118,8 +108,7 @@ mod delegate_dispatch_tests {
 #[derive(Debug, Clone)]
 struct ValidatedDelegateArgs {
     mode: DelegateMode,
-    target_department_id: String,
-    target_agent_id: Option<String>,
+    target_agent_id: String,
     title: String,
     why: String,
     goal: String,
@@ -143,16 +132,10 @@ fn delegate_title_from_goal(goal: &str) -> String {
 
 fn validate_delegate_args(args: &DelegateToolArgs) -> Result<ValidatedDelegateArgs, String> {
     let mode = parse_delegate_mode(args.mode.as_deref())?;
-    let target_department_id = args.department_id.trim().to_string();
-    if target_department_id.is_empty() {
-        return Err("delegate.department_id is required".to_string());
+    let target_agent_id = args.agent_id.trim().to_string();
+    if target_agent_id.is_empty() {
+        return Err("delegate.agent_id is required".to_string());
     }
-    let target_agent_id = args
-        .target_agent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
     let why = delegate_arg_new_or_legacy(&args.why, &args.background);
     let goal = delegate_arg_new_or_legacy(&args.goal, &args.question);
     let todo = delegate_arg_new_or_legacy(&args.todo, &args.focus);
@@ -162,7 +145,6 @@ fn validate_delegate_args(args: &DelegateToolArgs) -> Result<ValidatedDelegateAr
     let title = delegate_title_from_goal(&goal);
     Ok(ValidatedDelegateArgs {
         mode,
-        target_department_id,
         target_agent_id,
         title,
         why,
@@ -173,20 +155,20 @@ fn validate_delegate_args(args: &DelegateToolArgs) -> Result<ValidatedDelegateAr
 
 fn check_and_push_call_stack(
     current_thread: Option<&DelegateRuntimeThread>,
-    source_department_id: &str,
-    target_department_id: &str,
+    source_agent_id: &str,
+    target_agent_id: &str,
 ) -> Result<Vec<String>, String> {
     let mut call_stack = current_thread
         .map(|thread| thread.call_stack.clone())
-        .unwrap_or_else(|| vec![source_department_id.to_string()]);
-    let same_department = source_department_id == target_department_id;
-    if !same_department && call_stack.iter().any(|item| item == target_department_id) {
+        .unwrap_or_else(|| vec![source_agent_id.to_string()]);
+    let same_agent = source_agent_id == target_agent_id;
+    if !same_agent && call_stack.iter().any(|item| item == target_agent_id) {
         return Err(format!(
-            "目标部门已在当前调用链中，departmentId={target_department_id}"
+            "目标人格已在当前调用链中，agentId={target_agent_id}"
         ));
     }
-    if !same_department {
-        call_stack.push(target_department_id.to_string());
+    if !same_agent {
+        call_stack.push(target_agent_id.to_string());
     }
     Ok(call_stack)
 }
@@ -194,10 +176,8 @@ fn check_and_push_call_stack(
 #[derive(Debug, Clone)]
 struct DelegatePreflight {
     config: AppConfig,
-    agents: Vec<AgentProfile>,
-    source_department: DepartmentConfig,
-    target_department: DepartmentConfig,
-    target_agent_id: String,
+    source_agent: AgentProfile,
+    target_agent: AgentProfile,
     root_conversation_id: String,
     current_thread: Option<DelegateRuntimeThread>,
 }
@@ -205,26 +185,20 @@ struct DelegatePreflight {
 fn common_delegate_preflight(
     app_state: &AppState,
     source_agent_id: &str,
-    source_department_id: Option<&str>,
     source_conversation_id: Option<&str>,
-    target_department_id: &str,
-    target_agent_id: Option<&str>,
+    target_agent_id: &str,
 ) -> Result<DelegatePreflight, String> {
-    let (config, agents, source_department, target_department, target_agent_id, root_conversation_id, current_thread) =
+    let (config, _agents, source_agent, target_agent, root_conversation_id, current_thread) =
         delegate_resolve_context(
             app_state,
             source_agent_id,
-            source_department_id,
             source_conversation_id,
-            target_department_id,
             target_agent_id,
         )?;
     Ok(DelegatePreflight {
         config,
-        agents,
-        source_department,
-        target_department,
-        target_agent_id,
+        source_agent,
+        target_agent,
         root_conversation_id,
         current_thread,
     })
@@ -232,32 +206,32 @@ fn common_delegate_preflight(
 
 fn validate_delegate_tool_direct_child_target(preflight: &DelegatePreflight) -> Result<(), String> {
     if preflight
-        .source_department
-        .child_department_ids
+        .source_agent
+        .child_agent_ids
         .iter()
-        .any(|id| id.trim() == preflight.target_department.id)
+        .any(|id| id.trim() == preflight.target_agent.id)
     {
         return Ok(());
     }
     runtime_log_debug(format!(
-        "[委托校验] 直接下级不匹配 source_department_id={} source_department_name={} target_department_id={} target_department_name={} source_child_department_ids={:?}",
-        preflight.source_department.id,
-        preflight.source_department.name,
-        preflight.target_department.id,
-        preflight.target_department.name,
-        preflight.source_department.child_department_ids
+        "[委托校验] 直接下级不匹配 source_agent_id={} source_agent_name={} target_agent_id={} target_agent_name={} source_child_agent_ids={:?}",
+        preflight.source_agent.id,
+        preflight.source_agent.name,
+        preflight.target_agent.id,
+        preflight.target_agent.name,
+        preflight.source_agent.child_agent_ids
     ));
     Err(format!(
-        "目标部门不是当前部门的直接下级，sourceDepartmentId={}，targetDepartmentId={}",
-        preflight.source_department.id, preflight.target_department.id
+        "目标人格不是当前人格的直接下级，sourceAgentId={}，targetAgentId={}",
+        preflight.source_agent.id, preflight.target_agent.id
     ))
 }
 
 fn delegate_target_chat_api_config_ids(
     config: &AppConfig,
-    target_department: &DepartmentConfig,
+    target_agent: &AgentProfile,
 ) -> Vec<String> {
-    department_effective_chat_api_config_ids(config, target_department)
+    agent_effective_chat_api_config_ids(config, target_agent)
 }
 
 fn spawn_delegate_task(
@@ -457,21 +431,16 @@ impl Drop for SyncDelegateAbortGuard {
 
 fn resolve_delegate_call_stack(
     current_thread: Option<&DelegateRuntimeThread>,
-    source_department: &DepartmentConfig,
-    target_department: &DepartmentConfig,
+    source_agent: &AgentProfile,
+    target_agent: &AgentProfile,
 ) -> Result<Vec<String>, String> {
-    check_and_push_call_stack(
-        current_thread,
-        &source_department.id,
-        &target_department.id,
-    )
+    check_and_push_call_stack(current_thread, &source_agent.id, &target_agent.id)
 }
 
 async fn builtin_delegate(
     app_state: &AppState,
     session_id: &str,
     source_agent_id: Option<&str>,
-    source_department_id: Option<&str>,
     args: DelegateToolArgs,
 ) -> Result<Value, String> {
     let validated = match validate_delegate_args(&args) {
@@ -488,10 +457,8 @@ async fn builtin_delegate(
     let preflight = match common_delegate_preflight(
         app_state,
         &source_agent_id,
-        source_department_id,
         source_conversation_id.as_deref(),
-        &validated.target_department_id,
-        validated.target_agent_id.as_deref(),
+        &validated.target_agent_id,
     ) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),
@@ -504,7 +471,6 @@ async fn builtin_delegate(
             app_state,
             session_id,
             Some(source_agent_id.as_str()),
-            source_department_id,
             DELEGATE_TOOL_KIND_DELEGATE,
             args,
         )
@@ -520,14 +486,14 @@ async fn builtin_delegate(
     }
     if let Some(reason) = same_persona_background_delegate_block_reason(
         &source_agent_id,
-        &preflight.target_agent_id,
+        &preflight.target_agent.id,
     ) {
         return Ok(delegate_failed_result(reason));
     }
     let call_stack = match resolve_delegate_call_stack(
         preflight.current_thread.as_ref(),
-        &preflight.source_department,
-        &preflight.target_department,
+        &preflight.source_agent,
+        &preflight.target_agent,
     ) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),
@@ -538,10 +504,8 @@ async fn builtin_delegate(
         DELEGATE_TOOL_KIND_DELEGATE,
         &preflight.root_conversation_id,
         None,
-        &preflight.source_department.id,
-        &preflight.target_department.id,
         &source_agent_id,
-        &preflight.target_agent_id,
+        &preflight.target_agent.id,
         &validated.title,
         validated.why,
         validated.goal,
@@ -551,18 +515,21 @@ async fn builtin_delegate(
     )?;
 
     let target_name = preflight
-        .agents
-        .iter()
-        .find(|agent| agent.id == preflight.target_agent_id)
-        .map(|agent| agent.name.trim().to_string())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| preflight.target_agent_id.clone());
+        .target_agent
+        .name
+        .trim()
+        .to_string();
+    let target_name = if target_name.is_empty() {
+        preflight.target_agent.id.clone()
+    } else {
+        target_name
+    };
 
     spawn_delegate_task(
         app_state.clone(),
         delegate.clone(),
         delegate.conversation_id.clone(),
-        delegate_target_chat_api_config_ids(&preflight.config, &preflight.target_department),
+        delegate_target_chat_api_config_ids(&preflight.config, &preflight.target_agent),
         Some(session_id.to_string()),
     );
 
@@ -578,7 +545,6 @@ async fn delegate_execute_sync(
     app_state: &AppState,
     session_id: &str,
     source_agent_id: Option<&str>,
-    source_department_id: Option<&str>,
     kind: &str,
     args: DelegateToolArgs,
 ) -> Result<Value, String> {
@@ -596,10 +562,8 @@ async fn delegate_execute_sync(
     let preflight = match common_delegate_preflight(
         app_state,
         &source_agent_id,
-        source_department_id,
         source_conversation_id.as_deref(),
-        &validated.target_department_id,
-        validated.target_agent_id.as_deref(),
+        &validated.target_agent_id,
     ) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),
@@ -607,8 +571,8 @@ async fn delegate_execute_sync(
 
     let call_stack = match resolve_delegate_call_stack(
         preflight.current_thread.as_ref(),
-        &preflight.source_department,
-        &preflight.target_department,
+        &preflight.source_agent,
+        &preflight.target_agent,
     ) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),
@@ -623,10 +587,8 @@ async fn delegate_execute_sync(
         kind,
         &preflight.root_conversation_id,
         parent_delegate_id,
-        &preflight.source_department.id,
-        &preflight.target_department.id,
         &source_agent_id,
-        &preflight.target_agent_id,
+        &preflight.target_agent.id,
         &validated.title,
         validated.why,
         validated.goal,
@@ -639,7 +601,7 @@ async fn delegate_execute_sync(
     let sync_result = run_sync_delegate_on_child_task(
         app_state.clone(),
         delegate.clone(),
-        delegate_target_chat_api_config_ids(&preflight.config, &preflight.target_department),
+        delegate_target_chat_api_config_ids(&preflight.config, &preflight.target_agent),
         session_id.to_string(),
     )
     .await;
@@ -651,7 +613,7 @@ async fn delegate_execute_sync(
             "delegate": delegate,
             "conversationId": preflight.root_conversation_id,
             "assistantText": if run.final_response_text.trim().is_empty() { run.assistant_text } else { run.final_response_text },
-            "targetAgentId": preflight.target_agent_id,
+            "targetAgentId": preflight.target_agent.id,
         })),
         Err(err) => Ok(serde_json::json!({
             "ok": false,

@@ -15,7 +15,6 @@ struct DelegateConversationSnapshot {
     why: String,
     goal: String,
     todo: String,
-    target_department_id: String,
     target_agent_id: String,
     status: String,
     created_at: String,
@@ -128,8 +127,6 @@ fn delegate_store_init(conn: &Connection) -> Result<(), String> {
             kind TEXT NOT NULL,
             conversation_id TEXT NOT NULL,
             parent_delegate_id TEXT,
-            source_department_id TEXT NOT NULL,
-            target_department_id TEXT NOT NULL,
             source_agent_id TEXT NOT NULL,
             target_agent_id TEXT NOT NULL,
             title TEXT NOT NULL,
@@ -148,6 +145,7 @@ fn delegate_store_init(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|err| format!("初始化委托数据库失败: {err}"))?;
     delegate_store_migrate_why_goal_todo(conn)?;
+    delegate_store_migrate_relax_legacy_department_columns(conn)?;
     delegate_store_migrate_snapshot_columns(conn)?;
     Ok(())
 }
@@ -211,8 +209,8 @@ fn delegate_store_migrate_why_goal_todo(conn: &Connection) -> Result<(), String>
             kind TEXT NOT NULL,
             conversation_id TEXT NOT NULL,
             parent_delegate_id TEXT,
-            source_department_id TEXT NOT NULL,
-            target_department_id TEXT NOT NULL,
+            source_department_id TEXT,
+            target_department_id TEXT,
             source_agent_id TEXT NOT NULL,
             target_agent_id TEXT NOT NULL,
             title TEXT NOT NULL,
@@ -246,6 +244,69 @@ fn delegate_store_migrate_why_goal_todo(conn: &Connection) -> Result<(), String>
     conn.execute_batch(&sql)
         .map_err(|err| format!("迁移委托字段 why/goal/todo 失败: {err}"))?;
     runtime_log_info(format!("[委托] 完成，任务=迁移字段why_goal_todo"));
+    Ok(())
+}
+
+/// 放宽旧委托表遗留的部门列约束。
+///
+/// 部门已从运行时模型退场，新记录不再写这两列；但历史库中它们带着 NOT NULL，
+/// 会强迫新记录继续填值。这里把这两列改为可空：旧值原样保留，新记录不再落值。
+fn delegate_store_migrate_relax_legacy_department_columns(conn: &Connection) -> Result<(), String> {
+    const LEGACY_DEPARTMENT_COLUMNS: [&str; 2] = ["source_department_id", "target_department_id"];
+    let mut stmt = conn
+        .prepare("PRAGMA table_info(delegate_record)")
+        .map_err(|err| format!("读取委托表结构失败: {err}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)? != 0,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, i64>(5)? != 0,
+            ))
+        })
+        .map_err(|err| format!("读取委托表字段失败: {err}"))?;
+    let mut definitions = Vec::<String>::new();
+    let mut names = Vec::<String>::new();
+    let mut needs_relax = false;
+    for row in rows {
+        let (name, column_type, not_null, default_value, primary_key) =
+            row.map_err(|err| format!("读取委托表字段失败: {err}"))?;
+        let is_legacy_department = LEGACY_DEPARTMENT_COLUMNS.contains(&name.as_str());
+        if is_legacy_department && not_null {
+            needs_relax = true;
+        }
+        let mut definition = format!("{name} {column_type}");
+        if primary_key {
+            definition.push_str(" PRIMARY KEY");
+        } else if not_null && !is_legacy_department {
+            definition.push_str(" NOT NULL");
+        }
+        if let Some(default_value) = default_value {
+            definition.push_str(&format!(" DEFAULT {default_value}"));
+        }
+        definitions.push(definition);
+        names.push(name);
+    }
+    if !needs_relax {
+        return Ok(());
+    }
+    let columns = names.join(", ");
+    let sql = format!(
+        "BEGIN;
+        CREATE TABLE delegate_record_next (
+            {}
+        );
+        INSERT INTO delegate_record_next ({columns}) SELECT {columns} FROM delegate_record;
+        DROP TABLE delegate_record;
+        ALTER TABLE delegate_record_next RENAME TO delegate_record;
+        COMMIT;",
+        definitions.join(",\n            ")
+    );
+    conn.execute_batch(&sql)
+        .map_err(|err| format!("放宽委托表旧部门列约束失败: {err}"))?;
+    runtime_log_info(format!("[委托] 完成，任务=放宽旧部门列约束"));
     Ok(())
 }
 
@@ -364,8 +425,6 @@ fn delegate_row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<DelegateEn
         kind: row.get("kind")?,
         conversation_id: row.get("conversation_id")?,
         parent_delegate_id: row.get("parent_delegate_id")?,
-        source_department_id: row.get("source_department_id")?,
-        target_department_id: row.get("target_department_id")?,
         source_agent_id: row.get("source_agent_id")?,
         target_agent_id: row.get("target_agent_id")?,
         title: row.get("title")?,
@@ -412,7 +471,6 @@ fn delegate_snapshot_row_to_entry(
         why: row.get("why")?,
         goal: row.get("goal")?,
         todo: row.get("todo")?,
-        target_department_id: row.get("target_department_id")?,
         target_agent_id: row.get("target_agent_id")?,
         status: row.get("status")?,
         created_at: row.get("created_at")?,
@@ -556,7 +614,6 @@ fn delegate_snapshot_from_entry_and_conversation(
         why: entry.why.clone(),
         goal: entry.goal.clone(),
         todo: entry.todo.clone(),
-        target_department_id: entry.target_department_id.clone(),
         target_agent_id: if entry.target_agent_id.trim().is_empty() {
             conversation.agent_id.clone()
         } else {
@@ -591,7 +648,6 @@ fn delegate_snapshot_from_entry(
         why: entry.why.clone(),
         goal: entry.goal.clone(),
         todo: entry.todo.clone(),
-        target_department_id: entry.target_department_id.clone(),
         target_agent_id: entry.target_agent_id.clone(),
         status: entry.status.clone(),
         created_at: entry.created_at.clone(),
@@ -626,7 +682,6 @@ fn delegate_snapshot_store_read(
             why,
             goal,
             todo,
-            target_department_id,
             target_agent_id,
             status,
             created_at,
@@ -667,7 +722,6 @@ fn delegate_snapshot_store_list_from_db(
                 why,
                 goal,
                 todo,
-                target_department_id,
                 target_agent_id,
                 status,
                 created_at,
@@ -950,9 +1004,6 @@ fn delegate_store_create_delegate(
     if input.conversation_id.trim().is_empty() {
         return Err("delegate.conversationId 不能为空".to_string());
     }
-    if input.source_department_id.trim().is_empty() || input.target_department_id.trim().is_empty() {
-        return Err("委托 source/target department 不能为空".to_string());
-    }
     if input.source_agent_id.trim().is_empty() || input.target_agent_id.trim().is_empty() {
         return Err("委托 source/target agent 不能为空".to_string());
     }
@@ -970,17 +1021,15 @@ fn delegate_store_create_delegate(
     conn.execute(
         "INSERT INTO delegate_record (
             delegate_id, kind, conversation_id, parent_delegate_id,
-            source_department_id, target_department_id, source_agent_id, target_agent_id,
+            source_agent_id, target_agent_id,
             title, why, goal, todo,
             notify_assistant_when_done, call_stack_json, status, created_at, updated_at, delivered_at, completed_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL)",
         params![
             delegate_id,
             input.kind.trim(),
             input.conversation_id.trim(),
             input.parent_delegate_id.as_deref(),
-            input.source_department_id.trim(),
-            input.target_department_id.trim(),
             input.source_agent_id.trim(),
             input.target_agent_id.trim(),
             title,
@@ -1104,8 +1153,6 @@ mod delegate_store_tests {
             kind: "delegate".to_string(),
             conversation_id: "root-conversation".to_string(),
             parent_delegate_id: None,
-            source_department_id: "source-dept".to_string(),
-            target_department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             source_agent_id: "source-agent".to_string(),
             target_agent_id: DEFAULT_AGENT_ID.to_string(),
             title: "委托标题".to_string(),
@@ -1121,7 +1168,6 @@ mod delegate_store_tests {
         let mut conversation = build_conversation_record(
             "",
             &entry.target_agent_id,
-            &entry.target_department_id,
             &entry.title,
             CONVERSATION_KIND_DELEGATE,
             Some(entry.conversation_id.clone()),
@@ -1230,7 +1276,6 @@ mod delegate_store_tests {
 
         assert_eq!(snapshot.delegate_id, entry.delegate_id);
         assert_eq!(snapshot.root_conversation_id, entry.conversation_id);
-        assert_eq!(snapshot.target_department_id, entry.target_department_id);
         assert_eq!(snapshot.target_agent_id, entry.target_agent_id);
         assert_eq!(snapshot.status, entry.status);
         assert_eq!(snapshot.message_count, 0);

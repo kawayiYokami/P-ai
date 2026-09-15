@@ -278,7 +278,7 @@ fn load_importable_agent_scope_labels(
 ) -> Result<std::collections::HashMap<String, String>, String> {
     let agents = state_read_agents_cached(state)?;
     let base_config = read_config(&state.config_path)?;
-    let (private_agent_ids, _) =
+    let private_agent_ids =
         runtime_private_organization_ids(&state.data_path, &base_config, &agents)?;
     let mut out = std::collections::HashMap::<String, String>::new();
     for agent in &agents {

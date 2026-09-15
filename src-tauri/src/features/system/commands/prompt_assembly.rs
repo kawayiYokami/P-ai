@@ -6,7 +6,6 @@ enum PromptBuildMode {
 
 #[derive(Debug, Clone, Default)]
 struct ChatPromptOverrides {
-    executor_department_id: Option<String>,
     latest_user_intent: Option<LatestUserPayloadIntent>,
     // 会话主链不允许外部直接注入系统侧块；系统提示词相关块必须由提示词服务内部生成。
     todo_tool_enabled: bool,
@@ -48,7 +47,6 @@ fn build_prepared_prompt_for_mode(
     conversation: &Conversation,
     agent: &AgentProfile,
     agents: &[AgentProfile],
-    departments: &[DepartmentConfig],
     user_name: &str,
     user_intro: &str,
     response_style_id: &str,
@@ -66,7 +64,6 @@ fn build_prepared_prompt_for_mode(
         conversation,
         agent,
         agents,
-        departments,
         user_name,
         user_intro,
         response_style_id,
@@ -87,7 +84,6 @@ fn build_prepared_prompt_for_mode_with_stage_logger(
     conversation: &Conversation,
     agent: &AgentProfile,
     agents: &[AgentProfile],
-    departments: &[DepartmentConfig],
     user_name: &str,
     user_intro: &str,
     response_style_id: &str,
@@ -106,7 +102,6 @@ fn build_prepared_prompt_for_mode_with_stage_logger(
         conversation,
         agent,
         agents,
-        departments,
         user_name,
         user_intro,
         response_style_id,
@@ -610,7 +605,6 @@ mod prompt_assembly_tests {
             id: "conv-1".to_string(),
             title: "test".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -846,7 +840,6 @@ mod prompt_assembly_tests {
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: default_remote_im_contact_route_mode(),
-            bound_department_id: None,
             bound_agent_id: None,
             bound_conversation_id: Some(conversation.id.clone()),
             processing_mode: default_remote_im_contact_processing_mode(),
@@ -876,7 +869,6 @@ mod prompt_assembly_tests {
     fn build_prepared_prompt_for_mode_should_keep_system_and_conversation_sides_separated() {
         let agent = default_agent();
         let agents = vec![agent.clone()];
-        let departments = default_departments("api-1");
         let mut conversation = build_test_conversation(Vec::new());
         conversation.messages.push(build_test_message("user", "这一句只属于用户消息"));
 
@@ -885,7 +877,6 @@ mod prompt_assembly_tests {
             &conversation,
             &agent,
             &agents,
-            &departments,
             "测试用户",
             "",
             "default",
@@ -909,7 +900,6 @@ mod prompt_assembly_tests {
     fn chat_request_latest_user_payload_should_append_extra_blocks_without_dup_user_text() {
         let agent = default_agent();
         let agents = vec![agent.clone()];
-        let departments = default_departments("api-1");
         let mut conversation = build_test_conversation(Vec::new());
         conversation.messages.push(build_test_message("user", "洛伊是谁"));
 
@@ -918,7 +908,6 @@ mod prompt_assembly_tests {
             &conversation,
             &agent,
             &agents,
-            &departments,
             "测试用户",
             "",
             "default",
@@ -1039,7 +1028,7 @@ mod prompt_assembly_tests {
     }
 
     #[test]
-    fn finalize_system_prompt_with_manager_should_reuse_cached_department_blocks() {
+    fn finalize_system_prompt_with_manager_should_reuse_cached_core_prompt_blocks() {
         let llm_workspace_path = std::env::temp_dir().join(format!(
             "easy-call-ai-prompt-manager-test-{}",
             uuid::Uuid::new_v4()
@@ -1047,19 +1036,17 @@ mod prompt_assembly_tests {
         fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
         let state = build_test_state(llm_workspace_path);
         let agent = default_agent();
-        let departments = default_departments("api-1");
         let conversation = build_test_conversation(Vec::new());
         let system_blocks = vec!["<runtime block>\n测试块\n</runtime block>".to_string()];
-        let cache_key = build_department_system_prompt_cache_key(
+        let cache_key = build_agent_system_prompt_cache_key(
             Some(&state),
             &agent,
-            &conversation.department_id,
             "zh-CN",
         );
         {
             let mut cache = cache_lock_recover(
-                "department_system_prompt_cache",
-                department_system_prompt_cache(),
+                "agent_system_prompt_cache",
+                agent_system_prompt_cache(),
             );
             cache.remove(&cache_key);
         }
@@ -1069,7 +1056,7 @@ mod prompt_assembly_tests {
             "chat",
             &conversation,
             &agent,
-            &departments,
+                &[agent.clone()],
             Some(&ApiConfig::default()),
             Some(("测试用户", "")),
             "default",
@@ -1085,7 +1072,7 @@ mod prompt_assembly_tests {
             "chat",
             &conversation,
             &agent,
-            &departments,
+                &[agent.clone()],
             Some(&ApiConfig::default()),
             Some(("测试用户", "")),
             "default",
@@ -1101,8 +1088,8 @@ mod prompt_assembly_tests {
         assert!(first.contains("核心 system prompt"));
         assert!(first.contains("当前 shell: PowerShell"));
         let cache = cache_lock_recover(
-            "department_system_prompt_cache",
-            department_system_prompt_cache(),
+            "agent_system_prompt_cache",
+            agent_system_prompt_cache(),
         );
         assert!(cache.contains_key(&cache_key));
     }
@@ -1245,7 +1232,7 @@ mod prompt_assembly_tests {
     }
 
     #[test]
-    fn system_environment_invalidation_should_not_dirty_department_cache() {
+    fn system_environment_invalidation_should_not_dirty_core_prompt_cache() {
         let llm_workspace_path = std::env::temp_dir().join(format!(
             "easy-call-ai-system-environment-dirty-test-{}",
             uuid::Uuid::new_v4()
@@ -1253,12 +1240,10 @@ mod prompt_assembly_tests {
         fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
         let state = build_test_state(llm_workspace_path);
         let agent = default_agent();
-        let departments = default_departments("api-1");
         let conversation = build_test_conversation(Vec::new());
-        let cache_key = build_department_system_prompt_cache_key(
+        let cache_key = build_agent_system_prompt_cache_key(
             Some(&state),
             &agent,
-            &conversation.department_id,
             "zh-CN",
         );
         let _ = finalize_system_prompt_with_manager(
@@ -1266,7 +1251,7 @@ mod prompt_assembly_tests {
             "chat",
             &conversation,
             &agent,
-            &departments,
+                &[agent.clone()],
             Some(&ApiConfig::default()),
             Some(("测试用户", "")),
             "default",
@@ -1284,10 +1269,10 @@ mod prompt_assembly_tests {
         );
 
         let cache = cache_lock_recover(
-            "department_system_prompt_cache",
-            department_system_prompt_cache(),
+            "agent_system_prompt_cache",
+            agent_system_prompt_cache(),
         );
-        let entry = cache.get(&cache_key).expect("department cache entry");
+        let entry = cache.get(&cache_key).expect("core prompt cache entry");
         assert!(entry.dirty_reason.is_none());
     }
 
@@ -1300,7 +1285,6 @@ mod prompt_assembly_tests {
         fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
         let state = build_test_state(llm_workspace_path);
         let agent = default_agent();
-        let departments = default_departments("api-1");
         let mut conversation = build_test_conversation(Vec::new());
         conversation.conversation_kind = CONVERSATION_KIND_REMOTE_IM_CONTACT.to_string();
         let system_blocks = vec![
@@ -1315,7 +1299,7 @@ mod prompt_assembly_tests {
             "chat",
             &conversation,
             &agent,
-            &departments,
+                &[agent.clone()],
             Some(&ApiConfig::default()),
             Some(("测试用户", "")),
             "default",
@@ -1356,7 +1340,6 @@ mod prompt_assembly_tests {
         fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
         let state = build_test_state(llm_workspace_path);
         let agent = default_agent();
-        let departments = default_departments("api-1");
         let conversation = build_test_conversation(Vec::new());
         let system_blocks = vec![
             "<remote im runtime activation>\nIM 激活块\n</remote im runtime activation>".to_string(),
@@ -1367,7 +1350,7 @@ mod prompt_assembly_tests {
             "chat",
             &conversation,
             &agent,
-            &departments,
+                &[agent.clone()],
             Some(&ApiConfig::default()),
             Some(("测试用户", "")),
             "default",
@@ -1391,13 +1374,8 @@ mod prompt_assembly_tests {
         ));
         fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
         let state = build_test_state(llm_workspace_path);
-        let agent = default_agent();
-        let mut departments = default_departments("api-1");
-        let assistant_department = departments
-            .iter_mut()
-            .find(|item| item.id == ASSISTANT_DEPARTMENT_ID)
-            .expect("assistant department");
-        assistant_department.permission_control = DepartmentPermissionControl {
+        let mut agent = default_agent();
+        agent.permission_control = AgentPermissionControl {
             enabled: true,
             mode: "blacklist".to_string(),
             builtin_tool_names: vec!["write".to_string()],
@@ -1412,7 +1390,7 @@ mod prompt_assembly_tests {
             "chat",
             &conversation,
             &agent,
-            &departments,
+                &[agent.clone()],
             Some(&api),
             Some(("测试用户", "")),
             "default",
@@ -1438,7 +1416,6 @@ mod prompt_assembly_tests {
         fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
         let state = build_test_state(llm_workspace_path);
         let agent = default_agent();
-        let departments = default_departments("api-1");
         let conversation = build_test_conversation(Vec::new());
 
         let mut api_enabled = ApiConfig::default();
@@ -1453,7 +1430,7 @@ mod prompt_assembly_tests {
             "chat",
             &conversation,
             &agent,
-            &departments,
+                &[agent.clone()],
             Some(&api_enabled),
             Some(("测试用户", "")),
             "default",
@@ -1469,7 +1446,7 @@ mod prompt_assembly_tests {
             "chat",
             &conversation,
             &agent,
-            &departments,
+                &[agent.clone()],
             Some(&api_disabled),
             Some(("测试用户", "")),
             "default",

@@ -4,8 +4,6 @@ import { useChatToolReview } from "./use-chat-tool-review";
 export interface UseChatToolReviewHandlersOptions {
   activeConversationId: Ref<string>;
   toolReviewRefreshTick: Ref<number>;
-  currentDepartmentId: Ref<string>;
-  departmentOptions: Ref<Array<{ id: string }>>;
   initialPanelOpen?: Ref<boolean>;
   activeTab?: Ref<string>;
   /** 右侧主页可见时为真：主页「最近工具」卡片与监控工具页共用同一份批次列表 */

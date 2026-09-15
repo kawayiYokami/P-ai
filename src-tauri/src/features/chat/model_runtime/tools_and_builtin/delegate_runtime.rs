@@ -106,8 +106,6 @@ fn delegate_build_trigger_provider_meta(
         "delegateId": delegate.delegate_id,
         "delegateKind": delegate.kind,
         "rootConversationId": root_conversation_id,
-        "sourceDepartmentId": delegate.source_department_id,
-        "targetDepartmentId": delegate.target_department_id,
         "sourceAgentId": delegate.source_agent_id,
         "targetAgentId": delegate.target_agent_id,
         "notifyAssistantWhenDone": delegate.notify_assistant_when_done,
@@ -126,7 +124,6 @@ async fn delegate_enqueue_result_message(
     // 优先回发原始会话；若原会话已归档/消失，则回退到系统通知会话。
     let resolved_target = conversation_service_v2()
         .resolve_delegate_result_target_conversation(app_state, root_conversation_id)?;
-    let department_id = resolved_target.department_id;
     let agent_id = resolved_target.agent_id;
     let target_conversation_id = resolved_target.target_conversation_id;
 
@@ -158,7 +155,6 @@ async fn delegate_enqueue_result_message(
         &delegate_message,
         notify_assistant,
         Some(ChatSessionInfo {
-            department_id,
             agent_id,
         }),
     )
@@ -266,7 +262,6 @@ async fn delegate_execute_agent_prompt(
         },
         session: Some(SessionSelector {
             api_config_id: Some(target_api_config_id.to_string()),
-            department_id: Some(delegate.target_department_id.clone()),
             agent_id: delegate.target_agent_id.clone(),
             conversation_id: Some(delegate_conversation_id.to_string()),
         }),
@@ -282,7 +277,6 @@ async fn delegate_execute_agent_prompt(
             target_conversation_id: Some(delegate_conversation_id.to_string()),
             root_conversation_id: Some(root_conversation_id.to_string()),
             executor_agent_id: Some(delegate.target_agent_id.clone()),
-            executor_department_id: Some(delegate.target_department_id.clone()),
             model_config_id: Some(target_api_config_id.to_string()),
             event_source: runtime_context_trimmed(Some(event_source)),
             dispatch_reason: runtime_context_trimmed(Some(dispatch_reason)),
@@ -338,7 +332,7 @@ async fn delegate_run_thread_to_completion(
     let primary_api_config_id = target_api_config_ids
         .first()
         .cloned()
-        .ok_or_else(|| format!("部门没有可用模型，departmentId={}", delegate.target_department_id))?;
+        .ok_or_else(|| format!("人格没有可用模型，agentId={}", delegate.target_agent_id))?;
     let workspace_snapshot = delegate_capture_workspace_snapshot(
         &app_state,
         &delegate.conversation_id,
@@ -420,7 +414,7 @@ async fn delegate_run_thread_to_completion(
             }
             Err(err) => {
                 errors.push(format!("{api_config_id}: {err}"));
-                run_result = Err(format!("部门所有候选模型均失败：{}", errors.join(" | ")));
+                run_result = Err(format!("人格所有候选模型均失败：{}", errors.join(" | ")));
             }
         }
     }

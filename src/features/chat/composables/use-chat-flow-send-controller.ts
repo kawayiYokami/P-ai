@@ -54,7 +54,7 @@ type UseChatFlowSendControllerOptions = {
   submitPending?: Ref<boolean>;
   isConversationBusy?: () => boolean;
   getConversationId?: () => string;
-  getSession: () => { apiConfigId: string; agentId: string; departmentId?: string } | null;
+  getSession: () => { apiConfigId: string; agentId: string } | null;
   /** Web 端专用：发起对话前幂等补绑定，确保后端已注册本客户端的会话订阅。桌面端不注入，避免与 sendChat 原生 Channel 双写。 */
   bindActiveConversationStream?: (conversationId: string, force?: boolean) => Promise<void>;
   createSendChatDeltaChannel: (gen: number, conversationId: string) => TransportChannel<AssistantDeltaEvent>;
@@ -64,7 +64,7 @@ type UseChatFlowSendControllerOptions = {
     parts: ChatIngressPart[];
     extraTextBlocks?: string[];
     mentions?: ChatMentionTarget[];
-    session: { apiConfigId: string; agentId: string; departmentId?: string; conversationId?: string };
+    session: { apiConfigId: string; agentId: string; conversationId?: string };
     traceId: string;
     onDelta: TransportChannel<AssistantDeltaEvent>;
   }) => Promise<{
@@ -116,7 +116,7 @@ type UseChatFlowSendControllerOptions = {
     handleFailedSend: (
       gen: number,
       error: unknown,
-      sendSession: { apiConfigId: string; agentId: string; departmentId?: string; conversationId?: string },
+      sendSession: { apiConfigId: string; agentId: string; conversationId?: string },
       sendConversationId: string,
     ) => Promise<void>;
     finalizeSendChat: (gen: number, suppressInitialReload?: boolean) => Promise<void>;

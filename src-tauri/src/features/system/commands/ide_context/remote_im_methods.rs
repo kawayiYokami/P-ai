@@ -227,12 +227,12 @@ fn ide_chat_remote_im_update_contact_activation_for_web_settings(
     ide_chat_serialize(remote_im_update_contact_activation_inner(state, input)?)
 }
 
-fn ide_chat_remote_im_update_contact_department_binding_for_web_settings(
+fn ide_chat_remote_im_update_contact_agent_binding_for_web_settings(
     state: &AppState,
     params: Value,
 ) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<RemoteImContactDepartmentBindingUpdateInput>(params, "input")?;
-    ide_chat_serialize(remote_im_update_contact_department_binding_inner(state, input)?)
+    let input = ide_chat_parse_param_field::<RemoteImContactAgentBindingUpdateInput>(params, "input")?;
+    ide_chat_serialize(remote_im_update_contact_agent_binding_inner(state, input)?)
 }
 
 fn ide_chat_remote_im_update_contact_processing_mode_for_web_settings(

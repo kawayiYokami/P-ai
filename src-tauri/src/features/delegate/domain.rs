@@ -12,8 +12,6 @@ struct DelegateEntry {
     conversation_id: String,
     #[serde(default)]
     parent_delegate_id: Option<String>,
-    source_department_id: String,
-    target_department_id: String,
     source_agent_id: String,
     target_agent_id: String,
     title: String,
@@ -39,8 +37,6 @@ struct DelegateCreateInput {
     kind: String,
     conversation_id: String,
     parent_delegate_id: Option<String>,
-    source_department_id: String,
-    target_department_id: String,
     source_agent_id: String,
     target_agent_id: String,
     title: String,

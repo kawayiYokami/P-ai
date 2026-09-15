@@ -416,7 +416,6 @@ const sourceBadgeLabel = computed(() => {
     return String(
       props.item.channelName
       || props.item.remoteContactDisplayName
-      || props.item.departmentName
       || t("chat.otherConversations"),
     ).trim();
   }

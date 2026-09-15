@@ -112,7 +112,6 @@ fn maybe_enqueue_goal_continue_after_idle(
         .clone()
         .or_else(|| Some(conversation_id.to_string()));
     runtime_context.executor_agent_id = Some(conversation.agent_id.clone());
-    runtime_context.executor_department_id = Some(conversation.department_id.clone());
     let event = ChatPendingEvent {
         id: event_id,
         conversation_id: conversation_id.to_string(),
@@ -123,7 +122,6 @@ fn maybe_enqueue_goal_continue_after_idle(
         activate_assistant: true,
         assistant_message_id: None,
         session_info: ChatSessionInfo {
-            department_id: conversation.department_id,
             agent_id: conversation.agent_id,
         },
         runtime_context: Some(runtime_context),

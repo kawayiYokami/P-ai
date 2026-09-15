@@ -18,7 +18,6 @@ export type TaskProgressNote = {
 export type TaskEntry = {
   taskId: string;
   conversationId?: string;
-  departmentId?: string;
   agentId?: string;
   orderIndex: number;
   goal: string;
@@ -47,7 +46,6 @@ export type TaskScheduleMode = "once" | "interval";
 
 export type TaskEditorForm = {
   taskId: string;
-  departmentId: string;
   agentId: string;
   goal: string;
   why: string;
@@ -119,7 +117,6 @@ function inferSupportedIntervalFromCron(cronExpression: string): {
 export function createEmptyTaskEditorForm(): TaskEditorForm {
   return {
     taskId: "",
-    departmentId: "",
     agentId: "",
     goal: "",
     why: "",
@@ -148,7 +145,6 @@ export function taskEditorFormFromEntry(task: TaskEntry): TaskEditorForm {
   const hasExistingRecurringSchedule = Number.isFinite(legacyEveryMinutes) || !!cronExpression;
   return {
     taskId: task.taskId,
-    departmentId: task.departmentId || "",
     agentId: task.agentId || "",
     goal: task.goal || "",
     why: task.why || "",
@@ -169,7 +165,6 @@ export function taskEditorFormFromEntry(task: TaskEntry): TaskEditorForm {
 export function taskEditorSnapshot(form: TaskEditorForm): string {
   const normalized = {
     taskId: String(form.taskId || "").trim(),
-    departmentId: String(form.departmentId || "").trim(),
     agentId: String(form.agentId || "").trim(),
     goal: String(form.goal || "").trim(),
     why: String(form.why || "").trim(),

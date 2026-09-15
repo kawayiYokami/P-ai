@@ -22,18 +22,17 @@ fn check_tools_status_inner(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .ok_or_else(|| "缺少人格 ID".to_string())?;
-    agents
+    let target_agent = agents
         .iter()
         .find(|item| item.id == target_agent_id)
         .cloned()
         .ok_or_else(|| format!("未找到人格：{target_agent_id}"))?;
     let selected_tools = default_agent_tools();
-    let current_department = runtime_department_for_agent(&runtime_org, &target_agent_id);
     let delegate_unavailable_reason =
-        delegate_builtin_tool_unavailable_reason(&config, current_department);
+        agent_builtin_tool_unavailable_reason(Some(&target_agent), "delegate");
 
-    let effective_api_id = current_department
-        .map(|item| item.api_config_id.clone())
+    let effective_api_id = (!target_agent.api_config_id.trim().is_empty())
+        .then(|| target_agent.api_config_id.trim().to_string())
         .or_else(|| input.api_config_id.clone());
     let selected = effective_api_id
         .as_deref()
@@ -46,15 +45,12 @@ fn check_tools_status_inner(
                 let restricted_reason = if tool.id == "delegate" {
                     delegate_unavailable_reason.clone()
                 } else {
-                    builtin_tool_unavailable_reason(&config, current_department, &tool.id)
+                    agent_builtin_tool_unavailable_reason(Some(&target_agent), &tool.id)
                 };
-                let forced_by_department = tool_forced_by_department(current_department, &tool.id);
                 let detail = if let Some(reason) = restricted_reason.clone() {
                     reason
-                } else if forced_by_department {
-                    "远程客服部门已强制启用该工具。".to_string()
                 } else if tool.enabled {
-                    "系统默认已启用该工具，但当前尚未绑定部门运行模型。".to_string()
+                    "系统默认已启用该工具，但当前尚未绑定人格运行模型。".to_string()
                 } else {
                     "系统默认未启用该工具。".to_string()
                 };
@@ -62,8 +58,6 @@ fn check_tools_status_inner(
                     id: tool.id.clone(),
                     status: if restricted_reason.is_some() {
                         "unavailable".to_string()
-                    } else if forced_by_department {
-                        "loaded".to_string()
                     } else if tool.enabled {
                         "loaded".to_string()
                     } else {
@@ -90,11 +84,10 @@ fn check_tools_status_inner(
     let runtime_shell = terminal_shell_for_state(&state);
     let mut statuses = Vec::new();
     for tool in selected_tools {
-        let forced_by_department = tool_forced_by_department(current_department, &tool.id);
         let restricted_reason = if tool.id == "delegate" {
             delegate_unavailable_reason.clone()
         } else {
-            builtin_tool_unavailable_reason(&config, current_department, &tool.id)
+            agent_builtin_tool_unavailable_reason(Some(&target_agent), &tool.id)
         };
         if let Some(reason) = restricted_reason {
             statuses.push(ToolLoadStatus {
@@ -104,7 +97,7 @@ fn check_tools_status_inner(
             });
             continue;
         }
-        if !tool.enabled && !forced_by_department {
+        if !tool.enabled {
             statuses.push(ToolLoadStatus {
                 id: tool.id,
                 status: "disabled".to_string(),

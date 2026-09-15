@@ -63,7 +63,7 @@ async fn builtin_tool_definitions_for_frontend(
             BuiltinTerminalExecTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
-                executor_department_id: String::new(),
+                executor_agent_id: String::new(),
             }
             .provider_tool_definition(),
         ),
@@ -77,7 +77,7 @@ async fn builtin_tool_definitions_for_frontend(
             BuiltinWriteFileTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
-                executor_department_id: String::new(),
+                executor_agent_id: String::new(),
             }
             .provider_tool_definition(),
         ),
@@ -85,7 +85,7 @@ async fn builtin_tool_definitions_for_frontend(
             BuiltinDeleteFileTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
-                executor_department_id: String::new(),
+                executor_agent_id: String::new(),
             }
             .provider_tool_definition(),
         ),
@@ -93,7 +93,7 @@ async fn builtin_tool_definitions_for_frontend(
             BuiltinUpdateFileTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
-                executor_department_id: String::new(),
+                executor_agent_id: String::new(),
             }
             .provider_tool_definition(),
         ),
@@ -101,7 +101,7 @@ async fn builtin_tool_definitions_for_frontend(
             BuiltinMoveFileTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
-                executor_department_id: String::new(),
+                executor_agent_id: String::new(),
             }
             .provider_tool_definition(),
         ),
@@ -152,7 +152,6 @@ async fn builtin_tool_definitions_for_frontend(
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
                 api_config_id: String::new(),
-                executor_department_id: String::new(),
                 executor_agent_id: String::new(),
             }
             .provider_tool_definition(),
@@ -162,7 +161,6 @@ async fn builtin_tool_definitions_for_frontend(
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
                 source_agent_id: preview_agent_id.clone(),
-                source_department_id: String::new(),
             }
             .provider_tool_definition(),
         ),
@@ -187,7 +185,6 @@ async fn builtin_tool_definitions_for_frontend(
                 app_state: state.clone(),
                 session_id: preview_session_id,
                 source_agent_id: String::new(),
-                source_department_id: String::new(),
             }
             .provider_tool_definition(),
         ),
@@ -220,16 +217,16 @@ async fn builtin_tool_definitions_for_frontend(
     out
 }
 
-fn department_permission_catalog_item(
+fn permission_catalog_item(
     name: &str,
     description: &str,
     group: &str,
-) -> Option<DepartmentPermissionCatalogItem> {
+) -> Option<PermissionCatalogItem> {
     let name = name.trim();
     if name.is_empty() {
         return None;
     }
-    Some(DepartmentPermissionCatalogItem {
+    Some(PermissionCatalogItem {
         name: name.to_string(),
         description: description.trim().to_string(),
         group: group.trim().to_string(),
@@ -237,8 +234,8 @@ fn department_permission_catalog_item(
 }
 
 fn sorted_unique_catalog_items(
-    values: impl IntoIterator<Item = DepartmentPermissionCatalogItem>,
-) -> Vec<DepartmentPermissionCatalogItem> {
+    values: impl IntoIterator<Item = PermissionCatalogItem>,
+) -> Vec<PermissionCatalogItem> {
     let mut out = values.into_iter().collect::<Vec<_>>();
     out.sort_by(|a, b| a.name.cmp(&b.name));
     // 不去重：同名工具共存，由用户自行安排生效顺序
@@ -255,24 +252,24 @@ async fn list_tool_catalog_inner(state: &AppState) -> Result<Vec<FrontendToolDef
 }
 
 #[tauri::command]
-async fn list_department_permission_catalog(
+async fn list_permission_catalog(
     state: State<'_, AppState>,
-) -> Result<DepartmentPermissionCatalog, String> {
-    list_department_permission_catalog_inner(&state).await
+) -> Result<PermissionCatalog, String> {
+    list_permission_catalog_inner(&state).await
 }
 
-async fn list_department_permission_catalog_inner(
+async fn list_permission_catalog_inner(
     state: &AppState,
-) -> Result<DepartmentPermissionCatalog, String> {
+) -> Result<PermissionCatalog, String> {
     let builtin_tools = sorted_unique_catalog_items(
         builtin_tool_definitions_for_frontend(state)
             .await
             .into_iter()
             .filter_map(|item| {
-                if !builtin_tool_visible_in_department_permissions(&item.function.name) {
+                if !builtin_tool_visible_in_permission_lists(&item.function.name) {
                     return None;
                 }
-                department_permission_catalog_item(
+                permission_catalog_item(
                     &item.function.name,
                     &item.function.description,
                     "",
@@ -283,7 +280,7 @@ async fn list_department_permission_catalog_inner(
     let skills = load_workspace_skill_summaries_with_errors(state)
         .map(|(skills, _errors)| {
             sorted_unique_catalog_items(skills.into_iter().filter_map(|item| {
-                department_permission_catalog_item(&item.name, &item.description, "")
+                permission_catalog_item(&item.name, &item.description, "")
             }))
         })
         .unwrap_or_default();
@@ -306,7 +303,7 @@ async fn list_department_permission_catalog_inner(
                 .filter_map(move |(server, tool)| {
                     // 与注册层一致：直接使用探测时生成的别名 tool_name
                     let provider_tool_name = tool.tool_name.clone();
-                    department_permission_catalog_item(
+                    permission_catalog_item(
                         &provider_tool_name,
                         &tool.description,
                         &server.name,
@@ -314,7 +311,7 @@ async fn list_department_permission_catalog_inner(
                 }),
         )
     };
-    Ok(DepartmentPermissionCatalog {
+    Ok(PermissionCatalog {
         builtin_tools,
         skills,
         mcp_tools,
@@ -452,14 +449,14 @@ mod tool_catalog_tests {
     }
 
     #[test]
-    fn department_permission_catalog_should_hide_fixed_session_tools() {
-        let state = AppState::new().expect("create app state for department catalog");
+    fn permission_catalog_should_hide_fixed_session_tools() {
+        let state = AppState::new().expect("create app state for permission catalog");
         let catalog = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .expect("build tokio runtime for department catalog tests should succeed")
-            .block_on(list_department_permission_catalog_inner(&state))
-            .expect("load department permission catalog");
+            .expect("build tokio runtime for permission catalog tests should succeed")
+            .block_on(list_permission_catalog_inner(&state))
+            .expect("load permission catalog");
         let builtin_names = catalog
             .builtin_tools
             .iter()
@@ -469,12 +466,12 @@ mod tool_catalog_tests {
         for hidden_name in ["todo", "plan", "task", "create_goal", "update_goal", "get_session", "inform_session"] {
             assert!(
                 !builtin_names.contains(hidden_name),
-                "department permission catalog should hide fixed session tool {hidden_name}"
+                "permission catalog should hide fixed session tool {hidden_name}"
             );
         }
         assert!(
             builtin_names.contains("exec"),
-            "department permission catalog should still include adjustable builtin tools"
+            "permission catalog should still include adjustable builtin tools"
         );
     }
 }

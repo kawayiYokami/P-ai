@@ -135,16 +135,6 @@ fn headless_cli_fail(message: &str) -> i32 {
     1
 }
 
-fn headless_cli_resolve_agent_id(department: &DepartmentConfig) -> String {
-    department
-        .agent_ids
-        .iter()
-        .map(|value| value.trim())
-        .find(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| DEFAULT_AGENT_ID.to_string())
-}
-
 /// CLI 会话的主工作区：取调用方进程的当前目录，让模型在任务目录内读写。
 /// 路径随后会经面向用户输入的规范化链（含 trim），因此这里先 canonicalize，
 /// 并拒绝首尾带空白的路径，避免文件系统来源的路径被静默改写后落到别处。
@@ -188,16 +178,13 @@ async fn headless_cli_run_once(args: HeadlessCliArgs) -> Result<(), String> {
     {
         return Err(format!("指定的模型配置不存在: {locked_model_id}"));
     }
-    let department = runtime_department_by_id(&runtime_org, ASSISTANT_DEPARTMENT_ID)
-        .ok_or_else(|| "主部门不存在".to_string())?;
-    let department_id = department.id.trim().to_string();
-    let agent_id = headless_cli_resolve_agent_id(department);
+    let agent_id = state_service_get_assistant_agent_id(&state)?;
     if !runtime_org
         .agents
         .iter()
         .any(|agent| agent.id == agent_id && !agent.is_built_in_user)
     {
-        return Err(format!("主部门执行人格不可用: agent_id={agent_id}"));
+        return Err(format!("主助理人格不可用: agent_id={agent_id}"));
     }
 
     // 等到这里再等 MCP 探测落定：等待只需早于首轮工具装配，不必早于参数校验，
@@ -209,7 +196,6 @@ async fn headless_cli_run_once(args: HeadlessCliArgs) -> Result<(), String> {
         CreateUnarchivedConversationInput {
             api_config_id: Some(locked_model_id.clone()),
             agent_id: Some(agent_id.clone()),
-            department_id: Some(department_id.clone()),
             title: Some(title),
             copy_source_conversation_id: None,
             shell_workspaces: Some(headless_cli_shell_workspaces()?),
@@ -257,14 +243,12 @@ async fn headless_cli_run_once(args: HeadlessCliArgs) -> Result<(), String> {
     runtime_context.target_conversation_id = Some(conversation_id.clone());
     runtime_context.root_conversation_id = Some(conversation_id.clone());
     runtime_context.executor_agent_id = Some(agent_id.clone());
-    runtime_context.executor_department_id = Some(department_id.clone());
     runtime_context.model_config_id = Some(locked_model_id.clone());
 
     let request = SendChatRequest {
         trigger_only: true,
         session: Some(SessionSelector {
             api_config_id: Some(locked_model_id),
-            department_id: Some(department_id),
             agent_id,
             conversation_id: Some(conversation_id.clone()),
         }),

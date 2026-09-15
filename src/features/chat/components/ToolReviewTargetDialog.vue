@@ -6,11 +6,10 @@
       </div>
       <div class="relative z-20 shrink-0 overflow-visible px-5 pt-4">
         <div class="mb-4 grid gap-1.5">
-          <div class="text-xs font-medium text-base-content/60">{{ t("chat.toolReview.departmentLabel") }}</div>
-          <DepartmentPersonaSelect
-            v-model:department-id="selectedDepartmentId"
+          <div class="text-xs font-medium text-base-content/60">{{ t("chat.toolReview.agentLabel") }}</div>
+          <AgentPersonaSelect
             v-model:agent-id="selectedAgentId"
-            :options="departmentSelectOptions"
+            :options="agentSelectOptions"
             :persona-avatar-url-map="personaAvatarUrlMap"
             auto-select-first
           />
@@ -74,19 +73,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
+import AgentPersonaSelect from "../../shared/components/AgentPersonaSelect.vue";
 import type { ToolReviewCodeReviewScope, ToolReviewCommitOption } from "../composables/use-chat-tool-review";
-import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
+import type { AgentPersonaOption } from "../../shared/agent-persona-options";
 
-type DepartmentOption = DepartmentPersonaOption;
+type AgentOption = AgentPersonaOption;
 
 const props = defineProps<{
   open: boolean;
   submitting: boolean;
   errorText: string;
-  currentDepartmentId: string;
   currentAgentId: string;
-  departmentOptions: DepartmentOption[];
+  agentOptions: AgentOption[];
   personaAvatarUrlMap?: Record<string, string>;
   commitOptions: ToolReviewCommitOption[];
   commitOptionsLoading: boolean;
@@ -98,7 +96,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
   pickCommitReview: [page: number];
-  reviewCode: [input: { scope: ToolReviewCodeReviewScope; target?: string; departmentId: string; agentId: string }];
+  reviewCode: [input: { scope: ToolReviewCodeReviewScope; target?: string; agentId: string }];
 }>();
 
 const { t } = useI18n();
@@ -124,50 +122,37 @@ function syncDialog() {
 watch(() => props.open, syncDialog);
 watch(dialogRef, syncDialog);
 
-const selectedDepartmentId = ref("");
 const selectedAgentId = ref("");
 const selectedCommitHashes = ref<string[]>([]);
 const customTargetText = ref("");
 const scope = ref<ToolReviewCodeReviewScope>("main");
 
-const departmentSelectOptions = computed<DepartmentPersonaOption[]>(() => {
+const agentSelectOptions = computed<AgentPersonaOption[]>(() => {
   const seen = new Set<string>();
-  return (Array.isArray(props.departmentOptions) ? props.departmentOptions : [])
+  return (Array.isArray(props.agentOptions) ? props.agentOptions : [])
     .map((item) => {
-      const departmentId = String(item.departmentId || item.id || "").trim();
       const agentId = String(item.agentId || "").trim();
       return {
         ...item,
-        departmentId,
         agentId,
-        id: String(item.id || `${departmentId}::${agentId}`).trim(),
+        id: String(item.id || agentId).trim(),
       };
     })
     .filter((item) => {
-      if (!item.departmentId || !item.agentId || !item.id || seen.has(item.id)) return false;
+      if (!item.agentId || !item.id || seen.has(item.id)) return false;
       seen.add(item.id);
       return true;
     });
 });
 
-const validSelectionOption = computed<DepartmentPersonaOption | null>(() => {
-  const selectedDepartmentIdValue = String(selectedDepartmentId.value || "").trim();
+const validSelectionOption = computed<AgentPersonaOption | null>(() => {
   const selectedAgentIdValue = String(selectedAgentId.value || "").trim();
-  const selected = departmentSelectOptions.value.find((item) =>
-    item.departmentId === selectedDepartmentIdValue && item.agentId === selectedAgentIdValue
-  );
+  const selected = agentSelectOptions.value.find((item) => item.agentId === selectedAgentIdValue);
   if (selected) return selected;
-  const current = String(props.currentDepartmentId || "").trim();
   const currentAgentId = String(props.currentAgentId || "").trim();
-  const currentOption = departmentSelectOptions.value.find((item) =>
-    item.departmentId === current && item.agentId === currentAgentId
-  );
+  const currentOption = agentSelectOptions.value.find((item) => item.agentId === currentAgentId);
   if (currentOption) return currentOption;
-  if (current) {
-    const currentDepartmentOption = departmentSelectOptions.value.find((item) => item.departmentId === current);
-    if (currentDepartmentOption) return currentDepartmentOption;
-  }
-  return departmentSelectOptions.value[0] || null;
+  return agentSelectOptions.value[0] || null;
 });
 
 const commitTotalPages = computed(() => Math.max(1, Math.ceil(props.commitTotal / Math.max(1, props.commitPageSize))));
@@ -180,10 +165,9 @@ const canConfirm = computed(() => {
 });
 
 watch(
-  () => [props.currentDepartmentId, props.currentAgentId, departmentSelectOptions.value.map((item) => item.id).join("|")] as const,
+  () => [props.currentAgentId, agentSelectOptions.value.map((item) => item.id).join("|")] as const,
   () => {
     const selectedOption = validSelectionOption.value;
-    selectedDepartmentId.value = String(selectedOption?.departmentId || "").trim();
     selectedAgentId.value = String(selectedOption?.agentId || "").trim();
   },
   { immediate: true },
@@ -194,7 +178,6 @@ watch(
   (open) => {
     if (!open) return;
     const selectedOption = validSelectionOption.value;
-    selectedDepartmentId.value = String(selectedOption?.departmentId || "").trim();
     selectedAgentId.value = String(selectedOption?.agentId || "").trim();
   },
 );
@@ -227,23 +210,22 @@ function close() {
 
 function confirm() {
   const selection = validSelectionOption.value;
-  const departmentId = String(selection?.departmentId || "").trim();
   const agentId = String(selection?.agentId || "").trim();
-  if (!departmentId || !agentId) return;
+  if (!agentId) return;
   if (scope.value === "commit") {
     if (selectedCommitHashes.value.length === 0) return;
-    emit("reviewCode", { scope: "commit", target: selectedCommitHashes.value.join("\n"), departmentId, agentId });
+    emit("reviewCode", { scope: "commit", target: selectedCommitHashes.value.join("\n"), agentId });
     close();
     return;
   }
   if (scope.value === "custom") {
     const target = customTargetText.value.trim();
     if (!target) return;
-    emit("reviewCode", { scope: "custom", target, departmentId, agentId });
+    emit("reviewCode", { scope: "custom", target, agentId });
     close();
     return;
   }
-  emit("reviewCode", { scope: scope.value, target: "", departmentId, agentId });
+  emit("reviewCode", { scope: scope.value, target: "", agentId });
   close();
 }
 </script>

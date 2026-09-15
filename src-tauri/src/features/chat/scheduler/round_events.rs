@@ -51,7 +51,6 @@ fn emit_round_started_event(
     request_id: &str,
     assistant_message_id: &str,
     reason: &str,
-    department_id: &str,
     agent_id: &str,
     started_at: &str,
     started_at_ms: u64,
@@ -73,7 +72,6 @@ fn emit_round_started_event(
         "requestId": request_id,
         "assistantMessageId": assistant_message_id,
         "reason": reason,
-        "departmentId": department_id,
         "agentId": agent_id,
         "startedAt": started_at,
         "startedAtMs": started_at_ms,
@@ -179,7 +177,6 @@ fn notify_local_chat_round_completed(
         notification_settings.ui_language,
     );
     let title = notification_title_for_conversation_meta(
-        state,
         &conversation_meta,
         notification_settings.ui_language,
         false,
@@ -228,29 +225,20 @@ fn notification_body_with_speaker(speaker_name: &str, body: String, ui_language:
 }
 
 fn notification_title_for_conversation_meta(
-    state: &AppState,
     conversation_meta: &ConversationMetaView,
     ui_language: &str,
     failed: bool,
 ) -> String {
     let base_title = notification_conversation_display_title(conversation_meta, ui_language);
-    let department_name = notification_department_name_for_conversation_meta(state, conversation_meta);
-    notification_title_from_parts(&base_title, department_name.as_deref(), ui_language, failed)
+    notification_title_from_parts(&base_title, ui_language, failed)
 }
 
 fn notification_title_from_parts(
     base_title: &str,
-    department_name: Option<&str>,
     ui_language: &str,
     failed: bool,
 ) -> String {
     let mut parts = vec![base_title.trim().to_string()];
-    if let Some(department_name) = department_name
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        parts.push(department_name.to_string());
-    }
     if failed {
         parts.push(local_chat_notification_text(
             ui_language,
@@ -375,28 +363,6 @@ fn notification_speaker_name_for_conversation_meta(
                 conversation_meta.id, agent_id, err
             ));
             agent_id.to_string()
-        }
-    }
-}
-
-fn notification_department_name_for_conversation_meta(
-    state: &AppState,
-    conversation_meta: &ConversationMetaView,
-) -> Option<String> {
-    let department_id = conversation_meta.department_id.trim();
-    if department_id.is_empty() {
-        return None;
-    }
-    match state_read_config_cached(state) {
-        Ok(config) => department_by_id(&config, department_id)
-            .map(|department| department.name.trim().to_string())
-            .filter(|name| !name.is_empty()),
-        Err(err) => {
-            runtime_log_warn(format!(
-                "[通知] 跳过，任务=读取部门名称失败后省略部门，conversation_id={}，department_id={}，error={}",
-                conversation_meta.id, department_id, err
-            ));
-            None
         }
     }
 }
@@ -559,7 +525,6 @@ fn notify_local_chat_round_failed(state: &AppState, conversation_id: &str, error
         notification_settings.ui_language,
     );
     let title = notification_title_for_conversation_meta(
-        state,
         &conversation_meta,
         notification_settings.ui_language,
         true,

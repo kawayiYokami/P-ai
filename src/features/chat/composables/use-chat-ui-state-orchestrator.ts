@@ -167,36 +167,27 @@ export function useChatUiStateOrchestrator(bindings: ChatUiStateBindings) {
 
   function addChatMention(value: ChatMentionTarget) {
     const agentId = String(value?.agentId || "").trim();
-    const departmentId = String(value?.departmentId || "").trim();
     const agentName = String(value?.agentName || "").trim();
-    if (!agentId || !departmentId || !agentName) return;
-    if (selectedChatMentions.value.some((item) => item.agentId === agentId && item.departmentId === departmentId)) return;
+    if (!agentId || !agentName) return;
+    if (selectedChatMentions.value.some((item) => item.agentId === agentId)) return;
     selectedChatMentions.value = [
       ...selectedChatMentions.value,
       {
         agentId,
         agentName,
-        departmentId,
-        departmentName: String(value?.departmentName || "").trim(),
         avatarUrl: String(value?.avatarUrl || "").trim() || undefined,
       },
     ];
   }
 
-  function removeChatMention(value: string | { agentId?: string; departmentId?: string }) {
+  function removeChatMention(value: string | { agentId?: string }) {
     const normalizedAgentId =
       typeof value === "string"
         ? String(value || "").trim()
         : String(value?.agentId || "").trim();
-    const normalizedDepartmentId =
-      typeof value === "string"
-        ? ""
-        : String(value?.departmentId || "").trim();
-    selectedChatMentions.value = selectedChatMentions.value.filter((item) => {
-      if (item.agentId !== normalizedAgentId) return true;
-      if (!normalizedDepartmentId) return false;
-      return item.departmentId !== normalizedDepartmentId;
-    });
+    selectedChatMentions.value = selectedChatMentions.value.filter(
+      (item) => item.agentId !== normalizedAgentId,
+    );
   }
 
   function handleSideConversationListVisibleChange(value: boolean) {

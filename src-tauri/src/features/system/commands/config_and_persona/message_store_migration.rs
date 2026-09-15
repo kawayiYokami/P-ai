@@ -518,7 +518,7 @@ fn empty_message_store_migration_preflight_report() -> MessageStoreMigrationPref
 
 fn message_store_migration_current_version_recorded(state: &AppState) -> Result<bool, String> {
     Ok(state_service_get_message_store_migration_version(state)?
-        >= DATA_MIGRATION_CURRENT_VERSION)
+        >= MESSAGE_STORE_MIGRATION_CURRENT_VERSION)
 }
 
 fn require_message_store_migration_completed_for_runtime(
@@ -626,11 +626,12 @@ fn run_message_store_v2_to_v3_stage_if_ready(
     }
     message_store::migration_v2_to_v3(&state.data_path, progress)?;
     let config = state_read_config_cached(state)?;
-    message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)?;
+    let agents = state_read_agents_cached(state)?;
+    message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config, &agents)?;
     message_store::migration_v3_to_v4(&state.data_path, progress)?;
     state_service_set_message_store_migration_version(
         state,
-        DATA_MIGRATION_CURRENT_VERSION,
+        MESSAGE_STORE_MIGRATION_CURRENT_VERSION,
     )?;
     Ok(true)
 }
@@ -815,7 +816,6 @@ mod message_store_migration_gate_tests {
             id: id.to_string(),
             title: "迁移测试会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -1135,7 +1135,7 @@ mod message_store_migration_gate_tests {
         let state = test_app_state(&root, &data_path);
         state_service_set_message_store_migration_version(
             &state,
-            DATA_MIGRATION_CURRENT_VERSION,
+            MESSAGE_STORE_MIGRATION_CURRENT_VERSION,
         )
         .expect("record current migration version");
 
@@ -1144,7 +1144,7 @@ mod message_store_migration_gate_tests {
         assert!(!startup_report.migration_required);
         assert!(run_message_store_v2_to_v3_stage_if_ready(
             &state,
-            DATA_MIGRATION_CURRENT_VERSION,
+            MESSAGE_STORE_MIGRATION_CURRENT_VERSION,
             None,
         )
         .expect("explicit migration should run"));
@@ -1159,7 +1159,7 @@ mod message_store_migration_gate_tests {
         fs::write(&index_file, &original_index).expect("repair V2 index");
         assert!(run_message_store_v2_to_v3_stage_if_ready(
             &state,
-            DATA_MIGRATION_CURRENT_VERSION,
+            MESSAGE_STORE_MIGRATION_CURRENT_VERSION,
             None,
         )
         .expect("retry repaired V2 source"));
@@ -1170,7 +1170,7 @@ mod message_store_migration_gate_tests {
         assert_eq!(
             state_service_get_message_store_migration_version(&state)
                 .expect("read migration version"),
-            DATA_MIGRATION_CURRENT_VERSION
+            MESSAGE_STORE_MIGRATION_CURRENT_VERSION
         );
 
         let _ = fs::remove_dir_all(root);

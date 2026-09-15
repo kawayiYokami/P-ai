@@ -118,8 +118,6 @@ struct UsageConversationItem {
     archived_at: Option<String>,
     agent_id: String,
     agent_name: String,
-    department_id: String,
-    department_name: String,
     avatar_path: Option<String>,
     avatar_updated_at: Option<String>,
     api_config_id: String,
@@ -148,7 +146,6 @@ struct UsageOverview {
     by_model: Vec<UsageAggregateItem>,
     by_api_config: Vec<UsageAggregateItem>,
     by_agent: Vec<UsageAggregateItem>,
-    by_department: Vec<UsageAggregateItem>,
     by_kind: Vec<UsageAggregateItem>,
 }
 
@@ -921,7 +918,11 @@ async fn refresh_storage_usage_overview(
     Ok(start_storage_overview_refresh_if_needed(state.inner().clone(), true).await)
 }
 
-fn usage_resolve_api_config_id(conversation: &Conversation, config: &AppConfig) -> String {
+fn usage_resolve_api_config_id(
+    state: &AppState,
+    conversation: &Conversation,
+    config: &AppConfig,
+) -> String {
     let preferred = conversation
         .preferred_api_config_id
         .as_deref()
@@ -931,29 +932,19 @@ fn usage_resolve_api_config_id(conversation: &Conversation, config: &AppConfig) 
     if let Some(value) = preferred {
         return value;
     }
-    let department_id = conversation.department_id.trim();
-    if department_id.is_empty() {
+    // 会话未固化模型时回退到负责人格的主模型（旧口径是所属部门的主模型）。
+    let agent_id = conversation.agent_id.trim();
+    if agent_id.is_empty() {
         return String::new();
     }
-    config
-        .departments
+    let Ok(agents) = state_read_agents_cached(state) else {
+        return String::new();
+    };
+    agents
         .iter()
-        .find(|item| item.id.trim() == department_id)
-        .map(|item| {
-            let primary = item.api_config_id.trim();
-            if !primary.is_empty() {
-                return primary.to_string();
-            }
-            item.api_config_ids
-                .iter()
-                .find_map(|value| {
-                    let trimmed = value.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        Some(trimmed.to_string())
-                    }
-                })
+        .find(|agent| agent.id.trim() == agent_id)
+        .map(|agent| {
+            resolve_chat_api_config_id(config, &agent_primary_api_config_id(agent))
                 .unwrap_or_default()
         })
         .unwrap_or_default()
@@ -1125,9 +1116,8 @@ fn usage_trail_record_conversation_delta(
     let delta = message_store::UsageTrailDelta {
         conversation_id: conversation.id.clone(),
         agent_id: conversation.agent_id.clone(),
-        department_id: conversation.department_id.clone(),
         conversation_kind: usage_kind_key_and_label(conversation).0,
-        api_config_id: usage_resolve_api_config_id(conversation, &config),
+        api_config_id: usage_resolve_api_config_id(state, conversation, &config),
         provider_key: provider_key.to_string(),
         provider_label: usage_provider_label_from_provider_key(provider_key, &config),
         model_name: model_name.unwrap_or("").trim().to_string(),
@@ -1169,11 +1159,6 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             agent_avatar_updated_at_map.insert(agent.id.clone(), updated_at.to_string());
         }
     }
-    let mut department_name_map = std::collections::HashMap::<String, String>::new();
-    for department in &config.departments {
-        department_name_map.insert(department.id.clone(), department.name.clone());
-    }
-
     let mut totals = UsageOverviewTotals::default();
 
     let mut conversations = Vec::<UsageConversationItem>::new();
@@ -1182,7 +1167,6 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
     let mut by_model = std::collections::HashMap::<String, UsageAggregateItem>::new();
     let mut by_api_config = std::collections::HashMap::<String, UsageAggregateItem>::new();
     let mut by_agent = std::collections::HashMap::<String, UsageAggregateItem>::new();
-    let mut by_department = std::collections::HashMap::<String, UsageAggregateItem>::new();
     let mut by_kind = std::collections::HashMap::<String, UsageAggregateItem>::new();
 
     let mut per_conversation =
@@ -1216,7 +1200,6 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             .get_conversation_meta(state, &conversation_id)
             .ok();
         let agent_id = representative.agent_id.clone();
-        let department_id = representative.department_id.clone();
         let agent_name = agent_name_map.get(&agent_id).cloned().unwrap_or_else(|| {
             if agent_id.trim().is_empty() {
                 "未绑定人格".to_string()
@@ -1224,16 +1207,6 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
                 agent_id.clone()
             }
         });
-        let department_name = department_name_map
-            .get(&department_id)
-            .cloned()
-            .unwrap_or_else(|| {
-                if department_id.trim().is_empty() {
-                    "未绑定部门".to_string()
-                } else {
-                    department_id.clone()
-                }
-            });
         let api_config_id = representative.api_config_id.clone();
         let api_config_name = api_config_name_map
             .get(&api_config_id)
@@ -1298,8 +1271,6 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             archived_at: meta.as_ref().and_then(|item| item.archived_at.clone()),
             agent_id: agent_id.clone(),
             agent_name: agent_name.clone(),
-            department_id: department_id.clone(),
-            department_name: department_name.clone(),
             avatar_path: agent_avatar_path_map.get(&agent_id).cloned(),
             avatar_updated_at: agent_avatar_updated_at_map.get(&agent_id).cloned(),
             api_config_id: api_config_id.clone(),
@@ -1359,16 +1330,6 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             &usage_item,
         );
         usage_aggregate_push(&mut by_agent, agent_id, agent_name, &usage_item);
-        usage_aggregate_push(
-            &mut by_department,
-            if department_id.trim().is_empty() {
-                "unbound_department".to_string()
-            } else {
-                department_id.clone()
-            },
-            department_name,
-            &usage_item,
-        );
         usage_aggregate_push(&mut by_kind, kind_key, kind_label, &usage_item);
         conversations.push(usage_item);
     }
@@ -1390,7 +1351,6 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
         by_model: usage_sort_aggregate_items(by_model),
         by_api_config: usage_sort_aggregate_items(by_api_config),
         by_agent: usage_sort_aggregate_items(by_agent),
-        by_department: usage_sort_aggregate_items(by_department),
         by_kind: usage_sort_aggregate_items(by_kind),
     })
 }
@@ -2203,7 +2163,6 @@ mod storage_usage_tests {
             mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
-            bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
             bound_agent_id: None,
             bound_conversation_id: bound_conversation_id.map(str::to_string),
             processing_mode: "continuous".to_string(),
@@ -2243,7 +2202,6 @@ mod storage_usage_tests {
             id: conversation_id.to_string(),
             title: "测试会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -2363,8 +2321,6 @@ mod storage_usage_tests {
                 kind: "delegate".to_string(),
                 conversation_id: "root-conversation".to_string(),
                 parent_delegate_id: None,
-                source_department_id: "source-department".to_string(),
-                target_department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 source_agent_id: "source-agent".to_string(),
                 target_agent_id: DEFAULT_AGENT_ID.to_string(),
                 title: "清理测试委托".to_string(),
@@ -2471,7 +2427,6 @@ mod storage_usage_tests {
                 }],
                 ..ApiProviderConfig::default()
             }],
-            departments: vec![default_assistant_department("api-a")],
             ..AppConfig::default()
         };
         state_write_config_cached(&state, &config).expect("write config");
@@ -2520,7 +2475,6 @@ mod storage_usage_tests {
     fn usage_overview_should_resolve_unknown_model_when_model_missing() {
         let state = storage_usage_test_state();
         let config = AppConfig {
-            departments: vec![default_assistant_department("missing-provider::missing-model")],
             ..AppConfig::default()
         };
         state_write_config_cached(&state, &config).expect("write config");
@@ -2560,7 +2514,6 @@ mod storage_usage_tests {
     fn usage_overview_should_prefer_highest_usage_model_name() {
         let state = storage_usage_test_state();
         let config = AppConfig {
-            departments: vec![default_assistant_department("provider-a::model-a")],
             ..AppConfig::default()
         };
         state_write_config_cached(&state, &config).expect("write config");
@@ -2603,7 +2556,6 @@ mod storage_usage_tests {
     fn usage_overview_should_include_delegate_usage_from_usage_trail() {
         let state = storage_usage_test_state();
         let config = AppConfig {
-            departments: vec![default_assistant_department("provider-a::model-a")],
             ..AppConfig::default()
         };
         state_write_config_cached(&state, &config).expect("write config");
@@ -2611,7 +2563,6 @@ mod storage_usage_tests {
         let delta = message_store::UsageTrailDelta {
             conversation_id: "delegate-usage-trail".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             conversation_kind: "delegate".to_string(),
             api_config_id: "provider-a::model-a".to_string(),
             provider_key: "provider-a".to_string(),
@@ -2658,7 +2609,6 @@ mod storage_usage_tests {
     fn usage_overview_should_keep_delegate_kind_priority_over_archived() {
         let state = storage_usage_test_state();
         let config = AppConfig {
-            departments: vec![default_assistant_department("provider-a::model-a")],
             ..AppConfig::default()
         };
         state_write_config_cached(&state, &config).expect("write config");
@@ -2674,7 +2624,6 @@ mod storage_usage_tests {
             &message_store::UsageTrailDelta {
                 conversation_id: conversation.id.clone(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 conversation_kind: "delegate".to_string(),
                 api_config_id: "provider-a::model-a".to_string(),
                 provider_key: "provider-a".to_string(),
@@ -2713,7 +2662,6 @@ mod storage_usage_tests {
     fn usage_trail_wall_today_should_aggregate_hourly_and_peak() {
         let state = storage_usage_test_state();
         let config = AppConfig {
-            departments: vec![default_assistant_department("provider-a::model-a")],
             ..AppConfig::default()
         };
         state_write_config_cached(&state, &config).expect("write config");
@@ -2728,7 +2676,6 @@ mod storage_usage_tests {
             &message_store::UsageTrailDelta {
                 conversation_id: conversation.id.clone(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 conversation_kind: "normal".to_string(),
                 api_config_id: "provider-a::model-a".to_string(),
                 provider_key: "provider-a".to_string(),
@@ -2752,7 +2699,6 @@ mod storage_usage_tests {
             &message_store::UsageTrailDelta {
                 conversation_id: conversation.id.clone(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 conversation_kind: "normal".to_string(),
                 api_config_id: "provider-a::model-b".to_string(),
                 provider_key: "provider-a".to_string(),
@@ -2807,7 +2753,6 @@ mod storage_usage_tests {
             message_store::UsageTrailDelta {
                 conversation_id: conversation_id.to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 conversation_kind: "normal".to_string(),
                 api_config_id: format!("{provider_key}::flash-model"),
                 provider_key: provider_key.to_string(),
@@ -2870,7 +2815,6 @@ mod storage_usage_tests {
         let make_delta = |input: u64| message_store::UsageTrailDelta {
             conversation_id: "conv-acc".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             conversation_kind: "normal".to_string(),
             api_config_id: "provider-a::model-a".to_string(),
             provider_key: "provider-a".to_string(),
@@ -2913,7 +2857,6 @@ mod storage_usage_tests {
             message_store::UsageTrailDelta {
                 conversation_id: conversation_id.to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 conversation_kind: "normal".to_string(),
                 api_config_id: "provider-a::model-a".to_string(),
                 provider_key: "provider-a".to_string(),
@@ -2951,7 +2894,6 @@ mod storage_usage_tests {
     fn usage_trail_wall_should_filter_today_vs_history_year() {
         let state = storage_usage_test_state();
         let config = AppConfig {
-            departments: vec![default_assistant_department("provider-a::model-a")],
             ..AppConfig::default()
         };
         state_write_config_cached(&state, &config).expect("write config");
@@ -2960,7 +2902,6 @@ mod storage_usage_tests {
         let make_delta = |conversation_id: &str, input: u64| message_store::UsageTrailDelta {
             conversation_id: conversation_id.to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             conversation_kind: "normal".to_string(),
             api_config_id: "provider-a::model-a".to_string(),
             provider_key: "provider-a".to_string(),
@@ -2987,7 +2928,6 @@ mod storage_usage_tests {
             &message_store::UsageTrailDelta {
                 conversation_id: "wall-conv-a".to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 conversation_kind: "normal".to_string(),
                 api_config_id: "provider-a::model-a".to_string(),
                 provider_key: "provider-a".to_string(),
@@ -3066,7 +3006,6 @@ mod storage_usage_tests {
     fn usage_overview_should_keep_deleted_conversation_totals() {
         let state = storage_usage_test_state();
         let config = AppConfig {
-            departments: vec![default_assistant_department("provider-a::model-a")],
             ..AppConfig::default()
         };
         state_write_config_cached(&state, &config).expect("write config");
@@ -3075,7 +3014,6 @@ mod storage_usage_tests {
         let delta = message_store::UsageTrailDelta {
             conversation_id: "deleted-conv".to_string(),
             agent_id: "agent-deleted".to_string(),
-            department_id: "dept-deleted".to_string(),
             conversation_kind: "normal".to_string(),
             api_config_id: "provider-a::model-a".to_string(),
             provider_key: "provider-a".to_string(),
@@ -3125,7 +3063,6 @@ mod storage_usage_tests {
                 }],
                 ..ApiProviderConfig::default()
             }],
-            departments: vec![default_assistant_department("provider-a::model-a")],
             ..AppConfig::default()
         };
         state_write_config_cached(&state, &config).expect("write config");
@@ -3158,7 +3095,7 @@ mod storage_usage_tests {
         state_write_conversation_cached(&state, &conversation).expect("write conversation");
 
         // 第一次迁移：写入 epoch 桶
-        message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)
+        message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config, &[])
             .expect("first migration");
         let rows_after_first =
             message_store::chat_metadata_store_usage_trail_query(&state.data_path, None)
@@ -3169,7 +3106,7 @@ mod storage_usage_tests {
         assert_eq!(rows_after_first[0].tokens.output_tokens, 7);
 
         // 第二次迁移：completed 标记已写入，不应重复累加
-        message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)
+        message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config, &[])
             .expect("second migration");
         let rows_after_second =
             message_store::chat_metadata_store_usage_trail_query(&state.data_path, None)
@@ -3187,7 +3124,6 @@ mod storage_usage_tests {
     fn usage_trail_wall_history_top_conversation_label_should_fallback_chain() {
         let state = storage_usage_test_state();
         let config = AppConfig {
-            departments: vec![default_assistant_department("provider-a::model-a")],
             ..AppConfig::default()
         };
         state_write_config_cached(&state, &config).expect("write config");
@@ -3202,7 +3138,6 @@ mod storage_usage_tests {
             &message_store::UsageTrailDelta {
                 conversation_id: conversation.id.clone(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 conversation_kind: "normal".to_string(),
                 api_config_id: "provider-a::model-a".to_string(),
                 provider_key: "provider-a".to_string(),
@@ -3245,7 +3180,6 @@ mod storage_usage_tests {
     fn usage_trail_wall_should_keep_epoch_totals_separate_from_today() {
         let state = storage_usage_test_state();
         let config = AppConfig {
-            departments: vec![default_assistant_department("provider-a::model-a")],
             ..AppConfig::default()
         };
         state_write_config_cached(&state, &config).expect("write config");
@@ -3255,7 +3189,6 @@ mod storage_usage_tests {
             message_store::UsageTrailDelta {
                 conversation_id: conversation_id.to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
-                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
                 conversation_kind: "normal".to_string(),
                 api_config_id: "provider-a::model-a".to_string(),
                 provider_key: "provider-a".to_string(),

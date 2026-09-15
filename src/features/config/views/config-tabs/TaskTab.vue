@@ -162,7 +162,6 @@ type TaskTriggerInputLocalWire = {
 
 type TaskCreateInputWire = {
   conversationId: string;
-  departmentId?: string;
   agentId?: string;
   goal: string;
   why: string;
@@ -172,7 +171,6 @@ type TaskCreateInputWire = {
 
 type TaskUpdateInputWire = {
   taskId: string;
-  departmentId?: string;
   agentId?: string;
   goal?: string;
   why?: string;
@@ -392,11 +390,10 @@ function buildTriggerInputFromForm(): TaskTriggerInputLocalWire | null {
   return null;
 }
 
-function taskOwnerPayloadFromForm(): Pick<TaskCreateInputWire, "departmentId" | "agentId"> {
-  const departmentId = String(editorForm.value.departmentId || "").trim();
+function taskOwnerPayloadFromForm(): Pick<TaskCreateInputWire, "agentId"> {
   const agentId = String(editorForm.value.agentId || "").trim();
-  if (!departmentId || !agentId) return {};
-  return { departmentId, agentId };
+  if (!agentId) return {};
+  return { agentId };
 }
 
 function editorCreatePayload(): TaskCreateInputWire | null {

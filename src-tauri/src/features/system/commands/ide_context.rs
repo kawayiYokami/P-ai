@@ -414,7 +414,7 @@ fn ide_chat_avatar_data_url(state: &AppState, path: Option<&str>) -> String {
 }
 
 fn ide_chat_persona_payload(state: &AppState, active_agent_id: Option<&str>) -> Result<Value, String> {
-    let assistant_department_agent_id = state_service_get_assistant_department_agent_id(state)?;
+    let assistant_agent_id = state_service_get_assistant_agent_id(state)?;
     let runtime_org = load_runtime_organization_snapshot(state)?;
     let agents = runtime_org.agents;
     let user_alias = agents
@@ -425,7 +425,7 @@ fn ide_chat_persona_payload(state: &AppState, active_agent_id: Option<&str>) -> 
     let active_agent_id = active_agent_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| assistant_department_agent_id.trim());
+        .unwrap_or_else(|| assistant_agent_id.trim());
     let mut persona_name_map = serde_json::Map::new();
     let mut persona_avatar_url_map = serde_json::Map::new();
     let mut assistant_name = String::new();
@@ -469,20 +469,18 @@ fn ide_chat_persona_payload(state: &AppState, active_agent_id: Option<&str>) -> 
 }
 
 fn ide_chat_model_payload_for_conversation(state: &AppState, conversation: &Conversation) -> Result<Value, String> {
-    let config = state_read_config_cached(state)?;
-    let department_primary_id = config
-        .departments
-        .iter()
-        .find(|department| department.id.trim() == conversation.department_id.trim())
-        .map(department_primary_api_config_id)
+    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+    let agent_primary_id = runtime_agent_by_id(&runtime_snapshot, &conversation.agent_id)
+        .map(agent_primary_api_config_id)
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| config.assistant_department_api_config_id.trim().to_string());
-    let resolved_department_primary_id = resolve_model_role_api_config_id(&config, &department_primary_id)
-        .unwrap_or_else(|| department_primary_id.clone());
+        .unwrap_or_else(|| runtime_snapshot.config.expert_api_config_id.trim().to_string());
+    let config = runtime_snapshot.config;
+    let resolved_agent_primary_id = resolve_model_role_api_config_id(&config, &agent_primary_id)
+        .unwrap_or_else(|| agent_primary_id.clone());
     let preferred_id = repair_conversation_preferred_model_for_snapshot(state, conversation)?;
     let conversation_call_primary_id = preferred_id
         .as_deref()
-        .unwrap_or(resolved_department_primary_id.as_str())
+        .unwrap_or(resolved_agent_primary_id.as_str())
         .to_string();
     let options = config
         .api_configs
@@ -512,7 +510,6 @@ fn ide_chat_conversation_from_meta_view(conversation_meta: &ConversationMetaView
         id: conversation_meta.id.clone(),
         title: conversation_meta.title.clone(),
         agent_id: conversation_meta.agent_id.clone(),
-        department_id: conversation_meta.department_id.clone(),
         bound_conversation_id: None,
         parent_conversation_id: None,
         child_conversation_ids: Vec::new(),
@@ -569,65 +566,42 @@ fn ide_chat_create_conversation_options(state: &AppState) -> Result<Value, Strin
     let runtime_org = load_runtime_organization_snapshot(state)?;
     let config = runtime_org.config;
     let agents = runtime_org.agents;
-    let options = config
-        .departments
+    let options = agents
         .iter()
-        .flat_map(|department| {
-            let department_id = department.id.trim();
-            if department_id.is_empty() {
-                return Vec::new();
+        .filter(|agent| !agent.is_built_in_user)
+        .filter_map(|agent| {
+            let agent_id = agent.id.trim();
+            if agent_id.is_empty() {
+                return None;
             }
-            let Some(api_config_id) = department_primary_chat_api_config_id(&config, department) else {
-                return Vec::new();
-            };
-            let Some(api_config) = config
+            let api_config_id = agent_primary_chat_api_config_id(&config, agent)?;
+            let api_config = config
                 .api_configs
                 .iter()
-                .find(|api| api.id.trim() == api_config_id && is_text_chat_api(api)) else {
-                    return Vec::new();
-                };
-            let department_name = if department.name.trim().is_empty() {
-                department_id
+                .find(|api| api.id.trim() == api_config_id && is_text_chat_api(api))?;
+            let agent_name = if agent.name.trim().is_empty() {
+                agent_id
             } else {
-                department.name.trim()
+                agent.name.trim()
             };
-            department
-                .agent_ids
-                .iter()
-                .map(|value| value.trim())
-                .filter(|agent_id| !agent_id.is_empty())
-                .filter_map(|agent_id| {
-                    let agent = agents
-                        .iter()
-                        .find(|agent| agent.id.trim() == agent_id && !agent.is_built_in_user)?;
-                    let agent_name = if agent.name.trim().is_empty() {
-                        agent_id
-                    } else {
-                        agent.name.trim()
-                    };
-                    Some(serde_json::json!({
-                        "id": format!("{department_id}::{agent_id}"),
-                        "departmentId": department_id,
-                        "agentId": agent_id,
-                        "departmentName": department_name,
-                        "agentName": agent_name,
-                        "label": format!("{department_name} / {agent_name}"),
-                        "name": department_name,
-                        "ownerAgentId": agent_id,
-                        "ownerName": agent_name,
-                        "providerName": if api_config.name.trim().is_empty() { api_config.id.trim() } else { api_config.name.trim() },
-                        "modelName": api_config.model.trim(),
-                        "apiConfigId": api_config_id,
-                        "childDepartmentIds": &department.child_department_ids,
-                    }))
-                })
-                .collect::<Vec<_>>()
+            Some(serde_json::json!({
+                "id": agent_id,
+                "agentId": agent_id,
+                "agentName": agent_name,
+                "label": agent_name,
+                "name": agent_name,
+                "ownerAgentId": agent_id,
+                "ownerName": agent_name,
+                "providerName": if api_config.name.trim().is_empty() { api_config.id.trim() } else { api_config.name.trim() },
+                "modelName": api_config.model.trim(),
+                "apiConfigId": api_config_id,
+                "childAgentIds": &agent.child_agent_ids,
+            }))
         })
         .collect::<Vec<_>>();
-    let default_agent_id = state_service_get_assistant_department_agent_id(state)?;
+    let default_agent_id = state_service_get_assistant_agent_id(state)?;
     Ok(serde_json::json!({
-        "departments": options,
-        "defaultDepartmentId": ASSISTANT_DEPARTMENT_ID,
+        "agents": options,
         "defaultAgentId": default_agent_id,
     }))
 }
@@ -1080,7 +1054,6 @@ mod ide_context_tests {
                 &CreateUnarchivedConversationInput {
                     api_config_id: None,
                     agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-                    department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
                     title: Some("IDE发送即时assistant气泡".to_string()),
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
@@ -1102,7 +1075,6 @@ mod ide_context_tests {
                 "session": {
                     "apiConfigId": null,
                     "agentId": DEFAULT_AGENT_ID,
-                    "departmentId": ASSISTANT_DEPARTMENT_ID,
                     "conversationId": created.conversation_id,
                 },
             }),
@@ -1152,7 +1124,6 @@ mod ide_context_tests {
             serde_json::json!({
                 "apiConfigId": null,
                 "agentId": DEFAULT_AGENT_ID,
-                "departmentId": ASSISTANT_DEPARTMENT_ID,
                 "title": "Web canonical conversation",
                 "shellWorkspaces": null,
                 "shellAutonomousMode": false,
@@ -1174,7 +1145,6 @@ mod ide_context_tests {
             &state,
             serde_json::json!({
                 "conversationId": conversation_id.clone(),
-                "departmentId": ASSISTANT_DEPARTMENT_ID,
                 "agentId": DEFAULT_AGENT_ID,
             }),
         )
@@ -1217,7 +1187,6 @@ mod ide_context_tests {
             serde_json::json!({
                 "session": {
                     "apiConfigId": null,
-                    "departmentId": ASSISTANT_DEPARTMENT_ID,
                     "agentId": DEFAULT_AGENT_ID,
                     "conversationId": "conversation-1"
                 },

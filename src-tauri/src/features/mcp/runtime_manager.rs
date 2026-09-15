@@ -126,7 +126,7 @@ struct McpRuntimeTool {
 struct CachedMcpRuntimeTool {
     app_state: AppState,
     server_id: String,
-    executor_department_id: String,
+    executor_agent_id: String,
     runtime_tool_name: String,
     definition: rmcp::model::Tool,
 }
@@ -343,7 +343,7 @@ impl RuntimeToolDyn for CachedMcpRuntimeTool {
     fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
         let app_state = self.app_state.clone();
         let server_id = self.server_id.clone();
-        let executor_department_id = self.executor_department_id.clone();
+        let executor_agent_id = self.executor_agent_id.clone();
         let runtime_tool_name = self.runtime_tool_name.clone();
         let definition = self.definition.clone();
         Box::pin(async move {
@@ -376,24 +376,27 @@ impl RuntimeToolDyn for CachedMcpRuntimeTool {
             } else {
                 current_tool.raw_tool_name.clone()
             };
-            let app_config = match state_read_config_cached(&app_state) {
-                Ok(config) => config,
+            let agents = match state_read_agents_cached(&app_state) {
+                Ok(agents) => agents,
                 Err(err) => {
                     return Ok(ProviderToolResult::error(format!(
-                        "MCP 工具 `{tool_name}` 当前不可用：读取最新部门权限失败，已安全跳过：{err}"
+                        "MCP 工具 `{tool_name}` 当前不可用：读取最新人格权限失败，已安全跳过：{err}"
                     )))
                 }
             };
-            let Some(department) = department_by_id(&app_config, &executor_department_id) else {
+            let Some(agent) = agents
+                .iter()
+                .find(|agent| agent.id.trim() == executor_agent_id.trim())
+            else {
                 return Ok(ProviderToolResult::error(format!(
-                    "MCP 工具 `{tool_name}` 当前不可用：执行部门已不存在"
+                    "MCP 工具 `{tool_name}` 当前不可用：执行人格已不存在"
                 )));
             };
             let qualified_by_name = format!("{}::{runtime_tool_name}", server.name);
             let qualified_by_id = format!("{}::{runtime_tool_name}", server.id);
-            if !department_permission_allows_any_name(
-                Some(department),
-                DepartmentPermissionCategory::McpTool,
+            if !agent_permission_allows_any_name(
+                Some(agent),
+                AgentPermissionCategory::McpTool,
                 &[
                     qualified_by_name.as_str(),
                     qualified_by_id.as_str(),
@@ -402,7 +405,7 @@ impl RuntimeToolDyn for CachedMcpRuntimeTool {
                 ],
             ) {
                 return Ok(ProviderToolResult::error(format!(
-                    "MCP 工具 `{qualified_by_name}` 当前不可用：部门权限已撤销"
+                    "MCP 工具 `{qualified_by_name}` 当前不可用：人格权限已撤销"
                 )));
             }
             let (peer, _) = match mcp_get_or_connect_peer_for_tool(

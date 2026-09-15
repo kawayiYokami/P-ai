@@ -137,7 +137,6 @@ async fn retry_openai_responses_with_system_message_user_fallback(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     chat_session_key: &str,
-    executor_department_id: Option<&str>,
     tool_manifest_for_log: &mut Option<Value>,
     allow_tools: bool,
     usage_conversation_id: Option<&str>,
@@ -166,7 +165,6 @@ async fn retry_openai_responses_with_system_message_user_fallback(
             &mut fallback,
             app_state,
             chat_session_key,
-            executor_department_id,
             tool_manifest_for_log,
         )
         .await?;
@@ -266,7 +264,6 @@ async fn prepare_openai_style_tool_assembly(
     prepared: &mut PreparedPrompt,
     app_state: Option<&AppState>,
     chat_session_key: &str,
-    executor_department_id: Option<&str>,
     tool_manifest_for_log: &mut Option<Value>,
 ) -> Result<Option<RuntimeToolAssembly>, String> {
     if !selected_api.enable_tools {
@@ -278,7 +275,6 @@ async fn prepare_openai_style_tool_assembly(
         agent,
         app_state,
         chat_session_key,
-        executor_department_id,
     )
     .await;
     append_unavailable_tool_notices_to_prepared(
@@ -407,7 +403,6 @@ async fn call_openai_style_non_stream_fallback(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     chat_session_key: &str,
-    executor_department_id: Option<&str>,
     tool_manifest_for_log: &mut Option<Value>,
     usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
@@ -418,7 +413,6 @@ async fn call_openai_style_non_stream_fallback(
         &mut prepared,
         app_state,
         chat_session_key,
-        executor_department_id,
         tool_manifest_for_log,
     )
     .await?;
@@ -451,7 +445,6 @@ async fn call_model_dispatch(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     chat_session_key: &str,
-    executor_department_id: Option<&str>,
     usage_conversation_id: Option<&str>,
 ) -> ModelCallExecutionResult {
     let mut prepared = prepared;
@@ -491,7 +484,6 @@ async fn call_model_dispatch(
                 agent,
                 app_state,
                 chat_session_key,
-                executor_department_id,
             )
             .await;
             append_unavailable_tool_notices_to_prepared(
@@ -545,7 +537,6 @@ async fn call_model_dispatch(
                 agent,
                 app_state,
                 chat_session_key,
-                executor_department_id,
             )
             .await;
             append_unavailable_tool_notices_to_prepared(
@@ -608,7 +599,6 @@ async fn call_model_dispatch(
                 on_delta,
                 max_tool_iterations,
                 chat_session_key,
-                executor_department_id,
                 &mut tool_manifest_for_log,
                 usage_conversation_id,
             )
@@ -621,7 +611,6 @@ async fn call_model_dispatch(
                 &mut prepared,
                 app_state,
                 chat_session_key,
-                executor_department_id,
                 &mut tool_manifest_for_log,
             )
             .await?;
@@ -674,7 +663,6 @@ async fn call_model_dispatch(
                         on_delta,
                         max_tool_iterations,
                         chat_session_key,
-                        executor_department_id,
                         &mut tool_manifest_for_log,
                         true,
                         usage_conversation_id,
@@ -721,7 +709,6 @@ async fn call_model_dispatch(
                         on_delta,
                         max_tool_iterations,
                         chat_session_key,
-                        executor_department_id,
                         &mut tool_manifest_for_log,
                         usage_conversation_id,
                     )
@@ -744,7 +731,6 @@ async fn call_model_dispatch(
                         &mut fallback,
                         app_state,
                         chat_session_key,
-                        executor_department_id,
                         &mut tool_manifest_for_log,
                     )
                     .await?;

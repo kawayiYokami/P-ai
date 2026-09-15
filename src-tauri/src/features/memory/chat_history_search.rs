@@ -509,7 +509,6 @@ fn chat_history_collect_slices_for_state(
             id: conversation_meta.id.clone(),
             title: conversation_meta.title.clone(),
             agent_id: conversation_meta.agent_id.clone(),
-            department_id: conversation_meta.department_id.clone(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),

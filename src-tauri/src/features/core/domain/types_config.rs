@@ -188,16 +188,16 @@ fn default_mcp_servers() -> Vec<McpServerConfig> {
     Vec::new()
 }
 
-fn default_department_permission_mode() -> String {
+fn default_permission_mode() -> String {
     "blacklist".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DepartmentPermissionControl {
+struct AgentPermissionControl {
     #[serde(default)]
     enabled: bool,
-    #[serde(default = "default_department_permission_mode")]
+    #[serde(default = "default_permission_mode")]
     mode: String,
     #[serde(default)]
     builtin_tool_names: Vec<String>,
@@ -207,11 +207,11 @@ struct DepartmentPermissionControl {
     mcp_tool_names: Vec<String>,
 }
 
-impl Default for DepartmentPermissionControl {
+impl Default for AgentPermissionControl {
     fn default() -> Self {
         Self {
             enabled: false,
-            mode: default_department_permission_mode(),
+            mode: default_permission_mode(),
             builtin_tool_names: Vec::new(),
             skill_names: Vec::new(),
             mcp_tool_names: Vec::new(),
@@ -219,11 +219,11 @@ impl Default for DepartmentPermissionControl {
     }
 }
 
-fn department_whitelist_permission_control(
+fn whitelist_permission_control(
     builtin_tool_names: &[&str],
     skill_names: &[&str],
-) -> DepartmentPermissionControl {
-    DepartmentPermissionControl {
+) -> AgentPermissionControl {
+    AgentPermissionControl {
         enabled: true,
         mode: "whitelist".to_string(),
         builtin_tool_names: builtin_tool_names
@@ -238,8 +238,8 @@ fn department_whitelist_permission_control(
     }
 }
 
-fn explorer_department_permission_control() -> DepartmentPermissionControl {
-    department_whitelist_permission_control(
+fn explorer_permission_control() -> AgentPermissionControl {
+    whitelist_permission_control(
         &["read", "read_media", "exec", "fetch", "websearch"],
         &[
             "assistant-space-guide",
@@ -249,15 +249,15 @@ fn explorer_department_permission_control() -> DepartmentPermissionControl {
     )
 }
 
-fn reviewer_department_permission_control() -> DepartmentPermissionControl {
-    department_whitelist_permission_control(
+fn reviewer_permission_control() -> AgentPermissionControl {
+    whitelist_permission_control(
         &["read", "read_media", "fetch", "websearch", "exec"],
         &["code-review", "memory-generation"],
     )
 }
 
-fn saddler_department_permission_control() -> DepartmentPermissionControl {
-    department_whitelist_permission_control(
+fn saddler_permission_control() -> AgentPermissionControl {
+    whitelist_permission_control(
         &["read", "write", "update", "exec"],
         &[
             "agents-md-setup",
@@ -267,15 +267,15 @@ fn saddler_department_permission_control() -> DepartmentPermissionControl {
     )
 }
 
-fn leader_department_permission_control() -> DepartmentPermissionControl {
-    department_whitelist_permission_control(
+fn leader_permission_control() -> AgentPermissionControl {
+    whitelist_permission_control(
         &["read", "read_media", "exec", "fetch", "websearch", "delegate"],
         &["memory-generation"],
     )
 }
 
-fn remote_customer_service_department_permission_control() -> DepartmentPermissionControl {
-    department_whitelist_permission_control(
+fn support_permission_control() -> AgentPermissionControl {
+    whitelist_permission_control(
         &[
             "read",
             "read_media",
@@ -289,68 +289,6 @@ fn remote_customer_service_department_permission_control() -> DepartmentPermissi
     )
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DepartmentConfig {
-    #[serde(default)]
-    id: String,
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    summary: String,
-    #[serde(default)]
-    guide: String,
-    #[serde(default)]
-    api_config_ids: Vec<String>,
-    #[serde(default)]
-    api_config_id: String,
-    #[serde(default)]
-    model_failure_fallback_enabled: bool,
-    #[serde(default)]
-    agent_ids: Vec<String>,
-    #[serde(default)]
-    child_department_ids: Vec<String>,
-    #[serde(default)]
-    created_at: String,
-    #[serde(default)]
-    updated_at: String,
-    #[serde(default)]
-    order_index: i64,
-    #[serde(default)]
-    is_built_in_assistant: bool,
-    #[serde(default, skip_serializing)]
-    is_deputy: bool,
-    #[serde(default = "default_main_source")]
-    source: String,
-    #[serde(default = "default_global_scope")]
-    scope: String,
-    #[serde(default)]
-    permission_control: DepartmentPermissionControl,
-}
-
-/// 配置自修复分类：内置部门成员列表为空时，按部门预设恢复默认人格。
-const CONFIG_REPAIR_KIND_BUILTIN_DEPARTMENT_AGENT: &str = "builtinDepartmentAgentRestored";
-
-/// 一条配置自修复记录：归一化替用户补上的内容。
-/// 自修复本身是允许的，但这些记录必须沿保存链路显式上报给调用方，不做静默修改。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ConfigRepairNotice {
-    kind: String,
-    department_id: String,
-    department_name: String,
-    /// 被恢复的默认人格 id
-    agent_id: String,
-}
-
-/// 保存配置的结果：归一化后的配置本体，加上本次保存发生的自修复清单。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SaveConfigOutput {
-    config: AppConfig,
-    #[serde(default)]
-    repairs: Vec<ConfigRepairNotice>,
-}
 
 fn default_main_source() -> String {
     "main_config".to_string()
@@ -358,12 +296,6 @@ fn default_main_source() -> String {
 
 fn default_private_workspace_source() -> String {
     "private_workspace".to_string()
-}
-
-// 请求失败自动切换下一个模型的机制已禁用：候选模型恒只取第一个，不再降级。
-#[allow(dead_code)]
-fn department_model_failure_fallback_enabled(_department: &DepartmentConfig) -> bool {
-    false
 }
 
 fn default_global_scope() -> String {
@@ -374,339 +306,11 @@ fn default_assistant_private_scope() -> String {
     "assistant_private".to_string()
 }
 
-fn default_assistant_department(api_config_id: &str) -> DepartmentConfig {
-    let now = now_iso();
-    let api_config_id = api_config_id.trim().to_string();
-    DepartmentConfig {
-        id: ASSISTANT_DEPARTMENT_ID.to_string(),
-        name: "助理部门".to_string(),
-        summary: "当复杂任务难度超出了你部门的职责时，请把任务委托给我。".to_string(),
-        guide: "你是助理部门，负责作为主负责人理解用户需求、决定是否需要委派、汇总结果并继续推进主对话。".to_string(),
-        api_config_ids: if api_config_id.is_empty() {
-            Vec::new()
-        } else {
-            vec![api_config_id.clone()]
-        },
-        api_config_id,
-        model_failure_fallback_enabled: false,
-        agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-        child_department_ids: preset_assistant_child_department_ids(),
-        created_at: now.clone(),
-        updated_at: now,
-        order_index: 1,
-        is_built_in_assistant: true,
-        is_deputy: false,
-        source: default_main_source(),
-        scope: default_global_scope(),
-        permission_control: DepartmentPermissionControl::default(),
-    }
-}
-
-fn default_leader_department(api_config_id: &str) -> DepartmentConfig {
-    let now = now_iso();
-    let api_config_id = api_config_id.trim().to_string();
-    DepartmentConfig {
-        id: LEADER_DEPARTMENT_ID.to_string(),
-        name: "leader".to_string(),
-        summary: "当复杂任务需要澄清目标、拆解流程、协调下级部门并汇总结果时，请委托给我。".to_string(),
-        guide: [
-            "你是 leader 部门，负责协调复杂工作流，而不是把责任简单转交给下级部门。你的核心职责是理解用户目标、澄清边界、拆解任务、选择合适的直接下级部门、跟踪子任务进展，并把结果综合成可以继续推进或交付给用户的结论。",
-            "",
-            "面对复杂任务时，先判断目标、范围、约束、成功标准和风险是否清楚；不清楚时先向用户提出必要的澄清问题。不要在需求未收敛时急着执行，也不要把边界不清的任务直接委托出去。",
-            "",
-            "需要拆解时，把任务拆成逻辑合理、边界清晰、可验证的子任务。对适合下级部门处理的子任务，使用 `delegate` 委托给最匹配的直接下级部门；需要用户协作、默认助理能力或主线推进时可委托 assistant，需要大范围摸底、搜集证据、定位影响面时可委托 explorer。",
-            "",
-            "`delegate` 的参数必须写清：`department_id` 填目标下级部门的名称（也兼容部门 ID）；`why` 包含父任务、已知事实、前序子任务结果、关键约束和必要上下文；`goal` 明确定义这次子任务要达成什么；`todo` 写明优先关注点、范围边界、交付要求和需要避免的方向；`mode` 固定使用 `wait`，确保你能等待子任务结果并在同一轮对话中继续整合和推进。`wait` 可以并发发出多个委托，它只表示等待结果，不表示串行。",
-            "",
-            "你要持续跟踪每个子任务的状态。收到子任务结果后，先判断它是否回答了问题、是否需要追问或补充委托，再决定下一步；不要机械转述下级结果。对会影响最终决策的关键结论、风险判断、文件定位或数据口径，必须挑选重点亲自核验，不要盲目相信未经核验的下级结论。所有必要子任务完成后，整合关键发现、冲突点、取舍依据、结论和建议，给用户一份完整而清晰的回复。",
-            "",
-            "本轮工作完成时，直接用最终回复向用户交付。需要下级协作时使用 `delegate`，默认同步等待结果；没有需要委托的子任务时就亲自推进并回复。",
-        ]
-        .join("\n"),
-        api_config_ids: if api_config_id.is_empty() {
-            Vec::new()
-        } else {
-            vec![api_config_id.clone()]
-        },
-        api_config_id,
-        model_failure_fallback_enabled: false,
-        agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-        child_department_ids: vec![
-            ASSISTANT_DEPARTMENT_ID.to_string(),
-            DEPUTY_DEPARTMENT_ID.to_string(),
-        ],
-        created_at: now.clone(),
-        updated_at: now,
-        order_index: 2,
-        is_built_in_assistant: false,
-        is_deputy: false,
-        source: default_main_source(),
-        scope: default_global_scope(),
-        permission_control: leader_department_permission_control(),
-    }
-}
-
-#[allow(dead_code)]
-fn default_deputy_department(api_config_id: &str) -> DepartmentConfig {
-    let now = now_iso();
-    let api_config_id = api_config_id.trim().to_string();
-    DepartmentConfig {
-        id: DEPUTY_DEPARTMENT_ID.to_string(),
-        name: "explorer".to_string(),
-        summary: "当需要围绕一个明确主题做大范围摸底、搜集证据、定位文件与调用链、梳理影响面、风险和开放问题时，立刻使用 delegate 工具对我发起委托。".to_string(),
-        guide: "你是 explorer 部门。你的职责是围绕明确主题快速建立全局认识，并输出高密度、可验证的探索结果。收到委托后，优先扩大搜索范围，系统梳理相关文件、符号、调用链、配置、日志、风险与开放问题，再收敛成清晰结论。你擅长回答范围清晰的代码库问题、做大范围事实收集和影响面分析；主要产出应是发现、证据、线索、定位、风险和下一步建议，而不是直接承担主线实现。除非任务本身明确要求，否则不要擅自扩展目标，也不要把探索任务改写成执行任务。".to_string(),
-        api_config_ids: if api_config_id.is_empty() {
-            Vec::new()
-        } else {
-            vec![api_config_id.clone()]
-        },
-        api_config_id,
-        model_failure_fallback_enabled: false,
-        agent_ids: vec![DEPUTY_AGENT_ID.to_string()],
-        child_department_ids: Vec::new(),
-        created_at: now.clone(),
-        updated_at: now,
-        order_index: 3,
-        is_built_in_assistant: false,
-        is_deputy: false,
-        source: default_main_source(),
-        scope: default_global_scope(),
-        permission_control: explorer_department_permission_control(),
-    }
-}
-
-fn default_reviewer_department(api_config_id: &str) -> DepartmentConfig {
-    let now = now_iso();
-    let api_config_id = api_config_id.trim().to_string();
-    DepartmentConfig {
-        id: REVIEWER_DEPARTMENT_ID.to_string(),
-        name: "reviewer".to_string(),
-        summary: "当你完成复杂功能、关键修复或高风险改动后，请委托我进行代码审查。".to_string(),
-        guide: [
-            "你是 reviewer 部门，负责对已经完成的实现做独立审查，而不是继续替主助理实现功能。",
-            "审查时优先关注真实缺陷、需求漏项、权限或数据安全风险、回归风险和缺失的必要验证。结论必须基于代码证据、测试结果或可复现推理。",
-            "你可以读取仓库、搜索符号、查看媒体资料、查询网页资料，并运行与审查直接相关的最小验证命令。不要修改文件，不要删除、移动、配置项目，也不要再委托其他部门。",
-            "输出时先列问题，按严重程度排序；如果没有发现可行动问题，就明确说明未发现阻断项，并列出仍未覆盖的验证风险。",
-        ].join("\n"),
-        api_config_ids: if api_config_id.is_empty() {
-            Vec::new()
-        } else {
-            vec![api_config_id.clone()]
-        },
-        api_config_id,
-        model_failure_fallback_enabled: false,
-        agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-        child_department_ids: Vec::new(),
-        created_at: now.clone(),
-        updated_at: now,
-        order_index: 4,
-        is_built_in_assistant: false,
-        is_deputy: false,
-        source: default_main_source(),
-        scope: default_global_scope(),
-        permission_control: reviewer_department_permission_control(),
-    }
-}
-
-fn default_saddler_department(api_config_id: &str) -> DepartmentConfig {
-    let now = now_iso();
-    let api_config_id = api_config_id.trim().to_string();
-    DepartmentConfig {
-        id: SADDLER_DEPARTMENT_ID.to_string(),
-        name: "saddler".to_string(),
-        summary: "当项目需要沉淀协作规范、AGENTS.md、Skill、workflow 或其他 .pai 能力资产时，请委托给我。".to_string(),
-        guide: [
-            "你是 saddler 部门，专门负责在当前项目 `.pai/` 目录下生成和维护能力资产，包括 AGENTS.md、Skill、workflow、计划与相关协作说明。",
-            "你的写入和更新范围固定限制在当前项目 `.pai/` 目录内。你可以读取项目上下文来理解约束，但不要承担 `.pai/` 之外的业务实现任务。",
-            "使用 exec 时只运行理解项目结构、检查能力资产或做最小验证所需的命令；不要借助脚本修改 `.pai/` 之外的文件。",
-        ].join("\n"),
-        api_config_ids: if api_config_id.is_empty() {
-            Vec::new()
-        } else {
-            vec![api_config_id.clone()]
-        },
-        api_config_id,
-        model_failure_fallback_enabled: false,
-        agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-        child_department_ids: Vec::new(),
-        created_at: now.clone(),
-        updated_at: now,
-        order_index: 5,
-        is_built_in_assistant: false,
-        is_deputy: false,
-        source: default_main_source(),
-        scope: default_global_scope(),
-        permission_control: saddler_department_permission_control(),
-    }
-}
-
-fn default_remote_customer_service_department(api_config_id: &str) -> DepartmentConfig {
-    let now = now_iso();
-    let api_config_id = api_config_id.trim().to_string();
-    DepartmentConfig {
-        id: REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string(),
-        name: "远程客服".to_string(),
-        summary: REMOTE_CUSTOMER_SERVICE_DEPARTMENT_SUMMARY.to_string(),
-        guide: REMOTE_CUSTOMER_SERVICE_DEPARTMENT_GUIDE.to_string(),
-        api_config_ids: if api_config_id.is_empty() {
-            Vec::new()
-        } else {
-            vec![api_config_id.clone()]
-        },
-        api_config_id,
-        model_failure_fallback_enabled: false,
-        agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-        child_department_ids: Vec::new(),
-        created_at: now.clone(),
-        updated_at: now,
-        order_index: 6,
-        is_built_in_assistant: false,
-        is_deputy: false,
-        source: default_main_source(),
-        scope: default_global_scope(),
-        permission_control: remote_customer_service_department_permission_control(),
-    }
-}
-
-fn default_assistant_department_name(ui_language: &str) -> String {
-    match ui_language.trim() {
-        "en-US" => "Assistant Department".to_string(),
-        "zh-TW" => "助理部門".to_string(),
-        _ => "助理部门".to_string(),
-    }
-}
-
-// ========== 人力部（hr-department） ==========
-
-const HR_DEPARTMENT_YAML: &str = include_str!("../../../../resources/prompts/departments/hr-department.yaml");
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-struct HrDepartmentYaml {
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    summary: String,
-    #[serde(default)]
-    guide: String,
-}
-
-fn hr_department_yaml_fields() -> (String, String, String) {
-    match serde_yaml::from_str::<HrDepartmentYaml>(HR_DEPARTMENT_YAML) {
-        Ok(parsed) => {
-            let name = if parsed.name.trim().is_empty() {
-                "HR".to_string()
-            } else {
-                parsed.name
-            };
-            (name, parsed.summary, parsed.guide)
-        }
-        Err(err) => {
-            runtime_log_warn(format!("[配置] 解析人力部预设 yaml 失败，回退内置文案: {err}"));
-            (
-                "HR".to_string(),
-                "负责招募专家：通过对话帮用户查重、创建合适的部门与人格并完成绑定".to_string(),
-                "你是人力部，负责帮用户招募新专家：创建新的部门与人格（agent），并把人格绑定到部门。".to_string(),
-            )
-        }
-    }
-}
-
-fn default_hr_department(api_config_id: &str) -> DepartmentConfig {
-    let now = now_iso();
-    let api_config_id = api_config_id.trim().to_string();
-    let (name, summary, guide) = hr_department_yaml_fields();
-    DepartmentConfig {
-        id: HR_DEPARTMENT_ID.to_string(),
-        name,
-        summary,
-        guide,
-        api_config_ids: if api_config_id.is_empty() {
-            Vec::new()
-        } else {
-            vec![api_config_id.clone()]
-        },
-        api_config_id,
-        model_failure_fallback_enabled: false,
-        agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-        child_department_ids: Vec::new(),
-        created_at: now.clone(),
-        updated_at: now,
-        order_index: 7,
-        is_built_in_assistant: false,
-        is_deputy: false,
-        source: default_main_source(),
-        scope: default_global_scope(),
-        permission_control: DepartmentPermissionControl::default(),
-    }
-}
-
-fn built_in_department_rank(id: &str) -> i32 {
-    match id.trim() {
-        ASSISTANT_DEPARTMENT_ID => 0,
-        LEADER_DEPARTMENT_ID => 1,
-        DEPUTY_DEPARTMENT_ID => 2,
-        REVIEWER_DEPARTMENT_ID => 3,
-        SADDLER_DEPARTMENT_ID => 4,
-        REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID => 5,
-        HR_DEPARTMENT_ID => 6,
-        _ => 7,
-    }
-}
-
-fn preset_assistant_child_department_ids() -> Vec<String> {
-    vec![
-        DEPUTY_DEPARTMENT_ID.to_string(),
-        REVIEWER_DEPARTMENT_ID.to_string(),
-        SADDLER_DEPARTMENT_ID.to_string(),
-    ]
-}
-
-fn default_departments(api_config_id: &str) -> Vec<DepartmentConfig> {
-    let default_api_config_id = if api_config_id.trim().is_empty() {
-        ""
-    } else {
-        MODEL_ROLE_EXPERT_API_CONFIG_ID
-    };
-    let quick_api_config_id = if api_config_id.trim().is_empty() {
-        ""
-    } else {
-        MODEL_ROLE_QUICK_API_CONFIG_ID
-    };
-    vec![
-        default_assistant_department(default_api_config_id),
-        default_leader_department(default_api_config_id),
-        default_deputy_department(quick_api_config_id),
-        default_reviewer_department(quick_api_config_id),
-        default_saddler_department(default_api_config_id),
-        default_remote_customer_service_department(default_api_config_id),
-        default_hr_department(default_api_config_id),
-    ]
-}
-
-fn default_department_draft(
-    department_id: &str,
-    ui_language: &str,
-) -> Result<DepartmentConfig, String> {
-    let department_id = department_id.trim();
-    let mut department = match department_id {
-        ASSISTANT_DEPARTMENT_ID => {
-            let mut department = default_assistant_department(MODEL_ROLE_EXPERT_API_CONFIG_ID);
-            department.name = default_assistant_department_name(ui_language);
-            department
-        }
-        LEADER_DEPARTMENT_ID => default_leader_department(MODEL_ROLE_EXPERT_API_CONFIG_ID),
-        DEPUTY_DEPARTMENT_ID => default_deputy_department(MODEL_ROLE_QUICK_API_CONFIG_ID),
-        REVIEWER_DEPARTMENT_ID => default_reviewer_department(MODEL_ROLE_QUICK_API_CONFIG_ID),
-        SADDLER_DEPARTMENT_ID => default_saddler_department(MODEL_ROLE_EXPERT_API_CONFIG_ID),
-        REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID => {
-            default_remote_customer_service_department(MODEL_ROLE_EXPERT_API_CONFIG_ID)
-        }
-        HR_DEPARTMENT_ID => default_hr_department(MODEL_ROLE_EXPERT_API_CONFIG_ID),
-        _ => return Err(format!("没有可还原的部门预设: {department_id}")),
-    };
-    department.id = department_id.to_string();
-    Ok(department)
+/// 保存配置的结果：归一化后的配置本体。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveConfigOutput {
+    config: AppConfig,
 }
 
 fn is_model_role_api_config_id(api_config_id: &str) -> bool {
@@ -720,7 +324,7 @@ fn resolve_model_role_api_config_id(app_config: &AppConfig, api_config_id: &str)
     let api_config_id = api_config_id.trim();
     match api_config_id {
         MODEL_ROLE_EXPERT_API_CONFIG_ID => {
-            let expert_id = app_config.assistant_department_api_config_id.trim();
+            let expert_id = app_config.expert_api_config_id.trim();
             (!expert_id.is_empty()).then(|| expert_id.to_string())
         }
         MODEL_ROLE_QUICK_API_CONFIG_ID => app_config
@@ -734,7 +338,7 @@ fn resolve_model_role_api_config_id(app_config: &AppConfig, api_config_id: &str)
     }
 }
 
-fn normalize_department_child_ids(values: &[String], self_id: &str) -> Vec<String> {
+fn normalize_agent_child_ids(values: &[String], self_id: &str) -> Vec<String> {
     let self_id = self_id.trim();
     let mut out = Vec::<String>::new();
     let mut seen = std::collections::HashSet::<String>::new();
@@ -750,7 +354,7 @@ fn normalize_department_child_ids(values: &[String], self_id: &str) -> Vec<Strin
     out
 }
 
-fn department_child_path_exists(
+fn child_edge_path_exists(
     adjacency: &std::collections::BTreeMap<String, Vec<String>>,
     start_id: &str,
     target_id: &str,
@@ -785,32 +389,19 @@ fn department_child_path_exists(
     false
 }
 
-fn remove_cyclic_department_child_ids(
-    departments: &mut [DepartmentConfig],
+/// 去掉会成环的直接下级边，返回被移除的 `(父 id, 子 id)`。
+fn remove_cyclic_child_edges(
+    children_by_parent: &mut std::collections::BTreeMap<String, Vec<String>>,
 ) -> Vec<(String, String)> {
-    let mut adjacency = departments
-        .iter()
-        .map(|department| {
-            (
-                department.id.trim().to_string(),
-                normalize_department_child_ids(&department.child_department_ids, &department.id),
-            )
-        })
-        .filter(|(department_id, _)| !department_id.is_empty())
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let department_ids = departments
-        .iter()
-        .map(|department| department.id.trim().to_string())
-        .filter(|department_id| !department_id.is_empty())
-        .collect::<Vec<_>>();
+    let parent_ids = children_by_parent.keys().cloned().collect::<Vec<_>>();
     let mut removed = Vec::<(String, String)>::new();
 
-    for parent_id in department_ids {
-        let children = adjacency.get(&parent_id).cloned().unwrap_or_default();
+    for parent_id in parent_ids {
+        let children = children_by_parent.get(&parent_id).cloned().unwrap_or_default();
         let mut retained = Vec::<String>::new();
         for child_id in children {
-            if department_child_path_exists(
-                &adjacency,
+            if child_edge_path_exists(
+                children_by_parent,
                 &child_id,
                 &parent_id,
                 Some((&parent_id, &child_id)),
@@ -820,25 +411,16 @@ fn remove_cyclic_department_child_ids(
                 retained.push(child_id);
             }
         }
-        adjacency.insert(parent_id, retained);
-    }
-
-    for department in departments {
-        let normalized = adjacency
-            .remove(department.id.trim())
-            .unwrap_or_else(|| {
-                normalize_department_child_ids(&department.child_department_ids, &department.id)
-            });
-        department.child_department_ids = normalized;
+        children_by_parent.insert(parent_id, retained);
     }
 
     removed
 }
 
-fn department_api_config_ids(department: &DepartmentConfig) -> Vec<String> {
+fn merge_api_config_ids(api_config_ids: &[String], api_config_id: &str) -> Vec<String> {
     let mut out = Vec::<String>::new();
     let mut seen = std::collections::HashSet::<String>::new();
-    for api_id in &department.api_config_ids {
+    for api_id in api_config_ids {
         let api_id = api_id.trim().to_string();
         if api_id.is_empty() {
             continue;
@@ -848,7 +430,7 @@ fn department_api_config_ids(department: &DepartmentConfig) -> Vec<String> {
             out.push(api_id);
         }
     }
-    let legacy = department.api_config_id.trim().to_string();
+    let legacy = api_config_id.trim().to_string();
     if !legacy.is_empty() {
         let key = legacy.to_ascii_lowercase();
         if seen.insert(key) {
@@ -858,14 +440,25 @@ fn department_api_config_ids(department: &DepartmentConfig) -> Vec<String> {
     out
 }
 
-fn department_primary_api_config_id(department: &DepartmentConfig) -> String {
-    department_api_config_ids(department)
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| department.api_config_id.trim().to_string())
+fn agent_api_config_ids(agent: &AgentProfile) -> Vec<String> {
+    let mut ids = merge_api_config_ids(&agent.api_config_ids, &agent.api_config_id);
+    // 人格未显式指定模型时，回退到默认「专家」模型角色。
+    // 这是与「内置部门默认指向 role:expert」等价的人格化翻译：内置人格（含主助理）本就不带模型字段，
+    // 任务派发与委托目标解析改走人格后，必须保留同一默认模型，否则内置人格将解析不到可用模型。
+    if ids.is_empty() {
+        ids.push(MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string());
+    }
+    ids
 }
 
-fn resolve_department_chat_api_config_id(
+fn agent_primary_api_config_id(agent: &AgentProfile) -> String {
+    agent_api_config_ids(agent)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| agent.api_config_id.trim().to_string())
+}
+
+fn resolve_chat_api_config_id(
     app_config: &AppConfig,
     raw_api_config_id: &str,
 ) -> Option<String> {
@@ -877,19 +470,19 @@ fn resolve_department_chat_api_config_id(
         .then_some(resolved_id)
 }
 
-fn department_primary_chat_api_config_id(
+fn agent_primary_chat_api_config_id(
     app_config: &AppConfig,
-    department: &DepartmentConfig,
+    agent: &AgentProfile,
 ) -> Option<String> {
-    resolve_department_chat_api_config_id(app_config, &department_primary_api_config_id(department))
+    resolve_chat_api_config_id(app_config, &agent_primary_api_config_id(agent))
 }
 
-fn department_effective_chat_api_config_ids(
+fn effective_chat_api_config_ids(
     app_config: &AppConfig,
-    department: &DepartmentConfig,
+    raw_ids: Vec<String>,
+    failure_fallback_enabled: bool,
 ) -> Vec<String> {
-    let raw_ids = department_api_config_ids(department);
-    let raw_ids = if department_model_failure_fallback_enabled(department) {
+    let raw_ids = if failure_fallback_enabled {
         raw_ids
     } else {
         raw_ids.into_iter().take(1).collect()
@@ -897,7 +490,7 @@ fn department_effective_chat_api_config_ids(
     let mut out = Vec::<String>::new();
     let mut seen = std::collections::HashSet::<String>::new();
     for raw_id in raw_ids {
-        let Some(resolved_id) = resolve_department_chat_api_config_id(app_config, &raw_id) else {
+        let Some(resolved_id) = resolve_chat_api_config_id(app_config, &raw_id) else {
             continue;
         };
         if seen.insert(resolved_id.clone()) {
@@ -905,6 +498,23 @@ fn department_effective_chat_api_config_ids(
         }
     }
     out
+}
+
+fn agent_effective_chat_api_config_ids(
+    app_config: &AppConfig,
+    agent: &AgentProfile,
+) -> Vec<String> {
+    effective_chat_api_config_ids(
+        app_config,
+        agent_api_config_ids(agent),
+        agent_model_failure_fallback_enabled(agent),
+    )
+}
+
+// 请求失败自动切换下一个模型的机制已禁用：候选模型恒只取第一个，不再降级。
+#[allow(dead_code)]
+fn agent_model_failure_fallback_enabled(_agent: &AgentProfile) -> bool {
+    false
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1446,7 +1056,7 @@ struct AppConfig {
     desktop_operate_enabled: bool,
     selected_api_config_id: String,
     #[serde(default, alias = "chatApiConfigId")]
-    assistant_department_api_config_id: String,
+    expert_api_config_id: String,
     #[serde(default)]
     vision_api_config_id: Option<String>,
     #[serde(default)]
@@ -1467,8 +1077,6 @@ struct AppConfig {
     mcp_servers: Vec<McpServerConfig>,
     #[serde(default = "default_remote_im_channels")]
     remote_im_channels: Vec<RemoteImChannelConfig>,
-    #[serde(default)]
-    departments: Vec<DepartmentConfig>,
     #[serde(default = "default_provider_non_stream_base_urls")]
     provider_non_stream_base_urls: Vec<String>,
     #[serde(default)]
@@ -1504,7 +1112,7 @@ impl Default for AppConfig {
             desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             desktop_operate_enabled: default_desktop_operate_enabled(),
             selected_api_config_id: api_config.id.clone(),
-            assistant_department_api_config_id: api_config.id.clone(),
+            expert_api_config_id: api_config.id.clone(),
             vision_api_config_id: None,
             tool_review_api_config_id: None,
             stt_api_config_id: None,
@@ -1515,7 +1123,6 @@ impl Default for AppConfig {
             shell_workspaces: Vec::new(),
             mcp_servers: default_mcp_servers(),
             remote_im_channels: default_remote_im_channels(),
-            departments: default_departments(&api_config.id),
             provider_non_stream_base_urls: default_provider_non_stream_base_urls(),
             api_providers: default_api_providers(),
             image_providers: default_image_generation_providers(),

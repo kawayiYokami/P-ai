@@ -397,7 +397,6 @@ fn remote_im_unsubscribe_contact_dashboard_for_web(
 
 #[derive(Clone)]
 struct RemoteImContactBindingSnapshot {
-    bound_department_id: Option<String>,
     bound_agent_id: Option<String>,
     bound_conversation_id: Option<String>,
     route_mode: String,
@@ -407,7 +406,6 @@ fn remote_im_contact_binding_snapshot(
     contact: &RemoteImContact,
 ) -> RemoteImContactBindingSnapshot {
     RemoteImContactBindingSnapshot {
-        bound_department_id: contact.bound_department_id.clone(),
         bound_agent_id: contact.bound_agent_id.clone(),
         bound_conversation_id: contact.bound_conversation_id.clone(),
         route_mode: contact.route_mode.clone(),
@@ -418,8 +416,7 @@ fn remote_im_contact_binding_matches(
     contact: &RemoteImContact,
     snapshot: &RemoteImContactBindingSnapshot,
 ) -> bool {
-    contact.bound_department_id == snapshot.bound_department_id
-        && contact.bound_agent_id == snapshot.bound_agent_id
+    contact.bound_agent_id == snapshot.bound_agent_id
         && contact.bound_conversation_id == snapshot.bound_conversation_id
         && contact.route_mode == snapshot.route_mode
 }
@@ -428,7 +425,6 @@ fn remote_im_apply_contact_binding_snapshot(
     contact: &mut RemoteImContact,
     snapshot: &RemoteImContactBindingSnapshot,
 ) {
-    contact.bound_department_id = snapshot.bound_department_id.clone();
     contact.bound_agent_id = snapshot.bound_agent_id.clone();
     contact.bound_conversation_id = snapshot.bound_conversation_id.clone();
     contact.route_mode = snapshot.route_mode.clone();
@@ -438,19 +434,13 @@ fn remote_im_resolve_contact_session_target_atomic(
     state: &AppState,
     contact_id: &str,
     mut candidate: RemoteImContact,
-) -> Result<(String, String, String, RemoteImContact), String> {
+) -> Result<(String, String, RemoteImContact), String> {
     for attempt in 0..4 {
         let baseline = remote_im_contact_binding_snapshot(&candidate);
         let runtime_snapshot = load_runtime_organization_snapshot(state)?;
         candidate.route_mode =
             remote_im_resolve_effective_route_mode(&runtime_snapshot.config, &candidate);
-        let (department_id, agent_id) = resolve_department_agent_pair(
-            state,
-            candidate.bound_department_id.as_deref(),
-            candidate.bound_agent_id.as_deref(),
-            &runtime_snapshot.config,
-        )?;
-        candidate.bound_department_id = Some(department_id.clone());
+        let agent_id = resolve_contact_agent_id(state, candidate.bound_agent_id.as_deref())?;
         candidate.bound_agent_id = Some(agent_id.clone());
         let route_resolved = remote_im_contact_binding_snapshot(&candidate);
         let route_commit = (|| -> Result<Result<RemoteImContact, RemoteImContact>, String> {
@@ -498,15 +488,13 @@ fn remote_im_resolve_contact_session_target_atomic(
                     state,
                     &contact,
                     &conversation_id,
-                    &department_id,
-                    &agent_id,
                 ) {
                     runtime_log_warn(format!(
                         "[远程IM] 联系人路由已提交，会话绑定同步降级，contact_id={}，conversation_id={}，error={}",
                         contact_id, conversation_id, err
                     ));
                 }
-                return Ok((department_id, agent_id, conversation_id, contact));
+                return Ok((agent_id, conversation_id, contact));
             }
             Err(latest_contact) => {
                 runtime_log_warn(format!(
@@ -525,12 +513,11 @@ fn remote_im_resolve_contact_session_target_atomic(
     let latest_contact = state_service_get_remote_im_contact(state, contact_id)?
         .ok_or_else(|| format!("联系人不存在: {contact_id}"))?;
     let mut fallback_contact = latest_contact;
-    let (department_id, agent_id, conversation_id) = resolve_contact_session_target(
+    let (agent_id, conversation_id) = resolve_contact_session_target(
         state,
         &mut fallback_contact,
     )?;
     Ok((
-        department_id,
         agent_id,
         conversation_id,
         fallback_contact,
@@ -542,7 +529,7 @@ fn remote_im_resolve_contact_session_target_fail_soft(
     input: &RemoteImEnqueueInput,
     contact_id: &str,
     candidate: RemoteImContact,
-) -> Option<(String, String, String, RemoteImContact)> {
+) -> Option<(String, String, RemoteImContact)> {
     match remote_im_resolve_contact_session_target_atomic(
         state,
         contact_id,
@@ -556,21 +543,6 @@ fn remote_im_resolve_contact_session_target_fail_soft(
     }
 
     let mut fallback_contact = candidate;
-    let department_id = fallback_contact
-        .bound_department_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            input
-                .session
-                .department_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID)
-        .to_string();
     let agent_id = fallback_contact
         .bound_agent_id
         .as_deref()
@@ -586,7 +558,6 @@ fn remote_im_resolve_contact_session_target_fail_soft(
         })
         .unwrap_or(DEFAULT_AGENT_ID)
         .to_string();
-    fallback_contact.bound_department_id = Some(department_id.clone());
     fallback_contact.bound_agent_id = Some(agent_id.clone());
     fallback_contact.route_mode = "dedicated_contact_conversation".to_string();
     let conversation_id = fallback_contact
@@ -600,7 +571,6 @@ fn remote_im_resolve_contact_session_target_fail_soft(
                 .create_remote_im_contact_conversation(
                     state,
                     &remote_im_contact_conversation_title(&fallback_contact),
-                    &department_id,
                     &agent_id,
                     &remote_im_contact_conversation_key(&fallback_contact),
                 )
@@ -635,9 +605,7 @@ fn remote_im_resolve_contact_session_target_fail_soft(
         let Some(mut contact) = state_service_get_remote_im_contact(state, contact_id)? else {
             return Ok(());
         };
-        if contact.bound_department_id == fallback_contact.bound_department_id
-            && contact.bound_agent_id == fallback_contact.bound_agent_id
-        {
+        if contact.bound_agent_id == fallback_contact.bound_agent_id {
             contact.bound_conversation_id = Some(conversation_id.clone());
             contact.route_mode = fallback_contact.route_mode.clone();
             state_service_upsert_remote_im_contact(state, &contact)?;
@@ -650,7 +618,6 @@ fn remote_im_resolve_contact_session_target_fail_soft(
         ));
     }
     Some((
-        department_id,
         agent_id,
         conversation_id,
         fallback_contact,
@@ -826,52 +793,24 @@ fn remote_im_patch_contact_settings_inner(
             None
         }
     };
-    let next_department_id = input
-        .department_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
     let next_agent_id = input
         .agent_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
-    if next_department_id.is_some() != next_agent_id.is_some() {
-        return Err("远程IM绑定部门和人格必须同时提供".to_string());
-    }
-    let next_pair = if let Some(department_id) = next_department_id.as_deref() {
-        if let Some(runtime_snapshot) = runtime_snapshot.as_ref() {
-            let pair = resolve_department_agent_pair(
-                state,
-                Some(department_id),
-                next_agent_id.as_deref(),
-                &runtime_snapshot.config,
-            )?;
-            if !runtime_snapshot
-                .agents
-                .iter()
-                .any(|agent| agent.id == pair.1 && !agent.is_built_in_user)
-            {
-                return Err(format!("路由人格不存在或不可用: {}", pair.1));
-            }
-            Some(pair)
+    let next_agent = if let Some(agent_id) = next_agent_id.as_deref() {
+        if runtime_snapshot.is_some() {
+            Some(resolve_contact_agent_id(state, Some(agent_id))?)
         } else {
-            Some((
-                department_id.to_string(),
-                next_agent_id.clone().unwrap_or_default(),
-            ))
+            Some(agent_id.to_string())
         }
     } else {
         None
     };
     let output = remote_im_mutate_contact(state, &input.contact_id, |contact| {
         let is_private = remote_im_contact_is_private(contact);
-        contact.bound_department_id = next_pair
-            .as_ref()
-            .map(|(department_id, _)| department_id.clone());
-        contact.bound_agent_id = next_pair.as_ref().map(|(_, agent_id)| agent_id.clone());
+        contact.bound_agent_id = next_agent.clone();
         contact.route_mode = runtime_snapshot
             .as_ref()
             .map(|snapshot| remote_im_resolve_effective_route_mode(&snapshot.config, contact))
@@ -901,30 +840,21 @@ fn remote_im_patch_contact_settings_inner(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        let resolved_pair = runtime_snapshot.as_ref().map_or_else(
+        let resolved_agent = runtime_snapshot.as_ref().map_or_else(
             || {
                 Err(
                     "组织配置暂时不可读，已保存联系人设置并延后同步会话路由"
                         .to_string(),
                 )
             },
-            |snapshot| {
-                resolve_department_agent_pair(
-                    state,
-                    output.bound_department_id.as_deref(),
-                    output.bound_agent_id.as_deref(),
-                    &snapshot.config,
-                )
-            },
+            |_snapshot| resolve_contact_agent_id(state, output.bound_agent_id.as_deref()),
         );
-        match resolved_pair {
-            Ok((department_id, agent_id)) => {
+        match resolved_agent {
+            Ok(_agent_id) => {
                 if let Err(err) = sync_remote_im_contact_conversation_binding(
                     state,
                     &output,
                     conversation_id,
-                    &department_id,
-                    &agent_id,
                 ) {
                     runtime_log_warn(format!(
                         "[远程IM] 联系人设置已保存，会话绑定同步降级，contact_id={}，conversation_id={}，error={}",
@@ -1018,65 +948,37 @@ fn remote_im_update_contact_route_mode(
     })
 }
 
-fn remote_im_update_contact_department_binding_inner(
+fn remote_im_update_contact_agent_binding_inner(
     state: &AppState,
-    input: RemoteImContactDepartmentBindingUpdateInput,
+    input: RemoteImContactAgentBindingUpdateInput,
 ) -> Result<RemoteImContact, String> {
     let runtime_snapshot = match load_runtime_organization_snapshot(state) {
         Ok(snapshot) => Some(snapshot),
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM] 更新联系人处理部门时组织配置读取失败，本次保存原始绑定并延后校验，contact_id={}，error={}",
+                "[远程IM] 更新联系人处理人格时组织配置读取失败，本次保存原始绑定并延后校验，contact_id={}，error={}",
                 input.contact_id, err
             ));
             None
         }
     };
-    let next_department_id = input
-        .department_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
     let next_agent_id = input
         .agent_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
-    if next_department_id.is_some() != next_agent_id.is_some() {
-        return Err("远程IM绑定部门和人格必须同时提供".to_string());
-    }
-    let next_pair = if let Some(department_id) = next_department_id.as_deref() {
-        if let Some(runtime_snapshot) = runtime_snapshot.as_ref() {
-            let pair = resolve_department_agent_pair(
-                state,
-                Some(department_id),
-                next_agent_id.as_deref(),
-                &runtime_snapshot.config,
-            )?;
-            if !runtime_snapshot
-                .agents
-                .iter()
-                .any(|agent| agent.id == pair.1 && !agent.is_built_in_user)
-            {
-                return Err(format!("路由人格不存在或不可用: {}", pair.1));
-            }
-            Some(pair)
+    let next_agent = if let Some(agent_id) = next_agent_id.as_deref() {
+        if runtime_snapshot.is_some() {
+            Some(resolve_contact_agent_id(state, Some(agent_id))?)
         } else {
-            Some((
-                department_id.to_string(),
-                next_agent_id.clone().unwrap_or_default(),
-            ))
+            Some(agent_id.to_string())
         }
     } else {
         None
     };
     let output = remote_im_mutate_contact(state, &input.contact_id, |contact| {
-        contact.bound_department_id = next_pair
-            .as_ref()
-            .map(|(department_id, _)| department_id.clone());
-        contact.bound_agent_id = next_pair.as_ref().map(|(_, agent_id)| agent_id.clone());
+        contact.bound_agent_id = next_agent.clone();
         contact.route_mode = runtime_snapshot
             .as_ref()
             .map(|snapshot| remote_im_resolve_effective_route_mode(&snapshot.config, contact))
@@ -1088,10 +990,10 @@ fn remote_im_update_contact_department_binding_inner(
         &input.contact_id,
         output.clone(),
     ) {
-        Ok((_, _, _, resolved)) => resolved,
+        Ok((_, _, resolved)) => resolved,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM] 联系人处理部门已保存，会话绑定修复降级，contact_id={}，error={}",
+                "[远程IM] 联系人处理人格已保存，会话绑定修复降级，contact_id={}，error={}",
                 input.contact_id, err
             ));
             return Ok(output);
@@ -1104,15 +1006,9 @@ fn remote_im_update_contact_department_binding_inner(
         .filter(|value| !value.is_empty())
         .unwrap_or("");
     runtime_log_info(format!(
-        "[远程IM] 完成，任务=更新联系人处理部门，contact_id={}，conversation_id={}，department_id={}，agent_id={}",
+        "[远程IM] 完成，任务=更新联系人处理人格，contact_id={}，conversation_id={}，agent_id={}",
         resolved.id,
         conversation_id,
-        resolved
-            .bound_department_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(""),
         conversation_service_v2()
             .get_conversation_meta(state, &conversation_id)
             .map(|conversation| conversation.agent_id)
@@ -1122,11 +1018,11 @@ fn remote_im_update_contact_department_binding_inner(
 }
 
 #[tauri::command]
-fn remote_im_update_contact_department_binding(
-    input: RemoteImContactDepartmentBindingUpdateInput,
+fn remote_im_update_contact_agent_binding(
+    input: RemoteImContactAgentBindingUpdateInput,
     state: State<'_, AppState>,
 ) -> Result<RemoteImContact, String> {
-    remote_im_update_contact_department_binding_inner(state.inner(), input)
+    remote_im_update_contact_agent_binding_inner(state.inner(), input)
 }
 
 fn remote_im_update_contact_processing_mode_inner(
@@ -1591,7 +1487,7 @@ pub(crate) async fn remote_im_enqueue_message_internal(
             contact_id,
         });
     }
-    let Some((department_id, agent_id, conversation_id, contact_for_log)) =
+    let Some((agent_id, conversation_id, contact_for_log)) =
         remote_im_resolve_contact_session_target_fail_soft(
             state,
             &input,
@@ -1672,8 +1568,7 @@ pub(crate) async fn remote_im_enqueue_message_internal(
     };
     let event_id = Uuid::new_v4().to_string();
     let session_info = ChatSessionInfo {
-        department_id,
-        agent_id,
+                agent_id,
     };
     if sender_info
         .remote_contact_type

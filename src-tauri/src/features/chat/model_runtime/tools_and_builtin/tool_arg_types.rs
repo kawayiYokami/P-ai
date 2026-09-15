@@ -103,9 +103,7 @@ struct InformSessionToolArgs {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct DelegateToolArgs {
-    department_id: String,
-    #[serde(default)]
-    target_agent_id: Option<String>,
+    agent_id: String,
     #[serde(default)]
     mode: Option<String>,
     #[serde(default)]

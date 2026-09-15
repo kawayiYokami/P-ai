@@ -13,10 +13,9 @@ fn load_agents_inner(state: &AppState) -> Result<Vec<AgentProfile>, String> {
 #[tauri::command]
 fn save_agents(
     input: SaveAgentsInput,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<AgentProfile>, String> {
-    save_agents_inner(input, &app, &state)
+    save_agents_inner(input, &state)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,15 +27,13 @@ struct ConvertPrivateAgentToMainInput {
 #[tauri::command]
 fn convert_private_agent_to_main(
     input: ConvertPrivateAgentToMainInput,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<AgentProfile>, String> {
-    convert_private_agent_to_main_inner(input, &app, state.inner())
+    convert_private_agent_to_main_inner(input, state.inner())
 }
 
 fn convert_private_agent_to_main_inner(
     input: ConvertPrivateAgentToMainInput,
-    app: &AppHandle,
     state: &AppState,
 ) -> Result<Vec<AgentProfile>, String> {
     let agent_id = input.agent_id.trim();
@@ -61,14 +58,12 @@ fn convert_private_agent_to_main_inner(
         SaveAgentsInput {
             agents: runtime_agents,
         },
-        app,
         state,
     )
 }
 
 fn save_agents_inner(
     input: SaveAgentsInput,
-    app: &AppHandle,
     state: &AppState,
 ) -> Result<Vec<AgentProfile>, String> {
     if input.agents.is_empty() {
@@ -76,12 +71,6 @@ fn save_agents_inner(
     }
 
     let base_config = read_config(&state.config_path)?;
-    let previous_runtime_data = AppData {
-        agents: state_read_agents_cached(&state)?,
-        ..Default::default()
-    };
-    let previous_runtime_config =
-        runtime_config_with_private_organization(&state, &base_config, &previous_runtime_data)?;
     let mut data = AppData {
         agents: state_read_agents_cached(&state)?,
         ..Default::default()
@@ -234,40 +223,7 @@ fn save_agents_inner(
     if !affected_agent_ids.is_empty() {
         mark_prompt_cache_rebuild_for_system_sources_by_agents(&state, &affected_agent_ids);
     }
-    let mut config = state_read_config_cached(&state)?;
-    let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
-    let valid_agent_ids = runtime_agents
-        .iter()
-        .filter(|a| !a.is_built_in_user)
-        .map(|a| a.id.clone())
-        .collect::<std::collections::HashSet<_>>();
-    let mut runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
-    // 只清理已被删除人格留下的悬挂 id；成员归属由用户在部门页自行维护，
-    // 保存人格时不再替用户补齐（部门缺成员时由配置归一化按内置预设兜底）。
-    let mut config_changed = false;
-    for dept in &mut runtime_config.departments {
-        let original_agent_ids = dept.agent_ids.clone();
-        dept.agent_ids.retain(|id| valid_agent_ids.contains(id));
-        if dept.agent_ids != original_agent_ids {
-            config_changed = true;
-            dept.updated_at = now_iso();
-        }
-    }
-    if config_changed {
-        let changed_departments = changed_department_ids(&previous_runtime_config, &runtime_config);
-        validate_department_names_unique(&runtime_config)?;
-        normalize_app_config(&mut runtime_config);
-        config = persist_departments_by_source(&state, &runtime_config)?;
-        if !changed_departments.is_empty() {
-            mark_prompt_cache_rebuild_for_system_sources_by_departments(
-                &state,
-                &changed_departments,
-            );
-        }
-        let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
-        let _ = app.emit("easy-call:config-updated", &runtime_config);
-        broadcast_sidebar_department_changed();
-    }
+    let config = state_read_config_cached(&state)?;
     broadcast_sidebar_persona_changed();
     let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
     Ok(runtime_agents)
@@ -369,7 +325,7 @@ fn get_agent_private_memory_count_inner(
     }
     let config = read_config(&state.config_path)?;
     let agents = state_read_agents_cached(&state)?;
-    let (private_agent_ids, _) =
+    let private_agent_ids =
         runtime_private_organization_ids(&state.data_path, &config, &agents)?;
     if private_agent_ids.contains(agent_id) {
         return Err(private_agent_operation_error(agent_id));
@@ -396,7 +352,7 @@ fn set_agent_memory_recall_mode_inner(
 
     let mut agents = state_read_agents_cached(&state)?;
     let base_config = read_config(&state.config_path)?;
-    let (private_agent_ids, _) =
+    let private_agent_ids =
         runtime_private_organization_ids(&state.data_path, &base_config, &agents)?;
     if private_agent_ids.contains(agent_id) {
         return Err(private_agent_operation_error(agent_id));
@@ -431,7 +387,7 @@ fn set_agent_private_memory_enabled_inner(
 
     let mut agents = state_read_agents_cached(&state)?;
     let base_config = read_config(&state.config_path)?;
-    let (private_agent_ids, _) =
+    let private_agent_ids =
         runtime_private_organization_ids(&state.data_path, &base_config, &agents)?;
     if private_agent_ids.contains(agent_id) {
         return Err(private_agent_operation_error(agent_id));
@@ -489,7 +445,7 @@ fn export_agent_private_memories_inner(
     }
     let config = read_config(&state.config_path)?;
     let agents = state_read_agents_cached(&state)?;
-    let (private_agent_ids, _) =
+    let private_agent_ids =
         runtime_private_organization_ids(&state.data_path, &config, &agents)?;
     if private_agent_ids.contains(agent_id) {
         return Err(private_agent_operation_error(agent_id));
@@ -512,7 +468,7 @@ fn disable_agent_private_memory_inner(
 
     let mut agents = state_read_agents_cached(&state)?;
     let base_config = read_config(&state.config_path)?;
-    let (private_agent_ids, _) =
+    let private_agent_ids =
         runtime_private_organization_ids(&state.data_path, &base_config, &agents)?;
     if private_agent_ids.contains(agent_id) {
         return Err(private_agent_operation_error(agent_id));
@@ -601,7 +557,7 @@ fn import_agent_memories_inner(
 
     let agents = state_read_agents_cached(state)?;
     let base_config = read_config(&state.config_path)?;
-    let (private_agent_ids, _) =
+    let private_agent_ids =
         runtime_private_organization_ids(&state.data_path, &base_config, &agents)?;
     if private_agent_ids.contains(agent_id) {
         return Err(private_agent_operation_error(agent_id));
@@ -639,7 +595,7 @@ fn load_chat_settings_inner(state: &AppState) -> Result<ChatSettings, String> {
     };
 
     Ok(ChatSettings {
-        assistant_department_agent_id: state_service_get_assistant_department_agent_id(state)?,
+        assistant_agent_id: state_service_get_assistant_agent_id(state)?,
         user_alias: user_persona_name(&runtime_data),
         response_style_id: state_service_get_response_style_id(state)?,
         pdf_read_mode: state_service_get_pdf_read_mode(state)?,
@@ -654,7 +610,7 @@ fn load_chat_settings_inner(state: &AppState) -> Result<ChatSettings, String> {
 #[serde(rename_all = "camelCase")]
 struct ChatSettingsPatch {
     #[serde(default)]
-    assistant_department_agent_id: Option<String>,
+    assistant_agent_id: Option<String>,
     #[serde(default)]
     user_alias: Option<String>,
     #[serde(default)]
@@ -677,7 +633,7 @@ fn build_chat_settings_payload(state: &AppState, agents: &[AgentProfile], config
         ..Default::default()
     };
     Ok(ChatSettings {
-        assistant_department_agent_id: state_service_get_assistant_department_agent_id(state)?,
+        assistant_agent_id: state_service_get_assistant_agent_id(state)?,
         user_alias: user_persona_name(&runtime_data),
         response_style_id: state_service_get_response_style_id(state)?,
         pdf_read_mode: state_service_get_pdf_read_mode(state)?,
@@ -696,7 +652,7 @@ fn apply_chat_settings_patch(
     input: ChatSettingsPatch,
 ) -> Result<ChatSettings, String> {
     let mut agents_changed = false;
-    if let Some(agent_id) = input.assistant_department_agent_id {
+    if let Some(agent_id) = input.assistant_agent_id {
         let target_agent_id = agent_id.trim().to_string();
         let runtime_snapshot = build_runtime_organization_snapshot_from_parts(
             &state.data_path,
@@ -712,9 +668,9 @@ fn apply_chat_settings_patch(
             return Err("Selected agent not found.".to_string());
         }
         if !target_agent_id.is_empty()
-            && state_service_get_assistant_department_agent_id(state)? != target_agent_id
+            && state_service_get_assistant_agent_id(state)? != target_agent_id
         {
-            state_service_set_assistant_department_agent_id(state, &target_agent_id)?;
+            state_service_set_assistant_agent_id(state, &target_agent_id)?;
         }
     }
     if let Some(response_style_id) = input.response_style_id {
@@ -779,7 +735,7 @@ fn save_chat_settings(
 ) -> Result<ChatSettings, String> {
     patch_chat_settings_inner(
         ChatSettingsPatch {
-            assistant_department_agent_id: Some(input.assistant_department_agent_id),
+            assistant_agent_id: Some(input.assistant_agent_id),
             user_alias: Some(input.user_alias),
             response_style_id: Some(input.response_style_id),
             pdf_read_mode: Some(input.pdf_read_mode),
@@ -1136,7 +1092,7 @@ fn sync_tray_icon(
 #[serde(rename_all = "camelCase")]
 struct ConversationApiSettingsPatch {
     #[serde(default)]
-    assistant_department_api_config_id: Option<String>,
+    expert_api_config_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_nullable_string_patch")]
     vision_api_config_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_nullable_string_patch")]
@@ -1208,14 +1164,14 @@ mod conversation_api_settings_patch_tests {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SetDepartmentPrimaryApiConfigInput {
-    department_id: String,
+struct SetAgentPrimaryApiConfigInput {
+    agent_id: String,
     api_config_id: String,
 }
 
 fn build_conversation_api_settings_payload(config: &AppConfig) -> ConversationApiSettings {
     ConversationApiSettings {
-        assistant_department_api_config_id: config.assistant_department_api_config_id.clone(),
+        expert_api_config_id: config.expert_api_config_id.clone(),
         vision_api_config_id: config.vision_api_config_id.clone(),
         tool_review_api_config_id: config.tool_review_api_config_id.clone(),
         stt_api_config_id: config.stt_api_config_id.clone(),
@@ -1224,8 +1180,8 @@ fn build_conversation_api_settings_payload(config: &AppConfig) -> ConversationAp
 }
 
 fn apply_conversation_api_settings_patch(config: &mut AppConfig, input: ConversationApiSettingsPatch) {
-    if let Some(assistant_department_api_config_id) = input.assistant_department_api_config_id {
-        config.assistant_department_api_config_id = assistant_department_api_config_id;
+    if let Some(expert_api_config_id) = input.expert_api_config_id {
+        config.expert_api_config_id = expert_api_config_id;
     }
     if let Some(vision_api_config_id) = input.vision_api_config_id {
         config.vision_api_config_id = vision_api_config_id;
@@ -1249,7 +1205,7 @@ fn save_conversation_api_settings(
 ) -> Result<ConversationApiSettings, String> {
     patch_conversation_api_settings_inner(
         ConversationApiSettingsPatch {
-            assistant_department_api_config_id: Some(input.assistant_department_api_config_id),
+            expert_api_config_id: Some(input.expert_api_config_id),
             vision_api_config_id: Some(input.vision_api_config_id),
             tool_review_api_config_id: Some(input.tool_review_api_config_id),
             stt_api_config_id: Some(input.stt_api_config_id),
@@ -1289,22 +1245,22 @@ fn patch_conversation_api_settings_inner(
 }
 
 #[tauri::command]
-fn set_department_primary_api_config(
-    input: SetDepartmentPrimaryApiConfigInput,
+fn set_agent_primary_api_config(
+    input: SetAgentPrimaryApiConfigInput,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<AppConfig, String> {
-    set_department_primary_api_config_inner(input, &app, state.inner())
+    set_agent_primary_api_config_inner(input, &app, state.inner())
 }
 
-fn set_department_primary_api_config_inner(
-    input: SetDepartmentPrimaryApiConfigInput,
+fn set_agent_primary_api_config_inner(
+    input: SetAgentPrimaryApiConfigInput,
     app: &AppHandle,
     state: &AppState,
 ) -> Result<AppConfig, String> {
-    let department_id = input.department_id.trim();
-    if department_id.is_empty() {
-        return Err("Department ID is required.".to_string());
+    let agent_id = input.agent_id.trim();
+    if agent_id.is_empty() {
+        return Err("Agent ID is required.".to_string());
     }
     let api_config_id = input.api_config_id.trim();
     if api_config_id.is_empty() {
@@ -1321,16 +1277,16 @@ fn set_department_primary_api_config_inner(
         return Err(format!("API config '{api_config_id}' does not support chat text."));
     }
 
+    let mut agents = state_read_agents_cached(state)?;
     {
-        let Some(target_department) = config
-            .departments
+        let Some(target_agent) = agents
             .iter_mut()
-            .find(|item| item.id.trim() == department_id)
+            .find(|item| item.id.trim() == agent_id)
         else {
-            return Err(format!("Department '{department_id}' not found."));
+            return Err(format!("Agent '{agent_id}' not found."));
         };
 
-        let mut next_ids = department_api_config_ids(target_department);
+        let mut next_ids = merge_api_config_ids(&target_agent.api_config_ids, &target_agent.api_config_id);
         if next_ids.first().map(|item| item.trim()) == Some(api_config_id) {
             // 保持当前顺序，只同步全局选中模型即可。
         } else {
@@ -1343,30 +1299,30 @@ fn set_department_primary_api_config_inner(
         }
 
         let mut seen = std::collections::HashSet::<String>::new();
-        target_department.api_config_ids = next_ids
+        target_agent.api_config_ids = next_ids
             .into_iter()
             .map(|item| item.trim().to_string())
             .filter(|item| !item.is_empty())
             .filter(|item| seen.insert(item.to_ascii_lowercase()))
             .collect::<Vec<_>>();
-        target_department.api_config_id = target_department
+        target_agent.api_config_id = target_agent
             .api_config_ids
             .first()
             .cloned()
             .unwrap_or_default();
-        target_department.updated_at = now_iso();
-
+        target_agent.updated_at = now_iso();
     }
     config.selected_api_config_id = api_config_id.to_string();
 
     state_write_config_cached(state, &config)?;
-    let agents = state_read_agents_cached(state)?;
+    state_write_agents_cached(state, &agents)?;
+    sync_private_agents_to_workspace(&state.data_path, &config, &agents)?;
     let mut data = AppData::default();
     data.agents = agents;
     let runtime_config = runtime_config_with_private_organization(state, &config, &data)?;
 
     let _ = app.emit("easy-call:config-updated", &runtime_config);
-    broadcast_sidebar_department_changed();
+    broadcast_sidebar_persona_changed();
     broadcast_sidebar_provider_changed();
 
     Ok(runtime_config)

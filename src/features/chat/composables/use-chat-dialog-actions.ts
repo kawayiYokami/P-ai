@@ -3,7 +3,7 @@ import type { Ref } from "vue";
 
 type UseChatDialogActionsOptions = {
   activeChatApiConfigId: Ref<string>;
-  assistantDepartmentAgentId: Ref<string>;
+  assistantAgentId: Ref<string>;
   openPromptPreviewDialog: (apiConfigId: string, agentId: string) => Promise<void>;
   openSystemPromptPreviewDialog: (apiConfigId: string, agentId: string) => Promise<void>;
 };
@@ -54,13 +54,13 @@ export function useChatDialogActions(options: UseChatDialogActionsOptions) {
   }
 
   async function openPromptPreview() {
-    if (!options.activeChatApiConfigId.value || !options.assistantDepartmentAgentId.value) return;
-    await options.openPromptPreviewDialog(options.activeChatApiConfigId.value, options.assistantDepartmentAgentId.value);
+    if (!options.activeChatApiConfigId.value || !options.assistantAgentId.value) return;
+    await options.openPromptPreviewDialog(options.activeChatApiConfigId.value, options.assistantAgentId.value);
   }
 
   async function openSystemPromptPreview() {
-    if (!options.activeChatApiConfigId.value || !options.assistantDepartmentAgentId.value) return;
-    await options.openSystemPromptPreviewDialog(options.activeChatApiConfigId.value, options.assistantDepartmentAgentId.value);
+    if (!options.activeChatApiConfigId.value || !options.assistantAgentId.value) return;
+    await options.openSystemPromptPreviewDialog(options.activeChatApiConfigId.value, options.assistantAgentId.value);
   }
 
   return {

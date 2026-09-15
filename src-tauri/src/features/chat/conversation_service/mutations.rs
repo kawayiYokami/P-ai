@@ -73,13 +73,11 @@ fn maybe_undo_rewind_apply_patch(
 
 fn resolve_stop_chat_api_config_id(
     app_config: &AppConfig,
-    requested_department_id: Option<&str>,
+    agents: &[AgentProfile],
     agent_id: &str,
 ) -> Result<String, String> {
-    let raw_api_config_id = requested_department_id
-        .and_then(|id| department_by_id(app_config, id))
-        .map(department_primary_api_config_id)
-        .or_else(|| department_for_agent_id(app_config, agent_id).map(department_primary_api_config_id))
+    let raw_api_config_id = agent_by_id(agents, agent_id)
+        .map(agent_primary_api_config_id)
         .or_else(|| resolve_selected_api_config(app_config, None).map(|api| api.id.clone()))
         .ok_or_else(|| "Missing available API config for stop request".to_string())?;
     resolve_model_role_api_config_id(app_config, &raw_api_config_id)
@@ -361,7 +359,7 @@ fn find_existing_draft_conversation_id(state: &AppState) -> Result<Option<String
     Ok(None)
 }
 
-/// 转正后的备用草稿：继承刚转正会话的部门/人格/模型/workspace 设置。
+/// 转正后的备用草稿：继承刚转正会话的人格/模型/workspace 设置。
 fn create_next_draft_conversation_inherited(
     state: &AppState,
     promoted: &Conversation,
@@ -369,7 +367,6 @@ fn create_next_draft_conversation_inherited(
     let input = CreateUnarchivedConversationInput {
         api_config_id: promoted.preferred_api_config_id.clone(),
         agent_id: Some(promoted.agent_id.clone()),
-        department_id: Some(promoted.department_id.clone()),
         title: None,
         copy_source_conversation_id: None,
         shell_workspaces: Some(promoted.shell_workspaces.clone()),
@@ -392,37 +389,9 @@ fn create_unarchived_conversation_shared(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let runtime_snapshot = load_runtime_organization_snapshot(state)?;
     let app_config = runtime_snapshot.config.clone();
-    let assistant_department_agent_id = assistant_department_agent_id_downgraded(state);
+    let assistant_agent_id = assistant_agent_id_downgraded(state);
     let agents = runtime_snapshot.agents.clone();
     let is_draft = input.is_draft.unwrap_or(false);
-    let requested_department_id = input
-        .department_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let department_id = match requested_department_id {
-        Some(value) => value.to_string(),
-        None if is_draft => runtime_snapshot
-            .config
-            .departments
-            .iter()
-            .find(|department| {
-                department.id.trim() == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant
-            })
-            .map(|department| department.id.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| "会话草稿缺少默认部门，无法创建。".to_string())?,
-        None => return Err("新建会话必须选择部门。".to_string()),
-    };
-    let department = runtime_department_by_id(&runtime_snapshot, &department_id)
-        .ok_or_else(|| format!("Department '{department_id}' not found."))?;
-    let api_config_id = input
-        .api_config_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| department_primary_api_config_id(department));
     let requested_agent_id = input
         .agent_id
         .as_deref()
@@ -431,9 +400,8 @@ fn create_unarchived_conversation_shared(
     let agent_id = match requested_agent_id {
         Some(value) => value.to_string(),
         None if is_draft => {
-            // 草稿是系统自建的助理会话，人格直接取当前助理人格；
-            // 不要求它挂在部门成员列表里，成员列表只约束用户手选的部门+人格组合。
-            let preferred = assistant_department_agent_id.trim();
+            // 草稿是系统自建的助理会话，人格直接取当前助理人格。
+            let preferred = assistant_agent_id.trim();
             if !preferred.is_empty()
                 && agents
                     .iter()
@@ -441,30 +409,29 @@ fn create_unarchived_conversation_shared(
             {
                 preferred.to_string()
             } else {
-                first_available_department_agent(department, &agents)
-                    .map(|agent| agent.id.clone())
-                    .ok_or_else(|| {
-                        format!(
-                            "会话草稿部门没有可用人格，无法创建: department_id={}",
-                            department.id
-                        )
-                    })?
+                return Err("会话草稿缺少可用的助理人格，无法创建。".to_string());
             }
         }
-        None => {
-            return Err(format!(
-                "新建会话必须选择人格，department_id={}",
-                department.id
-            ))
-        }
+        None => return Err("新建会话必须选择人格。".to_string()),
     };
-    // 部门成员列表只描述归属配置，不作为人格资格；人格本身不存在或不可用才拒绝。
+    // 人格本身不存在或不可用才拒绝。
     if !agents
         .iter()
         .any(|agent| agent.id == agent_id && !agent.is_built_in_user)
     {
         return Err(format!("新建会话的人格不存在或不可用: agent_id={agent_id}"));
     }
+    let api_config_id = input
+        .api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| {
+            agent_by_id(&agents, &agent_id)
+                .map(agent_primary_api_config_id)
+                .unwrap_or_default()
+        });
     let conversation_title = input
         .title
         .as_deref()
@@ -484,17 +451,15 @@ fn create_unarchived_conversation_shared(
         clone_foreground_conversation_for_copy(
             &source_conversation,
             &agent_id,
-            &department.id,
             conversation_title,
         )
     } else {
         build_unarchived_conversation_record_from_runtime(
             &state.data_path,
             &agents,
-            &assistant_department_agent_id,
+            &assistant_agent_id,
             &api_config_id,
             &agent_id,
-            &department.id,
             conversation_title,
         )
     };
@@ -546,10 +511,9 @@ fn create_unarchived_conversation_shared(
     drop(guard);
     let persist_seq = state_schedule_conversation_persist(state, &conversation)?;
     runtime_log_info(format!(
-        "[会话] 完成，任务=新建未归档会话，阶段=调度持久化，conversation_id={}，persist_seq={}，department_id={}，agent_id={}，preferred_api_config_id={}，message_count={}，duration_ms={}",
+        "[会话] 完成，任务=新建未归档会话，阶段=调度持久化，conversation_id={}，persist_seq={}，agent_id={}，preferred_api_config_id={}，message_count={}，duration_ms={}",
         conversation_id,
         persist_seq,
-        conversation.department_id,
         conversation.agent_id,
         conversation.preferred_api_config_id.as_deref().unwrap_or(""),
         conversation.messages.len(),
@@ -577,23 +541,21 @@ fn create_unarchived_conversation_shared(
 fn build_unarchived_conversation_record_from_runtime(
     data_path: &PathBuf,
     agents: &[AgentProfile],
-    assistant_department_agent_id: &str,
+    assistant_agent_id: &str,
     api_config_id: &str,
     agent_id: &str,
-    department_id: &str,
     title: &str,
 ) -> Conversation {
     let mut conversation = build_conversation_record(
         api_config_id,
         agent_id,
-        department_id,
         title,
         CONVERSATION_KIND_CHAT,
         None,
         None,
     );
     let snapshot_agent_id = if agent_id.trim().is_empty() {
-        assistant_department_agent_id.trim().to_string()
+        assistant_agent_id.trim().to_string()
     } else {
         agent_id.trim().to_string()
     };
@@ -623,14 +585,11 @@ fn build_unarchived_conversation_record_from_runtime(
 
 fn branch_conversation_settings_agent_id_runtime(
     agents: &[AgentProfile],
-    department: &DepartmentConfig,
     requested_agent_id: &str,
 ) -> Result<String, String> {
     let normalized_requested_agent_id = requested_agent_id.trim();
     if normalized_requested_agent_id.is_empty() {
-        return first_available_department_agent(department, agents)
-            .map(|agent| agent.id.clone())
-            .ok_or_else(|| format!("源会话绑定部门没有可用人格，无法创建分支: department_id={}", department.id));
+        return Err("源会话缺少绑定人格，无法创建分支。".to_string());
     }
     if available_non_user_agent(agents, normalized_requested_agent_id).is_some() {
         return Ok(normalized_requested_agent_id.to_string());
@@ -644,17 +603,15 @@ fn build_branch_conversation_record_from_selection_runtime_meta_view(
     data_path: &PathBuf,
     agents: &[AgentProfile],
     source_meta: &ConversationMetaView,
-    department: &DepartmentConfig,
     branch_summary_title: &str,
     latest_compaction_message: Option<&ChatMessage>,
     selected_messages: &[ChatMessage],
 ) -> Result<Conversation, String> {
     let agent_id =
-        branch_conversation_settings_agent_id_runtime(agents, department, &source_meta.agent_id)?;
+        branch_conversation_settings_agent_id_runtime(agents, &source_meta.agent_id)?;
     let mut conversation = build_conversation_record(
-        &department_primary_api_config_id(department),
+        "",
         &agent_id,
-        &department.id,
         "",
         CONVERSATION_KIND_CHAT,
         None,
@@ -914,7 +871,6 @@ fn read_conversation_for_backup_cleanup(
         id: conversation_meta.id,
         title: conversation_meta.title,
         agent_id: conversation_meta.agent_id,
-        department_id: conversation_meta.department_id,
         bound_conversation_id: None,
         parent_conversation_id: None,
         child_conversation_ids: Vec::new(),

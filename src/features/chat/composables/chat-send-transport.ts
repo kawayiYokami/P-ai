@@ -10,7 +10,6 @@ import type { AssistantDeltaEvent } from "./use-chat-flow-events";
 export type ChatSendSession = {
   apiConfigId: string;
   agentId: string;
-  departmentId?: string;
   conversationId?: string;
 };
 
@@ -75,15 +74,12 @@ export function invokeSendChatMessage({
           ? mentions.map((item) => ({
               agentId: item.agentId,
               agentName: item.agentName,
-              departmentId: item.departmentId,
-              departmentName: item.departmentName,
             }))
           : undefined,
       },
       session: {
         apiConfigId: session.apiConfigId,
         agentId: session.agentId,
-        departmentId: session.departmentId || null,
         conversationId: session.conversationId || null,
       },
       traceId,
@@ -103,7 +99,6 @@ export function invokeStopChatMessage({
       session: {
         apiConfigId: session.apiConfigId,
         agentId: session.agentId,
-        departmentId: session.departmentId || null,
         conversationId: session.conversationId || null,
       },
       partialAssistantText,

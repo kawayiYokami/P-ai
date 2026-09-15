@@ -93,7 +93,6 @@ fn active_plan_records_in_progress_should_return_newest_first() {
         id: conversation_id.to_string(),
         title: "active plan order".to_string(),
         agent_id: DEFAULT_AGENT_ID.to_string(),
-        department_id: String::new(),
         bound_conversation_id: None,
         parent_conversation_id: None,
         child_conversation_ids: Vec::new(),

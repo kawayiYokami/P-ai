@@ -23,8 +23,8 @@ type ChatWindowLocalToolsBindings = Record<string, any> & {
   personaEditorId: Ref<string>;
   personaDirty: Ref<boolean>;
   selectedPersonaEditor: Ref<{ name?: string } | null>;
-  assistantDepartmentAgentId: Ref<string>;
-  currentForegroundDepartmentId: Ref<string>;
+  assistantAgentId: Ref<string>;
+  currentForegroundAgentId: Ref<string>;
   selectedResponseStyleId: Ref<string>;
   selectedPdfReadMode: Ref<"text" | "image">;
   backgroundVoiceScreenshotKeywords: Ref<string>;
@@ -32,7 +32,7 @@ type ChatWindowLocalToolsBindings = Record<string, any> & {
   instructionPresets: Ref<any[]>;
   currentForegroundApiConfig: Ref<any>;
   config: AppConfig;
-  applyDepartmentPrimaryApiConfigLocally: (department: any, apiConfigId: string) => boolean;
+  applyAgentPrimaryApiConfigLocally: (agent: any, apiConfigId: string) => boolean;
 };
 
 export function useChatWindowLocalTools(bindings: ChatWindowLocalToolsBindings) {
@@ -47,44 +47,44 @@ export function useChatWindowLocalTools(bindings: ChatWindowLocalToolsBindings) 
     bindings.personaEditorId.value = nextId;
   }
 
-  function updateAssistantDepartmentAgentId(value: string) {
-    bindings.assistantDepartmentAgentId.value = value;
+  function updateAssistantAgentId(value: string) {
+    bindings.assistantAgentId.value = value;
   }
 
-  async function updateForegroundDepartmentPrimaryApiConfig(value: string) {
+  async function updateForegroundAgentPrimaryApiConfig(value: string) {
     const nextId = String(value || "").trim();
     if (!nextId) return;
     if (!bindings.config.apiConfigs.some((item: any) => String(item.id || "").trim() === nextId)) {
       console.warn("[聊天模型] 选择的模型不存在，忽略更新", { nextId });
       return;
     }
-    const currentDepartmentId = String(bindings.currentForegroundDepartmentId.value || "").trim();
-    const currentDepartment = bindings.config.departments.find(
-      (item: any) => String(item.id || "").trim() === currentDepartmentId,
+    const currentAgentId = String(bindings.currentForegroundAgentId.value || "").trim();
+    const currentAgent = bindings.personas.value.find(
+      (item: any) => String(item.id || "").trim() === currentAgentId,
     );
-    if (!currentDepartment) {
-      console.warn("[聊天模型] 当前前台部门不存在，忽略更新", { currentDepartmentId, nextId });
+    if (!currentAgent) {
+      console.warn("[聊天模型] 当前前台人格不存在，忽略更新", { currentAgentId, nextId });
       return;
     }
-    const previousDepartment = {
-      apiConfigId: String(currentDepartment.apiConfigId || "").trim(),
-      apiConfigIds: [...(currentDepartment.apiConfigIds || [])],
-      updatedAt: String(currentDepartment.updatedAt || ""),
+    const previousAgent = {
+      apiConfigId: String(currentAgent.apiConfigId || "").trim(),
+      apiConfigIds: [...(currentAgent.apiConfigIds || [])],
+      updatedAt: String(currentAgent.updatedAt || ""),
     };
     const previousSelectedApiConfigId = String(bindings.config.selectedApiConfigId || "").trim();
-    const changed = bindings.applyDepartmentPrimaryApiConfigLocally(currentDepartment, nextId);
+    const changed = bindings.applyAgentPrimaryApiConfigLocally(currentAgent, nextId);
     if (!changed) return;
     try {
-      await invokeTauri("department.primaryApi.set", {
+      await invokeTauri("set_agent_primary_api_config", {
         input: {
-          departmentId: currentDepartmentId,
+          agentId: currentAgentId,
           apiConfigId: nextId,
         },
       });
     } catch (error) {
-      currentDepartment.apiConfigId = previousDepartment.apiConfigId;
-      currentDepartment.apiConfigIds = previousDepartment.apiConfigIds;
-      currentDepartment.updatedAt = previousDepartment.updatedAt;
+      currentAgent.apiConfigId = previousAgent.apiConfigId;
+      currentAgent.apiConfigIds = previousAgent.apiConfigIds;
+      currentAgent.updatedAt = previousAgent.updatedAt;
       bindings.config.selectedApiConfigId = previousSelectedApiConfigId;
       bindings.setStatusError("status.saveConfigFailed", error);
     }
@@ -234,8 +234,8 @@ export function useChatWindowLocalTools(bindings: ChatWindowLocalToolsBindings) 
 
   return {
     updatePersonaEditorIdWithNotice,
-    updateAssistantDepartmentAgentId,
-    updateForegroundDepartmentPrimaryApiConfig,
+    updateAssistantAgentId,
+    updateForegroundAgentPrimaryApiConfig,
     updateSelectedResponseStyleId,
     updateSelectedPdfReadMode,
     updateBackgroundVoiceScreenshotKeywords,

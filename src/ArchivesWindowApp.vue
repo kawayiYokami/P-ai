@@ -18,8 +18,8 @@
       user-avatar-url=""
       :persona-name-map="personaNameMap"
       :persona-avatar-url-map="{}"
-      :create-conversation-department-options="[]"
-      default-create-conversation-department-id=""
+      :create-conversation-agent-options="[]"
+      default-create-conversation-agent-id=""
       :trim-tip="t('chat.trimTip')"
       :maximized="maximized"
       :window-ready="windowReady"
@@ -210,7 +210,7 @@ const config = reactive<AppConfig>({
   desktopOperationNoticeEnabled: true,
   desktopOperateEnabled: true,
   selectedApiConfigId: "",
-  assistantDepartmentApiConfigId: "",
+  expertApiConfigId: "",
   visionApiConfigId: undefined,
   imageGenerationModelId: undefined,
   toolReviewApiConfigId: undefined,
@@ -220,7 +220,6 @@ const config = reactive<AppConfig>({
   shellWorkspaces: [],
   mcpServers: [],
   remoteImChannels: [],
-  departments: [],
   apiProviders: [],
   imageProviders: [],
   apiConfigs: [],

@@ -81,7 +81,7 @@ fn migrate_legacy_runtime_state(
 ) -> Result<(), String> {
     // runtime_state k/v：配置与全局状态
     let kv_pairs: Vec<(&str, String)> = vec![
-        ("assistant_department_agent_id", legacy.assistant_department_agent_id.clone()),
+        ("assistant_agent_id", legacy.assistant_department_agent_id.clone()),
         ("response_style_id", legacy.response_style_id.clone()),
         ("pdf_read_mode", legacy.pdf_read_mode.clone()),
         ("background_voice_screenshot_keywords", legacy.background_voice_screenshot_keywords.clone()),

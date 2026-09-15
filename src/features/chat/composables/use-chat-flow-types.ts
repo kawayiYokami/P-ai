@@ -13,7 +13,7 @@ export type UseChatFlowOptions = {
   submitPending?: Ref<boolean>;
   trimming: Ref<boolean>;
   isConversationBusy?: () => boolean;
-  getSession: () => { apiConfigId: string; agentId: string; departmentId?: string } | null;
+  getSession: () => { apiConfigId: string; agentId: string } | null;
   getConversationId?: () => string;
   chatInput: Ref<string>;
   selectedMentions?: Ref<ChatMentionTarget[]>;
@@ -36,7 +36,7 @@ export type UseChatFlowOptions = {
     parts: ChatIngressPart[];
     extraTextBlocks?: string[];
     mentions?: ChatMentionTarget[];
-    session: { apiConfigId: string; agentId: string; departmentId?: string; conversationId?: string };
+    session: { apiConfigId: string; agentId: string; conversationId?: string };
     traceId: string;
     onDelta: TransportChannel<AssistantDeltaEvent>;
   }) => Promise<{
@@ -50,7 +50,7 @@ export type UseChatFlowOptions = {
     assistantMessageId?: string;
   }>;
   invokeStopChatMessage?: (input: {
-    session: { apiConfigId: string; agentId: string; departmentId?: string; conversationId?: string };
+    session: { apiConfigId: string; agentId: string; conversationId?: string };
     partialAssistantText: string;
     partialStreamBlocks: AssistantStreamBlock[];
   }) => Promise<{

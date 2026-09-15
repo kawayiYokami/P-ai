@@ -1,7 +1,6 @@
 fn persist_failed_chat_completed_tool_history(
     state: &AppState,
     requested_conversation_id: Option<&str>,
-    requested_department_id: Option<&str>,
     agent_id: &str,
     chat_key: &str,
     error: &str,
@@ -13,7 +12,6 @@ fn persist_failed_chat_completed_tool_history(
     let persist_result = conversation_service_v2().persist_stop_chat_partial_message(
         state,
         requested_conversation_id,
-        requested_department_id,
         agent_id,
         "",
         "",
@@ -139,7 +137,6 @@ fn merge_stream_block_tool_history(
 fn persist_aborted_chat_partial_result(
     state: &AppState,
     requested_conversation_id: Option<&str>,
-    requested_department_id: Option<&str>,
     agent_id: &str,
     chat_key: &str,
 ) -> Result<Option<SendChatResult>, String> {
@@ -173,7 +170,6 @@ fn persist_aborted_chat_partial_result(
     let persist_result = conversation_service_v2().persist_stop_chat_partial_message(
         state,
         Some(conversation_id),
-        requested_department_id,
         agent_id,
         &assistant_text,
         &reasoning_text,

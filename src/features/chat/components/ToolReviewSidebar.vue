@@ -241,8 +241,7 @@ const props = defineProps<{
   currentWorkspaceName: string;
   currentWorkspaceRootPath: string;
   workspaces: ShellWorkspace[];
-  currentDepartmentId: string;
-  departmentOptions: Array<{ id: string; name: string; ownerName: string; providerName?: string; modelName?: string }>;
+  agentOptions: Array<{ id: string; name: string; ownerName: string; providerName?: string; modelName?: string }>;
   delegateStatuses: ConversationDelegateStatusSummary[];
   delegateStatusesErrorText: string;
   personaAvatarUrlMap: Record<string, string>;

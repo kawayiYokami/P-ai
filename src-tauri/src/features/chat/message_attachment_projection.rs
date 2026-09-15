@@ -2,7 +2,6 @@ const PROMPT_MESSAGE_ABSTRACT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone)]
 struct MessageProjectionContext {
-    current_department_id: String,
     current_agent_id: String,
 }
 
@@ -197,7 +196,6 @@ fn project_message_attachments(
             }
         }
     }
-    let _ = context.current_department_id.as_str();
     PromptMessageProjectionOutcome {
         message: PromptMessageAbstract {
             schema_version: PROMPT_MESSAGE_ABSTRACT_SCHEMA_VERSION,
@@ -932,7 +930,6 @@ mod message_attachment_projection_tests {
         let outcome = project_message_attachments(
             &message,
             &MessageProjectionContext {
-                current_department_id: "department-a".to_string(),
                 current_agent_id: "agent-a".to_string(),
             },
         );
@@ -966,7 +963,6 @@ mod message_attachment_projection_tests {
                 name: "missing.png".to_string(),
             }]),
             &MessageProjectionContext {
-                current_department_id: "department-a".to_string(),
                 current_agent_id: "agent-a".to_string(),
             },
         );
@@ -989,14 +985,12 @@ mod message_attachment_projection_tests {
         let other = project_message_attachments(
             &message,
             &MessageProjectionContext {
-                current_department_id: "department-a".to_string(),
                 current_agent_id: "agent-a".to_string(),
             },
         );
         let own = project_message_attachments(
             &message,
             &MessageProjectionContext {
-                current_department_id: "department-a".to_string(),
                 current_agent_id: "agent-b".to_string(),
             },
         );
@@ -1015,7 +1009,6 @@ mod message_attachment_projection_tests {
                 name: "a.png".to_string(),
             }]),
             &MessageProjectionContext {
-                current_department_id: "department-a".to_string(),
                 current_agent_id: "agent-a".to_string(),
             },
         )
@@ -1080,7 +1073,6 @@ mod message_attachment_projection_tests {
                 name: "gone.png".to_string(),
             }]),
             &MessageProjectionContext {
-                current_department_id: "department-a".to_string(),
                 current_agent_id: "agent-a".to_string(),
             },
         )

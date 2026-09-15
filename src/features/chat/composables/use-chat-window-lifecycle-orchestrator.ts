@@ -40,7 +40,7 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
     enqueueTerminalApprovalRequest: bindings.enqueueTerminalApprovalRequest,
     clearMatchingConversationChatErrors: bindings.clearMatchingConversationChatErrors,
     refreshConversationHistory: bindings.refreshConversationHistory,
-    assistantDepartmentAgentId: bindings.assistantDepartmentAgentId,
+    assistantAgentId: bindings.assistantAgentId,
     personaEditorId: bindings.personaEditorId,
     userAlias: bindings.userAlias,
     selectedResponseStyleId: bindings.selectedResponseStyleId,
@@ -133,7 +133,6 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
 
   useChatRuntimeWatchers({
     viewMode: bindings.viewMode,
-    currentForegroundDepartmentId: bindings.currentForegroundDepartmentId,
     currentForegroundAgentId: bindings.currentForegroundAgentId,
     currentChatConversationId: bindings.currentChatConversationId,
     startupDataReady: bindings.startupDataReady,
@@ -194,7 +193,7 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
     personas: bindings.personas,
     userPersona: bindings.userPersona,
     assistantPersonas: bindings.assistantPersonas,
-    assistantDepartmentAgentId: bindings.assistantDepartmentAgentId,
+    assistantAgentId: bindings.assistantAgentId,
     personaEditorId: bindings.personaEditorId,
     selectedApiConfig: bindings.selectedApiConfig,
     toolApiConfig: bindings.toolApiConfig,

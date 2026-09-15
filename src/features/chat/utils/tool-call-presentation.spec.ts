@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createToolCallPresentation } from "./tool-call-presentation";
 
-function createPresentation(departments: Record<string, string> = {}) {
+function createPresentation(agentNames: Record<string, string> = {}) {
   return createToolCallPresentation({
     t: (key, params) => {
       const name = key.split(".").pop() || key;
       return params && Object.keys(params).length > 0 ? `${name}:${JSON.stringify(params)}` : name;
     },
-    departmentName: (id) => departments[id] || id,
+    agentName: (id) => agentNames[id] || id,
   });
 }
 
@@ -32,14 +32,14 @@ describe("createToolCallPresentation", () => {
     expect(summary).toBe("src/app.ts · offset: 20 · limit: 40");
   });
 
-  it("通过注入的部门名称生成委托摘要", () => {
-    const presentation = createPresentation({ coding: "开发部" });
+  it("通过注入的人格名称生成委托摘要", () => {
+    const presentation = createPresentation({ coding: "开发人格" });
     const summary = presentation.toolCallSummaryText({
       name: "delegate",
-      argsText: JSON.stringify({ task_name: "修复", department_id: "coding", mode: "wait", question: "检查问题" }),
+      argsText: JSON.stringify({ task_name: "修复", agent_id: "coding", mode: "wait", question: "检查问题" }),
     });
 
-    expect(summary).toContain("开发部");
+    expect(summary).toContain("开发人格");
     expect(summary).toContain("等待结果");
   });
 });

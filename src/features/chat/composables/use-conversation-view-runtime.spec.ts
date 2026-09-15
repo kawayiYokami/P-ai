@@ -76,7 +76,6 @@ async function createRuntime(conversationId = "conversation-a", subscriptionSlot
     conversationId: id,
     apiConfigId: ref("api-a"),
     agentId: ref("agent-a"),
-    departmentId: ref("department-a"),
     subscriptionSlot,
     t: (key) => key,
   }));

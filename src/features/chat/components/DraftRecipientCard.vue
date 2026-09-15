@@ -60,7 +60,7 @@
             {{ selectedOption ? selectedOption.agentName : t("chat.draftRecipientPlaceholder") }}
           </div>
           <div class="text-sm text-base-content/60">
-            {{ selectedOption ? selectedOption.departmentName : t("chat.draftRecipientPickHint") }}
+            {{ selectedOption ? optionSubLabel(selectedOption) : t("chat.draftRecipientPickHint") }}
           </div>
         </div>
       </div>
@@ -104,7 +104,7 @@
                 <button
                   type="button"
                   class="flex w-full flex-col items-center gap-1.5"
-                  @click="emit('change', { departmentId: selectedOption.departmentId, agentId: selectedOption.agentId })"
+                  @click="emit('change', { agentId: selectedOption.agentId })"
                 >
                   <div class="avatar">
                     <div class="h-14 w-14 rounded-full ring-2 ring-primary">
@@ -125,8 +125,11 @@
                   <span class="max-w-full truncate text-center text-xs leading-tight text-base-content/80">
                     {{ selectedOption.agentName }}
                   </span>
-                  <span class="max-w-full truncate rounded-full px-1.5 py-0.5 text-caption leading-tight bg-primary/15 font-medium text-primary">
-                    {{ selectedOption.departmentName }}
+                  <span
+                    v-if="optionSubLabel(selectedOption)"
+                    class="max-w-full truncate rounded-full px-1.5 py-0.5 text-caption leading-tight bg-primary/15 font-medium text-primary"
+                  >
+                    {{ optionSubLabel(selectedOption) }}
                   </span>
                 </button>
               </div>
@@ -145,68 +148,52 @@
             </template>
             <template v-else>
             <div
-              v-for="group in recentGroups"
-              :key="group.agentId"
+              v-for="option in recentOptions"
+              :key="option.id"
               class="flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-2xl border border-base-300/70 bg-base-100/60 px-1 py-2.5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-base-100 hover:shadow-lg"
-              :class="selectedAgentId === group.agentId ? 'border-primary/60 bg-primary/10' : ''"
+              :class="selectedAgentId === option.agentId ? 'border-primary/60 bg-primary/10' : ''"
             >
               <button
                 type="button"
                 class="flex w-full flex-col items-center gap-1.5"
-                @click="emit('change', { departmentId: group.departments[0].departmentId, agentId: group.agentId })"
+                @click="emit('change', { agentId: option.agentId })"
               >
                 <div class="avatar">
                   <div
                     class="h-14 w-14 rounded-full transition-shadow"
-                    :class="selectedAgentId === group.agentId ? 'ring-2 ring-primary' : ''"
+                    :class="selectedAgentId === option.agentId ? 'ring-2 ring-primary' : ''"
                   >
                     <img
-                      v-if="resolveAvatarUrl(group.agentId)"
-                      :src="resolveAvatarUrl(group.agentId)"
-                      :alt="group.agentName"
+                      v-if="resolveAvatarUrl(option.agentId)"
+                      :src="resolveAvatarUrl(option.agentId)"
+                      :alt="option.agentName"
                       class="h-14 w-14 rounded-full object-cover"
                     />
                     <div
                       v-else
                       class="flex h-14 w-14 items-center justify-center rounded-full bg-primary/80 text-lg font-semibold text-primary-content"
                     >
-                      {{ agentInitials(group.agentName) }}
+                      {{ agentInitials(option.agentName) }}
                     </div>
                   </div>
                 </div>
                 <span class="max-w-full truncate text-center text-xs leading-tight text-base-content/80">
-                  {{ group.agentName }}
+                  {{ option.agentName }}
                 </span>
                 <span
+                  v-if="optionSubLabel(option)"
                   class="max-w-full truncate rounded-full px-1.5 py-0.5 text-caption leading-tight"
-                  :class="group.departments[0].id === selectedId
+                  :class="option.id === selectedId
                     ? 'bg-primary/15 font-medium text-primary'
                     : 'bg-base-content/10 text-base-content/60'"
                 >
-                  {{ group.departments[0].departmentName }}
+                  {{ optionSubLabel(option) }}
                 </span>
               </button>
-              <div
-                v-if="group.departments.length > 1"
-                class="flex w-full flex-col items-stretch gap-0.5"
-              >
-                <button
-                  v-for="deptOption in group.departments.slice(1)"
-                  :key="deptOption.id"
-                  type="button"
-                  class="flex items-center justify-center gap-1 rounded-full px-1.5 py-0.5 text-caption leading-tight transition-colors"
-                  :class="deptOption.id === selectedId
-                    ? 'bg-primary/15 font-medium text-primary'
-                    : 'bg-base-content/10 text-base-content/60 hover:bg-base-content/15 hover:text-base-content'"
-                  @click="emit('change', { departmentId: deptOption.departmentId, agentId: deptOption.agentId })"
-                >
-                  <span class="max-w-full truncate">{{ deptOption.departmentName }}</span>
-                </button>
-              </div>
             </div>
 
             <button
-              v-if="recentGroups.length > 0"
+              v-if="recentOptions.length > 0"
               type="button"
               class="flex w-20 shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-base-content/25 px-1 py-2.5 text-base-content/55 transition-colors hover:border-primary/50 hover:bg-base-100/70 hover:text-base-content"
               @click="expanded = true"
@@ -232,64 +219,48 @@
             <div class="min-h-0 flex-1 overflow-y-auto">
               <div class="flex max-w-full flex-wrap items-stretch justify-center gap-3">
                 <div
-                  v-for="group in allGroups"
-                  :key="group.agentId"
+                  v-for="option in options"
+                  :key="option.id"
                   class="flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-2xl border border-base-300/70 bg-base-100/60 px-1 py-2.5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-base-100 hover:shadow-lg"
-                  :class="selectedAgentId === group.agentId ? 'border-primary/60 bg-primary/10' : ''"
+                  :class="selectedAgentId === option.agentId ? 'border-primary/60 bg-primary/10' : ''"
                 >
                   <button
                     type="button"
                     class="flex w-full flex-col items-center gap-1.5"
-                    @click="handleSelectFromAll(group.departments[0])"
+                    @click="handleSelectFromAll(option)"
                   >
                     <div class="avatar">
                       <div
                         class="h-14 w-14 rounded-full transition-shadow"
-                        :class="selectedAgentId === group.agentId ? 'ring-2 ring-primary' : ''"
+                        :class="selectedAgentId === option.agentId ? 'ring-2 ring-primary' : ''"
                       >
                         <img
-                          v-if="resolveAvatarUrl(group.agentId)"
-                          :src="resolveAvatarUrl(group.agentId)"
-                          :alt="group.agentName"
+                          v-if="resolveAvatarUrl(option.agentId)"
+                          :src="resolveAvatarUrl(option.agentId)"
+                          :alt="option.agentName"
                           class="h-14 w-14 rounded-full object-cover"
                         />
                         <div
                           v-else
                           class="flex h-14 w-14 items-center justify-center rounded-full bg-primary/80 text-lg font-semibold text-primary-content"
                         >
-                          {{ agentInitials(group.agentName) }}
+                          {{ agentInitials(option.agentName) }}
                         </div>
                       </div>
                     </div>
                     <span class="max-w-full truncate text-center text-xs leading-tight text-base-content/80">
-                      {{ group.agentName }}
+                      {{ option.agentName }}
                     </span>
                     <span
+                      v-if="optionSubLabel(option)"
                       class="max-w-full truncate rounded-full px-1.5 py-0.5 text-caption leading-tight"
-                      :class="group.departments[0].id === selectedId
+                      :class="option.id === selectedId
                         ? 'bg-primary/15 font-medium text-primary'
                         : 'bg-base-content/10 text-base-content/60'"
                     >
-                      {{ group.departments[0].departmentName }}
+                      {{ optionSubLabel(option) }}
                     </span>
                   </button>
-                  <div
-                    v-if="group.departments.length > 1"
-                    class="flex w-full flex-col items-stretch gap-0.5"
-                  >
-                    <button
-                      v-for="deptOption in group.departments.slice(1)"
-                      :key="deptOption.id"
-                      type="button"
-                      class="flex items-center justify-center gap-1 rounded-full px-1.5 py-0.5 text-caption leading-tight transition-colors"
-                      :class="deptOption.id === selectedId
-                        ? 'bg-primary/15 font-medium text-primary'
-                        : 'bg-base-content/10 text-base-content/60 hover:bg-base-content/15 hover:text-base-content'"
-                      @click="handleSelectFromAll(deptOption)"
-                    >
-                      <span class="max-w-full truncate">{{ deptOption.departmentName }}</span>
-                    </button>
-                  </div>
                 </div>
               </div>
             </div>
@@ -327,19 +298,13 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useI18n } from "vue-i18n";
 import { ArrowLeft, Pencil, UserPlus } from "@lucide/vue";
 import { gitPanelBranchList, gitPanelCheckoutCheck, gitPanelCheckout } from "../../../services/tauri-api";
-import { departmentPersonaOptionId, type DepartmentPersonaOption } from "../../shared/department-persona-options";
+import { agentPersonaOptionId, type AgentPersonaOption } from "../../shared/agent-persona-options";
 import WorkspaceConfigCard from "../../shared/components/WorkspaceConfigCard.vue";
 import WorkspaceDirectoryPickerDialog from "../../shared/components/WorkspaceDirectoryPickerDialog.vue";
 import type { ShellWorkspace, ShellWorkMode } from "../../../types/app";
 import { stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
 import { pushRecentWorkspacePath } from "../../../utils/recent-workspaces";
 import { extractAvatarGlowColor } from "../../shared/utils/avatar-glow-color";
-
-interface RecentRecipientGroup {
-  agentId: string;
-  agentName: string;
-  departments: DepartmentPersonaOption[];
-}
 
 type WorkspaceOption = {
   id: string;
@@ -351,9 +316,8 @@ type WorkspaceOption = {
 type ShellWorkspaceAccess = WorkspaceOption["access"];
 
 const props = withDefaults(defineProps<{
-  options?: DepartmentPersonaOption[];
-  recentOptions?: DepartmentPersonaOption[];
-  selectedDepartmentId?: string;
+  options?: AgentPersonaOption[];
+  recentOptions?: AgentPersonaOption[];
   selectedAgentId?: string;
   avatarUrlMap?: Record<string, string>;
   title?: string;
@@ -371,7 +335,6 @@ const props = withDefaults(defineProps<{
 }>(), {
   options: () => [],
   recentOptions: () => [],
-  selectedDepartmentId: "",
   selectedAgentId: "",
   avatarUrlMap: () => ({}),
   title: "",
@@ -385,7 +348,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-  change: [value: { departmentId: string; agentId: string }];
+  change: [value: { agentId: string }];
   "update:title": [value: string];
   recruit: [];
 }>();
@@ -849,11 +812,10 @@ watch(
 
 // ========== 人格候选 ==========
 
-// 选中 HR（人力部 + 默认人格）时进入收敛态：卡片墙仅保留当前 HR 卡 + 「返回」入口
+// 选中 HR（人力人格）时进入收敛态：卡片墙仅保留当前 HR 卡 + 「返回」入口
 const isHRSelected = computed(() => {
-  const departmentId = String(props.selectedDepartmentId || "").trim();
   const agentId = String(props.selectedAgentId || "").trim();
-  return departmentId === "hr-department" && agentId === "default-agent";
+  return agentId === "hr";
 });
 
 // 手动展开过全量卡片墙后，即使仍选中 HR 也保持展示（返回不改变选中，仅恢复卡片墙）
@@ -864,29 +826,25 @@ watch(isHRSelected, (hr) => {
 // HR 收敛态是否生效
 const hrCollapsed = computed(() => isHRSelected.value && !exitHRView.value);
 
-// 返回：退出 HR 收敛态，并自动切到最近用过的 agent（recentGroups 首位，已排除当前会话）
+// 返回：退出 HR 收敛态，并自动切到最近用过的 agent（recentOptions 首位，已排除当前会话）
 function handleExitHR() {
   exitHRView.value = true;
   expanded.value = false;
-  const recent = recentGroups.value[0];
-  if (recent?.departments[0]) {
-    emit("change", {
-      departmentId: recent.departments[0].departmentId,
-      agentId: recent.departments[0].agentId,
-    });
+  const recent = recentOptions.value[0];
+  if (recent) {
+    emit("change", { agentId: recent.agentId });
   }
 }
 
 const selectedAgentId = computed(() => String(props.selectedAgentId || "").trim());
 
 const selectedId = computed(() => {
-  const departmentId = String(props.selectedDepartmentId || "").trim();
   const agentId = String(props.selectedAgentId || "").trim();
-  if (!departmentId || !agentId) return "";
-  return departmentPersonaOptionId(departmentId, agentId);
+  if (!agentId) return "";
+  return agentPersonaOptionId(agentId);
 });
 
-const selectedOption = computed<DepartmentPersonaOption | null>(() => {
+const selectedOption = computed<AgentPersonaOption | null>(() => {
   const id = selectedId.value;
   if (!id) return null;
   return (
@@ -896,41 +854,19 @@ const selectedOption = computed<DepartmentPersonaOption | null>(() => {
   );
 });
 
-// 行星候选按人格（agentId）聚合：一个人格一个卡片，卡片内列出最近用过的部门行
-const recentGroups = computed<RecentRecipientGroup[]>(() => {
-  const groups: RecentRecipientGroup[] = [];
-  const groupByAgentId = new Map<string, RecentRecipientGroup>();
-  for (const option of props.recentOptions) {
-    const agentId = String(option.agentId || "").trim();
-    if (!agentId) continue;
-    let group = groupByAgentId.get(agentId);
-    if (!group) {
-      group = { agentId, agentName: option.agentName, departments: [] };
-      groupByAgentId.set(agentId, group);
-      groups.push(group);
-    }
-    group.departments.push(option);
-  }
-  return groups;
-});
+// 行星候选直接按人格（agentId）铺开展示：组织已扁平为「人格即目标」，一个人格一张卡片
+const recentOptions = computed<AgentPersonaOption[]>(() => props.recentOptions);
 
-// 全量候选按人格（agentId）聚合：与近期区同款卡片，一个人格一张卡，卡内列出该人格用过的部门行
-const allGroups = computed<RecentRecipientGroup[]>(() => {
-  const groups: RecentRecipientGroup[] = [];
-  const groupByAgentId = new Map<string, RecentRecipientGroup>();
-  for (const option of props.options) {
-    const agentId = String(option.agentId || "").trim();
-    if (!agentId) continue;
-    let group = groupByAgentId.get(agentId);
-    if (!group) {
-      group = { agentId, agentName: option.agentName, departments: [] };
-      groupByAgentId.set(agentId, group);
-      groups.push(group);
-    }
-    group.departments.push(option);
-  }
-  return groups;
-});
+const allOptions = computed<AgentPersonaOption[]>(() => props.options);
+
+// 卡片副标签：以模型名（取不到时退回供应商名）表达这张卡指向的运行时
+function optionSubLabel(option: AgentPersonaOption): string {
+  const model = String(option.modelName || "").trim();
+  if (model) return model;
+  const provider = String(option.providerName || "").trim();
+  if (provider) return provider;
+  return option.modelMissing ? t("chat.personaModelNotConfigured") : "";
+}
 
 function resolveAvatarUrl(agentId: string): string {
   return props.avatarUrlMap?.[agentId] || "";
@@ -964,9 +900,9 @@ function agentInitials(name: string): string {
   return text.charAt(0).toUpperCase();
 }
 
-function handleSelectFromAll(option: DepartmentPersonaOption) {
+function handleSelectFromAll(option: AgentPersonaOption) {
   // 切换人格后保持全量卡片墙展开，不自动收起，方便连续比较与再切换
-  emit("change", { departmentId: option.departmentId, agentId: option.agentId });
+  emit("change", { agentId: option.agentId });
 }
 </script>
 

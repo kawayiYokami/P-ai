@@ -25,7 +25,6 @@ fn build_remote_im_enqueue_input(
         dingtalk_session_webhook_expired_time: None,
         session: SessionSelector {
             api_config_id: None,
-            department_id: None,
             agent_id: String::new(),
             conversation_id: None,
         },

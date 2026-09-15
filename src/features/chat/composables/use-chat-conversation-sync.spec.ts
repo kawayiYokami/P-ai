@@ -89,7 +89,7 @@ describe("applyConversationOverviewItemUpdated", () => {
   it("仅 agentId 变化（草稿切换人格）时必须替换列表项", () => {
     const bindings = createBindings();
     bindings.unarchivedConversations.value = [
-      { ...overviewItem("a", "2026-08-09T11:00:00"), agentId: "persona-old", departmentId: "dept-1" },
+      { ...overviewItem("a", "2026-08-09T11:00:00"), agentId: "persona-old" },
     ];
     const { applyConversationOverviewItemUpdated } = useChatConversationSync(bindings);
     const before = bindings.unarchivedConversations.value;
@@ -98,30 +98,11 @@ describe("applyConversationOverviewItemUpdated", () => {
       conversation: {
         ...overviewItem("a", "2026-08-09T11:00:00"),
         agentId: "persona-new",
-        departmentId: "dept-1",
       },
     });
 
     expect(bindings.unarchivedConversations.value).not.toBe(before);
     expect(bindings.unarchivedConversations.value[0].agentId).toBe("persona-new");
-  });
-
-  it("仅 departmentId 变化时必须替换列表项", () => {
-    const bindings = createBindings();
-    bindings.unarchivedConversations.value = [
-      { ...overviewItem("a", "2026-08-09T11:00:00"), agentId: "persona-1", departmentId: "dept-old" },
-    ];
-    const { applyConversationOverviewItemUpdated } = useChatConversationSync(bindings);
-
-    applyConversationOverviewItemUpdated({
-      conversation: {
-        ...overviewItem("a", "2026-08-09T11:00:00"),
-        agentId: "persona-1",
-        departmentId: "dept-new",
-      },
-    });
-
-    expect(bindings.unarchivedConversations.value[0].departmentId).toBe("dept-new");
   });
 
   it("lastError 变化时同步到会话错误文本，为空时清除", () => {

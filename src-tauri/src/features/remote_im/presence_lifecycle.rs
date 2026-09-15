@@ -221,13 +221,10 @@ fn spawn_remote_im_departure_reflection_delegate(
         meme_annotations: None,
     });
     let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-    let department = runtime_department_by_id(&runtime_snapshot, &assistant.department_id)
-        .ok_or_else(|| format!("负责部门不存在：{}", assistant.department_id))?;
-    let api_config_id = department_primary_chat_api_config_id(
-        &runtime_snapshot.config,
-        department,
-    )
-    .ok_or_else(|| format!("负责部门没有可用模型：{}", assistant.department_id))?;
+    let agent = runtime_agent_by_id(&runtime_snapshot, &assistant.agent_id)
+        .ok_or_else(|| format!("负责人格不存在：{}", assistant.agent_id))?;
+    let api_config_id = agent_primary_chat_api_config_id(&runtime_snapshot.config, agent)
+        .ok_or_else(|| format!("负责人格没有可用模型：{}", assistant.agent_id))?;
     let delegate = delegate_store_create_delegate(
         &state.data_path,
         &remote_im_departure_reflection_delegate_input(&contact, &context, &assistant),
@@ -324,8 +321,6 @@ fn remote_im_departure_reflection_delegate_input(
         kind: "remote_im_departure_reflection".to_string(),
         conversation_id: context.id.clone(),
         parent_delegate_id: None,
-        source_department_id: assistant.department_id.clone(),
-        target_department_id: assistant.department_id.clone(),
         source_agent_id: assistant.agent_id.clone(),
         target_agent_id: assistant.agent_id.clone(),
         title: format!(

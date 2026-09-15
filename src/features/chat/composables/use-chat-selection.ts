@@ -15,13 +15,12 @@ export interface UseChatSelectionOptions {
     selectionActionCopyError: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; error: string }) => void;
     selectionActionBranch: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string }) => void;
     selectionActionForward: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; target: ConversationForwardTarget }) => void;
-    selectionActionDelegate: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }) => void;
+    selectionActionDelegate: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; agentId: string; presetId: string; why: string; goal: string; todo: string }) => void;
     selectionActionShare: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; exportFormat?: "html" | "png" | "copyPng" }) => void;
   };
 }
 
 type DelegateActionPayload = {
-  departmentId: string;
   agentId: string;
   presetId: string;
   why: string;
@@ -156,10 +155,9 @@ export function useChatSelection(options: UseChatSelectionOptions) {
       return;
     }
     if (kind === "delegate") {
-      if (!actionPayload || typeof actionPayload === "string" || !("departmentId" in actionPayload)) return;
+      if (!actionPayload || typeof actionPayload === "string" || !("agentId" in actionPayload)) return;
       onEmit.selectionActionDelegate({
         ...payload,
-        departmentId: String(actionPayload.departmentId || "").trim(),
         agentId: String(actionPayload.agentId || "").trim(),
         presetId: String(actionPayload.presetId || "review").trim() || "review",
         why: String(actionPayload.why || "").trim(),

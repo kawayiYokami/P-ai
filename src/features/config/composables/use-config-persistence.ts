@@ -20,7 +20,6 @@ import type {
   RemoteImChannelConfig,
 } from "../../../types/app";import type { SupportedLocale } from "../../../i18n";
 import { normalizeApiRequestFormat } from "../utils/api-request-format";
-import { normalizeDepartmentChildIds } from "../utils/department-graph";
 import {
   normalizeImageGenerationModelId,
   normalizeImageGenerationProviders,
@@ -52,8 +51,7 @@ function describeConfigRepairs(
     return String(matched?.name || target).trim();
   };
   const details = repairs
-    .map((repair) => t("status.configRepairDepartmentAgent", {
-      department: String(repair.departmentName || repair.departmentId || "").trim(),
+    .map((repair) => t("status.configRepairAgent", {
       persona: agentName(repair.agentId),
     }))
     .join("；");
@@ -74,7 +72,7 @@ type UseConfigPersistenceOptions = {
   savingPersonas: Ref<boolean>;
   personas: Ref<PersonaProfile[]>;
   assistantPersonas: ComputedRef<PersonaProfile[]>;
-  assistantDepartmentAgentId: Ref<string>;
+  assistantAgentId: Ref<string>;
   personaEditorId: Ref<string>;
   userAlias: Ref<string>;
   selectedResponseStyleId: Ref<string>;
@@ -96,54 +94,6 @@ type UseConfigPersistenceOptions = {
   perfNow?: () => number;
   perfLog?: (label: string, startedAt: number) => void;
 };
-
-function mapDepartmentConfig(item: unknown): AppConfig["departments"][number] {
-  const apiConfigIds = Array.isArray((item as { apiConfigIds?: unknown[] })?.apiConfigIds)
-    ? ((item as { apiConfigIds?: unknown[] }).apiConfigIds || []).map((v) => String(v || "").trim()).filter(Boolean)
-    : [];
-  const legacyApiConfigId = String((item as { apiConfigId?: unknown })?.apiConfigId || "").trim();
-  const normalizedApiConfigIds = Array.from(new Set((apiConfigIds.length > 0 ? apiConfigIds : [legacyApiConfigId]).filter(Boolean)));
-  const source = String((item as { source?: unknown })?.source || "").trim() || "main_config";
-  const isPrivateWorkspaceDepartment = source === "private_workspace";
-  const effectiveApiConfigIds = isPrivateWorkspaceDepartment
-    ? normalizedApiConfigIds.slice(0, 1)
-    : normalizedApiConfigIds;
-  const permissionControlRaw = (item as { permissionControl?: Record<string, unknown> | null })?.permissionControl;
-  const normalizeNameList = (value: unknown): string[] =>
-    Array.isArray(value)
-      ? Array.from(new Set(value.map((v) => String(v || "").trim()).filter(Boolean)))
-      : [];
-  return {
-    id: String((item as { id?: unknown })?.id || "").trim(),
-    name: String((item as { name?: unknown })?.name || "").trim(),
-    summary: String((item as { summary?: unknown })?.summary || "").trim(),
-    guide: String((item as { guide?: unknown })?.guide || "").trim(),
-    apiConfigId: effectiveApiConfigIds[0] || "",
-    apiConfigIds: effectiveApiConfigIds,
-    // 请求失败自动切换机制已禁用：恒为关闭，后端候选队列恒只取第一个模型
-    modelFailureFallbackEnabled: false,
-    agentIds: Array.isArray((item as { agentIds?: unknown[] })?.agentIds)
-      ? ((item as { agentIds?: unknown[] }).agentIds || []).map((v) => String(v || "").trim()).filter(Boolean)
-      : [],
-    childDepartmentIds: normalizeDepartmentChildIds(
-      (item as { childDepartmentIds?: unknown[] })?.childDepartmentIds,
-      String((item as { id?: unknown })?.id || "").trim(),
-    ),
-    createdAt: String((item as { createdAt?: unknown })?.createdAt || "").trim(),
-    updatedAt: String((item as { updatedAt?: unknown })?.updatedAt || "").trim(),
-    orderIndex: Math.max(1, Number((item as { orderIndex?: unknown })?.orderIndex || 1)),
-    isBuiltInAssistant: !!(item as { isBuiltInAssistant?: unknown })?.isBuiltInAssistant,
-    source,
-    scope: String((item as { scope?: unknown })?.scope || "").trim() || "global",
-    permissionControl: {
-      enabled: !!permissionControlRaw?.enabled,
-      mode: String(permissionControlRaw?.mode || "").trim() === "whitelist" ? "whitelist" : "blacklist",
-      builtinToolNames: normalizeNameList(permissionControlRaw?.builtinToolNames),
-      skillNames: normalizeNameList(permissionControlRaw?.skillNames),
-      mcpToolNames: normalizeNameList(permissionControlRaw?.mcpToolNames),
-    },
-  };
-}
 
 function normalizeLlmRoundLogCapacity(value: unknown): 1 | 3 | 10 {
   const numeric = Math.round(Number(value));
@@ -328,7 +278,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.config.desktopOperationNoticeEnabled = (cfg as { desktopOperationNoticeEnabled?: unknown }).desktopOperationNoticeEnabled !== false;
     options.config.desktopOperateEnabled = (cfg as { desktopOperateEnabled?: unknown }).desktopOperateEnabled !== false;
     options.config.selectedApiConfigId = cfg.selectedApiConfigId;
-    options.config.assistantDepartmentApiConfigId = cfg.assistantDepartmentApiConfigId;
+    options.config.expertApiConfigId = cfg.expertApiConfigId;
     options.config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
     options.config.imageProviders = normalizeImageGenerationProviders(
       (cfg as Partial<AppConfig>).imageProviders,
@@ -342,9 +292,6 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.config.sttAutoSend = !!cfg.sttAutoSend;
     options.config.terminalShellKind = String((cfg as AppConfig).terminalShellKind ?? "");
     options.config.simpleSetupMode = (cfg as { simpleSetupMode?: unknown }).simpleSetupMode !== false;
-    options.config.departments = Array.isArray((cfg as AppConfig).departments)
-      ? (cfg.departments || []).map(mapDepartmentConfig)
-      : [];
     options.config.shellWorkspaces = Array.isArray(cfg.shellWorkspaces)
       ? cfg.shellWorkspaces
           .map((v) => ({
@@ -458,7 +405,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     );
     options.normalizeApiBindingsLocal();
     lastConversationApiSettingsJson = JSON.stringify({
-      assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
+      expertApiConfigId: options.config.expertApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId || null,
       toolReviewApiConfigId: options.config.toolReviewApiConfigId || null,
       sttApiConfigId: options.config.sttApiConfigId || null,
@@ -478,20 +425,20 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
           }))
         : [],
     }));
-    if (!options.assistantPersonas.value.some((p) => p.id === options.assistantDepartmentAgentId.value)) {
-      options.assistantDepartmentAgentId.value = options.assistantPersonas.value[0]?.id ?? "default-agent";
+    if (!options.assistantPersonas.value.some((p) => p.id === options.assistantAgentId.value)) {
+      options.assistantAgentId.value = options.assistantPersonas.value[0]?.id ?? "default-agent";
     }
     if (!options.personas.value.some((p) => p.id === options.personaEditorId.value)) {
-      options.personaEditorId.value = options.assistantDepartmentAgentId.value;
+      options.personaEditorId.value = options.assistantAgentId.value;
     }
     options.syncUserAliasFromPersona();
     options.lastSavedPersonasJson.value = options.buildPersonasSnapshotJson();
   }
 
   function applyLoadedChatSettings(settings: ChatSettings) {
-    options.assistantDepartmentAgentId.value = String(settings.assistantDepartmentAgentId ?? "").trim();
+    options.assistantAgentId.value = String(settings.assistantAgentId ?? "").trim();
     if (!options.personas.value.some((p) => p.id === options.personaEditorId.value)) {
-      options.personaEditorId.value = options.assistantDepartmentAgentId.value;
+      options.personaEditorId.value = options.assistantAgentId.value;
     }
     options.userAlias.value = String(settings.userAlias ?? "");
     if (typeof settings.responseStyleId === "string") {
@@ -572,7 +519,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.desktopOperationNoticeEnabled = (saved as { desktopOperationNoticeEnabled?: unknown }).desktopOperationNoticeEnabled !== false;
       options.config.desktopOperateEnabled = (saved as { desktopOperateEnabled?: unknown }).desktopOperateEnabled !== false;
       options.config.selectedApiConfigId = saved.selectedApiConfigId;
-      options.config.assistantDepartmentApiConfigId = saved.assistantDepartmentApiConfigId;
+      options.config.expertApiConfigId = saved.expertApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
       options.config.imageProviders = normalizeImageGenerationProviders(
         (saved as Partial<AppConfig>).imageProviders,
@@ -585,9 +532,6 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
       options.config.sttAutoSend = !!saved.sttAutoSend;
       options.config.terminalShellKind = String((saved as AppConfig).terminalShellKind ?? "");
-      options.config.departments = Array.isArray(saved.departments)
-        ? (saved.departments || []).map(mapDepartmentConfig)
-        : [];
       options.config.shellWorkspaces = Array.isArray(saved.shellWorkspaces)
         ? saved.shellWorkspaces
             .map((v) => ({
@@ -743,7 +687,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       const list = await invokeTauri<PersonaProfile[]>("load_agents");
       applyLoadedPersonas(list);
       await options.preloadPersonaAvatars();
-      await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
+      await options.syncTrayIcon(options.assistantAgentId.value);
     } catch (e) {
       options.setStatusError("status.loadPersonasFailed", e);
     } finally {
@@ -757,7 +701,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       const settings = await invokeTauri<ChatSettings>("load_chat_settings");
       applyLoadedChatSettings(settings);
       lastChatSettingsJson = JSON.stringify({
-        assistantDepartmentAgentId: options.assistantDepartmentAgentId.value,
+        assistantAgentId: options.assistantAgentId.value,
         userAlias: options.userAlias.value,
         responseStyleId: options.selectedResponseStyleId.value,
         pdfReadMode: options.selectedPdfReadMode.value,
@@ -765,7 +709,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
         backgroundVoiceScreenshotMode: options.backgroundVoiceScreenshotMode.value,
         instructionPresets: options.instructionPresets.value,
       });
-      await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
+      await options.syncTrayIcon(options.assistantAgentId.value);
     } catch (e) {
       options.setStatusError("status.loadChatSettingsFailed", e);
     } finally {
@@ -800,7 +744,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
 
       const tSnapshotJson = perfNow?.();
       lastChatSettingsJson = JSON.stringify({
-        assistantDepartmentAgentId: options.assistantDepartmentAgentId.value,
+        assistantAgentId: options.assistantAgentId.value,
         userAlias: options.userAlias.value,
         responseStyleId: options.selectedResponseStyleId.value,
         pdfReadMode: options.selectedPdfReadMode.value,
@@ -809,7 +753,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
         instructionPresets: options.instructionPresets.value,
       });
       lastConversationApiSettingsJson = JSON.stringify({
-        assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
+        expertApiConfigId: options.config.expertApiConfigId,
         visionApiConfigId: options.config.visionApiConfigId || null,
         toolReviewApiConfigId: options.config.toolReviewApiConfigId || null,
         sttApiConfigId: options.config.sttApiConfigId || null,
@@ -826,7 +770,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       }
 
       const tSyncTray = perfNow?.();
-      await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
+      await options.syncTrayIcon(options.assistantAgentId.value);
       if (tSyncTray !== undefined) perfLog?.("loadBootstrapSnapshot/syncTrayIcon", tSyncTray);
 
       options.setStatus(options.t("status.configLoaded"));
@@ -904,7 +848,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
 
   async function saveChatPreferences() {
     await patchChatSettings({
-      assistantDepartmentAgentId: options.assistantDepartmentAgentId.value,
+      assistantAgentId: options.assistantAgentId.value,
       userAlias: options.userAlias.value,
       responseStyleId: options.selectedResponseStyleId.value,
       pdfReadMode: options.selectedPdfReadMode.value,
@@ -916,7 +860,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
 
   async function saveConversationApiSettings() {
     await patchConversationApiSettings({
-      assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
+      expertApiConfigId: options.config.expertApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId || null,
       toolReviewApiConfigId: options.config.toolReviewApiConfigId || null,
       sttApiConfigId: options.config.sttApiConfigId || null,
@@ -927,11 +871,11 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
   async function patchChatSettings(patch: ChatSettingsPatch) {
     if (options.suppressAutosave.value) return;
     const normalizedPatch: ChatSettingsPatch = {};
-    if (Object.prototype.hasOwnProperty.call(patch, "assistantDepartmentAgentId")) {
-      const targetAgentId = options.assistantPersonas.value.some((p) => p.id === patch.assistantDepartmentAgentId)
-        ? patch.assistantDepartmentAgentId
+    if (Object.prototype.hasOwnProperty.call(patch, "assistantAgentId")) {
+      const targetAgentId = options.assistantPersonas.value.some((p) => p.id === patch.assistantAgentId)
+        ? patch.assistantAgentId
         : options.assistantPersonas.value[0]?.id || "default-agent";
-      normalizedPatch.assistantDepartmentAgentId = targetAgentId;
+      normalizedPatch.assistantAgentId = targetAgentId;
     }
     if (Object.prototype.hasOwnProperty.call(patch, "userAlias")) {
       normalizedPatch.userAlias = String(patch.userAlias || "");
@@ -961,9 +905,9 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     }
     if (Object.keys(normalizedPatch).length === 0) return;
     const nextChatSettingsJson = JSON.stringify({
-      assistantDepartmentAgentId: Object.prototype.hasOwnProperty.call(normalizedPatch, "assistantDepartmentAgentId")
-        ? normalizedPatch.assistantDepartmentAgentId
-        : options.assistantDepartmentAgentId.value,
+      assistantAgentId: Object.prototype.hasOwnProperty.call(normalizedPatch, "assistantAgentId")
+        ? normalizedPatch.assistantAgentId
+        : options.assistantAgentId.value,
       userAlias: Object.prototype.hasOwnProperty.call(normalizedPatch, "userAlias")
         ? normalizedPatch.userAlias
         : options.userAlias.value,
@@ -991,7 +935,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       const saved = await invokeTauri<ChatSettings>("patch_chat_settings", { input: normalizedPatch });
       applyLoadedChatSettings(saved);
       lastChatSettingsJson = JSON.stringify({
-        assistantDepartmentAgentId: options.assistantDepartmentAgentId.value,
+        assistantAgentId: options.assistantAgentId.value,
         userAlias: options.userAlias.value,
         responseStyleId: options.selectedResponseStyleId.value,
         pdfReadMode: options.selectedPdfReadMode.value,
@@ -1000,7 +944,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
         instructionPresets: options.instructionPresets.value,
       });
       options.setStatus(options.t("status.chatSettingsSaved"));
-      await options.syncTrayIcon(options.assistantDepartmentAgentId.value);
+      await options.syncTrayIcon(options.assistantAgentId.value);
     } catch (e) {
       options.setStatusError("status.saveChatSettingsFailed", e);
     } finally {
@@ -1012,8 +956,8 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
   async function patchConversationApiSettings(patch: ConversationApiSettingsPatch) {
     if (options.suppressAutosave.value) return;
     const normalizedPatch: ConversationApiSettingsPatch = {};
-    if (Object.prototype.hasOwnProperty.call(patch, "assistantDepartmentApiConfigId")) {
-      normalizedPatch.assistantDepartmentApiConfigId = String(patch.assistantDepartmentApiConfigId || "");
+    if (Object.prototype.hasOwnProperty.call(patch, "expertApiConfigId")) {
+      normalizedPatch.expertApiConfigId = String(patch.expertApiConfigId || "");
     }
     if (Object.prototype.hasOwnProperty.call(patch, "visionApiConfigId")) {
       normalizedPatch.visionApiConfigId = patch.visionApiConfigId ?? null;
@@ -1029,9 +973,9 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     }
     if (Object.keys(normalizedPatch).length === 0) return;
     const nextPayloadJson = JSON.stringify({
-      assistantDepartmentApiConfigId: Object.prototype.hasOwnProperty.call(normalizedPatch, "assistantDepartmentApiConfigId")
-        ? normalizedPatch.assistantDepartmentApiConfigId
-        : options.config.assistantDepartmentApiConfigId,
+      expertApiConfigId: Object.prototype.hasOwnProperty.call(normalizedPatch, "expertApiConfigId")
+        ? normalizedPatch.expertApiConfigId
+        : options.config.expertApiConfigId,
       visionApiConfigId: Object.prototype.hasOwnProperty.call(normalizedPatch, "visionApiConfigId")
         ? normalizedPatch.visionApiConfigId
         : options.config.visionApiConfigId || null,
@@ -1052,7 +996,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       const saved = await invokeTauri<ConversationApiSettings>("patch_conversation_api_settings", {
         input: normalizedPatch,
       });
-      options.config.assistantDepartmentApiConfigId = saved.assistantDepartmentApiConfigId;
+      options.config.expertApiConfigId = saved.expertApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
       options.config.toolReviewApiConfigId = saved.toolReviewApiConfigId ?? undefined;
       options.config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
@@ -1060,7 +1004,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.normalizeApiBindingsLocal();
       options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
       lastConversationApiSettingsJson = JSON.stringify({
-        assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
+        expertApiConfigId: options.config.expertApiConfigId,
         visionApiConfigId: options.config.visionApiConfigId || null,
         toolReviewApiConfigId: options.config.toolReviewApiConfigId || null,
         sttApiConfigId: options.config.sttApiConfigId || null,

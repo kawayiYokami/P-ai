@@ -18,7 +18,6 @@ import {
 export type ConversationStreamCache = {
   activationId?: string;
   requestId?: string;
-  departmentId?: string;
   speakerAgentId?: string;
   startedAt?: string;
   startedAtMs?: number;
@@ -35,7 +34,6 @@ export type ConversationStreamCache = {
 export type ConversationRuntimeStreamCacheSnapshot = {
   activationId?: string;
   requestId?: string;
-  departmentId?: string;
   agentId?: string;
   speakerAgentId?: string;
   startedAt?: string;
@@ -93,7 +91,6 @@ function emptyConversationStreamCache(): ConversationStreamCache {
   return {
     activationId: "",
     requestId: "",
-    departmentId: "",
     speakerAgentId: "",
     startedAt: "",
     startedAtMs: 0,
@@ -119,7 +116,6 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
     return {
       activationId: String(cache.activationId || "").trim(),
       requestId: String(cache.requestId || "").trim(),
-      departmentId: String(cache.departmentId || "").trim(),
       speakerAgentId: String(cache.speakerAgentId || "").trim(),
       startedAt: String(cache.startedAt || "").trim(),
       startedAtMs: positiveRoundedNumber(cache.startedAtMs),
@@ -145,7 +141,6 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
       ...next,
       activationId: String(next.activationId || "").trim(),
       requestId: String(next.requestId || "").trim(),
-      departmentId: String(next.departmentId || "").trim(),
       speakerAgentId: String(next.speakerAgentId || "").trim(),
       startedAt: String(next.startedAt || "").trim(),
       startedAtMs: positiveRoundedNumber(next.startedAtMs),
@@ -172,7 +167,6 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
       assistantText: String(display?.assistantText || current.assistantText || ""),
       activationId: activeActivationId,
       requestId: activeActivationId,
-      departmentId: current.departmentId,
       speakerAgentId: current.speakerAgentId,
       startedAt: current.startedAt,
       startedAtMs: current.startedAtMs,
@@ -215,7 +209,6 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
     writeConversationStreamCache(cid, (current) => ({
       activationId: String(snapshot.activationId || snapshot.requestId || current.activationId || "").trim(),
       requestId: String(snapshot.requestId || snapshot.activationId || current.requestId || "").trim(),
-      departmentId: String(snapshot.departmentId || current.departmentId || "").trim(),
       speakerAgentId: String(snapshotSpeakerAgentId || current.speakerAgentId || "").trim(),
       startedAt: String(snapshot.startedAt || current.startedAt || "").trim(),
       startedAtMs: positiveRoundedNumber(snapshot.startedAtMs || current.startedAtMs),
@@ -256,7 +249,6 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
         ...current,
         activationId: String(parsed.activationId || parsed.requestId || current.activationId || activeActivationId || "").trim(),
         requestId: String(parsed.requestId || parsed.activationId || current.requestId || activeActivationId || "").trim(),
-        departmentId: String(eventStreamCache?.departmentId || current.departmentId || "").trim(),
         speakerAgentId: String(eventSpeakerAgentId || current.speakerAgentId || "").trim(),
         startedAt: current.startedAt,
         startedAtMs: current.startedAtMs,

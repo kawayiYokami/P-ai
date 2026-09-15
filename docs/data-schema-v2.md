@@ -43,8 +43,10 @@
 
 顶层字段（`types_config.rs`）：
 
-- 标量：`hotkey`、`uiLanguage`、`uiFont`、`codeFont`、`uiSizeScale`（别名 `uiSizePreset`）、`webAccessPort`、`webAccessEnabled`、`webAccessPassword`、`githubUpdateMethod`、`skippedGithubUpdateVersion`、`recordHotkey`、`recordBackgroundWakeEnabled`、`minRecordSeconds`、`maxRecordSeconds`、`toolMaxIterations`、`llmRoundLogCapacity`、`messageNotificationEnabled`、`messageNotificationSoundEnabled`、`desktopOperationNoticeEnabled`、`desktopOperateEnabled`、`selectedApiConfigId`、`assistantDepartmentApiConfigId`（别名 `chatApiConfigId`）、`visionApiConfigId`、`toolReviewApiConfigId`、`sttApiConfigId`、`imageGenerationModelId`、`sttAutoSend`、`terminalShellKind`、`simpleSetupMode`
-- 数组：`shellWorkspaces[]`、`mcpServers[]`、`remoteImChannels[]`、`departments[]`、`providerNonStreamBaseUrls[]`、`apiProviders[]`、`imageProviders[]`、`apiConfigs[]`
+- 标量：`hotkey`、`uiLanguage`、`uiFont`、`codeFont`、`uiSizeScale`（别名 `uiSizePreset`）、`webAccessPort`、`webAccessEnabled`、`webAccessPassword`、`githubUpdateMethod`、`skippedGithubUpdateVersion`、`recordHotkey`、`recordBackgroundWakeEnabled`、`minRecordSeconds`、`maxRecordSeconds`、`toolMaxIterations`、`llmRoundLogCapacity`、`messageNotificationEnabled`、`messageNotificationSoundEnabled`、`desktopOperationNoticeEnabled`、`desktopOperateEnabled`、`selectedApiConfigId`、`expertApiConfigId`（别名 `chatApiConfigId`；旧键 `assistantDepartmentApiConfigId`）、`visionApiConfigId`、`toolReviewApiConfigId`、`sttApiConfigId`、`imageGenerationModelId`、`sttAutoSend`、`terminalShellKind`、`simpleSetupMode`
+- 数组：`shellWorkspaces[]`、`mcpServers[]`、`remoteImChannels[]`、`providerNonStreamBaseUrls[]`、`apiProviders[]`、`imageProviders[]`、`apiConfigs[]`
+
+> 旧配置里的 `departments[]` 已不是本应用的字段，只在 V5 数据迁移里被读取一次（`agent_org_migration.rs`）。
 
 ## 2. config/agents.json
 
@@ -85,7 +87,7 @@ PRAGMA：WAL、synchronous=NORMAL、foreign_keys=ON、busy_timeout=10000（`sqli
 | `message_locator` | `conversation_id`, `sequence`, `message_id`, `block_id`, `byte_offset`, `byte_len`, `compaction_kind`, `role`, `created_at` | PK(conversation_id, sequence)；UNIQUE(conversation_id, message_id)；正文定位权威 |
 | `active_plan_records` | `conversation_id`, `plan_id`, `record_json` | PK(conversation_id, plan_id) |
 | `storage_operations` | `operation_id` PK, `conversation_id`, `before_revision`, `after_revision`, `state`, `detail_json`, `created_at`, `committed_at` | 追加/替换/截断/splice 原子接口追踪 |
-| `usage_trail` | `bucket`, `conversation_id`, `agent_id`, `department_id`, `conversation_kind`, `api_config_id`, `provider_key`, `provider_label`, `model_name`, `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `updated_at` | PK(bucket, conversation_id, provider_key, model_name)；用量统计 |
+| `usage_trail` | `bucket`, `conversation_id`, `agent_id`, `department_id`（历史列，已不再读写）, `conversation_kind`, `api_config_id`, `provider_key`, `provider_label`, `model_name`, `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `updated_at` | PK(bucket, conversation_id, provider_key, model_name)；用量统计 |
 
 - `role` / `created_at` 两列是启动期 ALTER 补加（`sqlite.rs`）
 - `bucket` 为本地时区小时桶 `YYYY-MM-DDTHH:00:00`，按凌晨 4 点分界（`usage_trail.rs`）
@@ -97,7 +99,7 @@ PRAGMA：WAL、synchronous=NORMAL、foreign_keys=ON、busy_timeout=10000（`sqli
 | 文件/目录 | 内容 |
 |---|---|
 | `manifest.json` | `MessageStoreManifest`（`manifest.rs`）：`version`(=1)、`messageStoreKind`(conversationJson\|jsonlSnapshot)、`migrationState`(none\|building\|ready\|failed\|rollback)、`sourceConversationRevision`、`sourceMessageCount`、`lastMessageId`、`messagesJsonlBytes`、`messagesIndexRevision`、`updatedAt` |
-| `meta.json` | `ConversationPersistMeta`（`meta.rs`）：`metaSchemaVersion`、`id`、`title`、`agentId`、`departmentId`、`boundConversationId`、`parentConversationId`、`childConversationIds`、`forkMessageCursor`、`unreadCount`、`conversationKind`、`rootConversationId`、`delegateId`、`createdAt`、`updatedAt`、`lastUserAt`、`lastAssistantAt`、`status`、`userProfileSnapshot`、`shellWorkspacePath`、`shellWorkspaces`、`shellAutonomousMode`、`shellWorkMode`、`archivedAt`、`currentTodos`、`memoryRecallTable`、`planModeEnabled`、`preferredApiConfigId`、`isDraft`、`autoPushRemoteContactId`、`cumulativeUsage`、`activeGoal`、`fastRequestTurns`、`lastMessageId`、`lastMessageAt`、`messageCount`、`bodyMessageCount`、`bodyTextLength`、`hasAssistantReply`、`hasContextCompactionMessage`、`latestSummaryTitle`、`previewMessages` |
+| `meta.json` | `ConversationPersistMeta`（`meta.rs`）：`metaSchemaVersion`、`id`、`title`、`agentId`、`boundConversationId`、`parentConversationId`、`childConversationIds`、`forkMessageCursor`、`unreadCount`、`conversationKind`、`rootConversationId`、`delegateId`、`createdAt`、`updatedAt`、`lastUserAt`、`lastAssistantAt`、`status`、`userProfileSnapshot`、`shellWorkspacePath`、`shellWorkspaces`、`shellAutonomousMode`、`shellWorkMode`、`archivedAt`、`currentTodos`、`memoryRecallTable`、`planModeEnabled`、`preferredApiConfigId`、`isDraft`、`autoPushRemoteContactId`、`cumulativeUsage`、`activeGoal`、`fastRequestTurns`、`lastMessageId`、`lastMessageAt`、`messageCount`、`bodyMessageCount`、`bodyTextLength`、`hasAssistantReply`、`hasContextCompactionMessage`、`latestSummaryTitle`、`previewMessages` |
 | `messages.idx.json` | `MessageStoreIndexFile`（`index.rs`）：`version`(=1)、`items[]`，每项 `messageId`、`blockId`、`offset`、`byteLen`；`compactionKind`/`role`/`createdAt` 为运行时字段、序列化时清空 |
 | `blocks/000000.jsonl` | V3 明文块：每行一个消息 JSON |
 | `blocks/000000.jsonl.zstd` | V4 压缩块：整块单帧 zstd + 原子写 |
@@ -132,7 +134,7 @@ PRAGMA：WAL、synchronous=NORMAL、foreign_keys=ON、temp_store=MEMORY（`db.rs
 
 `task_record`（`store.rs`）：
 
-`task_id` PK、`conversation_id`、`department_id`、`agent_id`、`target_scope` DEFAULT 'desktop'、`order_index`、`title`、`cause`、`goal`、`flow`、`todos_json`、`status_summary`、`completion_state`、`completion_conclusion`、`progress_notes_json`、`stage_key`、`stage_updated_at_utc`、`trigger_kind`、`run_at_utc`、`cron_expression`、`every_minutes`、`end_at_utc`、`created_at_utc`、`updated_at_utc`、`last_triggered_at_utc`、`completed_at_utc`。
+`task_id` PK、`conversation_id`、`department_id`（历史列，已不再读写）、`agent_id`、`target_scope` DEFAULT 'desktop'、`order_index`、`title`、`cause`、`goal`、`flow`、`todos_json`、`status_summary`、`completion_state`、`completion_conclusion`、`progress_notes_json`、`stage_key`、`stage_updated_at_utc`、`trigger_kind`、`run_at_utc`、`cron_expression`、`every_minutes`、`end_at_utc`、`created_at_utc`、`updated_at_utc`、`last_triggered_at_utc`、`completed_at_utc`。
 
 辅助表：`task_runtime_state`（`state_key` PK, `state_value`, `updated_at_utc`）、`task_run_log`（`id` PK AUTOINCREMENT, `task_id`, `triggered_at_utc`, `outcome`, `note`）。
 
@@ -140,7 +142,7 @@ PRAGMA：WAL、synchronous=NORMAL、foreign_keys=ON、temp_store=MEMORY（`db.rs
 
 `delegate_record`（`store.rs`）：
 
-- 基础列：`delegate_id` PK、`kind`、`conversation_id`、`parent_delegate_id`、`source_department_id`、`target_department_id`、`source_agent_id`、`target_agent_id`、`title`、`why`、`goal`、`todo`、`notify_assistant_when_done`、`call_stack_json`、`status`、`created_at`、`updated_at`、`delivered_at`、`completed_at`
+- 基础列：`delegate_id` PK、`kind`、`conversation_id`、`parent_delegate_id`、`source_department_id`、`target_department_id`（两列均为历史列，已放宽为可空且不再写入）、`source_agent_id`、`target_agent_id`、`title`、`why`、`goal`、`todo`、`notify_assistant_when_done`、`call_stack_json`、`status`、`created_at`、`updated_at`、`delivered_at`、`completed_at`
 - 迁移追加的快照列：`snapshot_conversation_id`、`snapshot_updated_at`、`snapshot_archived_at`、`snapshot_last_message_at`、`snapshot_message_count`、`snapshot_step_count`、`snapshot_tool_call_count`、`snapshot_last_tool_name`、`snapshot_input_token_count`、`snapshot_output_token_count`、`snapshot_cache_read_token_count`、`snapshot_cache_write_token_count`、`snapshot_cumulative_usage_json`
 
 `why`/`goal`/`todo` 由旧列（`background`/`instruction`/`question`/`specific_goal`/`deliverable_requirement`/`focus`）迁移重建而来。

@@ -877,29 +877,24 @@ fn resolve_chat_tool_session_id(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        let (department_id, conversation_agent_id) = match conversation_service_v2()
+        let conversation_agent_id = match conversation_service_v2()
             .get_conversation_meta(state, conversation_id)
         {
-            Ok(meta) => (meta.department_id, meta.agent_id),
+            Ok(meta) => meta.agent_id,
             Err(primary_error) => match delegate_runtime_thread_conversation_get_any(
                 state,
                 conversation_id,
             )? {
-                Some(conversation) => (conversation.department_id, conversation.agent_id),
+                Some(conversation) => conversation.agent_id,
                 None => return Err(primary_error),
             },
         };
-        let department_id = department_id.trim().to_string();
-        let session_scope = if department_id.is_empty() {
-            conversation_agent_id.trim().to_string()
-        } else {
-            department_id
-        };
-        if session_scope.is_empty() {
-            return Err(format!("指定会话缺少部门或 Agent 标识：{conversation_id}"));
+        let conversation_agent_id = conversation_agent_id.trim().to_string();
+        if conversation_agent_id.is_empty() {
+            return Err(format!("指定会话缺少 Agent 标识：{conversation_id}"));
         }
         return Ok(normalize_terminal_tool_session_id(&inflight_chat_key(
-            &session_scope,
+            &conversation_agent_id,
             Some(conversation_id),
         )));
     }
@@ -922,21 +917,7 @@ fn resolve_chat_tool_session_id(
         return Err(format!("Selected agent '{agent}' not found."));
     }
 
-    let department_id = conversation_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .and_then(|conversation_id| {
-            conversation_service_v2()
-                .get_conversation_meta(state, conversation_id)
-                .ok()
-        })
-        .and_then(|conversation_meta| {
-            let department_id = conversation_meta.department_id.trim();
-            (!department_id.is_empty()).then(|| department_id.to_string())
-        })
-        .or_else(|| department_for_agent_id(&config, agent).map(|department| department.id.clone()))
-        .unwrap_or_else(|| agent.to_string());
-    let session_id = inflight_chat_key(&department_id, conversation_id);
+    let session_id = inflight_chat_key(agent, conversation_id);
     Ok(normalize_terminal_tool_session_id(&session_id))
 }
 

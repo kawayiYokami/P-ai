@@ -2386,7 +2386,6 @@ mod message_store_reader_tests {
             id: "conversation-reader".to_string(),
             title: "reader".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),

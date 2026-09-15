@@ -42,75 +42,36 @@ fn resolve_channel_config(
     Ok((channel_id, channel))
 }
 
-fn resolve_department_agent_pair(
+fn resolve_contact_agent_id(
     state: &AppState,
-    requested_department_id: Option<&str>,
     requested_agent_id: Option<&str>,
-    config: &AppConfig,
-) -> Result<(String, String), String> {
-    let requested_department_id = requested_department_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
+) -> Result<String, String> {
     let requested_agent_id = requested_agent_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_default();
-    let default_agent_id = state_service_get_assistant_department_agent_id(state)?;
-    let hint_agent_id = if !requested_agent_id.is_empty() {
-        requested_agent_id.as_str()
+        .map(ToOwned::to_owned);
+    let default_agent_id = state_service_get_assistant_agent_id(state)?;
+    let hint_agent_id = if let Some(agent_id) = requested_agent_id.as_deref() {
+        agent_id
     } else {
         default_agent_id.as_str()
     };
 
-    // 部门：显式绑定的部门已被删除时回落到助理部门，不让这条路由直接断掉
-    let requested_department = requested_department_id
-        .as_deref()
-        .and_then(|department_id| department_by_id(config, department_id));
-    if requested_department_id.is_some() && requested_department.is_none() {
-        runtime_log_warn(format!(
-            "[远程IM] 路由部门已不存在，回落到助理部门: department_id={}",
-            requested_department_id.as_deref().unwrap_or("")
-        ));
-    }
-    let department = if let Some(department) = requested_department {
-        department
-    } else {
-        department_for_agent_id(config, hint_agent_id)
-            .or_else(|| assistant_department(config))
-            .ok_or_else(|| "路由部门不存在".to_string())?
-    };
-
-    // 人格：显式请求的按原样使用（部门成员列表只是归属配置，不作为路由资格）；
-    // 只给了部门时取该部门第一个成员；该部门没有可用成员则回落到当前助理人格。
-    let agent_id = if !requested_agent_id.is_empty() {
-        requested_agent_id
-    } else if requested_department_id.is_some() {
-        match department
-            .agent_ids
-            .iter()
-            .map(|id| id.trim())
-            .find(|id| !id.is_empty())
-        {
-            Some(member_id) => member_id.to_string(),
-            None => {
-                runtime_log_warn(format!(
-                    "[远程IM] 路由部门没有可用人格，回落到当前助理人格: department_id={}",
-                    department.id
-                ));
-                default_agent_id.clone()
-            }
+    let snapshot = load_runtime_organization_snapshot(state)?;
+    // 显式绑定的人格已被删除时回落到助理人格，不让这条路由直接断掉。
+    let agent = match runtime_agent_by_id(&snapshot, hint_agent_id) {
+        Some(agent) => agent,
+        None => {
+            runtime_log_warn(format!(
+                "[远程IM] 路由人格已不存在，回落到助理人格: agent_id={hint_agent_id}"
+            ));
+            runtime_agent_by_id(&snapshot, &default_agent_id)
+                .ok_or_else(|| format!("助理人格不存在: {default_agent_id}"))?
         }
-    } else {
-        default_agent_id.clone()
     };
-    if agent_id.is_empty() {
-        return Err(format!("路由人格为空: departmentId={}", department.id));
-    }
-    department_primary_chat_api_config_id(config, department)
-        .ok_or_else(|| format!("部门模型未配置或不可用于聊天: {}", department.id))?;
-    Ok((department.id.clone(), agent_id))
+    agent_primary_chat_api_config_id(&snapshot.config, agent)
+        .ok_or_else(|| format!("人格模型未配置或不可用于聊天: {}", agent.id))?;
+    Ok(agent.id.clone())
 }
 
 fn validate_enqueue_input(
@@ -177,14 +138,8 @@ fn ensure_remote_im_contact_conversation_id(
     state: &AppState,
     contact: &mut RemoteImContact,
 ) -> Result<String, String> {
-    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-    let binding_pair = match resolve_department_agent_pair(
-        state,
-        contact.bound_department_id.as_deref(),
-        contact.bound_agent_id.as_deref(),
-        &runtime_snapshot.config,
-    ) {
-        Ok(pair) => Some(pair),
+    let binding_agent_id = match resolve_contact_agent_id(state, contact.bound_agent_id.as_deref()) {
+        Ok(agent_id) => Some(agent_id),
         Err(err) => {
             runtime_log_warn(format!(
                 "[远程IM] 跳过，任务=同步联系人会话绑定，contact_id={}，原因={}",
@@ -193,8 +148,7 @@ fn ensure_remote_im_contact_conversation_id(
             None
         }
     };
-    if let Some((department_id, agent_id)) = binding_pair.as_ref() {
-        contact.bound_department_id = Some(department_id.clone());
+    if let Some(agent_id) = binding_agent_id.as_ref() {
         contact.bound_agent_id = Some(agent_id.clone());
     }
     if let Some(bound_conversation_id) = contact
@@ -231,11 +185,10 @@ fn ensure_remote_im_contact_conversation_id(
         return Ok(found_id);
     }
 
-    let (department_id, agent_id) = binding_pair.unwrap_or_default();
+    let agent_id = binding_agent_id.unwrap_or_default();
     let conversation = conversation_service_v2().create_remote_im_contact_conversation(
         state,
         &remote_im_contact_conversation_title(contact),
-        &department_id,
         &agent_id,
         &target_key,
     )?;
@@ -276,8 +229,6 @@ fn sync_remote_im_contact_conversation_binding(
     state: &AppState,
     contact: &RemoteImContact,
     conversation_id: &str,
-    _department_id: &str,
-    _agent_id: &str,
 ) -> Result<(), String> {
     let normalized_conversation_id = conversation_id.trim();
     if normalized_conversation_id.is_empty() {
@@ -296,7 +247,7 @@ fn sync_remote_im_contact_conversation_binding(
     };
     let original_meta = conversation_service_v2()
         .get_conversation_meta(state, normalized_conversation_id)?;
-    let mut last_written = None::<(RemoteImContact, String, String)>;
+    let mut last_written = None::<(RemoteImContact, String)>;
     for attempt in 0..4 {
         let Some(authoritative_contact) =
             state_service_get_remote_im_contact(state, &contact.id)?
@@ -320,23 +271,11 @@ fn sync_remote_im_contact_conversation_binding(
             ));
             return Ok(());
         }
-        let runtime_snapshot = match load_runtime_organization_snapshot(state) {
-            Ok(snapshot) => snapshot,
-            Err(err) => {
-                runtime_log_warn(format!(
-                    "[远程IM] 跳过，任务=同步联系人会话绑定，contact_id={}，conversation_id={}，原因=读取组织配置失败，error={}",
-                    contact.id, normalized_conversation_id, err
-                ));
-                return Ok(());
-            }
-        };
-        let (department_id, agent_id) = match resolve_department_agent_pair(
+        let agent_id = match resolve_contact_agent_id(
             state,
-            authoritative_contact.bound_department_id.as_deref(),
             authoritative_contact.bound_agent_id.as_deref(),
-            &runtime_snapshot.config,
         ) {
-            Ok(pair) => pair,
+            Ok(agent_id) => agent_id,
             Err(err) => {
                 runtime_log_warn(format!(
                     "[远程IM] 跳过，任务=同步联系人会话绑定，contact_id={}，conversation_id={}，原因={} ",
@@ -346,16 +285,11 @@ fn sync_remote_im_contact_conversation_binding(
             }
         };
         let baseline = remote_im_contact_binding_snapshot(&authoritative_contact);
-        last_written = Some((
-            authoritative_contact.clone(),
-            department_id.clone(),
-            agent_id.clone(),
-        ));
+        last_written = Some((authoritative_contact.clone(), agent_id.clone()));
         if let Err(err) = sync_remote_im_contact_conversation_binding_unchecked(
             state,
             &authoritative_contact,
             normalized_conversation_id,
-            &department_id,
             &agent_id,
         ) {
             runtime_log_warn(format!(
@@ -367,7 +301,6 @@ fn sync_remote_im_contact_conversation_binding(
                 normalized_conversation_id,
                 &original_meta,
                 &authoritative_contact,
-                &department_id,
                 &agent_id,
             ) {
                 runtime_log_warn(format!(
@@ -389,7 +322,6 @@ fn sync_remote_im_contact_conversation_binding(
                     normalized_conversation_id,
                     &original_meta,
                     &authoritative_contact,
-                    &department_id,
                     &agent_id,
                 )?;
                 return Ok(());
@@ -401,7 +333,6 @@ fn sync_remote_im_contact_conversation_binding(
                 normalized_conversation_id,
                 &original_meta,
                 &authoritative_contact,
-                &department_id,
                 &agent_id,
             )?;
             return Ok(());
@@ -427,7 +358,6 @@ fn sync_remote_im_contact_conversation_binding(
                 normalized_conversation_id,
                 &original_meta,
                 &authoritative_contact,
-                &department_id,
                 &agent_id,
             )?;
             return Ok(());
@@ -437,13 +367,12 @@ fn sync_remote_im_contact_conversation_binding(
         "[远程IM] 联系人绑定持续变化，回滚本次会话路由变更，contact_id={}，conversation_id={}",
         contact.id, normalized_conversation_id
     ));
-    if let Some((written_contact, written_department_id, written_agent_id)) = last_written {
+    if let Some((written_contact, written_agent_id)) = last_written {
         restore_remote_im_contact_conversation_binding(
             state,
             normalized_conversation_id,
             &original_meta,
             &written_contact,
-            &written_department_id,
             &written_agent_id,
         )?;
     }
@@ -455,7 +384,6 @@ fn restore_remote_im_contact_conversation_binding(
     conversation_id: &str,
     original_meta: &ConversationMetaView,
     written_contact: &RemoteImContact,
-    written_department_id: &str,
     written_agent_id: &str,
 ) -> Result<(), String> {
     let expected_root = remote_im_contact_conversation_key(written_contact);
@@ -463,13 +391,11 @@ fn restore_remote_im_contact_conversation_binding(
         state,
         conversation_id,
         |conversation| {
-            if conversation.department_id.trim() != written_department_id.trim()
-                || conversation.agent_id.trim() != written_agent_id.trim()
+            if conversation.agent_id.trim() != written_agent_id.trim()
                 || conversation.root_conversation_id.as_deref() != Some(expected_root.as_str())
             {
                 return Ok(false);
             }
-            conversation.department_id = original_meta.department_id.clone();
             conversation.agent_id = original_meta.agent_id.clone();
             conversation.root_conversation_id = original_meta.root_conversation_id.clone();
             conversation.conversation_kind = original_meta.conversation_kind.clone();
@@ -493,7 +419,6 @@ fn sync_remote_im_contact_conversation_binding_unchecked(
     state: &AppState,
     contact: &RemoteImContact,
     conversation_id: &str,
-    department_id: &str,
     agent_id: &str,
 ) -> Result<(), String> {
     let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
@@ -509,7 +434,6 @@ fn sync_remote_im_contact_conversation_binding_unchecked(
         return Ok(());
     }
     let target_key = remote_im_contact_conversation_key(contact);
-    let department_changed = conversation_meta.department_id.trim() != department_id;
     let agent_changed = conversation_meta.agent_id.trim() != agent_id;
     let root_changed = conversation_meta.root_conversation_id.as_deref() != Some(target_key.as_str());
     let preferred_api_changed = conversation_meta
@@ -518,9 +442,8 @@ fn sync_remote_im_contact_conversation_binding_unchecked(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .is_some();
-    if department_changed || agent_changed || root_changed || preferred_api_changed {
+    if agent_changed || root_changed || preferred_api_changed {
         state_update_conversation_metadata_cached(state, conversation_id, |conversation| {
-            conversation.department_id = department_id.to_string();
             conversation.agent_id = agent_id.to_string();
             conversation.root_conversation_id = Some(target_key);
             conversation.preferred_api_config_id = None;
@@ -546,22 +469,16 @@ fn remote_im_meta_is_reusable_active_contact_conversation(
 fn resolve_contact_session_target(
     state: &AppState,
     contact: &mut RemoteImContact,
-) -> Result<(String, String, String), String> {
+) -> Result<(String, String), String> {
     let runtime_snapshot = load_runtime_organization_snapshot(state)?;
     let effective_route_mode =
         remote_im_resolve_effective_route_mode(&runtime_snapshot.config, contact);
     contact.route_mode = effective_route_mode.clone();
 
-    let (department_id, agent_id) = resolve_department_agent_pair(
-        state,
-        contact.bound_department_id.as_deref(),
-        contact.bound_agent_id.as_deref(),
-        &runtime_snapshot.config,
-    )?;
-    contact.bound_department_id = Some(department_id.clone());
+    let agent_id = resolve_contact_agent_id(state, contact.bound_agent_id.as_deref())?;
     contact.bound_agent_id = Some(agent_id.clone());
     let conversation_id = ensure_remote_im_contact_conversation_id(state, contact)?;
-    Ok((department_id, agent_id, conversation_id))
+    Ok((agent_id, conversation_id))
 }
 
 fn build_chat_message_from_input(

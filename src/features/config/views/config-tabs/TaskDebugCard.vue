@@ -49,14 +49,12 @@
 
               <label class="block space-y-2">
                 <span class="block text-sm font-medium">{{ t("config.task.fields.owner") }}</span>
-                <DepartmentPersonaSelect
-                  v-model:department-id="form.departmentId"
+                <AgentPersonaSelect
                   v-model:agent-id="form.agentId"
-                  :departments="config.departments"
                   :personas="personas"
                   :persona-avatar-url-map="personaAvatarUrlMap"
                   :api-configs="config.apiConfigs"
-                  :assistant-department-api-config-id="config.assistantDepartmentApiConfigId"
+                  :expert-api-config-id="config.expertApiConfigId"
                   :tool-review-api-config-id="config.toolReviewApiConfigId"
                   :placeholder="t('config.task.ownerDefault')"
                   :disabled="!editable || saving"
@@ -219,7 +217,7 @@ import { Trash2 } from "@lucide/vue";
 import type { TaskEditorForm, TaskEditorMode, TaskEntry, TaskRunLogEntry } from "./task-editor";
 import { formatIsoToLocalDateTime } from "../../../../utils/time";
 import type { AppConfig, PersonaProfile } from "../../../../types/app";
-import DepartmentPersonaSelect from "../../../shared/components/DepartmentPersonaSelect.vue";
+import AgentPersonaSelect from "../../../shared/components/AgentPersonaSelect.vue";
 import TaskDateTimeInput from "./TaskDateTimeInput.vue";
 
 const props = defineProps<{

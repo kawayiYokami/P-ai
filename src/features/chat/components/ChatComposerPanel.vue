@@ -14,7 +14,7 @@
       :active-conversation-id="activeConversationId"
       :unarchived-conversation-items="unarchivedConversationItems"
       :remote-im-contact-conversations="remoteImContactConversations"
-      :create-conversation-department-options="createConversationDepartmentOptions"
+      :create-conversation-agent-options="createConversationAgentOptions"
       :persona-avatar-url-map="personaAvatarUrlMap"
       :active-agent-id="activeAgentId"
       @exit-selection-mode="emit('exitSelectionMode')"
@@ -79,7 +79,7 @@
           <div v-if="selectedMentions.length > 0" class="mb-2 flex flex-wrap gap-1">
             <span
               v-for="item in selectedMentions"
-              :key="`${item.agentId}:${item.departmentId}`"
+              :key="item.agentId"
               class="badge gap-1 bg-base-300 px-3 py-3 text-sm text-base-content border-transparent"
             >
               <span class="max-w-40 truncate leading-none">@{{ mentionDisplayLabel(item) }}</span>
@@ -156,7 +156,7 @@
                   <ul class="flex flex-col gap-1">
                     <li
                       v-for="(item, index) in filteredMentionOptions"
-                      :key="`${item.agentId}:${item.departmentId}`"
+                      :key="item.agentId"
                     >
                       <button
                         type="button"
@@ -344,18 +344,16 @@ import InputPanelToolbar from "./input-panel/InputPanelToolbar.vue";
 import { useChatQueue, type ChatQueueEvent } from "../composables/use-chat-queue";
 import { chatInputEnterConfirmsComposition } from "../composables/chat-composer-ime";
 import { clearChatComposerFocus, registerChatComposerFocus } from "../composables/chat-composer-focus";
-import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
+import type { AgentPersonaOption } from "../../shared/agent-persona-options";
 import { ideContextReferenceDisplayParts } from "../utils/ide-context-reference-display";
 import { mergeComposerIdeContextGroups } from "../utils/ide-context-reference-groups";
 
 type BinaryAttachment = { mime: string; bytesBase64: string; previewDataUrl?: string };
 type QueuedAttachmentNotice = { id: string; fileName: string; path: string; mime: string; pending?: boolean };
-type ConversationDepartmentOption = DepartmentPersonaOption;
+type ConversationPersonaOption = AgentPersonaOption;
 type MentionOptionView = {
   agentId: string;
   agentName: string;
-  departmentId: string;
-  departmentName: string;
   avatarUrl?: string;
   mentionable: boolean;
   hidden?: boolean;
@@ -397,8 +395,8 @@ const props = withDefaults(defineProps<{
   personaName: string;
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
-  createConversationDepartmentOptions: ConversationDepartmentOption[];
-  defaultCreateConversationDepartmentId: string;
+  createConversationAgentOptions: ConversationPersonaOption[];
+  defaultCreateConversationAgentId: string;
   ideContextGroups: IdeContextWorkspaceGroup[];
   attachedIdeContextReferences: IdeContextReferenceItem[];
   currentTheme?: string;
@@ -417,12 +415,12 @@ const emit = defineEmits<{
   (e: "exitSelectionMode"): void;
   (e: "selectionActionBranch"): void;
   (e: "selectionActionForward", target: ConversationForwardTarget): void;
-  (e: "selectionActionDelegate", payload: { departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }): void;
+  (e: "selectionActionDelegate", payload: { agentId: string; presetId: string; why: string; goal: string; todo: string }): void;
   (e: "selectionActionCopy"): void;
   (e: "selectionActionShare", format: "html" | "png" | "copyPng"): void;
   (e: "update:chatInput", value: string): void;
   (e: "addMention", value: ChatMentionTarget): void;
-  (e: "removeMention", value: string | { agentId: string; departmentId?: string }): void;
+  (e: "removeMention", value: string | { agentId: string }): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
   (e: "pickAttachments"): void;
@@ -441,7 +439,7 @@ const emit = defineEmits<{
   (e: "trim-conversation"): void;
   (e: "queueRecall", event: ChatQueueEvent): void;
   (e: "queueMarkGuided", eventId: string): void;
-  (e: "createConversation", input?: { departmentId?: string; agentId?: string }): void;
+  (e: "createConversation", input?: { agentId?: string }): void;
 }>();
 
 const { t } = useI18n();
@@ -758,11 +756,9 @@ const selectedMentions = computed(() =>
     .map((item) => ({
       agentId: String(item?.agentId || "").trim(),
       agentName: String(item?.agentName || "").trim(),
-      departmentId: String(item?.departmentId || "").trim(),
-      departmentName: String(item?.departmentName || "").trim(),
       avatarUrl: String(item?.avatarUrl || "").trim() || undefined,
     }))
-    .filter((item) => !!item.agentId && !!item.departmentId && !!item.agentName),
+    .filter((item) => !!item.agentId && !!item.agentName),
 );
 const filteredMentionOptions = computed<MentionOptionView[]>(() => {
   const query = mentionQuery.value.trim().toLowerCase();
@@ -770,8 +766,6 @@ const filteredMentionOptions = computed<MentionOptionView[]>(() => {
     .map((item) => ({
       agentId: String(item?.agentId || "").trim(),
       agentName: String(item?.agentName || "").trim(),
-      departmentId: String(item?.departmentId || "").trim(),
-      departmentName: String(item?.departmentName || "").trim(),
       avatarUrl: String(item?.avatarUrl || "").trim() || undefined,
       mentionable: !!item?.mentionable,
       hidden: !!item?.hidden,
@@ -781,7 +775,6 @@ const filteredMentionOptions = computed<MentionOptionView[]>(() => {
     .filter((item) => {
       if (!query) return true;
       if (item.agentName.toLowerCase().includes(query)) return true;
-      if (item.departmentName && item.departmentName.toLowerCase().includes(query)) return true;
       return false;
     });
 });
@@ -897,7 +890,6 @@ function removeSelectedMention(item: ChatMentionTarget | undefined) {
   if (!item) return;
   emit("removeMention", {
     agentId: String(item.agentId || "").trim(),
-    departmentId: String(item.departmentId || "").trim() || undefined,
   });
   closeMentionPanel();
 }
@@ -911,18 +903,14 @@ function applyMention(item: MentionOptionView | undefined) {
   localChatInput.value = nextValue;
   if (selectedMentions.value.some((entry) =>
     String(entry.agentId || "").trim() === String(item.agentId || "").trim()
-    && String(entry.departmentId || "").trim() === String(item.departmentId || "").trim()
   )) {
     emit("removeMention", {
       agentId: String(item.agentId || "").trim(),
-      departmentId: String(item.departmentId || "").trim() || undefined,
     });
   } else {
     emit("addMention", {
       agentId: String(item.agentId || "").trim(),
       agentName: String(item.agentName || "").trim(),
-      departmentId: String(item.departmentId || "").trim(),
-      departmentName: String(item.departmentName || "").trim(),
       avatarUrl: String(item.avatarUrl || "").trim() || undefined,
     });
   }
@@ -1263,20 +1251,15 @@ function avatarInitial(name: string): string {
   return text[0].toUpperCase();
 }
 
-function mentionDisplayLabel(target: Pick<ChatMentionTarget, "agentName" | "departmentName">): string {
-  const agentName = String(target?.agentName || "").trim();
-  const departmentName = String(target?.departmentName || "").trim();
-  if (!departmentName) return agentName;
-  return `${agentName} / ${departmentName}`;
+function mentionDisplayLabel(target: Pick<ChatMentionTarget, "agentName">): string {
+  return String(target?.agentName || "").trim();
 }
 
-function isMentionSelected(target: Pick<ChatMentionTarget, "agentId" | "departmentId"> | undefined): boolean {
+function isMentionSelected(target: Pick<ChatMentionTarget, "agentId"> | undefined): boolean {
   const agentId = String(target?.agentId || "").trim();
-  const departmentId = String(target?.departmentId || "").trim();
-  if (!agentId || !departmentId) return false;
+  if (!agentId) return false;
   return selectedMentions.value.some((item) =>
     String(item.agentId || "").trim() === agentId
-    && String(item.departmentId || "").trim() === departmentId
   );
 }
 
@@ -1373,7 +1356,7 @@ watch(
 );
 
 watch(
-  () => props.selectedMentions.map((item) => `${item.agentId}:${item.departmentId}`).join("|"),
+  () => props.selectedMentions.map((item) => item.agentId).join("|"),
   () => {
     closeMentionPanel();
   },

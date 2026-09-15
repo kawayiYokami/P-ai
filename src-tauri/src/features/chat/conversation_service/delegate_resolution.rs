@@ -3,10 +3,8 @@ impl ConversationServiceV2 {
         &self,
         app_state: &AppState,
         source_agent_id: &str,
-        source_department_id: Option<&str>,
         source_conversation_id: Option<&str>,
-        target_department_id: &str,
-        target_agent_id: Option<&str>,
+        target_agent_id: &str,
     ) -> Result<DelegateContextResolution, String> {
         let guard = app_state
             .conversation_lock
@@ -42,79 +40,26 @@ impl ConversationServiceV2 {
         } else {
             None
         };
-        let requested_source_department_id = source_department_id
-            .map(str::trim)
-            .filter(|department_id| !department_id.is_empty());
-        let source_department = if let Some(department_id) = requested_source_department_id {
-            runtime_department_by_id(&runtime_snapshot, department_id)
-                .cloned()
-                .ok_or_else(|| {
-                    format!(
-                        "未找到发起部门，departmentId={}，agentId={}",
-                        department_id, source_agent_id
-                    )
-                })?
-        } else {
-            source_conversation
-                .as_ref()
-                .and_then(|conversation| {
-                    let department_id = conversation.department_id.trim();
-                    if department_id.is_empty() {
-                        None
-                    } else {
-                        runtime_department_by_id(&runtime_snapshot, department_id).cloned()
-                    }
-                })
-                .ok_or_else(|| format!("未找到发起部门，agentId={source_agent_id}"))?
-        };
-        let target_department = runtime_department_by_id(&runtime_snapshot, target_department_id)
+        let source_agent_id = source_conversation
+            .as_ref()
+            .map(|conversation| conversation.agent_id.trim().to_string())
+            .filter(|agent_id| !agent_id.is_empty())
+            .unwrap_or_else(|| source_agent_id.trim().to_string());
+        let source_agent = runtime_available_agent(&runtime_snapshot, &source_agent_id)
             .cloned()
-            .or_else(|| {
-                runtime_snapshot
-                    .config
-                    .departments
-                    .iter()
-                    .find(|department| {
-                        department.name.trim().eq_ignore_ascii_case(target_department_id.trim())
-                    })
-                    .cloned()
-            })
-            .ok_or_else(|| {
-                format!("目标部门不存在，departmentId={target_department_id}")
-            })?;
-        let target_agent_id = if let Some(requested_agent_id) = target_agent_id
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            if !target_department
-                .agent_ids
-                .iter()
-                .any(|id| id.trim() == requested_agent_id)
-            {
-                drop(guard);
-                return Err(format!(
-                    "目标委任人不属于目标部门，departmentId={}，agentId={}",
-                    target_department_id, requested_agent_id
-                ));
-            }
-            if available_non_user_agent(&runtime_snapshot.agents, requested_agent_id).is_none() {
-                drop(guard);
-                return Err(format!("目标委任人不存在，agentId={requested_agent_id}"));
-            }
-            requested_agent_id.to_string()
-        } else if let Some(agent) =
-            first_available_department_agent(&target_department, &runtime_snapshot.agents)
-        {
-            agent.id.clone()
-        } else {
-            available_non_user_agent(&runtime_snapshot.agents, DEPUTY_AGENT_ID)
-                .map(|agent| agent.id.clone())
-                .ok_or_else(|| {
-                    format!(
-                        "目标部门没有可用委任人，且副手人格不可用，departmentId={target_department_id}"
-                    )
-                })?
-        };
+            .ok_or_else(|| format!("未找到发起人格，agentId={source_agent_id}"))?;
+        let target_agent_id = target_agent_id.trim();
+        if target_agent_id.is_empty() {
+            drop(guard);
+            return Err("缺少目标人格，无法发起委托".to_string());
+        }
+        let target_agent = runtime_resolve_agent_ref(&runtime_snapshot, target_agent_id)
+            .map_err(|err| format!("目标人格解析失败：{err}"))?
+            .clone();
+        if !runtime_agent_is_available(&target_agent) {
+            drop(guard);
+            return Err(format!("目标人格不可用，agentId={}", target_agent.id));
+        }
         let source_conversation_id = if let Some(thread) = thread_context.as_ref() {
             thread.root_conversation_id.clone()
         } else {
@@ -127,9 +72,8 @@ impl ConversationServiceV2 {
         Ok(DelegateContextResolution {
             config: runtime_snapshot.config,
             agents: runtime_snapshot.agents,
-            source_department,
-            target_department,
-            target_agent_id,
+            source_agent,
+            target_agent,
             source_conversation_id,
             thread_context,
         })
@@ -144,11 +88,7 @@ impl ConversationServiceV2 {
             .conversation_lock
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
-        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-        let assistant_agent_id = state_service_get_assistant_department_agent_id(state)?;
-        let department_id = runtime_department_for_agent(&runtime_snapshot, &assistant_agent_id)
-            .map(|item| item.id.clone())
-            .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string());
+        let assistant_agent_id = state_service_get_assistant_agent_id(state)?;
         let normalized_root_conversation_id = root_conversation_id.trim();
         let mut conversation_to_persist = None::<Conversation>;
         let target_conversation_id =
@@ -194,7 +134,6 @@ impl ConversationServiceV2 {
             state_schedule_conversation_persist(state, &conversation)?;
         }
         Ok(DelegateResultTargetConversationResolution {
-            department_id,
             agent_id: assistant_agent_id,
             target_conversation_id,
         })

@@ -5,7 +5,7 @@ import { useChatComposerDrafts } from "./use-chat-composer-drafts";
 function createComposable() {
   const activeConversationId = ref("conv-a");
   const chatInput = ref("");
-  const selectedMentions = ref([] as Array<{ agentId: string; agentName: string; departmentId: string; departmentName: string; avatarUrl?: string }>);
+  const selectedMentions = ref([] as Array<{ agentId: string; agentName: string; avatarUrl?: string }>);
   const clipboardImages = ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>([]);
   const queuedAttachmentNotices = ref<Array<{ id: string; fileName: string; path: string; mime: string }>>([]);
 

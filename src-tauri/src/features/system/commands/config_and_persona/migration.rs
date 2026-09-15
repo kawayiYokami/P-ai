@@ -76,7 +76,7 @@ struct MigrationPayload {
 struct MigrationRuntimeData {
     agents: Vec<AgentProfile>,
     #[serde(default)]
-    assistant_department_agent_id: String,
+    assistant_agent_id: String,
     #[serde(default)]
     response_style_id: String,
     #[serde(default)]
@@ -425,8 +425,8 @@ fn build_export_payload(state: &AppState) -> Result<MigrationPayload, String> {
     let mut config = state_read_config_cached(state)?;
     let mut runtime_data = MigrationRuntimeData::default();
     runtime_data.agents = state_read_agents_cached(state)?;
-    runtime_data.assistant_department_agent_id =
-        state_service_get_assistant_department_agent_id(state)?;
+    runtime_data.assistant_agent_id =
+        state_service_get_assistant_agent_id(state)?;
     runtime_data.response_style_id = state_service_get_response_style_id(state)?;
     runtime_data.pdf_read_mode = state_service_get_pdf_read_mode(state)?;
     runtime_data.background_voice_screenshot_keywords =
@@ -1026,9 +1026,9 @@ fn apply_import_config_migration_package_inner(
 
     state_write_config_cached(state, &final_config)?;
     state_write_agents_cached(state, &final_data.agents)?;
-    state_service_set_assistant_department_agent_id(
+    state_service_set_assistant_agent_id(
         state,
-        &final_data.assistant_department_agent_id,
+        &final_data.assistant_agent_id,
     )?;
     state_service_set_response_style_id(state, &final_data.response_style_id)?;
     state_service_set_pdf_read_mode(state, &final_data.pdf_read_mode)?;

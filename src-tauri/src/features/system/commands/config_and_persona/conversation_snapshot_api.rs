@@ -48,8 +48,6 @@ struct UnarchivedConversationSummary {
     has_assistant_reply: bool,
     unread_count: usize,
     agent_id: String,
-    department_id: String,
-    department_name: String,
     #[serde(default)]
     conversation_kind: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -352,24 +350,6 @@ fn conversation_default_workspace_summary_from_meta_view(
     (String::new(), None)
 }
 
-fn resolved_foreground_department_id_for_conversation_meta_view(
-    config: &AppConfig,
-    conversation_meta: &ConversationMetaView,
-    is_main_conversation: bool,
-) -> String {
-    let existing = conversation_meta.department_id.trim();
-    if !existing.is_empty() {
-        return existing.to_string();
-    }
-    if is_main_conversation {
-        return ASSISTANT_DEPARTMENT_ID.to_string();
-    }
-    department_for_agent_id(config, &conversation_meta.agent_id)
-        .map(|department| department.id.clone())
-        .or_else(|| assistant_department(config).map(|department| department.id.clone()))
-        .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string())
-}
-
 fn build_preview_messages_from_chat_messages(
     messages: &[ChatMessage],
     limit: usize,
@@ -541,7 +521,6 @@ fn build_conversation_list_item_state(
 
 fn build_unarchived_conversation_summary_from_meta_view(
     state: &AppState,
-    app_config: &AppConfig,
     main_conversation_id: &str,
     pinned_conversation_ids: &[String],
     conversation_meta: &ConversationMetaView,
@@ -554,15 +533,6 @@ fn build_unarchived_conversation_summary_from_meta_view(
     let pin_index = pinned_conversation_ids
         .iter()
         .position(|item| item.trim() == conversation_id);
-    let department_id = resolved_foreground_department_id_for_conversation_meta_view(
-        app_config,
-        conversation_meta,
-        is_system_notification_conversation,
-    );
-    let department_name = department_by_id(app_config, &department_id)
-        .map(|department| department.name.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| department_id.clone());
     let detached_window_label = if is_system_notification_conversation {
         None
     } else {
@@ -612,8 +582,6 @@ fn build_unarchived_conversation_summary_from_meta_view(
         has_assistant_reply: conversation_meta.has_assistant_reply,
         unread_count,
         agent_id: conversation_meta.agent_id.clone(),
-        department_id,
-        department_name,
         conversation_kind: conversation_meta.conversation_kind.clone(),
         child_conversation_ids: conversation_meta.child_conversation_ids.clone(),
         child_conversations,
@@ -1141,8 +1109,7 @@ fn list_unarchived_conversations_blocking(
     runtime_log_info("[会话] 开始，任务=确保默认未归档会话，触发条件=未归档会话列表为空".to_string());
     let create_input = CreateUnarchivedConversationInput {
         api_config_id: None,
-        agent_id: Some(state_service_get_assistant_department_agent_id(state)?),
-        department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+        agent_id: Some(state_service_get_assistant_agent_id(state)?),
         title: None,
         copy_source_conversation_id: None,
         shell_workspaces: None,
@@ -1647,8 +1614,6 @@ mod conversation_snapshot_api_tests {
             auto_push_remote_contact_id: None,
             last_error: None,
             agent_id: "agent-a".to_string(),
-            department_id: "dept-a".to_string(),
-            department_name: "部门A".to_string(),
             conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
             child_conversation_ids: Vec::new(),
             child_conversations: Vec::new(),

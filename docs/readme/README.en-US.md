@@ -15,7 +15,7 @@
 
 ---
 
-PAI is an actively evolving desktop AI work system. It is not a chat client — it is a complete desktop system organized around conversations, tasks, memory, departments, tools, review, and remote messaging. The backend uses Rust async concurrency and streaming architecture to guarantee response speed; the frontend uses Vue 3 + DaisyUI for a clean interface. All data is stored locally, with no intermediate servers.
+PAI is an actively evolving desktop AI work system. It is not a chat client — it is a complete desktop system organized around conversations, tasks, memory, persona organization, tools, review, and remote messaging. The backend uses Rust async concurrency and streaming architecture to guarantee response speed; the frontend uses Vue 3 + DaisyUI for a clean interface. All data is stored locally, with no intermediate servers.
 
 ### Entry & Efficiency
 
@@ -23,7 +23,7 @@ Global hotkey summon, voice wakeup, background voice input, quick screenshot —
 
 ### Organization & Personas
 
-Multiple departments and personas can be independently configured, each with its own avatar and private memory. Tasks and sessions are separated by department, identity, and responsibility. Local sessions support multi-agent group chat; remote sessions support WeChat, Feishu, DingTalk, OneBot, and other protocols.
+Multiple personas can be independently configured, each with its own avatar and private memory, and they form an organization through parent-child relationships. Tasks and sessions are separated by persona, identity, and responsibility. Local sessions support multi-agent group chat; remote sessions support WeChat, Feishu, DingTalk, OneBot, and other protocols.
 
 ### Interface & Interaction
 
@@ -39,7 +39,7 @@ Long conversations are dynamically compressed and archived; a single session can
 
 ### Engineering & Reliability
 
-High performance, concurrent, fast to respond. Local sessions support message delivery, session branching, and manual delegation; remote sessions support sending and receiving files and images. Built-in proactive planning mode, delegation system, and persona system; LLM can autonomously manage MCP, skills, personas, and departments. Tool execution has a review chain; code changes can be validated from multiple angles.
+High performance, concurrent, fast to respond. Local sessions support message delivery, session branching, and manual delegation; remote sessions support sending and receiving files and images. Built-in proactive planning mode, delegation system, and persona system; LLM can autonomously manage MCP, skills, personas, and the organization. Tool execution has a review chain; code changes can be validated from multiple angles.
 
 ---
 

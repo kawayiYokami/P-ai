@@ -15,7 +15,7 @@ type UseConfigRuntimeOptions = {
   setStatus: (text: string, tone?: "default" | "error" | "success") => void;
   setStatusError: (key: string, error: unknown) => void;
   personas: Ref<PersonaProfile[]>;
-  assistantDepartmentAgentId: Ref<string>;
+  assistantAgentId: Ref<string>;
   toolAgentId: Readonly<Ref<string>>;
   avatarSaving: Ref<boolean>;
   avatarError: Ref<string>;
@@ -86,7 +86,7 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
         options.personas.value[idx].updatedAt = new Date().toISOString();
       }
       await options.ensureAvatarCached(result.path, result.updatedAt);
-      if (input.agentId === options.assistantDepartmentAgentId.value) {
+      if (input.agentId === options.assistantAgentId.value) {
         await syncTrayIcon(input.agentId);
       }
       options.setStatus(options.t("status.avatarSaved"));
@@ -109,7 +109,7 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
         options.personas.value[idx].avatarUpdatedAt = undefined;
         options.personas.value[idx].updatedAt = new Date().toISOString();
       }
-      if (input.agentId === options.assistantDepartmentAgentId.value) {
+      if (input.agentId === options.assistantAgentId.value) {
         await syncTrayIcon(input.agentId);
       }
       options.setStatus(options.t("status.avatarCleared"));

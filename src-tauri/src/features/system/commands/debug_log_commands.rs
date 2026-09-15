@@ -127,7 +127,7 @@ struct MemoryCacheStats {
     message_store_index_cache_item_count: usize,
     message_store_index_cache_estimated_json_bytes: usize,
     prompt_final_cache_entries: usize,
-    prompt_department_cache_entries: usize,
+    prompt_agent_cache_entries: usize,
     prompt_environment_cache_entries: usize,
     abstract_message_projection_cache_entries: usize,
     abstract_message_projection_message_count: usize,
@@ -336,7 +336,7 @@ fn is_ascii_hex_digit(byte: u8) -> bool {
 
 /// 把日志消息里的标准 UUID（8-4-4-4-12）截断为前 8 位短 id，降低日志噪音。
 /// 非 UUID 文本原样保留；只匹配完整 36 字符 UUID 形态，避免误伤
-/// `department-xxx`、`persona-xxx`、`api-provider-xxx::api-model-xxx` 等带前缀 id。
+/// `delegate-xxx`、`persona-xxx`、`api-provider-xxx::api-model-xxx` 等带前缀 id。
 fn shorten_uuids_in_log(message: &str) -> String {
     let bytes = message.as_bytes();
     let mut out = String::with_capacity(message.len());
@@ -1503,9 +1503,9 @@ fn dump_memory_cache_stats_inner(state: &AppState) -> Result<MemoryCacheStats, S
         .lock()
         .map_err(|_| "Failed to lock final prompt cache".to_string())?
         .len();
-    let prompt_department_cache_entries = department_system_prompt_cache()
+    let prompt_agent_cache_entries = agent_system_prompt_cache()
         .lock()
-        .map_err(|_| "Failed to lock department prompt cache".to_string())?
+        .map_err(|_| "Failed to lock agent prompt cache".to_string())?
         .len();
     let prompt_environment_cache_entries = conversation_environment_prompt_cache()
         .lock()
@@ -1610,7 +1610,7 @@ fn dump_memory_cache_stats_inner(state: &AppState) -> Result<MemoryCacheStats, S
         message_store_index_cache_item_count,
         message_store_index_cache_estimated_json_bytes,
         prompt_final_cache_entries,
-        prompt_department_cache_entries,
+        prompt_agent_cache_entries,
         prompt_environment_cache_entries,
         abstract_message_projection_cache_entries,
         abstract_message_projection_message_count,
@@ -1641,7 +1641,7 @@ mod debug_log_tests {
 
     #[test]
     fn shorten_uuids_in_log_keeps_non_uuid_ids_untouched() {
-        let message = "department_id=department-1776001910939，agent_id=persona-1781792413924，api=api-provider-1784421152299::api-model-1786365798704";
+        let message = "task_id=task-1776001910939，agent_id=persona-1781792413924，api=api-provider-1784421152299::api-model-1786365798704";
         let shortened = shorten_uuids_in_log(message);
         assert_eq!(shortened, message);
     }

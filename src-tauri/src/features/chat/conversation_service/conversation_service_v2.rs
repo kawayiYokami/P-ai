@@ -97,7 +97,6 @@ struct ConversationMetaView {
     is_delegate: bool,
     agent_id: String,
     delegate_id: Option<String>,
-    department_id: String,
     root_conversation_id: Option<String>,
     unread_count: usize,
     updated_at: String,
@@ -287,7 +286,6 @@ impl ConversationMetaView {
             is_delegate: conversation_service_v2().conversation_meta_is_delegate(meta),
             agent_id: meta.agent_id().to_string(),
             delegate_id: meta.delegate_id().map(ToOwned::to_owned),
-            department_id: meta.department_id().to_string(),
             root_conversation_id: meta.root_conversation_id_text().map(ToOwned::to_owned),
             unread_count: meta.unread_count(),
             updated_at: meta.updated_at().to_string(),
@@ -658,7 +656,6 @@ struct ConversationExternalMetadataPatch {
     lifecycle_status: Option<String>,
     lifecycle_archived_at: Option<Option<String>>,
     lifecycle_updated_at: Option<String>,
-    routing_department_id: Option<String>,
     routing_agent_id: Option<String>,
     routing_root_conversation_id: Option<Option<String>>,
     routing_conversation_kind: Option<String>,
@@ -1231,9 +1228,6 @@ impl ConversationServiceV2 {
                         if let Some(value) = patch.lifecycle_updated_at {
                             conversation.updated_at = value;
                         }
-                        if let Some(value) = patch.routing_department_id {
-                            conversation.department_id = value;
-                        }
                         if let Some(value) = patch.routing_agent_id {
                             conversation.agent_id = value;
                         }
@@ -1395,7 +1389,7 @@ impl ConversationServiceV2 {
         conversation_meta: &message_store::ConversationShardMeta,
         messages: Vec<ChatMessage>,
     ) -> Conversation {
-        let mut conversation = build_conversation_record("", "", "", "", "", None, None);
+        let mut conversation = build_conversation_record("", "", "", "", None, None);
         conversation.id = conversation_meta.id().to_string();
         conversation_meta.apply_to_conversation(&mut conversation);
         conversation.messages = messages;
@@ -1406,11 +1400,10 @@ impl ConversationServiceV2 {
         &self,
         conversation_meta: &ConversationMetaView,
     ) -> Conversation {
-        let mut conversation = build_conversation_record("", "", "", "", "", None, None);
+        let mut conversation = build_conversation_record("", "", "", "", None, None);
         conversation.id = conversation_meta.id.clone();
         conversation.title = conversation_meta.title.clone();
         conversation.agent_id = conversation_meta.agent_id.clone();
-        conversation.department_id = conversation_meta.department_id.clone();
         conversation.unread_count = conversation_meta.unread_count;
         conversation.parent_conversation_id = conversation_meta.parent_conversation_id.clone();
         conversation.child_conversation_ids = conversation_meta.child_conversation_ids.clone();
@@ -1790,7 +1783,7 @@ impl ConversationServiceV2 {
             },
         )
         .await?;
-        // 草稿转正后立即创建下一个备用草稿：继承刚转正会话的部门/人格/模型/workspace。
+        // 草稿转正后立即创建下一个备用草稿：继承刚转正会话的人格/模型/workspace。
         // 创建失败不阻断消息发送，下次打开草稿入口时按单例查询兜底重建。
         if was_draft {
             match create_next_draft_conversation_inherited(state, &promoted_conversation) {
@@ -1935,7 +1928,6 @@ impl ConversationServiceV2 {
         &self,
         state: &AppState,
         root_conversation_id: &str,
-        target_department_id: &str,
         target_agent_id: &str,
         delegate_title: &str,
         content: &str,
@@ -1945,7 +1937,6 @@ impl ConversationServiceV2 {
             self.resolve_delegate_result_target_conversation(state, root_conversation_id)?;
         let body = build_delegate_completion_notification_body(
             state,
-            target_department_id,
             target_agent_id,
             delegate_title,
             content,

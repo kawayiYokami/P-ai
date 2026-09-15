@@ -41,7 +41,6 @@ struct ToolSessionTargetSummary {
     session_id: String,
     kind: String,
     title: String,
-    department_name: Option<String>,
     persona_name: Option<String>,
     remote_contact_id: Option<String>,
     remote_contact_name: Option<String>,
@@ -84,7 +83,6 @@ struct SchedulerHistoryFlushCommitResult {
 }
 
 struct DelegateResultTargetConversationResolution {
-    department_id: String,
     agent_id: String,
     target_conversation_id: String,
 }
@@ -92,9 +90,8 @@ struct DelegateResultTargetConversationResolution {
 struct DelegateContextResolution {
     config: AppConfig,
     agents: Vec<AgentProfile>,
-    source_department: DepartmentConfig,
-    target_department: DepartmentConfig,
-    target_agent_id: String,
+    source_agent: AgentProfile,
+    target_agent: AgentProfile,
     source_conversation_id: String,
     thread_context: Option<DelegateRuntimeThread>,
 }

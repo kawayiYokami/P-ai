@@ -1464,7 +1464,6 @@ mod terminal_exec_tests {
             id: conversation_id.to_string(),
             title: "Terminal Test Conversation".to_string(),
             agent_id: agent_id.to_string(),
-            department_id: String::new(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),

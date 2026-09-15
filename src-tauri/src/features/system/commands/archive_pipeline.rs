@@ -516,7 +516,6 @@ async fn assemble_compaction_tool_definitions(
     selected_api: &ApiConfig,
     agent: &AgentProfile,
     conversation_id: &str,
-    department_id: &str,
 ) -> Vec<ProviderToolDefinition> {
     if !selected_api.enable_tools {
         return Vec::new();
@@ -528,7 +527,6 @@ async fn assemble_compaction_tool_definitions(
         agent,
         Some(state),
         &chat_session_key,
-        Some(department_id),
     )
     .await;
     assembly.tool_definitions
@@ -566,7 +564,6 @@ async fn summarize_archived_conversation_with_model_v2(
         source_conversation,
         agent,
         &agents,
-        &app_config.departments,
         user_alias,
         &user_intro,
         &response_style_id,
@@ -575,7 +572,6 @@ async fn summarize_archived_conversation_with_model_v2(
         None,
         None,
         Some(ChatPromptOverrides {
-            executor_department_id: Some(source_conversation.department_id.trim().to_string()),
             latest_user_intent: Some(LatestUserPayloadIntent::SummaryContext {
                 scene,
                 user_alias: user_alias.to_string(),
@@ -606,7 +602,6 @@ async fn summarize_archived_conversation_with_model_v2(
         selected_api,
         agent,
         &source_conversation.id,
-        source_conversation.department_id.trim(),
     )
     .await;
     let archive_summary_execution = call_archive_summary_model_with_timeout(
@@ -1651,7 +1646,6 @@ mod archive_pipeline_tests {
             id: "conversation-a".to_string(),
             title: "测试会话".to_string(),
             agent_id: "agent-a".to_string(),
-            department_id: "dept-a".to_string(),
             bound_conversation_id: None,
             parent_conversation_id: Some("parent-a".to_string()),
             child_conversation_ids: Vec::new(),
@@ -1705,7 +1699,7 @@ mod archive_pipeline_tests {
                 test_api_config(conversation_api_id, "conversation-model"),
                 test_api_config(quick_api_id, "quick-model"),
             ],
-            assistant_department_api_config_id: conversation_api_id.to_string(),
+            expert_api_config_id: conversation_api_id.to_string(),
             tool_review_api_config_id: Some(quick_api_id.to_string()),
             ..AppConfig::default()
         }
@@ -1830,7 +1824,7 @@ mod archive_pipeline_tests {
                 session_api.clone(),
                 test_api_config("conversation-api", "conversation-model"),
             ],
-            assistant_department_api_config_id: "session-api".to_string(),
+            expert_api_config_id: "session-api".to_string(),
             ..AppConfig::default()
         };
         let mut source = test_conversation();
@@ -1849,7 +1843,7 @@ mod archive_pipeline_tests {
         let session_api = test_api_config("session-api", "session-model");
         let config = AppConfig {
             api_configs: vec![session_api.clone()],
-            assistant_department_api_config_id: "session-api".to_string(),
+            expert_api_config_id: "session-api".to_string(),
             ..AppConfig::default()
         };
         let source = test_conversation();
@@ -1881,7 +1875,7 @@ mod archive_pipeline_tests {
     fn compaction_quick_model_should_skip_when_same_as_conversation_model() {
         let config = AppConfig {
             api_configs: vec![test_api_config("same-api", "same-model")],
-            assistant_department_api_config_id: "same-api".to_string(),
+            expert_api_config_id: "same-api".to_string(),
             tool_review_api_config_id: Some("same-api".to_string()),
             ..AppConfig::default()
         };
@@ -1931,7 +1925,7 @@ mod archive_pipeline_tests {
         quick_api.enable_text = false;
         let config = AppConfig {
             api_configs: vec![test_api_config("conversation-api", "conversation-model"), quick_api],
-            assistant_department_api_config_id: "conversation-api".to_string(),
+            expert_api_config_id: "conversation-api".to_string(),
             tool_review_api_config_id: Some("quick-api".to_string()),
             ..AppConfig::default()
         };

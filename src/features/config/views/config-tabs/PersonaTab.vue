@@ -189,36 +189,29 @@
             </div>
           </template>
 
-          <template #row-persona-departments>
+          <template #row-persona-child-agents>
             <div class="grid min-w-0 gap-2">
-              <div class="text-sm font-medium">{{ t('config.persona.departments') }}</div>
-              <div v-if="!selectedPersonaCanJoinDepartment" class="text-xs leading-snug text-base-content/60">
-                {{ t('config.persona.departmentsUnavailable') }}
+              <div class="text-sm font-medium">{{ t('config.persona.childAgents') }}</div>
+              <div class="text-xs leading-snug text-base-content/60">{{ t('config.persona.childAgentsHint') }}</div>
+              <div v-if="childAgentCandidates.length === 0" class="text-sm opacity-60">
+                {{ t('config.persona.childAgentsEmpty') }}
               </div>
-              <template v-else>
-                <div v-if="joinableDepartments.length === 0" class="text-sm opacity-60">
-                  {{ t('config.persona.departmentsEmpty') }}
-                </div>
-                <div v-else class="flex flex-wrap gap-y-2">
-                  <label
-                    v-for="department in joinableDepartments"
-                    :key="department.id"
-                    class="mr-3 flex min-h-6 max-w-full cursor-pointer items-center gap-1.5 last:mr-0"
-                  >
-                    <input
-                      type="checkbox"
-                      class="checkbox checkbox-primary checkbox-sm"
-                      :checked="selectedPersonaDepartmentIds.includes(String(department.id || '').trim())"
-                      :disabled="configSaving"
-                      @change="togglePersonaDepartment(department.id, ($event.target as HTMLInputElement).checked)"
-                    />
-                    <span class="min-w-0 truncate text-sm">{{ department.name || department.id }}</span>
-                  </label>
-                </div>
-                <div v-if="selectedPersonaDepartmentIds.length === 0" class="text-xs leading-snug text-warning">
-                  {{ t('config.persona.departmentsWarning') }}
-                </div>
-              </template>
+              <div v-else class="flex flex-wrap gap-y-2">
+                <label
+                  v-for="candidate in childAgentCandidates"
+                  :key="candidate.id"
+                  class="mr-3 flex min-h-6 max-w-full cursor-pointer items-center gap-1.5 last:mr-0"
+                >
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-primary checkbox-sm"
+                    :checked="selectedChildAgentIds.includes(String(candidate.id || '').trim())"
+                    :disabled="configSaving"
+                    @change="toggleChildAgent(candidate.id, ($event.target as HTMLInputElement).checked)"
+                  />
+                  <span class="min-w-0 truncate text-sm">{{ candidate.name || candidate.id }}</span>
+                </label>
+              </div>
             </div>
           </template>
 
@@ -359,18 +352,8 @@
                   </span>
                 </div>
 
-                <!-- 部门归属 / 角色标识 -->
+                <!-- 角色标识 -->
                 <div class="mt-1 flex flex-wrap items-center gap-1">
-                  <template v-if="getPersonaDepartments(persona.id).length > 0">
-                    <span
-                      v-for="dept in getPersonaDepartments(persona.id)"
-                      :key="dept.id"
-                      class="badge badge-ghost badge-xs gap-1 font-mono text-caption"
-                    >
-                      <Building2 class="h-3 w-3 opacity-60" />
-                      {{ dept.name || dept.id }}
-                    </span>
-                  </template>
                   <span
                     v-if="persona.id === 'default-agent'"
                     class="badge badge-primary badge-outline badge-xs text-caption"
@@ -499,10 +482,9 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowLeft, Building2, ChevronRight, Plus, RotateCcw, Save, Search, Trash2, User } from "@lucide/vue";
-import type { DepartmentConfig, MemoryRecallMode, PersonaProfile } from "../../../../types/app";
+import { ArrowLeft, ChevronRight, Plus, RotateCcw, Save, Search, Trash2, User } from "@lucide/vue";
+import type { MemoryRecallMode, PersonaProfile } from "../../../../types/app";
 import { exportTransportAgentPrivateMemories, invokeTauri } from "../../../../services/tauri-api";
-import { resolvePersonaDepartmentIds } from "../../../shared/department-persona-options";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
@@ -517,7 +499,6 @@ const props = withDefaults(defineProps<{
   selectedPersona: PersonaProfile | null;
   selectedPersonaAvatarUrl: string;
   personaAvatarUrlMap?: Record<string, string>;
-  departments: DepartmentConfig[];
   avatarSaving: boolean;
   avatarError: string;
   personaSaving: boolean;
@@ -529,7 +510,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (e: "update:personaEditorId", value: string): void;
-  (e: "togglePersonaDepartmentMember", value: { agentId: string; departmentId: string; member: boolean }): void;
+  (e: "setPersonaChildAgents", value: { agentId: string; childAgentIds: string[] }): void;
   (e: "addPersona"): void;
   (e: "removeSelectedPersona"): void;
   (e: "resetPersonas"): void;
@@ -553,6 +534,13 @@ function isPresetPersona(persona: PersonaProfile | null | undefined): boolean {
     || id === "deputy-agent"
     || id === "user-persona"
     || id === "system-persona"
+    // 内置组织人格：出厂预设、只读（不可删）。与 default-agent 同列，
+    // 靠 id 名单判定，不带系统标记（「内置」与「系统」是两件事）。
+    || id === "leader"
+    || id === "reviewer"
+    || id === "saddler"
+    || id === "support"
+    || id === "hr"
     || !!persona?.isBuiltInUser
     || !!persona?.isBuiltInSystem;
 }
@@ -587,9 +575,7 @@ const displayedPersonas = computed(() => {
     const nameMatch = (p.name || "").toLowerCase().includes(q);
     const promptMatch = (p.systemPrompt || "").toLowerCase().includes(q);
     const idMatch = (p.id || "").toLowerCase().includes(q);
-    const depts = getPersonaDepartments(p.id);
-    const deptMatch = depts.some((d) => (d.name || d.id || "").toLowerCase().includes(q));
-    return nameMatch || promptMatch || idMatch || deptMatch;
+    return nameMatch || promptMatch || idMatch;
   });
 });
 
@@ -604,17 +590,6 @@ function avatarInitial(name: string): string {
   const text = (name || "").trim();
   if (!text) return "?";
   return text[0].toUpperCase();
-}
-
-function getPersonaDepartments(personaId: string): DepartmentConfig[] {
-  const assignedIds = new Set(resolvePersonaDepartmentIds(props.departments, personaId));
-  return (props.departments || []).filter((d) => assignedIds.has(String(d.id || "").trim()));
-}
-
-function canPersonaJoinDepartment(persona: PersonaProfile): boolean {
-  const id = String(persona.id || "").trim();
-  if (!id || id === "user-persona" || persona.isBuiltInUser) return false;
-  return id === "deputy-agent" || !persona.isBuiltInSystem;
 }
 
 function canDeletePersona(persona: PersonaProfile | null | undefined): boolean {
@@ -674,7 +649,7 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => {
       rows: [
         { key: "persona-name", items: [] },
         { key: "persona-avatar", items: [] },
-        { key: "persona-departments", items: [] },
+        { key: "persona-child-agents", items: [] },
         { key: "persona-prompt", items: [] },
       ],
     },
@@ -717,34 +692,36 @@ const privateMemoryCount = ref(0);
 const privateMemoryExported = ref(false);
 const pendingDisableAgentId = ref("");
 
-const selectedPersonaDepartmentIds = computed(() =>
-  resolvePersonaDepartmentIds(props.departments, props.selectedPersona?.id),
+const selectedChildAgentIds = computed<string[]>(() =>
+  Array.isArray(props.selectedPersona?.childAgentIds)
+    ? props.selectedPersona!.childAgentIds!.map((id) => String(id || "").trim()).filter(Boolean)
+    : [],
 );
 
-// 内置用户人格与内置系统人格不能作为部门成员，与部门页的候选规则保持一致
-const selectedPersonaCanJoinDepartment = computed(() => {
-  const persona = props.selectedPersona;
-  if (!persona) return false;
-  const id = String(persona.id || "").trim();
-  if (!id || id === "user-persona" || persona.isBuiltInUser) return false;
-  return id === "deputy-agent" || !persona.isBuiltInSystem;
-});
-
-const joinableDepartments = computed(() =>
-  (props.departments || []).filter((department) => {
-    const departmentId = String(department.id || "").trim();
-    return !!departmentId;
+// 可作为直接下级的人格：排除用户人格、系统人格与自身。
+const childAgentCandidates = computed(() =>
+  (props.personas || []).filter((persona) => {
+    const id = String(persona.id || "").trim();
+    if (!id || id === props.selectedPersona?.id) return false;
+    if (id === "user-persona" || persona.isBuiltInUser) return false;
+    if (id === "system-persona" || persona.isBuiltInSystem) return false;
+    return true;
   }),
 );
 
-function togglePersonaDepartment(departmentId: string, member: boolean) {
-  const agentId = String(props.selectedPersona?.id || "").trim();
-  const targetDepartmentId = String(departmentId || "").trim();
-  if (!agentId || !targetDepartmentId) return;
-  emit("togglePersonaDepartmentMember", {
-    agentId,
-    departmentId: targetDepartmentId,
-    member: !!member,
+function toggleChildAgent(agentId: string, member: boolean) {
+  const sourceAgentId = String(props.selectedPersona?.id || "").trim();
+  const targetAgentId = String(agentId || "").trim();
+  if (!sourceAgentId || !targetAgentId) return;
+  const next = new Set(selectedChildAgentIds.value);
+  if (member) {
+    next.add(targetAgentId);
+  } else {
+    next.delete(targetAgentId);
+  }
+  emit("setPersonaChildAgents", {
+    agentId: sourceAgentId,
+    childAgentIds: Array.from(next),
   });
 }
 
@@ -819,6 +796,16 @@ function personaDefaultSeed(persona: PersonaProfile | null | undefined): Persona
     return {
       systemPrompt: "你是谁：你是 pai system，是系统消息与状态播报使用的人格。\n台词技巧：用词明确、稳定、客观，像系统通知，不抒情，不延展。\n性格画像：冷静、克制、严谨。",
     };
+  }
+  const builtInOrganizationPrompts: Record<string, string> = {
+    leader: "你是谁：你是 leader，负责协调复杂工作流：理解目标、澄清边界、拆解任务、跟踪子任务并把结果综合成结论。详细职责见你的常驻 skill。\n台词技巧：先给结论，再给依据；结构清晰，不铺陈。\n性格画像：沉稳、有条理、善于统筹。",
+    reviewer: "你是谁：你是 reviewer，负责对已完成的实现做独立审查，只报告真实、可复现、影响正确性/稳定性/安全的缺陷。详细职责见你的常驻 skill。\n台词技巧：先列问题再下判断；有证据才说，没有就说没有。\n性格画像：严谨、克制、就事论事。",
+    saddler: "你是谁：你是 saddler，专门在当前项目 `.pai/` 目录下生成和维护能力资产。详细职责见你的常驻 skill。\n台词技巧：说清写在哪、为什么这么定；不越界改业务代码。\n性格画像：细致、有规范意识、克制。",
+    support: "你是谁：你是 support，负责远程客服场景的应答，处理外部联系人的咨询与消息。详细职责见你的常驻 skill。\n台词技巧：礼貌、清楚、直接回应对方诉求，不寒暄过度。\n性格画像：耐心、稳妥、有服务意识。",
+    hr: "你是谁：你是 HR，负责帮用户招募新专家：查重、创建合适的人格并维护组织。详细职责见你的常驻 skill。\n台词技巧：先问清需求与边界，再动手；必要信息缺失时先确认。\n性格画像：亲和、耐心、有条理。",
+  };
+  if (builtInOrganizationPrompts[id]) {
+    return { systemPrompt: builtInOrganizationPrompts[id] };
   }
   return null;
 }

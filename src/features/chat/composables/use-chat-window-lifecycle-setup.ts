@@ -59,7 +59,7 @@ export function useChatWindowLifecycleSetup(bindings: Record<string, any>) {
     personas: bindings.personas,
     userPersona: bindings.userPersona,
     assistantPersonas: bindings.assistantPersonas,
-    assistantDepartmentAgentId: bindings.assistantDepartmentAgentId,
+    assistantAgentId: bindings.assistantAgentId,
     personaEditorId: bindings.personaEditorId,
     selectedApiConfig: bindings.selectedApiConfig,
     toolApiConfig: bindings.toolApiConfig,

@@ -108,7 +108,6 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
       bindings.writeConversationStreamCacheSnapshot(cid, {
         activationId: nextActivationId,
         requestId: String(payload.requestId || nextActivationId || "").trim(),
-        departmentId: String(payload.departmentId || "").trim(),
         agentId: String(payload.agentId || "").trim(),
         startedAt: String(payload.startedAt || "").trim(),
         startedAtMs: positiveRoundedNumber(payload.startedAtMs),

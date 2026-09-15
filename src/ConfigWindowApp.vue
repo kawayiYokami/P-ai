@@ -18,8 +18,8 @@
       :user-avatar-url="userAvatarUrl"
       :persona-name-map="chatPersonaNameMap"
       :persona-avatar-url-map="chatPersonaAvatarUrlMap"
-      :create-conversation-department-options="[]"
-      default-create-conversation-department-id=""
+      :create-conversation-agent-options="[]"
+      default-create-conversation-agent-id=""
       :trim-tip="t('chat.trimTip')"
       :maximized="maximized"
       :window-ready="windowReady"
@@ -75,7 +75,7 @@
         :assistant-personas="assistantPersonas"
         :user-persona="userPersona"
         :persona-editor-id="personaEditorId"
-        :assistant-department-agent-id="assistantDepartmentAgentId"
+        :assistant-agent-id="assistantAgentId"
         :selected-persona="selectedPersonaEditor"
         :tool-persona="selectedPersonaEditor"
         :selected-persona-avatar-url="selectedPersonaEditorAvatarUrl"
@@ -137,7 +137,7 @@
         @remove-selected-persona="removeSelectedPersona"
         @reset-personas="loadPersonas"
         @save-personas="savePersonas"
-        @toggle-persona-department-member="handleTogglePersonaDepartmentMember"
+        @set-persona-child-agents="handleSetPersonaChildAgents"
         @convert-private-persona-to-public="convertPrivatePersonaToPublic"
         @import-persona-memories="importPersonaMemories"
         @open-conversation-list="openConversationList"
@@ -327,6 +327,7 @@ import FileLinkContextMenu from "./features/shared/components/FileLinkContextMen
 import { useFileLinkContextMenu } from "./features/shared/composables/use-file-link-context-menu";
 import type { AppConfig, PromptCommandPreset } from "./types/app";
 import { normalizeLocale } from "./i18n";
+import { MODEL_ROLE_EXPERT_API_CONFIG_ID, resolveModelRoleApiConfigId } from "./features/config/utils/model-role-options";
 import { useWindowShell } from "./features/shell/composables/use-window-shell";
 import { useAppTheme, isDarkAppTheme } from "./features/shell/composables/use-app-theme";
 import { useAppLifecycle } from "./features/shell/composables/use-app-lifecycle";
@@ -381,8 +382,6 @@ type ConfigTab =
   | "skill"
   | "catalog"
   | "persona"
-  | "department"
-  | "departmentTree"
   | "demo"
   | "chatSettings"
   | "notification"
@@ -417,7 +416,7 @@ const config = reactive<AppConfig>({
   desktopOperationNoticeEnabled: true,
   desktopOperateEnabled: true,
   selectedApiConfigId: "",
-  assistantDepartmentApiConfigId: "",
+  expertApiConfigId: "",
   visionApiConfigId: undefined,
   imageGenerationModelId: undefined,
   toolReviewApiConfigId: undefined,
@@ -427,14 +426,13 @@ const config = reactive<AppConfig>({
   shellWorkspaces: [],
   mcpServers: [],
   remoteImChannels: [],
-  departments: [],
   apiProviders: [],
   imageProviders: [],
   apiConfigs: [],
 });
 
 const personas = ref([] as import("./types/app").PersonaProfile[]);
-const assistantDepartmentAgentId = ref("default-agent");
+const assistantAgentId = ref("default-agent");
 const personaEditorId = ref("default-agent");
 const userAlias = ref(t("archives.roleUser"));
 const selectedResponseStyleId = ref("concise");
@@ -554,12 +552,17 @@ const assistantPersonas = computed(() =>
   personas.value.filter((p) => !p.isBuiltInUser && !p.isBuiltInSystem && p.id !== "user-persona" && p.id !== "system-persona"),
 );
 const selectedPersonaEditor = computed(() => personas.value.find((p) => p.id === personaEditorId.value) ?? null);
-const toolDepartment = computed(() =>
-  config.departments.find((item) => item.id === "assistant-department" || item.isBuiltInAssistant)
-  ?? config.departments.find((item) => (item.agentIds || []).includes(assistantDepartmentAgentId.value))
-  ?? null,
-);
-const toolApiConfig = computed(() => config.apiConfigs.find((a) => a.id === (toolDepartment.value?.apiConfigId || "")) ?? null);
+const toolApiConfig = computed(() => {
+  const persona = personas.value.find(
+    (item) => String(item.id || "").trim() === String(assistantAgentId.value || "").trim(),
+  ) ?? null;
+  const ids = Array.isArray(persona?.apiConfigIds)
+    ? persona.apiConfigIds.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  // 人格未显式指定模型时按「专家」模型角色解析，与后端 agent_api_config_ids 的默认一致。
+  const resolved = resolveModelRoleApiConfigId(ids[0] || MODEL_ROLE_EXPERT_API_CONFIG_ID, config);
+  return config.apiConfigs.find((a) => a.id === resolved) ?? null;
+});
 
 const { resolveAvatarUrl, resolveBrandAvatarUrl, ensureAvatarCached, preloadPersonaAvatars } = useAvatarCache({ personas });
 const userAvatarUrl = computed(() => resolveAvatarUrl(userPersona.value?.avatarPath, userPersona.value?.avatarUpdatedAt));
@@ -635,8 +638,8 @@ const {
   setStatus,
   setStatusError,
   personas,
-  assistantDepartmentAgentId,
-  toolAgentId: assistantDepartmentAgentId,
+  assistantAgentId,
+  toolAgentId: assistantAgentId,
   avatarSaving,
   avatarError,
   selectedApiConfig,
@@ -704,7 +707,7 @@ const configPersistence = useConfigPersistence({
   savingPersonas: personaSaving,
   personas,
   assistantPersonas,
-  assistantDepartmentAgentId,
+  assistantAgentId,
   personaEditorId,
   userAlias,
   selectedResponseStyleId,
@@ -744,14 +747,14 @@ const {
   addApiConfig,
   removeSelectedApiConfig,
   addPersona,
-  togglePersonaDepartmentMember,
+  setPersonaChildAgents,
   removeSelectedPersona,
 } = useConfigEditors({
   t: tr,
   config,
   personas,
   assistantPersonas,
-  assistantDepartmentAgentId,
+  assistantAgentId,
   personaEditorId,
   selectedPersonaEditor,
   createApiConfig,
@@ -901,14 +904,14 @@ function updatePersonaEditorIdWithNotice(value: string) {
   personaEditorId.value = nextId;
 }
 
-async function handleTogglePersonaDepartmentMember(payload: { agentId: string; departmentId: string; member: boolean }) {
-  const result = await togglePersonaDepartmentMember(payload);
+async function handleSetPersonaChildAgents(payload: { agentId: string; childAgentIds: string[] }) {
+  const result = await setPersonaChildAgents(payload);
   if (result.status === "failed") {
-    setStatus(tr("config.persona.bindDepartmentFailed"));
+    setStatus(tr("config.persona.childAgentsUpdateFailed"));
     return;
   }
   if (result.status === "applied") {
-    setStatus(tr("config.persona.bindDepartmentSuccess"));
+    setStatus(tr("config.persona.childAgentsUpdateSuccess"));
   }
   // unchanged / rejected 不提示；overridden 表示请求的状态没落地（后端自修复），
   // 那条说明已由保存链路写进状态栏，这里不得覆盖。
@@ -935,15 +938,15 @@ async function openConversationList() {
 }
 
 async function openPromptPreviewFromConfig() {
-  const apiConfigId = String(config.assistantDepartmentApiConfigId || config.selectedApiConfigId || "").trim();
-  const agentId = String(assistantDepartmentAgentId.value || "").trim();
+  const apiConfigId = String(config.expertApiConfigId || config.selectedApiConfigId || "").trim();
+  const agentId = String(assistantAgentId.value || "").trim();
   if (!apiConfigId || !agentId) return;
   await openPromptPreview(apiConfigId, agentId);
 }
 
 async function openSystemPromptPreviewFromConfig() {
-  const apiConfigId = String(config.assistantDepartmentApiConfigId || config.selectedApiConfigId || "").trim();
-  const agentId = String(assistantDepartmentAgentId.value || "").trim();
+  const apiConfigId = String(config.expertApiConfigId || config.selectedApiConfigId || "").trim();
+  const agentId = String(assistantAgentId.value || "").trim();
   if (!apiConfigId || !agentId) return;
   await openSystemPromptPreview(apiConfigId, agentId);
 }
@@ -965,7 +968,7 @@ const appBootstrap = useConfigWindowBootstrap({
   normalizeLocale,
   config,
   locale,
-  assistantDepartmentAgentId,
+  assistantAgentId,
   personaEditorId,
   userAlias,
   selectedResponseStyleId,
@@ -1012,7 +1015,7 @@ useAppWatchers({
   personas,
   userPersona,
   assistantPersonas,
-  assistantDepartmentAgentId,
+  assistantAgentId,
   personaEditorId,
   selectedApiConfig,
   toolApiConfig,

@@ -60,17 +60,7 @@ fn read_config(path: &PathBuf) -> Result<AppConfig, String> {
         ));
         format!("Parse config failed ({}): {err}", resolved_path.display())
     })?;
-    let repairs = normalize_app_config(&mut parsed);
-    if !repairs.is_empty() {
-        runtime_log_info(format!(
-            "[配置] 加载自修复完成: count={}, departments={:?}",
-            repairs.len(),
-            repairs
-                .iter()
-                .map(|item| format!("{}:{}->{}", item.department_id, item.department_name, item.agent_id))
-                .collect::<Vec<_>>()
-        ));
-    }
+    normalize_app_config(&mut parsed);
     let persist_target = if resolved_path != *path {
         Some(path)
     } else if missing_enable_audio {
@@ -896,16 +886,7 @@ fn has_usable_text_llm(config: &AppConfig) -> bool {
     if usable_api_ids.is_empty() {
         return false;
     }
-    if usable_api_ids.contains(config.assistant_department_api_config_id.trim()) {
-        return true;
-    }
-    assistant_department(config)
-        .map(|department| {
-            department_api_config_ids(department)
-                .into_iter()
-                .any(|id| usable_api_ids.contains(id.trim()))
-        })
-        .unwrap_or(false)
+    usable_api_ids.contains(config.expert_api_config_id.trim())
 }
 
 fn startup_window_label_for_config(config: &AppConfig) -> &'static str {
@@ -916,298 +897,18 @@ fn startup_window_label_for_config(config: &AppConfig) -> &'static str {
     }
 }
 
-/// 归一化部门配置；返回本次发生的自修复记录，供保存链路显式上报。
-fn normalize_departments(config: &mut AppConfig) -> Vec<ConfigRepairNotice> {
-    if config.api_configs.is_empty() {
-        return Vec::new();
-    }
-    let fallback_api_id = config
-        .api_configs
-        .iter()
-        .find(|api| api.id == config.assistant_department_api_config_id && is_text_chat_api(api))
-        .or_else(|| config.api_configs.iter().find(|api| is_text_chat_api(api)))
-        .or_else(|| config.api_configs.first())
-        .map(|api| api.id.clone())
-        .unwrap_or_default();
-    let mut out = Vec::<DepartmentConfig>::new();
-    let mut seen_ids = std::collections::HashSet::<String>::new();
-    let mut valid_text_chat_api_ids = config
-        .api_configs
-        .iter()
-        .filter(|a| is_text_chat_api(a))
-        .map(|a| a.id.clone())
-        .collect::<std::collections::HashSet<_>>();
-    valid_text_chat_api_ids.insert(MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string());
-    valid_text_chat_api_ids.insert(MODEL_ROLE_QUICK_API_CONFIG_ID.to_string());
-    for raw in &config.departments {
-        let id = raw.id.trim().to_string();
-        if id.is_empty() {
-            continue;
-        }
-        let key = id.to_ascii_lowercase();
-        if !seen_ids.insert(key) {
-            continue;
-        }
-        let mut api_config_ids = department_api_config_ids(raw)
-            .into_iter()
-            .map(|id| remap_legacy_api_config_id_to_endpoint(config, &id))
-            .filter(|id| valid_text_chat_api_ids.contains(id))
-            .collect::<Vec<_>>();
-        if api_config_ids.is_empty() && !fallback_api_id.trim().is_empty() {
-            api_config_ids.push(MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string());
-        }
-        let api_config_id = api_config_ids
-            .first()
-            .cloned()
-            .unwrap_or_default();
-        let mut agent_ids = Vec::<String>::new();
-        let mut seen_agent_ids = std::collections::HashSet::<String>::new();
-        for agent_id in &raw.agent_ids {
-            let agent_id = agent_id.trim().to_string();
-            if agent_id.is_empty() {
-                continue;
-            }
-            let key = agent_id.to_ascii_lowercase();
-            if seen_agent_ids.insert(key) {
-                agent_ids.push(agent_id);
-            }
-        }
-        let source = if raw.source.trim().is_empty() { default_main_source() } else { raw.source.trim().to_string() };
-        if source.trim() == default_private_workspace_source() {
-            api_config_ids.truncate(1);
-        }
-        let mut item = DepartmentConfig {
-            id: id.clone(),
-            name: raw.name.trim().to_string(),
-            summary: raw.summary.trim().to_string(),
-            guide: raw.guide.trim().to_string(),
-            api_config_ids,
-            api_config_id,
-            model_failure_fallback_enabled: raw.model_failure_fallback_enabled
-                && source.trim() != default_private_workspace_source(),
-            agent_ids,
-            child_department_ids: normalize_department_child_ids(
-                &raw.child_department_ids,
-                &id,
-            ),
-            created_at: raw.created_at.trim().to_string(),
-            updated_at: raw.updated_at.trim().to_string(),
-            order_index: raw.order_index,
-            is_built_in_assistant: raw.is_built_in_assistant || id == ASSISTANT_DEPARTMENT_ID,
-            is_deputy: raw.is_deputy,
-            source,
-            scope: if raw.scope.trim().is_empty() { default_global_scope() } else { raw.scope.trim().to_string() },
-            permission_control: normalize_department_permission_control(&raw.permission_control),
-        };
-        if item.name.is_empty() {
-            item.name = if item.id == DEPUTY_DEPARTMENT_ID {
-                "explorer".to_string()
-            } else if item.id == REVIEWER_DEPARTMENT_ID {
-                "reviewer".to_string()
-            } else if item.id == SADDLER_DEPARTMENT_ID {
-                "saddler".to_string()
-            } else if item.id == LEADER_DEPARTMENT_ID {
-                "leader".to_string()
-            } else if item.id == REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID {
-                "远程客服".to_string()
-            } else if item.is_built_in_assistant {
-                default_assistant_department_name(&config.ui_language)
-            } else {
-                format!("部门 {}", out.len() + 1)
-            };
-        }
-        if item.created_at.trim().is_empty() {
-            item.created_at = now_iso();
-        }
-        if item.updated_at.trim().is_empty() {
-            item.updated_at = item.created_at.clone();
-        }
-        out.push(item);
-    }
-
-    if !out.iter().any(|item| item.is_built_in_assistant || item.id == ASSISTANT_DEPARTMENT_ID) {
-        out.push(default_assistant_department(MODEL_ROLE_EXPERT_API_CONFIG_ID));
-    }
-    if !out.iter().any(|item| item.id == LEADER_DEPARTMENT_ID) {
-        out.push(default_leader_department(MODEL_ROLE_EXPERT_API_CONFIG_ID));
-    }
-    if !out.iter().any(|item| item.id == DEPUTY_DEPARTMENT_ID) {
-        out.push(default_deputy_department(MODEL_ROLE_QUICK_API_CONFIG_ID));
-    }
-    if !out.iter().any(|item| item.id == REVIEWER_DEPARTMENT_ID) {
-        out.push(default_reviewer_department(MODEL_ROLE_QUICK_API_CONFIG_ID));
-    }
-    if !out.iter().any(|item| item.id == SADDLER_DEPARTMENT_ID) {
-        out.push(default_saddler_department(MODEL_ROLE_EXPERT_API_CONFIG_ID));
-    }
-    if !out
-        .iter()
-        .any(|item| item.id == REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID)
-    {
-        out.push(default_remote_customer_service_department(MODEL_ROLE_EXPERT_API_CONFIG_ID));
-    }
-    if !out.iter().any(|item| item.id == HR_DEPARTMENT_ID) {
-        out.push(default_hr_department(MODEL_ROLE_EXPERT_API_CONFIG_ID));
-    }
-
-    let normalize_department_api_bindings =
-        |item: &mut DepartmentConfig, valid_text_chat_api_ids: &std::collections::HashSet<String>| {
-            let ids = department_api_config_ids(item)
-                .into_iter()
-                .map(|id| remap_legacy_api_config_id_to_endpoint(config, &id))
-                .filter(|id| valid_text_chat_api_ids.contains(id))
-                .collect::<Vec<_>>();
-            item.api_config_ids = if ids.is_empty() && !fallback_api_id.trim().is_empty() {
-                vec![MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string()]
-            } else {
-                ids
-            };
-            item.api_config_id = item.api_config_ids.first().cloned().unwrap_or_default();
-        };
-
-    for (idx, item) in out.iter_mut().enumerate() {
-        item.order_index = (idx as i64) + 1;
-        if item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant {
-            item.id = ASSISTANT_DEPARTMENT_ID.to_string();
-            item.is_built_in_assistant = true;
-            item.is_deputy = false;
-            if item.name.trim().is_empty() {
-                item.name = default_assistant_department_name(&config.ui_language);
-            }
-            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
-        } else if item.id == DEPUTY_DEPARTMENT_ID {
-            item.is_deputy = false;
-            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
-        } else if item.id == REVIEWER_DEPARTMENT_ID {
-            item.is_deputy = false;
-            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
-        } else if item.id == SADDLER_DEPARTMENT_ID {
-            item.is_deputy = false;
-            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
-        } else if item.id == LEADER_DEPARTMENT_ID {
-            item.is_deputy = false;
-            let defaults = default_leader_department(MODEL_ROLE_EXPERT_API_CONFIG_ID);
-            if item.name.trim().is_empty() {
-                item.name = defaults.name;
-            }
-            if item.summary.trim().is_empty() {
-                item.summary = defaults.summary;
-            }
-            if item.guide.trim().is_empty() {
-                item.guide = defaults.guide;
-            }
-            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
-        } else if item.id == REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID {
-            item.is_deputy = false;
-            if item.name.trim().is_empty() {
-                item.name = "远程客服".to_string();
-            }
-            if item.summary.trim().is_empty() {
-                item.summary = REMOTE_CUSTOMER_SERVICE_DEPARTMENT_SUMMARY.to_string();
-            }
-            if item.guide.trim().is_empty() {
-                item.guide = REMOTE_CUSTOMER_SERVICE_DEPARTMENT_GUIDE.to_string();
-            }
-            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
-        } else if item.id == HR_DEPARTMENT_ID {
-            item.is_deputy = false;
-            // 人力部是内置冻结部门：name/summary/guide/permission_control 强制以编译期预设覆盖，仅 agent_ids 可写
-            let defaults = default_hr_department(MODEL_ROLE_EXPERT_API_CONFIG_ID);
-            item.name = defaults.name;
-            item.summary = defaults.summary;
-            item.guide = defaults.guide;
-            item.permission_control = DepartmentPermissionControl::default();
-            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
-        }
-    }
-    for item in &mut out {
-        item.is_deputy = false;
-        item.child_department_ids = normalize_department_child_ids(
-            &item.child_department_ids,
-            &item.id,
-        );
-    }
-    let repairs = repair_builtin_department_agent_ids(&mut out);
-    let removed_cyclic_edges = remove_cyclic_department_child_ids(&mut out);
-    if !removed_cyclic_edges.is_empty() {
-        let edges = removed_cyclic_edges
-            .iter()
-            .map(|(parent_id, child_id)| format!("{parent_id}->{child_id}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        runtime_log_warn(format!(
-            "[配置] 跳过成环部门关系: count={}, edges={}",
-            removed_cyclic_edges.len(),
-            edges
-        ));
-    }
-
-    out.sort_by_key(|item| (built_in_department_rank(&item.id), item.order_index));
-    for (idx, item) in out.iter_mut().enumerate() {
-        item.order_index = (idx as i64) + 1;
-    }
-    config.departments = out;
-    repairs
-}
-
-/// 内置部门的默认负责人格：成员列表被清空时按此恢复。
-fn builtin_department_default_agent_id(department_id: &str) -> Option<&'static str> {
-    match department_id {
-        DEPUTY_DEPARTMENT_ID => Some(DEPUTY_AGENT_ID),
-        ASSISTANT_DEPARTMENT_ID
-        | REVIEWER_DEPARTMENT_ID
-        | SADDLER_DEPARTMENT_ID
-        | LEADER_DEPARTMENT_ID
-        | REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID
-        | HR_DEPARTMENT_ID => Some(DEFAULT_AGENT_ID),
-        _ => None,
-    }
-}
-
-/// 部门成员自修复：内置部门成员被清空时，按部门自身的预设恢复默认人格。
-/// 自定义部门不回填，空就是空。返回的修复项由保存链路显式上报，避免静默改配置。
-fn repair_builtin_department_agent_ids(
-    departments: &mut [DepartmentConfig],
-) -> Vec<ConfigRepairNotice> {
-    let mut repairs = Vec::new();
-    for item in departments.iter_mut() {
-        if !item.agent_ids.is_empty() {
-            continue;
-        }
-        let is_built_in_assistant = item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant;
-        let default_agent_id = builtin_department_default_agent_id(&item.id).or({
-            if is_built_in_assistant {
-                Some(DEFAULT_AGENT_ID)
-            } else {
-                None
-            }
-        });
-        let Some(default_agent_id) = default_agent_id else {
-            continue;
-        };
-        item.agent_ids = vec![default_agent_id.to_string()];
-        repairs.push(ConfigRepairNotice {
-            kind: CONFIG_REPAIR_KIND_BUILTIN_DEPARTMENT_AGENT.to_string(),
-            department_id: item.id.clone(),
-            department_name: item.name.clone(),
-            agent_id: default_agent_id.to_string(),
-        });
-    }
-    repairs
-}
-
-/// 归一化整份配置；返回本次发生的自修复记录，由调用方决定是否上报（保存路径必须上报）。
-fn normalize_app_config(config: &mut AppConfig) -> Vec<ConfigRepairNotice> {
+/// 归一化整份配置。
+fn normalize_app_config(config: &mut AppConfig) {
     if config.api_configs.is_empty() && config.api_providers.is_empty() {
         *config = AppConfig::default();
-        return Vec::new();
+        return;
     }
     migrate_legacy_api_configs_into_providers(config);
     expand_api_configs_from_providers(config);
     config.selected_api_config_id =
         remap_legacy_api_config_id_to_endpoint(config, &config.selected_api_config_id);
-    config.assistant_department_api_config_id =
-        remap_legacy_api_config_id_to_endpoint(config, &config.assistant_department_api_config_id);
+    config.expert_api_config_id =
+        remap_legacy_api_config_id_to_endpoint(config, &config.expert_api_config_id);
     config.vision_api_config_id = config
         .vision_api_config_id
         .as_ref()
@@ -1270,12 +971,12 @@ fn normalize_app_config(config: &mut AppConfig) -> Vec<ConfigRepairNotice> {
     }
 
     let chat_valid = config.api_configs.iter().any(|a| {
-        a.id == config.assistant_department_api_config_id
+        a.id == config.expert_api_config_id
             && a.enable_text
             && a.request_format.is_chat_text()
     });
     if !chat_valid {
-        config.assistant_department_api_config_id.clear();
+        config.expert_api_config_id.clear();
     }
 
     if config.min_record_seconds == 0 {
@@ -1312,9 +1013,7 @@ fn normalize_app_config(config: &mut AppConfig) -> Vec<ConfigRepairNotice> {
     normalize_mcp_servers(config);
     normalize_remote_im_channels(config);
     normalize_provider_non_stream_base_urls(config);
-    let repairs = normalize_departments(config);
     normalize_image_generation_config(config);
-    repairs
 }
 
 const MEDIA_REF_PREFIX: &str = "@media:";
@@ -1625,9 +1324,9 @@ fn resolve_selected_api_config(
     let target_id = requested_id
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or(app_config.assistant_department_api_config_id.as_str());
+        .unwrap_or(app_config.expert_api_config_id.as_str());
     let target_id = resolve_model_role_api_config_id(app_config, target_id)
-        .unwrap_or_else(|| app_config.assistant_department_api_config_id.trim().to_string());
+        .unwrap_or_else(|| app_config.expert_api_config_id.trim().to_string());
 
     if let Some(found) = app_config.api_configs.iter().find(|p| p.id == target_id) {
         return Some(found.clone());

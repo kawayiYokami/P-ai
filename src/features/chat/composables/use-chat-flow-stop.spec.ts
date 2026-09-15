@@ -32,7 +32,7 @@ describe("useChatFlowStop", () => {
     const { stopChat } = useChatFlowStop({
       chatting: ref(true),
       allMessages,
-      getSession: () => ({ apiConfigId: "api-1", agentId: "agent-1", departmentId: "department-1" }),
+      getSession: () => ({ apiConfigId: "api-1", agentId: "agent-1" }),
       getConversationId: () => "conversation-1",
       invokeStopChatMessage,
       getRound: () => ({ phase: "streaming", gen: 1, messageId: "assistant-1" }),

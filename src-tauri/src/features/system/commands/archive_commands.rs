@@ -15,12 +15,12 @@ fn parse_prompt_preview_mode(raw: Option<&str>) -> PromptPreviewMode {
 
 fn resolve_chat_prompt_preview_api_config(
     app_config: &AppConfig,
+    agent: &AgentProfile,
     conversation: &Conversation,
     requested_api_config_id: Option<&str>,
 ) -> Result<ApiConfig, String> {
     let preferred_api_config_id = if conversation_is_remote_im_contact(conversation) {
-        department_by_id(app_config, &conversation.department_id)
-            .and_then(|department| department_primary_chat_api_config_id(app_config, department))
+        agent_primary_chat_api_config_id(app_config, agent)
     } else {
         conversation
             .preferred_api_config_id
@@ -77,11 +77,12 @@ async fn get_prompt_preview_inner(
         return Err(format!("指定会话不存在或不可用：{requested_conversation_id}"));
     }
     let agent =
-        resolve_conversation_bound_agent(&conversation, &agents, &app_config.departments)?
+        resolve_conversation_bound_agent(&conversation, &agents)?
             .clone();
     let api_config = match preview_mode {
         PromptPreviewMode::Chat => resolve_chat_prompt_preview_api_config(
             &app_config,
+            &agent,
             &conversation,
             input.api_config_id.as_deref(),
         )?,
@@ -149,7 +150,6 @@ async fn get_prompt_preview_inner(
             &conversation,
             &agent,
             &agents,
-            &app_config.departments,
             &user_name,
             &user_intro,
             &response_style_id,
@@ -157,10 +157,7 @@ async fn get_prompt_preview_inner(
             Some(&state.data_path),
             None,
             None,
-            Some(ChatPromptOverrides {
-                executor_department_id: Some(conversation.department_id.trim().to_string()),
-                ..Default::default()
-            }),
+            Some(ChatPromptOverrides::default()),
             Some(state),
             Some(&api_config),
             Some(&resolved_api),
@@ -178,7 +175,6 @@ async fn get_prompt_preview_inner(
                 &conversation,
                 &owner_agent,
                 &agents,
-                &app_config.departments,
                 &user_name,
                 &user_intro,
                 &response_style_id,
@@ -187,7 +183,6 @@ async fn get_prompt_preview_inner(
                 None,
                 None,
                 Some(ChatPromptOverrides {
-                    executor_department_id: Some(conversation.department_id.trim().to_string()),
                     latest_user_intent: Some(LatestUserPayloadIntent::SummaryContext {
                         scene: if preview_mode == PromptPreviewMode::Compaction {
                             SummaryContextScene::Compaction
@@ -471,7 +466,6 @@ mod fast_request_archive_tests {
         let mut conversation = build_conversation_record(
             "",
             DEFAULT_AGENT_ID,
-            ASSISTANT_DEPARTMENT_ID,
             "测试会话",
             CONVERSATION_KIND_CHAT,
             None,

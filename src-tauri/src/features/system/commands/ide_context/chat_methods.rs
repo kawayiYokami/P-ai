@@ -620,13 +620,13 @@ fn ide_chat_set_auto_push_command(state: &AppState, params: Value) -> Result<Val
     ide_chat_serialize(set_conversation_auto_push_remote_contact_inner(input, state)?)
 }
 
-fn ide_chat_set_department_primary_api_command(
+fn ide_chat_set_agent_primary_api_command(
     state: &AppState,
     app: &AppHandle,
     params: Value,
 ) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<SetDepartmentPrimaryApiConfigInput>(params, "input")?;
-    ide_chat_serialize(set_department_primary_api_config_inner(input, app, state)?)
+    let input = ide_chat_parse_param_field::<SetAgentPrimaryApiConfigInput>(params, "input")?;
+    ide_chat_serialize(set_agent_primary_api_config_inner(input, app, state)?)
 }
 
 fn ide_chat_set_ui_language_command(

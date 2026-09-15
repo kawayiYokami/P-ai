@@ -229,7 +229,6 @@ async fn parse_and_enqueue_dingtalk_callback(
         dingtalk_session_webhook_expired_time: int_field(callback_payload, "sessionWebhookExpiredTime"),
         session: SessionSelector {
             api_config_id: None,
-            department_id: None,
             agent_id: String::new(),
             conversation_id: None,
         },

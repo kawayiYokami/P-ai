@@ -101,39 +101,21 @@ fn remote_im_resolve_contact_assistant_context(
     contact: &RemoteImContact,
 ) -> Result<RemoteImConversationAssistantContext, String> {
     let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-    let requested_department_id = contact
-        .bound_department_id
+    let agent_id = contact
+        .bound_agent_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("联系人未设置应答部门: {}", contact.id))?;
-    let (department_id, agent_id) = resolve_department_agent_pair(
-        state,
-        Some(requested_department_id),
-        contact.bound_agent_id.as_deref(),
-        &runtime_snapshot.config,
-    )?;
-    let department = runtime_department_by_id(&runtime_snapshot, &department_id)
-        .ok_or_else(|| format!("路由部门不存在: {department_id}"))?;
-    let agent = runtime_snapshot
-        .agents
-        .iter()
-        .find(|item| item.id == agent_id)
+        .ok_or_else(|| format!("联系人未设置应答人格: {}", contact.id))?;
+    let agent = runtime_agent_by_id(&runtime_snapshot, agent_id)
         .ok_or_else(|| format!("路由人格不存在: {agent_id}"))?;
-    let department_name = if department.name.trim().is_empty() {
-        department.id.clone()
-    } else {
-        department.name.trim().to_string()
-    };
     let agent_name = if agent.name.trim().is_empty() {
         agent.id.clone()
     } else {
         agent.name.trim().to_string()
     };
     Ok(RemoteImConversationAssistantContext {
-        department_id,
-        department_name,
-        agent_id,
+        agent_id: agent.id.clone(),
         agent_name,
     })
 }
@@ -347,11 +329,6 @@ fn build_remote_im_secretary_prepared_prompt(
     let guidance = normalize_remote_im_channel_response_guidance(response_guidance);
     let contact_name = remote_im_secretary_contact_display_name(contact);
     let contact_type = remote_im_secretary_contact_type_label(&contact.remote_contact_type);
-    let department_name = remote_im_secretary_context_display_name(
-        &current_assistant.department_name,
-        &current_assistant.department_id,
-        "当前部门",
-    );
     let agent_name = remote_im_secretary_context_display_name(
         &current_assistant.agent_name,
         &current_assistant.agent_id,
@@ -360,7 +337,7 @@ fn build_remote_im_secretary_prepared_prompt(
     PreparedPrompt {
         preamble: format!(
             "请使用{language}完成远程联系人应答判断。\n\
-你是正式处理部门入场前的秘书，只负责判断这一次是否应该回应，不负责代写回复。\n\
+你是正式处理助理入场前的秘书，只负责判断这一次是否应该回应，不负责代写回复。\n\
 你会收到两段内容：最近 7 条已处理历史消息，以及本次未处理新消息。每条消息以 [发言人/ID](本地差异时间标签) 开头，助理消息可能没有 ID；正文只保留了前 100 个字，信息不足时不要过度推断。\n\
 “未处理边界”之后的消息按时间从旧到新排列，最后一条就是最新消息，应优先围绕它判断是否需要回应。\n\
 请优先遵守“什么时候应该回答”这段规则；如果规则不够，再按常识判断。\n\
@@ -370,9 +347,7 @@ JSON 只能包含字段：shouldReply, targetDelegateId, reason。"
         ),
         history_messages: Vec::new(),
         latest_user_text: format!(
-            "当前应答部门：\n\
-- 名称：{}\n\n\
-当前助理：\n\
+            "当前助理：\n\
 - 名称：{}\n\n\
 当前联系人：\n\
 - 名称：{contact_name}\n\
@@ -385,7 +360,6 @@ JSON 只能包含字段：shouldReply, targetDelegateId, reason。"
 {}
 
 如果新消息应继续账本中某个运行中委托，targetDelegateId 必须填该委托 ID；如果是独立问题或没有运行中委托，targetDelegateId 留空。\n\n请直接输出 JSON。",
-            department_name,
             agent_name,
             remote_im_secretary_messages_to_text(history_messages, false),
             remote_im_secretary_messages_to_text(new_batch_messages, true),

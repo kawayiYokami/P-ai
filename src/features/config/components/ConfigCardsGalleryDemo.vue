@@ -214,7 +214,7 @@
             tabindex="0"
             class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
           >
-            <!-- 头部：头像 + 姓名 + 部门与身份 -->
+            <!-- 头部：头像 + 姓名 + 身份 -->
             <div class="flex items-start justify-between gap-2.5 min-w-0">
               <div class="flex items-center gap-2.5 min-w-0 flex-1">
                 <div class="avatar shrink-0">
@@ -232,15 +232,8 @@
                     <span v-else-if="persona.isSystem" class="badge badge-neutral badge-xs shrink-0 font-medium">系统</span>
                   </div>
 
-                  <!-- 部门归属（干净清爽，不挂刺眼黄色未入部门标签） -->
+                  <!-- 角色标识 -->
                   <div class="mt-1 flex flex-wrap items-center gap-1">
-                    <span
-                      v-if="persona.department"
-                      class="badge badge-ghost badge-xs gap-1 font-mono text-caption"
-                    >
-                      <Building2 class="h-3 w-3 opacity-60" />
-                      {{ persona.department }}
-                    </span>
                     <span
                       v-if="persona.isDefault"
                       class="badge badge-primary badge-outline badge-xs text-caption"
@@ -284,70 +277,7 @@
         </div>
       </section>
 
-      <!-- 5. 部门卡片 (DepartmentTab) -->
-      <section v-if="activeTab === 'all' || activeTab === 'department'" class="space-y-2.5">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <Users class="h-4 w-4 text-warning" />
-            <h4 class="text-sm font-bold text-base-content">部门组织 (Departments)</h4>
-            <SegmentedControl
-              v-model="deptCategoryTab"
-              :options="deptCategoryOptions"
-              :full-width="false"
-              size="xs"
-              class="ml-2"
-            />
-          </div>
-          <span class="text-caption opacity-50 font-mono">.config-grid-auto-md (min: 20rem)</span>
-        </div>
-
-        <div class="config-grid-auto-md">
-          <div
-            v-for="dept in displayedMockDepartments"
-            :key="dept.id"
-            role="button"
-            tabindex="0"
-            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
-          >
-            <!-- 头部：部门名称 + 徽章 + 模型 -->
-            <div class="flex items-start justify-between gap-2.5 min-w-0">
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-1.5">
-                  <span class="text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors">
-                    {{ dept.name }}
-                  </span>
-                  <span v-if="dept.isAssistant" class="badge badge-primary badge-xs">助理办</span>
-                  <span v-else-if="dept.isBuiltin" class="badge badge-neutral badge-xs opacity-70">内置</span>
-                </div>
-                <div class="text-caption opacity-50 truncate mt-0.5 font-mono">
-                  {{ dept.model }}
-                </div>
-              </div>
-            </div>
-
-            <!-- 中间：部门简介 -->
-            <p class="text-xs text-base-content/70 line-clamp-2 leading-relaxed min-h-[2.5rem] break-words">
-              {{ dept.summary }}
-            </p>
-
-            <!-- 底栏：成员数 + 权限模式（仅开启白名单等规则时才显示） + 进入指示 -->
-            <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption opacity-70">
-              <div class="flex items-center gap-1.5">
-                <Users class="h-3.5 w-3.5 opacity-60" />
-                <span>{{ dept.membersCount }} 位成员</span>
-              </div>
-              <div class="flex items-center gap-1.5">
-                <span v-if="dept.permissionMode !== '权限未启用'" class="font-mono text-xs">
-                  {{ dept.permissionMode }}
-                </span>
-                <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 6. 联系人渠道卡片 (RemoteImTab) -->
+      <!-- 5. 联系人渠道卡片 (RemoteImTab) -->
       <section v-if="activeTab === 'all' || activeTab === 'remoteIm'" class="space-y-2.5">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
@@ -412,7 +342,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import {
-  Building2,
   ChevronRight,
   Cpu,
   Radio,
@@ -420,7 +349,6 @@ import {
   Sparkles,
   Trash2,
   UserCircle,
-  Users,
 } from "@lucide/vue";
 
 import SegmentedControl from "./SegmentedControl.vue";
@@ -431,8 +359,8 @@ const initialTabParam = urlParams?.get("tab") as any;
 const initialWidthParam = urlParams?.get("w") as any;
 const initialThemeParam = urlParams?.get("theme");
 
-const activeTab = ref<"all" | "api" | "skill" | "mcp" | "persona" | "department" | "remoteIm">(
-  ["all", "api", "skill", "mcp", "persona", "department", "remoteIm"].includes(initialTabParam) ? initialTabParam : "all"
+const activeTab = ref<"all" | "api" | "skill" | "mcp" | "persona" | "remoteIm">(
+  ["all", "api", "skill", "mcp", "persona", "remoteIm"].includes(initialTabParam) ? initialTabParam : "all"
 );
 const activeWidth = ref<"380" | "640" | "860" | "1200" | "full">(
   ["380", "640", "860", "1200", "full"].includes(initialWidthParam) ? initialWidthParam : "860"
@@ -443,12 +371,11 @@ if (initialThemeParam && typeof document !== "undefined") {
 }
 
 const tabSegmentOptions = [
-  { value: "all", label: "全部 6 类" },
+  { value: "all", label: "全部 5 类" },
   { value: "api", label: "供应商" },
   { value: "skill", label: "技能" },
   { value: "mcp", label: "连接器" },
   { value: "persona", label: "人格" },
-  { value: "department", label: "部门" },
   { value: "remoteIm", label: "联系人渠道" },
 ];
 
@@ -622,8 +549,6 @@ const mockPersonas = [
     name: "架构师 Alex",
     initial: "A",
     prompt: "你是一位拥有 15 年经验的系统架构师，擅长用最简优雅的设计构建高内聚低耦合的代码体系，崇尚第一性原理思考。",
-    department: "工程研发中心",
-    noDepartment: false,
     isDefault: true,
     isUser: false,
     isSystem: false,
@@ -636,8 +561,6 @@ const mockPersonas = [
     name: "技术写手 Chloe",
     initial: "C",
     prompt: "你专注于技术文档与开发手册的提炼，语言精炼清晰，从不使用空洞假大空的客套套话，直击问题核心。",
-    department: "产品内容组",
-    noDepartment: false,
     isDefault: false,
     isUser: false,
     isSystem: false,
@@ -650,8 +573,6 @@ const mockPersonas = [
     name: "PAI 助理",
     initial: "P",
     prompt: "PAI 默认桌面对话助理，响应快速，支持系统控制、文件处理与日常工作流。",
-    department: "助理办",
-    noDepartment: false,
     isDefault: false,
     isUser: false,
     isSystem: true,
@@ -663,9 +584,7 @@ const mockPersonas = [
     id: "freelancer",
     name: "独立探索者",
     initial: "独",
-    prompt: "无部门归属的自由实验智能体，用于尝试新提示词和原型能力。",
-    department: "",
-    noDepartment: true,
+    prompt: "独立探索者人格，用于尝试新提示词和原型能力。",
     isDefault: false,
     isUser: false,
     isSystem: false,
@@ -674,81 +593,6 @@ const mockPersonas = [
     canDelete: true,
   },
 ];
-
-// 5. 模拟部门数据
-const deptCategoryTab = ref<"custom" | "preset">("preset");
-const mockDepartments = [
-  {
-    id: "dept-core-office",
-    name: "核心助理办",
-    model: "claude-3-7-sonnet",
-    summary: "主控桌面调度与全局热键唤醒，处理日常快捷会话与即时任务分发。",
-    membersCount: 2,
-    permissionMode: "白名单模式",
-    isAssistant: true,
-    isBuiltin: true,
-  },
-  {
-    id: "dept-leader-office",
-    name: "领导办公室",
-    model: "deepseek-reasoner",
-    summary: "重大决策与高权重任务把关，把控关键技术方案走向与跨部门协同裁决。",
-    membersCount: 1,
-    permissionMode: "全权限开放",
-    isAssistant: false,
-    isBuiltin: true,
-  },
-  {
-    id: "dept-deputy-office",
-    name: "副手协同处",
-    model: "deepseek-chat",
-    summary: "日常事务性分流与长任务状态追踪，随时提供备选方案与阶段交付报告。",
-    membersCount: 1,
-    permissionMode: "黑名单模式",
-    isAssistant: false,
-    isBuiltin: true,
-  },
-  {
-    id: "dept-engineering",
-    name: "工程与研发中心",
-    model: "deepseek-reasoner",
-    summary: "负责系统底层架构、Tauri 原生接口集成、端到端响应优化与自动化测试体系。",
-    membersCount: 6,
-    permissionMode: "白名单模式",
-    isAssistant: false,
-    isBuiltin: false,
-  },
-  {
-    id: "dept-qa",
-    name: "质量与冒烟保障组",
-    model: "gpt-4o-mini",
-    summary: "负责单元测试验证、类型检查合规性扫描与发布前回归冒烟流程。",
-    membersCount: 3,
-    permissionMode: "黑名单模式",
-    isAssistant: false,
-    isBuiltin: false,
-  },
-  {
-    id: "dept-empty",
-    name: "新筹备创新孵化组",
-    model: "deepseek-chat",
-    summary: "暂未配置专属职责指南，请点击卡片进入详情进行成员编排与权限划定。",
-    membersCount: 0,
-    permissionMode: "权限未启用",
-    isAssistant: false,
-    isBuiltin: false,
-  },
-];
-
-const mockPresetDepartments = computed(() => mockDepartments.filter((d) => d.isBuiltin));
-const mockCustomDepartments = computed(() => mockDepartments.filter((d) => !d.isBuiltin));
-const displayedMockDepartments = computed(() =>
-  deptCategoryTab.value === "custom" ? mockCustomDepartments.value : mockPresetDepartments.value
-);
-const deptCategoryOptions = computed(() => [
-  { value: "custom" as const, label: "自定义部门", badge: mockCustomDepartments.value.length },
-  { value: "preset" as const, label: "系统预设", badge: mockPresetDepartments.value.length },
-]);
 
 // 6. 模拟联系人渠道数据
 const mockChannels = [

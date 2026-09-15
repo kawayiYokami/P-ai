@@ -19,7 +19,7 @@
         type="button"
         class="btn btn-sm"
         :class="{ 'btn-primary': selectionDelegateCardOpen }"
-        :disabled="delegateDepartmentOptions.length === 0"
+        :disabled="delegateAgentOptions.length === 0"
         @click="openSelectionDelegateCard"
       >
         {{ t("chat.selection.delegate") }}
@@ -80,11 +80,10 @@
           <span class="max-w-52 truncate">{{ item.label }}</span>
         </button>
       </div>
-      <DepartmentPersonaSelect
-        v-model:department-id="selectionDelegateDepartmentId"
+      <AgentPersonaSelect
         v-model:agent-id="selectionDelegateAgentId"
         class="mt-3"
-        :options="delegateDepartmentOptions"
+        :options="delegateAgentOptions"
         :persona-avatar-url-map="personaAvatarUrlMap"
         auto-select-first
       />
@@ -117,16 +116,15 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ChatConversationOverviewItem, ConversationForwardTarget, RemoteImContactConversationOption } from "../../../types/app";
-import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
-import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
+import AgentPersonaSelect from "../../shared/components/AgentPersonaSelect.vue";
+import type { AgentPersonaOption } from "../../shared/agent-persona-options";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 
-type ConversationDepartmentOption = DepartmentPersonaOption;
+type ConversationAgentOption = AgentPersonaOption;
 
 type RecentDelegateRequest = {
   id: string;
   label: string;
-  departmentId: string;
   agentId: string;
   presetId: string;
   why: string;
@@ -141,7 +139,7 @@ const props = defineProps<{
   activeConversationId: string;
   unarchivedConversationItems: ChatConversationOverviewItem[];
   remoteImContactConversations: RemoteImContactConversationOption[];
-  createConversationDepartmentOptions: ConversationDepartmentOption[];
+  createConversationAgentOptions: ConversationAgentOption[];
   personaAvatarUrlMap?: Record<string, string>;
   activeAgentId?: string;
 }>();
@@ -150,7 +148,7 @@ const emit = defineEmits<{
   exitSelectionMode: [];
   selectionActionBranch: [];
   selectionActionForward: [target: ConversationForwardTarget];
-  selectionActionDelegate: [payload: { departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }];
+  selectionActionDelegate: [payload: { agentId: string; presetId: string; why: string; goal: string; todo: string }];
   selectionActionCopy: [];
   selectionActionShare: [format: "html" | "png" | "copyPng"];
 }>();
@@ -164,7 +162,6 @@ const USER_ASYNC_DELEGATE_RECENT_LIMIT = 3;
 const selectionDeliverCardOpen = ref(false);
 const selectionDeliverTargetKey = ref("");
 const selectionDelegateCardOpen = ref(false);
-const selectionDelegateDepartmentId = ref("");
 const selectionDelegateAgentId = ref("");
 const selectionDelegatePresetId = ref("review");
 const selectionDelegateWhy = ref("");
@@ -188,7 +185,6 @@ const selectionDeliverTargetOptions = computed(() => {
         locale: locale.value,
         untitledLabel: t("chat.untitledConversation"),
       }),
-      departmentName: String(item.departmentName || "").trim() || undefined,
       runtimeState: item.runtimeState,
     }))
     .filter((item) => !!item.target.conversationId);
@@ -209,16 +205,14 @@ const selectionDeliverTargetOptions = computed(() => {
   return [...localTargets, ...remoteTargets];
 });
 
-const delegateDepartmentOptions = computed(() => {
+const delegateAgentOptions = computed(() => {
   const sourceAgentId = String(props.activeAgentId || "").trim();
-  // 用户主动发起异步委托不受 AI delegate 工具的“直接下级部门”限制，
+  // 用户主动发起异步委托不受 AI delegate 工具的“直接下级人格”限制，
   // 但禁止委托给自己：异步委托给同一人格只能走同步路径。
-  return (Array.isArray(props.createConversationDepartmentOptions) ? props.createConversationDepartmentOptions : [])
+  return (Array.isArray(props.createConversationAgentOptions) ? props.createConversationAgentOptions : [])
     .map((item) => ({
       id: String(item.id || "").trim(),
-      departmentId: String(item.departmentId || "").trim(),
       agentId: String(item.agentId || "").trim(),
-      departmentName: String(item.departmentName || "").trim(),
       agentName: String(item.agentName || "").trim(),
       label: String(item.label || "").trim(),
       name: String(item.name || "").trim() || String(item.id || "").trim(),
@@ -230,18 +224,17 @@ const delegateDepartmentOptions = computed(() => {
       modelMissing: !!item.modelMissing,
       personaMissing: !!item.personaMissing,
       unavailable: !!item.unavailable,
-      childDepartmentIds: Array.isArray(item.childDepartmentIds) ? item.childDepartmentIds : [],
+      childAgentIds: Array.isArray(item.childAgentIds) ? item.childAgentIds : [],
     }))
-    .filter((item) => !!item.id && !!item.departmentId && !!item.agentId)
+    .filter((item) => !!item.id && !!item.agentId)
     .filter((item) => !sourceAgentId || String(item.agentId || "").trim() !== sourceAgentId);
 });
 
-const preferredDelegateDepartmentId = computed(() => String(delegateDepartmentOptions.value[0]?.id || "").trim());
+const preferredDelegateAgentId = computed(() => String(delegateAgentOptions.value[0]?.id || "").trim());
 const canSubmitSelectionDelegate = computed(() =>
-  delegateDepartmentOptions.value.some((department) =>
-    department.departmentId === String(selectionDelegateDepartmentId.value || "").trim()
-    && department.agentId === String(selectionDelegateAgentId.value || "").trim()
-    && !department.personaMissing
+  delegateAgentOptions.value.some((agent) =>
+    agent.agentId === String(selectionDelegateAgentId.value || "").trim()
+    && !agent.personaMissing
   )
   && !!String(selectionDelegateGoal.value || "").trim(),
 );
@@ -249,7 +242,6 @@ const canSubmitSelectionDelegate = computed(() =>
 function selectionDeliverOptionLabel(item: {
   target: ConversationForwardTarget;
   title: string;
-  departmentName?: string;
   runtimeState?: ChatConversationOverviewItem["runtimeState"];
   remoteContactName?: string;
   channelName?: string;
@@ -261,8 +253,6 @@ function selectionDeliverOptionLabel(item: {
     if (remoteContactName) parts.push(remoteContactName);
     if (channelName) parts.push(channelName);
   } else {
-    const departmentName = String(item.departmentName || "").trim();
-    if (departmentName) parts.push(departmentName);
     if (item.runtimeState === "assistant_streaming") parts.push(t('chat.selection.streaming'));
     if (item.runtimeState === "organizing_context") parts.push(t('chat.selection.organizing'));
   }
@@ -300,17 +290,15 @@ function normalizeRecentDelegateRequest(raw: unknown): RecentDelegateRequest | n
     focus?: string;
   }) | null;
   if (!item) return null;
-  const departmentId = String(item.departmentId || "").trim();
   const agentId = String(item.agentId || "").trim();
   const goal = String(item.goal || item.question || "").trim();
   const todo = String(item.todo || item.focus || "").trim();
-  if (!departmentId || !agentId || !goal) return null;
+  if (!agentId || !goal) return null;
   const presetId = String(item.presetId || "review").trim() || "review";
   const label = String(item.label || goal).trim() || goal;
   return {
-    id: String(item.id || `${departmentId}:${presetId}:${goal}`).trim(),
+    id: String(item.id || `${agentId}:${presetId}:${goal}`).trim(),
     label,
-    departmentId,
     agentId,
     presetId,
     why: String(item.why || item.background || "").trim(),
@@ -343,12 +331,12 @@ function loadRecentDelegateRequests() {
 }
 
 function rememberDelegateRequest(raw: Omit<RecentDelegateRequest, "id" | "label">) {
-  const request = normalizeRecentDelegateRequest({ ...raw, id: `${Date.now()}:${raw.departmentId}:${raw.agentId}`, label: raw.goal });
+  const request = normalizeRecentDelegateRequest({ ...raw, id: `${Date.now()}:${raw.agentId}`, label: raw.goal });
   if (!request) return;
-  const key = `${request.departmentId}\n${request.agentId}\n${request.presetId}\n${request.why}\n${request.goal}\n${request.todo}`;
+  const key = `${request.agentId}\n${request.presetId}\n${request.why}\n${request.goal}\n${request.todo}`;
   recentDelegateRequests.value = [
     request,
-    ...recentDelegateRequests.value.filter((item) => `${item.departmentId}\n${item.agentId}\n${item.presetId}\n${item.why}\n${item.goal}\n${item.todo}` !== key),
+    ...recentDelegateRequests.value.filter((item) => `${item.agentId}\n${item.presetId}\n${item.why}\n${item.goal}\n${item.todo}` !== key),
   ].slice(0, USER_ASYNC_DELEGATE_RECENT_LIMIT);
   saveRecentDelegateRequests();
 }
@@ -361,11 +349,10 @@ function clearSelectionDelegateFields() {
 }
 
 function applyRecentDelegateRequest(item: RecentDelegateRequest) {
-  const optionStillExists = delegateDepartmentOptions.value.some((department) =>
-    department.departmentId === item.departmentId && department.agentId === item.agentId
+  const optionStillExists = delegateAgentOptions.value.some((agent) =>
+    agent.agentId === item.agentId
   );
   if (optionStillExists) {
-    selectionDelegateDepartmentId.value = item.departmentId;
     selectionDelegateAgentId.value = item.agentId;
   }
   selectionDelegatePresetId.value = item.presetId || "review";
@@ -376,10 +363,9 @@ function applyRecentDelegateRequest(item: RecentDelegateRequest) {
 
 function openSelectionDelegateCard() {
   closeSelectionDeliverCard();
-  const preferredOption = delegateDepartmentOptions.value.find((option) => option.id === preferredDelegateDepartmentId.value)
-    || delegateDepartmentOptions.value[0];
+  const preferredOption = delegateAgentOptions.value.find((option) => option.id === preferredDelegateAgentId.value)
+    || delegateAgentOptions.value[0];
   if (preferredOption) {
-    selectionDelegateDepartmentId.value = preferredOption.departmentId;
     selectionDelegateAgentId.value = preferredOption.agentId;
   }
   selectionDelegateCardOpen.value = true;
@@ -410,7 +396,6 @@ function confirmSelectionDelegate() {
   const rawTodo = String(selectionDelegateTodo.value || "").trim();
 
   const payload = {
-    departmentId: String(selectionDelegateDepartmentId.value || "").trim(),
     agentId: String(selectionDelegateAgentId.value || "").trim(),
     presetId: String(selectionDelegatePresetId.value || "review").trim() || "review",
     why: rawWhy.length > MAX_WHY_LENGTH ? rawWhy.slice(0, MAX_WHY_LENGTH) : rawWhy,

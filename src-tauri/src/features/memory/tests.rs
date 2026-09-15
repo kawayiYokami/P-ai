@@ -537,6 +537,14 @@
             memory_recall_mode: default_agent_memory_recall_mode(),
             source: "main".to_string(),
             scope: "global".to_string(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
         }
     }
 

@@ -38,7 +38,6 @@ impl UsageTrailTokenDelta {
 pub(super) struct UsageTrailDelta {
     pub conversation_id: String,
     pub agent_id: String,
-    pub department_id: String,
     pub conversation_kind: String,
     pub api_config_id: String,
     pub provider_key: String,
@@ -52,7 +51,6 @@ pub(super) struct UsageTrailRow {
     pub bucket: String,
     pub conversation_id: String,
     pub agent_id: String,
-    pub department_id: String,
     pub conversation_kind: String,
     pub api_config_id: String,
     pub provider_key: String,
@@ -138,14 +136,13 @@ fn usage_trail_upsert_on_conn(
 ) -> Result<(), String> {
     conn.execute(
         "INSERT INTO usage_trail (
-           bucket, conversation_id, agent_id, department_id, conversation_kind,
+           bucket, conversation_id, agent_id, conversation_kind,
            api_config_id, provider_key, provider_label, model_name,
            input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens,
            reasoning_tokens, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
          ON CONFLICT(bucket, conversation_id, provider_key, model_name) DO UPDATE SET
            agent_id=excluded.agent_id,
-           department_id=excluded.department_id,
            conversation_kind=excluded.conversation_kind,
            api_config_id=excluded.api_config_id,
            provider_label=excluded.provider_label,
@@ -160,7 +157,6 @@ fn usage_trail_upsert_on_conn(
             bucket,
             delta.conversation_id,
             delta.agent_id,
-            delta.department_id,
             delta.conversation_kind,
             delta.api_config_id,
             delta.provider_key,
@@ -185,7 +181,7 @@ pub(super) fn chat_metadata_store_usage_trail_query(
     bucket_start: Option<&str>,
 ) -> Result<Vec<UsageTrailRow>, String> {
     let conn = chat_metadata_store_open(data_path)?;
-    let base_sql = "SELECT bucket, conversation_id, agent_id, department_id, conversation_kind,
+    let base_sql = "SELECT bucket, conversation_id, agent_id, conversation_kind,
            api_config_id, provider_key, provider_label, model_name,
            input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens,
            reasoning_tokens
@@ -212,19 +208,18 @@ pub(super) fn chat_metadata_store_usage_trail_query(
                 bucket: row.get(0)?,
                 conversation_id: row.get(1)?,
                 agent_id: row.get(2)?,
-                department_id: row.get(3)?,
-                conversation_kind: row.get(4)?,
-                api_config_id: row.get(5)?,
-                provider_key: row.get(6)?,
-                provider_label: row.get(7)?,
-                model_name: row.get(8)?,
+                conversation_kind: row.get(3)?,
+                api_config_id: row.get(4)?,
+                provider_key: row.get(5)?,
+                provider_label: row.get(6)?,
+                model_name: row.get(7)?,
                 tokens: UsageTrailTokenDelta {
-                    input_tokens: row.get::<_, i64>(9)? as u64,
-                    output_tokens: row.get::<_, i64>(10)? as u64,
-                    total_tokens: row.get::<_, i64>(11)? as u64,
-                    cache_read_tokens: row.get::<_, i64>(12)? as u64,
-                    cache_write_tokens: row.get::<_, i64>(13)? as u64,
-                    reasoning_tokens: row.get::<_, i64>(14)? as u64,
+                    input_tokens: row.get::<_, i64>(8)? as u64,
+                    output_tokens: row.get::<_, i64>(9)? as u64,
+                    total_tokens: row.get::<_, i64>(10)? as u64,
+                    cache_read_tokens: row.get::<_, i64>(11)? as u64,
+                    cache_write_tokens: row.get::<_, i64>(12)? as u64,
+                    reasoning_tokens: row.get::<_, i64>(13)? as u64,
                 },
             })
         })
@@ -245,6 +240,7 @@ pub(super) fn chat_metadata_store_usage_trail_query(
 pub(super) fn chat_metadata_store_run_usage_trail_migration(
     data_path: &PathBuf,
     config: &AppConfig,
+    agents: &[AgentProfile],
 ) -> Result<(), String> {
     static MIGRATION_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
     let _guard = MIGRATION_LOCK
@@ -281,7 +277,7 @@ pub(super) fn chat_metadata_store_run_usage_trail_migration(
         if cumulative.is_empty() {
             continue;
         }
-        let api_config_id = usage_trail_resolve_api_config_id_from_meta(&meta, config);
+        let api_config_id = usage_trail_resolve_api_config_id_from_meta(&meta, config, agents);
         let provider_key = usage_trail_provider_key_from_api_config_id(&api_config_id, config);
         let provider_label = usage_trail_provider_label_from_provider_key(&provider_key, config);
         let model_name = usage_trail_resolve_model_name(&api_config_id, config);
@@ -294,7 +290,6 @@ pub(super) fn chat_metadata_store_run_usage_trail_migration(
                 let delta = UsageTrailDelta {
                     conversation_id: conversation_id.clone(),
                     agent_id: meta.agent_id.clone(),
-                    department_id: meta.department_id.clone(),
                     conversation_kind: usage_trail_kind_key_from_meta(&meta),
                     api_config_id: api_config_id.clone(),
                     provider_key: trail_provider_key.clone(),
@@ -321,7 +316,6 @@ pub(super) fn chat_metadata_store_run_usage_trail_migration(
             let delta = UsageTrailDelta {
                 conversation_id: conversation_id.clone(),
                 agent_id: meta.agent_id.clone(),
-                department_id: meta.department_id.clone(),
                 conversation_kind: usage_trail_kind_key_from_meta(&meta),
                 api_config_id: api_config_id.clone(),
                 provider_key: provider_key.clone(),
@@ -391,7 +385,11 @@ fn usage_trail_kind_key_from_meta(meta: &ConversationShardMeta) -> String {
     "normal".to_string()
 }
 
-fn usage_trail_resolve_api_config_id_from_meta(meta: &ConversationShardMeta, config: &AppConfig) -> String {
+fn usage_trail_resolve_api_config_id_from_meta(
+    meta: &ConversationShardMeta,
+    config: &AppConfig,
+    agents: &[AgentProfile],
+) -> String {
     let preferred = meta
         .preferred_api_config_id
         .as_deref()
@@ -401,30 +399,16 @@ fn usage_trail_resolve_api_config_id_from_meta(meta: &ConversationShardMeta, con
     if let Some(value) = preferred {
         return value;
     }
-    let department_id = meta.department_id.trim();
-    if department_id.is_empty() {
+    // 会话未固化模型时回退到负责人格的主模型（旧口径是所属部门的主模型）。
+    let agent_id = meta.agent_id.trim();
+    if agent_id.is_empty() {
         return String::new();
     }
-    config
-        .departments
+    agents
         .iter()
-        .find(|item| item.id.trim() == department_id)
-        .map(|item| {
-            let primary = item.api_config_id.trim();
-            if !primary.is_empty() {
-                return primary.to_string();
-            }
-            item.api_config_ids
-                .iter()
-                .find_map(|value| {
-                    let trimmed = value.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        Some(trimmed.to_string())
-                    }
-                })
-                .unwrap_or_default()
+        .find(|agent| agent.id.trim() == agent_id)
+        .map(|agent| {
+            resolve_chat_api_config_id(config, &agent_primary_api_config_id(agent)).unwrap_or_default()
         })
         .unwrap_or_default()
 }

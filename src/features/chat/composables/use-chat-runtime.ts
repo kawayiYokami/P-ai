@@ -18,7 +18,7 @@ type UseChatRuntimeOptions = {
   setChatError: (text: string) => void;
   setConversationRuntimeState?: (conversationId: string, runtimeState: "idle" | "assistant_streaming" | "organizing_context") => void;
   activeChatApiConfigId: Ref<string>;
-  assistantDepartmentAgentId: Ref<string>;
+  assistantAgentId: Ref<string>;
   currentConversationId?: Ref<string>;
   trimmingConversationId?: Ref<string>;
   compactingConversationId?: Ref<string>;
@@ -188,13 +188,13 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
   }
 
   async function loadAllMessages(targetConversationId?: string | null) {
-    if (!options.activeChatApiConfigId.value || !options.assistantDepartmentAgentId.value) return;
+    if (!options.activeChatApiConfigId.value || !options.assistantAgentId.value) return;
     const startedAt = options.perfNow();
     try {
       const conversationId = String(targetConversationId || currentConversationIdOrNull() || "").trim() || null;
       const snapshot = await invokeTauri<{ messages: ChatMessage[] }>("conversation.foregroundLightSnapshot", {
         input: {
-          agentId: conversationId ? null : options.assistantDepartmentAgentId.value,
+          agentId: conversationId ? null : options.assistantAgentId.value,
           conversationId,
           limit: FOREGROUND_SNAPSHOT_RECENT_LIMIT,
         },

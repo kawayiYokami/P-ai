@@ -5,12 +5,12 @@ type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
 type UseAppWatchersOptions = {
   config: AppConfig;
-  configTab: Ref<"welcome" | "hotkey" | "api" | "imageGeneration" | "tools" | "mcp" | "skill" | "catalog" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about">;
+  configTab: Ref<"welcome" | "hotkey" | "api" | "imageGeneration" | "tools" | "mcp" | "skill" | "catalog" | "persona" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about">;
   viewMode: Ref<"chat" | "archives" | "config">;
   personas: Ref<PersonaProfile[]>;
   userPersona: ComputedRef<PersonaProfile | null>;
   assistantPersonas: ComputedRef<PersonaProfile[]>;
-  assistantDepartmentAgentId: Ref<string>;
+  assistantAgentId: Ref<string>;
   personaEditorId: Ref<string>;
   selectedApiConfig: ComputedRef<ApiConfigItem | null>;
   toolApiConfig: ComputedRef<ApiConfigItem | null>;
@@ -36,8 +36,8 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
     () => options.assistantPersonas.value.map((p) => p.id).join("|"),
     () => {
       if (options.assistantPersonas.value.length === 0) return;
-      if (!options.assistantPersonas.value.some((p) => p.id === options.assistantDepartmentAgentId.value)) {
-        options.assistantDepartmentAgentId.value = options.assistantPersonas.value[0].id;
+      if (!options.assistantPersonas.value.some((p) => p.id === options.assistantAgentId.value)) {
+        options.assistantAgentId.value = options.assistantPersonas.value[0].id;
       }
     },
   );
@@ -47,15 +47,15 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
     () => {
       if (options.personas.value.length === 0) return;
       if (!options.personas.value.some((p) => p.id === options.personaEditorId.value)) {
-        options.personaEditorId.value = options.assistantDepartmentAgentId.value;
+        options.personaEditorId.value = options.assistantAgentId.value;
       }
     },
   );
 
-  // 当前助理人格只由运行时状态（chat settings）决定，不再从部门成员列表的首位反推，
-  // 避免部门里调整成员顺序时把当前助理人格一并改掉。
+  // 当前助理人格只由运行时状态（chat settings）决定，不再从组织成员列表的首位反推，
+  // 避免调整组织关系时把当前助理人格一并改掉。
   watch(
-    () => options.assistantDepartmentAgentId.value,
+    () => options.assistantAgentId.value,
     (id) => {
       if (!id) return;
       void options.syncTrayIcon(id);
@@ -72,15 +72,15 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
   watch(
     () => [
       options.toolApiConfig.value?.id ?? "",
-      options.assistantDepartmentAgentId.value,
+      options.assistantAgentId.value,
       options.toolApiConfig.value?.enableTools,
       options.toolApiConfig.value?.enableImage,
       String(options.config.terminalShellKind || ""),
       JSON.stringify(
-        (options.config.departments || []).map((item) => ({
+        options.personas.value.map((item) => ({
           id: item.id,
-          apiConfigId: item.apiConfigId,
-          agentIds: [...(item.agentIds || [])],
+          apiConfigIds: [...(item.apiConfigIds || [])],
+          childAgentIds: [...(item.childAgentIds || [])],
           permissionControl: item.permissionControl ?? null,
         })),
       ),

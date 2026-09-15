@@ -30,7 +30,6 @@ export type RoundStartedPayload = {
   requestId?: string;
   assistantMessageId?: string;
   reason?: string;
-  departmentId?: string;
   agentId?: string;
   startedAt?: string;
   startedAtMs?: number;
@@ -141,7 +140,6 @@ export function readRoundStartedPayload(raw: string | undefined): RoundStartedPa
       requestId: typeof parsed.requestId === "string" ? parsed.requestId : undefined,
       assistantMessageId: typeof parsed.assistantMessageId === "string" ? parsed.assistantMessageId : undefined,
       reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
-      departmentId: typeof parsed.departmentId === "string" ? parsed.departmentId : undefined,
       agentId: typeof parsed.agentId === "string" ? parsed.agentId : undefined,
       startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : undefined,
       startedAtMs: Math.max(0, Math.round(Number(parsed.startedAtMs) || 0)) || undefined,

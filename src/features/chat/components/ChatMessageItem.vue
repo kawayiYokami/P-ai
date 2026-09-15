@@ -553,7 +553,7 @@ const props = defineProps<{
   userAvatarUrl: string;
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
-  departmentNameMap?: Record<string, string>;
+  agentNameMap?: Record<string, string>;
   markdownIsDark: boolean;
   playingAudioId: string;
   activeTurnUser: boolean;
@@ -599,7 +599,7 @@ const {
   toolTimelineText,
 } = createToolCallPresentation({
   t: (key, params) => String(t(key, params ?? {})),
-  departmentName: (departmentId) => props.departmentNameMap?.[departmentId] || departmentId,
+  agentName: (agentId) => props.agentNameMap?.[agentId] || agentId,
 });
 const resolvedImageSrcMap = ref<Record<string, string>>({});
 const markdownContainerRef = ref<HTMLElement | null>(null);

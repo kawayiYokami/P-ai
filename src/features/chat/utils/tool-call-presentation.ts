@@ -2,7 +2,7 @@ type TranslateFn = (key: string, params?: Record<string, string | number>) => st
 
 type ToolCallPresentationOptions = {
   t: TranslateFn;
-  departmentName: (departmentId: string) => string;
+  agentName: (agentId: string) => string;
 };
 
 export function createToolCallPresentation(options: ToolCallPresentationOptions) {
@@ -467,17 +467,17 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     return mode.trim();
   }
   
-  function delegateDepartmentDisplayText(departmentId: string): string {
-    const normalized = departmentId.trim();
+  function delegateAgentDisplayText(agentId: string): string {
+    const normalized = agentId.trim();
     if (!normalized) return "";
-    return String(options.departmentName(normalized) || "").trim() || normalized;
+    return String(options.agentName(normalized) || "").trim() || normalized;
   }
   
   function summarizeDelegateTool(args: unknown): string {
     if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
     const obj = args as Record<string, unknown>;
     const mode = delegateModeDisplayText(safeStringValue(obj, "mode") || "wait");
-    const department = delegateDepartmentDisplayText(safeStringValue(obj, "department_id"));
+    const targetAgent = delegateAgentDisplayText(safeStringValue(obj, "agent_id"));
     const content = compactText(
       safeStringValue(obj, "question")
         || safeStringValue(obj, "specific_goal")
@@ -488,7 +488,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     );
     return joinNonEmpty([
       safeStringValue(obj, "task_name"),
-      department,
+      targetAgent,
       mode,
       content,
     ]) || compactObjectEntries(obj);

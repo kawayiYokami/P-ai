@@ -46,7 +46,6 @@
             id: Uuid::new_v4().to_string(),
             title: "t".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: String::new(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),

@@ -4,14 +4,12 @@ type ConfirmPlanSessionContext = {
   messageId: string;
   apiConfigId: string;
   agentId: string;
-  departmentId: string;
   conversationId: string;
 };
 
 type UseConfirmPlanOptions = {
   currentApiConfigId: Ref<string>;
   currentAgentId: Ref<string>;
-  currentDepartmentId: Ref<string>;
   currentConversationId: Ref<string>;
   chatting: Ref<boolean>;
   trimming: Ref<boolean>;
@@ -21,7 +19,6 @@ type UseConfirmPlanOptions = {
   confirmPlanAndContinue: (input: {
     conversationId: string;
     planMessageId: string;
-    departmentId?: string;
     agentId?: string;
   }) => Promise<void>;
 };
@@ -32,7 +29,6 @@ export function useConfirmPlan(options: UseConfirmPlanOptions) {
       messageId: String(messageId || "").trim(),
       apiConfigId: String(options.currentApiConfigId.value || "").trim(),
       agentId: String(options.currentAgentId.value || "").trim(),
-      departmentId: String(options.currentDepartmentId.value || "").trim(),
       conversationId: String(options.currentConversationId.value || "").trim(),
     };
   }
@@ -42,7 +38,6 @@ export function useConfirmPlan(options: UseConfirmPlanOptions) {
       session.conversationId === String(options.currentConversationId.value || "").trim()
       && session.apiConfigId === String(options.currentApiConfigId.value || "").trim()
       && session.agentId === String(options.currentAgentId.value || "").trim()
-      && session.departmentId === String(options.currentDepartmentId.value || "").trim()
     );
   }
 
@@ -64,7 +59,6 @@ export function useConfirmPlan(options: UseConfirmPlanOptions) {
       await options.confirmPlanAndContinue({
         conversationId: session.conversationId,
         planMessageId: session.messageId,
-        departmentId: session.departmentId || undefined,
         agentId: session.agentId || undefined,
       });
     } catch (error) {

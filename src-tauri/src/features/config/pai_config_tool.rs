@@ -14,13 +14,6 @@ thread_local! {
     static OUTPUT_BUFFER: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
-const MODEL_ROLE_EXPERT_API_CONFIG_ID: &str = "role:expert";
-const MODEL_ROLE_QUICK_API_CONFIG_ID: &str = "role:quick";
-const ASSISTANT_DEPARTMENT_ID: &str = "assistant-department";
-const LEADER_DEPARTMENT_ID: &str = "leader-department";
-const DEPUTY_DEPARTMENT_ID: &str = "deputy-department";
-const REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID: &str = "remote-customer-service-department";
-const HR_DEPARTMENT_ID: &str = "hr-department";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +58,27 @@ struct AgentProfile {
     source: String,
     #[serde(default = "default_global_scope")]
     scope: String,
+    /// 人格简介：组织清单里对目标人格的说明。
+    #[serde(default)]
+    summary: String,
+    /// 常驻 skill：说明全文注入该人格系统提示词。
+    #[serde(default)]
+    resident_skill_names: Vec<String>,
+    /// 可选 skill：只注入引用名字。
+    #[serde(default)]
+    optional_skill_names: Vec<String>,
+    /// 人格驱动模型（会话基线，可被会话级首选覆盖）。
+    #[serde(default)]
+    api_config_ids: Vec<String>,
+    #[serde(default)]
+    api_config_id: String,
+    /// 人格权限：强制约束该人格所有会话的工具/技能/MCP 可见性。
+    /// 结构由 GUI/私有组织定义，CLI 只做透传与挂摘，不在这里重复建模。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    permission_control: Option<JsonValue>,
+    /// 下级人格 id：组织树的父子边，语义为「可直接委托」。
+    #[serde(default)]
+    child_agent_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -85,6 +99,19 @@ struct PrivatePersonaFile {
     tools: Vec<ApiToolConfig>,
     #[serde(default)]
     avatar_path: Option<String>,
+    // 以下字段由 GUI/私有组织合并流程写入；CLI 保存时仅做透传，避免覆盖已有配置。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    summary: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    resident_skill_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    optional_skill_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    api_config_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    child_agent_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    permission_control: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -92,76 +119,6 @@ struct PrivatePersonaFile {
 struct AgentListItem {
     id: String,
     name: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DepartmentListItem {
-    id: String,
-    name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DepartmentPermissionControl {
-    #[serde(default)]
-    enabled: bool,
-    #[serde(default = "default_permission_mode")]
-    mode: String,
-    #[serde(default)]
-    builtin_tool_names: Vec<String>,
-    #[serde(default)]
-    skill_names: Vec<String>,
-    #[serde(default)]
-    mcp_tool_names: Vec<String>,
-}
-
-impl Default for DepartmentPermissionControl {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            mode: default_permission_mode(),
-            builtin_tool_names: Vec::new(),
-            skill_names: Vec::new(),
-            mcp_tool_names: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct DepartmentConfig {
-    id: String,
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    summary: String,
-    #[serde(default)]
-    guide: String,
-    #[serde(default)]
-    api_config_ids: Vec<String>,
-    #[serde(default)]
-    api_config_id: String,
-    #[serde(default)]
-    model_failure_fallback_enabled: bool,
-    #[serde(default)]
-    agent_ids: Vec<String>,
-    #[serde(default)]
-    child_department_ids: Vec<String>,
-    #[serde(default)]
-    created_at: String,
-    #[serde(default)]
-    updated_at: String,
-    #[serde(default)]
-    order_index: i64,
-    #[serde(default)]
-    is_built_in_assistant: bool,
-    #[serde(default = "default_main_source")]
-    source: String,
-    #[serde(default = "default_global_scope")]
-    scope: String,
-    #[serde(default)]
-    permission_control: DepartmentPermissionControl,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -269,12 +226,8 @@ struct ProviderCapabilitySummary {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct AppConfigSnapshot {
-    #[serde(default)]
-    selected_api_config_id: String,
     #[serde(default, alias = "chatApiConfigId")]
-    assistant_department_api_config_id: String,
-    #[serde(default)]
-    departments: Vec<DepartmentConfig>,
+    selected_api_config_id: String,
     #[serde(default)]
     api_providers: Vec<ApiProviderConfig>,
     #[serde(default)]
@@ -334,20 +287,6 @@ struct McpToolPolicy {
     enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DepartmentTreeNode {
-    id: String,
-    #[serde(default)]
-    parent_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DepartmentTreeFile {
-    departments: Vec<DepartmentTreeNode>,
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct CliContext {
     app_root: PathBuf,
@@ -399,15 +338,175 @@ fn run_with_context(ctx: &CliContext, args: &[String]) -> Result<String, String>
     }
     match args[0].as_str() {
         "agent" => handle_agent(ctx, &args[1..]),
-        "department" => handle_department(ctx, &args[1..]),
         "mcp" => handle_mcp(ctx, &args[1..]),
-        "skill" => Err("skill 命令当前未开放，请直接通过 skills 目录与 SKILL.md 文件管理。".to_string()),
+        "skill" => handle_skill(ctx, &args[1..]),
         "help" | "--help" | "-h" => print_help(),
         "provider" => Err("provider 命令当前未开放，请不要通过 config 工具修改供应商。".to_string()),
         other => Err(format!("未知顶级命令: {other}")),
     }?;
     Ok(take_output_buffer())
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillListItem {
+    name: String,
+    description: String,
+    enabled: bool,
+    path: String,
+}
+
+/// skill 组只开放最小面：列出现有技能供挂摘时选择（结论 22）。
+fn handle_skill(ctx: &CliContext, args: &[String]) -> Result<(), String> {
+    let cmd = args.first().map(String::as_str).unwrap_or("ls");
+    match cmd {
+        "ls" | "" => {
+            let items = skill_list_items(ctx)?;
+            print_json(&items)
+        }
+        _ => Err("用法: skill ls".to_string()),
+    }
+}
+
+fn skill_list_items(ctx: &CliContext) -> Result<Vec<SkillListItem>, String> {
+    let workspace_root = effective_workspace_root(ctx);
+    let skills_dir = workspace_root.join("skills");
+    if !skills_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let enabled_map = load_cli_skill_enabled_map(&workspace_root);
+    let mut dirs = fs::read_dir(&skills_dir)
+        .map_err(|err| format!("读取技能目录失败 ({}): {err}", skills_dir.display()))?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    dirs.sort();
+    let mut items = Vec::new();
+    for dir in dirs {
+        let skill_md = dir.join("SKILL.md");
+        if !skill_md.is_file() {
+            continue;
+        }
+        let Ok((name, description, _)) = parse_skill_frontmatter(&skill_md) else {
+            continue;
+        };
+        let enabled = enabled_map
+            .iter()
+            .find(|(key, _)| key == &name)
+            .map(|(_, value)| *value)
+            .unwrap_or(true);
+        items.push(SkillListItem {
+            name,
+            description,
+            enabled,
+            path: skill_md.to_string_lossy().to_string(),
+        });
+    }
+    Ok(items)
+}
+
+fn load_cli_skill_enabled_map(workspace_root: &Path) -> Vec<(String, bool)> {
+    let dir = workspace_root.join("skill-policies");
+    let mut map = Vec::new();
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return map;
+    };
+    for path in entries.filter_map(|entry| entry.ok().map(|entry| entry.path())) {
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(file) = read_json_file::<SkillPolicyEntry>(&path) else {
+            continue;
+        };
+        let name = file.skill_name.trim().to_string();
+        if !name.is_empty() {
+            map.push((name, file.enabled));
+        }
+    }
+    map
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct SkillPolicyEntry {
+    #[serde(default)]
+    skill_name: String,
+    #[serde(default = "default_true")]
+    enabled: bool,
+}
+
+/// 读 SKILL.md 的 frontmatter，取 name 与 description。
+/// config 工具是独立 crate 模块，不能用主程序的解析函数，这里保留最小实现。
+fn parse_skill_frontmatter(skill_md_path: &Path) -> Result<(String, String, String), String> {
+    let content = fs::read_to_string(skill_md_path)
+        .map_err(|err| format!("读取 SKILL.md 失败 ({}): {err}", skill_md_path.display()))?;
+    let mut lines = content.lines();
+    let first = lines
+        .next()
+        .unwrap_or_default()
+        .trim_start_matches('\u{feff}')
+        .trim();
+    if first != "---" {
+        return Err("SKILL.md 必须以 YAML frontmatter 开头".to_string());
+    }
+    let mut name = String::new();
+    let mut description = String::new();
+    for line in lines.by_ref() {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            break;
+        }
+        let Some((key, raw_value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let mut value = raw_value.trim().to_string();
+        if value.len() >= 2 {
+            let bytes = value.as_bytes();
+            let first_byte = bytes[0];
+            let last_byte = bytes[value.len() - 1];
+            if (first_byte == b'"' && last_byte == b'"') || (first_byte == b'\'' && last_byte == b'\'') {
+                value = value[1..value.len() - 1].to_string();
+            }
+        }
+        match key.trim() {
+            "name" => name = value,
+            "description" => description = value,
+            _ => {}
+        }
+    }
+    if name.trim().is_empty() {
+        name = skill_md_path
+            .parent()
+            .and_then(|path| path.file_name())
+            .and_then(|value| value.to_str())
+            .unwrap_or("skill")
+            .to_string();
+    }
+    let body = content
+        .split_once("\n---")
+        .map(|(_, rest)| rest.trim_start_matches(['\r', '\n']).trim().to_string())
+        .unwrap_or_default();
+    Ok((name, description, body))
+}
+
+/// 内置人格 id 名单：这些人格的常驻/可选 skill 引用锁定（结论 25）。
+const CLI_BUILT_IN_ORGANIZATION_AGENT_IDS: [&str; 7] = [
+    "default-agent",
+    "deputy-agent",
+    "leader",
+    "reviewer",
+    "saddler",
+    "support",
+    "hr",
+];
+
+fn is_built_in_organization_agent_id(agent_id: &str) -> bool {
+    CLI_BUILT_IN_ORGANIZATION_AGENT_IDS.contains(&agent_id.trim())
+}
+
+/// 模型角色端点：与主程序 `MODEL_ROLE_*` 常量同值，config 工具是独立 crate 模块，这里保留本地副本。
+const CLI_MODEL_ROLE_EXPERT_ENDPOINT: &str = "role:expert";
+const CLI_MODEL_ROLE_QUICK_ENDPOINT: &str = "role:quick";
 
 impl CliContext {
     #[allow(dead_code)]
@@ -449,7 +548,7 @@ fn print_help() -> Result<(), String> {
 
 Description:
   This is the PAI configuration tool for LLM agents.
-  Use it when the user asks to modify PAI settings, including agents/personas, departments, department tree, or MCP.
+  Use it when the user asks to modify PAI settings, including agents/personas, agent tree, or MCP.
 
 Usage:
   config "<command>"
@@ -459,7 +558,7 @@ Rules:
   - One tool call executes one command.
   - Use ls/get/example before writing when you do not know the current shape.
   - Use check to verify an edited file, diff to preview the plan, then update to apply it.
-  - agent new / department new / mcp add create and persist immediately.
+  - agent new / mcp add create and persist immediately.
   - Do not edit PAI config source files directly.
   - Delete commands are destructive and must only be used after the user explicitly agrees.
   - Delete commands require --confirmed, for example: mcp delete playwright --confirmed.
@@ -468,6 +567,7 @@ Rules:
 Agent/persona:
   agent ls
   agent get <name-or-id>
+  agent tree
   agent example
   agent new <name> <persona> [<avatar-file>]
   agent export <name-or-id> <file>
@@ -476,30 +576,23 @@ Agent/persona:
   agent update <name-or-id> <file>
   agent avatar <name-or-id> <image-file>
 
-Department:
-  department ls
-  department get <name-or-id>
-  department example
-  department new <name> <when-to-use> <how-to-work> <expert|fast> [<agent-id>]
-  department export <name-or-id> <file>
-  department check <file>
-  department diff <name-or-id> <file>
-  department update <name-or-id> <file>
-  department set-agent <name-or-id> <agent-id>
-  department set-model-class <name-or-id> <expert|fast>
-  department set-provider <name-or-id> <provider-id>
-  department set-model <name-or-id> <model>
+Agent organization (tree edges are edited here, not through files):
+  agent parent <name-or-id>
+  agent children <name-or-id>
+  agent set-parent <child> <parent> [<parent>...]
+  agent clear-parent <child>
 
-Department tree:
-  department tree
-  department tree parent <child>
-  department tree children <parent>
-  department tree set-parent <child> <parent>
-  department tree clear-parent <child>
-  department tree export <file>
-  department tree check <file>
-  department tree diff <file>
-  department tree update <file>
+Agent model and skills:
+  agent set-model-class <name-or-id> <expert|fast>
+  agent set-provider <name-or-id> <provider-id>
+  agent set-model <name-or-id> <model>
+  agent set-resident <name-or-id> <skill-name> [<skill-name>...]
+  agent unset-resident <name-or-id> <skill-name> [<skill-name>...]
+  agent set-optional <name-or-id> <skill-name> [<skill-name>...]
+  agent unset-optional <name-or-id> <skill-name> [<skill-name>...>
+
+Skill:
+  skill ls
 
 MCP:
   mcp ls
@@ -544,6 +637,10 @@ fn handle_agent(ctx: &CliContext, args: &[String]) -> Result<(), String> {
             let agents = visible_agents(&load_agents(ctx)?);
             let agent = find_agent(&agents, selector)?;
             print_json(agent)
+        }
+        "tree" => {
+            let agents = load_agents(ctx)?;
+            print_json(&build_agent_tree(&agents))
         }
         "example" => print_json(&agent_example()),
         "new" => {
@@ -599,6 +696,13 @@ fn handle_agent(ctx: &CliContext, args: &[String]) -> Result<(), String> {
             next.updated_at = now_iso();
             next.source = agents[idx].source.clone();
             next.scope = agents[idx].scope.clone();
+            // 组织边只走树上的即时命令，update 不改边。
+            next.child_agent_ids = agents[idx].child_agent_ids.clone();
+            // 内置人格的常驻/可选引用锁定，update 不得改动。
+            if is_built_in_organization_agent_id(&agents[idx].id) {
+                next.resident_skill_names = agents[idx].resident_skill_names.clone();
+                next.optional_skill_names = agents[idx].optional_skill_names.clone();
+            }
             agents[idx] = next.clone();
             save_agent(ctx, &next)?;
             print_json(&next)
@@ -616,151 +720,119 @@ fn handle_agent(ctx: &CliContext, args: &[String]) -> Result<(), String> {
             save_agent(ctx, &agents[idx])?;
             print_json(&agents[idx])
         }
-        _ => Err("用法: agent ls|get|example|new|export|check|diff|update|avatar".to_string()),
-    }
-}
-
-fn handle_department(ctx: &CliContext, args: &[String]) -> Result<(), String> {
-    let cmd = args.first().map(String::as_str).unwrap_or("help");
-    if cmd == "tree" {
-        return handle_department_tree(ctx, &args[1..]);
-    }
-    match cmd {
-        "ls" => {
-            let departments = visible_departments(&load_snapshot(ctx)?.departments);
-            let items = departments
-                .iter()
-                .map(department_list_item)
-                .collect::<Vec<_>>();
-            print_json(&items)
-        }
-        "get" => {
-            let selector = required_arg(args, 1, "department get <name-or-id>")?;
-            let mut snapshot = load_snapshot(ctx)?;
-            snapshot.departments = visible_departments(&snapshot.departments);
-            let department = find_department(&snapshot.departments, selector)?;
-            print_json(department)
-        }
-        "example" => print_json(&department_example()),
-        "new" => {
-            let name = required_arg(args, 1, "department new <name> <when-to-use> <how-to-work> <model-class> [<agent-id>]")?;
-            let when = required_arg(args, 2, "department new <name> <when-to-use> <how-to-work> <model-class> [<agent-id>]")?;
-            let how = required_arg(args, 3, "department new <name> <when-to-use> <how-to-work> <model-class> [<agent-id>]")?;
-            let model_class = required_arg(args, 4, "department new <name> <when-to-use> <how-to-work> <model-class> [<agent-id>]")?;
-            let agent_id = args.get(5).cloned();
-            if let Some(agent_id) = agent_id.as_deref() {
-                let agents = visible_agents(&load_agents(ctx)?);
-                let _ = find_agent(&agents, agent_id)?;
-            }
-            let mut doc = load_config_doc(ctx)?;
-            let mut snapshot = snapshot_from_doc(&doc)?;
-            let mut next = build_new_department(name, when, how, model_class, agent_id);
-            next.id = unique_slugified_id(
-                name,
-                "department",
-                snapshot.departments.iter().map(|item| item.id.as_str()),
-            );
-            next.order_index = (snapshot.departments.len() as i64) + 1;
-            validate_department(&next)?;
-            snapshot.departments.push(next.clone());
-            write_departments_to_doc(&mut doc, &snapshot.departments)?;
-            save_config_doc(ctx, &doc)?;
-            print_json(&next)
-        }
-        "export" => {
-            let selector = required_arg(args, 1, "department export <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "department export <name-or-id> <file>")?;
-            let mut snapshot = load_snapshot(ctx)?;
-            snapshot.departments = visible_departments(&snapshot.departments);
-            let department = find_department(&snapshot.departments, selector)?;
-            write_json_file(Path::new(file), department)?;
-            print_output_path(file)
-        }
-        "check" => {
-            let file = required_arg(args, 1, "department check <file>")?;
-            let department = read_json_file::<DepartmentConfig>(Path::new(file))?;
-            validate_department(&department)?;
-            print_ok_preview(&department)
-        }
-        "diff" => {
-            let selector = required_arg(args, 1, "department diff <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "department diff <name-or-id> <file>")?;
-            let mut snapshot = load_snapshot(ctx)?;
-            snapshot.departments = visible_departments(&snapshot.departments);
-            let current = find_department(&snapshot.departments, selector)?;
-            let next = read_json_file::<DepartmentConfig>(Path::new(file))?;
-            validate_department(&next)?;
-            print_json(&build_named_diff(current, &next))
-        }
-        "update" => {
-            let selector = required_arg(args, 1, "department update <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "department update <name-or-id> <file>")?;
-            let mut doc = load_config_doc(ctx)?;
-            let mut snapshot = snapshot_from_doc(&doc)?;
-            let idx = find_department_index(&snapshot.departments, selector)?;
-            ensure_department_writable(&snapshot.departments[idx])?;
-            let mut next = read_json_file::<DepartmentConfig>(Path::new(file))?;
-            validate_department(&next)?;
-            next.id = snapshot.departments[idx].id.clone();
-            next.created_at = keep_or_now(&snapshot.departments[idx].created_at);
-            next.updated_at = now_iso();
-            snapshot.departments[idx] = next.clone();
-            write_departments_to_doc(&mut doc, &snapshot.departments)?;
-            save_config_doc(ctx, &doc)?;
-            print_json(&next)
-        }
-        "set-agent" => {
-            let selector = required_arg(args, 1, "department set-agent <name-or-id> <agent-id>")?;
-            let agent_id = required_arg(args, 2, "department set-agent <name-or-id> <agent-id>")?;
+        "parent" => {
+            let selector = required_arg(args, 1, "agent parent <name-or-id>")?;
             let agents = visible_agents(&load_agents(ctx)?);
-            let _ = find_agent(&agents, agent_id)?;
-            mutate_department_checked(
-                ctx,
-                selector,
-                ensure_department_writable_for_agent_assignment,
-                |department, _| {
-                    department.agent_ids = vec![agent_id.to_string()];
-                    Ok(())
-                },
-            )
+            let agent = find_agent(&agents, selector)?;
+            print_json(&agent_parent_items(&agents, &agent.id))
+        }
+        "children" => {
+            let selector = required_arg(args, 1, "agent children <name-or-id>")?;
+            let agents = visible_agents(&load_agents(ctx)?);
+            let agent = find_agent(&agents, selector)?;
+            print_json(&agent_child_items(&agents, agent))
+        }
+        "set-parent" => {
+            let usage = "agent set-parent <child> <parent> [<parent>...]";
+            let child = required_arg(args, 1, usage)?;
+            let parent_selectors = args.get(2..).unwrap_or_default();
+            if parent_selectors.is_empty() {
+                return Err(format!("用法: {usage}"));
+            }
+            let mut agents = load_agents(ctx)?;
+            let child_idx = find_agent_index(&agents, child)?;
+            ensure_agent_writable(&agents[child_idx])?;
+            let child_id = agents[child_idx].id.clone();
+            let mut parent_ids = Vec::<String>::new();
+            for selector in parent_selectors {
+                let parent_idx = find_agent_index(&agents, selector)?;
+                let parent_id = agents[parent_idx].id.clone();
+                if parent_id == child_id {
+                    return Err(format!("组织树不能自指: {child_id}"));
+                }
+                if !parent_ids.contains(&parent_id) {
+                    parent_ids.push(parent_id);
+                }
+            }
+            // set 语义：父集合整体覆盖，先摘掉这个人格在所有父上的旧边。
+            for agent in agents.iter_mut() {
+                agent.child_agent_ids.retain(|id| id.trim() != child_id);
+            }
+            let mut changed = Vec::<AgentProfile>::new();
+            for parent_id in &parent_ids {
+                let idx = find_agent_index(&agents, parent_id)?;
+                if !agents[idx].child_agent_ids.iter().any(|id| id.trim() == child_id) {
+                    agents[idx].child_agent_ids.push(child_id.clone());
+                    agents[idx].updated_at = now_iso();
+                    changed.push(agents[idx].clone());
+                }
+            }
+            for agent in &changed {
+                save_agent(ctx, agent)?;
+            }
+            print_json(&serde_json::json!({ "child": child_id, "parents": parent_ids }))
+        }
+        "clear-parent" => {
+            let usage = "agent clear-parent <child>";
+            let child = required_arg(args, 1, usage)?;
+            let mut agents = load_agents(ctx)?;
+            let child_idx = find_agent_index(&agents, child)?;
+            ensure_agent_writable(&agents[child_idx])?;
+            let child_id = agents[child_idx].id.clone();
+            let mut changed = Vec::<AgentProfile>::new();
+            for agent in agents.iter_mut() {
+                let before = agent.child_agent_ids.len();
+                agent.child_agent_ids.retain(|id| id.trim() != child_id);
+                if agent.child_agent_ids.len() != before {
+                    agent.updated_at = now_iso();
+                    changed.push(agent.clone());
+                }
+            }
+            for agent in &changed {
+                save_agent(ctx, agent)?;
+            }
+            print_json(&serde_json::json!({ "child": child_id, "parents": Vec::<String>::new() }))
         }
         "set-model-class" => {
-            let selector = required_arg(args, 1, "department set-model-class <name-or-id> <expert|fast>")?;
-            let model_class = required_arg(args, 2, "department set-model-class <name-or-id> <expert|fast>")?;
+            let usage = "agent set-model-class <name-or-id> <expert|fast>";
+            let selector = required_arg(args, 1, usage)?;
+            let model_class = required_arg(args, 2, usage)?;
             let endpoint = match model_class {
-                "expert" => MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string(),
-                "fast" => MODEL_ROLE_QUICK_API_CONFIG_ID.to_string(),
+                "expert" => CLI_MODEL_ROLE_EXPERT_ENDPOINT.to_string(),
+                "fast" => CLI_MODEL_ROLE_QUICK_ENDPOINT.to_string(),
                 _ => return Err("model-class 只能是 expert 或 fast".to_string()),
             };
-            mutate_department(ctx, selector, |department, _| {
-                department.api_config_ids = vec![endpoint.clone()];
-                department.api_config_id = endpoint.clone();
+            mutate_agent(ctx, selector, |agent, _| {
+                agent.api_config_ids = vec![endpoint.clone()];
+                agent.api_config_id = endpoint.clone();
                 Ok(())
             })
         }
         "set-provider" => {
-            let selector = required_arg(args, 1, "department set-provider <name-or-id> <provider-id>")?;
-            let provider_id = required_arg(args, 2, "department set-provider <name-or-id> <provider-id>")?;
-            mutate_department(ctx, selector, |department, snapshot| {
+            let usage = "agent set-provider <name-or-id> <provider-id>";
+            let selector = required_arg(args, 1, usage)?;
+            let provider_selector = required_arg(args, 2, usage)?;
+            mutate_agent(ctx, selector, |agent, snapshot| {
                 let provider = snapshot
                     .api_providers
                     .iter()
-                    .find(|item| matches_selector(&item.id, &item.name, provider_id))
-                    .ok_or_else(|| format!("provider not found: {provider_id}"))?;
+                    .find(|item| matches_selector(&item.id, &item.name, provider_selector))
+                    .ok_or_else(|| format!("provider not found: {provider_selector}"))?;
                 let endpoint = provider_first_endpoint(provider)
-                    .ok_or_else(|| format!("provider has no models: {provider_id}"))?;
-                department.api_config_ids = vec![endpoint.clone()];
-                department.api_config_id = endpoint;
+                    .ok_or_else(|| format!("provider has no models: {provider_selector}"))?;
+                agent.api_config_ids = vec![endpoint.clone()];
+                agent.api_config_id = endpoint;
                 Ok(())
             })
         }
         "set-model" => {
-            let selector = required_arg(args, 1, "department set-model <name-or-id> <model>")?;
-            let model = required_arg(args, 2, "department set-model <name-or-id> <model>")?;
-            mutate_department(ctx, selector, |department, snapshot| {
-                let current = department_primary_endpoint(department);
+            let usage = "agent set-model <name-or-id> <model>";
+            let selector = required_arg(args, 1, usage)?;
+            let model = required_arg(args, 2, usage)?;
+            mutate_agent(ctx, selector, |agent, snapshot| {
+                let current = agent_primary_endpoint(agent);
                 let (provider_id, _) = split_endpoint_id(&current)
-                    .ok_or_else(|| "当前部门没有可用 provider，先执行 department set-provider".to_string())?;
+                    .ok_or_else(|| "当前人格没有可用 provider，先执行 agent set-provider".to_string())?;
                 let provider = snapshot
                     .api_providers
                     .iter()
@@ -768,128 +840,256 @@ fn handle_department(ctx: &CliContext, args: &[String]) -> Result<(), String> {
                     .ok_or_else(|| format!("provider not found: {provider_id}"))?;
                 let endpoint = provider_model_endpoint(provider, model)
                     .ok_or_else(|| format!("model not found under provider {provider_id}: {model}"))?;
-                department.api_config_ids = vec![endpoint.clone()];
-                department.api_config_id = endpoint;
+                agent.api_config_ids = vec![endpoint.clone()];
+                agent.api_config_id = endpoint;
                 Ok(())
             })
         }
-        _ => Err("用法: department ls|get|example|new|export|check|diff|update|set-agent|set-model-class|set-provider|set-model|tree".to_string()),
+        "set-resident" => {
+            let usage = "agent set-resident <name-or-id> <skill-name> [<skill-name>...]";
+            let selector = required_arg(args, 1, usage)?;
+            let skills = args.get(2..).unwrap_or_default().to_vec();
+            if skills.is_empty() {
+                return Err(format!("用法: {usage}"));
+            }
+            mutate_agent_skills(ctx, selector, |agent, _| {
+                for skill in &skills {
+                    let skill = skill.trim();
+                    if skill.is_empty() {
+                        continue;
+                    }
+                    if !agent.resident_skill_names.iter().any(|item| item == skill) {
+                        agent.resident_skill_names.push(skill.to_string());
+                    }
+                    // 常驻与可选互斥：同一个 skill 不能同时挂两份。
+                    agent.optional_skill_names.retain(|item| item != skill);
+                }
+                Ok(())
+            })
+        }
+        "unset-resident" => {
+            let usage = "agent unset-resident <name-or-id> <skill-name> [<skill-name>...]";
+            let selector = required_arg(args, 1, usage)?;
+            let skills = args.get(2..).unwrap_or_default().to_vec();
+            if skills.is_empty() {
+                return Err(format!("用法: {usage}"));
+            }
+            mutate_agent_skills(ctx, selector, |agent, _| {
+                agent
+                    .resident_skill_names
+                    .retain(|item| !skills.iter().any(|skill| skill.trim() == item.trim()));
+                Ok(())
+            })
+        }
+        "set-optional" => {
+            let usage = "agent set-optional <name-or-id> <skill-name> [<skill-name>...]";
+            let selector = required_arg(args, 1, usage)?;
+            let skills = args.get(2..).unwrap_or_default().to_vec();
+            if skills.is_empty() {
+                return Err(format!("用法: {usage}"));
+            }
+            mutate_agent_skills(ctx, selector, |agent, _| {
+                for skill in &skills {
+                    let skill = skill.trim();
+                    if skill.is_empty() {
+                        continue;
+                    }
+                    if !agent.optional_skill_names.iter().any(|item| item == skill) {
+                        agent.optional_skill_names.push(skill.to_string());
+                    }
+                    agent.resident_skill_names.retain(|item| item != skill);
+                }
+                Ok(())
+            })
+        }
+        "unset-optional" => {
+            let usage = "agent unset-optional <name-or-id> <skill-name> [<skill-name>...]";
+            let selector = required_arg(args, 1, usage)?;
+            let skills = args.get(2..).unwrap_or_default().to_vec();
+            if skills.is_empty() {
+                return Err(format!("用法: {usage}"));
+            }
+            mutate_agent_skills(ctx, selector, |agent, _| {
+                agent
+                    .optional_skill_names
+                    .retain(|item| !skills.iter().any(|skill| skill.trim() == item.trim()));
+                Ok(())
+            })
+        }
+        _ => Err(
+            "用法: agent ls|get|tree|example|new|export|check|diff|update|avatar|parent|children|set-parent|clear-parent|set-model-class|set-provider|set-model|set-resident|unset-resident|set-optional|unset-optional"
+                .to_string(),
+        ),
     }
 }
 
-fn handle_department_tree(ctx: &CliContext, args: &[String]) -> Result<(), String> {
-    let cmd = args.first().map(String::as_str).unwrap_or("");
-    match cmd {
-        "" => {
-            let departments = visible_departments(&load_snapshot(ctx)?.departments);
-            print_json(&build_department_tree_file(&departments))
-        }
-        "parent" => {
-            let child = required_arg(args, 1, "department tree parent <child>")?;
-            let departments = visible_departments(&load_snapshot(ctx)?.departments);
-            let child_department = find_department(&departments, child)?;
-            let parent = find_parent_department(&departments, &child_department.id);
-            print_json(&serde_json::json!({
-                "child": child_department.id,
-                "parent": parent.map(|item| item.id.clone())
-            }))
-        }
-        "children" => {
-            let parent = required_arg(args, 1, "department tree children <parent>")?;
-            let departments = visible_departments(&load_snapshot(ctx)?.departments);
-            let parent_department = find_department(&departments, parent)?;
-            let children = departments
+/// 组织树上的父人格：所有把该人格列进 `childAgentIds` 的人格。
+fn agent_parent_items(agents: &[AgentProfile], child_id: &str) -> Vec<AgentListItem> {
+    let mut parents = agents
+        .iter()
+        .filter(|agent| {
+            agent.id.trim() != child_id
+                && agent
+                    .child_agent_ids
+                    .iter()
+                    .any(|id| id.trim() == child_id)
+        })
+        .map(agent_list_item)
+        .collect::<Vec<_>>();
+    parents.sort_by(|a, b| a.id.cmp(&b.id));
+    parents
+}
+
+/// 组织树上的直接下级人格。
+fn agent_child_items(agents: &[AgentProfile], agent: &AgentProfile) -> Vec<AgentListItem> {
+    let mut children = agent
+        .child_agent_ids
+        .iter()
+        .filter_map(|child_id| {
+            agents
                 .iter()
-                .filter(|item| parent_department.child_department_ids.iter().any(|id| id == &item.id))
-                .collect::<Vec<_>>();
-            print_json(&children)
-        }
-        "export" => {
-            let file = required_arg(args, 1, "department tree export <file>")?;
-            let departments = visible_departments(&load_snapshot(ctx)?.departments);
-            write_json_file(Path::new(file), &build_department_tree_file(&departments))?;
-            print_output_path(file)
-        }
-        "check" => {
-            let file = required_arg(args, 1, "department tree check <file>")?;
-            let tree = read_json_file::<DepartmentTreeFile>(Path::new(file))?;
-            validate_department_tree(&tree)?;
-            print_ok_preview(&tree)
-        }
-        "diff" => {
-            let file = required_arg(args, 1, "department tree diff <file>")?;
-            let current = build_department_tree_file(&visible_departments(&load_snapshot(ctx)?.departments));
-            let next = read_json_file::<DepartmentTreeFile>(Path::new(file))?;
-            validate_department_tree(&next)?;
-            print_json(&build_named_diff(&current, &next))
-        }
-        "update" => {
-            let file = required_arg(args, 1, "department tree update <file>")?;
-            let tree = read_json_file::<DepartmentTreeFile>(Path::new(file))?;
-            validate_department_tree(&tree)?;
-            let mut doc = load_config_doc(ctx)?;
-            let mut snapshot = snapshot_from_doc(&doc)?;
-            let visible_ids = visible_departments(&snapshot.departments)
-                .into_iter()
-                .map(|item| item.id)
-                .collect::<BTreeSet<_>>();
-            if tree
-                .departments
-                .iter()
-                .any(|node| !visible_ids.contains(node.id.trim()))
-            {
-                return Err("department tree update 不能包含预设部门".to_string());
-            }
-            apply_visible_department_tree(&mut snapshot.departments, &tree)?;
-            write_departments_to_doc(&mut doc, &snapshot.departments)?;
-            save_config_doc(ctx, &doc)?;
-            print_json(&tree)
-        }
-        "set-parent" => {
-            let child = required_arg(args, 1, "department tree set-parent <child> <parent>")?;
-            let parent = required_arg(args, 2, "department tree set-parent <child> <parent>")?;
-            let mut doc = load_config_doc(ctx)?;
-            let mut snapshot = snapshot_from_doc(&doc)?;
-            let child_id = find_department(&snapshot.departments, child)?.id.clone();
-            let parent_id = find_department(&snapshot.departments, parent)?.id.clone();
-            let child_department = find_department(&snapshot.departments, &child_id)?;
-            let parent_department = find_department(&snapshot.departments, &parent_id)?;
-            ensure_department_writable(child_department)?;
-            ensure_department_writable(parent_department)?;
-            if child_id == parent_id {
-                return Err(format!("department tree 不能自指: {child_id}"));
-            }
-            clear_parent_link(&mut snapshot.departments, &child_id);
-            let parent_idx = find_department_index(&snapshot.departments, &parent_id)?;
-            if !snapshot.departments[parent_idx]
-                .child_department_ids
-                .iter()
-                .any(|id| id == &child_id)
-            {
-                snapshot.departments[parent_idx]
-                    .child_department_ids
-                    .push(child_id.clone());
-            }
-            snapshot.departments[parent_idx].updated_at = now_iso();
-            validate_department_tree(&build_department_tree_file(&snapshot.departments))?;
-            write_departments_to_doc(&mut doc, &snapshot.departments)?;
-            save_config_doc(ctx, &doc)?;
-            print_json(&serde_json::json!({"child": child_id, "parent": parent_id}))
-        }
-        "clear-parent" => {
-            let child = required_arg(args, 1, "department tree clear-parent <child>")?;
-            let mut doc = load_config_doc(ctx)?;
-            let mut snapshot = snapshot_from_doc(&doc)?;
-            let child_id = find_department(&snapshot.departments, child)?.id.clone();
-            let child_department = find_department(&snapshot.departments, &child_id)?;
-            ensure_department_writable(child_department)?;
-            clear_parent_link(&mut snapshot.departments, &child_id);
-            write_departments_to_doc(&mut doc, &snapshot.departments)?;
-            save_config_doc(ctx, &doc)?;
-            print_json(&serde_json::json!({"child": child_id, "parent": null}))
-        }
-        _ => Err("用法: department tree [parent|children|export|check|diff|update|set-parent|clear-parent]".to_string()),
+                .find(|item| item.id.trim() == child_id.trim())
+                .map(agent_list_item)
+        })
+        .collect::<Vec<_>>();
+    children.sort_by(|a, b| a.id.cmp(&b.id));
+    children
+}
+
+fn agent_primary_endpoint(agent: &AgentProfile) -> String {
+    agent
+        .api_config_ids
+        .first()
+        .cloned()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| agent.api_config_id.clone())
+}
+
+/// 读改写单个人格：先校验可写，再落盘，最后打印新值。
+fn mutate_agent(
+    ctx: &CliContext,
+    selector: &str,
+    mutate: impl FnOnce(&mut AgentProfile, &AppConfigSnapshot) -> Result<(), String>,
+) -> Result<(), String> {
+    mutate_agent_with_check(ctx, selector, false, mutate)
+}
+
+/// 只改两个 skill 列表时额外校验：内置人格的常驻/可选引用锁定。
+fn mutate_agent_skills(
+    ctx: &CliContext,
+    selector: &str,
+    mutate: impl FnOnce(&mut AgentProfile, &AppConfigSnapshot) -> Result<(), String>,
+) -> Result<(), String> {
+    mutate_agent_with_check(ctx, selector, true, mutate)
+}
+
+fn mutate_agent_with_check(
+    ctx: &CliContext,
+    selector: &str,
+    lock_skills: bool,
+    mutate: impl FnOnce(&mut AgentProfile, &AppConfigSnapshot) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut agents = load_agents(ctx)?;
+    let idx = find_agent_index(&agents, selector)?;
+    ensure_agent_writable(&agents[idx])?;
+    if lock_skills {
+        ensure_agent_skill_editable(&agents[idx])?;
     }
+    let snapshot = load_snapshot(ctx)?;
+    mutate(&mut agents[idx], &snapshot)?;
+    agents[idx].updated_at = now_iso();
+    save_agent(ctx, &agents[idx])?;
+    print_json(&agents[idx])
+}
+
+fn provider_first_endpoint(provider: &ApiProviderConfig) -> Option<String> {
+    provider
+        .models
+        .first()
+        .map(|model| format!("{}::{}", provider.id, model.id))
+}
+
+fn provider_model_endpoint(provider: &ApiProviderConfig, model_selector: &str) -> Option<String> {
+    provider.models.iter().find_map(|model| {
+        if model.id.eq_ignore_ascii_case(model_selector)
+            || model.model.eq_ignore_ascii_case(model_selector)
+        {
+            Some(format!("{}::{}", provider.id, model.id))
+        } else {
+            None
+        }
+    })
+}
+
+fn split_endpoint_id(value: &str) -> Option<(String, String)> {
+    let (provider_id, model_id) = value.split_once("::")?;
+    let provider_id = provider_id.trim();
+    let model_id = model_id.trim();
+    if provider_id.is_empty() || model_id.is_empty() {
+        None
+    } else {
+        Some((provider_id.to_string(), model_id.to_string()))
+    }
+}
+
+fn build_agent_tree(agents: &[AgentProfile]) -> JsonValue {
+    use std::collections::{HashMap, HashSet};
+    let by_id = agents
+        .iter()
+        .filter(|agent| !agent.is_built_in_user)
+        .map(|agent| (agent.id.trim().to_string(), agent.clone()))
+        .collect::<HashMap<String, AgentProfile>>();
+    let mut child_ids = HashSet::<String>::new();
+    for agent in by_id.values() {
+        for child in &agent.child_agent_ids {
+            let child = child.trim();
+            if by_id.contains_key(child) && child != agent.id.trim() {
+                child_ids.insert(child.to_string());
+            }
+        }
+    }
+    let mut roots = by_id
+        .values()
+        .filter(|agent| !child_ids.contains(agent.id.trim()))
+        .map(|agent| agent.id.trim().to_string())
+        .collect::<Vec<_>>();
+    roots.sort();
+    let mut visited = HashSet::<String>::new();
+    let nodes = roots
+        .iter()
+        .map(|id| agent_tree_node(&by_id, id, &mut visited))
+        .collect::<Vec<_>>();
+    serde_json::json!({ "roots": nodes })
+}
+
+fn agent_tree_node(
+    by_id: &std::collections::HashMap<String, AgentProfile>,
+    id: &str,
+    visited: &mut std::collections::HashSet<String>,
+) -> JsonValue {
+    let Some(agent) = by_id.get(id) else {
+        return serde_json::json!({ "id": id });
+    };
+    if !visited.insert(id.to_string()) {
+        return serde_json::json!({ "id": id, "cycle": true });
+    }
+    let mut children = agent
+        .child_agent_ids
+        .iter()
+        .map(|child| child.trim().to_string())
+        .filter(|child| !child.is_empty() && child != id && by_id.contains_key(child))
+        .collect::<Vec<_>>();
+    children.sort();
+    children.dedup();
+    let child_nodes = children
+        .iter()
+        .map(|child| agent_tree_node(by_id, child, visited))
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "id": agent.id.trim(),
+        "name": agent.name.trim(),
+        "children": child_nodes,
+    })
 }
 
 #[allow(dead_code)]
@@ -1209,6 +1409,13 @@ fn load_private_agents(ctx: &CliContext) -> Result<Vec<AgentProfile>, String> {
             memory_recall_mode: default_memory_recall_mode(),
             source: default_private_workspace_source(),
             scope: default_assistant_private_scope(),
+            summary: file.summary,
+            resident_skill_names: file.resident_skill_names,
+            optional_skill_names: file.optional_skill_names,
+            api_config_ids: file.api_config_ids,
+            api_config_id: String::new(),
+            permission_control: file.permission_control,
+            child_agent_ids: file.child_agent_ids,
         });
     }
     Ok(agents)
@@ -1218,14 +1425,24 @@ fn save_private_agent(ctx: &CliContext, agent: &AgentProfile) -> Result<(), Stri
     let dir = private_personas_dir(ctx);
     fs::create_dir_all(&dir)
         .map_err(|err| format!("创建私有人格目录失败 ({}): {err}", dir.display()))?;
-    let path = find_private_agent_path(ctx, &agent.id)?
+    let existing = find_private_agent_path(ctx, &agent.id)?;
+    let path = existing
+        .clone()
         .unwrap_or_else(|| dir.join(format!("{}.json", sanitize_file_id(&agent.id))));
+    // 人格字段本身已由 load_private_agents 从 JSON 读全，这里直接回写，
+    // 保证 agent update / set-parent 等命令改动的字段真的落盘。
     let file = PrivatePersonaFile {
         id: agent.id.clone(),
         name: agent.name.clone(),
         system_prompt: agent.system_prompt.clone(),
         tools: agent.tools.clone(),
         avatar_path: agent.avatar_path.clone(),
+        summary: agent.summary.clone(),
+        resident_skill_names: agent.resident_skill_names.clone(),
+        optional_skill_names: agent.optional_skill_names.clone(),
+        api_config_ids: agent.api_config_ids.clone(),
+        child_agent_ids: agent.child_agent_ids.clone(),
+        permission_control: agent.permission_control.clone(),
     };
     write_json_file(&path, &file)
 }
@@ -1278,6 +1495,17 @@ fn ensure_agent_writable(agent: &AgentProfile) -> Result<(), String> {
     Ok(())
 }
 
+/// 内置人格的常驻/可选 skill 引用锁定（结论 25）：引用不可摘、不可改。
+fn ensure_agent_skill_editable(agent: &AgentProfile) -> Result<(), String> {
+    if is_built_in_organization_agent_id(&agent.id) {
+        return Err(format!(
+            "内置人格的常驻/可选 skill 引用是锁定的，不能通过 config 工具修改：{}",
+            agent.id
+        ));
+    }
+    Ok(())
+}
+
 fn load_config_doc(ctx: &CliContext) -> Result<toml::Value, String> {
     if !ctx.config_path.exists() {
         let snapshot = AppConfigSnapshot::default();
@@ -1309,47 +1537,6 @@ fn load_snapshot(ctx: &CliContext) -> Result<AppConfigSnapshot, String> {
     snapshot_from_doc(&load_config_doc(ctx)?)
 }
 
-fn visible_departments(departments: &[DepartmentConfig]) -> Vec<DepartmentConfig> {
-    departments
-        .iter()
-        .filter(|department| !is_preset_department(department))
-        .cloned()
-        .collect::<Vec<_>>()
-}
-
-fn is_preset_department(department: &DepartmentConfig) -> bool {
-    let department_id = department.id.trim();
-    department.is_built_in_assistant
-        || department_id == ASSISTANT_DEPARTMENT_ID
-        || department_id == LEADER_DEPARTMENT_ID
-        || department_id == DEPUTY_DEPARTMENT_ID
-        || department_id == REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID
-        || department_id == HR_DEPARTMENT_ID
-}
-
-// 人力部仅开放负责人格（agent_ids）修改，其余字段随预设冻结
-fn ensure_department_writable_for_agent_assignment(department: &DepartmentConfig) -> Result<(), String> {
-    if department.id.trim() == HR_DEPARTMENT_ID {
-        return Ok(());
-    }
-    ensure_department_writable(department)
-}
-
-fn ensure_department_writable(department: &DepartmentConfig) -> Result<(), String> {
-    if is_preset_department(department) {
-        return Err("预设部门是只读的，不能通过 config 工具修改。".to_string());
-    }
-    Ok(())
-}
-
-fn write_departments_to_doc(doc: &mut toml::Value, departments: &[DepartmentConfig]) -> Result<(), String> {
-    let departments_value = toml::Value::try_from(departments.to_vec())
-        .map_err(|err| format!("序列化 departments 失败: {err}"))?;
-    ensure_doc_table(doc)?
-        .insert("departments".to_string(), departments_value);
-    Ok(())
-}
-
 #[allow(dead_code)]
 fn write_providers_to_doc(doc: &mut toml::Value, providers: &[ApiProviderConfig]) -> Result<(), String> {
     let providers_value = toml::Value::try_from(providers.to_vec())
@@ -1364,43 +1551,6 @@ fn ensure_doc_table(doc: &mut toml::Value) -> Result<&mut toml::map::Map<String,
         .ok_or_else(|| "配置根节点必须是 TOML table".to_string())
 }
 
-fn mutate_department<F>(ctx: &CliContext, selector: &str, mutator: F) -> Result<(), String>
-where
-    F: FnOnce(&mut DepartmentConfig, &AppConfigSnapshot) -> Result<(), String>,
-{
-    mutate_department_checked(
-        ctx,
-        selector,
-        ensure_department_writable,
-        mutator,
-    )
-}
-
-fn mutate_department_checked<F>(
-    ctx: &CliContext,
-    selector: &str,
-    writable_check: fn(&DepartmentConfig) -> Result<(), String>,
-    mutator: F,
-) -> Result<(), String>
-where
-    F: FnOnce(&mut DepartmentConfig, &AppConfigSnapshot) -> Result<(), String>,
-{
-    let mut doc = load_config_doc(ctx)?;
-    let mut snapshot = snapshot_from_doc(&doc)?;
-    let idx = find_department_index(&snapshot.departments, selector)?;
-    writable_check(&snapshot.departments[idx])?;
-    let read_only = snapshot.clone();
-    let department = snapshot
-        .departments
-        .get_mut(idx)
-        .ok_or_else(|| format!("department not found: {selector}"))?;
-    mutator(department, &read_only)?;
-    department.updated_at = now_iso();
-    write_departments_to_doc(&mut doc, &snapshot.departments)?;
-    save_config_doc(ctx, &doc)?;
-    print_json(&snapshot.departments[idx])
-}
-
 fn find_agent<'a>(agents: &'a [AgentProfile], selector: &str) -> Result<&'a AgentProfile, String> {
     let idx = find_agent_index(agents, selector)?;
     Ok(&agents[idx])
@@ -1411,18 +1561,6 @@ fn find_agent_index(agents: &[AgentProfile], selector: &str) -> Result<usize, St
         .iter()
         .position(|item| matches_selector(&item.id, &item.name, selector))
         .ok_or_else(|| format!("agent not found: {selector}"))
-}
-
-fn find_department<'a>(departments: &'a [DepartmentConfig], selector: &str) -> Result<&'a DepartmentConfig, String> {
-    let idx = find_department_index(departments, selector)?;
-    Ok(&departments[idx])
-}
-
-fn find_department_index(departments: &[DepartmentConfig], selector: &str) -> Result<usize, String> {
-    departments
-        .iter()
-        .position(|item| matches_selector(&item.id, &item.name, selector))
-        .ok_or_else(|| format!("department not found: {selector}"))
 }
 
 #[allow(dead_code)]
@@ -1470,6 +1608,13 @@ fn build_new_agent(name: &str, persona: &str, avatar: Option<String>) -> AgentPr
         memory_recall_mode: default_memory_recall_mode(),
         source: default_main_source(),
         scope: default_global_scope(),
+        summary: String::new(),
+        resident_skill_names: Vec::new(),
+        optional_skill_names: Vec::new(),
+        api_config_ids: Vec::new(),
+        api_config_id: String::new(),
+        permission_control: None,
+        child_agent_ids: Vec::new(),
     }
 }
 
@@ -1483,191 +1628,10 @@ fn validate_agent(agent: &AgentProfile) -> Result<(), String> {
     Ok(())
 }
 
-fn department_example() -> DepartmentConfig {
-    build_new_department(
-        "example-department",
-        "当任务需要专项处理时使用我。",
-        "先拆任务，再执行，再汇总。",
-        "expert",
-        Some("example-agent".to_string()),
-    )
-}
-
-fn build_new_department(
-    name: &str,
-    when_to_use: &str,
-    how_to_work: &str,
-    model_class: &str,
-    agent_id: Option<String>,
-) -> DepartmentConfig {
-    let now = now_iso();
-    let endpoint = match model_class {
-        "fast" => MODEL_ROLE_QUICK_API_CONFIG_ID,
-        _ => MODEL_ROLE_EXPERT_API_CONFIG_ID,
-    };
-    DepartmentConfig {
-        id: slugify_with_fallback(name, "department"),
-        name: name.to_string(),
-        summary: when_to_use.to_string(),
-        guide: how_to_work.to_string(),
-        api_config_ids: vec![endpoint.to_string()],
-        api_config_id: endpoint.to_string(),
-        model_failure_fallback_enabled: false,
-        agent_ids: agent_id.into_iter().collect(),
-        child_department_ids: Vec::new(),
-        created_at: now.clone(),
-        updated_at: now,
-        order_index: 0,
-        is_built_in_assistant: false,
-        source: default_main_source(),
-        scope: default_global_scope(),
-        permission_control: DepartmentPermissionControl::default(),
-    }
-}
-
-fn validate_department(department: &DepartmentConfig) -> Result<(), String> {
-    if department.id.trim().is_empty() {
-        return Err("department.id 不能为空".to_string());
-    }
-    if department.name.trim().is_empty() {
-        return Err("department.name 不能为空".to_string());
-    }
-    Ok(())
-}
-
-fn build_department_tree_file(departments: &[DepartmentConfig]) -> DepartmentTreeFile {
-    let mut parents = BTreeMap::<String, String>::new();
-    for parent in departments {
-        for child in &parent.child_department_ids {
-            parents.insert(child.clone(), parent.id.clone());
-        }
-    }
-    DepartmentTreeFile {
-        departments: departments
-            .iter()
-            .map(|item| DepartmentTreeNode {
-                id: item.id.clone(),
-                parent_id: parents.get(&item.id).cloned(),
-            })
-            .collect(),
-    }
-}
-
-fn validate_department_tree(tree: &DepartmentTreeFile) -> Result<(), String> {
-    let mut ids = BTreeSet::new();
-    let mut parent_by_id = BTreeMap::<String, Option<String>>::new();
-    for node in &tree.departments {
-        let id = node.id.trim().to_string();
-        if id.is_empty() {
-            return Err("department tree 中存在空 id".to_string());
-        }
-        if !ids.insert(id.clone()) {
-            return Err(format!("department tree 存在重复 id: {}", node.id));
-        }
-        let parent_id = node
-            .parent_id
-            .as_ref()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
-        parent_by_id.insert(id, parent_id);
-    }
-    for (node_id, parent_id) in &parent_by_id {
-        if parent_id.as_deref() == Some(node_id.as_str()) {
-            return Err(format!("department tree 不能自指: {node_id}"));
-        }
-        validate_department_parent_chain_is_acyclic(&parent_by_id, node_id)?;
-    }
-    Ok(())
-}
-
-fn validate_department_parent_chain_is_acyclic(
-    parent_by_id: &BTreeMap<String, Option<String>>,
-    start_id: &str,
-) -> Result<(), String> {
-    let mut path = Vec::<String>::new();
-    let mut seen = BTreeSet::<String>::new();
-    let mut current_id = start_id.to_string();
-    loop {
-        if !seen.insert(current_id.clone()) {
-            path.push(current_id.clone());
-            return Err(format!(
-                "department tree 存在循环引用: {}",
-                path.join(" -> ")
-            ));
-        }
-        path.push(current_id.clone());
-        let Some(Some(parent_id)) = parent_by_id.get(&current_id) else {
-            return Ok(());
-        };
-        current_id = parent_id.clone();
-    }
-}
-
-fn apply_visible_department_tree(
-    departments: &mut [DepartmentConfig],
-    tree: &DepartmentTreeFile,
-) -> Result<(), String> {
-    validate_department_tree(tree)?;
-    let visible_ids = visible_departments(departments)
-        .into_iter()
-        .map(|item| item.id)
-        .collect::<BTreeSet<_>>();
-    for node in &tree.departments {
-        if !visible_ids.contains(node.id.trim()) {
-            return Err(format!("tree 包含预设或未知部门: {}", node.id));
-        }
-        if let Some(parent_id) = &node.parent_id {
-            if !visible_ids.contains(parent_id.trim()) {
-                return Err(format!("tree 包含预设或未知父部门: {parent_id}"));
-            }
-        }
-    }
-    for department in departments.iter_mut() {
-        if is_preset_department(department) {
-            continue;
-        }
-        department.child_department_ids.clear();
-    }
-    for node in &tree.departments {
-        if let Some(parent_id) = &node.parent_id {
-            let idx = departments
-                .iter()
-                .position(|item| item.id == *parent_id)
-                .ok_or_else(|| format!("parent not found: {parent_id}"))?;
-            departments[idx].child_department_ids.push(node.id.clone());
-            departments[idx].updated_at = now_iso();
-        }
-    }
-    Ok(())
-}
-
-fn clear_parent_link(departments: &mut [DepartmentConfig], child_id: &str) {
-    for department in departments.iter_mut() {
-        let before = department.child_department_ids.len();
-        department.child_department_ids.retain(|id| id != child_id);
-        if department.child_department_ids.len() != before {
-            department.updated_at = now_iso();
-        }
-    }
-}
-
-fn find_parent_department<'a>(departments: &'a [DepartmentConfig], child_id: &str) -> Option<&'a DepartmentConfig> {
-    departments
-        .iter()
-        .find(|item| item.child_department_ids.iter().any(|id| id == child_id))
-}
-
 fn agent_list_item(agent: &AgentProfile) -> AgentListItem {
     AgentListItem {
         id: agent.id.clone(),
         name: agent.name.clone(),
-    }
-}
-
-fn department_list_item(department: &DepartmentConfig) -> DepartmentListItem {
-    DepartmentListItem {
-        id: department.id.clone(),
-        name: department.name.clone(),
     }
 }
 
@@ -1809,43 +1773,6 @@ fn validate_provider(provider: &ApiProviderConfig) -> Result<(), String> {
         return Err("provider.models 中的 id/model 不能为空".to_string());
     }
     Ok(())
-}
-
-fn provider_first_endpoint(provider: &ApiProviderConfig) -> Option<String> {
-    provider
-        .models
-        .first()
-        .map(|model| format!("{}::{}", provider.id, model.id))
-}
-
-fn provider_model_endpoint(provider: &ApiProviderConfig, model_selector: &str) -> Option<String> {
-    provider.models.iter().find_map(|model| {
-        if model.id.eq_ignore_ascii_case(model_selector) || model.model.eq_ignore_ascii_case(model_selector) {
-            Some(format!("{}::{}", provider.id, model.id))
-        } else {
-            None
-        }
-    })
-}
-
-fn department_primary_endpoint(department: &DepartmentConfig) -> String {
-    department
-        .api_config_ids
-        .first()
-        .cloned()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| department.api_config_id.clone())
-}
-
-fn split_endpoint_id(value: &str) -> Option<(String, String)> {
-    let (provider_id, model_id) = value.split_once("::")?;
-    let provider_id = provider_id.trim();
-    let model_id = model_id.trim();
-    if provider_id.is_empty() || model_id.is_empty() {
-        None
-    } else {
-        Some((provider_id.to_string(), model_id.to_string()))
-    }
 }
 
 fn list_mcp_servers(ctx: &CliContext) -> Result<Vec<McpServerSummary>, String> {
@@ -2434,10 +2361,6 @@ fn default_assistant_private_scope() -> String {
     "assistant_private".to_string()
 }
 
-fn default_permission_mode() -> String {
-    "blacklist".to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2592,55 +2515,6 @@ scope = "global"
 "#,
         );
         fs::write(root.join("app_config.toml"), config).expect("write config with preset department");
-    }
-
-    #[test]
-    fn hr_department_should_reject_mutation_but_allow_set_agent() {
-        let root = test_root();
-        seed_app(&root);
-        let mut config = fs::read_to_string(root.join("app_config.toml")).expect("read config");
-        config.push_str(
-            r#"
-
-[[departments]]
-id = "hr-department"
-name = "人力部"
-summary = "built-in"
-guide = "built-in"
-apiConfigIds = ["provider-a::model-a"]
-apiConfigId = "provider-a::model-a"
-agentIds = ["agent-a"]
-childDepartmentIds = []
-createdAt = "2026-01-01T00:00:00Z"
-updatedAt = "2026-01-01T00:00:00Z"
-orderIndex = 9
-isBuiltInAssistant = false
-source = "main_config"
-scope = "global"
-"#,
-        );
-        fs::write(root.join("app_config.toml"), config).expect("write hr department");
-
-        let err = run_command_with_paths(
-            root.clone(),
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "department set-model-class hr-department fast",
-        )
-        .expect_err("hr department mutation should be rejected");
-        assert!(err.contains("预设部门是只读的"), "unexpected error: {err}");
-
-        let output = run_command_with_paths(
-            root.clone(),
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "department set-agent hr-department agent-a",
-        )
-        .expect("set-agent on hr department should be allowed");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        assert_eq!(value["agentIds"][0], "agent-a");
     }
 
     #[test]
@@ -2833,199 +2707,6 @@ scope = "global"
         assert!(changed_fields.iter().any(|item| item == "systemPrompt"));
     }
 
-    #[test]
-    fn run_command_with_paths_should_update_department_tree() {
-        let root = test_root();
-        seed_app(&root);
-        run_command_with_paths(
-            root.clone(),
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "department tree set-parent dept-b dept-a",
-        )
-        .expect("set parent");
-        let config = fs::read_to_string(root.join("app_config.toml")).expect("read config");
-        assert!(config.contains("childDepartmentIds = [\"dept-b\"]"));
-    }
-
-    #[test]
-    fn department_new_should_persist_and_use_department_prefix_for_non_ascii_name() {
-        let root = test_root();
-        seed_app(&root);
-        let output = run_command_with_paths(
-            root.clone(),
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "department new 测试部门 需要专项处理时使用我 先拆解再执行 expert agent-a",
-        )
-        .expect("create department");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse created department");
-        let department_id = value["id"].as_str().expect("department id");
-        assert!(department_id.starts_with("department-"));
-
-        let output = run_command_with_paths(
-            root.clone(),
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "department ls",
-        )
-        .expect("run department ls");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        let departments = value.as_array().expect("departments array");
-        assert!(departments.iter().any(|item| item["id"] == department_id));
-        assert!(departments.iter().any(|item| item["name"] == "测试部门"));
-    }
-
-    #[test]
-    fn department_new_should_write_to_config_path_not_workspace_root() {
-        let root = test_root();
-        seed_app(&root);
-        let actual_data_root = root.join("runtime-data");
-        let wrong_app_root = root.join("workspace-owner");
-        fs::create_dir_all(&actual_data_root).expect("create actual data root");
-        fs::create_dir_all(actual_data_root.join("config")).expect("create actual config dir");
-        fs::create_dir_all(wrong_app_root.join("llm-workspace")).expect("create wrong workspace dir");
-        fs::copy(root.join("app_config.toml"), actual_data_root.join("app_config.toml")).expect("copy config");
-        fs::copy(
-            root.join("config").join("agents.json"),
-            actual_data_root.join("config").join("agents.json"),
-        )
-        .expect("copy agents shard");
-
-        let output = run_command_with_paths(
-            wrong_app_root.clone(),
-            actual_data_root.join("app_config.toml"),
-            actual_data_root.join("config_mark"),
-            wrong_app_root.join("llm-workspace"),
-            "department new TestDept 需要专项处理时使用我 先拆解再执行 expert agent-a",
-        )
-        .expect("create department");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse created department");
-        assert_eq!(value["id"], "testdept");
-
-        let actual_config = fs::read_to_string(actual_data_root.join("app_config.toml")).expect("read actual config");
-        assert!(actual_config.contains("id = \"testdept\""));
-
-        let wrong_config = wrong_app_root.join("app_config.toml");
-        assert!(!wrong_config.exists());
-    }
-
-    #[test]
-    fn department_ls_and_get_should_hide_preset_departments() {
-        let root = test_root();
-        seed_app(&root);
-        append_preset_agent_and_department(&root);
-
-        let output = run_command_with_paths(
-            root.clone(),
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "department ls",
-        )
-        .expect("run department ls");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        let departments = value.as_array().expect("departments array");
-        assert!(departments.iter().all(|item| item["id"] != "assistant-department"));
-
-        let err = run_command_with_paths(
-            root.clone(),
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "department get assistant-department",
-        )
-        .expect_err("preset department should be hidden");
-        assert!(err.contains("department not found: assistant-department"));
-    }
-
-    #[test]
-    fn preset_department_should_be_read_only_for_mutation_commands() {
-        let root = test_root();
-        seed_app(&root);
-        append_preset_agent_and_department(&root);
-
-        let err = run_command_with_paths(
-            root.clone(),
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "department set-model-class assistant-department fast",
-        )
-        .expect_err("preset department should be read-only");
-        assert!(err.contains("预设部门是只读的"));
-    }
-
-    #[test]
-    fn department_tree_set_parent_should_reject_cycles() {
-        let root = test_root();
-        seed_app(&root);
-        run_command_with_paths(
-            root.clone(),
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "department tree set-parent dept-b dept-a",
-        )
-        .expect("set initial parent");
-
-        let err = run_command_with_paths(
-            root.clone(),
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "department tree set-parent dept-a dept-b",
-        )
-        .expect_err("cycle should be rejected");
-        assert!(err.contains("department tree 存在循环引用"));
-
-        let config = fs::read_to_string(root.join("app_config.toml")).expect("read config");
-        assert!(config.contains("id = \"dept-a\""));
-        assert!(config.contains("childDepartmentIds = [\"dept-b\"]"));
-        assert!(!config.contains("childDepartmentIds = [\"dept-a\"]"));
-    }
-
-    #[test]
-    fn department_tree_update_should_reject_cycles() {
-        let root = test_root();
-        seed_app(&root);
-        let tree_path = root.join("cyclic-tree.json");
-        write_json_file(
-            &tree_path,
-            &DepartmentTreeFile {
-                departments: vec![
-                    DepartmentTreeNode {
-                        id: "dept-a".to_string(),
-                        parent_id: Some("dept-b".to_string()),
-                    },
-                    DepartmentTreeNode {
-                        id: "dept-b".to_string(),
-                        parent_id: Some("dept-a".to_string()),
-                    },
-                ],
-            },
-        )
-        .expect("write cyclic tree");
-
-        let err = run_with_paths(
-            root.clone(),
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            &[
-                "department".to_string(),
-                "tree".to_string(),
-                "update".to_string(),
-                tree_path.display().to_string(),
-            ],
-        )
-        .expect_err("cycle should be rejected");
-        assert!(err.contains("department tree 存在循环引用"));
-    }
-
     #[allow(dead_code)]
     fn provider_update_should_preserve_redacted_keys_when_reenabled() {
         let root = test_root();
@@ -3162,19 +2843,209 @@ level = "system"
         assert_eq!(value[0]["name"], "browser");
     }
 
+    /// 造一个带两个人格（agent-a / agent-b）与内置 leader 的测试根目录。
+    fn seed_two_agents(root: &Path) {
+        seed_app(root);
+        fs::write(
+            root.join("config").join("agents.json"),
+            r#"
+{
+  "agents": [
+    {
+      "id": "agent-a",
+      "name": "Agent A",
+      "systemPrompt": "Prompt A",
+      "summary": "A 的简介",
+      "source": "main_config",
+      "scope": "global"
+    },
+    {
+      "id": "agent-b",
+      "name": "Agent B",
+      "systemPrompt": "Prompt B",
+      "source": "main_config",
+      "scope": "global"
+    },
+    {
+      "id": "leader",
+      "name": "leader",
+      "systemPrompt": "内置 leader",
+      "residentSkillNames": ["leader"],
+      "source": "main_config",
+      "scope": "global"
+    }
+  ]
+}
+"#,
+        )
+        .expect("write agents");
+    }
+
+    fn read_agents_json(root: &Path) -> JsonValue {
+        let raw = fs::read_to_string(root.join("config").join("agents.json")).expect("read agents");
+        serde_json::from_str(&raw).expect("parse agents")
+    }
+
     #[test]
-    fn skill_command_should_be_blocked() {
+    fn set_parent_and_clear_parent_should_edit_tree_edges() {
+        let root = test_root();
+        seed_two_agents(&root);
+        let run = |command: &str| {
+            run_command_with_paths(
+                root.clone(),
+                root.join("app_config.toml"),
+                root.join("config_mark"),
+                root.join("llm-workspace"),
+                command,
+            )
+        };
+
+        run("agent set-parent agent-b agent-a").expect("set-parent");
+        let agents = read_agents_json(&root);
+        let children = agents["agents"]
+            .as_array()
+            .expect("array")
+            .iter()
+            .find(|agent| agent["id"] == "agent-a")
+            .expect("agent-a")["childAgentIds"]
+            .as_array()
+            .expect("childAgentIds")
+            .iter()
+            .map(|value| value.as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(children, vec!["agent-b".to_string()]);
+
+        let parents_output = run("agent parent agent-b").expect("parent");
+        let parents: JsonValue = serde_json::from_str(&parents_output).expect("parse parents");
+        assert_eq!(parents[0]["id"], "agent-a");
+
+        let children_output = run("agent children agent-a").expect("children");
+        let listed: JsonValue = serde_json::from_str(&children_output).expect("parse children");
+        assert_eq!(listed[0]["id"], "agent-b");
+
+        run("agent clear-parent agent-b").expect("clear-parent");
+        let agents = read_agents_json(&root);
+        assert!(agents["agents"]
+            .as_array()
+            .expect("array")
+            .iter()
+            .find(|agent| agent["id"] == "agent-a")
+            .expect("agent-a")["childAgentIds"]
+            .as_array()
+            .expect("childAgentIds")
+            .is_empty());
+    }
+
+    #[test]
+    fn set_parent_should_reject_self_reference() {
+        let root = test_root();
+        seed_two_agents(&root);
+        let err = run_command_with_paths(
+            root.clone(),
+            root.join("app_config.toml"),
+            root.join("config_mark"),
+            root.join("llm-workspace"),
+            "agent set-parent agent-a agent-a",
+        )
+        .expect_err("self parent must fail");
+        assert!(err.contains("不能自指"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn set_model_class_should_write_role_endpoint() {
+        let root = test_root();
+        seed_two_agents(&root);
+        run_command_with_paths(
+            root.clone(),
+            root.join("app_config.toml"),
+            root.join("config_mark"),
+            root.join("llm-workspace"),
+            "agent set-model-class agent-a fast",
+        )
+        .expect("set-model-class");
+        let agents = read_agents_json(&root);
+        let ids = agents["agents"]
+            .as_array()
+            .expect("array")
+            .iter()
+            .find(|agent| agent["id"] == "agent-a")
+            .expect("agent-a")["apiConfigIds"]
+            .as_array()
+            .expect("apiConfigIds")
+            .iter()
+            .map(|value| value.as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec!["role:quick".to_string()]);
+    }
+
+    #[test]
+    fn set_resident_should_be_locked_for_built_in_persona() {
+        let root = test_root();
+        seed_two_agents(&root);
+        let err = run_command_with_paths(
+            root.clone(),
+            root.join("app_config.toml"),
+            root.join("config_mark"),
+            root.join("llm-workspace"),
+            "agent set-resident leader hr",
+        )
+        .expect_err("built-in persona skills are locked");
+        assert!(err.contains("锁定的"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn set_resident_should_move_optional_to_resident() {
+        let root = test_root();
+        seed_two_agents(&root);
+        let run = |command: &str| {
+            run_command_with_paths(
+                root.clone(),
+                root.join("app_config.toml"),
+                root.join("config_mark"),
+                root.join("llm-workspace"),
+                command,
+            )
+        };
+        run("agent set-optional agent-a hr").expect("set-optional");
+        run("agent set-resident agent-a hr").expect("set-resident");
+        let agents = read_agents_json(&root);
+        let agent = agents["agents"]
+            .as_array()
+            .expect("array")
+            .iter()
+            .find(|agent| agent["id"] == "agent-a")
+            .expect("agent-a");
+        assert_eq!(agent["residentSkillNames"][0], "hr");
+        assert!(agent["optionalSkillNames"]
+            .as_array()
+            .map(|items| items.is_empty())
+            .unwrap_or(true));
+    }
+
+    #[test]
+    fn skill_ls_should_list_workspace_skills() {
         let root = test_root();
         seed_app(&root);
-        let err = run_command_with_paths(
+        let skill_dir = root.join("llm-workspace").join("skills").join("demo-skill");
+        fs::create_dir_all(&skill_dir).expect("create skill dir");
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: demo-skill\ndescription: 示例技能\n---\n\n正文\n",
+        )
+        .expect("write SKILL.md");
+        let output = run_command_with_paths(
             root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
             "skill ls",
         )
-        .expect_err("skill command should be blocked");
-        assert!(err.contains("skill 命令当前未开放"));
+        .expect("run skill ls");
+        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
+        let items = value.as_array().expect("skill array");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["name"], "demo-skill");
+        assert_eq!(items[0]["enabled"], true);
     }
 
     #[test]
@@ -3192,11 +3063,14 @@ level = "system"
         assert!(output.contains("PAI config"));
         assert!(output.contains("Use it when the user asks to modify PAI settings"));
         assert!(output.contains("agent update <name-or-id> <file>"));
-        assert!(output.contains("department tree set-parent <child> <parent>"));
+        assert!(output.contains("agent tree"));
+        assert!(output.contains("agent set-parent <child> <parent> [<parent>...]"));
+        assert!(output.contains("agent set-model-class <name-or-id> <expert|fast>"));
+        assert!(output.contains("agent set-resident <name-or-id> <skill-name> [<skill-name>...]"));
+        assert!(output.contains("skill ls"));
         assert!(output.contains("mcp add <name> -- <command> [args...]"));
         assert!(output.contains("Delete commands are destructive"));
         assert!(output.contains("mcp delete <name-or-id> --confirmed"));
-        assert!(!output.contains("Skill:"));
         assert!(!output.contains("skill update <name-or-id> <dir>"));
         assert!(!output.contains("skill delete <name-or-id> --confirmed"));
         assert!(!output.contains("provider ls"));

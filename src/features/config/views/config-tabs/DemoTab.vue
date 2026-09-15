@@ -146,8 +146,8 @@
     <div v-if="demoComponentKey === 'config-cards'" class="card border border-base-300 bg-base-100">
       <div class="card-body gap-3 p-4">
         <div class="space-y-1">
-          <h3 class="card-title text-base">配置卡片画廊（六大卡片第一性原理）</h3>
-          <p class="text-sm text-base-content/70">集中渲染联系人渠道、部门、连接器、供应商、人格、技能 6 类卡片的真实模拟数据与自适应网格，支持切换宽度与主题进行视觉检验。</p>
+          <h3 class="card-title text-base">配置卡片画廊（五大卡片第一性原理）</h3>
+          <p class="text-sm text-base-content/70">集中渲染联系人渠道、连接器、供应商、人格、技能 5 类卡片的真实模拟数据与自适应网格，支持切换宽度与主题进行视觉检验。</p>
         </div>
         <ConfigCardsGalleryDemo />
       </div>
@@ -507,13 +507,13 @@ const props = withDefaults(defineProps<{
   config?: AppConfig;
   personas?: PersonaProfile[];
   personaAvatarUrlMap?: Record<string, string>;
-  assistantDepartmentAgentId?: string;
+  assistantAgentId?: string;
   initialKey?: string;
 }>(), {
   config: () => ({} as AppConfig),
   personas: () => [],
   personaAvatarUrlMap: () => ({}),
-  assistantDepartmentAgentId: "",
+  assistantAgentId: "",
   initialKey: "question",
 });
 
@@ -1066,7 +1066,7 @@ const assistantPersonas = computed(() =>
 );
 const primaryAssistantPersona = computed(
   () =>
-    assistantPersonas.value.find((persona) => persona.id === props.assistantDepartmentAgentId)
+    assistantPersonas.value.find((persona) => persona.id === props.assistantAgentId)
     ?? assistantPersonas.value[0]
     ?? null,
 );

@@ -329,7 +329,6 @@ const props = withDefaults(defineProps<{
   toolReviewPanelOpenVisible: boolean;
   chatSidePanelWidths: { leftWidth: number; rightWidth: number };
   activeConversationId: string;
-  currentDepartmentId?: string;
   conversationItems: ChatConversationOverviewItem[];
   userAlias: string;
   userAvatarUrl: string;
@@ -524,21 +523,13 @@ const currentConversationTitle = computed(() => {
   });
 });
 
-const currentConversationDepartmentName = computed(() => {
-  const activeId = String(props.activeConversationId || "").trim();
-  if (!activeId) return "";
-  const item = props.conversationItems.find((i) => i.conversationId === activeId);
-  return item?.departmentName || "";
-});
-
 const conversationUnreadTotal = computed(() =>
   props.conversationItems.reduce((total, item) => total + Math.max(0, Number(item.unreadCount || 0)), 0),
 );
 
 const combinedTitle = computed(() => {
   const title = currentConversationTitle.value || props.currentPersonaName;
-  const departmentName = currentConversationDepartmentName.value;
-  return title && departmentName ? `${title} · ${departmentName}` : title;
+  return title;
 });
 
 const combinedTitleTooltip = computed(() => {

@@ -1,5 +1,5 @@
 import type { ApiConfigItem, AppConfig } from "../../../types/app";
-import { resolveModelRoleApiConfigId } from "../utils/model-role-options";
+import { MODEL_ROLE_EXPERT_API_CONFIG_ID, resolveModelRoleApiConfigId } from "../utils/model-role-options";
 
 export function isTextRequestFormat(value: unknown): boolean {
   return ![
@@ -36,11 +36,9 @@ export function hasUsableTextLlm(config: AppConfig): boolean {
       .filter(Boolean),
   );
   if (usableIds.size === 0) return false;
-  const directId = String(config.assistantDepartmentApiConfigId || "").trim();
+  const directId = String(config.expertApiConfigId || "").trim();
   if (directId && usableIds.has(directId)) return true;
-  const assistant = (config.departments || []).find((item) => item.id === "assistant-department" || item.isBuiltInAssistant);
-  const ids = Array.isArray(assistant?.apiConfigIds) && assistant?.apiConfigIds.length
-    ? assistant.apiConfigIds
-    : (assistant?.apiConfigId ? [assistant.apiConfigId] : []);
-  return ids.some((id) => usableIds.has(resolveModelRoleApiConfigId(id, config)));
+  // 主助理人格未显式指定模型时按「专家」模型角色解析，与后端 agent_api_config_ids 的默认一致。
+  const assistantId = resolveModelRoleApiConfigId(MODEL_ROLE_EXPERT_API_CONFIG_ID, config);
+  return usableIds.has(assistantId);
 }

@@ -103,7 +103,7 @@ impl ConversationServiceV2 {
                 ))
             },
         )?;
-        // 草稿转正后立即创建下一个备用草稿：继承刚转正会话的部门/人格/模型/workspace。
+        // 草稿转正后立即创建下一个备用草稿：继承刚转正会话的人格/模型/workspace。
         // 创建失败不阻断消息发送，下次打开草稿入口时按单例查询兜底重建。
         if let Some(promoted_conversation) = promoted {
             match create_next_draft_conversation_inherited(state, &promoted_conversation) {

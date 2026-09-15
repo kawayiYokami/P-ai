@@ -249,7 +249,7 @@ impl RuntimeValueTool for BuiltinRecallTool {
 struct BuiltinTerminalExecTool {
     app_state: AppState,
     session_id: String,
-    executor_department_id: String,
+    executor_agent_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -315,7 +315,7 @@ fn config_tool_command_is_readonly(command: &str) -> bool {
         Some("help") | Some("--help") | Some("-h") => true,
         Some(_) => matches!(
             parts.get(1).map(String::as_str),
-            Some("ls") | Some("get") | Some("example")
+            Some("ls") | Some("get") | Some("example") | Some("tree")
         ),
         None => false,
     }
@@ -493,8 +493,6 @@ async fn apply_config_tool_runtime_effect(
                 "skillsFailed": reload_result.skills_failed,
                 "privateAgentsLoaded": reload_result.private_agents_loaded,
                 "privateAgentsFailed": reload_result.private_agents_failed,
-                "privateDepartmentsLoaded": reload_result.private_departments_loaded,
-                "privateDepartmentsFailed": reload_result.private_departments_failed,
                 "loadedSummary": reload_result.loaded_summary,
                 "failedSummary": reload_result.failed_summary,
                 "repairSummary": reload_result.repair_summary,
@@ -530,7 +528,7 @@ impl RuntimeToolMetadata for BuiltinConfigTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "config",
-            "这是 PAI 配置工具。当用户要求你修改 PAI 的设置时使用，例如人格、部门、部门树、MCP、Skill。入参只有 command:string。使用方法：先调用 `help`，工具会返回类似 shell help 的命令指南；再按指南逐条执行查看、生成样例、检查、预览差异或更新配置。当前不开放供应商配置命令。",
+            "这是 PAI 配置工具。当用户要求你修改 PAI 的设置时使用，例如人格、组织树、MCP、Skill。入参只有 command:string。使用方法：先调用 `help`，工具会返回类似 shell help 的命令指南；再按指南逐条执行查看、生成样例、检查、预览差异或更新配置。当前不开放供应商配置命令。",
             serde_json::json!({
               "type": "object",
               "properties": {
@@ -653,7 +651,7 @@ impl RuntimeValueTool for BuiltinTerminalExecTool {
         ensure_saddler_exec_allowed(
             &self.app_state,
             &self.session_id,
-            &self.executor_department_id,
+            &self.executor_agent_id,
             resolved_command,
         )
         .map_err(ToolInvokeError::from)?;
@@ -698,28 +696,28 @@ impl RuntimeValueTool for BuiltinTerminalExecTool {
 struct BuiltinWriteFileTool {
     app_state: AppState,
     session_id: String,
-    executor_department_id: String,
+    executor_agent_id: String,
 }
 
 #[derive(Debug, Clone)]
 struct BuiltinDeleteFileTool {
     app_state: AppState,
     session_id: String,
-    executor_department_id: String,
+    executor_agent_id: String,
 }
 
 #[derive(Debug, Clone)]
 struct BuiltinUpdateFileTool {
     app_state: AppState,
     session_id: String,
-    executor_department_id: String,
+    executor_agent_id: String,
 }
 
 #[derive(Debug, Clone)]
 struct BuiltinMoveFileTool {
     app_state: AppState,
     session_id: String,
-    executor_department_id: String,
+    executor_agent_id: String,
 }
 
 fn path_is_within_directory(path: &std::path::Path, directory: &std::path::Path) -> bool {
@@ -731,10 +729,10 @@ fn path_is_within_directory(path: &std::path::Path, directory: &std::path::Path)
 fn ensure_saddler_file_target_allowed(
     state: &AppState,
     session_id: &str,
-    executor_department_id: &str,
+    executor_agent_id: &str,
     raw_path: &str,
 ) -> Result<(), String> {
-    if executor_department_id.trim() != SADDLER_DEPARTMENT_ID {
+    if executor_agent_id.trim() != SADDLER_AGENT_ID {
         return Ok(());
     }
     let normalized_session = normalize_terminal_tool_session_id(session_id);
@@ -744,17 +742,17 @@ fn ensure_saddler_file_target_allowed(
     if path_is_within_directory(&target, &pai_dir) {
         Ok(())
     } else {
-        Err("saddler 部门只能在当前项目 .pai/ 目录下写入或更新能力资产".to_string())
+        Err("saddler 人格只能在当前项目 .pai/ 目录下写入或更新能力资产".to_string())
     }
 }
 
 fn ensure_saddler_exec_allowed(
     state: &AppState,
     session_id: &str,
-    executor_department_id: &str,
+    executor_agent_id: &str,
     command: &str,
 ) -> Result<(), String> {
-    if executor_department_id.trim() != SADDLER_DEPARTMENT_ID {
+    if executor_agent_id.trim() != SADDLER_AGENT_ID {
         return Ok(());
     }
     let normalized_session = normalize_terminal_tool_session_id(session_id);
@@ -767,7 +765,7 @@ fn ensure_saddler_exec_allowed(
     let pai_dir = terminal_normalize_for_access_check(&cwd.join(".pai"));
     let write_targets = analysis.write_target_paths();
     if write_targets.is_empty() {
-        return Err("saddler 部门的 exec 只能执行只读命令，或写入目标明确位于当前项目 .pai/ 目录下的命令".to_string());
+        return Err("saddler 人格的 exec 只能执行只读命令，或写入目标明确位于当前项目 .pai/ 目录下的命令".to_string());
     }
     if write_targets
         .iter()
@@ -775,7 +773,7 @@ fn ensure_saddler_exec_allowed(
     {
         Ok(())
     } else {
-        Err("saddler 部门的 exec 写入目标必须全部位于当前项目 .pai/ 目录下".to_string())
+        Err("saddler 人格的 exec 写入目标必须全部位于当前项目 .pai/ 目录下".to_string())
     }
 }
 
@@ -812,7 +810,7 @@ impl RuntimeValueTool for BuiltinWriteFileTool {
         ensure_saddler_file_target_allowed(
             &self.app_state,
             &self.session_id,
-            &self.executor_department_id,
+            &self.executor_agent_id,
             &args.path,
         )
         .map_err(ToolInvokeError::from)?;
@@ -862,7 +860,7 @@ impl RuntimeValueTool for BuiltinDeleteFileTool {
         ensure_saddler_file_target_allowed(
             &self.app_state,
             &self.session_id,
-            &self.executor_department_id,
+            &self.executor_agent_id,
             &args.path,
         )
         .map_err(ToolInvokeError::from)?;
@@ -915,7 +913,7 @@ impl RuntimeValueTool for BuiltinUpdateFileTool {
         ensure_saddler_file_target_allowed(
             &self.app_state,
             &self.session_id,
-            &self.executor_department_id,
+            &self.executor_agent_id,
             &args.path,
         )
         .map_err(ToolInvokeError::from)?;
@@ -966,14 +964,14 @@ impl RuntimeValueTool for BuiltinMoveFileTool {
         ensure_saddler_file_target_allowed(
             &self.app_state,
             &self.session_id,
-            &self.executor_department_id,
+            &self.executor_agent_id,
             &args.path,
         )
         .map_err(ToolInvokeError::from)?;
         ensure_saddler_file_target_allowed(
             &self.app_state,
             &self.session_id,
-            &self.executor_department_id,
+            &self.executor_agent_id,
             &args.to,
         )
         .map_err(ToolInvokeError::from)?;
@@ -1006,7 +1004,6 @@ struct BuiltinTaskTool {
     app_state: AppState,
     session_id: String,
     api_config_id: String,
-    executor_department_id: String,
     executor_agent_id: String,
 }
 
@@ -1250,7 +1247,7 @@ impl RuntimeToolMetadata for BuiltinGetSessionTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "get_session",
-            "查询可投递的会话。默认返回本地普通未归档会话和远程联系人会话；可用 keyword 按标题、联系人、部门、人格筛选。",
+            "查询可投递的会话。默认返回本地普通未归档会话和远程联系人会话；可用 keyword 按标题、联系人、人格筛选。",
             serde_json::json!({
               "type": "object",
               "properties": {
@@ -1391,7 +1388,6 @@ impl RuntimeValueTool for BuiltinTaskTool {
             &self.app_state,
             &self.session_id,
             &self.api_config_id,
-            &self.executor_department_id,
             &self.executor_agent_id,
             args,
         )
@@ -1414,24 +1410,23 @@ struct BuiltinDelegateTool {
     app_state: AppState,
     session_id: String,
     source_agent_id: String,
-    source_department_id: String,
 }
 
 impl RuntimeToolMetadata for BuiltinDelegateTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "delegate",
-            "在下级部门开启一个子代理，协助处理当前工作。当当前工作有更匹配的直属下级部门，或子任务能用简明背景独立说明清楚时，应优先发起委托。",
+            "在下级人格开启一个子代理，协助处理当前工作。当当前工作有更匹配的直属下级人格，或子任务能用简明背景独立说明清楚时，应优先发起委托。",
             serde_json::json!({
               "type": "object",
               "properties": {
-                "department_id": { "type": "string", "description": "要委托给的下级部门，直接填「你的直属下级部门」清单中的部门名称（也兼容部门 ID）。应选择与当前任务最匹配的直接下级部门。" },
+                "agent_id": { "type": "string", "description": "要委托的下级人格，填「你的直属下级人格」清单里的人格名称（也兼容人格 id）。应选择与当前任务最匹配的直接下级人格。" },
                 "mode": { "type": "string", "enum": ["wait", "background"], "description": "委托方式。mode 只表示父调度是否等待结果，不表示是否并发。除非用户明确要求后台运行，否则一律使用 wait。wait 会等待子代理返回结果，多个 wait 委托可以同时发出并等待全部返回；background 会后台运行并稍后写回当前来源会话。", "default": "wait" },
                 "why": { "type": "string", "description": "为什么要做、背景材料、已知事实、已有线索或必要上下文。" },
                 "goal": { "type": "string", "description": "这次委托要达成的目标，写成明确可执行、可判断完成的任务。" },
                 "todo": { "type": "string", "description": "优先关注点、范围边界、交付要求、下一步待办或需要避免的方向。" }
               },
-              "required": ["department_id", "why", "goal", "todo"]
+              "required": ["agent_id", "why", "goal", "todo"]
             }),
         )
     }
@@ -1452,7 +1447,6 @@ impl RuntimeValueTool for BuiltinDelegateTool {
             &self.app_state,
             &self.session_id,
             Some(self.source_agent_id.as_str()),
-            Some(self.source_department_id.as_str()),
             args,
         )
             .await
@@ -1477,7 +1471,6 @@ struct BuiltinDeepRecallTool {
     app_state: AppState,
     session_id: String,
     source_agent_id: String,
-    source_department_id: String,
 }
 
 impl RuntimeToolMetadata for BuiltinDeepRecallTool {
@@ -1511,7 +1504,6 @@ impl RuntimeValueTool for BuiltinDeepRecallTool {
                 &self.app_state,
                 &self.session_id,
                 &self.source_agent_id,
-                &self.source_department_id,
                 args,
             )
             .await
@@ -1643,12 +1635,12 @@ mod tool_impls_tests {
         assert!(config_tool_command_is_readonly("agent ls"));
         assert!(config_tool_command_is_readonly("agent get demo-agent"));
         assert!(config_tool_command_is_readonly("agent example"));
-        assert!(config_tool_command_is_readonly("department ls"));
+        assert!(config_tool_command_is_readonly("agent tree"));
         assert!(config_tool_command_is_readonly("mcp ls"));
         assert!(config_tool_command_is_readonly("mcp get some-server"));
         assert!(!config_tool_command_is_readonly("agent new demo-agent"));
         assert!(!config_tool_command_is_readonly("agent update demo-agent x.json"));
-        assert!(!config_tool_command_is_readonly("department new x"));
+        assert!(!config_tool_command_is_readonly("agent update demo-agent next.json"));
         assert!(!config_tool_command_is_readonly("mcp enable some-server"));
         assert!(!config_tool_command_is_readonly(""));
         assert!(!config_tool_command_is_readonly("   "));

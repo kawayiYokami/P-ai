@@ -933,7 +933,6 @@ mod jsonl_snapshot_conversation_block_tests {
             id: "conversation-block-test".to_string(),
             title: "test".to_string(),
             agent_id: "agent".to_string(),
-            department_id: String::new(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),

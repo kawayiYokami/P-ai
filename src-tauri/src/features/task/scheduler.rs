@@ -23,7 +23,6 @@ struct TaskResolvedConversation {
 #[derive(Debug, Clone)]
 struct TaskDispatchSessionResolved {
     model_config_id: String,
-    department_id: String,
     agent_id: String,
     conversation_id: String,
     target_scope: String,
@@ -101,41 +100,30 @@ fn task_resolve_dispatch_session(
     let Some(resolved) = resolved else {
         return Ok(None);
     };
-    let existing_department_id = task
-        .department_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
     let existing_agent_id = task
         .agent_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let (department_id, agent_id) = if let Some(department_id) = existing_department_id {
-        task_resolve_stored_department_agent_for_dispatch(state, department_id, existing_agent_id)?
-    } else if let Some(agent_id) = existing_agent_id {
-        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-        let department = runtime_department_for_agent(&runtime_snapshot, agent_id)
-            .ok_or_else(|| format!("任务绑定人格缺少所属部门：agentId={agent_id}"))?;
-        task_validate_department_agent_for_write(state, &department.id, agent_id)?
+    let agent_id = if let Some(agent_id) = existing_agent_id {
+        task_validate_agent_for_write(state, agent_id)?
     } else if resolved.system_task {
-        task_default_department_agent_for_write(state)?
-    } else if let Some(pair) =
-        task_department_agent_from_conversation_for_write(state, &resolved.conversation_id)?
+        task_default_agent_for_write(state)?
+    } else if let Some(agent_id) =
+        task_agent_from_conversation_for_write(state, &resolved.conversation_id)?
     {
-        pair
+        agent_id
     } else {
-        task_default_department_agent_for_write(state)?
+        task_default_agent_for_write(state)?
     };
     let runtime_snapshot = load_runtime_organization_snapshot(state)?;
     let app_config = runtime_snapshot.config.clone();
-    let department = runtime_department_by_id(&runtime_snapshot, &department_id)
-        .ok_or_else(|| format!("任务绑定部门不存在：{department_id}"))?;
-    let model_config_id = department_primary_chat_api_config_id(&app_config, department)
-        .ok_or_else(|| format!("任务绑定部门没有可用模型：{department_id}"))?;
+    let agent = runtime_agent_by_id(&runtime_snapshot, &agent_id)
+        .ok_or_else(|| format!("任务绑定人格不存在：{agent_id}"))?;
+    let model_config_id = agent_primary_chat_api_config_id(&app_config, agent)
+        .ok_or_else(|| format!("任务绑定人格没有可用模型：{agent_id}"))?;
     Ok(Some(TaskDispatchSessionResolved {
         model_config_id,
-        department_id,
         agent_id,
         conversation_id: resolved.conversation_id,
         target_scope: resolved.target_scope,
@@ -257,7 +245,6 @@ fn task_enqueue_conversation_trigger(
     runtime_context.origin_conversation_id = Some(session.conversation_id.clone());
     runtime_context.target_conversation_id = Some(session.conversation_id.clone());
     runtime_context.root_conversation_id = Some(session.conversation_id.clone());
-    runtime_context.executor_department_id = Some(session.department_id.clone());
     runtime_context.executor_agent_id = Some(session.agent_id.clone());
     runtime_context.model_config_id = Some(session.model_config_id.clone());
     let event = ChatPendingEvent {
@@ -270,7 +257,6 @@ fn task_enqueue_conversation_trigger(
         activate_assistant: true,
         assistant_message_id: None,
         session_info: ChatSessionInfo {
-            department_id: session.department_id.clone(),
             agent_id: session.agent_id.clone(),
         },
         runtime_context: Some(runtime_context),
@@ -487,8 +473,6 @@ fn task_dispatch_system_delegate(
         DELEGATE_TOOL_KIND_DELEGATE,
         SYSTEM_NOTIFICATION_CONVERSATION_ID,
         None,
-        &session.department_id,
-        &session.department_id,
         &session.agent_id,
         &session.agent_id,
         &title,
@@ -496,7 +480,7 @@ fn task_dispatch_system_delegate(
         title.clone(),
         "完成系统任务，并直接汇报结果。".to_string(),
         false,
-        vec![session.department_id.clone()],
+        vec![session.agent_id.clone()],
     )?;
     let delegate_id = delegate.delegate_id.clone();
     spawn_delegate_task(

@@ -1,42 +1,22 @@
 fn resolve_archive_owner_agent_id(
-    config: &AppConfig,
+    _config: &AppConfig,
     agents: &[AgentProfile],
     source: &Conversation,
 ) -> Result<String, String> {
-    let department_id = source.department_id.trim();
-    if department_id.is_empty() {
+    let owner_agent_id = source.agent_id.trim();
+    if owner_agent_id.is_empty() {
         return Err(format!(
-            "会话缺少归属部门，无法确定归档记忆归属人格: conversation_id={}",
+            "会话缺少归属人格，无法确定归档记忆归属人格: conversation_id={}",
             source.id
         ));
     }
-
-    let department = department_by_id(config, department_id).ok_or_else(|| {
-        format!(
-            "会话归属部门不存在，无法确定归档记忆归属人格: conversation_id={}, department_id={}",
-            source.id, department_id
-        )
-    })?;
-
-    let owner_agent_id = source.agent_id.trim();
-    let owner_agent_id = if owner_agent_id.is_empty() {
-        first_available_department_agent(department, agents)
-            .map(|agent| agent.id.clone())
-            .ok_or_else(|| {
-                format!(
-                    "会话归属部门没有可用人格，无法确定归档记忆归属人格: conversation_id={}, department_id={}",
-                    source.id, department_id
-                )
-            })?
-    } else {
-        if available_non_user_agent(agents, owner_agent_id).is_none() {
-            return Err(format!(
-                "归档记忆归属人格不存在: conversation_id={}, department_id={}, agent_id={}",
-                source.id, department_id, owner_agent_id
-            ));
-        }
-        owner_agent_id.to_string()
-    };
+    if available_non_user_agent(agents, owner_agent_id).is_none() {
+        return Err(format!(
+            "归档记忆归属人格不存在: conversation_id={}, agent_id={}",
+            source.id, owner_agent_id
+        ));
+    }
+    let owner_agent_id = owner_agent_id.to_string();
 
     Ok(owner_agent_id)
 }
@@ -61,28 +41,14 @@ mod archive_host_selection_tests {
             memory_recall_mode: default_agent_memory_recall_mode(),
             source: default_main_source(),
             scope: default_global_scope(),
-        }
-    }
-
-    fn mk_department(id: &str, agent_ids: Vec<&str>) -> DepartmentConfig {
-        DepartmentConfig {
-            id: id.to_string(),
-            name: id.to_string(),
             summary: String::new(),
-            guide: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
             api_config_ids: Vec::new(),
             api_config_id: String::new(),
             model_failure_fallback_enabled: false,
-            agent_ids: agent_ids.into_iter().map(ToOwned::to_owned).collect(),
-            child_department_ids: Vec::new(),
-            created_at: now_iso(),
-            updated_at: now_iso(),
-            order_index: 0,
-            is_built_in_assistant: false,
-            is_deputy: false,
-            source: default_main_source(),
-            scope: default_global_scope(),
-            permission_control: DepartmentPermissionControl::default(),
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
         }
     }
 
@@ -102,16 +68,15 @@ mod archive_host_selection_tests {
             })),
             tool_call: None,
             mcp_call: None,
-        meme_annotations: None,
+            meme_annotations: None,
         }
     }
 
-    fn mk_source(department_id: &str, agent_id: &str, messages: Vec<ChatMessage>) -> Conversation {
+    fn mk_source(agent_id: &str, messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
             id: "c1".to_string(),
             title: "t".to_string(),
             agent_id: agent_id.to_string(),
-            department_id: department_id.to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -139,7 +104,8 @@ mod archive_host_selection_tests {
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None,
+            last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         }
@@ -147,13 +113,8 @@ mod archive_host_selection_tests {
 
     #[test]
     fn archive_owner_should_come_from_conversation_agent() {
-        let config = AppConfig {
-            departments: vec![mk_department("dept-main", vec!["owner-agent", "message-agent"])],
-            ..AppConfig::default()
-        };
         let agents = vec![mk_agent("owner-agent"), mk_agent("message-agent")];
         let source = mk_source(
-            "dept-main",
             "message-agent",
             vec![
                 mk_msg_with_agent_hint("message-agent"),
@@ -161,78 +122,60 @@ mod archive_host_selection_tests {
             ],
         );
 
-        let owner = resolve_archive_owner_agent_id(&config, &agents, &source).unwrap();
+        let owner =
+            resolve_archive_owner_agent_id(&AppConfig::default(), &agents, &source).unwrap();
 
         assert_eq!(owner, "message-agent");
     }
 
     #[test]
-    fn archive_owner_should_reject_missing_department() {
-        let config = AppConfig::default();
+    fn archive_owner_should_reject_missing_conversation_agent() {
         let agents = vec![mk_agent("owner-agent")];
-        let source = mk_source("missing-dept", "owner-agent", Vec::new());
+        let source = mk_source("", Vec::new());
 
-        let err = resolve_archive_owner_agent_id(&config, &agents, &source).unwrap_err();
+        let err = resolve_archive_owner_agent_id(&AppConfig::default(), &agents, &source).unwrap_err();
 
-        assert!(err.contains("会话归属部门不存在"));
-    }
-
-    #[test]
-    fn archive_owner_should_use_department_first_agent_when_conversation_agent_missing() {
-        let agents = vec![mk_agent("a1"), mk_agent("a2")];
-        let config = AppConfig {
-            departments: vec![mk_department("dept-main", vec!["a1", "a2"])],
-            ..AppConfig::default()
-        };
-        let source = mk_source("dept-main", "", Vec::new());
-
-        let owner = resolve_archive_owner_agent_id(&config, &agents, &source).unwrap();
-
-        assert_eq!(owner, "a1");
+        assert!(err.contains("会话缺少归属人格"));
     }
 
     #[test]
     fn archive_owner_should_reject_missing_agent() {
-        let config = AppConfig {
-            departments: vec![mk_department("dept-main", vec!["owner-agent"])],
-            ..AppConfig::default()
-        };
-        let source = mk_source("dept-main", "owner-agent", Vec::new());
+        let source = mk_source("owner-agent", Vec::new());
 
-        let err = resolve_archive_owner_agent_id(&config, &[], &source).unwrap_err();
+        let err = resolve_archive_owner_agent_id(&AppConfig::default(), &[], &source).unwrap_err();
 
         assert!(err.contains("归档记忆归属人格不存在"));
     }
 
     #[test]
-    fn archive_owner_should_accept_private_runtime_department() {
+    fn archive_owner_should_accept_private_runtime_agent() {
         let root = std::env::temp_dir().join(format!(
             "eca-archive-owner-private-{}",
             Uuid::new_v4()
         ));
         let data_path = root.join("data").join("config_mark");
-        let departments_dir = app_root_from_data_path(&data_path)
+        let personas_dir = app_root_from_data_path(&data_path)
             .join("llm-workspace")
             .join("private-organization")
-            .join("departments");
-        std::fs::create_dir_all(&departments_dir).expect("create private departments dir");
+            .join("personas");
+        std::fs::create_dir_all(&personas_dir).expect("create private personas dir");
         std::fs::write(
-            departments_dir.join("dept-private.json"),
+            personas_dir.join("private-owner.json"),
             r#"{
-  "id": "dept-private",
-  "name": "私域归档部门",
-  "agentIds": ["private-owner"]
+  "id": "private-owner",
+  "name": "私域归档人格",
+  "prompt": "x"
 }"#,
         )
-        .expect("write private department");
+        .expect("write private persona");
 
         let snapshot = build_runtime_organization_snapshot_from_parts(
             &data_path,
             &AppConfig::default(),
-            &[mk_agent("private-owner"), default_user_persona()],
+            &[default_user_persona()],
         )
         .expect("build runtime snapshot");
-        let source = mk_source("dept-private", "private-owner", Vec::new());
+        let source = mk_source("private-owner", Vec::new());
 
         let owner =
             resolve_archive_owner_agent_id(&snapshot.config, &snapshot.agents, &source).unwrap();

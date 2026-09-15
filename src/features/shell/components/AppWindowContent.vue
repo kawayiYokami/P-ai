@@ -34,7 +34,7 @@
       :assistant-personas="assistantPersonas"
       :user-persona="userPersona"
       :persona-editor-id="personaEditorId"
-      :assistant-department-agent-id="assistantDepartmentAgentId"
+      :assistant-agent-id="assistantAgentId"
       :selected-persona="selectedPersonaEditor"
       :tool-persona="selectedPersonaEditor"
       :selected-persona-avatar-url="selectedPersonaEditorAvatarUrl"
@@ -176,7 +176,6 @@
         :config-shell-workspaces="config.shellWorkspaces || []"
         :save-draft-workspaces="saveDraftWorkspaces"
         :draft-workspace-git-root-check="draftWorkspaceGitRootCheck"
-        :current-department-id="currentChatDepartmentId"
         :active-agent-id="currentChatAgentId"
         :active-conversation-id="currentChatConversationId"
         :current-todos="currentChatTodos"
@@ -190,9 +189,9 @@
         :unarchived-conversation-items="chatUnarchivedConversationItems"
         :remote-im-contact-conversations="remoteImContactConversations"
         :conversation-items="chatConversationItems || chatUnarchivedConversationItems"
-        :create-conversation-department-options="createConversationDepartmentOptions"
+        :create-conversation-agent-options="createConversationAgentOptions"
         :recipient-options-ready="recipientOptionsReady"
-        :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
+        :default-create-conversation-agent-id="defaultCreateConversationAgentId"
         :ide-context-groups="[]"
         :current-theme="currentTheme"
         :side-conversation-list-visible="sideConversationListVisible"
@@ -306,7 +305,6 @@
               :conversation-id="sideConversationId"
               :api-config-id="conversationCallPrimaryApiConfigId"
               :agent-id="currentChatAgentId"
-              :department-id="currentChatDepartmentId"
               :persona-name="selectedPersonaName"
               :user-alias="userAlias"
               :user-avatar-url="userAvatarUrl"
@@ -523,7 +521,7 @@ import type {
   UnarchivedConversationSummary,
 } from "../../../types/app";
 import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind } from "../../shell/theme/theme-types";
-import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
+import type { AgentPersonaOption } from "../../shared/agent-persona-options";
 import type { ChatMonitorPanelMode, ChatRightPanelMode } from "../../chat/composables/chat-ui-layout-storage";
 import { createExclusiveChatViewSubscriptionSlot } from "../../chat/composables/exclusive-chat-view-subscription-slot";
 import { isViewLayerBusy } from "../../chat/composables/chat-view-busy";
@@ -565,7 +563,7 @@ const props = defineProps<{
   chatRightPanelMode: ChatRightPanelMode;
   chatMonitorPanelMode: ChatMonitorPanelMode;
   config: AppConfig;
-  configTab: "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+  configTab: "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   themeMode: ThemeModeKind;
@@ -586,7 +584,7 @@ const props = defineProps<{
   assistantPersonas: PersonaProfile[];
   userPersona: PersonaProfile | null;
   personaEditorId: string;
-  assistantDepartmentAgentId: string;
+  assistantAgentId: string;
   selectedPersonaEditor: PersonaProfile | null;
   toolPersona: PersonaProfile | null;
   selectedPersonaEditorAvatarUrl: string;
@@ -667,7 +665,6 @@ const props = defineProps<{
   currentChatWorkBranch?: string;
   saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
-  currentChatDepartmentId: string;
   currentChatAgentId: string;
   currentChatConversationId: string;
   sideConversations?: ChildConversationSummary[];
@@ -699,9 +696,9 @@ const props = defineProps<{
   }>;
   chatUnarchivedConversationItems: ChatConversationOverviewItem[];
   chatConversationItems?: ChatConversationOverviewItem[];
-  createConversationDepartmentOptions: DepartmentPersonaOption[];
+  createConversationAgentOptions: AgentPersonaOption[];
   recipientOptionsReady?: boolean;
-  defaultCreateConversationDepartmentId: string;
+  defaultCreateConversationAgentId: string;
   archives: ArchiveSummary[];
   selectedArchiveId: string;
   archiveBlocks: import("../../../types/app").ConversationBlockSummary[];
@@ -752,7 +749,7 @@ const props = defineProps<{
   setPromptPreviewDialogRef: (el: Element | null) => void;
   promptPreviewDialogOpen: boolean;
   markPromptPreviewDialogClosed: () => void;
-  updateConfigTab: (value: "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about") => void;
+  updateConfigTab: (value: "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about") => void;
   setUiLanguage: (value: string) => void;
   updatePersonaEditorId: (value: string) => void;
   updateSelectedResponseStyleId: (value: string) => void;
@@ -803,7 +800,7 @@ const props = defineProps<{
   clearAgentAvatar: (input: { agentId: string }) => void;
   updateChatInput: (value: string) => void;
   addChatMention: (value: ChatMentionTarget) => void;
-  removeChatMention: (value: string | { agentId?: string; departmentId?: string }) => void;
+  removeChatMention: (value: string | { agentId?: string }) => void;
   updateConversationPreferredApiConfigId: (value: string) => void;
   updatePlanModeEnabled: (value: boolean) => void;
   setSideConversationListVisible: (value: boolean) => void;
@@ -844,13 +841,13 @@ const props = defineProps<{
   onToggleConversationPin: (conversationId: string) => void;
   onArchiveConversation: (conversationId: string) => void;
   onDeleteConversation: (conversationId: string) => void;
-  onRebindConversationRecipient: (payload: { conversationId: string; departmentId: string; agentId: string }) => void;
-  onUpdateDraftConversation: (payload: { conversationId: string; departmentId?: string; agentId?: string; preferredApiConfigId?: string | null; title?: string | null }) => void;
-  onCreateConversation: (input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) => void;
+  onRebindConversationRecipient: (payload: { conversationId: string; agentId: string }) => void;
+  onUpdateDraftConversation: (payload: { conversationId: string; agentId?: string; preferredApiConfigId?: string | null; title?: string | null }) => void;
+  onCreateConversation: (input?: { title?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) => void;
   onBranchConversationFromSelection: (payload: { count: number; messageIds: string[] }) => void;
   onBranchConversationFromCurrent: () => void;
   onForwardConversationFromSelection: (payload: { count: number; messageIds: string[]; target: { kind: "local_unarchived" | "remote_im_contact"; conversationId: string; remoteContactId?: string } }) => void;
-  onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }) => Promise<boolean> | boolean;
+  onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; agentId: string; presetId: string; why: string; goal: string; todo: string }) => Promise<boolean> | boolean;
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   selectArchiveBlock: (blockId?: number | null) => void;
@@ -995,7 +992,6 @@ async function exportConversationShare(conversationId: string) {
 async function handleUserAsyncDelegateFromSelection(payload: {
   count: number;
   messageIds: string[];
-  departmentId: string;
   agentId: string;
   presetId: string;
   why: string;

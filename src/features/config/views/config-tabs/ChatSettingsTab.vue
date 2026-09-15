@@ -36,7 +36,7 @@
           <div class="mt-1 text-xs text-base-content/60">{{ t("config.chatSettings.expertChatModelHint") }}</div>
         </div>
         <ApiConfigPicker
-          :model-value="config.assistantDepartmentApiConfigId || ''"
+          :model-value="config.expertApiConfigId || ''"
           :api-configs="textCapableApiConfigs"
           @update:model-value="onExpertSelect"
         />
@@ -637,9 +637,9 @@ function onToolReviewSelect(value: string) {
 }
 
 function onExpertSelect(value: string) {
-  props.config.assistantDepartmentApiConfigId = value || "";
+  props.config.expertApiConfigId = value || "";
   emit("patchConversationApiSettings", {
-    assistantDepartmentApiConfigId: props.config.assistantDepartmentApiConfigId,
+    expertApiConfigId: props.config.expertApiConfigId,
   });
 }
 

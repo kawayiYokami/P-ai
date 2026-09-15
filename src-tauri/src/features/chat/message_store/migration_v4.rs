@@ -367,7 +367,6 @@ mod migration_v4_tests {
             id: "conversation-a".to_string(),
             title: "会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),

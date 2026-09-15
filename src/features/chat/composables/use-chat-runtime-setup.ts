@@ -42,9 +42,8 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
       getSession: () => {
         const apiConfigId = String(bindings.currentForegroundApiConfigId.value || "").trim();
         const agentId = String(bindings.currentForegroundAgentId.value || "").trim();
-        const departmentId = String(bindings.currentForegroundDepartmentId.value || "").trim();
         if (!apiConfigId || !agentId) return null;
-        return { apiConfigId, agentId, departmentId };
+        return { apiConfigId, agentId };
       },
       getConversationId: () => String(bindings.currentChatConversationId.value || "").trim(),
       chatInput: bindings.chatInput,
@@ -126,7 +125,6 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
   const confirmPlan = useConfirmPlan({
       currentApiConfigId: bindings.currentForegroundApiConfigId,
       currentAgentId: bindings.currentForegroundAgentId,
-      currentDepartmentId: bindings.currentForegroundDepartmentId,
       currentConversationId: bindings.currentChatConversationId,
       chatting: bindings.chatting,
       trimming: bindings.trimming,
@@ -135,11 +133,10 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
       clearForegroundRuntimeState: () => {
         chatFlowRef?.clearForegroundRuntimeState();
       },
-      confirmPlanAndContinue: ({ conversationId, planMessageId, departmentId, agentId }) => invokeTauri<void>("conversation.plan.confirm", {
+      confirmPlanAndContinue: ({ conversationId, planMessageId, agentId }) => invokeTauri<void>("conversation.plan.confirm", {
         input: {
           conversationId,
           planMessageId,
-          departmentId: departmentId || null,
           agentId: agentId || null,
         },
       }),

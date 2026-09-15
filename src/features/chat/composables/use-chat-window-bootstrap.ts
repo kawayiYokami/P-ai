@@ -37,7 +37,7 @@ export function useChatWindowBootstrap(bindings: Record<string, any>) {
     },
     onChatSettingsUpdated: async (payload) => {
       applyChatSettingsBootstrapUpdate({
-        assistantDepartmentAgentId: bindings.assistantDepartmentAgentId,
+        assistantAgentId: bindings.assistantAgentId,
         personaEditorId: bindings.personaEditorId,
         userAlias: bindings.userAlias,
         selectedResponseStyleId: bindings.selectedResponseStyleId,

@@ -321,7 +321,6 @@ const allStateSections: DemoSection[] = [
           kind: "remote_im_contact",
           channelId: "channel-demo",
           channelName: "研发频道",
-          departmentName: "研发频道 · 架构组",
           updatedAt: minutesAgo(15),
           lastMessageAt: minutesAgo(15),
           previewMessages: [preview("assistant", "这边已经收到，稍后同步进度。", "persona-nahida")],

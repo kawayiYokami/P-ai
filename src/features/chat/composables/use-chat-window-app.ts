@@ -93,7 +93,7 @@ export function useChatWindowApp() {
     currentChatConversationId,
     currentChatPreferredApiConfigId,
     personas,
-    assistantDepartmentAgentId,
+    assistantAgentId,
     personaEditorId,
     userAlias,
     selectedResponseStyleId,
@@ -367,7 +367,7 @@ export function useChatWindowApp() {
     configDerived,
     locale,
     personas,
-    assistantDepartmentAgentId,
+    assistantAgentId,
     personaEditorId,
     currentChatConversationId,
     currentChatPreferredApiConfigId,
@@ -472,7 +472,6 @@ export function useChatWindowApp() {
     userPersona,
     assistantPersonas,
     currentForegroundConversationSummary,
-    currentForegroundDepartmentId,
     currentForegroundAgentId,
     currentForegroundApiConfigId,
     currentForegroundApiConfig,
@@ -483,7 +482,7 @@ export function useChatWindowApp() {
     currentForegroundPersonaAvatarUrl,
     selectedPersonaEditorAvatarUrl,
     chatPersonaAvatarUrlMap,
-    createConversationDepartmentOptions,
+    createConversationAgentOptions,
   } = contentOrchestrator.personaConversation;
   const {
     openSettingsWindow,
@@ -517,7 +516,7 @@ export function useChatWindowApp() {
     buildConfigSnapshotJson,
   } = configCore;
   const {
-    defaultCreateConversationDepartmentId,
+    defaultCreateConversationAgentId,
     responseStyleIds,
   } = configUi;
 
@@ -527,8 +526,8 @@ export function useChatWindowApp() {
   
   const {
     updatePersonaEditorIdWithNotice,
-    updateAssistantDepartmentAgentId,
-    updateForegroundDepartmentPrimaryApiConfig,
+    updateAssistantAgentId,
+    updateForegroundAgentPrimaryApiConfig,
     updateConversationPreferredApiConfigId,
     updateSelectedResponseStyleId,
     updateSelectedPdfReadMode,
@@ -556,7 +555,7 @@ export function useChatWindowApp() {
     setStatus,
     setStatusError,
     personas,
-    assistantDepartmentAgentId,
+    assistantAgentId,
     avatarSaving,
     avatarError,
     selectedApiConfig,
@@ -600,7 +599,6 @@ export function useChatWindowApp() {
     currentForegroundApiConfigId,
     chatUsagePercent: contentOrchestrator.messageBlocks.chatUsagePercent,
     currentForegroundAgentId,
-    currentForegroundDepartmentId,
     currentForegroundConversationSummary,
     currentChatConversationId,
     currentChatPreferredApiConfigId,
@@ -646,8 +644,8 @@ export function useChatWindowApp() {
     triggerConversationScrollToBottom,
     getPendingManualScrollToBottomConversationId,
     getPendingManualScrollToBottomRequestId,
-    createConversationDepartmentOptions,
-    defaultCreateConversationDepartmentId,
+    createConversationAgentOptions,
+    defaultCreateConversationAgentId,
     branchingConversation,
     forwardingConversationSelection,
     deleteUnarchivedConversationFromArchivesRaw,
@@ -812,7 +810,6 @@ export function useChatWindowApp() {
             session: {
               apiConfigId: String(currentForegroundApiConfigId.value || "").trim(),
               agentId: String(currentForegroundAgentId.value || "").trim(),
-              departmentId: String(currentForegroundDepartmentId.value || "").trim() || null,
               conversationId,
             },
             partialAssistantText: "",
@@ -910,7 +907,7 @@ export function useChatWindowApp() {
     personas,
     userPersona: contentOrchestrator.personaConversation.userPersona,
     assistantPersonas: contentOrchestrator.personaConversation.assistantPersonas,
-    assistantDepartmentAgentId,
+    assistantAgentId,
     personaEditorId,
     selectedApiConfig: configDerived.selectedApiConfig,
     toolApiConfig: contentOrchestrator.personaConversation.toolApiConfig,
@@ -922,19 +919,17 @@ export function useChatWindowApp() {
     void emitTransportEvent("codeReview.requested");
   }
 
-  async function rebindConversationRecipient(payload: { conversationId: string; departmentId: string; agentId: string }) {
+  async function rebindConversationRecipient(payload: { conversationId: string; agentId: string }) {
     const conversationId = String(payload?.conversationId || "").trim();
-    const departmentId = String(payload?.departmentId || "").trim();
     const agentId = String(payload?.agentId || "").trim();
-    if (!conversationId || !departmentId || !agentId) return;
+    if (!conversationId || !agentId) return;
     try {
       const result = await invokeTauri<{
         conversationId: string;
-        departmentId: string;
         agentId: string;
         preferredApiConfigId?: string | null;
       }>("conversation.rebindRecipient", {
-        input: { conversationId, departmentId, agentId },
+        input: { conversationId, agentId },
       });
       if (String(currentChatConversationId.value || "").trim() === conversationId) {
         currentChatPreferredApiConfigId.value = String(result.preferredApiConfigId || "").trim();
@@ -1000,7 +995,7 @@ export function useChatWindowApp() {
     currentChatConversationId,
     currentChatPreferredApiConfigId,
     personas,
-    assistantDepartmentAgentId,
+    assistantAgentId,
     personaEditorId,
     userAlias,
     selectedResponseStyleId,

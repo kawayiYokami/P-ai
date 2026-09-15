@@ -9,16 +9,15 @@ struct PreparedConversationPromptPayload {
 }
 
 #[derive(Debug, Clone)]
-struct DepartmentSystemPromptSnapshot {
-    department_prompt_block: String,
-    department_tool_rule_blocks: Vec<String>,
+struct AgentSystemPromptSnapshot {
+    agent_prompt_block: String,
+    agent_tool_rule_blocks: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
-struct DepartmentSystemPromptCacheEntry {
+struct AgentSystemPromptCacheEntry {
     agent_id: String,
-    department_id: String,
-    snapshot: DepartmentSystemPromptSnapshot,
+    snapshot: AgentSystemPromptSnapshot,
     dirty_reason: Option<PromptCacheDirtyKind>,
 }
 
@@ -39,7 +38,6 @@ struct ConversationEnvironmentPromptCacheEntry {
 struct FinalSystemPromptCacheEntry {
     conversation_id: String,
     agent_id: String,
-    department_id: String,
     text: String,
     dirty_state: FinalSystemPromptDirtyState,
 }
@@ -96,11 +94,10 @@ fn system_prompt_text_cache(
     CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
-fn department_system_prompt_cache(
-) -> &'static Mutex<std::collections::HashMap<String, DepartmentSystemPromptCacheEntry>> {
-    static CACHE: OnceLock<
-        Mutex<std::collections::HashMap<String, DepartmentSystemPromptCacheEntry>>,
-    > = OnceLock::new();
+fn agent_system_prompt_cache(
+) -> &'static Mutex<std::collections::HashMap<String, AgentSystemPromptCacheEntry>> {
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<String, AgentSystemPromptCacheEntry>>> =
+        OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
@@ -134,77 +131,51 @@ fn prompt_cache_scope_key(state: Option<&AppState>) -> String {
         .unwrap_or_else(|| "<global>".to_string())
 }
 
-fn normalize_executor_department_id(departments: &[DepartmentConfig], department_id: &str) -> String {
-    let trimmed = department_id.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    department_by_id(&departments_only_config(departments), trimmed)
-        .map(|item| item.id.trim().to_string())
-        .unwrap_or_default()
-}
-
 fn prompt_runtime_rg_installed() -> bool {
     host_runtime_prerequisite_installed("rg").unwrap_or(false)
 }
 
-fn build_department_system_prompt_cache_key(
+fn build_agent_system_prompt_cache_key(
     state: Option<&AppState>,
     agent: &AgentProfile,
-    executor_department_id: &str,
     ui_language: &str,
 ) -> String {
     format!(
-        "scope={}|department={}|agent={}|ui={}",
+        "scope={}|agent={}|ui={}",
         prompt_cache_scope_key(state),
-        executor_department_id.trim(),
         agent.id.trim(),
         ui_language.trim(),
     )
 }
 
-fn build_department_system_prompt_snapshot_uncached(
-    _state: Option<&AppState>,
-    conversation: &Conversation,
-    _agent: &AgentProfile,
-    departments: &[DepartmentConfig],
-    executor_department_id: &str,
+fn build_agent_system_prompt_snapshot_uncached(
+    agent: &AgentProfile,
+    agents: &[AgentProfile],
     ui_language: &str,
-) -> DepartmentSystemPromptSnapshot {
-    let department_prompt_block = build_departments_prompt_block(
-        conversation,
-        executor_department_id,
-        departments,
-        ui_language,
-    );
-    let department_tool_rule_blocks = build_system_tools_rule_blocks(
-        executor_department_id,
-        departments,
+) -> AgentSystemPromptSnapshot {
+    let agent_prompt_block =
+        build_organization_prompt_block(agent.id.trim(), agents, ui_language);
+    let agent_tool_rule_blocks = build_system_tools_rule_blocks(
+        agent.id.trim(),
+        agents,
         prompt_runtime_rg_installed(),
     );
-    DepartmentSystemPromptSnapshot {
-        department_prompt_block,
-        department_tool_rule_blocks,
+    AgentSystemPromptSnapshot {
+        agent_prompt_block,
+        agent_tool_rule_blocks,
     }
 }
 
-fn get_or_build_department_system_prompt_snapshot(
+fn get_or_build_agent_system_prompt_snapshot(
     state: Option<&AppState>,
-    conversation: &Conversation,
     agent: &AgentProfile,
-    departments: &[DepartmentConfig],
-    executor_department_id: &str,
+    agents: &[AgentProfile],
     ui_language: &str,
-) -> DepartmentSystemPromptSnapshot {
-    let department_id = normalize_executor_department_id(departments, executor_department_id);
-    let cache_key =
-        build_department_system_prompt_cache_key(state, agent, &department_id, ui_language);
+) -> AgentSystemPromptSnapshot {
+    let cache_key = build_agent_system_prompt_cache_key(state, agent, ui_language);
     let mut rebuild_reason = "cache_miss";
     {
-        let cache = cache_lock_recover(
-            "department_system_prompt_cache",
-            department_system_prompt_cache(),
-        );
+        let cache = cache_lock_recover("agent_system_prompt_cache", agent_system_prompt_cache());
         if let Some(entry) = cache.get(&cache_key) {
             if entry.dirty_reason.is_none() {
                 return entry.snapshot.clone();
@@ -216,27 +187,16 @@ fn get_or_build_department_system_prompt_snapshot(
         }
     }
     runtime_log_info(format!(
-        "[部门提示词] 开始重建 department_id={} reason={}",
-        department_id,
+        "[人格提示词] 开始重建 agent_id={} reason={}",
+        agent.id.trim(),
         rebuild_reason
     ));
-    let snapshot = build_department_system_prompt_snapshot_uncached(
-        state,
-        conversation,
-        agent,
-        departments,
-        &department_id,
-        ui_language,
-    );
-    let mut cache = cache_lock_recover(
-        "department_system_prompt_cache",
-        department_system_prompt_cache(),
-    );
+    let snapshot = build_agent_system_prompt_snapshot_uncached(agent, agents, ui_language);
+    let mut cache = cache_lock_recover("agent_system_prompt_cache", agent_system_prompt_cache());
     cache.insert(
         cache_key,
-        DepartmentSystemPromptCacheEntry {
+        AgentSystemPromptCacheEntry {
             agent_id: agent.id.trim().to_string(),
-            department_id,
             snapshot: snapshot.clone(),
             dirty_reason: None,
         },
@@ -616,7 +576,6 @@ fn driving_model_prompt_block(selected_api: Option<&ApiConfig>) -> Option<String
 fn build_core_system_prompt_text(
     conversation: &Conversation,
     agent: &AgentProfile,
-    _departments: &[DepartmentConfig],
     user_profile: Option<(&str, &str)>,
     response_style_id: &str,
     ui_language: &str,
@@ -737,7 +696,7 @@ fn finalize_system_prompt_with_manager(
     mode_label: &str,
     conversation: &Conversation,
     agent: &AgentProfile,
-    departments: &[DepartmentConfig],
+    agents: &[AgentProfile],
     selected_api: Option<&ApiConfig>,
     _user_profile: Option<(&str, &str)>,
     _response_style_id: &str,
@@ -753,14 +712,13 @@ fn finalize_system_prompt_with_manager(
         mode_label,
         conversation,
         agent,
-        departments,
+        agents,
         selected_api,
         ui_language,
         fixed_system_prompt_text,
         user_profile_memory_block,
         terminal_block,
         &ChatPromptOverrides {
-            executor_department_id: Some(conversation.department_id.trim().to_string()),
             latest_user_intent: None,
             todo_tool_enabled: false,
             remote_im_activation_sources: Vec::new(),
@@ -773,20 +731,14 @@ fn finalize_system_prompt_with_manager(
 
 fn mark_prompt_cache_rebuild_internal(
     state: &AppState,
-    department_ids: &[String],
     agent_ids: &[String],
     conversation_ids: &[String],
-    mark_department: bool,
+    mark_agent: bool,
     mark_environment: bool,
     mark_final: bool,
     dirty_kind: PromptCacheDirtyKind,
 ) {
     let scope_prefix = format!("scope={}|", prompt_cache_scope_key(Some(state)));
-    let department_ids = department_ids
-        .iter()
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .collect::<std::collections::HashSet<_>>();
     let agent_ids = agent_ids
         .iter()
         .map(|value| value.trim())
@@ -797,24 +749,19 @@ fn mark_prompt_cache_rebuild_internal(
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .collect::<std::collections::HashSet<_>>();
-    let mark_all = department_ids.is_empty() && agent_ids.is_empty() && conversation_ids.is_empty();
+    let mark_all = agent_ids.is_empty() && conversation_ids.is_empty();
 
-    let mut department_marked = 0usize;
-    if mark_department {
-        let mut cache = cache_lock_recover(
-            "department_system_prompt_cache",
-            department_system_prompt_cache(),
-        );
+    let mut agent_marked = 0usize;
+    if mark_agent {
+        let mut cache = cache_lock_recover("agent_system_prompt_cache", agent_system_prompt_cache());
         for (key, entry) in cache.iter_mut() {
             if !key.starts_with(&scope_prefix) {
                 continue;
             }
-            let matched = mark_all
-                || agent_ids.contains(entry.agent_id.trim())
-                || department_ids.contains(entry.department_id.trim());
+            let matched = mark_all || agent_ids.contains(entry.agent_id.trim());
             if matched && entry.dirty_reason.is_none() {
                 entry.dirty_reason = Some(dirty_kind);
-                department_marked += 1;
+                agent_marked += 1;
             }
         }
     }
@@ -847,8 +794,7 @@ fn mark_prompt_cache_rebuild_internal(
             }
             let matched = mark_all
                 || conversation_ids.contains(entry.conversation_id.trim())
-                || agent_ids.contains(entry.agent_id.trim())
-                || department_ids.contains(entry.department_id.trim());
+                || agent_ids.contains(entry.agent_id.trim());
             let next_state = entry.dirty_state.mark(dirty_kind);
             if matched && next_state != entry.dirty_state {
                 entry.dirty_state = next_state;
@@ -858,31 +804,14 @@ fn mark_prompt_cache_rebuild_internal(
     }
 
     runtime_log_debug(format!(
-        "[系统提示词] 标记重建 完成 reason={} department_ids={:?} agent_ids={:?} conversation_ids={:?} department_marked={} environment_marked={} final_marked={}",
+        "[系统提示词] 标记重建 完成 reason={} agent_ids={:?} conversation_ids={:?} agent_marked={} environment_marked={} final_marked={}",
         dirty_kind.as_log_reason(),
-        department_ids,
         agent_ids,
         conversation_ids,
-        department_marked,
+        agent_marked,
         environment_marked,
         final_marked
     ));
-}
-
-fn mark_prompt_cache_rebuild_for_system_sources_by_departments(
-    state: &AppState,
-    department_ids: &[String],
-) {
-    mark_prompt_cache_rebuild_internal(
-        state,
-        department_ids,
-        &[],
-        &[],
-        true,
-        false,
-        true,
-        PromptCacheDirtyKind::SystemSource,
-    );
 }
 
 fn mark_prompt_cache_rebuild_for_system_sources_by_agents(
@@ -891,10 +820,9 @@ fn mark_prompt_cache_rebuild_for_system_sources_by_agents(
 ) {
     mark_prompt_cache_rebuild_internal(
         state,
-        &[],
         agent_ids,
         &[],
-        false,
+        true,
         false,
         true,
         PromptCacheDirtyKind::SystemSource,
@@ -907,7 +835,6 @@ fn mark_prompt_cache_rebuild_for_system_environment_by_conversation(
 ) {
     mark_prompt_cache_rebuild_internal(
         state,
-        &[],
         &[],
         &[conversation_id.trim().to_string()],
         false,
@@ -922,7 +849,6 @@ fn mark_prompt_cache_rebuild_for_all_system_environments(state: &AppState) {
         state,
         &[],
         &[],
-        &[],
         false,
         true,
         true,
@@ -933,7 +859,6 @@ fn mark_prompt_cache_rebuild_for_all_system_environments(state: &AppState) {
 fn mark_prompt_cache_rebuild_for_all_final_system_sources(state: &AppState) {
     mark_prompt_cache_rebuild_internal(
         state,
-        &[],
         &[],
         &[],
         false,

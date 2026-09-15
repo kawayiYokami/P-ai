@@ -91,12 +91,16 @@ impl Default for AppData {
         Self {
             version: APP_DATA_SCHEMA_VERSION,
             data_migration_version: 0,
-            agents: vec![
-                default_agent(),
-                default_deputy_agent(),
-                default_user_persona(),
-                default_system_persona(),
-            ],
+            agents: {
+                let mut agents = vec![
+                    default_agent(),
+                    default_deputy_agent(),
+                ];
+                agents.extend(built_in_organization_agents());
+                agents.push(default_user_persona());
+                agents.push(default_system_persona());
+                agents
+            },
             user_alias: default_user_alias(),
             conversations: Vec::new(),
         }
@@ -155,8 +159,6 @@ struct RemoteImContact {
     activation_cooldown_seconds: u64,
     #[serde(default = "default_remote_im_contact_route_mode")]
     route_mode: String,
-    #[serde(default)]
-    bound_department_id: Option<String>,
     #[serde(default)]
     bound_agent_id: Option<String>,
     #[serde(default)]
@@ -325,7 +327,7 @@ struct RemoteImContactCheckpoint {
     group_reply_delivery: Option<RemoteImGroupReplyDeliveryMarker>,
 }
 
-fn default_assistant_department_agent_id() -> String {
+fn default_assistant_agent_id() -> String {
     DEFAULT_AGENT_ID.to_string()
 }
 
@@ -442,92 +444,38 @@ fn default_user_alias() -> String {
     "用户".to_string()
 }
 
-fn assistant_department(config: &AppConfig) -> Option<&DepartmentConfig> {
-    config
-        .departments
-        .iter()
-        .find(|item| item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant)
-}
-
-fn department_by_id<'a>(
-    config: &'a AppConfig,
-    department_id: &str,
-) -> Option<&'a DepartmentConfig> {
-    let trimmed = department_id.trim();
+fn agent_by_id<'a>(agents: &'a [AgentProfile], agent_id: &str) -> Option<&'a AgentProfile> {
+    let trimmed = agent_id.trim();
     if trimmed.is_empty() {
         return None;
     }
-    config.departments.iter().find(|item| item.id == trimmed)
+    agents.iter().find(|item| item.id.trim() == trimmed)
 }
 
-fn department_direct_child_ids(
-    config: &AppConfig,
-    department: &DepartmentConfig,
-) -> Vec<String> {
-    let valid_ids = config
-        .departments
+fn agent_direct_child_ids(agents: &[AgentProfile], agent: &AgentProfile) -> Vec<String> {
+    let valid_ids = agents
         .iter()
         .map(|item| item.id.trim().to_string())
         .filter(|id| !id.is_empty())
         .collect::<std::collections::HashSet<_>>();
-    normalize_department_child_ids(&department.child_department_ids, &department.id)
+    normalize_agent_child_ids(&agent.child_agent_ids, &agent.id)
         .into_iter()
         .filter(|id| valid_ids.contains(id))
         .collect::<Vec<_>>()
 }
 
-fn department_direct_child_departments<'a>(
-    config: &'a AppConfig,
-    department: &DepartmentConfig,
-) -> Vec<&'a DepartmentConfig> {
-    department_direct_child_ids(config, department)
+fn agent_direct_child_agents<'a>(
+    agents: &'a [AgentProfile],
+    agent: &AgentProfile,
+) -> Vec<&'a AgentProfile> {
+    agent_direct_child_ids(agents, agent)
         .into_iter()
-        .filter_map(|id| department_by_id(config, &id))
+        .filter_map(|id| agent_by_id(agents, &id))
         .collect::<Vec<_>>()
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-fn department_has_direct_child(
-    config: &AppConfig,
-    source_department_id: &str,
-    target_department_id: &str,
-) -> bool {
-    let source_department = match department_by_id(config, source_department_id) {
-        Some(department) => department,
-        None => return false,
-    };
-    let target_department_id = target_department_id.trim();
-    if target_department_id.is_empty() {
-        return false;
-    }
-    department_direct_child_ids(config, source_department)
-        .iter()
-        .any(|id| id == target_department_id)
-}
-
-fn department_for_agent_id<'a>(
-    config: &'a AppConfig,
-    agent_id: &str,
-) -> Option<&'a DepartmentConfig> {
-    let trimmed = agent_id.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    config
-        .departments
-        .iter()
-        .find(|item| item.agent_ids.iter().any(|id| id.trim() == trimmed))
-        .or_else(|| {
-            if trimmed == DEFAULT_AGENT_ID {
-                assistant_department(config)
-            } else {
-                None
-            }
-        })
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DepartmentPermissionCategory {
+enum AgentPermissionCategory {
     BuiltinTool,
     Skill,
     McpTool,
@@ -545,164 +493,143 @@ fn builtin_tool_is_contact_only_hidden(tool_id: &str) -> bool {
     builtin_tool_is_contact_only_hidden_from_policy(tool_id)
 }
 
-fn builtin_tool_is_department_controlled(tool_id: &str) -> bool {
-    builtin_tool_is_department_controlled_from_policy(tool_id)
+fn builtin_tool_is_permission_controlled(tool_id: &str) -> bool {
+    builtin_tool_is_permission_controlled_from_policy(tool_id)
 }
 
-fn builtin_tool_visible_in_department_permissions(tool_id: &str) -> bool {
-    builtin_tool_visible_in_department_permissions_from_policy(tool_id)
+fn builtin_tool_visible_in_permission_lists(tool_id: &str) -> bool {
+    builtin_tool_visible_in_permission_lists_from_policy(tool_id)
 }
 
-fn normalize_department_permission_mode(value: &str) -> String {
+fn normalize_permission_mode(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
         "whitelist" => "whitelist".to_string(),
         _ => "blacklist".to_string(),
     }
 }
 
-fn normalize_department_permission_names(values: &[String]) -> Vec<String> {
-    let mut out = Vec::<String>::new();
-    let mut seen = std::collections::HashSet::<String>::new();
-    for value in values {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if seen.insert(trimmed.to_string()) {
-            out.push(trimmed.to_string());
-        }
-    }
-    out
-}
-
-fn normalize_department_permission_control(
-    raw: &DepartmentPermissionControl,
-) -> DepartmentPermissionControl {
-    DepartmentPermissionControl {
-        enabled: raw.enabled,
-        mode: normalize_department_permission_mode(&raw.mode),
-        builtin_tool_names: normalize_department_permission_names(&raw.builtin_tool_names),
-        skill_names: normalize_department_permission_names(&raw.skill_names),
-        mcp_tool_names: normalize_department_permission_names(&raw.mcp_tool_names),
-    }
-}
-
-fn department_permission_candidates<'a>(
-    department: Option<&'a DepartmentConfig>,
-    category: DepartmentPermissionCategory,
-) -> Option<(&'a DepartmentPermissionControl, &'a [String])> {
-    let department = department?;
-    let control = &department.permission_control;
+fn permission_control_candidates<'a>(
+    control: Option<&'a AgentPermissionControl>,
+    category: AgentPermissionCategory,
+) -> Option<(&'a AgentPermissionControl, &'a [String])> {
+    let control = control?;
     if !control.enabled {
         return None;
     }
     let list = match category {
-        DepartmentPermissionCategory::BuiltinTool => &control.builtin_tool_names,
-        DepartmentPermissionCategory::Skill => &control.skill_names,
-        DepartmentPermissionCategory::McpTool => &control.mcp_tool_names,
+        AgentPermissionCategory::BuiltinTool => &control.builtin_tool_names,
+        AgentPermissionCategory::Skill => &control.skill_names,
+        AgentPermissionCategory::McpTool => &control.mcp_tool_names,
     };
     Some((control, list.as_slice()))
 }
 
-fn department_permission_allows_any_name(
-    department: Option<&DepartmentConfig>,
-    category: DepartmentPermissionCategory,
+fn agent_permission_candidates<'a>(
+    agent: Option<&'a AgentProfile>,
+    category: AgentPermissionCategory,
+) -> Option<(&'a AgentPermissionControl, &'a [String])> {
+    permission_control_candidates(agent.map(|item| &item.permission_control), category)
+}
+
+fn permission_control_allows_any_name(
+    control: Option<(&AgentPermissionControl, &[String])>,
     candidate_names: &[&str],
 ) -> bool {
-    let Some((control, list)) = department_permission_candidates(department, category) else {
+    let Some((control, list)) = control else {
         return true;
     };
     let matches = candidate_names.iter().any(|candidate| {
         let candidate = candidate.trim();
         !candidate.is_empty() && list.iter().any(|item| item == candidate)
     });
-    if normalize_department_permission_mode(&control.mode) == "whitelist" {
+    if normalize_permission_mode(&control.mode) == "whitelist" {
         matches
     } else {
         !matches
     }
 }
 
-fn department_permission_mode_label(mode: &str) -> &'static str {
-    if normalize_department_permission_mode(mode) == "whitelist" {
+fn agent_permission_allows_any_name(
+    agent: Option<&AgentProfile>,
+    category: AgentPermissionCategory,
+    candidate_names: &[&str],
+) -> bool {
+    permission_control_allows_any_name(
+        agent_permission_candidates(agent, category),
+        candidate_names,
+    )
+}
+
+fn permission_mode_label(mode: &str) -> &'static str {
+    if normalize_permission_mode(mode) == "whitelist" {
         "白名单"
     } else {
         "黑名单"
     }
 }
 
-fn department_permission_restricted_reason(
-    department: Option<&DepartmentConfig>,
-    category: DepartmentPermissionCategory,
+fn agent_permission_restricted_reason(
+    agent: Option<&AgentProfile>,
+    category: AgentPermissionCategory,
     item_name: &str,
 ) -> Option<String> {
-    let Some((control, _)) = department_permission_candidates(department, category) else {
+    let Some((control, _)) = agent_permission_candidates(agent, category) else {
         return None;
     };
-    if department_permission_allows_any_name(department, category, &[item_name]) {
+    if agent_permission_allows_any_name(agent, category, &[item_name]) {
         return None;
     }
     let category_label = match category {
-        DepartmentPermissionCategory::BuiltinTool => "工具",
-        DepartmentPermissionCategory::Skill => "Skill",
-        DepartmentPermissionCategory::McpTool => "MCP 工具",
+        AgentPermissionCategory::BuiltinTool => "工具",
+        AgentPermissionCategory::Skill => "Skill",
+        AgentPermissionCategory::McpTool => "MCP 工具",
     };
     Some(format!(
-        "因为当前部门权限卡采用{}机制，{} `{}` 未被允许",
-        department_permission_mode_label(&control.mode),
+        "因为当前人格权限采用{}机制，{} `{}` 未被允许",
+        permission_mode_label(&control.mode),
         category_label,
         item_name.trim()
     ))
 }
 
-fn tool_restricted_by_department(
-    department: Option<&DepartmentConfig>,
-    tool_id: &str,
-) -> Option<String> {
-    if !builtin_tool_is_department_controlled(tool_id) {
+fn tool_restricted_by_agent_permission(agent: &AgentProfile, tool_id: &str) -> Option<String> {
+    if !builtin_tool_is_permission_controlled(tool_id) {
         return None;
     }
-    let department = department?;
-    department_permission_restricted_reason(
-        Some(department),
-        DepartmentPermissionCategory::BuiltinTool,
+    agent_permission_restricted_reason(
+        Some(agent),
+        AgentPermissionCategory::BuiltinTool,
         tool_id,
     )
 }
 
-fn delegate_builtin_tool_unavailable_reason(
-    config: &AppConfig,
-    department: Option<&DepartmentConfig>,
-) -> Option<String> {
-    let Some(department) = department else {
-        return Some("缺少当前执行部门，无法使用委托".to_string());
+fn agent_delegate_unavailable_reason(agent: Option<&AgentProfile>) -> Option<String> {
+    let Some(agent) = agent else {
+        return Some("缺少当前执行人格，无法使用委托".to_string());
     };
-    if !department_direct_child_ids(config, department).is_empty() {
+    if agent
+        .child_agent_ids
+        .iter()
+        .any(|id| !id.trim().is_empty())
+    {
         return None;
     }
-    Some("当前部门没有直接下级，无法使用委托".to_string())
+    Some("当前人格没有直接下级，无法使用委托".to_string())
 }
 
-fn builtin_tool_unavailable_reason(
-    config: &AppConfig,
-    department: Option<&DepartmentConfig>,
+fn agent_builtin_tool_unavailable_reason(
+    agent: Option<&AgentProfile>,
     tool_id: &str,
 ) -> Option<String> {
     if tool_id.trim() == "delegate" {
-        if let Some(reason) = delegate_builtin_tool_unavailable_reason(config, department) {
+        if let Some(reason) = agent_delegate_unavailable_reason(agent) {
             return Some(reason);
         }
     }
-    tool_restricted_by_department(department, tool_id)
-}
-
-fn tool_forced_by_department(
-    department: Option<&DepartmentConfig>,
-    tool_id: &str,
-) -> bool {
-    let _ = department;
-    let _ = tool_id;
-    false
+    match agent {
+        Some(agent) => tool_restricted_by_agent_permission(agent, tool_id),
+        None => None,
+    }
 }
 
 fn user_persona_name(data: &AppData) -> String {
@@ -736,232 +663,152 @@ mod types_storage_tests {
         assert_eq!(legacy.focus_instructions, defaults.focus_instructions);
     }
 
-    fn build_department_with_permission_control(
+    fn build_agent_with_permission_control(
         mode: &str,
         builtin_tool_names: Vec<&str>,
         skill_names: Vec<&str>,
         mcp_tool_names: Vec<&str>,
-    ) -> DepartmentConfig {
-        let mut department = default_assistant_department("api-a");
-        department.permission_control = DepartmentPermissionControl {
+    ) -> AgentProfile {
+        let mut agent = default_agent();
+        agent.permission_control = AgentPermissionControl {
             enabled: true,
             mode: mode.to_string(),
             builtin_tool_names: builtin_tool_names.into_iter().map(|value| value.to_string()).collect(),
             skill_names: skill_names.into_iter().map(|value| value.to_string()).collect(),
             mcp_tool_names: mcp_tool_names.into_iter().map(|value| value.to_string()).collect(),
         };
-        department
+        agent
     }
 
     #[test]
-    fn department_permission_allows_any_name_should_handle_whitelist_and_blacklist() {
-        let whitelist = build_department_with_permission_control(
+    fn agent_permission_allows_any_name_should_handle_whitelist_and_blacklist() {
+        let whitelist = build_agent_with_permission_control(
             "whitelist",
             vec!["fetch"],
             vec!["assistant-space-guide"],
             vec!["server-a::search"],
         );
-        assert!(department_permission_allows_any_name(
+        assert!(agent_permission_allows_any_name(
             Some(&whitelist),
-            DepartmentPermissionCategory::BuiltinTool,
+            AgentPermissionCategory::BuiltinTool,
             &["fetch"],
         ));
-        assert!(!department_permission_allows_any_name(
+        assert!(!agent_permission_allows_any_name(
             Some(&whitelist),
-            DepartmentPermissionCategory::BuiltinTool,
+            AgentPermissionCategory::BuiltinTool,
             &["websearch"],
         ));
-        assert!(!department_permission_allows_any_name(
+        assert!(!agent_permission_allows_any_name(
             Some(&whitelist),
-            DepartmentPermissionCategory::Skill,
+            AgentPermissionCategory::Skill,
             &["mcp-setup"],
         ));
-        assert!(department_permission_allows_any_name(
+        assert!(agent_permission_allows_any_name(
             Some(&whitelist),
-            DepartmentPermissionCategory::McpTool,
+            AgentPermissionCategory::McpTool,
             &["server-a::search", "server-id::search", "search"],
         ));
-        assert!(!department_permission_allows_any_name(
+        assert!(!agent_permission_allows_any_name(
             Some(&whitelist),
-            DepartmentPermissionCategory::McpTool,
+            AgentPermissionCategory::McpTool,
             &["server-b::other", "other"],
         ));
 
-        let blacklist = build_department_with_permission_control(
+        let blacklist = build_agent_with_permission_control(
             "blacklist",
             vec!["fetch"],
             vec!["assistant-space-guide"],
             vec!["server-a::search"],
         );
-        assert!(!department_permission_allows_any_name(
+        assert!(!agent_permission_allows_any_name(
             Some(&blacklist),
-            DepartmentPermissionCategory::BuiltinTool,
+            AgentPermissionCategory::BuiltinTool,
             &["fetch"],
         ));
-        assert!(department_permission_allows_any_name(
+        assert!(agent_permission_allows_any_name(
             Some(&blacklist),
-            DepartmentPermissionCategory::BuiltinTool,
+            AgentPermissionCategory::BuiltinTool,
             &["websearch"],
         ));
-        assert!(!department_permission_allows_any_name(
+        assert!(!agent_permission_allows_any_name(
             Some(&blacklist),
-            DepartmentPermissionCategory::McpTool,
+            AgentPermissionCategory::McpTool,
             &["server-a::search", "search"],
         ));
-        assert!(department_permission_allows_any_name(
+        assert!(agent_permission_allows_any_name(
             Some(&blacklist),
-            DepartmentPermissionCategory::McpTool,
+            AgentPermissionCategory::McpTool,
             &["server-b::other", "other"],
         ));
     }
 
     #[test]
-    fn operate_should_be_controlled_by_permission_card_for_regular_departments() {
-        let mut regular_whitelisted = build_department_with_permission_control(
+    fn operate_should_be_controlled_by_permission_card_for_regular_agents() {
+        let regular_whitelisted = build_agent_with_permission_control(
             "whitelist",
             vec!["fetch", "operate"],
             vec![],
             vec![],
         );
-        regular_whitelisted.is_built_in_assistant = false;
 
-        let mut regular_blocklisted = build_department_with_permission_control(
+        let regular_blocklisted = build_agent_with_permission_control(
             "blacklist",
             vec!["operate"],
             vec![],
             vec![],
         );
-        regular_blocklisted.is_built_in_assistant = false;
 
-        let mut regular_whitelist_without_operate = build_department_with_permission_control(
+        let regular_whitelist_without_operate = build_agent_with_permission_control(
             "whitelist",
             vec!["fetch"],
             vec![],
             vec![],
         );
-        regular_whitelist_without_operate.is_built_in_assistant = false;
 
-        let mut regular_control_disabled = build_department_with_permission_control(
+        let mut regular_control_disabled = build_agent_with_permission_control(
             "whitelist",
             vec![],
             vec![],
             vec![],
         );
-        regular_control_disabled.is_built_in_assistant = false;
         regular_control_disabled.permission_control.enabled = false;
 
         // 白名单显式授权 operate → 允许
         assert_eq!(
-            tool_restricted_by_department(Some(&regular_whitelisted), "operate"),
+            tool_restricted_by_agent_permission(&regular_whitelisted, "operate"),
             None
         );
         // 黑名单显式拒绝 operate → 拒绝
-        assert!(tool_restricted_by_department(Some(&regular_blocklisted), "operate").is_some());
+        assert!(tool_restricted_by_agent_permission(&regular_blocklisted, "operate").is_some());
         // 白名单未授权 operate → 拒绝
-        assert!(tool_restricted_by_department(Some(&regular_whitelist_without_operate), "operate")
-            .is_some());
+        assert!(
+            tool_restricted_by_agent_permission(&regular_whitelist_without_operate, "operate")
+                .is_some()
+        );
         // 权限卡未启用 → 默认放行（普通工具语义）
         assert_eq!(
-            tool_restricted_by_department(Some(&regular_control_disabled), "operate"),
+            tool_restricted_by_agent_permission(&regular_control_disabled, "operate"),
             None
         );
     }
 
     #[test]
-    fn deputy_department_operate_should_be_controlled_by_permission_card() {
-        // 副手部门默认权限卡（explorer 白名单）不含 operate → 权限卡机制拒绝
-        let mut explorer = default_deputy_department("api-a");
-        assert!(tool_restricted_by_department(Some(&explorer), "operate").is_some());
-        // 权限卡显式授权 operate → 允许（无硬编码锁死）
-        explorer
-            .permission_control
-            .builtin_tool_names
-            .push("operate".to_string());
+    fn delegate_should_require_direct_child_agents() {
         assert_eq!(
-            tool_restricted_by_department(Some(&explorer), "operate"),
-            None
-        );
-    }
-
-    #[test]
-    fn department_direct_child_helpers_should_support_shared_children() {
-        let mut config = AppConfig::default();
-        let mut parent_a = default_assistant_department("api-a");
-        parent_a.id = "dept-a".to_string();
-        parent_a.name = "部门A".to_string();
-        parent_a.is_built_in_assistant = false;
-        parent_a.child_department_ids =
-            vec!["shared-team".to_string(), "missing-team".to_string(), "dept-a".to_string()];
-
-        let mut parent_b = default_assistant_department("api-a");
-        parent_b.id = "dept-b".to_string();
-        parent_b.name = "部门B".to_string();
-        parent_b.is_built_in_assistant = false;
-        parent_b.child_department_ids = vec!["shared-team".to_string()];
-
-        let mut shared = default_assistant_department("api-a");
-        shared.id = "shared-team".to_string();
-        shared.name = "共享施工队".to_string();
-        shared.is_built_in_assistant = false;
-        shared.child_department_ids = Vec::new();
-
-        config.departments = vec![parent_a, parent_b, shared];
-
-        let dept_a = department_by_id(&config, "dept-a").expect("dept-a");
-        let dept_b = department_by_id(&config, "dept-b").expect("dept-b");
-
-        assert_eq!(
-            department_direct_child_ids(&config, dept_a),
-            vec!["shared-team".to_string()]
-        );
-        assert_eq!(
-            department_direct_child_ids(&config, dept_b),
-            vec!["shared-team".to_string()]
-        );
-        assert!(department_has_direct_child(&config, "dept-a", "shared-team"));
-        assert!(department_has_direct_child(&config, "dept-b", "shared-team"));
-        assert!(!department_has_direct_child(&config, "dept-a", "missing-team"));
-    }
-
-    #[test]
-    fn delegate_builtin_tool_unavailable_reason_should_require_direct_children() {
-        let mut config = AppConfig::default();
-
-        assert_eq!(
-            delegate_builtin_tool_unavailable_reason(&config, None),
-            Some("缺少当前执行部门，无法使用委托".to_string())
+            agent_builtin_tool_unavailable_reason(None, "delegate"),
+            Some("缺少当前执行人格，无法使用委托".to_string())
         );
 
-        let mut parent = default_assistant_department("api-a");
-        parent.id = "dept-parent".to_string();
-        parent.name = "父部门".to_string();
-        parent.is_built_in_assistant = false;
-        parent.child_department_ids = Vec::new();
-
-        let mut child = default_assistant_department("api-a");
-        child.id = "dept-child".to_string();
-        child.name = "子部门".to_string();
-        child.is_built_in_assistant = false;
-
-        config.departments = vec![parent.clone(), child.clone()];
-
-        let parent_department = department_by_id(&config, "dept-parent").expect("parent");
+        let mut parent = default_agent();
+        parent.id = "agent-parent".to_string();
+        parent.name = "父人格".to_string();
+        parent.child_agent_ids = Vec::new();
         assert_eq!(
-            delegate_builtin_tool_unavailable_reason(&config, Some(parent_department)),
-            Some("当前部门没有直接下级，无法使用委托".to_string())
+            agent_builtin_tool_unavailable_reason(Some(&parent), "delegate"),
+            Some("当前人格没有直接下级，无法使用委托".to_string())
         );
 
-        let parent_index = config
-            .departments
-            .iter()
-            .position(|item| item.id == "dept-parent")
-            .expect("parent index");
-        config.departments[parent_index].child_department_ids = vec!["dept-child".to_string()];
-
-        let parent_department = department_by_id(&config, "dept-parent").expect("parent updated");
-        assert_eq!(
-            delegate_builtin_tool_unavailable_reason(&config, Some(parent_department)),
-            None
-        );
+        parent.child_agent_ids = vec!["dept-child".to_string()];
+        assert_eq!(agent_builtin_tool_unavailable_reason(Some(&parent), "delegate"), None);
     }
 }

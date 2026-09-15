@@ -5,7 +5,7 @@ import { normalizeConversationId } from "./use-chat-flow-utils";
 
 type AttachmentNotice = { id: string; fileName: string; path: string; mime: string };
 type ImageAttachment = { mime: string; bytesBase64: string; savedPath?: string };
-type Session = { apiConfigId: string; agentId: string; departmentId?: string; conversationId?: string };
+type Session = { apiConfigId: string; agentId: string; conversationId?: string };
 
 type UseChatFlowSendInputOptions = {
   chatInput: Ref<string>;
@@ -45,11 +45,9 @@ export function useChatFlowSendInput(options: UseChatFlowSendInputOptions) {
         .map((item) => ({
           agentId: String(item.agentId || "").trim(),
           agentName: String(item.agentName || "").trim(),
-          departmentId: String(item.departmentId || "").trim(),
-          departmentName: String(item.departmentName || "").trim(),
           avatarUrl: String(item.avatarUrl || "").trim() || undefined,
         }))
-        .filter((item) => !!item.agentId && !!item.departmentId)
+        .filter((item) => !!item.agentId)
       : [];
   }
 

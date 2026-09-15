@@ -159,7 +159,6 @@ async fn handle_weixin_oc_inbound_message(
             session: SessionSelector {
                 api_config_id: None,
                 conversation_id: None,
-                department_id: None,
                 agent_id: String::new(),
             },
             payload: ChatInputPayload {
@@ -324,7 +323,6 @@ fn upsert_weixin_oc_contact(
         mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
         activation_cooldown_seconds: 0,
         route_mode: "dedicated_contact_conversation".to_string(),
-        bound_department_id: None,
         bound_agent_id: None,
         bound_conversation_id: None,
         processing_mode: "continuous".to_string(),

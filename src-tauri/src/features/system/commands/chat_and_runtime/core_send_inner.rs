@@ -163,12 +163,11 @@ fn prepend_optional_preferred_chat_api_id(
 
 fn build_chat_candidate_api_ids(
     app_config: &AppConfig,
-    effective_department: &DepartmentConfig,
+    agent: &AgentProfile,
     requested_api_config_id: Option<&str>,
     conversation_preferred_api_config_id: Option<&str>,
 ) -> Result<(Vec<String>, bool), String> {
-    let mut candidate_api_ids =
-        department_effective_chat_api_config_ids(app_config, effective_department);
+    let mut candidate_api_ids = agent_effective_chat_api_config_ids(app_config, agent);
     let preferred_model_applied = if let Some(requested_api_config_id) =
         requested_api_config_id.map(str::trim).filter(|value| !value.is_empty())
     {
@@ -181,7 +180,7 @@ fn build_chat_candidate_api_ids(
             app_config,
         )?
     };
-    if !department_model_failure_fallback_enabled(effective_department) {
+    if !agent_model_failure_fallback_enabled(agent) {
         candidate_api_ids.truncate(1);
     }
     Ok((candidate_api_ids, preferred_model_applied))
@@ -203,7 +202,6 @@ fn restart_dispatch_round_after_context_compaction(
     state: &AppState,
     runtime_context: &mut RuntimeContext,
     conversation_id: &str,
-    department_id: &str,
     agent_id: &str,
     dispatch_reason: &str,
 ) -> Result<String, String> {
@@ -240,7 +238,6 @@ fn restart_dispatch_round_after_context_compaction(
         conversation_id,
         request_id.as_str(),
         request_id.as_str(),
-        department_id,
         agent_id,
         assistant_message_id.as_str(),
         stream_started_at.as_str(),
@@ -254,7 +251,6 @@ fn restart_dispatch_round_after_context_compaction(
         request_id.as_str(),
         assistant_message_id.as_str(),
         activation_reason.as_str(),
-        department_id,
         agent_id,
         stream_started_at.as_str(),
         stream_started_at_ms,
@@ -265,8 +261,8 @@ fn restart_dispatch_round_after_context_compaction(
         MainSessionState::AssistantStreaming,
     )?;
     runtime_log_info(format!(
-        "[聊天调度] 压缩后新一轮开始事件已发送 conversation_id={} request_id={} assistant_message_id={} department_id={} agent_id={} reason={}",
-        conversation_id, request_id, assistant_message_id, department_id, agent_id, activation_reason
+        "[聊天调度] 压缩后新一轮开始事件已发送 conversation_id={} request_id={} assistant_message_id={} agent_id={} reason={}",
+        conversation_id, request_id, assistant_message_id, agent_id, activation_reason
     ));
     Ok(assistant_message_id)
 }
@@ -403,16 +399,8 @@ async fn send_chat_message_inner(
             .map(str::trim)
             .filter(|v| !v.is_empty())
         {
-            let early_department_id = runtime_context
-                .executor_department_id
-                .as_deref()
-                .or_else(|| session.department_id.as_deref())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .unwrap_or("")
-                .to_string();
             let early_agent_id = session.agent_id.trim();
-            if !early_department_id.is_empty() && !early_agent_id.is_empty() {
+            if !early_agent_id.is_empty() {
                 let stream_started_at = now_iso();
                 let stream_started_at_ms = now_unix_ms();
                 let bootstrap_in_current_dispatch = input
@@ -453,7 +441,6 @@ async fn send_chat_message_inner(
                     cid,
                     trace_id.as_str(),
                     trace_id.as_str(),
-                    &early_department_id,
                     early_agent_id,
                     &dispatch_assistant_message_id,
                     &stream_started_at,
@@ -725,21 +712,6 @@ async fn send_chat_message_inner(
     log_chat_stage("send_chat_message_inner.start");
 
     let trigger_only = input.trigger_only;
-    let requested_department_id = runtime_context
-        .executor_department_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            input
-                .session
-                .as_ref()
-                .and_then(|s| s.department_id.as_deref())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .map(ToOwned::to_owned)
-        });
     let requested_agent_id = runtime_context
         .executor_agent_id
         .as_deref()
@@ -855,7 +827,6 @@ async fn send_chat_message_inner(
             id: String::new(),
             title: String::new(),
             agent_id: String::new(),
-            department_id: String::new(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -1005,7 +976,6 @@ async fn send_chat_message_inner(
         app_config,
         selected_api,
         resolved_api,
-        effective_department_id,
         effective_agent_id,
         candidate_api_ids,
         runtime_main_conversation_id,
@@ -1041,10 +1011,10 @@ async fn send_chat_message_inner(
         ));
         log_chat_stage("runtime_and_session_ready.config_read_done");
         let app_data_started = std::time::Instant::now();
-        let (assistant_department_agent_id, runtime_main_conversation_id) = {
+        let (assistant_agent_id, runtime_main_conversation_id) = {
             let state = state.clone();
             tokio::task::spawn_blocking(move || {
-                let agent_id = state_service_get_assistant_department_agent_id(&state)?;
+                let agent_id = state_service_get_assistant_agent_id(&state)?;
                 let main_conversation_id = state_service_get_main_conversation_id(&state)?;
                 Ok::<(String, Option<String>), String>((agent_id, main_conversation_id))
             })
@@ -1057,10 +1027,10 @@ async fn send_chat_message_inner(
             .as_millis()
             .min(u128::from(u64::MAX)) as u64;
         prepare_detail_parts.push(format!(
-            "运行时分片读取={}ms(agents={}, assistant_department_agent_id={})",
+            "运行时分片读取={}ms(agents={}, assistant_agent_id={})",
             app_data_read_ms,
             runtime_agents.len(),
-            assistant_department_agent_id
+            assistant_agent_id
         ));
         log_chat_stage("runtime_and_session_ready.app_data_read_done");
         prepare_detail_parts.push(format!("运行时人格列表就绪=0ms(count={})", runtime_agents.len()));
@@ -1079,28 +1049,12 @@ async fn send_chat_message_inner(
         runtime_agents = runtime_org.agents.clone();
         prepare_detail_parts.push(format!("组织运行态构建={}ms", runtime_org_ms));
         log_chat_stage("runtime_and_session_ready.runtime_org_ready");
-        let department_resolve_started = std::time::Instant::now();
-        let requested_department_id_snapshot = requested_department_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| "缺少执行部门：调度上下文没有固化 department_id。".to_string())?;
-        let effective_department =
-            runtime_department_by_id(&runtime_org, requested_department_id_snapshot)
-                .ok_or_else(|| format!("执行部门已经消失：department_id={requested_department_id_snapshot}"))?;
-        let effective_department_id = effective_department.id.clone();
-        let department_resolve_ms = department_resolve_started
-            .elapsed()
-            .as_millis()
-            .min(u128::from(u64::MAX)) as u64;
-        prepare_detail_parts.push(format!("部门解析={}ms", department_resolve_ms));
-        log_chat_stage("runtime_and_session_ready.department_resolved");
         let agent_resolve_started = std::time::Instant::now();
         let requested_agent_id_snapshot = requested_agent_id
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| format!("缺少执行人格：调度上下文没有固化 agent_id，department_id={effective_department_id}。"))?;
+            .ok_or_else(|| "缺少执行人格：调度上下文没有固化 agent_id。".to_string())?;
         let effective_agent_id = requested_agent_id_snapshot.to_string();
         if !runtime_agents
             .iter()
@@ -1112,18 +1066,9 @@ async fn send_chat_message_inner(
                 .map(|agent| agent.name.trim())
                 .filter(|name| !name.is_empty())
                 .unwrap_or(effective_agent_id.as_str());
-            let effective_department_name = effective_department.name.trim();
-            let effective_department_name = if effective_department_name.is_empty() {
-                effective_department.id.as_str()
-            } else {
-                effective_department_name
-            };
             return Err(format!(
-                "调度固化人格不存在或不可用：部门“{}”（{}）绑定的人格“{}”（{}）不可用。",
-                effective_department_name,
-                effective_department.id,
-                effective_agent_name,
-                effective_agent_id
+                "调度固化人格不存在或不可用：{}（{}）。",
+                effective_agent_name, effective_agent_id
             ));
         }
         let agent_resolve_ms = agent_resolve_started
@@ -1133,8 +1078,12 @@ async fn send_chat_message_inner(
         prepare_detail_parts.push(format!("人格解析={}ms", agent_resolve_ms));
         log_chat_stage("runtime_and_session_ready.agent_resolved");
         let candidate_models_started = std::time::Instant::now();
-        let department_model_fallback_enabled =
-            department_model_failure_fallback_enabled(effective_department);
+        let effective_agent = runtime_agents
+            .iter()
+            .find(|agent| agent.id == effective_agent_id)
+            .ok_or_else(|| format!("执行人格已经消失：agent_id={effective_agent_id}"))?
+            .clone();
+        let agent_model_fallback_enabled = agent_model_failure_fallback_enabled(&effective_agent);
         let conversation_meta_for_model_selection = requested_conversation_id_for_prepare
             .as_deref()
             .or(runtime_main_conversation_id.as_deref())
@@ -1160,7 +1109,7 @@ async fn send_chat_message_inner(
             .filter(|value| !value.is_empty());
         let (candidate_api_ids, preferred_model_applied) = build_chat_candidate_api_ids(
             &app_config,
-            effective_department,
+            &effective_agent,
             requested_api_config_id_snapshot,
             conversation_preferred_api_config_id.as_deref(),
         )?;
@@ -1170,22 +1119,22 @@ async fn send_chat_message_inner(
             .min(u128::from(u64::MAX)) as u64;
         prepare_detail_parts.push(format!("候选模型构建={}ms(count={})", candidate_models_ms, candidate_api_ids.len()));
         runtime_log_info(format!(
-            "[会话模型] 调度，任务=构建候选模型，会话ID={}，单次指定模型={}，会话首选模型={}，会话首选已应用={}，部门失败自动切换={}，候选队列={}",
+            "[会话模型] 调度，任务=构建候选模型，会话ID={}，单次指定模型={}，会话首选模型={}，会话首选已应用={}，人格失败自动切换={}，候选队列={}",
             requested_conversation_id_for_prepare
                 .as_deref()
                 .or(runtime_main_conversation_id.as_deref())
                 .unwrap_or("未知"),
             requested_api_config_id_snapshot.unwrap_or("未指定"),
-            conversation_preferred_api_config_id.as_deref().unwrap_or("部门模型"),
+            conversation_preferred_api_config_id.as_deref().unwrap_or("人格模型"),
             preferred_model_applied,
-            department_model_fallback_enabled,
+            agent_model_fallback_enabled,
             candidate_api_ids.join(" -> ")
         ));
         let selected_api_started = std::time::Instant::now();
         let selected_api_id = candidate_api_ids
             .first()
             .cloned()
-            .ok_or_else(|| format!("Department '{}' has no available chat model.", effective_department_id))?;
+            .ok_or_else(|| format!("Agent '{}' has no available chat model.", effective_agent_id))?;
         let selected_api = app_config
             .api_configs
             .iter()
@@ -1253,7 +1202,6 @@ async fn send_chat_message_inner(
             app_config,
             selected_api,
             resolved_api,
-            effective_department_id,
             effective_agent_id,
             candidate_api_ids,
             runtime_main_conversation_id,
@@ -1261,7 +1209,6 @@ async fn send_chat_message_inner(
             preloaded_prepare_snapshot,
         )
     };
-    runtime_context.executor_department_id = Some(effective_department_id.clone());
     runtime_context.executor_agent_id = Some(effective_agent_id.clone());
     log_chat_stage("runtime_and_session_ready");
 
@@ -1287,7 +1234,7 @@ async fn send_chat_message_inner(
     }
 
     let default_chat_key = inflight_chat_key(
-        &effective_department_id,
+        &effective_agent_id,
         requested_conversation_id.as_deref(),
     );
     let chat_key = runtime_context
@@ -1337,7 +1284,6 @@ async fn send_chat_message_inner(
     let selected_api_for_log = selected_api.clone();
     let resolved_api_for_log = resolved_api.clone();
     let requested_conversation_id_for_failure_persist = requested_conversation_id.clone();
-    let effective_department_id_for_failure_persist = effective_department_id.clone();
     let effective_agent_id_for_failure_persist = effective_agent_id.clone();
     let failure_persist_target =
         std::sync::Arc::new(std::sync::Mutex::new(None::<(String, String)>));
@@ -1481,7 +1427,7 @@ async fn send_chat_message_inner(
             .iter()
             .find(|agent| agent.id == effective_agent_id.as_str() && !agent.is_built_in_user)
             .cloned()
-            .ok_or_else(|| format!("执行部门解析出的人格不可用：agent_id={effective_agent_id}"))?;
+            .ok_or_else(|| format!("执行人格解析出的人格不可用：agent_id={effective_agent_id}"))?;
         let is_delegate_conversation =
             snapshot.prompt_conversation_before.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE;
         let requested_plan_mode_enabled = get_conversation_plan_mode_enabled(
@@ -1676,7 +1622,6 @@ async fn send_chat_message_inner(
         }
         let mut conversation = trim_conversation_for_prompt_request(&storage_conversation);
         conversation.agent_id = effective_agent_id.clone();
-        conversation.department_id = effective_department_id.clone();
         let (mut latest_user_text, effective_images, effective_audios) = if trigger_only {
             (
                 conversation
@@ -1745,7 +1690,6 @@ async fn send_chat_message_inner(
                         .iter()
                         .any(|path| !path.trim().is_empty()));
         let chat_overrides = ChatPromptOverrides {
-            executor_department_id: Some(effective_department_id.clone()),
             latest_user_intent: has_chat_request_extra_blocks.then_some(
                 LatestUserPayloadIntent::ChatRequest {
                     include_task_board: !is_delegate_conversation,
@@ -1772,7 +1716,6 @@ async fn send_chat_message_inner(
             &conversation,
             &current_agent,
             &snapshot.agents,
-            &app_config.departments,
             &snapshot.user_name,
             &snapshot.user_intro,
             &snapshot.response_style_id,
@@ -1829,7 +1772,6 @@ async fn send_chat_message_inner(
                 prompt_mode,
                 agent: current_agent.clone(),
                 agents: snapshot.agents.clone(),
-                departments: app_config.departments.clone(),
                 user_name: snapshot.user_name.clone(),
                 user_intro: snapshot.user_intro.clone(),
                 response_style_id: snapshot.response_style_id.clone(),
@@ -1977,7 +1919,6 @@ async fn send_chat_message_inner(
                         &state,
                         &mut runtime_context,
                         &conversation_for_compaction.id,
-                        &conversation_for_compaction.department_id,
                         &current_agent_id_for_compaction,
                         "after_auto_compaction",
                     )?;
@@ -2094,7 +2035,6 @@ async fn send_chat_message_inner(
                         &state,
                         &mut runtime_context,
                         &conversation_for_compaction.id,
-                        &effective_department_id,
                         &current_agent_id_for_compaction,
                         "after_auto_compaction",
                     )?;
@@ -2213,7 +2153,6 @@ async fn send_chat_message_inner(
                 on_delta,
                 app_config.tool_max_iterations as usize,
                 &chat_session_key,
-                Some(effective_department_id.as_str()),
                 Some(&conversation_id),
             )
             .await;
@@ -2254,7 +2193,6 @@ async fn send_chat_message_inner(
                     &state,
                     &mut runtime_context,
                     &conversation_id,
-                    &effective_department_id,
                     &current_agent.id,
                     "after_tool_continue_compaction",
                 )?;
@@ -2980,7 +2918,6 @@ async fn send_chat_message_inner(
             match persist_aborted_chat_partial_result(
                 state,
                 interrupted_conversation_id,
-                Some(effective_department_id_for_failure_persist.as_str()),
                 interrupted_agent_id,
                 &chat_key,
             ) {
@@ -3013,7 +2950,6 @@ async fn send_chat_message_inner(
             match persist_failed_chat_completed_tool_history(
                 state,
                 failure_persist_conversation_id,
-                Some(effective_department_id_for_failure_persist.as_str()),
                 failure_persist_agent_id,
                 &chat_key,
                 err,
@@ -3185,33 +3121,21 @@ mod core_send_inner_tests {
         }
     }
 
-    fn test_department_with_models(
+    fn test_agent_with_models(
         api_config_ids: Vec<&str>,
         model_failure_fallback_enabled: bool,
-    ) -> DepartmentConfig {
+    ) -> AgentProfile {
         let ids = api_config_ids
             .into_iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>();
-        DepartmentConfig {
-            id: "dept-a".to_string(),
-            name: "部门 A".to_string(),
-            summary: String::new(),
-            guide: String::new(),
-            api_config_ids: ids.clone(),
-            api_config_id: ids.first().cloned().unwrap_or_default(),
-            model_failure_fallback_enabled,
-            agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-            child_department_ids: Vec::new(),
-            created_at: now_iso(),
-            updated_at: now_iso(),
-            order_index: 1,
-            is_built_in_assistant: false,
-            is_deputy: false,
-            source: default_main_source(),
-            scope: default_global_scope(),
-            permission_control: DepartmentPermissionControl::default(),
-        }
+        let mut agent = default_agent();
+        agent.id = "agent-a".to_string();
+        agent.name = "人格 A".to_string();
+        agent.api_config_ids = ids.clone();
+        agent.api_config_id = ids.first().cloned().unwrap_or_default();
+        agent.model_failure_fallback_enabled = model_failure_fallback_enabled;
+        agent
     }
 
     fn test_rfc3339_hours_ago(hours: i64) -> String {
@@ -3303,7 +3227,6 @@ mod core_send_inner_tests {
             id: "remote-conversation-a".to_string(),
             title: "远程联系人".to_string(),
             agent_id: "agent-a".to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),
@@ -3613,7 +3536,7 @@ mod core_send_inner_tests {
     }
 
     #[test]
-    fn prepend_required_chat_api_id_should_insert_model_not_in_department_list() {
+    fn prepend_required_chat_api_id_should_insert_model_not_in_agent_list() {
         let app_config = AppConfig {
             api_configs: vec![test_chat_api("text-a", false), test_chat_api("vision-b", true)],
             api_providers: Vec::new(),
@@ -3704,26 +3627,26 @@ mod core_send_inner_tests {
     }
 
     #[test]
-    fn department_primary_chat_api_config_id_should_resolve_role_for_scheduling() {
+    fn agent_primary_chat_api_config_id_should_resolve_role_for_scheduling() {
         let app_config = AppConfig {
             api_configs: vec![test_chat_api("api-expert", false)],
             api_providers: Vec::new(),
-            assistant_department_api_config_id: "api-expert".to_string(),
+            expert_api_config_id: "api-expert".to_string(),
             ..AppConfig::default()
         };
-        let department = test_department_with_models(vec![MODEL_ROLE_EXPERT_API_CONFIG_ID], false);
+        let agent = test_agent_with_models(vec![MODEL_ROLE_EXPERT_API_CONFIG_ID], false);
 
         assert_eq!(
-            department_primary_api_config_id(&department),
+            agent_primary_api_config_id(&agent),
             MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string()
         );
         assert_eq!(
-            department_primary_chat_api_config_id(&app_config, &department).as_deref(),
+            agent_primary_chat_api_config_id(&app_config, &agent).as_deref(),
             Some("api-expert")
         );
 
         let (candidate_api_ids, preferred_applied) =
-            build_chat_candidate_api_ids(&app_config, &department, None, None)
+            build_chat_candidate_api_ids(&app_config, &agent, None, None)
                 .expect("build candidates");
 
         assert!(!preferred_applied);
@@ -3741,11 +3664,11 @@ mod core_send_inner_tests {
             api_providers: Vec::new(),
             ..AppConfig::default()
         };
-        let department = test_department_with_models(vec!["api-a", "api-b"], false);
+        let agent = test_agent_with_models(vec!["api-a", "api-b"], false);
 
         let (candidate_api_ids, preferred_applied) = build_chat_candidate_api_ids(
             &app_config,
-            &department,
+            &agent,
             Some("api-c"),
             None,
         )
@@ -3766,11 +3689,11 @@ mod core_send_inner_tests {
             api_providers: Vec::new(),
             ..AppConfig::default()
         };
-        let department = test_department_with_models(vec!["api-a", "api-b"], false);
+        let agent = test_agent_with_models(vec!["api-a", "api-b"], false);
 
         let (candidate_api_ids, preferred_applied) = build_chat_candidate_api_ids(
             &app_config,
-            &department,
+            &agent,
             None,
             Some("api-c"),
         )
@@ -3791,11 +3714,11 @@ mod core_send_inner_tests {
             api_providers: Vec::new(),
             ..AppConfig::default()
         };
-        let department = test_department_with_models(vec!["api-a", "api-b"], true);
+        let agent = test_agent_with_models(vec!["api-a", "api-b"], true);
 
         let (candidate_api_ids, preferred_applied) = build_chat_candidate_api_ids(
             &app_config,
-            &department,
+            &agent,
             None,
             Some("api-c"),
         )
@@ -3806,18 +3729,18 @@ mod core_send_inner_tests {
     }
 
     #[test]
-    fn build_chat_candidate_api_ids_should_not_fallback_for_private_workspace_department() {
+    fn build_chat_candidate_api_ids_should_not_fallback_for_private_workspace_agent() {
         let app_config = AppConfig {
             api_configs: vec![test_chat_api("api-a", false), test_chat_api("api-b", false)],
             api_providers: Vec::new(),
             ..AppConfig::default()
         };
-        let mut department = test_department_with_models(vec!["api-a", "api-b"], true);
-        department.source = default_private_workspace_source();
+        let mut agent = test_agent_with_models(vec!["api-a", "api-b"], true);
+        agent.source = default_private_workspace_source();
 
         let (candidate_api_ids, preferred_applied) = build_chat_candidate_api_ids(
             &app_config,
-            &department,
+            &agent,
             None,
             None,
         )
@@ -3911,7 +3834,6 @@ mod core_send_inner_tests {
         let mut conversation = build_conversation_record(
             "api-a",
             "agent-a",
-            ASSISTANT_DEPARTMENT_ID,
             "",
             CONVERSATION_KIND_CHAT,
             None,
@@ -3943,7 +3865,6 @@ mod core_send_inner_tests {
         let mut conversation = build_conversation_record(
             "api-a",
             "agent-a",
-            ASSISTANT_DEPARTMENT_ID,
             "",
             CONVERSATION_KIND_CHAT,
             None,
@@ -3964,7 +3885,6 @@ mod core_send_inner_tests {
         let mut conversation = build_conversation_record(
             "api-a",
             "agent-a",
-            ASSISTANT_DEPARTMENT_ID,
             "",
             CONVERSATION_KIND_CHAT,
             None,
@@ -4010,7 +3930,6 @@ mod core_send_inner_tests {
             id: "conversation-a".to_string(),
             title: "测试".to_string(),
             agent_id: "agent-a".to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
             bound_conversation_id: None,
             parent_conversation_id: None,
             child_conversation_ids: Vec::new(),

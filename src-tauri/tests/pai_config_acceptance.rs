@@ -207,43 +207,6 @@ fn agent_acceptance_commands_should_work() {
 }
 
 #[test]
-fn department_acceptance_commands_should_work() {
-    let root = test_root();
-    seed_app(&root);
-
-    let _ = run_cli(
-        &root,
-        &[
-            "department",
-            "new",
-            "Example Department",
-            "需要专项处理时用我",
-            "先拆解再执行",
-            "expert",
-            "agent-a",
-        ],
-    );
-    let _ = run_cli(&root, &["department", "set-agent", "dept-a", "agent-b"]);
-    let _ = run_cli(&root, &["department", "set-model", "dept-a", "gpt-4.1-mini"]);
-    let _ = run_cli(&root, &["department", "set-provider", "dept-a", "provider-b"]);
-    let _ = run_cli(&root, &["department", "set-model-class", "dept-a", "fast"]);
-
-    let _ = run_cli(&root, &["department", "tree"]);
-    let _ = run_cli(&root, &["department", "tree", "parent", "dept-b"]);
-    let _ = run_cli(&root, &["department", "tree", "children", "dept-a"]);
-    let _ = run_cli(&root, &["department", "tree", "set-parent", "dept-b", "dept-a"]);
-    let parent_after_set = run_cli(&root, &["department", "tree", "parent", "dept-b"]);
-    assert!(parent_after_set.contains("\"dept-a\""));
-    let _ = run_cli(&root, &["department", "tree", "clear-parent", "dept-b"]);
-    let parent_after_clear = run_cli(&root, &["department", "tree", "parent", "dept-b"]);
-    assert!(parent_after_clear.contains("\"parent\": null"));
-
-    let config = fs::read_to_string(root.join("app_config.toml")).expect("read config");
-    assert!(config.contains("agentIds = [\"agent-b\"]"));
-    assert!(config.contains("apiConfigId = \"role:quick\""));
-}
-
-#[test]
 fn mcp_acceptance_commands_should_work() {
     let root = test_root();
     seed_app(&root);

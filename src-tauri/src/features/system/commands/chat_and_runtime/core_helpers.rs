@@ -1,12 +1,12 @@
 fn inflight_chat_key(
-    department_id: &str,
+    agent_id: &str,
     conversation_id: Option<&str>,
 ) -> String {
-    let department_id = department_id.trim();
+    let agent_id = agent_id.trim();
     match conversation_id.map(str::trim).filter(|value| !value.is_empty()) {
-        Some(conversation_id) if department_id.is_empty() => conversation_id.to_string(),
-        Some(conversation_id) => format!("{}::{}", department_id, conversation_id),
-        None => department_id.to_string(),
+        Some(conversation_id) if agent_id.is_empty() => conversation_id.to_string(),
+        Some(conversation_id) => format!("{}::{}", agent_id, conversation_id),
+        None => agent_id.to_string(),
     }
 }
 
@@ -91,7 +91,7 @@ fn abort_inflight_tool_abort_handle(state: &AppState, chat_key: &str) -> Result<
 
 fn delegate_thread_chat_key(thread: &DelegateRuntimeThread) -> String {
     inflight_chat_key(
-        &thread.conversation.department_id,
+        &thread.conversation.agent_id,
         Some(&thread.conversation.id),
     )
 }
