@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-13T11:49:03.821Z",
-  "latestVersion": "v0.89.0",
+  "generatedAt": "2026-09-15T05:50:48.136Z",
+  "latestVersion": "v0.90.0",
   "releases": [
+    {
+      "version": "v0.90.0",
+      "path": "docs/changelog/releases/v0.90.0.md",
+      "summary": "**能力商店**：配置页新增能力商店，可跨魔搭、Smithery、官方 MCP Registry 检索 MCP 与技能并一键安装，装进来的默认是关闭状态；需要密钥的 MCP 会在安装前要求填写。"
+    },
     {
       "version": "v0.89.0",
       "path": "docs/changelog/releases/v0.89.0.md",
