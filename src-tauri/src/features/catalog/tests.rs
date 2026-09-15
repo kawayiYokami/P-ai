@@ -102,6 +102,82 @@ mod catalog_tests {
         assert!(!skill_source_is_installable(""));
     }
 
+    #[tokio::test]
+    async fn catalog_cache_should_report_whether_data_came_from_local_cache() {
+        let state = catalog_test_state("cache-hit");
+        let file = "catalog_cache_outcome_test.json";
+
+        // 无缓存 + 拉取成功 → 新数据。
+        let (_, hit) = ensure_remote_catalog_cache(
+            &state,
+            file,
+            CATALOG_CACHE_MAX_AGE_MS,
+            "测试",
+            || async { Ok(serde_json::json!({ "v": 1 })) },
+        )
+        .await
+        .expect("首次拉取应成功");
+        assert!(!hit, "首次拉取不应标记为取自本地缓存");
+
+        // 缓存未过期 → 命中，且不再触发拉取。
+        let fetched = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let fetched_probe = fetched.clone();
+        let (cache, hit) = ensure_remote_catalog_cache(
+            &state,
+            file,
+            CATALOG_CACHE_MAX_AGE_MS,
+            "测试",
+            move || {
+                let flag = fetched_probe.clone();
+                async move {
+                    flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                    Ok(serde_json::json!({ "v": 2 }))
+                }
+            },
+        )
+        .await
+        .expect("新鲜缓存应直接命中");
+        assert!(hit, "新鲜缓存应标记为取自本地缓存");
+        assert!(
+            !fetched.load(std::sync::atomic::Ordering::SeqCst),
+            "新鲜缓存不得触发重新拉取"
+        );
+        assert_eq!(cache.payload["v"].as_i64(), Some(1));
+
+        // 缓存过期 + 拉取失败 → 回退旧缓存，数据仍取自本地缓存。
+        // TTL 取负值保证刚写入的缓存也判定为过期。
+        let (cache, hit) = ensure_remote_catalog_cache(
+            &state,
+            file,
+            -1,
+            "测试",
+            || async { Err("拉取失败".to_string()) },
+        )
+        .await
+        .expect("拉取失败应回退旧缓存");
+        assert!(hit, "回退旧缓存应标记为取自本地缓存");
+        assert_eq!(cache.payload["v"].as_i64(), Some(1));
+
+        let _ = fs::remove_dir_all(state.config_path.parent().unwrap_or(&state.config_path));
+    }
+
+    #[test]
+    fn skill_install_written_path_should_follow_sanitized_dir_name() {
+        // id 末段含 `.`，落盘目录名会被清洗成 demo_skill。
+        let entry = skill_entry("owner/demo.skill");
+        let dir_name = skill_dir_name_from_entry(&entry);
+        assert_eq!(dir_name, "demo_skill", "落盘目录名应经清洗");
+
+        let rel = skill_installed_skill_md_rel_path(&dir_name);
+        assert_eq!(rel, "skills/demo_skill/SKILL.md");
+        // 若沿用 id 的原始末段，路径会指向一个并未落盘的目录。
+        assert_ne!(
+            rel,
+            skill_installed_skill_md_rel_path("demo.skill"),
+            "写入路径必须与清洗后的目录名一致"
+        );
+    }
+
     #[test]
     fn apply_env_overrides_should_inject_values_into_definition() {
         let definition = serde_json::json!({

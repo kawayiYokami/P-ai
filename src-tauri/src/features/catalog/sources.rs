@@ -654,7 +654,7 @@ async fn load_catalog_page(
     let page_size = input.page_size.clamp(1, 100);
     let cache_file = catalog_cache_file_name(&source, &query, page, page_size);
 
-    let cache = ensure_remote_catalog_cache(
+    let (cache, from_cache) = ensure_remote_catalog_cache(
         state,
         &cache_file,
         CATALOG_CACHE_MAX_AGE_MS,
@@ -688,7 +688,7 @@ async fn load_catalog_page(
         page_size,
         total,
         entries,
-        from_cache: true,
+        from_cache,
         updated_at: cache.updated_at,
     })
 }

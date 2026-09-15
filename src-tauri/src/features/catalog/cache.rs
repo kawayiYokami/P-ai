@@ -68,33 +68,36 @@ fn remote_catalog_cache_is_stale(cache: &RemoteCatalogCacheFile, ttl_ms: i64) ->
 
 /// 按 TTL 取用缓存：未过期直接返回；过期则重新拉取，拉取失败回退旧缓存。
 /// 无缓存时首次拉取必须成功。
+///
+/// 返回 (缓存内容, 本次是否取自本地缓存)：
+/// 命中未过期缓存、以及拉取失败回退旧缓存都算取自本地缓存；拉取成功则为新数据。
 async fn ensure_remote_catalog_cache<F, Fut>(
     state: &AppState,
     file_name: &str,
     ttl_ms: i64,
     log_tag: &str,
     fetch: F,
-) -> Result<RemoteCatalogCacheFile, String>
+) -> Result<(RemoteCatalogCacheFile, bool), String>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<Value, String>>,
 {
     let cached = read_remote_catalog_cache(state, file_name)?;
     match cached {
-        Some(cache) if !remote_catalog_cache_is_stale(&cache, ttl_ms) => Ok(cache),
+        Some(cache) if !remote_catalog_cache_is_stale(&cache, ttl_ms) => Ok((cache, true)),
         Some(cache) => match fetch().await {
-            Ok(payload) => write_remote_catalog_cache(state, file_name, &payload),
+            Ok(payload) => Ok((write_remote_catalog_cache(state, file_name, &payload)?, false)),
             Err(err) => {
                 runtime_log_warn(format!(
                     "[{log_tag}] 刷新失败，回退旧缓存：error={err:?}, updated_at={}, fetched_at_ms={}",
                     cache.updated_at, cache.fetched_at_ms
                 ));
-                Ok(cache)
+                Ok((cache, true))
             }
         },
         None => {
             let payload = fetch().await?;
-            write_remote_catalog_cache(state, file_name, &payload)
+            Ok((write_remote_catalog_cache(state, file_name, &payload)?, false))
         }
     }
 }

@@ -103,6 +103,13 @@ fn skill_dir_name_from_entry(entry: &CatalogEntry) -> String {
     }
 }
 
+/// 商店安装 Skill 时写入的相对路径。
+/// 目录名必须与 `skill_dir_name_from_entry` 的清洗结果一致，
+/// 否则 id 里含 `.`、空格等字符时，这里会指向一个并未落盘的目录。
+fn skill_installed_skill_md_rel_path(dir_name: &str) -> String {
+    format!("skills/{dir_name}/SKILL.md")
+}
+
 /// 把环境变量值写进 `mcpServers` 定义。
 fn apply_env_overrides(definition_json: &str, env_values: &std::collections::HashMap<String, String>) -> String {
     if env_values.is_empty() {
@@ -289,11 +296,12 @@ async fn install_catalog_skill(
         "[能力商店] 已安装 Skill：name={}，source={}，dir={dir_name}",
         entry.name, entry.source
     ));
+    let written_paths = vec![skill_installed_skill_md_rel_path(&dir_name)];
     Ok(CatalogInstallResult {
         kind: CATALOG_KIND_SKILL.to_string(),
         local_id: dir_name,
         enabled: false,
-        written_paths: vec![format!("skills/{}/SKILL.md", entry.id.rsplit('/').next().unwrap_or(""))],
+        written_paths,
     })
 }
 

@@ -25,6 +25,7 @@ async fn fetch_models_dev_root(state: &AppState) -> Result<Value, String> {
 async fn ensure_models_dev_cache_current(
     state: &AppState,
 ) -> Result<RemoteCatalogCacheFile, String> {
+    // models.dev 侧不关心数据是否取自本地缓存，只取缓存内容。
     ensure_remote_catalog_cache(
         state,
         MODELS_DEV_CACHE_FILE_NAME,
@@ -33,6 +34,7 @@ async fn ensure_models_dev_cache_current(
         || fetch_models_dev_root(state),
     )
     .await
+    .map(|(cache, _)| cache)
 }
 
 fn read_models_dev_cache_only(
