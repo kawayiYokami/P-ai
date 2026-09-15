@@ -419,7 +419,12 @@ async fn ide_chat_handle_jsonrpc_request(
                 .get("message")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string);
-            append_runtime_log_probe(message).and_then(ide_chat_serialize)
+            let level = request
+                .params
+                .get("level")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            append_runtime_log_probe(message, level).and_then(ide_chat_serialize)
         }
         "clear_recent_runtime_logs" => clear_recent_runtime_logs().and_then(ide_chat_serialize),
         "set_github_update_method" => ide_chat_set_github_update_method_for_web_settings(state, app, request.params),

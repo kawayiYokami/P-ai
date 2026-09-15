@@ -1216,13 +1216,20 @@ fn clear_recent_runtime_logs() -> Result<bool, String> {
 }
 
 #[tauri::command]
-fn append_runtime_log_probe(message: Option<String>) -> Result<bool, String> {
+fn append_runtime_log_probe(message: Option<String>, level: Option<String>) -> Result<bool, String> {
     let msg = message
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("运行日志窗口已打开");
-    runtime_log_info(format!("[运行日志] {}", msg));
+    // 探针按调用方声明的级别落盘：排障链路需要和同链路的后端日志落在同一级别，
+    // 否则用户得在日志窗口的级别过滤器之间来回切。
+    match level.as_deref().map(str::trim) {
+        Some("debug") => runtime_log_debug(format!("[运行日志] {}", msg)),
+        Some("warn") => runtime_log_warn(format!("[运行日志] {}", msg)),
+        Some("error") => runtime_log_error(format!("[运行日志] {}", msg)),
+        _ => runtime_log_info(format!("[运行日志] {}", msg)),
+    }
     Ok(true)
 }
 

@@ -2160,7 +2160,12 @@ function onLocalTransportNotification<T>(method: string, handler: (payload: T) =
 }
 
 /** 统一事件订阅；Tauri event 与 Web bridge notification 的名字映射只在此处维护。 */
-function probeTransportLog(tag: string, data?: Record<string, unknown>): void {
+export function appendTransportProbeLog(
+  prefix: string,
+  tag: string,
+  data?: Record<string, unknown>,
+  level: "debug" | "info" | "warn" | "error" = "info",
+): void {
   let detail = "";
   if (data) {
     try {
@@ -2172,11 +2177,16 @@ function probeTransportLog(tag: string, data?: Record<string, unknown>): void {
   // 探针只用于排障，任何环境（含 invoke 未接线的测试/纯浏览器）都不能反过来影响链路
   try {
     void invokeTauri<boolean>("append_runtime_log_probe", {
-      message: `[聊天流诊断] ${tag}${detail}`,
+      message: `${prefix} ${tag}${detail}`,
+      level,
     }).catch(() => {});
   } catch {
     // 忽略：诊断探针失败不得影响主链路
   }
+}
+
+function probeTransportLog(tag: string, data?: Record<string, unknown>): void {
+  appendTransportProbeLog("[聊天流诊断]", tag, data);
 }
 
 // 只对链路关键事件打诊断日志：这几个事件是定位流式链路断点的锚点，
@@ -2189,6 +2199,7 @@ export const PROBE_NOTIFICATION_METHODS = new Set([
   "chat.historyFlushed",
 ]);
 
+/** 统一事件订阅；Tauri event 与 Web bridge notification 的名字映射只在此处维护。 */
 export function onTransportNotification<T = unknown>(
   method: string,
   handler: (payload: T) => void,

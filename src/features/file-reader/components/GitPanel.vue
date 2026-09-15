@@ -545,6 +545,7 @@ import {
 } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import {
+  appendTransportProbeLog,
   gitPanelBranchCreate,
   gitPanelBranchList,
   gitPanelCheckout,
@@ -1819,6 +1820,12 @@ function handleExternalChange(payload: GitPanelWatchEventPayload) {
 }
 
 function handleWindowFocusRefresh() {
+  appendTransportProbeLog("[Git监视诊断]", "窗口获得焦点", {
+    page: window.location?.pathname || "",
+    visibility: document.visibilityState || "",
+    focused: typeof document.hasFocus === "function" ? document.hasFocus() : false,
+    root: repoRoot.value,
+  }, "debug");
   if (!repoRoot.value) return;
   void loadStatus(true);
   refreshRefsDependentVisibleArea();

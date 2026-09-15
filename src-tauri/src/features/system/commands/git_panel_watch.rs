@@ -257,6 +257,16 @@ async fn git_panel_watch_consumer(
             head_changed: signals.head_changed,
             refs_changed: signals.refs_changed,
         };
+        // 广播范围记录：原生事件覆盖全部窗口，桥接客户端逐个列举，排障时据此判断
+        // 「后端发了」与「某个消费者没收到」之间的断点。
+        let client_ids = ide_context_chat_client_ids();
+        runtime_log_debug(format!(
+            "[Git面板监视] 广播变化信号 workspace={} 原生事件={} 桥接客户端={} ids={:?}",
+            repo_root,
+            GIT_PANEL_WATCH_EVENT,
+            client_ids.len(),
+            client_ids
+        ));
         let _ = app.emit(GIT_PANEL_WATCH_EVENT, payload.clone());
         // Web/VS Code 客户端经 WS bridge 收不到 Tauri 原生事件，必须主动广播
         // notification（method 与前端 onTransportNotification 的 canonical 名一致）。

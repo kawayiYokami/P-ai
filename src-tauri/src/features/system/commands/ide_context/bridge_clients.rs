@@ -4,6 +4,16 @@ fn ide_context_chat_clients() -> Arc<Mutex<std::collections::HashMap<String, tok
         .clone()
 }
 
+/// 只读快照：广播前记录当前有哪些 Web/VS Code 客户端，用于排障定位投递范围。
+fn ide_context_chat_client_ids() -> Vec<String> {
+    let clients = ide_context_chat_clients();
+    let ids = match clients.lock() {
+        Ok(guard) => guard.keys().cloned().collect::<Vec<String>>(),
+        Err(_) => Vec::new(),
+    };
+    ids
+}
+
 fn ide_context_chat_client_conversations() -> Arc<Mutex<std::collections::HashMap<String, String>>> {
     IDE_CONTEXT_CHAT_CLIENT_CONVERSATIONS
         .get_or_init(|| Arc::new(Mutex::new(std::collections::HashMap::new())))

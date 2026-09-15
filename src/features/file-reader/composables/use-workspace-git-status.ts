@@ -8,6 +8,7 @@
 // 面板的完整分页历史、stashes、branches、diff 仍由 Git 面板自理，两边不读写同一份列表。
 import { ref } from "vue";
 import {
+  appendTransportProbeLog,
   gitPanelDiscover,
   gitPanelLog,
   gitPanelStatus,
@@ -19,6 +20,22 @@ import {
   type GitPanelStatusOutput,
   type GitPanelWatchEventPayload,
 } from "../../../services/tauri-api";
+
+/** 排障前缀：运行日志里按这个标记过滤 git 监视链路。 */
+const GIT_WATCH_PROBE_PREFIX = "[Git监视诊断]";
+/** 事件到达时刻的窗口状态：判断「离开前台期间事件是否真的到了本窗口」的关键字段。 */
+function gitWatchProbeContext(): Record<string, unknown> {
+  const visibility = typeof document !== "undefined" ? document.visibilityState || "" : "";
+  const focused = typeof document !== "undefined" && typeof document.hasFocus === "function"
+    ? document.hasFocus()
+    : false;
+  const pathname = typeof window !== "undefined" ? window.location?.pathname || "" : "";
+  return { page: pathname, visibility, focused };
+}
+
+function gitWatchProbe(tag: string, data: Record<string, unknown> = {}) {
+  appendTransportProbeLog(GIT_WATCH_PROBE_PREFIX, tag, { ...gitWatchProbeContext(), ...data }, "debug");
+}
 
 /** 自动刷新冷却：1 秒内重复触发只发一次请求；force 可穿透 */
 const REFRESH_CD_MS = 1000;
@@ -121,16 +138,33 @@ async function loadStatus(force = false) {
   const root = repoRoot.value;
   if (!root) return;
   const now = Date.now();
-  if (!force && now - lastStatusLoad < REFRESH_CD_MS) return;
+  if (!force && now - lastStatusLoad < REFRESH_CD_MS) {
+    gitWatchProbe("状态请求被冷却拦住", { root, force, sinceLastMs: now - lastStatusLoad });
+    return;
+  }
   lastStatusLoad = now;
   const seq = ++loadSeq;
+  const startedAt = Date.now();
+  gitWatchProbe("发起状态请求", { root, force, seq });
   try {
     const result = await gitPanelStatus(root);
-    if (seq !== loadSeq) return;
+    if (seq !== loadSeq) {
+      gitWatchProbe("状态响应因过期丢弃", { root, force, seq, currentSeq: loadSeq, costMs: Date.now() - startedAt });
+      return;
+    }
     applyStatus(root, result);
+    gitWatchProbe("状态已回填", {
+      root,
+      force,
+      entries: (result.entries || []).length,
+      stagedTotal: result.stagedTotal ?? 0,
+      unstagedTotal: result.unstagedTotal ?? 0,
+      costMs: Date.now() - startedAt,
+    });
   } catch (error) {
     if (seq !== loadSeq) return;
     statusError.value = error instanceof Error ? error.message : String(error);
+    gitWatchProbe("状态请求失败", { root, force, costMs: Date.now() - startedAt, error: String(error) });
   }
 }
 
@@ -171,6 +205,7 @@ async function discoverRepoRoot(workspacePath: string): Promise<string> {
 // ==================== 仓库监听与事件 ====================
 function subscribeWatch() {
   if (unlistenWatch) return;
+  gitWatchProbe("订阅变化信号");
   unlistenWatch = onTransportNotification<GitPanelWatchEventPayload>(
     "gitPanel.watchChanged",
     handleWatchEvent,
@@ -178,12 +213,23 @@ function subscribeWatch() {
 }
 
 function unsubscribeWatch() {
+  gitWatchProbe("取消订阅变化信号");
   unlistenWatch?.();
   unlistenWatch = null;
 }
 
 function handleWatchEvent(payload: GitPanelWatchEventPayload) {
-  if (!repoRoot.value || !isSameRepoPath(payload?.workspacePath || "", repoRoot.value)) return;
+  const currentRoot = repoRoot.value;
+  const sameRepo = !!currentRoot && isSameRepoPath(payload?.workspacePath || "", currentRoot);
+  gitWatchProbe("收到变化信号", {
+    payloadRepo: payload?.workspacePath || "",
+    currentRoot,
+    sameRepo,
+    workdirChanged: !!payload?.workdirChanged,
+    headChanged: !!payload?.headChanged,
+    refsChanged: !!payload?.refsChanged,
+  });
+  if (!sameRepo) return;
   void loadStatus(true);
   // 最近提交只在 HEAD / refs 真变时才会变；纯工作区文件改动不必多跑一次 git log
   if (payload?.headChanged || payload?.refsChanged) void loadRecentCommits();
@@ -200,6 +246,7 @@ function syncWatcher() {
   }
   const prev = watchedRoot;
   watchedRoot = target;
+  gitWatchProbe("同步仓库监听", { from: prev, to: target, consumers: consumerCount });
   if (prev) {
     gitPanelWatchStop(prev).catch((error) => console.warn("[Git状态] 停止仓库监听失败", error));
   }
