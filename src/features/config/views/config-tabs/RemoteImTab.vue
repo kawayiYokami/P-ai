@@ -79,15 +79,15 @@
         </div>
 
         <!-- 一级概览头部：标题 + 数量徽章 + 搜索 + 顶部操作 -->
-        <div v-else key="overview-hdr" class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
-            <div class="flex items-center gap-2">
+        <div v-else key="overview-hdr" class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div class="flex flex-col gap-2.5 sm:flex-none sm:flex-row sm:items-center">
+            <div class="flex shrink-0 items-center gap-2">
               <span class="text-sm font-semibold">{{ t("config.tabs.remoteIm") }}</span>
               <span class="badge badge-sm badge-neutral">{{ channels.length }}</span>
             </div>
 
             <!-- 渠道搜索框 -->
-            <div class="relative min-w-[12rem] flex-1 sm:flex-none sm:w-60">
+            <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
               <input
                 v-model="channelSearchQuery"
                 type="text"
@@ -259,15 +259,15 @@
 
         <!-- 区块二：联系人列表（直接一张一张列出，去除外层大卡片包裹） -->
         <div class="space-y-3 pt-2">
-          <div class="flex flex-wrap items-center justify-between gap-3 px-1">
-            <div class="flex items-center gap-2">
+          <div class="flex flex-col gap-3 px-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div class="flex shrink-0 items-center gap-2">
               <Users class="h-4 w-4 opacity-70" />
               <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.remoteIm.contactsTitle") }}</span>
               <span class="badge badge-sm badge-neutral">{{ currentChannelContacts.length }}</span>
             </div>
 
             <!-- 联系人过滤搜索框 -->
-            <div class="relative min-w-[12rem] flex-1 sm:flex-none sm:w-60">
+            <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
               <input
                 v-model="contactSearchQuery"
                 type="text"

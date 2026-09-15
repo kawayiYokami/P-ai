@@ -39,7 +39,7 @@
     </template>
 
     <!-- 检索与列表 -->
-    <div class="grid gap-4 pb-8">
+    <div class="grid grid-cols-1 gap-4 pb-8">
       <!-- 检索条：来源 + 关键词 -->
       <div class="flex flex-wrap items-center gap-3">
         <select

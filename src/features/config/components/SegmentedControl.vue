@@ -34,10 +34,10 @@
       @click="selectValue(option.value)"
     >
       <slot name="option" :option="option" :selected="isSelected(option.value)" :index="index">
-        <span>{{ option.label }}</span>
+        <span class="truncate">{{ option.label }}</span>
         <span
           v-if="option.badge !== undefined && option.badge !== null && option.badge !== ''"
-          class="badge badge-xs ml-1.5 transition-colors font-mono"
+          class="badge badge-xs ml-1.5 shrink-0 transition-colors font-mono"
           :class="isSelected(option.value) ? 'badge-neutral' : 'badge-ghost opacity-70'"
         >
           {{ option.badge }}

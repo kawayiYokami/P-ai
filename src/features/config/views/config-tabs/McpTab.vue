@@ -86,14 +86,14 @@
         </div>
 
         <!-- 一级概览导航 -->
-        <div v-else key="overview" class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
-            <div class="flex items-center gap-2">
+        <div v-else key="overview" class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div class="flex flex-col gap-2.5 sm:flex-none sm:flex-row sm:items-center">
+            <div class="flex shrink-0 items-center gap-2">
               <span class="text-sm font-semibold">{{ t("config.tabs.mcp") }}</span>
               <span class="badge badge-sm badge-neutral">{{ servers.length }}</span>
             </div>
 
-            <div class="relative min-w-[12rem] flex-1 sm:flex-none sm:w-60">
+            <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
               <input
                 v-model="searchQuery"
                 type="text"
