@@ -15,12 +15,22 @@
         </div>
       </div>
     </div>
-    <!-- 面卡：永远在底部，内容层只留底色+模糊+内边距，露头时加顶阴影显叠放 -->
+    <!-- 面卡：永远在底部，内容层只留内边距，露头时加顶阴影显叠放。
+         底色与磨砂单独铺在背板层，内容层不再带 backdrop-filter：
+         背板一旦包住内容就会新建堆叠上下文，把输入卡向上弹出的指令/提及浮层
+         永远压在会话悬浮工具条之下。 -->
     <div
-      class="flex flex-col bg-base-100/90 p-2 backdrop-blur-md transition-all duration-300 ease-in-out"
+      class="relative flex flex-col p-2 transition-all duration-300 ease-in-out"
       :class="mainClass"
     >
-      <slot name="main" />
+      <div
+        class="pointer-events-none absolute inset-0 bg-base-100/90 backdrop-blur-md"
+        :class="mainClass"
+        aria-hidden="true"
+      ></div>
+      <div class="relative flex flex-col">
+        <slot name="main" />
+      </div>
     </div>
   </div>
 </template>
