@@ -1,4 +1,5 @@
 import { computed, ref } from "vue";
+import { appendTransportProbeLog } from "../../../services/tauri-api";
 
 type SpeechRecognitionResultLike = { isFinal: boolean; 0: { transcript: string } };
 type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
@@ -63,6 +64,10 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
   let maxTimer: ReturnType<typeof setTimeout> | null = null;
   let prewarmInFlight: Promise<boolean> | null = null;
   let lastPrewarmAt = 0;
+  // 启动尚未落地（getUserMedia 未返回、录音器还没 start）时收到的停止请求，
+  // 若直接返回就会永久丢失，录音会一直录到上限；因此先挂起，等真正开始的那一刻立刻执行。
+  let startInFlight = false;
+  let pendingStop: { discard: boolean } | null = null;
 
   function clearTimers() {
     if (tickTimer) {
@@ -311,7 +316,7 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
     // Only prewarm when remote STT path uses MediaRecorder/getUserMedia permission.
     if (!options.shouldUseRemoteStt()) return false;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return false;
-    if (recording.value || transcribing.value) return false;
+    if (recording.value || transcribing.value || startInFlight) return false;
     const now = Date.now();
     if (now - lastPrewarmAt < 15_000) return false;
     if (prewarmInFlight) return prewarmInFlight;
@@ -336,6 +341,27 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
   async function startRecording() {
     if (recording.value) return;
     if (!options.canStart()) return;
+    // 启动到「真正开始录音」之间有异步空隙（远程 STT 要等 getUserMedia 返回），
+    // 期间到达的停止请求必须先挂起，否则会被 stopRecording 的早退丢掉，录音只能等上限自动停。
+    startInFlight = true;
+    pendingStop = null;
+    try {
+      await startRecordingInner();
+    } finally {
+      startInFlight = false;
+      flushPendingStop();
+    }
+  }
+
+  function flushPendingStop() {
+    const pending = pendingStop;
+    pendingStop = null;
+    if (!pending) return;
+    appendTransportProbeLog("[录音]", "启动结束，补执行挂起的停止请求", { discard: pending.discard });
+    void stopRecording(pending.discard);
+  }
+
+  async function startRecordingInner() {
     if (options.shouldUseRemoteStt()) {
       try {
         discardCurrent = false;
@@ -411,7 +437,14 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
   }
 
   async function stopRecording(discard: boolean) {
-    if (!recording.value) return;
+    if (!recording.value) {
+      // 启动尚未落地：记下意图，交给 startRecording 的 finally 结算，避免这次停止被丢掉。
+      if (startInFlight && !pendingStop) {
+        pendingStop = { discard };
+        appendTransportProbeLog("[录音]", "启动未落地，挂起停止请求", { discard });
+      }
+      return;
+    }
     discardCurrent = discard;
     if (options.shouldUseRemoteStt()) {
       if (remoteRecorder && remoteRecorder.state !== "inactive") {
@@ -428,6 +461,8 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
 
   function cleanup() {
     clearTimers();
+    startInFlight = false;
+    pendingStop = null;
     discardCurrent = true;
     recognizer?.stop();
     recognizer = null;

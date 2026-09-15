@@ -17,7 +17,7 @@ static RECORD_HOTKEY_PROBE_EVENT_SEQ: std::sync::OnceLock<std::sync::atomic::Ato
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 static CHAT_WINDOW_ACTIVE: std::sync::OnceLock<std::sync::atomic::AtomicBool> =
     std::sync::OnceLock::new();
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 static RECORD_HOTKEY_PROBE_STATE: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<RecordHotkeyProbeState>>> =
     std::sync::OnceLock::new();
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
@@ -61,7 +61,7 @@ struct ParsedRecordHotkey {
     main: String,
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[derive(Debug, Default)]
 struct RecordHotkeyProbeState {
     ctrl: bool,
@@ -69,6 +69,9 @@ struct RecordHotkeyProbeState {
     shift: bool,
     meta: bool,
     active: bool,
+    /// 主键是否处于按下状态（与 active 无关）：窗口不活跃、后台唤醒关闭时仍会记录，
+    /// 用于保证「切屏后松手」也能上报 released。
+    main_down: bool,
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
@@ -170,7 +173,7 @@ fn record_hotkey_signature(raw: &str) -> Option<String> {
     Some(parts.join("+"))
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 fn modifier_token_from_key(key: rdev::Key) -> Option<&'static str> {
     match key {
         rdev::Key::ControlLeft | rdev::Key::ControlRight => Some("CTRL"),
@@ -181,7 +184,7 @@ fn modifier_token_from_key(key: rdev::Key) -> Option<&'static str> {
     }
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 fn token_from_key(key: rdev::Key) -> Option<String> {
     if let Some(token) = modifier_token_from_key(key) {
         return Some(token.to_string());
@@ -255,7 +258,7 @@ fn token_from_key(key: rdev::Key) -> Option<String> {
     Some(token.to_string())
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn modifiers_exact(
     state: &RecordHotkeyProbeState,
     required: &std::collections::HashSet<String>,
@@ -266,7 +269,7 @@ fn modifiers_exact(
         && state.meta == required.contains("META")
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn set_modifier_state(state: &mut RecordHotkeyProbeState, token: &str, value: bool) {
     if token == "CTRL" {
         state.ctrl = value;
@@ -279,12 +282,12 @@ fn set_modifier_state(state: &mut RecordHotkeyProbeState, token: &str, value: bo
     }
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn should_stop_on_release(parsed: &ParsedRecordHotkey, released_token: &str) -> bool {
     released_token == parsed.main || parsed.modifiers.contains(released_token)
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn handle_record_hotkey_probe_key(
     app: &AppHandle,
     state_arc: &std::sync::Arc<std::sync::Mutex<RecordHotkeyProbeState>>,
@@ -292,20 +295,30 @@ fn handle_record_hotkey_probe_key(
     token: String,
     pressed: bool,
 ) {
-    if pressed && (!is_record_hotkey_probe_background_wake_enabled() || is_record_hotkey_probe_chat_window_active()) {
-        return;
-    }
     let parsed = match parsed_state.lock() {
         Ok(slot) => slot.clone(),
         Err(_) => return,
     };
     let Some(parsed) = parsed else { return };
     let Ok(mut state) = state_arc.lock() else { return };
+    let modifier = ["CTRL", "ALT", "SHIFT", "META"]
+        .iter()
+        .find(|item| **item == token)
+        .copied();
+    let is_main = token == parsed.main;
+    // 物理按键状态先记录，与「是否激活」解耦：即使窗口不活跃、后台唤醒关闭，
+    // 主键松开时也要上报 released，让「切屏后松手」的录音同样能停下来。
+    if let Some(modifier) = modifier {
+        set_modifier_state(&mut state, modifier, pressed);
+    }
     if pressed {
-        if let Some(modifier) = ["CTRL", "ALT", "SHIFT", "META"].iter().find(|item| **item == token) {
-            set_modifier_state(&mut state, modifier, true);
+        if is_main {
+            state.main_down = true;
         }
-        if state.active || token != parsed.main || !modifiers_exact(&state, &parsed.modifiers) {
+        if !is_record_hotkey_probe_background_wake_enabled() || is_record_hotkey_probe_chat_window_active() {
+            return;
+        }
+        if state.active || !is_main || !modifiers_exact(&state, &parsed.modifiers) {
             return;
         }
         state.active = true;
@@ -313,12 +326,11 @@ fn handle_record_hotkey_probe_key(
         emit_record_hotkey_probe_event(app, "pressed");
         return;
     }
-    let should_emit_release = state.active && should_stop_on_release(&parsed, &token);
-    if let Some(modifier) = ["CTRL", "ALT", "SHIFT", "META"].iter().find(|item| **item == token) {
-        set_modifier_state(&mut state, modifier, false);
-    }
+    let should_emit_release =
+        (state.active || state.main_down) && should_stop_on_release(&parsed, &token);
     if should_emit_release {
         state.active = false;
+        state.main_down = false;
     }
     drop(state);
     if should_emit_release {
@@ -338,6 +350,7 @@ fn emit_record_hotkey_probe_event(app: &AppHandle, state: &'static str) {
     let seq_counter = RECORD_HOTKEY_PROBE_EVENT_SEQ
         .get_or_init(|| std::sync::atomic::AtomicU64::new(0));
     let seq = seq_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+    runtime_log_debug(format!("[录音热键] 上报 {state}，seq={seq}"));
     let payload = RecordHotkeyProbeEventPayload { state, seq };
     let _ = app.emit("easy-call:record-hotkey-probe", payload);
 }
@@ -359,6 +372,8 @@ fn is_record_hotkey_probe_background_wake_enabled() -> bool {
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn reset_record_hotkey_probe_state() {
+    // Windows 走轮询，没有跨线程缓存的按键状态，无需复位。
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     if let Some(state_arc) = RECORD_HOTKEY_PROBE_STATE.get() {
         if let Ok(mut state) = state_arc.lock() {
             state.ctrl = false;
@@ -366,12 +381,15 @@ fn reset_record_hotkey_probe_state() {
             state.shift = false;
             state.meta = false;
             state.active = false;
+            state.main_down = false;
         }
     }
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn reset_record_hotkey_probe_modifiers() {
+    // Windows 走轮询，没有跨线程缓存的按键状态，无需复位。
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     if let Some(state_arc) = RECORD_HOTKEY_PROBE_STATE.get() {
         if let Ok(mut state) = state_arc.lock() {
             state.ctrl = false;
@@ -420,7 +438,185 @@ fn is_record_hotkey_probe_chat_window_active() -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+// ==================== Windows 录音热键轮询 ====================
+// Windows 不使用 rdev 的低级钩子：钩子会偶发丢失 KeyRelease，而「同一个事实有两个来源」
+// 正是「松手了还在录」的温床。这里按 global-hotkey 与同类 push-to-talk 项目的通行做法，
+// 直接周期采样 GetAsyncKeyState，物理按键状态本身就是唯一真相。
+
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+
+#[cfg(target_os = "windows")]
+const RECORD_HOTKEY_POLL_INTERVAL_MS: u64 = 10;
+
+/// 录音热键 token → Win32 虚拟键码；未知 token 返回 None（不参与物理判断，避免误判为松开）。
+#[cfg(target_os = "windows")]
+fn record_hotkey_token_vk_code(token: &str) -> Option<i32> {
+    match token {
+        "CTRL" => Some(0x11),
+        "ALT" => Some(0x12),
+        "SHIFT" => Some(0x10),
+        "META" => Some(0x5B),
+        "SPACE" => Some(0x20),
+        "ENTER" => Some(0x0D),
+        "TAB" => Some(0x09),
+        "CAPSLOCK" => Some(0x14),
+        "-" => Some(0xBD),
+        "=" => Some(0xBB),
+        "[" => Some(0xDB),
+        "]" => Some(0xDD),
+        "\\" => Some(0xDC),
+        ";" => Some(0xBA),
+        "'" => Some(0xDE),
+        "," => Some(0xBC),
+        "." => Some(0xBE),
+        "/" => Some(0xBF),
+        "·" => Some(0xC0),
+        other => {
+            let bytes = other.as_bytes();
+            if bytes.len() == 1 {
+                let ch = bytes[0];
+                if ch.is_ascii_uppercase() || ch.is_ascii_digit() {
+                    return Some(ch as i32);
+                }
+            }
+            if let Some(rest) = other.strip_prefix('F') {
+                if let Ok(index) = rest.parse::<u8>() {
+                    if (1..=12).contains(&index) {
+                        return Some(0x6F + index as i32);
+                    }
+                }
+            }
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn vk_is_physically_down(vk: i32) -> bool {
+    unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
+}
+
+#[cfg(target_os = "windows")]
+fn is_token_physically_down(token: &str) -> bool {
+    // Meta 需左右分别查询；其余按虚拟键码查询。
+    if token == "META" {
+        return vk_is_physically_down(0x5B) || vk_is_physically_down(0x5C);
+    }
+    // 未知按键一律按「仍按下」处理，宁可漏补一次也不误停一次。
+    record_hotkey_token_vk_code(token)
+        .map(vk_is_physically_down)
+        .unwrap_or(true)
+}
+
+/// 严格匹配：热键要求的按键全部物理按下，且没有多余的修饰键被按下。
+/// 查询方式以闭包注入，便于对匹配规则本身做单测。
+#[cfg(target_os = "windows")]
+fn record_hotkey_matches_physical_state(
+    parsed: &ParsedRecordHotkey,
+    is_down: &dyn Fn(&str) -> bool,
+) -> bool {
+    if !is_down(parsed.main.as_str()) {
+        return false;
+    }
+    for token in &parsed.modifiers {
+        if !is_down(token.as_str()) {
+            return false;
+        }
+    }
+    // 多余的修饰键按下时不算命中（与事件路径原有的严格匹配语义一致）；
+    // 主键本身若是修饰键则跳过，避免把它当成多余修饰键。
+    for token in ["CTRL", "ALT", "SHIFT", "META"] {
+        if parsed.modifiers.contains(token) || token == parsed.main {
+            continue;
+        }
+        if is_down(token) {
+            return false;
+        }
+    }
+    true
+}
+
+#[cfg(target_os = "windows")]
+fn is_record_hotkey_physically_down(parsed: &ParsedRecordHotkey) -> bool {
+    record_hotkey_matches_physical_state(parsed, &is_token_physically_down)
+}
+
+#[cfg(target_os = "windows")]
+fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) -> Result<(), String> {
+    let started = RECORD_HOTKEY_PROBE_STARTED
+        .get_or_init(|| std::sync::atomic::AtomicBool::new(false));
+    let swapped = started.compare_exchange(
+        false,
+        true,
+        std::sync::atomic::Ordering::AcqRel,
+        std::sync::atomic::Ordering::Acquire,
+    );
+    if swapped.is_err() {
+        return Ok(());
+    }
+
+    let config = read_config(&config_path).unwrap_or_default();
+    set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
+    if let Err(err) = set_record_hotkey_probe_hotkey(&config.record_hotkey) {
+        started.store(false, std::sync::atomic::Ordering::Release);
+        return Err(err);
+    }
+    if config.record_hotkey.trim().is_empty() {
+        started.store(false, std::sync::atomic::Ordering::Release);
+        return Ok(());
+    }
+    let parsed_state = RECORD_HOTKEY_PROBE_PARSED
+        .get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
+        .clone();
+    set_record_hotkey_probe_chat_window_active(false);
+
+    if let Err(err) = std::thread::Builder::new()
+        .name("record-hotkey-poll".to_string())
+        .spawn(move || run_record_hotkey_poll_loop(app, parsed_state))
+    {
+        started.store(false, std::sync::atomic::Ordering::Release);
+        return Err(format!("启动录音热键轮询失败：{err}"));
+    }
+    Ok(())
+}
+
+/// Windows 的唯一输入源：每 `RECORD_HOTKEY_POLL_INTERVAL_MS` 采样一次物理按键状态，
+/// 只在状态发生边沿变化时上报，避免重复事件。
+#[cfg(target_os = "windows")]
+fn run_record_hotkey_poll_loop(app: AppHandle, parsed_state: std::sync::Arc<std::sync::Mutex<Option<ParsedRecordHotkey>>>) {
+    let mut prev_was_down = false;
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(RECORD_HOTKEY_POLL_INTERVAL_MS));
+        let parsed = match parsed_state.lock() {
+            Ok(slot) => slot.clone(),
+            Err(_) => continue,
+        };
+        let Some(parsed) = parsed else {
+            // 没有配置热键时保持静默，并把上一轮状态清掉。
+            prev_was_down = false;
+            continue;
+        };
+        let is_down = is_record_hotkey_physically_down(&parsed);
+        if is_down == prev_was_down {
+            continue;
+        }
+        prev_was_down = is_down;
+        if is_down {
+            // 上升沿：仅在后台唤醒开启且聊天窗口不活跃时激活，与事件路径语义一致。
+            if is_record_hotkey_probe_background_wake_enabled()
+                && !is_record_hotkey_probe_chat_window_active()
+            {
+                emit_record_hotkey_probe_event(&app, "pressed");
+            }
+        } else {
+            // 下降沿：无条件上报松开。无论按下时是否被抑制，松手都必须让前端有机会停止录音。
+            emit_record_hotkey_probe_event(&app, "released");
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) -> Result<(), String> {
     let started = RECORD_HOTKEY_PROBE_STARTED
         .get_or_init(|| std::sync::atomic::AtomicBool::new(false));
@@ -670,6 +866,59 @@ mod record_hotkey_probe_tests {
             record_hotkey_signature("Shift+Meta+K"),
             Some("SHIFT+META+K".to_string())
         );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn maps_record_hotkey_tokens_to_win32_vk_codes() {
+        assert_eq!(record_hotkey_token_vk_code("CAPSLOCK"), Some(0x14));
+        assert_eq!(record_hotkey_token_vk_code("A"), Some(0x41));
+        assert_eq!(record_hotkey_token_vk_code("Z"), Some(0x5A));
+        assert_eq!(record_hotkey_token_vk_code("0"), Some(0x30));
+        assert_eq!(record_hotkey_token_vk_code("9"), Some(0x39));
+        assert_eq!(record_hotkey_token_vk_code("F1"), Some(0x70));
+        assert_eq!(record_hotkey_token_vk_code("F12"), Some(0x7B));
+        assert_eq!(record_hotkey_token_vk_code("SPACE"), Some(0x20));
+        assert_eq!(record_hotkey_token_vk_code("CTRL"), Some(0x11));
+        assert_eq!(record_hotkey_token_vk_code("·"), Some(0xC0));
+        // 未知 token 不参与物理判断，避免把「无法识别」误判成已松开
+        assert_eq!(record_hotkey_token_vk_code("UNKNOWN"), None);
+        assert_eq!(record_hotkey_token_vk_code("F13"), None);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn unknown_token_is_treated_as_still_pressed() {
+        assert!(is_token_physically_down("NOT_A_REAL_KEY"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn physical_match_requires_main_and_blocks_extra_modifiers() {
+        let parsed = parse_record_hotkey("Ctrl+K").expect("parse record hotkey");
+        // 主键未按下：不命中
+        assert!(!record_hotkey_matches_physical_state(&parsed, &|_| false));
+        // 要求的按键全按下、但没有多余修饰键：命中
+        assert!(record_hotkey_matches_physical_state(&parsed, &|token| {
+            token == "CTRL" || token == "K"
+        }));
+        // 多按了一个未要求的修饰键（ALT）：严格匹配拒绝
+        assert!(!record_hotkey_matches_physical_state(&parsed, &|token| {
+            token == "CTRL" || token == "K" || token == "ALT"
+        }));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn physical_match_handles_single_key_hotkey() {
+        let parsed = parse_record_hotkey("CapsLock").expect("parse record hotkey");
+        assert!(record_hotkey_matches_physical_state(&parsed, &|token| {
+            token == "CAPSLOCK"
+        }));
+        // 单键热键下多按 ctrl 同样不算命中
+        assert!(!record_hotkey_matches_physical_state(&parsed, &|token| {
+            token == "CAPSLOCK" || token == "CTRL"
+        }));
     }
 
     #[cfg(target_os = "macos")]

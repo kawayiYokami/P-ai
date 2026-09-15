@@ -1,5 +1,6 @@
 import { ref, watch, type Ref } from "vue";
 import type { AppConfig } from "../../../types/app";
+import { appendTransportProbeLog } from "../../../services/tauri-api";
 import { useRecordHotkey } from "./use-record-hotkey";
 
 type RecordingActivationSource = "foreground" | "background";
@@ -39,6 +40,11 @@ export function useChatWindowRecordingOrchestrator(options: UseChatWindowRecordi
   }
 
   async function startRecording(source: RecordingActivationSource = "foreground") {
+    appendTransportProbeLog("[录音]", "收到开始", {
+      source,
+      recording: options.recording.value,
+      chatActive: isChatWindowActiveNow(),
+    });
     if (!options.recording.value) {
       foregroundRecordingActive.value = source === "foreground" && isChatWindowActiveNow();
     }
@@ -49,6 +55,11 @@ export function useChatWindowRecordingOrchestrator(options: UseChatWindowRecordi
   }
 
   async function stopRecording(discard: boolean) {
+    appendTransportProbeLog("[录音]", "收到停止", {
+      discard,
+      recording: options.recording.value,
+      foregroundActive: foregroundRecordingActive.value,
+    });
     foregroundRecordingActive.value = false;
     await options.stopSpeechRecording(discard);
   }
@@ -62,7 +73,11 @@ export function useChatWindowRecordingOrchestrator(options: UseChatWindowRecordi
   });
 
   function cancelForegroundRecordingOnBackground(reason: string) {
-    void reason;
+    appendTransportProbeLog("[录音]", "失焦取消检查", {
+      reason,
+      foregroundActive: foregroundRecordingActive.value,
+      recording: options.recording.value,
+    });
     if (!foregroundRecordingActive.value) return;
     foregroundRecordingActive.value = false;
     recordHotkey.resetPressedState();
