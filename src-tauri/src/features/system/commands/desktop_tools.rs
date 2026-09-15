@@ -1405,6 +1405,132 @@ fn open_directory_in_vscode(path: &Path) -> Result<(), String> {
     Err("当前平台不支持打开 VS Code。".to_string())
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenFileInVscodeInput {
+    path: String,
+    #[serde(default)]
+    line: Option<u32>,
+    #[serde(default)]
+    column: Option<u32>,
+}
+
+/// 在 VS Code 中打开文件，带行号时定位到行（可选列）。
+/// 与目录版分开：目录用 `open_directory_in_vscode`，本命令只接受文件。
+#[tauri::command]
+fn open_file_in_vscode(input: OpenFileInVscodeInput) -> Result<(), String> {
+    let raw_path = input.path.trim();
+    if raw_path.is_empty() {
+        return Err("path is required".to_string());
+    }
+    let file_path = PathBuf::from(raw_path);
+    if !file_path.is_file() {
+        return Err(format!("不是文件：{raw_path}"));
+    }
+    let canonical = file_path
+        .canonicalize()
+        .map_err(|err| format!("解析文件路径失败（{raw_path}）：{err}"))?;
+    let base = terminal_strip_windows_verbatim_prefix(&canonical.to_string_lossy());
+    // VS Code 的 --goto 语法：file:line:column，只给行号时省掉列。
+    let goto = match (input.line, input.column) {
+        (Some(line), Some(column)) => format!("{base}:{line}:{column}"),
+        (Some(line), None) => format!("{base}:{line}"),
+        _ => base.clone(),
+    };
+    let has_goto = input.line.is_some();
+
+    #[cfg(target_os = "windows")]
+    {
+        let vscode_exe = first_existing_vscode_exe()
+            .ok_or_else(|| "未检测到 VS Code 可执行文件。".to_string())?;
+        let mut command = std::process::Command::new(vscode_exe);
+        if has_goto {
+            command.args(["-g", goto.as_str()]);
+        } else {
+            command.arg(base.as_str());
+        }
+        command
+            .spawn()
+            .map_err(|err| format!("打开 VS Code 失败：{err}"))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = std::process::Command::new("open");
+        command.args(["-a", "Visual Studio Code"]);
+        if has_goto {
+            command.args(["--args", "-g", goto.as_str()]);
+        } else {
+            command.arg(base.as_str());
+        }
+        command
+            .spawn()
+            .map_err(|err| format!("打开 VS Code 失败：{err}"))?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let mut command = std::process::Command::new("code");
+        if has_goto {
+            command.args(["-g", goto.as_str()]);
+        } else {
+            command.arg(base.as_str());
+        }
+        command
+            .spawn()
+            .map_err(|err| format!("打开 VS Code 失败：{err}"))?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err("当前平台不支持打开 VS Code。".to_string())
+}
+
+/// 通用「另存为」：系统保存对话框选目标，再把文件复制过去。
+/// 图片版另有 `save_local_chat_image_as`，本命令面向任意本地文件。
+#[tauri::command]
+async fn save_local_file_as(path: String, app: AppHandle) -> Result<Value, String> {
+    let raw_path = path.trim();
+    if raw_path.is_empty() {
+        return Err("path is required".to_string());
+    }
+    let source_path = PathBuf::from(raw_path);
+    if !source_path.is_file() {
+        return Err(format!("文件不存在：{raw_path}"));
+    }
+    let file_name = source_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("file")
+        .to_string();
+    let (dialog_tx, dialog_rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_file_name(file_name)
+        .save_file(move |file| {
+            let _ = dialog_tx.send(file);
+        });
+    let dest = dialog_rx
+        .await
+        .map_err(|err| format!("等待保存对话框结果失败：{err}"))?;
+    let dest_path = match dest.and_then(|fp| fp.as_path().map(ToOwned::to_owned)) {
+        Some(value) => value,
+        // 用户取消不是失败：前端只需静默收尾，不要弹错误提示。
+        None => return Ok(serde_json::json!({ "ok": false, "cancelled": true })),
+    };
+    // 保存到原路径时不需要复制。
+    if dest_path == source_path || dest_path.canonicalize().ok() == source_path.canonicalize().ok() {
+        return Ok(serde_json::json!({ "ok": true }));
+    }
+    tokio::task::spawn_blocking(move || std::fs::copy(&source_path, &dest_path))
+        .await
+        .map_err(|err| format!("复制文件任务异常：{err}"))?
+        .map_err(|err| format!("复制文件失败：{err}"))?;
+    Ok(serde_json::json!({ "ok": true }))
+}
+
 fn open_shell_terminal_at_path(state: &AppState, path: &Path, preferred_kind: Option<&str>) -> Result<(), String> {
     let canonical = path
         .canonicalize()

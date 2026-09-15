@@ -12,6 +12,8 @@ fn ide_chat_web_native_only_method(method: &str) -> bool {
             | "open_file_reader_directory_shell"
             | "open_file_with_default_program"
             | "open_local_file_directory"
+            | "open_file_in_vscode"
+            | "save_local_file_as"
             | "open_workspace_file"
             | "open_storage_usage_item_directory"
             | "open_chat_shell_workspace_dir"
@@ -228,6 +230,7 @@ async fn ide_chat_handle_jsonrpc_request(
         }
         "fileReader.directory.list" => ide_chat_file_reader_directory_list(state, request.params).await,
         "fileReader.readFile" => ide_chat_file_reader_read(request.params).await,
+        "fileReader.readRawFile" => ide_chat_file_reader_read_raw(request.params).await,
         "fileReader.readFileBlock" => ide_chat_file_reader_read_block(request.params).await,
         "conversation.delete" => ide_chat_delete_conversation(state, request.params).await,
         "conversation.batchArchive" => ide_chat_batch_archive_conversations(state, request.params).await,

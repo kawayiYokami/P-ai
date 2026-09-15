@@ -918,6 +918,87 @@ export async function updateTransportFileReaderWatchTargets(input: Record<string
   return true;
 }
 
+/** 在 VS Code 中打开文件并可定位到行；本机文件系统能力只存在于桌面宿主。 */
+export async function openTransportFileInVscode(
+  path: string,
+  line?: number,
+  column?: number,
+): Promise<boolean> {
+  const normalizedPath = String(path || "").trim();
+  if (!normalizedPath || !isTauriRuntimeAvailable()) return false;
+  await invokeTauri("open_file_in_vscode", {
+    input: {
+      path: normalizedPath,
+      ...(Number.isFinite(line) ? { line } : {}),
+      ...(Number.isFinite(column) ? { column } : {}),
+    },
+  });
+  return true;
+}
+
+/** 在系统文件管理器中定位文件（选中该文件）；本机文件系统能力只存在于桌面宿主。 */
+export async function revealTransportLocalFile(path: string): Promise<boolean> {
+  const normalizedPath = String(path || "").trim();
+  if (!normalizedPath || !isTauriRuntimeAvailable()) return false;
+  await invokeTauri("open_local_file_directory", { path: normalizedPath });
+  return true;
+}
+
+type TransportFileRawPayload = {
+  name?: string;
+  bytesBase64?: string;
+};
+
+function transportFileNameFromPath(path: string): string {
+  const normalized = String(path || "").replace(/\\/g, "/");
+  const name = normalized.slice(normalized.lastIndexOf("/") + 1);
+  return name || "download";
+}
+
+function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(value);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function downloadBrowserFile(bytes: Uint8Array<ArrayBuffer>, fileName: string) {
+  const blob = new Blob([bytes], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * 另存为：桌面宿主走系统保存对话框；Web/VS Code 通过桥接取原始字节后触发浏览器下载。
+ * 两端都以真实文件字节为准，不做文本转写。
+ */
+export async function saveTransportLocalFileAs(path: string): Promise<boolean> {
+  const normalizedPath = String(path || "").trim();
+  if (!normalizedPath) return false;
+  if (isTauriRuntimeAvailable()) {
+    await invokeTauri("save_local_file_as", { path: normalizedPath });
+    return true;
+  }
+  const payload = await invokeTauri<TransportFileRawPayload>("fileReader.readRawFile", {
+    path: normalizedPath,
+  });
+  const encoded = String(payload?.bytesBase64 || "");
+  if (!encoded) return false;
+  downloadBrowserFile(
+    base64ToBytes(encoded),
+    String(payload?.name || "") || transportFileNameFromPath(normalizedPath),
+  );
+  return true;
+}
+
 export function listTransportFileReaderDirectoryOpenTargets<T>(): Promise<T> {
   return invokeRequiredNativeTransport<T>("本机目录打开方式", "list_file_reader_directory_open_targets");
 }
@@ -1488,6 +1569,8 @@ const WEB_BRIDGE_NATIVE_ONLY_COMMANDS = new Set([
   "open_file_reader_directory_shell",
   "open_file_with_default_program",
   "open_local_file_directory",
+  "open_file_in_vscode",
+  "save_local_file_as",
   "open_workspace_file",
   "open_storage_usage_item_directory",
   "open_chat_shell_workspace_dir",

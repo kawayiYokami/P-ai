@@ -1535,6 +1535,8 @@ fn main() {
             open_file_reader_directory_shell,
             open_local_file_directory,
             open_file_with_default_program,
+            open_file_in_vscode,
+            save_local_file_as,
             git_panel_repos,
             git_panel_detect,
             git_panel_watch_start,

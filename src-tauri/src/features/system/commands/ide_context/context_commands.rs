@@ -192,6 +192,46 @@ async fn ide_chat_file_reader_read(params: Value) -> Result<Value, String> {
     serde_json::to_value(payload).map_err(|err| format!("serialize file reader payload failed: {err}"))
 }
 
+/// 下载用的原始字节读取：Web 宿主没有系统保存对话框，用它拿真实字节做浏览器下载。
+/// 限制单文件大小，避免一次性把超大文件塞进桥接消息。
+const FILE_DOWNLOAD_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+async fn ide_chat_file_reader_read_raw(params: Value) -> Result<Value, String> {
+    let path = params
+        .get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "path is required".to_string())?
+        .to_string();
+    tokio::task::spawn_blocking(move || {
+        let file_path = std::path::PathBuf::from(&path);
+        if !file_path.is_file() {
+            return Err(format!("文件不存在：{path}"));
+        }
+        let metadata = fs::metadata(&file_path).map_err(|err| format!("读取文件信息失败：{err}"))?;
+        if metadata.len() > FILE_DOWNLOAD_MAX_BYTES {
+            return Err(format!(
+                "文件过大（{} 字节），超过下载上限 {} 字节。",
+                metadata.len(),
+                FILE_DOWNLOAD_MAX_BYTES
+            ));
+        }
+        let raw = fs::read(&file_path).map_err(|err| format!("读取文件失败：{err}"))?;
+        let name = file_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("download")
+            .to_string();
+        Ok(serde_json::json!({
+            "name": name,
+            "bytesBase64": B64.encode(raw),
+        }))
+    })
+    .await
+    .map_err(|err| format!("读取文件任务异常：{err}"))?
+}
+
 async fn ide_chat_file_reader_read_block(params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<IdeChatFileReaderReadBlockInput>(params)?;
     let path = input.path;
