@@ -893,7 +893,7 @@ async fn run_genai_tool_loop(
                 messages.push(message);
             }
             if let Some((payload, artifact_id)) = screenshot_forward {
-                let notice = screenshot_forward_notice(&payload);
+                let notice = screenshot_forward_notice(&payload, &tool_name);
                 let cached = screenshot_artifact_cache_get(&artifact_id).unwrap_or(
                     ScreenshotArtifactEntry {
                         images: payload.images.clone(),
@@ -1473,7 +1473,7 @@ async fn run_genai_tool_loop_non_stream(
                 messages.push(message);
             }
             if let Some((payload, artifact_id)) = screenshot_forward {
-                let notice = screenshot_forward_notice(&payload);
+                let notice = screenshot_forward_notice(&payload, &tool_name);
                 let cached = screenshot_artifact_cache_get(&artifact_id).unwrap_or(
                     ScreenshotArtifactEntry {
                         images: payload.images.clone(),

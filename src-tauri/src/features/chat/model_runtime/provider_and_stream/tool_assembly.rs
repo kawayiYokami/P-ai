@@ -210,7 +210,7 @@ fn read_provider_tool_definition() -> ProviderToolDefinition {
 fn read_media_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
         READ_MEDIA_TOOL_NAME,
-        "解析本地图片、音频或视频；仅在当前看不到图片，或需要解析音频、视频时使用。",
+        "解析本地图片、音频或视频。图片在 description 留空时会直接返回原图；音频、视频必须依赖 description 描述解析侧重点。",
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -220,7 +220,7 @@ fn read_media_provider_tool_definition() -> ProviderToolDefinition {
                 },
                 "description": {
                     "type": "string",
-                    "description": "解析侧重点，例如要看什么、听什么、提取什么。"
+                    "description": "解析侧重点，例如要看什么、听什么、提取什么。如果你本来就支持多模态，请优先留空以读取原媒体。"
                 }
             },
             "required": ["path"]
@@ -1077,7 +1077,10 @@ fn build_builtin_runtime_tool_executor(
             session_id: tool_session_id.to_string(),
             api_config_id: selected_api.id.clone(),
         }),
-        "read_media" => Box::new(BuiltinReadMediaTool { app_state: state.clone() }),
+        "read_media" => Box::new(BuiltinReadMediaTool {
+            app_state: state.clone(),
+            model_supports_image: selected_api.enable_image,
+        }),
         "exec" => Box::new(BuiltinTerminalExecTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
@@ -1275,6 +1278,7 @@ struct BuiltinReadFileTool {
 #[derive(Debug, Clone)]
 struct BuiltinReadMediaTool {
     app_state: AppState,
+    model_supports_image: bool,
 }
 
 impl RuntimeToolMetadata for BuiltinOperateTool {
@@ -1441,6 +1445,8 @@ impl RuntimeValueTool for BuiltinReadMediaTool {
     }
 
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
+        let app_state = self.app_state.clone();
+        let model_supports_image = self.model_supports_image;
         Box::pin(async move {
             let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
             runtime_log_debug(format!(
@@ -1448,11 +1454,12 @@ impl RuntimeValueTool for BuiltinReadMediaTool {
                 debug_value_snippet(&args_value, 240)
             ));
             let result = builtin_read_media(
-                &self.app_state,
+                &app_state,
                 ReadMediaRequest {
                     path: args.path,
                     description: args.description,
                 },
+                model_supports_image,
             )
             .await
             .map_err(ToolInvokeError::from);

@@ -1193,6 +1193,7 @@ async fn describe_media_with_multimodal_api(
 async fn builtin_read_media(
     state: &AppState,
     request: ReadMediaRequest,
+    model_supports_image: bool,
 ) -> Result<Value, String> {
     // 路径校验（metadata）是同步文件 I/O，移入 blocking 线程池，避免阻塞 Tokio 工作线程
     let request_for_check = request.clone();
@@ -1200,6 +1201,37 @@ async fn builtin_read_media(
         .await
         .map_err(|err| format!("read_media 工具路径校验后台执行失败：{err}"))??;
     let detected = detect_read_media_type(&path).ok_or_else(|| "read_media 仅支持图片、音频或视频文件".to_string())?;
+    let description_is_empty = request
+        .description
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .is_empty();
+    // 当前对话模型本身支持图片输入，且未指定解析侧重时，直接返回原图 base64 交给模型自行观察，
+    // 不再调用独立多模态模型生成文字描述。音频、视频不适用，仍走下面的多模态解析链路。
+    if model_supports_image && detected == ReadMediaDetectedType::Image && description_is_empty {
+        let raw = tokio::fs::read(&path)
+            .await
+            .map_err(|err| format!("读取媒体文件失败: {err}"))?;
+        let mime = media_mime_from_path(&path)
+            .unwrap_or("image/png")
+            .to_string();
+        let content_base64 = B64.encode(&raw);
+        runtime_log_debug(format!(
+            "[read_media] 直接返回原图：模型支持图片输入且未指定解析侧重，mime={}，字节数={}",
+            mime,
+            raw.len()
+        ));
+        return Ok(serde_json::json!({
+            "ok": true,
+            "mediaType": detected.as_str(),
+            "path": path.to_string_lossy().to_string(),
+            "text": "已直接返回原图（未生成文字描述），请查看图片内容。",
+            "imageMime": mime,
+            "imageBase64": content_base64,
+            "directImage": true
+        }));
+    }
     let app_config = state_read_config_cached(state)?;
     let selected_api = resolve_vision_api_config(&app_config)?;
     match detected {
@@ -2334,6 +2366,7 @@ fn builtin_read_media_should_reject_non_media_file() {
                 path: file.to_string_lossy().to_string(),
                 description: None,
             },
+            false,
         ))
         .expect_err("reject non-media");
 
@@ -2395,10 +2428,117 @@ fn builtin_read_media_should_fail_when_audio_capability_is_disabled() {
                 path: file.to_string_lossy().to_string(),
                 description: Some("只关注语音内容".to_string()),
             },
+            false,
         ))
         .expect_err("audio capability should be rejected");
 
         assert_eq!(err, "当前多模态模型未启用音频输入");
+    }
+
+#[cfg(test)]
+#[test]
+fn builtin_read_media_should_return_original_image_when_model_supports_image_and_description_empty() {
+        let root = std::env::temp_dir().join(format!("eca-read-media-direct-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let file = root.join("sample.png");
+        std::fs::write(&file, b"\x89PNG\r\n\x1a\nfake-image-bytes").expect("write image");
+        let state = test_read_file_state();
+        let value = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build tokio runtime")
+        .block_on(builtin_read_media(
+            &state,
+            ReadMediaRequest {
+                path: file.to_string_lossy().to_string(),
+                description: None,
+            },
+            true,
+        ))
+        .expect("direct image should succeed");
+
+        assert_eq!(value.get("mediaType").and_then(Value::as_str), Some("image"));
+        assert_eq!(value.get("directImage").and_then(Value::as_bool), Some(true));
+        assert_eq!(value.get("imageMime").and_then(Value::as_str), Some("image/png"));
+        assert!(value
+            .get("imageBase64")
+            .and_then(Value::as_str)
+            .map(|text| !text.is_empty())
+            .unwrap_or(false));
+        // 直返路径不经过描述缓存，也不产生文字描述
+        assert!(value.get("cached").is_none());
+        assert!(value.get("text").and_then(Value::as_str).is_some());
+    }
+
+#[cfg(test)]
+#[test]
+fn builtin_read_media_should_not_return_original_audio_or_video_when_description_empty() {
+        // 模型支持图片，但音频、视频不适用直返路径；两者能力关闭时即便 description 留空也应报错，
+        // 证明它们没有走「返回原媒体」的分支。
+        let root = std::env::temp_dir().join(format!("eca-read-media-av-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let audio = root.join("sample.mp3");
+        std::fs::write(&audio, b"fake-mp3").expect("write audio");
+        let video = root.join("sample.mp4");
+        std::fs::write(&video, b"fake-mp4").expect("write video");
+        let state = test_read_file_state();
+        let config = AppConfig {
+            selected_api_config_id: "vision-a".to_string(),
+            assistant_department_api_config_id: "vision-a".to_string(),
+            vision_api_config_id: Some("vision-a".to_string()),
+            api_configs: vec![ApiConfig {
+                id: "vision-a".to_string(),
+                name: "vision-a".to_string(),
+                request_format: RequestFormat::OpenAI,
+                allow_concurrent_requests: false,
+                max_concurrent_requests: None,
+                enable_text: true,
+                enable_image: true,
+                enable_audio: false,
+                enable_video: false,
+                enable_tools: true,
+                tools: vec![],
+                base_url: "https://example.com/v1".to_string(),
+                api_key: "k".to_string(),
+                codex_auth_mode: default_codex_auth_mode(),
+                codex_local_auth_path: default_codex_local_auth_path(),
+                codex_custom_url: None,
+                codex_custom_api_key: None,
+                codex_originator: default_codex_originator(),
+                codex_residency_requirement: None,
+                model: "gpt-image".to_string(),
+                reasoning_effort: default_reasoning_effort(),
+                temperature: 0.7,
+                custom_temperature_enabled: false,
+                context_window_tokens: 128_000,
+                max_output_tokens: 4_096,
+                custom_max_output_tokens_enabled: false,
+                failure_retry_count: 0,
+            }],
+            ..AppConfig::default()
+        };
+        state_write_config_cached(&state, &config).expect("write config");
+
+        for (file, expected) in [
+            (&audio, "当前多模态模型未启用音频输入"),
+            (&video, "当前多模态模型未启用视频输入"),
+        ] {
+            let err = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build tokio runtime")
+                .block_on(builtin_read_media(
+                    &state,
+                    ReadMediaRequest {
+                        path: file.to_string_lossy().to_string(),
+                        description: None,
+                    },
+                    true,
+                ))
+                .expect_err("audio/video should not be returned as original media");
+
+            assert_eq!(err, expected);
+        }
     }
 
 #[cfg(test)]

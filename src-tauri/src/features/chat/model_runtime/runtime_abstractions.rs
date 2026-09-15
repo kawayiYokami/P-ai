@@ -222,7 +222,7 @@ fn provider_tool_output_from_value(tool_name: &str, value: &Value) -> String {
 
 fn provider_tool_result_from_value(tool_name: &str, mut value: Value) -> ProviderToolResult {
     let metadata = provider_tool_metadata_from_value(tool_name, &value);
-    let images = if tool_name == "operate" {
+    let images = if tool_name == "operate" || tool_name == "read_media" {
         let payload = value.get("data").unwrap_or(&value);
         extract_forward_images_from_value(payload)
     } else {
@@ -435,6 +435,49 @@ mod runtime_tool_result_tests {
             result.metadata.control,
             ProviderToolControl::Task { .. }
         ));
+    }
+
+    #[test]
+    fn read_media_direct_image_result_forwards_image_part_not_base64_text() {
+        let result = provider_tool_result_from_value(
+            "read_media",
+            serde_json::json!({
+                "ok": true,
+                "mediaType": "image",
+                "path": "C:/tmp/a.png",
+                "text": "已直接返回原图（未生成文字描述），请查看图片内容。",
+                "imageMime": "image/png",
+                "imageBase64": "AAAABBBB",
+                "directImage": true
+            }),
+        );
+
+        assert_eq!(result.output, "已直接返回原图（未生成文字描述），请查看图片内容。");
+        assert!(!result.output.contains("AAAABBBB"));
+        assert_eq!(result.parts.len(), 2);
+        match &result.parts[1] {
+            ProviderToolResultPart::Image { mime, data_base64, .. } => {
+                assert_eq!(mime, "image/png");
+                assert_eq!(data_base64, "AAAABBBB");
+            }
+            other => panic!("expected image part, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn read_media_described_result_keeps_no_image_part() {
+        let result = provider_tool_result_from_value(
+            "read_media",
+            serde_json::json!({
+                "ok": true,
+                "mediaType": "audio",
+                "text": "音频转写：你好",
+                "cached": false
+            }),
+        );
+
+        assert_eq!(result.output, "音频转写：你好");
+        assert_eq!(result.parts.len(), 1);
     }
 
     #[test]
