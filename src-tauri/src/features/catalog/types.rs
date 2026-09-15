@@ -9,6 +9,7 @@ const CATALOG_SOURCE_MODELSCOPE_MCP: &str = "modelscope-mcp";
 const CATALOG_SOURCE_MODELSCOPE_SKILL: &str = "modelscope-skill";
 const CATALOG_SOURCE_SMITHERY: &str = "smithery";
 const CATALOG_SOURCE_OFFICIAL: &str = "official-registry";
+const CATALOG_SOURCE_CLAWHUB: &str = "clawhub";
 
 /// 远端清单缓存有效期：1 天。
 const CATALOG_CACHE_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
@@ -130,12 +131,20 @@ struct CatalogInstallResult {
 
 fn catalog_sources_for_kind(kind: &str) -> Vec<CatalogSourceInfo> {
     if kind == CATALOG_KIND_SKILL {
-        vec![CatalogSourceInfo {
-            id: CATALOG_SOURCE_MODELSCOPE_SKILL.to_string(),
-            name: "魔搭 Skill 市场".to_string(),
-            kind: CATALOG_KIND_SKILL.to_string(),
-            description: "ModelScope 社区汇总的开源 Skill".to_string(),
-        }]
+        vec![
+            CatalogSourceInfo {
+                id: CATALOG_SOURCE_MODELSCOPE_SKILL.to_string(),
+                name: "魔搭 Skill 市场".to_string(),
+                kind: CATALOG_KIND_SKILL.to_string(),
+                description: "ModelScope 社区汇总的开源 Skill".to_string(),
+            },
+            CatalogSourceInfo {
+                id: CATALOG_SOURCE_CLAWHUB.to_string(),
+                name: "ClawHub".to_string(),
+                kind: CATALOG_KIND_SKILL.to_string(),
+                description: "OpenClaw 社区的公开 Skill 注册中心".to_string(),
+            },
+        ]
     } else {
         vec![
             CatalogSourceInfo {
@@ -162,7 +171,7 @@ fn catalog_sources_for_kind(kind: &str) -> Vec<CatalogSourceInfo> {
 
 fn catalog_kind_for_source(source: &str) -> &'static str {
     match source {
-        CATALOG_SOURCE_MODELSCOPE_SKILL => CATALOG_KIND_SKILL,
+        CATALOG_SOURCE_MODELSCOPE_SKILL | CATALOG_SOURCE_CLAWHUB => CATALOG_KIND_SKILL,
         _ => CATALOG_KIND_MCP,
     }
 }

@@ -250,8 +250,8 @@
         </template>
       </div>
 
-      <!-- 分页 -->
-      <div v-if="entries.length > 0" class="flex items-center justify-center gap-3 pt-1">
+      <!-- 分页；ClawHub 检索态无分页，此时整块隐藏 -->
+      <div v-if="entries.length > 0 && !hidePager" class="flex items-center justify-center gap-3 pt-1">
         <button class="btn btn-sm bg-base-100" type="button" :disabled="page <= 1 || loading" @click="gotoPage(page - 1)">
           {{ t("config.catalog.prev") }}
         </button>
@@ -424,6 +424,8 @@ const kind = ref<"mcp" | "skill">("mcp");
 const sources = ref<CatalogSourceInfo[]>([]);
 const sourceId = ref("");
 const query = ref("");
+// 已执行的检索词：区分浏览态与检索态（后者无分页）。
+const activeQuery = ref("");
 const page = ref(1);
 const entries = ref<CatalogEntry[]>([]);
 const total = ref(-1);
@@ -455,6 +457,12 @@ const hasNext = computed(() => {
   if (total.value >= 0) return page.value * PAGE_SIZE < total.value;
   return entries.value.length >= PAGE_SIZE;
 });
+
+// 检索态没有分页也没有总数，翻页按钮整体隐藏。
+const isSearchMode = computed(() => activeQuery.value.length > 0);
+
+// 只有 ClawHub 的检索端点无分页也无总数；其余来源的检索仍支持翻页，不能一并隐藏。
+const hidePager = computed(() => isSearchMode.value && sourceId.value === "clawhub");
 
 function entryKey(entry: CatalogEntry): string {
   return `${entry.source}:${entry.id}`;
@@ -534,6 +542,7 @@ async function reload() {
     if (!sourceId.value) return;
   }
   loading.value = true;
+  activeQuery.value = query.value.trim();
   try {
     const result = await searchTransportCatalog({
       source: sourceId.value,

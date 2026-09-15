@@ -245,10 +245,310 @@ async fn install_catalog_mcp(
     })
 }
 
+/// ClawHub 压缩包内的平台附加文件：不是 skill 正文，落盘时跳过。
+const CLAWHUB_ARCHIVE_SKIP_FILES: [&str; 2] = ["_meta.json", "skill-card.md"];
+
+/// 只跳过包根的附加文件；skill 自带 reference 目录里的同名文件不受影响。
+fn is_clawhub_archive_skip_file(relative_path: &std::path::Path) -> bool {
+    let at_archive_root = relative_path
+        .parent()
+        .map(|parent| parent.as_os_str().is_empty())
+        .unwrap_or(true);
+    at_archive_root
+        && relative_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .map(|name| CLAWHUB_ARCHIVE_SKIP_FILES.contains(&name))
+            .unwrap_or(false)
+}
+
+/// ClawHub 条目 id 形如 `owner/slug`；只有 slug 时 owner 为空。
+fn clawhub_split_ref(entry_id: &str) -> (String, String) {
+    match entry_id.split_once('/') {
+        Some((owner, slug)) => (owner.trim().to_string(), slug.trim().to_string()),
+        None => (String::new(), entry_id.trim().to_string()),
+    }
+}
+
+/// 由 install 入参的 id 直接构造 ClawHub 条目。
+/// 浏览来源的条目只带裸 slug、且列表接口不返回发布者，无法用精确 id 在检索结果里定位，
+/// 所以这里不再做二次检索，发布者解析与重名判定统一交给 `resolve_clawhub_publisher`。
+fn clawhub_entry_from_ref(entry_id: &str) -> CatalogEntry {
+    let (_, slug) = clawhub_split_ref(entry_id);
+    let name = if slug.is_empty() {
+        entry_id.to_string()
+    } else {
+        slug
+    };
+    CatalogEntry {
+        id: entry_id.to_string(),
+        name,
+        description: String::new(),
+        kind: CATALOG_KIND_SKILL.to_string(),
+        source: CATALOG_SOURCE_CLAWHUB.to_string(),
+        categories: Vec::new(),
+        popularity: 0,
+        author: String::new(),
+        homepage: String::new(),
+        icon: String::new(),
+        transport: String::new(),
+        definition_json: String::new(),
+        required_env: Vec::new(),
+        tools: Vec::new(),
+        install_ready: true,
+        detail_url: String::new(),
+        installed: false,
+        enabled: false,
+        local_id: String::new(),
+    }
+}
+
+/// 解析条目要安装的发布者。
+/// 条目 id 已带 owner 时直接采用；只有裸 slug 时查详情补全——
+/// ClawHub 的 slug 可以重名，缺少发布者就无法唯一定位，此时列出候选交给用户选择。
+async fn resolve_clawhub_publisher(
+    state: &AppState,
+    entry: &CatalogEntry,
+) -> Result<(String, String), String> {
+    let (owner, slug) = clawhub_split_ref(&entry.id);
+    if slug.is_empty() {
+        return Err("条目缺少 slug，无法安装。".to_string());
+    }
+    if !owner.is_empty() {
+        return Ok((owner, slug));
+    }
+    let url = format!(
+        "https://clawhub.ai/api/v1/skills/{}",
+        urlencoding_encode(&slug)
+    );
+    let resp = state
+        .shared_http_client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|err| format!("查询 ClawHub 条目详情失败：{err}"))?;
+    let status = resp.status();
+    // 先取文本，避免错误体（409 带候选清单、其它纯文本错误）不是 JSON 时先抛解析错。
+    let body = resp
+        .text()
+        .await
+        .map_err(|err| format!("读取 ClawHub 条目详情失败：{err}"))?;
+    let payload = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
+    if status.as_u16() == 409 {
+        let candidates = payload
+            .get("matches")
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|item| {
+                        let handle = json_str(item, "ownerHandle");
+                        let slug = json_str(item, "slug");
+                        if handle.is_empty() {
+                            slug
+                        } else {
+                            format!("@{handle}/{slug}")
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        return Err(format!(
+            "条目「{}」的名字有多个发布者，无法确定要安装哪一个，请用搜索框搜索后从结果中选择。候选：{}",
+            entry.name,
+            candidates.join("、")
+        ));
+    }
+    if !status.is_success() {
+        let detail = {
+            let message = json_str(&payload, "message");
+            if message.trim().is_empty() {
+                body.chars().take(200).collect::<String>()
+            } else {
+                message
+            }
+        };
+        return Err(format!("查询 ClawHub 条目详情失败：{status} | {detail}"));
+    }
+    if payload.is_null() {
+        return Err(format!(
+            "解析 ClawHub 条目详情失败：响应不是合法 JSON（{} 字节）。",
+            body.len()
+        ));
+    }
+    let resolved = payload
+        .get("owner")
+        .map(|owner| json_str(owner, "handle"))
+        .unwrap_or_default();
+    if resolved.trim().is_empty() {
+        return Err(format!("条目「{}」缺少发布者信息，无法安装。", entry.name));
+    }
+    Ok((resolved, slug))
+}
+
+/// ClawHub 安装：按 slug 取 zip 包，解压到 `skills/{dir}/`。
+/// 先把压缩包解到同级临时目录并完成校验，再整体替换目标目录，
+/// 避免中途失败在 `skills/` 里留下半截或新旧混合的目录。
+async fn install_clawhub_skill(
+    state: &AppState,
+    entry: &CatalogEntry,
+) -> Result<CatalogInstallResult, String> {
+    let (owner, slug) = resolve_clawhub_publisher(state, entry).await?;
+    let url = clawhub_download_url(&owner, &slug);
+    let resp = state
+        .shared_http_client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|err| format!("下载 ClawHub 条目失败：{err}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let snippet = resp
+            .text()
+            .await
+            .unwrap_or_default()
+            .chars()
+            .take(200)
+            .collect::<String>();
+        return Err(format!("下载 ClawHub 条目失败：{status} | {snippet}"));
+    }
+    // 该端点对由 GitHub 托管的条目返回 JSON 交接信息，而不是压缩包。
+    let is_zip = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.contains("zip"))
+        .unwrap_or(false);
+    if !is_zip {
+        return Err(format!(
+            "条目「{}」由外部仓库托管，当前版本暂不支持安装。",
+            entry.name
+        ));
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|err| format!("读取 ClawHub 压缩包失败：{err}"))?;
+
+    let workspace_root = configured_workspace_root_path(state)?;
+    ensure_workspace_skills_layout_at_root(&workspace_root)?;
+    let skills_root = workspace_root.join("skills");
+    let dir_name = skill_dir_name_from_entry(entry);
+    let dir = skills_root.join(&dir_name);
+    // 先解到同级临时目录，校验全部通过后再整体替换目标目录。
+    let staging = skills_root.join(format!(
+        ".tmp-clawhub-{dir_name}-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or_default()
+    ));
+
+    let written_files = match extract_clawhub_archive(&bytes, &staging, entry) {
+        Ok(count) => count,
+        Err(err) => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(err);
+        }
+    };
+    if written_files == 0 {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(format!("条目「{}」的压缩包没有可落盘的文件。", entry.name));
+    }
+    let skill_md = staging.join("SKILL.md");
+    if !skill_md.is_file() {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(format!("条目「{}」的压缩包缺少 SKILL.md。", entry.name));
+    }
+    let skill_name = match parse_skill_file(&skill_md) {
+        Ok((name, _, _)) => name,
+        Err(err) => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(format!("解析条目「{}」的 SKILL.md 失败：{err}", entry.name));
+        }
+    };
+    if dir.exists() {
+        if let Err(err) = fs::remove_dir_all(&dir) {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(format!("清理旧的 Skill 目录失败（{}）：{err}", dir.display()));
+        }
+    }
+    if let Err(err) = fs::rename(&staging, &dir) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(format!("落盘 Skill 目录失败（{}）：{err}", dir.display()));
+    }
+    // 商店安装的 Skill 默认关闭，由用户自行启用。
+    write_skill_enabled(state, &skill_name, false)?;
+    reload_workspace(state).await?;
+    runtime_log_info(format!(
+        "[能力商店] 已安装 Skill：name={}，source={}，dir={dir_name}，文件数={written_files}",
+        entry.name, entry.source
+    ));
+    let written_paths = vec![skill_installed_skill_md_rel_path(&dir_name)];
+    Ok(CatalogInstallResult {
+        kind: CATALOG_KIND_SKILL.to_string(),
+        local_id: dir_name,
+        enabled: false,
+        written_paths,
+    })
+}
+
+/// 把 ClawHub 压缩包解到指定目录，返回落盘文件数。
+/// 跳过后端平台附加文件，并用 `enclosed_name` 拒绝越出包根的路径。
+fn extract_clawhub_archive(
+    bytes: &[u8],
+    dir: &std::path::Path,
+    entry: &CatalogEntry,
+) -> Result<usize, String> {
+    let reader = std::io::Cursor::new(bytes);
+    let mut archive =
+        zip::ZipArchive::new(reader).map_err(|err| format!("解析 ClawHub 压缩包失败：{err}"))?;
+    if archive.is_empty() {
+        return Err(format!("条目「{}」的压缩包为空。", entry.name));
+    }
+    let mut written_files = 0usize;
+    for index in 0..archive.len() {
+        let mut file = archive
+            .by_index(index)
+            .map_err(|err| format!("读取 ClawHub 压缩包条目失败：{err}"))?;
+        // enclosed_name 已拒绝越出包根的相对路径。
+        let Some(relative) = file.enclosed_name() else {
+            return Err(format!(
+                "条目「{}」的压缩包存在不安全路径：{}",
+                entry.name,
+                file.name()
+            ));
+        };
+        if is_clawhub_archive_skip_file(&relative) {
+            continue;
+        }
+        let output = dir.join(&relative);
+        if file.is_dir() {
+            fs::create_dir_all(&output)
+                .map_err(|err| format!("创建 Skill 目录失败（{}）：{err}", output.display()))?;
+            continue;
+        }
+        if let Some(parent) = output.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("创建 Skill 目录失败（{}）：{err}", parent.display()))?;
+        }
+        let mut body = Vec::<u8>::new();
+        std::io::Read::read_to_end(&mut file, &mut body)
+            .map_err(|err| format!("读取 Skill 文件内容失败：{err}"))?;
+        fs::write(&output, body)
+            .map_err(|err| format!("写入 Skill 文件失败（{}）：{err}", output.display()))?;
+        written_files += 1;
+    }
+    Ok(written_files)
+}
+
 async fn install_catalog_skill(
     state: &AppState,
     entry: &CatalogEntry,
 ) -> Result<CatalogInstallResult, String> {
+    if entry.source == CATALOG_SOURCE_CLAWHUB {
+        return install_clawhub_skill(state, entry).await;
+    }
     let source_url = if entry.detail_url.trim().is_empty() {
         entry.homepage.trim().to_string()
     } else {
@@ -317,7 +617,13 @@ async fn install_catalog_entry_inner(
     if entry_id.is_empty() {
         return Err("缺少条目标识。".to_string());
     }
-    let entry = find_catalog_entry(state, source, entry_id).await?;
+    // ClawHub 浏览条目只带裸 slug，用精确 id 检索无法命中（检索结果 id 一律带发布者），
+    // 因此直接按 id 构造条目，交给安装链路自行解析发布者。
+    let entry = if source == CATALOG_SOURCE_CLAWHUB {
+        clawhub_entry_from_ref(entry_id)
+    } else {
+        find_catalog_entry(state, source, entry_id).await?
+    };
     if catalog_kind_for_source(source) == CATALOG_KIND_SKILL {
         install_catalog_skill(state, &entry).await
     } else {

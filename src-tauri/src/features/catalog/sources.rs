@@ -383,6 +383,247 @@ fn official_registry_entry(item: &Value) -> CatalogEntry {
     }
 }
 
+// ==================== ClawHub ====================
+
+const CLAWHUB_SKILLS_URL: &str = "https://clawhub.ai/api/v1/skills";
+const CLAWHUB_SEARCH_URL: &str = "https://clawhub.ai/api/v1/search";
+
+/// ClawHub 条目网页地址；slug 级捷径地址会跳到 canonical 页面。
+fn clawhub_homepage_url(slug: &str) -> String {
+    format!("https://clawhub.ai/skills/{slug}")
+}
+
+/// ClawHub 条目唯一标识：有发布者时用 `owner/slug`，否则退回裸 slug。
+/// 裸 slug 可能对应多个发布者，安装时需要再解析。
+fn clawhub_entry_id(owner: &str, slug: &str) -> String {
+    let owner = owner.trim();
+    if owner.is_empty() {
+        slug.to_string()
+    } else {
+        format!("{owner}/{slug}")
+    }
+}
+
+/// ClawHub 安装时按 owner + slug 取 zip 包。
+/// 不带 owner 的裸 slug 在存在重名时会返回 409，调用方需先解析发布者。
+fn clawhub_download_url(owner: &str, slug: &str) -> String {
+    let mut url = format!(
+        "https://clawhub.ai/api/v1/download?slug={}",
+        urlencoding_encode(slug)
+    );
+    let owner = owner.trim();
+    if !owner.is_empty() {
+        url.push_str(&format!("&ownerHandle={}", urlencoding_encode(owner)));
+    }
+    url
+}
+
+/// ClawHub 热度：优先取安装数，其次下载数。
+fn clawhub_popularity(item: &Value) -> i64 {
+    let stats = item.get("stats").cloned().unwrap_or(Value::Null);
+    let installs = json_i64(&stats, "installs");
+    if installs > 0 {
+        installs
+    } else {
+        json_i64(&stats, "downloads")
+    }
+}
+
+/// ClawHub 浏览条目（`GET /api/v1/skills`）-> CatalogEntry。
+/// 该端点不返回作者，浏览态的 author 留空。
+fn clawhub_list_entry(item: &Value) -> CatalogEntry {
+    let slug = json_str(item, "slug");
+    let display = json_str(item, "displayName");
+    CatalogEntry {
+        id: slug.clone(),
+        name: if display.is_empty() { slug.clone() } else { display },
+        description: json_str(item, "summary"),
+        kind: CATALOG_KIND_SKILL.to_string(),
+        source: CATALOG_SOURCE_CLAWHUB.to_string(),
+        categories: json_string_list(item, "topics"),
+        popularity: clawhub_popularity(item),
+        author: String::new(),
+        homepage: if slug.is_empty() {
+            String::new()
+        } else {
+            clawhub_homepage_url(&slug)
+        },
+        icon: String::new(),
+        transport: String::new(),
+        definition_json: String::new(),
+        required_env: Vec::new(),
+        tools: Vec::new(),
+        install_ready: !slug.is_empty(),
+        detail_url: if slug.is_empty() {
+            String::new()
+        } else {
+            clawhub_download_url("", &slug)
+        },
+        installed: false,
+        enabled: false,
+        local_id: String::new(),
+    }
+}
+
+/// ClawHub 检索条目（`GET /api/v1/search`）-> CatalogEntry。
+fn clawhub_search_entry(item: &Value) -> CatalogEntry {
+    let slug = json_str(item, "slug");
+    let display = json_str(item, "displayName");
+    let owner = json_str(item, "ownerHandle");
+    let canonical = json_str(item, "canonicalUrl");
+    CatalogEntry {
+        id: clawhub_entry_id(&owner, &slug),
+        name: if display.is_empty() { slug.clone() } else { display },
+        description: json_str(item, "summary"),
+        kind: CATALOG_KIND_SKILL.to_string(),
+        source: CATALOG_SOURCE_CLAWHUB.to_string(),
+        categories: Vec::new(),
+        popularity: json_i64(item, "downloads"),
+        author: owner.clone(),
+        homepage: {
+            let canonical = canonical.trim();
+            if canonical.is_empty() {
+                if slug.is_empty() {
+                    String::new()
+                } else {
+                    clawhub_homepage_url(&slug)
+                }
+            } else if canonical.starts_with("http") {
+                canonical.to_string()
+            } else {
+                format!("https://clawhub.ai{canonical}")
+            }
+        },
+        icon: json_str(item, "icon"),
+        transport: String::new(),
+        definition_json: String::new(),
+        required_env: Vec::new(),
+        tools: Vec::new(),
+        install_ready: !slug.is_empty(),
+        detail_url: if slug.is_empty() {
+            String::new()
+        } else {
+            clawhub_download_url(&owner, &slug)
+        },
+        installed: false,
+        enabled: false,
+        local_id: String::new(),
+    }
+}
+
+/// ClawHub 公开读接口：成功返回 JSON，失败把纯文本错误体带出来。
+async fn fetch_clawhub_json(state: &AppState, url: &str) -> Result<Value, String> {
+    let resp = state
+        .shared_http_client
+        .get(url)
+        .send()
+        .await
+        .map_err(|err| format!("请求 ClawHub 失败：{err}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        // ClawHub 公开接口的错误响应是纯文本。
+        let snippet = resp
+            .text()
+            .await
+            .unwrap_or_default()
+            .chars()
+            .take(200)
+            .collect::<String>();
+        return Err(format!("请求 ClawHub 失败：{status} | {snippet}"));
+    }
+    resp.json::<Value>()
+        .await
+        .map_err(|err| format!("解析 ClawHub 响应失败：{err}"))
+}
+
+fn clawhub_entries_from(payload: &Value, map: fn(&Value) -> CatalogEntry) -> Vec<CatalogEntry> {
+    payload
+        .get("items")
+        .or_else(|| payload.get("results"))
+        .and_then(|value| value.as_array())
+        .map(|items| items.iter().map(map).collect::<Vec<_>>())
+        .unwrap_or_default()
+}
+
+/// ClawHub 浏览：`/api/v1/skills` 用游标分页，从第 1 页逐页推进到目标页。
+async fn fetch_clawhub_browse_page(
+    state: &AppState,
+    page: u32,
+    page_size: u32,
+) -> Result<CatalogRawPage, String> {
+    let limit = page_size.clamp(1, 200);
+    let mut cursor = String::new();
+    let mut entries = Vec::<CatalogEntry>::new();
+    let mut reached = false;
+    let mut has_more = false;
+    for current in 1..=page {
+        let mut url =
+            format!("{CLAWHUB_SKILLS_URL}?limit={limit}&sort=downloads&nonSuspiciousOnly=true");
+        if !cursor.is_empty() {
+            url.push_str(&format!("&cursor={}", urlencoding_encode(&cursor)));
+        }
+        let payload = fetch_clawhub_json(state, &url).await?;
+        entries = clawhub_entries_from(&payload, clawhub_list_entry);
+        cursor = payload
+            .get("nextCursor")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
+        has_more = !cursor.is_empty();
+        if current == page {
+            reached = true;
+            break;
+        }
+        // 目标页之前已无更多数据：目标页为空。
+        if entries.is_empty() || !has_more {
+            entries = Vec::new();
+            break;
+        }
+    }
+    if !reached {
+        entries = Vec::new();
+    }
+    Ok(CatalogRawPage {
+        entries,
+        // ClawHub 不返回总数，用「已翻页数 + 是否还有下一页」折算，
+        // 保证前端「下一页」按钮只在确有下一页时出现。
+        total: if reached && has_more {
+            (page as i64) * (limit as i64) + 1
+        } else {
+            page as i64 * limit as i64
+        },
+    })
+}
+
+/// ClawHub 检索：`/api/v1/search` 只给相关性 top-N，没有分页也没有总数。
+/// 相关性结果之外再取一次精确 slug 匹配并置顶，保证按 slug 定位条目时必定命中。
+async fn fetch_clawhub_search_page(
+    state: &AppState,
+    query: &str,
+    page_size: u32,
+) -> Result<CatalogRawPage, String> {
+    let limit = page_size.clamp(1, 200);
+    let url = format!(
+        "{CLAWHUB_SEARCH_URL}?q={}&limit={limit}&nonSuspiciousOnly=true",
+        urlencoding_encode(query)
+    );
+    let payload = fetch_clawhub_json(state, &url).await?;
+    let mut entries = clawhub_entries_from(&payload, clawhub_search_entry);
+
+    let exact_url = format!(
+        "{CLAWHUB_SEARCH_URL}?q={}&limit={limit}&mode=exact&nonSuspiciousOnly=true",
+        urlencoding_encode(query)
+    );
+    if let Ok(payload) = fetch_clawhub_json(state, &exact_url).await {
+        let mut exact = clawhub_entries_from(&payload, clawhub_search_entry);
+        exact.retain(|entry| !entries.iter().any(|hit| hit.id == entry.id));
+        exact.extend(entries);
+        entries = exact;
+    }
+
+    Ok(CatalogRawPage { entries, total: -1 })
+}
+
 // ==================== 统一入口 ====================
 
 struct CatalogRawPage {
@@ -537,6 +778,13 @@ async fn fetch_catalog_raw_page(
                     page as i64 * page_size as i64
                 },
             })
+        }
+        CATALOG_SOURCE_CLAWHUB => {
+            if query.is_empty() {
+                fetch_clawhub_browse_page(state, page, page_size).await
+            } else {
+                fetch_clawhub_search_page(state, query, page_size).await
+            }
         }
         other => Err(format!("未知的商店来源：{other}")),
     }

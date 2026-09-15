@@ -289,4 +289,248 @@ mod catalog_tests {
 
         let _ = fs::remove_dir_all(state.llm_workspace_path.parent().unwrap_or(&state.llm_workspace_path));
     }
+
+    #[test]
+    fn skill_kind_sources_should_include_clawhub_alongside_modelscope() {
+        let sources = catalog_sources_for_kind(CATALOG_KIND_SKILL);
+        let ids = sources.iter().map(|item| item.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(sources.len(), 2);
+        assert!(ids.contains(&CATALOG_SOURCE_MODELSCOPE_SKILL));
+        assert!(ids.contains(&CATALOG_SOURCE_CLAWHUB));
+        assert_eq!(
+            catalog_kind_for_source(CATALOG_SOURCE_CLAWHUB),
+            CATALOG_KIND_SKILL
+        );
+    }
+
+    #[test]
+    fn mcp_kind_sources_should_stay_at_three_without_clawhub() {
+        let sources = catalog_sources_for_kind(CATALOG_KIND_MCP);
+        let ids = sources.iter().map(|item| item.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(sources.len(), 3);
+        assert!(!ids.contains(&CATALOG_SOURCE_CLAWHUB));
+        assert_eq!(
+            catalog_kind_for_source(CATALOG_SOURCE_CLAWHUB),
+            CATALOG_KIND_SKILL,
+            "ClawHub 只属于 Skill 分支"
+        );
+    }
+
+    #[test]
+    fn clawhub_list_entry_should_map_core_fields() {
+        let item = serde_json::json!({
+            "slug": "linux-disk-triage",
+            "displayName": "Linux 磁盘告警治理",
+            "summary": "磁盘清理与扩容分析",
+            "topics": ["devops", "disk"],
+            "stats": { "installs": 120, "downloads": 300 },
+            "metadata": null
+        });
+        let entry = clawhub_list_entry(&item);
+        assert_eq!(entry.id, "linux-disk-triage");
+        assert_eq!(entry.name, "Linux 磁盘告警治理");
+        assert_eq!(entry.description, "磁盘清理与扩容分析");
+        assert_eq!(entry.categories, vec!["devops".to_string(), "disk".to_string()]);
+        assert_eq!(entry.popularity, 120, "热度优先取安装数");
+        assert_eq!(entry.kind, CATALOG_KIND_SKILL);
+        assert_eq!(entry.source, CATALOG_SOURCE_CLAWHUB);
+        assert!(entry.install_ready);
+        assert!(entry.detail_url.contains("slug=linux-disk-triage"));
+    }
+
+    #[test]
+    fn clawhub_list_entry_should_fall_back_to_downloads_and_keep_author_blank() {
+        let item = serde_json::json!({
+            "slug": "demo",
+            "stats": { "installs": 0, "downloads": 42 }
+        });
+        let entry = clawhub_list_entry(&item);
+        assert_eq!(entry.name, "demo", "无展示名时回落到 slug");
+        assert_eq!(entry.popularity, 42, "无安装数时回落到下载数");
+        assert!(entry.author.is_empty(), "浏览端点不返回作者");
+    }
+
+    #[test]
+    fn clawhub_search_entry_should_join_owner_and_canonical_url() {
+        let item = serde_json::json!({
+            "slug": "linux-disk-triage",
+            "displayName": "Linux",
+            "summary": "x",
+            "downloads": 7,
+            "ownerHandle": "peterliu-512",
+            "canonicalUrl": "/peterliu-512/skills/linux-disk-triage"
+        });
+        let entry = clawhub_search_entry(&item);
+        assert_eq!(entry.id, "peterliu-512/linux-disk-triage", "检索态用 owner/slug 唯一标识");
+        assert_eq!(entry.author, "peterliu-512");
+        assert_eq!(entry.popularity, 7);
+        assert_eq!(
+            entry.homepage,
+            "https://clawhub.ai/peterliu-512/skills/linux-disk-triage"
+        );
+        assert!(entry.detail_url.contains("ownerHandle=peterliu-512"));
+    }
+
+    #[test]
+    fn clawhub_search_entry_should_fall_back_when_canonical_missing() {
+        let item = serde_json::json!({ "slug": "demo" });
+        let entry = clawhub_search_entry(&item);
+        assert_eq!(entry.id, "demo", "无发布者时退回裸 slug");
+        assert_eq!(entry.homepage, "https://clawhub.ai/skills/demo");
+    }
+
+    #[test]
+    fn clawhub_split_ref_should_separate_owner_from_slug() {
+        assert_eq!(
+            clawhub_split_ref("peterliu-512/linux-disk-triage"),
+            ("peterliu-512".to_string(), "linux-disk-triage".to_string())
+        );
+        assert_eq!(
+            clawhub_split_ref("linux-disk-triage"),
+            (String::new(), "linux-disk-triage".to_string())
+        );
+    }
+
+    #[test]
+    fn clawhub_download_url_should_only_carry_owner_when_known() {
+        assert_eq!(
+            clawhub_download_url("peterliu-512", "linux-disk-triage"),
+            "https://clawhub.ai/api/v1/download?slug=linux-disk-triage&ownerHandle=peterliu-512"
+        );
+        assert_eq!(
+            clawhub_download_url("", "linux-disk-triage"),
+            "https://clawhub.ai/api/v1/download?slug=linux-disk-triage"
+        );
+    }
+
+    #[test]
+    fn clawhub_entries_from_should_read_both_items_and_results() {
+        let list = serde_json::json!({ "items": [{ "slug": "a" }], "nextCursor": null });
+        assert_eq!(clawhub_entries_from(&list, clawhub_list_entry).len(), 1);
+        let search = serde_json::json!({ "results": [{ "slug": "a" }, { "slug": "b" }] });
+        assert_eq!(clawhub_entries_from(&search, clawhub_search_entry).len(), 2);
+        assert!(clawhub_entries_from(&serde_json::json!({}), clawhub_list_entry).is_empty());
+    }
+
+    /// 浏览态条目只带裸 slug，安装入口必须能直接据此构造条目，
+    /// 不能再走「精确 id 检索匹配」（那条路对裸 slug 永不命中）。
+    #[test]
+    fn clawhub_entry_from_ref_should_build_from_id_without_search() {
+        let browse = clawhub_entry_from_ref("linux-disk-triage");
+        assert_eq!(browse.id, "linux-disk-triage");
+        assert_eq!(browse.name, "linux-disk-triage");
+        assert_eq!(browse.source, CATALOG_SOURCE_CLAWHUB);
+        assert_eq!(browse.kind, CATALOG_KIND_SKILL);
+        assert!(browse.install_ready);
+
+        let owned = clawhub_entry_from_ref("acme/linux-disk-triage");
+        assert_eq!(owned.id, "acme/linux-disk-triage");
+        assert_eq!(owned.name, "linux-disk-triage", "展示名取 slug 段");
+    }
+
+    #[test]
+    fn clawhub_archive_skip_file_should_only_match_archive_root() {
+        assert!(is_clawhub_archive_skip_file(std::path::Path::new("_meta.json")));
+        assert!(is_clawhub_archive_skip_file(std::path::Path::new("skill-card.md")));
+        assert!(!is_clawhub_archive_skip_file(std::path::Path::new("SKILL.md")));
+        assert!(
+            !is_clawhub_archive_skip_file(std::path::Path::new("references/_meta.json")),
+            "只跳过包根的平台附加文件"
+        );
+    }
+
+    /// ClawHub 公开接口的联网契约测试：浏览 / 检索 / 安装三段。
+    /// 默认忽略，需要网络时手动执行：
+    /// `cargo test clawhub_live_contract -- --ignored`
+    #[test]
+    #[ignore = "需要网络：验证 ClawHub 公开接口契约"]
+    fn clawhub_live_contract_should_browse_search_and_install() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+        rt.block_on(async {
+            let state = catalog_test_state("clawhub-live");
+
+            let browse = fetch_clawhub_browse_page(&state, 1, 5)
+                .await
+                .expect("browse ClawHub");
+            assert!(!browse.entries.is_empty(), "浏览应返回条目");
+            assert!(browse.total > 0, "浏览应折算出自有下一页的标记");
+            assert!(
+                browse.entries.iter().all(|entry| !entry.id.is_empty() && entry.install_ready),
+                "每个条目都应有 slug 且可安装"
+            );
+
+            let search = fetch_clawhub_search_page(&state, "disk", 5)
+                .await
+                .expect("search ClawHub");
+            assert!(!search.entries.is_empty(), "检索应返回条目");
+
+            let target = search
+                .entries
+                .first()
+                .expect("取一个检索结果")
+                .clone();
+            assert!(
+                target.id.contains('/'),
+                "检索条目应带发布者，形如 owner/slug：{}",
+                target.id
+            );
+            // 走真实安装入口：直接调 install_clawhub_skill 会绕过条目定位，掩盖安装派发层的问题。
+            let result = install_catalog_entry_inner(
+                &state,
+                &CatalogInstallInput {
+                    source: CATALOG_SOURCE_CLAWHUB.to_string(),
+                    entry_id: target.id.clone(),
+                    env_values: std::collections::HashMap::new(),
+                },
+            )
+            .await
+            .expect("install ClawHub skill");
+            assert_eq!(result.kind, CATALOG_KIND_SKILL);
+            assert!(!result.local_id.is_empty());
+            assert!(!result.enabled, "商店安装的 Skill 默认关闭");
+
+            let skill_dir = state.llm_workspace_path.join("skills").join(&result.local_id);
+            let skill_md = skill_dir.join("SKILL.md");
+            assert!(skill_md.is_file(), "SKILL.md 应落盘：{}", skill_md.display());
+            let content = fs::read_to_string(&skill_md).expect("read SKILL.md");
+            assert!(
+                content.trim_start().starts_with("---"),
+                "落盘内容应是带 frontmatter 的 SKILL.md 正文"
+            );
+            assert!(
+                !skill_dir.join("_meta.json").exists(),
+                "平台附加文件不应落盘"
+            );
+
+            // 浏览条目不带发布者：安装入口必须能直接接住裸 slug，
+            // 并在重名时给出可操作的候选提示，而不是笼统报「未找到条目」。
+            let browse_target = browse.entries.first().expect("取一个浏览条目").clone();
+            let browse_outcome = install_catalog_entry_inner(
+                &state,
+                &CatalogInstallInput {
+                    source: CATALOG_SOURCE_CLAWHUB.to_string(),
+                    entry_id: browse_target.id.clone(),
+                    env_values: std::collections::HashMap::new(),
+                },
+            )
+            .await;
+            if let Err(err) = browse_outcome {
+                assert!(
+                    !err.contains("未找到条目"),
+                    "浏览态安装不应因 id 匹配失败：{err}"
+                );
+                assert!(
+                    err.contains("多个发布者"),
+                    "浏览态条目的失败应指出重名并给出候选，实际：{err}"
+                );
+            }
+
+            let _ = fs::remove_dir_all(
+                state.llm_workspace_path.parent().unwrap_or(&state.llm_workspace_path),
+            );
+        });
+    }
 }
