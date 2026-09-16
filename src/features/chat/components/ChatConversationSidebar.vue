@@ -451,11 +451,11 @@ const activeConversationTab = computed({
   },
   set: (value: ConversationSidebarTab) => emit("update:activeTab", value),
 });
-const conversationTabOptions: Array<SegmentedControlOption<ConversationSidebarTab>> = [
+const conversationTabOptions = computed<Array<SegmentedControlOption<ConversationSidebarTab>>>(() => [
   { value: "local", label: t("chat.localConversationTab") },
   { value: "contact", label: t("chat.contactConversationTab") },
   { value: "task", label: t("chat.taskConversationTab") },
-];
+]);
 const { conversationStatusById, markConversationRead } = usePipelineStatus({
   activeConversationId: computed(() => String(props.activeConversationId || "").trim()),
 });
