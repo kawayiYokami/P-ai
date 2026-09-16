@@ -52,14 +52,17 @@ const props = withDefaults(defineProps<{
   /** row 为带标题行的内容卡；tile 为入口磁贴（图标与标题居中，不出现标题行） */
   layout?: "row" | "tile";
   interactive?: boolean;
-  /** 标题行显示活动脉冲指示灯，与运行监控胶囊同一形态；颜色跟随卡片自身色调 */
+  /** 标题行显示活动脉冲指示灯，形态与运行监控胶囊一致；颜色默认取卡片色调，可用 pulseTone 单独指定 */
   pulsing?: boolean;
+  /** 脉冲点颜色；不给则跟随卡片 tone */
+  pulseTone?: "primary" | "secondary" | "info" | "success" | "warning" | "neutral";
 }>(), {
   tone: "neutral",
   variant: "small",
   layout: "row",
   interactive: false,
   pulsing: false,
+  pulseTone: undefined,
 });
 
 const emit = defineEmits<{
@@ -96,7 +99,7 @@ const toneMap: Record<string, { tile: string; row: string }> = {
 const toneTileClass = computed(() => toneMap[props.tone]?.tile || toneMap.neutral.tile);
 const toneRowClass = computed(() => toneMap[props.tone]?.row || toneMap.neutral.row);
 
-// 脉冲点取卡片自身色调：委托＝primary、任务/终端＝success
+// 脉冲点取卡片色调；有运行时另行指定取指定色。三张运行卡刻意分色：委托＝primary、任务＝warning、终端＝success
 const toneDotMap: Record<string, { ping: string; core: string }> = {
   primary: { ping: "bg-primary/60", core: "bg-primary" },
   secondary: { ping: "bg-secondary/60", core: "bg-secondary" },
@@ -105,7 +108,7 @@ const toneDotMap: Record<string, { ping: string; core: string }> = {
   warning: { ping: "bg-warning/60", core: "bg-warning" },
   neutral: { ping: "bg-base-content/60", core: "bg-base-content/70" },
 };
-const toneDot = computed(() => toneDotMap[props.tone] || toneDotMap.neutral);
+const toneDot = computed(() => toneDotMap[props.pulseTone || props.tone] || toneDotMap.neutral);
 
 function handleSelect() {
   if (!props.interactive) return;

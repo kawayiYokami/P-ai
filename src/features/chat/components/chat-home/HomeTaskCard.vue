@@ -5,6 +5,7 @@
     :label="t('chat.homePanel.taskLabel')"
     interactive
     pulsing
+    pulse-tone="warning"
     @select="emit('open')"
   >
     <template #trailing>
