@@ -2191,7 +2191,7 @@
     "monitorBar": {
       "delegateCount": "{count} delegates",
       "taskCount": "{count} tasks",
-      "shellCount": "{count} background processes",
+      "shellCount": "{count} background terminals",
       "runningSuffix": "running",
       "elapsedTitle": "Total elapsed time of current delegates",
       "requestTitle": "Total request steps of current delegates",

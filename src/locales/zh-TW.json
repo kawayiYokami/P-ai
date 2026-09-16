@@ -2175,7 +2175,7 @@
     "monitorBar": {
       "delegateCount": "{count} 委託",
       "taskCount": "{count} 任務",
-      "shellCount": "{count} 背景程序",
+      "shellCount": "{count} 背景終端",
       "runningSuffix": "執行中",
       "elapsedTitle": "所有目前委託累計用時",
       "requestTitle": "所有目前委託累計請求步數",

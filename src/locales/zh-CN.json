@@ -2169,7 +2169,7 @@
     "monitorBar": {
       "delegateCount": "{count} 委托",
       "taskCount": "{count} 任务",
-      "shellCount": "{count} 后台进程",
+      "shellCount": "{count} 后台终端",
       "runningSuffix": "运行中",
       "elapsedTitle": "所有当前委托累计用时",
       "requestTitle": "所有当前委托累计请求步数",
