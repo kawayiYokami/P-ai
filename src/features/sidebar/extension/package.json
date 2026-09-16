@@ -2,7 +2,7 @@
   "name": "P-ai-Sidebar",
   "displayName": "P-ai",
   "description": "Pai 桌面版的连接器。",
-  "version": "0.90.0",
+  "version": "0.90.1",
   "publisher": "yokami233618",
   "engines": {
     "vscode": "^1.90.0"

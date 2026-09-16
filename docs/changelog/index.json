@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-15T05:50:48.136Z",
-  "latestVersion": "v0.90.0",
+  "generatedAt": "2026-09-16T01:09:37.953Z",
+  "latestVersion": "v0.90.1",
   "releases": [
+    {
+      "version": "v0.90.1",
+      "path": "docs/changelog/releases/v0.90.1.md",
+      "summary": "**能力商店**：技能来源新增 ClawHub，可浏览、搜索并安装 OpenClaw 社区的公开技能；条目详情里的来源地址现在一点即可在浏览器打开。"
+    },
     {
       "version": "v0.90.0",
       "path": "docs/changelog/releases/v0.90.0.md",

@@ -86,7 +86,7 @@ function revealInFolder() {
 function openInVscode() {
   const state = fileState();
   if (!state) return;
-  void run(() => openTransportFileInVscode(state.path, state.line, state.column));
+  void run(() => openTransportFileInVscode(state.path));
 }
 
 function saveAs() {

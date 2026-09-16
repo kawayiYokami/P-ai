@@ -918,20 +918,12 @@ export async function updateTransportFileReaderWatchTargets(input: Record<string
   return true;
 }
 
-/** 在 VS Code 中打开文件并可定位到行；本机文件系统能力只存在于桌面宿主。 */
-export async function openTransportFileInVscode(
-  path: string,
-  line?: number,
-  column?: number,
-): Promise<boolean> {
+/** 在 VS Code 中打开文件；本机文件系统能力只存在于桌面宿主。 */
+export async function openTransportFileInVscode(path: string): Promise<boolean> {
   const normalizedPath = String(path || "").trim();
   if (!normalizedPath || !isTauriRuntimeAvailable()) return false;
   await invokeTauri("open_file_in_vscode", {
-    input: {
-      path: normalizedPath,
-      ...(Number.isFinite(line) ? { line } : {}),
-      ...(Number.isFinite(column) ? { column } : {}),
-    },
+    input: { path: normalizedPath },
   });
   return true;
 }

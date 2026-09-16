@@ -1362,21 +1362,16 @@ fn windows_extract_executable_icon_data_url(path: &Path) -> Result<String, Strin
     result
 }
 
-fn open_directory_in_vscode(path: &Path) -> Result<(), String> {
-    let canonical = path
-        .canonicalize()
-        .map_err(|err| format!("解析目录失败 ({}): {err}", path.display()))?;
-    if !canonical.is_dir() {
-        return Err(format!("不是目录：{}", canonical.display()));
-    }
-
+/// 用 VS Code 打开一个路径（文件或目录）：平台差异只在这里处理一次。
+/// 目录版与文件版都复用它，避免「同一套启动逻辑写两遍」再次漏掉平台 cfg。
+fn launch_in_vscode(target: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        let target = terminal_strip_windows_verbatim_prefix(&canonical.to_string_lossy());
+        let normalized = terminal_path_for_user(target);
         let vscode_exe = first_existing_vscode_exe()
             .ok_or_else(|| "未检测到 VS Code 可执行文件。".to_string())?;
         std::process::Command::new(vscode_exe)
-            .arg(target.as_str())
+            .arg(normalized.as_str())
             .spawn()
             .map_err(|err| format!("打开 VS Code 失败：{err}"))?;
         return Ok(());
@@ -1386,7 +1381,7 @@ fn open_directory_in_vscode(path: &Path) -> Result<(), String> {
     {
         std::process::Command::new("open")
             .args(["-a", "Visual Studio Code"])
-            .arg(&canonical)
+            .arg(target)
             .spawn()
             .map_err(|err| format!("打开 VS Code 失败：{err}"))?;
         return Ok(());
@@ -1395,7 +1390,7 @@ fn open_directory_in_vscode(path: &Path) -> Result<(), String> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         std::process::Command::new("code")
-            .arg(&canonical)
+            .arg(target)
             .spawn()
             .map_err(|err| format!("打开 VS Code 失败：{err}"))?;
         return Ok(());
@@ -1405,18 +1400,24 @@ fn open_directory_in_vscode(path: &Path) -> Result<(), String> {
     Err("当前平台不支持打开 VS Code。".to_string())
 }
 
+fn open_directory_in_vscode(path: &Path) -> Result<(), String> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|err| format!("解析目录失败 ({}): {err}", path.display()))?;
+    if !canonical.is_dir() {
+        return Err(format!("不是目录：{}", canonical.display()));
+    }
+    launch_in_vscode(&canonical)
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenFileInVscodeInput {
     path: String,
-    #[serde(default)]
-    line: Option<u32>,
-    #[serde(default)]
-    column: Option<u32>,
 }
 
-/// 在 VS Code 中打开文件，带行号时定位到行（可选列）。
-/// 与目录版分开：目录用 `open_directory_in_vscode`，本命令只接受文件。
+/// 在 VS Code 中打开文件。
+/// 与目录版共用 `launch_in_vscode`，这里只多一层「必须是文件」的校验。
 #[tauri::command]
 fn open_file_in_vscode(input: OpenFileInVscodeInput) -> Result<(), String> {
     let raw_path = input.path.trim();
@@ -1430,62 +1431,7 @@ fn open_file_in_vscode(input: OpenFileInVscodeInput) -> Result<(), String> {
     let canonical = file_path
         .canonicalize()
         .map_err(|err| format!("解析文件路径失败（{raw_path}）：{err}"))?;
-    let base = terminal_strip_windows_verbatim_prefix(&canonical.to_string_lossy());
-    // VS Code 的 --goto 语法：file:line:column，只给行号时省掉列。
-    let goto = match (input.line, input.column) {
-        (Some(line), Some(column)) => format!("{base}:{line}:{column}"),
-        (Some(line), None) => format!("{base}:{line}"),
-        _ => base.clone(),
-    };
-    let has_goto = input.line.is_some();
-
-    #[cfg(target_os = "windows")]
-    {
-        let vscode_exe = first_existing_vscode_exe()
-            .ok_or_else(|| "未检测到 VS Code 可执行文件。".to_string())?;
-        let mut command = std::process::Command::new(vscode_exe);
-        if has_goto {
-            command.args(["-g", goto.as_str()]);
-        } else {
-            command.arg(base.as_str());
-        }
-        command
-            .spawn()
-            .map_err(|err| format!("打开 VS Code 失败：{err}"))?;
-        return Ok(());
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let mut command = std::process::Command::new("open");
-        command.args(["-a", "Visual Studio Code"]);
-        if has_goto {
-            command.args(["--args", "-g", goto.as_str()]);
-        } else {
-            command.arg(base.as_str());
-        }
-        command
-            .spawn()
-            .map_err(|err| format!("打开 VS Code 失败：{err}"))?;
-        return Ok(());
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        let mut command = std::process::Command::new("code");
-        if has_goto {
-            command.args(["-g", goto.as_str()]);
-        } else {
-            command.arg(base.as_str());
-        }
-        command
-            .spawn()
-            .map_err(|err| format!("打开 VS Code 失败：{err}"))?;
-        return Ok(());
-    }
-
-    #[allow(unreachable_code)]
-    Err("当前平台不支持打开 VS Code。".to_string())
+    launch_in_vscode(&canonical)
 }
 
 /// 通用「另存为」：系统保存对话框选目标，再把文件复制过去。
