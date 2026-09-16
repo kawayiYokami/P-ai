@@ -4,6 +4,7 @@
     :icon="Network"
     :label="t('chat.homePanel.delegateLabel')"
     interactive
+    :pulsing="pulsing"
     @select="emit('open')"
   >
     <template #trailing>
@@ -28,12 +29,15 @@ const props = withDefaults(defineProps<{
   lastToolName?: string;
   /** 右上角自定义标签：给了就用它（历史委托显示状态），否则按 elapsedMs 显示时长 */
   metaLabel?: string;
+  /** 运行中的委托卡显示脉冲点；已结束的委托卡不显示 */
+  pulsing?: boolean;
 }>(), {
   elapsedMs: 0,
   requestCount: 0,
   tokenCount: 0,
   lastToolName: "",
   metaLabel: "",
+  pulsing: false,
 });
 
 const emit = defineEmits<{

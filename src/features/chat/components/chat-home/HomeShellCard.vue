@@ -3,6 +3,7 @@
     tone="success"
     :icon="SquareTerminal"
     :label="t('chat.homePanel.shellLabel')"
+    pulsing
   >
     <template #trailing>
       <span class="shrink-0 text-xs text-base-content/45">{{ elapsedText }}</span>

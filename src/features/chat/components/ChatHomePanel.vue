@@ -68,6 +68,7 @@
           :request-count="delegate.requestCount"
           :token-count="delegate.tokenCount"
           :last-tool-name="delegate.lastToolName"
+          pulsing
           @open="emit('openMonitorTab', 'delegate')"
         />
         <HomeDelegateCard

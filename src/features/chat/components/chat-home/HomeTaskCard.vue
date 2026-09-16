@@ -4,6 +4,7 @@
     :icon="ListTodo"
     :label="t('chat.homePanel.taskLabel')"
     interactive
+    pulsing
     @select="emit('open')"
   >
     <template #trailing>

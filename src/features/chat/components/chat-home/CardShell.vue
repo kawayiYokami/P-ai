@@ -26,6 +26,10 @@
         <span class="ecall-home-card-icon" :class="toneRowClass">
           <component :is="icon" class="size-3.5 shrink-0" aria-hidden="true" />
         </span>
+        <span v-if="pulsing" class="relative flex h-2 w-2 shrink-0 items-center justify-center">
+          <span class="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" :class="toneDot.ping"></span>
+          <span class="relative inline-flex h-1.5 w-1.5 rounded-full" :class="toneDot.core"></span>
+        </span>
         <span class="min-w-0 flex-1 truncate text-xs font-semibold text-base-content/80">{{ label }}</span>
         <slot name="trailing" />
       </div>
@@ -48,11 +52,14 @@ const props = withDefaults(defineProps<{
   /** row 为带标题行的内容卡；tile 为入口磁贴（图标与标题居中，不出现标题行） */
   layout?: "row" | "tile";
   interactive?: boolean;
+  /** 标题行显示活动脉冲指示灯，与运行监控胶囊同一形态；颜色跟随卡片自身色调 */
+  pulsing?: boolean;
 }>(), {
   tone: "neutral",
   variant: "small",
   layout: "row",
   interactive: false,
+  pulsing: false,
 });
 
 const emit = defineEmits<{
@@ -88,6 +95,17 @@ const toneMap: Record<string, { tile: string; row: string }> = {
 
 const toneTileClass = computed(() => toneMap[props.tone]?.tile || toneMap.neutral.tile);
 const toneRowClass = computed(() => toneMap[props.tone]?.row || toneMap.neutral.row);
+
+// 脉冲点取卡片自身色调：委托＝primary、任务/终端＝success
+const toneDotMap: Record<string, { ping: string; core: string }> = {
+  primary: { ping: "bg-primary/60", core: "bg-primary" },
+  secondary: { ping: "bg-secondary/60", core: "bg-secondary" },
+  info: { ping: "bg-info/60", core: "bg-info" },
+  success: { ping: "bg-success/60", core: "bg-success" },
+  warning: { ping: "bg-warning/60", core: "bg-warning" },
+  neutral: { ping: "bg-base-content/60", core: "bg-base-content/70" },
+};
+const toneDot = computed(() => toneDotMap[props.tone] || toneDotMap.neutral);
 
 function handleSelect() {
   if (!props.interactive) return;
