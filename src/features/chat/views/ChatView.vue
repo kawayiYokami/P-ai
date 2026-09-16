@@ -198,7 +198,7 @@
           <FloatingScrollbar ref="chatScrollbarRef" :target="scrollContainer" />
           </div>
         </div>
-        <!-- 会话悬浮操作区：下排工作区 bar（贴底时出现），上排预览条 + 时间线按钮（离底时出现），两排各自动画进出 -->
+        <!-- 会话悬浮操作区：上排预览条 + 时间线按钮、下排工作区 bar，上下两排常驻 -->
         <div
           data-session-float-dock="true"
           class="pointer-events-none absolute inset-x-0 z-30"
@@ -207,16 +207,10 @@
         <div
           v-if="supportsFloatingSessionToolbar"
           ref="toolbarContainer"
-          class="absolute inset-x-0 bottom-0 z-20 transition-all duration-150 ease-out"
-          :class="showFloatingSessionToolbar
-            ? 'pointer-events-auto opacity-100 translate-y-0'
-            : 'pointer-events-none opacity-0 translate-y-2'"
-          :aria-hidden="showFloatingSessionToolbar ? undefined : 'true'"
+          class="pointer-events-auto absolute inset-x-0 bottom-0 z-20"
         >
           <div class="ecall-chat-toolbar-shell w-full px-2">
             <ChatWorkspaceToolbar
-              class="transition-opacity duration-150 ease-out"
-              :class="showFloatingSessionToolbar ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'"
                   :chatting="chatting" :frozen="frozen" :conversation-busy="conversationInteractionBusy"
                   :workspace-button-label="t('chat.allowedWorkspaceButton')" :workspace-button-name="currentWorkspaceName"
                   :workspace-button-disabled="!activeConversationId || activeConversationSummary?.kind === 'remote_im_contact'"
@@ -262,13 +256,14 @@
               :avatar-url="previewAvatarUrl"
               :visible="!atConversationBottom && !chatStatusBanner && !showTimelineFloatPanel"
               :streaming="chatting"
+              :jump-only="previewJumpOnly"
               @jump-to-bottom="handleJumpToBottomWithFollow"
             />
           </div>
           <!-- 时间线按钮：与预览条底边齐平；卡片已 Teleport 到 body 视口锚定，本容器仅提供锚点定位 -->
           <div class="relative h-10 w-10 shrink-0">
             <TimelineSnakeBoard
-              :visible="showTimelineFloatPanel && timelineAnchors.length >= 2 && !showFloatingSessionToolbar"
+              :visible="showTimelineFloatPanel && timelineAnchors.length >= 2"
               :anchors="timelineAnchors"
               :active-index="activeTimelineIndex"
               :hovered-index="hoveredTimelineIndex"
@@ -285,7 +280,7 @@
               leave-to-class="opacity-0 scale-90"
             >
               <button
-                v-if="timelineAnchors.length >= 2 && !showTimelineFloatPanel && !showFloatingSessionToolbar"
+                v-if="timelineAnchors.length >= 2 && !showTimelineFloatPanel"
                 ref="timelineFloatWrapRef"
                 type="button"
                 class="group absolute bottom-0 right-0 pointer-events-auto"
@@ -302,7 +297,7 @@
               </button>
             </Transition>
             <div
-              v-if="showTimelineFloatPanel && !showFloatingSessionToolbar"
+              v-if="showTimelineFloatPanel"
               ref="timelineFloatPlaceholderRef"
               class="absolute bottom-0 right-0 h-10 w-10 invisible pointer-events-none"
               aria-hidden="true"
@@ -1668,7 +1663,7 @@ const {
   scrollContainer, composerContainer, toolbarContainer, chatLayoutRoot,
   latestOwnElasticMinHeight, atConversationBottom, userScrollingUp,
   followBottom, startFollowBottom, stopFollowBottom,
-  sessionControlPanelVisible, sessionFloatDockStyle, toolbarReservedHeight, onScroll,
+  sessionFloatDockStyle, toolbarReservedHeight, onScroll,
   noteWheelScrollIntent, beginPointerScrollIntent, prepareBottomAlignmentLayout,
 } = useChatScrollLayout({
   activeConversationId: toRef(props, "activeConversationId"),
@@ -2012,10 +2007,9 @@ function handleTimelineFloatEnter() {
   if (timelineFloatOpenTimer) return;
   timelineFloatOpenTimer = setTimeout(() => {
     timelineFloatOpenTimer = null;
-    // 延时窗口里触发源可能已经消失（锚点数跌破 2、工具栏出现），执行前重新校验
+    // 延时窗口里触发源可能已经消失（锚点数跌破 2），执行前重新校验
     if (showTimelineFloatPanel.value) return;
     if (timelineAnchors.value.length < 2) return;
-    if (showFloatingSessionToolbar.value) return;
     timelineFloatOpen.value = true;
   }, TIMELINE_FLOAT_OPEN_DELAY_MS);
 }
@@ -2157,29 +2151,15 @@ const supportsFloatingSessionToolbar = computed(() =>
   && !activeConversationIsRemoteContact.value,
 );
 
-const showFloatingSessionToolbar = computed(() => {
-  if (!supportsFloatingSessionToolbar.value) return false;
-  return sessionControlPanelVisible.value;
-});
-
-// 会话悬浮操作区上排（预览条 + 时间线按钮）的底边偏移：
-// 下排工作区 bar 可见时抬起一个 bar 高 + 8px 间隔，不可见时落到容器底边
-const sessionFloatTopRowBottom = computed(() =>
-  showFloatingSessionToolbar.value ? toolbarReservedHeight.value + 8 : 0,
-);
+// 会话悬浮操作区上下两排常驻：上排（预览条 + 时间线按钮）、下排工作区 bar 不再按贴底/离底显隐，
+// 只要当前会话支持悬浮操作区就一直在位。
+// 会话悬浮操作区上排（预览条 + 时间线按钮）的底边偏移：恒定抬起一个工作区 bar 高 + 8px 间隔
+const sessionFloatTopRowBottom = computed(() => toolbarReservedHeight.value + 8);
 
 const showConversationTodoBar = computed(() => {
   const hasActiveOrPending = normalizedConversationTodos.value.some((item) => item.status === "pending" || item.status === "in_progress");
   if (!hasActiveOrPending) return false;
   return atConversationBottom.value;
-});
-
-watch(showFloatingSessionToolbar, (visible) => {
-  if (!visible) return;
-  clearTimelineFloatOpenTimer();
-  if (!timelineFloatOpen.value) return;
-  timelineFloatOpen.value = false;
-  if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
 });
 
 // ==================== previous user message jump ====================
@@ -2892,6 +2872,25 @@ const previewAvatarUrl = computed(() => {
   }
   return "";
 });
+
+// 新消息预览口径：用户曾经到过底部（已看过最新内容）之后，若还没发起新一轮调度，
+// 下方就没有真正的新内容可预览——此时不展示正文预览，只留一个居中的「回到底部」按钮；
+// 一旦有新调度产出（chatting 上升沿），重新恢复正文预览。
+const hasReachedConversationBottom = ref(false);
+const dispatchedSinceBottom = ref(false);
+watch(atConversationBottom, (atBottom) => {
+  if (!atBottom) return;
+  hasReachedConversationBottom.value = true;
+  dispatchedSinceBottom.value = false;
+});
+watch(() => props.chatting, (chatting, wasChatting) => {
+  if (chatting && !wasChatting) dispatchedSinceBottom.value = true;
+});
+watch(() => String(props.activeConversationId || "").trim(), () => {
+  hasReachedConversationBottom.value = false;
+  dispatchedSinceBottom.value = false;
+});
+const previewJumpOnly = computed(() => hasReachedConversationBottom.value && !dispatchedSinceBottom.value);
 
 function scrollToUserMessageTarget(target: { index: number; item: ChatRenderItem }) {
   if (!target) return;

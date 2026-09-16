@@ -5,8 +5,18 @@
     leave-active-class="transition duration-200 ease-out"
     leave-to-class="opacity-0 translate-y-1"
   >
-  <div v-if="visible" class="pointer-events-none flex justify-start">
+  <div v-if="visible" class="pointer-events-none flex" :class="jumpOnly ? 'justify-center' : 'justify-start'">
     <button
+      v-if="jumpOnly"
+      type="button"
+      :class="[SESSION_FLOAT_FROST_CIRCLE, 'pointer-events-auto']"
+      :aria-label="t('chat.jumpToBottom')"
+      @click="emit('jumpToBottom')"
+    >
+      <ArrowDownToLine class="h-4 w-4" :stroke-width="2.5" />
+    </button>
+    <button
+      v-else
       type="button"
       :class="['ecall-thinking-preview-bar pointer-events-auto', SESSION_FLOAT_FROST_CARD]"
       @click="emit('jumpToBottom')"
@@ -63,7 +73,7 @@ import { useI18n } from "vue-i18n";
 import { ArrowDownToLine } from "@lucide/vue";
 import { stripToolcallMarkers } from "../../../utils/chat-message-semantics";
 import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
-import { SESSION_FLOAT_FROST_CARD } from "./session-float-styles";
+import { SESSION_FLOAT_FROST_CARD, SESSION_FLOAT_FROST_CIRCLE } from "./session-float-styles";
 
 const { t } = useI18n();
 
@@ -83,6 +93,8 @@ const props = withDefaults(
     idleText?: string;
     /** 正文行前的头像（最新一条助理消息的人格头像） */
     avatarUrl?: string;
+    /** 只留居中的「回到底部」按钮：曾经到过底部且没有新调度时，不再预览正文 */
+    jumpOnly?: boolean;
   }>(),
   {
     lines: 4,
@@ -91,6 +103,7 @@ const props = withDefaults(
     streaming: true,
     idleText: "",
     avatarUrl: "",
+    jumpOnly: false,
   },
 );
 
