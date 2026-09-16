@@ -248,7 +248,7 @@
               </button>
               <ChatModelPicker
                 variant="chip"
-                class="min-w-0 flex-1"
+                class="min-w-0 max-w-full"
                 :model-value="activeModelDisplayId"
                 :api-configs="chatModelOptions"
                 :theme="teleportTheme"

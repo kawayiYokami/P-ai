@@ -5,7 +5,7 @@
       type="button"
       :class="variant === 'field'
         ? 'select select-bordered bg-none flex w-full items-center justify-between gap-2 pr-3 text-left'
-        : 'btn btn-sm h-8 min-h-8 w-full min-w-0 justify-between border-0 bg-transparent text-base-content shadow-none hover:bg-base-200/60'"
+        : 'btn btn-sm h-8 min-h-8 w-full min-w-0 justify-start text-left border-0 bg-transparent text-base-content shadow-none hover:bg-base-200/60'"
       :disabled="disabled || (normalizedOptions.length === 0 && extraOptions.length === 0 && !placeholder)"
       :title="selectedModelTitle"
       @click="toggleDropdown"
@@ -13,14 +13,14 @@
       <span
         :class="variant === 'field'
           ? ['min-w-0 flex-1 truncate', selectedModelName ? '' : 'text-base-content/50']
-          : 'min-w-0 flex-1 truncate'"
+          : 'min-w-0 truncate'"
       >
         {{ triggerLabel }}
       </span>
       <!-- 等级独立成段且不收缩：模型名再长也不会把它截掉 -->
       <span v-if="triggerEffort" class="ml-1 shrink-0 whitespace-nowrap text-base-content/70">· {{ triggerEffort }}</span>
       <ChevronDown
-        :class="['h-3 w-3 shrink-0 opacity-50 transition-transform', dropdownOpen ? 'rotate-0' : 'rotate-180']"
+        :class="['h-3 w-3 shrink-0 opacity-50 transition-transform', variant === 'field' ? '' : 'ml-auto', dropdownOpen ? 'rotate-0' : 'rotate-180']"
         :size="variant === 'field' ? 16 : 12"
       />
     </button>
