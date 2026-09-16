@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-16T01:09:37.953Z",
-  "latestVersion": "v0.90.1",
+  "generatedAt": "2026-09-16T15:22:25.564Z",
+  "latestVersion": "v0.90.2",
   "releases": [
+    {
+      "version": "v0.90.2",
+      "path": "docs/changelog/releases/v0.90.2.md",
+      "summary": "**会话时间线改版**：时间线入口由右下角悬停才出现的浮层，换成带文字的直接可点按钮，只要会话里有两轮以上消息就一直在；点开后是一整屏竖排的会话历史，点其中任意一条可直接跳到那条消息，长会话里定位不用再来回滚动。"
+    },
     {
       "version": "v0.90.1",
       "path": "docs/changelog/releases/v0.90.1.md",
