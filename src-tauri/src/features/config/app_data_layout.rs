@@ -439,6 +439,11 @@ fn data_migration_steps() -> Vec<DataMigrationStep> {
             name: "v6_avatar_path_relative",
             run: migrate_avatar_paths_to_relative,
         },
+        DataMigrationStep {
+            version: DATA_MIGRATION_VERSION_V7_REMOVE_HR_PERSONA,
+            name: "v7_remove_hr_persona",
+            run: migrate_remove_hr_persona,
+        },
     ]
 }
 
@@ -491,6 +496,41 @@ fn migrate_avatar_paths_to_relative(
     runtime_log_info(format!(
         "[应用数据迁移] 头像路径迁移完成，任务=v6头像相对路径，改写={rewritten}，保留={kept}"
     ));
+    Ok(stats)
+}
+
+/// V7 迁移步骤：移除已废弃的 HR 人格，并从各人格的下级列表里摘除对它的引用。
+/// HR 机制已整体下线（人格、常驻 skill、招募入口一并删除），但历史数据里可能已经落下
+/// 一个 `hr` 人格节点，且主助理的下级列表里含 `hr`，需要一并清理，
+/// 否则组织图会残留一个已失效的成员、根人格的下级也指向空节点。
+/// 幂等：既无 `hr` 节点、也无对它的引用时不写盘。
+fn migrate_remove_hr_persona(
+    context: &DataMigrationContext<'_>,
+) -> Result<DataMigrationStepStats, String> {
+    /// 已废弃的 HR 人格 id；仅本迁移使用，业务代码不再感知。
+    const LEGACY_HR_AGENT_ID: &str = "hr";
+    let mut stats = DataMigrationStepStats::default();
+    let mut agents = read_agents_shard(&context.state.data_path)?;
+    let mut pruned_refs = 0usize;
+    for agent in agents.iter_mut() {
+        let before = agent.child_agent_ids.len();
+        agent
+            .child_agent_ids
+            .retain(|child| child.trim() != LEGACY_HR_AGENT_ID);
+        pruned_refs += before - agent.child_agent_ids.len();
+    }
+    let removed_nodes = agents
+        .iter()
+        .filter(|agent| agent.id == LEGACY_HR_AGENT_ID)
+        .count();
+    agents.retain(|agent| agent.id != LEGACY_HR_AGENT_ID);
+    if removed_nodes > 0 || pruned_refs > 0 {
+        write_agents_shard(&context.state.data_path, &agents)?;
+        stats.data_changed = true;
+        runtime_log_info(format!(
+            "[应用数据迁移] HR 人格清理完成，任务=v7移除HR人格，删除节点={removed_nodes}，摘除下级引用={pruned_refs}"
+        ));
+    }
     Ok(stats)
 }
 

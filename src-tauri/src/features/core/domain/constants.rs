@@ -19,18 +19,18 @@ const MESSAGE_STORE_MIGRATION_CURRENT_VERSION: u32 = 4;
 const DATA_MIGRATION_VERSION_V5_DEPARTMENTS_TO_AGENT_ORGANIZATION: u32 = 5;
 /// V6：头像路径从绝对路径改为相对数据根的相对路径，让数据根搬迁 / 导入导出后仍可解析。
 const DATA_MIGRATION_VERSION_V6_AVATAR_PATH_RELATIVE: u32 = 6;
-const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V6_AVATAR_PATH_RELATIVE;
+/// V7：移除已废弃的 HR 人格节点，并从各人格的下级列表里摘除对它的引用。
+const DATA_MIGRATION_VERSION_V7_REMOVE_HR_PERSONA: u32 = 7;
+const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V7_REMOVE_HR_PERSONA;
 const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
 const DEFAULT_AGENT_ID: &str = "default-agent";
 const DEPUTY_AGENT_ID: &str = "deputy-agent";
 /// 内置人格 id：原内置部门在新组织里的身份。
 /// `assistants`（显示名）复用 `default-agent`、`explorer`（显示名）复用 `deputy-agent`，
-/// 故这两个不新增常量；其余 5 个是新建的人格 id。
-const LEADER_AGENT_ID: &str = "leader";
+/// 故这两个不新增常量；其余 3 个是新建的人格 id。
 const REVIEWER_AGENT_ID: &str = "reviewer";
 const SADDLER_AGENT_ID: &str = "saddler";
 const SUPPORT_AGENT_ID: &str = "support";
-const HR_AGENT_ID: &str = "hr";
 const USER_PERSONA_ID: &str = "user-persona";
 const SYSTEM_PERSONA_ID: &str = "system-persona";
 const DELEGATE_TOOL_KIND_DELEGATE: &str = "delegate";

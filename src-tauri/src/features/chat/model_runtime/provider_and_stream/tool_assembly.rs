@@ -1580,35 +1580,6 @@ mod tool_assembly_permission_tests {
             .collect::<Vec<_>>();
         assert_eq!(names, vec!["read", "read_media", "exec", "fetch", "websearch"]);
 
-        let leader = default_leader_agent();
-        let resolved = resolve_legal_runtime_tools(
-            &config,
-            &test_api(),
-            &leader,
-            &policy,
-            Some(&memory),
-            &tools,
-        );
-        let names = resolved
-            .attached
-            .iter()
-            .map(|tool| tool.definition.name.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            names,
-            vec!["read", "read_media", "exec", "fetch", "websearch"]
-        );
-        assert!(agent_permission_allows_any_name(
-            Some(&leader),
-            AgentPermissionCategory::Skill,
-            &["memory-generation"],
-        ));
-        assert!(!agent_permission_allows_any_name(
-            Some(&leader),
-            AgentPermissionCategory::Skill,
-            &["news-analyst"],
-        ));
-
         let reviewer = default_reviewer_agent();
         assert!(agent_permission_allows_any_name(
             Some(&reviewer),

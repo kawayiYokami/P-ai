@@ -90,63 +90,9 @@
         />
       </div>
 
-      <div class="w-full text-center text-caption leading-tight text-base-content/45">
-        {{ t("chat.draftRecipientExperimentalHint") }}
-      </div>
       <div class="flex max-w-full flex-wrap items-stretch justify-center gap-3">
         <Transition name="recipient-fade" mode="out-in">
           <div v-if="!expanded" key="recent" class="flex max-w-full flex-wrap items-stretch justify-center gap-3">
-            <template v-if="hrCollapsed">
-              <div
-                v-if="selectedOption"
-                class="flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-2xl border border-primary/60 bg-primary/10 px-1 py-2.5 backdrop-blur-sm"
-              >
-                <button
-                  type="button"
-                  class="flex w-full flex-col items-center gap-1.5"
-                  @click="emit('change', { agentId: selectedOption.agentId })"
-                >
-                  <div class="avatar">
-                    <div class="h-14 w-14 rounded-full ring-2 ring-primary">
-                      <img
-                        v-if="resolveAvatarUrl(selectedOption.agentId)"
-                        :src="resolveAvatarUrl(selectedOption.agentId)"
-                        :alt="selectedOption.agentName"
-                        class="h-14 w-14 rounded-full object-cover"
-                      />
-                      <div
-                        v-else
-                        class="flex h-14 w-14 items-center justify-center rounded-full bg-primary/80 text-lg font-semibold text-primary-content"
-                      >
-                        {{ agentInitials(selectedOption.agentName) }}
-                      </div>
-                    </div>
-                  </div>
-                  <span class="max-w-full truncate text-center text-xs leading-tight text-base-content/80">
-                    {{ selectedOption.agentName }}
-                  </span>
-                  <span
-                    v-if="optionSubLabel(selectedOption)"
-                    class="max-w-full truncate rounded-full px-1.5 py-0.5 text-caption leading-tight bg-primary/15 font-medium text-primary"
-                  >
-                    {{ optionSubLabel(selectedOption) }}
-                  </span>
-                </button>
-              </div>
-              <button
-                type="button"
-                class="flex w-20 shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-base-content/25 px-1 py-2.5 text-base-content/55 transition-colors hover:border-primary/50 hover:bg-base-100/70 hover:text-base-content"
-                @click="handleExitHR"
-              >
-                <span class="flex h-14 w-14 items-center justify-center rounded-full bg-base-content/10 text-xl leading-none">
-                  <ArrowLeft class="h-6 w-6" />
-                </span>
-                <span class="max-w-full truncate text-center text-xs leading-tight">
-                  {{ t("chat.draftRecipientBack") }}
-                </span>
-              </button>
-            </template>
-            <template v-else>
             <div
               v-for="option in recentOptions"
               :key="option.id"
@@ -213,7 +159,6 @@
             >
               {{ t("chat.draftRecipientMore") }}
             </button>
-            </template>
           </div>
           <div v-else key="all" class="flex max-h-[26rem] w-full max-w-2xl flex-col gap-2">
             <div class="min-h-0 flex-1 overflow-y-auto">
@@ -266,21 +211,6 @@
             </div>
           </div>
         </Transition>
-
-        <button
-          v-if="!hrCollapsed"
-          type="button"
-          class="flex shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-primary/40 px-3 py-2.5 text-primary transition-colors hover:border-primary hover:bg-primary/10"
-          :class="expanded ? 'w-24' : ''"
-          @click="emit('recruit')"
-        >
-          <span class="flex h-14 w-14 items-center justify-center rounded-full bg-primary/15">
-            <UserPlus class="h-6 w-6" />
-          </span>
-          <span class="max-w-full truncate text-center text-xs font-medium leading-tight">
-            {{ t("chat.draftRecipientRecruit") }}
-          </span>
-        </button>
       </div>
     </div>
 
@@ -296,7 +226,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowLeft, Pencil, UserPlus } from "@lucide/vue";
+import { Pencil } from "@lucide/vue";
 import { gitPanelBranchList, gitPanelCheckoutCheck, gitPanelCheckout } from "../../../services/tauri-api";
 import { agentPersonaOptionId, type AgentPersonaOption } from "../../shared/agent-persona-options";
 import WorkspaceConfigCard from "../../shared/components/WorkspaceConfigCard.vue";
@@ -350,7 +280,6 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   change: [value: { agentId: string }];
   "update:title": [value: string];
-  recruit: [];
 }>();
 
 const { t } = useI18n();
@@ -811,30 +740,6 @@ watch(
 );
 
 // ========== 人格候选 ==========
-
-// 选中 HR（人力人格）时进入收敛态：卡片墙仅保留当前 HR 卡 + 「返回」入口
-const isHRSelected = computed(() => {
-  const agentId = String(props.selectedAgentId || "").trim();
-  return agentId === "hr";
-});
-
-// 手动展开过全量卡片墙后，即使仍选中 HR 也保持展示（返回不改变选中，仅恢复卡片墙）
-const exitHRView = ref(false);
-watch(isHRSelected, (hr) => {
-  if (!hr) exitHRView.value = false;
-});
-// HR 收敛态是否生效
-const hrCollapsed = computed(() => isHRSelected.value && !exitHRView.value);
-
-// 返回：退出 HR 收敛态，并自动切到最近用过的 agent（recentOptions 首位，已排除当前会话）
-function handleExitHR() {
-  exitHRView.value = true;
-  expanded.value = false;
-  const recent = recentOptions.value[0];
-  if (recent) {
-    emit("change", { agentId: recent.agentId });
-  }
-}
 
 const selectedAgentId = computed(() => String(props.selectedAgentId || "").trim());
 

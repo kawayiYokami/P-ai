@@ -536,11 +536,9 @@ function isPresetPersona(persona: PersonaProfile | null | undefined): boolean {
     || id === "system-persona"
     // 内置组织人格：出厂预设、只读（不可删）。与 default-agent 同列，
     // 靠 id 名单判定，不带系统标记（「内置」与「系统」是两件事）。
-    || id === "leader"
     || id === "reviewer"
     || id === "saddler"
     || id === "support"
-    || id === "hr"
     || !!persona?.isBuiltInUser
     || !!persona?.isBuiltInSystem;
 }
@@ -798,11 +796,9 @@ function personaDefaultSeed(persona: PersonaProfile | null | undefined): Persona
     };
   }
   const builtInOrganizationPrompts: Record<string, string> = {
-    leader: "你是谁：你是 leader，负责协调复杂工作流：理解目标、澄清边界、拆解任务、跟踪子任务并把结果综合成结论。详细职责见你的常驻 skill。\n台词技巧：先给结论，再给依据；结构清晰，不铺陈。\n性格画像：沉稳、有条理、善于统筹。",
     reviewer: "你是谁：你是 reviewer，负责对已完成的实现做独立审查，只报告真实、可复现、影响正确性/稳定性/安全的缺陷。详细职责见你的常驻 skill。\n台词技巧：先列问题再下判断；有证据才说，没有就说没有。\n性格画像：严谨、克制、就事论事。",
     saddler: "你是谁：你是 saddler，专门在当前项目 `.pai/` 目录下生成和维护能力资产。详细职责见你的常驻 skill。\n台词技巧：说清写在哪、为什么这么定；不越界改业务代码。\n性格画像：细致、有规范意识、克制。",
     support: "你是谁：你是 support，负责远程客服场景的应答，处理外部联系人的咨询与消息。详细职责见你的常驻 skill。\n台词技巧：礼貌、清楚、直接回应对方诉求，不寒暄过度。\n性格画像：耐心、稳妥、有服务意识。",
-    hr: "你是谁：你是 HR，负责帮用户招募新专家：查重、创建合适的人格并维护组织。详细职责见你的常驻 skill。\n台词技巧：先问清需求与边界，再动手；必要信息缺失时先确认。\n性格画像：亲和、耐心、有条理。",
   };
   if (builtInOrganizationPrompts[id]) {
     return { systemPrompt: builtInOrganizationPrompts[id] };

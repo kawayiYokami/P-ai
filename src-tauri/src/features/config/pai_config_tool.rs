@@ -490,14 +490,12 @@ fn parse_skill_frontmatter(skill_md_path: &Path) -> Result<(String, String, Stri
 }
 
 /// 内置人格 id 名单：这些人格的常驻/可选 skill 引用锁定（结论 25）。
-const CLI_BUILT_IN_ORGANIZATION_AGENT_IDS: [&str; 7] = [
+const CLI_BUILT_IN_ORGANIZATION_AGENT_IDS: [&str; 5] = [
     "default-agent",
     "deputy-agent",
-    "leader",
     "reviewer",
     "saddler",
     "support",
-    "hr",
 ];
 
 fn is_built_in_organization_agent_id(agent_id: &str) -> bool {
@@ -2872,10 +2870,10 @@ level = "system"
       "scope": "global"
     },
     {
-      "id": "leader",
-      "name": "leader",
-      "systemPrompt": "内置 leader",
-      "residentSkillNames": ["leader"],
+      "id": "support",
+      "name": "support",
+      "systemPrompt": "内置 support",
+      "residentSkillNames": ["support"],
       "source": "main_config",
       "scope": "global"
     }
@@ -2992,7 +2990,7 @@ level = "system"
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
-            "agent set-resident leader hr",
+            "agent set-resident support hr",
         )
         .expect_err("built-in persona skills are locked");
         assert!(err.contains("锁定的"), "unexpected: {err}");

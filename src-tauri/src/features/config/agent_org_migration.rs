@@ -19,12 +19,10 @@
 /// 旧内置部门 id：仅用于迁移时把 `department_id` 映射到对应内置人格。
 /// 这些字符串只在本模块内出现，业务运行态不再感知。
 const ASSISTANT_DEPARTMENT_ID: &str = "assistant-department";
-const LEADER_DEPARTMENT_ID: &str = "leader-department";
 const DEPUTY_DEPARTMENT_ID: &str = "deputy-department";
 const REVIEWER_DEPARTMENT_ID: &str = "reviewer-department";
 const SADDLER_DEPARTMENT_ID: &str = "saddler-department";
 const REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID: &str = "remote-customer-service-department";
-const HR_DEPARTMENT_ID: &str = "hr-department";
 
 /// 旧部门权限控制（仅迁移模块内使用）。
 #[derive(Debug, Clone, Deserialize)]
@@ -173,12 +171,10 @@ fn carry_legacy_expert_model_key(config_path: &PathBuf, legacy_value: &str) -> R
 fn legacy_built_in_department_agent_id(department_id: &str) -> Option<&'static str> {
     match department_id.trim() {
         ASSISTANT_DEPARTMENT_ID => Some(DEFAULT_AGENT_ID),
-        LEADER_DEPARTMENT_ID => Some(LEADER_AGENT_ID),
         DEPUTY_DEPARTMENT_ID => Some(DEPUTY_AGENT_ID),
         REVIEWER_DEPARTMENT_ID => Some(REVIEWER_AGENT_ID),
         SADDLER_DEPARTMENT_ID => Some(SADDLER_AGENT_ID),
         REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID => Some(SUPPORT_AGENT_ID),
-        HR_DEPARTMENT_ID => Some(HR_AGENT_ID),
         _ => None,
     }
 }
@@ -790,10 +786,6 @@ mod agent_org_migration_tests {
             legacy_built_in_department_agent_id(DEPUTY_DEPARTMENT_ID),
             Some(DEPUTY_AGENT_ID)
         );
-        assert_eq!(
-            legacy_built_in_department_agent_id(HR_DEPARTMENT_ID),
-            Some(HR_AGENT_ID)
-        );
         assert_eq!(legacy_built_in_department_agent_id("department-1"), None);
     }
 
@@ -1025,11 +1017,9 @@ mod agent_org_migration_tests {
         let mut agents = vec![test_agent(DEFAULT_AGENT_ID), test_agent(DEPUTY_AGENT_ID)];
         assert!(ensure_built_in_organization_nodes(&mut agents));
         for id in [
-            LEADER_AGENT_ID,
             REVIEWER_AGENT_ID,
             SADDLER_AGENT_ID,
             SUPPORT_AGENT_ID,
-            HR_AGENT_ID,
         ] {
             assert!(agents.iter().any(|agent| agent.id == id), "内置人格 {id} 应被补建");
         }
@@ -1041,9 +1031,7 @@ mod agent_org_migration_tests {
             DEPUTY_AGENT_ID,
             REVIEWER_AGENT_ID,
             SADDLER_AGENT_ID,
-            LEADER_AGENT_ID,
             SUPPORT_AGENT_ID,
-            HR_AGENT_ID,
         ] {
             assert!(
                 root.child_agent_ids.iter().any(|item| item == child),

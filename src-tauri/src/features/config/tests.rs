@@ -1199,13 +1199,13 @@ enableTools = true
         assert!(engineer.permission_control.enabled, "全栈工程师权限应并入人格");
 
         // 主助理根是 default-agent，其下级应含内置人格与八重堂成员。
-        // 内置 5 个人格（leader/reviewer/saddler/support/hr）由代码预设补齐，
+        // 内置 3 个人格（reviewer/saddler/support）由代码预设补齐，
         // 它们与根的层级来自代码预设而非迁移推导，迁移只补自定义部门相关的人-人边。
         let assistants = by_id(DEFAULT_AGENT_ID);
         let assistants_children = &assistants.child_agent_ids;
         assert!(assistants_children.iter().any(|id| id == DEPUTY_AGENT_ID));
         assert!(assistants_children.iter().any(|id| id == "yae-miko"));
-        for node_id in ["leader", "reviewer", "saddler", "support", "hr"] {
+        for node_id in ["reviewer", "saddler", "support"] {
             assert!(
                 assistants_children.iter().any(|id| id == node_id),
                 "内置人格 {node_id} 应由代码预设挂到根"
@@ -1341,5 +1341,72 @@ enableTools = true
 
         // 幂等：已是相对路径的不会被再次改写。
         let second = migrate_avatar_paths_to_relative(&context).expect("rerun v6 migration");
+        assert!(!second.data_changed, "重复迁移应幂等");
+    }
+
+    #[test]
+    fn migration_should_remove_hr_persona_and_prune_child_references() {
+        let state = config_test_state();
+        let make_agent = |id: &str, child_agent_ids: Vec<String>| AgentProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            system_prompt: "test".to_string(),
+            tools: default_agent_tools(),
+            created_at: "2026-04-15T00:00:00Z".to_string(),
+            updated_at: "2026-04-15T00:00:00Z".to_string(),
+            avatar_path: None,
+            avatar_updated_at: None,
+            is_built_in_user: false,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
+            source: default_main_source(),
+            scope: default_global_scope(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids,
+        };
+
+        // 历史数据：根人格的下级列表含 hr，且数据里已落下一个 hr 人格节点。
+        let agents = vec![
+            make_agent("default-agent", vec!["hr".to_string(), "support".to_string()]),
+            make_agent("hr", Vec::new()),
+            make_agent("support", Vec::new()),
+        ];
+        write_agents_shard(&state.data_path, &agents).expect("write agents shard");
+
+        let config = AppConfig::default();
+        let context = DataMigrationContext {
+            state: &state,
+            config: &config,
+        };
+        let stats = migrate_remove_hr_persona(&context).expect("run v7 hr migration");
+        assert!(stats.data_changed);
+
+        let after = read_agents_shard(&state.data_path).expect("read agents shard");
+        assert!(
+            !after.iter().any(|agent| agent.id == "hr"),
+            "已废弃的 hr 人格节点应被移除"
+        );
+        let root = after
+            .iter()
+            .find(|agent| agent.id == "default-agent")
+            .expect("root");
+        assert!(
+            !root.child_agent_ids.iter().any(|child| child == "hr"),
+            "对 hr 的下级引用应被摘除"
+        );
+        assert!(
+            root.child_agent_ids.iter().any(|child| child == "support"),
+            "其他下级应保留"
+        );
+
+        // 幂等：再次执行不再产生变化。
+        let second = migrate_remove_hr_persona(&context).expect("rerun v7 migration");
         assert!(!second.data_changed, "重复迁移应幂等");
     }

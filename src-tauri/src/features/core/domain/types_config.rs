@@ -267,13 +267,6 @@ fn saddler_permission_control() -> AgentPermissionControl {
     )
 }
 
-fn leader_permission_control() -> AgentPermissionControl {
-    whitelist_permission_control(
-        &["read", "read_media", "exec", "fetch", "websearch", "delegate"],
-        &["memory-generation"],
-    )
-}
-
 fn support_permission_control() -> AgentPermissionControl {
     whitelist_permission_control(
         &[

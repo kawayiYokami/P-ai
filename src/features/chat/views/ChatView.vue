@@ -106,7 +106,6 @@
             :git-root-check="props.draftWorkspaceGitRootCheck"
             @change="handleDraftPersonaChange($event)"
             @update:title="handleDraftTitleChange($event)"
-            @recruit="handleRecruitClick()"
           />
           <div class="ecall-chat-history-flow flex min-w-0 shrink-0 flex-col">
             <div
@@ -1263,10 +1262,6 @@ function handleDraftPersonaChange(payload: { agentId: string }) {
     conversationId: String(props.activeConversationId || "").trim(),
     agentId: payload.agentId,
   });
-}
-
-function handleRecruitClick() {
-  handleDraftPersonaChange({ agentId: "default-agent" });
 }
 
 function handleDraftTitleChange(title: string) {
