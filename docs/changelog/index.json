@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-16T01:09:37.953Z",
-  "latestVersion": "v0.90.1",
+  "generatedAt": "2026-09-16T14:43:17.151Z",
+  "latestVersion": "v0.90.2",
   "releases": [
+    {
+      "version": "v0.90.2",
+      "path": "docs/changelog/releases/v0.90.2.md",
+      "summary": "**会话时间线**：对话窗口新增时间线按钮，点开是一整屏竖排的会话历史，点其中任意一条可直接跳到那条消息，长会话里定位不用再来回滚动。"
+    },
     {
       "version": "v0.90.1",
       "path": "docs/changelog/releases/v0.90.1.md",

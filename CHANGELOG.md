@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.90.2](docs/changelog/releases/v0.90.2.md) - **会话时间线**：对话窗口新增时间线按钮，点开是一整屏竖排的会话历史，点其中任意一条可直接跳到那条消息，长会话里定位不用再来回滚动。
 - [v0.90.1](docs/changelog/releases/v0.90.1.md) - **能力商店**：技能来源新增 ClawHub，可浏览、搜索并安装 OpenClaw 社区的公开技能；条目详情里的来源地址现在一点即可在浏览器打开。
 - [v0.90.0](docs/changelog/releases/v0.90.0.md) - **能力商店**：配置页新增能力商店，可跨魔搭、Smithery、官方 MCP Registry 检索 MCP 与技能并一键安装，装进来的默认是关闭状态；需要密钥的 MCP 会在安装前要求填写。
 - [v0.89.0](docs/changelog/releases/v0.89.0.md) - **PAI CLI（Beta）**：在终端里也能用 PAI。不开窗口、不弹界面，给一句任务跑完一整轮（含多轮工具调用），最终回答直接打在终端上；桌面端配好的 skill 与 MCP 在 CLI 里同样可用。用法 `p-ai run "<任务>" --model <配置>`。
