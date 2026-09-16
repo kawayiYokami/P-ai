@@ -874,7 +874,6 @@ const props = defineProps<{
   chatErrorText: string; clipboardImages: Array<{ mime: string; bytesBase64: string; previewDataUrl?: string }>;
   queuedAttachmentNotices: Array<{ id: string; fileName: string; path: string; mime: string; pending?: boolean }>;
   chatInput: string; instructionPresets: PromptCommandPreset[];
-  recording: boolean; recordingMs: number; transcribing: boolean;
   conversationCallPrimaryApiConfigId: string; preferredChatModelId?: string; toolReviewApiConfigId?: string; toolReviewRefreshTick: number; chatModelOptions: ApiConfigItem[];
   planModeEnabled: boolean; chatUsagePercent: number;
   mediaDragActive: boolean; chatting: boolean; trimming: boolean; trimmingConversationId?: string;
@@ -1162,14 +1161,6 @@ function handleApprovalQuestionWorkspaceRemember(requestId: string) {
 }
 const chatStatusBanner = computed(() => {
   if (transientNotice.value) return transientNotice.value;
-  // 录音条已移除，录音/转写状态改由输入框上方的 infobar 提示
-  if (props.transcribing) return { text: t("chat.transcribing"), tone: "info" };
-  if (props.recording) {
-    return {
-      text: t("chat.recording", { seconds: Math.max(1, Math.round(props.recordingMs / 1000)) }),
-      tone: "info",
-    };
-  }
   return baseChatStatusBanner.value;
 });
 const requestErrorTitle = computed(() => {

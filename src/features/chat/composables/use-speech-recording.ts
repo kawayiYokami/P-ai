@@ -288,7 +288,7 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
         if (text) {
           options.appendRecognizedText(text);
           void options.onTranscribed?.({ text, source: "remote" });
-          options.setStatus(options.t("status.recordTranscribed"));
+          options.setStatus("");
         } else {
           options.setStatus(options.t("status.noSpeechText"));
         }
@@ -382,6 +382,7 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
     try {
       discardCurrent = false;
       recognizedText = "";
+      let recognitionFailed = false;
       recognizer = new SR();
       recognizer.lang = options.getLanguage();
       recognizer.interimResults = true;
@@ -396,6 +397,7 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
         }
       };
       recognizer.onerror = (event) => {
+        recognitionFailed = true;
         options.setStatus(options.t("status.speechFailed", { err: event?.error || "unknown" }));
       };
       recognizer.onend = () => {
@@ -410,8 +412,8 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
         if (text) {
           options.appendRecognizedText(text);
           void options.onTranscribed?.({ text, source: "local" });
-          options.setStatus(options.t("status.recordTranscribed"));
-        } else {
+          options.setStatus("");
+        } else if (!recognitionFailed) {
           options.setStatus(options.t("status.noSpeechText"));
         }
         recognizer = null;

@@ -956,9 +956,23 @@ export function useChatWindowApp() {
     }
   });
 
+  // 录音/转写状态只走窗口级 toast（原 ChatView 输入区 infobar 已移除）
+  const statusToastText = computed(() => {
+    if (chatMedia.transcribing.value) return tr("chat.transcribing");
+    if (chatMedia.recording.value) {
+      return tr("chat.recording", { seconds: Math.max(1, Math.round(chatMedia.recordingMs.value / 1000)) });
+    }
+    return status.value;
+  });
+  const statusToastTone = computed(() =>
+    chatMedia.recording.value || chatMedia.transcribing.value ? "default" : statusTone.value,
+  );
+
   return {
     messageText,
     extractMessageImages,
+    statusToastText,
+    statusToastTone,
     extractMessageAttachmentFiles,
     viewMode,
     t,

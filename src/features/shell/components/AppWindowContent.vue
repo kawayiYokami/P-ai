@@ -133,9 +133,6 @@
         :queued-attachment-notices="queuedAttachmentNotices"
         :chat-input="chatInput"
         :instruction-presets="instructionPresets"
-        :recording="recording"
-        :recording-ms="recordingMs"
-        :transcribing="transcribing"
         :conversation-call-primary-api-config-id="conversationCallPrimaryApiConfigId"
         :preferred-chat-model-id="preferredChatModelId"
         :tool-review-api-config-id="config.toolReviewApiConfigId || ''"
@@ -635,9 +632,6 @@ const props = defineProps<{
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   queuedAttachmentNotices: Array<{ id: string; fileName: string; path: string; mime: string; pending?: boolean }>;
   chatInput: string;
-  recording: boolean;
-  recordingMs: number;
-  transcribing: boolean;
   conversationCallPrimaryApiConfigId: string;
   preferredChatModelId?: string;
   toolReviewRefreshTick: number;

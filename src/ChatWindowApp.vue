@@ -143,9 +143,6 @@
       :queued-attachment-notices="queuedAttachmentNotices"
       :chat-input="chatInput"
       :instruction-presets="instructionPresets"
-      :recording="recording"
-      :recording-ms="recordingMs"
-      :transcribing="transcribing"
       :conversation-call-primary-api-config-id="currentForegroundApiConfigId"
       :preferred-chat-model-id="currentConversationPreferredApiConfigId"
       :tool-review-refresh-tick="toolReviewRefreshTick"
@@ -452,7 +449,7 @@
       @save="saveChatWorkspacePicker"
     />
     <StartupOverlay v-if="startupOverlayVisible" />
-    <ConfigStatusToast :text="status" :tone="statusTone" />
+    <ConfigStatusToast :text="statusToastText" :tone="statusToastTone" />
     <div
       v-if="messageStoreMigration.visible"
       class="fixed inset-0 z-9999 flex items-center justify-center bg-base-300/90 p-6 backdrop-blur"

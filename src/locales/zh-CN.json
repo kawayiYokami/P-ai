@@ -2467,7 +2467,6 @@
     "recordTestDone": "录音测试完成（{seconds}s）。",
     "speechUnsupported": "当前环境不支持本地语音识别。",
     "speechFailed": "本地语音识别失败: {err}",
-    "recordTranscribed": "录音已转文字。",
     "noSpeechText": "未识别到文本。",
     "recordAutoStopped": "录音已达到上限 {seconds}s，自动停止。",
     "recordStartFailed": "开始录音失败: {err}",
