@@ -27,6 +27,7 @@ const capabilityConsumerPaths = new Set([
   resolve(sourceRoot, "features", "config", "views", "config-tabs", "SkillTab.vue"),
   resolve(sourceRoot, "features", "config", "views", "config-tabs", "StorageTab.vue"),
   resolve(sourceRoot, "features", "file-reader", "components", "FileReaderPanel.vue"),
+  resolve(sourceRoot, "features", "shared", "components", "FileLinkContextMenu.vue"),
   resolve(sourceRoot, "features", "shell", "components", "AppWindowHeader.vue"),
 ]);
 
