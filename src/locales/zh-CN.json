@@ -2169,13 +2169,12 @@
     "monitorBar": {
       "delegateCount": "{count} 委托",
       "taskCount": "{count} 任务",
-      "shellCount": "{count} 后台终端",
+      "shellCount": "{count} 终端",
       "runningSuffix": "运行中",
       "elapsedTitle": "所有当前委托累计用时",
       "requestTitle": "所有当前委托累计请求步数",
       "tokenTitle": "所有当前委托累计词元",
       "requestCountLabel": "{count}步",
-      "tokenCountLabel": "{value}词元",
       "emptyTitle": "当前没有运行中的监控项",
       "viewRunningTitle": "查看运行中：{summary}"
     },
@@ -2190,7 +2189,7 @@
       "overviewDelegates": "当前委托",
       "overviewTasks": "当前任务",
       "overviewLatestChanges": "最新更改",
-      "overviewBackgroundShells": "后台终端",
+      "overviewBackgroundShells": "终端",
       "overviewOthers": "其他",
       "overviewBack": "返回概览",
       "overviewEmptyAll": "暂无进行中的工作",
@@ -2942,7 +2941,7 @@
       "breakdownReserved": "保留（整理阈值预留）",
       "breakdownContextWindow": "当前模型最大上下文",
       "breakdownEmpty": "整理后暂无账单",
-      "compressionEstimate": "整理后预计占用 ~{percent}%，可释放 {tokens} 词元"
+      "compressionEstimate": "整理后预计占用 ~{percent}%，可释放 {tokens}"
     }
   },
   "about": {

@@ -2175,13 +2175,12 @@
     "monitorBar": {
       "delegateCount": "{count} 委託",
       "taskCount": "{count} 任務",
-      "shellCount": "{count} 背景終端",
+      "shellCount": "{count} 終端",
       "runningSuffix": "執行中",
       "elapsedTitle": "所有目前委託累計用時",
       "requestTitle": "所有目前委託累計請求步數",
       "tokenTitle": "所有目前委託累計詞元",
       "requestCountLabel": "{count}步",
-      "tokenCountLabel": "{value}詞元",
       "emptyTitle": "目前沒有執行中的監控項目",
       "viewRunningTitle": "查看執行中：{summary}"
     },
@@ -2196,7 +2195,7 @@
       "overviewDelegates": "當前委託",
       "overviewTasks": "當前任務",
       "overviewLatestChanges": "最新更改",
-      "overviewBackgroundShells": "背景終端",
+      "overviewBackgroundShells": "終端",
       "overviewOthers": "其他",
       "overviewBack": "返回總覽",
       "overviewEmptyAll": "暫無進行中的工作",
@@ -2936,7 +2935,7 @@
       "breakdownReserved": "保留（整理閾值預留）",
       "breakdownContextWindow": "目前模型最大上下文",
       "breakdownEmpty": "整理後暫無帳單",
-      "compressionEstimate": "整理後預計占用 ~{percent}%，可釋放 {tokens} 詞元"
+      "compressionEstimate": "整理後預計占用 ~{percent}%，可釋放 {tokens}"
     }
   },
   "about": {

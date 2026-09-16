@@ -2191,13 +2191,12 @@
     "monitorBar": {
       "delegateCount": "{count} delegates",
       "taskCount": "{count} tasks",
-      "shellCount": "{count} background terminals",
+      "shellCount": "{count} terminals",
       "runningSuffix": "running",
       "elapsedTitle": "Total elapsed time of current delegates",
       "requestTitle": "Total request steps of current delegates",
       "tokenTitle": "Total tokens of current delegates",
       "requestCountLabel": "{count} steps",
-      "tokenCountLabel": "{value} tokens",
       "emptyTitle": "No running monitor items",
       "viewRunningTitle": "View running: {summary}"
     },
@@ -2212,7 +2211,7 @@
       "overviewDelegates": "Current delegates",
       "overviewTasks": "Current tasks",
       "overviewLatestChanges": "Latest changes",
-      "overviewBackgroundShells": "Background terminals",
+      "overviewBackgroundShells": "Terminals",
       "overviewOthers": "Others",
       "overviewBack": "Back to overview",
       "overviewEmptyAll": "No work in progress",
@@ -2942,7 +2941,7 @@
       "breakdownReserved": "Reserved (tidying threshold)",
       "breakdownContextWindow": "Model context window",
       "breakdownEmpty": "No token breakdown after tidying",
-      "compressionEstimate": "After tidying ~{percent}% context usage, {tokens} tokens released"
+      "compressionEstimate": "After tidying ~{percent}% context usage, {tokens} released"
     }
   },
   "about": {

@@ -73,7 +73,6 @@
           <span class="flex min-w-0 items-center gap-2 overflow-hidden text-base-content/75">
             <span class="truncate tabular-nums">{{ elapsedText }}</span>
             <span class="truncate tabular-nums">{{ t("chat.monitorBar.requestCountLabel", { count: requestCount }) }}</span>
-            <span class="truncate tabular-nums">{{ t("chat.monitorBar.tokenCountLabel", { value: tokenText }) }}</span>
           </span>
         </template>
       </template>
@@ -118,9 +117,7 @@ const delegateCount = computed(() => displayedDelegates.value.length);
 const delegateRunningCount = computed(() => runningDelegates.value.length);
 const elapsedMs = computed(() => sumBy(displayedDelegates.value, (delegate) => delegate.elapsedMs));
 const requestCount = computed(() => sumBy(displayedDelegates.value, (delegate) => delegate.requestCount));
-const tokenCount = computed(() => sumBy(displayedDelegates.value, (delegate) => delegate.tokenCount));
 const elapsedText = computed(() => formatElapsedMs(elapsedMs.value));
-const tokenText = computed(() => formatTokenK(tokenCount.value));
 const workspaceTitle = computed(() => {
   if (!props.workspaceButtonName) return props.workspaceButtonLabel;
   return `${workspaceModeText.value} · ${workspacePermissionText.value} · ${props.workspaceButtonName}`;
@@ -169,13 +166,6 @@ function sumBy(
 function isDelegateRunning(delegate: ConversationDelegateStatusSummary) {
   const status = String(delegate.status || "").trim();
   return delegate.active && (status === "running" || status === "delivered");
-}
-
-function formatTokenK(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "0K";
-  const k = value / 1000;
-  if (k < 10) return `${k.toFixed(1)}K`;
-  return `${Math.round(k)}K`;
 }
 
 function formatElapsedMs(value: number) {
