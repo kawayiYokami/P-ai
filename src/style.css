@@ -632,3 +632,19 @@ body {
   gap: 0.75rem;
 }
 
+/* 概览卡片标题前的圆角色条：默认取 info 色，技能类标题加 --accent 切换为 accent 色。 */
+.card-title-bar::before {
+  content: "";
+  display: inline-block;
+  width: 0.25rem;
+  height: 0.875rem;
+  margin-right: 0.5rem;
+  border-radius: 9999px;
+  vertical-align: middle;
+  background: var(--card-accent-color, var(--color-info));
+}
+
+.card-title-bar--accent {
+  --card-accent-color: var(--color-accent);
+}
+

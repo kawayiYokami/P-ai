@@ -244,7 +244,7 @@
             :key="server.id"
             role="button"
             tabindex="0"
-            class="rounded-2xl border border-base-200 border-l-4 border-l-info bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
+            class="rounded-2xl border border-base-200 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
             :class="{ 'opacity-65 bg-base-100/60': !server.enabled }"
             @click="enterServer(server.id)"
             @keydown.enter.prevent="enterServer(server.id)"
@@ -254,7 +254,7 @@
             <div class="flex items-start justify-between gap-2.5 min-w-0">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
-                  <span class="text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors">
+                  <span class="card-title-bar text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors">
                     {{ server.name || server.id }}
                   </span>
                   <span v-if="server.isDirty" class="badge badge-warning badge-xs shrink-0">

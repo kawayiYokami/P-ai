@@ -473,13 +473,13 @@
                 :key="item.path"
                 role="button"
                 tabindex="0"
-                class="rounded-2xl border border-base-200 border-l-4 border-l-accent bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
+                class="rounded-2xl border border-base-200 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
                 @click="selectSkill(item.path)"
                 @keydown.enter.prevent="selectSkill(item.path)"
                 @keydown.space.prevent="selectSkill(item.path)"
               >
                 <!-- 头部：技能名称 -->
-                <div class="text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors flex-1 min-w-0">
+                <div class="card-title-bar card-title-bar--accent text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors flex-1 min-w-0">
                   {{ item.name }}
                 </div>
 
@@ -549,14 +549,14 @@
                   :key="item.path"
                   role="button"
                   tabindex="0"
-                  class="rounded-2xl border border-base-200 border-l-4 border-l-accent bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
+                  class="rounded-2xl border border-base-200 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
                   @click="selectSkill(item.path)"
                   @keydown.enter.prevent="selectSkill(item.path)"
                   @keydown.space.prevent="selectSkill(item.path)"
                 >
                   <!-- 头部：技能名称 + 内置标签 -->
                   <div class="flex items-center justify-between gap-2 min-w-0">
-                    <div class="text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors flex-1 min-w-0">
+                    <div class="card-title-bar card-title-bar--accent text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors flex-1 min-w-0">
                       {{ item.name }}
                     </div>
                     <span class="badge badge-neutral badge-xs opacity-70 shrink-0">{{ t("config.skill.builtinTag") }}</span>

@@ -100,10 +100,10 @@
           <!-- MCP 卡：工程面板感，热度归到底部与作者同行 -->
           <div
             v-if="entry.kind === 'mcp'"
-            class="rounded-2xl border border-base-200 border-l-4 border-l-info bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
+            class="rounded-2xl border border-base-200 bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
           >
           <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0 flex-1 text-sm font-semibold text-base-content truncate" :title="entry.name">
+            <div class="card-title-bar min-w-0 flex-1 text-sm font-semibold text-base-content truncate" :title="entry.name">
               {{ entry.name }}
             </div>
             <div class="flex shrink-0 items-center gap-1">
@@ -190,10 +190,10 @@
           <!-- 技能卡：内容卡感，热度提到顶部与名称同行 -->
           <div
             v-else
-            class="rounded-2xl border border-base-200 border-l-4 border-l-accent bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
+            class="rounded-2xl border border-base-200 bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
           >
           <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0 flex-1 font-mono text-sm font-semibold text-base-content truncate" :title="entry.name">
+            <div class="card-title-bar card-title-bar--accent min-w-0 flex-1 font-mono text-sm font-semibold text-base-content truncate" :title="entry.name">
               {{ entry.name }}
             </div>
             <div class="flex shrink-0 items-center gap-1.5 text-caption opacity-60">
@@ -335,12 +335,16 @@
               <p v-else class="text-caption text-base-content/45">{{ t("config.catalog.configEmpty") }}</p>
             </div>
 
-            <!-- 来源地址：可复制 -->
-            <div v-if="detailEntry?.homepage" class="space-y-1.5">
+            <!-- 来源地址：外链按钮 -->
+            <div v-if="detailEntry?.homepage" class="space-y-1">
               <span class="text-xs font-semibold text-base-content/70">{{ t("config.catalog.sectionSource") }}</span>
-              <code class="block break-all rounded-lg border border-base-300 bg-base-200/40 p-3 font-mono text-caption text-base-content/70 select-all">
+              <button
+                type="button"
+                class="link link-primary block break-all text-left font-mono text-caption"
+                @click="openSourceUrl(detailEntry.homepage)"
+              >
                 {{ detailEntry.homepage }}
-              </code>
+              </button>
             </div>
           </div>
         </OverlayScrollArea>
@@ -407,6 +411,7 @@ import {
   installTransportCatalogEntry,
   invokeTauri,
   listTransportCatalogSources,
+  openTransportExternalUrl,
   searchTransportCatalog,
   setTransportSkillEnabled,
 } from "../../../../services/tauri-api";
@@ -502,6 +507,12 @@ async function openDetail(entry: CatalogEntry) {
 function closeDetail() {
   detailModalRef.value?.close();
   detailEntry.value = null;
+}
+
+function openSourceUrl(url?: string) {
+  const target = String(url || "").trim();
+  if (!target) return;
+  void openTransportExternalUrl(target);
 }
 
 function installFromDetail() {
