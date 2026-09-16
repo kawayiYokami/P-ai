@@ -24,7 +24,7 @@
           :title="t('chat.conversationMenu.title')"
           @mousedown="updateMenuPlacement"
         >
-          <Grip class="h-5 w-5" />
+          <EllipsisVertical class="h-5 w-5" />
         </button>
         <ul
           tabindex="0"
@@ -231,7 +231,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useAttrs, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { BellRing, ClipboardCheck, ClipboardList, GitBranch, GitBranchPlus, Grip, ListTodo, MessageSquareMore, Package, Palette, Send, Share2, Split, Users } from "@lucide/vue";
+import { BellRing, ClipboardCheck, ClipboardList, EllipsisVertical, GitBranch, GitBranchPlus, ListTodo, MessageSquareMore, Package, Palette, Send, Share2, Split, Users } from "@lucide/vue";
 import type { ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
 import { useChatComposerAppearance } from "../../shell/composables/use-chat-composer-appearance";
 import { useChatMessageAppearance, type ChatMarkdownLayout } from "../../shell/composables/use-chat-message-appearance";

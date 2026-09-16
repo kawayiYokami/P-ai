@@ -19,6 +19,7 @@
             <option value="double-deck">双层卡（DoubleDeck）</option>
             <option value="thinking-preview">思考预览 bar</option>
             <option value="session-float-dock">会话悬浮操作区</option>
+            <option value="session-timeline">会话时间线（垂直）</option>
             <option value="config-cards">配置卡片画廊（六大卡片第一性原理）</option>
             <option value="catalog-store">能力商店</option>
           </select>
@@ -127,6 +128,18 @@
           <p class="text-sm text-base-content/70">下排改成一个个彼此独立的磨砂元素，左对齐、放不下换行；元素之间不互斥，有就显示、没有就隐藏。开关可逐项试「有／没有」，勾「窄容器」看换行。</p>
         </div>
         <SessionFloatDockDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'session-timeline'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">会话时间线（垂直）</h3>
+          <p class="text-sm text-base-content/70">
+            时间线按钮悬停拉成胶囊，点击展开一块几乎盖满聊天区的垂直时间线；用 daisyUI 的 <code>timeline timeline-vertical</code> 逐轮铺开历史消息，内部可上下滚动。
+          </p>
+        </div>
+        <SessionTimelineDemo />
       </div>
     </div>
 
@@ -444,6 +457,7 @@ import ChatComposerStructureDemo from "../../../chat/components/ChatComposerStru
 import DoubleDeckCardDemo from "../../../chat/components/DoubleDeckCardDemo.vue";
 import ChatThinkingPreviewBarDemo from "../../../chat/components/ChatThinkingPreviewBarDemo.vue";
 import SessionFloatDockDemo from "../../../chat/components/SessionFloatDockDemo.vue";
+import SessionTimelineDemo from "../../../chat/components/SessionTimelineDemo.vue";
 import HomeCardGalleryDemo from "../../../chat/components/HomeCardGalleryDemo.vue";
 import ChatConversationListGalleryDemo from "../../../chat/components/ChatConversationListGalleryDemo.vue";
 import ConfigCardsGalleryDemo from "../../components/ConfigCardsGalleryDemo.vue";
@@ -520,11 +534,12 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "composer" | "double-deck" | "thinking-preview" | "session-float-dock" | "config-cards" | "catalog-store">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "composer" | "double-deck" | "thinking-preview" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store">((props.initialKey as any) || "question");
 const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "catalog-store") return "能力商店";
   if (demoComponentKey.value === "config-cards") return "配置卡片画廊";
   if (demoComponentKey.value === "session-float-dock") return "会话悬浮操作区";
+  if (demoComponentKey.value === "session-timeline") return "会话时间线（垂直）";
   if (demoComponentKey.value === "thinking-preview") return "思考预览 bar";
   if (demoComponentKey.value === "double-deck") return "双层卡";
   if (demoComponentKey.value === "home-cards") return "预览卡画廊";

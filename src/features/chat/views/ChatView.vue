@@ -198,7 +198,7 @@
           <FloatingScrollbar ref="chatScrollbarRef" :target="scrollContainer" />
           </div>
         </div>
-        <!-- 会话悬浮操作区：上排预览条 + 时间线按钮、下排工作区 bar，上下两排常驻 -->
+        <!-- 会话悬浮操作区：下排工作区 bar（贴底时出现），上排预览条 + 时间线按钮（离底时出现），两排各自动画进出 -->
         <div
           data-session-float-dock="true"
           class="pointer-events-none absolute inset-x-0 z-30"
@@ -207,7 +207,11 @@
         <div
           v-if="supportsFloatingSessionToolbar"
           ref="toolbarContainer"
-          class="pointer-events-auto absolute inset-x-0 bottom-0 z-20"
+          class="absolute inset-x-0 bottom-0 z-20 transition-opacity duration-150 ease-out"
+          :class="displayedSessionRow === 'toolbar'
+            ? 'pointer-events-auto opacity-100'
+            : 'pointer-events-none opacity-0'"
+          :aria-hidden="displayedSessionRow === 'toolbar' ? undefined : 'true'"
         >
           <div class="ecall-chat-toolbar-shell w-full px-2">
             <ChatWorkspaceToolbar
@@ -245,67 +249,110 @@
         </div>
         <!-- 上排：离底时出现（预览条 + 时间线按钮），始终位于工作区 bar 上方 -->
         <div
-          class="pointer-events-none absolute inset-x-0 transition-[bottom] duration-200 ease-out"
-          :style="{ bottom: `${sessionFloatTopRowBottom}px` }"
+          class="pointer-events-none absolute inset-x-0 bottom-0"
         >
         <div class="flex w-full items-end justify-between gap-2 px-2">
           <div class="pointer-events-none min-w-0 flex-1">
             <ChatThinkingPreviewBar
-              :blocks="thinkingPreviewBlocks"
-              :idle-text="idlePreviewText"
+              :blocks="previewBlocksForBar"
+              :idle-text="previewTextForBar"
               :avatar-url="previewAvatarUrl"
-              :visible="!atConversationBottom && !chatStatusBanner && !showTimelineFloatPanel"
+              :visible="!atConversationBottom && !chatStatusBanner && !timelinePanelOpen && displayedSessionRow === 'top'"
               :streaming="chatting"
-              :jump-only="previewJumpOnly"
               @jump-to-bottom="handleJumpToBottomWithFollow"
             />
           </div>
-          <!-- 时间线按钮：与预览条底边齐平；卡片已 Teleport 到 body 视口锚定，本容器仅提供锚点定位 -->
-          <div class="relative h-10 w-10 shrink-0">
-            <TimelineSnakeBoard
-              :visible="showTimelineFloatPanel && timelineAnchors.length >= 2"
-              :anchors="timelineAnchors"
-              :active-index="activeTimelineIndex"
-              :hovered-index="hoveredTimelineIndex"
-              :anchor-el="timelineBoardAnchorEl"
-              @hover="hoveredTimelineIndex = $event"
-              @enter-zone="handleTimelineFloatEnter"
-              @leave-zone="handleTimelineFloatLeave"
-              @jump="handleTimelineJumpAndClose($event)"
-            />
-            <Transition
-              enter-active-class="transition duration-180 ease-out"
-              enter-from-class="opacity-0 scale-90"
-              leave-active-class="transition duration-100 ease-in"
-              leave-to-class="opacity-0 scale-90"
+          <!-- 时间线按钮：图标 + 「会话时间线」常驻，点击弹出几乎占满聊天区的垂直时间线 -->
+          <div class="relative flex h-10 shrink-0 items-center">
+            <button
+              v-if="canShowTimeline && !timelinePanelOpen && displayedSessionRow === 'top'"
+              type="button"
+              class="pointer-events-auto flex items-center rounded-full p-2"
+              :class="FROST_SURFACE"
+              :aria-label="t('chat.timelineButtonAria')"
+              :aria-expanded="timelinePanelOpen ? 'true' : 'false'"
+              @click="toggleTimelinePanel"
             >
-              <button
-                v-if="timelineAnchors.length >= 2 && !showTimelineFloatPanel"
-                ref="timelineFloatWrapRef"
-                type="button"
-                class="group absolute bottom-0 right-0 pointer-events-auto"
-                :class="SESSION_FLOAT_FROST_CIRCLE"
-                :aria-label="showTimelineFloatPanel ? '收起时间线' : '展开时间线'"
-                :aria-expanded="showTimelineFloatPanel ? 'true' : 'false'"
-                @mouseenter="handleTimelineFloatEnter"
-                @mouseleave="handleTimelineFloatLeave"
-                @click="handleTimelineFloatToggle"
-                @keydown.enter.prevent="handleTimelineFloatToggle"
-                @keydown.space.prevent="handleTimelineFloatToggle"
-              >
-                <Route class="h-4.5 w-4.5 transition-transform duration-150 group-hover:scale-110" />
-              </button>
-            </Transition>
-            <div
-              v-if="showTimelineFloatPanel"
-              ref="timelineFloatPlaceholderRef"
-              class="absolute bottom-0 right-0 h-10 w-10 invisible pointer-events-none"
-              aria-hidden="true"
-            />
+              <Route class="h-4 w-4 shrink-0" />
+              <span class="ml-1.5 whitespace-nowrap text-xs leading-none">{{ t("chat.timelineButtonLabel") }}</span>
+            </button>
           </div>
         </div>
         </div>
         </div>
+
+        <!-- 会话时间线：覆盖整个窗口的弹层（Teleport 到 body），背景压黑，卡片居中且宽度上限 max-w-3xl -->
+        <Teleport to="body">
+        <Transition
+          enter-active-class="transition duration-150 ease-out"
+          enter-from-class="opacity-0"
+          leave-active-class="transition duration-100 ease-in"
+          leave-to-class="opacity-0"
+        >
+          <div
+            v-if="timelinePanelOpen"
+            class="fixed inset-0 z-[1000] flex items-center justify-center"
+          >
+            <!-- 背景压黑：全覆盖层 -->
+            <div class="absolute inset-0 bg-black/50"></div>
+            <!-- 卡片：统一毛玻璃底座（FROST_GLASS），宽度限死上限，高度占 92%，居中 -->
+            <div
+              class="relative flex h-[92%] w-[92%] max-w-3xl flex-col overflow-hidden rounded-box shadow-xl"
+              :class="FROST_GLASS"
+            >
+              <OverlayScrollArea ref="timelineScrollerRef" class="min-h-0 flex-1" scroller-class="h-full px-4 py-4">
+              <ul class="timeline timeline-snap-icon max-md:timeline-compact timeline-vertical">
+                <li v-for="(entry, index) in visibleTimelineEntries" :key="entry.id">
+                  <hr v-if="index > 0" class="bg-base-300" />
+                  <div class="timeline-middle">
+                    <img
+                      v-if="entry.avatarUrl"
+                      :src="entry.avatarUrl"
+                      alt=""
+                      class="h-6 w-6 rounded-full object-cover transition-shadow"
+                      :class="entry.index === activeTimelineIndex ? 'ring-2 ring-primary' : 'opacity-80'"
+                    />
+                    <span
+                      v-else
+                      class="block h-6 w-6 rounded-full bg-base-300 transition-shadow"
+                      :class="entry.index === activeTimelineIndex ? 'ring-2 ring-primary' : ''"
+                    ></span>
+                  </div>
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded-box px-2 py-1 transition-colors hover:bg-base-200/70 hover:text-primary"
+                    :class="entry.isOwn ? 'timeline-end text-start md:mb-10' : 'timeline-start mb-10 text-start md:text-end'"
+                    @click="handleTimelineEntryJump(entry)"
+                  >
+                    <time v-if="entry.time" class="font-mono text-xs italic opacity-50">{{ entry.time }}</time>
+                    <div class="text-sm font-black">{{ entry.speaker }}</div>
+                    <div class="text-xs">
+                      <InlineMarkdownText
+                        :text="entry.text"
+                        :limit="TIMELINE_TEXT_LIMIT"
+                        :head-ratio="TIMELINE_TEXT_HEAD_RATIO"
+                      />
+                    </div>
+                  </button>
+                  <hr v-if="index < visibleTimelineEntries.length - 1" class="bg-base-300" />
+                </li>
+              </ul>
+              </OverlayScrollArea>
+              <!-- 底栏：说明 + 返回 -->
+              <div class="flex shrink-0 items-center justify-between gap-2 px-3 py-2">
+                <span class="flex items-center gap-1 text-xs text-base-content/60">
+                  <CircleAlert class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  {{ t("chat.timelineJumpHint") }}
+                </span>
+                <button type="button" class="btn btn-sm gap-1" @click="closeTimelinePanel">
+                  <ArrowLeft class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  {{ t("chat.timelinePanelBack") }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Transition>
+        </Teleport>
         <CompactionSummaryCard
           :visible="conversationSummaryCard.visible"
           :text="conversationSummaryCard.text"
@@ -473,8 +520,7 @@
             :selected-mentions="selectedMentions"
             :clipboard-images="clipboardImages" :queued-attachment-notices="queuedAttachmentNotices"
             :link-open-error-text="linkOpenErrorText"
-            :transcribing="transcribing" :can-record="canRecord" :recording="recording" :recording-ms="recordingMs"
-            :record-hotkey="recordHotkey" :conversation-call-primary-api-config-id="conversationCallPrimaryApiConfigId"
+            :conversation-call-primary-api-config-id="conversationCallPrimaryApiConfigId"
             :preferred-chat-model-id="preferredChatModelId"
             :chat-model-options="chatModelOptions"
             :plan-mode-enabled="planModeEnabled"
@@ -503,7 +549,6 @@
             @update:chat-input="$emit('update:chatInput', $event)" @add-mention="$emit('addMention', $event)"
             @remove-mention="$emit('removeMention', $event)" @remove-clipboard-image="$emit('removeClipboardImage', $event)"
             @remove-queued-attachment-notice="$emit('removeQueuedAttachmentNotice', $event)"
-            @start-recording="$emit('startRecording')" @stop-recording="$emit('stopRecording')"
             @pick-attachments="$emit('pickAttachments')"
             @update:conversation-preferred-api-config-id="$emit('update:conversationPreferredApiConfigId', $event)"
             @update:workspace-access="$emit('updateWorkspaceAccess', $event)"
@@ -741,7 +786,7 @@ import {
   useChatComposerAppearance,
   visibleChatComposerContextGroups,
 } from "../../shell/composables/use-chat-composer-appearance";
-import { Check, CircleAlert, Copy, History, Inbox, ListTodo, Network, Route, Trash2, Undo2, Wrench, X } from "@lucide/vue";
+import { ArrowLeft, Check, CircleAlert, Copy, History, Inbox, ListTodo, Network, Route, Trash2, Undo2, Wrench, X } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportHostContext,
@@ -761,7 +806,7 @@ import ChatMessageItem from "../components/ChatMessageItem.vue";
 import ChatQuestionPanel from "../components/ChatQuestionPanel.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import ChatThinkingPreviewBar from "../components/ChatThinkingPreviewBar.vue";
-import { SESSION_FLOAT_FROST_CIRCLE } from "../components/session-float-styles";
+import { FROST_GLASS, FROST_SURFACE } from "../components/session-float-styles";
 import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyDashboard.vue";
 import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
 import FileLinkContextMenu from "../../shared/components/FileLinkContextMenu.vue";
@@ -769,8 +814,6 @@ import { useFileLinkContextMenu } from "../../shared/composables/use-file-link-c
 import DraftRecipientCard from "../components/DraftRecipientCard.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
-import TimelinePreviewMarkdown from "../components/TimelinePreviewMarkdown.vue";
-import TimelineSnakeBoard from "../components/TimelineSnakeBoard.vue";
 import ChatConversationSidebar from "../components/ChatConversationSidebar.vue";
 import ChatWorkspaceToolbar from "../components/ChatWorkspaceToolbar.vue";
 import ToolReviewSidebar from "../components/ToolReviewSidebar.vue";
@@ -796,7 +839,9 @@ import { isAbsoluteLocalPath, isAssistantSpacePath, normalizeLocalLinkHref, pars
 import { buildConversationSections, buildWorkspaceConversationSections, canonicalWorkspaceRootForComparison, type ConversationSection } from "../utils/conversation-sections";
 import { defaultWorkspaceNameFromPath, normalizeWorkspacePathKey, stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
 import { recentWorkspacePaths } from "../../../utils/recent-workspaces";
-import { type ChatRenderItem, isRightAlignedMessage, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
+import { type ChatRenderItem, isRightAlignedMessage, isCompactionBlock, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
+import { computeTimelineSegmentStarts, resolveTimelineVisibleStartIndex } from "../utils/timeline-segments";
+import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import { clearFileReaderContextCandidates } from "../utils/file-reader-context-tags";
 import { useIdeContext } from "../composables/use-ide-context";
 import { useDelegateStatus } from "../composables/use-delegate-status";
@@ -829,7 +874,7 @@ const props = defineProps<{
   chatErrorText: string; clipboardImages: Array<{ mime: string; bytesBase64: string; previewDataUrl?: string }>;
   queuedAttachmentNotices: Array<{ id: string; fileName: string; path: string; mime: string; pending?: boolean }>;
   chatInput: string; instructionPresets: PromptCommandPreset[];
-  canRecord: boolean; recording: boolean; recordingMs: number; transcribing: boolean; recordHotkey: string;
+  recording: boolean; recordingMs: number; transcribing: boolean;
   conversationCallPrimaryApiConfigId: string; preferredChatModelId?: string; toolReviewApiConfigId?: string; toolReviewRefreshTick: number; chatModelOptions: ApiConfigItem[];
   planModeEnabled: boolean; chatUsagePercent: number;
   mediaDragActive: boolean; chatting: boolean; trimming: boolean; trimmingConversationId?: string;
@@ -891,7 +936,7 @@ const emit = defineEmits<{
   (e: "update:chatMonitorPanelMode", value: ChatMonitorPanelMode): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
-  (e: "startRecording"): void; (e: "stopRecording"): void; (e: "pickAttachments"): void;
+  (e: "pickAttachments"): void;
   (e: "update:conversationPreferredApiConfigId", value: string): void;
   (e: "updateWorkspaceAccess", value: "approval" | "full_access"): void;
   (e: "update:planModeEnabled", value: boolean): void;
@@ -918,7 +963,7 @@ const emit = defineEmits<{
   (e: "rebindConversationRecipient", payload: { conversationId: string; departmentId: string; agentId: string }): void;
   (e: "updateDraftConversation", payload: { conversationId: string; departmentId?: string; agentId?: string; preferredApiConfigId?: string | null; title?: string | null }): void;
   (e: "createConversation", input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellWorkMode?: ShellWorkMode; shellAutonomousMode?: boolean }): void;
-  (e: "loadOlderHistory"): void; (e: "reachedBottom"): void;
+  (e: "loadOlderHistory"): void; (e: "loadOlderCompactionSegment"): void; (e: "reachedBottom"): void;
   (e: "jumpToConversationBottom"): void;
   (e: "refreshToolReviewMessage", payload: { conversationId: string; messageId: string }): void;
   (e: "selectionActionCopy", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string }): void;
@@ -1117,6 +1162,14 @@ function handleApprovalQuestionWorkspaceRemember(requestId: string) {
 }
 const chatStatusBanner = computed(() => {
   if (transientNotice.value) return transientNotice.value;
+  // 录音条已移除，录音/转写状态改由输入框上方的 infobar 提示
+  if (props.transcribing) return { text: t("chat.transcribing"), tone: "info" };
+  if (props.recording) {
+    return {
+      text: t("chat.recording", { seconds: Math.max(1, Math.round(props.recordingMs / 1000)) }),
+      tone: "info",
+    };
+  }
   return baseChatStatusBanner.value;
 });
 const requestErrorTitle = computed(() => {
@@ -1663,7 +1716,7 @@ const {
   scrollContainer, composerContainer, toolbarContainer, chatLayoutRoot,
   latestOwnElasticMinHeight, atConversationBottom, userScrollingUp,
   followBottom, startFollowBottom, stopFollowBottom,
-  sessionFloatDockStyle, toolbarReservedHeight, onScroll,
+  sessionControlPanelVisible, sessionFloatDockStyle, toolbarReservedHeight, onScroll,
   noteWheelScrollIntent, beginPointerScrollIntent, prepareBottomAlignmentLayout,
 } = useChatScrollLayout({
   activeConversationId: toRef(props, "activeConversationId"),
@@ -1867,49 +1920,101 @@ const latestOwnTailContentMeasured = computed(() => {
   return true;
 });
 
-// timeline: 仅完成态用户消息，流式不锚点（不占位，右下角悬停按钮）
-const timelineAnchors = computed(() => {
+// 会话时间线：每条完成态消息（用户与助理）各占一个节点，标注发言人与发言时间。
+// 时间线按钮只在有足够节点时出现；点击弹出几乎盖满聊天区的面板，节点点击跳转到该条消息。
+type TimelineEntry = {
+  id: string;
+  index: number;
+  speaker: string;
+  avatarUrl: string;
+  time: string;
+  text: string;
+  // 己方（用户）为真：决定节点落在时间线哪一侧——用户固定右侧、助理固定左侧
+  isOwn: boolean;
+  // 压缩标记：时间线按此把节点切成「一段」，一段对应服务端一个物理块文件
+  isCompaction: boolean;
+};
+
+const TIMELINE_TOOL_BREAK = "\uE000TOOLBREAK\uE000";
+// 每句只留 150 字：前 30% + 后 70%
+const TIMELINE_TEXT_LIMIT = 150;
+const TIMELINE_TEXT_HEAD_RATIO = 0.3;
+
+function cleanTimelineText(raw: string): string {
+  return String(raw || "")
+    .split(TIMELINE_TOOL_BREAK).join(" ")
+    .replace(/\s*\[toolcall:[^\]\n]+\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isOwnTimelineBlock(block: ChatMessageBlock): boolean {
+  const speakerId = String(block.speakerAgentId || "").trim();
+  const role = String(block.role || "").trim();
+  return !speakerId || speakerId === "user-persona" || role === "user";
+}
+
+function timelineSpeakerName(block: ChatMessageBlock): string {
+  if (isOwnTimelineBlock(block)) return String(props.userAlias || "").trim() || "我";
+  const speakerId = String(block.speakerAgentId || "").trim();
+  if (speakerId && props.personaNameMap?.[speakerId]) return props.personaNameMap[speakerId];
+  return String(props.personaName || "").trim() || "助理";
+}
+
+function timelineSpeakerAvatar(block: ChatMessageBlock): string {
+  if (isOwnTimelineBlock(block)) return String(props.userAvatarUrl || "").trim();
+  const speakerId = String(block.speakerAgentId || "").trim();
+  const personaAvatar = speakerId ? String(props.personaAvatarUrlMap?.[speakerId] || "").trim() : "";
+  return personaAvatar || String(props.assistantAvatarUrl || "").trim();
+}
+
+function formatTimelineTime(value?: string): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+const timelineEntries = computed<TimelineEntry[]>(() => {
   const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
-  const raw: Array<{ id: string; userText: string; assistantTail: string; blockIndex: number }> = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i] as ChatMessageBlock;
-    if ((b as any).isStreaming) continue;
-    if ((b as any).isExtraTextBlock || (b as any).remoteImOrigin) continue;
-    const speakerId = String((b as any).speakerAgentId || "").trim();
-    const role = String((b as any).role || "").trim();
-    const isOwn = !speakerId || speakerId === "user-persona" || role === "user";
-    if (!isOwn) continue;
-    const text = String((b as any).text || "");
-    if (!text.trim() && ((b as any).images?.length || 0) === 0 && ((b as any).audios?.length || 0) === 0) continue;
-    let tail = "";
-    for (let j = i + 1; j < blocks.length; j++) {
-      const nb = blocks[j] as ChatMessageBlock;
-      if ((nb as any).isStreaming) continue;
-      const nbSpeaker = String((nb as any).speakerAgentId || "").trim();
-      const nbRole = String((nb as any).role || "").trim();
-      const nbIsOwn = !nbSpeaker || nbSpeaker === "user-persona" || nbRole === "user";
-      if (nbIsOwn) break;
-      const t = String((nb as any).text || "").trim();
-      if (t) {
-        const parts = t.split("\uE000TOOLBREAK\uE000").map((s) => s.trim()).filter(Boolean);
-        tail = parts.length > 0 ? parts[parts.length - 1]! : t;
-        break;
-      }
-    }
-    raw.push({ id: String((b as any).id || `timeline-${i}`), userText: text, assistantTail: tail, blockIndex: i });
-  }
   // map to virtual index
   const idToVirtual = new Map<string, number>();
   virtualRenderItems.value.forEach((item, idx) => {
-    if ((item as any).kind === "message" && (item as any).block) {
-      const bid = String((item as any).block.id || "");
+    if (item.kind === "message" && item.block) {
+      const bid = String(item.block.id || "");
       if (bid) idToVirtual.set(bid, idx);
     }
   });
-  return raw
-    .map((a) => ({ id: a.id, userText: a.userText, assistantTail: a.assistantTail, index: idToVirtual.get(a.id) ?? -1 }))
-    .filter((a) => a.index >= 0);
+  const entries: TimelineEntry[] = [];
+  let pendingCompactionBoundary = false;
+  for (const block of blocks) {
+    if (block.isStreaming) continue;
+    if (block.isExtraTextBlock || block.remoteImOrigin) continue;
+    const compaction = isCompactionBlock(block);
+    const text = cleanTimelineText(String(block.text || ""));
+    const index = idToVirtual.get(String(block.id || ""));
+    // 压缩块即使正文空也要留下分段边界，否则会把它后面一段并进上一段
+    if (!text || index === undefined) {
+      if (compaction) pendingCompactionBoundary = true;
+      continue;
+    }
+    entries.push({
+      id: String(block.id || `timeline-${entries.length}`),
+      index,
+      speaker: timelineSpeakerName(block),
+      avatarUrl: timelineSpeakerAvatar(block),
+      time: formatTimelineTime(block.createdAt),
+      text,
+      isOwn: isOwnTimelineBlock(block),
+      isCompaction: compaction || pendingCompactionBoundary,
+    });
+    pendingCompactionBoundary = false;
+  }
+  return entries;
 });
+
+const canShowTimeline = computed(() => timelineEntries.value.length >= 2);
 
 const prefersReducedMotionTimeline = ref(false);
 onMounted(() => {
@@ -1923,12 +2028,12 @@ onMounted(() => {
 });
 
 const activeTimelineIndex = computed<number | null>(() => {
-  const anchors = timelineAnchors.value;
-  if (anchors.length === 0) return null;
-  if (virtualRenderItems.value.length === 0) return anchors[0]?.index ?? null;
+  const entries = timelineEntries.value;
+  if (entries.length === 0) return null;
+  if (virtualRenderItems.value.length === 0) return entries[0]?.index ?? null;
   const scrollEl = scrollContainer.value;
   const top = scrollEl ? scrollEl.scrollTop : 0;
-  let firstVisible = anchors[0]!.index;
+  let firstVisible = entries[0]!.index;
   // virtua 提供 findItemIndex，可直接定位顶部可见索引
   if (virtuaRef.value && typeof (virtuaRef.value as any).findItemIndex === "function") {
     try {
@@ -1939,140 +2044,208 @@ const activeTimelineIndex = computed<number | null>(() => {
     // 回退：线性查找近似
     firstVisible = Math.max(0, Math.floor(top / 300));
   }
-  // 找到最后一个 index <= firstVisible 的锚点
-  let active = anchors[0]!.index;
-  for (const a of anchors) {
-    if (a.index <= firstVisible + 1) active = a.index;
+  // 找到最后一个 index <= firstVisible 的节点
+  let active = entries[0]!.index;
+  for (const entry of entries) {
+    if (entry.index <= firstVisible + 1) active = entry.index;
     else break;
   }
   return active;
 });
-const hoveredTimelineIndex = ref<number | null>(null);
 
 function handleTimelineJump(virtualIndex: number) {
   if (virtualIndex < 0) return;
   scrollVirtualizerToIndex(virtualIndex, { align: "start", behavior: prefersReducedMotionTimeline.value ? "auto" : "smooth" });
 }
 
-// timeline hover float: 不占位，右下角按钮悬停展开（视口锚定）
-const timelineFloatWrapRef = ref<HTMLElement | null>(null);
-const timelineFloatPlaceholderRef = ref<HTMLElement | null>(null);
-const timelineFloatOpen = ref(false);
-// 托盘收起前的逗留时间：鼠标短暂移出不会立刻消失
-const TIMELINE_FLOAT_CLOSE_DELAY_MS = 320;
-let timelineFloatCloseTimer: ReturnType<typeof setTimeout> | null = null;
-// 鼠标悬停展开的微防抖：避免光标扫过右下角误触弹开
-const TIMELINE_FLOAT_OPEN_DELAY_MS = 120;
-let timelineFloatOpenTimer: ReturnType<typeof setTimeout> | null = null;
+// 时间线面板：点击按钮弹出，几乎盖满聊天区；点节点跳转到该条消息并收起面板。
+const timelinePanelOpen = ref(false);
 
-/** 取消待展开的悬停防抖：触发源消失（离开、锚点数跌破 2、工具栏出现、卸载）时统一走这里 */
-function clearTimelineFloatOpenTimer() {
-  if (!timelineFloatOpenTimer) return;
-  clearTimeout(timelineFloatOpenTimer);
-  timelineFloatOpenTimer = null;
+function toggleTimelinePanel() {
+  if (!canShowTimeline.value) return;
+  timelinePanelOpen.value = !timelinePanelOpen.value;
+}
+function closeTimelinePanel() {
+  timelinePanelOpen.value = false;
+}
+function handleTimelineEntryJump(entry: TimelineEntry) {
+  handleTimelineJump(entry.index);
+  timelinePanelOpen.value = false;
 }
 
-const showTimelineFloatPanel = computed(() => timelineFloatOpen.value && timelineAnchors.value.length >= 2);
-const timelineBoardAnchorEl = computed(() => {
-  if (showTimelineFloatPanel.value) return timelineFloatPlaceholderRef.value;
-  return timelineFloatWrapRef.value;
+// ========== 时间线分段加载 ==========
+// 分段依据是压缩标记：一段 = 压缩边界到下一个压缩边界之间的消息，服务端一个物理块文件就是一段。
+// 面板默认只渲染最后一段；滚到顶部先放开内存里更早的段，内存放空了才向后端要更早的一整段。
+const TIMELINE_TOP_TRIGGER_PX = 48;
+
+const timelineScrollerRef = ref<{ scrollerRef?: HTMLElement | null } | null>(null);
+const revealedTimelineSegmentCount = ref(1);
+let timelineScrollEl: HTMLElement | null = null;
+let timelineRevealBusy = false;
+let timelinePendingRevealMode: "anchor" | "fill" | null = null;
+let timelineScrollAnchor: { height: number; top: number } | null = null;
+
+// 每段首节点的下标；首节点恒为一段起点，压缩标记节点另起一段
+const timelineSegmentStarts = computed<number[]>(() => computeTimelineSegmentStarts(timelineEntries.value));
+
+const timelineVisibleStartIndex = computed(() =>
+  resolveTimelineVisibleStartIndex(timelineSegmentStarts.value, revealedTimelineSegmentCount.value),
+);
+
+const visibleTimelineEntries = computed(() => timelineEntries.value.slice(timelineVisibleStartIndex.value));
+
+async function waitTimelineFrame() {
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function captureTimelineScrollAnchor() {
+  const el = timelineScrollerRef.value?.scrollerRef ?? null;
+  timelineScrollAnchor = el ? { height: el.scrollHeight, top: el.scrollTop } : null;
+}
+
+// 顶部前插内容后视口会被顶下去，按内容高度差把 scrollTop 补回来，保持原来看到的位置不动
+function restoreTimelineScrollAnchor() {
+  const anchor = timelineScrollAnchor;
+  timelineScrollAnchor = null;
+  const el = timelineScrollerRef.value?.scrollerRef ?? null;
+  if (!anchor || !el) return;
+  const delta = el.scrollHeight - anchor.height;
+  if (delta > 0) el.scrollTop = anchor.top + delta;
+}
+
+async function revealTimelineSegments(count: number, options?: { stickToBottom?: boolean }) {
+  timelineRevealBusy = true;
+  // 补齐首屏时内容本来就没溢出，视口锚点没有意义，直接贴着底部继续加
+  const stickToBottom = options?.stickToBottom === true;
+  if (!stickToBottom) captureTimelineScrollAnchor();
+  revealedTimelineSegmentCount.value += count;
+  await nextTick();
+  await waitTimelineFrame();
+  if (stickToBottom) {
+    const el = timelineScrollerRef.value?.scrollerRef ?? null;
+    if (el) el.scrollTop = el.scrollHeight;
+  } else {
+    restoreTimelineScrollAnchor();
+  }
+  timelineRevealBusy = false;
+}
+
+async function revealEarlierTimelineBlock() {
+  if (timelineRevealBusy || timelinePendingRevealMode || !timelinePanelOpen.value) return;
+  if (revealedTimelineSegmentCount.value < timelineSegmentStarts.value.length) {
+    await revealTimelineSegments(1);
+    return;
+  }
+  if (!props.hasMoreHistory || props.loadingOlderHistory) return;
+  // 拿回来的段先落在已加载消息里但不渲染，等加载完成后再放开，定位在放开那一刻量更准
+  timelinePendingRevealMode = "anchor";
+  emit("loadOlderCompactionSegment");
+}
+
+// 面板内容还撑不满可视区时，滚动事件永远不会触发，只能自己往前补齐；
+// 补到能滚动为止，或者更早的内容取空了为止。
+async function fillTimelineIfNotScrollable() {
+  if (!timelinePanelOpen.value) return;
+  for (let guard = 0; guard < 50; guard += 1) {
+    await nextTick();
+    await waitTimelineFrame();
+    const el = timelineScrollerRef.value?.scrollerRef ?? null;
+    if (!el || !timelinePanelOpen.value) return;
+    // 量不到高度（面板还在布局或处于隐藏态）时不能判断是否撑满，直接放弃这一轮，避免把历史一次抽干
+    if (el.clientHeight <= 0) return;
+    if (el.scrollHeight > el.clientHeight + 1) return;
+    if (timelineRevealBusy || timelinePendingRevealMode) return;
+    if (revealedTimelineSegmentCount.value < timelineSegmentStarts.value.length) {
+      await revealTimelineSegments(1, { stickToBottom: true });
+      continue;
+    }
+    if (!props.hasMoreHistory || props.loadingOlderHistory) return;
+    timelinePendingRevealMode = "fill";
+    emit("loadOlderCompactionSegment");
+    return;
+  }
+}
+
+function onTimelinePanelScroll() {
+  if (!timelinePanelOpen.value) return;
+  const el = timelineScrollerRef.value?.scrollerRef ?? null;
+  if (!el || el.scrollTop > TIMELINE_TOP_TRIGGER_PX) return;
+  void revealEarlierTimelineBlock();
+}
+
+function detachTimelineScrollListener() {
+  if (!timelineScrollEl) return;
+  timelineScrollEl.removeEventListener("scroll", onTimelinePanelScroll);
+  timelineScrollEl = null;
+}
+
+function attachTimelineScrollListener() {
+  const el = timelineScrollerRef.value?.scrollerRef ?? null;
+  if (!el || el === timelineScrollEl) return;
+  detachTimelineScrollListener();
+  timelineScrollEl = el;
+  el.addEventListener("scroll", onTimelinePanelScroll, { passive: true });
+}
+
+// 一段加载完成后放行：新到的段落在旧内容之前，用户正停在顶部，把它一起显出来
+watch(
+  () => props.loadingOlderHistory,
+  async (loading, wasLoading) => {
+    if (loading || !wasLoading) return;
+    const mode = timelinePendingRevealMode;
+    if (!mode) return;
+    timelinePendingRevealMode = null;
+    if (!timelinePanelOpen.value) {
+      revealedTimelineSegmentCount.value += 1;
+      return;
+    }
+    await revealTimelineSegments(1, { stickToBottom: mode === "fill" });
+    if (mode === "fill") await fillTimelineIfNotScrollable();
+  },
+);
+
+watch(timelinePanelOpen, async (open) => {
+  timelinePendingRevealMode = null;
+  timelineScrollAnchor = null;
+  timelineRevealBusy = false;
+  if (!open) {
+    detachTimelineScrollListener();
+    return;
+  }
+  revealedTimelineSegmentCount.value = 1;
+  await nextTick();
+  attachTimelineScrollListener();
+  const el = timelineScrollerRef.value?.scrollerRef ?? null;
+  if (el) el.scrollTop = el.scrollHeight;
+  // 首屏撑不满就滚不动，滚动事件也就永远不会来，这里先自己补齐
+  await fillTimelineIfNotScrollable();
 });
 
-const TIMELINE_TOOL_BREAK = "\uE000TOOLBREAK\uE000";
-function cleanTimelinePreviewText(raw: string): string {
-  return String(raw || "")
-    .split(TIMELINE_TOOL_BREAK).join(" ")
-    .replace(/\s*\[toolcall:[^\]\n]+\]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-function formatTimelineUserPreview(raw: string): string {
-  const t = cleanTimelinePreviewText(raw);
-  if (!t) return "（空消息）";
-  return t.length > 56 ? `${t.slice(0, 56)}…` : t;
-}
-function formatTimelineAssistantPreview(raw: string): string {
-  const t = cleanTimelinePreviewText(raw);
-  if (!t) return "";
-  return t.length > 72 ? `${t.slice(0, 72)}…` : t;
-}
-
-function handleTimelineFloatEnter() {
-  if (timelineFloatCloseTimer) {
-    clearTimeout(timelineFloatCloseTimer);
-    timelineFloatCloseTimer = null;
-  }
-  if (showTimelineFloatPanel.value) return;
-  if (timelineAnchors.value.length < 2) return;
-  if (timelineFloatOpenTimer) return;
-  timelineFloatOpenTimer = setTimeout(() => {
-    timelineFloatOpenTimer = null;
-    // 延时窗口里触发源可能已经消失（锚点数跌破 2），执行前重新校验
-    if (showTimelineFloatPanel.value) return;
-    if (timelineAnchors.value.length < 2) return;
-    timelineFloatOpen.value = true;
-  }, TIMELINE_FLOAT_OPEN_DELAY_MS);
-}
-function handleTimelineFloatLeave() {
-  clearTimelineFloatOpenTimer();
-  if (timelineFloatCloseTimer) clearTimeout(timelineFloatCloseTimer);
-  timelineFloatCloseTimer = setTimeout(() => {
-    timelineFloatOpen.value = false;
-    timelineFloatCloseTimer = null;
-  }, TIMELINE_FLOAT_CLOSE_DELAY_MS);
-}
-function handleTimelineFloatToggle() {
-  clearTimelineFloatOpenTimer();
-  if (timelineFloatCloseTimer) {
-    clearTimeout(timelineFloatCloseTimer);
-    timelineFloatCloseTimer = null;
-  }
-  if (showTimelineFloatPanel.value) {
-    timelineFloatOpen.value = false;
-  } else {
-    if (timelineAnchors.value.length < 2) return;
-    timelineFloatOpen.value = true;
-  }
-}
-function handleTimelineJumpAndClose(virtualIndex: number) {
-  handleTimelineJump(virtualIndex);
-}
-
-function handleTimelineFloatDocumentPointerDown(event: MouseEvent | TouchEvent) {
-  // 待展开也要取消，所以清理放在早退守卫之前
-  clearTimelineFloatOpenTimer();
-  if (!showTimelineFloatPanel.value) return;
-  const target = event.target as Node | null;
-  if (target instanceof Element && target.closest(".ecall-snake-board-card")) return;
-  const anchorEl = timelineBoardAnchorEl.value;
-  if (anchorEl && target && anchorEl.contains(target as Node)) return;
-  timelineFloatOpen.value = false;
-  if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
-}
-function handleTimelineFloatKeydown(event: KeyboardEvent) {
+function handleTimelinePanelKeydown(event: KeyboardEvent) {
   if (event.key !== "Escape") return;
-  clearTimelineFloatOpenTimer();
-  if (!showTimelineFloatPanel.value) return;
-  timelineFloatOpen.value = false;
-  if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
+  closeTimelinePanel();
 }
 onMounted(() => {
-  window.addEventListener("pointerdown", handleTimelineFloatDocumentPointerDown, true);
-  window.addEventListener("keydown", handleTimelineFloatKeydown);
+  window.addEventListener("keydown", handleTimelinePanelKeydown);
 });
 onBeforeUnmount(() => {
-  window.removeEventListener("pointerdown", handleTimelineFloatDocumentPointerDown, true);
-  window.removeEventListener("keydown", handleTimelineFloatKeydown);
-  clearTimelineFloatOpenTimer();
-  if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
+  window.removeEventListener("keydown", handleTimelinePanelKeydown);
+  detachTimelineScrollListener();
 });
-watch(() => timelineAnchors.value.length, (n) => {
-  if (n >= 2) return;
-  clearTimelineFloatOpenTimer();
-  if (!timelineFloatOpen.value) return;
-  timelineFloatOpen.value = false;
-  if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
-});
+
+// 节点不足或切换会话时收起面板：面板是基于当前会话消息构建的，不能跨会话保留
+watch(
+  () => [String(props.activeConversationId || "").trim(), timelineEntries.value.length] as const,
+  ([, count]) => {
+    if (count < 2) timelinePanelOpen.value = false;
+  },
+);
+watch(
+  () => String(props.activeConversationId || "").trim(),
+  () => {
+    timelinePanelOpen.value = false;
+  },
+);
 
 const latestOwnTailSpacerMinHeight = ref(0);
 
@@ -2151,10 +2324,50 @@ const supportsFloatingSessionToolbar = computed(() =>
   && !activeConversationIsRemoteContact.value,
 );
 
-// 会话悬浮操作区上下两排常驻：上排（预览条 + 时间线按钮）、下排工作区 bar 不再按贴底/离底显隐，
-// 只要当前会话支持悬浮操作区就一直在位。
-// 会话悬浮操作区上排（预览条 + 时间线按钮）的底边偏移：恒定抬起一个工作区 bar 高 + 8px 间隔
-const sessionFloatTopRowBottom = computed(() => toolbarReservedHeight.value + 8);
+// 会话悬浮操作区：下排工作区 bar 贴底时出现，上排（预览条 + 时间线按钮）离底时出现
+const showFloatingSessionToolbar = computed(() => {
+  if (!supportsFloatingSessionToolbar.value) return false;
+  return sessionControlPanelVisible.value;
+});
+
+// 上下两排互斥，且共用同一个位置：切换时先让旧的一排淡出、再让新的一排淡入（顺切），
+// 避免两排同时在场交叠淡入淡出，看起来像内容在左右跳动
+const SESSION_ROW_FADE_MS = 150;
+type SessionFloatRow = "toolbar" | "top" | "none";
+const displayedSessionRow = ref<SessionFloatRow>("none");
+let sessionRowSwitchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearSessionRowSwitchTimer() {
+  if (sessionRowSwitchTimer) {
+    clearTimeout(sessionRowSwitchTimer);
+    sessionRowSwitchTimer = null;
+  }
+}
+
+watch(
+  showFloatingSessionToolbar,
+  (visible) => {
+    const target: SessionFloatRow = visible ? "toolbar" : "top";
+    if (displayedSessionRow.value === target) return;
+    clearSessionRowSwitchTimer();
+    // 首次落位（或上一次切换还没落位）直接显示，避免初次进场多一次空档
+    if (displayedSessionRow.value === "none") {
+      displayedSessionRow.value = target;
+      return;
+    }
+    displayedSessionRow.value = "none";
+    sessionRowSwitchTimer = setTimeout(() => {
+      sessionRowSwitchTimer = null;
+      displayedSessionRow.value = target;
+    }, SESSION_ROW_FADE_MS);
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(clearSessionRowSwitchTimer);
+
+// 会话悬浮操作区上排（预览条 + 时间线按钮）直接贴容器底边：
+// 上下两排不会同时出现（贴底出下排、离底出上排），不需要为上排预留下排的高度
 
 const showConversationTodoBar = computed(() => {
   const hasActiveOrPending = normalizedConversationTodos.value.some((item) => item.status === "pending" || item.status === "in_progress");
@@ -2846,6 +3059,29 @@ const thinkingPreviewBlocks = computed<AssistantStreamBlock[]>(() => {
   return [];
 });
 
+// 预览只表达「最新的未读内容」：把预览看成最新未读内容的预览，读过了自然就没有。
+// 未读版本 = 「最新助理块的 id + 思考字数 + 执行次数」——只有新增一段思考或执行一次工具才算有新内容产出；
+// 读到最底部时记下当时的版本，之后只要版本变了就还有未读，交给预览条显示内容；
+// 版本一致即已读，预览内容清空，预览条自然回落到它本来就有的「回到底部」形态，不另造按钮。
+const latestAssistantContentVersion = computed(() => {
+  const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i];
+    if (block.isExtraTextBlock || block.remoteImOrigin) continue;
+    if (String(block.role || "") !== "assistant") continue;
+    const reasoningChars = Number(block.activityReasoningCharCount || 0);
+    const toolCount = Number(block.toolCallCount || 0);
+    return `${block.id}:${reasoningChars}:${toolCount}`;
+  }
+  return "";
+});
+const readContentVersion = ref("");
+watch(atConversationBottom, (atBottom) => {
+  if (!atBottom) return;
+  readContentVersion.value = latestAssistantContentVersion.value;
+});
+const previewHasUnread = computed(() => latestAssistantContentVersion.value !== readContentVersion.value);
+
 // 非流式预览：取最新一条助理消息的正文。
 // 不能只看 contentBlocks——历史消息常常没有这个字段，会取成空。
 const idlePreviewText = computed(() => {
@@ -2860,6 +3096,10 @@ const idlePreviewText = computed(() => {
   return "";
 });
 
+// 预览条实际收到的内容：没有未读内容时清空，让预览条自己回落到「回到底部」
+const previewBlocksForBar = computed(() => (previewHasUnread.value ? thinkingPreviewBlocks.value : []));
+const previewTextForBar = computed(() => (previewHasUnread.value ? idlePreviewText.value : ""));
+
 // 预览条正文行前的头像：与聊天气泡同源，取最新一条助理消息的人格头像
 const previewAvatarUrl = computed(() => {
   const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
@@ -2872,25 +3112,6 @@ const previewAvatarUrl = computed(() => {
   }
   return "";
 });
-
-// 新消息预览口径：用户曾经到过底部（已看过最新内容）之后，若还没发起新一轮调度，
-// 下方就没有真正的新内容可预览——此时不展示正文预览，只留一个居中的「回到底部」按钮；
-// 一旦有新调度产出（chatting 上升沿），重新恢复正文预览。
-const hasReachedConversationBottom = ref(false);
-const dispatchedSinceBottom = ref(false);
-watch(atConversationBottom, (atBottom) => {
-  if (!atBottom) return;
-  hasReachedConversationBottom.value = true;
-  dispatchedSinceBottom.value = false;
-});
-watch(() => props.chatting, (chatting, wasChatting) => {
-  if (chatting && !wasChatting) dispatchedSinceBottom.value = true;
-});
-watch(() => String(props.activeConversationId || "").trim(), () => {
-  hasReachedConversationBottom.value = false;
-  dispatchedSinceBottom.value = false;
-});
-const previewJumpOnly = computed(() => hasReachedConversationBottom.value && !dispatchedSinceBottom.value);
 
 function scrollToUserMessageTarget(target: { index: number; item: ChatRenderItem }) {
   if (!target) return;

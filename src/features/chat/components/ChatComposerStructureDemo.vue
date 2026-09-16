@@ -22,8 +22,6 @@
       <div class="mb-2 flex flex-wrap items-center gap-2">
         <span class="text-xs text-base-content/60">功能：</span>
         <button type="button" class="btn btn-xs" :class="demoMentions.length > 0 ? 'btn-primary' : 'btn-ghost'" @click="demoMentions.length > 0 ? (demoMentions = []) : resetDemoMentions()">提及</button>
-        <button type="button" class="btn btn-xs" :class="recording ? 'btn-primary' : 'btn-ghost'" @click="recording = !recording">录音</button>
-        <button type="button" class="btn btn-xs" :class="transcribing ? 'btn-primary' : 'btn-ghost'" @click="transcribing = !transcribing">转写</button>
         <button type="button" class="btn btn-xs" :class="goalActive ? 'btn-primary' : 'btn-ghost'" @click="goalActive = !goalActive">目标</button>
         <button type="button" class="btn btn-xs" :class="planModeEnabled ? 'btn-primary' : 'btn-ghost'" @click="planModeEnabled = !planModeEnabled">计划模式</button>
       </div>
@@ -40,11 +38,6 @@
           :clipboard-images="demoClipboardImages"
           :queued-attachment-notices="demoQueuedNotices"
           link-open-error-text=""
-          :transcribing="transcribing"
-          :can-record="true"
-          :recording="recording"
-          :recording-ms="3000"
-          record-hotkey="Ctrl+M"
           conversation-call-primary-api-config-id="demo-model"
           :preferred-chat-model-id="demoPreferredModelId"
           :chat-model-options="demoChatModelOptions"
@@ -84,8 +77,6 @@
           @remove-mention="handleDemoRemoveMention"
           @remove-clipboard-image="demoImages.splice($event, 1)"
           @remove-queued-attachment-notice="demoFiles.splice($event, 1)"
-          @start-recording="recording = true"
-          @stop-recording="recording = false"
           @pick-attachments="addDemoAttachment"
           @update:conversation-preferred-api-config-id="demoPreferredModelId = $event"
           @update:workspace-access="demoWorkspaceAccess = $event"
@@ -99,7 +90,7 @@
           @queue-mark-guided="handleDemoMarkGuided"
         />
       </InputPanelCanvas>
-      <p class="mt-2 text-xs text-base-content/50">生产与演示共用同一块面板，只差数据源。@提及 / 指令 / 录音 / 计划 / 目标都在输入卡内直接交互。</p>
+      <p class="mt-2 text-xs text-base-content/50">生产与演示共用同一块面板，只差数据源。@提及 / 指令 / 计划 / 目标都在输入卡内直接交互。</p>
     </div>
   </div>
 </template>
@@ -140,8 +131,6 @@ const demoImages = ref(makeDemoImages());
 const demoFiles = ref(makeDemoFiles());
 const demoBridges = ref(makeDemoBridges());
 const demoMentions = ref<ChatMentionTarget[]>(makeDemoMentions());
-const recording = ref(false);
-const transcribing = ref(false);
 const goalActive = ref(false);
 const planModeEnabled = ref(false);
 const demoPreferredModelId = ref("demo-model");

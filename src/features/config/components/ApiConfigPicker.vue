@@ -5,7 +5,7 @@
       type="button"
       :class="variant === 'field'
         ? 'select select-bordered bg-none flex w-full items-center justify-between gap-2 pr-3 text-left'
-        : 'btn btn-sm h-8 min-h-8 w-auto min-w-28 max-w-56 justify-between border-0 bg-transparent text-base-content shadow-none hover:bg-base-200/60 max-md:min-w-0 max-md:max-w-36'"
+        : 'btn btn-sm h-8 min-h-8 w-full min-w-0 justify-between border-0 bg-transparent text-base-content shadow-none hover:bg-base-200/60'"
       :disabled="disabled || (normalizedOptions.length === 0 && extraOptions.length === 0 && !placeholder)"
       :title="selectedModelTitle"
       @click="toggleDropdown"

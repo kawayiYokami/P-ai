@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, type PropType, type VNodeChild } from "vue";
 import { parseInlineSegments, type InlineSegment } from "./parse-markdown";
+import { clipInlineSegments } from "./inline-clip";
 
 /**
  * 行内 simple Markdown 渲染：保留行内格式（粗体/斜体/删除线/行内代码/kbd/mark/上下标），
@@ -8,9 +9,16 @@ import { parseInlineSegments, type InlineSegment } from "./parse-markdown";
  * 不生成链接锚点（预览卡整体是按钮，链接会让点击语义打架）。
  * 用于思维链预览条、配置卡片预览这类「紧凑」场景。
  */
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   text: string;
-}>();
+  /** 可见字数上限，0 表示不截断；截断在段边界处发生，不会切断行内代码等标记 */
+  limit?: number;
+  /** 截断时保留头部所占比例，其余留给尾部 */
+  headRatio?: number;
+}>(), {
+  limit: 0,
+  headRatio: 0.3,
+});
 
 const HEADING_LINE_PATTERN = /^\s{0,3}#{1,6}\s+(.*)$/;
 
@@ -31,8 +39,12 @@ function parseInlineWithHeadings(text: string): InlineSegment[] {
   return segments;
 }
 
-const inlineSegments = computed<InlineSegment[]>(() =>
+const parsedSegments = computed<InlineSegment[]>(() =>
   parseInlineWithHeadings(String(props.text || "")),
+);
+
+const inlineSegments = computed<InlineSegment[]>(() =>
+  clipInlineSegments(parsedSegments.value, props.limit, props.headRatio),
 );
 
 function renderSegments(segments: InlineSegment[]): VNodeChild[] {
@@ -77,34 +89,38 @@ const InlineRenderer = defineComponent({
 </template>
 
 <style scoped>
-.ecall-inline-md-code {
+/* 这些元素由脚本里的 h() 动态创建，vnode 上没有本组件的 scopeId，
+   普通 scoped 选择器（.x[data-v-xxx]）永远匹配不到，必须从带 scopeId 的根节点往下穿透。 */
+:deep(.ecall-inline-md-code) {
   padding: 0 0.25em;
   border-radius: 0.25rem;
-  background-color: color-mix(in oklab, currentColor 12%, transparent);
+  /* 与主渲染器同一口径：红字、无底色 */
+  color: var(--ecall-md-inline-code-color);
+  background: transparent;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.95em;
 }
 
-.ecall-inline-md-strong {
+:deep(.ecall-inline-md-strong) {
   font-weight: 600;
 }
 
-.ecall-inline-md-em {
+:deep(.ecall-inline-md-em) {
   font-style: italic;
 }
 
-.ecall-inline-md-delete {
+:deep(.ecall-inline-md-delete) {
   opacity: 0.7;
 }
 
-.ecall-inline-md-kbd {
+:deep(.ecall-inline-md-kbd) {
   padding: 0 0.3em;
   border: 1px solid color-mix(in oklab, currentColor 25%, transparent);
   border-radius: 0.25rem;
   font-size: 0.85em;
 }
 
-.ecall-inline-md-mark {
+:deep(.ecall-inline-md-mark) {
   background-color: color-mix(in oklab, currentColor 20%, transparent);
   color: inherit;
 }

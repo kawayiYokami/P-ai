@@ -990,7 +990,8 @@ function resolvedArchiveImageSrc(
 
 .archive-markdown-content:deep(:where(:not(pre) > code,.inline-code)) {
   border-radius: 0.25rem;
-  background: color-mix(in oklab, currentColor 12%, transparent);
+  color: var(--ecall-md-inline-code-color);
+  background: transparent;
   padding: 0.08rem 0.28rem;
 }
 

@@ -306,6 +306,50 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     }
   }
 
+  // 时间线按压缩段补载：一次取锚点之前的一整段（服务端按压缩边界切块，一段即一个物理块文件）。
+  async function loadOlderCompactionSegmentHistory() {
+    const conversationId = String(bindings.currentChatConversationId.value || "").trim();
+    if (!conversationId || bindings.loadingOlderConversationHistory.value || !bindings.hasMoreBackendHistory.value) {
+      return;
+    }
+    const formalMessages = formalizeConversationMessages(bindings.allMessages.value);
+    const oldestMessageId = String(formalMessages[0]?.id || "").trim();
+    if (!oldestMessageId) {
+      bindings.hasMoreBackendHistory.value = false;
+      return;
+    }
+
+    bindings.loadingOlderConversationHistory.value = true;
+    try {
+      const result = await invokeTauri("conversation.compactionSegmentBefore", {
+        input: { conversationId, anchorMessageId: oldestMessageId },
+      }) as { messages?: any[]; hasMore?: boolean };
+      if (
+        String(bindings.currentChatConversationId.value || "").trim() !== conversationId
+      ) {
+        return;
+      }
+      const previousMessages = Array.isArray(bindings.allMessages.value) ? bindings.allMessages.value : [];
+      const incomingMessages = freezeConversationMessages(Array.isArray(result?.messages) ? result.messages : []);
+      if (incomingMessages.length > 0) {
+        const nextMessages = mergeMessagesIntoTimeline(previousMessages, incomingMessages, {
+          prependMessages: true,
+        });
+        bindings.allMessages.value = nextMessages;
+        cacheConversationMessages(conversationId, nextMessages);
+      }
+      bindings.hasMoreBackendHistory.value = !!result?.hasMore;
+    } catch (error) {
+      console.warn("[会话缓存] 按压缩段向上补历史失败", {
+        conversationId,
+        error,
+      });
+      bindings.setStatusError("status.loadMessagesFailed", error);
+    } finally {
+      bindings.loadingOlderConversationHistory.value = false;
+    }
+  }
+
   function mergeConversationMessagesFromSyncPayload(
     conversationId: string,
     payloadMessages: any[],
@@ -674,6 +718,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     reloadForegroundConversationMessages,
     refreshForegroundConversationMessageById,
     loadOlderConversationHistory,
+    loadOlderCompactionSegmentHistory,
     mergeConversationMessagesFromSyncPayload,
     applyConversationMessagesAfterSynced,
     applyConversationMessageAppended,

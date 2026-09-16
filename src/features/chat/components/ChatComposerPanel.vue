@@ -246,22 +246,6 @@
               >
                 <Paperclip class="h-3.5 w-3.5" />
               </button>
-              <button
-                v-if="showConversationActions && canUseTransportSpeechRecording()"
-                type="button"
-                class="btn btn-sm btn-circle shrink-0 transition-transform duration-150 ease-out active:scale-90"
-                :class="recording && !transcribing ? 'btn-error' : 'btn-ghost'"
-                :disabled="!canRecord || transcribing"
-                :title="transcribing ? t('chat.transcribing') : recording ? t('chat.recording', { seconds: Math.max(1, Math.round(recordingMs / 1000)) }) : t('chat.holdRecord', { hotkey: recordHotkey })"
-                @mousedown.prevent="emit('startRecording')"
-                @mouseup.prevent="emit('stopRecording')"
-                @mouseleave.prevent="recording && emit('stopRecording')"
-                @touchstart.prevent="emit('startRecording')"
-                @touchend.prevent="emit('stopRecording')"
-              >
-                <span v-if="transcribing" class="loading loading-spinner loading-xs"></span>
-                <Mic v-else class="h-3.5 w-3.5" />
-              </button>
               <ChatModelPicker
                 variant="chip"
                 class="min-w-0 flex-1"
@@ -349,7 +333,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowUp, CalendarPlus, Check, ClipboardList, Mic, Paperclip, Plus, Square, Target, X } from "@lucide/vue";
+import { ArrowUp, CalendarPlus, Check, ClipboardList, Paperclip, Plus, Square, Target, X } from "@lucide/vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption } from "../../../types/app";
 import ChatSelectionActionPanel from "./ChatSelectionActionPanel.vue";
 import ChatModelPicker from "../../config/components/ApiConfigPicker.vue";
@@ -363,7 +347,6 @@ import { clearChatComposerFocus, registerChatComposerFocus } from "../composable
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import { ideContextReferenceDisplayParts } from "../utils/ide-context-reference-display";
 import { mergeComposerIdeContextGroups } from "../utils/ide-context-reference-groups";
-import { canUseTransportSpeechRecording } from "../../../services/tauri-api";
 
 type BinaryAttachment = { mime: string; bytesBase64: string; previewDataUrl?: string };
 type QueuedAttachmentNotice = { id: string; fileName: string; path: string; mime: string; pending?: boolean };
@@ -390,11 +373,6 @@ const props = withDefaults(defineProps<{
   selectedMentions: ChatMentionTarget[];
   clipboardImages: BinaryAttachment[];  queuedAttachmentNotices: QueuedAttachmentNotice[];
   linkOpenErrorText: string;
-  transcribing: boolean;
-  canRecord: boolean;
-  recording: boolean;
-  recordingMs: number;
-  recordHotkey: string;
   conversationCallPrimaryApiConfigId: string;
   preferredChatModelId?: string;
   chatModelOptions: ApiConfigItem[];
@@ -447,8 +425,6 @@ const emit = defineEmits<{
   (e: "removeMention", value: string | { agentId: string; departmentId?: string }): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
-  (e: "startRecording"): void;
-  (e: "stopRecording"): void;
   (e: "pickAttachments"): void;
   (e: "update:conversationPreferredApiConfigId", value: string): void;
   (e: "update:workspaceAccess", value: "approval" | "full_access"): void;

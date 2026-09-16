@@ -285,6 +285,30 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     }
   }
 
+  // 时间线按「压缩段」补载：一次取锚点之前的一整段（服务端按压缩边界切块，一段即一个物理块文件）。
+  // 与 loadOlderHistory 共用 loadingOlderHistory 互斥，锚点同为当前最旧消息，两条路径前插互不错位。
+  async function loadOlderCompactionSegment() {
+    const conversationId = currentConversationId();
+    const oldestMessageId = String(allMessages.value[0]?.id || "").trim();
+    if (!conversationId || !oldestMessageId || !hasMoreHistory.value || loadingOlderHistory.value) return;
+    loadingOlderHistory.value = true;
+    try {
+      const result = await invokeTauri<{ messages?: ChatMessage[]; hasMore?: boolean }>("conversation.compactionSegmentBefore", {
+        input: { conversationId, anchorMessageId: oldestMessageId },
+      });
+      if (conversationId !== currentConversationId()) return;
+      const incoming = ensureConversationMessageIds(Array.isArray(result?.messages) ? result.messages : []);
+      if (incoming.length > 0) {
+        allMessages.value = mergeAuthoritativeMessages(allMessages.value, incoming, {
+          prependMessages: true,
+        });
+      }
+      hasMoreHistory.value = !!result?.hasMore;
+    } finally {
+      loadingOlderHistory.value = false;
+    }
+  }
+
   async function refreshMessageById(conversationId: string, messageId: string) {
     const message = await invokeTauri<ChatMessage | null>("conversation.messageById", {
       input: { conversationId, messageId },
@@ -714,5 +738,6 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     handleRegenerateTurn: rewindActions.handleRegenerateTurn,
     loadSnapshot,
     loadOlderHistory,
+    loadOlderCompactionSegment,
   };
 }

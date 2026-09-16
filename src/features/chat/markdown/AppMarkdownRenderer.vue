@@ -1699,7 +1699,9 @@ ul.ecall-md-list {
 /* ==================== Inline Code ==================== */
 .ecall-md-inline-code {
   border-radius: 0.28rem;
-  background: color-mix(in srgb, currentColor 10%, transparent);
+  /* 行内代码统一红字、无底色：底色在 code 密集处会盖过文字本身 */
+  color: var(--ecall-md-inline-code-color);
+  background: transparent;
   padding: 0.08rem 0.28rem;
   font-family: var(--app-code-font-family);
   font-weight: var(--ecall-md-code-weight-setting, var(--app-font-medium-weight, 500));

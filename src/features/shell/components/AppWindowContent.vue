@@ -133,11 +133,9 @@
         :queued-attachment-notices="queuedAttachmentNotices"
         :chat-input="chatInput"
         :instruction-presets="instructionPresets"
-        :can-record="speechRecognitionSupported"
         :recording="recording"
         :recording-ms="recordingMs"
         :transcribing="transcribing"
-        :record-hotkey="recordHotkey"
         :conversation-call-primary-api-config-id="conversationCallPrimaryApiConfigId"
         :preferred-chat-model-id="preferredChatModelId"
         :tool-review-api-config-id="config.toolReviewApiConfigId || ''"
@@ -228,12 +226,11 @@
         @pick-attachments="pickAttachments"
         @update:conversation-preferred-api-config-id="updateConversationPreferredApiConfigId"
         @update:plan-mode-enabled="updatePlanModeEnabled"
-        @start-recording="startRecording"
-        @stop-recording="stopRecording"
         @send-chat="sendChat"
         @stop-chat="stopChat"
         @clear-chat-error="clearChatError"
         @load-older-history="onLoadOlderChatHistory"
+        @load-older-compaction-segment="onLoadOlderCompactionSegment"
         @reached-bottom="onReachedChatBottom"
         @jump-to-conversation-bottom="onJumpToConversationBottom"
         @create-conversation-branch-from-turn="onCreateConversationBranchFromTurn"
@@ -638,11 +635,9 @@ const props = defineProps<{
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   queuedAttachmentNotices: Array<{ id: string; fileName: string; path: string; mime: string; pending?: boolean }>;
   chatInput: string;
-  speechRecognitionSupported: boolean;
   recording: boolean;
   recordingMs: number;
   transcribing: boolean;
-  recordHotkey: string;
   conversationCallPrimaryApiConfigId: string;
   preferredChatModelId?: string;
   toolReviewRefreshTick: number;
@@ -828,12 +823,11 @@ const props = defineProps<{
   removeClipboardImage: (index: number) => void;
   removeQueuedAttachmentNotice: (index: number) => void;
   pickAttachments: () => void;
-  startRecording: () => void;
-  stopRecording: () => void;
   sendChat: () => void;
   stopChat: () => void;
   clearChatError: () => void;
   onLoadOlderChatHistory: () => void;
+  onLoadOlderCompactionSegment: () => void;
   onReachedChatBottom: () => void;
   onJumpToConversationBottom: () => void;
   onCreateConversationBranchFromTurn: (payload: { turnId: string }) => void;

@@ -5,6 +5,7 @@ import { probeChatScroll } from "./chat-scroll-probe";
 
 const TODO_DROPDOWN_SAFE_GAP = 30;
 const FLOATING_TOOLBAR_MIN_RESERVE = 24;
+const SESSION_CONTROL_PANEL_HIDE_DELAY_MS = 200;
 
 type UseChatScrollLayoutOptions = {
   activeConversationId: Ref<string>;
@@ -32,12 +33,14 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   const lastScrollTop = ref(0);
   const userScrollingDown = ref(false);
   const userScrollingUp = ref(false);
+  const sessionControlPanelVisible = ref(true);
   let composerResizeObserver: ResizeObserver | null = null;
   let chatLayoutResizeObserver: ResizeObserver | null = null;
   let pendingComposerResizeFrame = 0;
   let pendingChatLayoutResizeFrame = 0;
   let wheelScrollIntentUntil = 0;
   let pointerScrollIntentActive = false;
+  let sessionControlPanelHideTimer: ReturnType<typeof setTimeout> | null = null;
 
   // 会话悬浮操作区：工作区 bar、思维链预览 bar、时间线按钮共用同一容器，
   // 统一锚定在输入框上沿并留 8px（p-2）底部间距，横向跟随容器宽度
@@ -103,6 +106,24 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     return distance <= threshold;
   }
 
+  function updateSessionControlPanelVisibility(nearBottom: boolean) {
+    if (nearBottom) {
+      if (sessionControlPanelHideTimer) {
+        clearTimeout(sessionControlPanelHideTimer);
+        sessionControlPanelHideTimer = null;
+      }
+      sessionControlPanelVisible.value = true;
+      return;
+    }
+    if (sessionControlPanelHideTimer) return;
+    sessionControlPanelHideTimer = setTimeout(() => {
+      sessionControlPanelHideTimer = null;
+      if (!lastBottomState.value) {
+        sessionControlPanelVisible.value = false;
+      }
+    }, SESSION_CONTROL_PANEL_HIDE_DELAY_MS);
+  }
+
   function updateScrollPositionState(el: HTMLElement, optionsOverride: { notifyReachedBottom?: boolean } = {}) {
     const nearBottom = isNearBottom(el);
     if (optionsOverride.notifyReachedBottom && nearBottom && !lastBottomState.value) {
@@ -113,6 +134,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
       userScrollingUp.value = false;
     }
     lastBottomState.value = nearBottom;
+    updateSessionControlPanelVisibility(nearBottom);
     return nearBottom;
   }
 
@@ -226,7 +248,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
       }
       const el = scrollContainer.value;
       if (el) {
-        updateScrollPositionState(el);
+        sessionControlPanelVisible.value = updateScrollPositionState(el);
         lastScrollTop.value = el.scrollTop;
         userScrollingDown.value = false;
         userScrollingUp.value = false;
@@ -255,6 +277,10 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
       window.removeEventListener("pointerup", endPointerScrollIntent);
       window.removeEventListener("pointercancel", endPointerScrollIntent);
     }
+    if (sessionControlPanelHideTimer) {
+      clearTimeout(sessionControlPanelHideTimer);
+      sessionControlPanelHideTimer = null;
+    }
   });
 
   watch(
@@ -280,7 +306,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
         updateLatestOwnElasticMinHeight();
         const el = scrollContainer.value;
         if (el) {
-          updateScrollPositionState(el);
+          sessionControlPanelVisible.value = updateScrollPositionState(el);
           lastScrollTop.value = el.scrollTop;
           userScrollingDown.value = false;
           userScrollingUp.value = false;
@@ -320,6 +346,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     stopFollowBottom,
     userScrollingDown,
     userScrollingUp,
+    sessionControlPanelVisible,
     sessionFloatDockStyle,
     toolbarReservedHeight,
     onScroll,

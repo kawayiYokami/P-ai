@@ -237,10 +237,11 @@ defineExpose({
 }
 
 .config-changelog-markdown:deep(.ecall-markdown-content :where(:not(pre) > code,.inline-code)) {
-  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  border: 0;
   border-radius: 0.45rem;
   padding: 0.08rem 0.35rem;
-  background: color-mix(in srgb, currentColor 6%, transparent);
+  color: var(--ecall-md-inline-code-color);
+  background: transparent;
 }
 </style>
 
