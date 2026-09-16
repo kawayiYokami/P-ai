@@ -37,7 +37,7 @@
         <span class="truncate">{{ option.label }}</span>
         <span
           v-if="option.badge !== undefined && option.badge !== null && option.badge !== ''"
-          class="badge badge-xs ml-1.5 shrink-0 transition-colors font-mono"
+          class="badge badge-xs ml-1.5 transition-colors font-mono shrink-0"
           :class="isSelected(option.value) ? 'badge-neutral' : 'badge-ghost opacity-70'"
         >
           {{ option.badge }}
@@ -97,7 +97,10 @@ const activeIndex = computed(() =>
 function updateSlider() {
   const index = activeIndex.value;
   const el = index >= 0 ? buttonRefs.value[index] : null;
-  if (!el) return;
+  if (!el || el.offsetWidth === 0) {
+    if (!el) sliderReady.value = false;
+    return;
+  }
   sliderStyle.value = {
     width: `${el.offsetWidth}px`,
     transform: `translateX(${el.offsetLeft}px)`,

@@ -199,7 +199,7 @@
               <!-- 非编辑状态：文本展示，点击就地进入编辑 -->
               <div
                 v-if="!isEditingName"
-                class="group flex items-center justify-between rounded-lg border border-transparent px-3 py-2 -mx-3 transition-colors select-none"
+                class="group flex items-center justify-between rounded-field border border-transparent px-3 py-2 -mx-3 transition-colors select-none"
                 :class="selectedSkill.isBuiltin ? 'cursor-default' : 'cursor-pointer hover:border-base-300 hover:bg-base-200/60'"
                 :title="selectedSkill.isBuiltin ? t('config.skill.builtinReadonly') : t('common.edit')"
                 @click="startEditName"
@@ -248,7 +248,7 @@
               <!-- 非编辑状态：文本展示，点击就地进入编辑 -->
               <div
                 v-if="!isEditingDesc"
-                class="group flex items-start justify-between rounded-lg border border-transparent p-3 -mx-3 transition-colors"
+                class="group flex items-start justify-between rounded-field border border-transparent p-3 -mx-3 transition-colors"
                 :class="selectedSkill.isBuiltin ? 'cursor-default' : 'cursor-pointer hover:border-base-300 hover:bg-base-200/60'"
                 :title="selectedSkill.isBuiltin ? t('config.skill.builtinReadonly') : t('common.edit')"
                 @click="startEditDesc"
@@ -473,7 +473,7 @@
                 :key="item.path"
                 role="button"
                 tabindex="0"
-                class="rounded-2xl border border-base-200 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
+                class="rounded-box border border-base-200 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
                 @click="selectSkill(item.path)"
                 @keydown.enter.prevent="selectSkill(item.path)"
                 @keydown.space.prevent="selectSkill(item.path)"
@@ -489,7 +489,7 @@
                 </p>
 
                 <!-- 底栏：内容规模 + 启用开关 + 进入指示 -->
-                <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption opacity-60 font-mono">
+                <div class="flex items-center justify-between border-t border-base-200 pt-2.5 text-caption opacity-60 font-mono">
                   <span
                     class="hover:text-primary transition-colors cursor-help"
                     :title="t('config.skill.contentWordsTooltip', { count: (item.content || '').length.toLocaleString() })"
@@ -549,7 +549,7 @@
                   :key="item.path"
                   role="button"
                   tabindex="0"
-                  class="rounded-2xl border border-base-200 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
+                  class="rounded-box border border-base-200 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
                   @click="selectSkill(item.path)"
                   @keydown.enter.prevent="selectSkill(item.path)"
                   @keydown.space.prevent="selectSkill(item.path)"
@@ -568,7 +568,7 @@
                   </p>
 
                   <!-- 底栏：内容规模 + 启用开关 + 进入指示 -->
-                  <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption opacity-60 font-mono">
+                  <div class="flex items-center justify-between border-t border-base-200 pt-2.5 text-caption opacity-60 font-mono">
                     <span
                       class="hover:text-primary transition-colors cursor-help"
                       :title="t('config.skill.contentWordsTooltip', { count: (item.content || '').length.toLocaleString() })"

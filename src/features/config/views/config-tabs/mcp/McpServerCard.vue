@@ -37,7 +37,7 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="space-y-1">
             <label class="text-xs font-medium opacity-70">{{ t('config.mcp.serverId') }}</label>
-            <div class="font-mono text-xs px-3 py-2 bg-base-200/60 rounded-lg border border-base-300 select-all truncate">
+            <div class="font-mono text-xs px-3 py-2 bg-base-200/60 rounded-field border border-base-300 select-all truncate">
               {{ draft.id }}
             </div>
           </div>
@@ -54,7 +54,7 @@
           </div>
         </div>
 
-        <div v-if="draft.lastError" class="p-2.5 rounded-lg bg-error/10 border border-error/20 text-xs text-error">
+        <div v-if="draft.lastError" class="p-2.5 rounded-field bg-error/10 border border-error/20 text-xs text-error">
           {{ draft.lastError }}
         </div>
       </div>

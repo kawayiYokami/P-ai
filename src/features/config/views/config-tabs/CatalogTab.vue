@@ -6,7 +6,7 @@
         <div role="tablist" class="tabs tabs-box bg-base-200/80 p-1">
           <button
             role="tab"
-            class="tab h-7 min-h-0 gap-1.5 rounded-md px-3 text-xs font-medium transition-all"
+            class="tab h-7 min-h-0 gap-1.5 rounded-selector px-3 text-xs font-medium transition-all"
             :class="kind === 'mcp' ? 'tab-active bg-base-100 text-primary shadow-2xs' : 'text-base-content/60 hover:text-base-content'"
             type="button"
             @click="switchKind('mcp')"
@@ -16,7 +16,7 @@
           </button>
           <button
             role="tab"
-            class="tab h-7 min-h-0 gap-1.5 rounded-md px-3 text-xs font-medium transition-all"
+            class="tab h-7 min-h-0 gap-1.5 rounded-selector px-3 text-xs font-medium transition-all"
             :class="kind === 'skill' ? 'tab-active bg-base-100 text-primary shadow-2xs' : 'text-base-content/60 hover:text-base-content'"
             type="button"
             @click="switchKind('skill')"
@@ -100,7 +100,7 @@
           <!-- MCP 卡：工程面板感，热度归到底部与作者同行 -->
           <div
             v-if="entry.kind === 'mcp'"
-            class="rounded-2xl border border-base-200 bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
+            class="rounded-box border border-base-200 bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
           >
           <div class="flex items-start justify-between gap-2">
             <div class="card-title-bar min-w-0 flex-1 text-sm font-semibold text-base-content truncate" :title="entry.name">
@@ -128,7 +128,7 @@
           </p>
 
           <!-- 工具清单：部分来源不提供，缺失时整块不渲染 -->
-          <div v-if="entry.tools.length" class="rounded-md border border-base-200 bg-base-200/50 px-2.5 py-2">
+          <div v-if="entry.tools.length" class="rounded-box border border-base-200 bg-base-200/50 px-2.5 py-2">
             <div class="flex flex-wrap gap-1">
               <span
                 v-for="tool in entry.tools.slice(0, TOOL_PREVIEW_LIMIT)"
@@ -143,7 +143,7 @@
             </div>
           </div>
 
-          <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5">
+          <div class="flex items-center justify-between border-t border-base-200 pt-2.5">
             <div class="flex min-w-0 items-center gap-1.5 text-caption opacity-60">
               <span v-if="entry.author" class="truncate max-w-[9rem]" :title="entry.author">{{ entry.author }}</span>
               <span v-if="entry.author && entry.popularity" class="opacity-50">·</span>
@@ -190,7 +190,7 @@
           <!-- 技能卡：内容卡感，热度提到顶部与名称同行 -->
           <div
             v-else
-            class="rounded-2xl border border-base-200 bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
+            class="rounded-box border border-base-200 bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
           >
           <div class="flex items-start justify-between gap-2">
             <div class="card-title-bar card-title-bar--accent min-w-0 flex-1 font-mono text-sm font-semibold text-base-content truncate" :title="entry.name">
@@ -211,7 +211,7 @@
             {{ entry.description || t("config.catalog.noDescription") }}
           </p>
 
-          <div class="flex items-center justify-end gap-1.5 border-t border-base-200/80 pt-2.5">
+          <div class="flex items-center justify-end gap-1.5 border-t border-base-200 pt-2.5">
             <button
               v-if="detailNeeded(entry)"
               class="btn btn-sm h-8 min-h-[2rem] bg-base-100 px-3 text-caption"
@@ -306,7 +306,7 @@
                 <li
                   v-for="tool in detailEntry.tools"
                   :key="tool"
-                  class="rounded-md bg-base-200/70 px-2 py-1 font-mono text-caption text-base-content/70"
+                  class="rounded-selector bg-base-200/70 px-2 py-1 font-mono text-caption text-base-content/70"
                 >
                   {{ tool }}
                 </li>
@@ -330,7 +330,7 @@
               <span class="text-xs font-semibold text-base-content/70">{{ t("config.catalog.sectionConfig") }}</span>
               <pre
                 v-if="detailEntry.definitionJson"
-                class="max-h-60 overflow-auto rounded-lg border border-base-300 bg-base-200/40 p-3 font-mono text-caption leading-relaxed select-text"
+                class="max-h-60 overflow-auto rounded-field border border-base-300 bg-base-200/40 p-3 font-mono text-caption leading-relaxed select-text"
               >{{ detailEntry.definitionJson }}</pre>
               <p v-else class="text-caption text-base-content/45">{{ t("config.catalog.configEmpty") }}</p>
             </div>

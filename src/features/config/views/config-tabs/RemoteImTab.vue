@@ -144,7 +144,7 @@
             </button>
           </div>
 
-          <div class="rounded-xl border border-base-200/80 bg-base-100 p-4 space-y-4">
+          <div class="rounded-box border border-base-200/80 bg-base-100 p-4 space-y-4">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div class="flex flex-col gap-1.5">
                 <label class="text-caption font-semibold opacity-60 uppercase">{{ t("config.remoteIm.channelName") }}</label>
@@ -162,7 +162,7 @@
             </div>
 
             <!-- 过滤 Markdown 开关 -->
-            <div class="flex items-center justify-between rounded-lg border border-base-200 bg-base-200/30 p-3">
+            <div class="flex items-center justify-between rounded-field border border-base-200 bg-base-200/30 p-3">
               <div class="flex flex-col gap-0.5 min-w-0 pr-2">
                 <span class="text-xs font-semibold">{{ t("config.remoteIm.filterMarkdown") }}</span>
                 <span class="text-caption opacity-60">{{ t("config.remoteIm.filterMarkdownHint") }}</span>
@@ -172,7 +172,7 @@
 
             <!-- OneBot 凭证配置 -->
             <template v-if="selectedChannel.platform === 'onebot_v11'">
-              <div class="rounded-lg border border-base-200 bg-base-200/20 p-3 space-y-3">
+              <div class="rounded-field border border-base-200 bg-base-200/20 p-3 space-y-3">
                 <div class="text-xs font-bold">{{ t("config.remoteIm.napcatConfig") }}</div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
@@ -193,7 +193,7 @@
 
             <!-- 钉钉凭证 -->
             <template v-else-if="selectedChannel.platform === 'dingtalk'">
-              <div class="rounded-lg border border-base-200 bg-base-200/20 p-3 space-y-3">
+              <div class="rounded-field border border-base-200 bg-base-200/20 p-3 space-y-3">
                 <div class="text-xs font-bold">{{ t("config.remoteIm.dingtalkCredentials") }}</div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
@@ -224,7 +224,7 @@
 
             <!-- 微信扫码登录 -->
             <template v-else-if="selectedChannel.platform === 'weixin_oc'">
-              <div class="rounded-lg border border-base-200 bg-base-200/20 p-3 space-y-3">
+              <div class="rounded-field border border-base-200 bg-base-200/20 p-3 space-y-3">
                 <div class="text-xs font-bold">{{ t('config.remoteIm.weixinScanLogin') }}</div>
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div class="flex flex-col gap-1 min-w-0">
@@ -244,7 +244,7 @@
 
             <!-- 飞书凭证 JSON -->
             <template v-else>
-              <div class="rounded-lg border border-base-200 bg-base-200/20 p-3 space-y-2">
+              <div class="rounded-field border border-base-200 bg-base-200/20 p-3 space-y-2">
                 <div class="text-xs font-bold">{{ t("config.remoteIm.credentialsJson") }}</div>
                 <textarea
                   v-model="credentialDrafts[selectedChannel.id]"
@@ -286,14 +286,14 @@
             </div>
           </div>
 
-          <div v-if="contactsDisabledReason" class="rounded-xl px-4 py-2.5 text-xs text-warning bg-warning/10 border border-warning/20">
+          <div v-if="contactsDisabledReason" class="rounded-box px-4 py-2.5 text-xs text-warning bg-warning/10 border border-warning/20">
             {{ contactsDisabledReason }}
           </div>
 
-          <div v-if="contactsError" class="rounded-xl px-4 py-3 text-xs text-error bg-error/10 border border-error/20">
+          <div v-if="contactsError" class="rounded-box px-4 py-3 text-xs text-error bg-error/10 border border-error/20">
             {{ contactsError }}
           </div>
-          <div v-else-if="currentChannelContacts.length === 0" class="rounded-xl border border-dashed border-base-300 py-12 text-center text-xs opacity-60 italic">
+          <div v-else-if="currentChannelContacts.length === 0" class="rounded-box border border-dashed border-base-300 py-12 text-center text-xs opacity-60 italic">
             {{ t("config.remoteIm.contactsEmpty") }}
           </div>
           <div v-else class="space-y-4">
@@ -306,7 +306,7 @@
                 <div
                   v-for="item in group.items"
                   :key="item.id"
-                  class="rounded-xl border border-base-200/80 bg-base-100 p-3.5 hover:border-base-300 hover:bg-base-200/30 transition-all flex items-start gap-3.5 shadow-2xs"
+                  class="rounded-box border border-base-200/80 bg-base-100 p-3.5 hover:border-base-300 hover:bg-base-200/30 transition-all flex items-start gap-3.5 shadow-2xs"
                 >
                   <div class="avatar placeholder shrink-0">
                     <div class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-base-300 bg-base-200 text-xs font-semibold leading-none text-base-content/70">
@@ -446,7 +446,7 @@
 
       <!-- 一级概览：渠道 2 列卡片矩阵 -->
       <div v-else key="overview-grid" class="grid gap-4 pb-8">
-        <div v-if="filteredChannels.length === 0" class="rounded-xl border border-dashed border-base-300 p-8 text-center">
+        <div v-if="filteredChannels.length === 0" class="rounded-box border border-dashed border-base-300 p-8 text-center">
           <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-base-200 text-base-content/50">
             <MessageSquare class="h-6 w-6" />
           </div>
@@ -467,7 +467,7 @@
             :key="ch.id"
             role="button"
             tabindex="0"
-            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            class="rounded-box border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
             @click="enterChannel(ch.id)"
             @keydown.enter.prevent="enterChannel(ch.id)"
             @keydown.space.prevent="enterChannel(ch.id)"
@@ -475,7 +475,7 @@
             <!-- 头部：平台图标 + 渠道名称 + 平台标识 + 启停开关 -->
             <div class="flex items-start justify-between gap-2.5 min-w-0">
               <div class="flex items-center gap-2.5 min-w-0 flex-1">
-                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border font-bold text-xs shadow-2xs" :class="getPlatformIconColor(ch.platform)">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-field border font-bold text-xs shadow-2xs" :class="getPlatformIconColor(ch.platform)">
                   {{ platformBadgeText(ch.platform) }}
                 </div>
                 <div class="min-w-0 flex-1">

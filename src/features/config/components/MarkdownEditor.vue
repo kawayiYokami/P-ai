@@ -1,17 +1,20 @@
 <template>
-  <div class="grid min-w-0 gap-2">
-    <div v-if="!readonly" class="flex items-center justify-end">
+  <ConfigCard :title="title" flush>
+    <template #actions>
+      <slot name="actions" />
       <SegmentedControl
+        v-if="!readonly"
         :model-value="mode"
         :options="modeOptions"
+        :full-width="false"
         size="sm"
         @change="onModeChange"
       />
-    </div>
+    </template>
 
     <OverlayScrollArea
       v-if="displayMode === 'preview'"
-      :scroller-class="'h-full rounded-box border border-base-300 bg-base-100 p-3'"
+      scroller-class="h-full bg-base-100 p-4 text-xs leading-relaxed"
       :style="{ height: props.height }"
     >
       <InlineMarkdownText v-if="hasContent" :text="props.modelValue" />
@@ -22,17 +25,18 @@
       v-else
       ref="textareaRef"
       :value="props.modelValue"
-      class="textarea textarea-bordered w-full font-mono text-xs leading-relaxed select-text resize-y"
+      class="textarea w-full rounded-none border-0 bg-base-100 p-4 font-mono text-xs leading-relaxed select-text focus:outline-none resize-y"
       :placeholder="props.placeholder"
       :style="{ height: props.height }"
       @input="onInput"
     ></textarea>
-  </div>
+  </ConfigCard>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import ConfigCard from "./ConfigCard.vue";
 import SegmentedControl from "./SegmentedControl.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import InlineMarkdownText from "../../chat/markdown/InlineMarkdownText.vue";
@@ -41,11 +45,13 @@ type MarkdownEditorMode = "preview" | "edit";
 
 const props = withDefaults(defineProps<{
   modelValue: string;
+  title?: string;
   placeholder?: string;
   readonly?: boolean;
   height?: string;
   defaultMode?: MarkdownEditorMode;
 }>(), {
+  title: undefined,
   placeholder: "",
   readonly: false,
   height: "18rem",

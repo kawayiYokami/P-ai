@@ -181,6 +181,8 @@
           :persona-saving="personaSaving"
           :persona-dirty="personaDirty"
           :config-saving="savingConfig"
+          :save-relations="props.savePersonaRelations"
+          :set-status-action="setStatusAction"
           @update:persona-editor-id="$emit('update:personaEditorId', $event)"
           @add-persona="$emit('addPersona')"
           @remove-selected-persona="$emit('removeSelectedPersona')"

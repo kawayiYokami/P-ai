@@ -336,6 +336,18 @@ export type AgentPermissionControl = {
   mcpToolNames: string[];
 };
 
+export type PermissionCatalogItem = {
+  name: string;
+  description: string;
+  group?: string;
+};
+
+export type PermissionCatalog = {
+  builtinTools: PermissionCatalogItem[];
+  skills: PermissionCatalogItem[];
+  mcpTools: PermissionCatalogItem[];
+};
+
 export type AppConfig = {
   hotkey: string;
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";

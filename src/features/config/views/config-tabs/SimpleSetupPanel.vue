@@ -165,7 +165,7 @@
             <div
               v-for="card in modelCards"
               :key="card.id"
-              class="rounded-lg border border-base-300 bg-base-200/40 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+              class="rounded-box border border-base-300 bg-base-200/40 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
             >
               <label
                 class="label w-full min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 whitespace-normal"

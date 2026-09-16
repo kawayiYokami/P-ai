@@ -114,7 +114,7 @@
 
           <div v-if="entry.timeline?.length" class="mt-4">
             <details
-              class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-200/70"
+              class="collapse collapse-arrow rounded-box border border-base-300 bg-base-200/70"
               open
             >
               <summary class="collapse-title min-h-0 py-3 text-sm font-medium">
@@ -126,7 +126,7 @@
             </details>
           </div>
 
-          <div class="mt-4 rounded-lg border border-base-300 bg-base-200/60 p-3">
+          <div class="mt-4 rounded-box border border-base-300 bg-base-200/60 p-3">
             <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div class="text-sm font-medium">{{ t("config.logs.roundsTitle", { count: entry.rounds?.length ?? 0 }) }}</div>
               <div class="text-xs opacity-60">{{ t("config.logs.roundsHint") }}</div>
@@ -135,7 +135,7 @@
               <button
                 v-for="(round, index) in entry.rounds"
                 :key="round.id"
-                class="w-full rounded-lg border border-base-300 bg-base-100 px-3 py-2 text-left transition hover:border-primary/50"
+                class="w-full rounded-box border border-base-300 bg-base-100 px-3 py-2 text-left transition hover:border-primary/50"
                 @click="openRound(entry, round, index)"
               >
                 <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -195,7 +195,7 @@
           </div>
           <details
             v-if="entry.timeline?.length"
-            class="collapse collapse-arrow mt-3 rounded-lg border border-base-300 bg-base-200/70"
+            class="collapse collapse-arrow mt-3 rounded-box border border-base-300 bg-base-200/70"
           >
             <summary class="collapse-title min-h-0 py-3 text-sm font-medium">
               {{ t("config.logs.timeline", { count: entry.timeline.length }) }}
@@ -264,7 +264,7 @@
           {{ activeSectionError }}
         </div>
 
-        <div v-if="activeRoundEntry" class="rounded-lg border border-base-300 bg-base-200/60 p-3">
+        <div v-if="activeRoundEntry" class="rounded-box border border-base-300 bg-base-200/60 p-3">
           <div v-if="activeRoundTab === 'answer'" class="space-y-3">
             <div class="grid gap-2 sm:grid-cols-3">
               <MetricTile
@@ -274,11 +274,11 @@
                 :value="metric.value"
               />
             </div>
-            <div class="rounded-lg border border-base-300 bg-base-100 p-3">
+            <div class="rounded-box border border-base-300 bg-base-100 p-3">
               <div class="mb-2 text-sm font-medium">{{ t("config.logs.answerText") }}</div>
               <pre class="max-h-[36vh] overflow-auto whitespace-pre-wrap break-all text-xs">{{ answerPayload?.assistantText || "-" }}</pre>
             </div>
-            <div class="rounded-lg border border-base-300 bg-base-100 p-3">
+            <div class="rounded-box border border-base-300 bg-base-100 p-3">
               <div class="mb-2 text-sm font-medium">{{ t("config.logs.reasoningText") }}</div>
               <pre class="max-h-[36vh] overflow-auto whitespace-pre-wrap break-all text-xs">{{ answerPayload?.activityReasoningText || "-" }}</pre>
             </div>
@@ -291,7 +291,7 @@
             />
           </div>
 
-          <div v-else-if="activeRoundTab === 'raw'" class="rounded-lg border border-base-300 bg-base-100 p-3">
+          <div v-else-if="activeRoundTab === 'raw'" class="rounded-box border border-base-300 bg-base-100 p-3">
             <div class="mb-2 text-sm font-medium">{{ t("config.logs.rawResponse") }}</div>
             <pre class="max-h-[60vh] overflow-auto whitespace-pre-wrap break-all text-xs">{{ toPretty(rawResponsePayload ?? null) }}</pre>
           </div>
@@ -313,7 +313,7 @@
             <div
               v-for="header in activeRoundEntry.headers"
               :key="`${header.name}:${header.value}`"
-              class="flex flex-col gap-1 rounded-lg bg-base-100 px-3 py-2 text-sm sm:flex-row sm:items-center"
+              class="flex flex-col gap-1 rounded-box bg-base-100 px-3 py-2 text-sm sm:flex-row sm:items-center"
             >
               <span class="font-medium">{{ header.name }}</span>
               <span class="break-all opacity-70">{{ header.value }}</span>
@@ -409,7 +409,7 @@ const MetricTile = defineComponent({
     value: { type: String, required: true },
   },
   setup(props) {
-    return () => h("div", { class: "rounded-lg border border-base-300 bg-base-200/70 px-3 py-2" }, [
+    return () => h("div", { class: "rounded-box border border-base-300 bg-base-200/70 px-3 py-2" }, [
       h("div", { class: "text-xs opacity-60" }, props.label),
       h("div", { class: "mt-1 break-all text-sm font-medium" }, props.value),
     ]);
@@ -426,12 +426,12 @@ const UsageGrid = defineComponent({
     return () => h("div", attrs, [
       props.metrics.length > 0
         ? h("div", { class: "grid gap-2 sm:grid-cols-3 xl:grid-cols-6" }, props.metrics.map((metric) =>
-          h("div", { key: metric.key, class: "rounded-lg border border-base-300 bg-base-100 px-3 py-2" }, [
+          h("div", { key: metric.key, class: "rounded-box border border-base-300 bg-base-100 px-3 py-2" }, [
             h("div", { class: "text-xs opacity-60" }, metric.label),
             h("div", { class: "mt-1 text-sm font-semibold" }, metric.value),
           ]),
         ))
-        : h("div", { class: "rounded-lg border border-base-300 bg-base-100 px-3 py-2 text-sm opacity-60" }, props.emptyText),
+        : h("div", { class: "rounded-box border border-base-300 bg-base-100 px-3 py-2 text-sm opacity-60" }, props.emptyText),
     ]);
   },
 });

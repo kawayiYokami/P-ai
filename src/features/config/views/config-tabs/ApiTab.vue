@@ -334,7 +334,7 @@
             :key="provider.id"
             role="button"
             tabindex="0"
-            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            class="rounded-box border border-base-300 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
             @click="enterImageProvider(provider.id)"
             @keydown.enter.prevent="enterImageProvider(provider.id)"
             @keydown.space.prevent="enterImageProvider(provider.id)"
@@ -354,7 +354,7 @@
             </div>
 
             <!-- 底栏：模型数 + Key 数 + 进入指示 -->
-            <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption opacity-70">
+            <div class="flex items-center justify-between border-t border-base-200 pt-2.5 text-caption opacity-70">
               <div class="flex items-center gap-1.5">
                 <span class="badge badge-sm badge-neutral">{{ t('config.api.modelCount', { count: provider.models?.length || 0 }) }}</span>
                 <span v-if="provider.providerType !== 'codex'" class="badge badge-sm badge-ghost">{{ t('config.api.keyCount', { count: provider.apiKeys?.length || 0 }) }}</span>
@@ -383,7 +383,7 @@
             :key="provider.id"
             role="button"
             tabindex="0"
-            class="rounded-xl border border-base-200/80 bg-base-100 p-3.5 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            class="rounded-box border border-base-300 bg-base-100 p-3.5 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
             @click="enterProvider(provider.id)"
             @keydown.enter.prevent="enterProvider(provider.id)"
             @keydown.space.prevent="enterProvider(provider.id)"
