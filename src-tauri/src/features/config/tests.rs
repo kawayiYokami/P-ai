@@ -1248,3 +1248,98 @@ enableTools = true
             .expect("rerun v5 organization migration");
         assert!(!second.data_changed, "重复迁移应幂等");
     }
+
+    #[test]
+    fn avatar_path_should_keep_absolute_and_resolve_relative_against_data_root() {
+        let root = std::env::temp_dir().join(format!("eca-avatar-path-{}", Uuid::new_v4()));
+        let data_path = root.join("config_mark");
+
+        assert_eq!(avatar_relative_path("agent-x.webp"), "avatars/agent-x.webp");
+        assert_eq!(
+            avatar_path_to_absolute(&data_path, "avatars/agent-x.webp"),
+            root.join("avatars").join("agent-x.webp")
+        );
+
+        let absolute = std::env::temp_dir().join("eca-elsewhere").join("agent-y.webp");
+        assert_eq!(
+            avatar_path_to_absolute(&data_path, &absolute.to_string_lossy()),
+            absolute
+        );
+    }
+
+    #[test]
+    fn migration_should_rewrite_absolute_avatar_paths_and_stay_idempotent() {
+        let state = config_test_state();
+        let avatars_dir = avatar_storage_dir(&state).expect("avatar dir");
+        std::fs::create_dir_all(&avatars_dir).expect("create avatars dir");
+        std::fs::write(avatars_dir.join("agent-real.webp"), b"x").expect("write avatar file");
+
+        // 存的是别的数据根下的绝对路径，但文件名在当前头像目录里存在 → 应归一为相对路径。
+        let stale_absolute = std::env::temp_dir()
+            .join("eca-other-root")
+            .join("avatars")
+            .join("agent-real.webp")
+            .to_string_lossy()
+            .to_string();
+        // 当前头像目录里没有同名文件 → 保留原值，不做无声抹除。
+        let missing_absolute = std::env::temp_dir()
+            .join("eca-nowhere")
+            .join("avatars")
+            .join("agent-ghost.webp")
+            .to_string_lossy()
+            .to_string();
+
+        let make_agent = |id: &str, avatar: Option<String>| AgentProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            system_prompt: "test".to_string(),
+            tools: default_agent_tools(),
+            created_at: "2026-04-15T00:00:00Z".to_string(),
+            updated_at: "2026-04-15T00:00:00Z".to_string(),
+            avatar_path: avatar,
+            avatar_updated_at: None,
+            is_built_in_user: false,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
+            source: default_main_source(),
+            scope: default_global_scope(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
+        };
+
+        let mut agents = AppData::default().agents;
+        agents.push(make_agent("agent-abs", Some(stale_absolute)));
+        agents.push(make_agent("agent-rel", Some("avatars/agent-rel.webp".to_string())));
+        agents.push(make_agent("agent-missing", Some(missing_absolute.clone())));
+        write_agents_shard(&state.data_path, &agents).expect("write agents shard");
+
+        let config = AppConfig::default();
+        let context = DataMigrationContext {
+            state: &state,
+            config: &config,
+        };
+        let stats = migrate_avatar_paths_to_relative(&context).expect("run v6 avatar migration");
+        assert!(stats.data_changed);
+
+        let after = read_agents_shard(&state.data_path).expect("read agents shard");
+        let avatar_of = |id: &str| {
+            after
+                .iter()
+                .find(|agent| agent.id == id)
+                .and_then(|agent| agent.avatar_path.clone())
+        };
+        assert_eq!(avatar_of("agent-abs").as_deref(), Some("avatars/agent-real.webp"));
+        assert_eq!(avatar_of("agent-rel").as_deref(), Some("avatars/agent-rel.webp"));
+        assert_eq!(avatar_of("agent-missing").as_deref(), Some(missing_absolute.as_str()));
+
+        // 幂等：已是相对路径的不会被再次改写。
+        let second = migrate_avatar_paths_to_relative(&context).expect("rerun v6 migration");
+        assert!(!second.data_changed, "重复迁移应幂等");
+    }

@@ -889,11 +889,13 @@ fn save_agent_avatar_inner(
     let dir = avatar_storage_dir(&state)?;
     fs::create_dir_all(&dir).map_err(|err| format!("Create avatar directory failed: {err}"))?;
     let safe_id = sanitize_avatar_key(&input.agent_id);
-    let path = dir.join(format!("agent-{safe_id}.webp"));
+    let file_name = format!("agent-{safe_id}.webp");
+    let path = dir.join(&file_name);
     fs::write(&path, webp).map_err(|err| format!("Write avatar file failed: {err}"))?;
 
     let now = now_iso();
-    let avatar_path = path.to_string_lossy().to_string();
+    // 存相对数据根的路径，数据根整体搬迁后仍可解析。
+    let avatar_path = avatar_relative_path(&file_name);
     if is_private_workspace_source(&target.source) {
         let mut next_runtime_agents = runtime_agents.clone();
         let idx = next_runtime_agents
@@ -950,7 +952,7 @@ fn clear_agent_avatar_inner(
         .ok_or_else(|| "Agent not found".to_string())?;
 
     if let Some(path) = target.avatar_path.as_deref() {
-        let p = PathBuf::from(path);
+        let p = avatar_path_to_absolute(&state.data_path, path);
         if p.exists() {
             let _ = fs::remove_file(p);
         }
@@ -1006,9 +1008,24 @@ fn read_avatar_data_url_inner(
             avatars_dir.to_string_lossy()
         )
     })?;
-    let target = fs::canonicalize(input.path.trim()).map_err(|err| {
-        format!("Resolve avatar path failed ({}): {err}", input.path.trim())
-    })?;
+    let raw_avatar_path = input.path.trim();
+    // 相对路径拼当前数据根；绝对路径（历史数据）若指向别的数据根，按文件名到当前 avatars 目录回退。
+    let primary = avatar_path_to_absolute(&state.data_path, raw_avatar_path);
+    let target = fs::canonicalize(&primary)
+        .or_else(|_| {
+            let file_name = Path::new(raw_avatar_path)
+                .file_name()
+                .and_then(|v| v.to_str())
+                .unwrap_or_default();
+            if file_name.is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "avatar file name is empty",
+                ));
+            }
+            fs::canonicalize(avatars_dir.join(file_name))
+        })
+        .map_err(|err| format!("Resolve avatar path failed ({raw_avatar_path}): {err}"))?;
     if !target.starts_with(&root) {
         return Err("Avatar path is outside allowed avatar directory.".to_string());
     }

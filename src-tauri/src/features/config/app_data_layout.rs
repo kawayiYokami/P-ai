@@ -434,7 +434,64 @@ fn data_migration_steps() -> Vec<DataMigrationStep> {
             name: "v5_departments_to_agent_organization",
             run: migrate_departments_into_agent_organization,
         },
+        DataMigrationStep {
+            version: DATA_MIGRATION_VERSION_V6_AVATAR_PATH_RELATIVE,
+            name: "v6_avatar_path_relative",
+            run: migrate_avatar_paths_to_relative,
+        },
     ]
+}
+
+/// V6 迁移步骤：把 `agents.json` 里的绝对头像路径归一为相对数据根的相对路径。
+/// - 已是相对路径：跳过（幂等）。
+/// - 绝对路径且当前 avatars 目录存在同名文件：改写为 `avatars/<文件名>`。
+/// - 找不到同名文件：保留原值并告警，不做无声抹除。
+fn migrate_avatar_paths_to_relative(
+    context: &DataMigrationContext<'_>,
+) -> Result<DataMigrationStepStats, String> {
+    let mut stats = DataMigrationStepStats::default();
+    let mut agents = read_agents_shard(&context.state.data_path)?;
+    let avatars_dir = avatar_storage_dir(context.state)?;
+    let mut changed = false;
+    let mut rewritten = 0usize;
+    let mut kept = 0usize;
+    for agent in agents.iter_mut() {
+        let Some(raw) = agent
+            .avatar_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let candidate = PathBuf::from(raw);
+        if !candidate.is_absolute() {
+            continue;
+        }
+        let file_name = candidate
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if !file_name.is_empty() && avatars_dir.join(file_name).is_file() {
+            agent.avatar_path = Some(avatar_relative_path(file_name));
+            changed = true;
+            rewritten += 1;
+        } else {
+            kept += 1;
+            runtime_log_warn(format!(
+                "[应用数据迁移] 头像路径无法归一，任务=v6头像相对路径，人格={}，原值={}，原因=当前头像目录未找到同名文件",
+                agent.id, raw
+            ));
+        }
+    }
+    if changed {
+        write_agents_shard(&context.state.data_path, &agents)?;
+        stats.data_changed = true;
+    }
+    runtime_log_info(format!(
+        "[应用数据迁移] 头像路径迁移完成，任务=v6头像相对路径，改写={rewritten}，保留={kept}"
+    ));
+    Ok(stats)
 }
 
 fn conversation_shell_workspace_path_key(path: &str) -> String {

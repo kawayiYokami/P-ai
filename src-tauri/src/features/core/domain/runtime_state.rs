@@ -373,6 +373,26 @@ fn app_root_from_data_path(data_path: &PathBuf) -> PathBuf {
     parent
 }
 
+/// 头像在数据根下的相对路径形态：`avatars/agent-<id>.webp`。
+/// 存相对路径而非绝对路径，数据根整体搬迁（便携/导入导出）后依然可解析。
+fn avatar_relative_path(file_name: &str) -> String {
+    format!("avatars/{file_name}")
+}
+
+/// 头像在当前数据根下的绝对文件路径解析见 `avatar_path_to_absolute`。
+
+/// 把存储的 `avatar_path` 解析成绝对路径。
+/// - 相对路径（新形态）：拼当前数据根
+/// - 绝对路径（历史数据）：原样返回
+fn avatar_path_to_absolute(data_path: &PathBuf, raw: &str) -> PathBuf {
+    let candidate = PathBuf::from(raw.trim());
+    if candidate.is_absolute() {
+        candidate
+    } else {
+        app_root_from_data_path(data_path).join(candidate)
+    }
+}
+
 fn now_utc() -> OffsetDateTime {
     OffsetDateTime::now_utc()
 }

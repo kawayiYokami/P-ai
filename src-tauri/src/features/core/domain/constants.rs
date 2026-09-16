@@ -17,7 +17,9 @@ const MESSAGE_STORE_MIGRATION_CURRENT_VERSION: u32 = 4;
 /// V5：把「部门」承载的权责（模型/权限/提示词/下级）迁到人格身上，部门退场。
 /// 旧结构 `AppConfig.departments` 只允许在 `agent_org_migration.rs` 内读取。
 const DATA_MIGRATION_VERSION_V5_DEPARTMENTS_TO_AGENT_ORGANIZATION: u32 = 5;
-const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V5_DEPARTMENTS_TO_AGENT_ORGANIZATION;
+/// V6：头像路径从绝对路径改为相对数据根的相对路径，让数据根搬迁 / 导入导出后仍可解析。
+const DATA_MIGRATION_VERSION_V6_AVATAR_PATH_RELATIVE: u32 = 6;
+const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V6_AVATAR_PATH_RELATIVE;
 const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
 const DEFAULT_AGENT_ID: &str = "default-agent";
 const DEPUTY_AGENT_ID: &str = "deputy-agent";

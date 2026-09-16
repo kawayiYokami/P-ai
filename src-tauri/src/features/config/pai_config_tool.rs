@@ -714,7 +714,12 @@ fn handle_agent(ctx: &CliContext, args: &[String]) -> Result<(), String> {
             let idx = find_agent_index(&agents, selector)?;
             ensure_agent_writable(&agents[idx])?;
             let avatar_path = save_avatar_file(ctx, &agents[idx].id, Path::new(image))?;
-            agents[idx].avatar_path = Some(avatar_path.to_string_lossy().to_string());
+            let avatar_file_name = avatar_path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .ok_or_else(|| "头像文件名无效".to_string())?;
+            // 与运行态保持一致：存相对数据根的路径。
+            agents[idx].avatar_path = Some(format!("avatars/{avatar_file_name}"));
             agents[idx].avatar_updated_at = Some(now_iso());
             agents[idx].updated_at = now_iso();
             save_agent(ctx, &agents[idx])?;
