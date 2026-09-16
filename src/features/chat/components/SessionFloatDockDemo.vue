@@ -128,7 +128,7 @@
               :class="SESSION_FLOAT_FROST_CIRCLE"
               title="对话菜单"
             >
-              <Grip class="size-5" />
+              <Menu class="size-5" />
             </button>
           </Transition>
 
@@ -160,7 +160,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { GanttChart, Grip } from "@lucide/vue";
+import { GanttChart, Menu } from "@lucide/vue";
 import type { ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
 import ChatThinkingPreviewBar from "./ChatThinkingPreviewBar.vue";
 import SessionControlItems from "./SessionControlItems.vue";
