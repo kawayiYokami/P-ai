@@ -312,7 +312,7 @@ fn config_tool_split_command(command: &str) -> Vec<String> {
 fn config_tool_command_is_readonly(command: &str) -> bool {
     let parts = config_tool_split_command(command);
     match parts.first().map(String::as_str) {
-        Some("help") | Some("--help") | Some("-h") => true,
+        Some("help") | Some("--help") | Some("-h") | Some("approot") => true,
         Some(_) => matches!(
             parts.get(1).map(String::as_str),
             Some("ls") | Some("get") | Some("example") | Some("tree")

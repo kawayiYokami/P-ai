@@ -340,6 +340,7 @@ fn run_with_context(ctx: &CliContext, args: &[String]) -> Result<String, String>
         "agent" => handle_agent(ctx, &args[1..]),
         "mcp" => handle_mcp(ctx, &args[1..]),
         "skill" => handle_skill(ctx, &args[1..]),
+        "approot" => handle_approot(ctx),
         "help" | "--help" | "-h" => print_help(),
         "provider" => Err("provider 命令当前未开放，请不要通过 config 工具修改供应商。".to_string()),
         other => Err(format!("未知顶级命令: {other}")),
@@ -366,6 +367,25 @@ fn handle_skill(ctx: &CliContext, args: &[String]) -> Result<(), String> {
         }
         _ => Err("用法: skill ls".to_string()),
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppRootInfo {
+    app_root: String,
+    config_path: String,
+    workspace_root: String,
+}
+
+/// 输出应用数据目录。安装版与便携版的落盘位置没有统一规律，只能由应用自身报出。
+fn handle_approot(ctx: &CliContext) -> Result<(), String> {
+    print_json(&AppRootInfo {
+        app_root: app_root_from_cli_data_path(&ctx.data_path)
+            .display()
+            .to_string(),
+        config_path: ctx.config_path.display().to_string(),
+        workspace_root: effective_workspace_root(ctx).display().to_string(),
+    })
 }
 
 fn skill_list_items(ctx: &CliContext) -> Result<Vec<SkillListItem>, String> {
@@ -561,6 +581,7 @@ Rules:
   - Delete commands are destructive and must only be used after the user explicitly agrees.
   - Delete commands require --confirmed, for example: mcp delete playwright --confirmed.
   - If an argument contains spaces, quote it.
+  - When no config command covers the case, run config "approot" first, then edit files under that data directory by hand.
 
 Agent/persona:
   agent ls
@@ -591,6 +612,9 @@ Agent model and skills:
 
 Skill:
   skill ls
+
+Location:
+  approot  # data directory: config, state, conversations, workspace
 
 MCP:
   mcp ls
@@ -2518,6 +2542,46 @@ scope = "global"
 "#,
         );
         fs::write(root.join("app_config.toml"), config).expect("write config with preset department");
+    }
+
+    #[test]
+    fn approot_should_report_data_directory_and_key_paths() {
+        let root = test_root();
+        seed_app(&root);
+        let output = run_command_with_paths(
+            root.clone(),
+            root.join("app_config.toml"),
+            root.join("config_mark"),
+            root.join("llm-workspace"),
+            "approot",
+        )
+        .expect("run approot");
+        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
+        assert_eq!(value["appRoot"], root.display().to_string());
+        assert_eq!(
+            value["configPath"],
+            root.join("app_config.toml").display().to_string()
+        );
+        assert_eq!(
+            value["workspaceRoot"],
+            root.join("llm-workspace").display().to_string()
+        );
+    }
+
+    #[test]
+    fn approot_should_lift_app_root_when_data_path_sits_under_config_dir() {
+        let root = test_root();
+        seed_app(&root);
+        let output = run_command_with_paths(
+            root.clone(),
+            root.join("app_config.toml"),
+            root.join("config").join("config_mark"),
+            root.join("llm-workspace"),
+            "approot",
+        )
+        .expect("run approot");
+        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
+        assert_eq!(value["appRoot"], root.display().to_string());
     }
 
     #[test]
