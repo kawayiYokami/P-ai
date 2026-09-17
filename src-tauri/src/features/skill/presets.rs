@@ -26,20 +26,8 @@ const WORKSPACE_PRESET_SKILLS: &[WorkspacePresetSkill] = &[
         skill_md: include_str!("../../../resources/preset-skills/assistant-interaction-guide/SKILL.md"),
     },
     WorkspacePresetSkill {
-        dir_name: "skill-setup",
-        skill_md: include_str!("../../../resources/preset-skills/skill-setup/SKILL.md"),
-    },
-    WorkspacePresetSkill {
-        dir_name: "mcp-setup",
-        skill_md: include_str!("../../../resources/preset-skills/mcp-setup/SKILL.md"),
-    },
-    WorkspacePresetSkill {
-        dir_name: "assistant-space-guide",
-        skill_md: include_str!("../../../resources/preset-skills/assistant-space-guide/SKILL.md"),
-    },
-    WorkspacePresetSkill {
-        dir_name: "private-organization-guide",
-        skill_md: include_str!("../../../resources/preset-skills/private-organization-guide/SKILL.md"),
+        dir_name: "p-ai-config-guide",
+        skill_md: include_str!("../../../resources/preset-skills/p-ai-config-guide/SKILL.md"),
     },
     WorkspacePresetSkill {
         dir_name: "pai-guide",
@@ -56,10 +44,6 @@ const WORKSPACE_PRESET_SKILLS: &[WorkspacePresetSkill] = &[
     WorkspacePresetSkill {
         dir_name: "reviewer",
         skill_md: include_str!("../../../resources/preset-skills/reviewer/SKILL.md"),
-    },
-    WorkspacePresetSkill {
-        dir_name: "saddler",
-        skill_md: include_str!("../../../resources/preset-skills/saddler/SKILL.md"),
     },
     WorkspacePresetSkill {
         dir_name: "support",

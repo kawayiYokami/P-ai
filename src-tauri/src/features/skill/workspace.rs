@@ -438,11 +438,11 @@ fn render_hidden_skill_snapshot_block(
     }
     let example_path = skills
         .iter()
-        .find(|item| item.name.trim().eq_ignore_ascii_case("assistant-space-guide"))
+        .find(|item| item.name.trim().eq_ignore_ascii_case("p-ai-config-guide"))
         .map(|item| item.path.trim().to_string())
         .unwrap_or_else(|| {
             skills_root_path
-                .join("assistant-space-guide")
+                .join("p-ai-config-guide")
                 .join("SKILL.md")
                 .to_string_lossy()
                 .to_string()
