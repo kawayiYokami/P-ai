@@ -59,8 +59,11 @@
           <div class="text-xl font-bold text-base-content">
             {{ selectedOption ? selectedOption.agentName : t("chat.draftRecipientPlaceholder") }}
           </div>
-          <div class="text-sm text-base-content/60">
-            {{ selectedOption ? optionSubLabel(selectedOption) : t("chat.draftRecipientPickHint") }}
+          <div v-if="!selectedOption" class="text-sm text-base-content/60">
+            {{ t("chat.draftRecipientPickHint") }}
+          </div>
+          <div v-else-if="optionSubLabel(selectedOption)" class="text-sm text-warning">
+            {{ optionSubLabel(selectedOption) }}
           </div>
         </div>
       </div>
@@ -764,12 +767,8 @@ const recentOptions = computed<AgentPersonaOption[]>(() => props.recentOptions);
 
 const allOptions = computed<AgentPersonaOption[]>(() => props.options);
 
-// 卡片副标签：以模型名（取不到时退回供应商名）表达这张卡指向的运行时
+// 卡片副标签只用于提示配置缺失：模型名与供应商名不再展示。
 function optionSubLabel(option: AgentPersonaOption): string {
-  const model = String(option.modelName || "").trim();
-  if (model) return model;
-  const provider = String(option.providerName || "").trim();
-  if (provider) return provider;
   return option.modelMissing ? t("chat.personaModelNotConfigured") : "";
 }
 
