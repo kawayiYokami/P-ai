@@ -1044,6 +1044,7 @@
       "behaviorJitterError": "巡检波动比例必须在 0 到 1 之间。",
       "behaviorEnergyError": "能量参数方向或范围无效。",
       "behaviorLengthError": "焦点回复字数不能小于常规回复字数。",
+      "contactBehavior": "联系人行为",
       "channelBehaviorSettings": "渠道行为设置",
       "channelBehaviorSettingsHint": "对当前渠道的全部联系人统一生效；“什么时候应该回答”由渠道消息策略管理，群聊应答策略仍在联系人设置中管理。",
       "channelBehaviorGeneralSection": "通用",

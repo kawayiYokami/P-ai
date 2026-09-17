@@ -1044,6 +1044,7 @@
       "behaviorJitterError": "Inspection jitter must be between 0 and 1.",
       "behaviorEnergyError": "One or more energy values have an invalid range or direction.",
       "behaviorLengthError": "Focused reply length cannot be smaller than normal reply length.",
+      "contactBehavior": "Contact Behavior",
       "channelBehaviorSettings": "Channel Behavior Settings",
       "channelBehaviorSettingsHint": "Applies uniformly to every contact in this channel. “When should it reply” is managed by channel message policy; group reply strategy remains in contact settings.",
       "channelBehaviorGeneralSection": "General",

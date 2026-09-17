@@ -1040,6 +1040,7 @@
       "behaviorJitterError": "巡檢波動比例必須在 0 到 1 之間。",
       "behaviorEnergyError": "能量參數方向或範圍無效。",
       "behaviorLengthError": "焦點回覆字數不能小於一般回覆字數。",
+      "contactBehavior": "聯絡人行為",
       "channelBehaviorSettings": "渠道行為設定",
       "channelBehaviorSettingsHint": "對目前渠道的全部聯絡人統一生效；「什麼時候應該回答」由渠道訊息策略管理，群聊應答策略仍在聯絡人設定中管理。",
       "channelBehaviorGeneralSection": "通用",

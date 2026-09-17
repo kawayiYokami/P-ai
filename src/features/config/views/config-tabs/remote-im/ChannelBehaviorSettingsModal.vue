@@ -1,12 +1,13 @@
 <template>
   <button
     type="button"
-    class="btn btn-square btn-ghost"
-    :title="t('config.remoteIm.channelBehaviorSettings')"
+    class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+    :title="t('config.remoteIm.contactBehavior')"
     :disabled="!channel"
     @click="openModal"
   >
-    <SlidersHorizontal class="h-3.5 w-3.5" />
+    <SlidersHorizontal class="h-4 w-4" />
+    <span>{{ t('config.remoteIm.contactBehavior') }}</span>
   </button>
 
   <dialog

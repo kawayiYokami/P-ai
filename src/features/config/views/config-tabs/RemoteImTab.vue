@@ -31,13 +31,13 @@
 
       <Transition name="ecall-config-content" mode="out-in">
         <!-- 二级菜单头部：渠道操作 -->
-        <div v-if="inDetailMode && selectedChannel" key="detail-hdr" class="flex flex-wrap items-center justify-end gap-3">
+        <div v-if="inDetailMode && selectedChannel" key="detail-hdr" class="flex flex-wrap items-center justify-between gap-3">
+          <ChannelBehaviorSettingsModal
+            :channel="selectedChannel"
+            :save-config-action="props.saveConfigAction"
+            :set-status-action="props.setStatusAction"
+          />
           <div class="flex flex-wrap items-center gap-2">
-            <ChannelBehaviorSettingsModal
-              :channel="selectedChannel"
-              :save-config-action="props.saveConfigAction"
-              :set-status-action="props.setStatusAction"
-            />
             <button
               class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
               type="button"
@@ -99,7 +99,7 @@
     <!-- 主体区域切换：一级卡片列表 ↔ 二级详情页 -->
     <Transition name="ecall-config-content" mode="out-in">
       <!-- 二级菜单：渠道详情与联系人视图 -->
-      <div v-if="inDetailMode && selectedChannel" :key="'detail-body-' + selectedChannel.id" class="grid gap-4 pb-8">
+      <div v-if="inDetailMode && selectedChannel" :key="'detail-body-' + selectedChannel.id" class="grid grid-cols-1 gap-4 pb-8">
         <!-- 区块一：渠道基本与平台凭证配置 -->
         <div class="space-y-2">
           <div class="flex items-center justify-between px-1">
@@ -261,11 +261,11 @@
             </div>
           </div>
 
-          <div v-if="contactsDisabledReason" class="rounded-box px-4 py-2.5 text-xs text-warning bg-warning/10 border border-warning/20">
+          <div v-if="contactsDisabledReason" class="rounded-box px-4 py-2.5 text-xs text-warning bg-warning/10 border border-warning/20 break-all whitespace-pre-wrap" style="overflow-wrap:anywhere">
             {{ contactsDisabledReason }}
           </div>
 
-          <div v-if="contactsError" class="rounded-box px-4 py-3 text-xs text-error bg-error/10 border border-error/20">
+          <div v-if="contactsError" class="rounded-box px-4 py-3 text-xs text-error bg-error/10 border border-error/20 break-all whitespace-pre-wrap" style="overflow-wrap:anywhere">
             {{ contactsError }}
           </div>
           <div v-else-if="currentChannelContacts.length === 0" class="rounded-box border border-dashed border-base-300 py-12 text-center text-xs opacity-60 italic">
