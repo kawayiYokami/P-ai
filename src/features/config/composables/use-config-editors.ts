@@ -179,16 +179,26 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     return true;
   }
 
-  function removeSelectedPersona() {
-    if (options.assistantPersonas.value.length <= 1) return;
+  async function removeSelectedPersona() {
+    if (options.assistantPersonas.value.length <= 1) return false;
     const target = options.selectedPersonaEditor.value;
-    if (!target || target.isBuiltInUser || target.isBuiltInSystem) return;
+    if (!target || target.isBuiltInUser || target.isBuiltInSystem) return false;
     const idx = options.personas.value.findIndex((p) => p.id === target.id);
-    if (idx >= 0) options.personas.value.splice(idx, 1);
+    if (idx < 0) return false;
+    const nextEditorId = options.assistantPersonas.value
+      .filter((p) => p.id !== target.id)
+      .map((p) => p.id)[0] || "default-agent";
+    options.personas.value.splice(idx, 1);
     if (options.assistantAgentId.value === target.id) {
-      options.assistantAgentId.value = options.assistantPersonas.value[0]?.id || "default-agent";
+      options.assistantAgentId.value = nextEditorId;
     }
-    options.personaEditorId.value = options.assistantPersonas.value[0]?.id || "default-agent";
+    options.personaEditorId.value = nextEditorId;
+    // 删除是用户在确认框里明确同意过的动作，直接落盘；留在内存里等保存会在切页或刷新时被悄悄丢掉。
+    const saved = await options.savePersonas();
+    if (!saved) {
+      options.personas.value.splice(idx, 0, target);
+    }
+    return saved;
   }
 
   return {
