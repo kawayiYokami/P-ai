@@ -11,7 +11,7 @@
       :class="['ecall-thinking-preview-bar pointer-events-auto', SESSION_FLOAT_FROST_CARD]"
       @click="emit('jumpToBottom')"
     >
-      <div v-if="streaming && reasoningWindowLines.length > 0" class="block max-h-20 overflow-hidden">
+      <div v-if="showReasoningWindow" class="block max-h-10 overflow-hidden">
         <TransitionGroup
           :name="lineTransitionName"
           tag="div"
@@ -24,7 +24,7 @@
           ><InlineMarkdownText :text="line.text" /></span>
         </TransitionGroup>
       </div>
-      <div v-if="answerLine" class="block overflow-hidden" :class="reasoningWindowLines.length > 0 ? 'mt-1' : ''">
+      <div v-if="!collapsePreview && answerLine" class="block overflow-hidden" :class="reasoningWindowLines.length > 0 ? 'mt-1' : ''">
         <Transition :name="lineTransitionName" mode="out-in">
           <span :key="answerLine" class="flex min-w-0 items-center gap-1.5">
             <img
@@ -42,9 +42,9 @@
         </Transition>
       </div>
       <span
-        v-if="!answerLine"
+        v-if="collapsePreview || !answerLine"
         class="flex items-center gap-1.5 leading-5 font-medium text-base-content/85"
-        :class="reasoningWindowLines.length > 0 ? 'mt-1' : ''"
+        :class="collapsePreview ? '' : reasoningWindowLines.length > 0 ? 'mt-1' : ''"
       >
         <ArrowDownToLine
           class="h-4 w-4 shrink-0 text-base-content/75"
@@ -75,6 +75,8 @@ const props = withDefaults(
     lines?: number;
     /** 单行最大字符数，超出只保留末尾 */
     maxChars?: number;
+    /** 思维链已展开：忽略预览内容，整条只留「回到底部」 */
+    collapsePreview?: boolean;
     /** 整条是否显示：由父组件按「是否离开底部」决定 */
     visible?: boolean;
     /** 当前回合是否正在流式输出；非流式时收起思维链，只显示最新一行正文 */
@@ -85,9 +87,10 @@ const props = withDefaults(
     avatarUrl?: string;
   }>(),
   {
-    lines: 4,
+    lines: 2,
     maxChars: 96,
     visible: true,
+    collapsePreview: false,
     streaming: true,
     idleText: "",
     avatarUrl: "",
@@ -179,6 +182,11 @@ const reasoningWindowLines = computed(() =>
       key: `${activeBlockIndex.value}:${windowRange.value.start + index}`,
       text: windowLine(text),
     })),
+);
+
+// 思考预览行只在「流式中」且「思维链未展开」时渲染；展开后整条退化为回到底部。
+const showReasoningWindow = computed(
+  () => !props.collapsePreview && props.streaming && reasoningWindowLines.value.length > 0,
 );
 
 function pendingWork(): boolean {

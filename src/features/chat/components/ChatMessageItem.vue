@@ -580,6 +580,7 @@ const emit = defineEmits<{
   (e: "openImagePreview", image: { mime?: string; bytesBase64?: string; dataUrl?: string; localPath?: string; src?: string; alt?: string }): void;
   (e: "toggleAudioPlayback", payload: { id: string; audio: { mime: string; bytesBase64?: string; mediaRef?: string } }): void;
   (e: "assistantLinkClick", event: MouseEvent): void;
+  (e: "activityToggle", payload: { blockId: string; open: boolean }): void;
 }>();
 
 const { t } = useI18n();
@@ -991,6 +992,7 @@ function activityPanelOpen(block: ChatMessageBlock): boolean {
 
 function onActivityToggle(event: Event): void {
   activityExpanded.value = detailsOpenFromEvent(event);
+  emit("activityToggle", { blockId: String(props.block.id || ""), open: activityExpanded.value });
 }
 
 function closeActivityDetails(): void {
@@ -999,6 +1001,7 @@ function closeActivityDetails(): void {
     details.open = false;
   }
   activityExpanded.value = false;
+  emit("activityToggle", { blockId: String(props.block.id || ""), open: false });
 }
 
 function activityReasoningCountLabel(block: ChatMessageBlock): string {

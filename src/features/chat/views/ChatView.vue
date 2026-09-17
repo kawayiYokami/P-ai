@@ -176,6 +176,7 @@
                         @open-image-preview="openChatMessageImagePreview"
                         @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
                         @assistant-link-click="handleAssistantLinkClick"
+                        @activity-toggle="handleActivityToggle"
                       />
                     </div>
                   </div>
@@ -257,6 +258,7 @@
               :blocks="previewBlocksForBar"
               :idle-text="previewTextForBar"
               :avatar-url="previewAvatarUrl"
+              :collapse-preview="thinkingPreviewCollapsed"
               :visible="!atConversationBottom && !chatStatusBanner && !timelinePanelOpen && !timelineFloatPanelVisible && displayedSessionRow === 'top'"
               :streaming="chatting"
               @jump-to-bottom="handleJumpToBottomWithFollow"
@@ -3259,6 +3261,37 @@ const previewAvatarUrl = computed(() => {
   }
   return "";
 });
+
+// 正在流式的那条助理消息：预览条按它的思维链展开状态决定形态
+const latestAssistantBlockId = computed(() => {
+  const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i];
+    if (block.isExtraTextBlock || block.remoteImOrigin) continue;
+    if (String(block.role || "") !== "assistant") return "";
+    return String(block.id || "");
+  }
+  return "";
+});
+
+// 思维链的展开状态是消息组件内部的 UI 状态，父级读不到，只能由它上报后在这里记账
+const expandedActivityBlockId = ref("");
+
+function handleActivityToggle(payload: { blockId: string; open: boolean }) {
+  if (payload.open) {
+    expandedActivityBlockId.value = payload.blockId;
+    return;
+  }
+  if (expandedActivityBlockId.value === payload.blockId) expandedActivityBlockId.value = "";
+}
+
+// 正在流式的那条消息思维链已展开：用户已经在看思维链，预览条不再预览，退化成回到底部
+const thinkingPreviewCollapsed = computed(
+  () =>
+    !!props.chatting &&
+    expandedActivityBlockId.value !== "" &&
+    expandedActivityBlockId.value === latestAssistantBlockId.value,
+);
 
 function scrollToUserMessageTarget(target: { index: number; item: ChatRenderItem }) {
   if (!target) return;
