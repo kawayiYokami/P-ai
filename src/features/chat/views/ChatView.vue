@@ -257,21 +257,38 @@
               :blocks="previewBlocksForBar"
               :idle-text="previewTextForBar"
               :avatar-url="previewAvatarUrl"
-              :visible="!atConversationBottom && !chatStatusBanner && !timelinePanelOpen && displayedSessionRow === 'top'"
+              :visible="!atConversationBottom && !chatStatusBanner && !timelinePanelOpen && !timelineFloatPanelVisible && displayedSessionRow === 'top'"
               :streaming="chatting"
               @jump-to-bottom="handleJumpToBottomWithFollow"
             />
           </div>
-          <!-- 时间线按钮：图标 + 「会话时间线」常驻，点击弹出几乎占满聊天区的垂直时间线 -->
+          <!-- 时间线按钮：悬停即在原位向上展开蛇形时间线；蛇形起点后面挂一个预览点，点它打开垂直面板 -->
           <div class="relative flex h-10 shrink-0 items-center">
+            <TimelineSnakeBoard
+              :visible="timelineFloatPanelVisible"
+              :anchors="timelineAnchors"
+              :active-index="activeTimelineIndex"
+              :hovered-index="hoveredTimelineIndex"
+              :anchor-el="timelineFloatButtonRef"
+              :preview-enabled="true"
+              :preview-label="t('chat.timelinePreviewButtonLabel')"
+              @hover="hoveredTimelineIndex = $event"
+              @enter-zone="handleTimelineFloatEnter"
+              @leave-zone="handleTimelineFloatLeave"
+              @jump="handleTimelineJump"
+              @preview="openTimelinePanel"
+            />
             <button
-              v-if="canShowTimeline && !timelinePanelOpen && displayedSessionRow === 'top'"
+              v-if="timelineButtonVisible"
+              ref="timelineFloatButtonRef"
               type="button"
-              class="pointer-events-auto flex items-center rounded-full p-2"
-              :class="FROST_SURFACE"
+              class="flex items-center rounded-full p-2"
+              :class="[FROST_SURFACE, timelineFloatPanelVisible ? 'invisible' : 'pointer-events-auto']"
               :aria-label="t('chat.timelineButtonAria')"
-              :aria-expanded="timelinePanelOpen ? 'true' : 'false'"
-              @click="toggleTimelinePanel"
+              :aria-expanded="timelineFloatPanelVisible ? 'true' : 'false'"
+              @mouseenter="handleTimelineFloatEnter"
+              @mouseleave="handleTimelineButtonLeave"
+              @click="handleTimelineButtonClick"
             >
               <Route class="h-4 w-4 shrink-0" />
               <span class="ml-1.5 whitespace-nowrap text-xs leading-none">{{ t("chat.timelineButtonLabel") }}</span>
@@ -806,6 +823,7 @@ import ChatMessageItem from "../components/ChatMessageItem.vue";
 import ChatQuestionPanel from "../components/ChatQuestionPanel.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import ChatThinkingPreviewBar from "../components/ChatThinkingPreviewBar.vue";
+import TimelineSnakeBoard from "../components/TimelineSnakeBoard.vue";
 import { FROST_GLASS, FROST_SURFACE } from "../components/session-float-styles";
 import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyDashboard.vue";
 import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
@@ -1967,6 +1985,50 @@ function formatTimelineTime(value?: string): string {
   return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
+// 蛇形时间线锚点：每条完成态用户消息一个点，附上紧随其后的助理回复尾段，供悬停预览卡显示。
+// 与上面按「每条消息一个节点」的垂直时间线各管一摊：蛇板负责定位与挪动，垂直面板负责逐条浏览。
+function timelineAssistantTail(raw: string): string {
+  const parts = String(raw || "")
+    .split(TIMELINE_TOOL_BREAK)
+    .map((part) => part.replace(/\[toolcall:[^\]\n]+\]/g, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1]! : "";
+}
+
+const timelineAnchors = computed<Array<{ id: string; userText: string; assistantTail: string; index: number }>>(() => {
+  const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
+  const idToVirtual = new Map<string, number>();
+  virtualRenderItems.value.forEach((item, idx) => {
+    if (item.kind === "message" && item.block) {
+      const bid = String(item.block.id || "");
+      if (bid) idToVirtual.set(bid, idx);
+    }
+  });
+  const anchors: Array<{ id: string; userText: string; assistantTail: string; index: number }> = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]!;
+    if (block.isStreaming || block.isExtraTextBlock || block.remoteImOrigin) continue;
+    if (!isOwnTimelineBlock(block)) continue;
+    const text = String(block.text || "");
+    if (!text.trim() && block.images.length === 0 && block.audios.length === 0) continue;
+    const index = idToVirtual.get(String(block.id || ""));
+    if (index === undefined) continue;
+    let assistantTail = "";
+    for (let j = i + 1; j < blocks.length; j++) {
+      const next = blocks[j]!;
+      if (next.isStreaming) continue;
+      if (isOwnTimelineBlock(next)) break;
+      const tail = timelineAssistantTail(String(next.text || ""));
+      if (tail) {
+        assistantTail = tail;
+        break;
+      }
+    }
+    anchors.push({ id: String(block.id || `timeline-${i}`), userText: text, assistantTail, index });
+  }
+  return anchors;
+});
+
 const timelineEntries = computed<TimelineEntry[]>(() => {
   const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
   // map to virtual index
@@ -2021,7 +2083,6 @@ onMounted(() => {
 const activeTimelineIndex = computed<number | null>(() => {
   const entries = timelineEntries.value;
   if (entries.length === 0) return null;
-  if (virtualRenderItems.value.length === 0) return entries[0]?.index ?? null;
   const scrollEl = scrollContainer.value;
   const top = scrollEl ? scrollEl.scrollTop : 0;
   let firstVisible = entries[0]!.index;
@@ -2049,13 +2110,108 @@ function handleTimelineJump(virtualIndex: number) {
   scrollVirtualizerToIndex(virtualIndex, { align: "start", behavior: prefersReducedMotionTimeline.value ? "auto" : "smooth" });
 }
 
-// 时间线面板：点击按钮弹出，几乎盖满聊天区；点节点跳转到该条消息并收起面板。
+// 蛇形时间线：按钮悬停即在原位向上展开；展开期间按钮位置换成「预览」按钮，点它才打开垂直面板。
+const hoveredTimelineIndex = ref<number | null>(null);
+const timelineFloatButtonRef = ref<HTMLElement | null>(null);
+const timelineFloatOpen = ref(false);
+// 悬停展开的微防抖：避免光标扫过按钮误触弹开
+const TIMELINE_FLOAT_OPEN_DELAY_MS = 120;
+// 收起前的逗留时间：光标在按钮与卡片之间移动时靠它兜住
+const TIMELINE_FLOAT_CLOSE_DELAY_MS = 320;
+let timelineFloatOpenTimer: ReturnType<typeof setTimeout> | null = null;
+let timelineFloatCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+// 时间线面板：点击「预览」按钮弹出，几乎盖满聊天区；点节点跳转到该条消息并收起面板。
 const timelinePanelOpen = ref(false);
 
-function toggleTimelinePanel() {
-  if (!canShowTimeline.value) return;
-  timelinePanelOpen.value = !timelinePanelOpen.value;
+const timelineButtonVisible = computed(() =>
+  canShowTimeline.value && !timelinePanelOpen.value && displayedSessionRow.value === "top",
+);
+const timelineFloatPanelVisible = computed(() => timelineFloatOpen.value && timelineButtonVisible.value);
+
+function clearTimelineFloatOpenTimer() {
+  if (!timelineFloatOpenTimer) return;
+  clearTimeout(timelineFloatOpenTimer);
+  timelineFloatOpenTimer = null;
 }
+function clearTimelineFloatCloseTimer() {
+  if (!timelineFloatCloseTimer) return;
+  clearTimeout(timelineFloatCloseTimer);
+  timelineFloatCloseTimer = null;
+}
+function closeTimelineFloat() {
+  clearTimelineFloatOpenTimer();
+  clearTimelineFloatCloseTimer();
+  timelineFloatOpen.value = false;
+  hoveredTimelineIndex.value = null;
+}
+function openTimelinePanel() {
+  closeTimelineFloat();
+  if (!canShowTimeline.value) return;
+  timelinePanelOpen.value = true;
+}
+function handleTimelineFloatEnter() {
+  clearTimelineFloatCloseTimer();
+  if (timelineFloatPanelVisible.value) return;
+  if (!timelineButtonVisible.value) return;
+  if (timelineFloatOpenTimer) return;
+  timelineFloatOpenTimer = setTimeout(() => {
+    timelineFloatOpenTimer = null;
+    // 延时窗口里触发源可能已经消失（锚点不足、切回下排、面板打开），执行前重新校验
+    if (!timelineButtonVisible.value) return;
+    timelineFloatOpen.value = true;
+  }, TIMELINE_FLOAT_OPEN_DELAY_MS);
+}
+function handleTimelineFloatLeave() {
+  clearTimelineFloatOpenTimer();
+  clearTimelineFloatCloseTimer();
+  timelineFloatCloseTimer = setTimeout(() => {
+    timelineFloatCloseTimer = null;
+    timelineFloatOpen.value = false;
+    hoveredTimelineIndex.value = null;
+  }, TIMELINE_FLOAT_CLOSE_DELAY_MS);
+}
+// 展开后按钮已被卡片整个盖住，此时的 mouseleave 只代表光标进了卡片，不排程收起；
+// 真正离开交给卡片的 leave-zone，不依赖浏览器在按钮隐藏时补发事件
+function handleTimelineButtonLeave() {
+  if (timelineFloatPanelVisible.value) return;
+  handleTimelineFloatLeave();
+}
+function handleTimelineButtonClick() {
+  // 点按钮只是把蛇板钉住展开；「预览」在展开后卡片右下角那个按钮上
+  clearTimelineFloatCloseTimer();
+  if (!timelineButtonVisible.value) return;
+  timelineFloatOpen.value = true;
+}
+function handleTimelineFloatDocumentPointerDown(event: MouseEvent | TouchEvent) {
+  if (!timelineFloatPanelVisible.value) return;
+  const target = event.target as Node | null;
+  if (target instanceof Element && target.closest(".ecall-snake-board-card")) return;
+  const anchorEl = timelineFloatButtonRef.value;
+  if (anchorEl && target && anchorEl.contains(target)) return;
+  closeTimelineFloat();
+}
+function handleTimelineFloatKeydown(event: KeyboardEvent) {
+  if (event.key !== "Escape") return;
+  // 面板打开时交给面板自己的 Esc 处理，这里不抢
+  if (timelinePanelOpen.value) return;
+  if (!timelineFloatOpen.value && !timelineFloatOpenTimer) return;
+  closeTimelineFloat();
+}
+// 按钮所在的那一排消失（贴底换成工作区 bar、锚点不足、面板打开）时，蛇板一并收起
+watch(timelineButtonVisible, (visible) => {
+  if (visible) return;
+  closeTimelineFloat();
+});
+onMounted(() => {
+  window.addEventListener("pointerdown", handleTimelineFloatDocumentPointerDown, true);
+  window.addEventListener("keydown", handleTimelineFloatKeydown);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("pointerdown", handleTimelineFloatDocumentPointerDown, true);
+  window.removeEventListener("keydown", handleTimelineFloatKeydown);
+  closeTimelineFloat();
+});
 function closeTimelinePanel() {
   timelinePanelOpen.value = false;
 }

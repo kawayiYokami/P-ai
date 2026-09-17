@@ -1837,6 +1837,7 @@
     "timelinePanelBack": "返回",
     "timelineButtonLabel": "會話時間線",
     "timelineButtonAria": "展開會話時間線",
+    "timelinePreviewButtonLabel": "概覽",
     "jumpToPreviousUserMessage": "跳到上一則使用者訊息",
     "copyMath": "複製公式",
     "copyMathDone": "公式已複製",

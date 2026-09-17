@@ -2037,6 +2037,7 @@
     "timelinePanelBack": "Back",
     "timelineButtonLabel": "Session timeline",
     "timelineButtonAria": "Open session timeline",
+    "timelinePreviewButtonLabel": "Overview",
     "jumpToPreviousUserMessage": "Jump to previous user message",
     "copyMath": "Copy formula",
     "copyMathDone": "Formula copied",

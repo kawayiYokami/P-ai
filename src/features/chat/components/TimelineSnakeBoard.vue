@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { UnfoldVertical } from "@lucide/vue";
 import TimelinePreviewMarkdown from "./TimelinePreviewMarkdown.vue";
 
 type TimelineAnchor = {
@@ -14,14 +15,20 @@ const props = withDefaults(defineProps<{
   activeIndex: number | null;
   hoveredIndex: number | null;
   anchorEl?: HTMLElement | null;
+  /** 蛇形起点后面再挂一个样式不同的预览点：底行让出一格给它，点它就是打开时间线预览 */
+  previewEnabled?: boolean;
+  previewLabel?: string;
   visible?: boolean;
 }>(), {
+  previewEnabled: false,
+  previewLabel: "",
   visible: true,
 });
 
 const emit = defineEmits<{
   (e: "hover", index: number | null): void;
   (e: "jump", index: number): void;
+  (e: "preview"): void;
   (e: "enter-zone"): void;
   (e: "leave-zone"): void;
 }>();
@@ -37,6 +44,8 @@ const PREVIEW_MAX_W = 440;
 const PREVIEW_PAD = 10;
 const PREVIEW_GAP = 4;
 const PREVIEW_H = 152;
+// 卡片与目标点的间隙
+const PREVIEW_OFFSET = 14;
 
 const hostRef = ref<HTMLElement | null>(null);
 const winSize = ref({
@@ -173,6 +182,18 @@ onBeforeUnmount(() => {
   }
 });
 
+// 起点后面那一格让给预览点：它自己占一格，锚点从它左边开始排
+function previewColsFor(): number {
+  return props.previewEnabled ? 1 : 0;
+}
+
+// 底行让出若干格位给预览点，其余行满铺；据此估算容纳 N 个锚点需要几行
+function rowsForCols(N: number, cols: number, previewCols: number): number {
+  const bottomCapacity = Math.max(0, cols - previewCols);
+  if (N <= bottomCapacity) return 1;
+  return 1 + Math.ceil((N - bottomCapacity) / cols);
+}
+
 const layout = computed(() => {
   const N = props.anchors.length;
   const vp = viewport.value;
@@ -183,40 +204,64 @@ const layout = computed(() => {
   let gap = MAX_GAP;
   let cols = 1;
   let rows = 1;
+  let previewCols = 0;
   let fits = false;
   for (; gap >= MIN_GAP; gap -= 2) {
+    const cc = previewColsFor();
     const maxCols = Math.max(1, Math.floor(availW / gap));
     const maxRows = Math.max(1, Math.floor(availH / gap));
-    if (maxCols * maxRows >= N) {
-      cols = Math.min(maxCols, N);
-      rows = Math.ceil(N / cols);
+    // 底行要铺满全部锚点，预览点另占一格；列数不超过可用宽度
+    const wantCols = Math.min(maxCols, Math.max(cc + 1, N + cc));
+    const wantRows = rowsForCols(N, wantCols, cc);
+    if (wantRows <= maxRows) {
+      cols = wantCols;
+      rows = wantRows;
+      previewCols = cc;
       fits = true;
       break;
     }
   }
   if (!fits) {
     gap = MIN_GAP;
-    cols = Math.max(1, Math.floor(availW / MIN_GAP));
-    rows = Math.max(1, Math.floor(availH / MIN_GAP));
+    previewCols = previewColsFor();
+    cols = Math.max(previewCols + 1, Math.floor(availW / gap));
+    rows = rowsForCols(N, cols, previewCols);
   }
   const cardW = Math.max(Math.min((cols - 1) * gap + PADDING * 2, availW), 32);
   const cardH = Math.max(Math.min((rows - 1) * gap + PADDING * 2, availH), 32);
-  const capacity = cols * rows;
   const posByIndex = new Map<number, { x: number; y: number }>();
   const ordered: Array<{ x: number; y: number }> = [];
-  for (let k = 0; k < N && k < capacity; k++) {
-    const anchor = props.anchors[N - 1 - k];
-    if (!anchor) continue;
-    const rowFromBottom = Math.floor(k / cols);
-    const colMod = k % cols;
-    const col = rowFromBottom % 2 === 0 ? cols - 1 - colMod : colMod;
-    const row = rows - 1 - rowFromBottom;
-    const x = PADDING + col * gap;
-    const y = PADDING + row * gap;
-    posByIndex.set(anchor.index, { x, y });
-    ordered.push({ x, y });
+  let k = 0;
+  for (let rowFromBottom = 0; rowFromBottom < rows && k < N; rowFromBottom++) {
+    const colsInRow = rowFromBottom === 0 ? Math.max(1, cols - previewCols) : cols;
+    for (let i = 0; i < colsInRow && k < N; i++, k++) {
+      const anchor = props.anchors[N - 1 - k];
+      if (!anchor) continue;
+      // 底行从预览点左侧一格起往左排，奇数行反向，蛇形衔接
+      const col = rowFromBottom % 2 === 0 ? cols - 1 - previewCols - i : i;
+      const row = rows - 1 - rowFromBottom;
+      const x = PADDING + Math.max(0, col) * gap;
+      const y = PADDING + row * gap;
+      posByIndex.set(anchor.index, { x, y });
+      ordered.push({ x, y });
+    }
   }
   return { gap, cols, rows, cardW, cardH, posByIndex, ordered };
+});
+
+// 预览点就落在底行最右那一格：与锚点用同一套网格坐标，卡片被夹紧时也不会错位
+const previewDotStyle = computed(() => {
+  const l = layout.value;
+  if (!l || !props.previewEnabled) return { display: "none" };
+  return {
+    // inline 定位，避免 daisyUI tooltip 自带的 position 规则抢走定位
+    position: "absolute",
+    left: `${PADDING + (l.cols - 1) * l.gap}px`,
+    top: `${PADDING + (l.rows - 1) * l.gap}px`,
+    width: `${DOT_HIT}px`,
+    height: `${DOT_HIT}px`,
+    transform: "translate(-50%, -50%)",
+  } as Record<string, string>;
 });
 
 const boardFixedStyle = computed(() => {
@@ -326,7 +371,19 @@ const smoothSnakePath = computed(() => {
   return d;
 });
 
-const focusedIndex = computed(() => props.hoveredIndex ?? props.activeIndex);
+// 悬停在预览点上时，不要让高亮回落到当前位：放大反馈只属于被悬停的预览点本身
+const previewDotHovered = ref(false);
+const focusedIndex = computed(() => props.hoveredIndex ?? (previewDotHovered.value ? null : props.activeIndex));
+
+function handlePreviewDotEnter() {
+  previewDotHovered.value = true;
+  // 清掉锚点悬停，避免预览卡贴在光标旁盖住这个点
+  emit("hover", null);
+}
+
+function handlePreviewDotLeave() {
+  previewDotHovered.value = false;
+}
 
 function isFocused(index: number) {
   return focusedIndex.value === index;
@@ -346,14 +403,6 @@ function dotStyle(anchor: TimelineAnchor): Record<string, string> {
     height: `${DOT_HIT}px`,
     transform: "translate(-50%, -50%)",
   };
-}
-
-const mouseLocal = ref({ x: 0, y: 0 });
-
-function handleBoardMouseMove(event: MouseEvent) {
-  const r = hostRef.value?.getBoundingClientRect();
-  if (!r) return;
-  mouseLocal.value = { x: event.clientX - r.left, y: event.clientY - r.top };
 }
 
 function toLocal(clientX: number, clientY: number) {
@@ -393,16 +442,12 @@ function handleBoardPointerDown(event: PointerEvent) {
   scrubPointerId = event.pointerId;
   scrubStartX = event.clientX;
   scrubStartY = event.clientY;
-  const local = toLocal(event.clientX, event.clientY);
-  if (local) mouseLocal.value = local;
   emit("hover", nearest.index);
   try { (hostRef.value as HTMLElement | null)?.setPointerCapture(event.pointerId); } catch {}
   if (event.pointerType === "touch") event.preventDefault();
 }
 
 function handleBoardPointerMove(event: PointerEvent) {
-  const local = toLocal(event.clientX, event.clientY);
-  if (local) mouseLocal.value = local;
   if (scrubPointerId == null || scrubPointerId !== event.pointerId) return;
   const dx = event.clientX - scrubStartX;
   const dy = event.clientY - scrubStartY;
@@ -413,8 +458,6 @@ function handleBoardPointerMove(event: PointerEvent) {
 
 function handleBoardPointerUp(event: PointerEvent) {
   if (scrubPointerId == null || scrubPointerId !== event.pointerId) return;
-  const local = toLocal(event.clientX, event.clientY);
-  if (local) mouseLocal.value = local;
   const nearest = findNearestAnchor(event.clientX, event.clientY);
   const jumpIndex = nearest?.index ?? props.hoveredIndex ?? props.activeIndex;
   if (jumpIndex != null) {
@@ -442,56 +485,53 @@ const tooltipW = computed(() => {
   return Math.min(PREVIEW_MAX_W, Math.max(280, cardW - PREVIEW_PAD * 2 - 8));
 });
 
+// 卡片钉在被悬停的那个锚点上方，横向对准它
+const tipAnchor = computed(() => {
+  const l = layout.value;
+  if (!l) return null;
+  const idx = props.hoveredIndex;
+  if (idx == null) return null;
+  return l.posByIndex.get(idx) ?? null;
+});
+
 const tooltipBelow = computed(() => {
-  const y = mouseLocal.value.y;
+  const a = tipAnchor.value;
+  if (!a) return false;
   const vp = viewport.value;
-  const boardTop = boardViewportPos.value.top;
-  const cursorY = boardTop + y;
-  const aboveTop = cursorY - 14 - PREVIEW_H;
-  const belowBottom = cursorY + 18 + PREVIEW_H;
-  const aboveOkViewport = aboveTop >= vp.top + SAFE;
-  const belowOkViewport = belowBottom <= vp.bottom - SAFE;
-  if (aboveOkViewport) return false;
-  if (belowOkViewport) return true;
-  const spaceAbove = cursorY - (vp.top + SAFE);
-  const spaceBelow = (vp.bottom - SAFE) - cursorY;
+  const anchorY = boardViewportPos.value.top + a.y;
+  const aboveTop = anchorY - PREVIEW_OFFSET - PREVIEW_H;
+  const belowBottom = anchorY + PREVIEW_OFFSET + PREVIEW_H;
+  if (aboveTop >= vp.top + SAFE) return false;
+  if (belowBottom <= vp.bottom - SAFE) return true;
+  const spaceAbove = anchorY - (vp.top + SAFE);
+  const spaceBelow = (vp.bottom - SAFE) - anchorY;
   return spaceBelow > spaceAbove;
 });
 
 const tooltipStyle = computed(() => {
-  const w = tooltipW.value;
+  const a = tipAnchor.value;
   const vp = viewport.value;
+  if (!a) return { display: "none" } as Record<string, string>;
+  const w = tooltipW.value;
   const boardPos = boardViewportPos.value;
-  const cardW = layout.value?.cardW ?? w;
-  const half = w / 2 + 6;
-  const clampedInsideX = Math.min(Math.max(mouseLocal.value.x, half), Math.max(half, cardW - half));
-  const desiredViewportX = boardPos.left + clampedInsideX;
+  // 卡片钉在被悬停的那个点上：横向对准它，纵向贴在它上方（上方真的放不下才翻到下方）
   const minX = vp.left + SAFE + w / 2;
   const maxX = vp.right - SAFE - w / 2;
-  const clampedViewportX = Math.min(Math.max(desiredViewportX, minX), Math.max(minX, maxX));
-  const cursorViewportY = boardPos.top + mouseLocal.value.y;
-  const minTop = vp.top + SAFE;
-  const maxTop = Math.max(minTop, vp.bottom - SAFE - PREVIEW_H);
-  let top: number;
-  if (tooltipBelow.value) {
-    top = cursorViewportY + 18;
-    if (top + PREVIEW_H > vp.bottom - SAFE) {
-      top = maxTop;
-    }
-  } else {
-    top = cursorViewportY - 14 - PREVIEW_H;
-    if (top < minTop) top = minTop;
-    if (top + PREVIEW_H > vp.bottom - SAFE) {
-      top = maxTop;
-    }
-  }
-  return {
+  const left = Math.min(Math.max(boardPos.left + a.x, minX), Math.max(minX, maxX));
+  const anchorY = boardPos.top + a.y;
+  const style: Record<string, string> = {
     position: "fixed",
-    left: `${Math.round(clampedViewportX)}px`,
-    top: `${Math.round(top)}px`,
+    left: `${Math.round(left)}px`,
     width: `${w}px`,
     transform: "translateX(-50%)",
-  } as Record<string, string>;
+  };
+  if (tooltipBelow.value) {
+    style.top = `${Math.round(anchorY + PREVIEW_OFFSET)}px`;
+  } else {
+    // 用底边定位，卡片多高都不会把自己推远
+    style.bottom = `${Math.round(vp.bottom - (anchorY - PREVIEW_OFFSET))}px`;
+  }
+  return style;
 });
 </script>
 
@@ -503,7 +543,6 @@ const tooltipStyle = computed(() => {
         ref="hostRef"
         class="ecall-snake-board-card pointer-events-auto fixed z-[100] rounded-2xl border border-base-300/60 bg-base-100/80 shadow-lg backdrop-blur-md backdrop-saturate-150 select-none touch-none"
         :style="boardFixedStyle"
-        @mousemove="handleBoardMouseMove"
         @pointerdown="handleBoardPointerDown"
         @pointermove="handleBoardPointerMove"
         @pointerup="handleBoardPointerUp"
@@ -526,7 +565,7 @@ const tooltipStyle = computed(() => {
               stroke-linejoin="round"
               class="opacity-70"
             />
-          </svg>
+                    </svg>
           <button
             v-for="anchor in anchors"
             :key="anchor.id"
@@ -561,6 +600,33 @@ const tooltipStyle = computed(() => {
                 height: isFocused(anchor.index) ? `${DOT_FOCUSED}px` : `${DOT_SMALL}px`,
               }"
             />
+          </button>
+        </div>
+        <!-- 起点后面那一格：预览点，悬停由 daisyUI 原生 tooltip 说明，点击打开时间线预览 -->
+        <div
+          v-if="previewEnabled"
+          class="tooltip tooltip-top flex items-center justify-center"
+          :style="previewDotStyle"
+          :data-tip="previewLabel"
+        >
+          <button
+            type="button"
+            class="ecall-snake-preview-dot group flex items-center justify-center rounded-full"
+            :aria-label="previewLabel"
+            @mouseenter="handlePreviewDotEnter"
+            @mouseleave="handlePreviewDotLeave"
+            @pointerdown.stop
+            @click.stop="emit('preview')"
+          >
+            <span
+              class="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-primary/50 bg-primary/10 transition-transform duration-150 group-hover:scale-125 group-hover:border-primary group-hover:bg-primary/20"
+              aria-hidden="true"
+            >
+              <UnfoldVertical
+                class="h-3 w-3 text-primary/70 transition-colors group-hover:text-primary"
+                aria-hidden="true"
+              />
+            </span>
           </button>
         </div>
       </div>
