@@ -2484,7 +2484,6 @@ fn builtin_read_media_should_not_return_original_audio_or_video_when_description
         let state = test_read_file_state();
         let config = AppConfig {
             selected_api_config_id: "vision-a".to_string(),
-            assistant_department_api_config_id: "vision-a".to_string(),
             vision_api_config_id: Some("vision-a".to_string()),
             api_configs: vec![ApiConfig {
                 id: "vision-a".to_string(),
