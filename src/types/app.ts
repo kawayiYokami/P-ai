@@ -726,6 +726,8 @@ export type PersonaProfile = {
   summary?: string;
   residentSkillNames?: string[];
   optionalSkillNames?: string[];
+  /** 是否向该人格系统提示词注入全局系统准则（最高准则），缺省视为开启。 */
+  includeSystemRules?: boolean;
   apiConfigIds?: string[];
   childAgentIds?: string[];
   permissionControl?: AgentPermissionControl;

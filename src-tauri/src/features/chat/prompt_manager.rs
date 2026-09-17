@@ -588,7 +588,12 @@ fn build_core_system_prompt_text(
         )
     });
     let date_timezone_line = prompt_current_date_timezone_line(ui_language);
-    let highest_instruction_md = highest_instruction_markdown();
+    // 系统准则块：人格可关闭（默认开启）。关闭后该人格不再注入全局准则。
+    let highest_instruction_md = if agent.include_system_rules {
+        Some(highest_instruction_markdown())
+    } else {
+        None
+    };
     let (
         not_provided_label,
         assistant_settings_label,
@@ -612,7 +617,7 @@ fn build_core_system_prompt_text(
     );
     if conversation_is_remote_im_contact(conversation) {
         return [
-            highest_instruction_md.to_string(),
+            highest_instruction_md.clone().unwrap_or_default(),
             prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
             prompt_xml_block(
                 remote_settings_label,
@@ -655,7 +660,7 @@ fn build_core_system_prompt_text(
             )
         };
         [
-            highest_instruction_md.to_string(),
+            highest_instruction_md.clone().unwrap_or_default(),
             prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
             prompt_xml_block(user_settings_label, user_settings_body),
             response_style_block.clone().unwrap_or_default(),
@@ -670,7 +675,7 @@ fn build_core_system_prompt_text(
         .join("\n")
     } else {
         [
-            highest_instruction_md.to_string(),
+            highest_instruction_md.clone().unwrap_or_default(),
             prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
             response_style_block.unwrap_or_default(),
             prompt_xml_block(

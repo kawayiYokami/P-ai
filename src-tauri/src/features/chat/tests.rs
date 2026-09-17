@@ -422,6 +422,40 @@
     }
 
     #[test]
+    fn build_core_system_prompt_text_should_skip_system_rules_block_when_disabled() {
+        let now = now_iso();
+        let mut agent = default_agent();
+        let conv = test_active_conversation_with_messages(
+            vec![test_text_message("user", "测试关闭系统准则", &now)],
+            Some(now),
+        );
+
+        let enabled = build_core_system_prompt_text(
+            &conv,
+            &agent,
+            Some(("用户", "我是测试用户")),
+            "none",
+            "zh-CN",
+            None,
+        );
+        assert!(enabled.contains("<system rules>"));
+
+        agent.include_system_rules = false;
+        let disabled = build_core_system_prompt_text(
+            &conv,
+            &agent,
+            Some(("用户", "我是测试用户")),
+            "none",
+            "zh-CN",
+            None,
+        );
+        assert!(!disabled.contains("<system rules>"));
+        // 关闭准则只影响准则块，人格设定与语言设置等骨架块照旧注入。
+        assert!(disabled.contains("<persona settings>"));
+        assert!(disabled.contains("<language settings>"));
+    }
+
+    #[test]
     fn build_prompt_should_map_non_self_personas_to_user_with_speaker_block() {
         let now = now_iso();
         let agent = default_agent();
@@ -966,6 +1000,7 @@
             summary: String::new(),
             resident_skill_names: Vec::new(),
             optional_skill_names: Vec::new(),
+            include_system_rules: true,
             api_config_ids: Vec::new(),
             api_config_id: String::new(),
             model_failure_fallback_enabled: false,
@@ -3333,6 +3368,7 @@
             summary: String::new(),
             resident_skill_names: Vec::new(),
             optional_skill_names: Vec::new(),
+            include_system_rules: true,
             api_config_ids: Vec::new(),
             api_config_id: String::new(),
             model_failure_fallback_enabled: false,
@@ -3502,6 +3538,7 @@
             summary: String::new(),
             resident_skill_names: Vec::new(),
             optional_skill_names: Vec::new(),
+            include_system_rules: true,
             api_config_ids: Vec::new(),
             api_config_id: String::new(),
             model_failure_fallback_enabled: false,
@@ -3660,6 +3697,7 @@
             summary: String::new(),
             resident_skill_names: Vec::new(),
             optional_skill_names: Vec::new(),
+            include_system_rules: true,
             api_config_ids: Vec::new(),
             api_config_id: String::new(),
             model_failure_fallback_enabled: false,
@@ -3721,6 +3759,7 @@
             summary: String::new(),
             resident_skill_names: Vec::new(),
             optional_skill_names: Vec::new(),
+            include_system_rules: true,
             api_config_ids: Vec::new(),
             api_config_id: String::new(),
             model_failure_fallback_enabled: false,

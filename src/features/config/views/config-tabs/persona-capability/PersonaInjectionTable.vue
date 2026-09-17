@@ -3,10 +3,34 @@
     <!-- 随身技能与加载顺序分组卡片 -->
     <ConfigCard flush class="shadow-xs min-w-0 max-w-full">
       <div class="divide-y divide-base-200/60">
-        <!-- 首位固定：人格设定 -->
+        <!-- 首段固定：系统准则（可关闭，关闭后该人格不再注入全局准则） -->
       <div class="flex items-center gap-3 px-4 py-3 bg-base-200/20 min-w-0 max-w-full overflow-hidden">
         <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-selector bg-base-200 text-xs font-bold text-base-content/60">
           1
+        </span>
+        <div class="min-w-0 flex-1 overflow-hidden">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="truncate text-sm font-medium text-base-content">{{ t("config.persona.injection.systemRules") }}</span>
+            <span class="badge badge-ghost badge-xs gap-1 text-base-content/60 shrink-0">
+              <Lock class="h-3 w-3" />
+              {{ t("config.persona.injection.locked") }}
+            </span>
+          </div>
+          <div class="mt-0.5 block truncate text-xs text-base-content/50 max-w-full">{{ t("config.persona.injection.systemRulesHint") }}</div>
+        </div>
+        <input
+          type="checkbox"
+          class="toggle toggle-xs toggle-primary shrink-0"
+          :checked="systemRulesEnabled"
+          :title="t('config.persona.injection.systemRulesToggle')"
+          @change="onSystemRulesToggle"
+        />
+      </div>
+
+        <!-- 固定：人格设定 -->
+      <div class="flex items-center gap-3 px-4 py-3 bg-base-200/20 min-w-0 max-w-full overflow-hidden">
+        <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-selector bg-base-200 text-xs font-bold text-base-content/60">
+          2
         </span>
         <div class="min-w-0 flex-1 overflow-hidden">
           <div class="flex items-center gap-2 min-w-0">
@@ -27,7 +51,7 @@
         class="flex items-center gap-3 px-4 py-3 transition hover:bg-base-200/30 min-w-0 max-w-full overflow-hidden"
       >
         <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-selector bg-base-200 text-xs font-bold text-base-content/60">
-          {{ index + 2 }}
+          {{ index + 3 }}
         </span>
         <div class="min-w-0 flex-1 overflow-hidden">
           <div class="truncate text-sm font-medium text-base-content max-w-full">{{ name }}</div>
@@ -139,13 +163,37 @@
     <p class="px-1 text-xs text-base-content/40 leading-normal">
       {{ t("config.persona.injection.hint") }}
     </p>
+
+    <!-- 关闭系统准则警告 -->
+    <dialog ref="systemRulesDialog" class="modal">
+      <div class="modal-box max-w-sm">
+        <h3 class="text-sm font-semibold mb-2 text-warning flex items-center gap-2">
+          <CircleAlert class="h-4 w-4" />
+          {{ t("config.persona.injection.systemRulesDisableTitle") }}
+        </h3>
+        <p class="text-sm text-base-content/80">
+          {{ t("config.persona.injection.systemRulesDisableMessage") }}
+        </p>
+        <div class="modal-action">
+          <button class="btn btn-sm min-h-[2.25rem]" type="button" @click="cancelDisableSystemRules">
+            {{ t("common.cancel") }}
+          </button>
+          <button class="btn btn-sm min-h-[2.25rem] btn-warning" type="button" @click="confirmDisableSystemRules">
+            {{ t("config.persona.injection.systemRulesDisableConfirm") }}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="cancelDisableSystemRules">close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowDown, ArrowUp, Lock, Plus, Search, X } from "@lucide/vue";
+import { ArrowDown, ArrowUp, CircleAlert, Lock, Plus, Search, X } from "@lucide/vue";
 import ConfigCard from "../../../components/ConfigCard.vue";
 import type { PersonaProfile, SkillSummaryItem } from "../../../../../types/app";
 
@@ -216,5 +264,28 @@ function append(name: string) {
 function cancelPicking() {
   picking.value = false;
   query.value = "";
+}
+
+const systemRulesEnabled = computed(() => props.persona?.includeSystemRules !== false);
+const systemRulesDialog = ref<HTMLDialogElement | null>(null);
+
+function onSystemRulesToggle(event: Event) {
+  const target = event.target as HTMLInputElement;
+  if (target.checked) {
+    props.persona.includeSystemRules = true;
+    return;
+  }
+  // 关闭准则会让该人格失去基础行为约束，先弹警告，确认后才落值。
+  target.checked = true;
+  systemRulesDialog.value?.showModal();
+}
+
+function confirmDisableSystemRules() {
+  props.persona.includeSystemRules = false;
+  systemRulesDialog.value?.close();
+}
+
+function cancelDisableSystemRules() {
+  systemRulesDialog.value?.close();
 }
 </script>

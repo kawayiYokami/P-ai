@@ -540,6 +540,7 @@
             summary: String::new(),
             resident_skill_names: Vec::new(),
             optional_skill_names: Vec::new(),
+            include_system_rules: true,
             api_config_ids: Vec::new(),
             api_config_id: String::new(),
             model_failure_fallback_enabled: false,

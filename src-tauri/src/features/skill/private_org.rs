@@ -19,10 +19,16 @@ struct PrivatePersonaFile {
     optional_skill_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     api_config_ids: Vec<String>,
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    include_system_rules: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     child_agent_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "is_default_agent_permission_control")]
     permission_control: AgentPermissionControl,
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 #[derive(Debug, Clone, Default)]
@@ -262,6 +268,7 @@ fn load_private_agents_from_workspace(
             summary: file.summary.trim().to_string(),
             resident_skill_names: normalize_private_string_list(file.resident_skill_names),
             optional_skill_names: normalize_private_string_list(file.optional_skill_names),
+            include_system_rules: file.include_system_rules,
             api_config_ids: normalize_private_string_list(file.api_config_ids),
             api_config_id: String::new(),
             model_failure_fallback_enabled: false,
@@ -316,6 +323,7 @@ pub(crate) fn sync_private_agents_to_workspace(
             summary: agent.summary.clone(),
             resident_skill_names: agent.resident_skill_names.clone(),
             optional_skill_names: agent.optional_skill_names.clone(),
+            include_system_rules: agent.include_system_rules,
             api_config_ids: agent.api_config_ids.clone(),
             child_agent_ids: agent.child_agent_ids.clone(),
             permission_control: agent.permission_control.clone(),
@@ -394,6 +402,7 @@ mod private_persona_file_tests {
             summary: String::new(),
             resident_skill_names: Vec::new(),
             optional_skill_names: Vec::new(),
+            include_system_rules: true,
             api_config_ids: Vec::new(),
             child_agent_ids: Vec::new(),
             permission_control: AgentPermissionControl::default(),
@@ -402,6 +411,7 @@ mod private_persona_file_tests {
         assert!(!text.contains("summary"));
         assert!(!text.contains("childAgentIds"));
         assert!(!text.contains("permissionControl"));
+        assert!(!text.contains("includeSystemRules"));
     }
 
     #[test]

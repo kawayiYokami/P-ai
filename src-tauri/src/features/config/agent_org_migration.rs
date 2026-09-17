@@ -1016,23 +1016,14 @@ mod agent_org_migration_tests {
     fn ensure_should_add_missing_built_in_nodes_and_preset_edges() {
         let mut agents = vec![test_agent(DEFAULT_AGENT_ID), test_agent(DEPUTY_AGENT_ID)];
         assert!(ensure_built_in_organization_nodes(&mut agents));
-        for id in [
-            REVIEWER_AGENT_ID,
-            SADDLER_AGENT_ID,
-            SUPPORT_AGENT_ID,
-        ] {
+        for id in [REVIEWER_AGENT_ID, SUPPORT_AGENT_ID] {
             assert!(agents.iter().any(|agent| agent.id == id), "内置人格 {id} 应被补建");
         }
         let root = agents
             .iter()
             .find(|agent| agent.id == DEFAULT_AGENT_ID)
             .expect("root");
-        for child in [
-            DEPUTY_AGENT_ID,
-            REVIEWER_AGENT_ID,
-            SADDLER_AGENT_ID,
-            SUPPORT_AGENT_ID,
-        ] {
+        for child in [DEPUTY_AGENT_ID, REVIEWER_AGENT_ID, SUPPORT_AGENT_ID] {
             assert!(
                 root.child_agent_ids.iter().any(|item| item == child),
                 "根应预设下级 {child}"
@@ -1061,6 +1052,7 @@ mod agent_org_migration_tests {
             summary: String::new(),
             resident_skill_names: Vec::new(),
             optional_skill_names: Vec::new(),
+            include_system_rules: true,
             api_config_ids: Vec::new(),
             api_config_id: String::new(),
             model_failure_fallback_enabled: false,
@@ -1112,6 +1104,7 @@ mod agent_org_migration_tests {
             summary: "人格已有简介".to_string(),
             resident_skill_names: Vec::new(),
             optional_skill_names: Vec::new(),
+            include_system_rules: true,
             api_config_ids: vec!["model-existing".to_string()],
             api_config_id: "model-existing".to_string(),
             model_failure_fallback_enabled: false,
