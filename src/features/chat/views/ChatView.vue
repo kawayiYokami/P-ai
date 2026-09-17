@@ -212,7 +212,7 @@
             : 'pointer-events-none opacity-0'"
           :aria-hidden="displayedSessionRow === 'toolbar' ? undefined : 'true'"
         >
-          <div class="ecall-chat-toolbar-shell w-full px-2">
+          <div class="ecall-chat-toolbar-shell w-full px-4">
             <ChatWorkspaceToolbar
                   :chatting="chatting" :frozen="frozen" :conversation-busy="conversationInteractionBusy"
                   :workspace-button-label="t('chat.allowedWorkspaceButton')" :workspace-button-name="currentWorkspaceName"
@@ -233,6 +233,8 @@
               :delegate-statuses="delegateStatuses"
               :running-task-count="runningTaskCount"
               :running-shell-count="runningShellCount"
+              :mention-entries="mentionEntries"
+              :selected-mentions="selectedMentions"
               @lock-workspace="$emit('lockWorkspace')" @open-branch-selection="openBranchSelectionMenu"
               @open-task-create="openTaskCreateDialog"
               @open-delegate-selection="openDelegateSelectionMenu" @open-forward-selection="openForwardSelectionMenu"
@@ -243,6 +245,8 @@
               @open-code-review="openCodeReviewDialog"
               @open-branch-from-current="openBranchFromCurrentMessage"
               @open-side-chat="selectChatRightPanelMode('sideChat')"
+              @add-mention="$emit('addMention', $event)"
+              @remove-mention="$emit('removeMention', $event)"
             />
           </div>
         </div>
@@ -250,7 +254,7 @@
         <div
           class="pointer-events-none absolute inset-x-0 bottom-0"
         >
-        <div class="flex w-full items-end justify-between gap-2 px-2">
+        <div class="flex w-full items-end justify-between gap-2 px-4">
           <div class="pointer-events-none min-w-0 flex-1">
             <ChatThinkingPreviewBar
               :blocks="previewBlocksForBar"

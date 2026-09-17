@@ -14,5 +14,10 @@
     "lib": ["ES2020", "DOM"],
     "types": ["vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"],
+  // 留档的历史实现，不参与编译：旧版工作条依赖后来被移除的提及部门字段，且已无使用者
+  "exclude": [
+    "src/features/chat/components/ChatWorkspaceToolbarClassic.vue",
+    "src/features/chat/components/SessionControlPanel.vue"
+  ]
 }

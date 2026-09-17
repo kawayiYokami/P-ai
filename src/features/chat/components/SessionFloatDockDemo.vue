@@ -31,6 +31,19 @@
         <input v-model="showMonitor" type="checkbox" class="checkbox checkbox-xs" />
         运行监控
       </label>
+      <span class="mx-1 h-4 w-px bg-base-300"></span>
+      <label class="flex cursor-pointer items-center gap-1">
+        <input v-model="showMentionCandidates" type="checkbox" class="checkbox checkbox-xs" />
+        @ 候选
+      </label>
+      <label v-if="showMentionCandidates" class="flex cursor-pointer items-center gap-1">
+        <input v-model="mentionTaskBadge" type="checkbox" class="checkbox checkbox-xs" />
+        任务角标
+      </label>
+      <label class="flex cursor-pointer items-center gap-1">
+        <input v-model="mentionBusy" type="checkbox" class="checkbox checkbox-xs" />
+        忙碌禁用
+      </label>
       <span class="text-base-content/45">（关掉后该元素整颗消失）</span>
       <span class="mx-1 h-4 w-px bg-base-300"></span>
       <label class="flex items-center gap-1">
@@ -56,6 +69,13 @@
           <option value="task">仅任务</option>
           <option value="shell">仅 Shell</option>
           <option value="mixed">混合</option>
+        </select>
+      </label>
+      <label v-if="showMentionCandidates" class="flex items-center gap-1">
+        人格名
+        <select v-model="mentionNamePreset" class="select select-bordered select-xs">
+          <option value="normal">常规</option>
+          <option value="long">超长</option>
         </select>
       </label>
       <label class="flex items-center gap-1">
@@ -87,7 +107,7 @@
       <!-- 会话悬浮操作区 -->
       <div class="absolute inset-x-0" style="bottom: 64px">
         <!-- 上排：预览条（左） + 时间线按钮（右），底边齐平 -->
-        <div v-if="showPreviewRow || showTimelineButton" class="flex w-full items-end justify-between gap-2 px-2 pb-2">
+        <div v-if="showPreviewRow || showTimelineButton" class="flex w-full items-end justify-between gap-2 px-4 pb-2">
           <div class="min-w-0 flex-1">
             <ChatThinkingPreviewBar
               :visible="showPreviewRow"
@@ -114,41 +134,34 @@
           </Transition>
         </div>
 
-        <!-- 下排：对话菜单钮是模拟（真件带整块菜单逻辑，不单独嵌），其余三件直接是聊天窗真实组件 -->
-        <div class="flex flex-wrap items-end gap-2 px-2">
-          <Transition
-            enter-active-class="transition duration-200 ease-out"
-            enter-from-class="opacity-0 translate-y-1"
-            leave-active-class="transition duration-200 ease-out"
-            leave-to-class="opacity-0 translate-y-1"
-          >
-            <button
-              v-if="showMenu"
-              type="button"
-              :class="SESSION_FLOAT_FROST_CIRCLE"
-              title="对话菜单"
-            >
-              <Menu class="size-5" />
-            </button>
-          </Transition>
-
-          <SessionControlItems
-            :show-workspace-button="showWorkspace"
+        <!-- 下排：直接挂聊天窗那条工作条真件，开关喂给它不同的 props -->
+        <div class="w-full px-4">
+          <ChatWorkspaceToolbar
+            :chatting="mentionBusy"
+            :frozen="false"
             :workspace-button-label="t('chat.allowedWorkspaceButton')"
             :workspace-button-name="workspaceName"
             :workspace-work-mode="workspaceWorkMode"
             :workspace-permission-kind="workspacePermission"
             :auto-push-active="showAutoPush"
-            :delegates="monitorDelegates"
+            :delegate-statuses="monitorDelegates"
             :running-task-count="monitorCounts.task"
             :running-shell-count="monitorCounts.shell"
+            :mention-entries="mentionEntries"
+            :selected-mentions="demoSelectedMentions"
+            :hide-menu-button="!showMenu"
+            :hide-workspace-button="!showWorkspace"
+            @add-mention="handleDemoAddMention"
+            @remove-mention="handleDemoRemoveMention"
           />
         </div>
       </div>
     </div>
 
     <div class="text-xs text-base-content/50">
-      下排的工作区、自动推送、运行监控就是聊天窗里的真实组件（<code>SessionControlItems</code>），这里只是用开关和下拉喂给它不同的 props；对话菜单与上排两个元素是模拟，真实的那部分带了整块菜单/时间线逻辑，没有单独嵌进来。
+      下排直接挂的就是聊天窗那条工作条真件（<code>ChatWorkspaceToolbar</code>），开关和下拉喂给它不同的 props；上排两个元素是模拟。菜单能点开，项与聊天窗一致，只是这里不接后续动作。
+      <br />
+      @ 按钮的候选取自输入栏那一份（同一个 <code>mentionEntries</code>）：点条目切换选中，已选中的会带 @ 角标，有后台任务的带转圈角标。聊天窗里它的选中态与输入栏的 @ 面板共享同一份。
       <br />
       每个元素只看自己一个条件：有就出现，没有就不渲染，彼此不互斥、没有展开态。左对齐，一行放不下自动换行。磨砂外观与尺寸定义在 <code>session-float-styles.ts</code>，聊天窗与这里共用同一份。
       <br />
@@ -160,10 +173,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { GanttChart, Menu } from "@lucide/vue";
-import type { ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
+import { GanttChart } from "@lucide/vue";
+import type { ChatMentionEntry, ChatMentionTarget, ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
 import ChatThinkingPreviewBar from "./ChatThinkingPreviewBar.vue";
-import SessionControlItems from "./SessionControlItems.vue";
+import ChatWorkspaceToolbar from "./ChatWorkspaceToolbar.vue";
 import { SESSION_FLOAT_FROST_CIRCLE } from "./session-float-styles";
 
 const { t } = useI18n();
@@ -225,4 +238,49 @@ const monitorCounts = computed(() => {
   }
 });
 const monitorDelegates = computed(() => (monitorCounts.value.delegate > 0 ? [demoRunningDelegate] : []));
+
+// ========== @ 人格按钮：候选与选中态由这里的开关喂给真实组件 ==========
+
+const showMentionCandidates = ref(true);
+const mentionTaskBadge = ref(false);
+const mentionBusy = ref(false);
+const mentionNamePreset = ref<"normal" | "long">("normal");
+const demoSelectedMentions = ref<ChatMentionTarget[]>([]);
+
+const mentionEntries = computed<ChatMentionEntry[]>(() => {
+  if (!showMentionCandidates.value) return [];
+  const longName = mentionNamePreset.value === "long";
+  return [
+    {
+      agentId: "demo-persona-1",
+      agentName: longName ? "超长人格名用来压测面板宽度表现" : "纳西妲",
+      mentionable: true,
+      isFrontSpeaking: false,
+      hasBackgroundTask: false,
+    },
+    {
+      agentId: "demo-persona-2",
+      agentName: longName ? "第二个人格名也一样很长用来压测" : "书记官",
+      mentionable: true,
+      isFrontSpeaking: false,
+      hasBackgroundTask: mentionTaskBadge.value,
+    },
+    {
+      agentId: "demo-persona-3",
+      agentName: longName ? "第三个人格名同样很长继续压测用" : "reviewer",
+      mentionable: true,
+      isFrontSpeaking: false,
+      hasBackgroundTask: false,
+    },
+  ];
+});
+
+function handleDemoAddMention(entry: ChatMentionTarget) {
+  if (demoSelectedMentions.value.some((item) => item.agentId === entry.agentId)) return;
+  demoSelectedMentions.value = [...demoSelectedMentions.value, entry];
+}
+
+function handleDemoRemoveMention(entry: { agentId: string }) {
+  demoSelectedMentions.value = demoSelectedMentions.value.filter((item) => item.agentId !== entry.agentId);
+}
 </script>
