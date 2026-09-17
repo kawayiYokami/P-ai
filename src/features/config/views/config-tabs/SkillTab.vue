@@ -144,7 +144,7 @@
       <!-- 二级菜单：技能详情视图 -->
       <div v-if="selectedSkill" :key="'detail-body-' + selectedSkill.path" class="grid gap-3 pb-8">
         <!-- 技能信息卡片 -->
-        <div class="card bg-base-100 border border-base-300 card-sm shadow-xs">
+        <div class="card bg-base-100 border border-base-300 card-sm">
           <div class="card-header border-b border-base-300/60 px-4 py-2.5 flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.skill.metadata") }}</span>
@@ -268,7 +268,7 @@
         </div>
 
         <!-- 附加文件列表卡片（仅在存在附加文件时显示） -->
-        <div v-if="(selectedSkill.additionalFiles || []).length > 0" class="card bg-base-100 border border-base-300 card-sm shadow-xs">
+        <div v-if="(selectedSkill.additionalFiles || []).length > 0" class="card bg-base-100 border border-base-300 card-sm">
           <div class="card-header border-b border-base-300/60 px-4 py-2.5 flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.skill.additionalFiles") }}</span>
@@ -320,7 +320,7 @@
         </div>
 
         <!-- 正文展示与编辑卡片 -->
-        <div class="card bg-base-100 border border-base-300 card-sm overflow-hidden shadow-xs">
+        <div class="card bg-base-100 border border-base-300 card-sm overflow-hidden">
           <div class="card-header border-b border-base-300/60 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
             <div class="flex items-center gap-2">
               <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.skill.content") }}</span>
@@ -452,7 +452,7 @@
                 :key="item.path"
                 role="button"
                 tabindex="0"
-                class="rounded-box border border-base-200 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
+                class="rounded-box border border-base-200 bg-base-100 p-4 hover:border-primary/50 transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
                 @click="selectSkill(item.path)"
                 @keydown.enter.prevent="selectSkill(item.path)"
                 @keydown.space.prevent="selectSkill(item.path)"
@@ -530,7 +530,7 @@
                   :key="item.path"
                   role="button"
                   tabindex="0"
-                  class="rounded-box border border-base-200 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
+                  class="rounded-box border border-base-200 bg-base-100 p-4 hover:border-primary/50 transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
                   @click="selectSkill(item.path)"
                   @keydown.enter.prevent="selectSkill(item.path)"
                   @keydown.space.prevent="selectSkill(item.path)"

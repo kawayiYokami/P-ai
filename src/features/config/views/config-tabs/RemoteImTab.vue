@@ -281,7 +281,7 @@
                 <div
                   v-for="item in group.items"
                   :key="item.id"
-                  class="rounded-box border border-base-200/80 bg-base-100 p-3.5 hover:border-base-300 hover:bg-base-200/30 transition-all flex items-start gap-3.5 shadow-2xs"
+                  class="rounded-box border border-base-200/80 bg-base-100 p-3.5 hover:border-base-300 hover:bg-base-200/30 transition-all flex items-start gap-3.5"
                 >
                   <div class="avatar placeholder shrink-0">
                     <div class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-base-300 bg-base-200 text-xs font-semibold leading-none text-base-content/70">
@@ -427,7 +427,7 @@
             :key="ch.id"
             role="button"
             tabindex="0"
-            class="rounded-box border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            class="rounded-box border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
             @click="enterChannel(ch.id)"
             @keydown.enter.prevent="enterChannel(ch.id)"
             @keydown.space.prevent="enterChannel(ch.id)"
@@ -435,7 +435,7 @@
             <!-- 头部：平台图标 + 渠道名称 + 平台标识 + 启停开关 -->
             <div class="flex items-start justify-between gap-2.5 min-w-0">
               <div class="flex items-center gap-2.5 min-w-0 flex-1">
-                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-field border font-bold text-xs shadow-2xs" :class="getPlatformIconColor(ch.platform)">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-field border font-bold text-xs" :class="getPlatformIconColor(ch.platform)">
                   {{ platformBadgeText(ch.platform) }}
                 </div>
                 <div class="min-w-0 flex-1">

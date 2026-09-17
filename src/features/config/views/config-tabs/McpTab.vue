@@ -194,7 +194,7 @@
             :key="server.id"
             role="button"
             tabindex="0"
-            class="rounded-box border border-base-200 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-sm group"
+            class="rounded-box border border-base-200 bg-base-100 p-4 hover:border-primary/50 transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
             :class="{ 'opacity-65 bg-base-100/60': !server.enabled }"
             @click="enterServer(server.id)"
             @keydown.enter.prevent="enterServer(server.id)"
