@@ -5,6 +5,9 @@ import { resolve } from "node:path";
 import { readdir, rename, rm } from "node:fs/promises";
 
 const entryDir = resolve(__dirname, "src/entries");
+// 隔离工作树位于 .pai/.worktree/* 下；若 ignored 里再排除 .pai，会把工作树自身
+// 的所有文件一并排除，watcher 收不到变更、HMR 完全失效。
+const isIsolatedWorktree = __dirname.replace(/\\/g, "/").includes("/.pai/.worktree/");
 const htmlEntryAliases = new Set([
   "/",
   "/index.html",
@@ -92,7 +95,8 @@ export default defineConfig({
         "**/src-tauri/memory/**",
         "**/src-tauri/gen/**",
         "**/src-tauri/icons/**",
-        "**/.pai/**",
+        // 在工作树里不排除 .pai（它自身就在 .pai 下）；主仓 dev 仍忽略 .pai 下的工作树与参考项目。
+        ...(isIsolatedWorktree ? [] : ["**/.pai/**"]),
         "**/.debug/**",
         "**/.qoder/**",
         "**/temp/**",
