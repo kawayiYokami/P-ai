@@ -1,13 +1,13 @@
 <template>
-  <SettingsStickyLayout>
+  <SettingsStickyLayout header-class="pb-0">
     <template #header>
-      <!-- 类型切换 + 刷新 -->
+      <!-- 类型切换 tab + 刷新 -->
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <div role="tablist" class="tabs tabs-box bg-base-200/80 p-1">
+        <div role="tablist" class="tabs tabs-border">
           <button
             role="tab"
-            class="tab h-7 min-h-0 gap-1.5 rounded-selector px-3 text-xs font-medium transition-all"
-            :class="kind === 'mcp' ? 'tab-active bg-base-100 text-primary shadow-2xs' : 'text-base-content/60 hover:text-base-content'"
+            class="tab h-10 gap-1.5 px-3 text-base"
+            :class="kind === 'mcp' ? 'tab-active font-medium' : 'text-base-content/60 hover:text-base-content'"
             type="button"
             @click="switchKind('mcp')"
           >
@@ -16,8 +16,8 @@
           </button>
           <button
             role="tab"
-            class="tab h-7 min-h-0 gap-1.5 rounded-selector px-3 text-xs font-medium transition-all"
-            :class="kind === 'skill' ? 'tab-active bg-base-100 text-primary shadow-2xs' : 'text-base-content/60 hover:text-base-content'"
+            class="tab h-10 gap-1.5 px-3 text-base"
+            :class="kind === 'skill' ? 'tab-active font-medium' : 'text-base-content/60 hover:text-base-content'"
             type="button"
             @click="switchKind('skill')"
           >

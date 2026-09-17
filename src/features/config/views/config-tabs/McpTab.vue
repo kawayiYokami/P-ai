@@ -1,38 +1,33 @@
 <template>
   <SettingsStickyLayout>
     <template #header>
-      <Transition name="ecall-config-content" mode="out-in">
-        <!-- 二级详情导航 -->
-        <div v-if="inDetailMode && selectedServer" :key="'detail-' + selectedServer.id" class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex min-w-0 items-center gap-2">
-            <button
-              class="btn btn-ghost btn-circle h-9 w-9 min-h-[2.25rem] shrink-0"
-              type="button"
+      <!-- 面包屑：常驻；一级仅「连接器」，进入详情后在原位追加连接器名 -->
+      <div class="breadcrumbs mb-2.5 min-w-0 p-0 text-xl sm:mb-3">
+        <ul class="flex flex-wrap items-center">
+          <li v-if="inDetailMode">
+            <a
+              class="cursor-pointer py-1 text-base-content/50 transition-colors hover:text-base-content"
               :title="t('config.mcp.backToList')"
               @click="backToList"
             >
-              <ArrowLeft class="h-5 w-5" />
-            </button>
-            <div class="breadcrumbs text-sm p-0">
-              <ul>
-                <li>
-                  <a
-                    class="cursor-pointer font-medium hover:text-primary transition-colors py-1 text-base-content/70 hover:text-base-content"
-                    @click="backToList"
-                  >
-                    {{ t("config.tabs.mcp") }}
-                  </a>
-                </li>
-                <li class="font-semibold text-base-content max-w-[14rem] sm:max-w-xs md:max-w-md truncate py-1">
-                  {{ selectedServer.name || selectedServer.id }}
-                </li>
-              </ul>
-            </div>
-            <span v-if="selectedServer.isDirty" class="badge badge-warning badge-sm shrink-0">
+              {{ t("config.tabs.mcp") }}
+            </a>
+          </li>
+          <li v-else class="py-1 font-semibold text-base-content">{{ t("config.tabs.mcp") }}</li>
+          <li v-if="inDetailMode" class="flex min-w-0 items-center gap-2 py-1">
+            <span class="max-w-[14rem] truncate font-semibold text-base-content sm:max-w-xs md:max-w-md">
+              {{ selectedServer?.name || selectedServer?.id }}
+            </span>
+            <span v-if="selectedServer?.isDirty" class="badge badge-warning badge-xs shrink-0">
               {{ t("config.mcp.unsaved") }}
             </span>
-          </div>
+          </li>
+        </ul>
+      </div>
 
+      <Transition name="ecall-config-content" mode="out-in">
+        <!-- 二级详情导航：操作区 -->
+        <div v-if="inDetailMode && selectedServer" key="detail" class="flex flex-wrap items-center justify-end gap-3">
           <div class="flex flex-wrap items-center gap-2">
             <button
               class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
@@ -85,32 +80,25 @@
           </div>
         </div>
 
-        <!-- 一级概览导航 -->
+        <!-- 一级概览导航：搜索 + 工具操作 -->
         <div v-else key="overview" class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <div class="flex flex-col gap-2.5 sm:flex-none sm:flex-row sm:items-center">
-            <div class="flex shrink-0 items-center gap-2">
-              <span class="text-sm font-semibold">{{ t("config.tabs.mcp") }}</span>
-              <span class="badge badge-sm badge-neutral">{{ servers.length }}</span>
-            </div>
-
-            <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
-              <input
-                v-model="searchQuery"
-                type="text"
-                class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
-                :placeholder="t('config.mcp.searchPlaceholder')"
-              />
-              <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
-              <button
-                v-if="searchQuery"
-                type="button"
-                class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
-                :title="t('config.mcp.clearSearch')"
-                @click="searchQuery = ''"
-              >
-                ✕
-              </button>
-            </div>
+          <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
+            <input
+              v-model="searchQuery"
+              type="text"
+              class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+              :placeholder="t('config.mcp.searchPlaceholder')"
+            />
+            <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+            <button
+              v-if="searchQuery"
+              type="button"
+              class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+              :title="t('config.mcp.clearSearch')"
+              @click="searchQuery = ''"
+            >
+              ✕
+            </button>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
@@ -132,22 +120,6 @@
             >
               <FolderOpen class="h-4 w-4" />
               <span>{{ t('config.mcp.openDir') }}</span>
-            </button>
-            <button
-              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
-              type="button"
-              @click="emit('open-catalog')"
-            >
-              <Store class="h-4 w-4" />
-              <span>{{ t('config.catalog.entry') }}</span>
-            </button>
-            <button
-              class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
-              type="button"
-              @click="addServer"
-            >
-              <Plus class="h-4 w-4" />
-              <span>{{ t('config.mcp.add') }}</span>
             </button>
           </div>
         </div>
@@ -184,13 +156,10 @@
         </div>
       </div>
 
-      <!-- 状态文字反馈 -->
-      <div v-if="statusText" class="text-xs px-1" :class="statusError ? 'text-error' : 'opacity-70'">
-        {{ statusText }}
-      </div>
-
+      <!-- 状态反馈统一走界面底部的状态提示条 -->
+      <Transition name="ecall-config-content" mode="out-in">
       <!-- 二级详情视图 -->
-      <div v-if="inDetailMode && selectedServer">
+      <div v-if="inDetailMode && selectedServer" key="detail">
         <McpServerCard
           :key="selectedServer.id"
           :server="selectedServer"
@@ -207,32 +176,13 @@
       </div>
 
       <!-- 一级卡片矩阵总览视图 -->
-      <div v-else class="space-y-3">
+      <div v-else key="overview" class="space-y-3">
         <div v-if="loading && servers.length === 0" class="text-sm opacity-70 py-8 text-center">
           {{ t('config.mcp.loading') }}
         </div>
 
         <div
-          v-else-if="servers.length === 0"
-          class="card card-border border-base-300 bg-base-100 p-8 text-center space-y-3"
-        >
-          <div class="flex justify-center">
-            <Cpu class="h-10 w-10 opacity-30" />
-          </div>
-          <div class="space-y-1">
-            <div class="font-semibold text-sm">{{ t('config.mcp.noServers') }}</div>
-            <div class="text-xs opacity-60">{{ t('config.mcp.noServersHint') }}</div>
-          </div>
-          <div class="pt-2">
-            <button class="btn btn-sm btn-primary min-h-[2rem]" type="button" @click="addServer">
-              <Plus class="h-4 w-4" />
-              {{ t('config.mcp.add') }}
-            </button>
-          </div>
-        </div>
-
-        <div
-          v-else-if="filteredServers.length === 0"
+          v-else-if="servers.length > 0 && filteredServers.length === 0"
           class="card card-border border-base-300 bg-base-100 p-8 text-center"
         >
           <div class="text-xs opacity-60">{{ t('config.mcp.noMatches') }}</div>
@@ -303,8 +253,19 @@
               </div>
             </div>
           </div>
+
+          <!-- 新增连接器卡：网格末位入口 -->
+          <button
+            type="button"
+            class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
+            @click="addServer"
+          >
+            <Plus class="h-5 w-5" />
+            <span class="text-sm font-medium">{{ t('config.mcp.add') }}</span>
+          </button>
         </div>
       </div>
+      </Transition>
     </div>
   </SettingsStickyLayout>
 </template>
@@ -313,7 +274,6 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  ArrowLeft,
   CheckCircle,
   ChevronRight,
   FolderOpen,
@@ -323,7 +283,6 @@ import {
   Save,
   Search,
   Settings,
-  Store,
   Trash2,
   Wrench,
 } from "@lucide/vue";
@@ -346,10 +305,15 @@ import { toErrorMessage } from "../../../../utils/error";
 import { formatEndpointDisplay } from "../../utils/api-config-display";
 import McpServerCard from "./mcp/McpServerCard.vue";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
+import type { StatusTone } from "../../../shell/composables/use-app-core";
+
+const props = withDefaults(defineProps<{
+  setStatusAction?: (text: string, tone?: StatusTone) => void;
+}>(), {
+  setStatusAction: undefined,
+});
 
 const { t, te } = useI18n();
-
-const emit = defineEmits<{ (e: "open-catalog"): void }>();
 
 type McpServerView = McpServerConfig & {
   toolItems: McpToolDescriptor[];
@@ -361,8 +325,6 @@ type McpServerView = McpServerConfig & {
 const loading = ref(false);
 const inDetailMode = ref(false);
 const searchQuery = ref("");
-const statusText = ref("");
-const statusError = ref(false);
 const servers = ref<McpServerView[]>([]);
 const selectedServerId = ref("");
 const localFileSystemAvailable = getTransportCapabilities().localFileSystem;
@@ -391,8 +353,7 @@ const filteredServers = computed(() => {
 });
 
 function setStatus(text: string, isError = false) {
-  statusText.value = text;
-  statusError.value = isError;
+  props.setStatusAction?.(text, isError ? "error" : "default");
 }
 
 function enterServer(id: string) {

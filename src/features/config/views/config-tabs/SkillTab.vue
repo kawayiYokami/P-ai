@@ -1,42 +1,36 @@
 <template>
   <SettingsStickyLayout>
     <template #header>
-      <Transition name="ecall-config-content" mode="out-in">
-        <!-- 二级菜单头部：面包屑导航 + 详情专属操作 -->
-        <div v-if="selectedSkill" :key="'detail-' + selectedSkill.path" class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex min-w-0 items-center gap-2">
-            <button
-              class="btn btn-ghost btn-circle h-9 w-9 min-h-[2.25rem] shrink-0"
-              type="button"
+      <!-- 面包屑：常驻；一级仅「技能」，进入详情后在原位追加技能名 -->
+      <div class="breadcrumbs mb-2.5 min-w-0 p-0 text-xl sm:mb-3">
+        <ul class="flex flex-wrap items-center">
+          <li v-if="selectedSkill">
+            <a
+              class="cursor-pointer py-1 text-base-content/50 transition-colors hover:text-base-content"
               :title="t('config.skill.backToList')"
               @click="backToList"
             >
-              <ArrowLeft class="h-5 w-5" />
-            </button>
-            <div class="breadcrumbs text-sm p-0">
-              <ul>
-                <li>
-                  <a
-                    class="cursor-pointer font-medium hover:text-primary transition-colors py-1 text-base-content/70 hover:text-base-content"
-                    @click="backToList"
-                  >
-                    {{ t("config.tabs.skill") }}
-                  </a>
-                </li>
-                <li class="font-semibold text-base-content max-w-[14rem] sm:max-w-xs md:max-w-md truncate py-1">
-                  {{ editingName || selectedSkill.name }}
-                </li>
-              </ul>
-            </div>
-            <span v-if="selectedSkill.isBuiltin" class="badge badge-neutral badge-sm shrink-0 flex items-center gap-1 opacity-80">
-              <Lock class="h-3 w-3" />
-              <span>{{ t("config.skill.builtin") }}</span>
+              {{ t("config.tabs.skill") }}
+            </a>
+          </li>
+          <li v-else class="py-1 font-semibold text-base-content">{{ t("config.tabs.skill") }}</li>
+          <li v-if="selectedSkill" class="flex min-w-0 items-center gap-2 py-1">
+            <span class="max-w-[14rem] truncate font-semibold text-base-content sm:max-w-xs md:max-w-md">
+              {{ editingName || selectedSkill.name }}
             </span>
-            <span v-else-if="isDirty" class="badge badge-warning badge-sm shrink-0">
+            <span v-if="selectedSkill.isBuiltin" class="badge badge-neutral badge-xs shrink-0">
+              {{ t("config.skill.builtin") }}
+            </span>
+            <span v-else-if="isDirty" class="badge badge-warning badge-xs shrink-0">
               {{ t("config.skill.unsaved") }}
             </span>
-          </div>
+          </li>
+        </ul>
+      </div>
 
+      <Transition name="ecall-config-content" mode="out-in">
+        <!-- 二级菜单头部：详情专属操作 -->
+        <div v-if="selectedSkill" key="detail" class="flex flex-wrap items-center justify-end gap-3">
           <div class="flex flex-wrap items-center gap-2">
             <!-- 自定义技能支持放弃修改与保存 -->
             <template v-if="!selectedSkill.isBuiltin">
@@ -98,33 +92,26 @@
           </div>
         </div>
 
-        <!-- 一级概览头部：标题 + 数量徽章 + 搜索 + 顶部操作 -->
+        <!-- 一级概览头部：搜索 + 工具操作 -->
         <div v-else key="overview" class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <div class="flex flex-col gap-2.5 sm:flex-none sm:flex-row sm:items-center">
-            <div class="flex shrink-0 items-center gap-2">
-              <span class="text-sm font-semibold">{{ t("config.tabs.skill") }}</span>
-              <span class="badge badge-sm badge-neutral">{{ skills.length }}</span>
-            </div>
-
-            <!-- 搜索过滤框：适宜移动端与触控的高宽与清空热区 -->
-            <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
-              <input
-                v-model="searchQuery"
-                type="text"
-                class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
-                :placeholder="t('config.skill.searchPlaceholder')"
-              />
-              <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
-              <button
-                v-if="searchQuery"
-                type="button"
-                class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
-                :title="t('config.skill.clearSearch')"
-                @click="searchQuery = ''"
-              >
-                ✕
-              </button>
-            </div>
+          <!-- 搜索过滤框：适宜移动端与触控的高宽与清空热区 -->
+          <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
+            <input
+              v-model="searchQuery"
+              type="text"
+              class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+              :placeholder="t('config.skill.searchPlaceholder')"
+            />
+            <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+            <button
+              v-if="searchQuery"
+              type="button"
+              class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+              :title="t('config.skill.clearSearch')"
+              @click="searchQuery = ''"
+            >
+              ✕
+            </button>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
@@ -137,14 +124,6 @@
             >
               <FolderOpen class="h-4 w-4" />
               <span>{{ t("config.skill.openWorkspace") }}</span>
-            </button>
-            <button
-              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
-              type="button"
-              @click="emit('open-catalog')"
-            >
-              <Store class="h-4 w-4" />
-              <span>{{ t("config.catalog.entry") }}</span>
             </button>
             <button
               class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
@@ -512,6 +491,8 @@
                   </div>
                 </div>
               </div>
+
+              <!-- TODO: 新增技能卡位置预留——技能需从 zip 导入、交互尚未设计，暂不提供新增入口 -->
             </div>
           </div>
 
@@ -663,7 +644,6 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  ArrowLeft,
   Check,
   ChevronRight,
   Code,
@@ -680,7 +660,6 @@ import {
   Save,
   Search,
   ShieldCheck,
-  Store,
   Trash2,
 } from "@lucide/vue";
 import {
@@ -700,8 +679,6 @@ import AppMarkdownRenderer from "../../../chat/markdown/AppMarkdownRenderer.vue"
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 
 const { t } = useI18n();
-
-const emit = defineEmits<{ (e: "open-catalog"): void }>();
 
 const loading = ref(false);
 const savingSkill = ref(false);

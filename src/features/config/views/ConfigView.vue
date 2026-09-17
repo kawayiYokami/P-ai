@@ -157,11 +157,11 @@
       </div>
 
       <div v-else-if="props.configTab === 'mcp'" class="flex-1 min-h-0">
-        <McpTab @open-catalog="$emit('update:configTab', 'catalog')" />
+        <McpTab :set-status-action="setStatusAction" />
       </div>
 
       <div v-else-if="props.configTab === 'skill'" class="flex-1 min-h-0">
-        <SkillTab @open-catalog="$emit('update:configTab', 'catalog')" />
+        <SkillTab />
       </div>
 
       <div v-else-if="props.configTab === 'catalog'" class="flex-1 min-h-0">
@@ -415,6 +415,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Compon
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
 import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind } from "../../shell/theme/theme-types";
+import type { StatusTone } from "../../shell/composables/use-app-core";
 import Cropper from "cropperjs";
 import SettingsStickyLayout from "../components/SettingsStickyLayout.vue";
 import WelcomeTab from "./config-tabs/WelcomeTab.vue";
@@ -585,7 +586,7 @@ const props = defineProps<{
   updateRecordBackgroundWakeEnabledAction: (value: boolean) => Promise<boolean> | boolean;
   restoreConfigAction: () => boolean;
   lastSavedConfigJson: string;
-  setStatusAction: (text: string) => void;
+  setStatusAction: (text: string, tone?: StatusTone) => void;
   savePersonaRelations?: (updates: { agentId: string; childAgentIds: string[] }[]) => Promise<boolean>;
 }>();
 

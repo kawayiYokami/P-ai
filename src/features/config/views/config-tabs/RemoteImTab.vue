@@ -1,43 +1,37 @@
 <template>
   <SettingsStickyLayout>
     <template #header>
-      <Transition name="ecall-config-content" mode="out-in">
-        <!-- 二级菜单头部：面包屑导航 + 渠道操作 -->
-        <div v-if="inDetailMode && selectedChannel" :key="'detail-hdr-' + selectedChannel.id" class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex min-w-0 items-center gap-2">
-            <button
-              class="btn btn-ghost btn-circle h-9 w-9 min-h-[2.25rem] shrink-0"
-              type="button"
+      <!-- 面包屑：常驻；一级仅「联系人」，进入详情后在原位追加渠道名 -->
+      <div class="breadcrumbs mb-2.5 min-w-0 p-0 text-xl sm:mb-3">
+        <ul class="flex flex-wrap items-center">
+          <li v-if="inDetailMode && selectedChannel">
+            <a
+              class="cursor-pointer py-1 text-base-content/50 transition-colors hover:text-base-content"
               :title="t('config.remoteIm.backToChannels')"
               @click="backToChannels"
             >
-              <ArrowLeft class="h-5 w-5" />
-            </button>
-            <div class="breadcrumbs text-sm p-0">
-              <ul>
-                <li>
-                  <a
-                    class="cursor-pointer font-medium hover:text-primary transition-colors py-1 text-base-content/70 hover:text-base-content"
-                    @click="backToChannels"
-                  >
-                    {{ t("config.tabs.remoteIm") }}
-                  </a>
-                </li>
-                <li class="font-semibold text-base-content max-w-[14rem] sm:max-w-xs md:max-w-md truncate py-1">
-                  {{ selectedChannel.name || platformLabelText(selectedChannel.platform) }}
-                </li>
-              </ul>
-            </div>
-            <!-- 状态指示徽章 -->
-            <span class="badge badge-sm shrink-0 flex items-center gap-1.5" :class="selectedChannel.enabled ? 'badge-neutral' : 'badge-ghost opacity-60'">
+              {{ t("config.tabs.remoteIm") }}
+            </a>
+          </li>
+          <li v-else class="py-1 font-semibold text-base-content">{{ t("config.tabs.remoteIm") }}</li>
+          <li v-if="inDetailMode && selectedChannel" class="flex min-w-0 items-center gap-2 py-1">
+            <span class="max-w-[14rem] truncate font-semibold text-base-content sm:max-w-xs md:max-w-md">
+              {{ selectedChannel.name || platformLabelText(selectedChannel.platform) }}
+            </span>
+            <span class="badge badge-xs shrink-0 flex items-center gap-1.5" :class="selectedChannel.enabled ? 'badge-neutral' : 'badge-ghost opacity-60'">
               <span class="size-2 rounded-full shrink-0" :class="getChannelStatusInfo(selectedChannel).dot"></span>
               <span>{{ getChannelStatusInfo(selectedChannel).text }}</span>
             </span>
-            <span v-if="channelDirty" class="badge badge-warning badge-sm shrink-0">
+            <span v-if="channelDirty" class="badge badge-warning badge-xs shrink-0">
               {{ t("config.skill.unsaved") }}
             </span>
-          </div>
+          </li>
+        </ul>
+      </div>
 
+      <Transition name="ecall-config-content" mode="out-in">
+        <!-- 二级菜单头部：渠道操作 -->
+        <div v-if="inDetailMode && selectedChannel" key="detail-hdr" class="flex flex-wrap items-center justify-end gap-3">
           <div class="flex flex-wrap items-center gap-2">
             <ChannelBehaviorSettingsModal
               :channel="selectedChannel"
@@ -78,43 +72,24 @@
           </div>
         </div>
 
-        <!-- 一级概览头部：标题 + 数量徽章 + 搜索 + 顶部操作 -->
-        <div v-else key="overview-hdr" class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <div class="flex flex-col gap-2.5 sm:flex-none sm:flex-row sm:items-center">
-            <div class="flex shrink-0 items-center gap-2">
-              <span class="text-sm font-semibold">{{ t("config.tabs.remoteIm") }}</span>
-              <span class="badge badge-sm badge-neutral">{{ channels.length }}</span>
-            </div>
-
-            <!-- 渠道搜索框 -->
-            <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
-              <input
-                v-model="channelSearchQuery"
-                type="text"
-                class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
-                :placeholder="t('config.remoteIm.searchPlaceholder')"
-              />
-              <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
-              <button
-                v-if="channelSearchQuery"
-                type="button"
-                class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
-                :title="t('common.clear')"
-                @click="channelSearchQuery = ''"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2">
+        <!-- 一级概览头部：渠道搜索 -->
+        <div v-else key="overview-hdr" class="flex flex-wrap items-center gap-3">
+          <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
+            <input
+              v-model="channelSearchQuery"
+              type="text"
+              class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+              :placeholder="t('config.remoteIm.searchPlaceholder')"
+            />
+            <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
             <button
-              class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
+              v-if="channelSearchQuery"
               type="button"
-              @click="openAddChannelModal"
+              class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+              :title="t('common.clear')"
+              @click="channelSearchQuery = ''"
             >
-              <Plus class="h-4 w-4" />
-              <span>{{ t("config.remoteIm.addChannel") }}</span>
+              ✕
             </button>
           </div>
         </div>
@@ -446,22 +421,7 @@
 
       <!-- 一级概览：渠道 2 列卡片矩阵 -->
       <div v-else key="overview-grid" class="grid gap-4 pb-8">
-        <div v-if="filteredChannels.length === 0" class="rounded-box border border-dashed border-base-300 p-8 text-center">
-          <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-base-200 text-base-content/50">
-            <MessageSquare class="h-6 w-6" />
-          </div>
-          <div class="mt-3 text-sm font-medium">
-            {{ channelSearchQuery ? t("config.remoteIm.empty") : t("config.remoteIm.empty") }}
-          </div>
-          <div class="mt-4 flex justify-center gap-2">
-            <button class="btn btn-sm min-h-[2.25rem] btn-primary" type="button" @click="openAddChannelModal">
-              <Plus class="h-4 w-4 mr-1" />
-              {{ t("config.remoteIm.addChannel") }}
-            </button>
-          </div>
-        </div>
-
-        <div v-else class="config-grid-auto-sm">
+        <div class="config-grid-auto-sm">
           <div
             v-for="ch in filteredChannels"
             :key="ch.id"
@@ -511,6 +471,16 @@
               </div>
             </div>
           </div>
+
+          <!-- 新增渠道卡：网格末位入口 -->
+          <button
+            type="button"
+            class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
+            @click="openAddChannelModal"
+          >
+            <Plus class="h-5 w-5" />
+            <span class="text-sm font-medium">{{ t("config.remoteIm.addChannel") }}</span>
+          </button>
         </div>
       </div>
     </Transition>
@@ -1064,12 +1034,10 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   AlertTriangle,
-  ArrowLeft,
   ChevronRight,
   ChevronUp,
   ClipboardPaste,
   Copy,
-  MessageSquare,
   Plus,
   RefreshCw,
   RotateCcw,

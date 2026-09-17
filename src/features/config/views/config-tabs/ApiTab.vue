@@ -1,41 +1,33 @@
 <template>
-  <SettingsStickyLayout>
+  <SettingsStickyLayout :header-class="inDetailMode ? '' : 'pb-0'">
     <template #header>
-      <Transition name="ecall-config-content" mode="out-in">
-        <!-- 二级详情模式头部：面包屑导航 + 操作按钮 -->
-        <div v-if="inDetailMode && (activeTopTab === 'imageGeneration' || selectedProvider)" :key="'detail-' + (activeTopTab === 'imageGeneration' ? imageToolbarSelectedProviderId : selectedProvider?.id)" class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex min-w-0 items-center gap-2">
-            <button
-              class="btn btn-ghost btn-circle h-9 w-9 min-h-[2.25rem] shrink-0"
-              type="button"
+      <!-- 面包屑：常驻；一级仅「供应商」，进入详情后在原位追加供应商标名 -->
+      <div class="breadcrumbs mb-2.5 min-w-0 p-0 text-xl sm:mb-3">
+        <ul class="flex flex-wrap items-center">
+          <li v-if="inDetailMode">
+            <a
+              class="cursor-pointer py-1 text-base-content/50 transition-colors hover:text-base-content"
               :title="t('config.api.backToList')"
               @click="backToList"
             >
-              <ArrowLeft class="h-5 w-5" />
-            </button>
-            <div class="breadcrumbs text-sm p-0">
-              <ul>
-                <li>
-                  <a
-                    class="cursor-pointer font-medium hover:text-primary transition-colors py-1 text-base-content/70 hover:text-base-content"
-                    @click="backToList"
-                  >
-                    {{ t("config.tabs.api") }}
-                  </a>
-                </li>
-                <li class="opacity-70 py-1">
-                  {{ capabilityTabLabel(activeTopTab) }}
-                </li>
-                <li class="font-semibold text-base-content max-w-[14rem] sm:max-w-xs md:max-w-md truncate py-1">
-                  {{ currentDetailTitle }}
-                </li>
-              </ul>
-            </div>
-            <span v-if="isCurrentDetailDirty" class="badge badge-warning badge-sm shrink-0">
+              {{ t("config.tabs.api") }}
+            </a>
+          </li>
+          <li v-else class="py-1 font-semibold text-base-content">{{ t("config.tabs.api") }}</li>
+          <li v-if="inDetailMode" class="flex min-w-0 items-center gap-2 py-1">
+            <span class="max-w-[14rem] truncate font-semibold text-base-content sm:max-w-xs md:max-w-md">
+              {{ currentDetailTitle }}
+            </span>
+            <span v-if="isCurrentDetailDirty" class="badge badge-warning badge-xs shrink-0">
               {{ t("config.api.unsaved") }}
             </span>
-          </div>
+          </li>
+        </ul>
+      </div>
 
+      <Transition name="ecall-config-content" mode="out-in">
+        <!-- 二级详情模式头部：操作按钮 -->
+        <div v-if="inDetailMode && (activeTopTab === 'imageGeneration' || selectedProvider)" :key="'detail-' + (activeTopTab === 'imageGeneration' ? imageToolbarSelectedProviderId : selectedProvider?.id)" class="flex flex-wrap items-center justify-end gap-3">
           <div class="flex flex-wrap items-center gap-2">
             <template v-if="activeTopTab !== 'imageGeneration'">
               <button
@@ -107,51 +99,27 @@
           </div>
         </div>
 
-        <!-- 一级概览模式头部：分类切换 + 搜索过滤 + 新增操作 -->
-        <div v-else key="overview" class="flex flex-col gap-3">
-          <SegmentedControl
-            :model-value="activeTopTab"
-            :options="capabilitySegmentOptions"
-            size="md"
-            @change="(val) => switchCapabilityTab(val as ApiTopTab)"
-          />
-
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="relative min-w-[14rem] flex-1">
-              <input
-                v-model="searchQuery"
-                type="text"
-                class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
-                :placeholder="t('config.api.searchPlaceholder')"
-              />
-              <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
-              <button
-                v-if="searchQuery"
-                type="button"
-                class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
-                :title="t('config.api.clearSearch')"
-                @click="searchQuery = ''"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <button
-                class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
-                type="button"
-                @click="onAddProviderClick"
-              >
-                <Plus class="h-4 w-4" />
-                <span>{{ t("config.api.addProvider") }}</span>
-              </button>
-            </div>
+        <!-- 一级概览模式头部：分类 tab，下划线贴合头部分界线 -->
+        <div v-else key="overview">
+          <div role="tablist" class="tabs tabs-border">
+            <button
+              v-for="option in capabilityTabs"
+              :key="option.id"
+              type="button"
+              role="tab"
+              class="tab h-10 gap-1.5 px-3 text-base"
+              :class="activeTopTab === option.id ? 'tab-active font-medium' : 'text-base-content/60 hover:text-base-content'"
+              @click="switchCapabilityTab(option.id)"
+            >
+              <span class="truncate">{{ option.label }}</span>
+            </button>
           </div>
         </div>
       </Transition>
     </template>
 
-    <div v-if="inDetailMode">
+    <Transition name="ecall-config-content" mode="out-in">
+    <div v-if="inDetailMode" key="detail">
       <div v-if="activeTopTab !== 'imageGeneration' && selectedProvider" class="grid gap-3">
       <ConfigTemplate v-model="providerTemplateValues" :groups="providerTemplateGroups">
         <template #field-baseUrl="{ field, value, update }">
@@ -314,21 +282,10 @@
       </div>
     </div>
 
-    <!-- 一级概览卡片矩阵 -->
-    <div v-else class="space-y-3">
+    <div v-else key="overview" class="space-y-3">
       <!-- 图像生成分类 -->
       <template v-if="activeTopTab === 'imageGeneration'">
-        <div v-if="filteredImageProviders.length === 0" class="card card-border border-base-300 bg-base-100 p-8 text-center space-y-3">
-          <div class="font-semibold text-sm">{{ t('config.api.noProviders') }}</div>
-          <div class="text-xs opacity-60">{{ t('config.api.noProvidersHint') }}</div>
-          <div class="pt-2">
-            <button class="btn btn-sm btn-primary min-h-[2rem]" type="button" @click="onAddProviderClick">
-              <Plus class="h-4 w-4" />
-              {{ t('config.api.addProvider') }}
-            </button>
-          </div>
-        </div>
-        <div v-else class="config-grid-auto-md">
+        <div class="config-grid-auto-md">
           <div
             v-for="provider in filteredImageProviders"
             :key="provider.id"
@@ -362,22 +319,22 @@
               <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
             </div>
           </div>
+
+          <!-- 新增供应商卡：网格末位入口 -->
+          <button
+            type="button"
+            class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
+            @click="onAddProviderClick"
+          >
+            <Plus class="h-5 w-5" />
+            <span class="text-sm font-medium">{{ t('config.api.addProvider') }}</span>
+          </button>
         </div>
       </template>
 
       <!-- LLM (text, voice, embedding, rerank) 分类 -->
       <template v-else>
-        <div v-if="filteredScopedProviders.length === 0" class="card card-border border-base-300 bg-base-100 p-8 text-center space-y-3">
-          <div class="font-semibold text-sm">{{ t('config.api.noProviders') }}</div>
-          <div class="text-xs opacity-60">{{ t('config.api.noProvidersHint') }}</div>
-          <div class="pt-2">
-            <button class="btn btn-sm btn-primary min-h-[2rem]" type="button" @click="onAddProviderClick">
-              <Plus class="h-4 w-4" />
-              {{ t('config.api.addProvider') }}
-            </button>
-          </div>
-        </div>
-        <div v-else class="config-grid-auto-md">
+        <div class="config-grid-auto-md">
           <div
             v-for="provider in filteredScopedProviders"
             :key="provider.id"
@@ -408,9 +365,20 @@
               <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
             </div>
           </div>
+
+          <!-- 新增供应商卡：网格末位入口 -->
+          <button
+            type="button"
+            class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
+            @click="onAddProviderClick"
+          >
+            <Plus class="h-5 w-5" />
+            <span class="text-sm font-medium">{{ t('config.api.addProvider') }}</span>
+          </button>
         </div>
       </template>
     </div>
+    </Transition>
     <dialog ref="providerDeleteDialogRef" class="modal" @close="closeDeleteProviderDialog" @cancel.prevent="closeDeleteProviderDialog">
       <div class="modal-box max-w-sm">
         <h3 class="text-lg font-semibold">{{ t("config.api.deleteProviderTitle") }}</h3>
@@ -435,14 +403,12 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  ArrowLeft,
   ChevronRight,
   ExternalLink,
   Plus,
   RefreshCw,
   RotateCcw,
   Save,
-  Search,
   Settings,
   Trash2,
   WandSparkles,
@@ -453,7 +419,6 @@ import ApiModelCard from "../../components/ApiModelCard.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
-import SegmentedControl from "../../components/SegmentedControl.vue";
 import { canUseTransportGenaiChatAdapters, invokeTauri, listTransportGenaiChatAdapters, openTransportExternalUrl } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import ImageGenerationTab from "./ImageGenerationTab.vue";
@@ -637,13 +602,6 @@ const capabilityTabs = computed<Array<{ id: ApiTopTab; label: string }>>(() => [
   { id: "rerank", label: t("config.api.capabilityRerank") },
   { id: "imageGeneration", label: t("config.tabs.imageGeneration") },
 ]);
-const capabilitySegmentOptions = computed(() =>
-  capabilityTabs.value.map((tab) => ({
-    value: tab.id,
-    label: tab.label,
-    badge: getCapabilityCount(tab.id),
-  }))
-);
 // 本地补充项：genai 无对应 adapter，但项目自身支持（auto=自动探测、codex=本地协议）。
 const LOCAL_TEXT_PROTOCOL_OPTIONS: ProtocolOption[] = [
   { value: "auto", label: "Auto" },
@@ -966,7 +924,6 @@ function commitDraftGroups() {
 
 const activeTopTab = ref<ApiTopTab>("text");
 const inDetailMode = ref(false);
-const searchQuery = ref("");
 
 const selectedCapability = computed<ApiCapability>(() => {
   if (activeTopTab.value !== "imageGeneration") {
@@ -1007,11 +964,6 @@ function isProviderDirty(provider: ApiProviderConfigItem): boolean {
   return provider.id === selectedProvider.value?.id ? currentProviderDirty.value : false;
 }
 
-function capabilityTabLabel(cap: ApiTopTab): string {
-  const tab = capabilityTabs.value.find((t) => t.id === cap);
-  return tab?.label || "";
-}
-
 const currentDetailTitle = computed(() => {
   if (activeTopTab.value === "imageGeneration") {
     return imageGenerationTabRef.value?.toolbarState.providers.find((p) => p.id === imageToolbarSelectedProviderId.value)?.label || "";
@@ -1023,11 +975,6 @@ const isCurrentDetailDirty = computed(() => {
   if (activeTopTab.value === "imageGeneration") return imageToolbarDirty.value;
   return currentProviderDirty.value;
 });
-
-function getCapabilityCount(cap: ApiTopTab): number {
-  if (cap === "imageGeneration") return props.config.imageProviders?.length || 0;
-  return activeProviderList.value.filter((p) => capabilityFromRequestFormat(p.requestFormat) === cap).length;
-}
 
 const emptyImageToolbarState: ImageGenerationToolbarState = {
   providers: [],
@@ -1057,27 +1004,9 @@ const scopedProviderList = computed(() =>
   activeProviderList.value.filter((provider) => capabilityFromRequestFormat(provider.requestFormat) === selectedCapability.value),
 );
 
-const filteredScopedProviders = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase();
-  if (!q) return scopedProviderList.value;
-  return scopedProviderList.value.filter((p) =>
-    (p.name || "").toLowerCase().includes(q)
-    || (p.id || "").toLowerCase().includes(q)
-    || (p.requestFormat || "").toLowerCase().includes(q)
-    || (p.models || []).some((m) => (m.displayName || m.model || "").toLowerCase().includes(q)),
-  );
-});
+const filteredScopedProviders = computed(() => scopedProviderList.value);
 
-const filteredImageProviders = computed(() => {
-  const list = props.config.imageProviders || [];
-  const q = searchQuery.value.trim().toLowerCase();
-  if (!q) return list;
-  return list.filter((p) =>
-    (p.name || "").toLowerCase().includes(q)
-    || (p.id || "").toLowerCase().includes(q)
-    || (p.providerType || "").toLowerCase().includes(q),
-  );
-});
+const filteredImageProviders = computed(() => props.config.imageProviders || []);
 
 const providerToolbarOptions = computed<ProviderToolbarOption[]>(() => scopedProviderList.value.map((provider) => ({
   id: provider.id,
@@ -1863,7 +1792,6 @@ async function confirmDeleteProvider() {
 async function switchCapabilityTab(capability: ApiTopTab) {
   revertUnsavedConfigIfNeeded();
   activeTopTab.value = capability;
-  searchQuery.value = "";
   if (capability === "imageGeneration") {
     return;
   }
