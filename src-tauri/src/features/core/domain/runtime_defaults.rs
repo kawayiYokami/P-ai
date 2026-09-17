@@ -38,16 +38,11 @@ fn default_agent() -> AgentProfile {
 /// 内置人格之间的上下级只在这里定义；旧 `departments` 的迁移不再推导内置↔内置边，
 /// 以免原内置部门「多根 + leader 反过来指向助理」造成环。迁移只负责自定义部门相关的人-人边。
 /// 内置组织以 `assistants`（人格 id `default-agent`）为根，其直接下级是唯一一条内置层级：
-/// 原内置无上级的（leader/support/hr）与 reviewer/saddler、explorer（`deputy-agent`）都挂到根下。
+/// 原内置无上级的（leader/support/hr）与 reviewer、explorer（`deputy-agent`）都挂到根下。
 fn built_in_organization_child_edges() -> Vec<(&'static str, Vec<&'static str>)> {
     vec![(
         DEFAULT_AGENT_ID,
-        vec![
-            DEPUTY_AGENT_ID,
-            REVIEWER_AGENT_ID,
-            SADDLER_AGENT_ID,
-            SUPPORT_AGENT_ID,
-        ],
+        vec![DEPUTY_AGENT_ID, REVIEWER_AGENT_ID, SUPPORT_AGENT_ID],
     )]
 }
 
@@ -64,11 +59,7 @@ fn built_in_assistant_child_agent_ids() -> Vec<String> {
 fn is_built_in_organization_agent_id(agent_id: &str) -> bool {
     matches!(
         agent_id.trim(),
-        DEFAULT_AGENT_ID
-            | DEPUTY_AGENT_ID
-            | REVIEWER_AGENT_ID
-            | SADDLER_AGENT_ID
-            | SUPPORT_AGENT_ID
+        DEFAULT_AGENT_ID | DEPUTY_AGENT_ID | REVIEWER_AGENT_ID | SUPPORT_AGENT_ID
     )
 }
 
@@ -124,18 +115,6 @@ fn default_reviewer_agent() -> AgentProfile {
     agent
 }
 
-fn default_saddler_agent() -> AgentProfile {
-    let mut agent = built_in_organization_agent(
-        SADDLER_AGENT_ID,
-        "saddler",
-        "当项目需要沉淀协作规范、AGENTS.md、Skill、workflow 或其他 .pai 能力资产时，请委托给我。",
-        "你是谁：你是 saddler，专门在当前项目 `.pai/` 目录下生成和维护能力资产。详细职责见你的常驻 skill。\n台词技巧：说清写在哪、为什么这么定；不越界改业务代码。\n性格画像：细致、有规范意识、克制。",
-        "saddler",
-    );
-    agent.permission_control = saddler_permission_control();
-    agent
-}
-
 fn default_support_agent() -> AgentProfile {
     let mut agent = built_in_organization_agent(
         SUPPORT_AGENT_ID,
@@ -149,11 +128,7 @@ fn default_support_agent() -> AgentProfile {
 }
 
 fn built_in_organization_agents() -> Vec<AgentProfile> {
-    vec![
-        default_reviewer_agent(),
-        default_saddler_agent(),
-        default_support_agent(),
-    ]
+    vec![default_reviewer_agent(), default_support_agent()]
 }
 
 #[allow(dead_code)]

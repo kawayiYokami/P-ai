@@ -1199,13 +1199,13 @@ enableTools = true
         assert!(engineer.permission_control.enabled, "全栈工程师权限应并入人格");
 
         // 主助理根是 default-agent，其下级应含内置人格与八重堂成员。
-        // 内置 3 个人格（reviewer/saddler/support）由代码预设补齐，
+        // 内置 2 个人格（reviewer/support）由代码预设补齐，
         // 它们与根的层级来自代码预设而非迁移推导，迁移只补自定义部门相关的人-人边。
         let assistants = by_id(DEFAULT_AGENT_ID);
         let assistants_children = &assistants.child_agent_ids;
         assert!(assistants_children.iter().any(|id| id == DEPUTY_AGENT_ID));
         assert!(assistants_children.iter().any(|id| id == "yae-miko"));
-        for node_id in ["reviewer", "saddler", "support"] {
+        for node_id in ["reviewer", "support"] {
             assert!(
                 assistants_children.iter().any(|id| id == node_id),
                 "内置人格 {node_id} 应由代码预设挂到根"

@@ -256,17 +256,6 @@ fn reviewer_permission_control() -> AgentPermissionControl {
     )
 }
 
-fn saddler_permission_control() -> AgentPermissionControl {
-    whitelist_permission_control(
-        &["read", "write", "update", "exec"],
-        &[
-            "agents-md-setup",
-            "assistant-space-guide",
-            "memory-generation",
-        ],
-    )
-}
-
 fn support_permission_control() -> AgentPermissionControl {
     whitelist_permission_control(
         &[

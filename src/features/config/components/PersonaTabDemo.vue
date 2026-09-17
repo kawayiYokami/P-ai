@@ -45,7 +45,7 @@ const personas = ref<PersonaProfile[]>([
     id: "default-agent",
     name: "Pai",
     systemPrompt: "你是 PAI 的主助理，负责理解用户的意图并分派任务。",
-    childAgentIds: ["reviewer", "saddler"],
+    childAgentIds: ["reviewer", "support"],
     residentSkillNames: ["pai-guide", "assistant-space-guide", "code-review"],
     permissionControl: {
       enabled: true,
@@ -56,7 +56,6 @@ const personas = ref<PersonaProfile[]>([
     },
   }),
   makePersona({ id: "reviewer", name: "审阅者", childAgentIds: [] }),
-  makePersona({ id: "saddler", name: "马鞍匠", childAgentIds: [] }),
   makePersona({ id: "explorer", name: "探索者", childAgentIds: [] }),
   makePersona({ id: "support", name: "客服", childAgentIds: [] }),
 ]);

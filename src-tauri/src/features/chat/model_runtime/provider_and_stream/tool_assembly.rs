@@ -1597,7 +1597,19 @@ mod tool_assembly_permission_tests {
             &["memory-generation"],
         ));
 
-        let saddler = default_saddler_agent();
+        // saddler 已不再内置；这里按原来的权限白名单手工构造，保留「按白名单裁剪工具」这条路径的覆盖。
+        let saddler = AgentProfile {
+            id: SADDLER_AGENT_ID.to_string(),
+            permission_control: whitelist_permission_control(
+                &["read", "write", "update", "exec"],
+                &[
+                    "agents-md-setup",
+                    "assistant-space-guide",
+                    "memory-generation",
+                ],
+            ),
+            ..default_agent()
+        };
         let resolved = resolve_legal_runtime_tools(
             &config,
             &test_api(),
