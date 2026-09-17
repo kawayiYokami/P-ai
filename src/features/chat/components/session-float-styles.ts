@@ -6,15 +6,16 @@ const FROST_BORDER = "border border-base-300";
 
 export const FROST_GLASS = `${FROST_BORDER} bg-base-100/70 backdrop-blur-md backdrop-saturate-150`;
 
-// bg-base-100 / hover:bg-base-100 / shadow-none 是必要的显式覆盖：这些元素带 daisyUI 的 btn 类，
-// 不钉住的话 btn 自带的底色与阴影会顶回来
+// bg-base-100 / shadow-none 是必要的显式覆盖：这些元素带 daisyUI 的 btn 类，
+// 不钉住的话 btn 自带的底色与阴影会顶回来；悬停底色由各元素自己钉（见下方圆钮）
 export const FROST_SURFACE =
-  `${FROST_BORDER} bg-base-100 shadow-none text-base-content/85 hover:border-base-300 hover:bg-base-100 hover:text-base-content active:scale-[0.98] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1`;
+  `${FROST_BORDER} bg-base-100 shadow-none text-base-content/85 hover:border-base-300 hover:text-base-content active:scale-[0.98] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1`;
 
 const FROST_BASE = `btn btn-sm ${FROST_SURFACE}`;
 
-// 圆形元素：对话菜单、时间线
-export const SESSION_FLOAT_FROST_CIRCLE = `${FROST_BASE} btn-circle shrink-0`;
+// 圆形元素：回到底部、时间线；常态保持不透明 base-100 底，悬停底色取 daisyUI ghost 的同一档
+// （base-content 10%），与工作条里那批 ghost 按钮的悬停观感一致
+export const SESSION_FLOAT_FROST_CIRCLE = `${FROST_BASE} btn-circle shrink-0 hover:bg-base-content/10`;
 
 // 胶囊元素：工作区、运行监控；不写 shrink-0，窄容器里可收缩截断
 const GHOST_BASE = "btn btn-sm btn-ghost";

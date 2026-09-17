@@ -257,46 +257,55 @@
         <div class="flex w-full items-end justify-between gap-2 px-4">
           <div class="pointer-events-none min-w-0 flex-1">
             <ChatThinkingPreviewBar
-              :blocks="previewBlocksForBar"
-              :idle-text="previewTextForBar"
+              :blocks="thinkingPreviewBlocks"
+              :idle-text="idlePreviewText"
               :avatar-url="previewAvatarUrl"
-              :collapse-preview="thinkingPreviewCollapsed"
-              :visible="!atConversationBottom && !chatStatusBanner && !timelinePanelOpen && !timelineFloatPanelVisible && displayedSessionRow === 'top'"
+              :visible="previewBarVisible"
               :streaming="chatting"
               @jump-to-bottom="handleJumpToBottomWithFollow"
             />
           </div>
-          <!-- 时间线按钮：悬停即在原位向上展开蛇形时间线；蛇形起点后面挂一个预览点，点它打开垂直面板 -->
-          <div class="relative flex h-10 shrink-0 items-center">
-            <TimelineSnakeBoard
-              :visible="timelineFloatPanelVisible"
-              :anchors="timelineAnchors"
-              :active-index="activeTimelineIndex"
-              :hovered-index="hoveredTimelineIndex"
-              :anchor-el="timelineFloatButtonRef"
-              :preview-enabled="true"
-              :preview-label="t('chat.timelinePreviewButtonLabel')"
-              @hover="hoveredTimelineIndex = $event"
-              @enter-zone="handleTimelineFloatEnter"
-              @leave-zone="handleTimelineFloatLeave"
-              @jump="handleTimelineJump"
-              @preview="openTimelinePanel"
-            />
+          <!-- 右侧竖列：上=回到底部，下=时间线按钮 -->
+          <div class="flex shrink-0 flex-col items-end gap-2">
             <button
-              v-if="timelineButtonVisible"
-              ref="timelineFloatButtonRef"
+              v-if="jumpToBottomButtonVisible"
               type="button"
-              class="flex items-center rounded-full p-2"
-              :class="[FROST_SURFACE, timelineFloatPanelVisible ? 'invisible' : 'pointer-events-auto']"
-              :aria-label="t('chat.timelineButtonAria')"
-              :aria-expanded="timelineFloatPanelVisible ? 'true' : 'false'"
-              @mouseenter="handleTimelineFloatEnter"
-              @mouseleave="handleTimelineButtonLeave"
-              @click="handleTimelineButtonClick"
+              :class="[SESSION_FLOAT_FROST_CIRCLE, 'pointer-events-auto']"
+              :aria-label="t('chat.jumpToBottom')"
+              @click="handleJumpToBottomWithFollow"
             >
-              <Route class="h-4 w-4 shrink-0" />
-              <span class="ml-1.5 whitespace-nowrap text-xs leading-none">{{ t("chat.timelineButtonLabel") }}</span>
+              <ArrowDownToLine class="h-4 w-4 shrink-0" :stroke-width="2.5" />
             </button>
+            <!-- 时间线按钮：悬停即在原位向上展开蛇形时间线；蛇形起点后面挂一个预览点，点它打开垂直面板 -->
+            <div class="relative flex h-10 shrink-0 items-center">
+              <TimelineSnakeBoard
+                :visible="timelineFloatPanelVisible"
+                :anchors="timelineAnchors"
+                :active-index="activeTimelineIndex"
+                :hovered-index="hoveredTimelineIndex"
+                :anchor-el="timelineFloatButtonRef"
+                :preview-enabled="true"
+                :preview-label="t('chat.timelinePreviewButtonLabel')"
+                @hover="hoveredTimelineIndex = $event"
+                @enter-zone="handleTimelineFloatEnter"
+                @leave-zone="handleTimelineFloatLeave"
+                @jump="handleTimelineJump"
+                @preview="openTimelinePanel"
+              />
+              <button
+                v-if="timelineButtonVisible"
+                ref="timelineFloatButtonRef"
+                type="button"
+                :class="[SESSION_FLOAT_FROST_CIRCLE, timelineFloatPanelVisible ? 'invisible' : 'pointer-events-auto']"
+                :aria-label="t('chat.timelineButtonAria')"
+                :aria-expanded="timelineFloatPanelVisible ? 'true' : 'false'"
+                @mouseenter="handleTimelineFloatEnter"
+                @mouseleave="handleTimelineButtonLeave"
+                @click="handleTimelineButtonClick"
+              >
+                <Route class="h-4 w-4 shrink-0" />
+              </button>
+            </div>
           </div>
         </div>
         </div>
@@ -805,7 +814,7 @@ import {
   useChatComposerAppearance,
   visibleChatComposerContextGroups,
 } from "../../shell/composables/use-chat-composer-appearance";
-import { ArrowLeft, Check, CircleAlert, Copy, History, Inbox, ListTodo, Network, Route, Trash2, Undo2, Wrench, X } from "@lucide/vue";
+import { ArrowDownToLine, ArrowLeft, Check, CircleAlert, Copy, History, Inbox, ListTodo, Network, Route, Trash2, Undo2, Wrench, X } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportHostContext,
@@ -826,7 +835,7 @@ import ChatQuestionPanel from "../components/ChatQuestionPanel.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import ChatThinkingPreviewBar from "../components/ChatThinkingPreviewBar.vue";
 import TimelineSnakeBoard from "../components/TimelineSnakeBoard.vue";
-import { FROST_GLASS, FROST_SURFACE } from "../components/session-float-styles";
+import { FROST_GLASS, SESSION_FLOAT_FROST_CIRCLE } from "../components/session-float-styles";
 import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyDashboard.vue";
 import AgentPersonaSelect from "../../shared/components/AgentPersonaSelect.vue";
 import FileLinkContextMenu from "../../shared/components/FileLinkContextMenu.vue";
@@ -3234,9 +3243,24 @@ const idlePreviewText = computed(() => {
   return "";
 });
 
-// 预览条实际收到的内容：没有未读内容时清空，让预览条自己回落到「回到底部」
-const previewBlocksForBar = computed(() => (previewHasUnread.value ? thinkingPreviewBlocks.value : []));
-const previewTextForBar = computed(() => (previewHasUnread.value ? idlePreviewText.value : ""));
+// 预览条：离底且有未读内容才显示；思维链已展开时用户正在看思维链，不再预览
+const previewBarVisible = computed(() =>
+  !atConversationBottom.value
+  && previewHasUnread.value
+  && !thinkingPreviewCollapsed.value
+  && !chatStatusBanner.value
+  && !timelinePanelOpen.value
+  && !timelineFloatPanelVisible.value
+  && displayedSessionRow.value === "top",
+);
+
+// 回到底部圆钮：与预览条同一排，离底就出现
+const jumpToBottomButtonVisible = computed(() =>
+  !atConversationBottom.value
+  && !timelinePanelOpen.value
+  && !timelineFloatPanelVisible.value
+  && displayedSessionRow.value === "top",
+);
 
 // 预览条正文行前的头像：与聊天气泡同源，取最新一条助理消息的人格头像
 const previewAvatarUrl = computed(() => {

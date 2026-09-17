@@ -4,7 +4,7 @@
     ref="buttonRef"
     v-bind="attrs"
     type="button"
-    class="btn btn-ghost btn-sm btn-circle shrink-0 border-0 bg-transparent shadow-none hover:bg-base-200"
+    class="btn btn-sm btn-ghost btn-circle shrink-0"
     :title="t('chat.toolbar.personaList')"
     @click="togglePopup"
   >
