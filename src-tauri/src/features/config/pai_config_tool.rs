@@ -558,7 +558,8 @@ fn print_help() -> Result<(), String> {
 
 Description:
   This is the PAI configuration tool for LLM agents.
-  Use it when the user asks to modify PAI settings, including agents/personas, agent tree, or MCP.
+  Use it when the user asks to modify PAI settings, including agents/personas, agent tree, MCP,
+  or to find and install capabilities from the built-in store.
 
 Usage:
   config "<command>"
@@ -605,8 +606,13 @@ Agent model and skills:
 Skill:
   skill ls
 
+Store (built-in capability store; searches and installs skills by default, --kind mcp for MCP servers):
+  store ls [--kind skill|mcp]
+  store search <query> [--source <source>] [--kind skill|mcp] [--page <n>]
+  store install <source> <entry-id>
+
 Location:
-  approot  # data directory: config, state, conversations, workspace
+  approot  # data directory: config (incl. workspace), state, conversations, avatars
 
 MCP:
   mcp ls
@@ -3131,6 +3137,8 @@ level = "system"
         assert!(output.contains("mcp delete <name-or-id> --confirmed"));
         assert!(!output.contains("skill update <name-or-id> <dir>"));
         assert!(!output.contains("skill delete <name-or-id> --confirmed"));
+        assert!(output.contains("store search <query>"));
+        assert!(output.contains("store install <source> <entry-id>"));
         assert!(!output.contains("provider ls"));
         assert!(!output.contains("Provider:"));
     }

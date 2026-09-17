@@ -3,4 +3,5 @@ include!("catalog/cache.rs");
 include!("catalog/sources.rs");
 include!("catalog/install.rs");
 include!("catalog/commands.rs");
+include!("catalog/cli.rs");
 include!("catalog/tests.rs");

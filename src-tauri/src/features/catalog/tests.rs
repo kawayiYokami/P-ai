@@ -1,5 +1,5 @@
 // 能力商店与内置清单的单元测试。
-// 覆盖：源转换三传输、缓存 TTL 判定、安装辅助函数、Skill 来源可装性、Skill 启用状态缺省与显式关闭。
+// 覆盖：源转换三传输、缓存 TTL 判定、安装辅助函数、Skill 来源可装性、Skill 启用状态缺省与显式关闭、store 命令参数与来源分组。
 
 #[cfg(test)]
 mod catalog_tests {
@@ -20,6 +20,56 @@ mod catalog_tests {
             llm_workspace_path: root.join("llm-workspace"),
             ..state
         }
+    }
+
+    #[test]
+    fn store_args_should_split_flags_from_positional() {
+        let to_args = |raw: &[&str]| raw.iter().map(|value| value.to_string()).collect::<Vec<_>>();
+
+        let parsed = parse_store_args(&to_args(&[
+            "search", "playwright", "--source", "clawhub", "--page", "2",
+        ]));
+        assert_eq!(
+            parsed.positional,
+            vec!["search".to_string(), "playwright".to_string()]
+        );
+        assert_eq!(parsed.flag("source"), Some("clawhub"));
+        assert_eq!(parsed.flag("page"), Some("2"));
+        assert_eq!(parsed.flag("kind"), None);
+
+        let parsed = parse_store_args(&to_args(&["ls", "--kind"]));
+        assert_eq!(parsed.positional, vec!["ls".to_string()]);
+        assert_eq!(parsed.flag("kind"), None);
+    }
+
+    #[test]
+    fn store_command_should_treat_install_as_write() {
+        let to_args = |raw: &[&str]| raw.iter().map(|value| value.to_string()).collect::<Vec<_>>();
+        assert!(store_command_is_readonly(&to_args(&[])));
+        assert!(store_command_is_readonly(&to_args(&["ls"])));
+        assert!(store_command_is_readonly(&to_args(&["search", "pdf"])));
+        assert!(!store_command_is_readonly(&to_args(&["install", "clawhub", "a/b"])));
+    }
+
+    #[test]
+    fn store_sources_should_split_by_kind_and_default_to_skill() {
+        let all = store_sources_for_kind(None).expect("list all sources");
+        assert!(all.iter().any(|item| item.kind == CATALOG_KIND_SKILL));
+        assert!(all.iter().any(|item| item.kind == CATALOG_KIND_MCP));
+
+        let skills = store_sources_for_kind(Some(CATALOG_KIND_SKILL)).expect("list skill sources");
+        assert!(!skills.is_empty());
+        assert!(skills.iter().all(|item| item.kind == CATALOG_KIND_SKILL));
+        assert!(store_sources_for_kind(Some("bogus")).is_err());
+
+        assert_eq!(
+            store_default_source(None).expect("default source"),
+            CATALOG_SOURCE_MODELSCOPE_SKILL.to_string()
+        );
+        assert_eq!(
+            store_default_source(Some(CATALOG_KIND_MCP)).expect("mcp default source"),
+            CATALOG_SOURCE_MODELSCOPE_MCP.to_string()
+        );
     }
 
     #[test]

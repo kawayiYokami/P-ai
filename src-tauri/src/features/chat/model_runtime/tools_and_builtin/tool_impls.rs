@@ -313,6 +313,7 @@ fn config_tool_command_is_readonly(command: &str) -> bool {
     let parts = config_tool_split_command(command);
     match parts.first().map(String::as_str) {
         Some("help") | Some("--help") | Some("-h") | Some("approot") => true,
+        Some("store") => store_command_is_readonly(&parts[1..]),
         Some(_) => matches!(
             parts.get(1).map(String::as_str),
             Some("ls") | Some("get") | Some("example") | Some("tree")
@@ -559,14 +560,22 @@ impl RuntimeValueTool for BuiltinConfigTool {
             ));
             let runtime_effect =
                 config_tool_runtime_effect_for_command(&self.app_state, &args.command);
-            let output = pai_config_tool::run_command_with_paths(
-                self.app_state.config_path.clone(),
-                self.app_state.data_path.clone(),
-                configured_workspace_root_path(&self.app_state)
-                    .unwrap_or_else(|_| self.app_state.llm_workspace_path.clone()),
-                &args.command,
-            )
-            .map_err(ToolInvokeError::from)?;
+            let command_parts = config_tool_split_command(&args.command);
+            // 商店命令要联网、要读运行态缓存，交给能力商店的异步实现；其余命令仍走同步的配置工具。
+            let output = if command_parts.first().map(String::as_str) == Some("store") {
+                run_store_command(&self.app_state, &command_parts[1..])
+                    .await
+                    .map_err(ToolInvokeError::from)?
+            } else {
+                pai_config_tool::run_command_with_paths(
+                    self.app_state.config_path.clone(),
+                    self.app_state.data_path.clone(),
+                    configured_workspace_root_path(&self.app_state)
+                        .unwrap_or_else(|_| self.app_state.llm_workspace_path.clone()),
+                    &args.command,
+                )
+                .map_err(ToolInvokeError::from)?
+            };
             if !config_tool_command_is_readonly(&args.command) {
                 invalidate_config_tool_runtime_caches(&self.app_state).map_err(ToolInvokeError::from)?;
             }
@@ -1629,6 +1638,10 @@ mod tool_impls_tests {
         assert!(!config_tool_command_is_readonly("agent update demo-agent x.json"));
         assert!(!config_tool_command_is_readonly("agent update demo-agent next.json"));
         assert!(!config_tool_command_is_readonly("mcp enable some-server"));
+        assert!(config_tool_command_is_readonly("store"));
+        assert!(config_tool_command_is_readonly("store ls"));
+        assert!(config_tool_command_is_readonly("store search playwright"));
+        assert!(!config_tool_command_is_readonly("store install clawhub some/skill"));
         assert!(!config_tool_command_is_readonly(""));
         assert!(!config_tool_command_is_readonly("   "));
     }
