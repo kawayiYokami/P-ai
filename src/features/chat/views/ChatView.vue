@@ -1719,7 +1719,7 @@ const {
   scrollContainer, composerContainer, toolbarContainer, chatLayoutRoot,
   latestOwnElasticMinHeight, atConversationBottom, userScrollingUp,
   followBottom, startFollowBottom, stopFollowBottom,
-  sessionControlPanelVisible, sessionFloatDockStyle, toolbarReservedHeight, onScroll,
+  sessionControlPanelVisible, sessionFloatDockStyle, toolbarReservedHeight, scrollIdle, onScroll,
   noteWheelScrollIntent, beginPointerScrollIntent, prepareBottomAlignmentLayout,
 } = useChatScrollLayout({
   activeConversationId: toRef(props, "activeConversationId"),
@@ -3243,10 +3243,11 @@ const idlePreviewText = computed(() => {
   return "";
 });
 
-// 预览条：离底且有未读内容才显示；思维链已展开时用户正在看思维链，不再预览
+// 预览条：离底、有未读内容、且滚动已静止十秒才显示；思维链已展开时用户正在看思维链，不再预览
 const previewBarVisible = computed(() =>
   !atConversationBottom.value
   && previewHasUnread.value
+  && scrollIdle.value
   && !thinkingPreviewCollapsed.value
   && !chatStatusBanner.value
   && !timelinePanelOpen.value
