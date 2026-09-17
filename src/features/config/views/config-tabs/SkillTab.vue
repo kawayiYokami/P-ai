@@ -115,7 +115,7 @@
       <div v-if="selectedSkill" :key="'detail-body-' + selectedSkill.path" class="grid gap-3 pb-8">
         <!-- 技能信息卡片 -->
         <div class="card bg-base-100 border border-base-300 card-sm">
-          <div class="card-header border-b border-base-300/60 px-4 py-2.5 flex items-center justify-between">
+          <div class="card-header border-b border-base-300 px-4 py-2.5 flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.skill.metadata") }}</span>
               <span v-if="selectedSkill.isBuiltin" class="badge badge-sm badge-neutral opacity-70 flex items-center gap-1">
@@ -239,7 +239,7 @@
 
         <!-- 附加文件列表卡片（仅在存在附加文件时显示） -->
         <div v-if="(selectedSkill.additionalFiles || []).length > 0" class="card bg-base-100 border border-base-300 card-sm">
-          <div class="card-header border-b border-base-300/60 px-4 py-2.5 flex items-center justify-between">
+          <div class="card-header border-b border-base-300 px-4 py-2.5 flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.skill.additionalFiles") }}</span>
               <span class="badge badge-sm badge-neutral">
@@ -252,7 +252,7 @@
               <div
                 v-for="file in selectedSkill.additionalFiles"
                 :key="file.relativePath"
-                class="flex items-center justify-between gap-2.5 rounded border border-base-200 bg-base-200/30 p-2.5 hover:bg-base-200/60 transition-colors"
+                class="flex items-center justify-between gap-2.5 rounded border border-base-300 bg-base-200/30 p-2.5 hover:bg-base-200/60 transition-colors"
               >
                 <div class="flex items-center gap-2 min-w-0 flex-1">
                   <component :is="getFileIcon(file.name)" class="h-4 w-4 shrink-0 text-primary opacity-80" />
@@ -291,7 +291,7 @@
 
         <!-- 正文展示与编辑卡片 -->
         <div class="card bg-base-100 border border-base-300 card-sm overflow-hidden">
-          <div class="card-header border-b border-base-300/60 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+          <div class="card-header border-b border-base-300 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
             <div class="flex items-center gap-2">
               <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.skill.content") }}</span>
               <span class="text-caption opacity-60 font-mono">
@@ -422,7 +422,7 @@
                 :key="item.path"
                 role="button"
                 tabindex="0"
-                class="rounded-box border border-base-200 bg-base-100 p-4 hover:border-primary/50 transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
+                class="rounded-box border border-base-300 bg-base-100 p-4 hover:border-primary/50 transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
                 @click="selectSkill(item.path)"
                 @keydown.enter.prevent="selectSkill(item.path)"
                 @keydown.space.prevent="selectSkill(item.path)"
@@ -438,7 +438,7 @@
                 </p>
 
                 <!-- 底栏：内容规模 + 启用开关 + 进入指示 -->
-                <div class="flex items-center justify-between border-t border-base-200 pt-2.5 text-caption opacity-60 font-mono">
+                <div class="flex items-center justify-between border-t border-base-300 pt-2.5 text-caption opacity-60 font-mono">
                   <span
                     class="hover:text-primary transition-colors cursor-help"
                     :title="t('config.skill.contentWordsTooltip', { count: (item.content || '').length.toLocaleString() })"
@@ -500,7 +500,7 @@
                   :key="item.path"
                   role="button"
                   tabindex="0"
-                  class="rounded-box border border-base-200 bg-base-100 p-4 hover:border-primary/50 transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
+                  class="rounded-box border border-base-300 bg-base-100 p-4 hover:border-primary/50 transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
                   @click="selectSkill(item.path)"
                   @keydown.enter.prevent="selectSkill(item.path)"
                   @keydown.space.prevent="selectSkill(item.path)"
@@ -519,7 +519,7 @@
                   </p>
 
                   <!-- 底栏：内容规模 + 启用开关 + 进入指示 -->
-                  <div class="flex items-center justify-between border-t border-base-200 pt-2.5 text-caption opacity-60 font-mono">
+                  <div class="flex items-center justify-between border-t border-base-300 pt-2.5 text-caption opacity-60 font-mono">
                     <span
                       class="hover:text-primary transition-colors cursor-help"
                       :title="t('config.skill.contentWordsTooltip', { count: (item.content || '').length.toLocaleString() })"

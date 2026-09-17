@@ -48,7 +48,7 @@
   </aside>
   <dialog ref="detailDialogRef" class="modal" @close="closeDetailDialog" @cancel.prevent="closeDetailDialog">
     <div class="modal-box flex max-h-[80vh] max-w-2xl flex-col overflow-hidden p-0">
-      <div class="flex shrink-0 items-center justify-between gap-3 border-b border-base-200 px-5 py-3">
+      <div class="flex shrink-0 items-center justify-between gap-3 border-b border-base-300 px-5 py-3">
         <div class="min-w-0 truncate text-sm font-semibold text-base-content">{{ detailDialogTitle }}</div>
         <button type="button" class="btn btn-ghost btn-sm gap-1 shrink-0" @click="closeDetailDialog"><span class="text-base leading-none">×</span><span>关闭</span></button>
       </div>

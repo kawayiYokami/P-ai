@@ -23,7 +23,7 @@
       :style="toolcallPopupStyle"
       data-toolcall-popup="true"
     >
-      <div class="border-b border-base-300/70 px-2 py-1.5 text-xs font-semibold text-base-content/80">
+      <div class="border-b border-base-300 px-2 py-1.5 text-xs font-semibold text-base-content/80">
         {{ activeToolcallPopupTitle }}
       </div>
       <div
@@ -40,7 +40,7 @@
               v-for="(preview, index) in activeToolcallPreviews"
               :key="preview.id"
               class="px-2 py-1"
-              :class="index > 0 ? 'border-t border-base-300/60' : ''"
+              :class="index > 0 ? 'border-t border-base-300' : ''"
             >
               <div class="grid grid-cols-[1.1rem_minmax(0,1fr)] items-start gap-x-1.5 text-xs leading-relaxed text-base-content/75">
                 <span class="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-base-200 text-caption font-medium leading-none text-base-content/65">

@@ -142,7 +142,7 @@
                   </div>
                   <div v-else-if="item.kind === 'plan_started'" class="mt-4 flex items-center gap-3 text-xs text-base-content/45">
                     <div class="h-px flex-1 bg-base-300/80"></div>
-                    <span class="shrink-0 rounded-full border border-base-300/80 bg-base-100 px-3 py-1 text-base-content/55">{{ t("chat.planStartedDivider") }}</span>
+                    <span class="shrink-0 rounded-full border border-base-300 bg-base-100 px-3 py-1 text-base-content/55">{{ t("chat.planStartedDivider") }}</span>
                     <div class="h-px flex-1 bg-base-300/80"></div>
                   </div>
                   <div v-else-if="item.kind === 'message'"

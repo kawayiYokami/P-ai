@@ -4,7 +4,7 @@
       {{ errorText }}
     </div>
 
-    <div v-if="!loading && !editable && mode === 'edit' && task" class="mx-5 mt-5 rounded-box border border-base-300/70 bg-base-200/60 px-3 py-2 text-sm opacity-80">
+    <div v-if="!loading && !editable && mode === 'edit' && task" class="mx-5 mt-5 rounded-box border border-base-300 bg-base-200/60 px-3 py-2 text-sm opacity-80">
       {{ t("config.task.completedReadonlyHint") }}
     </div>
 
@@ -183,7 +183,7 @@
       </div>
     </div>
 
-    <div class="border-t border-base-300/70 bg-base-100 px-5 py-4 shrink-0">
+    <div class="border-t border-base-300 bg-base-100 px-5 py-4 shrink-0">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
           <button v-if="mode === 'edit'" class="btn btn-ghost" :disabled="saving || loading" @click="$emit('delete')">

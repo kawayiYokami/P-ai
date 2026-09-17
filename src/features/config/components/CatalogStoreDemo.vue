@@ -38,7 +38,7 @@
         <!-- 连接器卡：工程面板感，热度归到底部与作者同行，左侧 info 色条 -->
         <div
           v-if="item.group === 'connector'"
-          class="rounded-2xl border border-base-200 border-l-4 border-l-info bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
+          class="rounded-2xl border border-base-300 border-l-4 border-l-info bg-base-100 p-4 flex flex-col justify-between gap-3"
         >
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1 truncate text-sm font-semibold text-base-content" :title="item.name">
@@ -57,12 +57,12 @@
           </p>
 
           <!-- 工具清单：部分来源不提供，缺失时整块不渲染 -->
-          <div v-if="item.tools && item.tools.length" class="rounded-md border border-base-200 bg-base-200/50 px-2.5 py-2">
+          <div v-if="item.tools && item.tools.length" class="rounded-md border border-base-300 bg-base-200/50 px-2.5 py-2">
             <div class="flex flex-wrap gap-1">
               <span
                 v-for="tool in item.tools.slice(0, TOOL_PREVIEW_LIMIT)"
                 :key="tool"
-                class="max-w-[9rem] truncate rounded border border-base-300/60 bg-base-100 px-1.5 py-0.5 font-mono text-caption"
+                class="max-w-[9rem] truncate rounded border border-base-300 bg-base-100 px-1.5 py-0.5 font-mono text-caption"
               >
                 {{ tool }}
               </span>
@@ -72,7 +72,7 @@
             </div>
           </div>
 
-          <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5">
+          <div class="flex items-center justify-between border-t border-base-300 pt-2.5">
             <div class="flex min-w-0 items-center gap-1.5 text-caption opacity-60">
               <span class="max-w-[9rem] truncate" :title="item.author">{{ item.author }}</span>
               <span class="opacity-50">·</span>
@@ -103,7 +103,7 @@
         <!-- 技能卡：内容卡感，热度提到顶部与名称同行，左侧 accent 色条 -->
         <div
           v-else
-          class="rounded-2xl border border-base-200 border-l-4 border-l-accent bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
+          class="rounded-2xl border border-base-300 border-l-4 border-l-accent bg-base-100 p-4 flex flex-col justify-between gap-3"
         >
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-base-content" :title="item.name">
@@ -120,7 +120,7 @@
             {{ item.description }}
           </p>
 
-          <div class="flex items-center justify-end gap-1.5 border-t border-base-200/80 pt-2.5">
+          <div class="flex items-center justify-end gap-1.5 border-t border-base-300 pt-2.5">
             <template v-if="item.installed">
               <span class="text-caption opacity-60">{{ item.enabled ? "已启用" : "已关闭" }}</span>
               <input

@@ -359,8 +359,8 @@
           </p>
         </div>
 
-        <div class="overflow-hidden rounded-[1.75rem] border border-base-300/80 bg-base-200/70 p-4 shadow-inner">
-          <div class="flex flex-col gap-4 rounded-[1.35rem] border border-base-100/70 bg-base-100/30 px-3 py-4">
+        <div class="overflow-hidden rounded-[1.75rem] border border-base-300 bg-base-200/70 p-4 shadow-inner">
+          <div class="flex flex-col gap-4 rounded-[1.35rem] border border-base-300 bg-base-100/30 px-3 py-4">
             <ChatBubbleShell
               v-for="message in bubbleDemoDisplayMessages"
               :key="message.id"

@@ -79,7 +79,7 @@
               >
                 <div
                   v-if="!isCollapsed(event.id)"
-                  class="mt-2 min-w-0 w-full space-y-1.5 border-t border-base-200 pt-2"
+                  class="mt-2 min-w-0 w-full space-y-1.5 border-t border-base-300 pt-2"
                 >
                   <div v-if="eventSummaryLine(event)" class="whitespace-normal break-words text-xs leading-5 text-base-content/55">
                     {{ eventSummaryLine(event) }}

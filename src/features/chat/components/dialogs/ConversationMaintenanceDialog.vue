@@ -201,7 +201,7 @@ const compressionEstimatePercent = computed(() => {
               <template v-if="contextWindowTokens > 0 && entry.tokens">{{ percentOfWindow(entry.tokens) }}%</template>
             </span>
           </div>
-          <div class="grid grid-cols-[minmax(0,1fr)_5rem_3.5rem] items-center gap-3 border-t border-base-300/60 pt-1.5 text-xs text-base-content/60">
+          <div class="grid grid-cols-[minmax(0,1fr)_5rem_3.5rem] items-center gap-3 border-t border-base-300 pt-1.5 text-xs text-base-content/60">
             <span>{{ t("dialogs.trim.breakdownUsed") }}</span>
             <span class="text-right tabular-nums">{{ formatTokens(breakdownUsedTotal) }}</span>
             <span />

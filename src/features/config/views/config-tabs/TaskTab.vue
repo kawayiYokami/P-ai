@@ -56,7 +56,7 @@
 
           <div v-else class="py-6 text-center text-sm opacity-50">{{ t("config.task.empty") }}</div>
 
-          <div v-if="totalPages > 1" class="flex justify-center border-t border-base-300/70 px-3 py-2">
+          <div v-if="totalPages > 1" class="flex justify-center border-t border-base-300 px-3 py-2">
             <div class="join">
               <button class="btn btn-sm join-item" :disabled="page <= 1" @click="page -= 1">‹</button>
               <button class="btn btn-sm join-item btn-active">{{ page }} / {{ totalPages }}</button>

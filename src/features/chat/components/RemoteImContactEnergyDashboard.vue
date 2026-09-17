@@ -2,7 +2,7 @@
   <div v-if="snapshot" class="relative pointer-events-auto">
     <button
       type="button"
-      class="btn btn-sm h-9 min-h-9 gap-2 rounded-full border border-base-300/90 bg-base-100/95 px-3 shadow-lg backdrop-blur-md hover:bg-base-100"
+      class="btn btn-sm h-9 min-h-9 gap-2 rounded-full border border-base-300 bg-base-100/95 px-3 shadow-lg backdrop-blur-md hover:bg-base-100"
       :title="dashboardTitle"
       @click="expanded = !expanded"
     >

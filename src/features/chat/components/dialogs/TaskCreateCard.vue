@@ -1,7 +1,7 @@
 <template>
   <dialog ref="dialogRef" class="modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
     <div class="modal-box w-11/12 max-w-2xl p-0">
-      <div class="flex items-center justify-between gap-3 border-b border-base-300/70 px-5 py-4">
+      <div class="flex items-center justify-between gap-3 border-b border-base-300 px-5 py-4">
         <h3 class="text-base font-semibold">{{ dialogTitle }}</h3>
         <button
           type="button"
@@ -114,7 +114,7 @@
               </label>
             </div>
 
-            <div v-else class="space-y-3 rounded-box border border-base-300/70 bg-base-200/30 p-3">
+            <div v-else class="space-y-3 rounded-box border border-base-300 bg-base-200/30 p-3">
               <CronLight
                 v-model="cronExpression"
                 v-model:period="cronPeriod"
@@ -157,7 +157,7 @@
           </div>
         </div>
 
-        <div class="border-t border-base-300/70 bg-base-100 px-5 py-4">
+        <div class="border-t border-base-300 bg-base-100 px-5 py-4">
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <button
               v-if="isEditMode"

@@ -274,7 +274,7 @@
             </div>
 
             <!-- 底栏：模型数 + Key 数 + 进入指示 -->
-            <div class="flex items-center justify-between border-t border-base-200 pt-2.5 text-caption opacity-70">
+            <div class="flex items-center justify-between border-t border-base-300 pt-2.5 text-caption opacity-70">
               <div class="flex items-center gap-1.5">
                 <span class="badge badge-sm badge-neutral">{{ t('config.api.modelCount', { count: provider.models?.length || 0 }) }}</span>
                 <span v-if="provider.providerType !== 'codex'" class="badge badge-sm badge-ghost">{{ t('config.api.keyCount', { count: provider.apiKeys?.length || 0 }) }}</span>

@@ -337,7 +337,7 @@
           <!-- 底栏：特性指示 (若有) -->
           <div
             v-if="persona.privateMemoryEnabled || (persona.memoryRecallMode && persona.memoryRecallMode !== 'auto')"
-            class="flex items-center gap-1.5 border-t border-base-200/60 pt-2 text-caption opacity-80"
+            class="flex items-center gap-1.5 border-t border-base-300 pt-2 text-caption opacity-80"
           >
             <span v-if="persona.privateMemoryEnabled" class="badge badge-xs badge-accent badge-outline text-caption">
               {{ t("config.persona.privateMemory") }}

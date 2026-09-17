@@ -75,7 +75,7 @@
           <!-- MCP 卡：工程面板感，热度归到底部与作者同行 -->
           <div
             v-if="entry.kind === 'mcp'"
-            class="rounded-box border border-base-200 bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
+            class="rounded-box border border-base-300 bg-base-100 p-4 flex flex-col justify-between gap-3"
           >
           <div class="flex items-start justify-between gap-2">
             <div class="card-title-bar min-w-0 flex-1 text-sm font-semibold text-base-content truncate" :title="entry.name">
@@ -103,12 +103,12 @@
           </p>
 
           <!-- 工具清单：部分来源不提供，缺失时整块不渲染 -->
-          <div v-if="entry.tools.length" class="rounded-box border border-base-200 bg-base-200/50 px-2.5 py-2">
+          <div v-if="entry.tools.length" class="rounded-box border border-base-300 bg-base-200/50 px-2.5 py-2">
             <div class="flex flex-wrap gap-1">
               <span
                 v-for="tool in entry.tools.slice(0, TOOL_PREVIEW_LIMIT)"
                 :key="tool"
-                class="rounded border border-base-300/60 bg-base-100 px-1.5 py-0.5 font-mono text-caption truncate max-w-[9rem]"
+                class="rounded border border-base-300 bg-base-100 px-1.5 py-0.5 font-mono text-caption truncate max-w-[9rem]"
               >
                 {{ tool }}
               </span>
@@ -118,7 +118,7 @@
             </div>
           </div>
 
-          <div class="flex items-center justify-between border-t border-base-200 pt-2.5">
+          <div class="flex items-center justify-between border-t border-base-300 pt-2.5">
             <div class="flex min-w-0 items-center gap-1.5 text-caption opacity-60">
               <span v-if="entry.author" class="truncate max-w-[9rem]" :title="entry.author">{{ entry.author }}</span>
               <span v-if="entry.author && entry.popularity" class="opacity-50">·</span>
@@ -165,7 +165,7 @@
           <!-- 技能卡：内容卡感，热度提到顶部与名称同行 -->
           <div
             v-else
-            class="rounded-box border border-base-200 bg-base-100 p-4 shadow-sm flex flex-col justify-between gap-3"
+            class="rounded-box border border-base-300 bg-base-100 p-4 flex flex-col justify-between gap-3"
           >
           <div class="flex items-start justify-between gap-2">
             <div class="card-title-bar card-title-bar--accent min-w-0 flex-1 font-mono text-sm font-semibold text-base-content truncate" :title="entry.name">
@@ -186,7 +186,7 @@
             {{ entry.description || t("config.catalog.noDescription") }}
           </p>
 
-          <div class="flex items-center justify-end gap-1.5 border-t border-base-200 pt-2.5">
+          <div class="flex items-center justify-end gap-1.5 border-t border-base-300 pt-2.5">
             <button
               v-if="detailNeeded(entry)"
               class="btn btn-sm h-8 min-h-[2rem] bg-base-100 px-3 text-caption"

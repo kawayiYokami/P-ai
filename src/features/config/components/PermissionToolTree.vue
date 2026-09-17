@@ -51,7 +51,7 @@
       </div>
 
       <!-- 分区展开内容 -->
-      <div v-if="isExpanded(expandKeySection(section.key))" class="border-t border-base-200/60">
+      <div v-if="isExpanded(expandKeySection(section.key))" class="border-t border-base-300">
         <!-- 带分组的内容（如内置工具分类、MCP 分组） -->
         <div v-if="section.groups.length > 0" class="divide-y divide-base-200/50">
           <div v-for="group in section.groups" :key="group.key" class="overflow-hidden">

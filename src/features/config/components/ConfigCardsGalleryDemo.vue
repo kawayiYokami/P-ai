@@ -59,7 +59,7 @@
             :key="provider.id"
             role="button"
             tabindex="0"
-            class="rounded-xl border border-base-200/80 bg-base-100 p-3.5 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            class="rounded-xl border border-base-300 bg-base-100 p-3.5 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 select-none active:scale-[0.99] group"
           >
             <!-- 左侧：供应商名称 + 状态徽章 + 端点地址 -->
             <div class="min-w-0 flex-1">
@@ -101,7 +101,7 @@
             :key="item.name"
             role="button"
             tabindex="0"
-            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            class="rounded-xl border border-base-300 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
           >
             <!-- 头部：技能名称 + 内置标记 -->
             <div class="flex items-center justify-between gap-2 min-w-0">
@@ -117,7 +117,7 @@
             </p>
 
             <!-- 底栏：正文内容规模 + 进入箭头 -->
-            <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption opacity-70">
+            <div class="flex items-center justify-between border-t border-base-300 pt-2.5 text-caption opacity-70">
               <span class="font-mono text-xs">{{ item.contentWords }} 字正文</span>
               <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
             </div>
@@ -142,7 +142,7 @@
             :key="server.id"
             role="button"
             tabindex="0"
-            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            class="rounded-xl border border-base-300 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
             :class="{ 'opacity-65 bg-base-100/60': !server.enabled }"
           >
             <!-- 头部：名称/命令 + 启用开关 -->
@@ -173,7 +173,7 @@
             </div>
 
             <!-- 底栏：启用时显示状态与工具数；未启用时左侧留空，右上角 Toggle 已经自明 -->
-            <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption">
+            <div class="flex items-center justify-between border-t border-base-300 pt-2.5 text-caption">
               <div class="flex items-center gap-1.5 min-h-[1.5rem]">
                 <template v-if="server.enabled">
                   <span class="badge badge-sm" :class="server.statusClass">
@@ -212,7 +212,7 @@
             :key="persona.id"
             role="button"
             tabindex="0"
-            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            class="rounded-xl border border-base-300 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
           >
             <!-- 头部：头像 + 姓名 + 身份 -->
             <div class="flex items-start justify-between gap-2.5 min-w-0">
@@ -262,7 +262,7 @@
             </p>
 
             <!-- 底栏：特性标签 + 进入指示（无多余“详情”文字） -->
-            <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption opacity-70">
+            <div class="flex items-center justify-between border-t border-base-300 pt-2.5 text-caption opacity-70">
               <div class="flex items-center gap-1.5">
                 <span v-if="persona.privateMemory" class="badge badge-sm badge-accent badge-outline text-caption">
                   私有记忆
@@ -294,7 +294,7 @@
             :key="ch.id"
             role="button"
             tabindex="0"
-            class="rounded-xl border border-base-200/80 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] shadow-2xs group"
+            class="rounded-xl border border-base-300 bg-base-100 p-4 hover:border-primary/50 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
           >
             <!-- 头部：平台图标 + 渠道名称 + 平台标识 + 启停开关 -->
             <div class="flex items-start justify-between gap-2.5 min-w-0">
@@ -322,7 +322,7 @@
             </div>
 
             <!-- 底栏：在线状态 + 联系人计数 + 进入箭头 -->
-            <div class="flex items-center justify-between border-t border-base-200/80 pt-2.5 text-caption">
+            <div class="flex items-center justify-between border-t border-base-300 pt-2.5 text-caption">
               <div class="flex items-center gap-1.5">
                 <span class="size-2 rounded-full shrink-0" :class="ch.statusDot"></span>
                 <span class="opacity-70">{{ ch.statusText }}</span>

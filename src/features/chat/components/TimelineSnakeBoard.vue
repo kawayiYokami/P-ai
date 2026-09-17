@@ -541,7 +541,7 @@ const tooltipStyle = computed(() => {
       <div
         v-if="visible && layout"
         ref="hostRef"
-        class="ecall-snake-board-card pointer-events-auto fixed z-[100] rounded-2xl border border-base-300/60 bg-base-100/80 shadow-lg backdrop-blur-md backdrop-saturate-150 select-none touch-none"
+        class="ecall-snake-board-card pointer-events-auto fixed z-[100] rounded-2xl border border-base-300 bg-base-100/80 shadow-lg backdrop-blur-md backdrop-saturate-150 select-none touch-none"
         :style="boardFixedStyle"
         @pointerdown="handleBoardPointerDown"
         @pointermove="handleBoardPointerMove"
@@ -637,8 +637,8 @@ const tooltipStyle = computed(() => {
         class="pointer-events-none fixed z-[101]"
         :style="tooltipStyle"
       >
-        <div v-if="tooltipBelow" class="mx-auto h-2 w-2 -translate-y-[1px] rotate-45 border-t border-l border-base-300/60 bg-base-100" />
-        <div class="overflow-hidden rounded-xl border border-base-300/60 bg-base-100/95 shadow-xl backdrop-blur-md" :style="{ padding: `${PREVIEW_PAD}px` }">
+        <div v-if="tooltipBelow" class="mx-auto h-2 w-2 -translate-y-[1px] rotate-45 border-t border-l border-base-300 bg-base-100" />
+        <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100/95 shadow-xl backdrop-blur-md" :style="{ padding: `${PREVIEW_PAD}px` }">
           <div class="flex min-w-0 flex-col overflow-hidden" :style="{ maxHeight: `calc(5 * 1.25rem + ${PREVIEW_GAP}px)` }">
             <span class="block shrink-0 truncate font-semibold leading-5 text-base-content" style="height: 1.25rem; line-height: 1.25rem">
               <TimelinePreviewMarkdown :text="previewAnchor.userText" :clamp="80" />
@@ -652,7 +652,7 @@ const tooltipStyle = computed(() => {
             </span>
           </div>
         </div>
-        <div v-if="!tooltipBelow" class="mx-auto h-2 w-2 -translate-y-[1px] rotate-45 border-b border-r border-base-300/60 bg-base-100" />
+        <div v-if="!tooltipBelow" class="mx-auto h-2 w-2 -translate-y-[1px] rotate-45 border-b border-r border-base-300 bg-base-100" />
       </div>
     </Transition>
   </Teleport>

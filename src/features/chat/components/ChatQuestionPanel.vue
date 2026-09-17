@@ -235,7 +235,7 @@ function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
             <li
               v-for="(item, idx) in items"
               :key="item.id"
-              class="flex cursor-pointer items-start justify-between gap-3 rounded-box border border-base-300/60 bg-base-100/80 px-3 py-2.5 hover:border-base-300"
+              class="flex cursor-pointer items-start justify-between gap-3 rounded-box border border-base-300 bg-base-100/80 px-3 py-2.5 hover:border-base-300"
               @click="goTo(idx)"
             >
               <div class="min-w-0">

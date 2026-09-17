@@ -99,7 +99,7 @@
             <div
               v-for="option in recentOptions"
               :key="option.id"
-              class="flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-2xl border border-base-300/70 bg-base-100/60 px-1 py-2.5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-base-100 hover:shadow-lg"
+              class="flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-2xl border border-base-300 bg-base-100/60 px-1 py-2.5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-base-100 hover:shadow-lg"
               :class="selectedAgentId === option.agentId ? 'border-primary/60 bg-primary/10' : ''"
             >
               <button
@@ -169,7 +169,7 @@
                 <div
                   v-for="option in options"
                   :key="option.id"
-                  class="flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-2xl border border-base-300/70 bg-base-100/60 px-1 py-2.5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-base-100 hover:shadow-lg"
+                  class="flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-2xl border border-base-300 bg-base-100/60 px-1 py-2.5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-base-100 hover:shadow-lg"
                   :class="selectedAgentId === option.agentId ? 'border-primary/60 bg-primary/10' : ''"
                 >
                   <button

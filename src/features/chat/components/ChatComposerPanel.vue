@@ -125,7 +125,7 @@
                     :class="planModeEnabled ? 'badge-info' : 'badge-ghost'"
                   >{{ planModeEnabled ? t("chat.plan.exitMode") : t("chat.plan.modeOff") }}</span>
                 </button>
-                <div class="border-t border-base-300/60" />
+                <div class="border-t border-base-300" />
                 <div class="flex flex-wrap content-start gap-2 max-h-48 overflow-y-auto p-2">
                   <button
                     v-for="(item, index) in normalizedInstructionPresets"

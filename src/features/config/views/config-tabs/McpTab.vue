@@ -168,7 +168,7 @@
             :key="server.id"
             role="button"
             tabindex="0"
-            class="rounded-box border border-base-200 bg-base-100 p-4 hover:border-primary/50 transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
+            class="rounded-box border border-base-300 bg-base-100 p-4 hover:border-primary/50 transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
             :class="{ 'opacity-65 bg-base-100/60': !server.enabled }"
             @click="enterServer(server.id)"
             @keydown.enter.prevent="enterServer(server.id)"
@@ -208,7 +208,7 @@
             </div>
 
             <!-- 底栏：启用时显示状态与工具数；未启用时左侧留空，右上角 Toggle 已经自明 -->
-            <div class="flex items-center justify-between border-t border-base-200 pt-2.5 text-caption">
+            <div class="flex items-center justify-between border-t border-base-300 pt-2.5 text-caption">
               <div class="flex items-center gap-1.5 min-h-[1.5rem]">
                 <template v-if="server.enabled">
                   <span class="badge badge-sm" :class="getStatusBadgeClass(server.lastStatus)">

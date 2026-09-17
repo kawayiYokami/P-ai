@@ -23,7 +23,7 @@
           </div>
         </div>
 
-        <div class="flex min-w-0 flex-wrap items-center gap-2 border-t border-base-200 pt-4">
+        <div class="flex min-w-0 flex-wrap items-center gap-2 border-t border-base-300 pt-4">
           <button :class="actionButtonClass" @click="props.openRuntimeLogs">
             {{ t("config.logs.backendLogs") }}
           </button>
@@ -39,7 +39,7 @@
           </button>
         </div>
 
-        <div class="grid grid-cols-4 gap-2 border-t border-base-200 pt-4">
+        <div class="grid grid-cols-4 gap-2 border-t border-base-300 pt-4">
           <button class="btn btn-sm w-full bg-base-200" @click="props.openConversationList">
             {{ t("config.chatSettings.openConversationList") }}
           </button>
@@ -347,7 +347,7 @@
                 <span
                   v-for="paramText in toolParameterSummary(item.function.name)"
                   :key="`${item.function.name}-param-${paramText}`"
-                  class="text-caption px-1.5 py-0.5 rounded bg-base-200 border border-base-300/70 opacity-80"
+                  class="text-caption px-1.5 py-0.5 rounded bg-base-200 border border-base-300 opacity-80"
                 >
                   {{ paramText }}
                 </span>
@@ -356,7 +356,7 @@
                 <pre
                   v-for="example in toolParameterExamples(item.function.name)"
                   :key="`${item.function.name}-example-${example}`"
-                  class="text-caption leading-4 px-2 py-1 rounded bg-base-200 border border-base-300/70 opacity-90 whitespace-pre-wrap overflow-x-auto"
+                  class="text-caption leading-4 px-2 py-1 rounded bg-base-200 border border-base-300 opacity-90 whitespace-pre-wrap overflow-x-auto"
                 >{{ example }}</pre>
               </div>
             </div>

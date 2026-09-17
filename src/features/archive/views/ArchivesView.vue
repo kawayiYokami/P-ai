@@ -181,7 +181,7 @@
             <div class="chat-bubble max-w-[82%]" :class="archiveMessageBubbleClass(m)">
               <details
                 v-if="isCollapsibleArchiveMessage(m)"
-                class="collapse collapse-arrow border border-base-300/70 bg-base-200/60"
+                class="collapse collapse-arrow border border-base-300 bg-base-200/60"
               >
                 <summary class="collapse-title min-h-0 px-3 py-2 text-sm font-medium">
                   {{ collapsibleArchiveMessageTitle(m) }}

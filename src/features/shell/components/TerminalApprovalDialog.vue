@@ -177,7 +177,7 @@ watch(terminalApprovalPatchBlocks, clampTerminalApprovalPatchIndex);
       <div v-if="props.payload?.reason" class="mt-3 rounded-box border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-base-content/80">
         {{ props.payload?.reason }}
       </div>
-      <div v-if="props.payload?.description" class="mt-3 rounded-box border border-base-300/60 bg-base-100/80 px-3 py-2 text-sm text-base-content/80 whitespace-pre-wrap">
+      <div v-if="props.payload?.description" class="mt-3 rounded-box border border-base-300 bg-base-100/80 px-3 py-2 text-sm text-base-content/80 whitespace-pre-wrap">
         {{ props.payload?.description }}
       </div>
       <div
