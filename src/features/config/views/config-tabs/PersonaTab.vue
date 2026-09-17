@@ -1,65 +1,13 @@
 <template>
-  <SettingsStickyLayout content-class="mx-auto max-w-5xl" header-class="pb-0">
-    <template #header>
-      <!-- 面包屑：常驻；一级仅「人格」，进入详情后在原位追加人格名 -->
-      <div class="breadcrumbs mb-2.5 min-w-0 p-0 text-xl sm:mb-3">
-        <ul class="flex flex-wrap items-center">
-          <li v-if="inDetailMode">
-            <a
-              class="cursor-pointer py-1 text-base-content/50 transition-colors hover:text-base-content"
-              :title="t('config.persona.backToList')"
-              @click="backToList"
-            >
-              {{ t("config.tabs.persona") }}
-            </a>
-          </li>
-          <li v-else class="py-1 font-semibold text-base-content">{{ t("config.tabs.persona") }}</li>
-          <li v-if="inDetailMode" class="flex min-w-0 items-center gap-2 py-1">
-            <span class="max-w-[14rem] truncate font-semibold text-base-content sm:max-w-xs">
-              {{ selectedPersona?.name || t("config.persona.title") }}
-            </span>
-            <span
-              v-if="selectedPersona && isPresetPersona(selectedPersona)"
-              class="badge badge-neutral badge-xs shrink-0"
-            >
-              {{ t("config.persona.systemTag") }}
-            </span>
-            <span
-              v-else-if="selectedPersonaIsPrivateWorkspace"
-              class="badge badge-secondary badge-xs shrink-0"
-            >
-              {{ t("config.persona.privateWorkspaceTag") }}
-            </span>
-          </li>
-        </ul>
-      </div>
-
-      <Transition name="ecall-config-content" mode="out-in">
-        <!-- 二级详情模式头部：子菜单 Tab + 操作区 -->
-        <div v-if="inDetailMode" key="detail" class="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-          <!-- 人格子菜单 Tab：资料 / 随身技能 / 权限 / 委托人 -->
-          <div role="tablist" class="tabs tabs-border">
-            <button
-              v-for="option in detailSubMenuOptions"
-              :key="option.value"
-              type="button"
-              role="tab"
-              class="tab h-10 gap-1.5 px-3 text-base"
-              :class="detailView === option.value ? 'tab-active font-medium' : 'text-base-content/60 hover:text-base-content'"
-              @click="onSubMenuTabChange(option.value)"
-            >
-              <span class="truncate">{{ option.label }}</span>
-              <span
-                v-if="option.badge"
-                class="badge badge-xs font-mono"
-                :class="detailView === option.value ? 'badge-neutral' : 'badge-ghost opacity-70'"
-              >
-                {{ option.badge }}
-              </span>
-            </button>
-          </div>
-
-          <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
+  <SettingsPageShell
+    content-class="mx-auto max-w-5xl"
+    :breadcrumb="personaBreadcrumb"
+    :tabs="headerTabs"
+    :tab="headerTab"
+    @update:tab="onHeaderTabChange"
+  >
+    <template #actions>
+      <div v-if="inDetailMode" class="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <!-- 放弃修改 / 还原草稿 -->
             <button
               v-if="personaDirty"
@@ -86,33 +34,12 @@
               <Save v-else class="h-4 w-4" />
               <span>{{ personaSaving ? t("config.persona.saving") : t("common.save") }}</span>
             </button>
-          </div>
-        </div>
-
-        <!-- 一级概览模式头部：分类 Tab，下划线贴合头部分界线 -->
-        <div v-else key="overview">
-          <div role="tablist" class="tabs tabs-border">
-            <button
-              v-for="option in personaCategoryOptions"
-              :key="option.value"
-              type="button"
-              role="tab"
-              class="tab h-10 gap-1.5 px-3 text-base"
-              :class="activeCategoryTab === option.value ? 'tab-active font-medium' : 'text-base-content/60 hover:text-base-content'"
-              @click="activeCategoryTab = option.value"
-            >
-              <span class="truncate">{{ option.label }}</span>
-            </button>
-          </div>
-        </div>
-      </Transition>
+      </div>
     </template>
 
     <!-- 二级详情与三级子视图内容 -->
-    <Transition name="ecall-config-content" mode="out-in">
-    <div v-if="inDetailMode" key="detail" class="min-w-0 max-w-full">
+    <div v-if="inDetailMode" class="min-w-0 max-w-full">
       <div v-if="selectedPersona" class="grid gap-5 min-w-0 max-w-full">
-        <Transition name="ecall-config-content" mode="out-in">
         <!-- 子视图：随身技能与上下文顺序 -->
         <PersonaInjectionTable
           v-if="detailView === 'injection'"
@@ -296,7 +223,6 @@
             @change="onPersonaMemoryImportFile"
           />
         </div>
-        </Transition>
       </div>
     </div>
 
@@ -434,8 +360,7 @@
         </button>
       </div>
     </div>
-    </Transition>
-  </SettingsStickyLayout>
+  </SettingsPageShell>
 
   <!-- 删除人格确认对话框 -->
   <dialog ref="deleteDialogRef" class="modal">
@@ -525,7 +450,9 @@ import {
 } from "../../../../services/tauri-api";
 import ConfigCard from "../../components/ConfigCard.vue";
 import SegmentedControl from "../../components/SegmentedControl.vue";
-import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
+import SettingsPageShell from "../../components/SettingsPageShell.vue";
+import type { SettingsBreadcrumbBadge, SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
+import type { UnderlineTabItem } from "../../components/UnderlineTabs.vue";
 import MarkdownEditor from "../../components/MarkdownEditor.vue";
 import InlineMarkdownText from "../../../chat/markdown/InlineMarkdownText.vue";
 import PersonaInjectionTable from "./persona-capability/PersonaInjectionTable.vue";
@@ -708,6 +635,26 @@ const personaCategoryOptions = computed(() => [
   },
 ]);
 
+const headerTabs = computed<UnderlineTabItem[]>(() =>
+  inDetailMode.value
+    ? detailSubMenuOptions.value.map((option) => ({ key: option.value, label: option.label, badge: option.badge }))
+    : personaCategoryOptions.value.map((option) => ({ key: option.value, label: option.label })),
+);
+
+const headerTab = computed(() => (inDetailMode.value ? detailView.value : activeCategoryTab.value));
+
+function onHeaderTabChange(key: string) {
+  if (inDetailMode.value) {
+    if (detailSubMenuOptions.value.some((option) => option.value === key)) {
+      onSubMenuTabChange(key as PersonaDetailView);
+    }
+    return;
+  }
+  if (personaCategoryOptions.value.some((option) => option.value === key)) {
+    activeCategoryTab.value = key as PersonaCategoryTab;
+  }
+}
+
 const displayedPersonas = computed(() =>
   activeCategoryTab.value === "custom" ? customPersonas.value : presetPersonas.value,
 );
@@ -802,6 +749,21 @@ const selectedPersonaIsPreset = computed(
 const selectedPersonaIsPrivateWorkspace = computed(
   () => props.selectedPersona?.source === "private_workspace",
 );
+
+const personaBreadcrumb = computed<SettingsBreadcrumbItem[]>(() => {
+  const persona = props.selectedPersona;
+  if (!inDetailMode.value) return [{ label: t("config.tabs.persona") }];
+  const badges: SettingsBreadcrumbBadge[] = [];
+  if (persona && isPresetPersona(persona)) {
+    badges.push({ text: t("config.persona.systemTag"), class: "badge-neutral" });
+  } else if (selectedPersonaIsPrivateWorkspace.value) {
+    badges.push({ text: t("config.persona.privateWorkspaceTag"), class: "badge-secondary" });
+  }
+  return [
+    { label: t("config.tabs.persona"), title: t("config.persona.backToList"), onClick: backToList },
+    { label: persona?.name || t("config.persona.title"), badges },
+  ];
+});
 
 function emitConvertPrivatePersona() {
   const agentId = props.selectedPersona?.id;

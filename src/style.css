@@ -576,6 +576,35 @@ body {
   opacity: 0;
   transform: translateY(-6px);
 }
+/* settings: 头部下划线 tab 的指示条滑动 + 内容区左右切换，方向由 --ecall-tab-in-x / --ecall-tab-out-x 注入 */
+.ecall-tab-indicator {
+  transition:
+    transform var(--duration-fold) ease-out,
+    width var(--duration-fold) ease-out;
+}
+.ecall-tab-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+.ecall-tab-panel {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.ecall-tab-slide-enter-active,
+.ecall-tab-slide-leave-active {
+  transition:
+    opacity var(--duration-fold) ease,
+    transform var(--duration-fold) ease;
+}
+.ecall-tab-slide-enter-from {
+  opacity: 0;
+  transform: translateX(var(--ecall-tab-in-x, 24px));
+}
+.ecall-tab-slide-leave-to {
+  opacity: 0;
+  transform: translateX(var(--ecall-tab-out-x, -24px));
+}
 .config-shell .menu a {
   transition:
     background-color var(--duration-fold) ease,
@@ -604,6 +633,9 @@ body {
   .ecall-config-mode-leave-active,
   .ecall-config-content-enter-active,
   .ecall-config-content-leave-active,
+  .ecall-tab-indicator,
+  .ecall-tab-slide-enter-active,
+  .ecall-tab-slide-leave-active,
   .config-shell .menu a,
   .ecall-config-drawer-enter-active,
   .ecall-config-drawer-leave-active,

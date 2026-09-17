@@ -1,37 +1,29 @@
 <template>
-  <SettingsStickyLayout>
-    <template #header>
-      <!-- 面包屑：常驻；一级仅「技能」，进入详情后在原位追加技能名 -->
-      <div class="breadcrumbs mb-2.5 min-w-0 p-0 text-xl sm:mb-3">
-        <ul class="flex flex-wrap items-center">
-          <li v-if="selectedSkill">
-            <a
-              class="cursor-pointer py-1 text-base-content/50 transition-colors hover:text-base-content"
-              :title="t('config.skill.backToList')"
-              @click="backToList"
-            >
-              {{ t("config.tabs.skill") }}
-            </a>
-          </li>
-          <li v-else class="py-1 font-semibold text-base-content">{{ t("config.tabs.skill") }}</li>
-          <li v-if="selectedSkill" class="flex min-w-0 items-center gap-2 py-1">
-            <span class="max-w-[14rem] truncate font-semibold text-base-content sm:max-w-xs md:max-w-md">
-              {{ editingName || selectedSkill.name }}
-            </span>
-            <span v-if="selectedSkill.isBuiltin" class="badge badge-neutral badge-xs shrink-0">
-              {{ t("config.skill.builtin") }}
-            </span>
-            <span v-else-if="isDirty" class="badge badge-warning badge-xs shrink-0">
-              {{ t("config.skill.unsaved") }}
-            </span>
-          </li>
-        </ul>
+  <SettingsPageShell :breadcrumb="skillBreadcrumb" header-class="">
+    <template #left>
+      <div v-if="!selectedSkill" class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
+        <input
+          v-model="searchQuery"
+          type="text"
+          class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+          :placeholder="t('config.skill.searchPlaceholder')"
+        />
+        <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+        <button
+          v-if="searchQuery"
+          type="button"
+          class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+          :title="t('config.skill.clearSearch')"
+          @click="searchQuery = ''"
+        >
+          ✕
+        </button>
       </div>
+    </template>
 
-      <Transition name="ecall-config-content" mode="out-in">
-        <!-- 二级菜单头部：详情专属操作 -->
-        <div v-if="selectedSkill" key="detail" class="flex flex-wrap items-center justify-end gap-3">
-          <div class="flex flex-wrap items-center gap-2">
+    <template #actions>
+      <template v-if="selectedSkill">
+        <div class="flex flex-wrap items-center gap-2">
             <!-- 自定义技能支持放弃修改与保存 -->
             <template v-if="!selectedSkill.isBuiltin">
               <button
@@ -90,31 +82,10 @@
               <span>{{ t("config.skill.delete") }}</span>
             </button>
           </div>
-        </div>
+      </template>
 
-        <!-- 一级概览头部：搜索 + 工具操作 -->
-        <div v-else key="overview" class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <!-- 搜索过滤框：适宜移动端与触控的高宽与清空热区 -->
-          <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
-            <input
-              v-model="searchQuery"
-              type="text"
-              class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
-              :placeholder="t('config.skill.searchPlaceholder')"
-            />
-            <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
-            <button
-              v-if="searchQuery"
-              type="button"
-              class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
-              :title="t('config.skill.clearSearch')"
-              @click="searchQuery = ''"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2">
+      <template v-else>
+        <div class="flex flex-wrap items-center gap-2">
             <button
               v-if="localFileSystemAvailable"
               class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
@@ -135,8 +106,7 @@
               <span>{{ t("common.refresh") }}</span>
             </button>
           </div>
-        </div>
-      </Transition>
+      </template>
     </template>
 
     <!-- 主体区域切换：一级卡片列表 ↔ 二级详情页 -->
@@ -637,7 +607,7 @@
         <button @click="closeFilePreview">close</button>
       </form>
     </dialog>
-  </SettingsStickyLayout>
+  </SettingsPageShell>
 </template>
 
 <script setup lang="ts">
@@ -674,7 +644,8 @@ import {
 } from "../../../../services/tauri-api";
 import type { SkillFileItem, SkillListResult, SkillSummaryItem } from "../../../../types/app";
 import { toErrorMessage } from "../../../../utils/error";
-import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
+import SettingsPageShell from "../../components/SettingsPageShell.vue";
+import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
 import AppMarkdownRenderer from "../../../chat/markdown/AppMarkdownRenderer.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 
@@ -738,6 +709,23 @@ const isContentDirty = computed(() => {
 
 // 是否存在任何未保存的修改（内置技能不可编辑，故永为 false）
 const isDirty = computed(() => isMetaDirty.value || isContentDirty.value);
+
+const skillBreadcrumb = computed<SettingsBreadcrumbItem[]>(() => {
+  const skill = selectedSkill.value;
+  if (!skill) return [{ label: t("config.tabs.skill") }];
+  return [
+    { label: t("config.tabs.skill"), title: t("config.skill.backToList"), onClick: backToList },
+    {
+      label: editingName.value || skill.name,
+      badge: skill.isBuiltin
+        ? t("config.skill.builtin")
+        : isDirty.value
+          ? t("config.skill.unsaved")
+          : undefined,
+      badgeClass: skill.isBuiltin ? "badge-neutral" : "badge-warning",
+    },
+  ];
+});
 
 // 当切换选中的技能时，同步初始化编辑区内容并默认切回预览模式
 watch(

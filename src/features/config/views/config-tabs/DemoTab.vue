@@ -26,6 +26,7 @@
             <option value="persona-injection">人格随身技能与顺序（加载顺序表）</option>
             <option value="persona-permission">人格权限页（黑白名单树）</option>
             <option value="persona-delegate">人格委托人（选下属）</option>
+            <option value="settings-shell">设置页头部（面包屑 + 标签页）</option>
           </select>
           <span class="text-xs text-base-content/50">当前：{{ demoComponentLabel }}</span>
         </div>
@@ -200,6 +201,16 @@
           <p class="text-sm text-base-content/70">左侧会话列表条目（ChatConversationItem）的分组与状态样本，直接渲染真实组件；切换视图模式与预设查看不同层级、不同状态。</p>
         </div>
         <ChatConversationListGalleryDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'settings-shell'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">设置页头部（面包屑 + 左格 + 右格）</h3>
+          <p class="text-sm text-base-content/70">所有设置页共用的头部骨架：面包屑、左格（标签页或搜索框）、右格（操作按钮），以及切换标签时内容区的左右进出。直接渲染真实组件。</p>
+        </div>
+        <SettingsShellGalleryDemo />
       </div>
     </div>
 
@@ -481,6 +492,7 @@ import SessionTimelineDemo from "../../../chat/components/SessionTimelineDemo.vu
 import HomeCardGalleryDemo from "../../../chat/components/HomeCardGalleryDemo.vue";
 import ChatConversationListGalleryDemo from "../../../chat/components/ChatConversationListGalleryDemo.vue";
 import ConfigCardsGalleryDemo from "../../components/ConfigCardsGalleryDemo.vue";
+import SettingsShellGalleryDemo from "../../components/SettingsShellGalleryDemo.vue";
 import CatalogStoreDemo from "../../components/CatalogStoreDemo.vue";
 import PersonaTabDemo from "../../components/PersonaTabDemo.vue";
 import SessionControlItems from "../../../chat/components/SessionControlItems.vue";
@@ -557,7 +569,7 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "composer" | "double-deck" | "thinking-preview" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "composer" | "double-deck" | "thinking-preview" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell">((props.initialKey as any) || "question");
 
 // bare 模式下把内容高度写进标题，便于无头截图按内容高度精确裁剪。
 onMounted(() => {
@@ -572,6 +584,7 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "persona-permission") return "人格权限页";
   if (demoComponentKey.value === "persona-delegate") return "人格委托人";
   if (demoComponentKey.value === "catalog-store") return "能力商店";
+  if (demoComponentKey.value === "settings-shell") return "设置页头部";
   if (demoComponentKey.value === "config-cards") return "配置卡片画廊";
   if (demoComponentKey.value === "session-float-dock") return "会话悬浮操作区";
   if (demoComponentKey.value === "session-timeline") return "会话时间线（垂直）";

@@ -1,41 +1,16 @@
 <template>
-  <SettingsStickyLayout header-class="pb-0">
-    <template #header>
-      <!-- 类型切换 tab + 刷新 -->
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div role="tablist" class="tabs tabs-border">
-          <button
-            role="tab"
-            class="tab h-10 gap-1.5 px-3 text-base"
-            :class="kind === 'mcp' ? 'tab-active font-medium' : 'text-base-content/60 hover:text-base-content'"
-            type="button"
-            @click="switchKind('mcp')"
-          >
-            <Plug class="h-3.5 w-3.5" />
-            <span>{{ t("config.tabs.mcp") }}</span>
-          </button>
-          <button
-            role="tab"
-            class="tab h-10 gap-1.5 px-3 text-base"
-            :class="kind === 'skill' ? 'tab-active font-medium' : 'text-base-content/60 hover:text-base-content'"
-            type="button"
-            @click="switchKind('skill')"
-          >
-            <Code class="h-3.5 w-3.5" />
-            <span>{{ t("config.tabs.skill") }}</span>
-          </button>
-        </div>
-        <button
-          class="btn btn-ghost btn-sm h-8 min-h-[2rem] gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
-          type="button"
-          :disabled="loading"
-          :title="t('config.catalog.refresh')"
-          @click="reload"
-        >
-          <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
-          <span>{{ t("config.catalog.refresh") }}</span>
-        </button>
-      </div>
+  <SettingsPageShell :tab="kind" :tabs="catalogTabs" @update:tab="switchKind">
+    <template #actions>
+      <button
+        class="btn btn-ghost btn-sm h-8 min-h-[2rem] gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
+        type="button"
+        :disabled="loading"
+        :title="t('config.catalog.refresh')"
+        @click="reload"
+      >
+        <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
+        <span>{{ t("config.catalog.refresh") }}</span>
+      </button>
     </template>
 
     <!-- 检索与列表 -->
@@ -399,7 +374,7 @@
       </div>
       <form method="dialog" class="modal-backdrop"><button aria-label="close">close</button></form>
     </dialog>
-  </SettingsStickyLayout>
+  </SettingsPageShell>
 </template>
 
 <script setup lang="ts">
@@ -416,7 +391,8 @@ import {
   setTransportSkillEnabled,
 } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
-import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
+import SettingsPageShell from "../../components/SettingsPageShell.vue";
+import type { UnderlineTabItem } from "../../components/UnderlineTabs.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 
 const { t } = useI18n();
@@ -426,6 +402,12 @@ const PAGE_SIZE = 30;
 const TOOL_PREVIEW_LIMIT = 6;
 
 const kind = ref<"mcp" | "skill">("mcp");
+
+const catalogTabs = computed<UnderlineTabItem[]>(() => [
+  { key: "mcp", label: t("config.tabs.mcp"), icon: Plug },
+  { key: "skill", label: t("config.tabs.skill"), icon: Code },
+]);
+
 const sources = ref<CatalogSourceInfo[]>([]);
 const sourceId = ref("");
 const query = ref("");
@@ -581,7 +563,8 @@ async function reload() {
   }
 }
 
-async function switchKind(next: "mcp" | "skill") {
+async function switchKind(next: string) {
+  if (next !== "mcp" && next !== "skill") return;
   if (kind.value === next) return;
   kind.value = next;
   sourceId.value = "";

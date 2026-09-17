@@ -1,35 +1,17 @@
 <template>
-  <SettingsStickyLayout :header-class="inDetailMode ? '' : 'pb-0'">
-    <template #header>
-      <!-- 面包屑：常驻；一级仅「供应商」，进入详情后在原位追加供应商标名 -->
-      <div class="breadcrumbs mb-2.5 min-w-0 p-0 text-xl sm:mb-3">
-        <ul class="flex flex-wrap items-center">
-          <li v-if="inDetailMode">
-            <a
-              class="cursor-pointer py-1 text-base-content/50 transition-colors hover:text-base-content"
-              :title="t('config.api.backToList')"
-              @click="backToList"
-            >
-              {{ t("config.tabs.api") }}
-            </a>
-          </li>
-          <li v-else class="py-1 font-semibold text-base-content">{{ t("config.tabs.api") }}</li>
-          <li v-if="inDetailMode" class="flex min-w-0 items-center gap-2 py-1">
-            <span class="max-w-[14rem] truncate font-semibold text-base-content sm:max-w-xs md:max-w-md">
-              {{ currentDetailTitle }}
-            </span>
-            <span v-if="isCurrentDetailDirty" class="badge badge-warning badge-xs shrink-0">
-              {{ t("config.api.unsaved") }}
-            </span>
-          </li>
-        </ul>
-      </div>
-
-      <Transition name="ecall-config-content" mode="out-in">
-        <!-- 二级详情模式头部：操作按钮 -->
-        <div v-if="inDetailMode && (activeTopTab === 'imageGeneration' || selectedProvider)" :key="'detail-' + (activeTopTab === 'imageGeneration' ? imageToolbarSelectedProviderId : selectedProvider?.id)" class="flex flex-wrap items-center justify-end gap-3">
-          <div class="flex flex-wrap items-center gap-2">
-            <template v-if="activeTopTab !== 'imageGeneration'">
+  <SettingsPageShell
+    :breadcrumb="apiBreadcrumb"
+    :tab="headerTab"
+    :tabs="headerTabs"
+    :header-class="inDetailMode ? '' : 'pb-0'"
+    @update:tab="onHeaderTabChange"
+  >
+    <template #actions>
+      <div
+        v-if="inDetailMode && (activeTopTab === 'imageGeneration' || selectedProvider)"
+        class="flex flex-wrap items-center gap-2"
+      >
+        <template v-if="activeTopTab !== 'imageGeneration'">
               <button
                 v-if="currentProviderDirty"
                 class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
@@ -95,27 +77,8 @@
                 <Trash2 class="h-4 w-4" />
                 <span>{{ t("common.delete") }}</span>
               </button>
-            </template>
-          </div>
-        </div>
-
-        <!-- 一级概览模式头部：分类 tab，下划线贴合头部分界线 -->
-        <div v-else key="overview">
-          <div role="tablist" class="tabs tabs-border">
-            <button
-              v-for="option in capabilityTabs"
-              :key="option.id"
-              type="button"
-              role="tab"
-              class="tab h-10 gap-1.5 px-3 text-base"
-              :class="activeTopTab === option.id ? 'tab-active font-medium' : 'text-base-content/60 hover:text-base-content'"
-              @click="switchCapabilityTab(option.id)"
-            >
-              <span class="truncate">{{ option.label }}</span>
-            </button>
-          </div>
-        </div>
-      </Transition>
+        </template>
+      </div>
     </template>
 
     <Transition name="ecall-config-content" mode="out-in">
@@ -396,7 +359,7 @@
         <button @click.prevent="closeDeleteProviderDialog">close</button>
       </form>
     </dialog>
-  </SettingsStickyLayout>
+  </SettingsPageShell>
 </template>
 
 <script setup lang="ts">
@@ -418,7 +381,9 @@ import ApiKeyListCard, { type ApiKeyConnectionStatus } from "../../components/Ap
 import ApiModelCard from "../../components/ApiModelCard.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
-import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
+import SettingsPageShell from "../../components/SettingsPageShell.vue";
+import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
+import type { UnderlineTabItem } from "../../components/UnderlineTabs.vue";
 import { canUseTransportGenaiChatAdapters, invokeTauri, listTransportGenaiChatAdapters, openTransportExternalUrl } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import ImageGenerationTab from "./ImageGenerationTab.vue";
@@ -925,6 +890,17 @@ function commitDraftGroups() {
 const activeTopTab = ref<ApiTopTab>("text");
 const inDetailMode = ref(false);
 
+const headerTabs = computed<UnderlineTabItem[]>(() =>
+  inDetailMode.value ? [] : capabilityTabs.value.map((tab) => ({ key: tab.id, label: tab.label })),
+);
+
+const headerTab = computed(() => activeTopTab.value);
+
+function onHeaderTabChange(key: string) {
+  const tab = capabilityTabs.value.find((item) => item.id === key);
+  if (tab) void switchCapabilityTab(tab.id);
+}
+
 const selectedCapability = computed<ApiCapability>(() => {
   if (activeTopTab.value !== "imageGeneration") {
     return activeTopTab.value as ApiCapability;
@@ -974,6 +950,17 @@ const currentDetailTitle = computed(() => {
 const isCurrentDetailDirty = computed(() => {
   if (activeTopTab.value === "imageGeneration") return imageToolbarDirty.value;
   return currentProviderDirty.value;
+});
+
+const apiBreadcrumb = computed<SettingsBreadcrumbItem[]>(() => {
+  if (!inDetailMode.value) return [{ label: t("config.tabs.api") }];
+  return [
+    { label: t("config.tabs.api"), title: t("config.api.backToList"), onClick: backToList },
+    {
+      label: currentDetailTitle.value || t("config.tabs.api"),
+      badge: isCurrentDetailDirty.value ? t("config.api.unsaved") : undefined,
+    },
+  ];
 });
 
 const emptyImageToolbarState: ImageGenerationToolbarState = {

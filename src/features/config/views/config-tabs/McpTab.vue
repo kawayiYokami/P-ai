@@ -1,34 +1,29 @@
 <template>
-  <SettingsStickyLayout>
-    <template #header>
-      <!-- 面包屑：常驻；一级仅「连接器」，进入详情后在原位追加连接器名 -->
-      <div class="breadcrumbs mb-2.5 min-w-0 p-0 text-xl sm:mb-3">
-        <ul class="flex flex-wrap items-center">
-          <li v-if="inDetailMode">
-            <a
-              class="cursor-pointer py-1 text-base-content/50 transition-colors hover:text-base-content"
-              :title="t('config.mcp.backToList')"
-              @click="backToList"
-            >
-              {{ t("config.tabs.mcp") }}
-            </a>
-          </li>
-          <li v-else class="py-1 font-semibold text-base-content">{{ t("config.tabs.mcp") }}</li>
-          <li v-if="inDetailMode" class="flex min-w-0 items-center gap-2 py-1">
-            <span class="max-w-[14rem] truncate font-semibold text-base-content sm:max-w-xs md:max-w-md">
-              {{ selectedServer?.name || selectedServer?.id }}
-            </span>
-            <span v-if="selectedServer?.isDirty" class="badge badge-warning badge-xs shrink-0">
-              {{ t("config.mcp.unsaved") }}
-            </span>
-          </li>
-        </ul>
+  <SettingsPageShell :breadcrumb="mcpBreadcrumb" header-class="">
+    <template #left>
+      <div v-if="!(inDetailMode && selectedServer)" class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
+        <input
+          v-model="searchQuery"
+          type="text"
+          class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+          :placeholder="t('config.mcp.searchPlaceholder')"
+        />
+        <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+        <button
+          v-if="searchQuery"
+          type="button"
+          class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+          :title="t('config.mcp.clearSearch')"
+          @click="searchQuery = ''"
+        >
+          ✕
+        </button>
       </div>
+    </template>
 
-      <Transition name="ecall-config-content" mode="out-in">
-        <!-- 二级详情导航：操作区 -->
-        <div v-if="inDetailMode && selectedServer" key="detail" class="flex flex-wrap items-center justify-end gap-3">
-          <div class="flex flex-wrap items-center gap-2">
+    <template #actions>
+      <template v-if="inDetailMode && selectedServer">
+        <div class="flex flex-wrap items-center gap-2">
             <button
               class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
               type="button"
@@ -78,30 +73,10 @@
               <span>{{ t('config.mcpServerCard.delete') }}</span>
             </button>
           </div>
-        </div>
+      </template>
 
-        <!-- 一级概览导航：搜索 + 工具操作 -->
-        <div v-else key="overview" class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
-            <input
-              v-model="searchQuery"
-              type="text"
-              class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
-              :placeholder="t('config.mcp.searchPlaceholder')"
-            />
-            <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
-            <button
-              v-if="searchQuery"
-              type="button"
-              class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
-              :title="t('config.mcp.clearSearch')"
-              @click="searchQuery = ''"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2">
+      <template v-else>
+        <div class="flex flex-wrap items-center gap-2">
             <button
               class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
               type="button"
@@ -122,8 +97,7 @@
               <span>{{ t('config.mcp.openDir') }}</span>
             </button>
           </div>
-        </div>
-      </Transition>
+      </template>
     </template>
 
     <div class="space-y-4">
@@ -267,7 +241,7 @@
       </div>
       </Transition>
     </div>
-  </SettingsStickyLayout>
+  </SettingsPageShell>
 </template>
 
 <script setup lang="ts">
@@ -304,7 +278,8 @@ import type {
 import { toErrorMessage } from "../../../../utils/error";
 import { formatEndpointDisplay } from "../../utils/api-config-display";
 import McpServerCard from "./mcp/McpServerCard.vue";
-import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
+import SettingsPageShell from "../../components/SettingsPageShell.vue";
+import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
 import type { StatusTone } from "../../../shell/composables/use-app-core";
 
 const props = withDefaults(defineProps<{
@@ -361,6 +336,18 @@ function enterServer(id: string) {
   inDetailMode.value = true;
   clearIssues();
 }
+
+const mcpBreadcrumb = computed<SettingsBreadcrumbItem[]>(() => {
+  const server = selectedServer.value;
+  if (!inDetailMode.value || !server) return [{ label: t("config.tabs.mcp") }];
+  return [
+    { label: t("config.tabs.mcp"), title: t("config.mcp.backToList"), onClick: backToList },
+    {
+      label: server.name || server.id,
+      badge: server.isDirty ? t("config.mcp.unsaved") : undefined,
+    },
+  ];
+});
 
 function backToList() {
   inDetailMode.value = false;

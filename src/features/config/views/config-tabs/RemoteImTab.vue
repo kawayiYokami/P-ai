@@ -1,43 +1,34 @@
 <template>
-  <SettingsStickyLayout>
-    <template #header>
-      <!-- 面包屑：常驻；一级仅「联系人」，进入详情后在原位追加渠道名 -->
-      <div class="breadcrumbs mb-2.5 min-w-0 p-0 text-xl sm:mb-3">
-        <ul class="flex flex-wrap items-center">
-          <li v-if="inDetailMode && selectedChannel">
-            <a
-              class="cursor-pointer py-1 text-base-content/50 transition-colors hover:text-base-content"
-              :title="t('config.remoteIm.backToChannels')"
-              @click="backToChannels"
-            >
-              {{ t("config.tabs.remoteIm") }}
-            </a>
-          </li>
-          <li v-else class="py-1 font-semibold text-base-content">{{ t("config.tabs.remoteIm") }}</li>
-          <li v-if="inDetailMode && selectedChannel" class="flex min-w-0 items-center gap-2 py-1">
-            <span class="max-w-[14rem] truncate font-semibold text-base-content sm:max-w-xs md:max-w-md">
-              {{ selectedChannel.name || platformLabelText(selectedChannel.platform) }}
-            </span>
-            <span class="badge badge-xs shrink-0 flex items-center gap-1.5" :class="selectedChannel.enabled ? 'badge-neutral' : 'badge-ghost opacity-60'">
-              <span class="size-2 rounded-full shrink-0" :class="getChannelStatusInfo(selectedChannel).dot"></span>
-              <span>{{ getChannelStatusInfo(selectedChannel).text }}</span>
-            </span>
-            <span v-if="channelDirty" class="badge badge-warning badge-xs shrink-0">
-              {{ t("config.skill.unsaved") }}
-            </span>
-          </li>
-        </ul>
+  <SettingsPageShell :breadcrumb="remoteImBreadcrumb" header-class="">
+    <template #left>
+      <ChannelBehaviorSettingsModal
+        v-if="inDetailMode && selectedChannel"
+        :channel="selectedChannel"
+        :save-config-action="props.saveConfigAction"
+        :set-status-action="props.setStatusAction"
+      />
+      <div v-else class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
+        <input
+          v-model="channelSearchQuery"
+          type="text"
+          class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+          :placeholder="t('config.remoteIm.searchPlaceholder')"
+        />
+        <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+        <button
+          v-if="channelSearchQuery"
+          type="button"
+          class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
+          :title="t('common.clear')"
+          @click="channelSearchQuery = ''"
+        >
+          ✕
+        </button>
       </div>
+    </template>
 
-      <Transition name="ecall-config-content" mode="out-in">
-        <!-- 二级菜单头部：渠道操作 -->
-        <div v-if="inDetailMode && selectedChannel" key="detail-hdr" class="flex flex-wrap items-center justify-between gap-3">
-          <ChannelBehaviorSettingsModal
-            :channel="selectedChannel"
-            :save-config-action="props.saveConfigAction"
-            :set-status-action="props.setStatusAction"
-          />
-          <div class="flex flex-wrap items-center gap-2">
+    <template #actions>
+      <div v-if="inDetailMode && selectedChannel" class="flex flex-wrap items-center gap-2">
             <button
               class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
               type="button"
@@ -70,31 +61,7 @@
               <span>{{ t("common.save") }}</span>
             </button>
           </div>
-        </div>
-
-        <!-- 一级概览头部：渠道搜索 -->
-        <div v-else key="overview-hdr" class="flex flex-wrap items-center gap-3">
-          <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
-            <input
-              v-model="channelSearchQuery"
-              type="text"
-              class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
-              :placeholder="t('config.remoteIm.searchPlaceholder')"
-            />
-            <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
-            <button
-              v-if="channelSearchQuery"
-              type="button"
-              class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
-              :title="t('common.clear')"
-              @click="channelSearchQuery = ''"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      </Transition>
-    </template>
+      </template>
 
     <!-- 主体区域切换：一级卡片列表 ↔ 二级详情页 -->
     <Transition name="ecall-config-content" mode="out-in">
@@ -1026,7 +993,7 @@
         <button @click.prevent="closeContactConfigModal">close</button>
       </form>
     </dialog>
-  </SettingsStickyLayout>
+  </SettingsPageShell>
 </template>
 
 <script setup lang="ts">
@@ -1051,7 +1018,8 @@ import {
 } from "@lucide/vue";
 import { invokeTauri, openTransportFileDialog } from "../../../../services/tauri-api";
 import type { AppConfig, PersonaProfile, RemoteImChannelConfig, RemoteImContact, RemoteImPlatform, ShellWorkspace } from "../../../../types/app";
-import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
+import SettingsPageShell from "../../components/SettingsPageShell.vue";
+import type { SettingsBreadcrumbBadge, SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
 import AgentPersonaSelect from "../../../shared/components/AgentPersonaSelect.vue";
 import ChannelBehaviorSettingsModal from "./remote-im/ChannelBehaviorSettingsModal.vue";
 import type { ChannelConnectionStatus, ChannelLogEntry, WeixinLoginStatus } from "./remote-im/types";
@@ -1389,6 +1357,23 @@ const channelSnapshot = computed(() => {
 });
 const lastSavedChannelSnapshot = ref(channelSnapshot.value);
 const channelDirty = computed(() => channelSnapshot.value !== lastSavedChannelSnapshot.value);
+
+const remoteImBreadcrumb = computed<SettingsBreadcrumbItem[]>(() => {
+  const channel = selectedChannel.value;
+  if (!inDetailMode.value || !channel) return [{ label: t("config.tabs.remoteIm") }];
+  const badges: SettingsBreadcrumbBadge[] = [];
+  const status = getChannelStatusInfo(channel);
+  badges.push({
+    text: status.text,
+    class: channel.enabled ? "badge-neutral" : "badge-ghost opacity-60",
+    dotClass: status.dot,
+  });
+  if (channelDirty.value) badges.push({ text: t("config.skill.unsaved") });
+  return [
+    { label: t("config.tabs.remoteIm"), title: t("config.remoteIm.backToChannels"), onClick: backToChannels },
+    { label: channel.name || platformLabelText(channel.platform), badges },
+  ];
+});
 
 function isChannelOperationBusy(channelId: string): boolean {
   return !!channelOperationIds.value[channelId];
