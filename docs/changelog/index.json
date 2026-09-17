@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-17T13:00:58.398Z",
-  "latestVersion": "v0.91.0",
+  "generatedAt": "2026-09-17T16:32:35.215Z",
+  "latestVersion": "v0.91.1",
   "releases": [
+    {
+      "version": "v0.91.1",
+      "path": "docs/changelog/releases/v0.91.1.md",
+      "summary": "退回不受欢迎的悬浮操作区"
+    },
     {
       "version": "v0.91.0",
       "path": "docs/changelog/releases/v0.91.0.md",
