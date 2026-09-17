@@ -1,12 +1,12 @@
 <template>
   <div class="grid h-full gap-3 overflow-y-auto pr-1">
-    <div class="card border border-base-300 bg-base-100">
-      <div class="card-body gap-3 p-4">
-        <div class="space-y-1">
+    <div :class="bare ? '' : 'card border border-base-300 bg-base-100'">
+      <div :class="bare ? 'grid gap-3' : 'card-body gap-3 p-4'">
+        <div v-if="!bare" class="space-y-1">
           <h3 class="card-title text-base">组件样式 Demo</h3>
           <p class="text-sm text-base-content/70">通过下拉框切换需要展示的组件样式。</p>
         </div>
-        <div class="flex flex-wrap items-center gap-3">
+        <div v-if="!bare" class="flex flex-wrap items-center gap-3">
           <select v-model="demoComponentKey" class="select select-bordered select-sm w-64">
             <option value="question">提问卡（ChatQuestionPanel）</option>
             <option value="bubbles">自研气泡</option>
@@ -22,8 +22,28 @@
             <option value="session-timeline">会话时间线（垂直）</option>
             <option value="config-cards">配置卡片画廊（六大卡片第一性原理）</option>
             <option value="catalog-store">能力商店</option>
+            <option value="persona-capability">人格主页（移动端极简版）</option>
+            <option value="persona-injection">人格随身技能与顺序（加载顺序表）</option>
+            <option value="persona-permission">人格权限页（黑白名单树）</option>
+            <option value="persona-delegate">人格委托人（选下属）</option>
           </select>
           <span class="text-xs text-base-content/50">当前：{{ demoComponentLabel }}</span>
+        </div>
+
+        <div v-if="demoComponentKey === 'persona-capability'" class="pt-2">
+          <PersonaTabDemo view="profile" />
+        </div>
+
+        <div v-if="demoComponentKey === 'persona-injection'" class="pt-2">
+          <PersonaTabDemo view="injection" />
+        </div>
+
+        <div v-if="demoComponentKey === 'persona-permission'" class="pt-2">
+          <PersonaTabDemo view="permission" />
+        </div>
+
+        <div v-if="demoComponentKey === 'persona-delegate'" class="pt-2">
+          <PersonaTabDemo view="delegate" />
         </div>
 
         <div v-if="demoComponentKey === 'question'" class="space-y-3 pt-2">
@@ -462,6 +482,7 @@ import HomeCardGalleryDemo from "../../../chat/components/HomeCardGalleryDemo.vu
 import ChatConversationListGalleryDemo from "../../../chat/components/ChatConversationListGalleryDemo.vue";
 import ConfigCardsGalleryDemo from "../../components/ConfigCardsGalleryDemo.vue";
 import CatalogStoreDemo from "../../components/CatalogStoreDemo.vue";
+import PersonaTabDemo from "../../components/PersonaTabDemo.vue";
 import SessionControlItems from "../../../chat/components/SessionControlItems.vue";
 import type { AppConfig, BackgroundShellTaskSummary, ConversationDelegateStatusSummary, PersonaProfile } from "../../../../types/app";
 import type { ToolReviewBatchSummary } from "../../../chat/composables/use-chat-tool-review";
@@ -509,12 +530,14 @@ const props = withDefaults(defineProps<{
   personaAvatarUrlMap?: Record<string, string>;
   assistantAgentId?: string;
   initialKey?: string;
+  bare?: boolean;
 }>(), {
   config: () => ({} as AppConfig),
   personas: () => [],
   personaAvatarUrlMap: () => ({}),
   assistantAgentId: "",
   initialKey: "question",
+  bare: false,
 });
 
 const sending = ref(false);
@@ -534,8 +557,20 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "composer" | "double-deck" | "thinking-preview" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "composer" | "double-deck" | "thinking-preview" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate">((props.initialKey as any) || "question");
+
+// bare 模式下把内容高度写进标题，便于无头截图按内容高度精确裁剪。
+onMounted(() => {
+  if (!props.bare) return;
+  window.setTimeout(() => {
+    document.title = `${document.documentElement.scrollHeight}`;
+  }, 1500);
+});
 const demoComponentLabel = computed(() => {
+  if (demoComponentKey.value === "persona-capability") return "人格主页";
+  if (demoComponentKey.value === "persona-injection") return "人格随身技能与顺序";
+  if (demoComponentKey.value === "persona-permission") return "人格权限页";
+  if (demoComponentKey.value === "persona-delegate") return "人格委托人";
   if (demoComponentKey.value === "catalog-store") return "能力商店";
   if (demoComponentKey.value === "config-cards") return "配置卡片画廊";
   if (demoComponentKey.value === "session-float-dock") return "会话悬浮操作区";

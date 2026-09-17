@@ -8,11 +8,11 @@
             <button
               class="btn btn-ghost btn-sm min-h-[2.25rem] gap-1.5 px-2.5"
               type="button"
-              :title="t('config.persona.backToList')"
-              @click="backToList"
+              :title="detailReturnTitle"
+              @click="handleDetailBack"
             >
               <ArrowLeft class="h-4 w-4" />
-              <span class="text-xs">{{ t("config.persona.backToList") }}</span>
+              <span class="text-xs">{{ detailReturnTitle }}</span>
             </button>
             <div class="divider divider-horizontal my-1 py-0 opacity-40"></div>
             <div class="breadcrumbs p-0 text-xs">
@@ -35,8 +35,21 @@
                     {{ isPresetPersona(selectedPersona) ? t("config.persona.presetPersonas") : t("config.persona.customPersonas") }}
                   </button>
                 </li>
-                <li class="font-semibold text-base-content">
-                  {{ selectedPersona?.name || t("config.persona.title") }}
+                <li>
+                  <button
+                    v-if="detailView !== 'profile'"
+                    type="button"
+                    class="link link-hover font-normal opacity-70 hover:opacity-100"
+                    @click="backToProfile"
+                  >
+                    {{ selectedPersona?.name || t("config.persona.title") }}
+                  </button>
+                  <span v-else class="font-semibold text-base-content">
+                    {{ selectedPersona?.name || t("config.persona.title") }}
+                  </span>
+                </li>
+                <li v-if="detailView !== 'profile'" class="font-semibold text-base-content">
+                  {{ detailViewLabel }}
                 </li>
               </ul>
             </div>
@@ -126,7 +139,13 @@
     <!-- 二级详情模式内容 -->
     <div v-if="inDetailMode">
       <div v-if="selectedPersona" class="grid gap-3">
-        <ConfigTemplate :model-value="templateValues" :groups="templateGroups">
+        <PersonaCapabilityOverview
+          :persona="selectedPersona"
+          :mcp-server-name-by-id="mcpServerNameById"
+          :loading="capabilityLoading"
+          @open="openCapabilityView"
+        />
+        <ConfigTemplate v-if="detailView === 'profile'" :model-value="templateValues" :groups="templateGroups">
           <template #row-persona-name>
             <div class="flex min-w-0 flex-wrap items-center gap-3">
               <div class="shrink-0 text-sm font-medium">{{ t('config.persona.name') }}</div>
@@ -189,32 +208,6 @@
             </div>
           </template>
 
-          <template #row-persona-child-agents>
-            <div class="grid min-w-0 gap-2">
-              <div class="text-sm font-medium">{{ t('config.persona.childAgents') }}</div>
-              <div class="text-xs leading-snug text-base-content/60">{{ t('config.persona.childAgentsHint') }}</div>
-              <div v-if="childAgentCandidates.length === 0" class="text-sm opacity-60">
-                {{ t('config.persona.childAgentsEmpty') }}
-              </div>
-              <div v-else class="flex flex-wrap gap-y-2">
-                <label
-                  v-for="candidate in childAgentCandidates"
-                  :key="candidate.id"
-                  class="mr-3 flex min-h-6 max-w-full cursor-pointer items-center gap-1.5 last:mr-0"
-                >
-                  <input
-                    type="checkbox"
-                    class="checkbox checkbox-primary checkbox-sm"
-                    :checked="selectedChildAgentIds.includes(String(candidate.id || '').trim())"
-                    :disabled="configSaving"
-                    @change="toggleChildAgent(candidate.id, ($event.target as HTMLInputElement).checked)"
-                  />
-                  <span class="min-w-0 truncate text-sm">{{ candidate.name || candidate.id }}</span>
-                </label>
-              </div>
-            </div>
-          </template>
-
           <template #row-private-memory>
             <div class="grid min-w-0 gap-2">
               <div>
@@ -258,11 +251,27 @@
           </template>
         </ConfigTemplate>
 
-        <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && privateMemoryError" class="text-sm text-error">
+        <PersonaSkillView
+          v-else-if="detailView === 'skills'"
+          :persona="selectedPersona"
+          :skills="capabilitySkills"
+          :loading="capabilityLoading"
+        />
+
+        <PersonaToolView
+          v-else-if="detailView === 'tools'"
+          :persona="selectedPersona"
+          :builtin-tools="capabilityBuiltinTools"
+          :servers="capabilityServers"
+          :loading="capabilityLoading"
+        />
+
+        <div v-if="detailView === 'profile' && !selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && privateMemoryError" class="text-sm text-error">
           {{ privateMemoryError }}
         </div>
 
         <input
+          v-if="detailView === 'profile'"
           ref="personaMemoryImportInput"
           type="file"
           accept=".json,application/json"
@@ -480,10 +489,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { ArrowLeft, ChevronRight, Plus, RotateCcw, Save, Search, Trash2, User } from "@lucide/vue";
-import type { MemoryRecallMode, PersonaProfile } from "../../../../types/app";
+import type { FrontendToolDefinition, McpServerConfig, MemoryRecallMode, PersonaProfile, SkillSummaryItem } from "../../../../types/app";
 import { exportTransportAgentPrivateMemories, invokeTauri } from "../../../../services/tauri-api";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
@@ -491,6 +500,9 @@ import type { ConfigTemplateGroup } from "../../components/config-template";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 import MarkdownEditor from "../../components/MarkdownEditor.vue";
 import InlineMarkdownText from "../../../chat/markdown/InlineMarkdownText.vue";
+import PersonaCapabilityOverview from "./persona-capability/PersonaCapabilityOverview.vue";
+import PersonaSkillView from "./persona-capability/PersonaSkillView.vue";
+import PersonaToolView from "./persona-capability/PersonaToolView.vue";
 
 const props = withDefaults(defineProps<{
   personas: PersonaProfile[];
@@ -510,7 +522,6 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (e: "update:personaEditorId", value: string): void;
-  (e: "setPersonaChildAgents", value: { agentId: string; childAgentIds: string[] }): void;
   (e: "addPersona"): void;
   (e: "removeSelectedPersona"): void;
   (e: "resetPersonas"): void;
@@ -524,6 +535,81 @@ const { t } = useI18n();
 
 const inDetailMode = ref(false);
 const searchQuery = ref("");
+
+// 二级详情内的视图：资料（默认）/ 技能 / 工具。三级只负责改，概览留在二级。
+type PersonaDetailView = "profile" | "skills" | "tools";
+const detailView = ref<PersonaDetailView>("profile");
+
+const capabilitySkills = ref<SkillSummaryItem[]>([]);
+const capabilityServers = ref<McpServerConfig[]>([]);
+const capabilityBuiltinTools = ref<FrontendToolDefinition[]>([]);
+const capabilityLoading = ref(false);
+let capabilityLoaded = false;
+
+const mcpServerNameById = computed(() => {
+  const map: Record<string, string> = {};
+  for (const server of capabilityServers.value) {
+    const id = String(server.id || "").trim();
+    if (id) map[id] = String(server.name || "").trim() || id;
+  }
+  return map;
+});
+
+async function loadCapabilityData() {
+  if (capabilityLoaded || capabilityLoading.value) return;
+  capabilityLoading.value = true;
+  try {
+    const [skillResult, servers, builtinTools] = await Promise.all([
+      invokeTauri<{ skills?: SkillSummaryItem[] }>("mcp_list_skills"),
+      invokeTauri<McpServerConfig[]>("mcp_list_servers"),
+      invokeTauri<FrontendToolDefinition[]>("list_tool_catalog"),
+    ]);
+    capabilitySkills.value = (skillResult?.skills || []).filter((item) => String(item?.name || "").trim());
+    capabilityServers.value = Array.isArray(servers) ? servers : [];
+    capabilityBuiltinTools.value = Array.isArray(builtinTools) ? builtinTools : [];
+    capabilityLoaded = true;
+  } catch {
+    capabilitySkills.value = [];
+    capabilityServers.value = [];
+    capabilityBuiltinTools.value = [];
+  } finally {
+    capabilityLoading.value = false;
+  }
+}
+
+function openCapabilityView(view: "skills" | "tools") {
+  detailView.value = view;
+  void loadCapabilityData();
+}
+
+function backToProfile() {
+  detailView.value = "profile";
+}
+
+const detailReturnTitle = computed(() =>
+  detailView.value === "profile"
+    ? t("config.persona.backToList")
+    : t("config.persona.backToProfile"),
+);
+
+const detailViewLabel = computed(() =>
+  detailView.value === "tools"
+    ? t("config.persona.capability.toolTitle")
+    : t("config.persona.capability.skillTitle"),
+);
+
+function handleDetailBack() {
+  if (detailView.value === "profile") {
+    backToList();
+  } else {
+    backToProfile();
+  }
+}
+
+onMounted(() => {
+  if (props.selectedPersona) void loadCapabilityData();
+});
+
 type PersonaCategoryTab = "custom" | "preset";
 const activeCategoryTab = ref<PersonaCategoryTab>("custom");
 
@@ -625,11 +711,14 @@ function confirmDelete() {
 
 function enterPersona(persona: PersonaProfile) {
   emit("update:personaEditorId", persona.id);
+  detailView.value = "profile";
   inDetailMode.value = true;
+  void loadCapabilityData();
 }
 
 function backToList() {
   inDetailMode.value = false;
+  detailView.value = "profile";
 }
 
 function onAddPersonaClick() {
@@ -647,7 +736,6 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => {
       rows: [
         { key: "persona-name", items: [] },
         { key: "persona-avatar", items: [] },
-        { key: "persona-child-agents", items: [] },
         { key: "persona-prompt", items: [] },
       ],
     },
@@ -689,39 +777,6 @@ const privateMemoryError = ref("");
 const privateMemoryCount = ref(0);
 const privateMemoryExported = ref(false);
 const pendingDisableAgentId = ref("");
-
-const selectedChildAgentIds = computed<string[]>(() =>
-  Array.isArray(props.selectedPersona?.childAgentIds)
-    ? props.selectedPersona!.childAgentIds!.map((id) => String(id || "").trim()).filter(Boolean)
-    : [],
-);
-
-// 可作为直接下级的人格：排除用户人格、系统人格与自身。
-const childAgentCandidates = computed(() =>
-  (props.personas || []).filter((persona) => {
-    const id = String(persona.id || "").trim();
-    if (!id || id === props.selectedPersona?.id) return false;
-    if (id === "user-persona" || persona.isBuiltInUser) return false;
-    if (id === "system-persona" || persona.isBuiltInSystem) return false;
-    return true;
-  }),
-);
-
-function toggleChildAgent(agentId: string, member: boolean) {
-  const sourceAgentId = String(props.selectedPersona?.id || "").trim();
-  const targetAgentId = String(agentId || "").trim();
-  if (!sourceAgentId || !targetAgentId) return;
-  const next = new Set(selectedChildAgentIds.value);
-  if (member) {
-    next.add(targetAgentId);
-  } else {
-    next.delete(targetAgentId);
-  }
-  emit("setPersonaChildAgents", {
-    agentId: sourceAgentId,
-    childAgentIds: Array.from(next),
-  });
-}
 
 const selectedPersonaIsPreset = computed(
   () => isPresetPersona(props.selectedPersona),

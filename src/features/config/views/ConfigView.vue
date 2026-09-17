@@ -188,7 +188,6 @@
           @open-avatar-editor="openAvatarEditorForSelected"
           @import-persona-memories="$emit('importPersonaMemories', $event)"
           @save-personas="$emit('savePersonas')"
-          @set-persona-child-agents="$emit('setPersonaChildAgents', $event)"
           @convert-private-persona-to-public="$emit('convertPrivatePersonaToPublic', $event)"
         />
       </div>
@@ -585,6 +584,7 @@ const props = defineProps<{
   restoreConfigAction: () => boolean;
   lastSavedConfigJson: string;
   setStatusAction: (text: string) => void;
+  savePersonaRelations?: (updates: { agentId: string; childAgentIds: string[] }[]) => Promise<boolean>;
 }>();
 
 const emit = defineEmits<{
@@ -617,7 +617,6 @@ const emit = defineEmits<{
   (e: "removeSelectedPersona"): void;
   (e: "resetPersonas"): void;
   (e: "savePersonas"): void;
-  (e: "setPersonaChildAgents", value: { agentId: string; childAgentIds: string[] }): void;
   (e: "convertPrivatePersonaToPublic", agentId: string): void;
   (e: "importPersonaMemories", value: { agentId: string; file: File }): void;
   (e: "openConversationList"): void;

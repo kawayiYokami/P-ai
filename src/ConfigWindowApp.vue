@@ -109,6 +109,7 @@
         :restore-config-action="restoreLastSavedConfigSnapshot"
         :last-saved-config-json="lastSavedConfigJson"
         :set-status-action="setStatus"
+        :save-persona-relations="handleSavePersonaRelations"
         @update:config-tab="(value) => { configTab = value; }"
         @update:simple-setup-mode="setSimpleSetupMode"
         @update:ui-language="setUiLanguage"
@@ -137,7 +138,6 @@
         @remove-selected-persona="removeSelectedPersona"
         @reset-personas="loadPersonas"
         @save-personas="savePersonas"
-        @set-persona-child-agents="handleSetPersonaChildAgents"
         @convert-private-persona-to-public="convertPrivatePersonaToPublic"
         @import-persona-memories="importPersonaMemories"
         @open-conversation-list="openConversationList"
@@ -747,7 +747,7 @@ const {
   addApiConfig,
   removeSelectedApiConfig,
   addPersona,
-  setPersonaChildAgents,
+  setPersonaChildAgentsBatch,
   removeSelectedPersona,
 } = useConfigEditors({
   t: tr,
@@ -904,17 +904,17 @@ function updatePersonaEditorIdWithNotice(value: string) {
   personaEditorId.value = nextId;
 }
 
-async function handleSetPersonaChildAgents(payload: { agentId: string; childAgentIds: string[] }) {
-  const result = await setPersonaChildAgents(payload);
-  if (result.status === "failed") {
-    setStatus(tr("config.persona.childAgentsUpdateFailed"));
-    return;
+/** 人格上下级关系的批量保存：把有变更的下级一次性写回，返回是否成功。 */
+async function handleSavePersonaRelations(
+  updates: { agentId: string; childAgentIds: string[] }[],
+): Promise<boolean> {
+  const ok = await setPersonaChildAgentsBatch({ updates });
+  if (!ok) {
+    setStatus(tr("config.persona.saveRelationsFailed"));
+    return false;
   }
-  if (result.status === "applied") {
-    setStatus(tr("config.persona.childAgentsUpdateSuccess"));
-  }
-  // unchanged / rejected 不提示；overridden 表示请求的状态没落地（后端自修复），
-  // 那条说明已由保存链路写进状态栏，这里不得覆盖。
+  setStatus(tr("config.persona.saveRelationsSuccess"));
+  return true;
 }
 
 function updateInstructionPresets(value: PromptCommandPreset[]) {

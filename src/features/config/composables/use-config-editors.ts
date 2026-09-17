@@ -20,15 +20,6 @@ type UseConfigEditorsOptions = {
   saveConfig: () => Promise<boolean>;
 };
 
-export type PersonaChildAgentsUpdateStatus =
-  | "applied"
-  | "unchanged"
-  | "overridden"
-  | "failed"
-  | "rejected";
-
-export type PersonaChildAgentsUpdateResult = { status: PersonaChildAgentsUpdateStatus };
-
 export function useConfigEditors(options: UseConfigEditorsOptions) {
   function firstActiveApiConfigId(): string {
     for (const provider of options.config.apiProviders || []) {
@@ -142,44 +133,50 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
   }
 
   /**
-   * 改写某个人格的直属下级人格，立即落盘。
-   * 私有人格由私有工作区文件维护，不在这里改。
-   *
-   * 返回结构化结果：保存会做归一化，用户请求的状态不一定原样落地，
-   * 调用方必须能区分，不能一律当成已生效。
+   * 批量改写多个人格的直属下级，一次落盘。
+   * 组织页是草稿式编辑（勾选/连线先落本地草稿），保存时把有变更的人格一次性写回，
+   * 避免逐个人格各触发一次 personas 落盘。失败时整体回滚。
    */
-  async function setPersonaChildAgents(input: {
-    agentId: string;
-    childAgentIds: string[];
-  }): Promise<PersonaChildAgentsUpdateResult> {
-    const agentId = String(input?.agentId || "").trim();
-    if (!agentId) return { status: "rejected" };
-    const persona = options.personas.value.find(
-      (item) => String(item.id || "").trim() === agentId,
-    );
-    if (!persona) return { status: "rejected" };
-    const next = Array.from(
-      new Set((input.childAgentIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
-    );
-    const previous = Array.isArray(persona.childAgentIds) ? [...persona.childAgentIds] : [];
-    const sameLength = previous.length === next.length;
-    if (sameLength && previous.every((id, index) => id === next[index])) {
-      return { status: "unchanged" };
+  async function setPersonaChildAgentsBatch(input: {
+    updates: { agentId: string; childAgentIds: string[] }[];
+  }): Promise<boolean> {
+    const normalized = (input?.updates || [])
+      .map((item) => ({
+        agentId: String(item?.agentId || "").trim(),
+        childAgentIds: Array.from(
+          new Set((item?.childAgentIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
+        ),
+      }))
+      .filter((item) => !!item.agentId);
+    if (normalized.length === 0) return true;
+
+    const snapshot = new Map<string, string[]>();
+    let applied = 0;
+    for (const update of normalized) {
+      const persona = options.personas.value.find(
+        (item) => String(item.id || "").trim() === update.agentId,
+      );
+      if (!persona) continue;
+      snapshot.set(
+        update.agentId,
+        Array.isArray(persona.childAgentIds) ? [...persona.childAgentIds] : [],
+      );
+      persona.childAgentIds = update.childAgentIds;
+      applied += 1;
     }
-    persona.childAgentIds = next;
+    if (applied === 0) return true;
+
     const saved = await options.savePersonas();
     if (!saved) {
-      persona.childAgentIds = previous;
-      return { status: "failed" };
+      for (const [agentId, previous] of snapshot) {
+        const persona = options.personas.value.find(
+          (item) => String(item.id || "").trim() === agentId,
+        );
+        if (persona) persona.childAgentIds = previous;
+      }
+      return false;
     }
-    const savedPersona = options.personas.value.find(
-      (item) => String(item.id || "").trim() === agentId,
-    );
-    const applied = Array.isArray(savedPersona?.childAgentIds)
-      ? savedPersona.childAgentIds.map((id) => String(id || "").trim())
-      : [];
-    const appliedSame = applied.length === next.length && applied.every((id, index) => id === next[index]);
-    return { status: appliedSame ? "applied" : "overridden" };
+    return true;
   }
 
   function removeSelectedPersona() {
@@ -198,7 +195,7 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     addApiConfig,
     removeSelectedApiConfig,
     addPersona,
-    setPersonaChildAgents,
+    setPersonaChildAgentsBatch,
     removeSelectedPersona,
   };
 }
