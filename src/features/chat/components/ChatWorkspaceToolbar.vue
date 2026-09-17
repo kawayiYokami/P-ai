@@ -1,7 +1,7 @@
 <template>
   <div
     v-bind="attrs"
-    class="rounded-box border border-base-300 bg-base-100/55 px-2 py-1.5 shadow backdrop-blur-md backdrop-saturate-150 flex flex-wrap items-center gap-2 text-xs"
+    class="rounded-box border border-base-300 bg-base-100/55 px-2 py-1.5 shadow backdrop-blur-md backdrop-saturate-150 flex flex-wrap items-center text-xs"
   >
     <Transition
       enter-active-class="transition duration-200 ease-out"
@@ -223,7 +223,7 @@
       />
 
       <!-- 右侧组：监控与 @ 放在同一个靠右容器里。两个 auto margin 会把剩余空白撕成两半，中间就空了 -->
-      <div class="ml-auto flex min-w-0 items-center gap-2">
+      <div class="ml-auto flex min-w-0 items-center">
         <SessionMonitorPill
           :delegates="delegateStatuses || []"
           :running-task-count="runningTaskCount"
