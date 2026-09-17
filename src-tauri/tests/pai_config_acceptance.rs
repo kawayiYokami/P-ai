@@ -141,7 +141,6 @@ fn sample_agents_json() -> &'static str {
 fn run_cli(root: &Path, args: &[&str]) -> String {
     let args = args.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
     pai_config_tool::run_with_paths(
-        root.to_path_buf(),
         root.join("app_config.toml"),
         root.join("config_mark"),
         root.join("llm-workspace"),
@@ -153,7 +152,6 @@ fn run_cli(root: &Path, args: &[&str]) -> String {
 fn run_cli_err(root: &Path, args: &[&str]) -> String {
     let args = args.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
     pai_config_tool::run_with_paths(
-        root.to_path_buf(),
         root.join("app_config.toml"),
         root.join("config_mark"),
         root.join("llm-workspace"),

@@ -289,7 +289,6 @@ struct McpToolPolicy {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CliContext {
-    app_root: PathBuf,
     config_path: PathBuf,
     data_path: PathBuf,
     workspace_root: PathBuf,
@@ -303,14 +302,12 @@ pub fn run_cli(args: &[String]) -> Result<String, String> {
 
 #[allow(dead_code)]
 pub fn run_with_paths(
-    app_root: PathBuf,
     config_path: PathBuf,
     data_path: PathBuf,
     workspace_root: PathBuf,
     args: &[String],
 ) -> Result<String, String> {
     let ctx = CliContext {
-        app_root,
         config_path,
         data_path,
         workspace_root,
@@ -320,14 +317,13 @@ pub fn run_with_paths(
 
 #[allow(dead_code)]
 pub fn run_command_with_paths(
-    app_root: PathBuf,
     config_path: PathBuf,
     data_path: PathBuf,
     workspace_root: PathBuf,
     command: &str,
 ) -> Result<String, String> {
     let args = split_command_line(command)?;
-    run_with_paths(app_root, config_path, data_path, workspace_root, &args)
+    run_with_paths(config_path, data_path, workspace_root, &args)
 }
 
 fn run_with_context(ctx: &CliContext, args: &[String]) -> Result<String, String> {
@@ -535,7 +531,6 @@ impl CliContext {
                 config_path: app_root.join("app_config.toml"),
                 data_path: app_root.join("config_mark"),
                 workspace_root: app_root.join("llm-workspace"),
-                app_root,
             });
         }
 
@@ -545,17 +540,14 @@ impl CliContext {
                 config_path: config_dir.join("app_config.toml"),
                 data_path: config_dir.join("config_mark"),
                 workspace_root: portable_root.join("llm-workspace"),
-                app_root: portable_root,
             });
         }
 
         let config_dir = resolve_standard_config_dir()?;
-        let app_root = config_dir.clone();
         Ok(Self {
             config_path: config_dir.join("app_config.toml"),
             data_path: config_dir.join("config_mark"),
-            workspace_root: app_root.join("llm-workspace"),
-            app_root,
+            workspace_root: config_dir.join("llm-workspace"),
         })
     }
 }
@@ -2202,7 +2194,9 @@ fn save_avatar_file(ctx: &CliContext, agent_id: &str, image_path: &Path) -> Resu
     if ext != "png" && ext != "webp" {
         return Err("头像目前只支持 .png 或 .webp".to_string());
     }
-    let avatars_dir = ctx.app_root.join("avatars");
+    // 头像与运行时读取共用同一个数据根：安装版下配置目录只是数据根的一层子目录，
+    // 直接拿配置目录拼头像目录会写到一个运行时不会去读的位置。
+    let avatars_dir = app_root_from_cli_data_path(&ctx.data_path).join("avatars");
     fs::create_dir_all(&avatars_dir)
         .map_err(|err| format!("创建头像目录失败 ({}): {err}", avatars_dir.display()))?;
     let target = avatars_dir.join(format!("agent-{}.{}", sanitize_file_id(agent_id), ext));
@@ -2549,7 +2543,6 @@ scope = "global"
         let root = test_root();
         seed_app(&root);
         let output = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2573,7 +2566,6 @@ scope = "global"
         let root = test_root();
         seed_app(&root);
         let output = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config").join("config_mark"),
             root.join("llm-workspace"),
@@ -2589,7 +2581,6 @@ scope = "global"
         let root = test_root();
         seed_app(&root);
         let output = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2608,7 +2599,6 @@ scope = "global"
         let root = test_root();
         seed_app(&root);
         let output = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2620,7 +2610,6 @@ scope = "global"
         assert!(agent_id.starts_with("agent-"));
 
         let output = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2645,7 +2634,6 @@ scope = "global"
         fs::copy(root.join("config_mark"), actual_data_root.join("config_mark")).ok();
 
         let output = run_command_with_paths(
-            wrong_app_root.clone(),
             actual_data_root.join("app_config.toml"),
             actual_data_root.join("config_mark"),
             wrong_app_root.join("llm-workspace"),
@@ -2662,13 +2650,33 @@ scope = "global"
     }
 
     #[test]
+    fn agent_avatar_should_write_into_data_root_instead_of_config_dir() {
+        let root = test_root();
+        seed_app(&root);
+        let config_dir = root.join("config");
+        let image = root.join("avatar-source.png");
+        fs::write(&image, b"fake-png-bytes").expect("write source image");
+
+        let output = run_command_with_paths(
+            root.join("app_config.toml"),
+            config_dir.join("config_mark"),
+            root.join("llm-workspace"),
+            &format!("agent avatar agent-a {}", image.display()),
+        )
+        .expect("set avatar");
+        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
+        assert_eq!(value["avatarPath"], "avatars/agent-agent-a.png");
+        assert!(root.join("avatars").join("agent-agent-a.png").is_file());
+        assert!(!config_dir.join("avatars").exists());
+    }
+
+    #[test]
     fn agent_ls_and_get_should_hide_preset_agents() {
         let root = test_root();
         seed_app(&root);
         append_preset_agent_and_department(&root);
 
         let output = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2680,7 +2688,6 @@ scope = "global"
         assert!(agents.iter().all(|item| item["id"] != "user"));
 
         let err = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2696,7 +2703,6 @@ scope = "global"
         seed_app(&root);
         let export_path = root.join("agent-export.json");
         let output = run_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2720,7 +2726,6 @@ scope = "global"
         let command = format!("agent export agent-a {}", export_path.display());
 
         let output = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2738,7 +2743,6 @@ scope = "global"
         seed_app(&root);
         let export_path = root.join("agent-diff.json");
         run_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2755,7 +2759,6 @@ scope = "global"
         write_json_file(&export_path, &agent).expect("write updated agent");
 
         let output = run_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2780,7 +2783,6 @@ scope = "global"
         seed_app(&root);
         let exported = root.join("provider.json");
         run_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2796,7 +2798,6 @@ scope = "global"
         provider.name = "Provider Renamed".to_string();
         write_json_file(&exported, &provider).expect("write exported provider");
         let output = run_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2819,7 +2820,6 @@ scope = "global"
         let root = test_root();
         seed_app(&root);
         let err = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2849,7 +2849,6 @@ scope = "global"
         .expect("write mcp server");
 
         let output = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2897,7 +2896,6 @@ level = "system"
         .expect("write mcp server");
 
         let output = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -2959,7 +2957,6 @@ level = "system"
         seed_two_agents(&root);
         let run = |command: &str| {
             run_command_with_paths(
-                root.clone(),
                 root.join("app_config.toml"),
                 root.join("config_mark"),
                 root.join("llm-workspace"),
@@ -3008,7 +3005,6 @@ level = "system"
         let root = test_root();
         seed_two_agents(&root);
         let err = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -3023,7 +3019,6 @@ level = "system"
         let root = test_root();
         seed_two_agents(&root);
         run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -3050,7 +3045,6 @@ level = "system"
         let root = test_root();
         seed_two_agents(&root);
         let err = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -3066,7 +3060,6 @@ level = "system"
         seed_two_agents(&root);
         let run = |command: &str| {
             run_command_with_paths(
-                root.clone(),
                 root.join("app_config.toml"),
                 root.join("config_mark"),
                 root.join("llm-workspace"),
@@ -3101,7 +3094,6 @@ level = "system"
         )
         .expect("write SKILL.md");
         let output = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),
@@ -3120,7 +3112,6 @@ level = "system"
         let root = test_root();
         seed_app(&root);
         let output = run_command_with_paths(
-            root.clone(),
             root.join("app_config.toml"),
             root.join("config_mark"),
             root.join("llm-workspace"),

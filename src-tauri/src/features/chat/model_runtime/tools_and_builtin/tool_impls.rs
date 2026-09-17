@@ -557,22 +557,9 @@ impl RuntimeValueTool for BuiltinConfigTool {
                 "[工具调试] 内置工具执行开始 name=config args={}",
                 debug_value_snippet(&args_value, 240)
             ));
-            let app_root = self
-                .app_state
-                .llm_workspace_path
-                .parent()
-                .map(|path| path.to_path_buf())
-                .unwrap_or_else(|| {
-                    self.app_state
-                        .config_path
-                        .parent()
-                        .unwrap_or(std::path::Path::new(""))
-                        .to_path_buf()
-                });
             let runtime_effect =
                 config_tool_runtime_effect_for_command(&self.app_state, &args.command);
             let output = pai_config_tool::run_command_with_paths(
-                app_root,
                 self.app_state.config_path.clone(),
                 self.app_state.data_path.clone(),
                 configured_workspace_root_path(&self.app_state)
