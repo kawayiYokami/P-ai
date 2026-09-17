@@ -682,6 +682,8 @@ const {
   onExternalChange,
   acquirePanel,
   releasePanel,
+  rememberRepoRoot,
+  readRememberedRepoRoot,
 } = useWorkspaceGitStatus();
 
 // 当前仓库名（仓库栏折叠条标题）：repoRoot 最后一段
@@ -937,8 +939,13 @@ async function loadDiscover(force = false) {
     detectChecked.value = !!result.checked;
     repos.value = result.repos || [];
     reposLoaded.value = true;
-    // 默认仓库交给共享状态源，面板自身跟随
-    setRepoRoot(result.defaultRepoRoot || "");
+    // 仓库根交给共享状态源，面板自身跟随：优先恢复这个会话上次选中的仓库
+    // （探测出的默认仓库是当前工作区自身所在的仓库，直接采用会把用户的选择顶掉）
+    const rememberedRoot = readRememberedRepoRoot(
+      String(props.sessionKey || "").trim(),
+      (result.repos || []).map((repo) => repo.path),
+    );
+    setRepoRoot(rememberedRoot || String(result.defaultRepoRoot || ""));
     detectError.value =
       result.error ||
       (!result.gitAvailable
@@ -985,6 +992,8 @@ function switchRepo(path: string) {
   lastBranchesLoad.value = 0;
   // 仓库根切换、更改数据清空与 status 冷却重置都在共享状态源里统一处理
   setRepoRoot(path);
+  // 记住这次选择：面板重挂、手动刷新仓库栏、切会话回来都按它恢复
+  rememberRepoRoot(String(props.sessionKey || "").trim(), path);
   ensureVisibleData();
 }
 

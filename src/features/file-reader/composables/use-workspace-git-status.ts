@@ -78,6 +78,64 @@ export function isSameRepoPath(a: string, b: string): boolean {
   return !!left && !!right && left === right;
 }
 
+// ==================== 会话级仓库选择记忆 ====================
+// 探测出的默认仓库是「当前工作区自身所在的仓库」，直接写进共享状态会把用户在这个
+// 会话里选中的其他仓库顶掉（面板重挂、手动刷新仓库栏、切会话回来都会发生）。
+// 所以把选中结果按会话记住，恢复时用同一次探测到的仓库列表校验，列表里没有就回落默认。
+function repoMemoryStorage(): Storage | null {
+  return (globalThis as { localStorage?: Storage }).localStorage ?? null;
+}
+
+function repoMemoryStorageKey(sessionKey: string): string {
+  const key = String(sessionKey || "").trim();
+  return key ? `${key}:git-panel-repo` : "";
+}
+
+/** 记住某会话选中的仓库根；sessionKey 为空时不做任何事 */
+export function rememberRepoRoot(sessionKey: string, root: string): void {
+  const storageKey = repoMemoryStorageKey(sessionKey);
+  const value = String(root || "").trim();
+  if (!storageKey || !value) return;
+  const storage = repoMemoryStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(storageKey, value);
+  } catch {
+    // 写入失败忽略：记忆只是偏好，丢了不影响当前会话
+  }
+}
+
+/**
+ * 取某会话记住的仓库根，并用本次探测到的仓库列表校验。
+ * - 命中列表：返回列表里的那份路径（用后端规范化结果）
+ * - 列表非空但没命中：说明该仓库已不在当前工作区，清掉记忆并返回空
+ * - 列表为空：保留记忆并返回空（探测可能尚未就绪，不做破坏性清理）
+ */
+export function readRememberedRepoRoot(sessionKey: string, availableRoots: string[]): string {
+  const storageKey = repoMemoryStorageKey(sessionKey);
+  if (!storageKey) return "";
+  const storage = repoMemoryStorage();
+  if (!storage) return "";
+  let saved = "";
+  try {
+    saved = String(storage.getItem(storageKey) || "").trim();
+  } catch {
+    return "";
+  }
+  if (!saved) return "";
+  const roots = (availableRoots || []).map((root) => String(root || "").trim()).filter(Boolean);
+  const matched = roots.find((root) => isSameRepoPath(root, saved));
+  if (matched) return matched;
+  if (roots.length > 0) {
+    try {
+      storage.removeItem(storageKey);
+    } catch {
+      // 清理失败忽略：下次探测仍会走一次校验
+    }
+  }
+  return "";
+}
+
 // ==================== 状态读写 ====================
 function clearStatus() {
   statusEntries.value = [];
@@ -189,16 +247,24 @@ async function loadRecentCommits() {
   }
 }
 
-/** 按当前工作区探测默认仓库根（走后端缓存，不强制重扫） */
-async function discoverRepoRoot(workspacePath: string): Promise<string> {
+/**
+ * 按当前工作区探测默认仓库根（走后端缓存，不强制重扫）。
+ * 一并返回本次探测到的仓库列表：消费方用它校验按会话记住的仓库是否还在。
+ */
+async function discoverRepoRoot(
+  workspacePath: string,
+): Promise<{ defaultRepoRoot: string; repoPaths: string[] }> {
   const workspace = String(workspacePath || "").trim();
-  if (!workspace) return "";
+  if (!workspace) return { defaultRepoRoot: "", repoPaths: [] };
   try {
     const result = await gitPanelDiscover(workspace, false);
-    return String(result?.defaultRepoRoot || "");
+    return {
+      defaultRepoRoot: String(result?.defaultRepoRoot || ""),
+      repoPaths: (result?.repos || []).map((repo) => String(repo?.path || "")).filter(Boolean),
+    };
   } catch (error) {
     console.warn("[Git状态] 探测默认仓库失败", error);
-    return "";
+    return { defaultRepoRoot: "", repoPaths: [] };
   }
 }
 
@@ -309,6 +375,8 @@ export function useWorkspaceGitStatus() {
     loadStatus,
     loadRecentCommits,
     discoverRepoRoot,
+    rememberRepoRoot,
+    readRememberedRepoRoot,
     onExternalChange,
     acquire,
     release,

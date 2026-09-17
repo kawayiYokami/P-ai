@@ -2811,6 +2811,7 @@ const {
   recentCommits: homeGitRecentCommitsRef,
   repoRoot: homeGitRepoRoot,
   discoverRepoRoot: discoverHomeGitRepoRoot,
+  readRememberedRepoRoot: readHomeGitRepoMemory,
   acquire: acquireHomeGitStatus,
   release: releaseHomeGitStatus,
   isPanelActive: isHomeGitPanelActive,
@@ -2860,6 +2861,8 @@ let homeGitWorkspaceKey = "";
  * 卡片墙的仓库来源：Git 面板在场时完全跟随面板（它负责选定仓库与刷新）；
  * 面板不在场时按当前会话工作区解析默认仓库——切会话或换工作区要重解析，
  * 仅切换右栏模式则保留面板最后选中的仓库，避免切回来又跳回默认仓库。
+ * 解析结果不直接用：先查这个会话是否记住过别的仓库（同一个 sessionKey 由面板写入），
+ * 记住的仓库仍在本次探测到的列表里就用它，否则才回落默认仓库。
  */
 async function syncHomeGitRepo() {
   if (isHomeGitPanelActive()) return;
@@ -2867,11 +2870,16 @@ async function syncHomeGitRepo() {
   const workspaceChanged = workspace !== homeGitWorkspaceKey;
   homeGitWorkspaceKey = workspace;
   if (!workspaceChanged) return;
-  const root = await discoverHomeGitRepoRoot(workspace);
+  const discovered = await discoverHomeGitRepoRoot(workspace);
   if (!homeGitConsuming) return;
   // 解析期间会话/工作区可能已经切走，过期结果直接丢弃，
   // 否则慢返回的那次会把另一个会话的仓库写进共享状态（卡片墙与 Git 面板共用同一份）
   if (homeGitWorkspaceKey !== workspace) return;
+  const rememberedRoot = readHomeGitRepoMemory(
+    String(chatFileReaderSessionKey.value || "").trim(),
+    discovered.repoPaths,
+  );
+  const root = rememberedRoot || discovered.defaultRepoRoot;
   setHomeGitRepoRoot(root);
   if (root) void loadHomeGitStatus();
 }
