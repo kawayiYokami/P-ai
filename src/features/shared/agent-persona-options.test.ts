@@ -56,4 +56,14 @@ describe("buildAgentPersonaOptions", () => {
     const options = buildAgentPersonaOptions({ personas: withUser, apiConfigs });
     expect(options.map((option) => option.agentId)).toEqual(["alice", "bob"]);
   });
+
+  it("skips the built-in system personas", () => {
+    const withSystem = [
+      { id: "deputy", name: "副手", isBuiltInSystem: true },
+      { id: "system-persona", name: "pai system" },
+      ...personas,
+    ] as PersonaProfile[];
+    const options = buildAgentPersonaOptions({ personas: withSystem, apiConfigs });
+    expect(options.map((option) => option.agentId)).toEqual(["alice", "bob"]);
+  });
 });

@@ -66,6 +66,8 @@ export function buildAgentPersonaOptions(input: BuildAgentPersonaOptionsInput): 
     const agentId = trimText(persona.id);
     if (!agentId) continue;
     if (persona.isBuiltInUser || agentId === "user-persona") continue;
+    // 内置系统人格（pai system、副手）不作为会话对象出现，口径与配置页人格列表一致。
+    if (persona.isBuiltInSystem || agentId === "system-persona") continue;
     const apiConfigId = agentConversationApiConfigId(persona, input);
     const apiConfig = apiConfigId ? apiConfigs.get(apiConfigId) : null;
     const agentName = trimText(persona.name) || agentId;
