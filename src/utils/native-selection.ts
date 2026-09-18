@@ -2,15 +2,28 @@ const INSTALL_KEY = "__easyCallNativeSelectionGuardInstalled";
 const DIALOG_PATCH_KEY = "__easyCallNativeSelectionDialogPatched";
 const DIALOG_OBSERVER_KEY = "__easyCallNativeSelectionDialogObserver";
 
-const EXPLICIT_OPEN_TRIGGER_SELECTOR = "[data-clear-selection-before-open]";
+// WebView2 在「原生文本被选中」时点击交互元素或打开弹层会走进崩溃/未响应路径，
+// 触发前先把原生选区清掉。这里只收会切换页面状态或弹层的交互元素，文本型输入
+// 由 EDITABLE_SELECTOR 排除在外。
+export const INTERACTIVE_TRIGGER_SELECTOR = [
+  "button",
+  "summary",
+  "[role='button']",
+  "a[href]",
+  "input[type='button']",
+  "input[type='submit']",
+  "input[type='reset']",
+].join(",");
 
-const EDITABLE_SELECTOR = [
+export const EDITABLE_SELECTOR = [
   "textarea",
   "select",
   "option",
   "input:not([type='button']):not([type='submit']):not([type='reset'])",
   "[contenteditable]:not([contenteditable='false'])",
 ].join(",");
+
+const PRESERVE_SELECTOR = "[data-preserve-native-selection]";
 
 type GuardedWindow = Window & typeof globalThis & {
   [INSTALL_KEY]?: boolean;
@@ -29,11 +42,20 @@ export function clearNativeTextSelection() {
   }
 }
 
-function shouldClearSelectionForTarget(target: EventTarget | null): boolean {
+function labelControlIsEditable(label: Element): boolean {
+  const control = (label as HTMLLabelElement).control;
+  return !!control && control.matches(EDITABLE_SELECTOR);
+}
+
+export function shouldClearSelectionForTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  if (target.closest("[data-preserve-native-selection]")) return false;
+  if (target.closest(PRESERVE_SELECTOR)) return false;
   if (target.closest(EDITABLE_SELECTOR)) return false;
-  return !!target.closest(EXPLICIT_OPEN_TRIGGER_SELECTOR);
+  // label 常包裹或关联输入控件，点击它会 focus 关联控件，属于「清选区反而干扰输入」
+  // 的误伤来源，因此只在它没有关联可编辑控件时才清。
+  const label = target.closest("label");
+  if (label) return !labelControlIsEditable(label);
+  return !!target.closest(INTERACTIVE_TRIGGER_SELECTOR);
 }
 
 function clearBeforeInteractiveAction(event: Event) {
