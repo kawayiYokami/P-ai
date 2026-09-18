@@ -235,6 +235,7 @@
               :running-shell-count="runningShellCount"
               :mention-entries="mentionEntries"
               :selected-mentions="selectedMentions"
+              :show-timeline-slot="canShowTimeline"
               @lock-workspace="$emit('lockWorkspace')" @open-branch-selection="openBranchSelectionMenu"
               @open-task-create="openTaskCreateDialog"
               @open-delegate-selection="openDelegateSelectionMenu" @open-forward-selection="openForwardSelectionMenu"
@@ -242,7 +243,6 @@
               @open-share-selection="openShareSelectionMenu"
               @open-conversation-in-browser="openActiveConversationInBrowser"
               @open-run-summary="openRunSummaryPanel"
-              @open-timeline="openTimelinePanel"
               @open-code-review="openCodeReviewDialog"
               @open-branch-from-current="openBranchFromCurrentMessage"
               @open-side-chat="selectChatRightPanelMode('sideChat')"
@@ -251,9 +251,10 @@
             />
           </div>
         </div>
-        <!-- 上排：离底时出现（预览条 + 时间线按钮），始终位于工作区 bar 上方 -->
+        <!-- 上排：离底时出现（预览条 + 时间线按钮）。它压在操作条之上（DOM 顺序在后，同 z 即胜出）：
+             时间线按钮两排共用一个，贴底时它仍要能点到，不能被操作条盖住 -->
         <div
-          class="pointer-events-none absolute inset-x-0 bottom-0"
+          class="pointer-events-none absolute inset-x-0 bottom-0 z-20"
         >
         <div class="flex w-full items-end justify-between gap-2 px-4">
           <div class="pointer-events-none min-w-0 flex-1">
@@ -281,7 +282,8 @@
             >
               <ArrowDownToLine class="h-4 w-4 shrink-0" :stroke-width="2.5" />
             </button>
-            <!-- 时间线按钮：悬停即在原位向上展开蛇形时间线；蛇形起点后面挂一个预览点，点它打开垂直面板 -->
+            <!-- 时间线按钮：两排共用一个，常驻在这里，只随排切换底座、不随排重建。
+                 离底那排悬停即在原位向上展开蛇形时间线；贴底时它就是操作条里的那个按钮，点一下直接开概览 -->
             <div ref="sessionTopTimelineBoxRef" class="relative flex h-10 shrink-0 items-center">
               <TimelineSnakeBoard
                 :visible="timelineFloatPanelVisible"
@@ -298,15 +300,15 @@
                 @preview="openTimelinePanel"
               />
               <button
-                v-if="timelineButtonVisible"
+                v-if="timelineEntryButtonVisible"
                 ref="timelineFloatButtonRef"
                 type="button"
-                :class="[SESSION_FLOAT_FROST_CIRCLE, timelineFloatPanelVisible ? 'invisible' : 'pointer-events-auto']"
+                :class="[timelineEntryButtonClass, timelineFloatPanelVisible ? 'invisible' : 'pointer-events-auto']"
                 :aria-label="t('chat.timelineButtonAria')"
                 :aria-expanded="timelineFloatPanelVisible ? 'true' : 'false'"
                 @mouseenter="handleTimelineFloatEnter"
                 @mouseleave="handleTimelineButtonLeave"
-                @click="handleTimelineButtonClick"
+                @click="handleTimelineEntryButtonClick"
               >
                 <Route class="h-4 w-4 shrink-0" />
               </button>
@@ -843,7 +845,7 @@ import ChatQuestionPanel from "../components/ChatQuestionPanel.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import ChatThinkingPreviewBar from "../components/ChatThinkingPreviewBar.vue";
 import TimelineSnakeBoard from "../components/TimelineSnakeBoard.vue";
-import { SESSION_FLOAT_FROST_CIRCLE } from "../components/session-float-styles";
+import { SESSION_FLOAT_FROST_CIRCLE, SESSION_GHOST_CIRCLE } from "../components/session-float-styles";
 import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyDashboard.vue";
 import AgentPersonaSelect from "../../shared/components/AgentPersonaSelect.vue";
 import FileLinkContextMenu from "../../shared/components/FileLinkContextMenu.vue";
@@ -2130,6 +2132,13 @@ const timelinePanelOpen = ref(false);
 const timelineButtonVisible = computed(() =>
   canShowTimeline.value && !timelinePanelOpen.value && displayedSessionRow.value === "top",
 );
+// 按钮本身：两排共用一个，常驻不重建，切换时只换底座——离底那排是不透明圆钮，贴底时并入操作条走 ghost
+const timelineEntryButtonVisible = computed(() =>
+  canShowTimeline.value && !timelinePanelOpen.value,
+);
+const timelineEntryButtonClass = computed(() =>
+  displayedSessionRow.value === "toolbar" ? SESSION_GHOST_CIRCLE : SESSION_FLOAT_FROST_CIRCLE,
+);
 const timelineFloatPanelVisible = computed(() => timelineFloatOpen.value && timelineButtonVisible.value);
 
 function clearTimelineFloatOpenTimer() {
@@ -2185,6 +2194,15 @@ function handleTimelineButtonClick() {
   clearTimelineFloatCloseTimer();
   if (!timelineButtonVisible.value) return;
   timelineFloatOpen.value = true;
+}
+function handleTimelineEntryButtonClick() {
+  // 贴底时这个按钮就是操作条里的那个：点一下直接开概览，不必先展开蛇板；
+  // 离底那排沿用原来的「钉住蛇板」语义
+  if (displayedSessionRow.value === "toolbar") {
+    openTimelinePanel();
+    return;
+  }
+  handleTimelineButtonClick();
 }
 function handleTimelineFloatDocumentPointerDown(event: MouseEvent | TouchEvent) {
   if (!timelineFloatPanelVisible.value) return;
@@ -2516,9 +2534,9 @@ watch(
 
 onBeforeUnmount(clearSessionRowSwitchTimer);
 
-// 上排右侧竖列（回到底部 + 时间线）整体位移，使时间线按钮与下排操作条里的那个位置重合：
-// 两排互斥出现，重合后切换状态时按钮不跳动。偏移量只能运行时测——操作条内容换行、
-// 工作区名变长都会移动按钮位置，固定像素对不上。
+// 上排右侧竖列（回到底部 + 时间线）整体位移，使时间线按钮正好落在操作条右侧那个占位上：
+// 按钮两排共用一个，位置对齐后切换状态时它一动不动。偏移量只能运行时测——操作条内容换行、
+// 工作区名变长都会移动那个占位，固定像素对不上。
 const sessionTopColumnRef = ref<HTMLElement | null>(null);
 const sessionTopTimelineBoxRef = ref<HTMLElement | null>(null);
 let sessionTopColumnResizeObserver: ResizeObserver | null = null;
@@ -2532,9 +2550,9 @@ function updateSessionTopColumnOffset() {
   const toolbarEl = toolbarContainer.value;
   const timelineBox = sessionTopTimelineBoxRef.value;
   if (!toolbarEl || !timelineBox) return;
-  const toolbarButton = toolbarEl.querySelector<HTMLElement>("[data-toolbar-timeline-button]");
-  if (!toolbarButton) return;
-  const targetRect = toolbarButton.getBoundingClientRect();
+  const slot = toolbarEl.querySelector<HTMLElement>("[data-toolbar-timeline-slot]");
+  if (!slot) return;
+  const targetRect = slot.getBoundingClientRect();
   const boxRect = timelineBox.getBoundingClientRect();
   if (targetRect.width <= 0 || boxRect.width <= 0) return;
   const applied = sessionTopColumnOffset.value;
@@ -2552,6 +2570,10 @@ function observeSessionTopColumnOffset() {
 }
 
 watch(displayedSessionRow, () => {
+  void nextTick().then(updateSessionTopColumnOffset);
+});
+// 操作条右侧那个占位随 canShowTimeline 出现/消失，右侧组会跟着挪位，靠它把偏移重算回来
+watch(canShowTimeline, () => {
   void nextTick().then(updateSessionTopColumnOffset);
 });
 watch(toolbarContainer, () => {

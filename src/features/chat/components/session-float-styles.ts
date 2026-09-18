@@ -21,5 +21,8 @@ export const SESSION_FLOAT_FROST_CIRCLE = `${FROST_BASE} btn-circle shrink-0 hov
 const GHOST_BASE = "btn btn-sm btn-ghost";
 export const SESSION_GHOST_PILL = `${GHOST_BASE} shrink min-w-0 font-normal disabled:cursor-not-allowed disabled:opacity-50`;
 
+// 圆钮落在工作条里时的形态：与条内其他按钮同为 ghost，不画底色与描边
+export const SESSION_GHOST_CIRCLE = `${GHOST_BASE} btn-circle shrink-0`;
+
 // 预览卡元素：思维链预览条等
 export const SESSION_FLOAT_FROST_CARD = `w-fit min-w-0 max-w-full cursor-pointer rounded-2xl px-3 py-2 text-left text-xs ${FROST_SURFACE}`;

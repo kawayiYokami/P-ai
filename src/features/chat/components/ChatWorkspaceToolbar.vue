@@ -230,16 +230,14 @@
           :running-shell-count="runningShellCount"
           @open-run-summary="emit('openRunSummary')"
         />
-        <button
-          type="button"
-          data-toolbar-timeline-button
-          class="btn btn-sm btn-ghost btn-circle shrink-0"
-          :title="t('chat.timelineButtonAria')"
-          :aria-label="t('chat.timelineButtonAria')"
-          @click="emit('openTimeline')"
-        >
-          <Route class="h-4 w-4 shrink-0" />
-        </button>
+        <!-- 时间线按钮的占位：真正的按钮常驻在上排竖列里（两排共用一个，切换时不重建），
+             这里只占住它在条内的位置——一是让右侧组不因按钮移走而移位，二是给上排按钮留对齐锚点 -->
+        <span
+          v-if="showTimelineSlot"
+          data-toolbar-timeline-slot
+          class="h-8 w-8 shrink-0"
+          aria-hidden="true"
+        ></span>
       </div>
   </div>
 </template>
@@ -247,7 +245,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useAttrs, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { BellRing, ClipboardCheck, ClipboardList, GitBranch, GitBranchPlus, Grip, ListTodo, MessageSquareMore, Package, Palette, Route, Send, Share2, Split, Users } from "@lucide/vue";
+import { BellRing, ClipboardCheck, ClipboardList, GitBranch, GitBranchPlus, Grip, ListTodo, MessageSquareMore, Package, Palette, Send, Share2, Split, Users } from "@lucide/vue";
 import type { ChatMentionEntry, ChatMentionTarget, ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
 import { useChatComposerAppearance } from "../../shell/composables/use-chat-composer-appearance";
 import { useChatMessageAppearance, type ChatMarkdownLayout } from "../../shell/composables/use-chat-message-appearance";
@@ -288,6 +286,7 @@ const props = withDefaults(defineProps<{
   runningShellCount?: number;
   mentionEntries?: ChatMentionEntry[];
   selectedMentions?: ChatMentionTarget[];
+  showTimelineSlot?: boolean;
 }>(), {
   showTaskCreateMenuItem: true,
   showDelegateMenuItem: true,
@@ -306,7 +305,6 @@ const emit = defineEmits<{
   (e: "openTaskCreate"): void;
   (e: "openDelegateSelection"): void;
   (e: "openRunSummary"): void;
-  (e: "openTimeline"): void;
   (e: "openForwardSelection"): void;
   (e: "openAutoPush"): void;
   (e: "openShareSelection"): void;
