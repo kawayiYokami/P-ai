@@ -242,6 +242,7 @@
               @open-share-selection="openShareSelectionMenu"
               @open-conversation-in-browser="openActiveConversationInBrowser"
               @open-run-summary="openRunSummaryPanel"
+              @open-timeline="openTimelinePanel"
               @open-code-review="openCodeReviewDialog"
               @open-branch-from-current="openBranchFromCurrentMessage"
               @open-side-chat="selectChatRightPanelMode('sideChat')"
@@ -265,8 +266,12 @@
               @jump-to-bottom="handleJumpToBottomWithFollow"
             />
           </div>
-          <!-- 右侧竖列：上=回到底部，下=时间线按钮 -->
-          <div class="flex shrink-0 flex-col items-end gap-2">
+          <!-- 右侧竖列：上=回到底部，下=时间线按钮。整体位移使时间线按钮与下排操作条里的那个重合 -->
+          <div
+            ref="sessionTopColumnRef"
+            class="flex shrink-0 flex-col items-end gap-2"
+            :style="sessionTopColumnOffsetStyle"
+          >
             <button
               v-if="jumpToBottomButtonVisible"
               type="button"
@@ -277,7 +282,7 @@
               <ArrowDownToLine class="h-4 w-4 shrink-0" :stroke-width="2.5" />
             </button>
             <!-- 时间线按钮：悬停即在原位向上展开蛇形时间线；蛇形起点后面挂一个预览点，点它打开垂直面板 -->
-            <div class="relative flex h-10 shrink-0 items-center">
+            <div ref="sessionTopTimelineBoxRef" class="relative flex h-10 shrink-0 items-center">
               <TimelineSnakeBoard
                 :visible="timelineFloatPanelVisible"
                 :anchors="timelineAnchors"
@@ -323,12 +328,15 @@
             v-if="timelinePanelOpen"
             class="fixed inset-0 z-[1000] flex items-center justify-center"
           >
-            <!-- 背景压黑：全覆盖层 -->
-            <div class="absolute inset-0 bg-black/50"></div>
-            <!-- 卡片：统一毛玻璃底座（FROST_GLASS），宽度限死上限，高度占 92%，居中 -->
+            <!-- 遮罩：压黑 + 毛玻璃，背后聊天内容变暗且模糊；点它关闭面板 -->
             <div
-              class="relative flex h-[92%] w-[92%] max-w-3xl flex-col overflow-hidden rounded-box shadow-xl"
-              :class="FROST_GLASS"
+              class="absolute inset-0 bg-black/45 backdrop-blur-md backdrop-saturate-150"
+              @click="closeTimelinePanel"
+            ></div>
+            <!-- 卡片：不透明 base-100 底（遮罩已在后面做压黑与模糊，卡片自身不再叠一层），宽度限死上限，高度占 92%，居中 -->
+            <div
+              class="relative flex h-[92%] w-[92%] max-w-3xl flex-col overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
+              @click.stop
             >
               <OverlayScrollArea ref="timelineScrollerRef" class="min-h-0 flex-1" scroller-class="h-full px-4 py-4">
               <ul class="timeline timeline-snap-icon max-md:timeline-compact timeline-vertical">
@@ -340,7 +348,7 @@
                       :src="entry.avatarUrl"
                       alt=""
                       class="h-6 w-6 rounded-full object-cover transition-shadow"
-                      :class="entry.index === activeTimelineIndex ? 'ring-2 ring-primary' : 'opacity-80'"
+                      :class="entry.index === activeTimelineIndex ? 'ring-2 ring-primary' : ''"
                     />
                     <span
                       v-else
@@ -355,7 +363,7 @@
                     @click="handleTimelineEntryJump(entry)"
                   >
                     <time v-if="entry.time" class="font-mono text-xs italic opacity-50">{{ entry.time }}</time>
-                    <div class="text-sm font-black">{{ entry.speaker }}</div>
+                    <div class="text-sm text-base-content/70">{{ entry.speaker }}</div>
                     <div class="text-xs">
                       <InlineMarkdownText
                         :text="entry.text"
@@ -835,7 +843,7 @@ import ChatQuestionPanel from "../components/ChatQuestionPanel.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import ChatThinkingPreviewBar from "../components/ChatThinkingPreviewBar.vue";
 import TimelineSnakeBoard from "../components/TimelineSnakeBoard.vue";
-import { FROST_GLASS, SESSION_FLOAT_FROST_CIRCLE } from "../components/session-float-styles";
+import { SESSION_FLOAT_FROST_CIRCLE } from "../components/session-float-styles";
 import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyDashboard.vue";
 import AgentPersonaSelect from "../../shared/components/AgentPersonaSelect.vue";
 import FileLinkContextMenu from "../../shared/components/FileLinkContextMenu.vue";
@@ -870,6 +878,7 @@ import { defaultWorkspaceNameFromPath, normalizeWorkspacePathKey, stripExtendedP
 import { recentWorkspacePaths } from "../../../utils/recent-workspaces";
 import { type ChatRenderItem, isRightAlignedMessage, isCompactionBlock, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
 import { computeTimelineSegmentStarts, resolveTimelineVisibleStartIndex } from "../utils/timeline-segments";
+import { computeSessionTopColumnOffset, isSessionTopColumnOffsetSettled } from "../utils/session-top-column-offset";
 import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import { clearFileReaderContextCandidates } from "../utils/file-reader-context-tags";
 import { useIdeContext } from "../composables/use-ide-context";
@@ -2507,8 +2516,65 @@ watch(
 
 onBeforeUnmount(clearSessionRowSwitchTimer);
 
+// 上排右侧竖列（回到底部 + 时间线）整体位移，使时间线按钮与下排操作条里的那个位置重合：
+// 两排互斥出现，重合后切换状态时按钮不跳动。偏移量只能运行时测——操作条内容换行、
+// 工作区名变长都会移动按钮位置，固定像素对不上。
+const sessionTopColumnRef = ref<HTMLElement | null>(null);
+const sessionTopTimelineBoxRef = ref<HTMLElement | null>(null);
+let sessionTopColumnResizeObserver: ResizeObserver | null = null;
+const sessionTopColumnOffset = ref({ x: 0, y: 0 });
+const sessionTopColumnOffsetStyle = computed(() => {
+  const { x, y } = sessionTopColumnOffset.value;
+  return x === 0 && y === 0 ? undefined : { transform: `translate(${x}px, ${y}px)` };
+});
+
+function updateSessionTopColumnOffset() {
+  const toolbarEl = toolbarContainer.value;
+  const timelineBox = sessionTopTimelineBoxRef.value;
+  if (!toolbarEl || !timelineBox) return;
+  const toolbarButton = toolbarEl.querySelector<HTMLElement>("[data-toolbar-timeline-button]");
+  if (!toolbarButton) return;
+  const targetRect = toolbarButton.getBoundingClientRect();
+  const boxRect = timelineBox.getBoundingClientRect();
+  if (targetRect.width <= 0 || boxRect.width <= 0) return;
+  const applied = sessionTopColumnOffset.value;
+  const next = computeSessionTopColumnOffset(targetRect, boxRect, applied);
+  if (isSessionTopColumnOffsetSettled(next, applied)) return;
+  sessionTopColumnOffset.value = next;
+}
+
+function observeSessionTopColumnOffset() {
+  const toolbarEl = toolbarContainer.value;
+  if (!toolbarEl || typeof ResizeObserver !== "function") return;
+  if (sessionTopColumnResizeObserver) sessionTopColumnResizeObserver.disconnect();
+  sessionTopColumnResizeObserver = new ResizeObserver(() => updateSessionTopColumnOffset());
+  sessionTopColumnResizeObserver.observe(toolbarEl);
+}
+
+watch(displayedSessionRow, () => {
+  void nextTick().then(updateSessionTopColumnOffset);
+});
+watch(toolbarContainer, () => {
+  observeSessionTopColumnOffset();
+  void nextTick().then(updateSessionTopColumnOffset);
+});
+
+onMounted(() => {
+  observeSessionTopColumnOffset();
+  void nextTick().then(updateSessionTopColumnOffset);
+  window.addEventListener("resize", updateSessionTopColumnOffset);
+  void document.fonts?.ready?.then(() => updateSessionTopColumnOffset());
+});
+
+onBeforeUnmount(() => {
+  sessionTopColumnResizeObserver?.disconnect();
+  sessionTopColumnResizeObserver = null;
+  window.removeEventListener("resize", updateSessionTopColumnOffset);
+});
+
 // 会话悬浮操作区上排（预览条 + 时间线按钮）直接贴容器底边：
-// 上下两排不会同时出现（贴底出下排、离底出上排），不需要为上排预留下排的高度
+// 上下两排不会同时出现（贴底出下排、离底出上排），不需要为上排预留下排的高度；
+// 上排时间线按钮靠 sessionTopColumnOffset 与下排操作条里的那个对齐。
 
 const showConversationTodoBar = computed(() => {
   const hasActiveOrPending = normalizedConversationTodos.value.some((item) => item.status === "pending" || item.status === "in_progress");

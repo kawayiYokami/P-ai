@@ -222,7 +222,7 @@
         @lock-workspace="emit('lockWorkspace')"
       />
 
-      <!-- 右侧组：监控与 @ 放在同一个靠右容器里。两个 auto margin 会把剩余空白撕成两半，中间就空了 -->
+      <!-- 右侧组：监控与时间线放在同一个靠右容器里。两个 auto margin 会把剩余空白撕成两半，中间就空了 -->
       <div class="ml-auto flex min-w-0 items-center">
         <SessionMonitorPill
           :delegates="delegateStatuses || []"
@@ -230,13 +230,16 @@
           :running-shell-count="runningShellCount"
           @open-run-summary="emit('openRunSummary')"
         />
-        <SessionMentionButton
-          :mention-entries="mentionEntries"
-          :selected-mentions="selectedMentions"
-          :busy="chatting || frozen"
-          @add-mention="emit('addMention', $event)"
-          @remove-mention="emit('removeMention', $event)"
-        />
+        <button
+          type="button"
+          data-toolbar-timeline-button
+          class="btn btn-sm btn-ghost btn-circle shrink-0"
+          :title="t('chat.timelineButtonAria')"
+          :aria-label="t('chat.timelineButtonAria')"
+          @click="emit('openTimeline')"
+        >
+          <Route class="h-4 w-4 shrink-0" />
+        </button>
       </div>
   </div>
 </template>
@@ -244,13 +247,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useAttrs, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { BellRing, ClipboardCheck, ClipboardList, GitBranch, GitBranchPlus, Grip, ListTodo, MessageSquareMore, Package, Palette, Send, Share2, Split, Users } from "@lucide/vue";
+import { BellRing, ClipboardCheck, ClipboardList, GitBranch, GitBranchPlus, Grip, ListTodo, MessageSquareMore, Package, Palette, Route, Send, Share2, Split, Users } from "@lucide/vue";
 import type { ChatMentionEntry, ChatMentionTarget, ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
 import { useChatComposerAppearance } from "../../shell/composables/use-chat-composer-appearance";
 import { useChatMessageAppearance, type ChatMarkdownLayout } from "../../shell/composables/use-chat-message-appearance";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
 import SessionControlItems from "./SessionControlItems.vue";
-import SessionMentionButton from "./SessionMentionButton.vue";
 import SessionMonitorPill from "./SessionMonitorPill.vue";
 import SegmentedControl from "../../config/components/SegmentedControl.vue";
 
@@ -304,6 +306,7 @@ const emit = defineEmits<{
   (e: "openTaskCreate"): void;
   (e: "openDelegateSelection"): void;
   (e: "openRunSummary"): void;
+  (e: "openTimeline"): void;
   (e: "openForwardSelection"): void;
   (e: "openAutoPush"): void;
   (e: "openShareSelection"): void;
@@ -406,7 +409,7 @@ const hasBranchMenuItems = computed(
 const hasInteractionMenuItems = computed(
   () => props.showAutoPushMenuItem || props.showForwardMenuItem,
 );
-// ========== @ 人格按钮由 SessionMentionButton 承担，此处只透传候选与选中态 ==========
+// ========== 操作条右侧的时间线按钮直接打开时间线概览，与上排时间线圆钮并存 ==========
 
 const menuButtonRef = ref<HTMLButtonElement | null>(null);
 const menuPlacement = ref<"top" | "bottom">("top");
