@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-17T16:32:35.215Z",
-  "latestVersion": "v0.91.1",
+  "generatedAt": "2026-09-18T15:46:55.414Z",
+  "latestVersion": "v0.92.0",
   "releases": [
+    {
+      "version": "v0.92.0",
+      "path": "docs/changelog/releases/v0.92.0.md",
+      "summary": "**会话时间线新增入口**：对话窗口底部的操作条右侧新增时间线按钮，点一下直接打开会话时间线，不必再先把鼠标移到悬浮按钮上等它展开。它与原本那个悬停入口位置重合，贴底与离底切换时按钮不再左右跳动。"
+    },
     {
       "version": "v0.91.1",
       "path": "docs/changelog/releases/v0.91.1.md",
