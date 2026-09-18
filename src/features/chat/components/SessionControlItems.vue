@@ -20,7 +20,7 @@
       >
         {{ t("chat.workspaceStatusModeWorktree") }}
       </span>
-      <span class="shrink-0 text-base-content/60">{{ workspacePermissionText }}</span>
+      <span class="shrink-0 text-base-content">{{ workspacePermissionText }}</span>
       <span class="h-4 w-px shrink-0 bg-base-300"></span>
       <span class="truncate max-w-[min(14rem,40vw)]">{{ workspaceButtonName || workspaceButtonLabel }}</span>
     </button>
