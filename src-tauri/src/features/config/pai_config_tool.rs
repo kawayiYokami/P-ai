@@ -336,6 +336,7 @@ fn run_with_context(ctx: &CliContext, args: &[String]) -> Result<String, String>
         "agent" => handle_agent(ctx, &args[1..]),
         "mcp" => handle_mcp(ctx, &args[1..]),
         "skill" => handle_skill(ctx, &args[1..]),
+        "reload" => handle_reload(),
         "approot" => handle_approot(ctx),
         "help" | "--help" | "-h" => print_help(),
         "provider" => Err("provider 命令当前未开放，请不要通过 config 工具修改供应商。".to_string()),
@@ -363,6 +364,15 @@ fn handle_skill(ctx: &CliContext, args: &[String]) -> Result<(), String> {
         }
         _ => Err("用法: skill ls".to_string()),
     }
+}
+
+/// reload：请求宿主重新加载工作区（MCP / Skill / 私有人格）。
+/// 命令自身不持有运行态，真正的重载由宿主在命令成功后执行；独立 CLI 进程只会拿到这份回执。
+fn handle_reload() -> Result<(), String> {
+    print_json(&serde_json::json!({
+        "type": "workspaceReloadRequest",
+        "scope": ["mcp", "skills", "privateAgents"],
+    }))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -575,6 +585,7 @@ Rules:
   - Delete commands require --confirmed, for example: mcp delete playwright --confirmed.
   - If an argument contains spaces, quote it.
   - When no config command covers the case, run config "approot" first, then edit files under that data directory by hand.
+  - After editing Skill / MCP / private persona files by hand, run config "reload" so the running app reloads the workspace.
 
 Agent/persona:
   agent ls
@@ -605,6 +616,9 @@ Agent model and skills:
 
 Skill:
   skill ls
+
+Workspace:
+  reload  # reload MCP / Skill / private personas in the running app (a no-op receipt in a standalone CLI process)
 
 Store (built-in capability store; searches and installs skills by default, --kind mcp for MCP servers):
   store ls [--kind skill|mcp]
@@ -2580,6 +2594,22 @@ scope = "global"
         .expect("run approot");
         let value: JsonValue = serde_json::from_str(&output).expect("parse output");
         assert_eq!(value["appRoot"], root.display().to_string());
+    }
+
+    #[test]
+    fn run_command_with_paths_should_report_workspace_reload_request() {
+        let root = test_root();
+        seed_app(&root);
+        let output = run_command_with_paths(
+            root.join("app_config.toml"),
+            root.join("config_mark"),
+            root.join("llm-workspace"),
+            "reload",
+        )
+        .expect("run reload");
+        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
+        assert_eq!(value["type"], "workspaceReloadRequest");
+        assert_eq!(value["scope"][1], "skills");
     }
 
     #[test]

@@ -370,11 +370,8 @@ fn config_tool_runtime_effect_for_command(
                 server_id: config_tool_resolve_mcp_server_id(state, selector),
             })
             .unwrap_or(ConfigToolRuntimeEffect::None),
-        (Some("skill"), Some("update")) => ConfigToolRuntimeEffect::WorkspaceReload {
-            reason: "skill_update",
-        },
-        (Some("skill"), Some("delete")) => ConfigToolRuntimeEffect::WorkspaceReload {
-            reason: "skill_delete",
+        (Some("reload"), _) => ConfigToolRuntimeEffect::WorkspaceReload {
+            reason: "config_reload",
         },
         _ => ConfigToolRuntimeEffect::None,
     }
