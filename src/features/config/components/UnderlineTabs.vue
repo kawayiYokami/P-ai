@@ -17,7 +17,6 @@
       :disabled="tab.disabled"
       @click="selectTab(tab)"
     >
-      <component :is="tab.icon" v-if="tab.icon" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <span class="truncate">{{ tab.label }}</span>
       <span
         v-if="tab.badge !== undefined && tab.badge !== null && tab.badge !== ''"
@@ -38,12 +37,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 export type UnderlineTabItem = {
   key: string;
   label: string;
-  icon?: Component;
   badge?: string | number;
   disabled?: boolean;
 };

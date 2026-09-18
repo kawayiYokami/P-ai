@@ -380,7 +380,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from "vue";
 import { useI18n } from "vue-i18n";
-import { Download, Package, Plug, RefreshCw, Search, Code } from "@lucide/vue";
+import { Download, Package, RefreshCw, Search } from "@lucide/vue";
 import type { CatalogEntry, CatalogSourceInfo } from "../../../../types/app";
 import {
   installTransportCatalogEntry,
@@ -404,8 +404,8 @@ const TOOL_PREVIEW_LIMIT = 6;
 const kind = ref<"mcp" | "skill">("mcp");
 
 const catalogTabs = computed<UnderlineTabItem[]>(() => [
-  { key: "mcp", label: t("config.tabs.mcp"), icon: Plug },
-  { key: "skill", label: t("config.tabs.skill"), icon: Code },
+  { key: "mcp", label: t("config.tabs.mcp") },
+  { key: "skill", label: t("config.tabs.skill") },
 ]);
 
 const sources = ref<CatalogSourceInfo[]>([]);
