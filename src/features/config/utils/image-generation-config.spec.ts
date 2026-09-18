@@ -4,6 +4,7 @@ import {
   deriveImageGenerationModelOptions,
   normalizeImageGenerationModelId,
   normalizeImageGenerationProviders,
+  resolveSelectedImageProviderId,
 } from "./image-generation-config";
 
 describe("image-generation-config", () => {
@@ -36,5 +37,15 @@ describe("image-generation-config", () => {
     expect(options).toHaveLength(1);
     expect(normalizeImageGenerationModelId(options[0]?.id, normalized)).toBe(options[0]?.id);
     expect(normalizeImageGenerationModelId("missing::model", normalized)).toBeUndefined();
+  });
+
+  it("选中项应沿用传入的目标而不是回退首项", () => {
+    const first = createImageGenerationProvider("openai", "first");
+    const second = createImageGenerationProvider("xai", "second");
+    const providers = [first, second];
+
+    expect(resolveSelectedImageProviderId(providers, second.id)).toBe(second.id);
+    expect(resolveSelectedImageProviderId(providers, "missing")).toBe(first.id);
+    expect(resolveSelectedImageProviderId([], "missing")).toBe("");
   });
 });

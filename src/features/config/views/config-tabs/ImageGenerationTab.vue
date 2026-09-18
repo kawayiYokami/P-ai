@@ -191,20 +191,30 @@ import {
   imageGenerationProviderTemplate,
   normalizeImageGenerationModelId,
   normalizeImageGenerationProviders,
+  resolveSelectedImageProviderId,
 } from "../../utils/image-generation-config";
 
 type ComfyInputMappingKey = Exclude<keyof ComfyUiWorkflowMapping, "outputNodeIds">;
 
 const props = defineProps<{
   config: AppConfig;
+  selectedProviderId: string;
   savingConfig: boolean;
   saveConfigAction: () => Promise<boolean> | boolean;
   lastSavedConfigJson: string;
   setStatusAction: (text: string) => void;
 }>();
 
+const emit = defineEmits<{
+  "update:selectedProviderId": [value: string];
+}>();
+
 const { t } = useI18n();
-const selectedProviderId = ref("");
+// 选中项归父级页面持有：详情组件挂在 v-if 分支下，概览卡片点击时它还没挂载，状态留在组件内部会丢
+const selectedProviderId = computed({
+  get: () => props.selectedProviderId,
+  set: (value: string) => emit("update:selectedProviderId", value),
+});
 const testPrompt = ref("");
 const localFileSystemAvailable = getTransportCapabilities().localFileSystem;
 // 与 AI 工具 image_generate 的可选参数对齐：仅 resolution，留空表示用模型默认值
@@ -495,8 +505,9 @@ const toolbarState = computed(() => ({
 watch(
   providers,
   (value) => {
-    if (value.some((provider) => provider.id === selectedProviderId.value)) return;
-    selectedProviderId.value = value[0]?.id || "";
+    const resolved = resolveSelectedImageProviderId(value, selectedProviderId.value);
+    if (resolved === selectedProviderId.value) return;
+    selectedProviderId.value = resolved;
   },
   { immediate: true },
 );
@@ -527,11 +538,6 @@ function nextSeed(): string {
 
 function providerTypeLabel(kind: ImageGenerationProviderKind): string {
   return providerTypeOptions.find((option) => option.value === kind)?.label || kind;
-}
-
-function selectProvider(providerId: string) {
-  if (!providers.value.some((provider) => provider.id === providerId)) return;
-  selectedProviderId.value = providerId;
 }
 
 function clearInvalidDefaultModel() {
@@ -683,7 +689,6 @@ async function saveImageConfig() {
 
 defineExpose({
   toolbarState,
-  selectProvider,
   addProvider,
   removeSelectedProvider,
   restoreImageConfig,

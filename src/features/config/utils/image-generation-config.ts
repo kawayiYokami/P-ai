@@ -393,6 +393,15 @@ export function normalizeImageGenerationModelId(
     : undefined;
 }
 
+// 选中项解析：目标仍在列表里就沿用，否则回退首项；列表为空则清空
+export function resolveSelectedImageProviderId(
+  providers: ImageGenerationProviderConfigItem[],
+  currentId: string,
+): string {
+  if (providers.some((provider) => provider.id === currentId)) return currentId;
+  return providers[0]?.id || "";
+}
+
 export function normalizeImageGenerationConfig(config: Pick<AppConfig, "imageGenerationModelId" | "imageProviders">): void {
   config.imageProviders = normalizeImageGenerationProviders(config.imageProviders);
   config.imageGenerationModelId = normalizeImageGenerationModelId(

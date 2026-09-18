@@ -237,10 +237,12 @@
         <ImageGenerationTab
           ref="imageGenerationTabRef"
           :config="config"
+          :selected-provider-id="selectedImageProviderId"
           :saving-config="savingConfig"
           :save-config-action="saveApiConfigAction"
           :last-saved-config-json="lastSavedConfigJson"
           :set-status-action="setStatusAction"
+          @update:selected-provider-id="selectedImageProviderId = $event"
         />
       </div>
     </div>
@@ -455,7 +457,6 @@ type ImageGenerationToolbarState = {
 };
 type ImageGenerationTabPublicInstance = {
   toolbarState: ImageGenerationToolbarState;
-  selectProvider: (providerId: string) => void;
   addProvider: () => void;
   removeSelectedProvider: () => void;
   restoreImageConfig: () => void;
@@ -527,6 +528,8 @@ watch(providerDeleteDialogOpen, syncProviderDeleteDialog);
 watch(providerDeleteDialogRef, syncProviderDeleteDialog);
 const pendingDeleteProviderName = ref("");
 const imageGenerationTabRef = ref<ImageGenerationTabPublicInstance | null>(null);
+// 生图供应商的选中项归页面持有：详情组件挂载晚于卡片点击，靠 ref 事后注入会落空
+const selectedImageProviderId = ref("");
 const modelCapabilityById = ref<Record<string, ModelCapabilityLimits>>({});
 // 默认展开的模型卡：仅新增模型加入，进入页面/切换供应商时保持折叠
 const defaultOpenModelIds = new Set<string>();
@@ -918,7 +921,7 @@ function backToList() {
 }
 
 function enterImageProvider(id: string) {
-  selectImageProvider(id);
+  selectedImageProviderId.value = id;
   inDetailMode.value = true;
 }
 
@@ -1657,10 +1660,6 @@ function selectProvider(providerId: string) {
   const model = firstActiveModel(provider);
   if (!provider || !model) return;
   props.config.selectedApiConfigId = `${provider.id}::${model.id}`;
-}
-
-function selectImageProvider(providerId: string) {
-  imageGenerationTabRef.value?.selectProvider(providerId);
 }
 
 function addImageProvider() {
