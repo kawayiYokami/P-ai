@@ -128,6 +128,9 @@ windows-sys = { version = "0.61.2", features = [
 ] }
 windows-core = "0.61.2"
 rdev = "0.5"
+# 与 tauri 2.11.5 内部使用的版本精确对齐：ProcessFailed 回调类型必须与
+# PlatformWebview::controller 返回的是同一份 crate 实例。
+webview2-com = "=0.38.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rdev = "0.5"

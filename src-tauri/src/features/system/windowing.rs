@@ -483,6 +483,8 @@ fn schedule_file_reader_window_creation(app: &AppHandle, path: String) -> Result
                     err
                 ));
             }
+            #[cfg(target_os = "windows")]
+            webview_health::attach_webview_process_failed_monitor(&window, &app_handle);
             let _ = window.unminimize();
             let _ = window.show();
             ensure_window_visible_after_show(&app_handle, FILE_READER_WINDOW_LABEL);
@@ -1175,6 +1177,60 @@ fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 重载窗口内的 WebView：渲染进程死亡或持续无响应后的最小恢复动作。
+#[cfg(target_os = "windows")]
+fn reload_window(app: &AppHandle, label: &str) -> Result<(), String> {
+    let window = app
+        .get_webview_window(label)
+        .ok_or_else(|| format!("Window '{label}' not found"))?;
+    window
+        .reload()
+        .map_err(|err| format!("Reload window '{label}' failed: {err}"))
+}
+
+/// 统一窗口重建入口：销毁后按 tauri.conf.json 的声明重建，并重新挂载布局
+/// 持久化、关闭语义与 WebView2 进程失败监控。浏览器进程退出后旧 COM 引用
+/// 全部失效，只有重建能恢复；重建会丢失页面内状态，因此排在重载之后使用。
+/// 运行日志、文件阅读这类动态创建的窗口不在配置中，退化为重载。
+#[cfg(target_os = "windows")]
+fn rebuild_window(app: &AppHandle, label: &str) -> Result<(), String> {
+    let Some(config) = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == label)
+        .cloned()
+    else {
+        runtime_log_warn(format!(
+            "[WebView2] 窗口未在配置中声明，无法重建，退化为重载：window_label={label}"
+        ));
+        return reload_window(app, label);
+    };
+
+    if let Some(existing) = app.get_webview_window(label) {
+        existing
+            .destroy()
+            .map_err(|err| format!("销毁窗口失败：label={label}，error={err}"))?;
+    }
+
+    let window = tauri::WebviewWindowBuilder::from_config(app, &config)
+        .map_err(|err| format!("构建窗口失败：label={label}，error={err}"))?
+        .build()
+        .map_err(|err| format!("重建窗口失败：label={label}，error={err}"))?;
+
+    attach_window_layout_persistence_for(&window, app, label);
+    install_hide_on_close(&window, app);
+    webview_health::attach_webview_process_failed_monitor(&window, app);
+
+    apply_window_layout_before_show(app, label)?;
+    let _ = window.unminimize();
+    let _ = window.show();
+    ensure_window_visible_after_show(app, label);
+    let _ = window.set_focus();
+    Ok(())
+}
+
 fn toggle_window_maximize_with_default_restore(
     app: &AppHandle,
     label: &str,
@@ -1434,6 +1490,8 @@ fn show_runtime_logs_window(app: &AppHandle) -> Result<(), String> {
                 Err(_) => return,
             };
             let _ = apply_window_layout_before_show(&app_handle, RUNTIME_LOGS_WINDOW_LABEL);
+            #[cfg(target_os = "windows")]
+            webview_health::attach_webview_process_failed_monitor(&window, &app_handle);
             let _ = window.unminimize();
             let _ = window.show();
             ensure_window_visible_after_show(&app_handle, RUNTIME_LOGS_WINDOW_LABEL);

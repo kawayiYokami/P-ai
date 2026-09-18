@@ -78,6 +78,12 @@ include!("features/remote_im_adapters.rs");
 
 // ==================== 系统窗口与命令 ====================
 include!("features/system/windowing.rs");
+// WebView2 进程失败监控只在 Windows 有宿主能力，整块在非 Windows 下不参与编译；
+// test 下保留编译，以便校验其中的纯逻辑（失败种类映射与恢复分档）。
+#[cfg(any(target_os = "windows", test))]
+mod webview_health {
+    include!("features/system/webview_health.rs");
+}
 include!("features/system/record_hotkey_probe.rs");
 include!("features/system/windows_job.rs");
 include!("features/system/execution.rs");
@@ -437,6 +443,9 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     if let Err(err) = register_default_hotkey(&app_handle) {
         runtime_log_error(format!("[启动-延迟] 注册默认快捷键失败: {err}"));
     }
+    log_step("挂载 WebView2 进程失败监控");
+    #[cfg(target_os = "windows")]
+    webview_health::attach_webview_process_failed_monitors(&app_handle);
     log_step("启动持久化服务");
     if let Err(err) = start_conversation_persist_worker(app_state.inner()) {
         runtime_log_error(format!("[启动-延迟] 启动会话后台持久化服务失败: {err}"));
