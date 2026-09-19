@@ -199,11 +199,16 @@
             <!-- 分支切换下拉（absolute 相对折叠条）：分组头为树根 + 分支子节点 -->
             <div v-if="branchPickerOpen" class="absolute left-0 right-0 top-full z-20 max-h-64 overflow-y-auto border border-base-300 bg-base-100 p-1 shadow-lg">
               <div v-if="branchPickerLoading" class="px-2 py-2 text-xs opacity-50">{{ t('gitPanel.loading') }}</div>
-              <GitTree v-else :nodes="branchPickerTreeNodes" default-expanded @row-click="onBranchPickerRowClick">
+              <GitTree v-else :nodes="branchPickerTreeNodes" default-expanded :default-collapsed-keys="branchCollapsedKeys" @row-click="onBranchPickerRowClick">
                 <template #row="{ row }">
                   <!-- 分组头（树根：本地分支/远程分支） -->
                   <template v-if="row.node.data.kind === 'header'">
                     <span class="min-w-0 truncate font-medium opacity-60">{{ row.node.data.text }}</span>
+                  </template>
+                  <!-- 目录（名字里按 / 折叠出的分组） -->
+                  <template v-else-if="row.node.data.kind === 'folder'">
+                    <Folder class="h-3.5 w-3.5 shrink-0 opacity-60" />
+                    <span class="min-w-0 flex-1 truncate font-medium opacity-70">{{ row.node.data.name }}</span>
                   </template>
                   <!-- 本地分支 -->
                   <template v-else-if="row.node.data.kind === 'branch'">
@@ -391,16 +396,21 @@
               </button>
             </div>
             <div ref="branchesScroller" class="git-panel-scroller min-h-0 flex-1 overflow-y-auto">
-              <GitTree :nodes="branchTreeNodes" default-expanded @row-click="onBranchRowClick">
+              <GitTree :nodes="branchTreeNodes" default-expanded :default-collapsed-keys="branchCollapsedKeys" @row-click="onBranchRowClick">
                 <template #row="{ row }">
                   <!-- 分组头（树根：本地分支/远程分支/远程） -->
                   <template v-if="row.node.data.kind === 'header'">
                     <span class="min-w-0 truncate font-medium opacity-60">{{ row.node.data.text }}</span>
                   </template>
+                  <!-- 目录（名字里按 / 折叠出的分组） -->
+                  <template v-else-if="row.node.data.kind === 'folder'">
+                    <Folder class="h-3.5 w-3.5 shrink-0 opacity-60" />
+                    <span class="min-w-0 flex-1 truncate font-medium opacity-70">{{ row.node.data.name }}</span>
+                  </template>
                   <!-- 本地分支 -->
                   <template v-else-if="row.node.data.kind === 'branch'">
                     <GitBranch class="h-3.5 w-3.5 shrink-0" :class="row.node.data.branch.isCurrent ? 'text-primary' : 'opacity-60'" />
-                    <span class="min-w-0 flex-1 truncate">{{ row.node.data.branch.name }}</span>
+                    <span class="min-w-0 flex-1 truncate">{{ row.node.data.label }}</span>
                     <button v-if="!row.node.data.branch.isCurrent" type="button" class="btn btn-ghost btn-xs h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
                       <ArrowRightLeft class="h-3 w-3" />
                     </button>
@@ -408,7 +418,7 @@
                   <!-- 远程分支 -->
                   <template v-else-if="row.node.data.kind === 'remote-branch'">
                     <Cloud class="h-3 w-3 shrink-0 opacity-60" />
-                    <span class="min-w-0 flex-1 truncate">{{ row.node.data.branch.name }}</span>
+                    <span class="min-w-0 flex-1 truncate">{{ row.node.data.label }}</span>
                     <button type="button" class="btn btn-ghost btn-xs h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
                       <ArrowRightLeft class="h-3 w-3" />
                     </button>
@@ -530,6 +540,7 @@ import {
   CloudSync,
   Copy,
   Files,
+  Folder,
   GitBranch,
   GitCommitHorizontal,
   History,
@@ -591,6 +602,11 @@ import {
   renderGraphRowSVG,
   type CommitGraphRef,
 } from "../git-commit-graph";
+import {
+  buildBranchTree,
+  sortBranchesForDisplay,
+  type BranchTreeNode,
+} from "../git-branch-order";
 
 const props = withDefaults(defineProps<{
   workspacePath: string;
@@ -756,58 +772,90 @@ const localBranches = computed(() => branches.value.filter((branch) => !branch.i
 const remoteBranches = computed(() => branches.value.filter((branch) => branch.isRemote));
 // 渲染分页：分支/存储统一拍平为行序列，滚动到底自动增加可见数
 type BranchRow =
-  | { kind: "header"; key: string; text: string; grouped: boolean }
-  | { kind: "branch"; key: string; branch: GitPanelBranchEntry }
-  | { kind: "remote-branch"; key: string; branch: GitPanelBranchEntry }
+  | { kind: "header"; key: string; text: string }
+  | { kind: "folder"; key: string; name: string; path: string }
+  | { kind: "branch"; key: string; branch: GitPanelBranchEntry; label: string }
+  | { kind: "remote-branch"; key: string; branch: GitPanelBranchEntry; label: string }
   | { kind: "remote"; key: string; remote: GitPanelRemoteEntry };
 
-const branchRows = computed<BranchRow[]>(() => {
-  const rows: BranchRow[] = [];
-  if (localBranches.value.length > 0) {
-    rows.push({ kind: "header", key: "header:local", text: t("gitPanel.localBranches"), grouped: false });
-    for (const branch of localBranches.value) rows.push({ kind: "branch", key: `local:${branch.name}`, branch });
-  }
-  if (remoteBranches.value.length > 0) {
-    rows.push({ kind: "header", key: "header:remote", text: t("gitPanel.remoteBranches"), grouped: true });
-    for (const branch of remoteBranches.value) rows.push({ kind: "remote-branch", key: `remote:${branch.name}`, branch });
-  }
-  if (remotes.value.length > 0) {
-    rows.push({ kind: "header", key: "header:remotes", text: t("gitPanel.remotes"), grouped: true });
-    for (const remote of remotes.value) rows.push({ kind: "remote", key: `remotes:${remote.name}`, remote });
-  }
-  return rows;
-});
-const visibleBranchRows = computed(() => branchRows.value.slice(0, branchVisibleCount.value));
-/** 分支 tab 树：分组头为树根（本地分支/远程分支/远程），分支行与远程 URL 为子节点 */
+// 排序：当前分支置顶 → 末次提交时间倒序 → 名称升序；分组：排序后按 / 折叠（见 git-branch-order.ts）
+const sortedLocalBranches = computed(() => sortBranchesForDisplay(localBranches.value));
+const sortedRemoteBranches = computed(() => sortBranchesForDisplay(remoteBranches.value));
+// 分页按「分支」切片，再建树——否则一棵文件夹会被切片边界切掉一半
+const pagedLocalBranches = computed(() => sortedLocalBranches.value.slice(0, branchVisibleCount.value));
+const pagedRemoteBranches = computed(() => sortedRemoteBranches.value.slice(0, branchVisibleCount.value));
+
+/** 纯函数树节点 → GitTree 节点；scope 决定本地/远程行类型与 key 命名空间 */
+function toBranchGitTreeNodes(
+  nodes: BranchTreeNode<GitPanelBranchEntry>[],
+  scope: "local" | "remote",
+): GitTreeNode<BranchRow>[] {
+  return nodes.map((node) => {
+    if (node.kind === "branch") {
+      const key = `${scope}:${node.branch.name}`;
+      return {
+        key,
+        data:
+          scope === "local"
+            ? { kind: "branch", key, branch: node.branch, label: node.label }
+            : { kind: "remote-branch", key, branch: node.branch, label: node.label },
+        // 折进文件夹后只显示末段，悬停给完整分支名
+        title: node.branch.name,
+        // 当前分支行高亮（数据声明的行级样式）
+        rowClass:
+          scope === "local" && node.branch.isCurrent ? "bg-primary/10 text-primary" : undefined,
+      };
+    }
+    const key = `folder:${scope}:${node.path}`;
+    return {
+      key,
+      data: { kind: "folder", key, name: node.name, path: node.path },
+      children: toBranchGitTreeNodes(node.children, scope),
+    };
+  });
+}
+
+const localBranchTreeNodes = computed(() =>
+  toBranchGitTreeNodes(buildBranchTree(pagedLocalBranches.value), "local"),
+);
+const remoteBranchTreeNodes = computed(() =>
+  toBranchGitTreeNodes(buildBranchTree(pagedRemoteBranches.value), "remote"),
+);
+
+/** 分支 tab 树：分组头为树根（本地分支/远程分支/远程），分支树与远程 URL 为子节点 */
 const branchTreeNodes = computed<GitTreeNode<BranchRow>[]>(() => {
   const roots: GitTreeNode<BranchRow>[] = [];
-  let currentHeader: BranchRow | null = null;
-  let currentChildren: GitTreeNode<BranchRow>[] = [];
-  const flush = () => {
-    if (currentHeader) {
-      roots.push({ key: currentHeader.key, data: currentHeader, children: currentChildren });
-      currentHeader = null;
-      currentChildren = [];
-    }
-  };
-  for (const row of visibleBranchRows.value) {
-    if (row.kind === "header") {
-      flush();
-      currentHeader = row;
-    } else {
-      currentChildren.push({
-        key: row.key,
-        data: row,
-        // 远程 URL 展示行不可交互（无 hover/点击）
-        interactive: row.kind === "remote" ? false : undefined,
-        // 当前分支行高亮（数据声明的行级样式）
-        rowClass: row.kind === "branch" && row.branch.isCurrent ? "bg-primary/10 text-primary" : undefined,
-      });
-    }
+  if (sortedLocalBranches.value.length > 0) {
+    roots.push({
+      key: "header:local",
+      data: { kind: "header", key: "header:local", text: t("gitPanel.localBranches") },
+      children: localBranchTreeNodes.value,
+    });
   }
-  flush();
+  if (sortedRemoteBranches.value.length > 0) {
+    roots.push({
+      key: "header:remote",
+      data: { kind: "header", key: "header:remote", text: t("gitPanel.remoteBranches") },
+      children: remoteBranchTreeNodes.value,
+    });
+  }
+  if (remotes.value.length > 0) {
+    roots.push({
+      key: "header:remotes",
+      data: { kind: "header", key: "header:remotes", text: t("gitPanel.remotes") },
+      children: remotes.value.map((remote) => ({
+        key: `remotes:${remote.name}`,
+        data: { kind: "remote" as const, key: `remotes:${remote.name}`, remote },
+        // 远程 URL 展示行不可交互（无 hover/点击）
+        interactive: false,
+      })),
+    });
+  }
   return roots;
 });
+
+/** 远程整体默认折叠（本地一眼看全），展开状态交由用户操作 */
+const branchCollapsedKeys = ["header:remote", "header:remotes", "picker:remote", "picker:remotes"];
 
 /** 分支行点击：选中查看（不切换分支） */
 function onBranchRowClick(row: GitTreeFlatRow<BranchRow>) {
@@ -817,28 +865,21 @@ function onBranchRowClick(row: GitTreeFlatRow<BranchRow>) {
   }
 }
 
-/** 分支切换下拉树：分组头为树根，分支为子节点（点击分支直接切换） */
+/** 分支切换下拉树：与分支 tab 同一套排序与分组，点击分支直接切换 */
 const branchPickerTreeNodes = computed<GitTreeNode<BranchRow>[]>(() => {
   const roots: GitTreeNode<BranchRow>[] = [];
-  if (localBranches.value.length > 0) {
+  if (sortedLocalBranches.value.length > 0) {
     roots.push({
       key: "picker:local",
-      data: { kind: "header", key: "picker:local", text: t("gitPanel.localBranches"), grouped: false },
-      children: localBranches.value.map((branch) => ({
-        key: `picker:local:${branch.name}`,
-        data: { kind: "branch", key: `picker:local:${branch.name}`, branch },
-        rowClass: branch.isCurrent ? "bg-primary/10 text-primary" : undefined,
-      })),
+      data: { kind: "header", key: "picker:local", text: t("gitPanel.localBranches") },
+      children: toBranchGitTreeNodes(buildBranchTree(sortedLocalBranches.value), "local"),
     });
   }
-  if (remoteBranches.value.length > 0) {
+  if (sortedRemoteBranches.value.length > 0) {
     roots.push({
       key: "picker:remote",
-      data: { kind: "header", key: "picker:remote", text: t("gitPanel.remoteBranches"), grouped: true },
-      children: remoteBranches.value.map((branch) => ({
-        key: `picker:remote:${branch.name}`,
-        data: { kind: "remote-branch", key: `picker:remote:${branch.name}`, branch },
-      })),
+      data: { kind: "header", key: "picker:remote", text: t("gitPanel.remoteBranches") },
+      children: toBranchGitTreeNodes(buildBranchTree(sortedRemoteBranches.value), "remote"),
     });
   }
   return roots;
@@ -852,7 +893,11 @@ function onBranchPickerRowClick(row: GitTreeFlatRow<BranchRow>) {
     void runCheckoutBranch(data.branch.name);
   }
 }
-const branchHasMore = computed(() => branchRows.value.length > branchVisibleCount.value);
+const branchHasMore = computed(
+  () =>
+    sortedLocalBranches.value.length > branchVisibleCount.value ||
+    sortedRemoteBranches.value.length > branchVisibleCount.value,
+);
 const visibleStashList = computed(() => stashList.value.slice(0, stashVisibleCount.value));
 const stashHasMore = computed(() => stashList.value.length > stashVisibleCount.value);
 
@@ -1033,7 +1078,7 @@ async function loadBranches(force = false) {
     branches.value = await gitPanelBranchList(repoRoot.value);
     branchesLoaded.value = true;
   } catch (error) {
-    appendOutput("branch -a", null, error);
+    appendOutput("for-each-ref", null, error);
   }
 }
 

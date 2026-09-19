@@ -3089,6 +3089,8 @@ export type GitPanelBranchEntry = {
   name: string;
   isCurrent: boolean;
   isRemote: boolean;
+  /** 分支尖端那次提交的日期（ISO 8601）；用于「新的放前面」排序 */
+  committerDate: string;
 };
 
 export type GitPanelRemoteEntry = {

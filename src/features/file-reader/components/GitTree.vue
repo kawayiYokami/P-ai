@@ -33,6 +33,7 @@
           :nodes="row.node.children || []"
           :mode="mode"
           :default-expanded="defaultExpanded"
+          :default-collapsed-keys="defaultCollapsedKeys"
           :selectable="selectable"
           :multiple="multiple"
           :indent="indent"
@@ -147,6 +148,8 @@ const props = withDefaults(defineProps<{
   mode?: "tree" | "list";
   /** 初始是否展开所有可展开节点 */
   defaultExpanded?: boolean;
+  /** defaultExpanded 时仍保持折叠的节点 key（如远程分组默认收起） */
+  defaultCollapsedKeys?: string[];
   /** 是否允许选中行（选中集由组件维护，通过 update:selectedKeys 同步） */
   selectable?: boolean;
   /** selectable 时是否支持 Shift 范围多选 */
@@ -158,6 +161,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   mode: "tree",
   defaultExpanded: false,
+  defaultCollapsedKeys: () => [],
   selectable: false,
   multiple: false,
   indent: 14,
@@ -238,10 +242,15 @@ watch(
 /** 用户主动 toggle 过的节点：之后不再受 defaultExpanded 自动展开影响 */
 function syncDefaultExpanded(items: GitTreeNode<T>[]) {
   if (!props.defaultExpanded) return;
+  const collapsed = new Set(props.defaultCollapsedKeys);
   const next = new Set(expandedSet.value);
   const collect = (nodes: GitTreeNode<T>[]) => {
     for (const node of nodes) {
-      if ((hasChildren(node) || node.expandable) && !userToggledKeys.value.has(node.key)) {
+      if (
+        (hasChildren(node) || node.expandable) &&
+        !collapsed.has(node.key) &&
+        !userToggledKeys.value.has(node.key)
+      ) {
         next.add(node.key);
       }
       if (hasChildren(node)) collect(node.children!);
