@@ -3091,6 +3091,14 @@ export type GitPanelBranchEntry = {
   isRemote: boolean;
   /** 分支尖端那次提交的日期（ISO 8601）；用于「新的放前面」排序 */
   committerDate: string;
+  /** 上游分支短名（如 origin/main）；空串表示没有配置上游 */
+  upstream: string;
+  /** 上游已被删除（远程分支没了） */
+  upstreamMissing: boolean;
+  /** 本地领先上游的提交数 */
+  ahead: number;
+  /** 本地落后上游的提交数 */
+  behind: number;
 };
 
 export type GitPanelRemoteEntry = {

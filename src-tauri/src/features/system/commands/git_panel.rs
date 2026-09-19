@@ -142,6 +142,14 @@ struct GitPanelBranchEntry {
     is_remote: bool,
     /// 分支尖端那次提交的日期（ISO 8601）；前端据此按「新的放前面」排序
     committer_date: String,
+    /// 上游分支短名（如 origin/main）；空串表示没有配置上游
+    upstream: String,
+    /// 上游已被删除（track 报 gone）
+    upstream_missing: bool,
+    /// 本地领先上游的提交数
+    ahead: u32,
+    /// 本地落后上游的提交数
+    behind: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -666,7 +674,7 @@ async fn git_panel_stash_files(input: GitPanelStashRefInput) -> Result<GitPanelC
 // ---------- 命令：分支 ----------
 
 /// 解析 `git for-each-ref` 输出（每条引用一行，字段以 US 即 \u{1f} 分隔）：
-/// `%(HEAD) \u{1f} %(refname) \u{1f} %(committerdate:iso-strict) \u{1f} %(symref)`。
+/// `%(HEAD) \u{1f} %(refname) \u{1f} %(committerdate:iso-strict) \u{1f} %(symref) \u{1f} %(upstream:short) \u{1f} %(upstream:track)`。
 /// 符号引用（如 origin/HEAD）不是真实分支，跳过。
 fn parse_branch_refs(stdout: &str) -> Vec<GitPanelBranchEntry> {
     stdout
@@ -680,6 +688,8 @@ fn parse_branch_refs(stdout: &str) -> Vec<GitPanelBranchEntry> {
             let full_name = parts.next().unwrap_or("");
             let committer_date = parts.next().unwrap_or("").to_string();
             let symref = parts.next().unwrap_or("");
+            let upstream = parts.next().unwrap_or("").to_string();
+            let track = parts.next().unwrap_or("");
             if full_name.is_empty() || !symref.is_empty() {
                 return None;
             }
@@ -694,28 +704,65 @@ fn parse_branch_refs(stdout: &str) -> Vec<GitPanelBranchEntry> {
             if display_name.is_empty() {
                 return None;
             }
+            let (ahead, behind, upstream_missing) = parse_upstream_track(track);
             Some(GitPanelBranchEntry {
                 is_current: head.starts_with('*'),
                 name: display_name,
                 is_remote,
                 committer_date,
+                upstream,
+                upstream_missing,
+                ahead,
+                behind,
             })
         })
         .collect()
+}
+
+/// 解析 `%(upstream:track)` 输出，形如 `[ahead 3]`、`[behind 2]`、
+/// `[ahead 1, behind 1]`、`[gone]`；无上游或完全同步时为空串。
+/// 返回 (领先数, 落后数, 上游是否已删除)。
+fn parse_upstream_track(track: &str) -> (u32, u32, bool) {
+    if track.is_empty() {
+        return (0, 0, false);
+    }
+    if track.contains("gone") {
+        return (0, 0, true);
+    }
+    (
+        parse_track_count(track, "ahead"),
+        parse_track_count(track, "behind"),
+        false,
+    )
+}
+
+/// 从 `ahead 3` / `behind 2` 这类片段里取出数字；缺失或解析失败按 0 处理。
+fn parse_track_count(track: &str, keyword: &str) -> u32 {
+    let Some(idx) = track.find(keyword) else {
+        return 0;
+    };
+    track[idx + keyword.len()..]
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .unwrap_or(0)
 }
 
 #[tauri::command]
 async fn git_panel_branch_list(input: GitPanelWorkspaceInput) -> Result<Vec<GitPanelBranchEntry>, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    // 用 for-each-ref 一次拿到：是否为 HEAD、引用全名、末次提交日期、符号引用目标。
+    // 用 for-each-ref 一次拿到：是否为 HEAD、引用全名、末次提交日期、符号引用目标、
+    // 上游短名与上游跟踪状态（领先/落后/已删除）。
     // 字段以 US（\u{1f}）分隔；引用名不含 US，天然安全。
     let stdout = git_executor()
         .run_read(
             &repo_root,
             &[
                 "for-each-ref",
-                "--format=%(HEAD)%1f%(refname)%1f%(committerdate:iso-strict)%1f%(symref)",
+                "--format=%(HEAD)%1f%(refname)%1f%(committerdate:iso-strict)%1f%(symref)%1f%(upstream:short)%1f%(upstream:track)",
                 "refs/heads",
                 "refs/remotes",
             ],
@@ -1399,17 +1446,17 @@ async fn git_panel_discover(
 mod git_panel_branch_refs_tests {
     use super::*;
 
-    /// for-each-ref 每行形如：`HEAD标记 \u{1f} 引用全名 \u{1f} 日期 \u{1f} 符号引用目标`
-    fn line(head: &str, refname: &str, date: &str, symref: &str) -> String {
-        format!("{head}\u{1f}{refname}\u{1f}{date}\u{1f}{symref}")
+    /// for-each-ref 每行形如：`HEAD标记 \u{1f} 引用全名 \u{1f} 日期 \u{1f} 符号引用目标 \u{1f} 上游短名 \u{1f} 上游跟踪`
+    fn line(head: &str, refname: &str, date: &str, symref: &str, upstream: &str, track: &str) -> String {
+        format!("{head}\u{1f}{refname}\u{1f}{date}\u{1f}{symref}\u{1f}{upstream}\u{1f}{track}")
     }
 
     #[test]
     fn parses_local_and_remote_with_current_flag() {
         let raw = [
-            line("*", "refs/heads/main", "2026-09-19T10:00:00+08:00", ""),
-            line(" ", "refs/heads/feature/login", "2026-09-10T10:00:00+08:00", ""),
-            line(" ", "refs/remotes/origin/main", "2026-09-18T10:00:00+08:00", ""),
+            line("*", "refs/heads/main", "2026-09-19T10:00:00+08:00", "", "origin/main", "[ahead 3]"),
+            line(" ", "refs/heads/feature/login", "2026-09-10T10:00:00+08:00", "", "", ""),
+            line(" ", "refs/remotes/origin/main", "2026-09-18T10:00:00+08:00", "", "", ""),
         ]
         .join("\n");
 
@@ -1420,10 +1467,15 @@ mod git_panel_branch_refs_tests {
         assert!(entries[0].is_current);
         assert!(!entries[0].is_remote);
         assert_eq!(entries[0].committer_date, "2026-09-19T10:00:00+08:00");
+        assert_eq!(entries[0].upstream, "origin/main");
+        assert_eq!(entries[0].ahead, 3);
+        assert_eq!(entries[0].behind, 0);
+        assert!(!entries[0].upstream_missing);
 
         assert_eq!(entries[1].name, "feature/login");
         assert!(!entries[1].is_current);
         assert!(!entries[1].is_remote);
+        assert_eq!(entries[1].upstream, "");
 
         // 远程保留 origin/ 前缀，不误判为当前分支
         assert_eq!(entries[2].name, "origin/main");
@@ -1434,8 +1486,8 @@ mod git_panel_branch_refs_tests {
     #[test]
     fn skips_symbolic_refs_like_origin_head() {
         let raw = [
-            line(" ", "refs/remotes/origin/HEAD", "2026-09-18T10:00:00+08:00", "refs/remotes/origin/main"),
-            line(" ", "refs/remotes/origin/main", "2026-09-18T10:00:00+08:00", ""),
+            line(" ", "refs/remotes/origin/HEAD", "2026-09-18T10:00:00+08:00", "refs/remotes/origin/main", "", ""),
+            line(" ", "refs/remotes/origin/main", "2026-09-18T10:00:00+08:00", "", "", ""),
         ]
         .join("\n");
 
@@ -1448,8 +1500,8 @@ mod git_panel_branch_refs_tests {
     fn skips_blank_lines_and_unrelated_refs() {
         let raw = [
             String::new(),
-            line(" ", "refs/tags/v1", "2026-01-01T10:00:00+08:00", ""),
-            line(" ", "refs/heads/dev", "2026-02-01T10:00:00+08:00", ""),
+            line(" ", "refs/tags/v1", "2026-01-01T10:00:00+08:00", "", "", ""),
+            line(" ", "refs/heads/dev", "2026-02-01T10:00:00+08:00", "", "", ""),
         ]
         .join("\n");
 
@@ -1461,11 +1513,39 @@ mod git_panel_branch_refs_tests {
     #[test]
     fn keeps_branch_with_empty_date() {
         // 空仓库/异常情况下 committerdate 可能为空，仍应保留分支、日期留空由前端排到最后
-        let raw = line(" ", "refs/heads/empty", "", "");
+        let raw = line(" ", "refs/heads/empty", "", "", "", "");
         let entries = parse_branch_refs(&raw);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "empty");
         assert_eq!(entries[0].committer_date, "");
+    }
+
+    #[test]
+    fn parses_upstream_track_states() {
+        let raw = [
+            line(" ", "refs/heads/a", "2026-09-01T00:00:00+08:00", "", "origin/a", "[ahead 3]"),
+            line(" ", "refs/heads/b", "2026-09-01T00:00:00+08:00", "", "origin/b", "[behind 2]"),
+            line(" ", "refs/heads/c", "2026-09-01T00:00:00+08:00", "", "origin/c", "[ahead 1, behind 1]"),
+            line(" ", "refs/heads/d", "2026-09-01T00:00:00+08:00", "", "origin/d", "[gone]"),
+            line(" ", "refs/heads/e", "2026-09-01T00:00:00+08:00", "", "origin/e", ""),
+            line(" ", "refs/heads/f", "2026-09-01T00:00:00+08:00", "", "", ""),
+        ]
+        .join("\n");
+
+        let entries = parse_branch_refs(&raw);
+        assert_eq!(entries.len(), 6);
+
+        assert_eq!((entries[0].ahead, entries[0].behind, entries[0].upstream_missing), (3, 0, false));
+        assert_eq!((entries[1].ahead, entries[1].behind, entries[1].upstream_missing), (0, 2, false));
+        assert_eq!((entries[2].ahead, entries[2].behind, entries[2].upstream_missing), (1, 1, false));
+        // [gone]：上游记录还在但远程分支已删
+        assert_eq!(entries[3].upstream, "origin/d");
+        assert_eq!((entries[3].ahead, entries[3].behind, entries[3].upstream_missing), (0, 0, true));
+        // 上游存在且完全同步：track 为空
+        assert_eq!((entries[4].ahead, entries[4].behind, entries[4].upstream_missing), (0, 0, false));
+        assert_eq!(entries[4].upstream, "origin/e");
+        // 没配上游：upstream 与 track 都为空
+        assert_eq!(entries[5].upstream, "");
     }
 }
 

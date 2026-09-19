@@ -411,6 +411,14 @@
                   <template v-else-if="row.node.data.kind === 'branch'">
                     <GitBranch class="h-3.5 w-3.5 shrink-0" :class="row.node.data.branch.isCurrent ? 'text-primary' : 'opacity-60'" />
                     <span class="min-w-0 truncate">{{ row.node.data.label }}</span>
+                    <!-- 相对上游的领先/落后状态（↑↓ + 颜色），tooltip 给完整描述 -->
+                    <span v-if="branchSyncText(row.node.data.branch).up || branchSyncText(row.node.data.branch).down || row.node.data.branch.upstreamMissing" class="shrink-0 inline-flex items-center gap-0.5" :class="branchSyncClass(row.node.data.branch)" :title="branchSyncTitle(row.node.data.branch)">
+                      <ArrowDown v-if="branchSyncText(row.node.data.branch).down" class="h-3 w-3" />
+                      <span v-if="row.node.data.branch.behind > 0" class="text-caption leading-none">{{ row.node.data.branch.behind }}</span>
+                      <ArrowUp v-if="branchSyncText(row.node.data.branch).up" class="h-3 w-3" />
+                      <span v-if="row.node.data.branch.ahead > 0" class="text-caption leading-none">{{ row.node.data.branch.ahead }}</span>
+                      <TriangleAlert v-if="row.node.data.branch.upstreamMissing" class="h-3 w-3" />
+                    </span>
                     <span class="shrink-0 text-caption opacity-45">{{ formatRecentRelativeTime(row.node.data.branch.committerDate, relativeNowTick, t) }}</span>
                     <button v-if="!row.node.data.branch.isCurrent" type="button" class="btn btn-ghost btn-xs ml-auto h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
                       <ArrowRightLeft class="h-3 w-3" />
@@ -534,8 +542,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
+  ArrowDown,
   ArrowDownToLine,
   ArrowRightLeft,
+  ArrowUp,
   ArrowUpFromLine,
   ChevronUp,
   Cloud,
@@ -553,6 +563,7 @@ import {
   Rows3,
   SquareTerminal,
   Trash2,
+  TriangleAlert,
   Undo2,
   Upload,
 } from "@lucide/vue";
@@ -610,6 +621,12 @@ import {
   sortBranchesForDisplay,
   type BranchTreeNode,
 } from "../git-branch-order";
+import {
+  branchSyncArrows,
+  branchSyncColorClass,
+  branchSyncStatus,
+  type BranchSyncStatus,
+} from "../git-branch-sync";
 
 const props = withDefaults(defineProps<{
   workspacePath: string;
@@ -776,6 +793,8 @@ const totalChanges = computed(() => statusEntries.value.length);
 
 const localBranches = computed(() => branches.value.filter((branch) => !branch.isRemote));
 const remoteBranches = computed(() => branches.value.filter((branch) => branch.isRemote));
+// 判「未发布」还是「纯本地」的依据：仓库是否配置了任何远程
+const hasAnyRemote = computed(() => remoteBranches.value.length > 0 || remotes.value.length > 0);
 // 渲染分页：分支/存储统一拍平为行序列，滚动到底自动增加可见数
 type BranchRow =
   | { kind: "header"; key: string; text: string }
@@ -819,6 +838,45 @@ function toBranchGitTreeNodes(
       children: toBranchGitTreeNodes(node.children, scope),
     };
   });
+}
+
+/** 一条本地分支的同步状态（箭头 + 颜色 + tooltip 都要用） */
+function branchSync(branch: GitPanelBranchEntry): BranchSyncStatus | null {
+  return branchSyncStatus(branch, hasAnyRemote.value);
+}
+
+/** 分支行内 ahead/behind 箭头；分叉时两个都画 */
+function branchSyncText(branch: GitPanelBranchEntry): { up: boolean; down: boolean } {
+  return branchSyncArrows(branchSync(branch));
+}
+
+/** 分支行内状态色类名 */
+function branchSyncClass(branch: GitPanelBranchEntry): string {
+  return branchSyncColorClass(branchSync(branch));
+}
+
+/** 状态 tooltip：带数字的跟踪描述，未发布/纯本地说明上游情况 */
+function branchSyncTitle(branch: GitPanelBranchEntry): string {
+  const status = branchSync(branch);
+  const upstream = branch.upstream || "";
+  switch (status) {
+    case "ahead":
+      return t("gitPanel.syncAhead", { count: branch.ahead, upstream });
+    case "behind":
+      return t("gitPanel.syncBehind", { count: branch.behind, upstream });
+    case "diverged":
+      return t("gitPanel.syncDiverged", { ahead: branch.ahead, behind: branch.behind, upstream });
+    case "upToDate":
+      return t("gitPanel.syncUpToDate", { upstream });
+    case "missingUpstream":
+      return t("gitPanel.syncMissingUpstream", { upstream });
+    case "unpublished":
+      return t("gitPanel.syncUnpublished");
+    case "local":
+      return t("gitPanel.syncLocal");
+    default:
+      return "";
+  }
 }
 
 const localBranchTreeNodes = computed(() =>
