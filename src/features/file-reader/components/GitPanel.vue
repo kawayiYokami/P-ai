@@ -410,16 +410,18 @@
                   <!-- 本地分支 -->
                   <template v-else-if="row.node.data.kind === 'branch'">
                     <GitBranch class="h-3.5 w-3.5 shrink-0" :class="row.node.data.branch.isCurrent ? 'text-primary' : 'opacity-60'" />
-                    <span class="min-w-0 flex-1 truncate">{{ row.node.data.label }}</span>
-                    <button v-if="!row.node.data.branch.isCurrent" type="button" class="btn btn-ghost btn-xs h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
+                    <span class="min-w-0 truncate">{{ row.node.data.label }}</span>
+                    <span class="shrink-0 text-caption opacity-45">{{ formatRecentRelativeTime(row.node.data.branch.committerDate, relativeNowTick, t) }}</span>
+                    <button v-if="!row.node.data.branch.isCurrent" type="button" class="btn btn-ghost btn-xs ml-auto h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
                       <ArrowRightLeft class="h-3 w-3" />
                     </button>
                   </template>
                   <!-- 远程分支 -->
                   <template v-else-if="row.node.data.kind === 'remote-branch'">
                     <Cloud class="h-3 w-3 shrink-0 opacity-60" />
-                    <span class="min-w-0 flex-1 truncate">{{ row.node.data.label }}</span>
-                    <button type="button" class="btn btn-ghost btn-xs h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
+                    <span class="min-w-0 truncate">{{ row.node.data.label }}</span>
+                    <span class="shrink-0 text-caption opacity-45">{{ formatRecentRelativeTime(row.node.data.branch.committerDate, relativeNowTick, t) }}</span>
+                    <button type="button" class="btn btn-ghost btn-xs ml-auto h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
                       <ArrowRightLeft class="h-3 w-3" />
                     </button>
                   </template>
@@ -589,6 +591,7 @@ import {
   type GitPanelWatchEventPayload,
 } from "../../../services/tauri-api";
 import { decideGitPanelRefreshTargets } from "../git-panel-watch-refresh";
+import { formatRecentRelativeTime } from "../../shared/utils/relative-time";
 import { useWorkspaceGitStatus } from "../composables/use-workspace-git-status";
 import GitChangesGroup from "./GitChangesGroup.vue";
 import CommitGraphLine from "./CommitGraphLine.vue";
@@ -734,6 +737,9 @@ const stashFilesMap = ref<Record<string, GitPanelCommitFileEntry[]>>({});
 const stashFilesLoading = ref<Record<string, boolean>>({});
 const branchPickerOpen = ref(false);
 const branchPickerLoading = ref(false);
+// 相对时间基准：低频刷新，让「多久之前」跟随当前时刻（提交时间是历史值，60 秒粒度足够）
+const relativeNowTick = ref(Date.now());
+let relativeNowTimer = 0;
 
 // ==================== 提交区 ====================
 const commitMessage = ref("");
@@ -1904,6 +1910,10 @@ function resetCommitInputHeight() {
 onMounted(() => {
   restoreGitTab();
   restoreChangesViewMode();
+  // 相对时间基准低频自增：面板可见期间让「多久之前」跟随当前时刻
+  relativeNowTimer = window.setInterval(() => {
+    relativeNowTick.value = Date.now();
+  }, 60_000);
   // 声明面板占用：仓库根由面板控制，并让共享状态源开启仓库监听
   acquirePanel();
   unlistenExternalChange = onExternalChange(handleExternalChange);
@@ -1928,6 +1938,10 @@ onBeforeUnmount(() => {
   unlistenExternalChange?.();
   unlistenExternalChange = null;
   window.removeEventListener("focus", handleWindowFocusRefresh);
+  if (relativeNowTimer) {
+    window.clearInterval(relativeNowTimer);
+    relativeNowTimer = 0;
+  }
   // 释放面板占用：共享状态源按引用计数决定是否停止仓库监听，其他消费方（卡片墙）仍在时继续
   releasePanel();
   logObserver?.disconnect();
