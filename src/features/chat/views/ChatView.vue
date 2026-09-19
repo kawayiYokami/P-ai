@@ -716,8 +716,8 @@
           :conversation-id="activeConversationId"
           :latest-plan="latestHomePlan"
           :workspace-root-path="currentWorkspaceRootPath"
+          :git-repo-root="homeGitRepoRoot"
           :branch="homeGitBranch"
-          :git-changes="homeGitChanges"
           :change-count="homeGitChangeCount"
           :recent-commits="homeGitRecentCommits"
           :open-files="homeFilePreview.openFiles"
@@ -735,7 +735,8 @@
           @create-side-chat="openHomeSideChatNewPage"
           @open-workspace="openHomeWorkspaceDirectory"
           @open-git-changes="openHomeGitChanges"
-          @open-git-commits="openHomeGitChanges"
+          @open-git-commits="openHomeGitCommits"
+          @git-error="handleHomeGitError"
           @open-monitor-tab="openMonitorTabFromHome"
         />
         <FileReaderPanel
@@ -2829,6 +2830,24 @@ async function openHomeGitChanges() {
   await panel.openGitPanel();
 }
 
+/** 首页环境卡的「最新提交」：切到阅读器面板并直接落在提交标签页 */
+async function openHomeGitCommits() {
+  selectChatRightPanelMode("reader");
+  await nextTick();
+  await nextTick();
+  const panel = chatReaderPanelRef.value;
+  if (!panel) return;
+  await panel.whenSessionRestored?.();
+  await panel.openGitPanel("commits");
+}
+
+/** 首页环境卡的分支切换失败提示：与 Git 面板一致的阻断式提示 */
+function handleHomeGitError(message: string) {
+  const text = String(message || "").trim();
+  if (!text) return;
+  window.alert(text);
+}
+
 /** 主页监控卡片里的概览条目点击后：切到监控面板的对应 tab。 */
 function openMonitorTabFromHome(tab: ChatMonitorPanelMode) {
   emit("update:chatMonitorPanelMode", tab);
@@ -2918,12 +2937,6 @@ const {
   isPanelActive: isHomeGitPanelActive,
 } = useWorkspaceGitStatus();
 
-const homeGitChanges = computed(() =>
-  homeGitStatusEntries.value.map((entry) => ({
-    path: String(entry?.path || ""),
-    status: String(entry?.unstagedStatus || entry?.stagedStatus || ""),
-  })),
-);
 const homeGitChangeCount = computed(() => {
   const visible = homeGitStatusEntries.value.length;
   return visible || homeGitStagedTotal.value + homeGitUnstagedTotal.value;

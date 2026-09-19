@@ -190,6 +190,7 @@
             </div>
             <div v-else key="git" class="flex min-h-0 flex-1 flex-col overflow-hidden">
               <GitPanel
+                ref="gitPanelRef"
                 :workspace-path="gitPanelWorkspacePath"
                 :markdown-is-dark="markdownIsDark"
                 :session-key="props.sessionKey"
@@ -843,6 +844,16 @@ const FILE_READER_OPEN_TARGET_STORAGE_KEY = "easy-call.file-reader.directory-ope
 const tabs = ref<FileTab[]>([]);
 const activePath = ref("");
 const asideMode = ref<"files" | "git">("files");
+const gitPanelRef = ref<InstanceType<typeof GitPanel> | null>(null);
+/** 待应用的 git 标签页：面板未挂载时先记住（out-in 过渡下首次打开是延迟挂载的），挂载后应用 */
+const pendingGitTab = ref<"commits" | "stashes" | "branches" | null>(null);
+
+// flush: post —— GitPanel 的 onMounted 会先按存储恢复标签页，这里必须排在它之后才能覆盖
+watch(gitPanelRef, (panel) => {
+  if (!panel || !pendingGitTab.value) return;
+  panel.setActiveTab(pendingGitTab.value);
+  pendingGitTab.value = null;
+}, { flush: "post" });
 const actionErrorMessage = ref("");
 const contextMenuOpen = ref(false);
 const contextMenuPosition = ref({ x: 0, y: 0 });
@@ -2752,8 +2763,17 @@ async function toggleFilesPanel() {
   asideMode.value = "files";
 }
 
-async function openGitPanel() {
-  if (directoryTreeRoot.value && asideMode.value === "git") return;
+async function openGitPanel(tab?: "commits" | "stashes" | "branches") {
+  const alreadyOpen = !!directoryTreeRoot.value && asideMode.value === "git";
+  if (tab) {
+    // 面板已挂载就直接切；未挂载则记下来，等它挂载后由 gitPanelRef 监听补上
+    if (gitPanelRef.value) gitPanelRef.value.setActiveTab(tab);
+    else pendingGitTab.value = tab;
+  } else {
+    // 不带目标的打开是常规入口，不能沿用上一次残留的目标标签页
+    pendingGitTab.value = null;
+  }
+  if (alreadyOpen) return;
   if (!directoryTreeRoot.value) {
     const path = directoryToggleTargetPath.value;
     if (path) {

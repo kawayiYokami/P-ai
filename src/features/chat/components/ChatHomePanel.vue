@@ -2,21 +2,15 @@
   <div class="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-base-200">
     <OverlayScrollArea class="relative min-h-0 flex-1" scroller-class="ecall-chat-scroll-container min-h-0 h-full p-4">
       <div v-if="hasAnyCard" class="ecall-home-flow">
-        <HomeGitCard
+        <HomeEnvCard
           v-if="workspaceRootPath"
-          :workspace-root-path="workspaceRootPath"
+          :repo-root="gitRepoRoot || workspaceRootPath"
           :branch="branch"
-          :changes="gitChanges"
           :change-count="changeCount"
-          @open-changes="emit('openGitChanges')"
-          @open-file="(path) => emit('openFile', path)"
-        />
-        <HomeGitCommitsCard
-          v-if="workspaceRootPath"
-          :workspace-root-path="workspaceRootPath"
-          :branch="branch"
           :commits="recentCommits"
+          @open-changes="emit('openGitChanges')"
           @open-commits="emit('openGitCommits')"
+          @error="(message) => emit('gitError', message)"
         />
         <HomePlanCard
           v-if="latestPlan"
@@ -123,8 +117,7 @@ import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review";
 import type { ChatMonitorPanelMode } from "../composables/chat-ui-layout-storage";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
-import HomeGitCard from "./chat-home/HomeGitCard.vue";
-import HomeGitCommitsCard from "./chat-home/HomeGitCommitsCard.vue";
+import HomeEnvCard from "./chat-home/HomeEnvCard.vue";
 import HomeFilesCard from "./chat-home/HomeFilesCard.vue";
 import HomeWorkspaceCard from "./chat-home/HomeWorkspaceCard.vue";
 import HomeSideChatCreateCard from "./chat-home/HomeSideChatCreateCard.vue";
@@ -139,8 +132,9 @@ const props = withDefaults(defineProps<{
   conversationId?: string;
   latestPlan?: LatestPlanSummary | null;
   workspaceRootPath?: string;
+  /** Git 仓库根；与工作目录可能不同（仓库在上级目录），为空时回落到工作目录 */
+  gitRepoRoot?: string;
   branch?: string;
-  gitChanges?: Array<{ path: string; status: string }>;
   changeCount?: number;
   /** 当前仓库最近几条提交；来源与分支、更改列表同一处 */
   recentCommits?: Array<{ hash: string; message: string }>;
@@ -161,8 +155,8 @@ const props = withDefaults(defineProps<{
   conversationId: "",
   latestPlan: null,
   workspaceRootPath: "",
+  gitRepoRoot: "",
   branch: "",
-  gitChanges: () => [],
   changeCount: 0,
   recentCommits: () => [],
   openFiles: () => [],
@@ -184,6 +178,7 @@ const emit = defineEmits<{
   (e: "openWorkspace"): void;
   (e: "openGitChanges"): void;
   (e: "openGitCommits"): void;
+  (e: "gitError", message: string): void;
   (e: "openMonitorTab", value: ChatMonitorPanelMode): void;
 }>();
 

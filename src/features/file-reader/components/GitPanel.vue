@@ -2013,6 +2013,13 @@ onBeforeUnmount(() => {
   window.removeEventListener("pointerdown", handleGlobalPointerDownForStashMenu, true);
   window.removeEventListener("keydown", handleStashMenuKeydown);
 });
+
+// ==================== Expose ====================
+
+defineExpose({
+  /** 外部指定要展示的标签页（首页卡片墙点「最新提交」等入口时用） */
+  setActiveTab: selectGitTab,
+});
 </script>
 
 <style scoped>
