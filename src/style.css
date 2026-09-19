@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* Tailwind v4 默认把 hover / group-hover 关进 @media (hover: hover)：
+   主指针不报告支持悬停的设备（触摸笔记本、平板模式）里这些样式永不命中，
+   悬停才出现的按钮会一直停在透明态。桌面应用固定有指针，直接按 :hover 生效。 */
+@custom-variant hover (&:hover);
 @source not "../dist";
 @source not "../src-tauri/target";
 @source not "../src-tauri/memory";
