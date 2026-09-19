@@ -2473,6 +2473,93 @@
     }
 
     #[test]
+    fn remote_im_contact_with_legacy_null_fields_should_read_with_defaults() {
+        // 旧版迁移会把 Option 字段（如 groupReplyPacing）以 null 写入 config_json；
+        // 当前结构这些字段已是非 Option + serde(default)，读取端应把顶层 null 键视为缺失。
+        let state = remote_im_test_state();
+        let contact = remote_im_test_contact("contact-legacy-null", "conversation-legacy-null");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+
+        // 直接把 DB 里的 config_json 改成旧版形态：顶层若干字段为 null
+        let conn = state_db_open(&state.data_path).expect("open state db");
+        let mut stmt = conn
+            .prepare("SELECT config_json FROM remote_im_contacts WHERE id=?1")
+            .expect("prepare select");
+        let raw: String = stmt
+            .query_row(rusqlite::params!["contact-legacy-null"], |row| row.get(0))
+            .expect("read config_json");
+        let mut value = serde_json::from_str::<serde_json::Value>(&raw).expect("parse config_json");
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("groupReplyPacing".to_string(), serde_json::Value::Null);
+            obj.insert("lastActivatedAt".to_string(), serde_json::Value::Null);
+            // 顺带覆盖一个已删除字段，确认 serde 忽略未知键仍生效
+            obj.insert("boundDepartmentId".to_string(), serde_json::Value::String("legacy-dept".to_string()));
+        }
+        let dirty = serde_json::to_string(&value).expect("serialize dirty config");
+        conn.execute(
+            "UPDATE remote_im_contacts SET config_json=?1 WHERE id=?2",
+            rusqlite::params![dirty, "contact-legacy-null"],
+        )
+        .expect("write dirty config_json");
+
+        let restored = state_service_get_remote_im_contact(&state, "contact-legacy-null")
+            .expect("read contact should tolerate legacy null fields")
+            .expect("contact exists");
+        assert_eq!(restored.id, "contact-legacy-null");
+        assert_eq!(restored.group_reply_pacing, RemoteImGroupReplyPacing::default());
+        assert_eq!(restored.last_activated_at, None);
+    }
+
+    #[test]
+    fn remote_im_checkpoint_with_legacy_null_fields_should_read_with_defaults() {
+        // checkpoint_json 与 config_json 同样存在旧版 Option 字段被写成 null 的迁移遗留；
+        // 读取端走同一个 null 键剔除路径，保证未来字段重构（Option → 非 Option）不炸。
+        let state = remote_im_test_state();
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: "contact-ckpt".to_string(),
+                latest_seen_message_id: Some("m-1".to_string()),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("write checkpoint");
+
+        let conn = state_db_open(&state.data_path).expect("open state db");
+        let raw: String = conn
+            .query_row(
+                "SELECT checkpoint_json FROM remote_im_contact_checkpoints WHERE contact_id=?1",
+                rusqlite::params!["contact-ckpt"],
+                |row| row.get(0),
+            )
+            .expect("read checkpoint_json");
+        let mut value = serde_json::from_str::<serde_json::Value>(&raw).expect("parse checkpoint_json");
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("energy".to_string(), serde_json::Value::Null);
+            obj.insert("groupReplyDelivery".to_string(), serde_json::Value::Null);
+        }
+        let dirty = serde_json::to_string(&value).expect("serialize dirty checkpoint");
+        conn.execute(
+            "UPDATE remote_im_contact_checkpoints SET checkpoint_json=?1 WHERE contact_id=?2",
+            rusqlite::params![dirty, "contact-ckpt"],
+        )
+        .expect("write dirty checkpoint_json");
+
+        let restored = state_service_get_remote_im_contact_checkpoint(&state, "contact-ckpt")
+            .expect("read checkpoint should tolerate legacy null fields")
+            .expect("checkpoint exists");
+        assert_eq!(restored.contact_id, "contact-ckpt");
+        assert_eq!(restored.latest_seen_message_id.as_deref(), Some("m-1"));
+        assert!(restored.energy.is_none());
+        assert!(restored.group_reply_delivery.is_none());
+
+        let listed = state_service_list_remote_im_contact_checkpoints(&state)
+            .expect("list checkpoints should tolerate legacy null fields");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].contact_id, "contact-ckpt");
+    }
+
+    #[test]
     fn legacy_contact_behavior_update_should_not_override_channel_behavior() {
         let state = remote_im_test_state();
         let mut contact = remote_im_test_contact("contact-behavior", "conversation-behavior");

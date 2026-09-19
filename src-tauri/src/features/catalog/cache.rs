@@ -30,8 +30,18 @@ fn read_remote_catalog_cache(
     }
     let raw = std::fs::read(&path)
         .map_err(|err| format!("读取远端清单缓存失败（{}）：{err}", path.display()))?;
-    let cache = serde_json::from_slice::<RemoteCatalogCacheFile>(&raw)
-        .map_err(|err| format!("解析远端清单缓存失败（{}）：{err}", path.display()))?;
+    // 旧版缓存字段名不同（如 payload 曾叫 root）或文件损坏时，按无缓存处理；
+    // ensure_remote_catalog_cache 会重新拉取并覆盖写，文件自愈。
+    let cache = match serde_json::from_slice::<RemoteCatalogCacheFile>(&raw) {
+        Ok(cache) => cache,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "解析远端清单缓存失败，按无缓存处理（{}）：{err}",
+                path.display()
+            ));
+            return Ok(None);
+        }
+    };
     Ok(Some(cache))
 }
 

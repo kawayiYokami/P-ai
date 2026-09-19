@@ -506,13 +506,32 @@ fn state_service_remove_remote_im_contact(
     Ok(removed > 0)
 }
 
+/// 旧版迁移会把 `Option` 字段以 `null` 原样写入 config_json（如 groupReplyPacing），
+/// 而当前结构里这些字段可能已改为非 Option + `#[serde(default)]`；`serde(default)`
+/// 只兜底「字段缺失」不兜底「字段为 null」。先把顶层 null 键剔除再交给 serde，
+/// 让 default 生效；等下一次 upsert 写回干净 JSON 完成自愈。
+fn deserialize_state_json_tolerating_null_fields<T>(
+    raw_json: &str,
+    context: &str,
+) -> Result<T, String>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let mut raw = serde_json::from_str::<serde_json::Value>(raw_json)
+        .map_err(|err| format!("解析 {context} JSON 失败，error={err}"))?;
+    if let Some(obj) = raw.as_object_mut() {
+        obj.retain(|_, value| !value.is_null());
+    }
+    serde_json::from_value(raw).map_err(|err| format!("反序列化 {context} 失败，error={err}"))
+}
+
 /// config_json → RemoteImContact，并回填成员表数据。
 fn deserialize_remote_im_contact(
     conn: &rusqlite::Connection,
     config_json: &str,
 ) -> Result<RemoteImContact, String> {
-    let mut contact: RemoteImContact = serde_json::from_str(config_json)
-        .map_err(|err| format!("反序列化 remote_im_contacts config 失败，error={err}"))?;
+    let mut contact: RemoteImContact =
+        deserialize_state_json_tolerating_null_fields(config_json, "remote_im_contacts config")?;
     let mut stmt = conn
         .prepare(
             "SELECT user_id, nickname, card, display_name, updated_at
@@ -559,8 +578,10 @@ fn state_service_get_remote_im_contact_checkpoint(
         let checkpoint_json: String = row
             .get(0)
             .map_err(|err| format!("解析 remote_im_contact_checkpoints 失败，error={err}"))?;
-        let checkpoint: RemoteImContactCheckpoint = serde_json::from_str(&checkpoint_json)
-            .map_err(|err| format!("反序列化 remote_im_contact_checkpoints 失败，error={err}"))?;
+        let checkpoint: RemoteImContactCheckpoint = deserialize_state_json_tolerating_null_fields(
+            &checkpoint_json,
+            "remote_im_contact_checkpoints",
+        )?;
         Ok(Some(checkpoint))
     } else {
         Ok(None)
@@ -582,8 +603,10 @@ fn state_service_list_remote_im_contact_checkpoints(
     for item in rows {
         let checkpoint_json =
             item.map_err(|err| format!("读取 remote_im_contact_checkpoints 列表失败，error={err}"))?;
-        let checkpoint: RemoteImContactCheckpoint = serde_json::from_str(&checkpoint_json)
-            .map_err(|err| format!("反序列化 remote_im_contact_checkpoints 失败，error={err}"))?;
+        let checkpoint: RemoteImContactCheckpoint = deserialize_state_json_tolerating_null_fields(
+            &checkpoint_json,
+            "remote_im_contact_checkpoints",
+        )?;
         checkpoints.push(checkpoint);
     }
     Ok(checkpoints)
