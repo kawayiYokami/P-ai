@@ -1432,7 +1432,7 @@
       "configSection": "配置定义 (JSON)",
       "toolsSection": "工具列表",
       "serverId": "连接器 ID",
-      "serverName": "显示名称",
+      "serverName": "名称",
       "serverNamePlaceholder": "输入连接器名称",
       "statusLabel": "运行状态",
       "manage": "管理详情",

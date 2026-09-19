@@ -34,24 +34,16 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div class="space-y-1">
-            <label class="text-xs font-medium opacity-70">{{ t('config.mcp.serverId') }}</label>
-            <div class="font-mono text-xs px-3 py-2 bg-base-200/60 rounded-field border border-base-300 select-all truncate">
-              {{ draft.id }}
-            </div>
-          </div>
-          <div class="space-y-1">
-            <label class="text-xs font-medium opacity-70">{{ t('config.mcp.serverName') }}</label>
-            <input
-              v-model="draft.name"
-              type="text"
-              class="input input-bordered input-sm h-9 w-full text-xs"
-              :placeholder="t('config.mcp.serverNamePlaceholder')"
-              :disabled="disabled"
-              @input="emitChange"
-            />
-          </div>
+        <div class="space-y-1">
+          <label class="text-xs font-medium opacity-70">{{ t('config.mcp.serverName') }}</label>
+          <input
+            :value="draft.name"
+            type="text"
+            class="input input-bordered input-sm h-9 w-full text-xs"
+            :placeholder="t('config.mcp.serverNamePlaceholder')"
+            :disabled="disabled"
+            @input="handleNameInput"
+          />
         </div>
 
         <div v-if="draft.lastError" class="p-2.5 rounded-field bg-error/10 border border-error/20 text-xs text-error">
@@ -113,6 +105,7 @@ import { computed, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { McpServerConfig, McpToolDescriptor } from "../../../../../types/app";
 import McpToolList from "./McpToolList.vue";
+import { renameFirstMcpServerMember } from "../../../utils/mcp-definition";
 
 const { t } = useI18n();
 
@@ -218,5 +211,15 @@ const members = computed<McpMemberView[]>(() => {
 function emitChange() {
   draft.isDirty = true;
   emit("change", { ...draft });
+}
+
+// 显示名与定义里的成员名是同一份数据：改名时直接改写定义 JSON，下面文本框立刻同步，
+// 保存后从文件读回的名字才不会被旧成员名覆盖
+function handleNameInput(event: Event) {
+  const value = (event.target as HTMLInputElement).value;
+  draft.name = value;
+  const renamed = renameFirstMcpServerMember(draft.definitionJson, value);
+  if (renamed !== null) draft.definitionJson = renamed;
+  emitChange();
 }
 </script>

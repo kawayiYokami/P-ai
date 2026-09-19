@@ -1428,7 +1428,7 @@
       "configSection": "配置定義 (JSON)",
       "toolsSection": "工具列表",
       "serverId": "連接器 ID",
-      "serverName": "顯示名稱",
+      "serverName": "名稱",
       "serverNamePlaceholder": "輸入連接器名稱",
       "statusLabel": "運行狀態",
       "manage": "管理詳情",

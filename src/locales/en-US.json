@@ -1432,7 +1432,7 @@
       "configSection": "Configuration (JSON)",
       "toolsSection": "Tool List",
       "serverId": "Connector ID",
-      "serverName": "Display Name",
+      "serverName": "Name",
       "serverNamePlaceholder": "Enter connector name",
       "statusLabel": "Status",
       "manage": "Manage Details",
