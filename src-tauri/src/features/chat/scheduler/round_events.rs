@@ -152,6 +152,16 @@ fn notify_local_chat_round_completed(
         ));
         return;
     }
+    // 队列里还压着待处理消息（排队的或引导的）时不提醒：这一轮不是用户真正在等的结果，
+    // 引导消息更是会把当前轮次在工具切点截断后另起一轮。等这些消息都处理完、会话真正
+    // 空下来那一轮再发，一次交互只提醒一次。
+    if conversation_has_pending_queue_events(state, conversation_id).unwrap_or(false) {
+        runtime_log_debug(format!(
+            "[通知] 跳过，任务=本地会话完成通知，conversation_id={}，reason=pending_queue",
+            conversation_id
+        ));
+        return;
+    }
     let notification_settings = local_chat_notification_settings(state, conversation_id);
     if !notification_settings.enabled {
         runtime_log_debug(format!(
