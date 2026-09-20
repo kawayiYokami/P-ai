@@ -7,7 +7,7 @@ const TODO_DROPDOWN_SAFE_GAP = 30;
 const FLOATING_TOOLBAR_MIN_RESERVE = 24;
 const SESSION_CONTROL_PANEL_HIDE_DELAY_MS = 200;
 // 思维链预览条：滚动停止满这么久才出现；期间任何一次滚动都重新计时，也就是一滚动就收起
-const PREVIEW_IDLE_DELAY_MS = 10_000;
+const PREVIEW_IDLE_DELAY_MS = 3_000;
 
 type UseChatScrollLayoutOptions = {
   activeConversationId: Ref<string>;

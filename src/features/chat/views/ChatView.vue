@@ -3368,7 +3368,7 @@ const idlePreviewText = computed(() => {
   return "";
 });
 
-// 预览条：离底、有未读内容、且滚动已静止十秒才显示；思维链已展开时用户正在看思维链，不再预览
+// 预览条：离底、有未读内容、且滚动已静止三秒才显示；思维链已展开时用户正在看思维链，不再预览
 const previewBarVisible = computed(() =>
   !atConversationBottom.value
   && previewHasUnread.value
