@@ -1865,8 +1865,6 @@
     "monitorPanelTab": "監控",
     "homePanel": {
       "title": "預覽",
-      "openedFiles": "已開啟",
-      "noOpenFile": "尚無開啟的檔案",
       "gitChanges": "Git 變更",
       "gitCommits": "Git 提交",
       "noCommits": "尚無提交",

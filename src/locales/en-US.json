@@ -1741,8 +1741,6 @@
     "monitorPanelTab": "Monitor",
     "homePanel": {
       "title": "Preview",
-      "openedFiles": "Open",
-      "noOpenFile": "No open files",
       "gitChanges": "Git changes",
       "gitCommits": "Git commits",
       "noCommits": "No commits",
