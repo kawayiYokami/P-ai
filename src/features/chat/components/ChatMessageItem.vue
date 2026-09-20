@@ -231,31 +231,23 @@
             </div>
             <div v-else ref="markdownContainerRef">
               <div class="ecall-assistant-segment-list">
-                <template
+                <div
                   v-for="(piece, pieceIndex) in assistantMarkdownPieces"
                   :key="piece.key"
+                  class="ecall-assistant-segment ecall-assistant-segment-text"
                 >
-                  <div
-                    v-for="(segment, segmentIndex) in piece.segments"
-                    :key="segment.key"
-                    :class="[
-                      'ecall-assistant-segment',
-                      segment.kind === 'text' ? 'ecall-assistant-segment-text' : 'ecall-assistant-segment-rich',
-                    ]"
-                  >
-                    <AppMarkdownRenderer
-                      class="ecall-markdown-content max-w-none"
-                      :blocks="segment.blocks"
-                      :is-dark="markdownIsDark"
-                      :streaming="!!block.isStreaming && pieceIndex === assistantMarkdownPieces.length - 1 && segmentIndex === piece.segments.length - 1"
-                      :local-image-base-path="currentWorkspaceRootPath"
-                      :toolcall-preview-map="toolcallPreviewMap"
-                      @math-context-menu="openMathContextMenu"
-                      @open-image-preview="emit('openImagePreview', $event)"
-                      @click="emit('assistantLinkClick', $event)"
-                    />
-                  </div>
-                </template>
+                  <AppMarkdownRenderer
+                    class="ecall-markdown-content max-w-none"
+                    :blocks="piece.blocks"
+                    :is-dark="markdownIsDark"
+                    :streaming="!!block.isStreaming && pieceIndex === assistantMarkdownPieces.length - 1"
+                    :local-image-base-path="currentWorkspaceRootPath"
+                    :toolcall-preview-map="toolcallPreviewMap"
+                    @math-context-menu="openMathContextMenu"
+                    @open-image-preview="emit('openImagePreview', $event)"
+                    @click="emit('assistantLinkClick', $event)"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -519,7 +511,7 @@ import {
 } from "../../../utils/chat-message-semantics";
 import { formatIsoToLocalDateTime } from "../../../utils/time";
 import { useChatMessageAppearance } from "../../shell/composables/use-chat-message-appearance";
-import { AppMarkdownRenderer, groupMarkdownSegments, initKatex, parseMarkdownBlocks, type MarkdownSegment } from "../markdown";
+import { AppMarkdownRenderer, initKatex, parseMarkdownBlocks, type MarkdownBlock } from "../markdown";
 import { hideIncompleteInlineMath } from "../markdown/streaming-math";
 import { normalizeLocalLinkHref } from "../utils/local-link";
 import { textContentSignature } from "../utils/text-signature";
@@ -619,7 +611,8 @@ const assistantRawRenderedText = computed(() => formatAssistantStreamingText(pro
 const assistantRenderedText = computed(() =>
   assistantRawRenderedText.value.split(TOOL_TEXT_BREAK_PLACEHOLDER).join("\n\n"),
 );
-const assistantMarkdownPieces = computed<Array<{ key: string; segments: MarkdownSegment[] }>>(() => {
+// 一段正文（工具调用之间的整段）即一个气泡；代码块 / 表格 / 图表内嵌其中，不切开气泡
+const assistantMarkdownPieces = computed<Array<{ key: string; blocks: MarkdownBlock[] }>>(() => {
   if (plainMarkdownDebugEnabled) return [];
   const text = assistantRawRenderedText.value;
   if (!text) return [];
@@ -627,15 +620,12 @@ const assistantMarkdownPieces = computed<Array<{ key: string; segments: Markdown
   const pieces = segmented
     ? text.split(TOOL_TEXT_BREAK_PLACEHOLDER)
     : [assistantRenderedText.value];
-  const result: Array<{ key: string; segments: MarkdownSegment[] }> = [];
+  const result: Array<{ key: string; blocks: MarkdownBlock[] }> = [];
   pieces.forEach((piece, pieceIndex) => {
     if (!piece.trim()) return;
-    const blocks = parseMarkdownBlocks(piece, !!props.block.isStreaming);
     result.push({
       key: `piece-${pieceIndex}`,
-      segments: segmented
-        ? groupMarkdownSegments(blocks)
-        : [{ kind: "text", key: `piece-${pieceIndex}-all`, blocks }],
+      blocks: parseMarkdownBlocks(piece, !!props.block.isStreaming),
     });
   });
   return result;
@@ -2069,13 +2059,15 @@ function openAttachmentPath(path: string) {
   --ecall-chat-rich-block-bg: var(--color-base-100);
 }
 
-/* 有气泡背景且不分段：富块嵌在 base-100 气泡内，用 base-200 拉开层次；其余场景富块独立裸排，一律 base-100 */
+/* 有气泡背景且不分段：表格单元格 / 引用块 / 折叠块用 base-200 拉开层次；其余场景一律 base-100 */
 .assistant-markdown[data-bubble-background="on"][data-segmented-markdown="off"] {
   --ecall-chat-rich-block-bg: var(--color-base-200);
 }
 
+/* 富块内嵌气泡：代码块底色与框线归零，只留语言名与操作按钮 */
 .assistant-markdown :deep(.ecall-md-code-block) {
-  --ecall-md-code-bg: var(--ecall-chat-rich-block-bg);
+  --ecall-md-code-bg: transparent;
+  background: transparent;
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(blockquote,.blockquote)) {
@@ -2088,6 +2080,16 @@ function openAttachmentPath(path: string) {
 
 .assistant-markdown :deep(.ecall-markdown-content :where(td,.table-node td)) {
   background: var(--ecall-chat-rich-block-bg) !important;
+}
+
+/* 富块内嵌气泡：表格去掉外框，只留表头分隔线与行线 */
+.assistant-markdown :deep(.ecall-markdown-content :where(table,.table-node)) {
+  border: 0 !important;
+  border-radius: 0;
+}
+
+.assistant-markdown :deep(.ecall-markdown-content .table-node-wrapper) {
+  border-radius: 0;
 }
 
 .assistant-markdown :deep(.ecall-markdown-content .ecall-md-details) {
@@ -2104,7 +2106,7 @@ function openAttachmentPath(path: string) {
   min-width: 0;
 }
 
-/* 隐藏气泡背景：每个气泡各补一条顶边线当分隔；线贯穿消息内容区并与正文左右对齐，不占高度 */
+/* 隐藏气泡背景：每段各补一条顶边线当分隔；线贯穿内容区并与正文左右对齐，不占高度 */
 .ecall-assistant-bubble[data-bubble-background="off"] .ecall-assistant-segment {
   position: relative;
   width: 100%;
@@ -2123,6 +2125,7 @@ function openAttachmentPath(path: string) {
   transform-origin: center;
 }
 
+/* 段即一个气泡（计划卡等列表外的段也走这里） */
 .ecall-assistant-segment-text {
   display: inline-block;
   width: fit-content;
@@ -2130,10 +2133,10 @@ function openAttachmentPath(path: string) {
   padding: 0.68rem 1rem;
 }
 
-.ecall-assistant-segment-rich {
+/* 段里带富块（代码块 / 表格 / 图表）时回到整行宽度，否则 fit-content 会把代码块压窄成横向滚动 */
+.ecall-assistant-segment:has(.ecall-md-code-block, .ecall-md-table-wrap, .ecall-md-mermaid-shell) {
   display: block;
   width: 100%;
-  padding: 0;
 }
 
 /* 背景开关：只决定气泡底色是否显示，布局与文字位置恒定不动 */
