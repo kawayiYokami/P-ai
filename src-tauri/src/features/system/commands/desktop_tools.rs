@@ -780,6 +780,9 @@ struct SaveChatShellWorkspacesInput {
     shell_work_mode: Option<String>,
     #[serde(default)]
     shell_work_branch: Option<String>,
+    /// 会话记录的工作分支；传空串表示清空（换工作区后重新记录），不传表示不动
+    #[serde(default)]
+    shell_recorded_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -861,6 +864,7 @@ struct ChatShellWorkspaceOutput {
     autonomous_mode: bool,
     shell_work_mode: String,
     shell_work_branch: String,
+    shell_recorded_branch: String,
     worktree_path: String,
     worktree_exists: bool,
 }
@@ -947,17 +951,20 @@ fn apply_conversation_chat_workspace_changes(
     shell_autonomous_mode: Option<bool>,
     shell_work_mode: Option<String>,
     shell_work_branch: Option<String>,
+    shell_recorded_branch: Option<String>,
 ) -> Result<Conversation, String> {
     if delegate_runtime_thread_conversation_get(state, conversation_id)?.is_some() {
         let next_path = shell_workspace_path.clone();
         let next_workspaces = shell_workspaces.clone();
         let next_branch = shell_work_branch.clone();
+        let next_recorded_branch = shell_recorded_branch.clone();
         delegate_runtime_thread_modify(state, conversation_id, move |thread| {
             let original_path = thread.conversation.shell_workspace_path.clone();
             let original_workspaces = thread.conversation.shell_workspaces.clone();
             let original_autonomous_mode = thread.conversation.shell_autonomous_mode;
             let original_work_mode = thread.conversation.shell_work_mode.clone();
             let original_branch = thread.conversation.shell_work_branch.clone();
+            let original_recorded_branch = thread.conversation.shell_recorded_branch.clone();
             if let Some(value) = next_path.clone() {
                 thread.conversation.shell_workspace_path = value;
             }
@@ -973,6 +980,10 @@ fn apply_conversation_chat_workspace_changes(
             if let Some(value) = next_branch.clone() {
                 thread.conversation.shell_work_branch = normalize_shell_work_branch_text(&value);
             }
+            if let Some(value) = next_recorded_branch.clone() {
+                thread.conversation.shell_recorded_branch =
+                    normalize_shell_work_branch_text(&value);
+            }
             if thread.conversation.shell_workspace_path.as_deref().map(str::trim).filter(|value| !value.is_empty()).is_some()
                 && terminal_workspace_path_from_conversation(state, &thread.conversation).is_none()
             {
@@ -983,6 +994,7 @@ fn apply_conversation_chat_workspace_changes(
                 && thread.conversation.shell_autonomous_mode == original_autonomous_mode
                 && thread.conversation.shell_work_mode == original_work_mode
                 && thread.conversation.shell_work_branch == original_branch
+                && thread.conversation.shell_recorded_branch == original_recorded_branch
             {
                 return Ok(());
             }
@@ -1004,6 +1016,7 @@ fn apply_conversation_chat_workspace_changes(
         shell_autonomous_mode,
         shell_work_mode,
         shell_work_branch,
+        shell_recorded_branch,
     )?;
     mark_prompt_cache_rebuild_for_system_environment_by_conversation(state, conversation_id);
     Ok(updated)
@@ -1105,6 +1118,9 @@ fn build_chat_shell_workspace_output(
             .unwrap_or_else(default_shell_work_mode),
         shell_work_branch: conversation
             .map(|value| normalize_shell_work_branch_text(&value.shell_work_branch))
+            .unwrap_or_default(),
+        shell_recorded_branch: conversation
+            .map(|value| normalize_shell_work_branch_text(&value.shell_recorded_branch))
             .unwrap_or_default(),
         worktree_path,
         worktree_exists,
@@ -2028,6 +2044,11 @@ fn update_chat_shell_workspace_layout_inner(
         .map(|value| normalize_shell_work_branch_text(value))
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string());
+    // 空串是有效输入：换工作区后要把记录清空，交给下一次状态回填重新记录
+    let normalized_recorded_branch = input
+        .shell_recorded_branch
+        .as_deref()
+        .map(|value| normalize_shell_work_branch_text(value));
     let updated = apply_conversation_chat_workspace_changes(
         state,
         &conversation_id,
@@ -2036,6 +2057,7 @@ fn update_chat_shell_workspace_layout_inner(
         input.autonomous_mode,
         input.shell_work_mode,
         normalized_branch,
+        normalized_recorded_branch,
     )?;
     {
         let mut roots = state
@@ -2051,6 +2073,48 @@ fn update_chat_shell_workspace_layout_inner(
         Some(&updated),
         root,
     ))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordConversationWorkspaceBranchInput {
+    conversation_id: String,
+    /// 要记录的会话工作分支；空串表示清空记录
+    #[serde(default)]
+    branch: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordConversationWorkspaceBranchOutput {
+    conversation_id: String,
+    shell_recorded_branch: String,
+}
+
+/// 复写会话记录的「本会话工作分支」。只改会话元数据，不碰仓库。
+fn record_conversation_workspace_branch_inner(
+    input: RecordConversationWorkspaceBranchInput,
+    state: &AppState,
+) -> Result<RecordConversationWorkspaceBranchOutput, String> {
+    let conversation_id = input.conversation_id.trim().to_string();
+    if conversation_id.is_empty() {
+        return Err("指定会话不存在：".to_string());
+    }
+    let branch = normalize_shell_work_branch_text(&input.branch);
+    let updated = apply_conversation_chat_workspace_changes(
+        state,
+        &conversation_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(branch.clone()),
+    )?;
+    Ok(RecordConversationWorkspaceBranchOutput {
+        conversation_id: updated.id,
+        shell_recorded_branch: normalize_shell_work_branch_text(&updated.shell_recorded_branch),
+    })
 }
 
 #[tauri::command]

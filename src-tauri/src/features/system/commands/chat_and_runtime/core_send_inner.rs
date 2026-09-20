@@ -846,6 +846,7 @@ async fn send_chat_message_inner(
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
             shell_work_branch: String::new(),
+            shell_recorded_branch: String::new(),
             archived_at: None,
             messages: Vec::new(),
             fast_request_turns: Vec::new(),
@@ -3246,6 +3247,7 @@ mod core_send_inner_tests {
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
             shell_work_branch: String::new(),
+            shell_recorded_branch: String::new(),
             archived_at: None,
             messages,
             fast_request_turns: Vec::new(),
@@ -3949,6 +3951,7 @@ mod core_send_inner_tests {
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
             shell_work_branch: String::new(),
+            shell_recorded_branch: String::new(),
             archived_at: None,
             messages: vec![ChatMessage {
                 id: "assistant-existing".to_string(),

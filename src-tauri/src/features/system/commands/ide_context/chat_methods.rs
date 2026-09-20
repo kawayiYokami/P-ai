@@ -104,6 +104,7 @@ fn ide_chat_ensure_sidebar_workspace(
         None,
         None,
         None,
+        None,
     )?;
     Ok(())
 }

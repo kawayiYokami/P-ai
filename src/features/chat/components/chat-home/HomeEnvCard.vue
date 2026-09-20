@@ -105,6 +105,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: "openChanges"): void;
   (e: "openCommits"): void;
+  (e: "branchSwitched"): void;
   (e: "error", message: string): void;
 }>();
 
@@ -130,6 +131,8 @@ const latestCommitTitle = computed(() => (latestCommit.value ? String(latestComm
 
 function onBranchSwitched() {
   branchPickerOpen.value = false;
+  // 会话内自己切的分支不算「在别处切过」：交给上层按仓库目录同步记录，避免下次发送时拦自己
+  emit("branchSwitched");
 }
 </script>
 

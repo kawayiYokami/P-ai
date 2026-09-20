@@ -95,6 +95,8 @@ const props = withDefaults(defineProps<{
   validationMessage?: string;
   hideAddWorkspace?: boolean;
   selectedBranch?: string;
+  /** 对话框内切换分支成功后按目标目录同步「本会话工作分支」记录 */
+  syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
 }>(), {
   hideAddWorkspace: false,
   selectedBranch: "",
@@ -340,6 +342,8 @@ async function onBranchUpdate(branch: string) {
       checkoutError.value = t("chat.workspaceBranchCheckoutFailed", { message });
       return;
     }
+    // 会话内自己切的分支：按目标目录同步记录，避免之后被守卫当成「在别处切过」而拦一次
+    await props.syncWorkspaceBranch?.(target);
     try {
       const entries = await gitPanelBranchList(target);
       branchList.value = entries.map((e) => String(e.name || "").trim()).filter(Boolean);

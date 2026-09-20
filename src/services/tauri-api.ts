@@ -1753,6 +1753,7 @@ const TAURI_COMMAND_ALIASES: Record<string, string> = {
   "workspace.permission.select": "select_conversation_workspace_permission",
   "workspace.layout.save": "save_conversation_workspace_layout",
   "workspace.list": "list_conversation_workspaces",
+  "workspace.branch.record": "record_conversation_workspace_branch",
 };
 
 const TRANSPORT_COMMAND_CANONICAL_NAMES: Record<string, string> = Object.entries(TAURI_COMMAND_ALIASES)
@@ -1851,6 +1852,7 @@ const TAURI_INPUT_WRAPPED_COMMANDS = new Set([
   "workspace.permission.select",
   "workspace.layout.save",
   "workspace.list",
+  "workspace.branch.record",
 ]);
 
 function prepareRuntimeArgs(

@@ -632,6 +632,8 @@ const props = withDefaults(defineProps<{
   workspacePath: string;
   markdownIsDark?: boolean;
   sessionKey?: string;
+  /** 面板内切换分支成功后按仓库目录同步「本会话工作分支」记录，避免下次发送时拦自己 */
+  syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
 }>(), {
   markdownIsDark: false,
   sessionKey: "",
@@ -1357,6 +1359,7 @@ async function runGitAction(
   command: string,
   action: () => Promise<GitPanelRunOutput>,
   successText?: string,
+  beforeRefresh?: () => Promise<void>,
 ): Promise<boolean> {
   if (busy.value) return false;
   busy.value = true;
@@ -1375,6 +1378,9 @@ async function runGitAction(
     // 无论成败都刷新状态：stash apply/pop 冲突时退出码非零，
     // 但工作树已写入冲突标记，必须让用户能在面板中看到冲突状态
     if (succeeded && successText) showSuccessToast(successText);
+    // 成功后的收尾动作：把「会话内自己切的分支」同步进会话记录，
+    // 否则下一次发送时守卫会把这个分支当成「别处切过的」而拦一次
+    if (succeeded && beforeRefresh) await beforeRefresh();
     await loadStatus(true);
     await loadBranches(true);
     await loadStashes(true);
@@ -1503,7 +1509,15 @@ async function runCheckoutBranch(name: string) {
   }
   if (!window.confirm(t("gitPanel.checkoutConfirm", { name }))) return;
   branchPickerOpen.value = false;
-  const ok = await runGitAction(`checkout ${name}`, () => gitPanelCheckout(repoRoot.value, name), `已切换分支 ${name}`);
+  const ok = await runGitAction(
+    `checkout ${name}`,
+    () => gitPanelCheckout(repoRoot.value, name),
+    `已切换分支 ${name}`,
+    async () => {
+      // 复写「本会话工作分支」：按仓库目录回读真实分支，远程引用 checkout 进 detached HEAD 时不写
+      await props.syncWorkspaceBranch?.(repoRoot.value);
+    },
+  );
   if (ok) {
     await loadHistory(true);
   }

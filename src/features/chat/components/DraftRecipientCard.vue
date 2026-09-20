@@ -265,6 +265,8 @@ const props = withDefaults(defineProps<{
   // 新的多目录+分支持久化通道，优先于 saveWorkspace
   saveWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, branch?: string) => Promise<void>;
   gitRootCheck?: (path: string) => Promise<boolean>;
+  /** 草稿卡内切换分支成功后按目标目录同步「本会话工作分支」记录 */
+  syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
 }>(), {
   options: () => [],
   recentOptions: () => [],
@@ -681,6 +683,8 @@ async function handleBranchUpdate(branch: string) {
       worktreeCheckMessage.value = t("chat.workspaceBranchCheckoutFailed", { message });
       return;
     }
+    // 会话内自己切的分支：按目标目录同步记录，避免之后被守卫当成「在别处切过」而拦一次
+    await props.syncWorkspaceBranch?.(selectedPath.value);
     selectedBranch.value = normalized;
     try {
       const entries = await gitPanelBranchList(selectedPath.value);

@@ -194,6 +194,7 @@
                 :workspace-path="gitPanelWorkspacePath"
                 :markdown-is-dark="markdownIsDark"
                 :session-key="props.sessionKey"
+                :sync-workspace-branch="props.syncWorkspaceBranch"
                 @open-diff="openGitDiffTab"
               />
             </div>
@@ -780,6 +781,8 @@ const props = withDefaults(defineProps<{
   narrowOverlay?: boolean;
   sessionKey?: string;
   legacySessionKey?: string;
+  /** 透传给 Git 面板：面板内切换分支成功后按仓库目录同步会话的工作分支记录 */
+  syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
 }>(), {
   showTabs: true,
   showPickFileButton: true,

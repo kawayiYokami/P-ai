@@ -267,6 +267,8 @@ export type ChatShellWorkspaceState = {
   autonomousMode?: boolean;
   shellWorkMode?: ShellWorkMode;
   shellWorkBranch?: string;
+  /** 会话记录的工作分支：本会话上次在哪个分支上工作；与 shellWorkBranch（工作树意图分支）无关 */
+  shellRecordedBranch?: string;
   worktreePath?: string;
   worktreeExists?: boolean;
 };

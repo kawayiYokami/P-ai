@@ -212,6 +212,9 @@ async fn ide_chat_handle_jsonrpc_request(
             }),
         "workspace.layout.save" => ide_chat_workspace_layout_save(state, request.params),
         "workspace.list" => ide_chat_workspace_list(state, request.params),
+        "workspace.branch.record" => ide_chat_parse_workspace_params::<RecordConversationWorkspaceBranchInput>(request.params)
+            .and_then(|input| record_conversation_workspace_branch_inner(input, state))
+            .and_then(ide_chat_serialize),
         "workspace.directory.list" => ide_chat_workspace_directory_list(state, request.params).await,
         "workspace.gitRootCheck" => ide_chat_workspace_git_root_check(request.params).await,
         // 旧命令保留为兼容别名，但必须落到同一套工作区实现；不再将其视为
@@ -971,6 +974,7 @@ mod web_native_capability_tests {
             "conversation.resumeSubscription",
             "conversation.streamProbe",
             "workspace.list",
+            "workspace.branch.record",
             "check_git_workspace_root",
             "get_chat_shell_workspace",
             "update_chat_shell_workspace_layout",

@@ -3914,6 +3914,7 @@ mod unarchived_conversations_tests {
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
             shell_work_branch: String::new(),
+            shell_recorded_branch: String::new(),
             archived_at: None,
             messages: vec![build_test_message("m1", "hello"), build_test_message("m2", "world")],
             fast_request_turns: Vec::new(),

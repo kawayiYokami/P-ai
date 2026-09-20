@@ -1,6 +1,7 @@
 import { computed, ref, type ComputedRef } from "vue";
 import { useI18n } from "vue-i18n";
-import { invokeTauri } from "../../../services/tauri-api";
+import { gitPanelStatus, invokeTauri } from "../../../services/tauri-api";
+import { isRepoInWorkspace } from "./use-chat-branch-guard";
 import type { ChatShellWorkspaceState, ShellWorkspace, ShellWorkMode } from "../../../types/app";
 import {
   defaultWorkspaceNameFromPath,
@@ -36,6 +37,9 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
   const chatWorkspaceAutonomousMode = ref(false);
   const chatWorkspaceWorkMode = ref<ShellWorkMode>("directory");
   const chatWorkspaceBranch = ref("");
+  const chatWorkspaceRecordedBranch = ref("");
+  /** 上面这份工作区状态属于哪个会话：切会话后旧值还在，分支守卫必须先确认它已属于当前会话 */
+  const chatWorkspaceStateConversationId = ref("");
   const chatWorkspaceWorktreePath = ref("");
   const chatWorkspaceWorktreeExists = ref(false);
   const chatWorkspaceWorktreeAvailable = ref(false);
@@ -110,6 +114,8 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspaceAutonomousMode.value = Boolean(state.autonomousMode);
     chatWorkspaceWorkMode.value = normalizeShellWorkMode(String(state.shellWorkMode || ""));
     chatWorkspaceBranch.value = String(state.shellWorkBranch || "").trim();
+    chatWorkspaceRecordedBranch.value = String(state.shellRecordedBranch || "").trim();
+    chatWorkspaceStateConversationId.value = String(options.activeConversationId.value || "").trim();
     chatWorkspaceWorktreePath.value = String((state as any).worktreePath || (state as any).worktree_path || "").trim();
     chatWorkspaceWorktreeExists.value = Boolean((state as any).worktreeExists ?? (state as any).worktree_exists);
     // worktree 已创建时 worktreePath 兜底
@@ -175,6 +181,8 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
       chatWorkspaceAutonomousMode.value = false;
       chatWorkspaceWorkMode.value = "directory";
       chatWorkspaceBranch.value = "";
+      chatWorkspaceRecordedBranch.value = "";
+      chatWorkspaceStateConversationId.value = "";
       chatWorkspaceWorktreePath.value = "";
       chatWorkspaceWorktreeExists.value = false;
       chatWorkspaceWorktreeAvailable.value = false;
@@ -205,6 +213,72 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspacePickerOpen.value = false;
   }
 
+  /** 工作区路径签名：用于判断本次保存是否真的换了工作区（换仓库后分支不同属正常，不该提醒） */
+  function workspacePathSignature(items: Array<{ path?: string }>): string {
+    return items
+      .map((item) => String(item.path || "").trim().toLowerCase())
+      .filter(Boolean)
+      .sort()
+      .join("|");
+  }
+
+  /**
+   * 复写会话记录的「本会话工作分支」。只改会话元数据，不碰仓库。
+   * 传空串表示清空记录（换工作区后交给下一次发送前判定重新记录）。
+   */
+  async function recordChatWorkspaceBranch(branch: string): Promise<void> {
+    const conversationId = String(options.activeConversationId.value || "").trim();
+    if (!conversationId) return;
+    try {
+      const result = await invokeTauri<{ conversationId?: string; shellRecordedBranch?: string }>(
+        "workspace.branch.record",
+        { conversationId, branch: String(branch || "") },
+      );
+      if (String(options.activeConversationId.value || "").trim() !== conversationId) return;
+      chatWorkspaceRecordedBranch.value = String(result?.shellRecordedBranch || "").trim();
+    } catch (error) {
+      // 记录失败只影响下一次提醒，不阻塞当前操作
+      console.warn("[工作区] 记录会话工作分支失败", error);
+    }
+  }
+
+  /** 工作树目录不属于主工作区：规则是 {仓库根}/.pai/.worktree/{会话 id}，不参与分支记录 */
+  function isWorktreeDirectory(path: string): boolean {
+    return path.replace(/\\/g, "/").toLowerCase().includes("/.pai/.worktree/");
+  }
+
+  /** 按工作目录回读真实分支；读不到（detached HEAD / 非 git 仓库）返回空串 */
+  async function readChatWorkspaceBranch(workspacePath: string): Promise<string> {
+    const path = String(workspacePath || "").trim();
+    if (!path) return "";
+    try {
+      const status = await gitPanelStatus(path);
+      return String(status?.branch || "").trim();
+    } catch (error) {
+      console.warn("[工作区] 读取当前分支失败", error);
+      return "";
+    }
+  }
+
+  /**
+   * 会话内自己切了分支后同步记录：按工作目录回读真实分支，再写入会话记录。
+   *
+   * 不直接用点击的引用名——远程引用 checkout 会进 detached HEAD，此时回读为空，跳过写入；
+   * 也只在目标目录属于本会话工作区时才写，避免把别处目录的分支写进本会话。
+   */
+  async function syncChatWorkspaceBranch(workspacePath: string): Promise<void> {
+    const conversationId = String(options.activeConversationId.value || "").trim();
+    if (!conversationId) return;
+    const path = String(workspacePath || "").trim();
+    if (!path || isWorktreeDirectory(path)) return;
+    if (!isRepoInWorkspace(path, chatWorkspaceChoices.value.map((item) => item.path))) return;
+    const branch = await readChatWorkspaceBranch(path);
+    if (!branch) return;
+    // 回读期间可能已经切走会话，此时写进去就是给别的会话记了个错误分支
+    if (String(options.activeConversationId.value || "").trim() !== conversationId) return;
+    await recordChatWorkspaceBranch(branch);
+  }
+
   async function saveChatWorkspaces(workspaces: ChatWorkspaceChoice[], autonomousMode?: boolean, workMode: ShellWorkMode = chatWorkspaceWorkMode.value, shellWorkBranch?: string) {
     const conversationId = String(options.activeConversationId.value || "").trim();
     if (!conversationId) {
@@ -216,6 +290,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     const previousAutonomousMode = chatWorkspaceAutonomousMode.value;
     const previousWorkMode = chatWorkspaceWorkMode.value;
     const previousBranch = chatWorkspaceBranch.value;
+    const previousRecordedBranch = chatWorkspaceRecordedBranch.value;
     // 统一权限：全部目录共享同一 access（取主目录或首个），避免旧按目录分离
     const unifiedAccess = normalizeWorkspaceAccess(String(workspaces.find((w) => w.level === "main")?.access || workspaces[0]?.access || "approval"));
     const normalizedWorkspaces = workspaces.map((w) => ({ ...w, access: unifiedAccess as ChatWorkspaceChoice["access"] }));
@@ -224,12 +299,15 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspaceWorkMode.value = normalizeShellWorkMode(String(workMode || ""));
     const nextBranch = shellWorkBranch !== undefined ? String(shellWorkBranch || "").trim() : previousBranch;
     chatWorkspaceBranch.value = nextBranch;
+    const workspacesChanged = workspacePathSignature(previousItems) !== workspacePathSignature(normalizedWorkspaces);
     try {
       const state = await invokeTauri<ChatShellWorkspaceState>("workspace.layout.save", {
         conversationId,
         autonomousMode: Boolean(autonomousMode),
         shellWorkMode: chatWorkspaceWorkMode.value,
         shellWorkBranch: chatWorkspaceBranch.value || null,
+        // 换了工作区就把记录清空，让新仓库的分支重新记录一次，避免跨仓库误报
+        ...(workspacesChanged ? { shellRecordedBranch: "" } : {}),
         workspaces: normalizedWorkspaces
           .filter((item) => item.level !== "system")
           .map((item) => ({
@@ -241,6 +319,8 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
             builtIn: false,
           })),
       });
+      // 保存期间切走会话时丢弃回填：否则会把 A 会话的工作区与分支记录标到 B 会话名下
+      if (String(options.activeConversationId.value || "").trim() !== conversationId) return;
       applyChatWorkspaceState(state);
     } catch (error) {
       chatWorkspaceItems.value = previousItems;
@@ -248,6 +328,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
       chatWorkspaceAutonomousMode.value = previousAutonomousMode;
       chatWorkspaceWorkMode.value = previousWorkMode;
       chatWorkspaceBranch.value = previousBranch;
+      chatWorkspaceRecordedBranch.value = previousRecordedBranch;
       options.setStatusError("status.requestFailed", error);
       throw error;
     }
@@ -262,6 +343,8 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspaceAutonomousMode,
     chatWorkspaceWorkMode,
     chatWorkspaceBranch,
+    chatWorkspaceRecordedBranch,
+    chatWorkspaceStateConversationId,
     chatWorkspaceWorktreePath,
     chatWorkspaceWorktreeExists,
     chatWorkspaceWorktreeAvailable,
@@ -273,5 +356,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     openChatWorkspacePicker,
     closeChatWorkspacePicker,
     saveChatWorkspaces,
+    syncChatWorkspaceBranch,
+    readChatWorkspaceBranch,
   };
 }

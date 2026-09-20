@@ -10,6 +10,7 @@
           :commits="recentCommits"
           @open-changes="emit('openGitChanges')"
           @open-commits="emit('openGitCommits')"
+          @branch-switched="emit('branchSwitched', gitRepoRoot || workspaceRootPath)"
           @error="(message) => emit('gitError', message)"
         />
         <HomePlanCard
@@ -178,6 +179,7 @@ const emit = defineEmits<{
   (e: "openWorkspace"): void;
   (e: "openGitChanges"): void;
   (e: "openGitCommits"): void;
+  (e: "branchSwitched", workspacePath: string): void;
   (e: "gitError", message: string): void;
   (e: "openMonitorTab", value: ChatMonitorPanelMode): void;
 }>();

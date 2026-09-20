@@ -534,6 +534,10 @@ struct Conversation {
     shell_work_mode: String,
     #[serde(default)]
     shell_work_branch: String,
+    /// 会话记录的工作分支：本会话上次在哪个分支上工作。
+    /// 与 shell_work_branch（创建工作树时的意图分支）语义无关，不要互相覆盖。
+    #[serde(default)]
+    shell_recorded_branch: String,
     #[serde(default)]
     archived_at: Option<String>,
     messages: Vec<ChatMessage>,

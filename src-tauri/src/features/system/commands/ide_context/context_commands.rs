@@ -120,7 +120,7 @@ fn ide_chat_select_workspace_permission(state: &AppState, params: Value) -> Resu
         let fallback = path.replace('\\', "/").trim_end_matches('/').rsplit('/').next().unwrap_or("VS Code").to_string();
         workspaces.push(ShellWorkspaceConfig { id: "vscode-sidebar-main-workspace".to_string(), name: input.workspace_name.as_deref().map(str::trim).filter(|v| !v.is_empty()).unwrap_or(fallback.as_str()).to_string(), path: path.to_string(), level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(), access: access.clone(), built_in: false });
     }
-    let updated = apply_conversation_chat_workspace_changes(state, conversation_id, Some(None), Some(normalize_conversation_shell_workspaces(state, &workspaces)), None, None, None)?;
+    let updated = apply_conversation_chat_workspace_changes(state, conversation_id, Some(None), Some(normalize_conversation_shell_workspaces(state, &workspaces)), None, None, None, None)?;
     ide_chat_workspace_permission_payload(state, &updated)
 }
 

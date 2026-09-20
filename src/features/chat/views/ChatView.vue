@@ -104,6 +104,7 @@
             :save-workspace="props.saveDraftWorkspaces ? handleDraftWorkspaceSaveLegacy : undefined"
             :save-workspaces="props.saveDraftWorkspaces ? handleDraftWorkspaceSave : undefined"
             :git-root-check="props.draftWorkspaceGitRootCheck"
+            :sync-workspace-branch="props.syncWorkspaceBranch"
             @change="handleDraftPersonaChange($event)"
             @update:title="handleDraftTitleChange($event)"
           />
@@ -630,6 +631,13 @@
           @close="$emit('closeGoalTask')" @save="$emit('saveGoalTask', $event)"
           @stop="$emit('stopGoalTask')"
         />
+        <ChatBranchGuardDialog
+          :open="!!branchGuardPrompt"
+          :repo-branch="branchGuardPrompt?.repoBranch || ''"
+          :recorded-branch="branchGuardPrompt?.recordedBranch || ''"
+          @confirm="handleBranchGuardConfirm"
+          @cancel="handleBranchGuardCancel"
+        />
         <ToolReviewTargetDialog
           v-if="showConversationActions"
           :open="codeReviewDialogOpen"
@@ -736,6 +744,7 @@
           @open-workspace="openHomeWorkspaceDirectory"
           @open-git-changes="openHomeGitChanges"
           @open-git-commits="openHomeGitCommits"
+          @branch-switched="(path) => props.syncWorkspaceBranch?.(path)"
           @git-error="handleHomeGitError"
           @open-monitor-tab="openMonitorTabFromHome"
         />
@@ -752,6 +761,7 @@
           :show-tab-local-file-actions="true"
           :markdown-is-dark="markdownIsDark"
           custom-markstream-id="chat-file-reader-markstream"
+          :sync-workspace-branch="props.syncWorkspaceBranch"
           @capture-context-reference="handleCaptureFileReaderContextReference"
           @add-context-reference="handleAddFileReaderContextReference"
           @clear-selection-context-reference="handleClearFileReaderSelectionContextReference"
@@ -843,6 +853,8 @@ import {
 import type { ApiConfigItem, AssistantStreamBlock, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, ConversationDelegateStatusSummary, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption, ShellWorkspace, ShellWorkMode } from "../../../types/app";
 import ChatMessageItem from "../components/ChatMessageItem.vue";
 import ChatQuestionPanel from "../components/ChatQuestionPanel.vue";
+import ChatBranchGuardDialog from "../components/dialogs/ChatBranchGuardDialog.vue";
+import type { BranchGuardCheck } from "../composables/use-chat-branch-guard";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import ChatThinkingPreviewBar from "../components/ChatThinkingPreviewBar.vue";
 import TimelineSnakeBoard from "../components/TimelineSnakeBoard.vue";
@@ -926,8 +938,14 @@ const props = defineProps<{
   currentWorkspaceAutonomousMode?: boolean;
   currentWorkspaceWorkMode?: ShellWorkMode;
   currentWorkspaceBranch?: string;
+  /** 发送前的分支确认：主动回读工作目录分支，不一致时返回 prompt，由调用方拦住这次发送 */
+  checkBranchBeforeSend?: () => Promise<BranchGuardCheck>;
+  /** 「继续对话」：把会话记录改成当前仓库分支 */
+  acceptBranchGuardPrompt?: () => void;
   configShellWorkspaces?: ShellWorkspace[];
   saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string) => Promise<void>;
+  /** 会话内自己切分支成功后按工作目录同步「本会话工作分支」记录，避免下次发送时拦自己 */
+  syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
   activeAgentId: string; activeConversationId: string; currentTodos: ChatTodoItem[];
   goalActive: boolean; goalTitle: string; goalDialogOpen: boolean;
@@ -3609,7 +3627,34 @@ async function openActiveConversationInBrowser() {
   }
 }
 
-function handleSendChat() {
+/** 分支确认弹窗：非空表示这一次发送被拦住，等用户选「继续对话」或「不发送」 */
+const branchGuardPrompt = ref<{ repoBranch: string; recordedBranch: string } | null>(null);
+
+async function handleSendChat() {
+  // 发送前主动回读工作目录分支：不一致就拦住这一次发送，先让用户确认
+  const check: BranchGuardCheck = props.checkBranchBeforeSend
+    ? await props.checkBranchBeforeSend()
+    : { kind: "ok" };
+  if (check.kind === "prompt") {
+    branchGuardPrompt.value = { repoBranch: check.repoBranch, recordedBranch: check.recordedBranch };
+    return;
+  }
+  performSendChat();
+}
+
+/** 「继续对话」：先复写会话记录，再照常发送 */
+function handleBranchGuardConfirm() {
+  branchGuardPrompt.value = null;
+  props.acceptBranchGuardPrompt?.();
+  performSendChat();
+}
+
+/** 「不发送」：什么都不做，草稿留在输入框里，下次再点发送还会再问 */
+function handleBranchGuardCancel() {
+  branchGuardPrompt.value = null;
+}
+
+function performSendChat() {
   const conversationId = String(props.activeConversationId || "").trim();
   // 用户按下回车/点发送即视为转正：前端立刻隐藏草稿选择卡，不等后端水位线。
   if (conversationId && activeConversationIsDraft.value) {

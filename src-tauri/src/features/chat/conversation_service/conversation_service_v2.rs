@@ -125,6 +125,8 @@ struct ConversationMetaView {
     shell_work_mode: String,
     #[serde(default)]
     shell_work_branch: String,
+    #[serde(default)]
+    shell_recorded_branch: String,
     current_todos: Vec<ConversationTodoItem>,
     active_goal: Option<ConversationGoalState>,
     fast_request_turns: Vec<FastRequestTurn>,
@@ -313,6 +315,7 @@ impl ConversationMetaView {
             shell_autonomous_mode: meta.shell_autonomous_mode(),
             shell_work_mode: normalize_shell_work_mode_text(meta.shell_work_mode()),
             shell_work_branch: meta.shell_work_branch().to_string(),
+            shell_recorded_branch: meta.shell_recorded_branch().to_string(),
             current_todos: meta.current_todos().to_vec(),
             active_goal: meta.active_goal().cloned(),
             fast_request_turns: meta.fast_request_turns().to_vec(),
@@ -653,6 +656,7 @@ struct ConversationExternalMetadataPatch {
     shell_autonomous_mode: Option<bool>,
     shell_work_mode: Option<String>,
     shell_work_branch: Option<String>,
+    shell_recorded_branch: Option<String>,
     lifecycle_status: Option<String>,
     lifecycle_archived_at: Option<Option<String>>,
     lifecycle_updated_at: Option<String>,
@@ -1219,6 +1223,10 @@ impl ConversationServiceV2 {
                             conversation.shell_work_branch =
                                 normalize_shell_work_branch_text(&value);
                         }
+                        if let Some(value) = patch.shell_recorded_branch {
+                            conversation.shell_recorded_branch =
+                                normalize_shell_work_branch_text(&value);
+                        }
                         if let Some(value) = patch.lifecycle_status {
                             conversation.status = value;
                         }
@@ -1420,6 +1428,7 @@ impl ConversationServiceV2 {
         conversation.shell_workspaces = conversation_meta.shell_workspaces.clone();
         conversation.shell_autonomous_mode = conversation_meta.shell_autonomous_mode;
         conversation.shell_work_mode = normalize_shell_work_mode_text(&conversation_meta.shell_work_mode);
+        conversation.shell_recorded_branch = conversation_meta.shell_recorded_branch.clone();
         conversation.archived_at = conversation_meta.archived_at.clone();
         conversation.current_todos = conversation_meta.current_todos.clone();
         conversation.plan_mode_enabled = conversation_meta.plan_mode_enabled;
@@ -2112,6 +2121,7 @@ impl ConversationServiceV2 {
             shell_workspaces,
             shell_autonomous_mode,
             shell_work_mode,
+            None,
             None,
         )
     }

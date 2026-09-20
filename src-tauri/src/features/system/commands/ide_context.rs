@@ -337,6 +337,17 @@ async fn list_conversation_workspaces(
     .map_err(|err| format!("读取会话工作区列表任务异常：{err}"))?
 }
 
+#[tauri::command]
+fn record_conversation_workspace_branch(
+    input: Value,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let parsed: RecordConversationWorkspaceBranchInput =
+        serde_json::from_value(input).map_err(|err| format!("解析记录会话分支参数失败：{err}"))?;
+    let output = record_conversation_workspace_branch_inner(parsed, state.inner())?;
+    serde_json::to_value(output).map_err(|err| format!("序列化记录会话分支结果失败：{err}"))
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IdeChatStreamProbeInput {
@@ -529,6 +540,7 @@ fn ide_chat_conversation_from_meta_view(conversation_meta: &ConversationMetaView
         shell_autonomous_mode: conversation_meta.shell_autonomous_mode,
         shell_work_mode: normalize_shell_work_mode_text(&conversation_meta.shell_work_mode),
         shell_work_branch: conversation_meta.shell_work_branch.clone(),
+        shell_recorded_branch: conversation_meta.shell_recorded_branch.clone(),
         archived_at: conversation_meta.archived_at.clone(),
         messages: Vec::new(),
         fast_request_turns: conversation_meta.fast_request_turns.clone(),

@@ -1315,6 +1315,7 @@ fn main() {
             select_conversation_workspace_permission,
             save_conversation_workspace_layout,
             list_conversation_workspaces,
+            record_conversation_workspace_branch,
             mark_conversation_read,
             set_conversation_plan_mode,
             set_conversation_preferred_model,

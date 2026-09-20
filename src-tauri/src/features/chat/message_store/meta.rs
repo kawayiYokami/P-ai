@@ -28,6 +28,8 @@ pub(super) struct ConversationPersistMeta {
     shell_work_mode: String,
     #[serde(default)]
     shell_work_branch: String,
+    #[serde(default)]
+    shell_recorded_branch: String,
     archived_at: Option<String>,
     current_todos: Vec<ConversationTodoItem>,
     memory_recall_table: Vec<String>,
@@ -172,6 +174,8 @@ pub(super) struct ConversationShardMeta {
     shell_work_mode: String,
     #[serde(default)]
     shell_work_branch: String,
+    #[serde(default)]
+    shell_recorded_branch: String,
     #[serde(default)]
     archived_at: Option<String>,
     #[serde(default)]
@@ -424,6 +428,10 @@ impl ConversationShardMeta {
         self.shell_work_branch.as_str()
     }
 
+    pub(super) fn shell_recorded_branch(&self) -> &str {
+        self.shell_recorded_branch.as_str()
+    }
+
     pub(super) fn plan_mode_enabled(&self) -> bool {
         self.plan_mode_enabled
     }
@@ -486,6 +494,7 @@ impl ConversationShardMeta {
         target.shell_autonomous_mode = self.shell_autonomous_mode;
         target.shell_work_mode = self.shell_work_mode.clone();
         target.shell_work_branch = self.shell_work_branch.clone();
+        target.shell_recorded_branch = self.shell_recorded_branch.clone();
         target.archived_at = self.archived_at.clone();
         target.current_todos = self.current_todos.clone();
         target.memory_recall_table = self.memory_recall_table.clone();
@@ -521,6 +530,7 @@ impl ConversationShardMeta {
         self.shell_autonomous_mode = source.shell_autonomous_mode;
         self.shell_work_mode = source.shell_work_mode.clone();
         self.shell_work_branch = source.shell_work_branch.clone();
+        self.shell_recorded_branch = source.shell_recorded_branch.clone();
         self.archived_at = source.archived_at.clone();
         self.current_todos = source.current_todos.clone();
         self.memory_recall_table = source.memory_recall_table.clone();
@@ -556,6 +566,7 @@ impl ConversationShardMeta {
         self.shell_autonomous_mode = source.shell_autonomous_mode;
         self.shell_work_mode = source.shell_work_mode.clone();
         self.shell_work_branch = source.shell_work_branch.clone();
+        self.shell_recorded_branch = source.shell_recorded_branch.clone();
         self.archived_at = source.archived_at.clone();
         self.current_todos = source.current_todos.clone();
         self.memory_recall_table = source.memory_recall_table.clone();
@@ -589,6 +600,7 @@ impl ConversationShardMeta {
         self.shell_autonomous_mode = source.shell_autonomous_mode;
         self.shell_work_mode = source.shell_work_mode.clone();
         self.shell_work_branch = source.shell_work_branch.clone();
+        self.shell_recorded_branch = source.shell_recorded_branch.clone();
         self.archived_at = source.archived_at.clone();
         self.current_todos = source.current_todos.clone();
         self.plan_mode_enabled = source.plan_mode_enabled;
@@ -862,6 +874,7 @@ impl ConversationShardMeta {
             shell_autonomous_mode: conversation.shell_autonomous_mode,
             shell_work_mode: normalize_shell_work_mode_text(&conversation.shell_work_mode),
             shell_work_branch: conversation.shell_work_branch.clone(),
+            shell_recorded_branch: conversation.shell_recorded_branch.clone(),
             archived_at: conversation.archived_at.clone(),
             current_todos: conversation.current_todos.clone(),
             memory_recall_table: conversation.memory_recall_table.clone(),
@@ -959,6 +972,7 @@ impl ConversationShardMeta {
             shell_autonomous_mode: meta.shell_autonomous_mode,
             shell_work_mode: normalize_shell_work_mode_text(&meta.shell_work_mode),
             shell_work_branch: meta.shell_work_branch.clone(),
+            shell_recorded_branch: meta.shell_recorded_branch.clone(),
             archived_at: meta.archived_at.clone(),
             current_todos: meta.current_todos.clone(),
             memory_recall_table: meta.memory_recall_table.clone(),
@@ -1007,6 +1021,7 @@ impl ConversationShardMeta {
             shell_autonomous_mode: self.shell_autonomous_mode,
             shell_work_mode: normalize_shell_work_mode_text(&self.shell_work_mode),
             shell_work_branch: self.shell_work_branch.clone(),
+            shell_recorded_branch: self.shell_recorded_branch.clone(),
             archived_at: self.archived_at.clone(),
             current_todos: self.current_todos.clone(),
             memory_recall_table: self.memory_recall_table.clone(),
@@ -1054,6 +1069,7 @@ impl ConversationShardMeta {
             shell_autonomous_mode: self.shell_autonomous_mode,
             shell_work_mode: normalize_shell_work_mode_text(&self.shell_work_mode),
             shell_work_branch: self.shell_work_branch,
+            shell_recorded_branch: self.shell_recorded_branch,
             archived_at: self.archived_at,
             messages,
             fast_request_turns: self.fast_request_turns,
@@ -1143,6 +1159,7 @@ mod message_store_meta_tests {
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
             shell_work_branch: String::new(),
+            shell_recorded_branch: String::new(),
             archived_at: None,
             messages: vec![test_message("m1"), test_message("m2")],
             fast_request_turns: vec![FastRequestTurn {
@@ -1211,6 +1228,34 @@ mod message_store_meta_tests {
         assert_eq!(restored.last_error, conversation.last_error);
         assert_eq!(persist_meta.last_error, conversation.last_error);
         assert_eq!(meta.last_error(), Some("测试轮次失败"));
+    }
+
+    #[test]
+    fn conversation_shell_recorded_branch_should_round_trip() {
+        let mut conversation = test_conversation();
+        conversation.shell_recorded_branch = "feature/branch-guard".to_string();
+
+        let meta = ConversationShardMeta::from_conversation(&conversation);
+        let persist_meta = meta.to_persist_meta();
+        assert_eq!(meta.shell_recorded_branch(), "feature/branch-guard");
+        assert_eq!(persist_meta.shell_recorded_branch, "feature/branch-guard");
+
+        let restored = meta.into_conversation(conversation.messages.clone());
+        assert_eq!(restored.shell_recorded_branch, "feature/branch-guard");
+    }
+
+    #[test]
+    fn legacy_conversation_without_shell_recorded_branch_should_default_to_empty() {
+        let conversation = test_conversation();
+        let mut value = serde_json::to_value(&conversation).expect("serialize conversation");
+        value
+            .as_object_mut()
+            .expect("conversation object")
+            .remove("shellRecordedBranch");
+
+        let restored: Conversation = serde_json::from_value(value).expect("deserialize legacy conversation");
+
+        assert_eq!(restored.shell_recorded_branch, "");
     }
 
     #[test]

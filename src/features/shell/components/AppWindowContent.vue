@@ -172,9 +172,12 @@
         :current-workspace-autonomous-mode="currentChatWorkspaceAutonomousMode"
         :current-workspace-work-mode="currentChatWorkMode"
         :current-workspace-branch="currentChatWorkBranch || ''"
+        :check-branch-before-send="checkBranchBeforeSend"
+        :accept-branch-guard-prompt="acceptBranchGuardPrompt"
         :workspaces="currentChatWorkspaces"
         :config-shell-workspaces="config.shellWorkspaces || []"
         :save-draft-workspaces="saveDraftWorkspaces"
+        :sync-workspace-branch="syncWorkspaceBranch"
         :draft-workspace-git-root-check="draftWorkspaceGitRootCheck"
         :active-agent-id="currentChatAgentId"
         :active-conversation-id="currentChatConversationId"
@@ -494,6 +497,7 @@ import ChatRightPanelSwitcher from "../../chat/components/ChatRightPanelSwitcher
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
 import { MessageSquareMore, Plus } from "@lucide/vue";
 import type { TerminalApprovalConversationItem } from "../composables/use-terminal-approval";
+import type { BranchGuardCheck } from "../../chat/composables/use-chat-branch-guard";
 import ArchivesView from "../../archive/views/ArchivesView.vue";
 import MemoryDialog from "../../memory/components/dialogs/MemoryDialog.vue";
 import PromptPreviewDialog from "../../chat/components/dialogs/PromptPreviewDialog.vue";
@@ -663,7 +667,11 @@ const props = defineProps<{
   currentChatWorkspaces: ShellWorkspace[];
   currentChatWorkMode?: ShellWorkMode;
   currentChatWorkBranch?: string;
+  checkBranchBeforeSend?: () => Promise<BranchGuardCheck>;
+  acceptBranchGuardPrompt?: () => void;
   saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string) => Promise<void>;
+  /** 会话内自己切分支成功后按工作目录同步「本会话工作分支」记录 */
+  syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
   currentChatAgentId: string;
   currentChatConversationId: string;

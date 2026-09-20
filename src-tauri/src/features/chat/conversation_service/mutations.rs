@@ -890,6 +890,7 @@ fn read_conversation_for_backup_cleanup(
         shell_autonomous_mode: conversation_meta.shell_autonomous_mode,
         shell_work_mode: normalize_shell_work_mode_text(&conversation_meta.shell_work_mode),
         shell_work_branch: conversation_meta.shell_work_branch.clone(),
+        shell_recorded_branch: conversation_meta.shell_recorded_branch.clone(),
         archived_at: conversation_meta.archived_at,
         messages,
         fast_request_turns: conversation_meta.fast_request_turns,

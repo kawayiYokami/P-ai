@@ -332,14 +332,45 @@ function onExternalChange(handler: (payload: GitPanelWatchEventPayload) => void)
   };
 }
 
+// ==================== 回到前台补一次刷新 ====================
+// 后端有原生 watcher（失败回退轮询）会推送变化，但窗口不在前台期间到达的事件未必被本窗口处理，
+// 卡片墙的更改与分支因此会落后。回到前台时主动 force 拉一次，不依赖推送是否送达。
+// 不做前端节流：后端 git_executor 有 TTL 缓存 + singleflight，多窗口重复请求会在那里收敛。
+let foregroundListenersAttached = false;
+
+function handleForegroundReturn() {
+  if (consumerCount <= 0) return;
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+  if (!repoRoot.value) return;
+  gitWatchProbe("回到前台，强制刷新状态");
+  void loadStatus(true);
+  void loadRecentCommits();
+}
+
+function attachForegroundListeners() {
+  if (foregroundListenersAttached || typeof window === "undefined") return;
+  foregroundListenersAttached = true;
+  window.addEventListener("focus", handleForegroundReturn);
+  document.addEventListener("visibilitychange", handleForegroundReturn);
+}
+
+function detachForegroundListeners() {
+  if (!foregroundListenersAttached) return;
+  foregroundListenersAttached = false;
+  window.removeEventListener("focus", handleForegroundReturn);
+  document.removeEventListener("visibilitychange", handleForegroundReturn);
+}
+
 /** 普通消费方（卡片墙等）声明需要实时数据 */
 function acquire() {
   consumerCount += 1;
+  if (consumerCount === 1) attachForegroundListeners();
   syncWatcher();
 }
 
 function release() {
   consumerCount = Math.max(0, consumerCount - 1);
+  if (consumerCount === 0) detachForegroundListeners();
   syncWatcher();
 }
 
