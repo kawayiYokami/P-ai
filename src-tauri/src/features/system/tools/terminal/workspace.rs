@@ -1676,7 +1676,7 @@ mod terminal_workspace_tests {
             uuid::Uuid::new_v4()
         ));
         let llm_workspace_path = temp_root.join("p-ai").join("llm-workspace");
-        let user_workspace_path = temp_root.join("paimonhome");
+        let user_workspace_path = temp_root.join("demo-home");
         std::fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
         std::fs::create_dir_all(&user_workspace_path).expect("create user workspace");
         let state = build_test_state(llm_workspace_path.clone());

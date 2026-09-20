@@ -237,7 +237,7 @@ const normalSections: DemoSection[] = [
         item: makeItem({
           conversationId: "demo-ws-3",
           title: "整理萌娘百科缓存页",
-          workspaceRootPath: "E:/github/paimonhome",
+          workspaceRootPath: "D:/work/demo-home",
           workspaceLabel: "文档仓库",
           updatedAt: minutesAgo(60 * 30),
           lastMessageAt: minutesAgo(60 * 30),

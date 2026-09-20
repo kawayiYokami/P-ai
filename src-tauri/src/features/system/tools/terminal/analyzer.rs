@@ -868,7 +868,7 @@ mod terminal_command_analyzer_tests {
 
     #[test]
     fn bash_should_ignore_dev_null_redirection_for_read_command() {
-        let cwd = PathBuf::from("E:\\github\\paimonhome");
+        let cwd = PathBuf::from("D:\\work\\demo-home");
         let analysis = terminal_analyze_command(
             &cwd,
             r#"pwd; ls -la; ls -la ./archive 2>/dev/null || true"#,
