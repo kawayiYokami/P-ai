@@ -2102,27 +2102,49 @@ function openAttachmentPath(path: string) {
   gap: 0.5rem;
 }
 
+/* 无气泡模式：没有气泡边界，段间距拉开一倍，让断开先靠留白读出来 */
+.ecall-assistant-bubble[data-bubble-background="off"] .ecall-assistant-segment-list {
+  gap: 1rem;
+}
+
 .ecall-assistant-segment {
   min-width: 0;
 }
 
-/* 隐藏气泡背景：每段各补一条顶边线当分隔；线贯穿内容区并与正文左右对齐，不占高度 */
+/* 隐藏气泡背景：正文贴到容器左缘（与头像左缘对齐），不再按气泡内边距缩进 */
 .ecall-assistant-bubble[data-bubble-background="off"] .ecall-assistant-segment {
   position: relative;
   width: 100%;
+  padding-right: 0;
+  padding-left: 0;
 }
 
 .ecall-assistant-bubble[data-bubble-background="off"] .ecall-assistant-segment::before {
   position: absolute;
   top: 0;
-  right: 1rem;
-  left: 1rem;
+  right: 0;
+  left: 0;
   height: 1px;
   background: color-mix(in srgb, var(--color-base-content) 14%, transparent);
   content: "";
   pointer-events: none;
   transform: scaleY(0.5);
   transform-origin: center;
+}
+
+/* 段与段之间的线抬到段间距（无气泡模式 1rem）的中点：线的上下留白才相等，不会看着像下一段的上边框 */
+.ecall-assistant-bubble[data-bubble-background="off"] .ecall-assistant-segment + .ecall-assistant-segment::before {
+  top: -0.5rem;
+}
+
+/* 列表首段之前不画线：消息头下面直接开始正文 */
+.ecall-assistant-bubble[data-bubble-background="off"] .ecall-assistant-segment-list > .ecall-assistant-segment:first-child::before {
+  display: none;
+}
+
+/* 无气泡模式：首段上方没有气泡边界，那段顶部内边距就是凭空多出来的空白，去掉 */
+.ecall-assistant-bubble[data-bubble-background="off"] .ecall-assistant-segment-list > .ecall-assistant-segment:first-child {
+  padding-top: 0;
 }
 
 /* 段即一个气泡（计划卡等列表外的段也走这里） */
