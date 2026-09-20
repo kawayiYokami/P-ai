@@ -380,7 +380,7 @@
           <button class="btn btn-sm btn-ghost" :disabled="!avatarEditorTargetHasAvatar || avatarSaving" @click="clearAvatarFromEditor">{{ t("config.persona.clearAvatar") }}</button>
         </div>
         <div class="mt-2 text-xs opacity-60">{{ t("config.persona.pasteImageHint") }}</div>
-        <div v-if="avatarError" class="mt-2 text-sm text-error break-all">{{ avatarError }}</div>
+        <div v-if="cropError || avatarError" class="mt-2 text-sm text-error break-all">{{ cropError || avatarError }}</div>
       </div>
       <div class="modal-action mt-2">
         <button class="btn btn-sm btn-ghost" @click="closeAvatarEditor">{{ t("common.close") }}</button>
@@ -390,35 +390,25 @@
       <button aria-label="close">close</button>
     </form>
     </dialog>
-    <dialog ref="cropDialog" class="modal" @close="destroyCropper">
-    <div class="modal-box p-3 max-w-md">
-      <h3 class="text-sm font-semibold mb-2">{{ t("config.persona.cropAvatar") }}</h3>
-      <div class="rounded border border-base-300 bg-base-100 p-2 min-h-64">
-        <img ref="cropImageEl" :src="cropSource" alt="crop source" class="max-w-full block" />
-      </div>
-      <div v-if="localCropError || avatarError" class="mt-2 text-sm text-error break-all">{{ localCropError || avatarError }}</div>
-      <div class="modal-action mt-2">
-        <button class="btn btn-sm btn-ghost" @click="closeCropDialog">{{ t("common.cancel") }}</button>
-        <button class="btn btn-sm btn-primary" :disabled="!cropperReady || avatarSaving" @click="confirmCrop">
-          {{ avatarSaving ? t("config.api.saving") : t("config.persona.saveAvatar") }}
-        </button>
-      </div>
-    </div>
-    <form method="dialog" class="modal-backdrop">
-      <button aria-label="close">close</button>
-    </form>
-    </dialog>
+    <AvatarCropDialog
+      :open="cropOpen"
+      :source="cropSource"
+      :saving="avatarSaving"
+      :error="cropError || avatarError"
+      @update:open="onCropOpenChange"
+      @confirm="onCropConfirmed"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
 import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind } from "../../shell/theme/theme-types";
 import type { StatusTone } from "../../shell/composables/use-app-core";
-import Cropper from "cropperjs";
 import SettingsStickyLayout from "../components/SettingsStickyLayout.vue";
+import AvatarCropDialog from "../components/AvatarCropDialog.vue";
 import WelcomeTab from "./config-tabs/WelcomeTab.vue";
 import HotkeyTab from "./config-tabs/HotkeyTab.vue";
 import ApiTab from "./config-tabs/ApiTab.vue";
@@ -643,15 +633,12 @@ const { t } = useI18n();
 
 const avatarFileInput = ref<HTMLInputElement | null>(null);
 const avatarEditorDialog = ref<HTMLDialogElement | null>(null);
-const cropDialog = ref<HTMLDialogElement | null>(null);
-const cropImageEl = ref<HTMLImageElement | null>(null);
 const cropSource = ref("");
-const cropperReady = ref(false);
-const localCropError = ref("");
+const cropOpen = ref(false);
+const cropError = ref("");
 const avatarEditorTargetId = ref("");
 const configDrawerOpen = ref(false);
 const memorySyncLocked = ref(false);
-let cropper: Cropper | null = null;
 let cropTarget: AvatarTarget | null = null;
 const MIN_RECORD_SECONDS = 1;
 const MAX_MIN_RECORD_SECONDS = 30;
@@ -747,6 +734,7 @@ function openAvatarEditorForSelected() {
   if (!props.selectedPersona) return;
   avatarEditorTargetId.value = props.selectedPersona.id;
   cropTarget = { agentId: props.selectedPersona.id };
+  cropError.value = "";
   avatarEditorDialog.value?.showModal();
 }
 
@@ -822,19 +810,17 @@ async function downscaleDataUrl(dataUrl: string, maxSide = 1024): Promise<string
   return canvas.toDataURL("image/webp", 0.9);
 }
 
-function destroyCropper() {
-  if (cropper) {
-    cropper.destroy();
-    cropper = null;
+function onCropOpenChange(open: boolean) {
+  cropOpen.value = open;
+  if (!open) {
+    // 裁剪目标随本次裁剪作废：下次选图或粘贴重新认领，避免头像存到上一个人格
+    cropTarget = null;
   }
-  cropperReady.value = false;
 }
 
-function closeCropDialog() {
-  cropDialog.value?.close();
-  cropSource.value = "";
-  cropTarget = null;
-  localCropError.value = "";
+function onCropConfirmed(payload: { mime: string; bytesBase64: string }) {
+  if (!cropTarget) return;
+  emit("saveAgentAvatar", { agentId: cropTarget.agentId, ...payload });
 }
 
 // `config` is a shared reactive object from the root app state.
@@ -892,43 +878,31 @@ async function onAvatarFilePicked(event: Event) {
 async function processAvatarFile(file: File) {
   ensureEditorCropTarget();
   if (!cropTarget) return;
-  localCropError.value = "";
+  cropError.value = "";
   try {
     const dataUrl = await readFileAsDataUrl(file);
     cropSource.value = await downscaleDataUrl(dataUrl, 1024);
-    await nextTick();
-    destroyCropper();
-    if (!cropImageEl.value) {
-      localCropError.value = t("config.persona.cropInitFailed");
-      return;
-    }
-    cropper = new Cropper(cropImageEl.value);
-    const selection = cropper.getCropperSelection();
-    if (selection) {
-      selection.aspectRatio = 1;
-      selection.initialAspectRatio = 1;
-      selection.initialCoverage = 1;
-      selection.$center();
-    }
-    cropperReady.value = true;
-    cropDialog.value?.showModal();
+    cropOpen.value = true;
   } catch (e) {
-    localCropError.value = t("config.persona.avatarReadFailed", { err: String(e) });
+    cropError.value = t("config.persona.avatarReadFailed", { err: String(e) });
   }
 }
 
 function handleAvatarPaste(event: ClipboardEvent) {
   if (!avatarEditorDialog.value?.open) return;
   const items = event.clipboardData?.items;
-  if (!items || items.length === 0) return;
+  if (!items || items.length === 0) {
+    cropError.value = t("config.persona.pasteNoImage");
+    return;
+  }
   const imageItem = Array.from(items).find((item) => item.type.startsWith("image/"));
   if (!imageItem) {
-    localCropError.value = t("config.persona.pasteNoImage");
+    cropError.value = t("config.persona.pasteNoImage");
     return;
   }
   const file = imageItem.getAsFile();
   if (!file) {
-    localCropError.value = t("config.persona.pasteReadFailed");
+    cropError.value = t("config.persona.pasteReadFailed");
     return;
   }
   event.preventDefault();
@@ -940,52 +914,7 @@ onMounted(() => {
   window.addEventListener("paste", handleAvatarPaste);
 });
 
-async function confirmCrop() {
-  if (!cropTarget) {
-    localCropError.value = t("config.persona.cropMissingTarget");
-    return;
-  }
-  if (!cropper) {
-    localCropError.value = t("config.persona.cropperNotReady");
-    return;
-  }
-  localCropError.value = "";
-  const selection = cropper.getCropperSelection();
-  if (!selection) {
-    localCropError.value = t("config.persona.cropperNotReady");
-    return;
-  }
-  try {
-    const canvas = await selection.$toCanvas({
-      width: 128,
-      height: 128,
-      beforeDraw(context) {
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = "high";
-      },
-    });
-    const dataUrl = canvas.toDataURL("image/webp", 0.8);
-    const marker = "base64,";
-    const idx = dataUrl.indexOf(marker);
-    if (idx < 0) {
-      localCropError.value = t("config.persona.avatarSaveEncodeFailed");
-      return;
-    }
-    const bytesBase64 = dataUrl.slice(idx + marker.length);
-    emit("saveAgentAvatar", {
-      agentId: cropTarget.agentId,
-      mime: "image/webp",
-      bytesBase64,
-    });
-    closeCropDialog();
-  } catch (error) {
-    localCropError.value = t("config.persona.avatarSaveEncodeFailed");
-    console.warn("[配置][头像裁剪] 保存失败", error);
-  }
-}
-
 onBeforeUnmount(() => {
   window.removeEventListener("paste", handleAvatarPaste);
-  destroyCropper();
 });
 </script>
