@@ -127,6 +127,15 @@ struct GitPanelStatusOutput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct GitPanelHeadStateOutput {
+    /// 当前分支名；HEAD 游离时为空串
+    branch: String,
+    /// 变基进行中：HEAD 游离且收尾会重写历史，此时不允许切换分支
+    rebase_in_progress: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GitPanelDiffOutput {
     diff: String,
 }
@@ -298,6 +307,28 @@ async fn git_panel_current_branch(workdir: &str) -> String {
         .to_string()
 }
 
+/// git 目录下存在 rebase-merge / rebase-apply 即视为变基进行中。
+/// 交互式变基与普通变基落 rebase-merge，apply 后端落 rebase-apply，任一存在都算。
+fn git_panel_git_dir_is_rebasing(git_dir: &std::path::Path) -> bool {
+    git_dir.join("rebase-merge").is_dir() || git_dir.join("rebase-apply").is_dir()
+}
+
+/// 当前工作树是否处于变基中。
+/// 用 `--absolute-git-dir` 取工作树专属 git 目录，链接工作树里的变基现场同样能定位到。
+async fn git_panel_rebase_in_progress(workdir: &str) -> bool {
+    let Ok(git_dir) = git_executor()
+        .run_read(workdir, &["rev-parse", "--absolute-git-dir"])
+        .await
+    else {
+        return false;
+    };
+    let git_dir = git_dir.trim();
+    if git_dir.is_empty() {
+        return false;
+    }
+    git_panel_git_dir_is_rebasing(std::path::Path::new(git_dir))
+}
+
 fn git_panel_parse_status_entry(record: &str) -> Option<GitPanelStatusEntry> {
     // porcelain v1 -z 的记录格式：XY path；rename/copy 会附带第二条 old-path 记录，
     // 该记录开头不是合法的 XY 状态列（两字符 + 空格），直接跳过。
@@ -415,6 +446,26 @@ async fn git_panel_status(app: tauri::AppHandle, input: GitPanelWorkspaceInput) 
         git_panel_watch_adapt_after_status(&output.repo_root, started.elapsed().as_millis(), app).await;
     }
     result
+}
+
+/// HEAD 状态：当前分支 + 是否变基中。
+/// 供工作区卡片判断能否切换分支；比 status 轻，不扫工作区变更。
+async fn git_panel_head_state_inner(
+    input: GitPanelWorkspaceInput,
+) -> Result<GitPanelHeadStateOutput, String> {
+    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    let repo_root = git_panel_resolve_root(&workspace_path).await?;
+    Ok(GitPanelHeadStateOutput {
+        branch: git_panel_current_branch(&repo_root).await,
+        rebase_in_progress: git_panel_rebase_in_progress(&repo_root).await,
+    })
+}
+
+#[tauri::command]
+async fn git_panel_head_state(
+    input: GitPanelWorkspaceInput,
+) -> Result<GitPanelHeadStateOutput, String> {
+    git_panel_head_state_inner(input).await
 }
 
 /// 前端暂存组过滤规则的 Rust 复刻：X 列非空且非 ?，且排除「未跟踪 + 已暂存」矛盾项。
@@ -814,6 +865,10 @@ async fn git_panel_checkout(input: GitPanelCheckoutInput) -> Result<GitPanelRunO
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let reference = git_panel_validate_reference(&input.reference)?;
+    // 与预检同一道闸：变基中切换分支会破坏变基现场，任何调用路径都不放行
+    if git_panel_rebase_in_progress(&repo_root).await {
+        return Err("变基进行中，无法切换分支，请先完成或中止本次变基".to_string());
+    }
     git_executor().run_write(&repo_root, &["checkout", &reference]).await
 }
 
@@ -863,6 +918,12 @@ async fn git_panel_checkout_check(input: GitPanelCheckoutInput) -> Result<GitPan
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let reference = git_panel_validate_reference(&input.reference)?;
+
+    // 变基进行中 HEAD 游离，且 rebase 收尾依赖当前工作区状态：此时切换分支会破坏变基现场。
+    // 直接拒绝并给出可读原因，避免把游离 HEAD 的状态文本当成引用继续往下传给 git。
+    if git_panel_rebase_in_progress(&repo_root).await {
+        return Err("变基进行中，无法切换分支，请先完成或中止本次变基".to_string());
+    }
 
     // 工作区未提交/未跟踪文件（含重命名等，-z 按 NUL 分隔）
     // --no-optional-locks：预检是只读查询，不刷新索引
@@ -1623,6 +1684,44 @@ async fn git_panel_discover(
     state: State<'_, AppState>,
 ) -> Result<GitPanelDiscoverOutput, String> {
     git_panel_discover_inner(input, refresh, &state).await
+}
+
+#[cfg(test)]
+mod git_panel_rebase_tests {
+    use super::*;
+
+    fn unique_dir(tag: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("pai-git-rebase-{tag}-{nanos}"))
+    }
+
+    #[test]
+    fn detects_rebase_from_merge_or_apply_dir() {
+        let dir = unique_dir("detect");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 两个标记目录都不存在：不是变基
+        assert!(!git_panel_git_dir_is_rebasing(&dir));
+
+        // rebase-merge：普通与交互式变基
+        std::fs::create_dir_all(dir.join("rebase-merge")).unwrap();
+        assert!(git_panel_git_dir_is_rebasing(&dir));
+        std::fs::remove_dir_all(dir.join("rebase-merge")).unwrap();
+
+        // rebase-apply：apply 后端变基
+        std::fs::create_dir_all(dir.join("rebase-apply")).unwrap();
+        assert!(git_panel_git_dir_is_rebasing(&dir));
+        std::fs::remove_dir_all(dir.join("rebase-apply")).unwrap();
+
+        // 同名普通文件不算：git 只会创建目录
+        std::fs::write(dir.join("rebase-apply"), b"").unwrap();
+        assert!(!git_panel_git_dir_is_rebasing(&dir));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
 
 #[cfg(test)]

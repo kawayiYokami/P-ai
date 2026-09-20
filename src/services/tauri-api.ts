@@ -3074,6 +3074,13 @@ export type GitPanelStatusOutput = {
   unstagedTotal: number;
 };
 
+export type GitPanelHeadStateOutput = {
+  /** 当前分支名；HEAD 游离时为空串 */
+  branch: string;
+  /** 变基进行中：HEAD 游离且收尾会重写历史，此时不允许切换分支 */
+  rebaseInProgress: boolean;
+};
+
 export type GitPanelDiffOutput = {
   diff: string;
 };
@@ -3326,6 +3333,10 @@ export async function gitPanelStashDrop(workspacePath: string, stashRef: string)
   return invokeTauri<GitPanelRunOutput>("git_panel_stash_drop", {
     input: { workspacePath: gitPanelRequiredWorkspace(workspacePath), stashRef: String(stashRef || "").trim() },
   });
+}
+
+export async function gitPanelHeadState(workspacePath: string): Promise<GitPanelHeadStateOutput> {
+  return invokeTauri<GitPanelHeadStateOutput>("git_panel_head_state", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
 }
 
 export async function gitPanelBranchList(workspacePath: string): Promise<GitPanelBranchEntry[]> {

@@ -2325,7 +2325,8 @@
     "workspaceBranchDirtyDetail": "（{preview}{more}）",
     "workspaceBranchDirtyMore": " 等{count}个文件",
     "workspaceBranchCheckoutFailed": "切换分支失败：{message}",
-    "workspaceBranchCheckFailed": "检查分支失败：{message}"
+    "workspaceBranchCheckFailed": "检查分支失败：{message}",
+    "workspaceBranchRebasing": "变基进行中，无法切换分支"
   },
   "memory": {
     "title": "记忆列表",

@@ -60,7 +60,7 @@
       >
         <EcallDropdown
           v-model="branchDropdownOpen"
-          :disabled="!gitRootAvailable || (branchList.length === 0 && !selectedBranch)"
+          :disabled="branchSwitchLocked || !gitRootAvailable || (branchList.length === 0 && !selectedBranch)"
           :teleport="dropdownTeleport"
           :teleport-to="dropdownTeleportTo"
           root-class="min-w-[112px] max-w-[180px]"
@@ -72,7 +72,7 @@
               <button
                 type="button"
                 class="min-w-0 flex-1 cursor-pointer text-left text-xs font-medium text-base-content outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                :disabled="!gitRootAvailable || (branchList.length === 0 && !selectedBranch)"
+                :disabled="branchSwitchLocked || !gitRootAvailable || (branchList.length === 0 && !selectedBranch)"
                 @click="toggle"
               >
                 <span class="block w-full truncate" :class="displayBranchName ? '' : 'text-base-content/45'">
@@ -173,6 +173,9 @@
     <div v-if="gitCheckMessage" class="w-full text-center text-caption leading-tight text-error">
       {{ gitCheckMessage }}
     </div>
+    <div v-else-if="branchSwitchLocked" class="w-full text-center text-caption leading-tight text-warning">
+      {{ branchLockedReason }}
+    </div>
   </div>
 </template>
 
@@ -208,6 +211,8 @@ const props = withDefaults(defineProps<{
   branchLoading?: boolean;
   gitRootAvailable?: boolean;
   gitCheckMessage?: string;
+  /** 非空表示当前不允许切换分支，内容为禁用原因（如变基进行中） */
+  branchLockedReason?: string;
   availableWorkspaces?: WorkspaceOption[];
   hideAddWorkspace?: boolean;
   dropdownTeleport?: boolean;
@@ -219,6 +224,7 @@ const props = withDefaults(defineProps<{
   branchLoading: false,
   gitRootAvailable: false,
   gitCheckMessage: "",
+  branchLockedReason: "",
   availableWorkspaces: () => [],
   hideAddWorkspace: false,
   dropdownTeleport: true,
@@ -251,6 +257,9 @@ const displayMainName = computed(() => {
 const displayBranchName = computed(() => {
   return String(props.selectedBranch || "").trim();
 });
+
+/** 分支锁定原因非空时，分支下拉整体禁用并显示原因 */
+const branchSwitchLocked = computed(() => Boolean(String(props.branchLockedReason || "").trim()));
 
 function secondaryDisplayName(path: string): string {
   const normalized = String(path || "").trim();

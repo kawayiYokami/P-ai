@@ -2319,7 +2319,8 @@
     "workspaceBranchDirtyDetail": "（{preview}{more}）",
     "workspaceBranchDirtyMore": " 等{count}個檔案",
     "workspaceBranchCheckoutFailed": "切換分支失敗：{message}",
-    "workspaceBranchCheckFailed": "檢查分支失敗：{message}"
+    "workspaceBranchCheckFailed": "檢查分支失敗：{message}",
+    "workspaceBranchRebasing": "變基進行中，無法切換分支"
   },
   "memory": {
     "title": "记忆列表",

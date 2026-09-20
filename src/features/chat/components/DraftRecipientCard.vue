@@ -82,6 +82,7 @@
           :branch-loading="branchLoading"
           :git-root-available="gitRootAvailable"
           :git-check-message="worktreeCheckMessage"
+          :branch-locked-reason="branchLockedReason"
           :available-workspaces="mergedOptions"
           @update:main-path="handleMainPathUpdate"
           @update:access="handleAccessUpdate"
@@ -230,7 +231,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Pencil } from "@lucide/vue";
-import { gitPanelBranchList, gitPanelCheckoutCheck, gitPanelCheckout } from "../../../services/tauri-api";
+import { gitPanelBranchList, gitPanelCheckoutCheck, gitPanelCheckout, gitPanelHeadState } from "../../../services/tauri-api";
 import { agentPersonaOptionId, type AgentPersonaOption } from "../../shared/agent-persona-options";
 import WorkspaceConfigCard from "../../shared/components/WorkspaceConfigCard.vue";
 import WorkspaceDirectoryPickerDialog from "../../shared/components/WorkspaceDirectoryPickerDialog.vue";
@@ -336,6 +337,8 @@ const branchList = ref<string[]>([]);
 const branchLoading = ref(false);
 const gitRootAvailable = ref(false);
 const worktreeCheckMessage = ref("");
+/** 变基进行中：HEAD 游离，切分支会破坏变基现场，此时锁住分支下拉 */
+const rebaseInProgress = ref(false);
 const saving = ref(false);
 let pendingSave = false;
 let checkSequence = 0;
@@ -345,6 +348,27 @@ let lastGitCheckPath = "";
 const hasWorkspaceCapability = computed(() => {
   return Boolean(props.saveWorkspace || props.saveWorkspaces || props.workspaceOptions.length > 0);
 });
+
+/** 分支下拉的锁定原因；为空表示可正常切换 */
+const branchLockedReason = computed(() => (rebaseInProgress.value ? t("chat.workspaceBranchRebasing") : ""));
+
+/**
+ * 取一次 HEAD 状态：变基进行中 HEAD 游离，切分支会破坏变基现场，命中就锁住分支下拉。
+ * 取不到状态时按「不锁」处理，保持分支切换原有可用性。
+ */
+async function refreshRebaseState(path: string) {
+  const normalized = String(path || "").trim();
+  if (!normalized) {
+    rebaseInProgress.value = false;
+    return;
+  }
+  try {
+    const state = await gitPanelHeadState(normalized);
+    rebaseInProgress.value = Boolean(state?.rebaseInProgress);
+  } catch {
+    rebaseInProgress.value = false;
+  }
+}
 
 function normalizeAccess(value: unknown): ShellWorkspaceAccess {
   const text = String(value || "").trim();
@@ -506,11 +530,13 @@ async function runGitRootCheck(path: string) {
     gitRootAvailable.value = false;
     worktreeCheckMessage.value = "";
     branchList.value = [];
+    rebaseInProgress.value = false;
     return;
   }
   // 检查期间保留上一目录的 gitRootAvailable/branchList，不立即隐藏，避免切换时跳动
   worktreeCheckMessage.value = "";
   branchLoading.value = true;
+  await refreshRebaseState(path);
   let available = false;
   try {
     if (props.gitRootCheck) {
@@ -568,6 +594,7 @@ async function loadBranchList(path: string) {
     return;
   }
   branchLoading.value = true;
+  await refreshRebaseState(normalized);
   try {
     const entries = await gitPanelBranchList(normalized);
     if (seq !== branchSequence) return;
@@ -604,7 +631,7 @@ function handleMainPathUpdate(path: string) {
   selectedPath.value = normalized;
   const source = findOptionByPath(normalized);
   if (source) selectedAccess.value = normalizeAccess(source.access);
-  if (isPathChanged) { selectedBranch.value = ""; branchList.value = []; }
+  if (isPathChanged) { selectedBranch.value = ""; branchList.value = []; rebaseInProgress.value = false; }
   void commitSave();
   void runGitRootCheck(normalized);
 }

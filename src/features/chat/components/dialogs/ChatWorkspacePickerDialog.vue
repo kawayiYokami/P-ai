@@ -19,6 +19,7 @@
           :branch-loading="branchLoading"
           :git-root-available="effectiveGitAvailable"
           :git-check-message="effectiveGitMessage"
+          :branch-locked-reason="branchLockedReason"
           :available-workspaces="availableWorkspaceOptions"
           :hide-add-workspace="hideAddWorkspace"
           @update:main-path="onMainPathUpdate"
@@ -77,7 +78,7 @@ import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import WorkspaceConfigCard from "../../../shared/components/WorkspaceConfigCard.vue";
 import WorkspaceDirectoryPickerDialog from "../../../shared/components/WorkspaceDirectoryPickerDialog.vue";
-import { gitPanelBranchList, gitPanelCheckout, gitPanelCheckoutCheck } from "../../../../services/tauri-api";
+import { gitPanelBranchList, gitPanelCheckout, gitPanelCheckoutCheck, gitPanelHeadState } from "../../../../services/tauri-api";
 import type { ChatWorkspaceChoice } from "../../composables/use-chat-workspace";
 import type { ShellWorkMode } from "../../../../types/app";
 import { normalizeShellWorkMode, normalizeWorkspaceAccess } from "../../../../utils/shell-workspaces";
@@ -127,6 +128,8 @@ const dialogRef = ref<HTMLDialogElement | null>(null);
 const branchList = ref<string[]>([]);
 const branchLoading = ref(false);
 const checkoutError = ref("");
+/** 变基进行中：HEAD 游离，切分支会破坏变基现场，此时锁住分支下拉 */
+const rebaseInProgress = ref(false);
 const localGitAvailable = ref<boolean | null>(null);
 const localGitMessage = ref("");
 let branchSeq = 0;
@@ -165,6 +168,9 @@ const unifiedAccess = computed<ChatWorkspaceChoice["access"]>(() => {
 });
 
 const selectedBranch = computed(() => String(props.selectedBranch || "").trim());
+
+/** 分支下拉的锁定原因；为空表示可正常切换 */
+const branchLockedReason = computed(() => (rebaseInProgress.value ? t("chat.workspaceBranchRebasing") : ""));
 
 const availableWorkspaceOptions = computed(() => {
   return props.workspaces.map((w) => ({
@@ -226,19 +232,38 @@ watch(
   { immediate: true },
 );
 
-async function loadBranches(path: string) {
-  const seq = ++branchSeq;
+/**
+ * 取一次 HEAD 状态：变基进行中 HEAD 游离，切分支会破坏变基现场，命中就锁住分支下拉。
+ * 取不到状态时按「不锁」处理，保持分支切换原有可用性。
+ */
+async function refreshRebaseState(path: string) {
   const normalized = String(path || "").trim();
+  if (!normalized) {
+    rebaseInProgress.value = false;
+    return;
+  }
+  try {
+    const state = await gitPanelHeadState(normalized);
+    rebaseInProgress.value = Boolean(state?.rebaseInProgress);
+  } catch {
+    rebaseInProgress.value = false;
+  }
+}
+
+async function loadBranches(path: string) {
+  const seq = ++branchSeq;  const normalized = String(path || "").trim();
   if (!normalized) {
     branchList.value = [];
     localGitAvailable.value = false;
     localGitMessage.value = "";
+    rebaseInProgress.value = false;
     return;
   }
   branchLoading.value = true;
   // 每次加载前清空上一次的显错，成功后会置为可用
   checkoutError.value = "";
   localGitMessage.value = "";
+  await refreshRebaseState(normalized);
   try {
     const entries = await gitPanelBranchList(normalized);
     if (seq !== branchSeq) return;
@@ -275,6 +300,16 @@ async function loadBranches(path: string) {
     if (seq === branchSeq) branchLoading.value = false;
   }
 }
+
+// 每次打开都重取真值：变基结束后要能自动解锁，分支列表也可能已在外部变化
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (!isOpen) return;
+    const target = resolveBranchTargetPath();
+    if (target) void loadBranches(target);
+  },
+);
 
 function onMainPathUpdate(path: string) {
   const normalized = String(path || "").trim();

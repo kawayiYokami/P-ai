@@ -2325,7 +2325,8 @@
     "workspaceBranchDirtyDetail": " ({preview}{more})",
     "workspaceBranchDirtyMore": " and {count} more file(s)",
     "workspaceBranchCheckoutFailed": "Failed to switch branch: {message}",
-    "workspaceBranchCheckFailed": "Failed to check branch: {message}"
+    "workspaceBranchCheckFailed": "Failed to check branch: {message}",
+    "workspaceBranchRebasing": "Rebase in progress, cannot switch branch"
   },
   "memory": {
     "title": "Memories",

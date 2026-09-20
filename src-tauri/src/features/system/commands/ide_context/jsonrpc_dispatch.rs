@@ -727,6 +727,10 @@ async fn git_panel_dispatch(
             let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
             ide_chat_serialize(git_panel_status_inner(input).await?)
         }
+        "git_panel_head_state" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_head_state_inner(input).await?)
+        }
         "git_panel_diff" => {
             let input = ide_chat_parse_param_field::<GitPanelDiffInput>(request.params, "input")?;
             ide_chat_serialize(git_panel_diff(input).await?)
