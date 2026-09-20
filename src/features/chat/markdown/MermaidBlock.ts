@@ -5,6 +5,10 @@ export function normalizeMermaidCodeForRender(code: string): string {
   return code.replace(/\\n/gi, "<br/>");
 }
 
+// mermaid 渲染时会先移除文档里同 id 的元素；blockKey 是位置派生的（code-1、code-2…），
+// 两处内容相同的图会算出同一个 id 并互相顶掉，所以 id 里必须带实例序号。
+let mermaidInstanceSeq = 0;
+
 const MermaidBlock = defineComponent({
   name: "MermaidBlock",
   props: {
@@ -22,6 +26,7 @@ const MermaidBlock = defineComponent({
     const copied = ref(false);
     const renderPending = ref(false);
     const containerRef = ref<HTMLElement | null>(null);
+    const instanceId = ++mermaidInstanceSeq;
     let renderCount = 0;
     let renderTimer = 0;
     let copyTimer = 0;
@@ -44,7 +49,7 @@ const MermaidBlock = defineComponent({
           theme: mermaidProps.isDark ? "dark" : "default",
           securityLevel: "strict",
         });
-        const id = `ecall-mermaid-${mermaidProps.blockKey}-${currentRender}`;
+        const id = `ecall-mermaid-${mermaidProps.blockKey}-i${instanceId}-${currentRender}`;
         const { svg } = await mermaid.render(id, normalizeMermaidCodeForRender(code));
         if (currentRender !== renderCount) return;
         svgHtml.value = svg;
