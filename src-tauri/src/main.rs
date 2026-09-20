@@ -1557,6 +1557,8 @@ fn main() {
             git_panel_watch_start,
             git_panel_watch_stop,
             git_panel_discover,
+            git_panel_worktrees,
+            git_panel_remember_repo,
             git_panel_status,
             git_panel_diff,
             git_panel_stage,

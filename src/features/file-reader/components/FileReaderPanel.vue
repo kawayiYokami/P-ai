@@ -194,6 +194,7 @@
                 :workspace-path="gitPanelWorkspacePath"
                 :markdown-is-dark="markdownIsDark"
                 :session-key="props.sessionKey"
+                :session-root-path="props.initialRootPath"
                 :sync-workspace-branch="props.syncWorkspaceBranch"
                 @open-diff="openGitDiffTab"
               />

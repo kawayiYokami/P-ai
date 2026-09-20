@@ -3145,6 +3145,21 @@ export type GitPanelDiscoverOutput = {
   error?: string | null;
 };
 
+export type GitPanelWorktreeEntry = {
+  path: string;
+  name: string;
+  branch: string;
+  /** 主工作树（仓库根本身） */
+  isMain: boolean;
+  /** 分离头指针 */
+  detached: boolean;
+};
+
+export type GitPanelWorktreesOutput = {
+  repoRoot: string;
+  worktrees: GitPanelWorktreeEntry[];
+};
+
 function gitPanelWorkspaceArgs(workspacePath: string): Record<string, unknown> {
   return { input: { workspacePath: String(workspacePath || "").trim() } };
 }
@@ -3183,6 +3198,34 @@ export async function gitPanelDiscover(workspacePath: string, refresh = false): 
   return invokeTauri<GitPanelDiscoverOutput>("git_panel_discover", {
     ...gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)),
     refresh,
+  });
+}
+
+/**
+ * 当前仓库的工作树列表（主工作树 + linked worktree），按该工作区的「最近打开」历史排序。
+ * workspacePath 用于定位历史分组，repoRoot 用于定位仓库；仓库根为空时直接返回空列表。
+ */
+export async function gitPanelWorktrees(
+  workspacePath: string,
+  repoRoot: string,
+): Promise<GitPanelWorktreesOutput> {
+  const normalizedRoot = String(repoRoot || "").trim();
+  if (!normalizedRoot) return { repoRoot: "", worktrees: [] };
+  return invokeTauri<GitPanelWorktreesOutput>("git_panel_worktrees", {
+    input: {
+      workspacePath: String(workspacePath || "").trim(),
+      repoRoot: normalizedRoot,
+    },
+  });
+}
+
+/** 记录一次「打开过的仓库/工作树」，供仓库栏按最近打开排序；入参不完整时不做任何事 */
+export async function gitPanelRememberRepo(workspacePath: string, repoRoot: string): Promise<void> {
+  const normalizedRoot = String(repoRoot || "").trim();
+  const normalizedWorkspace = String(workspacePath || "").trim();
+  if (!normalizedRoot || !normalizedWorkspace) return;
+  await invokeTauri<void>("git_panel_remember_repo", {
+    input: { workspacePath: normalizedWorkspace, repoRoot: normalizedRoot },
   });
 }
 

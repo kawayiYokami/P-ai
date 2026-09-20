@@ -41,20 +41,53 @@
         <div v-if="!repoCollapsed" class="git-panel-scroller max-h-44 min-h-0 overflow-y-auto py-1">
           <div v-if="reposLoading" class="px-3 py-2 text-xs opacity-50">{{ t('gitPanel.loading') }}</div>
           <template v-else>
-            <button
-              v-for="repo in repos"
-              :key="repo.path"
-              type="button"
-              class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-base-300/40"
-              :class="{ 'bg-primary/10 text-primary': isCurrentRepo(repo.path) }"
-              :disabled="busy"
-              @click="switchRepo(repo.path)"
-            >
-              <GitBranch class="h-3 w-3 shrink-0 opacity-60" />
-              <span class="min-w-0 flex-1 truncate">{{ repo.name }}</span>
-              <span v-if="isCurrentRepo(repo.path)" class="shrink-0 opacity-50">{{ t('gitPanel.currentRepo') }}</span>
-            </button>
-            <div v-if="repos.length === 0" class="px-3 py-2 text-xs opacity-50">{{ t('gitPanel.noRepos') }}</div>
+            <!-- 工作树组：当前仓库的工作树，最近打开过的排在最前 -->
+            <template v-if="worktrees.length">
+              <div class="px-2 pb-0.5 pt-1 text-xs font-medium opacity-40">{{ t('gitPanel.worktrees') }}</div>
+              <button
+                v-for="worktree in worktrees"
+                :key="worktree.path"
+                type="button"
+                class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-base-300/40"
+                :class="{ 'bg-primary/10 text-primary': isCurrentRepo(worktree.path) }"
+                :disabled="busy"
+                :title="worktree.path"
+                @click="switchRepo(worktree.path)"
+              >
+                <FolderGit2 v-if="worktree.isMain" class="h-3 w-3 shrink-0 opacity-60" />
+                <GitBranch v-else class="h-3 w-3 shrink-0 opacity-60" />
+                <span class="min-w-0 flex-1 truncate">{{ worktree.name }}</span>
+                <span v-if="worktree.branch" class="max-w-24 shrink-0 truncate opacity-45">{{ worktree.branch }}</span>
+                <span
+                  v-if="isSessionRoot(worktree.path)"
+                  class="shrink-0 rounded bg-primary/15 px-1 font-medium text-primary"
+                >{{ t('gitPanel.currentSession') }}</span>
+                <span v-else-if="isCurrentRepo(worktree.path)" class="shrink-0 opacity-50">{{ t('gitPanel.currentRepo') }}</span>
+              </button>
+            </template>
+            <!-- 其他仓库组：工作区里其余仓库（已排除当前仓库的工作树） -->
+            <template v-if="otherRepos.length">
+              <div v-if="worktrees.length" class="px-2 pb-0.5 pt-1 text-xs font-medium opacity-40">{{ t('gitPanel.otherRepos') }}</div>
+              <button
+                v-for="repo in otherRepos"
+                :key="repo.path"
+                type="button"
+                class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-base-300/40"
+                :class="{ 'bg-primary/10 text-primary': isCurrentRepo(repo.path) }"
+                :disabled="busy"
+                :title="repo.path"
+                @click="switchRepo(repo.path)"
+              >
+                <FolderGit2 class="h-3 w-3 shrink-0 opacity-60" />
+                <span class="min-w-0 flex-1 truncate">{{ repo.name }}</span>
+                <span
+                  v-if="isSessionRoot(repo.path)"
+                  class="shrink-0 rounded bg-primary/15 px-1 font-medium text-primary"
+                >{{ t('gitPanel.currentSession') }}</span>
+                <span v-else-if="isCurrentRepo(repo.path)" class="shrink-0 opacity-50">{{ t('gitPanel.currentRepo') }}</span>
+              </button>
+            </template>
+            <div v-if="!worktrees.length && !otherRepos.length" class="px-3 py-2 text-xs opacity-50">{{ t('gitPanel.noRepos') }}</div>
           </template>
         </div>
       </div>
@@ -553,6 +586,7 @@ import {
   Copy,
   Files,
   Folder,
+  FolderGit2,
   GitBranch,
   GitCommitHorizontal,
   History,
@@ -582,6 +616,7 @@ import {
   gitPanelPull,
   gitPanelPush,
   gitPanelRemoteList,
+  gitPanelRememberRepo,
   gitPanelResetSoft,
   gitPanelStage,
   gitPanelStashCreate,
@@ -592,6 +627,7 @@ import {
   gitPanelStashPop,
   gitPanelSync,
   gitPanelUnstage,
+  gitPanelWorktrees,
   type GitPanelBranchEntry,
   type GitPanelCommitFileEntry,
   type GitPanelLogEntry,
@@ -600,6 +636,7 @@ import {
   type GitPanelRunOutput,
   type GitPanelStashEntry,
   type GitPanelWatchEventPayload,
+  type GitPanelWorktreeEntry,
 } from "../../../services/tauri-api";
 import { decideGitPanelRefreshTargets } from "../git-panel-watch-refresh";
 import { formatRecentRelativeTime } from "../../shared/utils/relative-time";
@@ -632,11 +669,14 @@ const props = withDefaults(defineProps<{
   workspacePath: string;
   markdownIsDark?: boolean;
   sessionKey?: string;
+  /** 本会话工作区根：用于在仓库/工作树列表里标出「本会话」在用的那一个 */
+  sessionRootPath?: string;
   /** 面板内切换分支成功后按仓库目录同步「本会话工作分支」记录，避免下次发送时拦自己 */
   syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
 }>(), {
   markdownIsDark: false,
   sessionKey: "",
+  sessionRootPath: "",
 });
 
 const emit = defineEmits<{
@@ -676,6 +716,8 @@ const repoCollapsed = ref(true);
 const repos = ref<GitPanelRepoEntry[]>([]);
 const reposLoading = ref(false);
 const reposLoaded = ref(false);
+// 当前仓库的工作树（主工作树 + linked worktree）：跟随 repoRoot 重取
+const worktrees = ref<GitPanelWorktreeEntry[]>([]);
 
 // ==================== 分栏高度（分界线拖拽） ====================
 const historyHeight = ref<number | null>(null);
@@ -1052,11 +1094,15 @@ async function loadDiscover(force = false) {
     reposLoaded.value = true;
     // 仓库根交给共享状态源，面板自身跟随：优先恢复这个会话上次选中的仓库
     // （探测出的默认仓库是当前工作区自身所在的仓库，直接采用会把用户的选择顶掉）
-    const rememberedRoot = readRememberedRepoRoot(
-      String(props.sessionKey || "").trim(),
-      (result.repos || []).map((repo) => repo.path),
-    );
-    setRepoRoot(rememberedRoot || String(result.defaultRepoRoot || ""));
+    const defaultRoot = String(result.defaultRepoRoot || "");
+    // 默认仓库的工作树同样算「可选目标」：会话上次选中的是工作树时，
+    // 不并入校验集合会被判为已失效，记忆被清掉后每次都退回默认仓库
+    const worktreeRoots = await fetchWorktreeRoots(defaultRoot);
+    const rememberedRoot = readRememberedRepoRoot(String(props.sessionKey || "").trim(), [
+      ...repos.value.map((repo) => repo.path),
+      ...worktreeRoots,
+    ]);
+    setRepoRoot(rememberedRoot || defaultRoot);
     detectError.value =
       result.error ||
       (!result.gitAvailable
@@ -1079,13 +1125,71 @@ async function loadDiscover(force = false) {
 
 function refreshRepos() {
   void loadDiscover(true);
+  void loadWorktrees();
+}
+
+/** 工作树列表：按当前仓库根查询；仓库根为空或查询失败时置空，菜单退回普通仓库列表 */
+async function loadWorktrees() {
+  const root = String(repoRoot.value || "").trim();
+  if (!root) {
+    worktrees.value = [];
+    return;
+  }
+  try {
+    const result = await gitPanelWorktrees(String(props.workspacePath || "").trim(), root);
+    worktrees.value = result.worktrees || [];
+  } catch {
+    worktrees.value = [];
+  }
+}
+
+/** 只读工作树路径，不写面板状态：供仓库记忆校验判断「会话上次选的工作树是否还在」 */
+async function fetchWorktreeRoots(root: string): Promise<string[]> {
+  const target = String(root || "").trim();
+  if (!target) return [];
+  try {
+    const result = await gitPanelWorktrees(String(props.workspacePath || "").trim(), target);
+    return (result.worktrees || []).map((item) => item.path);
+  } catch {
+    return [];
+  }
+}
+
+// 仓库根变化（切换仓库或工作树、重新探查）时重取工作树列表
+watch(
+  repoRoot,
+  () => {
+    void loadWorktrees();
+  },
+  { immediate: true },
+);
+
+/** 路径归一化：统一分隔符、去掉尾斜杠、忽略大小写（与后端仓库路径比较口径一致） */
+function normalizeRepoPath(path: string): string {
+  return String(path || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 function isCurrentRepo(path: string): boolean {
   if (!repoRoot.value || !path) return false;
-  const norm = (p: string) => p.replace(/\\/g, "/").toLowerCase();
-  return norm(path) === norm(repoRoot.value);
+  return normalizeRepoPath(path) === normalizeRepoPath(repoRoot.value);
 }
+
+/** 本会话工作区根命中：与「当前面板仓库」是两个概念，可能落在不同条目上 */
+function isSessionRoot(path: string): boolean {
+  const sessionRoot = normalizeRepoPath(props.sessionRootPath || "");
+  if (!sessionRoot || !path) return false;
+  return normalizeRepoPath(path) === sessionRoot;
+}
+
+/** 当前仓库的工作树路径集合：用于把工作树从「其他仓库」里剔重 */
+const worktreePathSet = computed(
+  () => new Set(worktrees.value.map((item) => normalizeRepoPath(item.path))),
+);
+
+/** 其他仓库：仓库列表里不属于当前仓库工作树的那些 */
+const otherRepos = computed(
+  () => repos.value.filter((repo) => !worktreePathSet.value.has(normalizeRepoPath(repo.path))),
+);
 
 // 切换仓库：把共享状态源切到新仓库，重置各数据加载标记后按当前可见区域重载
 function switchRepo(path: string) {
@@ -1102,9 +1206,14 @@ function switchRepo(path: string) {
   lastStashesLoad.value = 0;
   lastBranchesLoad.value = 0;
   // 仓库根切换、更改数据清空与 status 冷却重置都在共享状态源里统一处理
+  // 工作树列表按仓库维度，切仓库后先清空，等 watch(repoRoot) 重取，避免显示上一个仓库的工作树
+  worktrees.value = [];
   setRepoRoot(path);
   // 记住这次选择：面板重挂、手动刷新仓库栏、切会话回来都按它恢复
-  rememberRepoRoot(String(props.sessionKey || "").trim(), path);
+  const sessionKey = String(props.sessionKey || "").trim();
+  rememberRepoRoot(sessionKey, path);
+  // 记入后端「最近打开」历史：仓库栏按它把刚用过的排到前面；失败只影响排序，不打断切换
+  void gitPanelRememberRepo(String(props.workspacePath || "").trim(), path).catch(() => {});
   ensureVisibleData();
 }
 

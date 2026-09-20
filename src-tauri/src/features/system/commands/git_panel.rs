@@ -11,6 +11,16 @@ struct GitPanelWorkspaceInput {
     workspace_path: String,
 }
 
+/// 工作区 + 仓库根：工作树查询与「最近打开」记录共用同一组入参。
+/// workspace_path 用于定位该工作区的历史分组，repo_root 用于定位仓库本身
+/// （面板当前浏览目录与会话工作区不一定在同一仓库）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelWorkspaceRepoInput {
+    workspace_path: String,
+    repo_root: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GitPanelPathsInput {
@@ -1112,6 +1122,26 @@ struct GitPanelRepoEntry {
     name: String,
 }
 
+/// 单个工作树条目：path 为工作树根，branch 为已签出分支（分离头指针时为空）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelWorktreeEntry {
+    path: String,
+    name: String,
+    branch: String,
+    /// 主工作树（仓库根本身）；linked worktree 为 false
+    is_main: bool,
+    /// 分离头指针
+    detached: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelWorktreesOutput {
+    repo_root: String,
+    worktrees: Vec<GitPanelWorktreeEntry>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GitPanelReposOutput {
@@ -1264,8 +1294,17 @@ fn git_panel_history_push(
     true
 }
 
+/// 历史序号：命中返回下标（越近越小），未命中返回 usize::MAX，排在所有命中之后。
+/// 用于让「最近打开」的顺序不被路径序抹平。
+fn git_panel_history_rank(history: &[String], path: &str) -> usize {
+    history
+        .iter()
+        .position(|item| git_panel_repo_path_eq(item, path))
+        .unwrap_or(usize::MAX)
+}
+
 /// 当前仓库进入历史；写盘失败静默忽略，不影响 git 命令本身。
-async fn git_panel_remember_repo(state: &AppState, workspace_path: &str, repo_root: &str) {
+async fn git_panel_history_remember(state: &AppState, workspace_path: &str, repo_root: &str) {
     let mut history = git_panel_read_repo_history(state).await;
     if git_panel_history_push(&mut history, workspace_path, repo_root) {
         git_panel_write_repo_history(state, &history).await;
@@ -1314,24 +1353,27 @@ async fn git_panel_collect_repos(
     // 当前仓库根（可能在工作区上方，扫描不到）：记录进历史，并恒保留在列表中
     let mut extra = Vec::new();
     if let Ok(root) = git_panel_resolve_root(workspace_path).await {
-        git_panel_remember_repo(state, workspace_path, &root).await;
+        git_panel_history_remember(state, workspace_path, &root).await;
         let name = git_panel_repo_name(&root);
         extra.push(GitPanelRepoEntry { path: root, name });
     }
-    // 合并：当前工作区的历史（最近在前，过滤已删除目录）∪ 扫描结果 ∪ 当前仓库根，去重后按路径排序
+    // 合并：当前工作区的历史（最近在前，过滤已删除目录）∪ 扫描结果 ∪ 当前仓库根，去重
     let mut repos: Vec<GitPanelRepoEntry> = Vec::new();
     let history_key = git_panel_normalize_repo_path(workspace_path);
-    if let Some(history) = git_panel_read_repo_history(state).await.get(&history_key) {
-        for path in history {
-            if !Path::new(path).is_dir() {
-                continue;
-            }
-            if !repos.iter().any(|repo| git_panel_repo_path_eq(&repo.path, path)) {
-                repos.push(GitPanelRepoEntry {
-                    path: path.clone(),
-                    name: git_panel_repo_name(path),
-                });
-            }
+    let history_order = git_panel_read_repo_history(state)
+        .await
+        .get(&history_key)
+        .cloned()
+        .unwrap_or_default();
+    for path in &history_order {
+        if !Path::new(path).is_dir() {
+            continue;
+        }
+        if !repos.iter().any(|repo| git_panel_repo_path_eq(&repo.path, path)) {
+            repos.push(GitPanelRepoEntry {
+                path: path.clone(),
+                name: git_panel_repo_name(path),
+            });
         }
     }
     for repo in scanned {
@@ -1348,7 +1390,12 @@ async fn git_panel_collect_repos(
     for repo in &mut repos {
         repo.path = git_panel_strip_verbatim_prefix(&repo.path).to_string();
     }
-    repos.sort_by(|a, b| a.path.cmp(&b.path));
+    // 排序：最近打开过的在前（越近越靠前），其余按路径；顺序信息来自历史，不能再用路径序覆盖
+    repos.sort_by(|a, b| {
+        git_panel_history_rank(&history_order, &a.path)
+            .cmp(&git_panel_history_rank(&history_order, &b.path))
+            .then_with(|| a.path.cmp(&b.path))
+    });
     Ok(repos)
 }
 
@@ -1374,6 +1421,142 @@ async fn git_panel_default_repo_root(
         return Some(repos[0].path.clone());
     }
     None
+}
+
+// ---------- 命令：当前仓库的工作树列表 ----------
+
+/// 主工作树判定：主工作树的 `.git` 是目录，linked worktree 的 `.git` 是指向
+/// 共享 gitdir 的文件。不依赖 `git worktree list` 的输出顺序。
+fn git_panel_is_main_worktree(path: &str) -> bool {
+    Path::new(path).join(".git").is_dir()
+}
+
+/// 组装单个工作树条目：名称取路径最后一段，分支剥掉 `refs/heads/` 前缀。
+fn git_panel_build_worktree_entry(path: String, branch: &str, detached: bool) -> GitPanelWorktreeEntry {
+    let is_main = git_panel_is_main_worktree(&path);
+    GitPanelWorktreeEntry {
+        name: git_panel_repo_name(&path),
+        path,
+        branch: branch.to_string(),
+        is_main,
+        detached,
+    }
+}
+
+/// 解析 `git worktree list --porcelain`：每组以空行分隔，组内 `worktree <path>` 起头，
+/// `branch refs/heads/<name>` 给出分支，`detached` 表示分离头指针；`HEAD`/`bare`/`prunable` 忽略。
+fn parse_worktree_list(stdout: &str) -> Vec<GitPanelWorktreeEntry> {
+    let mut entries: Vec<GitPanelWorktreeEntry> = Vec::new();
+    let mut path: Option<String> = None;
+    let mut branch = String::new();
+    let mut detached = false;
+
+    for raw_line in stdout.lines() {
+        let line = raw_line.trim_end();
+        if let Some(rest) = line.strip_prefix("worktree ") {
+            // 上一组未以空行收尾时兜底落盘（porcelain 正常会有空行）
+            if let Some(previous) = path.take() {
+                entries.push(git_panel_build_worktree_entry(previous, &branch, detached));
+            }
+            branch.clear();
+            detached = false;
+            path = Some(rest.trim().to_string());
+            continue;
+        }
+        if line.is_empty() {
+            if let Some(current) = path.take() {
+                entries.push(git_panel_build_worktree_entry(current, &branch, detached));
+            }
+            branch.clear();
+            detached = false;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("branch ") {
+            let full = rest.trim();
+            branch = full.strip_prefix("refs/heads/").unwrap_or(full).to_string();
+            continue;
+        }
+        if line == "detached" {
+            detached = true;
+        }
+    }
+    if let Some(current) = path.take() {
+        entries.push(git_panel_build_worktree_entry(current, &branch, detached));
+    }
+    entries
+}
+
+/// 排序：最近打开过的在前（越近越靠前），其余保持「主工作树在前 + 路径序」。
+fn git_panel_sort_worktrees(worktrees: &mut [GitPanelWorktreeEntry], history: &[String]) {
+    worktrees.sort_by(|a, b| {
+        git_panel_history_rank(history, &a.path)
+            .cmp(&git_panel_history_rank(history, &b.path))
+            .then_with(|| b.is_main.cmp(&a.is_main))
+            .then_with(|| a.path.cmp(&b.path))
+    });
+}
+
+/// 当前仓库的工作树列表：最近打开过的在前，其余主工作树置顶、按路径排序。
+/// 仓库根为空、不可访问或 git 执行失败时返回空列表，由面板降级回普通仓库列表。
+async fn git_panel_worktrees_inner(
+    input: GitPanelWorkspaceRepoInput,
+    state: &AppState,
+) -> Result<GitPanelWorktreesOutput, String> {
+    let repo_root = input.repo_root.trim().to_string();
+    if repo_root.is_empty() {
+        return Ok(GitPanelWorktreesOutput {
+            repo_root,
+            worktrees: Vec::new(),
+        });
+    }
+    let repo_root = git_panel_validate_path(&repo_root)?;
+    let stdout = match git_executor()
+        .run_read(&repo_root, &["worktree", "list", "--porcelain"])
+        .await
+    {
+        Ok(stdout) => stdout,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[git面板] 工作树列表读取失败，repo_root={repo_root}，error={err}"
+            ));
+            return Ok(GitPanelWorktreesOutput {
+                repo_root,
+                worktrees: Vec::new(),
+            });
+        }
+    };
+    let mut worktrees = parse_worktree_list(&stdout);
+    for item in &mut worktrees {
+        item.path = git_panel_strip_verbatim_prefix(&item.path).to_string();
+    }
+    let history_key = git_panel_normalize_repo_path(input.workspace_path.trim());
+    let history_order = git_panel_read_repo_history(state)
+        .await
+        .get(&history_key)
+        .cloned()
+        .unwrap_or_default();
+    git_panel_sort_worktrees(&mut worktrees, &history_order);
+    Ok(GitPanelWorktreesOutput { repo_root, worktrees })
+}
+
+#[tauri::command]
+async fn git_panel_worktrees(
+    input: GitPanelWorkspaceRepoInput,
+    state: State<'_, AppState>,
+) -> Result<GitPanelWorktreesOutput, String> {
+    git_panel_worktrees_inner(input, &state).await
+}
+
+/// 记录一次打开：前端切换仓库/工作树后调用，供仓库栏按「最近打开」排序。
+#[tauri::command]
+async fn git_panel_remember_repo(
+    input: GitPanelWorkspaceRepoInput,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    let repo_root = git_panel_validate_path(&input.repo_root)?;
+    git_panel_history_remember(&state, &workspace_path, &repo_root).await;
+    Ok(())
 }
 
 /// 仓库列表：扫描 + 当前仓库根 extra + 历史合并，按路径排序。
@@ -1875,5 +2058,120 @@ mod git_panel_repos_tests {
         let unstaged_total = entries.iter().filter(|e| git_panel_entry_is_unstaged(e)).count();
         assert_eq!(staged_total, 2, "暂存组应含 staged_only 与 both");
         assert_eq!(unstaged_total, 3, "更改组应含 untracked、unstaged_only 与 both");
+    }
+}
+
+#[cfg(test)]
+mod git_panel_worktrees_tests {
+    use super::*;
+
+    /// 典型 porcelain 输出：主工作树 + 命名工作树 + 分离头指针工作树。
+    const SAMPLE: &str = "worktree E:/repo/main\nHEAD 1111111111111111111111111111111111111111\nbranch refs/heads/main\n\nworktree E:/repo/.pai/.worktree/session-a\nHEAD 2222222222222222222222222222222222222222\nbranch refs/heads/feat/relay-access\n\nworktree E:/repo/.pai/.worktree/detached-wt\nHEAD 3333333333333333333333333333333333333333\ndetached\n\n";
+
+    fn temp_base(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "git-panel-worktree-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ))
+    }
+
+    #[test]
+    fn parses_worktree_entries_with_branch_and_detached() {
+        let entries = parse_worktree_list(SAMPLE);
+        assert_eq!(entries.len(), 3, "三个工作树都应收录");
+        assert_eq!(entries[0].path, "E:/repo/main");
+        assert_eq!(entries[0].name, "main");
+        assert_eq!(entries[0].branch, "main", "分支名应剥掉 refs/heads/ 前缀");
+        assert_eq!(
+            entries[1].branch, "feat/relay-access",
+            "带斜杠的分支名应完整保留"
+        );
+        assert!(entries[2].detached, "detached 组应标记分离头指针");
+        assert_eq!(entries[2].branch, "", "分离头指针没有分支名");
+    }
+
+    #[test]
+    fn detects_main_worktree_by_git_directory() {
+        let base = temp_base("main");
+        let main = base.join("main");
+        let linked = base.join("linked");
+        std::fs::create_dir_all(main.join(".git")).expect("创建主工作树 .git 目录失败");
+        std::fs::create_dir_all(&linked).expect("创建 linked 工作树目录失败");
+        std::fs::write(linked.join(".git"), "gitdir: ../main/.git/worktrees/linked")
+            .expect("写入 linked 工作树 .git 文件失败");
+
+        assert!(
+            git_panel_is_main_worktree(&main.to_string_lossy()),
+            "主工作树的 .git 是目录"
+        );
+        assert!(
+            !git_panel_is_main_worktree(&linked.to_string_lossy()),
+            "linked 工作树的 .git 是文件"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn sorts_recently_opened_first_then_main_then_path() {
+        fn entry(path: &str, is_main: bool) -> GitPanelWorktreeEntry {
+            GitPanelWorktreeEntry {
+                path: path.to_string(),
+                name: git_panel_repo_name(path),
+                branch: String::new(),
+                is_main,
+                detached: false,
+            }
+        }
+        fn paths(worktrees: &[GitPanelWorktreeEntry]) -> Vec<&str> {
+            worktrees.iter().map(|item| item.path.as_str()).collect()
+        }
+        let mut worktrees = vec![
+            entry("E:/repo/.pai/.worktree/b", false),
+            entry("E:/repo/main", true),
+            entry("E:/repo/.pai/.worktree/a", false),
+        ];
+        // 没有历史：主工作树置顶，其余按路径排序
+        git_panel_sort_worktrees(&mut worktrees, &[]);
+        assert_eq!(
+            paths(&worktrees),
+            vec![
+                "E:/repo/main",
+                "E:/repo/.pai/.worktree/a",
+                "E:/repo/.pai/.worktree/b"
+            ],
+            "无历史时主工作树置顶，其余按路径"
+        );
+
+        // 有历史：最近打开过的排在前面，历史内部按「越近越靠前」
+        let history = vec![
+            "E:/repo/.pai/.worktree/b".to_string(),
+            "E:/repo/.pai/.worktree/a".to_string(),
+        ];
+        git_panel_sort_worktrees(&mut worktrees, &history);
+        assert_eq!(
+            paths(&worktrees),
+            vec![
+                "E:/repo/.pai/.worktree/b",
+                "E:/repo/.pai/.worktree/a",
+                "E:/repo/main"
+            ],
+            "历史顺序应压过主工作树置顶与路径序"
+        );
+    }
+
+    #[test]
+    fn history_rank_matches_paths_case_and_slash_insensitively() {
+        let history = vec!["E:\\repo\\sub".to_string()];
+        assert_eq!(git_panel_history_rank(&history, "e:/repo/sub"), 0);
+        assert_eq!(
+            git_panel_history_rank(&history, "E:/repo/other"),
+            usize::MAX,
+            "未打开过的路径排在所有命中之后"
+        );
     }
 }

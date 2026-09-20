@@ -712,6 +712,17 @@ async fn git_panel_dispatch(
             let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
             ide_chat_serialize(git_panel_discover_inner(input, refresh, state).await?)
         }
+        "git_panel_worktrees" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceRepoInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_worktrees_inner(input, state).await?)
+        }
+        "git_panel_remember_repo" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceRepoInput>(request.params, "input")?;
+            let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+            let repo_root = git_panel_validate_path(&input.repo_root)?;
+            git_panel_history_remember(state, &workspace_path, &repo_root).await;
+            Ok(Value::Null)
+        }
         "git_panel_status" => {
             let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
             ide_chat_serialize(git_panel_status_inner(input).await?)
