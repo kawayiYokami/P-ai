@@ -8,31 +8,42 @@ const props = withDefaults(
     previewHeight?: number;
     follow?: boolean;
     textClass?: string;
+    /** 受控展开态；不传时由组件内部维护 */
+    expanded?: boolean;
   }>(),
-  { previewHeight: 160, follow: false, textClass: "" },
+  { previewHeight: 160, follow: false, textClass: "", expanded: undefined },
 );
+
+const emit = defineEmits<{ (e: "update:expanded", value: boolean): void }>();
 
 const { t } = useI18n();
 
 const bodyRef = ref<HTMLElement | null>(null);
 const overflowing = ref(false);
-const expanded = ref(false);
+const innerExpanded = ref(false);
 const contentHeight = ref(0);
 
-const clamped = computed(() => !props.follow && !expanded.value);
+// 折叠只看展开态；follow 只表示「展开后不设高度上限、随内容自然生长」，不再隐含强制展开
+const expanded = computed(() => (props.expanded === undefined ? innerExpanded.value : props.expanded));
+const clamped = computed(() => !expanded.value);
 
 const shellStyle = computed(() => {
-  if (props.follow) return undefined;
+  if (props.follow && expanded.value) return undefined;
   const vars = { "--ecall-preview-height": `${props.previewHeight}px` } as Record<string, string>;
   if (clamped.value) {
     return { ...vars, maxHeight: `${props.previewHeight}px` } as any;
   }
-  if (expanded.value) {
-    const h = contentHeight.value > 0 ? `${contentHeight.value}px` : "none";
-    return { ...vars, maxHeight: h } as any;
-  }
-  return vars as any;
+  const h = contentHeight.value > 0 ? `${contentHeight.value}px` : "none";
+  return { ...vars, maxHeight: h } as any;
 });
+
+function setExpanded(next: boolean): void {
+  if (props.expanded === undefined) {
+    innerExpanded.value = next;
+    return;
+  }
+  emit("update:expanded", next);
+}
 
 let resizeObserver: ResizeObserver | null = null;
 
@@ -89,7 +100,7 @@ onBeforeUnmount(() => {
         type="button"
         class="inline-flex items-center text-xs text-base-content/45 hover:text-base-content/80"
         data-selection-ignore="true"
-        @click.stop="expanded = true"
+        @click.stop="setExpanded(true)"
       >
         {{ t("common.expand") }}
       </button>
@@ -98,7 +109,7 @@ onBeforeUnmount(() => {
         type="button"
         class="inline-flex items-center text-xs text-base-content/45 hover:text-base-content/80"
         data-selection-ignore="true"
-        @click.stop="expanded = false"
+        @click.stop="setExpanded(false)"
       >
         {{ t("common.collapse") }}
       </button>

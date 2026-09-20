@@ -192,7 +192,9 @@
                             class="min-w-0 flex-1"
                             :text="activityItemText(item)"
                             :text-class="activityItemDetailClass(item)"
-                            :follow="!!item.running"
+                            :expanded="activityItemExpanded(item)"
+                            :follow="activityItemFollowsStream(item)"
+                            @update:expanded="onActivityItemExpandedChange(item, $event)"
                           />
                         </div>
                       </div>
@@ -606,6 +608,8 @@ const resolvedImageSrcMap = ref<Record<string, string>>({});
 const markdownContainerRef = ref<HTMLElement | null>(null);
 const activityDetailsRef = ref<HTMLDetailsElement | null>(null);
 const activityExpanded = ref(false);
+// 思维块展开态：只记用户手动改过的条目，未记账的按「最新一条默认展开」推导
+const activityItemExpandedOverrides = ref<Record<string, boolean>>({});
 const copyMessageImageBusy = ref(false);
 const planMarkdownText = ref("");
 const planMarkdownError = ref("");
@@ -1086,12 +1090,41 @@ function activityPanelMemoKey(block: ChatMessageBlock): unknown[] {
     // 折叠时内容区不渲染，items 全文签名只用于展开态检测内容变化；
     // 数字/状态变化已由上面几项覆盖，折叠态跳过可避免流式时对思维链全文反复哈希。
     // 条目 details 为原生开合，不进 memoKey——点击条目不得触发面板重渲染。
-    ...(panelOpen ? [activityItemsSignature(block)] : []),
+    ...(panelOpen ? [activityItemsSignature(block), activityItemExpandedOverrides.value] : []),
   ];
 }
 
 function activityItemKey(item: ChatActivityItem): string {
   return `${item.kind}:${String(item.id || "")}`;
+}
+
+/** 最新一条思维块：默认展开的就是它 */
+const newestActivityReasoningKey = computed(() => {
+  const items = resolvedActivityItems(props.block);
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index].kind === "reasoning") return activityItemKey(items[index]);
+  }
+  return "";
+});
+
+function activityItemExpanded(item: ChatActivityItem): boolean {
+  const override = activityItemExpandedOverrides.value[activityItemKey(item)];
+  if (override !== undefined) return override;
+  // 默认只展开最新一条思维块；content 条目（与气泡正文重复）不参与默认展开
+  return activityItemKey(item) === newestActivityReasoningKey.value;
+}
+
+/** 展开且仍在流式中的最新思维块不设高度上限，随内容自然生长 */
+function activityItemFollowsStream(item: Extract<ChatActivityItem, { kind: "reasoning" | "content" }>): boolean {
+  if (!item.running || !activityItemExpanded(item)) return false;
+  return activityItemKey(item) === newestActivityReasoningKey.value;
+}
+
+function onActivityItemExpandedChange(item: ChatActivityItem, expanded: boolean): void {
+  activityItemExpandedOverrides.value = {
+    ...activityItemExpandedOverrides.value,
+    [activityItemKey(item)]: expanded,
+  };
 }
 
 function activityItemText(item: ChatActivityItem): string {
