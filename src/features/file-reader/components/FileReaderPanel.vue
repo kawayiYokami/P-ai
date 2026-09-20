@@ -760,6 +760,11 @@ import {
   stripMarkdownHtmlComments,
   titleFromPath,
 } from "../utils";
+import {
+  listSessionFilePaths,
+  readFileReaderSessionState,
+  sessionActiveFilePath,
+} from "../file-reader-session";
 
 const { t } = useI18n();
 
@@ -1753,17 +1758,6 @@ function isTabRawMode(tab: FileTab | null | undefined) {
 
 // ==================== Helpers ====================
 
-function readFileReaderSessionState(key = props.sessionKey): FileReaderSessionState {
-  const storageKey = String(key || "").trim();
-  if (!storageKey || typeof window === "undefined") return {};
-  try {
-    const legacyStorageKey = String(props.legacySessionKey || "").trim();
-    return JSON.parse(window.localStorage.getItem(storageKey) || (legacyStorageKey ? window.localStorage.getItem(legacyStorageKey) : "") || "{}") as FileReaderSessionState;
-  } catch {
-    return {};
-  }
-}
-
 function hasStoredFileReaderSession(key = props.sessionKey): boolean {
   const storageKey = String(key || "").trim();
   if (!storageKey || typeof window === "undefined") return false;
@@ -1820,7 +1814,7 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
       }
       return;
     }
-    const state = readFileReaderSessionState(storageKey);
+    const state = readFileReaderSessionState(storageKey, props.legacySessionKey);
     if (restoreId !== restoringSessionId) return;
 
     // 恢复会话级左侧栏模式（文件 / git），非法值忽略保持默认
@@ -1828,12 +1822,10 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
       asideMode.value = state.asideMode;
     }
 
-    const restoredTabs = Array.from(new Set((state.tabs || []).filter((path) => Boolean(path) && !String(path).startsWith("git-diff:")).map((path) => normalizePath(path))));
+    const restoredTabs = listSessionFilePaths(state);
     tabs.value = restoredTabs.map((path) => createRestoredTab(path));
-    // 会话里保存的 activePath 不可能是 git-diff 伪路径（持久化时已跳过），防御性过滤
-    const restoredActiveRaw = String(state.activePath || "");
-    const restoredActivePath = restoredActiveRaw.startsWith("git-diff:") ? "" : normalizePath(restoredActiveRaw);
-    activePath.value = restoredActivePath && restoredTabs.includes(restoredActivePath) ? restoredActivePath : restoredTabs[0] || "";
+    // 当前文件：与卡片墙同一口径，会话里存的是伪路径或已不在列表内时落到第一个
+    activePath.value = sessionActiveFilePath(state);
     setDirectoryTreeWidth(state.directoryTreeWidth || FILE_READER_DIRECTORY_TREE_DEFAULT_WIDTH);
 
     const restoredDirectoryRoot = normalizePath(state.directoryRootPath || "");

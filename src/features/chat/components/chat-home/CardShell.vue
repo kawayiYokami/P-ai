@@ -18,7 +18,7 @@
       <span class="ecall-home-card-icon ecall-home-card-icon-tile" :class="toneTileClass">
         <component :is="icon" class="size-5" aria-hidden="true" />
       </span>
-      <span class="min-w-0 max-w-full text-sm font-medium text-base-content/85">{{ label }}</span>
+      <span class="line-clamp-2 min-w-0 max-w-full text-sm font-medium text-base-content/85">{{ label }}</span>
       <slot />
     </template>
     <template v-else>

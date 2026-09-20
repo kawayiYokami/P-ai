@@ -1866,7 +1866,6 @@
     "homePanel": {
       "title": "預覽",
       "openedFiles": "已開啟",
-      "openFileCount": "{n} 個檔案",
       "noOpenFile": "尚無開啟的檔案",
       "gitChanges": "Git 變更",
       "gitCommits": "Git 提交",

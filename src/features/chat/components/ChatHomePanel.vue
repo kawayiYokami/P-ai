@@ -19,13 +19,14 @@
           :conversation-id="conversationId"
           @open="(path) => emit('openFile', path)"
         />
-        <HomeFilesCard
-          v-if="openFiles.length"
-          :files="openFiles"
-          :active-path="activePath"
-          :item-count="openFileCount"
-          @open-panel="emit('selectPanel', 'reader')"
-          @open-file="(path) => emit('openFile', path)"
+        <HomeFileCard
+          v-for="file in openFiles"
+          :key="`open-file-${file.path}`"
+          :label="file.label"
+          :path="file.path"
+          :active="file.path === activePath"
+          @open="emit('openFile', file.path)"
+          @close="emit('closeFile', file.path)"
         />
         <HomeWorkspaceCard
           v-if="workspaceRootPath"
@@ -119,7 +120,7 @@ import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review
 import type { ChatMonitorPanelMode } from "../composables/chat-ui-layout-storage";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import HomeEnvCard from "./chat-home/HomeEnvCard.vue";
-import HomeFilesCard from "./chat-home/HomeFilesCard.vue";
+import HomeFileCard from "./chat-home/HomeFileCard.vue";
 import HomeWorkspaceCard from "./chat-home/HomeWorkspaceCard.vue";
 import HomeSideChatCreateCard from "./chat-home/HomeSideChatCreateCard.vue";
 import HomeToolCard from "./chat-home/HomeToolCard.vue";
@@ -142,7 +143,6 @@ const props = withDefaults(defineProps<{
   /** 已打开文件，path 为绝对路径，label 仅用于展示 */
   openFiles?: Array<{ path: string; label: string }>;
   activePath?: string;
-  openFileCount?: number;
   /** 当前打开的追问会话 */
   sideChats?: Array<{ id: string; title: string }>;
   /** 追问能力是否可用；不可用时首页不出现「新建追问」入口卡 */
@@ -162,7 +162,6 @@ const props = withDefaults(defineProps<{
   recentCommits: () => [],
   openFiles: () => [],
   activePath: "",
-  openFileCount: 0,
   sideChats: () => [],
   sideChatEnabled: false,
   delegates: () => [],
@@ -174,6 +173,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: "selectPanel", value: "reader" | "monitor" | "sideChat"): void;
   (e: "openFile", path: string): void;
+  (e: "closeFile", path: string): void;
   (e: "openSideChat", conversationId: string): void;
   (e: "createSideChat"): void;
   (e: "openWorkspace"): void;

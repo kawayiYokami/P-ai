@@ -1873,7 +1873,6 @@
     "homePanel": {
       "title": "预览",
       "openedFiles": "已打开",
-      "openFileCount": "{n} 个文件",
       "noOpenFile": "暂无打开的文件",
       "gitChanges": "Git 更改",
       "gitCommits": "Git 提交",

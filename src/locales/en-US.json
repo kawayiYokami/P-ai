@@ -1742,7 +1742,6 @@
     "homePanel": {
       "title": "Preview",
       "openedFiles": "Open",
-      "openFileCount": "{n} files",
       "noOpenFile": "No open files",
       "gitChanges": "Git changes",
       "gitCommits": "Git commits",

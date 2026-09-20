@@ -59,7 +59,6 @@ const MOCK_FILES = {
     { path: `${MOCK_WORKSPACE}/src/features/chat/composables/chat-ui-layout-storage.ts`, label: "chat-ui-layout-storage.ts" },
   ],
   activePath: `${MOCK_WORKSPACE}/src/features/chat/components/ChatHomePanel.vue`,
-  openFileCount: 6,
 };
 
 const MOCK_PLAN = {

@@ -730,7 +730,6 @@
           :recent-commits="homeGitRecentCommits"
           :open-files="homeFilePreview.openFiles"
           :active-path="homeFilePreview.activePath"
-          :open-file-count="homeFilePreview.openFileCount"
           :side-chats="sideChatItems"
           :side-chat-enabled="Boolean(sideChatPanelEnabled)"
           :delegates="delegateStatuses"
@@ -739,6 +738,7 @@
           :tool-batches="toolReviewBatches"
           @select-panel="selectChatRightPanelMode"
           @open-file="openHomeFile"
+          @close-file="closeHomeFile"
           @open-side-chat="openHomeSideChat"
           @create-side-chat="openHomeSideChatNewPage"
           @open-workspace="openHomeWorkspaceDirectory"
@@ -875,6 +875,14 @@ import ChatRightPanelSwitcher from "../components/ChatRightPanelSwitcher.vue";
 import ToolReviewTargetDialog from "../components/ToolReviewTargetDialog.vue";
 import FileReaderPanel from "../../file-reader/components/FileReaderPanel.vue";
 import { useWorkspaceGitStatus } from "../../file-reader/composables/use-workspace-git-status";
+import {
+  listSessionFilePaths,
+  readFileReaderSessionState,
+  removeFilePathFromSessionState,
+  sessionActiveFilePath,
+  writeFileReaderSessionState,
+} from "../../file-reader/file-reader-session";
+import { normalizePath } from "../../file-reader/utils";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
 import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog.vue";
 import ChatGoalTaskDialog from "../components/dialogs/ChatGoalTaskDialog.vue";
@@ -2883,54 +2891,43 @@ function openMonitorTabFromHome(tab: ChatMonitorPanelMode) {
 
 // ==================== 右侧主页预览 ====================
 
-/** 大卡一屏最多展示的条目数，超出交给卡片显示「还有 N 项」 */
-const HOME_CARD_ITEM_LIMIT = 6;
-
 type HomeFileItem = { path: string; label: string };
 
 const EMPTY_HOME_FILE_PREVIEW = {
   openFiles: [] as HomeFileItem[],
   activePath: "",
-  openFileCount: 0,
 };
 
-/** 文件项：path 保留完整路径用于打开，label 只用于展示 */
+/** 文件项：path 保留完整路径用于打开与关闭，label 只用于展示 */
 function toHomeFileItem(path: string): HomeFileItem {
-  const normalized = String(path || "").replace(/\\/g, "/").trim();
+  const normalized = normalizePath(path);
   const parts = normalized.split("/").filter(Boolean);
   return { path: normalized, label: parts.pop() || normalized };
 }
 
 /** 已打开文件与会话级持久化同步，主页不常驻阅读器面板，直接读它的会话状态 */
-function readHomeOpenFiles(): { openFiles: HomeFileItem[]; activePath: string; openFileCount: number } {
+function readHomeOpenFiles(): { openFiles: HomeFileItem[]; activePath: string } {
   const sessionKey = String(chatFileReaderSessionKey.value || "").trim();
-  if (!sessionKey || typeof window === "undefined") return { ...EMPTY_HOME_FILE_PREVIEW };
-  try {
-    const legacyKey = String(legacyChatFileReaderSessionKey.value || "").trim();
-    const raw = window.localStorage.getItem(sessionKey)
-      || (legacyKey ? window.localStorage.getItem(legacyKey) : "")
-      || "{}";
-    const state = JSON.parse(raw) as { tabs?: unknown; activePath?: unknown };
-    const tabs = (Array.isArray(state.tabs) ? state.tabs : [])
-      .map((item) => String(item || "").replace(/\\/g, "/").trim())
-      .filter((path) => path && !path.startsWith("git-diff:"));
-    const activeRaw = String(state.activePath || "").replace(/\\/g, "/").trim();
-    const activePath = activeRaw && !activeRaw.startsWith("git-diff:") ? activeRaw : "";
-    const ordered = activePath ? [activePath, ...tabs.filter((path) => path !== activePath)] : tabs;
-    return {
-      openFiles: ordered.slice(0, HOME_CARD_ITEM_LIMIT).map(toHomeFileItem),
-      activePath,
-      openFileCount: ordered.length,
-    };
-  } catch {
-    return { ...EMPTY_HOME_FILE_PREVIEW };
-  }
+  if (!sessionKey) return { ...EMPTY_HOME_FILE_PREVIEW };
+  const state = readFileReaderSessionState(sessionKey, legacyChatFileReaderSessionKey.value);
+  return {
+    openFiles: listSessionFilePaths(state).map(toHomeFileItem),
+    activePath: sessionActiveFilePath(state),
+  };
+}
+
+/** 主页文件磁贴的关闭按钮：此时阅读器面板未挂载，直接改会话状态再刷新卡片墙 */
+function closeHomeFile(path: string) {
+  const sessionKey = String(chatFileReaderSessionKey.value || "").trim();
+  if (!sessionKey) return;
+  const state = readFileReaderSessionState(sessionKey, legacyChatFileReaderSessionKey.value);
+  writeFileReaderSessionState(sessionKey, removeFilePathFromSessionState(state, path));
+  homeFilePreview.value = { ...homeFilePreview.value, ...readHomeOpenFiles() };
 }
 
 const homeFilePreview = ref({
   openFiles: [] as HomeFileItem[],
   activePath: "",
-  openFileCount: 0,
 });
 
 /** 主页预览计划卡：列出当前会话最后呈现过的计划 */
