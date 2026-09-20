@@ -208,10 +208,10 @@
           v-if="supportsFloatingSessionToolbar"
           ref="toolbarContainer"
           class="absolute inset-x-0 bottom-0 z-20 transition-opacity duration-150 ease-out"
-          :class="displayedSessionRow === 'toolbar'
+          :class="sessionToolbarRowVisible
             ? 'pointer-events-auto opacity-100'
             : 'pointer-events-none opacity-0'"
-          :aria-hidden="displayedSessionRow === 'toolbar' ? undefined : 'true'"
+          :aria-hidden="sessionToolbarRowVisible ? undefined : 'true'"
         >
           <div class="ecall-chat-toolbar-shell w-full px-4">
             <ChatWorkspaceToolbar
@@ -2148,8 +2148,9 @@ let timelineFloatCloseTimer: ReturnType<typeof setTimeout> | null = null;
 // 时间线面板：点击「预览」按钮弹出，几乎盖满聊天区；点节点跳转到该条消息并收起面板。
 const timelinePanelOpen = ref(false);
 
+// 悬停展开与排无关：贴底时按钮在操作条里、离底时在上排，两处都要能悬停展开
 const timelineButtonVisible = computed(() =>
-  canShowTimeline.value && !timelinePanelOpen.value && displayedSessionRow.value === "top",
+  canShowTimeline.value && !timelinePanelOpen.value,
 );
 // 按钮本身：两排共用一个，常驻不重建，切换时只换底座——离底那排是不透明圆钮，贴底时并入操作条走 ghost
 const timelineEntryButtonVisible = computed(() =>
@@ -2553,6 +2554,12 @@ watch(
 
 onBeforeUnmount(clearSessionRowSwitchTimer);
 
+// 蛇板展开期间贴底那排的操作条整体淡出：只改透明度与命中，不卸载、不 display:none——
+// 操作条里的时间线占位一旦消失，偏移量归零，两排共用的那个按钮会瞬间弹回右上角再弹回来
+const sessionToolbarRowVisible = computed(() =>
+  displayedSessionRow.value === "toolbar" && !timelineFloatPanelVisible.value,
+);
+
 // 上排右侧竖列（回到底部 + 时间线）整体位移，使时间线按钮正好落在操作条右侧那个占位上：
 // 按钮两排共用一个，位置对齐后切换状态时它一动不动。偏移量只能运行时测——操作条内容换行、
 // 工作区名变长都会移动那个占位，固定像素对不上。
@@ -2589,6 +2596,8 @@ function observeSessionTopColumnOffset() {
 }
 
 watch(displayedSessionRow, () => {
+  // 两排切换时按钮整体位移，而蛇板锚在按钮上不会跟着重测，直接收起重开
+  closeTimelineFloat();
   void nextTick().then(updateSessionTopColumnOffset);
 });
 // 操作条右侧那个占位随 canShowTimeline 出现/消失，右侧组会跟着挪位，靠它把偏移重算回来
