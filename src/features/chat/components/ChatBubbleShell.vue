@@ -186,6 +186,22 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
     "body";
 }
 
+/* 宽屏：正文与 footer 让开头像列、对齐名字左缘；窄屏（手机 / 侧栏）仍贴头像左缘用满整宽 */
+@container (min-width: 800px) {
+  .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user):not(.ecall-chat-bubble-no-avatar) {
+    grid-template-areas:
+      "avatar main"
+      ". activity-panel"
+      ". body";
+  }
+
+  /* 右侧补上与头像列等宽的空当，正文与思考 / 工具面板左右留白对称 */
+  .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user):not(.ecall-chat-bubble-no-avatar) .ecall-chat-bubble-body,
+  .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user):not(.ecall-chat-bubble-no-avatar) .ecall-chat-bubble-activity-panel {
+    padding-right: calc(var(--ecall-bubble-avatar-size) + var(--ecall-bubble-gap));
+  }
+}
+
 /* ---------- user：右对齐，无头像 ---------- */
 .ecall-chat-bubble-tone-user .ecall-chat-bubble-body {
   width: auto;

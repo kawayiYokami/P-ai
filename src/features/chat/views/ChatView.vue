@@ -3979,6 +3979,11 @@ onBeforeUnmount(() => {
   overflow-anchor: none;
 }
 
+/* 消息项作为宽度容器：气泡与正文据此决定是贴头像左缘（窄屏）还是让出头像列、对齐名字（宽屏） */
+.ecall-elastic-item-shell {
+  container-type: inline-size;
+}
+
 /* 打开右侧面板：像手机应用那样从略小放大进入；时长与曲线复用侧栏 push 动画的 220ms 同参 */
 .ecall-panel-enter {
   animation: ecall-panel-enter 220ms cubic-bezier(0.2, 0, 0, 1);
