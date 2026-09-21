@@ -118,10 +118,6 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspaceStateConversationId.value = String(options.activeConversationId.value || "").trim();
     chatWorkspaceWorktreePath.value = String((state as any).worktreePath || (state as any).worktree_path || "").trim();
     chatWorkspaceWorktreeExists.value = Boolean((state as any).worktreeExists ?? (state as any).worktree_exists);
-    // worktree 已创建时 worktreePath 兜底
-    if (chatWorkspaceWorkMode.value === "worktree" && !chatWorkspaceWorktreePath.value && nextPath) {
-      chatWorkspaceWorktreePath.value = `${nextPath.replace(/\\/g, "/").replace(/\/+$/, "")}/.pai/.worktree/${String(options.activeConversationId.value || "").trim()}`;
-    }
     chatWorkspaceName.value = resolveWorkspaceDisplayName(nextPath, String(state.workspaceName || "").trim());
     chatWorkspacePath.value = nextPath;
     chatWorkspaceRootPath.value = nextPath;
