@@ -446,6 +446,7 @@ impl ConversationServiceV2 {
         shell_work_mode: Option<String>,
         shell_work_branch: Option<String>,
         shell_recorded_branch: Option<String>,
+        shell_worktree_path: Option<String>,
     ) -> Result<Conversation, String> {
         self.apply_external_metadata_patch(
             state,
@@ -458,6 +459,7 @@ impl ConversationServiceV2 {
                 shell_work_mode,
                 shell_work_branch,
                 shell_recorded_branch,
+                shell_worktree_path,
                 ..Default::default()
             },
         )
@@ -491,6 +493,7 @@ impl ConversationServiceV2 {
         shell_work_mode: Option<String>,
         shell_work_branch: Option<String>,
         shell_recorded_branch: Option<String>,
+        shell_worktree_path: Option<String>,
     ) -> Result<Conversation, String> {
         let normalized_conversation_id = conversation_id.trim();
         if normalized_conversation_id.is_empty() {
@@ -513,6 +516,7 @@ impl ConversationServiceV2 {
             shell_work_mode,
             shell_work_branch,
             shell_recorded_branch,
+            shell_worktree_path,
         )?;
         if updated.shell_workspace_path == original_path
             && updated.shell_workspaces == original_workspaces

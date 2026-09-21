@@ -15,7 +15,8 @@
           :access="unifiedAccess"
           :work-mode="workMode"
           :selected-branch="selectedBranch"
-          :branch-list="branchList"
+          :branch-entries="branchEntries"
+          :worktree-branch-map="worktreeBranchMap"
           :branch-loading="branchLoading"
           :git-root-available="effectiveGitAvailable"
           :git-check-message="effectiveGitMessage"
@@ -26,6 +27,7 @@
           @update:access="onAccessUpdate"
           @update:work-mode="onWorkModeUpdate"
           @update:branch="onBranchUpdate"
+          @select-worktree="onWorktreeSelect"
           @browse-main="onBrowseMain"
           @add-secondary="onAddSecondary"
           @remove-secondary="onRemoveSecondary"
@@ -78,7 +80,7 @@ import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import WorkspaceConfigCard from "../../../shared/components/WorkspaceConfigCard.vue";
 import WorkspaceDirectoryPickerDialog from "../../../shared/components/WorkspaceDirectoryPickerDialog.vue";
-import { gitPanelBranchList, gitPanelCheckout, gitPanelCheckoutCheck, gitPanelHeadState } from "../../../../services/tauri-api";
+import { gitPanelBranchList, gitPanelCheckout, gitPanelCheckoutCheck, gitPanelHeadState, gitPanelWorktrees, type GitPanelBranchEntry } from "../../../../services/tauri-api";
 import type { ChatWorkspaceChoice } from "../../composables/use-chat-workspace";
 import type { ShellWorkMode } from "../../../../types/app";
 import { normalizeShellWorkMode, normalizeWorkspaceAccess } from "../../../../utils/shell-workspaces";
@@ -114,6 +116,8 @@ const emit = defineEmits<{
   (e: "setAutonomousMode", enabled: boolean): void;
   (e: "setWorkMode", mode: ShellWorkMode): void;
   (e: "setBranch", branch: string): void;
+  /** 选中已被工作树检出的分支：把会话直接绑到该工作树目录 */
+  (e: "setWorktree", payload: { branch: string; worktreePath: string }): void;
   (e: "removeWorkspace", workspaceId: string): void;
   (e: "openDir", workspaceId: string): void;
   (e: "save"): void;
@@ -125,7 +129,9 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const dialogRef = ref<HTMLDialogElement | null>(null);
 
-const branchList = ref<string[]>([]);
+const branchEntries = ref<GitPanelBranchEntry[]>([]);
+/** 分支名（小写）→ 该分支已检出的工作树路径；命中表示该分支已被工作树占用 */
+const worktreeBranchMap = ref<Record<string, string>>({});
 const branchLoading = ref(false);
 const checkoutError = ref("");
 /** 变基进行中：HEAD 游离，切分支会破坏变基现场，此时锁住分支下拉 */
@@ -217,7 +223,8 @@ watch(
   () => {
     const target = resolveBranchTargetPath();
     if (!target) {
-      branchList.value = [];
+      branchEntries.value = [];
+      worktreeBranchMap.value = {};
       branchLoading.value = false;
       // 无目标时不保留旧的本地探测结果，避免旧错误残留
       localGitAvailable.value = false;
@@ -253,7 +260,8 @@ async function refreshRebaseState(path: string) {
 async function loadBranches(path: string) {
   const seq = ++branchSeq;  const normalized = String(path || "").trim();
   if (!normalized) {
-    branchList.value = [];
+    branchEntries.value = [];
+    worktreeBranchMap.value = {};
     localGitAvailable.value = false;
     localGitMessage.value = "";
     rebaseInProgress.value = false;
@@ -269,8 +277,8 @@ async function loadBranches(path: string) {
     if (seq !== branchSeq) return;
     localGitAvailable.value = true;
     localGitMessage.value = "";
-    const names = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
-    branchList.value = names;
+    branchEntries.value = entries;
+    void loadWorktreeBranchMap(normalized);
     const current = entries.find((e) => e.isCurrent)?.name;
     const currentName = String(current || "").trim();
     if (!currentName) return;
@@ -288,7 +296,8 @@ async function loadBranches(path: string) {
     }
   } catch (error) {
     if (seq !== branchSeq) return;
-    branchList.value = [];
+    branchEntries.value = [];
+    worktreeBranchMap.value = {};
     const message = error instanceof Error ? String(error.message || error) : String(error);
     const normalizedMessage = message.trim() || "加载分支失败";
     localGitAvailable.value = false;
@@ -299,6 +308,40 @@ async function loadBranches(path: string) {
   } finally {
     if (seq === branchSeq) branchLoading.value = false;
   }
+}
+
+/**
+ * 取当前仓库已有工作树，按分支名建映射（排除主工作树，它就是仓库根）。
+ * 命中表示该分支已被某个工作树检出，选中时直接绑定那个目录而不是新建。
+ */
+async function loadWorktreeBranchMap(path: string) {
+  const normalized = String(path || "").trim();
+  const repoRoot = String(mainPath.value || "").trim();
+  if (!normalized || !repoRoot) {
+    worktreeBranchMap.value = {};
+    return;
+  }
+  try {
+    const result = await gitPanelWorktrees(normalized, repoRoot);
+    const map: Record<string, string> = {};
+    for (const entry of result.worktrees || []) {
+      if (entry.isMain) continue;
+      const branch = String(entry.branch || "").trim().toLowerCase();
+      const worktreePath = String(entry.path || "").trim();
+      if (!branch || !worktreePath) continue;
+      map[branch] = worktreePath;
+    }
+    worktreeBranchMap.value = map;
+  } catch (error) {
+    // 工作树列表取不到不阻塞分支选择，仅退化为「全部按新建处理」
+    console.warn("[工作区] 获取工作树列表失败:", { path: normalized, error });
+    worktreeBranchMap.value = {};
+  }
+}
+
+/** 选中已被工作树检出的分支：交给上层把会话直接绑到该工作树目录 */
+function onWorktreeSelect(payload: { branch: string; worktreePath: string }) {
+  emit("setWorktree", payload);
 }
 
 // 每次打开都重取真值：变基结束后要能自动解锁，分支列表也可能已在外部变化
@@ -381,7 +424,7 @@ async function onBranchUpdate(branch: string) {
     await props.syncWorkspaceBranch?.(target);
     try {
       const entries = await gitPanelBranchList(target);
-      branchList.value = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
+      branchEntries.value = entries;
     } catch {
       // ignore
     }

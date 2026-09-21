@@ -951,7 +951,7 @@ const props = defineProps<{
   /** 「继续对话」：把会话记录改成当前仓库分支 */
   acceptBranchGuardPrompt?: () => void;
   configShellWorkspaces?: ShellWorkspace[];
-  saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string) => Promise<void>;
+  saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string, shellWorktreePath?: string) => Promise<void>;
   /** 会话内自己切分支成功后按工作目录同步「本会话工作分支」记录，避免下次发送时拦自己 */
   syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
@@ -3753,9 +3753,9 @@ const draftWorkspaceOptions = computed<Array<{ id: string; name: string; path: s
   return Array.from(deduped.values());
 });
 
-async function handleDraftWorkspaceSave(workspaces: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, branch?: string) {
+async function handleDraftWorkspaceSave(workspaces: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, branch?: string, worktreePath?: string) {
   if (!props.saveDraftWorkspaces) return;
-  await props.saveDraftWorkspaces(workspaces, autonomousMode, workMode, branch);
+  await props.saveDraftWorkspaces(workspaces, autonomousMode, workMode, branch, worktreePath);
 }
 
 async function handleDraftWorkspaceSaveLegacy(payload: { path: string; name: string; access: ShellWorkspace["access"]; workMode: ShellWorkMode }) {

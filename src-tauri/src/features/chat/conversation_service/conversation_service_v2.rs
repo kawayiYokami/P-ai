@@ -2130,6 +2130,7 @@ impl ConversationServiceV2 {
             shell_work_mode,
             None,
             None,
+            None,
         )
     }
 

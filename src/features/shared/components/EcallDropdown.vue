@@ -127,16 +127,22 @@ async function refreshPosition() {
   const finalMaxHeight = Math.max(96, Math.min(cappedMaxHeight, availableHeight || cappedMaxHeight));
 
   if (props.teleport) {
-    const width = props.matchTriggerWidth ? Math.round(rect.width) : undefined;
+    const triggerWidth = props.matchTriggerWidth ? Math.round(rect.width) : undefined;
+    // 未锁定触发宽度时，面板宽度由 panel-class 决定（可自适应内容）；
+    // 此时按面板实测宽度收敛左右边界，避免撑开后溢出视口
+    const panelWidth =
+      triggerWidth ?? Math.round(teleportedPanelRef.value?.getBoundingClientRect().width ?? 0);
     let left = Math.round(rect.left);
-    if (width !== undefined) {
-      if (left + width > viewportWidth - VIEWPORT_MARGIN) left = Math.max(VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN);
+    if (panelWidth > 0) {
+      if (left + panelWidth > viewportWidth - VIEWPORT_MARGIN) {
+        left = Math.max(VIEWPORT_MARGIN, viewportWidth - panelWidth - VIEWPORT_MARGIN);
+      }
       if (left < VIEWPORT_MARGIN) left = VIEWPORT_MARGIN;
     }
     const style: Record<string, string> = {
       maxHeight: `${Math.round(finalMaxHeight)}px`,
     };
-    if (width !== undefined) style.width = `${width}px`;
+    if (triggerWidth !== undefined) style.width = `${triggerWidth}px`;
     style.left = `${Math.round(left)}px`;
     style.right = "auto";
     if (nextDirection === "up") {

@@ -13,7 +13,7 @@ type UseChatWorkspacePickerFlowOptions = {
   chatWorkspaceWorktreeExists: Ref<boolean>;
   openChatWorkspacePickerBase: () => void;
   closeChatWorkspacePickerBase: () => void;
-  saveChatWorkspaces: (items: ChatWorkspaceChoice[], autonomousMode?: boolean, workMode?: ShellWorkMode, shellWorkBranch?: string) => Promise<void>;
+  saveChatWorkspaces: (items: ChatWorkspaceChoice[], autonomousMode?: boolean, workMode?: ShellWorkMode, shellWorkBranch?: string, shellWorktreePath?: string) => Promise<void>;
   setStatus: (message: string) => void;
   setStatusError: (key: string, error: unknown) => void;
   workspaceAlreadyExistsText: string;
@@ -27,6 +27,8 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
   const chatWorkspaceDraftAutonomousMode = ref(false);
   const chatWorkspaceDraftWorkMode = ref<ShellWorkMode>("directory");
   const chatWorkspaceDraftBranch = ref("");
+  /** 草稿绑定的已有工作树路径；非空表示这次保存要直接把会话绑到该工作树 */
+  const chatWorkspaceDraftWorktreePath = ref("");
   const chatWorkspaceDraftError = ref("");
   const chatWorkspacePickerSaving = ref(false);
 
@@ -45,6 +47,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
     chatWorkspaceDraftAutonomousMode.value = Boolean(options.chatWorkspaceAutonomousMode.value);
     chatWorkspaceDraftWorkMode.value = normalizeShellWorkMode(String(options.chatWorkspaceWorkMode.value || ""));
     const persistedBranch = String(options.chatWorkspaceBranch.value || "").trim();
+    chatWorkspaceDraftWorktreePath.value = String(options.chatWorkspaceWorktreePath.value || "").trim();
     chatWorkspaceDraftError.value = "";
     if (chatWorkspaceDraftWorkMode.value === "worktree") {
       // worktree：显示持久化的意图分支；已创建时会被对话框的 git 真值覆盖
@@ -146,6 +149,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
     // 主目录被删后，分支在 WorkspaceConfigCard 隐藏，保存时自动清空
     if (removing?.level === "main") {
       chatWorkspaceDraftBranch.value = "";
+      chatWorkspaceDraftWorktreePath.value = "";
     }
   }
 
@@ -160,6 +164,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
     if (next !== "worktree") {
       // directory 模式：分支显示由 git 真值驱动，草稿清空等待回填
       chatWorkspaceDraftBranch.value = "";
+      chatWorkspaceDraftWorktreePath.value = "";
     } else {
       // worktree：回到持久化意图；未创建时保留意图，已创建时对话框会用 git 真值覆盖
       const persisted = String(options.chatWorkspaceBranch.value || "").trim();
@@ -170,6 +175,16 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
   function setChatWorkspaceBranch(branch: string) {
     const normalized = String(branch || "").trim();
     chatWorkspaceDraftBranch.value = normalized;
+    // 换到没有工作树的分支：清空绑定，交给后端按新分支重新推导
+    chatWorkspaceDraftWorktreePath.value = "";
+  }
+
+  /** 选中已被工作树检出的分支：这次保存直接把会话绑到该工作树目录，不再新建 */
+  function setChatWorkspaceWorktree(payload: { branch?: string; worktreePath?: string }) {
+    const branch = String(payload?.branch || "").trim();
+    const worktreePath = String(payload?.worktreePath || "").trim();
+    if (branch) chatWorkspaceDraftBranch.value = branch;
+    chatWorkspaceDraftWorktreePath.value = worktreePath;
   }
 
   async function openChatWorkspaceDir(workspaceId: string) {
@@ -217,6 +232,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
       chatWorkspaceDraftChoices.value = draft;
     }
     chatWorkspaceDraftBranch.value = "";
+    chatWorkspaceDraftWorktreePath.value = "";
   }
 
   function addSecondaryPath(path: string) {
@@ -264,7 +280,8 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
         }
       }
       const branchToSave = normalizedMode === "worktree" ? String(chatWorkspaceDraftBranch.value || "").trim() : "";
-      await options.saveChatWorkspaces(draft, chatWorkspaceDraftAutonomousMode.value, normalizedMode, branchToSave);
+      const worktreeToSave = normalizedMode === "worktree" ? String(chatWorkspaceDraftWorktreePath.value || "").trim() : "";
+      await options.saveChatWorkspaces(draft, chatWorkspaceDraftAutonomousMode.value, normalizedMode, branchToSave, worktreeToSave);
       options.closeChatWorkspacePickerBase();
       syncChatWorkspaceDraftFromCurrentState();
     } finally {
@@ -277,6 +294,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
     chatWorkspaceDraftAutonomousMode,
     chatWorkspaceDraftWorkMode,
     chatWorkspaceDraftBranch,
+    chatWorkspaceDraftWorktreePath,
     chatWorkspaceDraftError,
     chatWorkspacePickerSaving,
     openChatWorkspacePicker,
@@ -287,6 +305,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
     setChatWorkspaceAccess,
     setChatWorkspaceAccessLegacy,
     setChatWorkspaceBranch,
+    setChatWorkspaceWorktree,
     setChatWorkspaceAutonomousMode,
     setChatWorkspaceWorkMode,
     removeChatWorkspace,

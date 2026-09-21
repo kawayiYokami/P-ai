@@ -60,11 +60,12 @@
       >
         <EcallDropdown
           v-model="branchDropdownOpen"
-          :disabled="branchSwitchLocked || !gitRootAvailable || (branchList.length === 0 && !selectedBranch)"
+          :disabled="branchSwitchLocked || !gitRootAvailable || (branchEntries.length === 0 && !selectedBranch)"
           :teleport="dropdownTeleport"
           :teleport-to="dropdownTeleportTo"
+          :match-trigger-width="false"
           root-class="min-w-[112px] max-w-[180px]"
-          panel-class="w-full"
+          panel-class="w-max max-w-[calc(100vw_-_1.5rem)]"
         >
           <template #trigger="{ toggle, open }">
             <div class="flex h-8 items-center gap-1 bg-transparent pl-3 pr-2">
@@ -72,7 +73,7 @@
               <button
                 type="button"
                 class="min-w-0 flex-1 cursor-pointer text-left text-xs font-medium text-base-content outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                :disabled="branchSwitchLocked || !gitRootAvailable || (branchList.length === 0 && !selectedBranch)"
+                :disabled="branchSwitchLocked || !gitRootAvailable || (branchEntries.length === 0 && !selectedBranch)"
                 @click="toggle"
               >
                 <span class="block w-full truncate" :class="displayBranchName ? '' : 'text-base-content/45'">
@@ -87,22 +88,42 @@
           </template>
           <template #default="{ close }">
             <OverlayScrollArea scroller-class="max-h-48 overscroll-contain" class="p-1">
-              <button
-                v-for="branch in branchList"
-                :key="branch"
-                type="button"
-                class="flex w-full items-center gap-2 rounded-field px-2.5 py-2 text-left text-xs transition-colors"
-                :class="branch.toLowerCase() === (selectedBranch || '').toLowerCase()
-                  ? 'bg-base-200 font-medium'
-                  : 'hover:bg-base-200/70'"
-                @click="handleBranchSelect(branch, close)"
+              <GitTree
+                v-if="branchTreeNodes.length > 0"
+                :nodes="branchTreeNodes"
+                default-expanded
+                :default-collapsed-keys="['header:remote']"
+                @row-click="(row) => onBranchRowClick(row, close)"
               >
-                <span class="min-w-0 flex-1 truncate">{{ branch }}</span>
-                <Check
-                  v-if="branch.toLowerCase() === (selectedBranch || '').toLowerCase()"
-                  class="h-3.5 w-3.5 shrink-0 text-primary"
-                />
-              </button>
+                <template #row="{ row }">
+                  <template v-if="row.node.data.kind === 'header'">
+                    <span class="min-w-0 truncate font-medium opacity-60">{{ row.node.data.text }}</span>
+                  </template>
+                  <template v-else-if="row.node.data.kind === 'folder'">
+                    <Folder class="h-3.5 w-3.5 shrink-0 opacity-60" />
+                    <span class="min-w-0 flex-1 truncate font-medium opacity-70">{{ row.node.data.name }}</span>
+                  </template>
+                  <template v-else>
+                    <GitBranch
+                      class="h-3.5 w-3.5 shrink-0"
+                      :class="row.node.data.isCurrent ? 'text-primary' : 'opacity-60'"
+                    />
+                    <span class="min-w-0 flex-1 truncate">{{ row.node.data.label }}</span>
+                    <span
+                      v-if="row.node.data.worktreePath"
+                      class="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-caption text-primary"
+                      :title="row.node.data.worktreePath"
+                    >
+                      {{ t("chat.draftWorkModeWorktree") }}
+                    </span>
+                    <span v-if="row.node.data.timeText" class="shrink-0 text-caption opacity-50">
+                      {{ row.node.data.timeText }}
+                    </span>
+                    <Check v-if="row.node.data.isSelected" class="h-3.5 w-3.5 shrink-0 text-primary" />
+                  </template>
+                </template>
+              </GitTree>
+              <div v-else class="px-2 py-2 text-xs opacity-50">{{ t("gitPanel.noBranches") }}</div>
             </OverlayScrollArea>
           </template>
         </EcallDropdown>
@@ -182,10 +203,14 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { FolderOpen, FolderSearch, FolderPlus, ChevronDown, Check, GitBranch, X } from "@lucide/vue";
+import { Folder, FolderOpen, FolderSearch, FolderPlus, ChevronDown, Check, GitBranch, X } from "@lucide/vue";
 import EcallDropdown from "./EcallDropdown.vue";
 import OverlayScrollArea from "./OverlayScrollArea.vue";
+import GitTree, { type GitTreeFlatRow, type GitTreeNode } from "../../file-reader/components/GitTree.vue";
+import { buildBranchTree, sortBranchesForDisplay, type BranchTreeNode } from "../../file-reader/git-branch-order";
+import { formatRecentRelativeTime } from "../utils/relative-time";
 import type { ShellWorkspaceAccess, ShellWorkMode } from "../../../types/app";
+import type { GitPanelBranchEntry } from "../../../services/tauri-api";
 import { defaultWorkspaceNameFromPath } from "../../../utils/shell-workspaces";
 
 type WorkspaceOption = {
@@ -207,7 +232,10 @@ const props = withDefaults(defineProps<{
   access: ShellWorkspaceAccess;
   workMode: ShellWorkMode;
   selectedBranch?: string;
-  branchList?: string[];
+  /** 完整分支数据：含当前标记与末次提交时间，用于分类排序与时间展示 */
+  branchEntries?: GitPanelBranchEntry[];
+  /** 分支名（小写）→ 该分支已检出的工作树路径；命中表示该分支已被工作树占用 */
+  worktreeBranchMap?: Record<string, string>;
   branchLoading?: boolean;
   gitRootAvailable?: boolean;
   gitCheckMessage?: string;
@@ -220,7 +248,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   secondaryPaths: () => [],
   selectedBranch: "",
-  branchList: () => [],
+  branchEntries: () => [],
+  worktreeBranchMap: () => ({}),
   branchLoading: false,
   gitRootAvailable: false,
   gitCheckMessage: "",
@@ -236,6 +265,8 @@ const emit = defineEmits<{
   (e: "update:access", value: ShellWorkspaceAccess): void;
   (e: "update:workMode", value: ShellWorkMode): void;
   (e: "update:branch", value: string): void;
+  /** 选中已被工作树检出的分支：调用方据此把会话直接绑定到该工作树目录 */
+  (e: "selectWorktree", payload: { branch: string; worktreePath: string }): void;
   (e: "browseMain"): void;
   (e: "addSecondary"): void;
   (e: "removeSecondary", path: string): void;
@@ -274,9 +305,95 @@ function handleMainSelect(path: string, close: () => void) {
   void nextTick(() => emit("update:mainPath", path));
 }
 
-function handleBranchSelect(branch: string, close: () => void) {
+/** 分支行数据：树里三种行共用一个联合类型 */
+type BranchRowData =
+  | { kind: "header"; text: string }
+  | { kind: "folder"; name: string }
+  | {
+      kind: "branch";
+      name: string;
+      label: string;
+      isCurrent: boolean;
+      timeText: string;
+      worktreePath: string;
+      isSelected: boolean;
+    };
+
+/** 分支名（小写）→ 已检出的工作树路径 */
+function worktreePathOf(branchName: string): string {
+  const map = props.worktreeBranchMap || {};
+  return String(map[String(branchName || "").trim().toLowerCase()] || "");
+}
+
+/** 分类算法输出 → GitTree 节点；scope 决定 key 命名空间，避免本地/远程同名冲突 */
+function toGitTreeNodes(
+  nodes: BranchTreeNode<GitPanelBranchEntry>[],
+  scope: "local" | "remote",
+  nowMs: number,
+): GitTreeNode<BranchRowData>[] {
+  const selected = String(props.selectedBranch || "").trim().toLowerCase();
+  return nodes.map((node) => {
+    if (node.kind === "branch") {
+      const entry = node.branch;
+      return {
+        key: `${scope}:${entry.name}`,
+        title: entry.name,
+        data: {
+          kind: "branch" as const,
+          name: entry.name,
+          label: node.label,
+          isCurrent: Boolean(entry.isCurrent),
+          timeText: formatRecentRelativeTime(entry.committerDate, nowMs, t),
+          worktreePath: worktreePathOf(entry.name),
+          isSelected: entry.name.trim().toLowerCase() === selected,
+        },
+      };
+    }
+    return {
+      key: `folder:${scope}:${node.path}`,
+      interactive: false,
+      data: { kind: "folder" as const, name: node.name },
+      children: toGitTreeNodes(node.children, scope, nowMs),
+    };
+  });
+}
+
+/** 分支下拉内容：本地/远程两组，组内按「时间倒序 + `/` 折树」，与 Git 面板同一套算法 */
+const branchTreeNodes = computed<GitTreeNode<BranchRowData>[]>(() => {
+  const entries = props.branchEntries || [];
+  if (entries.length === 0) return [];
+  const nowMs = Date.now();
+  const roots: GitTreeNode<BranchRowData>[] = [];
+  const local = entries.filter((entry) => !entry.isRemote);
+  const remote = entries.filter((entry) => entry.isRemote);
+  if (local.length > 0) {
+    roots.push({
+      key: "header:local",
+      interactive: false,
+      data: { kind: "header", text: t("gitPanel.localBranches") },
+      children: toGitTreeNodes(buildBranchTree(sortBranchesForDisplay(local)), "local", nowMs),
+    });
+  }
+  if (remote.length > 0) {
+    roots.push({
+      key: "header:remote",
+      interactive: false,
+      data: { kind: "header", text: t("gitPanel.remoteBranches") },
+      children: toGitTreeNodes(buildBranchTree(sortBranchesForDisplay(remote)), "remote", nowMs),
+    });
+  }
+  return roots;
+});
+
+function onBranchRowClick(row: GitTreeFlatRow<BranchRowData>, close: () => void) {
+  const data = row.node.data;
+  if (data.kind !== "branch") return;
   close();
-  void nextTick(() => emit("update:branch", branch));
+  void nextTick(() => {
+    emit("update:branch", data.name);
+    // 该分支已被工作树检出：交给调用方直接绑定那个工作树目录，不再新建
+    if (data.worktreePath) emit("selectWorktree", { branch: data.name, worktreePath: data.worktreePath });
+  });
 }
 
 function handleWorktreeChecked(event: Event) {

@@ -669,7 +669,7 @@ const props = defineProps<{
   currentChatWorkBranch?: string;
   checkBranchBeforeSend?: () => Promise<BranchGuardCheck>;
   acceptBranchGuardPrompt?: () => void;
-  saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string) => Promise<void>;
+  saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string, shellWorktreePath?: string) => Promise<void>;
   /** 会话内自己切分支成功后按工作目录同步「本会话工作分支」记录 */
   syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;

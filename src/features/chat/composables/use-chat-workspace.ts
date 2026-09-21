@@ -275,7 +275,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     await recordChatWorkspaceBranch(branch);
   }
 
-  async function saveChatWorkspaces(workspaces: ChatWorkspaceChoice[], autonomousMode?: boolean, workMode: ShellWorkMode = chatWorkspaceWorkMode.value, shellWorkBranch?: string) {
+  async function saveChatWorkspaces(workspaces: ChatWorkspaceChoice[], autonomousMode?: boolean, workMode: ShellWorkMode = chatWorkspaceWorkMode.value, shellWorkBranch?: string, shellWorktreePath?: string) {
     const conversationId = String(options.activeConversationId.value || "").trim();
     if (!conversationId) {
       options.setStatus("当前会话未就绪，暂时不能设置工作目录");
@@ -302,6 +302,10 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
         autonomousMode: Boolean(autonomousMode),
         shellWorkMode: chatWorkspaceWorkMode.value,
         shellWorkBranch: chatWorkspaceBranch.value || null,
+        // 选中已有工作树时显式绑定；未选中（含切回 directory）传空串让后端重新推导
+        ...(shellWorktreePath !== undefined
+          ? { shellWorktreePath: String(shellWorktreePath || "").trim() }
+          : {}),
         // 换了工作区就把记录清空，让新仓库的分支重新记录一次，避免跨仓库误报
         ...(workspacesChanged ? { shellRecordedBranch: "" } : {}),
         workspaces: normalizedWorkspaces

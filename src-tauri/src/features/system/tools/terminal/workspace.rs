@@ -1176,7 +1176,68 @@ fn terminal_normalize_for_access_check(path: &Path) -> PathBuf {
 
 // ========== Worktree 自动创建（首轮发送时） ==========
 
-/// 会话记录的工作树路径：必须落在当前仓库 {git_root}/.pai/.worktree/ 下才可采用。
+/// 读工作树目录里的 .git 指针文件，取出 gitdir 指向的路径（形如 <common>/worktrees/<name>）。
+fn read_worktree_gitdir(dot_git_file: &Path) -> Option<PathBuf> {
+    let content = std::fs::read_to_string(dot_git_file).ok()?;
+    let raw = content
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("gitdir:"))?
+        .trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(raw))
+}
+
+/// 取仓库的 git 目录：普通仓库是 {git_root}/.git；仓库根本身是工作树时 .git 是文件，
+/// 顺着它指向的 <common>/worktrees/<name> 回到 common 目录。
+fn repo_git_dir(git_root: &str) -> Option<PathBuf> {
+    let dot_git = PathBuf::from(git_root).join(".git");
+    if dot_git.is_dir() {
+        return Some(dot_git);
+    }
+    let gitdir = read_worktree_gitdir(&dot_git)?;
+    let worktrees_dir = gitdir.parent()?;
+    if worktrees_dir
+        .file_name()
+        .map(|name| name != "worktrees")
+        .unwrap_or(true)
+    {
+        return None;
+    }
+    worktrees_dir.parent().map(PathBuf::from)
+}
+
+/// 目录是否为当前仓库已注册的工作树：其 gitdir 指回本仓库的 worktrees 目录。
+/// 主仓库目录（.git 是目录）不算，它由会话主工作区承担。
+fn worktree_belongs_to_repo(git_root: &str, path: &Path) -> bool {
+    let Some(target_git_dir) = repo_git_dir(git_root) else {
+        return false;
+    };
+    let Some(gitdir) = read_worktree_gitdir(&path.join(".git")) else {
+        return false;
+    };
+    let Some(worktrees_dir) = gitdir.parent() else {
+        return false;
+    };
+    if worktrees_dir
+        .file_name()
+        .map(|name| name != "worktrees")
+        .unwrap_or(true)
+    {
+        return false;
+    }
+    let Some(owner_git_dir) = worktrees_dir.parent() else {
+        return false;
+    };
+    // git 写进 .git 指针文件的是正斜杠路径，而仓库根可能来自反斜杠的 Windows 路径
+    let owner = normalize_terminal_path_for_compare(owner_git_dir).replace('\\', "/");
+    let target = normalize_terminal_path_for_compare(&target_git_dir).replace('\\', "/");
+    owner == target
+}
+
+/// 会话记录的工作树路径：目录已存在时必须是当前仓库已注册的工作树（含用户手动建在
+/// 约定目录之外的工作树）；目录尚未创建时只接受 {git_root}/.pai/.worktree/ 下的计划路径。
 /// 不满足时视为失效（典型：会话中途换过工作区），交由推导流程重新解析并回填。
 fn conversation_recorded_worktree_path(
     conversation: &Conversation,
@@ -1187,6 +1248,13 @@ fn conversation_recorded_worktree_path(
         return None;
     }
     let path = PathBuf::from(recorded);
+    if path.exists() {
+        return if worktree_belongs_to_repo(git_root, &path) {
+            Some(path)
+        } else {
+            None
+        };
+    }
     let base = PathBuf::from(git_root).join(".pai").join(".worktree");
     if path.starts_with(&base) {
         Some(path)
@@ -2513,6 +2581,80 @@ mod terminal_workspace_tests {
             conversation_recorded_worktree_path(&conversation, "E:/repo").is_none(),
             "记录值属于其他仓库时应视为失效"
         );
+    }
+
+    #[test]
+    fn conversation_recorded_worktree_path_should_accept_registered_worktree_outside_default_dir() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-call-ai-worktree-recorded-registered-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo = temp_root.join("repo");
+        std::fs::create_dir_all(&repo).expect("创建仓库目录失败");
+        assert!(run_git(&repo, &["init", "--quiet"]).status.success(), "git init 应成功");
+        std::fs::write(repo.join("README.md"), "seed").expect("写入种子文件失败");
+        assert!(run_git(&repo, &["add", "README.md"]).status.success(), "git add 应成功");
+        assert!(
+            run_git(
+                &repo,
+                &["-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-m", "init", "--quiet"],
+            )
+            .status
+            .success(),
+            "提交应成功"
+        );
+
+        // 手动建在约定目录之外的工作树：它仍注册在当前仓库下
+        let outside = temp_root.join("outside-worktree");
+        let outside_text = outside.to_string_lossy().to_string();
+        assert!(
+            run_git(&repo, &["worktree", "add", "-b", "outside-branch", &outside_text])
+                .status
+                .success(),
+            "创建工作树应成功"
+        );
+
+        let mut conversation = build_workspace_test_conversation("a1b2c3d4-recorded-registered");
+        conversation.shell_worktree_path = outside_text.clone();
+        assert_eq!(
+            conversation_recorded_worktree_path(&conversation, &repo.to_string_lossy()),
+            Some(outside.clone()),
+            "已注册到当前仓库的工作树应被采纳，即使不在 .pai/.worktree/ 下"
+        );
+
+        // 另一个仓库的工作树不应被采纳
+        let other_repo = temp_root.join("other-repo");
+        std::fs::create_dir_all(&other_repo).expect("创建另一个仓库目录失败");
+        assert!(run_git(&other_repo, &["init", "--quiet"]).status.success(), "git init 应成功");
+        std::fs::write(other_repo.join("README.md"), "seed").expect("写入种子文件失败");
+        assert!(run_git(&other_repo, &["add", "README.md"]).status.success(), "git add 应成功");
+        assert!(
+            run_git(
+                &other_repo,
+                &["-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-m", "init", "--quiet"],
+            )
+            .status
+            .success(),
+            "提交应成功"
+        );
+        let other_worktree = temp_root.join("other-worktree");
+        let other_worktree_text = other_worktree.to_string_lossy().to_string();
+        assert!(
+            run_git(
+                &other_repo,
+                &["worktree", "add", "-b", "other-branch", &other_worktree_text],
+            )
+            .status
+            .success(),
+            "在另一个仓库创建工作树应成功"
+        );
+        conversation.shell_worktree_path = other_worktree_text.clone();
+        assert!(
+            conversation_recorded_worktree_path(&conversation, &repo.to_string_lossy()).is_none(),
+            "属于其他仓库的工作树应被拒绝"
+        );
+
+        let _ = std::fs::remove_dir_all(temp_root);
     }
 
     fn run_git(cwd: &Path, args: &[&str]) -> std::process::Output {

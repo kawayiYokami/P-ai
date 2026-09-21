@@ -444,6 +444,7 @@
       @set-access="setChatWorkspaceAccessLegacy"
       @set-access-unified="setChatWorkspaceAccess"
       @set-branch="setChatWorkspaceBranch"
+      @set-worktree="setChatWorkspaceWorktree"
       @set-autonomous-mode="setChatWorkspaceAutonomousMode"
       @set-work-mode="setChatWorkspaceWorkMode"
       @remove-workspace="removeChatWorkspace"

@@ -140,6 +140,7 @@ fn remember_terminal_workspace_without_approval(
         None,
         None,
         None,
+        None,
     )?;
     Ok(())
 }
@@ -162,6 +163,7 @@ fn remember_terminal_conversation_autonomous_mode(
         None,
         None,
         Some(true),
+        None,
         None,
         None,
         None,

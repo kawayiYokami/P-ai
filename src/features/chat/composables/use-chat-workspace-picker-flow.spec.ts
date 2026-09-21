@@ -44,11 +44,36 @@ describe("useChatWorkspacePickerFlow", () => {
   it("persists worktree mode when git root check passes", async () => {
     const { flow, saveChatWorkspaces } = createFlow("approval", "worktree", true);
     await flow.saveChatWorkspacePicker();
-    expect(saveChatWorkspaces).toHaveBeenCalledWith(expect.any(Array), false, "worktree", expect.any(String));
+    expect(saveChatWorkspaces).toHaveBeenCalledWith(expect.any(Array), false, "worktree", expect.any(String), expect.any(String));
   });
   it("persists directory mode regardless of git check", async () => {
     const { flow, saveChatWorkspaces } = createFlow("approval", "directory", false);
     await flow.saveChatWorkspacePicker();
-    expect(saveChatWorkspaces).toHaveBeenCalledWith(expect.any(Array), false, "directory", "");
+    expect(saveChatWorkspaces).toHaveBeenCalledWith(expect.any(Array), false, "directory", "", "");
+  });
+  it("binds the picked worktree path when saving", async () => {
+    const { flow, saveChatWorkspaces } = createFlow("approval", "worktree", true);
+    flow.setChatWorkspaceWorktree({
+      branch: "feat/relay",
+      worktreePath: "E:/repo/.pai/.worktree/20260921-a1b2c3d4",
+    });
+    await flow.saveChatWorkspacePicker();
+    expect(saveChatWorkspaces).toHaveBeenCalledWith(
+      expect.any(Array),
+      false,
+      "worktree",
+      "feat/relay",
+      "E:/repo/.pai/.worktree/20260921-a1b2c3d4",
+    );
+  });
+  it("clears the worktree binding when a plain branch is picked", async () => {
+    const { flow, saveChatWorkspaces } = createFlow("approval", "worktree", true);
+    flow.setChatWorkspaceWorktree({
+      branch: "feat/relay",
+      worktreePath: "E:/repo/.pai/.worktree/20260921-a1b2c3d4",
+    });
+    flow.setChatWorkspaceBranch("main");
+    await flow.saveChatWorkspacePicker();
+    expect(saveChatWorkspaces).toHaveBeenCalledWith(expect.any(Array), false, "worktree", "main", "");
   });
 });

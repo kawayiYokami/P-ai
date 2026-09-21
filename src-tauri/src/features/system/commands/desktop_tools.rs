@@ -783,6 +783,9 @@ struct SaveChatShellWorkspacesInput {
     /// 会话记录的工作分支；传空串表示清空（换工作区后重新记录），不传表示不动
     #[serde(default)]
     shell_recorded_branch: Option<String>,
+    /// 会话绑定的工作树路径；传空串表示清空（换分支后交给后端重新推导），不传表示不动
+    #[serde(default)]
+    shell_worktree_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -952,12 +955,14 @@ fn apply_conversation_chat_workspace_changes(
     shell_work_mode: Option<String>,
     shell_work_branch: Option<String>,
     shell_recorded_branch: Option<String>,
+    shell_worktree_path: Option<String>,
 ) -> Result<Conversation, String> {
     if delegate_runtime_thread_conversation_get(state, conversation_id)?.is_some() {
         let next_path = shell_workspace_path.clone();
         let next_workspaces = shell_workspaces.clone();
         let next_branch = shell_work_branch.clone();
         let next_recorded_branch = shell_recorded_branch.clone();
+        let next_worktree_path = shell_worktree_path.clone();
         delegate_runtime_thread_modify(state, conversation_id, move |thread| {
             let original_path = thread.conversation.shell_workspace_path.clone();
             let original_workspaces = thread.conversation.shell_workspaces.clone();
@@ -965,6 +970,7 @@ fn apply_conversation_chat_workspace_changes(
             let original_work_mode = thread.conversation.shell_work_mode.clone();
             let original_branch = thread.conversation.shell_work_branch.clone();
             let original_recorded_branch = thread.conversation.shell_recorded_branch.clone();
+            let original_worktree_path = thread.conversation.shell_worktree_path.clone();
             if let Some(value) = next_path.clone() {
                 thread.conversation.shell_workspace_path = value;
             }
@@ -984,6 +990,9 @@ fn apply_conversation_chat_workspace_changes(
                 thread.conversation.shell_recorded_branch =
                     normalize_shell_work_branch_text(&value);
             }
+            if let Some(value) = next_worktree_path.clone() {
+                thread.conversation.shell_worktree_path = value.trim().to_string();
+            }
             if thread.conversation.shell_workspace_path.as_deref().map(str::trim).filter(|value| !value.is_empty()).is_some()
                 && terminal_workspace_path_from_conversation(state, &thread.conversation).is_none()
             {
@@ -995,6 +1004,7 @@ fn apply_conversation_chat_workspace_changes(
                 && thread.conversation.shell_work_mode == original_work_mode
                 && thread.conversation.shell_work_branch == original_branch
                 && thread.conversation.shell_recorded_branch == original_recorded_branch
+                && thread.conversation.shell_worktree_path == original_worktree_path
             {
                 return Ok(());
             }
@@ -1017,6 +1027,7 @@ fn apply_conversation_chat_workspace_changes(
         shell_work_mode,
         shell_work_branch,
         shell_recorded_branch,
+        shell_worktree_path,
     )?;
     mark_prompt_cache_rebuild_for_system_environment_by_conversation(state, conversation_id);
     Ok(updated)
@@ -2047,6 +2058,11 @@ fn update_chat_shell_workspace_layout_inner(
         .shell_recorded_branch
         .as_deref()
         .map(|value| normalize_shell_work_branch_text(value));
+    // 空串是有效输入：换分支后要清空工作树绑定，交给后端重新推导
+    let normalized_worktree_path = input
+        .shell_worktree_path
+        .as_deref()
+        .map(|value| value.trim().to_string());
     let updated = apply_conversation_chat_workspace_changes(
         state,
         &conversation_id,
@@ -2056,6 +2072,7 @@ fn update_chat_shell_workspace_layout_inner(
         input.shell_work_mode,
         normalized_branch,
         normalized_recorded_branch,
+        normalized_worktree_path,
     )?;
     {
         let mut roots = state
@@ -2108,6 +2125,7 @@ fn record_conversation_workspace_branch_inner(
         None,
         None,
         Some(branch.clone()),
+        None,
     )?;
     Ok(RecordConversationWorkspaceBranchOutput {
         conversation_id: updated.id,
