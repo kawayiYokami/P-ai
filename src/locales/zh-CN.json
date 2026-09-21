@@ -3025,6 +3025,7 @@
     "stash": "存储",
     "detachedHead": "游离 HEAD",
     "noBranches": "暂无分支",
+    "worktreeOccupied": "工作树",
     "stashMessagePlaceholder": "存储说明…",
     "noStashes": "还没有存储",
     "stashPop": "应用并删除存储",

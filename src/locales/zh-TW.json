@@ -3019,6 +3019,7 @@
     "stash": "儲存",
     "detachedHead": "游離 HEAD",
     "noBranches": "暫無分支",
+    "worktreeOccupied": "工作樹",
     "stashMessagePlaceholder": "儲存說明…",
     "noStashes": "還沒有儲存",
     "stashPop": "套用並刪除儲存",

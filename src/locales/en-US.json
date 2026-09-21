@@ -3025,6 +3025,7 @@
     "stash": "Stash",
     "detachedHead": "Detached HEAD",
     "noBranches": "No branches",
+    "worktreeOccupied": "Worktree",
     "stashMessagePlaceholder": "Stash message…",
     "noStashes": "No stashes yet",
     "stashPop": "Apply and drop stash",

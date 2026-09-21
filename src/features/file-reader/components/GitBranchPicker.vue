@@ -21,9 +21,21 @@
         </template>
         <!-- 本地分支 -->
         <template v-else-if="row.node.data.kind === 'branch'">
-          <GitBranch class="h-3.5 w-3.5 shrink-0" :class="row.node.data.branch.isCurrent ? 'text-primary' : 'opacity-60'" />
-          <span class="min-w-0 flex-1 truncate">{{ row.node.data.branch.name }}</span>
-          <span v-if="row.node.data.branch.isCurrent" class="shrink-0 opacity-50">{{ t("gitPanel.current") }}</span>
+          <GitBranch
+            class="h-3.5 w-3.5 shrink-0"
+            :class="row.node.data.branch.isCurrent ? 'text-primary' : (row.node.data.worktreePath ? 'opacity-30' : 'opacity-60')"
+          />
+          <span class="min-w-0 flex-1 truncate" :class="row.node.data.worktreePath ? 'opacity-40' : ''">
+            {{ row.node.data.branch.name }}
+          </span>
+          <span
+            v-if="row.node.data.worktreePath"
+            class="shrink-0 rounded-full bg-base-content/10 px-1.5 py-0.5 text-caption opacity-60"
+            :title="row.node.data.worktreePath"
+          >
+            {{ t("gitPanel.worktreeOccupied") }}
+          </span>
+          <span v-else-if="row.node.data.branch.isCurrent" class="shrink-0 opacity-50">{{ t("gitPanel.current") }}</span>
         </template>
         <!-- 远程分支 -->
         <template v-else-if="row.node.data.kind === 'remote-branch'">
@@ -49,6 +61,7 @@ import {
   gitPanelBranchList,
   gitPanelCheckout,
   gitPanelCheckoutCheck,
+  gitPanelWorktrees,
   type GitPanelBranchEntry,
 } from "../../../services/tauri-api";
 import { buildBranchTree, sortBranchesForDisplay, type BranchTreeNode } from "../git-branch-order";
@@ -57,7 +70,7 @@ import GitTree, { type GitTreeFlatRow, type GitTreeNode } from "./GitTree.vue";
 type BranchRow =
   | { kind: "header"; key: string; text: string }
   | { kind: "folder"; key: string; name: string; path: string }
-  | { kind: "branch"; key: string; branch: GitPanelBranchEntry }
+  | { kind: "branch"; key: string; branch: GitPanelBranchEntry; worktreePath: string }
   | { kind: "remote-branch"; key: string; branch: GitPanelBranchEntry };
 
 const props = withDefaults(defineProps<{
@@ -80,6 +93,8 @@ const emit = defineEmits<{
 const { t } = useI18n();
 
 const branches = ref<GitPanelBranchEntry[]>([]);
+/** 分支名（小写）→ 该分支已检出的工作树路径；命中表示分支被工作树占用，不能切换 */
+const worktreeBranchMap = ref<Record<string, string>>({});
 const loading = ref(false);
 const switching = ref(false);
 let loadSeq = 0;
@@ -91,6 +106,11 @@ const localBranches = computed(() => branches.value.filter((branch) => !branch.i
 const remoteBranches = computed(() => branches.value.filter((branch) => branch.isRemote));
 const hasAnyBranch = computed(() => branches.value.length > 0);
 
+/** 分支名（小写）→ 已检出的工作树路径 */
+function worktreePathOf(branchName: string): string {
+  return String(worktreeBranchMap.value[String(branchName || "").trim().toLowerCase()] || "");
+}
+
 /** 纯函数树节点 → GitTree 节点；scope 决定行类型与 key 命名空间 */
 function toGitTreeNodes(
   nodes: BranchTreeNode<GitPanelBranchEntry>[],
@@ -99,11 +119,12 @@ function toGitTreeNodes(
   return nodes.map((node) => {
     if (node.kind === "branch") {
       const key = `${scope}:${node.branch.name}`;
+      const worktreePath = scope === "local" ? worktreePathOf(node.branch.name) : "";
       return {
         key,
         data:
           scope === "local"
-            ? { kind: "branch" as const, key, branch: node.branch }
+            ? { kind: "branch" as const, key, branch: node.branch, worktreePath }
             : { kind: "remote-branch" as const, key, branch: node.branch },
         title: node.branch.name,
       };
@@ -147,12 +168,26 @@ async function load() {
   const seq = ++loadSeq;
   loading.value = true;
   try {
-    const result = await gitPanelBranchList(root);
+    const [result, worktrees] = await Promise.all([
+      gitPanelBranchList(root),
+      gitPanelWorktrees(root, root).catch(() => null),
+    ]);
     if (seq !== loadSeq) return;
     branches.value = result;
+    const map: Record<string, string> = {};
+    for (const entry of worktrees?.worktrees || []) {
+      // 主工作树就是仓库根，它检出的当前分支仍可正常选择
+      if (entry.isMain) continue;
+      const branch = String(entry.branch || "").trim().toLowerCase();
+      const worktreePath = String(entry.path || "").trim();
+      if (!branch || !worktreePath) continue;
+      map[branch] = worktreePath;
+    }
+    worktreeBranchMap.value = map;
   } catch (error) {
     if (seq !== loadSeq) return;
     branches.value = [];
+    worktreeBranchMap.value = {};
     emit("error", error instanceof Error ? error.message : String(error));
   } finally {
     if (seq === loadSeq) loading.value = false;
@@ -163,6 +198,8 @@ async function onRowClick(row: GitTreeFlatRow<BranchRow>) {
   const data = row.node.data;
   if (data.kind !== "branch" && data.kind !== "remote-branch") return;
   if (data.branch.isCurrent) return;
+  // 分支已被其他工作树检出：checkout 必然失败，拦在点击之前
+  if (data.kind === "branch" && data.worktreePath) return;
   await switchBranch(data.branch.name);
 }
 
