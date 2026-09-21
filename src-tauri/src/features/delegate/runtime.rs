@@ -115,6 +115,7 @@ fn delegate_parent_shell_workspace(
             shell_autonomous_mode: conversation_meta.shell_autonomous_mode,
             shell_work_mode: normalize_shell_work_mode_text(&conversation_meta.shell_work_mode),
             shell_work_branch: conversation_meta.shell_work_branch.clone(),
+            shell_worktree_path: conversation_meta.shell_worktree_path.clone(),
             shell_recorded_branch: conversation_meta.shell_recorded_branch.clone(),
             messages: Vec::new(),
             fast_request_turns: conversation_meta.fast_request_turns,

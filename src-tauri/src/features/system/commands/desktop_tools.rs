@@ -1079,25 +1079,23 @@ fn resolve_chat_shell_worktree_info(
     if git_root.trim().is_empty() {
         return (String::new(), false);
     }
-    // 路径规则后端持有：{gitRoot}/.pai/.worktree/{conversationId}（兼容 8 位 legacy）
-    let worktree_path = PathBuf::from(root).join(".pai").join(".worktree").join(conv.id.clone());
-    let legacy_path =
-        PathBuf::from(root).join(".pai").join(".worktree").join(conv.id.chars().take(8).collect::<String>());
-    let is_valid_worktree = |p: &PathBuf| {
-        p.exists()
-            && (p.join(".git").exists()
-                || std::fs::read_to_string(p.join(".git"))
-                    .map(|c| c.contains("gitdir:"))
-                    .unwrap_or(false))
-    };
-    if is_valid_worktree(&worktree_path) {
-        return (worktree_path.to_string_lossy().to_string(), true);
+    // 会话字段优先（须落在当前仓库的 .pai/.worktree/ 下）
+    if let Some(recorded) = conversation_recorded_worktree_path(conv, &git_root) {
+        return (
+            recorded.to_string_lossy().to_string(),
+            conversation_worktree_dir_is_valid(&recorded),
+        );
     }
-    if is_valid_worktree(&legacy_path) {
-        return (legacy_path.to_string_lossy().to_string(), true);
+    // 字段为空：在 .pai/.worktree/ 下推导已有目录（新规则通配 → 全量 id → 8 位）
+    if let Some(existing) = resolve_existing_conversation_worktree_dir(&git_root, &conv.id) {
+        return (existing.to_string_lossy().to_string(), true);
     }
-    // 未创建时仍返回新路径供前端作意图展示，但标记不存在
-    (worktree_path.to_string_lossy().to_string(), false)
+    // 未创建时仍返回将要使用的路径供前端作意图展示，但标记不存在
+    let planned = PathBuf::from(root)
+        .join(".pai")
+        .join(".worktree")
+        .join(conversation_worktree_dir_name(&conv.id));
+    (planned.to_string_lossy().to_string(), false)
 }
 
 fn build_chat_shell_workspace_output(

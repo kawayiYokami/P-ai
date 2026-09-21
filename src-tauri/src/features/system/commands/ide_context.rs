@@ -540,6 +540,7 @@ fn ide_chat_conversation_from_meta_view(conversation_meta: &ConversationMetaView
         shell_autonomous_mode: conversation_meta.shell_autonomous_mode,
         shell_work_mode: normalize_shell_work_mode_text(&conversation_meta.shell_work_mode),
         shell_work_branch: conversation_meta.shell_work_branch.clone(),
+        shell_worktree_path: conversation_meta.shell_worktree_path.clone(),
         shell_recorded_branch: conversation_meta.shell_recorded_branch.clone(),
         archived_at: conversation_meta.archived_at.clone(),
         messages: Vec::new(),

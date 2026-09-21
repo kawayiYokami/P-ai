@@ -29,6 +29,8 @@ pub(super) struct ConversationPersistMeta {
     #[serde(default)]
     shell_work_branch: String,
     #[serde(default)]
+    shell_worktree_path: String,
+    #[serde(default)]
     shell_recorded_branch: String,
     archived_at: Option<String>,
     current_todos: Vec<ConversationTodoItem>,
@@ -174,6 +176,8 @@ pub(super) struct ConversationShardMeta {
     shell_work_mode: String,
     #[serde(default)]
     shell_work_branch: String,
+    #[serde(default)]
+    shell_worktree_path: String,
     #[serde(default)]
     shell_recorded_branch: String,
     #[serde(default)]
@@ -428,6 +432,10 @@ impl ConversationShardMeta {
         self.shell_work_branch.as_str()
     }
 
+    pub(super) fn shell_worktree_path(&self) -> &str {
+        self.shell_worktree_path.as_str()
+    }
+
     pub(super) fn shell_recorded_branch(&self) -> &str {
         self.shell_recorded_branch.as_str()
     }
@@ -494,6 +502,7 @@ impl ConversationShardMeta {
         target.shell_autonomous_mode = self.shell_autonomous_mode;
         target.shell_work_mode = self.shell_work_mode.clone();
         target.shell_work_branch = self.shell_work_branch.clone();
+        target.shell_worktree_path = self.shell_worktree_path.clone();
         target.shell_recorded_branch = self.shell_recorded_branch.clone();
         target.archived_at = self.archived_at.clone();
         target.current_todos = self.current_todos.clone();
@@ -530,6 +539,7 @@ impl ConversationShardMeta {
         self.shell_autonomous_mode = source.shell_autonomous_mode;
         self.shell_work_mode = source.shell_work_mode.clone();
         self.shell_work_branch = source.shell_work_branch.clone();
+        self.shell_worktree_path = source.shell_worktree_path.clone();
         self.shell_recorded_branch = source.shell_recorded_branch.clone();
         self.archived_at = source.archived_at.clone();
         self.current_todos = source.current_todos.clone();
@@ -566,6 +576,7 @@ impl ConversationShardMeta {
         self.shell_autonomous_mode = source.shell_autonomous_mode;
         self.shell_work_mode = source.shell_work_mode.clone();
         self.shell_work_branch = source.shell_work_branch.clone();
+        self.shell_worktree_path = source.shell_worktree_path.clone();
         self.shell_recorded_branch = source.shell_recorded_branch.clone();
         self.archived_at = source.archived_at.clone();
         self.current_todos = source.current_todos.clone();
@@ -600,6 +611,7 @@ impl ConversationShardMeta {
         self.shell_autonomous_mode = source.shell_autonomous_mode;
         self.shell_work_mode = source.shell_work_mode.clone();
         self.shell_work_branch = source.shell_work_branch.clone();
+        self.shell_worktree_path = source.shell_worktree_path.clone();
         self.shell_recorded_branch = source.shell_recorded_branch.clone();
         self.archived_at = source.archived_at.clone();
         self.current_todos = source.current_todos.clone();
@@ -874,6 +886,7 @@ impl ConversationShardMeta {
             shell_autonomous_mode: conversation.shell_autonomous_mode,
             shell_work_mode: normalize_shell_work_mode_text(&conversation.shell_work_mode),
             shell_work_branch: conversation.shell_work_branch.clone(),
+            shell_worktree_path: conversation.shell_worktree_path.clone(),
             shell_recorded_branch: conversation.shell_recorded_branch.clone(),
             archived_at: conversation.archived_at.clone(),
             current_todos: conversation.current_todos.clone(),
@@ -972,6 +985,7 @@ impl ConversationShardMeta {
             shell_autonomous_mode: meta.shell_autonomous_mode,
             shell_work_mode: normalize_shell_work_mode_text(&meta.shell_work_mode),
             shell_work_branch: meta.shell_work_branch.clone(),
+            shell_worktree_path: meta.shell_worktree_path.clone(),
             shell_recorded_branch: meta.shell_recorded_branch.clone(),
             archived_at: meta.archived_at.clone(),
             current_todos: meta.current_todos.clone(),
@@ -1021,6 +1035,7 @@ impl ConversationShardMeta {
             shell_autonomous_mode: self.shell_autonomous_mode,
             shell_work_mode: normalize_shell_work_mode_text(&self.shell_work_mode),
             shell_work_branch: self.shell_work_branch.clone(),
+            shell_worktree_path: self.shell_worktree_path.clone(),
             shell_recorded_branch: self.shell_recorded_branch.clone(),
             archived_at: self.archived_at.clone(),
             current_todos: self.current_todos.clone(),
@@ -1069,6 +1084,7 @@ impl ConversationShardMeta {
             shell_autonomous_mode: self.shell_autonomous_mode,
             shell_work_mode: normalize_shell_work_mode_text(&self.shell_work_mode),
             shell_work_branch: self.shell_work_branch,
+            shell_worktree_path: self.shell_worktree_path,
             shell_recorded_branch: self.shell_recorded_branch,
             archived_at: self.archived_at,
             messages,
@@ -1159,6 +1175,7 @@ mod message_store_meta_tests {
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
             shell_work_branch: String::new(),
+            shell_worktree_path: String::new(),
             shell_recorded_branch: String::new(),
             archived_at: None,
             messages: vec![test_message("m1"), test_message("m2")],

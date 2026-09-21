@@ -952,6 +952,7 @@ mod jsonl_snapshot_conversation_block_tests {
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
             shell_work_branch: String::new(),
+            shell_worktree_path: String::new(),
             shell_recorded_branch: String::new(),
             archived_at: None,
             messages,

@@ -463,6 +463,24 @@ impl ConversationServiceV2 {
         )
     }
 
+    /// 字段级写入本会话工作树路径：走 metadata 权威面，避免被完整快照回滚。
+    fn set_shell_worktree_path(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        shell_worktree_path: String,
+    ) -> Result<Conversation, String> {
+        self.apply_external_metadata_patch(
+            state,
+            conversation_id,
+            "conversation_v2_set_shell_worktree_path",
+            ConversationExternalMetadataPatch {
+                shell_worktree_path: Some(shell_worktree_path),
+                ..Default::default()
+            },
+        )
+    }
+
     fn update_shell_workspace(
         &self,
         state: &AppState,

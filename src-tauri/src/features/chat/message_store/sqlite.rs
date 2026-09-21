@@ -1864,6 +1864,7 @@ fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() 
         shell_autonomous_mode: false,
         shell_work_mode: default_shell_work_mode(),
         shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         archived_at: None,
         messages: vec![
@@ -2880,6 +2881,7 @@ fn v3_chat_metadata_migration_should_import_v2_metadata_without_removing_v2_file
     let mut conversation = Conversation {
         id: "conv-v3-import".to_string(), title: "SQLite 会话".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
         shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         is_draft: false,
     };
@@ -3086,6 +3088,7 @@ fn v3_chat_metadata_migration_should_skip_building_conversation_without_writing_
     let conversation = Conversation {
         id: "conv-v3-skip-building".to_string(), title: "跳过 building".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: vec![message("m1"), message("m2")], fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
         shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         is_draft: false,
     };
@@ -3130,6 +3133,7 @@ fn v3_chat_metadata_block_reader_should_stop_at_block_boundary() {
     let conversation = Conversation {
         id: "conv-v3-block-reader".to_string(), title: "SQLite block reader".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None,
         shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         messages: vec![message("old", "user"), compaction, message("current-1", "user"), message("current-2", "assistant")],
         fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
@@ -3175,6 +3179,7 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
     let mut conversation = Conversation {
         id: "conv-v3-physical-append".to_string(), title: "physical append".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
         shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         is_draft: false,
     };
@@ -3250,6 +3255,7 @@ fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
     let mut conversation = Conversation {
         id: "conv-v3-orphan-tail".to_string(), title: "orphan tail".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
         shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         is_draft: false,
     };
@@ -3304,6 +3310,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
     let mut conversation = Conversation {
         id: "conv-v3-mutations".to_string(), title: "SQLite mutation".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
         shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         is_draft: false,
     };
@@ -3510,6 +3517,7 @@ fn v3_chat_metadata_snapshot_should_wait_for_same_conversation_writer() {
         shell_autonomous_mode: false,
         shell_work_mode: default_shell_work_mode(),
         shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         archived_at: None,
         messages: Vec::new(),

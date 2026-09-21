@@ -534,6 +534,9 @@ struct Conversation {
     shell_work_mode: String,
     #[serde(default)]
     shell_work_branch: String,
+    /// 会话专属工作树目录的绝对路径：新建工作树时生成并落库；为空时按已知目录格式推导并回填。
+    #[serde(default)]
+    shell_worktree_path: String,
     /// 会话记录的工作分支：本会话上次在哪个分支上工作。
     /// 与 shell_work_branch（创建工作树时的意图分支）语义无关，不要互相覆盖。
     #[serde(default)]

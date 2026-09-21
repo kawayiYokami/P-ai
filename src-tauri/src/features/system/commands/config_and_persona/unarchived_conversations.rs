@@ -965,6 +965,8 @@ fn clone_foreground_conversation_for_copy(
     conversation.delegate_id = None;
     conversation.status = "active".to_string();
     conversation.archived_at = None;
+    // 工作树路径是会话专属目录：复制出的会话必须重新解析，不能复用源会话的工作树
+    conversation.shell_worktree_path = String::new();
     conversation.created_at = now.clone();
     conversation.updated_at = now.clone();
     conversation.messages = source
@@ -3890,6 +3892,21 @@ mod unarchived_conversations_tests {
         }
     }
 
+    #[test]
+    fn clone_foreground_conversation_for_copy_should_reset_worktree_path() {
+        let mut source = build_test_conversation();
+        source.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
+        source.shell_worktree_path = "D:/work/demo/.pai/.worktree/20260921-a1b2c3d4".to_string();
+
+        let copied = clone_foreground_conversation_for_copy(&source, "agent-a", "副本");
+
+        assert!(
+            copied.shell_worktree_path.is_empty(),
+            "复制出的会话必须重新解析自己的工作树，不能复用源会话目录"
+        );
+        assert_ne!(copied.id, source.id, "复制出的会话应使用新 id");
+    }
+
     fn build_test_conversation() -> Conversation {
         Conversation {
             id: "source-conversation".to_string(),
@@ -3914,6 +3931,7 @@ mod unarchived_conversations_tests {
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
             shell_work_branch: String::new(),
+            shell_worktree_path: String::new(),
             shell_recorded_branch: String::new(),
             archived_at: None,
             messages: vec![build_test_message("m1", "hello"), build_test_message("m2", "world")],

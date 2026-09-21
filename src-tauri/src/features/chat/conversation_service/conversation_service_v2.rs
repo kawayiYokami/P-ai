@@ -126,6 +126,8 @@ struct ConversationMetaView {
     #[serde(default)]
     shell_work_branch: String,
     #[serde(default)]
+    shell_worktree_path: String,
+    #[serde(default)]
     shell_recorded_branch: String,
     current_todos: Vec<ConversationTodoItem>,
     active_goal: Option<ConversationGoalState>,
@@ -315,6 +317,7 @@ impl ConversationMetaView {
             shell_autonomous_mode: meta.shell_autonomous_mode(),
             shell_work_mode: normalize_shell_work_mode_text(meta.shell_work_mode()),
             shell_work_branch: meta.shell_work_branch().to_string(),
+            shell_worktree_path: meta.shell_worktree_path().to_string(),
             shell_recorded_branch: meta.shell_recorded_branch().to_string(),
             current_todos: meta.current_todos().to_vec(),
             active_goal: meta.active_goal().cloned(),
@@ -657,6 +660,7 @@ struct ConversationExternalMetadataPatch {
     shell_work_mode: Option<String>,
     shell_work_branch: Option<String>,
     shell_recorded_branch: Option<String>,
+    shell_worktree_path: Option<String>,
     lifecycle_status: Option<String>,
     lifecycle_archived_at: Option<Option<String>>,
     lifecycle_updated_at: Option<String>,
@@ -1226,6 +1230,9 @@ impl ConversationServiceV2 {
                         if let Some(value) = patch.shell_recorded_branch {
                             conversation.shell_recorded_branch =
                                 normalize_shell_work_branch_text(&value);
+                        }
+                        if let Some(value) = patch.shell_worktree_path {
+                            conversation.shell_worktree_path = value;
                         }
                         if let Some(value) = patch.lifecycle_status {
                             conversation.status = value;
