@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-18T15:46:55.414Z",
-  "latestVersion": "v0.92.0",
+  "generatedAt": "2026-09-21T07:46:35.983Z",
+  "latestVersion": "v0.93.0",
   "releases": [
+    {
+      "version": "v0.93.0",
+      "path": "docs/changelog/releases/v0.93.0.md",
+      "summary": "**每个会话的工作树与分支各自独立**：新建会话不再复用别人已经检出的分支，目录名与分支名统一为「日期-会话号」，终端默认目录直接落在本会话的工作树里。"
+    },
     {
       "version": "v0.92.0",
       "path": "docs/changelog/releases/v0.92.0.md",
