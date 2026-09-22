@@ -62,6 +62,13 @@
       "migration": "储存",
       "about": "关于"
     },
+    "unsavedConfirm": {
+      "title": "未保存的更改",
+      "message": "当前内容有未保存的修改，离开将丢失这些修改。是否确认离开？",
+      "discard": "放弃修改",
+      "stay": "继续编辑",
+      "saveAndLeave": "保存并离开"
+    },
     "catalog": {
       "refresh": "刷新",
       "searchPlaceholder": "搜索名称或描述",
@@ -174,6 +181,7 @@
       "providerSettings": "供应商设置",
       "connectionSettings": "连接设置",
       "providerNamePlaceholder": "供应商名称",
+      "providerNameRequired": "请输入供应商名称后再保存。",
       "apiKeyPool": "API Key 池",
       "apiKeyPoolHint": "同一供应商下所有模型共享轮询池，每次调用后游标 +1。",
       "addApiKey": "新增 Key",
@@ -181,6 +189,7 @@
       "modelCards": "模型卡片",
       "modelCardsHint": "支持手填模型名，也支持从刷新结果里点选辅助填入。",
       "addModel": "新增模型",
+      "noModelCards": "暂无模型，点击右上角「新增模型」开始添加。",
       "unnamedModel": "未命名模型",
       "emptyModelNotAllowed": "存在未填模型名的模型卡，请先填写模型名或删除该模型卡后再保存。",
       "editDisplayName": "点击修改显示名",

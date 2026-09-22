@@ -41,7 +41,7 @@
       @update-to-latest="triggerUpdateToLatest"
       @minimize-window="minimizeWindow"
       @toggle-maximize-window="toggleMaximizeWindow"
-      @close-window="closeWindow"
+      @close-window="handleCloseWindow"
       @update:simple-setup-mode="setSimpleSetupMode"
     />
 
@@ -308,13 +308,16 @@
     />
 
     <Win10ResizeHandles :enabled="!maximized" />
+    <UnsavedConfirmDialog />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import ConfigView from "./features/config/views/ConfigView.vue";
+import UnsavedConfirmDialog from "./features/config/components/UnsavedConfirmDialog.vue";
+import { provideUnsavedChangesGuard } from "./features/config/composables/use-unsaved-changes-guard";
 import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
 import ShellDialogsHost from "./features/shell/components/ShellDialogsHost.vue";
 import StartupOverlay from "./features/shell/components/StartupOverlay.vue";
@@ -357,6 +360,7 @@ import { formatI18nError } from "./utils/error";
 
 const { t, locale } = useI18n();
 const tr = (key: string, params?: Record<string, unknown>) => t(key, params as never);
+const unsavedGuard = provideUnsavedChangesGuard();
 
 // 设置窗口只做配置展示，不提供需要本机文件的动作；文件链接右键只留「复制路径」，
 // 复制内容就是链接原文，因此不需要工作区根。
@@ -864,9 +868,17 @@ function updateConfigSearchQuery(value: string) {
   configSearchQuery.value = String(value || "");
 }
 
-function setSimpleSetupMode(value: boolean) {
+async function handleCloseWindow() {
+  const allow = await unsavedGuard.confirmLeaveIfDirty();
+  if (!allow) return;
+  closeWindow();
+}
+
+async function setSimpleSetupMode(value: boolean) {
   const next = !!value;
   if (!!config.simpleSetupMode === next) return;
+  const allow = await unsavedGuard.confirmLeaveIfDirty();
+  if (!allow) return;
   config.simpleSetupMode = next;
   void saveConfig();
 }
@@ -889,17 +901,29 @@ function startChat() {
   void openTransportWindow("chat");
 }
 
-function handleSelectConfigSearchResult(tab: ConfigSearchTab) {
+async function handleSelectConfigSearchResult(tab: ConfigSearchTab) {
+  if (tab === configTab.value) {
+    configSearchQuery.value = "";
+    return;
+  }
+  const allow = await unsavedGuard.confirmLeaveIfDirty();
+  if (!allow) return;
   configTab.value = tab;
   configSearchQuery.value = "";
 }
 
-function updatePersonaEditorIdWithNotice(value: string) {
+async function updatePersonaEditorIdWithNotice(value: string) {
   const nextId = String(value || "").trim();
   if (!nextId || nextId === personaEditorId.value) return;
   if (personaDirty.value) {
     const currentName = String(selectedPersonaEditor.value?.name || personaEditorId.value || "").trim() || t("config.persona.title");
-    setStatus(t("status.personaUnsavedSwitchHint", { name: currentName }));
+    const allow = await unsavedGuard.confirmLeaveIfDirty({
+      title: t("config.unsavedConfirm.title"),
+      message: t("status.personaUnsavedSwitchHint", { name: currentName }),
+      canSaveAndLeave: true,
+      saveAndLeaveText: t("config.unsavedConfirm.saveAndLeave"),
+    });
+    if (!allow) return;
   }
   personaEditorId.value = nextId;
 }
@@ -1048,4 +1072,33 @@ watch(uiSizeScale, (scale) => {
   }
 });
 
+onMounted(() => {
+  unsavedGuard.registerDirtyChecker("global-config", {
+    isDirty: () => configDirty.value || personaDirty.value,
+    title: t("config.unsavedConfirm.title"),
+    message: t("config.unsavedConfirm.message"),
+    onDiscard: () => {
+      restoreLastSavedConfigSnapshot();
+    },
+    onSave: async () => {
+      if (configDirty.value) {
+        await saveConfig();
+      }
+      if (personaDirty.value) {
+        await savePersonas();
+      }
+    },
+  });
+
+  const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+    if (unsavedGuard.hasDirtyState()) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  };
+  window.addEventListener("beforeunload", handleBeforeUnload);
+  onBeforeUnmount(() => {
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+  });
+});
 </script>

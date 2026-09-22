@@ -609,8 +609,8 @@ fn save_config_inner(
     state: &AppState,
     ide_context_runtime: &IdeContextRuntime,
 ) -> Result<SaveConfigOutput, String> {
-    if config.api_configs.is_empty() {
-        return Err("至少需要配置一个 API 配置。".to_string());
+    if config.api_configs.is_empty() && config.api_providers.is_empty() {
+        return Err("至少需要配置一个 API 供应商。".to_string());
     }
     let mut config = config;
     normalize_app_config(&mut config);

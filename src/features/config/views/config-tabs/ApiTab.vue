@@ -199,6 +199,9 @@
         </template>
 
         <div class="divide-y divide-base-200/60">
+              <div v-if="draftModelGroups.length === 0" class="py-8 text-center text-xs text-base-content/50">
+                {{ t("config.api.noModelCards") }}
+              </div>
               <ApiModelCard
                 v-for="group in draftModelGroups"
                 :key="group.primary.id"
@@ -207,7 +210,7 @@
                 :default-open="defaultOpenModelIds.has(group.primary.id)"
                 :capability="reasoningCapability(group) ?? null"
                 :show-delete="true"
-                :delete-disabled="draftModelGroups.length <= 1"
+                :delete-disabled="false"
                 :show-capability-toggles="selectedCapability === 'text'"
                 :show-context-window="selectedCapability === 'text'"
                 :show-reasoning="selectedCapability === 'text'"
@@ -408,6 +411,7 @@ import {
   type DraftModelGroup,
 } from "../../utils/draft-model-groups";
 import type { ConfigTemplateGroup } from "../../components/config-template";
+import { useUnsavedChangesGuard } from "../../composables/use-unsaved-changes-guard";
 
 type ApiCapability = "text" | "voice" | "embedding" | "rerank";
 type ApiTopTab = ApiCapability | "imageGeneration";
@@ -493,6 +497,22 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const unsavedGuard = useUnsavedChangesGuard();
+
+onMounted(() => {
+  const unregister = unsavedGuard.registerDirtyChecker("api-provider", {
+    isDirty: () => currentProviderDirty.value,
+    title: t("config.unsavedConfirm.title"),
+    message: t("config.unsavedConfirm.message"),
+    onDiscard: () => {
+      revertUnsavedConfigIfNeeded();
+    },
+    onSave: async () => {
+      await handleSaveApiConfig();
+    },
+  });
+  onUnmounted(unregister);
+});
 const openaiReasoningEffortOptions = computed(() => [
   { value: "none", label: t("config.api.reasoningOff") },
   { value: "low", label: t("config.api.reasoningLow") },
@@ -760,7 +780,7 @@ function isModelDeprecated(model: ApiModelConfigItem | null | undefined): boolea
 
 function firstActiveModel(provider: ApiProviderConfigItem | null | undefined): ApiModelConfigItem | null {
   if (!provider) return null;
-  return (provider.models || []).find((model) => !isModelDeprecated(model)) ?? null;
+  return (provider.models || []).find((model) => !isModelDeprecated(model) && String(model.model || "").trim().length > 0) ?? null;
 }
 
 function reasoningEffortDisplayLabel(value: string): string {
@@ -880,7 +900,7 @@ function commitDraftGroups() {
   // 仅当原选中卡被移除时才 fallback，保留用户当前选中
   const [, selectedModelId] = String(props.config.selectedApiConfigId || "").split("::");
   const selectedStillActive = selectedModelId && provider.models.some(
-    (model) => model.id === selectedModelId && !isModelDeprecated(model),
+    (model) => model.id === selectedModelId && !isModelDeprecated(model) && String(model.model || "").trim().length > 0,
   );
   if (!selectedStillActive) {
     const fallback = firstActiveModel(provider);
@@ -916,7 +936,17 @@ function enterProvider(id: string) {
   inDetailMode.value = true;
 }
 
-function backToList() {
+async function backToList() {
+  if (currentProviderDirty.value) {
+    const allow = await unsavedGuard.confirmLeaveIfDirty({
+      canSaveAndLeave: true,
+      onSave: async () => {
+        await handleSaveApiConfig();
+      },
+    });
+    if (!allow) return;
+    revertUnsavedConfigIfNeeded();
+  }
   inDetailMode.value = false;
 }
 
@@ -1654,8 +1684,18 @@ function createProvider(seed: string, capability: ApiCapability = selectedCapabi
   };
 }
 
-function selectProvider(providerId: string) {
-  revertUnsavedConfigIfNeeded();
+async function selectProvider(providerId: string) {
+  if (providerId === selectedProvider.value?.id) return;
+  if (currentProviderDirty.value) {
+    const allow = await unsavedGuard.confirmLeaveIfDirty({
+      canSaveAndLeave: true,
+      onSave: async () => {
+        await handleSaveApiConfig();
+      },
+    });
+    if (!allow) return;
+    revertUnsavedConfigIfNeeded();
+  }
   const provider = providerList.value.find((item) => item.id === providerId);
   const model = firstActiveModel(provider);
   if (!provider || !model) return;
@@ -1682,6 +1722,10 @@ function saveImageProviderConfig() {
 function selectModelCard(modelId: string) {
   const provider = selectedProvider.value;
   if (!provider) return;
+  if (!modelId) {
+    props.config.selectedApiConfigId = "";
+    return;
+  }
   props.config.selectedApiConfigId = `${provider.id}::${modelId}`;
 }
 
@@ -1697,6 +1741,7 @@ function firstActiveApiConfigIdExcluding(excludedIds: Set<string>): string {
     if (provider.deprecated) continue;
     for (const model of provider.models || []) {
       if (model.deprecated) continue;
+      if (!String(model.model || "").trim()) continue;
       const providerId = String(provider.id || "").trim();
       const modelId = String(model.id || "").trim();
       const endpointId = providerId && modelId ? `${providerId}::${modelId}` : "";
@@ -1776,14 +1821,23 @@ async function confirmDeleteProvider() {
 }
 
 async function switchCapabilityTab(capability: ApiTopTab) {
-  revertUnsavedConfigIfNeeded();
+  if (currentProviderDirty.value) {
+    const allow = await unsavedGuard.confirmLeaveIfDirty({
+      canSaveAndLeave: true,
+      onSave: async () => {
+        await handleSaveApiConfig();
+      },
+    });
+    if (!allow) return;
+    revertUnsavedConfigIfNeeded();
+  }
   activeTopTab.value = capability;
   if (capability === "imageGeneration") {
     return;
   }
   const nextProvider = activeProviderList.value.find((provider) => capabilityFromRequestFormat(provider.requestFormat) === capability);
   if (nextProvider) {
-    selectProvider(nextProvider.id);
+    void selectProvider(nextProvider.id);
   }
 }
 
@@ -1830,8 +1884,13 @@ function addModelCard() {
 
 function removeModelGroup(group: DraftModelGroup) {
   const provider = selectedProvider.value;
-  if (!provider || draftModelGroups.value.length <= 1) return;
+  if (!provider) return;
   draftModelGroups.value = draftModelGroups.value.filter((item) => item !== group);
+  const [, selectedModelId] = String(props.config.selectedApiConfigId || "").split("::");
+  if (selectedModelId === group.primary.id) {
+    const nextGroup = draftModelGroups.value[0];
+    props.config.selectedApiConfigId = nextGroup ? `${provider.id}::${nextGroup.primary.id}` : "";
+  }
 }
 
 function contextWindowMax(group: DraftModelGroup): number {
@@ -2125,12 +2184,9 @@ async function handleSaveApiConfig() {
     if (pendingMetadataSyncs.size > 0) {
       await Promise.all([...pendingMetadataSyncs]);
     }
-    // 基于草稿组检查空模型，失败时不碰 config 本体
-    const hasEmptyModel = draftModelGroups.value.some(
-      (group) => !String(group.primary.model || "").trim(),
-    );
-    if (hasEmptyModel) {
-      props.setStatusAction(t("config.api.emptyModelNotAllowed"));
+    const providerName = String(provider.name || "").trim();
+    if (!providerName) {
+      props.setStatusAction(t("config.api.providerNameRequired"));
       return;
     }
     // 保存前先把草稿拆分结果写回 config.models

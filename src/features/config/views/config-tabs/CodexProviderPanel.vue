@@ -164,6 +164,9 @@
       </template>
 
       <div class="divide-y divide-base-200/60">
+        <div v-if="props.draftGroups.length === 0" class="py-8 text-center text-xs text-base-content/50">
+          {{ t("config.api.noModelCards") }}
+        </div>
         <div v-for="group in props.draftGroups" :key="group.primary.id" class="py-3">
           <div class="flex items-start justify-between gap-2">
             <label class="min-w-0 flex-1">
@@ -175,7 +178,7 @@
                 :placeholder="t('config.api.unnamedModel')"
               />
             </label>
-            <button class="btn btn-sm btn-square btn-ghost" type="button" :class="props.draftGroups.length <= 1 ? 'text-base-content/30' : 'text-error'" :disabled="props.draftGroups.length <= 1" @click="removeModelCard(group.primary.id)">
+            <button class="btn btn-sm btn-square btn-ghost text-error" type="button" @click="removeModelCard(group.primary.id)">
               <Trash2 class="h-3.5 w-3.5" />
             </button>
           </div>
@@ -707,13 +710,14 @@ function addModelCard(modelName: string) {
 }
 
 function removeModelCard(modelId: string) {
-  if (props.draftGroups.length <= 1) return;
   const idx = props.draftGroups.findIndex((group) => group.primary.id === modelId);
   if (idx < 0) return;
   props.draftGroups.splice(idx, 1);
   const fallback = props.draftGroups[Math.max(0, idx - 1)] ?? props.draftGroups[0];
   if (fallback) {
     emit("selectModel", fallback.primary.id);
+  } else {
+    emit("selectModel", "");
   }
 }
 

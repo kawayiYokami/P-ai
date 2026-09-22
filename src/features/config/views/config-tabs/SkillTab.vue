@@ -648,8 +648,25 @@ import SettingsPageShell from "../../components/SettingsPageShell.vue";
 import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
 import AppMarkdownRenderer from "../../../chat/markdown/AppMarkdownRenderer.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
+import { useUnsavedChangesGuard } from "../../composables/use-unsaved-changes-guard";
 
 const { t } = useI18n();
+const unsavedGuard = useUnsavedChangesGuard();
+
+onMounted(() => {
+  const unregister = unsavedGuard.registerDirtyChecker("custom-skill", {
+    isDirty: () => isDirty.value,
+    title: t("config.unsavedConfirm.title"),
+    message: t("config.skill.confirmLeaveUnsaved"),
+    onDiscard: () => {
+      discardChanges();
+    },
+    onSave: async () => {
+      await saveCurrentSkill();
+    },
+  });
+  onUnmounted(unregister);
+});
 
 const loading = ref(false);
 const savingSkill = ref(false);
@@ -771,7 +788,20 @@ watch(
   }
 );
 
-function selectSkill(path: string) {
+async function selectSkill(path: string) {
+  if (path === selectedSkillPath.value) return;
+  if (isDirty.value) {
+    const allow = await unsavedGuard.confirmLeaveIfDirty({
+      title: t("config.unsavedConfirm.title"),
+      message: t("config.skill.confirmLeaveUnsaved"),
+      canSaveAndLeave: true,
+      onSave: async () => {
+        await saveCurrentSkill();
+      },
+    });
+    if (!allow) return;
+    discardChanges();
+  }
   selectedSkillPath.value = path;
 }
 
@@ -848,10 +878,18 @@ async function removeSkill(skill: SkillSummaryItem) {
   }
 }
 
-function backToList() {
+async function backToList() {
   if (isDirty.value) {
-    const confirmLeave = window.confirm(t("config.skill.confirmLeaveUnsaved"));
-    if (!confirmLeave) return;
+    const allow = await unsavedGuard.confirmLeaveIfDirty({
+      title: t("config.unsavedConfirm.title"),
+      message: t("config.skill.confirmLeaveUnsaved"),
+      canSaveAndLeave: true,
+      onSave: async () => {
+        await saveCurrentSkill();
+      },
+    });
+    if (!allow) return;
+    discardChanges();
   }
   selectedSkillPath.value = null;
 }

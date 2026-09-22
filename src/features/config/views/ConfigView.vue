@@ -435,6 +435,7 @@ import SimpleSetupPanel from "./config-tabs/SimpleSetupPanel.vue";
 import { toErrorMessage } from "../../../utils/error";
 import { ArrowLeftRight, Beaker, Bell, ChevronRight, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, Palette, Puzzle, Radio, ScrollText, Star, Store, User, Wifi } from "@lucide/vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
+import { useUnsavedChangesGuard } from "../composables/use-unsaved-changes-guard";
 
 type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type AvatarTarget = { agentId: string };
@@ -633,6 +634,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const unsavedGuard = useUnsavedChangesGuard();
 
 const avatarFileInput = ref<HTMLInputElement | null>(null);
 const avatarEditorDialog = ref<HTMLDialogElement | null>(null);
@@ -713,9 +715,9 @@ function configNavLinkClass(tab: ConfigTab) {
   };
 }
 
-function selectConfigNavTab(tab: ConfigTab) {
+async function selectConfigNavTab(tab: ConfigTab) {
   if (isConfigNavItemLocked(tab)) return;
-  requestTabChange(tab);
+  await requestTabChange(tab);
   configDrawerOpen.value = false;
 }
 
@@ -856,15 +858,18 @@ function onMaxRecordSecondsChanged(value: number) {
   props.config.maxRecordSeconds = next;
 }
 
-function requestTabChange(nextTab: ConfigTab) {
+async function requestTabChange(nextTab: ConfigTab) {
   if (memorySyncLocked.value && nextTab !== "memory") {
     return;
   }
-  if (!SHOW_DEV_DEMO_TAB && nextTab === "demo") {
-    emit("update:configTab", "hotkey");
+  const targetTab = (!SHOW_DEV_DEMO_TAB && nextTab === "demo") ? "hotkey" : nextTab;
+  if (targetTab === props.configTab) {
     return;
   }
-  emit("update:configTab", nextTab);
+  const allow = await unsavedGuard.confirmLeaveIfDirty();
+  if (!allow) return;
+
+  emit("update:configTab", targetTab);
 }
 
 function onMemorySyncLockChange(locked: boolean) {

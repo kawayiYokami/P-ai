@@ -62,6 +62,13 @@
       "migration": "Storage",
       "about": "About"
     },
+    "unsavedConfirm": {
+      "title": "Unsaved Changes",
+      "message": "You have unsaved changes. Leaving now will discard these changes. Are you sure you want to leave?",
+      "discard": "Discard Changes",
+      "stay": "Keep Editing",
+      "saveAndLeave": "Save & Leave"
+    },
     "catalog": {
       "refresh": "Refresh",
       "searchPlaceholder": "Search by name or description",
@@ -174,6 +181,7 @@
       "providerSettings": "Provider Settings",
       "connectionSettings": "Connection Settings",
       "providerNamePlaceholder": "Provider name",
+      "providerNameRequired": "Please enter a provider name before saving.",
       "apiKeyPool": "API Key Pool",
       "apiKeyPoolHint": "All models under the same provider share this round-robin key pool. Cursor +1 after each call.",
       "addApiKey": "Add Key",
@@ -181,6 +189,7 @@
       "modelCards": "Model Cards",
       "modelCardsHint": "Enter model names manually, or pick from refreshed results.",
       "addModel": "Add Model",
+      "noModelCards": "No models yet. Click \"Add Model\" in the top right to start adding.",
       "unnamedModel": "Unnamed Model",
       "emptyModelNotAllowed": "There are model cards without a model name. Fill in the model name or remove the card before saving.",
       "editDisplayName": "Click to edit display name",
