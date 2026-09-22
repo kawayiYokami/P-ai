@@ -512,7 +512,11 @@
         "quickModel": {
           "title": "快速模型"
         }
-      }
+      },
+      "quickSetupTitle": "快速配置向导",
+      "quickSetupBadge": "新手推荐",
+      "quickSetupDesc": "一键极简配置常用模型、API Key、界面语言与核心快捷键，快速开启智能协作。",
+      "startQuickSetup": "启动向导"
     },
     "imageGeneration": {
       "title": "图像生成",
@@ -3128,6 +3132,7 @@
     "needBaseUrlToTest": "测试前请先填写 base_url",
     "resetDefault": "恢复默认",
     "accelerationTitle": "语音与记忆加速（可选推荐）",
-    "accelerationDesc": "填入硅基流动 API Key 可免费解锁高精度语音输入与本地记忆检索加速；留空则使用离线基础引擎。"
+    "accelerationDesc": "填入硅基流动 API Key 可免费解锁高精度语音输入与本地记忆检索加速；留空则使用离线基础引擎。",
+    "switchToAdvanced": "前往完整设置"
   }
 }

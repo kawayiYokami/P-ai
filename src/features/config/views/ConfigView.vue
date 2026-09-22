@@ -2,7 +2,7 @@
   <div class="h-full min-h-0 overflow-hidden">
   <Transition name="ecall-config-mode" mode="out-in">
   <div v-if="props.simpleSetupMode" key="simple" class="h-full min-h-0 overflow-hidden bg-base-200 pl-4">
-    <SimpleSetupPanel class="h-full" />
+    <SimpleSetupPanel class="h-full" @switch-to-advanced="emit('update:simpleSetupMode', false)" />
   </div>
   <div v-else key="advanced" class="config-shell flex h-full min-h-0 overflow-hidden">
     <aside class="hidden md:flex relative h-full min-h-0 w-44 shrink-0 flex-col bg-base-200 px-2">
@@ -55,6 +55,17 @@
           </template>
         </ul>
       </OverlayScrollArea>
+      <div class="border-t border-base-300/60 p-2 shrink-0">
+        <button
+          class="btn btn-ghost btn-xs w-full justify-start gap-2 text-base-content/70 hover:text-base-content"
+          type="button"
+          :title="t('config.welcome.quickSetupTitle')"
+          @click="emit('update:simpleSetupMode', true)"
+        >
+          <Sparkles class="h-3.5 w-3.5 text-primary" />
+          <span class="truncate">{{ t("config.welcome.quickSetupTitle") }}</span>
+        </button>
+      </div>
     </aside>
 
     <Transition name="ecall-config-drawer-mask">
@@ -118,6 +129,17 @@
             </template>
           </ul>
         </OverlayScrollArea>
+        <div class="border-t border-base-300/60 p-2 shrink-0">
+          <button
+            class="btn btn-ghost btn-xs w-full justify-start gap-2 text-base-content/70 hover:text-base-content"
+            type="button"
+            :title="t('config.welcome.quickSetupTitle')"
+            @click="configDrawerOpen = false; emit('update:simpleSetupMode', true)"
+          >
+            <Sparkles class="h-3.5 w-3.5 text-primary" />
+            <span class="truncate">{{ t("config.welcome.quickSetupTitle") }}</span>
+          </button>
+        </div>
       </aside>
     </Transition>
 
@@ -224,6 +246,7 @@
             :config="config"
             @jump="$emit('update:configTab', $event)"
             @start-chat="$emit('start-chat')"
+            @open-quick-setup="emit('update:simpleSetupMode', true)"
           />
 
           <HotkeyTab
@@ -433,7 +456,7 @@ import StorageTab from "./config-tabs/StorageTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
 import SimpleSetupPanel from "./config-tabs/SimpleSetupPanel.vue";
 import { toErrorMessage } from "../../../utils/error";
-import { ArrowLeftRight, Beaker, Bell, ChevronRight, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, Palette, Puzzle, Radio, ScrollText, Star, Store, User, Wifi } from "@lucide/vue";
+import { ArrowLeftRight, Beaker, Bell, ChevronRight, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, Palette, Puzzle, Radio, ScrollText, Sparkles, Star, Store, User, Wifi } from "@lucide/vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useUnsavedChangesGuard } from "../composables/use-unsaved-changes-guard";
 

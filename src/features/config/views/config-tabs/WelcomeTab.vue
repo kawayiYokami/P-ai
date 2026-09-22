@@ -39,6 +39,34 @@
       </div>
     </div>
 
+    <!-- 快速配置向导卡片 -->
+    <div class="card bg-base-100 card-border border-base-300 card-sm overflow-hidden">
+      <div class="card-body flex-row items-center justify-between gap-4 px-4 py-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Sparkles class="size-5" />
+          </div>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold text-base-content flex items-center gap-2">
+              <span>{{ t("config.welcome.quickSetupTitle") }}</span>
+              <span class="badge badge-xs badge-primary/20 text-primary font-normal">{{ t("config.welcome.quickSetupBadge") }}</span>
+            </div>
+            <div class="text-xs text-base-content/60 truncate mt-0.5">
+              {{ t("config.welcome.quickSetupDesc") }}
+            </div>
+          </div>
+        </div>
+        <button
+          class="btn btn-sm btn-outline btn-primary shrink-0 gap-1.5"
+          type="button"
+          @click="emit('open-quick-setup')"
+        >
+          <SlidersHorizontal class="size-3.5" />
+          <span>{{ t("config.welcome.startQuickSetup") }}</span>
+        </button>
+      </div>
+    </div>
+
     <!-- 运行时依赖：ripgrep 独立设置项 -->
     <div
       v-if="showRuntimeDeps"
@@ -82,7 +110,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { MessageSquare } from "@lucide/vue";
+import { MessageSquare, SlidersHorizontal, Sparkles } from "@lucide/vue";
 import type { ApiConfigItem, AppConfig } from "../../../../types/app";
 import UsageTrailWall from "./UsageTrailWall.vue";
 import {
@@ -120,6 +148,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "jump", value: ConfigTab): void;
   (e: "start-chat"): void;
+  (e: "open-quick-setup"): void;
 }>();
 
 const { t } = useI18n();

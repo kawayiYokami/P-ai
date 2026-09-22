@@ -195,21 +195,6 @@
 
     <div v-if="viewMode !== 'chat'" class="relative z-10 min-w-0 justify-self-start flex items-center gap-2" @mousedown.stop @dblclick.stop>
       <button
-        v-if="viewMode === 'config'"
-        class="btn btn-primary btn-sm h-8 min-h-8 gap-1.5 px-2.5"
-        type="button"
-        :title="t('config.simpleSetupModeToggle')"
-        @click.stop="$emit('update:simple-setup-mode', !simpleSetupMode)"
-      >
-        <span class="swap swap-rotate pointer-events-none">
-          <input type="checkbox" class="hidden" :checked="simpleSetupMode" tabindex="-1" />
-          <Columns3Cog class="swap-on h-3.5 w-3.5" />
-          <Bolt class="swap-off h-3.5 w-3.5" />
-        </span>
-        <span>{{ simpleSetupMode ? t("config.simpleSetupModeSwitchToAdvanced") : t("config.simpleSetupModeSwitchToSimple") }}</span>
-      </button>
-
-      <button
         v-if="viewMode === 'config' && !simpleSetupMode && showUpdateToLatestButton"
         class="btn btn-success btn-sm h-8 min-h-8 gap-2 px-3 relative shadow-sm"
         :title="updateToLatestTitle || ''"
@@ -310,7 +295,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { getTransportCapabilities } from "../../../services/tauri-api";
-import { Bolt, Columns3Cog, Download, FoldVertical, History, Minus, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Search, Settings, Square, SquarePen, X } from "@lucide/vue";
+import { Download, FoldVertical, History, Minus, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Search, Settings, Square, SquarePen, X } from "@lucide/vue";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";

@@ -512,7 +512,11 @@
         "quickModel": {
           "title": "Fast Model"
         }
-      }
+      },
+      "quickSetupTitle": "Quick Setup Wizard",
+      "quickSetupBadge": "Recommended",
+      "quickSetupDesc": "Configure preferred models, API key, language, and core shortcuts in minutes.",
+      "startQuickSetup": "Start Wizard"
     },
     "imageGeneration": {
       "title": "Independent image generation",
@@ -3128,6 +3132,7 @@
     "needBaseUrlToTest": "Please enter base_url before testing",
     "resetDefault": "Reset",
     "accelerationTitle": "Speech & Memory Acceleration (Optional)",
-    "accelerationDesc": "Enter a SiliconFlow API Key to unlock high-accuracy STT and memory search acceleration for free. Leave empty to use offline engines."
+    "accelerationDesc": "Enter a SiliconFlow API Key to unlock high-accuracy STT and memory search acceleration for free. Leave empty to use offline engines.",
+    "switchToAdvanced": "Go to Full Settings"
   }
 }

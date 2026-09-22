@@ -11,15 +11,25 @@
               {{ t("simpleSetup.advancedHint") }}
             </div>
           </div>
-          <button
-            class="btn btn-primary btn-sm shrink-0"
-            type="button"
-            :disabled="saving || loading"
-            @click="handleSave"
-          >
-            <span v-if="saving" class="loading loading-spinner loading-xs"></span>
-            {{ t("simpleSetup.saveAndStart") }}
-          </button>
+          <div class="flex items-center gap-2 shrink-0">
+            <button
+              class="btn btn-ghost btn-sm text-xs gap-1 opacity-70 hover:opacity-100"
+              type="button"
+              @click="emit('switch-to-advanced')"
+            >
+              <span>{{ t("simpleSetup.switchToAdvanced") }}</span>
+              <ArrowRight class="h-3.5 w-3.5" />
+            </button>
+            <button
+              class="btn btn-primary btn-sm shrink-0"
+              type="button"
+              :disabled="saving || loading"
+              @click="handleSave"
+            >
+              <span v-if="saving" class="loading loading-spinner loading-xs"></span>
+              {{ t("simpleSetup.saveAndStart") }}
+            </button>
+          </div>
         </div>
       </div>
     </template>
@@ -312,6 +322,7 @@ import { computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   AlertCircle,
+  ArrowRight,
   Brain,
   CheckCircle2,
   Eye,
@@ -330,6 +341,10 @@ import {
   useSimpleSetup,
 } from "../../quick-setup/use-simple-setup";
 import type { SimpleModelCard } from "../../quick-setup/use-simple-setup";
+
+const emit = defineEmits<{
+  (e: "switch-to-advanced"): void;
+}>();
 
 const { t } = useI18n();
 
@@ -383,6 +398,7 @@ async function handleSave() {
   await saveAll();
   if (!errorText.value) {
     clearSimpleSetupDraft();
+    emit("switch-to-advanced");
     await openTransportWindow("chat");
     await hideCurrentTransportWindow();
   }

@@ -508,7 +508,11 @@
         "quickModel": {
           "title": "快速模型"
         }
-      }
+      },
+      "quickSetupTitle": "快速配置精靈",
+      "quickSetupBadge": "新手推薦",
+      "quickSetupDesc": "一鍵極簡配置常用模型、API Key、介面語言與核心快捷鍵，快速開啟智慧協作。",
+      "startQuickSetup": "啟動精靈"
     },
     "imageGeneration": {
       "title": "獨立圖像生成",
@@ -3122,6 +3126,7 @@
     "needBaseUrlToTest": "測試前請先填寫 base_url",
     "resetDefault": "恢復預設",
     "accelerationTitle": "語音與記憶加速（可選推薦）",
-    "accelerationDesc": "填入矽基流動 API Key 可免費解鎖高精度語音輸入與本地記憶檢索加速；留空則使用離線基礎引擎。"
+    "accelerationDesc": "填入矽基流動 API Key 可免費解鎖高精度語音輸入與本地記憶檢索加速；留空則使用離線基礎引擎。",
+    "switchToAdvanced": "前往完整設定"
   }
 }
