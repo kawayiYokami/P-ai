@@ -167,10 +167,7 @@ fn prepared_tool_call_from_genai(tool_call: genai::chat::ToolCall) -> PreparedTo
         fn_arguments,
         ..
     } = tool_call;
-    let tool_args = match fn_arguments {
-        Value::String(raw) => raw,
-        other => other.to_string(),
-    };
+    let tool_args = unwrap_tool_call_arguments(&fn_arguments);
     PreparedToolCall {
         tool_call_id: call_id,
         tool_name: fn_name,

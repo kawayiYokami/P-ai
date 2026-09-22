@@ -122,6 +122,76 @@ fn tool_result_history_event(
 include!("tool_loop/repeat_guard.rs");
 include!("tool_loop/tool_output_store.rs");
 
+/// 解包工具参数到结构化 JSON 值：模型可能把整个 tool_call arguments 错误地包成字符串
+/// （write 等长内容常见），使 arguments 形如 `"{\"path\":...}"`。逐层解包，最多 3 层防极端嵌套。
+fn unwrap_tool_arguments_value(value: &Value) -> Value {
+    const MAX_TOOL_ARGUMENTS_UNWRAP_LAYERS: usize = 3;
+    let mut current = value.clone();
+    for _ in 0..MAX_TOOL_ARGUMENTS_UNWRAP_LAYERS {
+        match current {
+            Value::String(raw) => match serde_json::from_str::<Value>(&raw) {
+                Ok(parsed) => current = parsed,
+                Err(_) => return Value::String(raw),
+            },
+            _ => return current,
+        }
+    }
+    current
+}
+
+fn unwrap_tool_call_arguments(fn_arguments: &Value) -> String {
+    match unwrap_tool_arguments_value(fn_arguments) {
+        // 无法解包成结构化值：保留原始 arguments 字符串（避免 JSON 序列化再加引号）
+        Value::String(_) => match fn_arguments {
+            Value::String(raw) => raw.clone(),
+            other => other.to_string(),
+        },
+        value => value.to_string(),
+    }
+}
+
+/// 判定工具调用参数是否可执行：有限层解包后必须为 JSON 对象。
+/// 非法 JSON / 非 object（截断文本、裸字符串、数组等）一律视为非法，拒绝执行。
+fn tool_call_arguments_are_executable(tool_call: &genai::chat::ToolCall) -> bool {
+    unwrap_tool_arguments_value(&tool_call.fn_arguments).is_object()
+}
+
+/// 非法工具调用在模型上下文中转为普通文本（保留原始参数，不产生结构化 ToolCall）。
+fn invalid_tool_call_text(tool_call: &genai::chat::ToolCall) -> String {
+    let args = unwrap_tool_call_arguments(&tool_call.fn_arguments);
+    if args.trim().is_empty() {
+        format!("工具调用失败（参数非法，未执行）: {}", tool_call.fn_name)
+    } else {
+        format!(
+            "工具调用失败（参数非法，未执行）: {}\n参数: {}",
+            tool_call.fn_name, args
+        )
+    }
+}
+
+/// 非法工具调用对应的结果文本：只陈述失败事实，不静默补 {}，不伪造执行结果。
+fn invalid_tool_result_text(tool_call: &genai::chat::ToolCall) -> String {
+    format!(
+        "工具结果: 工具 {} 因参数非法未执行，未产生结果。",
+        tool_call.fn_name
+    )
+}
+
+/// 组装回放给模型的 assistant 工具调用部件：合法参数规范成对象 ToolCall，
+/// 非法/非 object 参数转成普通文本（保留原始参数），避免结构化调用触发供应商 400。
+fn assistant_tool_call_part(mut tool_call: genai::chat::ToolCall) -> genai::chat::ContentPart {
+    let unwrapped = unwrap_tool_arguments_value(&tool_call.fn_arguments);
+    if !unwrapped.is_object() {
+        runtime_log_debug(format!(
+            "[工具循环回放] 非法参数转为文本，不结构化回放: tool={}",
+            tool_call.fn_name
+        ));
+        return genai::chat::ContentPart::from_text(invalid_tool_call_text(&tool_call));
+    }
+    tool_call.fn_arguments = unwrapped;
+    genai::chat::ContentPart::ToolCall(tool_call)
+}
+
 fn tool_loop_round_tool_calls_json(tool_calls: &[genai::chat::ToolCall]) -> Vec<Value> {
     tool_calls
         .iter()
@@ -132,10 +202,7 @@ fn tool_loop_round_tool_calls_json(tool_calls: &[genai::chat::ToolCall]) -> Vec<
                 "type": "function",
                 "function": {
                     "name": tool_call.fn_name.clone(),
-                    "arguments": match &tool_call.fn_arguments {
-                        Value::String(raw) => raw.clone(),
-                        other => other.to_string(),
-                    }
+                    "arguments": unwrap_tool_call_arguments(&tool_call.fn_arguments),
                 }
             })
         })
@@ -162,7 +229,7 @@ fn tool_loop_assistant_message(
         turn_tool_calls
             .iter()
             .cloned()
-            .map(genai::chat::ContentPart::ToolCall),
+            .map(assistant_tool_call_part),
     );
     genai::chat::ChatMessage::assistant(genai::chat::MessageContent::from_parts(
         assistant_parts,
@@ -769,9 +836,18 @@ async fn run_genai_tool_loop(
         send_assistant_tool_event(on_delta, &assistant_tool_group_stream_event);
         tool_history_events.push(assistant_tool_group_history_event.clone());
 
+        let mut invalid_tool_calls = Vec::<genai::chat::ToolCall>::new();
         let prepared_turn_tool_calls = turn_tool_calls
             .into_iter()
-            .map(prepared_tool_call_from_genai)
+            .filter_map(|tool_call| {
+                // 非法/非 object 参数：拒绝执行，仅记录失败事实并转文本回放。
+                if !tool_call_arguments_are_executable(&tool_call) {
+                    invalid_tool_calls.push(tool_call);
+                    None
+                } else {
+                    Some(prepared_tool_call_from_genai(tool_call))
+                }
+            })
             .collect::<Vec<_>>();
         let mut round_completed_tool_result_events = Vec::<Value>::new();
         for batch in split_prepared_tool_calls_into_execution_batches(
@@ -966,6 +1042,27 @@ async fn run_genai_tool_loop(
                     err_text,
                 ));
             }
+        }
+
+        // 非法参数调用本轮不执行：成对转文本回放给模型，并记录失败事实（不静默 {}、不伪造结果）。
+        for tool_call in invalid_tool_calls {
+            let failure_text = invalid_tool_result_text(&tool_call);
+            insert_before_trailing_user_messages(
+                &mut messages,
+                genai::chat::ChatMessage::user(failure_text.clone()),
+            );
+            let failure_event = tool_result_history_event(
+                &tool_call.call_id,
+                failure_text,
+                &ProviderToolMetadata::default(),
+            );
+            send_assistant_tool_result_event(on_delta, &failure_event);
+            insert_before_trailing_user_history_events(
+                &mut tool_history_events,
+                failure_event.clone(),
+            );
+            // 与合法结果一致：纳入本轮持久化与压缩闸门统计，保证存储与展示一致。
+            round_completed_tool_result_events.push(failure_event);
         }
 
         // 工具整轮执行完毕瞬间判定：判定前未写正式历史/临时账本。
@@ -1324,7 +1421,8 @@ async fn run_genai_tool_loop_non_stream(
             assistant_parts.push(genai::chat::ContentPart::from_text(turn_text.clone()));
         }
         for tool_call in &turn_tool_calls {
-            assistant_parts.push(genai::chat::ContentPart::ToolCall(tool_call.clone()));
+            // 非法参数转文本回放，避免结构化 ToolCall 触发供应商 400。
+            assistant_parts.push(assistant_tool_call_part(tool_call.clone()));
         }
         let mut assistant_message = genai::chat::ChatMessage::assistant(
             genai::chat::MessageContent::from_parts(assistant_parts),
@@ -1349,9 +1447,18 @@ async fn run_genai_tool_loop_non_stream(
         send_assistant_tool_event(on_delta, &assistant_tool_group_stream_event);
         tool_history_events.push(assistant_tool_group_history_event.clone());
 
+        let mut invalid_tool_calls = Vec::<genai::chat::ToolCall>::new();
         let prepared_turn_tool_calls = turn_tool_calls
             .into_iter()
-            .map(prepared_tool_call_from_genai)
+            .filter_map(|tool_call| {
+                // 非法/非 object 参数：拒绝执行，仅记录失败事实并转文本回放。
+                if !tool_call_arguments_are_executable(&tool_call) {
+                    invalid_tool_calls.push(tool_call);
+                    None
+                } else {
+                    Some(prepared_tool_call_from_genai(tool_call))
+                }
+            })
             .collect::<Vec<_>>();
         let mut round_completed_tool_result_events = Vec::<Value>::new();
         for batch in split_prepared_tool_calls_into_execution_batches(
@@ -1546,6 +1653,27 @@ async fn run_genai_tool_loop_non_stream(
                     err_text,
                 ));
             }
+        }
+
+        // 非法参数调用本轮不执行：成对转文本回放给模型，并记录失败事实（不静默 {}、不伪造结果）。
+        for tool_call in invalid_tool_calls {
+            let failure_text = invalid_tool_result_text(&tool_call);
+            insert_before_trailing_user_messages(
+                &mut messages,
+                genai::chat::ChatMessage::user(failure_text.clone()),
+            );
+            let failure_event = tool_result_history_event(
+                &tool_call.call_id,
+                failure_text,
+                &ProviderToolMetadata::default(),
+            );
+            send_assistant_tool_result_event(on_delta, &failure_event);
+            insert_before_trailing_user_history_events(
+                &mut tool_history_events,
+                failure_event.clone(),
+            );
+            // 与合法结果一致：纳入本轮持久化与压缩闸门统计，保证存储与展示一致。
+            round_completed_tool_result_events.push(failure_event);
         }
 
         // 工具整轮执行完毕瞬间判定：判定前未写正式历史/临时账本。
@@ -2047,6 +2175,111 @@ mod tool_loop_tests {
             Some("先读取目标文件确认结构")
         );
         assert!(response["toolCalls"].as_array().is_some_and(|items| items.is_empty()));
+    }
+
+    #[test]
+    fn unwrap_tool_call_arguments_should_unwrap_double_escaped_object() {
+        // write 长内容：整个对象被模型包成字符串再转义
+        let arg = serde_json::json!(
+            "{\"path\":\"a.md\",\"content\":\"# 标题\\n内容 \\\"引号\\\"\"}"
+        );
+        let normalized = unwrap_tool_call_arguments(&arg);
+        let parsed = serde_json::from_str::<serde_json::Value>(&normalized).unwrap();
+        assert!(parsed.is_object());
+        assert_eq!(parsed["path"], "a.md");
+        assert!(parsed["content"].as_str().unwrap().contains("引号"));
+    }
+
+    #[test]
+    fn unwrap_tool_call_arguments_should_keep_normal_object_unchanged() {
+        let arg = serde_json::json!({"path": "a.rs"});
+        assert_eq!(unwrap_tool_call_arguments(&arg), r#"{"path":"a.rs"}"#);
+    }
+
+    #[test]
+    fn unwrap_tool_call_arguments_should_keep_unparsable_string() {
+        let arg = serde_json::json!("not json at all");
+        assert_eq!(unwrap_tool_call_arguments(&arg), "not json at all");
+    }
+
+    #[test]
+    fn tool_loop_assistant_message_should_unwrap_double_escaped_tool_arguments() {
+        let tool_call = genai::chat::ToolCall {
+            call_id: "call_1".to_string(),
+            fn_name: "write".to_string(),
+            fn_arguments: serde_json::json!("{\"path\":\"a.md\",\"content\":\"# 标题\"}"),
+            thought_signatures: None,
+        };
+        let message = tool_loop_assistant_message("", &[tool_call], "");
+        let tool_call_part = message
+            .content
+            .parts()
+            .iter()
+            .find_map(|part| match part {
+                genai::chat::ContentPart::ToolCall(tool_call) => Some(tool_call),
+                _ => None,
+            })
+            .expect("tool call part");
+        assert!(tool_call_part.fn_arguments.is_object());
+        assert_eq!(tool_call_part.fn_arguments["path"], "a.md");
+    }
+
+    #[test]
+    fn tool_loop_assistant_message_should_render_invalid_args_as_text_not_tool_call() {
+        // 截断 JSON 对象文本（与真实故障 4de438c6 同类结构：content 未闭合）
+        let truncated = "{\"path\": \"a.md\", \"content\": \"# 未闭合";
+        let tool_call = genai::chat::ToolCall {
+            call_id: "call_bad".to_string(),
+            fn_name: "write".to_string(),
+            fn_arguments: serde_json::json!(truncated),
+            thought_signatures: None,
+        };
+        let message = tool_loop_assistant_message("", &[tool_call], "");
+        let has_tool_call_part = message
+            .content
+            .parts()
+            .iter()
+            .any(|part| matches!(part, genai::chat::ContentPart::ToolCall(_)));
+        assert!(
+            !has_tool_call_part,
+            "非法参数不得产生结构化 ToolCall（模型端会 400）"
+        );
+        let texts = message.content.texts();
+        assert!(texts.iter().any(|t| t.contains("write") && t.contains(truncated)),
+            "应转成保留原始参数与失败事实的文本，实际={:?}", texts);
+    }
+
+    #[test]
+    fn tool_call_arguments_are_executable_should_reject_invalid_and_non_object() {
+        let ok = |args: serde_json::Value| genai::chat::ToolCall {
+            call_id: "c".to_string(),
+            fn_name: "write".to_string(),
+            fn_arguments: args,
+            thought_signatures: None,
+        };
+        // 合法对象
+        assert!(tool_call_arguments_are_executable(&ok(serde_json::json!({"path": "a.md"}))));
+        // 合法 double-escaped 对象字符串
+        assert!(tool_call_arguments_are_executable(&ok(serde_json::json!(
+            "{\"path\":\"a.md\",\"content\":\"# 标题\"}"
+        ))));
+        // 截断 JSON：拒绝
+        assert!(!tool_call_arguments_are_executable(&ok(serde_json::json!(
+            "{\"path\": \"a.md\", \"content\": \"# 未闭合"
+        ))));
+        // 非 object（裸字符串 / 数组 / 数字）：拒绝
+        assert!(!tool_call_arguments_are_executable(&ok(serde_json::json!("not json"))));
+        assert!(!tool_call_arguments_are_executable(&ok(serde_json::json!([1, 2, 3]))));
+        assert!(!tool_call_arguments_are_executable(&ok(serde_json::json!(42))));
+    }
+
+    #[test]
+    fn unwrap_tool_call_arguments_should_bound_deep_unwrap_layers() {
+        // 多层字符串包裹，解到上限层后停止，不会死循环
+        let arg = serde_json::json!("\"\\\"deep\\\"\"");
+        let normalized = unwrap_tool_call_arguments(&arg);
+        // 解 3 层：最内层是字符串 "deep"，达到上限返回其序列化文本
+        assert!(!normalized.is_empty());
     }
 
     #[test]

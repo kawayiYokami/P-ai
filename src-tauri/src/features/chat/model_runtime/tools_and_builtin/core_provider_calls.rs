@@ -315,6 +315,14 @@ fn prepared_history_to_genai_messages(
                     else {
                         continue;
                     };
+                    // 非法或非 object 参数：拒绝结构化回放（模型端 .items() 会崩/400），
+                    // 转成普通文本并保留原始参数；不注册 invocation_id，其工具结果也会走文本兜底，避免孤立 ToolResult。
+                    if !call.arguments_value.is_object() {
+                        if let Some(text) = legacy_tool_call_text_for_history(&call) {
+                            assistant_parts.push(genai::chat::ContentPart::from_text(text));
+                        }
+                        continue;
+                    }
                     if let Some(provider_call_id) = call
                         .provider_call_id
                         .as_deref()
@@ -1435,6 +1443,233 @@ mod openai_responses_genai_request_tests {
             request.messages[1].role,
             genai::chat::ChatRole::User
         ));
+    }
+
+    fn history_pp_with_tool_calls(
+        tool_calls: Vec<serde_json::Value>,
+        tool_result_text: &str,
+    ) -> PreparedPrompt {
+        PreparedPrompt {
+            preamble: String::new(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: "调用 write 写文件".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: Some(tool_calls),
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: tool_result_text.to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: Some("inv_1".to_string()),
+                    reasoning_content: None,
+                },
+            ],
+            latest_user_text: "继续".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        }
+    }
+
+    fn history_tool_call(invocation_id: &str, call_id: &str, name: &str, arguments: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": invocation_id,
+            "call_id": call_id,
+            "type": "function",
+            "function": { "name": name, "arguments": arguments }
+        })
+    }
+
+    #[test]
+    fn history_replay_should_render_invalid_args_as_text_pair_not_structured() {
+        // 截断 JSON 对象文本（与真实故障 4de438c6 同类结构：content 未闭合）
+        let truncated = "{\"path\": \"a.md\", \"content\": \"# 未闭合";
+        let prepared = history_pp_with_tool_calls(
+            vec![history_tool_call("inv_1", "call_1", "write", truncated)],
+            "结果文本",
+        );
+        let messages = prepared_history_to_genai_messages(&prepared).expect("ok");
+        assert_eq!(messages.len(), 2, "非法调用+结果应为两段文本，无结构化 call/result");
+
+        // assistant：转文本，无 ToolCall
+        assert!(matches!(messages[0].role, genai::chat::ChatRole::Assistant));
+        assert!(
+            !messages[0].content.parts().iter().any(|p| matches!(p, genai::chat::ContentPart::ToolCall(_))),
+            "非法参数不得产生结构化 ToolCall"
+        );
+        let texts = messages[0]
+            .content
+            .parts()
+            .iter()
+            .filter_map(|p| match p {
+                genai::chat::ContentPart::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            texts.iter().any(|t| t.contains("write") && t.contains(truncated)),
+            "应保留原始参数与失败事实，实际={:?}",
+            texts
+        );
+
+        // tool 结果：因 invocation 未注册，走文本兜底 user 消息，而非孤立 ToolResponse
+        assert!(matches!(messages[1].role, genai::chat::ChatRole::User));
+        assert!(
+            !messages[1].content.parts().iter().any(|p| matches!(p, genai::chat::ContentPart::ToolResponse(_))),
+            "不得产生孤立 ToolResponse"
+        );
+        assert!(
+            messages[1]
+                .content
+                .parts()
+                .iter()
+                .filter_map(|p| match p {
+                    genai::chat::ContentPart::Text(t) => Some(t.as_str()),
+                    _ => None,
+                })
+                .any(|t| t.contains("结果文本"))
+        );
+    }
+
+    #[test]
+    fn history_replay_should_keep_valid_and_mixed_calls_semantics() {
+        let truncated = "{\"path\": \"b.md\", \"content\": \"# 未闭合";
+        let prepared = PreparedPrompt {
+            preamble: String::new(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: "写两个文件".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: Some(vec![
+                        // 合法 double-escaped 对象：规范成 object ToolCall
+                        serde_json::json!({
+                            "id": "inv_valid",
+                            "call_id": "call_valid",
+                            "type": "function",
+                            "function": { "name": "write", "arguments": "{\"path\":\"a.md\",\"content\":\"# 标题\"}" }
+                        }),
+                        // 非法截断：转文本
+                        serde_json::json!({
+                            "id": "inv_bad",
+                            "call_id": "call_bad",
+                            "type": "function",
+                            "function": { "name": "write", "arguments": truncated }
+                        }),
+                    ]),
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "有效结果".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: Some("inv_valid".to_string()),
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "tool".to_string(),
+                    text: "坏结果".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: Some("inv_bad".to_string()),
+                    reasoning_content: None,
+                },
+            ],
+            latest_user_text: "继续".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+        let messages = prepared_history_to_genai_messages(&prepared).expect("ok");
+
+        // assistant：1 个合法 ToolCall（object 参数）+ 1 段非法文本
+        assert!(matches!(messages[0].role, genai::chat::ChatRole::Assistant));
+        let valid_calls = messages[0]
+            .content
+            .parts()
+            .iter()
+            .filter_map(|part| match part {
+                genai::chat::ContentPart::ToolCall(call)
+                    if call.fn_arguments.is_object() =>
+                {
+                    Some(call)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(valid_calls.len(), 1, "合法调用应保留为 object ToolCall");
+        assert_eq!(valid_calls[0].fn_arguments["path"], "a.md");
+        assert!(
+            messages[0]
+                .content
+                .parts()
+                .iter()
+                .filter_map(|p| match p {
+                    genai::chat::ContentPart::Text(t) => Some(t.as_str()),
+                    _ => None,
+                })
+                .any(|t| t.contains(truncated)),
+            "非法调用应转为文本"
+        );
+
+        // 合法结果 → ToolResponse；非法结果 → 文本兜底 user 消息，无孤立 ToolResponse
+        let tool_responses = messages
+            .iter()
+            .flat_map(|m| m.content.parts().iter())
+            .filter_map(|part| match part {
+                genai::chat::ContentPart::ToolResponse(r) => Some(r.content.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            tool_responses.iter().any(|t| t.contains("有效结果")),
+            "合法结果应保留为 ToolResponse，实际={:?}",
+            tool_responses
+        );
+        let user_texts = messages
+            .iter()
+            .filter(|m| matches!(m.role, genai::chat::ChatRole::User))
+            .flat_map(|m| m.content.parts().iter())
+            .filter_map(|p| match p {
+                genai::chat::ContentPart::Text(t) => Some(t.to_string()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            user_texts.iter().any(|t| t.contains("坏结果")),
+            "非法结果应转文本 user 消息，实际={:?}",
+            user_texts
+        );
+        assert!(
+            !tool_responses.iter().any(|t| t.contains("坏结果")),
+            "非法结果不得产生孤立 ToolResponse"
+        );
     }
 
     fn session_header_test_fixture() -> ResolvedApiConfig {

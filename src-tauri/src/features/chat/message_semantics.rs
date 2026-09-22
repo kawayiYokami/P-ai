@@ -32,10 +32,7 @@ fn normalize_tool_call_arguments(raw: Option<&Value>) -> (Value, String, Value) 
         Value::String(text) => text.trim().to_string(),
         other => other.to_string(),
     };
-    let arguments_value = match &raw_arguments {
-        Value::String(text) => serde_json::from_str::<Value>(text).unwrap_or_else(|_| raw_arguments.clone()),
-        _ => raw_arguments.clone(),
-    };
+    let arguments_value = unwrap_tool_arguments_value(&raw_arguments);
     (arguments_value, arguments_text, raw_arguments)
 }
 
@@ -71,6 +68,19 @@ fn normalize_prompt_tool_calls(raw_calls: &[Value]) -> Vec<NormalizedToolCallRec
             let (arguments_value, arguments_text, raw_arguments) = normalize_tool_call_arguments(
                 raw.get("function").and_then(|func| func.get("arguments")),
             );
+            let norm_is_object = arguments_value.is_object();
+            let raw_type = match &raw_arguments {
+                Value::Object(_) => "object",
+                Value::String(_) => "string",
+                Value::Null => "null",
+                _ => "other",
+            };
+            runtime_log_debug(format!(
+                "[历史回放] 工具调用参数规范化: tool={}，原始类型={}，规范化后是否为对象={}",
+                tool_name.as_deref().unwrap_or("(unknown)"),
+                raw_type,
+                norm_is_object
+            ));
             NormalizedToolCallRecord {
                 invocation_id,
                 provider_call_id,
@@ -488,6 +498,16 @@ fn tool_history_markdown_lines_from_message(message: &ChatMessage) -> Vec<String
 #[cfg(test)]
 mod message_semantics_tests {
     use super::*;
+
+    #[test]
+    fn normalize_tool_call_arguments_should_unwrap_double_escaped_object() {
+        let raw = serde_json::json!("{\"path\":\"a.md\",\"content\":\"# 标题\\n内容\"}");
+        let (value, text, _) = normalize_tool_call_arguments(Some(&raw));
+        assert!(value.is_object());
+        assert_eq!(value["path"], "a.md");
+        assert!(value["content"].as_str().unwrap().contains("内容"));
+        assert!(text.contains("path"));
+    }
 
     fn test_message(role: &str, text: &str, created_at: &str) -> ChatMessage {
         ChatMessage {
