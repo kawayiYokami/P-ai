@@ -15,6 +15,29 @@ fn lock_remote_im_reply_delegate_runtimes(
     }
 }
 
+/// 委托标题里的触发消息摘要：取可见正文，压缩空白并截断，
+/// 用于在委托列表里表明「这次应答是针对哪一句话」，避免只显示联系人 UUID。
+fn remote_im_reply_delegate_title(contact_id: &str, trigger_message: &ChatMessage) -> String {
+    const SNIPPET_CHAR_LIMIT: usize = 24;
+    let mut raw = String::new();
+    for part in &trigger_message.parts {
+        if let MessagePart::Text { text, .. } = part {
+            if !raw.is_empty() {
+                raw.push(' ');
+            }
+            raw.push_str(text);
+        }
+    }
+    let compact = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.is_empty() {
+        return format!("远程应答 · {contact_id}");
+    }
+    let total = compact.chars().count();
+    let snippet = compact.chars().take(SNIPPET_CHAR_LIMIT).collect::<String>();
+    let ellipsis = if total > SNIPPET_CHAR_LIMIT { "…" } else { "" };
+    format!("远程应答 · {snippet}{ellipsis}")
+}
+
 fn remote_im_reply_delegate_register(
     state: &AppState,
     contact_id: &str,
@@ -75,7 +98,7 @@ fn remote_im_reply_delegate_register(
             parent_delegate_id: None,
             source_agent_id: session_info.agent_id.clone(),
             target_agent_id: session_info.agent_id.clone(),
-            title: format!("远程应答 · {}", contact_id),
+            title: remote_im_reply_delegate_title(contact_id, trigger_message),
             why: "远程联系人消息触发应答".to_string(),
             goal: "根据冻结上下文回复远程联系人".to_string(),
             todo: "生成并发送远程应答".to_string(),

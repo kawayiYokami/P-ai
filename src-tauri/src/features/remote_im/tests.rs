@@ -4719,3 +4719,23 @@
         store.by_contact.remove(&key);
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
+
+    #[test]
+    fn remote_im_reply_delegate_title_should_use_trigger_message_snippet() {
+        let now = now_iso();
+        let message = test_text_message("user", "  fairy，今天有什么新闻  ", &now);
+        let title = remote_im_reply_delegate_title("contact-uuid", &message);
+        assert_eq!(title, "远程应答 · fairy，今天有什么新闻");
+    }
+
+    #[test]
+    fn remote_im_reply_delegate_title_should_truncate_and_fall_back_to_contact_id() {
+        let now = now_iso();
+        let long = test_text_message("user", &"字".repeat(40), &now);
+        let title = remote_im_reply_delegate_title("contact-uuid", &long);
+        assert_eq!(title, format!("远程应答 · {}…", "字".repeat(24)));
+
+        let blank = test_text_message("user", "   ", &now);
+        let fallback = remote_im_reply_delegate_title("contact-uuid", &blank);
+        assert_eq!(fallback, "远程应答 · contact-uuid");
+    }
