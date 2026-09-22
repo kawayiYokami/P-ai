@@ -222,11 +222,16 @@ fn provider_tool_output_from_value(tool_name: &str, value: &Value) -> String {
 
 fn provider_tool_result_from_value(tool_name: &str, mut value: Value) -> ProviderToolResult {
     let metadata = provider_tool_metadata_from_value(tool_name, &value);
-    let images = if tool_name == "operate" || tool_name == "read_media" {
-        let payload = value.get("data").unwrap_or(&value);
-        extract_forward_images_from_value(payload)
-    } else {
-        Vec::new()
+    let images = match tool_name {
+        "operate" | "read_media" => {
+            let payload = value.get("data").unwrap_or(&value);
+            extract_forward_images_from_value(payload)
+        }
+        // read 的 PDF 图片模式（readerKind=pdf_image_direct）把每页 base64 放在顶层 parts 数组，
+        // 必须提取成 Image part 走图片通道，否则会被当作文本预算截断。
+        // 文本/Office 模式的结果没有 parts，extract 返回空，行为不变。
+        "read" => extract_forward_images_from_value(&value),
+        _ => Vec::new(),
     };
     if !images.is_empty() {
         remove_inline_media_from_tool_value(&mut value);
@@ -477,6 +482,65 @@ mod runtime_tool_result_tests {
         );
 
         assert_eq!(result.output, "音频转写：你好");
+        assert_eq!(result.parts.len(), 1);
+    }
+
+    #[test]
+    fn read_pdf_image_mode_forwards_image_parts_not_base64_text() {
+        let result = provider_tool_result_from_value(
+            "read",
+            serde_json::json!({
+                "ok": true,
+                "path": "C:/tmp/doc.pdf",
+                "detectedType": "pdf",
+                "readerKind": "pdf_image_direct",
+                "truncated": false,
+                "parts": [
+                    {"type": "image", "mimeType": "image/webp", "data": "AAAABBBB", "pageIndex": 0, "pageNumber": 1, "width": 100, "height": 80},
+                    {"type": "image", "mimeType": "image/webp", "data": "CCCCDDDD", "pageIndex": 1, "pageNumber": 2, "width": 120, "height": 90}
+                ],
+                "response": {"ok": true, "returnedPageCount": 2, "totalPages": 5}
+            }),
+        );
+
+        // Text + 2 Image part
+        assert_eq!(result.parts.len(), 3);
+        // base64 不再出现在文本投影里
+        assert!(!result.output.contains("AAAABBBB"));
+        assert!(!result.output.contains("CCCCDDDD"));
+        match &result.parts[1] {
+            ProviderToolResultPart::Image { mime, data_base64, width, height } => {
+                assert_eq!(mime, "image/webp");
+                assert_eq!(data_base64, "AAAABBBB");
+                assert_eq!(*width, 100);
+                assert_eq!(*height, 80);
+            }
+            other => panic!("expected image part, got {other:?}"),
+        }
+        match &result.parts[2] {
+            ProviderToolResultPart::Image { mime, data_base64, width, height } => {
+                assert_eq!(mime, "image/webp");
+                assert_eq!(data_base64, "CCCCDDDD");
+                assert_eq!(*width, 120);
+                assert_eq!(*height, 90);
+            }
+            other => panic!("expected image part, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn read_text_result_keeps_no_image_part() {
+        let result = provider_tool_result_from_value(
+            "read",
+            serde_json::json!({
+                "ok": true,
+                "path": "C:/tmp/a.rs",
+                "detectedType": "text",
+                "content": "fn main() {}"
+            }),
+        );
+
+        assert_eq!(result.output, "fn main() {}");
         assert_eq!(result.parts.len(), 1);
     }
 
