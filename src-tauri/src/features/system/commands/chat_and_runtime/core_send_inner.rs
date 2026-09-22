@@ -2598,7 +2598,7 @@ async fn send_chat_message_inner(
                 .auto_push_remote_contact_id
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty());
-            if let (Some(delegate_id), Some(trigger_message_id)) = (
+            if let (Some(delegate_id), Some(_trigger_message_id)) = (
                 runtime_context
                     .remote_im_reply_delegate_id
                     .as_deref()
@@ -2617,62 +2617,22 @@ async fn send_chat_message_inner(
                     .take(visible_texts.len().saturating_sub(1))
                     .enumerate()
                 {
-                    let intermediate_message_id = Uuid::new_v4().to_string();
-                    let provider_meta_patch = remote_im_reply_delegate_stage_provider_meta(
-                        delegate_id,
-                        trigger_message_id,
-                        &format!("intermediate_{}", index + 1),
-                    );
-                    conversation_service_v2().bootstrap_streaming_assistant_message(
-                        &state,
-                        &AssistantMessageBootstrapInput {
-                            conversation_id: conversation_id.clone(),
-                            assistant_message_id: intermediate_message_id.clone(),
-                            speaker_agent_id: current_agent.id.clone(),
-                            created_at: Some(now_iso()),
-                            provider_meta_patch: Some(provider_meta_patch.clone()),
-                            compaction_preserved_messages: None,
-                        },
-                    )?;
-                    conversation_service_v2().append_final_text_to_assistant_message(
-                        &state,
-                        &AssistantMessageFinalTextAppendInput {
-                            conversation_id: conversation_id.clone(),
-                            assistant_message_id: intermediate_message_id.clone(),
-                            final_text: text.clone(),
-                            reasoning_text: None,
-                            provider_meta_patch: Some(provider_meta_patch),
-                            meme_annotations: None,
-                        },
-                    )?;
-                    // 未来的自己请停手：这个 message 会镜像进远程应答委托线程，
-                    // 属于后端持久化/生成链路。绝对不能读取 frontend_display_only，
-                    // 否则工具历史会被展示投影污染后继续进模型/持久化流程。
-                    let message = conversation_service_v2()
-                        .get_raw_message_by_id(&state, &conversation_id, &intermediate_message_id)
-                        .ok();
-                    if let Some(message) = message.as_ref() {
-                        if let Err(err) = remote_im_reply_delegate_mirror_message(
-                            &state,
-                            delegate_id,
-                            message.clone(),
-                            None,
-                        ) {
-                            runtime_log_warn(format!(
-                                "[远程应答委托] 失败，任务=镜像中间正文，delegate_id={}，message_id={}，error={}",
-                                delegate_id, intermediate_message_id, err
-                            ));
-                        }
-                        // 远程应答使用空 Channel 执行，需主动通知当前会话视图刷新。
-                        emit_conversation_message_appended_event(
-                            &state,
-                            &conversation_id,
-                            message,
+                    // 中间正文只做中途直接外发：纯发送、不更新 decision、不缓存、不镜像、
+                    // 不写入任何会话历史（委托线程会话也不镜像）。发完即止；
+                    // 中间正文作为消息本身不丢，最终随完整一组落账时自然带上。
+                    if let Some(activation_source) = effective_bound_remote_im_activation_source(
+                        Some(&runtime_context),
+                        &remote_im_activation_sources,
+                    ) {
+                        spawn_remote_im_auto_send_intermediate_text(
+                            state.clone(),
+                            activation_source,
+                            text.clone(),
                         );
                     }
                     runtime_log_debug(format!(
-                        "[远程应答委托] 中间正文仅持久化，等待最终回复统一外发，delegate_id={}，message_id={}",
-                        delegate_id, intermediate_message_id
+                        "[远程应答委托] 中间正文已中途直接外发，不落账不镜像，delegate_id={}，intermediate_index={}",
+                        delegate_id, index + 1
                     ));
                     }
                 }
@@ -2701,6 +2661,38 @@ async fn send_chat_message_inner(
                     final_text.replace('\n', "\\n")
                 ));
                 log_run_stage("assistant_final_append.start");
+                // 远程应答委托：tool loop 因 dynamic_boundary 跳过工具结果写历史（context=None），
+                // 最终落账时把完整一组（工具行们 + 正文行）一次性补进历史会话，
+                // 使下次应答委托读历史能拿到上次工具结果，不必从 0 开始。
+                // 中间正文已中途外发不落账；此处只补工具事件对，正文行由 append_final_text 写入。
+                if let Some(delegate_id) = runtime_context
+                    .remote_im_reply_delegate_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    // 补写工具行失败不中断最终落账：正文行仍由 append_final_text 写入，
+                    // 工具行丢失可留待下次委托重读，正文丢失影响更大。
+                    match append_remote_im_delegate_tool_events_to_history(
+                        &state,
+                        &conversation_id,
+                        &assistant_message_id,
+                        &tool_history_events,
+                    ) {
+                        Ok(tool_event_count) => {
+                            runtime_log_info(format!(
+                                "[远程应答委托] 最终落账补写工具行，delegate_id={}，conversation_id={}，assistant_message_id={}，tool_event_count={}",
+                                delegate_id, conversation_id, assistant_message_id, tool_event_count
+                            ));
+                        }
+                        Err(err) => {
+                            runtime_log_warn(format!(
+                                "[远程应答委托] 补写工具行失败，继续正文落账，delegate_id={}，conversation_id={}，assistant_message_id={}，error={}",
+                                delegate_id, conversation_id, assistant_message_id, err
+                            ));
+                        }
+                    }
+                }
                 let append_final_result = conversation_service_v2().append_final_text_to_assistant_message(
                     &state,
                     &AssistantMessageFinalTextAppendInput {
@@ -4644,19 +4636,6 @@ mod core_send_inner_tests {
         assert_eq!(
             remote_im_reply_delegate_visible_texts(&messages),
             vec!["先查一下。".to_string(), "查到了，最终答复。".to_string()]
-        );
-        let meta = remote_im_reply_delegate_stage_provider_meta(
-            "delegate-1",
-            "trigger-1",
-            "intermediate_1",
-        );
-        assert_eq!(
-            meta["remoteImReplyDelegate"]["delegateId"],
-            serde_json::json!("delegate-1")
-        );
-        assert_eq!(
-            meta["remoteImReplyDelegate"]["triggerMessageId"],
-            serde_json::json!("trigger-1")
         );
     }
 }

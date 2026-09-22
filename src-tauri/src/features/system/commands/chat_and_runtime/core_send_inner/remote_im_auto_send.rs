@@ -173,20 +173,6 @@ fn remote_im_reply_delegate_visible_texts(request_messages: &[Value]) -> Vec<Str
         .collect()
 }
 
-fn remote_im_reply_delegate_stage_provider_meta(
-    delegate_id: &str,
-    trigger_message_id: &str,
-    output_stage: &str,
-) -> Value {
-    serde_json::json!({
-        "remoteImReplyDelegate": {
-            "delegateId": delegate_id,
-            "triggerMessageId": trigger_message_id,
-            "outputStage": output_stage
-        }
-    })
-}
-
 fn effective_bound_remote_im_activation_source(
     runtime_context: Option<&RuntimeContext>,
     activation_sources: &[RemoteImActivationSource],
@@ -1082,6 +1068,101 @@ fn spawn_remote_im_auto_send_contact_assistant_reply(
             }
         }
     });
+}
+
+/// 中间正文中途直接外发（对齐 angel_heart：中途消息实时发出、不落会话历史）。
+/// 纯发送、不更新 reply decision、不做群聊派发，最终回复仍由既有完成点统一外发一次。
+fn spawn_remote_im_auto_send_intermediate_text(
+    state: AppState,
+    activation_source: RemoteImActivationSource,
+    assistant_text: String,
+) {
+    tauri::async_runtime::spawn(async move {
+        let (channel_label, contact_label) =
+            remote_im_auto_send_log_labels(&state, &activation_source);
+        let reply_preview = remote_im_preview_text(&assistant_text, 100);
+        runtime_log_info(format!(
+            "[远程IM][中间外发] 开始：渠道={}，联系人={}，内容={}",
+            channel_label, contact_label, reply_preview
+        ));
+        match remote_im_auto_send_assistant_reply_to_source(
+            &state,
+            &activation_source,
+            &assistant_text,
+            None,
+            None,
+        )
+        .await
+        {
+            Ok(Some(_)) => {
+                runtime_log_info(format!(
+                    "[远程IM][中间外发] 完成：渠道={}，联系人={}，内容={}",
+                    channel_label, contact_label, reply_preview
+                ));
+            }
+            Ok(None) => {
+                runtime_log_warn(format!(
+                    "[远程IM][中间外发] 跳过：渠道={}，联系人={}，原因=空回复",
+                    channel_label, contact_label
+                ));
+            }
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[远程IM][中间外发] 失败：渠道={}，联系人={}，内容={}，异常={}",
+                    channel_label, contact_label, reply_preview, err
+                ));
+            }
+        }
+    });
+}
+
+/// 远程应答委托最终落账：把本次调度的工具事件对补写进历史会话（V4 工具行）。
+/// 工具事件按序排列：assistant tool_calls 事件 + 对应 tool 结果事件成对出现；
+/// 逐对调用 append_tool_event_to_assistant_message，服务内部按 tool_call_id 去重。
+/// 返回写入的事件对数。
+fn append_remote_im_delegate_tool_events_to_history(
+    state: &AppState,
+    conversation_id: &str,
+    assistant_message_id: &str,
+    tool_history_events: &[Value],
+) -> Result<usize, String> {
+    let mut written = 0usize;
+    let mut pending_assistant_event: Option<Value> = None;
+    for event in tool_history_events {
+        let role = event
+            .get("role")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        if role.eq_ignore_ascii_case("assistant") {
+            pending_assistant_event = Some(event.clone());
+            continue;
+        }
+        if role.eq_ignore_ascii_case("tool") {
+            let Some(assistant_event) = pending_assistant_event.as_ref() else {
+                runtime_log_debug(format!(
+                    "[远程应答委托] 跳过无配对 assistant 的工具事件，conversation_id={}，tool_call_id={}",
+                    conversation_id,
+                    event
+                        .get("tool_call_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                ));
+                continue;
+            };
+            conversation_service_v2().append_tool_event_to_assistant_message(
+                state,
+                &AssistantMessageToolAppendInput {
+                    conversation_id: conversation_id.to_string(),
+                    assistant_message_id: assistant_message_id.to_string(),
+                    assistant_tool_event: assistant_event.clone(),
+                    tool_result_event: event.clone(),
+                },
+            )?;
+            written += 1;
+        }
+    }
+    Ok(written)
 }
 
 fn update_remote_im_reply_decision_for_message(
