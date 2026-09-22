@@ -195,6 +195,15 @@ fn ide_chat_remote_im_list_contacts_for_web_settings(state: &AppState) -> Result
     ide_chat_serialize(remote_im_list_contacts_inner(state)?)
 }
 
+fn ide_chat_remote_im_get_contact_conversation_model_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input =
+        ide_chat_parse_param_field::<RemoteImContactConversationModelInput>(params, "input")?;
+    ide_chat_serialize(remote_im_get_contact_conversation_model_inner(state, input)?)
+}
+
 fn ide_chat_remote_im_update_contact_allow_send_for_web_settings(
     state: &AppState,
     params: Value,

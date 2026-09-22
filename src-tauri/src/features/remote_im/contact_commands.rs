@@ -398,7 +398,6 @@ fn remote_im_unsubscribe_contact_dashboard_for_web(
 #[derive(Clone)]
 struct RemoteImContactBindingSnapshot {
     bound_agent_id: Option<String>,
-    bound_api_config_id: Option<String>,
     bound_conversation_id: Option<String>,
     route_mode: String,
 }
@@ -408,7 +407,6 @@ fn remote_im_contact_binding_snapshot(
 ) -> RemoteImContactBindingSnapshot {
     RemoteImContactBindingSnapshot {
         bound_agent_id: contact.bound_agent_id.clone(),
-        bound_api_config_id: contact.bound_api_config_id.clone(),
         bound_conversation_id: contact.bound_conversation_id.clone(),
         route_mode: contact.route_mode.clone(),
     }
@@ -419,7 +417,6 @@ fn remote_im_contact_binding_matches(
     snapshot: &RemoteImContactBindingSnapshot,
 ) -> bool {
     contact.bound_agent_id == snapshot.bound_agent_id
-        && contact.bound_api_config_id == snapshot.bound_api_config_id
         && contact.bound_conversation_id == snapshot.bound_conversation_id
         && contact.route_mode == snapshot.route_mode
 }
@@ -429,7 +426,6 @@ fn remote_im_apply_contact_binding_snapshot(
     snapshot: &RemoteImContactBindingSnapshot,
 ) {
     contact.bound_agent_id = snapshot.bound_agent_id.clone();
-    contact.bound_api_config_id = snapshot.bound_api_config_id.clone();
     contact.bound_conversation_id = snapshot.bound_conversation_id.clone();
     contact.route_mode = snapshot.route_mode.clone();
 }
@@ -633,6 +629,91 @@ fn remote_im_list_contacts(state: State<'_, AppState>) -> Result<Vec<RemoteImCon
     remote_im_list_contacts_inner(state.inner())
 }
 
+/// 联系人处理模型存在哪：模型挂在联系人的会话上（会话 preferred_api_config_id），
+/// 联系人自身不存模型。这里只做只读解析——会话被删/归档时 conversation_exists=false，
+/// 前端据此禁用模型选择器，绝不顺手重建会话。
+fn remote_im_find_existing_contact_conversation_id(
+    state: &AppState,
+    contact: &RemoteImContact,
+) -> Result<Option<String>, String> {
+    let bound_conversation_id = contact
+        .bound_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(bound_conversation_id) = bound_conversation_id {
+        if let Ok(conversation_meta) =
+            conversation_service_v2().get_conversation_meta(state, bound_conversation_id)
+        {
+            if conversation_meta.is_remote_im_contact
+                && conversation_service_v2()
+                    .conversation_meta_is_unarchived_meta_view(&conversation_meta)
+            {
+                return Ok(Some(conversation_meta.id));
+            }
+        }
+    }
+    let target_key = remote_im_contact_conversation_key(contact);
+    let found = state_read_chat_index_cached(state)?
+        .conversations
+        .iter()
+        .filter_map(|item| {
+            conversation_service_v2()
+                .get_conversation_meta(state, item.id.as_str())
+                .ok()
+        })
+        .find(|conversation_meta| {
+            conversation_meta.is_remote_im_contact
+                && conversation_service_v2()
+                    .conversation_meta_is_unarchived_meta_view(conversation_meta)
+                && conversation_meta.root_conversation_id.as_deref() == Some(target_key.as_str())
+        })
+        .map(|conversation_meta| conversation_meta.id);
+    Ok(found)
+}
+
+fn remote_im_get_contact_conversation_model_inner(
+    state: &AppState,
+    input: RemoteImContactConversationModelInput,
+) -> Result<RemoteImContactConversationModelOutput, String> {
+    let contact_id = input.contact_id.trim();
+    if contact_id.is_empty() {
+        return Err("contact_id 为必填项。".to_string());
+    }
+    let empty_output = RemoteImContactConversationModelOutput {
+        conversation_id: None,
+        conversation_exists: false,
+        preferred_api_config_id: None,
+    };
+    let Some(contact) = state_service_get_remote_im_contact(state, contact_id)? else {
+        return Ok(empty_output);
+    };
+    let Some(conversation_id) =
+        remote_im_find_existing_contact_conversation_id(state, &contact)?
+    else {
+        return Ok(empty_output);
+    };
+    let preferred_api_config_id = conversation_service_v2()
+        .get_conversation_meta(state, &conversation_id)
+        .ok()
+        .and_then(|conversation_meta| conversation_meta.preferred_api_config_id)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    Ok(RemoteImContactConversationModelOutput {
+        conversation_id: Some(conversation_id),
+        conversation_exists: true,
+        preferred_api_config_id,
+    })
+}
+
+#[tauri::command]
+fn remote_im_get_contact_conversation_model(
+    input: RemoteImContactConversationModelInput,
+    state: State<'_, AppState>,
+) -> Result<RemoteImContactConversationModelOutput, String> {
+    remote_im_get_contact_conversation_model_inner(state.inner(), input)
+}
+
 #[tauri::command]
 fn remote_im_get_default_group_response_guidance() -> String {
     default_remote_im_contact_response_guidance()
@@ -812,16 +893,9 @@ fn remote_im_patch_contact_settings_inner(
     } else {
         None
     };
-    let next_api_config_id = input
-        .api_config_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
     let output = remote_im_mutate_contact(state, &input.contact_id, |contact| {
         let is_private = remote_im_contact_is_private(contact);
         contact.bound_agent_id = next_agent.clone();
-        contact.bound_api_config_id = next_api_config_id.clone();
         contact.route_mode = runtime_snapshot
             .as_ref()
             .map(|snapshot| remote_im_resolve_effective_route_mode(&snapshot.config, contact))
@@ -979,12 +1053,6 @@ fn remote_im_update_contact_agent_binding_inner(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
-    let next_api_config_id = input
-        .api_config_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
     let next_agent = if let Some(agent_id) = next_agent_id.as_deref() {
         if runtime_snapshot.is_some() {
             Some(resolve_contact_agent_id(state, Some(agent_id))?)
@@ -996,7 +1064,6 @@ fn remote_im_update_contact_agent_binding_inner(
     };
     let output = remote_im_mutate_contact(state, &input.contact_id, |contact| {
         contact.bound_agent_id = next_agent.clone();
-        contact.bound_api_config_id = next_api_config_id.clone();
         contact.route_mode = runtime_snapshot
             .as_ref()
             .map(|snapshot| remote_im_resolve_effective_route_mode(&snapshot.config, contact))

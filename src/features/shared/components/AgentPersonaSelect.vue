@@ -68,7 +68,7 @@
       <ApiConfigPicker
         :model-value="selectedApiConfigId"
         :api-configs="textApiConfigs"
-        :disabled="disabled"
+        :disabled="disabled || modelDisabled"
         @update:model-value="handleModelSelect"
       />
     </div>
@@ -102,11 +102,14 @@ const props = withDefaults(defineProps<{
   autoSelectFirst?: boolean;
   preserveCurrent?: boolean;
   personaAvatarUrlMap?: Record<string, string>;
+  /** 单独禁用模型选择器（例如联系人的会话已被删除），不影响人格选择。 */
+  modelDisabled?: boolean;
 }>(), {
   agentId: "",
   apiConfigId: "",
   expertApiConfigId: "",
   placeholder: "",
+  modelDisabled: false,
   disabled: false,
   showModel: true,
   autoSelectFirst: false,
@@ -200,6 +203,9 @@ const showModelSelector = computed(() => props.showModel && textApiConfigs.value
 const selectedSummaryLabel = computed(() => {
   if (selectedOption.value) {
     const agentName = String(selectedOption.value.agentName || "").trim();
+    // 确实渲染出独立模型选择器时，模型由下方选择器单独表达，摘要只留人格名，避免两处各显一个模型；
+    // 否则（未提供模型列表）摘要仍带上模型名，避免模型信息无处表达。
+    if (showModelSelector.value) return agentName;
     const modelName = String(selectedOption.value.modelName || "").trim();
     return [agentName, modelName].filter(Boolean).join(" · ");
   }

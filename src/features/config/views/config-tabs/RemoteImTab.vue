@@ -803,7 +803,7 @@
                 <div class="flex w-[28rem] max-w-full flex-col gap-1">
                   <AgentPersonaSelect
                     v-model:agent-id="contactDraft.boundAgentId"
-                    :api-config-id="contactDraft.boundApiConfigId"
+                    :api-config-id="contactConversationModel.preferredApiConfigId"
                     :personas="personas"
                     :persona-avatar-url-map="personaAvatarUrlMap"
                     :api-configs="config.apiConfigs"
@@ -812,7 +812,8 @@
                     :placeholder="t('config.remoteIm.processingAgentPlaceholder')"
                     :show-model="true"
                     :disabled="contactsDisabled"
-                    @update:api-config-id="contactDraft.boundApiConfigId = $event"
+                    :model-disabled="!contactConversationModel.conversationExists"
+                    @update:api-config-id="onContactConversationModelChange"
                   />
                   <span class="text-xs opacity-60">{{ contactDraftRoutingHint }}</span>
                 </div>
@@ -1067,7 +1068,8 @@ type ContactPillMenuState = {
 };
 type ContactSettingsClipboard = {
   boundAgentId: string;
-  boundApiConfigId: string;
+  /** 会话首选模型：模型属于联系人的会话，复制设置时一并带上。 */
+  preferredApiConfigId: string;
   processingMode: "qa" | "continuous";
   activationMode: RemoteImContact["activationMode"];
   activationKeywordsText: string;
@@ -1485,7 +1487,6 @@ const contactLogsTitle = computed(() => {
 });
 type ContactEditDraft = {
   boundAgentId: string;
-  boundApiConfigId: string;
   processingMode: "qa" | "continuous";
   activationMode: RemoteImContact["activationMode"];
   activationKeywordsText: string;
@@ -1496,6 +1497,15 @@ type ContactEditDraft = {
   shellWorkspaces: ShellWorkspace[];
 };
 const contactDraft = ref<ContactEditDraft | null>(null);
+/**
+ * 当前弹窗联系人的会话模型归属：模型存在联系人的会话（preferred_api_config_id）。
+ * conversationExists 为 false 表示会话已被删除/归档，此时模型选择器禁用。
+ */
+const contactConversationModel = ref<{
+  conversationId: string;
+  conversationExists: boolean;
+  preferredApiConfigId: string;
+}>({ conversationId: "", conversationExists: false, preferredApiConfigId: "" });
 const contactDraftSnapshot = ref("");
 const contactDraftDirty = computed(() =>
   !!contactDraft.value && JSON.stringify(contactDraft.value) !== contactDraftSnapshot.value,
@@ -1548,7 +1558,6 @@ const contactKeywordDrafts = ref<Record<string, string>>({});
 function buildContactDraftFromContact(item: RemoteImContact): ContactEditDraft {
   return {
     boundAgentId: String(item.boundAgentId || ""),
-    boundApiConfigId: String((item as any).boundApiConfigId || ""),
     processingMode: normalizeProcessingMode(item.processingMode),
     activationMode: isPrivateContact(item) ? "always" : normalizeActivationMode(item.activationMode || "never"),
     activationKeywordsText: item.activationKeywords.join(", "),
@@ -1568,11 +1577,12 @@ function buildContactDraftFromContact(item: RemoteImContact): ContactEditDraft {
   };
 }
 
-function buildContactSettingsClipboard(item: RemoteImContact): ContactSettingsClipboard {
+function buildContactSettingsClipboard(
+  item: RemoteImContact,
+): Omit<ContactSettingsClipboard, "preferredApiConfigId"> {
   const isPrivate = isPrivateContact(item);
   return {
     boundAgentId: String(item.boundAgentId || ""),
-    boundApiConfigId: String((item as any).boundApiConfigId || ""),
     processingMode: normalizeProcessingMode(item.processingMode),
     activationMode: isPrivate ? "always" : normalizeActivationMode(item.activationMode || "never"),
     activationKeywordsText: isPrivate ? "" : (Array.isArray(item.activationKeywords) ? item.activationKeywords.join(", ") : ""),
@@ -1592,6 +1602,55 @@ function syncSelectedContactDraft() {
   const draft = buildContactDraftFromContact(selectedContact.value);
   contactDraft.value = draft;
   contactDraftSnapshot.value = JSON.stringify(draft);
+}
+
+type ContactConversationModel = {
+  conversationId: string;
+  conversationExists: boolean;
+  preferredApiConfigId: string;
+};
+
+/** 只读解析联系人的会话模型；会话不存在时返回 conversationExists=false。 */
+async function fetchContactConversationModel(contactId: string): Promise<ContactConversationModel> {
+  try {
+    const result = await invokeTauri<{
+      conversationId?: string | null;
+      conversationExists?: boolean;
+      preferredApiConfigId?: string | null;
+    }>("remoteIm.contact.conversationModel", { input: { contactId } });
+    return {
+      conversationId: String(result.conversationId || "").trim(),
+      conversationExists: !!result.conversationExists,
+      preferredApiConfigId: String(result.preferredApiConfigId || "").trim(),
+    };
+  } catch (error) {
+    props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
+    return { conversationId: "", conversationExists: false, preferredApiConfigId: "" };
+  }
+}
+
+async function refreshContactConversationModel(contactId: string) {
+  contactConversationModel.value = await fetchContactConversationModel(contactId);
+}
+
+async function onContactConversationModelChange(apiConfigIdRaw: string) {
+  const target = contactConversationModel.value;
+  if (!target.conversationExists || !target.conversationId) return;
+  const nextApiConfigId = String(apiConfigIdRaw || "").trim();
+  const previous = target.preferredApiConfigId;
+  contactConversationModel.value = { ...target, preferredApiConfigId: nextApiConfigId };
+  try {
+    await invokeTauri("conversation.preferredModel.set", {
+      input: {
+        conversationId: target.conversationId,
+        preferredApiConfigId: nextApiConfigId || null,
+      },
+    });
+    props.setStatusAction(t("config.remoteIm.contactContinueSession"));
+  } catch (error) {
+    contactConversationModel.value = { ...target, preferredApiConfigId: previous };
+    props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
+  }
 }
 
 function asNonEmptyString(value: unknown): string {
@@ -2005,7 +2064,12 @@ async function saveContactActivation(
 }
 
 async function copyContactSettings(item: RemoteImContact) {
-  contactSettingsClipboard.value = buildContactSettingsClipboard(item);
+  // 模型挂在联系人的会话上，复制设置时一并带上，粘贴时写回目标联系人会话。
+  const model = await fetchContactConversationModel(item.id);
+  contactSettingsClipboard.value = {
+    ...buildContactSettingsClipboard(item),
+    preferredApiConfigId: model.preferredApiConfigId,
+  };
   props.setStatusAction(t("config.remoteIm.contactSettingsCopied"));
 }
 
@@ -2016,7 +2080,6 @@ function buildContactClipboardPatch(
   const isPrivate = isPrivateContact(target);
   return {
     boundAgentId: clipboard.boundAgentId,
-    boundApiConfigId: clipboard.boundApiConfigId,
     processingMode: clipboard.processingMode,
     activationMode: isPrivate ? "always" : clipboard.activationMode,
     activationKeywords: isPrivate ? [] : parseActivationKeywords(clipboard.activationKeywordsText),
@@ -2038,7 +2101,6 @@ async function pasteContactSettings(item: RemoteImContact) {
         input: {
           contactId: item.id,
           agentId: patch.boundAgentId || null,
-          apiConfigId: patch.boundApiConfigId || null,
           processingMode: patch.processingMode,
           activationMode: patch.activationMode,
           activationKeywords: patch.activationKeywords,
@@ -2048,6 +2110,16 @@ async function pasteContactSettings(item: RemoteImContact) {
           allowSendFiles: patch.allowSendFiles,
         },
       });
+      // 会话不存在（被删/归档）时不写模型，避免顺手重建会话。
+      const targetModel = await fetchContactConversationModel(item.id);
+      if (targetModel.conversationExists && targetModel.conversationId) {
+        await invokeTauri("conversation.preferredModel.set", {
+          input: {
+            conversationId: targetModel.conversationId,
+            preferredApiConfigId: clipboard.preferredApiConfigId || null,
+          },
+        });
+      }
       contacts.value = contacts.value.map((contact) => (
         contact.id === updated.id ? updated : contact
       ));
@@ -2236,27 +2308,21 @@ async function moveContactActivationMode(item: RemoteImContact, direction: -1 | 
 async function onContactAgentChange(
   item: RemoteImContact,
   agentIdRaw: string,
-  apiConfigIdRaw?: string,
 ) {
   const oldAgentId = item.boundAgentId;
-  const oldApiConfigId = (item as any).boundApiConfigId;
   const nextAgentId = String(agentIdRaw || "").trim() || "";
-  const nextApiConfigId = String(apiConfigIdRaw || "").trim() || "";
   item.boundAgentId = nextAgentId || undefined;
-  (item as any).boundApiConfigId = nextApiConfigId || undefined;
   try {
     await invokeTauri<RemoteImContact>("remote_im_update_contact_agent_binding", {
       input: {
         contactId: item.id,
         agentId: nextAgentId || null,
-        apiConfigId: nextApiConfigId || null,
       },
     });
     props.setStatusAction(t('config.remoteIm.contactContinueSession'));
     await refreshContacts();
   } catch (error) {
     item.boundAgentId = oldAgentId;
-    (item as any).boundApiConfigId = oldApiConfigId;
     props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
   }
 }
@@ -2431,10 +2497,8 @@ async function saveContactDraft() {
   try {
     const nextAgentId = String(draft.boundAgentId || "").trim();
     const currentAgentId = String(item.boundAgentId || "").trim();
-    const nextApiConfigId = String(draft.boundApiConfigId || "").trim();
-    const currentApiConfigId = String((item as any).boundApiConfigId || "").trim();
-    if (nextAgentId !== currentAgentId || nextApiConfigId !== currentApiConfigId) {
-      await onContactAgentChange(item, nextAgentId, nextApiConfigId);
+    if (nextAgentId !== currentAgentId) {
+      await onContactAgentChange(item, nextAgentId);
     }
 
     const nextProcessingMode = normalizeProcessingMode(draft.processingMode);
@@ -3013,6 +3077,7 @@ function openContactConfigModal(contactId: string) {
   selectedContactId.value = contactId;
   syncSelectedContactDraft();
   contactConfigModalOpen.value = true;
+  void refreshContactConversationModel(contactId);
 }
 
 function closeContactConfigModal() {

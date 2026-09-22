@@ -267,6 +267,9 @@ async fn ide_chat_handle_jsonrpc_request(
         "remoteIm.conversations.list" => {
             ide_chat_remote_im_list_contact_conversations_for_web_settings(state)
         }
+        "remoteIm.contact.conversationModel" => {
+            ide_chat_remote_im_get_contact_conversation_model_for_web_settings(state, request.params)
+        }
         "list_delegate_conversations" => ide_chat_list_delegate_conversations_for_web_settings(state),
         "delegate.conversations.list" => ide_chat_list_delegate_conversations_for_web_settings(state),
         "get_prompt_preview" => ide_chat_get_prompt_preview_for_web_settings(state, request.params).await,
@@ -541,6 +544,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "remote_im_get_contact_logs" => ide_chat_remote_im_get_contact_logs_for_web_settings(state, request.params).await,
         "remote_im_list_channels" => ide_chat_remote_im_list_channels_for_web_settings(state),
         "remote_im_list_contacts" => ide_chat_remote_im_list_contacts_for_web_settings(state),
+        "remote_im_get_contact_conversation_model" => ide_chat_remote_im_get_contact_conversation_model_for_web_settings(state, request.params),
         "remote_im_update_contact_allow_send" => ide_chat_remote_im_update_contact_allow_send_for_web_settings(state, request.params),
         "remote_im_update_contact_allow_send_files" => ide_chat_remote_im_update_contact_allow_send_files_for_web_settings(state, request.params),
         "remote_im_update_contact_blocked_message_prefixes" => ide_chat_remote_im_update_contact_blocked_message_prefixes_for_web_settings(state, request.params),
@@ -1007,6 +1011,7 @@ mod web_native_capability_tests {
             "conversation.foregroundLightSnapshot",
             "chat.send",
             "remote_im_list_contacts",
+            "remote_im_get_contact_conversation_model",
             "task.list",
             "mcp_list_servers",
             "set_github_update_method",

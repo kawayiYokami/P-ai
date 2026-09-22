@@ -463,7 +463,6 @@ export type RemoteImContact = {
   groupReplyPacing?: RemoteImGroupReplyPacing;
   routeMode?: "main_session" | "dedicated_contact_conversation";
   boundAgentId?: string;
-  boundApiConfigId?: string;
   boundConversationId?: string;
   processingMode?: "qa" | "continuous";
   lastActivatedAt?: string;

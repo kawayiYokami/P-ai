@@ -1092,11 +1092,11 @@ async fn send_chat_message_inner(
             .and_then(|conversation_id| {
                 conversation_service_v2().get_conversation_meta(&state, conversation_id).ok()
             });
+        // 远程联系人会话同样尊重会话首选模型：联系人绑定的偏好模型（写入会话
+        // preferred_api_config_id）在私聊直答与群聊应答委托两条路上都应生效，
+        // 不能再按会话类型把它丢掉。
         let conversation_preferred_api_config_id = conversation_meta_for_model_selection
             .as_ref()
-            .filter(|conversation| {
-                conversation.conversation_kind.trim() != CONVERSATION_KIND_REMOTE_IM_CONTACT
-            })
             .and_then(|conversation| {
                 conversation
                     .preferred_api_config_id

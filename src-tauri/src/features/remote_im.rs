@@ -138,8 +138,6 @@ struct RemoteImContactSettingsPatchInput {
     contact_id: String,
     #[serde(default)]
     agent_id: Option<String>,
-    #[serde(default)]
-    api_config_id: Option<String>,
     #[serde(default = "default_remote_im_contact_processing_mode")]
     processing_mode: String,
     #[serde(default = "default_remote_im_contact_blocked_message_prefixes")]
@@ -216,8 +214,21 @@ struct RemoteImContactAgentBindingUpdateInput {
     contact_id: String,
     #[serde(default)]
     agent_id: Option<String>,
-    #[serde(default)]
-    api_config_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteImContactConversationModelInput {
+    contact_id: String,
+}
+
+/// 联系人处理模型的实际归属：模型挂在联系人的会话上（会话 preferred_api_config_id）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteImContactConversationModelOutput {
+    conversation_id: Option<String>,
+    conversation_exists: bool,
+    preferred_api_config_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -360,7 +371,6 @@ fn remote_im_upsert_contact_for_inbound(
         activation_cooldown_seconds: 0,
         route_mode: "dedicated_contact_conversation".to_string(),
         bound_agent_id: None,
-        bound_api_config_id: None,
         bound_conversation_id: None,
         processing_mode: "continuous".to_string(),
         response_strategy: default_remote_im_contact_response_strategy_for_type(

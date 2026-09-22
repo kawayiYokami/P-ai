@@ -500,7 +500,6 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
-            bound_api_config_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -662,7 +661,6 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
-            bound_api_config_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -1455,7 +1453,6 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
-            bound_api_config_id: None,
             bound_conversation_id: Some(conversation_id.to_string()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -2677,7 +2674,6 @@
             RemoteImContactSettingsPatchInput {
                 contact_id: "contact-patch".to_string(),
                 agent_id: None,
-                api_config_id: None,
                 processing_mode: "qa".to_string(),
                 blocked_message_prefixes: vec!["#".to_string()],
                 activation_mode: "always".to_string(),
@@ -2721,7 +2717,6 @@
             RemoteImContactSettingsPatchInput {
                 contact_id: "contact-private-patch".to_string(),
                 agent_id: None,
-                api_config_id: None,
                 processing_mode: "qa".to_string(),
                 blocked_message_prefixes: vec!["[bot]".to_string()],
                 activation_mode: "never".to_string(),
@@ -2763,7 +2758,6 @@
             RemoteImContactSettingsPatchInput {
                 contact_id: contact.id.clone(),
                 agent_id: Some("agent-config-degraded".to_string()),
-                api_config_id: None,
                 processing_mode: "qa".to_string(),
                 blocked_message_prefixes: vec!["[skip]".to_string()],
                 activation_mode: "never".to_string(),
@@ -3309,7 +3303,11 @@
             .get_conversation_meta(&state, &conversation_id)
             .expect("read conversation after commit");
         assert_eq!(after_commit.agent_id, "agent-new");
-        assert!(after_commit.preferred_api_config_id.is_none());
+        // 会话首选模型归会话自己所有：绑定同步不再写它，也不该把它清掉。
+        assert_eq!(
+            after_commit.preferred_api_config_id.as_deref(),
+            Some("legacy-provider")
+        );
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
@@ -3346,7 +3344,6 @@
                     RemoteImContactAgentBindingUpdateInput {
                         contact_id: "contact-agent-concurrent".to_string(),
                         agent_id: Some(agent_id.to_string()),
-                        api_config_id: None,
                     },
                 )
             }));
@@ -3446,7 +3443,6 @@
             RemoteImContactAgentBindingUpdateInput {
                 contact_id: contact.id.clone(),
                 agent_id: Some("agent-offline".to_string()),
-                api_config_id: None,
             },
         )
         .expect("save raw binding despite config read failure");

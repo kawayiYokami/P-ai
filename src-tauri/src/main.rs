@@ -1474,6 +1474,7 @@ fn main() {
             dump_memory_cache_stats,
             remote_im_list_channels,
             remote_im_list_contacts,
+            remote_im_get_contact_conversation_model,
             remote_im_subscribe_contact_dashboard,
             remote_im_sync_contact_dashboard,
             remote_im_unsubscribe_contact_dashboard,

@@ -25,7 +25,7 @@
       />
     </button>
   </div>
-  <Teleport to="body">
+  <Teleport :to="teleportTarget">
     <Transition :name="mobileTouchViewport ? 'ecall-drawer-mask' : ''">
       <div
         v-if="dropdownOpen && !disabled && mobileTouchViewport"
@@ -131,6 +131,20 @@ const panelStyle = ref<Record<string, string>>({
   maxHeight: "80vh",
 });
 
+/**
+ * Teleport 目标：优先挂到最近的 <dialog>。
+ * showModal() 打开的 dialog 位于浏览器 top layer，挂在 body 的面板无论
+ * z-index 多高都会被它盖住（表现为“面板跑到弹窗背面”）；挂进 dialog 内部
+ * 才能与其同处 top layer。不在 dialog 内时退回 body。
+ */
+const teleportTarget = ref<string | HTMLElement>("body");
+
+function resolveTeleportTarget() {
+  const trigger = triggerButtonRef.value || triggerWrapRef.value;
+  const dialog = (trigger?.closest?.("dialog") as HTMLElement | null) ?? null;
+  teleportTarget.value = dialog ?? "body";
+}
+
 const normalizedOptions = computed(() =>
   (Array.isArray(props.apiConfigs) ? props.apiConfigs : [])
     .filter((item) => !!String(item?.id || "").trim()),
@@ -215,6 +229,7 @@ const modelOnlyTree = computed(() => {
 
 function toggleDropdown() {
   if (props.disabled) return;
+  if (!dropdownOpen.value) resolveTeleportTarget();
   dropdownOpen.value = !dropdownOpen.value;
 }
 
