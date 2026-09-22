@@ -91,6 +91,8 @@ const CODEX_AUTH_MODE_CUSTOM_URL: &str = "custom_url";
 const DEFAULT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const MODEL_ROLE_EXPERT_API_CONFIG_ID: &str = "role:expert";
 const MODEL_ROLE_QUICK_API_CONFIG_ID: &str = "role:quick";
+/// 委托模型哨兵：人格配置为「跟随会话」时，委托线程使用发起方会话实际生效的模型。
+const MODEL_ROLE_SESSION_API_CONFIG_ID: &str = "role:session";
 
 fn default_codex_auth_mode() -> String {
     CODEX_AUTH_MODE_READ_LOCAL.to_string()
@@ -298,7 +300,9 @@ struct SaveConfigOutput {
 fn is_model_role_api_config_id(api_config_id: &str) -> bool {
     matches!(
         api_config_id.trim(),
-        MODEL_ROLE_EXPERT_API_CONFIG_ID | MODEL_ROLE_QUICK_API_CONFIG_ID
+        MODEL_ROLE_EXPERT_API_CONFIG_ID
+            | MODEL_ROLE_QUICK_API_CONFIG_ID
+            | MODEL_ROLE_SESSION_API_CONFIG_ID
     )
 }
 
@@ -491,6 +495,33 @@ fn agent_effective_chat_api_config_ids(
         agent_api_config_ids(agent),
         agent_model_failure_fallback_enabled(agent),
     )
+}
+
+/// 目标人格是否配置「跟随会话」委托模型：
+/// 显式 role:session 哨兵，或未配置任何委托模型（默认跟随会话）。
+fn agent_follows_session_delegate_model(agent: &AgentProfile) -> bool {
+    let ids = merge_api_config_ids(&agent.api_config_ids, &agent.api_config_id);
+    match ids.first().map(|value| value.trim()) {
+        Some(MODEL_ROLE_SESSION_API_CONFIG_ID) => true,
+        // 未配置委托模型时默认跟随会话
+        None => true,
+        _ => false,
+    }
+}
+
+/// 解析「跟随会话」委托模型：优先用发起方会话首选模型，否则回退全局专家模型。
+fn resolve_follow_session_delegate_api_config(
+    app_config: &AppConfig,
+    source_conversation_preferred_api_config_id: Option<&str>,
+) -> Option<String> {
+    source_conversation_preferred_api_config_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            let expert_id = app_config.expert_api_config_id.trim();
+            (!expert_id.is_empty()).then(|| expert_id.to_string())
+        })
 }
 
 // 请求失败自动切换下一个模型的机制已禁用：候选模型恒只取第一个，不再降级。

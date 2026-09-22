@@ -59,15 +59,55 @@
         />
 
         <!-- 子视图：下级委托人 -->
-        <PersonaDelegateView
-          v-else-if="detailView === 'delegate'"
-          key="delegate"
-          :persona="selectedPersona"
-          :personas="personas"
-          :avatar-url-map="personaAvatarUrlMap"
-          :save-relations="saveRelations"
-          :set-status-action="setStatusAction"
-        />
+        <template v-else-if="detailView === 'delegate'">
+          <!-- 委托模型配置 (对用户和系统角色隐藏)，位于委托页上方 -->
+          <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem" class="space-y-2">
+            <ConfigCard :title="t('config.persona.delegateModelSettings')" flush>
+              <div class="divide-y divide-base-200/60">
+                <!-- 四选一 -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-medium text-base-content">{{ t("config.persona.delegateModelTitle") }}</div>
+                    <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.delegateModelHint") }}</div>
+                  </div>
+                  <SegmentedControl
+                    :model-value="delegateModelSelection"
+                    :options="delegateModelOptions"
+                    :disabled="personaSaving"
+                    :full-width="false"
+                    size="sm"
+                    class="shrink-0 self-start sm:self-auto"
+                    @change="setDelegateModelOption"
+                  />
+                </div>
+
+                <!-- 自定义模型选择 -->
+                <div v-if="delegateModelSelection === 'custom'" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-medium text-base-content">{{ t("config.persona.delegateCustomModel") }}</div>
+                    <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.delegateCustomModelHint") }}</div>
+                  </div>
+                  <ApiConfigPicker
+                    class="min-w-0 sm:w-72 shrink-0"
+                    variant="field"
+                    :model-value="delegateCustomModelId"
+                    :api-configs="props.textCapableApiConfigs"
+                    :disabled="personaSaving"
+                    @update:model-value="setDelegateCustomModel"
+                  />
+                </div>
+              </div>
+            </ConfigCard>
+          </div>
+          <PersonaDelegateView
+            key="delegate"
+            :persona="selectedPersona"
+            :personas="personas"
+            :avatar-url-map="personaAvatarUrlMap"
+            :save-relations="saveRelations"
+            :set-status-action="setStatusAction"
+          />
+        </template>
 
         <!-- 主资料视图：扁平流式设计，杜绝卡片套卡片 -->
         <div v-else key="profile" class="space-y-6 min-w-0 max-w-full">
@@ -426,7 +466,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   Camera,
@@ -439,6 +479,7 @@ import {
   User,
 } from "@lucide/vue";
 import type {
+  ApiConfigItem,
   MemoryRecallMode,
   PermissionCatalog,
   PersonaProfile,
@@ -448,6 +489,7 @@ import {
   exportTransportAgentPrivateMemories,
   invokeTauri,
 } from "../../../../services/tauri-api";
+import ApiConfigPicker from "../../components/ApiConfigPicker.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
@@ -472,10 +514,16 @@ const props = withDefaults(defineProps<{
   personaSaving: boolean;
   personaDirty: boolean;
   configSaving: boolean;
+  textCapableApiConfigs?: ApiConfigItem[];
+  expertApiConfigId?: string;
+  toolReviewApiConfigId?: string;
   saveRelations?: (updates: { agentId: string; childAgentIds: string[] }[]) => Promise<boolean>;
   setStatusAction?: (message: string) => void;
 }>(), {
   personaAvatarUrlMap: () => ({}),
+  textCapableApiConfigs: () => [],
+  expertApiConfigId: "",
+  toolReviewApiConfigId: "",
   saveRelations: undefined,
   setStatusAction: undefined,
 });
@@ -729,6 +777,93 @@ const memoryRecallModeOptions = computed(() => [
   { value: "manual" as MemoryRecallMode, label: t("config.persona.memoryRecallManual") },
   { value: "off" as MemoryRecallMode, label: t("config.persona.memoryRecallOff") },
 ]);
+
+// ==================== 委托模型配置 ====================
+// 存储映射：跟随会话 = ["role:session"]，专家 = ["role:expert"]，快速 = ["role:quick"]，自定义 = [具体 endpoint]
+const DELEGATE_MODEL_ROLE_SESSION = "role:session";
+const DELEGATE_MODEL_ROLE_EXPERT = "role:expert";
+const DELEGATE_MODEL_ROLE_QUICK = "role:quick";
+
+type DelegateModelOption = "follow_session" | "expert" | "quick" | "custom";
+
+const delegateModelOptions = computed(() => [
+  { value: "follow_session" as DelegateModelOption, label: t("config.persona.delegateModelFollowSession") },
+  { value: "expert" as DelegateModelOption, label: t("config.persona.delegateModelExpert") },
+  { value: "quick" as DelegateModelOption, label: t("config.persona.delegateModelQuick") },
+  { value: "custom" as DelegateModelOption, label: t("config.persona.delegateModelCustom") },
+]);
+
+function delegateModelRawId(): string {
+  const ids = Array.isArray(props.selectedPersona?.apiConfigIds) ? props.selectedPersona.apiConfigIds : [];
+  return String(ids[0] || "").trim();
+}
+
+function delegateModelOptionFromStorage(): DelegateModelOption {
+  const rawId = delegateModelRawId();
+  // 未配置时默认跟随会话
+  if (!rawId) return "follow_session";
+  if (rawId === DELEGATE_MODEL_ROLE_SESSION) return "follow_session";
+  if (rawId === DELEGATE_MODEL_ROLE_EXPERT) return "expert";
+  if (rawId === DELEGATE_MODEL_ROLE_QUICK) return "quick";
+  return "custom";
+}
+
+// UI 当前选中项：与存储解耦，避免「点自定义无模型时被存储值顶回」
+const delegateModelSelection = ref<DelegateModelOption>(delegateModelOptionFromStorage());
+
+watch(
+  () => props.selectedPersona?.id,
+  () => {
+    delegateModelSelection.value = delegateModelOptionFromStorage();
+  },
+);
+
+const delegateCustomModelId = computed(() => {
+  const rawId = delegateModelRawId();
+  if (!rawId || rawId.startsWith("role:")) return "";
+  return rawId;
+});
+
+function writeDelegateModel(rawId: string) {
+  const persona = props.selectedPersona;
+  if (!persona) return;
+  if (rawId) {
+    persona.apiConfigIds = [rawId];
+  } else {
+    persona.apiConfigIds = [];
+  }
+}
+
+function setDelegateModelOption(option: DelegateModelOption) {
+  delegateModelSelection.value = option;
+  switch (option) {
+    case "follow_session":
+      // 跟随会话：留空即代表默认跟随会话（与后端空值语义一致）
+      writeDelegateModel("");
+      break;
+    case "expert":
+      writeDelegateModel(DELEGATE_MODEL_ROLE_EXPERT);
+      break;
+    case "quick":
+      writeDelegateModel(DELEGATE_MODEL_ROLE_QUICK);
+      break;
+    case "custom": {
+      // 进入自定义：保留已有自定义模型；没有则只切 UI 选项，不写回专家
+      const current = delegateCustomModelId.value;
+      if (current) {
+        writeDelegateModel(current);
+      }
+      break;
+    }
+  }
+}
+
+function setDelegateCustomModel(modelId: string) {
+  const trimmed = String(modelId || "").trim();
+  if (trimmed) {
+    writeDelegateModel(trimmed);
+  }
+}
 
 const personaMemoryImportInput = ref<HTMLInputElement | null>(null);
 const privateMemoryDialog = ref<HTMLDialogElement | null>(null);

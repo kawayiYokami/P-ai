@@ -843,6 +843,7 @@ mod prompt_assembly_tests {
             activation_cooldown_seconds: 0,
             route_mode: default_remote_im_contact_route_mode(),
             bound_agent_id: None,
+            bound_api_config_id: None,
             bound_conversation_id: Some(conversation.id.clone()),
             processing_mode: default_remote_im_contact_processing_mode(),
             response_strategy: default_remote_im_contact_response_strategy(),

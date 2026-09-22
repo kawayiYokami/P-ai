@@ -398,6 +398,7 @@ fn remote_im_unsubscribe_contact_dashboard_for_web(
 #[derive(Clone)]
 struct RemoteImContactBindingSnapshot {
     bound_agent_id: Option<String>,
+    bound_api_config_id: Option<String>,
     bound_conversation_id: Option<String>,
     route_mode: String,
 }
@@ -407,6 +408,7 @@ fn remote_im_contact_binding_snapshot(
 ) -> RemoteImContactBindingSnapshot {
     RemoteImContactBindingSnapshot {
         bound_agent_id: contact.bound_agent_id.clone(),
+        bound_api_config_id: contact.bound_api_config_id.clone(),
         bound_conversation_id: contact.bound_conversation_id.clone(),
         route_mode: contact.route_mode.clone(),
     }
@@ -417,6 +419,7 @@ fn remote_im_contact_binding_matches(
     snapshot: &RemoteImContactBindingSnapshot,
 ) -> bool {
     contact.bound_agent_id == snapshot.bound_agent_id
+        && contact.bound_api_config_id == snapshot.bound_api_config_id
         && contact.bound_conversation_id == snapshot.bound_conversation_id
         && contact.route_mode == snapshot.route_mode
 }
@@ -426,6 +429,7 @@ fn remote_im_apply_contact_binding_snapshot(
     snapshot: &RemoteImContactBindingSnapshot,
 ) {
     contact.bound_agent_id = snapshot.bound_agent_id.clone();
+    contact.bound_api_config_id = snapshot.bound_api_config_id.clone();
     contact.bound_conversation_id = snapshot.bound_conversation_id.clone();
     contact.route_mode = snapshot.route_mode.clone();
 }
@@ -808,9 +812,16 @@ fn remote_im_patch_contact_settings_inner(
     } else {
         None
     };
+    let next_api_config_id = input
+        .api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
     let output = remote_im_mutate_contact(state, &input.contact_id, |contact| {
         let is_private = remote_im_contact_is_private(contact);
         contact.bound_agent_id = next_agent.clone();
+        contact.bound_api_config_id = next_api_config_id.clone();
         contact.route_mode = runtime_snapshot
             .as_ref()
             .map(|snapshot| remote_im_resolve_effective_route_mode(&snapshot.config, contact))
@@ -968,6 +979,12 @@ fn remote_im_update_contact_agent_binding_inner(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
+    let next_api_config_id = input
+        .api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
     let next_agent = if let Some(agent_id) = next_agent_id.as_deref() {
         if runtime_snapshot.is_some() {
             Some(resolve_contact_agent_id(state, Some(agent_id))?)
@@ -979,6 +996,7 @@ fn remote_im_update_contact_agent_binding_inner(
     };
     let output = remote_im_mutate_contact(state, &input.contact_id, |contact| {
         contact.bound_agent_id = next_agent.clone();
+        contact.bound_api_config_id = next_api_config_id.clone();
         contact.route_mode = runtime_snapshot
             .as_ref()
             .map(|snapshot| remote_im_resolve_effective_route_mode(&snapshot.config, contact))

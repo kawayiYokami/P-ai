@@ -803,14 +803,16 @@
                 <div class="flex w-[28rem] max-w-full flex-col gap-1">
                   <AgentPersonaSelect
                     v-model:agent-id="contactDraft.boundAgentId"
+                    :api-config-id="contactDraft.boundApiConfigId"
                     :personas="personas"
                     :persona-avatar-url-map="personaAvatarUrlMap"
                     :api-configs="config.apiConfigs"
                     :expert-api-config-id="config.expertApiConfigId"
                     :tool-review-api-config-id="config.toolReviewApiConfigId"
                     :placeholder="t('config.remoteIm.processingAgentPlaceholder')"
-                    :show-model="false"
+                    :show-model="true"
                     :disabled="contactsDisabled"
+                    @update:api-config-id="contactDraft.boundApiConfigId = $event"
                   />
                   <span class="text-xs opacity-60">{{ contactDraftRoutingHint }}</span>
                 </div>
@@ -1065,6 +1067,7 @@ type ContactPillMenuState = {
 };
 type ContactSettingsClipboard = {
   boundAgentId: string;
+  boundApiConfigId: string;
   processingMode: "qa" | "continuous";
   activationMode: RemoteImContact["activationMode"];
   activationKeywordsText: string;
@@ -1482,6 +1485,7 @@ const contactLogsTitle = computed(() => {
 });
 type ContactEditDraft = {
   boundAgentId: string;
+  boundApiConfigId: string;
   processingMode: "qa" | "continuous";
   activationMode: RemoteImContact["activationMode"];
   activationKeywordsText: string;
@@ -1544,6 +1548,7 @@ const contactKeywordDrafts = ref<Record<string, string>>({});
 function buildContactDraftFromContact(item: RemoteImContact): ContactEditDraft {
   return {
     boundAgentId: String(item.boundAgentId || ""),
+    boundApiConfigId: String((item as any).boundApiConfigId || ""),
     processingMode: normalizeProcessingMode(item.processingMode),
     activationMode: isPrivateContact(item) ? "always" : normalizeActivationMode(item.activationMode || "never"),
     activationKeywordsText: item.activationKeywords.join(", "),
@@ -1567,6 +1572,7 @@ function buildContactSettingsClipboard(item: RemoteImContact): ContactSettingsCl
   const isPrivate = isPrivateContact(item);
   return {
     boundAgentId: String(item.boundAgentId || ""),
+    boundApiConfigId: String((item as any).boundApiConfigId || ""),
     processingMode: normalizeProcessingMode(item.processingMode),
     activationMode: isPrivate ? "always" : normalizeActivationMode(item.activationMode || "never"),
     activationKeywordsText: isPrivate ? "" : (Array.isArray(item.activationKeywords) ? item.activationKeywords.join(", ") : ""),
@@ -2010,6 +2016,7 @@ function buildContactClipboardPatch(
   const isPrivate = isPrivateContact(target);
   return {
     boundAgentId: clipboard.boundAgentId,
+    boundApiConfigId: clipboard.boundApiConfigId,
     processingMode: clipboard.processingMode,
     activationMode: isPrivate ? "always" : clipboard.activationMode,
     activationKeywords: isPrivate ? [] : parseActivationKeywords(clipboard.activationKeywordsText),
@@ -2031,6 +2038,7 @@ async function pasteContactSettings(item: RemoteImContact) {
         input: {
           contactId: item.id,
           agentId: patch.boundAgentId || null,
+          apiConfigId: patch.boundApiConfigId || null,
           processingMode: patch.processingMode,
           activationMode: patch.activationMode,
           activationKeywords: patch.activationKeywords,
@@ -2228,21 +2236,27 @@ async function moveContactActivationMode(item: RemoteImContact, direction: -1 | 
 async function onContactAgentChange(
   item: RemoteImContact,
   agentIdRaw: string,
+  apiConfigIdRaw?: string,
 ) {
   const oldAgentId = item.boundAgentId;
+  const oldApiConfigId = (item as any).boundApiConfigId;
   const nextAgentId = String(agentIdRaw || "").trim() || "";
+  const nextApiConfigId = String(apiConfigIdRaw || "").trim() || "";
   item.boundAgentId = nextAgentId || undefined;
+  (item as any).boundApiConfigId = nextApiConfigId || undefined;
   try {
     await invokeTauri<RemoteImContact>("remote_im_update_contact_agent_binding", {
       input: {
         contactId: item.id,
         agentId: nextAgentId || null,
+        apiConfigId: nextApiConfigId || null,
       },
     });
     props.setStatusAction(t('config.remoteIm.contactContinueSession'));
     await refreshContacts();
   } catch (error) {
     item.boundAgentId = oldAgentId;
+    (item as any).boundApiConfigId = oldApiConfigId;
     props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
   }
 }
@@ -2417,8 +2431,10 @@ async function saveContactDraft() {
   try {
     const nextAgentId = String(draft.boundAgentId || "").trim();
     const currentAgentId = String(item.boundAgentId || "").trim();
-    if (nextAgentId !== currentAgentId) {
-      await onContactAgentChange(item, nextAgentId);
+    const nextApiConfigId = String(draft.boundApiConfigId || "").trim();
+    const currentApiConfigId = String((item as any).boundApiConfigId || "").trim();
+    if (nextAgentId !== currentAgentId || nextApiConfigId !== currentApiConfigId) {
+      await onContactAgentChange(item, nextAgentId, nextApiConfigId);
     }
 
     const nextProcessingMode = normalizeProcessingMode(draft.processingMode);

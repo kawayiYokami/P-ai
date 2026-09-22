@@ -234,6 +234,39 @@ fn delegate_target_chat_api_config_ids(
     agent_effective_chat_api_config_ids(config, target_agent)
 }
 
+/// 解析委托目标人格的模型候选。
+/// 目标人格配置「跟随会话」时，用发起方会话首选模型（无则回退全局专家）；
+/// 否则按人格自身模型解析。
+fn resolve_delegate_target_api_config_ids(
+    app_state: &AppState,
+    preflight: &DelegatePreflight,
+    session_id: Option<&str>,
+) -> Result<Vec<String>, String> {
+    if !agent_follows_session_delegate_model(&preflight.target_agent) {
+        return Ok(delegate_target_chat_api_config_ids(
+            &preflight.config,
+            &preflight.target_agent,
+        ));
+    }
+    let source_conversation_preferred = session_id
+        .and_then(delegate_session_conversation_id)
+        .map(|conversation_id| {
+            conversation_service_v2()
+                .get_conversation_meta(app_state, &conversation_id)
+                .ok()
+                .and_then(|meta| meta.preferred_api_config_id)
+        })
+        .flatten()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let resolved = resolve_follow_session_delegate_api_config(
+        &preflight.config,
+        source_conversation_preferred.as_deref(),
+    )
+    .ok_or_else(|| "跟随会话模型解析失败：无可用模型".to_string())?;
+    Ok(vec![resolved])
+}
+
 fn spawn_delegate_task(
     app_state: AppState,
     delegate: DelegateEntry,
@@ -529,7 +562,11 @@ async fn builtin_delegate(
         app_state.clone(),
         delegate.clone(),
         delegate.conversation_id.clone(),
-        delegate_target_chat_api_config_ids(&preflight.config, &preflight.target_agent),
+        resolve_delegate_target_api_config_ids(
+            app_state,
+            &preflight,
+            Some(session_id),
+        )?,
         Some(session_id.to_string()),
     );
 
@@ -601,7 +638,7 @@ async fn delegate_execute_sync(
     let sync_result = run_sync_delegate_on_child_task(
         app_state.clone(),
         delegate.clone(),
-        delegate_target_chat_api_config_ids(&preflight.config, &preflight.target_agent),
+        resolve_delegate_target_api_config_ids(app_state, &preflight, Some(session_id))?,
         session_id.to_string(),
     )
     .await;

@@ -55,6 +55,14 @@
       </button>
     </div>
     <div v-else-if="remoteContactMode" class="flex flex-wrap items-center justify-center gap-2">
+      <ChatModelPicker
+        variant="chip"
+        class="min-w-0 max-w-full"
+        :model-value="activeModelDisplayId"
+        :api-configs="chatModelOptions"
+        :theme="teleportTheme"
+        @update:model-value="selectConversationPreferredModel"
+      />
       <button
         type="button"
         class="btn btn-sm gap-2"

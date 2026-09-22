@@ -1626,6 +1626,7 @@ mod remote_im_adapter_tests {
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
+            bound_api_config_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),

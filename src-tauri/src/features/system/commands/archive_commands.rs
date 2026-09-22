@@ -19,16 +19,21 @@ fn resolve_chat_prompt_preview_api_config(
     conversation: &Conversation,
     requested_api_config_id: Option<&str>,
 ) -> Result<ApiConfig, String> {
-    let preferred_api_config_id = if conversation_is_remote_im_contact(conversation) {
-        agent_primary_chat_api_config_id(app_config, agent)
-    } else {
-        conversation
-            .preferred_api_config_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned)
-    };
+    // 远程会话与会话统一走会话首选（联系人偏好模型已由同步函数写入 preferred）；
+    // 会话未选时再回退负责人人格主模型。
+    let preferred_api_config_id = conversation
+        .preferred_api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            if conversation_is_remote_im_contact(conversation) {
+                agent_primary_chat_api_config_id(app_config, agent)
+            } else {
+                None
+            }
+        });
     resolve_selected_api_config(
         app_config,
         preferred_api_config_id

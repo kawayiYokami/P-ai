@@ -436,17 +436,25 @@ fn sync_remote_im_contact_conversation_binding_unchecked(
     let target_key = remote_im_contact_conversation_key(contact);
     let agent_changed = conversation_meta.agent_id.trim() != agent_id;
     let root_changed = conversation_meta.root_conversation_id.as_deref() != Some(target_key.as_str());
-    let preferred_api_changed = conversation_meta
+    let contact_preferred_api_config_id = contact
+        .bound_api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let current_preferred_api_config_id = conversation_meta
         .preferred_api_config_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .is_some();
-    if agent_changed || root_changed || preferred_api_changed {
+        .map(ToOwned::to_owned);
+    let preferred_changed = contact_preferred_api_config_id != current_preferred_api_config_id;
+    if agent_changed || root_changed || preferred_changed {
         state_update_conversation_metadata_cached(state, conversation_id, |conversation| {
             conversation.agent_id = agent_id.to_string();
             conversation.root_conversation_id = Some(target_key);
-            conversation.preferred_api_config_id = None;
+            // 联系人配置偏好模型时写入会话首选；未配置则清空，走负责人人格主模型。
+            conversation.preferred_api_config_id = contact_preferred_api_config_id.clone();
             Ok(())
         })?;
     }

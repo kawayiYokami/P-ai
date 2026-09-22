@@ -162,6 +162,8 @@ struct RemoteImContact {
     #[serde(default)]
     bound_agent_id: Option<String>,
     #[serde(default)]
+    bound_api_config_id: Option<String>,
+    #[serde(default)]
     bound_conversation_id: Option<String>,
     #[serde(default = "default_remote_im_contact_processing_mode")]
     processing_mode: String,

@@ -500,6 +500,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
+            bound_api_config_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -661,6 +662,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
+            bound_api_config_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -1453,6 +1455,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
+            bound_api_config_id: None,
             bound_conversation_id: Some(conversation_id.to_string()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -2674,6 +2677,7 @@
             RemoteImContactSettingsPatchInput {
                 contact_id: "contact-patch".to_string(),
                 agent_id: None,
+                api_config_id: None,
                 processing_mode: "qa".to_string(),
                 blocked_message_prefixes: vec!["#".to_string()],
                 activation_mode: "always".to_string(),
@@ -2717,6 +2721,7 @@
             RemoteImContactSettingsPatchInput {
                 contact_id: "contact-private-patch".to_string(),
                 agent_id: None,
+                api_config_id: None,
                 processing_mode: "qa".to_string(),
                 blocked_message_prefixes: vec!["[bot]".to_string()],
                 activation_mode: "never".to_string(),
@@ -2758,6 +2763,7 @@
             RemoteImContactSettingsPatchInput {
                 contact_id: contact.id.clone(),
                 agent_id: Some("agent-config-degraded".to_string()),
+                api_config_id: None,
                 processing_mode: "qa".to_string(),
                 blocked_message_prefixes: vec!["[skip]".to_string()],
                 activation_mode: "never".to_string(),
@@ -3340,6 +3346,7 @@
                     RemoteImContactAgentBindingUpdateInput {
                         contact_id: "contact-agent-concurrent".to_string(),
                         agent_id: Some(agent_id.to_string()),
+                        api_config_id: None,
                     },
                 )
             }));
@@ -3439,6 +3446,7 @@
             RemoteImContactAgentBindingUpdateInput {
                 contact_id: contact.id.clone(),
                 agent_id: Some("agent-offline".to_string()),
+                api_config_id: None,
             },
         )
         .expect("save raw binding despite config read failure");

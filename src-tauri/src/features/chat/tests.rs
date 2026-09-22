@@ -2860,6 +2860,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
+            bound_api_config_id: None,
             bound_conversation_id: Some(conversation_id.clone()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -7662,6 +7663,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
+            bound_api_config_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -7745,6 +7747,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            bound_api_config_id: None,
             bound_conversation_id: Some("target-remote-session".to_string()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -8009,6 +8012,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
+            bound_api_config_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -8086,6 +8090,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
+            bound_api_config_id: None,
             bound_conversation_id: Some("conversation-contact-old".to_string()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -9210,6 +9215,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: None,
+            bound_api_config_id: None,
             bound_conversation_id: Some("conversation-contact-missing".to_string()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -10226,6 +10232,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: Some(agent.id.clone()),
+            bound_api_config_id: None,
             bound_conversation_id: Some("conversation-remote-private".to_string()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -10260,6 +10267,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_agent_id: Some(agent.id.clone()),
+            bound_api_config_id: None,
             bound_conversation_id: Some("conversation-remote-group".to_string()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -12945,4 +12953,70 @@
             vec!["other-skill"],
         );
         assert!(build_resident_skill_fulltext_block(&state, &agent).is_empty());
+    }
+
+    #[test]
+    fn agent_follows_session_delegate_model_should_recognize_role_session_sentinel_and_empty() {
+        let mut agent = default_agent();
+        agent.api_config_ids = vec!["role:session".to_string()];
+        assert!(agent_follows_session_delegate_model(&agent));
+
+        let mut agent_expert = default_agent();
+        agent_expert.api_config_ids = vec!["role:expert".to_string()];
+        assert!(!agent_follows_session_delegate_model(&agent_expert));
+
+        let mut agent_custom = default_agent();
+        agent_custom.api_config_ids = vec!["provider-a::model-a".to_string()];
+        assert!(!agent_follows_session_delegate_model(&agent_custom));
+
+        // 未配置委托模型时默认跟随会话
+        let agent_empty = default_agent();
+        assert!(agent_follows_session_delegate_model(&agent_empty));
+    }
+
+    #[test]
+    fn resolve_follow_session_delegate_api_config_should_prefer_source_conversation_then_expert() {
+        let mut app_config = AppConfig::default();
+        app_config.expert_api_config_id = "provider-a::expert".to_string();
+        app_config.api_configs = vec![ApiConfig {
+            id: "provider-a::expert".to_string(),
+            name: "provider-a/expert".to_string(),
+            request_format: RequestFormat::OpenAI,
+            allow_concurrent_requests: false,
+            max_concurrent_requests: None,
+            enable_text: true,
+            enable_image: false,
+            enable_audio: false,
+            enable_video: false,
+            enable_tools: true,
+            tools: vec![],
+            base_url: "https://api.openai.com/v1".to_string(),
+            api_key: "k".to_string(),
+            codex_auth_mode: default_codex_auth_mode(),
+            codex_local_auth_path: default_codex_local_auth_path(),
+            codex_custom_url: None,
+            codex_custom_api_key: None,
+            codex_originator: default_codex_originator(),
+            codex_residency_requirement: None,
+            model: "expert".to_string(),
+            reasoning_effort: default_reasoning_effort(),
+            temperature: 1.0,
+            custom_temperature_enabled: false,
+            context_window_tokens: 128_000,
+            max_output_tokens: 4_096,
+            custom_max_output_tokens_enabled: false,
+            failure_retry_count: 0,
+        }];
+
+        // 源会话有首选模型时优先用它
+        let resolved = resolve_follow_session_delegate_api_config(&app_config, Some("provider-a::expert"));
+        assert_eq!(resolved.as_deref(), Some("provider-a::expert"));
+
+        // 源会话无首选时回退全局专家
+        let resolved = resolve_follow_session_delegate_api_config(&app_config, None);
+        assert_eq!(resolved.as_deref(), Some("provider-a::expert"));
+
+        // 空字符串视为无首选
+        let resolved = resolve_follow_session_delegate_api_config(&app_config, Some("  "));
+        assert_eq!(resolved.as_deref(), Some("provider-a::expert"));
     }
