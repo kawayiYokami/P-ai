@@ -1504,12 +1504,12 @@ function cloneProvider(provider: ApiProviderConfigItem): ApiProviderConfigItem {
     baseUrl: String(provider.baseUrl || "").trim(),
     codexAuthMode: (String(provider.codexAuthMode || DEFAULT_CODEX_AUTH_MODE).trim() || DEFAULT_CODEX_AUTH_MODE) as CodexAuthMode,
     codexLocalAuthPath: String(provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH,
-    // 与 applyLoadedConfig / buildConfigPayload 口径一致：空字符串保留为 ""，不要写成 undefined。
-    // 否则脏检测会因「saved 有键值 / current 键缺失」误报。
+    // 与 applyLoadedConfig 的口径对齐：codexCustom*/codexOriginator 空值写成 ""/默认串；
+    // codexResidencyRequirement 空值写 undefined（键省略）——否则脏检测误报。
     codexCustomUrl: String(provider.codexCustomUrl || "").trim(),
     codexCustomApiKey: String(provider.codexCustomApiKey || "").trim(),
-    codexOriginator: String(provider.codexOriginator || "").trim(),
-    codexResidencyRequirement: String(provider.codexResidencyRequirement || "").trim(),
+    codexOriginator: String(provider.codexOriginator || DEFAULT_CODEX_ORIGINATOR).trim() || DEFAULT_CODEX_ORIGINATOR,
+    codexResidencyRequirement: String(provider.codexResidencyRequirement || "").trim() || undefined,
     apiKeys: Array.isArray(provider.apiKeys) ? provider.apiKeys.map((value) => String(value || "")) : [],
     keyCursor: Math.max(0, Math.round(Number(provider.keyCursor ?? 0))),
     cachedModelOptions: Array.isArray(provider.cachedModelOptions)
@@ -1702,7 +1702,7 @@ function createProvider(seed: string, capability: ApiCapability = selectedCapabi
     codexCustomUrl: "",
     codexCustomApiKey: "",
     codexOriginator: DEFAULT_CODEX_ORIGINATOR,
-    codexResidencyRequirement: "",
+    codexResidencyRequirement: undefined,
     apiKeys: isCodex ? [] : [""],
     keyCursor: 0,
     cachedModelOptions: [],
