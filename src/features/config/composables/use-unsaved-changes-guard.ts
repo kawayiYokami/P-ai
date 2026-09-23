@@ -66,6 +66,7 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
   const saving = ref(false);
 
   let activeChecker: DirtyChecker | null = null;
+  let activeCheckerId: string | null = null;
   let pendingResolve: ((confirmed: boolean) => void) | null = null;
   // 保存当前正在等待用户确认的 Promise；dialog 已打开时再次调用 confirmLeaveIfDirty
   // 复用同一个 Promise，避免覆盖 pendingResolve 导致前一个调用方永久 pending。
@@ -78,17 +79,17 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
     };
   }
 
-  function getFirstDirtyChecker(): DirtyChecker | null {
+  function getFirstDirtyChecker(): { id: string; checker: DirtyChecker } | null {
     // 先按显式 priority 降序，未指定的按 0；同优先级内按注册顺序逆序（后注册优先）。
     const list = Array.from(checkers.entries())
       .map(([id, checker], index) => ({ id, checker, index, priority: checker.priority ?? 0 }))
       .sort((a, b) => (b.priority - a.priority) || (b.index - a.index));
     const dirtyIds: string[] = [];
-    let first: DirtyChecker | null = null;
+    let first: { id: string; checker: DirtyChecker } | null = null;
     for (const { id, checker } of list) {
       if (checker.isDirty()) {
         dirtyIds.push(id);
-        if (!first) first = checker;
+        if (!first) first = { id, checker };
       }
     }
     if (dirtyIds.length > 0) {
@@ -111,11 +112,13 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
       return pendingPromise;
     }
 
-    const dirtyChecker = getFirstDirtyChecker();
-    if (!dirtyChecker) {
+    const dirty = getFirstDirtyChecker();
+    if (!dirty) {
       return Promise.resolve(true);
     }
+    const dirtyChecker = dirty.checker;
 
+    activeCheckerId = dirty.id;
     activeChecker = {
       ...dirtyChecker,
       ...(optionsOverride?.onDiscard ? { onDiscard: optionsOverride.onDiscard } : {}),
@@ -143,6 +146,7 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
     dialogOpen.value = false;
     saving.value = false;
     activeChecker = null;
+    activeCheckerId = null;
     pendingResolve?.(false);
     pendingResolve = null;
     pendingPromise = null;
@@ -156,8 +160,9 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
       if (activeChecker?.onDiscard) {
         await Promise.resolve(activeChecker.onDiscard());
       }
-      for (const checker of checkers.values()) {
-        if (checker === activeChecker) continue;
+      for (const [id, checker] of checkers.entries()) {
+        // activeChecker 是合并 override 后的拷贝，引用不同——用注册 id 去重。
+        if (id === activeCheckerId) continue;
         if (!checker.isDirty()) continue;
         if (checker.onDiscard) {
           await Promise.resolve(checker.onDiscard());
@@ -167,6 +172,7 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
       dialogOpen.value = false;
       saving.value = false;
       activeChecker = null;
+      activeCheckerId = null;
       pendingResolve?.(true);
       pendingResolve = null;
       pendingPromise = null;
@@ -187,6 +193,7 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
       }
       dialogOpen.value = false;
       activeChecker = null;
+      activeCheckerId = null;
       pendingResolve?.(true);
       pendingResolve = null;
       pendingPromise = null;
