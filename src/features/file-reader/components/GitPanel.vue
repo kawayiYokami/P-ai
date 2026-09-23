@@ -147,7 +147,7 @@
             <button
               type="button"
               class="btn btn-xs join-item w-[20%] border-base-300 bg-base-100"
-              :disabled="busy || !commitMessage.trim() || stagedEntries.length === 0"
+              :disabled="busy || stagedEntries.length === 0"
               :title="t('gitPanel.amend')"
               @click="runCommit(true)"
             >
@@ -1551,11 +1551,13 @@ function discardPaths(paths: string[]) {
 
 async function runCommit(amend = false) {
   const message = commitMessage.value.trim();
-  if (!message || stagedEntries.value.length === 0 || busy.value) return;
+  // amend 允许空消息（走 git commit --amend --no-edit），非 amend 必须填消息。
+  if (stagedEntries.value.length === 0 || busy.value) return;
+  if (!amend && !message) return;
   busy.value = true;
   try {
     const result = await gitPanelCommit(repoRoot.value, message, amend);
-    appendOutput(`commit${amend ? " --amend" : ""}`, result);
+    appendOutput(`commit${amend ? " --amend" : ""}${amend && !message ? " --no-edit" : ""}`, result);
     if (result.exitCode === 0) showSuccessToast(amend ? "已修改提交" : "已提交");
     commitMessage.value = "";
     resetCommitInputHeight();

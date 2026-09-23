@@ -573,14 +573,25 @@ async fn git_panel_unstage(input: GitPanelPathsInput) -> Result<GitPanelRunOutpu
 async fn git_panel_commit(input: GitPanelCommitInput) -> Result<GitPanelRunOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    let message = git_panel_validate_message(&input.message)?;
-    let mut args: Vec<&str> = vec!["commit"];
+    let mut args: Vec<String> = vec!["commit".to_string()];
     if input.amend {
-        args.push("--amend");
+        args.push("--amend".to_string());
+        let trimmed = input.message.trim();
+        if trimmed.is_empty() {
+            // 空消息 + amend = 只合并暂存内容到上一个 commit，保留原提交信息。
+            args.push("--no-edit".to_string());
+        } else {
+            let message = git_panel_validate_message(&input.message)?;
+            args.push("-m".to_string());
+            args.push(message);
+        }
+    } else {
+        let message = git_panel_validate_message(&input.message)?;
+        args.push("-m".to_string());
+        args.push(message);
     }
-    args.push("-m");
-    args.push(&message);
-    git_executor().run_write(&repo_root, &args).await
+    let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    git_executor().run_write(&repo_root, &arg_refs).await
 }
 
 // ---------- 命令：丢弃 ----------
