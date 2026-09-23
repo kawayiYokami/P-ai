@@ -1,5 +1,6 @@
 import { inject, provide, ref, type InjectionKey, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { invokeTauri } from "../../../services/tauri-api";
 
 export interface DirtyChecker {
   /** 当前是否有未保存的修改 */
@@ -79,15 +80,24 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
 
   function getFirstDirtyChecker(): DirtyChecker | null {
     // 先按显式 priority 降序，未指定的按 0；同优先级内按注册顺序逆序（后注册优先）。
-    const list = Array.from(checkers.values())
-      .map((checker, index) => ({ checker, index, priority: checker.priority ?? 0 }))
+    const list = Array.from(checkers.entries())
+      .map(([id, checker], index) => ({ id, checker, index, priority: checker.priority ?? 0 }))
       .sort((a, b) => (b.priority - a.priority) || (b.index - a.index));
-    for (const { checker } of list) {
+    const dirtyIds: string[] = [];
+    let first: DirtyChecker | null = null;
+    for (const { id, checker } of list) {
       if (checker.isDirty()) {
-        return checker;
+        dirtyIds.push(id);
+        if (!first) first = checker;
       }
     }
-    return null;
+    if (dirtyIds.length > 0) {
+      void invokeTauri("append_runtime_log_probe", {
+        message: `[unsaved-guard] dirty checkers: ${JSON.stringify(dirtyIds)} → picking ${dirtyIds[0]}`,
+        level: "debug",
+      }).catch(() => {});
+    }
+    return first;
   }
 
   function hasDirtyState(): boolean {

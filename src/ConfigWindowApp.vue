@@ -1074,7 +1074,77 @@ watch(uiSizeScale, (scale) => {
 
 onMounted(() => {
   unsavedGuard.registerDirtyChecker("global-config", {
-    isDirty: () => configDirty.value || personaDirty.value,
+    isDirty: () => {
+      const dirty = configDirty.value || personaDirty.value;
+      if (dirty) {
+        // 排障探针：diff 出具体哪些字段不一致，定位「用户没改却弹未保存」的根源。
+        try {
+          const cur = JSON.parse(buildConfigSnapshotJson()) as Record<string, unknown>;
+          const saved = JSON.parse(lastSavedConfigJson.value) as Record<string, unknown>;
+          const diffKeys = [...new Set([...Object.keys(cur), ...Object.keys(saved)])]
+            .filter((key) => JSON.stringify(cur[key]) !== JSON.stringify(saved[key]));
+          const lines: string[] = [
+            `[unsaved-guard] global-config dirty: configDirty=${configDirty.value} personaDirty=${personaDirty.value} diffKeys=${JSON.stringify(diffKeys)}`,
+          ];
+          // apiProviders 按 provider.id 拆字段级 diff
+          if (diffKeys.includes("apiProviders")) {
+            const savedProviders = Array.isArray(saved.apiProviders) ? saved.apiProviders as Array<Record<string, unknown>> : [];
+            const curProviders = Array.isArray(cur.apiProviders) ? cur.apiProviders as Array<Record<string, unknown>> : [];
+            for (const curP of curProviders) {
+              const savedP = savedProviders.find((p) => p?.id === curP?.id);
+              if (!savedP) {
+                lines.push(`  added provider ${curP.id} (${curP.name})`);
+                continue;
+              }
+              const pDiffKeys = [...new Set([...Object.keys(savedP), ...Object.keys(curP)])]
+                .filter((k) => JSON.stringify(savedP[k]) !== JSON.stringify(curP[k]));
+              if (pDiffKeys.length === 0) continue;
+              lines.push(`  provider ${curP.id} (${curP.name}) diffKeys=${JSON.stringify(pDiffKeys)}`);
+              for (const k of pDiffKeys) {
+                // models 数组再拆一层，按 model.id 找字段差异
+                if (k === "models" && Array.isArray(savedP[k]) && Array.isArray(curP[k])) {
+                  const savedModels = savedP[k] as Array<Record<string, unknown>>;
+                  const curModels = curP[k] as Array<Record<string, unknown>>;
+                  for (const cm of curModels) {
+                    const sm = savedModels.find((m) => m?.id === cm?.id);
+                    if (!sm) {
+                      lines.push(`    added model ${cm.id} (${cm.model})`);
+                      continue;
+                    }
+                    const mDiffKeys = [...new Set([...Object.keys(sm), ...Object.keys(cm)])]
+                      .filter((mk) => JSON.stringify(sm[mk]) !== JSON.stringify(cm[mk]));
+                    if (mDiffKeys.length === 0) continue;
+                    lines.push(`    model ${cm.id} (${cm.model}) diffKeys=${JSON.stringify(mDiffKeys)}`);
+                    for (const mk of mDiffKeys) {
+                      lines.push(`      ${mk}: saved=${JSON.stringify(sm[mk])} current=${JSON.stringify(cm[mk])}`);
+                    }
+                  }
+                  for (const sm of savedModels) {
+                    if (!curModels.find((m) => m?.id === sm?.id)) {
+                      lines.push(`    removed model ${sm.id} (${sm.model})`);
+                    }
+                  }
+                } else {
+                  lines.push(`    ${k}: saved=${JSON.stringify(savedP[k])?.slice(0, 200)} current=${JSON.stringify(curP[k])?.slice(0, 200)}`);
+                }
+              }
+            }
+            for (const savedP of savedProviders) {
+              if (!curProviders.find((p) => p?.id === savedP?.id)) {
+                lines.push(`  removed provider ${savedP.id} (${savedP.name})`);
+              }
+            }
+          }
+          void invokeTauri("append_runtime_log_probe", {
+            message: lines.join("\n"),
+            level: "debug",
+          }).catch(() => {});
+        } catch {
+          /* 探针失败不影响主流程 */
+        }
+      }
+      return dirty;
+    },
     title: t("config.unsavedConfirm.title"),
     message: t("config.unsavedConfirm.message"),
     onDiscard: () => {

@@ -507,7 +507,9 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       messageNotificationSoundEnabled: !!options.config.messageNotificationSoundEnabled,
       desktopOperationNoticeEnabled: !!options.config.desktopOperationNoticeEnabled,
       desktopOperateEnabled: !!options.config.desktopOperateEnabled,
-      selectedApiConfigId: options.config.selectedApiConfigId,
+      // selectedApiConfigId 只是「上次使用的端点」行为记录，没有运行时消费方；
+      // 它会在 load/normalize/人格切换时被静默改写，不该算 dirty。
+      // 保留字段持久化（万一以后有用），但排除在 dirty 检测之外。
       expertApiConfigId: options.config.expertApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId,
       imageGenerationModelId: normalizeImageGenerationModelId(

@@ -1868,17 +1868,21 @@ async function switchCapabilityTab(capability: ApiTopTab) {
 }
 
 function revertUnsavedConfigIfNeeded() {
-  if (!currentProviderDirty.value) return;
-  const currentProviderId = String(selectedProvider.value?.id || "").trim();
-  if (!currentProviderId) return;
-  const providerIndex = props.config.apiProviders.findIndex((provider) => String(provider.id || "").trim() === currentProviderId);
-  if (providerIndex < 0) return;
-  const savedProvider = savedProviderMap.value.get(currentProviderId);
-  if (!savedProvider) {
-    props.config.apiProviders.splice(providerIndex, 1);
-    return;
-  }
-  props.config.apiProviders.splice(providerIndex, 1, cloneProvider(savedProvider));
+  // 放弃修改：按 savedProviderMap 整份还原 apiProviders + 重建草稿。
+  // 不能只针对 selectedProvider：selectedProvider 可能已被 normalize/切换改指向，
+  // 也可能为 null；草稿里的改动必须无条件清掉。
+  const saved = savedProviderMap.value;
+  const nextProviders = props.config.apiProviders
+    .map((provider) => {
+      const savedProvider = saved.get(String(provider.id || "").trim());
+      return savedProvider ? cloneProvider(savedProvider) : provider;
+    })
+    // 不在 savedProviderMap 里的 provider 是本次新增的，直接移除
+    .filter((provider) => saved.has(String(provider.id || "").trim()));
+  props.config.apiProviders.splice(0, props.config.apiProviders.length, ...nextProviders);
+  // browsingProviderId 也清掉：放弃修改后「正在浏览的 provider」可能已被还原或移除，
+  // 留着会让 selectedProvider 指向不存在的 provider。
+  browsingProviderId.value = "";
   // config 已还原，草稿需要跟随重建，避免残留旧草稿
   rebuildDraftGroups();
 }
@@ -2452,6 +2456,18 @@ watch(
     stopCodexAuthPolling();
   },
   { immediate: true },
+);
+
+// 外部还原（restoreLastSavedConfigSnapshot）会重写 config.apiProviders 与 lastSavedConfigJson，
+// 但 selectedProvider.id 可能不变——此时 draftModelGroups 里的残留草稿必须重建。
+// 监听 lastSavedConfigJson 变化作为「外部还原」的信号。
+watch(
+  () => props.lastSavedConfigJson,
+  (newJson, oldJson) => {
+    if (newJson === oldJson) return;
+    if (!inDetailMode.value) return;
+    rebuildDraftGroups();
+  },
 );
 
 onMounted(() => {
