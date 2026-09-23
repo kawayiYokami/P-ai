@@ -745,6 +745,7 @@ const {
   patchChatSettings,
   patchConversationApiSettings,
   restoreLastSavedConfigSnapshot,
+  restoreLastSavedPersonasSnapshot,
 } = configPersistence;
 
 const {
@@ -1078,14 +1079,19 @@ onMounted(() => {
     message: t("config.unsavedConfirm.message"),
     onDiscard: () => {
       restoreLastSavedConfigSnapshot();
+      restoreLastSavedPersonasSnapshot();
     },
     onSave: async () => {
+      // 任一保存失败都立即返回 false，让 guard 中止离开；全部成功才返回 true。
       if (configDirty.value) {
-        await saveConfig();
+        const ok = await saveConfig();
+        if (!ok) return false;
       }
       if (personaDirty.value) {
-        await savePersonas();
+        const ok = await savePersonas();
+        if (!ok) return false;
       }
+      return true;
     },
   });
 

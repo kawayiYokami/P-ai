@@ -154,6 +154,9 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
   let conversationApiSettingsSaving = false;
   let lastChatSettingsJson = "";
   let chatSettingsSaving = false;
+  // 最近一次成功保存/加载的 personas 深拷贝，用于「放弃修改」时把 personas 恢复到上次保存状态。
+  // lastSavedPersonasJson 只是 dirty 检测指纹，字段是裁剪过的，不能直接拿来恢复完整 PersonaProfile。
+  let lastSavedPersonasSnapshotList: PersonaProfile[] = [];
   const MIN_RECORD_SECONDS = 1;
   const MAX_MIN_RECORD_SECONDS = 30;
   const DEFAULT_MAX_RECORD_SECONDS = 60;
@@ -414,6 +417,10 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
   }
 
+  function snapshotPersonas(list: PersonaProfile[]): PersonaProfile[] {
+    return list.map((item) => JSON.parse(JSON.stringify(item)) as PersonaProfile);
+  }
+
   function applyLoadedPersonas(list: PersonaProfile[]) {
     options.personas.value = list.map((item) => ({
       ...item,
@@ -433,6 +440,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     }
     options.syncUserAliasFromPersona();
     options.lastSavedPersonasJson.value = options.buildPersonasSnapshotJson();
+    lastSavedPersonasSnapshotList = snapshotPersonas(options.personas.value);
   }
 
   function applyLoadedChatSettings(settings: ChatSettings) {
@@ -803,6 +811,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       }));
       options.syncUserAliasFromPersona();
       options.lastSavedPersonasJson.value = options.buildPersonasSnapshotJson();
+      lastSavedPersonasSnapshotList = snapshotPersonas(options.personas.value);
       options.setStatus(options.t("status.personaSaved"));
       return true;
     } catch (e) {
@@ -835,6 +844,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       }));
       options.syncUserAliasFromPersona();
       options.lastSavedPersonasJson.value = options.buildPersonasSnapshotJson();
+      lastSavedPersonasSnapshotList = snapshotPersonas(options.personas.value);
       options.setStatus(options.t("config.persona.convertToPublicSuccess"));
       return true;
     } catch (e) {
@@ -1034,6 +1044,15 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     }
   }
 
+  function restoreLastSavedPersonasSnapshot(): boolean {
+    if (lastSavedPersonasSnapshotList.length === 0) return false;
+    // 直接复用 applyLoadedPersonas 的规整与 lastSavedPersonasJson 回写逻辑，
+    // 保证恢复后 personaDirty 立即回到 false。
+    applyLoadedPersonas(snapshotPersonas(lastSavedPersonasSnapshotList));
+    options.setStatus("已还原未保存人格");
+    return true;
+  }
+
   return {
     loadConfig,
     loadBootstrapSnapshot,
@@ -1050,5 +1069,6 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     patchConversationApiSettings,
     saveConversationApiSettings,
     restoreLastSavedConfigSnapshot,
+    restoreLastSavedPersonasSnapshot,
   };
 }

@@ -655,6 +655,8 @@ const unsavedGuard = useUnsavedChangesGuard();
 
 onMounted(() => {
   const unregister = unsavedGuard.registerDirtyChecker("custom-skill", {
+    // 显式优先级高于全局 config checker：「保存并离开」应先落在具体 skill 草稿上。
+    priority: 10,
     isDirty: () => isDirty.value,
     title: t("config.unsavedConfirm.title"),
     message: t("config.skill.confirmLeaveUnsaved"),
@@ -662,7 +664,7 @@ onMounted(() => {
       discardChanges();
     },
     onSave: async () => {
-      await saveCurrentSkill();
+      return await saveCurrentSkill();
     },
   });
   onUnmounted(unregister);
@@ -796,7 +798,7 @@ async function selectSkill(path: string) {
       message: t("config.skill.confirmLeaveUnsaved"),
       canSaveAndLeave: true,
       onSave: async () => {
-        await saveCurrentSkill();
+        return await saveCurrentSkill();
       },
     });
     if (!allow) return;
@@ -885,7 +887,7 @@ async function backToList() {
       message: t("config.skill.confirmLeaveUnsaved"),
       canSaveAndLeave: true,
       onSave: async () => {
-        await saveCurrentSkill();
+        return await saveCurrentSkill();
       },
     });
     if (!allow) return;
@@ -904,8 +906,10 @@ function discardChanges() {
   setStatus(t("config.skill.discardedHint"));
 }
 
-async function saveCurrentSkill() {
-  if (!selectedSkill.value || savingSkill.value || selectedSkill.value.isBuiltin) return;
+async function saveCurrentSkill(): Promise<boolean> {
+  // 提前 return 的场景（无选中、正在保存、内置技能）视为「无需保存」，返回 true 让流程继续；
+  // 只有真正调用后端失败才返回 false。
+  if (!selectedSkill.value || savingSkill.value || selectedSkill.value.isBuiltin) return true;
   savingSkill.value = true;
   try {
     const updated = await saveTransportSkill(
@@ -925,8 +929,10 @@ async function saveCurrentSkill() {
     isEditingName.value = false;
     isEditingDesc.value = false;
     setStatus(t("config.skill.saveSuccessWithName", { name: updated.name }));
+    return true;
   } catch (error) {
     setStatus(`${t("config.skill.saveFailed")}: ${toErrorMessage(error)}`, true);
+    return false;
   } finally {
     savingSkill.value = false;
   }

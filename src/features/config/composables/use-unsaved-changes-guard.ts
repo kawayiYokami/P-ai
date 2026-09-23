@@ -4,6 +4,14 @@ import { useI18n } from "vue-i18n";
 export interface DirtyChecker {
   /** 当前是否有未保存的修改 */
   isDirty: () => boolean;
+  /**
+   * 显式优先级：数值越大越先被选中。未指定时按注册顺序逆序兜底（后注册优先，
+   * 兼容旧行为）；提供后优先按 priority 排序，再按注册顺序逆序。
+   *
+   * 约定：api-provider 等子详情 checker 应传大于全局的值，确保「保存并离开」
+   * 先落到具体草稿的 onSave，而不是全局 config.onSave。
+   */
+  priority?: number;
   /** 可选：弹窗自定义标题 */
   title?: string;
   /** 可选：弹窗自定义提示内容 */
@@ -58,6 +66,9 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
 
   let activeChecker: DirtyChecker | null = null;
   let pendingResolve: ((confirmed: boolean) => void) | null = null;
+  // 保存当前正在等待用户确认的 Promise；dialog 已打开时再次调用 confirmLeaveIfDirty
+  // 复用同一个 Promise，避免覆盖 pendingResolve 导致前一个调用方永久 pending。
+  let pendingPromise: Promise<boolean> | null = null;
 
   function registerDirtyChecker(id: string, checker: DirtyChecker): () => void {
     checkers.set(id, checker);
@@ -67,9 +78,11 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
   }
 
   function getFirstDirtyChecker(): DirtyChecker | null {
-    // 逆序查找，优先取最后注册的（通常为当前激活的子组件/详情页）
-    const list = Array.from(checkers.values()).reverse();
-    for (const checker of list) {
+    // 先按显式 priority 降序，未指定的按 0；同优先级内按注册顺序逆序（后注册优先）。
+    const list = Array.from(checkers.values())
+      .map((checker, index) => ({ checker, index, priority: checker.priority ?? 0 }))
+      .sort((a, b) => (b.priority - a.priority) || (b.index - a.index));
+    for (const { checker } of list) {
       if (checker.isDirty()) {
         return checker;
       }
@@ -82,6 +95,12 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
   }
 
   function confirmLeaveIfDirty(optionsOverride?: Partial<UnsavedConfirmDialogOptions>): Promise<boolean> {
+    // 弹窗已打开时复用同一个 pending Promise；新的 override 不再生效，
+    // 避免覆盖 pendingResolve 导致前一个调用方永久 pending。
+    if (dialogOpen.value && pendingPromise) {
+      return pendingPromise;
+    }
+
     const dirtyChecker = getFirstDirtyChecker();
     if (!dirtyChecker) {
       return Promise.resolve(true);
@@ -104,9 +123,10 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
 
     dialogOpen.value = true;
 
-    return new Promise<boolean>((resolve) => {
+    pendingPromise = new Promise<boolean>((resolve) => {
       pendingResolve = resolve;
     });
+    return pendingPromise;
   }
 
   function handleCancel() {
@@ -115,6 +135,7 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
     activeChecker = null;
     pendingResolve?.(false);
     pendingResolve = null;
+    pendingPromise = null;
   }
 
   async function handleDiscard() {
@@ -128,6 +149,7 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
       activeChecker = null;
       pendingResolve?.(true);
       pendingResolve = null;
+      pendingPromise = null;
     }
   }
 
@@ -147,6 +169,7 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
       activeChecker = null;
       pendingResolve?.(true);
       pendingResolve = null;
+      pendingPromise = null;
     } finally {
       saving.value = false;
     }

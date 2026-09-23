@@ -501,14 +501,19 @@ const unsavedGuard = useUnsavedChangesGuard();
 
 onMounted(() => {
   const unregister = unsavedGuard.registerDirtyChecker("api-provider", {
-    isDirty: () => currentProviderDirty.value,
+    // 显式优先级高于全局 config checker：「保存并离开」应先落在具体 provider 草稿上。
+    priority: 10,
+    // 只在详情页（inDetailMode）才认为当前 provider 是「正在被编辑的草稿」；
+    // 列表页 selectedProvider 会兜底到 activeProviderList[0]，不代表用户在改它。
+    // imageGeneration tab 走自己的 dirty 检测（imageToolbarDirty），不在此 checker 范围。
+    isDirty: () => inDetailMode.value && activeTopTab.value !== "imageGeneration" && currentProviderDirty.value,
     title: t("config.unsavedConfirm.title"),
     message: t("config.unsavedConfirm.message"),
     onDiscard: () => {
       revertUnsavedConfigIfNeeded();
     },
     onSave: async () => {
-      await handleSaveApiConfig();
+      return await handleSaveApiConfig();
     },
   });
   onUnmounted(unregister);
@@ -801,14 +806,26 @@ function modelDisplayLabel(
 
 const providerList = computed(() => props.config.apiProviders || []);
 const activeProviderList = computed(() => providerList.value.filter((provider) => !isProviderDeprecated(provider)));
+// 「正在浏览的 provider」独立于「当前使用的端点（selectedApiConfigId）」：
+// 进入无模型 provider 详情时不能写 selectedApiConfigId（它是 providerId::modelId 的端点语义，
+// 写空模型 id 会污染真实模型选择），用 browsingProviderId 单独记住用户正在查看的 provider。
+const browsingProviderId = ref("");
 const selectedProviderId = computed(() => {
+  if (browsingProviderId.value) return browsingProviderId.value;
   const [providerId] = String(props.config.selectedApiConfigId || "").split("::");
   return providerId || activeProviderList.value[0]?.id || "";
 });
 
 const selectedProvider = computed(() => {
+  // 严格匹配「正在浏览/正在使用」的 provider，不再兜底到 activeProviderList[0]：
+  // 列表页本就不应有「当前 provider」的概念，兜底会让 currentProviderDirty 在
+  // 用户没编辑任何内容时也误判为 dirty。
+  if (browsingProviderId.value) {
+    const hit = activeProviderList.value.find((provider) => provider.id === browsingProviderId.value);
+    if (hit) return hit;
+  }
   const [providerId] = String(props.config.selectedApiConfigId || "").split("::");
-  return activeProviderList.value.find((provider) => provider.id === providerId) ?? activeProviderList.value[0] ?? null;
+  return activeProviderList.value.find((provider) => provider.id === providerId) ?? null;
 });
 
 const draftModelGroups = ref<DraftModelGroup[]>([]);
@@ -941,12 +958,13 @@ async function backToList() {
     const allow = await unsavedGuard.confirmLeaveIfDirty({
       canSaveAndLeave: true,
       onSave: async () => {
-        await handleSaveApiConfig();
+        return await handleSaveApiConfig();
       },
     });
     if (!allow) return;
     revertUnsavedConfigIfNeeded();
   }
+  browsingProviderId.value = "";
   inDetailMode.value = false;
 }
 
@@ -1690,16 +1708,24 @@ async function selectProvider(providerId: string) {
     const allow = await unsavedGuard.confirmLeaveIfDirty({
       canSaveAndLeave: true,
       onSave: async () => {
-        await handleSaveApiConfig();
+        return await handleSaveApiConfig();
       },
     });
     if (!allow) return;
     revertUnsavedConfigIfNeeded();
   }
   const provider = providerList.value.find((item) => item.id === providerId);
+  if (!provider) return;
   const model = firstActiveModel(provider);
-  if (!provider || !model) return;
-  props.config.selectedApiConfigId = `${provider.id}::${model.id}`;
+  if (model) {
+    // 有可用模型时同步更新当前端点
+    props.config.selectedApiConfigId = `${provider.id}::${model.id}`;
+    browsingProviderId.value = "";
+  } else {
+    // 无模型 provider：不写 selectedApiConfigId（它是端点语义），
+    // 只用 browsingProviderId 标记「正在浏览」，让 enterProvider 能进入详情。
+    browsingProviderId.value = provider.id;
+  }
 }
 
 function addImageProvider() {
@@ -1825,7 +1851,7 @@ async function switchCapabilityTab(capability: ApiTopTab) {
     const allow = await unsavedGuard.confirmLeaveIfDirty({
       canSaveAndLeave: true,
       onSave: async () => {
-        await handleSaveApiConfig();
+        return await handleSaveApiConfig();
       },
     });
     if (!allow) return;
@@ -1880,6 +1906,7 @@ function addModelCard() {
   };
   draftModelGroups.value.unshift(group);
   props.config.selectedApiConfigId = `${provider.id}::${model.id}`;
+  browsingProviderId.value = "";
 }
 
 function removeModelGroup(group: DraftModelGroup) {
@@ -2170,7 +2197,7 @@ async function openProviderSite(preset: ProviderPreset) {
   }
 }
 
-async function handleSaveApiConfig() {
+async function handleSaveApiConfig(): Promise<boolean> {
   const provider = selectedProvider.value;
   if (provider) {
     // 先把防抖中的元数据拉取 flush 掉，再等在途同步，避免保存时报告与落盘不一致
@@ -2187,13 +2214,13 @@ async function handleSaveApiConfig() {
     const providerName = String(provider.name || "").trim();
     if (!providerName) {
       props.setStatusAction(t("config.api.providerNameRequired"));
-      return;
+      return false;
     }
     // 保存前先把草稿拆分结果写回 config.models
     commitDraftGroups();
     provider.cachedModelOptions = Array.from(new Set(providerModelOptions.value));
   }
-  await Promise.resolve(props.saveApiConfigAction());
+  return await Promise.resolve(props.saveApiConfigAction());
 }
 
 function handleRestoreProviderDraft() {

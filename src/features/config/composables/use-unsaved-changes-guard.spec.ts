@@ -104,4 +104,47 @@ describe("useUnsavedChangesGuard", () => {
     expect(result).toBe(true);
     expect(guard.dialogOpen.value).toBe(false);
   });
+
+  it("弹窗已打开时重复调用 confirmLeaveIfDirty 复用同一 Promise", async () => {
+    const guard = createUnsavedChangesGuard();
+    guard.registerDirtyChecker("test-6", {
+      isDirty: () => true,
+    });
+
+    const first = guard.confirmLeaveIfDirty();
+    const second = guard.confirmLeaveIfDirty({
+      title: "should-be-ignored",
+    });
+
+    expect(first).toBe(second);
+    expect(guard.dialogOptions.value.title).not.toBe("should-be-ignored");
+
+    guard.handleCancel();
+    await expect(first).resolves.toBe(false);
+    await expect(second).resolves.toBe(false);
+  });
+
+  it("priority 显式高于注册顺序：后注册的低优先级 checker 不应抢占", async () => {
+    const guard = createUnsavedChangesGuard();
+    const lowSave = vi.fn().mockResolvedValue(true);
+    const highSave = vi.fn().mockResolvedValue(true);
+    // 先注册低优先级（模拟 global-config），再注册高优先级（模拟 api-provider）
+    guard.registerDirtyChecker("global", {
+      isDirty: () => true,
+      priority: 0,
+      onSave: lowSave,
+    });
+    guard.registerDirtyChecker("api-provider", {
+      isDirty: () => true,
+      priority: 10,
+      onSave: highSave,
+    });
+
+    const leavePromise = guard.confirmLeaveIfDirty();
+    await guard.handleSaveAndLeave();
+    await leavePromise;
+
+    expect(highSave).toHaveBeenCalledTimes(1);
+    expect(lowSave).not.toHaveBeenCalled();
+  });
 });
