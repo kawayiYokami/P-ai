@@ -91,7 +91,9 @@ onBeforeUnmount(() => {
           ref="bodyRef"
           class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
           :class="[props.textClass, { 'ecall-expandable-text-clamped': clamped && overflowing }]"
-        >{{ text }}</div>
+        >
+          <slot :text="text">{{ text }}</slot>
+        </div>
       </div>
     </div>
     <div v-if="overflowing" class="mt-0.5">

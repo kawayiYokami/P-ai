@@ -195,7 +195,22 @@
                             :expanded="activityItemExpanded(item)"
                             :follow="activityItemFollowsStream(item)"
                             @update:expanded="onActivityItemExpandedChange(item, $event)"
-                          />
+                          >
+                            <template #default="{ text }">
+                              <!-- 思维链是推理段落：InlineMarkdownText 行内渲染（粗体/斜体/代码/kbd），
+                                   不生成块级元素，标题行剥成加粗——紧凑、不与外层按钮冲突。
+                                   正文可能含列表/代码块等结构：PlainMarkdownRenderer 完整渲染。 -->
+                              <InlineMarkdownText
+                                v-if="item.kind === 'reasoning'"
+                                :text="text"
+                              />
+                              <PlainMarkdownRenderer
+                                v-else-if="item.kind === 'content'"
+                                :text="text"
+                              />
+                              <template v-else>{{ text }}</template>
+                            </template>
+                          </ExpandableText>
                         </div>
                       </div>
                     </li>
@@ -512,6 +527,7 @@ import {
 import { formatIsoToLocalDateTime } from "../../../utils/time";
 import { useChatMessageAppearance } from "../../shell/composables/use-chat-message-appearance";
 import { AppMarkdownRenderer, initKatex, parseMarkdownBlocks, type MarkdownBlock } from "../markdown";
+import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import { hideIncompleteInlineMath } from "../markdown/streaming-math";
 import { normalizeLocalLinkHref } from "../utils/local-link";
 import { textContentSignature } from "../utils/text-signature";
