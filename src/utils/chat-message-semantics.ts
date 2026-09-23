@@ -769,6 +769,7 @@ export function streamBlocksToActivityItems(rawBlocks: unknown, running = false)
         name: tool.name,
         argsText: tool.argsText || "",
         resultText: tool.resultText,
+        resultMetadata: tool.resultMetadata,
         status: tool.status === "doing" ? "doing" : "done",
       });
     }

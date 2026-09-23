@@ -866,6 +866,7 @@ export type ChatActivityItem =
     name: string;
     argsText: string;
     resultText?: string;
+    resultMetadata?: Record<string, unknown>;
     status?: "doing" | "done";
   };
 

@@ -1265,21 +1265,24 @@ function toolCallDiffStats(toolCall: { name: string; argsText: string; resultTex
 function activityToolDetailsText(item: ChatActivityItem): string {
   if (item.kind !== "tool") return "";
   const args = activityToolArgsText(item);
-  if (!item.resultText) return args;
-  const status = parseToolCallResultStatus(item.resultText);
-  if (status.isDenied) {
+  const result = String(item.resultText || "").trim();
+  const status = result ? parseToolCallResultStatus(item.resultText) : null;
+  if (status?.isDenied) {
     const reason = status.blockedReason || status.message;
     const label = reason
       ? `\n\n[${t("chat.toolReview.denied") || "已拒绝"}]: ${reason}`
       : `\n\n[${t("chat.toolReview.denied") || "已拒绝"}]`;
-    return `${args}${label}`;
+    return result ? `${args}\n\n---\n\n${result}${label}` : `${args}${label}`;
   }
-  if (status.isFailed) {
+  if (status?.isFailed) {
     const reason = status.message || status.blockedReason;
     const label = reason
       ? `\n\n[${t("chat.toolReview.failed") || "执行失败"}]: ${reason}`
       : `\n\n[${t("chat.toolReview.failed") || "执行失败"}]`;
-    return `${args}${label}`;
+    return result ? `${args}\n\n---\n\n${result}${label}` : `${args}${label}`;
+  }
+  if (result) {
+    return `${args}\n\n---\n\n${result}`;
   }
   return args;
 }
