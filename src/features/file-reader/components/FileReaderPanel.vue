@@ -173,7 +173,7 @@
                 :workspace-path="gitPanelWorkspacePath"
                 :markdown-is-dark="markdownIsDark"
                 :session-key="props.sessionKey"
-                :session-root-path="props.initialRootPath"
+                :session-root-path="props.sessionRootPath || props.initialRootPath"
                 :sync-workspace-branch="props.syncWorkspaceBranch"
                 @open-diff="openGitDiffTab"
               />
@@ -768,6 +768,8 @@ const props = withDefaults(defineProps<{
   narrowOverlay?: boolean;
   sessionKey?: string;
   legacySessionKey?: string;
+  /** 当前会话实际在用的工作区根（工作树模式下为工作树路径）：供内部 Git 面板标出「本会话」 */
+  sessionRootPath?: string;
   /** 透传给 Git 面板：面板内切换分支成功后按仓库目录同步会话的工作分支记录 */
   syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
 }>(), {
@@ -780,6 +782,7 @@ const props = withDefaults(defineProps<{
   customMarkstreamId: "file-reader-markstream",
   sessionKey: "",
   legacySessionKey: "",
+  sessionRootPath: "",
   narrowOverlay: false,
 });
 

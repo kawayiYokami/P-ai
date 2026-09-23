@@ -753,7 +753,8 @@
           ref="chatReaderPanelRef"
           class="ecall-panel-enter h-full w-full"
           :narrow-overlay="rightPaneOverlay"
-          :initial-root-path="effectiveFileReaderRootPath"
+          :initial-root-path="effectiveSessionRootPath"
+          :session-root-path="effectiveSessionRootPath"
           :session-key="chatFileReaderSessionKey"
           :legacy-session-key="legacyChatFileReaderSessionKey"
           :enable-global-drop="false"
@@ -946,6 +947,8 @@ const props = defineProps<{
   currentWorkspaceAutonomousMode?: boolean;
   currentWorkspaceWorkMode?: ShellWorkMode;
   currentWorkspaceBranch?: string;
+  currentWorkspaceWorktreePath?: string;
+  currentWorkspaceWorktreeExists?: boolean;
   /** 发送前的分支确认：主动回读工作目录分支，不一致时返回 prompt，由调用方拦住这次发送 */
   checkBranchBeforeSend?: () => Promise<BranchGuardCheck>;
   /** 「继续对话」：把会话记录改成当前仓库分支 */
@@ -1433,6 +1436,20 @@ const effectiveFileReaderRootPath = computed(() => {
     if (workspacePath) return workspacePath;
   }
   return String(props.currentWorkspaceRootPath || "").trim();
+});
+
+/**
+ * 当前会话在用的真实工作区根：工作树模式且工作树已就绪时使用工作树目录，
+ * 否则沿用主工作区路径。用于在 Git 面板工作树列表标出「本会话」、以及对齐阅读器初始根。
+ */
+const effectiveSessionRootPath = computed(() => {
+  const isWorktree = props.currentWorkspaceWorkMode === "worktree";
+  const worktreePath = String(props.currentWorkspaceWorktreePath || "").trim();
+  const worktreeExists = Boolean(props.currentWorkspaceWorktreeExists);
+  if (isWorktree && worktreeExists && worktreePath) {
+    return worktreePath;
+  }
+  return effectiveFileReaderRootPath.value;
 });
 
 // ==================== messages / audio ====================
@@ -3004,7 +3021,7 @@ let homeGitWorkspaceKey = "";
  */
 async function syncHomeGitRepo() {
   if (isHomeGitPanelActive()) return;
-  const workspace = String(props.currentWorkspaceRootPath || "").trim();
+  const workspace = String(effectiveSessionRootPath.value || props.currentWorkspaceRootPath || "").trim();
   const workspaceChanged = workspace !== homeGitWorkspaceKey;
   homeGitWorkspaceKey = workspace;
   if (!workspaceChanged) return;
@@ -3026,7 +3043,7 @@ watch(
   () => [
     String(props.activeConversationId || "").trim(),
     props.chatRightPanelMode,
-    String(props.currentWorkspaceRootPath || "").trim(),
+    String(effectiveSessionRootPath.value || props.currentWorkspaceRootPath || "").trim(),
   ] as const,
   ([, mode]) => {
     syncHomeGitConsume(mode);

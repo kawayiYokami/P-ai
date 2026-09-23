@@ -1098,11 +1098,16 @@ async function loadDiscover(force = false) {
     // 默认仓库的工作树同样算「可选目标」：会话上次选中的是工作树时，
     // 不并入校验集合会被判为已失效，记忆被清掉后每次都退回默认仓库
     const worktreeRoots = await fetchWorktreeRoots(defaultRoot);
-    const rememberedRoot = readRememberedRepoRoot(String(props.sessionKey || "").trim(), [
+    const validRoots = [
       ...repos.value.map((repo) => repo.path),
       ...worktreeRoots,
-    ]);
-    setRepoRoot(rememberedRoot || defaultRoot);
+    ];
+    const rememberedRoot = readRememberedRepoRoot(String(props.sessionKey || "").trim(), validRoots);
+    const sessionRoot = String(props.sessionRootPath || "").trim();
+    const effectiveSessionRoot = sessionRoot && validRoots.some((r) => normalizeRepoPath(r) === normalizeRepoPath(sessionRoot))
+      ? sessionRoot
+      : "";
+    setRepoRoot(rememberedRoot || effectiveSessionRoot || defaultRoot);
     detectError.value =
       result.error ||
       (!result.gitAvailable

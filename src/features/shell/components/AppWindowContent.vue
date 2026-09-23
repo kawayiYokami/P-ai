@@ -171,6 +171,8 @@
         :current-workspace-root-path="currentChatWorkspaceRootPath"
         :current-workspace-autonomous-mode="currentChatWorkspaceAutonomousMode"
         :current-workspace-work-mode="currentChatWorkMode"
+        :current-workspace-worktree-path="currentChatWorktreePath"
+        :current-workspace-worktree-exists="currentChatWorktreeExists"
         :current-workspace-branch="currentChatWorkBranch || ''"
         :check-branch-before-send="checkBranchBeforeSend"
         :accept-branch-guard-prompt="acceptBranchGuardPrompt"
@@ -667,6 +669,8 @@ const props = defineProps<{
   currentChatWorkspaces: ShellWorkspace[];
   currentChatWorkMode?: ShellWorkMode;
   currentChatWorkBranch?: string;
+  currentChatWorktreePath?: string;
+  currentChatWorktreeExists?: boolean;
   checkBranchBeforeSend?: () => Promise<BranchGuardCheck>;
   acceptBranchGuardPrompt?: () => void;
   saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string, shellWorktreePath?: string) => Promise<void>;

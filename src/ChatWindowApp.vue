@@ -123,6 +123,8 @@
       :current-chat-workspace-autonomous-mode="chatWorkspaceAutonomousMode"
       :current-chat-workspaces="chatWorkspaceChoices"
       :current-chat-work-mode="chatWorkspaceWorkMode"
+      :current-chat-worktree-path="chatWorkspaceWorktreePath"
+      :current-chat-worktree-exists="chatWorkspaceWorktreeExists"
       :check-branch-before-send="checkBranchBeforeSend"
       :accept-branch-guard-prompt="acceptBranchGuardPrompt"
       :save-draft-workspaces="saveChatWorkspaces"
