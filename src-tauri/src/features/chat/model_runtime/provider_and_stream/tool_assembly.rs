@@ -210,7 +210,7 @@ fn read_provider_tool_definition() -> ProviderToolDefinition {
 fn read_media_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
         READ_MEDIA_TOOL_NAME,
-        "解析本地图片、音频或视频。图片在 description 留空时会直接返回原图；音频、视频必须依赖 description 描述解析侧重点。",
+        "解析本地图片、音频或视频。图片在当前模型支持图片输入时始终直接返回原图（图片随结果一起提供给当前模型观察）；音频、视频始终返回由多模态分析模型生成的文字描述，必须用 description 说明解析侧重点。",
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -220,7 +220,7 @@ fn read_media_provider_tool_definition() -> ProviderToolDefinition {
                 },
                 "description": {
                     "type": "string",
-                    "description": "解析侧重点，例如要看什么、听什么、提取什么。如果你本来就支持多模态，请优先留空以读取原媒体。"
+                    "description": "解析侧重点，例如要看什么、听什么、提取什么。图片会随原图一并作为提示透传；音频、视频必须填写，用于引导多模态分析模型生成描述。"
                 }
             },
             "required": ["path"]
@@ -678,15 +678,18 @@ fn runtime_tool_denied_reason(
             {
                 return Some("未选择默认生图模型，生图工具不挂载".to_string());
             }
-            if tool_name == "read_media"
-                && app_config
+            if tool_name == "read_media" {
+                // 图片可由当前对话模型直返（enable_image）；音频/视频需走多模态分析模型。
+                // 任一通道可用即挂载，两者都不可用时才跳过。
+                let vision_configured = app_config
                     .vision_api_config_id
                     .as_deref()
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
-                    .is_none()
-            {
-                return Some("未选择多模态分析模型，read_media 工具不挂载".to_string());
+                    .is_some();
+                if !selected_api.enable_image && !vision_configured {
+                    return Some("当前模型未启用图片输入且未配置多模态分析模型，read_media 工具不挂载".to_string());
+                }
             }
             if matches!(tool_name, "remember" | "recall")
                 && !memory_context.map(|context| context.recall_enabled).unwrap_or(false)
@@ -1844,6 +1847,64 @@ mod tool_assembly_permission_tests {
             .map(|tool| tool.definition.name.as_str())
             .collect::<Vec<_>>();
         assert_eq!(names, vec!["image_generate", "image_edit", "read_media"]);
+    }
+
+    #[test]
+    fn legal_tool_resolver_should_attach_read_media_when_model_supports_image_without_vision() {
+        // 对话模型本身支持图片输入时，即使未配置多模态分析模型也应挂载 read_media，
+        // 图片走直返通道；音频/视频调用时再按配置报错。
+        let agent = whitelist_agent(&["read_media"]);
+        let mut config = AppConfig::default();
+        config.vision_api_config_id = None;
+        let mut api = test_api();
+        api.enable_image = true;
+        let policy = RuntimeToolPolicy {
+            conversation_resolved: true,
+            local_conversation: true,
+            ..RuntimeToolPolicy::default()
+        };
+        let tools = vec![CachedRuntimeToolSchema::builtin(test_definition("read_media"))];
+        let memory = test_memory_context(true);
+        let resolved = resolve_legal_runtime_tools(
+            &config,
+            &api,
+            &agent,
+            &policy,
+            Some(&memory),
+            &tools,
+        );
+        let names = resolved
+            .attached
+            .iter()
+            .map(|tool| tool.definition.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["read_media"]);
+    }
+
+    #[test]
+    fn legal_tool_resolver_should_skip_read_media_when_no_image_support_and_no_vision() {
+        // 对话模型不支持图片且未配置多模态分析模型时，read_media 无可用通道，不挂载。
+        let agent = whitelist_agent(&["read_media"]);
+        let mut config = AppConfig::default();
+        config.vision_api_config_id = None;
+        let mut api = test_api();
+        api.enable_image = false;
+        let policy = RuntimeToolPolicy {
+            conversation_resolved: true,
+            local_conversation: true,
+            ..RuntimeToolPolicy::default()
+        };
+        let tools = vec![CachedRuntimeToolSchema::builtin(test_definition("read_media"))];
+        let memory = test_memory_context(true);
+        let resolved = resolve_legal_runtime_tools(
+            &config,
+            &api,
+            &agent,
+            &policy,
+            Some(&memory),
+            &tools,
+        );
+        assert!(resolved.attached.is_empty());
     }
 
     #[test]

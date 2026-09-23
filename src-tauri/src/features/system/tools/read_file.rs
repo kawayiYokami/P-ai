@@ -1201,15 +1201,16 @@ async fn builtin_read_media(
         .await
         .map_err(|err| format!("read_media 工具路径校验后台执行失败：{err}"))??;
     let detected = detect_read_media_type(&path).ok_or_else(|| "read_media 仅支持图片、音频或视频文件".to_string())?;
-    let description_is_empty = request
+    let description_text = request
         .description
         .as_deref()
         .map(str::trim)
         .unwrap_or_default()
-        .is_empty();
-    // 当前对话模型本身支持图片输入，且未指定解析侧重时，直接返回原图 base64 交给模型自行观察，
-    // 不再调用独立多模态模型生成文字描述。音频、视频不适用，仍走下面的多模态解析链路。
-    if model_supports_image && detected == ReadMediaDetectedType::Image && description_is_empty {
+        .to_string();
+    // 当前对话模型本身支持图片输入时，直接返回原图 base64 交给模型自行观察，
+    // 不再调用独立多模态模型生成文字描述；description 非空时作为解析侧重提示一并透传。
+    // 音频、视频体积大，不适用直返，仍走下面的多模态解析链路。
+    if model_supports_image && detected == ReadMediaDetectedType::Image {
         let raw = tokio::fs::read(&path)
             .await
             .map_err(|err| format!("读取媒体文件失败: {err}"))?;
@@ -1218,35 +1219,58 @@ async fn builtin_read_media(
             .to_string();
         let content_base64 = B64.encode(&raw);
         runtime_log_debug(format!(
-            "[read_media] 直接返回原图：模型支持图片输入且未指定解析侧重，mime={}，字节数={}",
+            "[read_media] 直接返回原图：模型支持图片输入，mime={}，字节数={}，description={}",
             mime,
-            raw.len()
+            raw.len(),
+            if description_text.is_empty() { "<空>" } else { description_text.as_str() }
         ));
+        // text 是给当前模型的指令：告知它图片在后续的 user 消息里，让它直接观察并回应。
+        // 用祈使句而非陈述句，避免模型把「已返回原图」误读成「分析已完成」。
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string());
+        let text = if description_text.is_empty() {
+            format!("以下是 {file_name} 的原图（作为下一条用户消息的图片提供），请直接观察图片内容并回应。")
+        } else {
+            format!("以下是 {file_name} 的原图（作为下一条用户消息的图片提供），请按以下侧重观察图片并回应：{description_text}")
+        };
         return Ok(serde_json::json!({
             "ok": true,
             "mediaType": detected.as_str(),
             "path": path.to_string_lossy().to_string(),
-            "text": "已直接返回原图（未生成文字描述），请查看图片内容。",
+            "text": text,
             "imageMime": mime,
             "imageBase64": content_base64,
             "directImage": true
         }));
     }
     let app_config = state_read_config_cached(state)?;
-    let selected_api = resolve_vision_api_config(&app_config)?;
+    let selected_api = resolve_vision_api_config(&app_config).map_err(|err| {
+        // 音频/视频必须依赖多模态分析模型；未配置时告知模型如何向用户解释与兜底。
+        if app_config.vision_api_config_id.as_deref().map(str::trim).unwrap_or_default().is_empty() {
+            format!(
+                "无法解析{}：未配置多模态分析模型。请告知用户在设置中选择一个多模态分析模型（需要支持{}输入），或请用户改用其他方式提供内容。",
+                detected.as_str(),
+                detected.as_str()
+            )
+        } else {
+            err
+        }
+    })?;
     match detected {
         ReadMediaDetectedType::Image if !selected_api.enable_image => {
-            return Err("当前多模态模型未启用图片输入".to_string());
+            return Err("无法解析图片：多模态分析模型未启用图片输入。请告知用户在多模态模型配置中开启图片输入，或更换支持图片的多模态模型。".to_string());
         }
         ReadMediaDetectedType::Audio if !selected_api.enable_audio => {
             runtime_log_debug(format!(
                 "[read_media] 跳过，媒体类型=音频，原因=模型未启用音频输入，api_id={}，api_name={}，api_url={}，模型={}",
                 selected_api.id, selected_api.name, selected_api.base_url, selected_api.model
             ));
-            return Err("当前多模态模型未启用音频输入".to_string());
+            return Err("无法解析音频：多模态分析模型未启用音频输入。请告知用户在多模态模型配置中开启音频输入，或更换支持音频的多模态模型。".to_string());
         }
         ReadMediaDetectedType::Video if !selected_api.enable_video => {
-            return Err("当前多模态模型未启用视频输入".to_string());
+            return Err("无法解析视频：多模态分析模型未启用视频输入。请告知用户在多模态模型配置中开启视频输入，或更换支持视频的多模态模型。".to_string());
         }
         _ => {}
     }
@@ -2432,12 +2456,13 @@ fn builtin_read_media_should_fail_when_audio_capability_is_disabled() {
         ))
         .expect_err("audio capability should be rejected");
 
-        assert_eq!(err, "当前多模态模型未启用音频输入");
+        assert!(err.contains("多模态分析模型未启用音频输入"));
+        assert!(err.contains("请告知用户"));
     }
 
 #[cfg(test)]
 #[test]
-fn builtin_read_media_should_return_original_image_when_model_supports_image_and_description_empty() {
+fn builtin_read_media_should_return_original_image_when_model_supports_image() {
         let root = std::env::temp_dir().join(format!("eca-read-media-direct-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let file = root.join("sample.png");
@@ -2467,14 +2492,54 @@ fn builtin_read_media_should_return_original_image_when_model_supports_image_and
             .unwrap_or(false));
         // 直返路径不经过描述缓存，也不产生文字描述
         assert!(value.get("cached").is_none());
-        assert!(value.get("text").and_then(Value::as_str).is_some());
+        let text = value.get("text").and_then(Value::as_str).expect("text");
+        assert!(text.contains("sample.png"));
+        assert!(text.contains("请直接观察图片内容并回应"));
+        assert!(!text.contains("侧重"));
     }
 
 #[cfg(test)]
 #[test]
-fn builtin_read_media_should_not_return_original_audio_or_video_when_description_empty() {
-        // 模型支持图片，但音频、视频不适用直返路径；两者能力关闭时即便 description 留空也应报错，
-        // 证明它们没有走「返回原媒体」的分支。
+fn builtin_read_media_should_return_original_image_with_description_hint_when_model_supports_image() {
+        // description 非空时图片仍直返原图，description 作为解析侧重提示透传给当前模型。
+        let root = std::env::temp_dir().join(format!("eca-read-media-direct-desc-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let file = root.join("sample.png");
+        std::fs::write(&file, b"\x89PNG\r\n\x1a\nfake-image-bytes").expect("write image");
+        let state = test_read_file_state();
+        let value = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build tokio runtime")
+        .block_on(builtin_read_media(
+            &state,
+            ReadMediaRequest {
+                path: file.to_string_lossy().to_string(),
+                description: Some("只关注左上角文字".to_string()),
+            },
+            true,
+        ))
+        .expect("direct image should succeed");
+
+        assert_eq!(value.get("mediaType").and_then(Value::as_str), Some("image"));
+        assert_eq!(value.get("directImage").and_then(Value::as_bool), Some(true));
+        assert!(value
+            .get("imageBase64")
+            .and_then(Value::as_str)
+            .map(|text| !text.is_empty())
+            .unwrap_or(false));
+        let text = value.get("text").and_then(Value::as_str).expect("text");
+        assert!(text.contains("请按以下侧重观察图片并回应"));
+        assert!(text.contains("只关注左上角文字"));
+        // description 非空但走了直返，证明没有落入多模态描述链路
+        assert!(value.get("cached").is_none());
+    }
+
+#[cfg(test)]
+#[test]
+fn builtin_read_media_should_not_return_original_audio_or_video() {
+        // 音频、视频体积大，永不走直返路径；即便当前模型支持图片输入且对应能力关闭，
+        // 仍应在多模态分析模型的能力校验处报错，证明它们没有走「返回原媒体」的分支。
         let root = std::env::temp_dir().join(format!("eca-read-media-av-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let audio = root.join("sample.mp3");
@@ -2519,8 +2584,8 @@ fn builtin_read_media_should_not_return_original_audio_or_video_when_description
         state_write_config_cached(&state, &config).expect("write config");
 
         for (file, expected) in [
-            (&audio, "当前多模态模型未启用音频输入"),
-            (&video, "当前多模态模型未启用视频输入"),
+            (&audio, "多模态分析模型未启用音频输入"),
+            (&video, "多模态分析模型未启用视频输入"),
         ] {
             let err = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -2536,7 +2601,8 @@ fn builtin_read_media_should_not_return_original_audio_or_video_when_description
                 ))
                 .expect_err("audio/video should not be returned as original media");
 
-            assert_eq!(err, expected);
+            assert!(err.contains(expected), "unexpected error: {err}");
+            assert!(err.contains("请告知用户"), "error should guide user action: {err}");
         }
     }
 

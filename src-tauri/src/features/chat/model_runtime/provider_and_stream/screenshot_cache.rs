@@ -234,26 +234,47 @@ fn enrich_screenshot_tool_result_with_cache(
 }
 
 fn screenshot_forward_notice(payload: &ScreenshotForwardPayload, tool_name: &str) -> String {
-    // 工具结果图片不只来自截图（如 read_media 直返原图），按来源工具区分措辞，避免误导模型。
-    let source_label = if tool_name == "operate" { "截图工具" } else { "工具" };
-    if payload.images.len() > 1 {
-        format!(
-            "工具已执行，以下 {} 张图片来自工具结果，将作为用户消息转发，请注意鉴别。",
-            payload.images.len()
-        )
-    } else if let Some(image) = payload.images.first() {
-        if image.width > 0 && image.height > 0 {
-            format!(
-                "{source_label}已执行，以下图片来自工具结果（{}x{}），将作为用户消息转发，请注意鉴别。",
-                image.width, image.height
-            )
-        } else {
-            format!(
-                "{source_label}已执行，以下图片来自工具结果，将作为用户消息转发，请注意鉴别。"
-            )
+    // 工具结果图片的来源不同，给模型的提示措辞也不同：
+    // - operate：截图，提醒模型鉴别屏幕内容；
+    // - read_media：模型主动要求看的原图，提醒它这是它请求观察的图；
+    // - 其他（MCP 等）：中性提示。
+    match tool_name {
+        "operate" => {
+            if payload.images.len() > 1 {
+                format!(
+                    "截图工具已执行，以下 {} 张图片来自工具结果，将作为用户消息转发，请注意鉴别。",
+                    payload.images.len()
+                )
+            } else if let Some(image) = payload.images.first() {
+                if image.width > 0 && image.height > 0 {
+                    format!(
+                        "截图工具已执行，以下图片来自工具结果（{}x{}），将作为用户消息转发，请注意鉴别。",
+                        image.width, image.height
+                    )
+                } else {
+                    "截图工具已执行，以下图片来自工具结果，将作为用户消息转发，请注意鉴别。".to_string()
+                }
+            } else {
+                "截图工具已执行，以下图片来自工具结果，将作为用户消息转发，请注意鉴别。".to_string()
+            }
         }
-    } else {
-        format!("{source_label}已执行，以下图片来自工具结果，将作为用户消息转发，请注意鉴别。")
+        "read_media" => {
+            if payload.images.len() > 1 {
+                format!("以下是你请求查看的 {} 张图片，请观察并回应。", payload.images.len())
+            } else {
+                "以下是你请求查看的图片，请观察并回应。".to_string()
+            }
+        }
+        _ => {
+            if payload.images.len() > 1 {
+                format!(
+                    "工具已执行，以下 {} 张图片来自工具结果，将作为用户消息转发，请注意鉴别。",
+                    payload.images.len()
+                )
+            } else {
+                "工具已执行，以下图片来自工具结果，将作为用户消息转发，请注意鉴别。".to_string()
+            }
+        }
     }
 }
 
@@ -289,8 +310,9 @@ fn screenshot_forward_notice_should_label_source_tool() {
     assert!(operate_notice.starts_with("截图工具已执行"));
     assert!(operate_notice.contains("（10x20）"));
 
-    // 非截图工具（如 read_media 直返原图）改用中性措辞
+    // read_media 直返原图改用「你请求查看的图片」指令化措辞
     let read_media_notice = screenshot_forward_notice(&payload_with(0, 0), "read_media");
-    assert!(read_media_notice.starts_with("工具已执行"));
+    assert!(read_media_notice.contains("你请求查看的图片"));
+    assert!(read_media_notice.contains("请观察并回应"));
     assert!(!read_media_notice.contains("截图"));
 }
