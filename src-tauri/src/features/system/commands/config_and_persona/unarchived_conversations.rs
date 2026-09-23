@@ -2982,6 +2982,44 @@ async fn get_unarchived_conversation_recent_messages(
     .map_err(|err| format!("读取会话最近消息任务异常：{err}"))?
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GetToolResultContentInput {
+    conversation_id: String,
+    message_id: String,
+    tool_call_id: String,
+}
+
+#[tauri::command]
+async fn get_tool_result_content(
+    input: GetToolResultContentInput,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let conversation_id = input.conversation_id.trim().to_string();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    let message_id = input.message_id.trim().to_string();
+    if message_id.is_empty() {
+        return Err("messageId is required.".to_string());
+    }
+    let tool_call_id = input.tool_call_id.trim().to_string();
+    if tool_call_id.is_empty() {
+        return Err("toolCallId is required.".to_string());
+    }
+    let app_state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        conversation_service_v2().get_tool_result_content_by_call_id(
+            &app_state,
+            &conversation_id,
+            &message_id,
+            &tool_call_id,
+        )
+    })
+    .await
+    .map_err(|err| format!("读取工具结果任务异常：{err}"))?
+}
+
 #[tauri::command]
 async fn get_unarchived_conversation_message_by_id(
     input: GetUnarchivedConversationMessageByIdInput,

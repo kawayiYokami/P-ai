@@ -235,6 +235,27 @@ async fn ide_chat_conversation_message_by_id_command(
     .map_err(|err| format!("读取会话单条消息任务异常：{err}"))?
 }
 
+async fn ide_chat_tool_result_content_command(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<GetToolResultContentInput>(params, "input")?;
+    let conversation_id = input.conversation_id.trim().to_string();
+    let message_id = input.message_id.trim().to_string();
+    let tool_call_id = input.tool_call_id.trim().to_string();
+    let app_state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        ide_chat_serialize(conversation_service_v2().get_tool_result_content_by_call_id(
+            &app_state,
+            &conversation_id,
+            &message_id,
+            &tool_call_id,
+        )?)
+    })
+    .await
+    .map_err(|err| format!("读取工具结果任务异常：{err}"))?
+}
+
 async fn ide_chat_conversation_messages_before_command(
     state: &AppState,
     params: Value,

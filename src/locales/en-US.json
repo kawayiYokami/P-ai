@@ -2199,6 +2199,7 @@
       "unevaluated": "Not assessed",
       "denied": "Denied",
       "failed": "Failed",
+      "viewResult": "View result",
       "terminalGroup": "Terminal",
       "terminalCommand": "Command",
       "otherGroup": "Other tools",

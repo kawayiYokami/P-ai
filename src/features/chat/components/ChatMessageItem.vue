@@ -165,6 +165,27 @@
                               class="m-0 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-base-200/60 p-2 text-xs leading-relaxed"
                               :class="activityItemDetailClass(item)"
                             ><code>{{ activityToolDetailsText(item) }}</code></pre>
+                            <div
+                              v-if="item.kind === 'tool' && item.contentOmitted && toolResultOverrides[activityItemKey(item)] === undefined"
+                              class="mt-1 flex items-center gap-2"
+                            >
+                              <button
+                                type="button"
+                                class="btn btn-xs btn-outline"
+                                :disabled="!!toolResultLoadingKeys[activityItemKey(item)]"
+                                @click.stop="loadToolResult(item)"
+                              >
+                                <span
+                                  v-if="toolResultLoadingKeys[activityItemKey(item)]"
+                                  class="loading loading-spinner loading-xs"
+                                ></span>
+                                {{ t("chat.toolReview.viewResult") || "查看结果" }}
+                              </button>
+                              <span
+                                v-if="toolResultErrorKeys[activityItemKey(item)]"
+                                class="text-error"
+                              >{{ toolResultErrorKeys[activityItemKey(item)] }}</span>
+                            </div>
                           </div>
                         </details>
                         <div
@@ -618,6 +639,11 @@ const activityDetailsRef = ref<HTMLDetailsElement | null>(null);
 const activityExpanded = ref(false);
 // 思维块展开态：只记用户手动改过的条目，未记账的按「最新一条默认展开」推导
 const activityItemExpandedOverrides = ref<Record<string, boolean>>({});
+// 工具结果按需加载：后端默认只下发占位文案（contentOmitted），
+// 用户点「查看结果」后才把真实内容填进 toolResultOverrides。
+const toolResultOverrides = ref<Record<string, string>>({});
+const toolResultLoadingKeys = ref<Record<string, boolean>>({});
+const toolResultErrorKeys = ref<Record<string, string>>({});
 const copyMessageImageBusy = ref(false);
 const planMarkdownText = ref("");
 const planMarkdownError = ref("");
@@ -1262,9 +1288,40 @@ function toolCallDiffStats(toolCall: { name: string; argsText: string; resultTex
   return { adds: 0, removes: 0 };
 }
 
+async function loadToolResult(item: ChatActivityItem): Promise<void> {
+  if (item.kind !== "tool") return;
+  const key = activityItemKey(item);
+  const conversationId = String(props.activeConversationId || "").trim();
+  const messageId = String(props.block.sourceMessageId || props.block.id || "").trim();
+  const toolCallId = String(item.toolCallId || "").trim();
+  if (!conversationId || !messageId || !toolCallId) return;
+  if (toolResultLoadingKeys.value[key]) return;
+  toolResultLoadingKeys.value = { ...toolResultLoadingKeys.value, [key]: true };
+  toolResultErrorKeys.value = { ...toolResultErrorKeys.value, [key]: "" };
+  try {
+    const content = await invokeTauri<string>("conversation.toolResultContent", {
+      input: { conversationId, messageId, toolCallId },
+    });
+    toolResultOverrides.value = { ...toolResultOverrides.value, [key]: String(content || "") };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    toolResultErrorKeys.value = { ...toolResultErrorKeys.value, [key]: message };
+  } finally {
+    toolResultLoadingKeys.value = { ...toolResultLoadingKeys.value, [key]: false };
+  }
+}
+
 function activityToolDetailsText(item: ChatActivityItem): string {
   if (item.kind !== "tool") return "";
   const args = activityToolArgsText(item);
+  const key = activityItemKey(item);
+  // 占位结果已被省略时，优先展示按需加载回来的真实结果；
+  // 未加载时结果区由模板渲染「查看结果」按钮，这里只返回参数部分。
+  if (item.contentOmitted) {
+    const loaded = toolResultOverrides.value[key];
+    if (loaded === undefined) return args;
+    return `${args}\n\n---\n\n${loaded}`;
+  }
   const result = String(item.resultText || "").trim();
   const status = result ? parseToolCallResultStatus(item.resultText) : null;
   if (status?.isDenied) {

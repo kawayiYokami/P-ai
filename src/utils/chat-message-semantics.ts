@@ -43,6 +43,7 @@ export type NormalizedToolHistoryEvent = {
   toolCalls: NormalizedToolCall[];
   toolCallId?: string;
   metadata?: Record<string, unknown>;
+  contentOmitted?: boolean;
 };
 
 function textPartReasoning(part: ChatMessage["parts"][number]): string {
@@ -261,6 +262,7 @@ export function normalizeMessageToolHistoryEvents(
         metadata: event.metadata && typeof event.metadata === "object"
           ? event.metadata as Record<string, unknown>
           : undefined,
+        contentOmitted: event.contentOmitted === true ? true : undefined,
       });
     }
   }
@@ -498,6 +500,7 @@ export function projectChatActivityForDisplay(message: ChatMessage): {
         name: call.toolName,
         argsText: call.argumentsText || "{}",
         resultText: result ? result.text : undefined,
+        contentOmitted: result?.contentOmitted,
         status: "done",
       });
     }
@@ -561,6 +564,7 @@ export function normalizeChatActivityItems(rawItems: unknown): ChatActivityItem[
         name,
         argsText: String(item?.argsText || ""),
         resultText: typeof item?.resultText === "string" ? item.resultText : undefined,
+        contentOmitted: item?.contentOmitted === true ? true : undefined,
         status: String(item?.status || "") === "doing" ? "doing" : "done",
       });
     }
@@ -591,6 +595,7 @@ function normalizeAssistantStreamToolBlocks(rawTools: unknown): AssistantStreamT
         : item?.result_metadata && typeof item.result_metadata === "object"
           ? item.result_metadata as Record<string, unknown>
           : undefined,
+      contentOmitted: item?.contentOmitted === true || item?.content_omitted === true ? true : undefined,
       status: status === "doing" || status === "running" ? "doing" : "done",
     });
   }
@@ -770,6 +775,7 @@ export function streamBlocksToActivityItems(rawBlocks: unknown, running = false)
         argsText: tool.argsText || "",
         resultText: tool.resultText,
         resultMetadata: tool.resultMetadata,
+        contentOmitted: tool.contentOmitted,
         status: tool.status === "doing" ? "doing" : "done",
       });
     }
@@ -1048,12 +1054,14 @@ export function applyAssistantToolResultToStreamBlocks(
   const resultMetadata = event.metadata && typeof event.metadata === "object"
     ? event.metadata as Record<string, unknown>
     : undefined;
+  const contentOmitted = event.contentOmitted === true ? true : undefined;
   for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
     const block = blocks[blockIndex];
     const tool = (block.tools || []).find((item) => String(item.toolCallId || "").trim() === toolCallId);
     if (!tool) continue;
     tool.resultText = resultText;
     tool.resultMetadata = resultMetadata;
+    tool.contentOmitted = contentOmitted;
     tool.status = "done";
     attachInlineToolMarkerToStreamBlock(blocks, blockIndex, toolCallId);
     return normalizeAssistantStreamBlocks(blocks);

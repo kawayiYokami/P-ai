@@ -12238,7 +12238,7 @@
 
     #[test]
     fn message_read_command_family_should_be_async_spawn_blocking() {
-        // 会话消息读取命令族（主会话 + 委托 + 归档 + 远程 IM）：unarchived_conversations.rs 10 个命令
+        // 会话消息读取命令族（主会话 + 委托 + 归档 + 远程 IM）：unarchived_conversations.rs 11 个命令
         let unarchived_file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
             .join("features")
@@ -12254,6 +12254,7 @@
             "get_unarchived_conversation_block_page",
             "get_unarchived_conversation_recent_messages",
             "get_unarchived_conversation_message_by_id",
+            "get_tool_result_content",
             "get_delegate_conversation_messages",
             "get_delegate_conversation_block_page",
             "get_active_conversation_messages",

@@ -1341,6 +1341,7 @@ fn main() {
             get_unarchived_conversation_recent_block_messages,
             get_unarchived_conversation_recent_messages,
             get_unarchived_conversation_message_by_id,
+            get_tool_result_content,
             list_delegate_conversations,
             list_conversation_delegate_statuses,
             list_conversation_background_shell_tasks,

@@ -867,6 +867,7 @@ export type ChatActivityItem =
     argsText: string;
     resultText?: string;
     resultMetadata?: Record<string, unknown>;
+    contentOmitted?: boolean;
     status?: "doing" | "done";
   };
 
@@ -876,6 +877,7 @@ export type AssistantStreamToolBlock = {
   argsText: string;
   resultText?: string;
   resultMetadata?: Record<string, unknown>;
+  contentOmitted?: boolean;
   status?: "doing" | "done";
 };
 

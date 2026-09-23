@@ -2177,6 +2177,7 @@
       "unevaluated": "未评估",
       "denied": "已拒绝",
       "failed": "执行失败",
+      "viewResult": "查看结果",
       "terminalGroup": "终端",
       "terminalCommand": "命令",
       "otherGroup": "其他工具",

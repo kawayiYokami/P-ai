@@ -923,6 +923,56 @@ impl ConversationServiceV2 {
         Ok(messages)
     }
 
+    // 按需读取单个工具结果：前端默认只拿到占位文案（见 frontend_display_only 投影），
+    // 用户点击「查看结果」时才从这里取回持久化中的原始 content（即 LLM 看到的版本）。
+    fn get_tool_result_content_by_call_id(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        message_id: &str,
+        tool_call_id: &str,
+    ) -> Result<String, String> {
+        let normalized_tool_call_id = tool_call_id.trim();
+        if normalized_tool_call_id.is_empty() {
+            return Err("toolCallId is required.".to_string());
+        }
+        let message = self.get_raw_message_by_id(state, conversation_id, message_id)?;
+        let events = message
+            .tool_call
+            .as_ref()
+            .ok_or_else(|| "该消息没有工具调用记录".to_string())?;
+        for event in events {
+            let role = event
+                .get("role")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if role != "tool" {
+                continue;
+            }
+            let event_tool_call_id = event
+                .get("tool_call_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default();
+            if event_tool_call_id != normalized_tool_call_id {
+                continue;
+            }
+            let content = event
+                .get("content")
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| value.to_string())
+                })
+                .unwrap_or_default();
+            return Ok(content);
+        }
+        Err(format!("找不到工具结果：{normalized_tool_call_id}"))
+    }
+
     fn get_raw_message_by_id(
         &self,
         state: &AppState,

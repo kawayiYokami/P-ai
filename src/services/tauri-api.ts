@@ -1664,6 +1664,7 @@ const TAURI_COMMAND_ALIASES: Record<string, string> = {
   "conversation.freshnessSnapshot": "get_foreground_conversation_freshness_snapshot",
   "conversation.markRead": "mark_conversation_read",
   "conversation.messageById": "get_unarchived_conversation_message_by_id",
+  "conversation.toolResultContent": "get_tool_result_content",
   "conversation.messagesBefore": "get_active_conversation_messages_before",
   "conversation.compactionSegmentBefore": "get_active_conversation_compaction_segment_before",
   "conversation.messagesAfterAsync": "request_conversation_messages_after_async",

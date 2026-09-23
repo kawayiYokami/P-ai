@@ -601,6 +601,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "get_foreground_conversation_freshness_snapshot" => ide_chat_conversation_freshness_snapshot_command(state, request.params).await,
         "get_unarchived_conversation_block_page" => ide_chat_conversation_block_page_command(state, request.params).await,
         "get_unarchived_conversation_message_by_id" => ide_chat_conversation_message_by_id_command(state, request.params).await,
+        "get_tool_result_content" => ide_chat_tool_result_content_command(state, request.params).await,
         "get_active_conversation_messages_before" => ide_chat_conversation_messages_before_command(state, request.params).await,
         "get_active_conversation_compaction_segment_before" => ide_chat_conversation_compaction_segment_before_command(state, request.params).await,
         "request_conversation_messages_after_async" =>
@@ -1036,6 +1037,7 @@ mod web_native_capability_tests {
             "get_foreground_conversation_freshness_snapshot",
             "get_unarchived_conversation_block_page",
             "get_unarchived_conversation_message_by_id",
+            "get_tool_result_content",
             "get_active_conversation_messages_before",
             "get_active_conversation_compaction_segment_before",
             "conversation.compactionSegmentBefore",
