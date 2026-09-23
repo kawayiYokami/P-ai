@@ -1081,13 +1081,43 @@ watch(historyCollapsed, (collapsed) => {
   }
 });
 
+let discoverSequence = 0;
+
+function resetRepoScopedState() {
+  branchPickerOpen.value = false;
+  closeCommitCard();
+  lastClickedDiffPath.value = "";
+  commitFilesMap.value = {};
+  historyLoaded.value = false;
+  stashesLoaded.value = false;
+  branchesLoaded.value = false;
+  lastHistoryLoad.value = 0;
+  lastStashesLoad.value = 0;
+  lastBranchesLoad.value = 0;
+  logEntries.value = [];
+  branches.value = [];
+  remotes.value = [];
+  stashList.value = [];
+  worktrees.value = [];
+}
+
 // 仓库列表：单次探查（向上探测 + 向下扫描 + 默认仓库推荐），后端一次返回；
 // force=true 强制重扫（绕过缓存）
 async function loadDiscover(force = false) {
-  if (reposLoading.value) return;
+  const currentWorkspace = String(props.workspacePath || "").trim();
+  if (!currentWorkspace) {
+    repos.value = [];
+    reposLoaded.value = true;
+    setRepoRoot("");
+    detectChecked.value = true;
+    detectError.value = "";
+    return;
+  }
+  const seq = ++discoverSequence;
   reposLoading.value = true;
   try {
-    const result = await gitPanelDiscover(props.workspacePath, force);
+    const result = await gitPanelDiscover(currentWorkspace, force);
+    if (seq !== discoverSequence) return;
     gitAvailable.value = !!result.gitAvailable;
     detectChecked.value = !!result.checked;
     repos.value = result.repos || [];
@@ -1098,6 +1128,7 @@ async function loadDiscover(force = false) {
     // 默认仓库的工作树同样算「可选目标」：会话上次选中的是工作树时，
     // 不并入校验集合会被判为已失效，记忆被清掉后每次都退回默认仓库
     const worktreeRoots = await fetchWorktreeRoots(defaultRoot);
+    if (seq !== discoverSequence) return;
     const validRoots = [
       ...repos.value.map((repo) => repo.path),
       ...worktreeRoots,
@@ -1120,11 +1151,14 @@ async function loadDiscover(force = false) {
     // reposLoading 防重入挡住时触发链断裂导致面板全空。
     ensureVisibleData();
   } catch (error) {
+    if (seq !== discoverSequence) return;
     gitAvailable.value = false;
     detectChecked.value = true;
     detectError.value = error instanceof Error ? error.message : String(error);
   } finally {
-    reposLoading.value = false;
+    if (seq === discoverSequence) {
+      reposLoading.value = false;
+    }
   }
 }
 
@@ -1160,11 +1194,15 @@ async function fetchWorktreeRoots(root: string): Promise<string[]> {
   }
 }
 
-// 仓库根变化（切换仓库或工作树、重新探查）时重取工作树列表
+// 仓库根变化（切换仓库或工作树、重新探查）时重置仓库级状态并重取工作树与可见数据
 watch(
   repoRoot,
-  () => {
+  (nextRoot, prevRoot) => {
+    if (nextRoot !== prevRoot) {
+      resetRepoScopedState();
+    }
     void loadWorktrees();
+    ensureVisibleData();
   },
   { immediate: true },
 );
@@ -1199,20 +1237,7 @@ const otherRepos = computed(
 // 切换仓库：把共享状态源切到新仓库，重置各数据加载标记后按当前可见区域重载
 function switchRepo(path: string) {
   if (!path || isCurrentRepo(path) || busy.value) return;
-  branchPickerOpen.value = false;
-  commitCard.value = { entry: null, x: 0, y: 0 };
-  lastClickedDiffPath.value = "";
-  commitFilesMap.value = {};
-  historyLoaded.value = false;
-  stashesLoaded.value = false;
-  branchesLoaded.value = false;
-  // 重置加载冷却时间戳：否则新仓库的首次加载会被 1 秒冷却拦截，面板下方无数据
-  lastHistoryLoad.value = 0;
-  lastStashesLoad.value = 0;
-  lastBranchesLoad.value = 0;
-  // 仓库根切换、更改数据清空与 status 冷却重置都在共享状态源里统一处理
-  // 工作树列表按仓库维度，切仓库后先清空，等 watch(repoRoot) 重取，避免显示上一个仓库的工作树
-  worktrees.value = [];
+  resetRepoScopedState();
   setRepoRoot(path);
   // 记住这次选择：面板重挂、手动刷新仓库栏、切会话回来都按它恢复
   const sessionKey = String(props.sessionKey || "").trim();
@@ -2111,12 +2136,20 @@ onMounted(() => {
   });
 });
 
-// 会话切换时（sessionKey 变化）重新恢复该会话记住的 git 标签与视图模式
+// 工作区、会话工作区根或会话切换时，重新对齐仓库与界面状态
 watch(
-  () => props.sessionKey,
-  () => {
-    restoreGitTab();
-    restoreChangesViewMode();
+  [() => props.workspacePath, () => props.sessionRootPath, () => props.sessionKey],
+  ([nextWorkspace, nextSessionRoot, nextSessionKey], [prevWorkspace, prevSessionRoot, prevSessionKey]) => {
+    if (nextSessionKey !== prevSessionKey) {
+      restoreGitTab();
+      restoreChangesViewMode();
+    }
+    const workspaceChanged = normalizeRepoPath(nextWorkspace) !== normalizeRepoPath(prevWorkspace);
+    const sessionRootChanged = normalizeRepoPath(nextSessionRoot) !== normalizeRepoPath(prevSessionRoot);
+    const sessionKeyChanged = nextSessionKey !== prevSessionKey;
+    if (workspaceChanged || sessionRootChanged || sessionKeyChanged) {
+      void loadDiscover(false);
+    }
   },
 );
 

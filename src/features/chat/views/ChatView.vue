@@ -1424,8 +1424,12 @@ const legacyChatFileReaderSessionKey = computed(() => {
 });
 
 // 文件阅读器项目根：优先取会话概览里的 workspaceRootPath（与 sessionKey 同步到达），
-// 避免 currentWorkspaceRootPath（workspace.list 异步）滞后导致的 Home 闪现
+// 避免 currentWorkspaceRootPath（workspace.list 异步）滞后导致的 Home 闪现；
+// 但在草稿态下优先采用当前选中的工作区，保证用户切换工作区时即时生效。
 const effectiveFileReaderRootPath = computed(() => {
+  if (activeConversationIsDraft.value && props.currentWorkspaceRootPath) {
+    return String(props.currentWorkspaceRootPath || "").trim();
+  }
   const conversationId = String(props.activeConversationId || "").trim();
   if (conversationId) {
     const listA = (props.unarchivedConversationItems || []) as Array<Record<string, unknown>>;
@@ -2793,13 +2797,12 @@ async function refreshChatReaderDirectoryOnWorkspaceChange() {
   const panel = chatReaderPanelRef.value as unknown as { directoryRootPath: string; asideMode: string; openDirectoryTree: (path: string, opts?: { switchToFiles?: boolean }) => Promise<boolean> } | null;
   const workspaceRootPath = String(props.currentWorkspaceRootPath || "").trim();
   if (!panel || !workspaceRootPath) return;
-  // Git 模式下不跟随工作区强刷，避免把 Git 面板盖回文件目录
-  if (String(panel.asideMode || "").trim() === "git") return;
   // 目录树已展开时才跟随；未展开保持关闭，已在目标路径则不重复加载
   const currentRoot = String(panel.directoryRootPath || "").trim();
   if (!currentRoot) return;
   const norm = (p: string) => String(p || "").trim().replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
   if (norm(currentRoot) === norm(workspaceRootPath)) return;
+  // switchToFiles: false 保证若当前处于 Git 面板时不会强制跳回文件目录
   await panel.openDirectoryTree(workspaceRootPath, { switchToFiles: false });
 }
 

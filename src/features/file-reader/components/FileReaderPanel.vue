@@ -1139,8 +1139,15 @@ watch([() => props.sessionKey, () => props.initialRootPath], ([nextKey, nextRoot
     void restoreFileReaderSession("", nextRootPath);
     return;
   }
-  // 同会话仅工作区变化不整量 restore：Home 直接跟随 initialDirectoryPath 计算，无需额外同步
-  void prevRootPath;
+  // 同会话工作区变化：若当前目录树已展开在原工作区，自动切换到新工作区根（不打扰 git 模式）
+  const normNext = normalizePath(nextRootPath || "");
+  const normPrev = normalizePath(prevRootPath || "");
+  if (normNext && normNext !== normPrev) {
+    const currentRoot = normalizePath(directoryRootPath.value);
+    if (currentRoot && (!normPrev || sameNormalizedPath(currentRoot, normPrev))) {
+      void openDirectoryTree(normNext, { switchToFiles: false });
+    }
+  }
 }, { immediate: true });
 
 watch(
