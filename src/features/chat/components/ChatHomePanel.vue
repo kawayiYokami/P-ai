@@ -32,6 +32,7 @@
           v-if="workspaceRootPath"
           :workspace-root-path="workspaceRootPath"
           @open="emit('openWorkspace')"
+          @error="(message) => emit('gitError', message)"
         />
         <HomeSideChatCreateCard
           v-if="sideChatEnabled"

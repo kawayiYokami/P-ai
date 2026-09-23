@@ -59,35 +59,14 @@
             >
               <ChevronDown class="h-4 w-4" />
             </button>
-            <ul v-if="directoryOpenTargetDropdownOpen" tabindex="0" class="dropdown-content menu z-50 mt-2 rounded-box border border-base-300 bg-base-100 p-1.5 text-sm shadow-xl" @click.stop>
-              <li class="menu-title px-2 py-1 text-xs uppercase tracking-wide opacity-60">
-                <span>打开当前目录</span>
-              </li>
-              <li v-for="item in directoryOpenTargets" :key="item.kind">
-                <button
-                  type="button"
-                  class="flex min-h-9 w-52 items-center justify-between gap-3 rounded-btn px-3 py-2 text-left"
-                  :class="selectedDirectoryOpenTargetKind === item.kind ? 'active' : ''"
-                  :disabled="directoryTreeRoot ? directoryTreeRoot.loading : !directoryToggleTargetPath"
-                  :title="item.label"
-                  @click="selectDirectoryOpenTarget(item.kind)"
-                >
-                  <span class="flex min-w-0 items-center gap-2">
-                    <img
-                      v-if="item.iconDataUrl"
-                      :src="item.iconDataUrl"
-                      alt=""
-                      class="h-4 w-4 shrink-0 object-contain"
-                    />
-                    <SquareTerminal v-else-if="item.type === 'shell'" class="h-4 w-4 shrink-0" />
-                    <Code2 v-else-if="item.type === 'vscode'" class="h-4 w-4 shrink-0" />
-                    <Folders v-else class="h-4 w-4 shrink-0" />
-                    <span class="min-w-0 truncate">{{ item.label }}</span>
-                  </span>
-                  <Check v-if="selectedDirectoryOpenTargetKind === item.kind" class="h-4 w-4 shrink-0" />
-                </button>
-              </li>
-            </ul>
+            <DirectoryOpenTargetMenu
+              v-if="directoryOpenTargetDropdownOpen"
+              class="dropdown-content z-50 mt-2 rounded-box border border-base-300 bg-base-100 shadow-xl"
+              :targets="directoryOpenTargets"
+              :selected-kind="selectedDirectoryOpenTargetKind"
+              :disabled="directoryTreeRoot ? directoryTreeRoot.loading : !directoryToggleTargetPath"
+              @select="selectDirectoryOpenTarget"
+            />
           </div>
         </div>
         <button
@@ -730,6 +709,8 @@ import {
   resolveFileReaderSelectedLineRange,
 } from "../file-reader-context";
 import { useFileReaderVirtualCode } from "../composables/use-file-reader-virtual-code";
+import { useDirectoryOpenTargets } from "../composables/use-directory-open-targets";
+import DirectoryOpenTargetMenu from "./DirectoryOpenTargetMenu.vue";
 import { resolveFileTreeIcon } from "../file-tree-icons";
 import type {
   DirectoryNode,
@@ -837,19 +818,6 @@ const FILE_READER_DIRECTORY_TREE_RESIZE_MOVE_THRESHOLD = 4;
 
 // ==================== State ====================
 
-type DirectoryOpenTargetOption = {
-  kind: string;
-  label: string;
-  type: "shell" | "vscode" | "explorer";
-  iconDataUrl?: string;
-};
-
-type DirectoryOpenTargetsResult = {
-  options?: DirectoryOpenTargetOption[];
-};
-
-const FILE_READER_OPEN_TARGET_STORAGE_KEY = "easy-call.file-reader.directory-open-target.v1";
-
 const tabs = ref<FileTab[]>([]);
 const activePath = ref("");
 const asideMode = ref<"files" | "git">("files");
@@ -870,9 +838,17 @@ const contextMenuTarget = ref<FileReaderContextMenuTarget | null>(null);
 const selectionAction = ref<FileReaderSelectionAction | null>(null);
 const directoryRootPath = ref("");
 const directoryTreeFilter = ref("");
-const directoryOpenTargetsLoading = ref(false);
-const directoryOpenTargetOptions = ref<DirectoryOpenTargetOption[]>([]);
-const selectedDirectoryOpenTargetKind = ref("explorer");
+const {
+  directoryOpenTargetsLoading,
+  directoryOpenTargetOptions,
+  selectedDirectoryOpenTargetKind,
+  directoryOpenTargets,
+  currentDirectoryOpenTarget,
+  selectedDirectoryOpenTargetTitle,
+  loadDirectoryOpenTargets,
+  selectDirectoryOpenTarget: baseSelectDirectoryOpenTarget,
+  openDirectoryWithTarget: baseOpenDirectoryWithTarget,
+} = useDirectoryOpenTargets();
 const directoryOpenTargetDropdownOpen = ref(false);
 const directoryOpenTargetDropdownRef = ref<HTMLElement | null>(null);
 const directoryNodes = ref<Record<string, DirectoryNode>>({});
@@ -2799,106 +2775,8 @@ async function toggleGitPanel() {
   await openGitPanel();
 }
 
-function readStoredDirectoryOpenTargetKind() {
-  if (typeof window === "undefined") return "";
-  try {
-    return String(window.localStorage.getItem(FILE_READER_OPEN_TARGET_STORAGE_KEY) || "").trim();
-  } catch {
-    return "";
-  }
-}
-
-function storeDirectoryOpenTargetKind(kind: string) {
-  if (typeof window === "undefined") return;
-  const normalized = String(kind || "").trim();
-  try {
-    if (normalized) {
-      window.localStorage.setItem(FILE_READER_OPEN_TARGET_STORAGE_KEY, normalized);
-    } else {
-      window.localStorage.removeItem(FILE_READER_OPEN_TARGET_STORAGE_KEY);
-    }
-  } catch {
-    // 忽略本地存储失败
-  }
-}
-
-const DEFAULT_DIRECTORY_OPEN_TARGETS: DirectoryOpenTargetOption[] = [
-  { kind: "explorer", label: "资源管理器", type: "explorer" },
-  { kind: "vscode", label: "VS Code", type: "vscode" },
-];
-
-function normalizeDirectoryOpenTargetLabel(item: DirectoryOpenTargetOption): string {
-  const raw = String(item.label || "").trim();
-  if (!raw) return "打开目标";
-  if (item.type !== "shell") return raw;
-  return raw.replace(/\s*\([^()]*\)\s*$/, "").trim() || raw;
-}
-
-function normalizeDirectoryOpenTargetOptions(options: DirectoryOpenTargetOption[]): DirectoryOpenTargetOption[] {
-  const seen = new Set<string>();
-  return options
-    .filter((item) => {
-      const kind = String(item.kind || "").trim();
-      if (!kind || kind === "auto" || seen.has(kind)) return false;
-      seen.add(kind);
-      return true;
-    })
-    .map((item): DirectoryOpenTargetOption => ({
-      kind: String(item.kind || "").trim(),
-      label: normalizeDirectoryOpenTargetLabel(item),
-      type: item.type === "vscode" || item.type === "explorer" ? item.type : "shell",
-      iconDataUrl: String(item.iconDataUrl || "").trim() || undefined,
-    }));
-}
-
-const directoryOpenTargets = computed<DirectoryOpenTargetOption[]>(() => {
-  const normalized = normalizeDirectoryOpenTargetOptions(directoryOpenTargetOptions.value);
-  return normalized.length ? normalized : DEFAULT_DIRECTORY_OPEN_TARGETS;
-});
-
-function normalizeDirectoryOpenTargetKind(kind: string, options = directoryOpenTargets.value) {
-  const normalized = String(kind || "").trim();
-  if (normalized && options.some((item) => item.kind === normalized)) return normalized;
-  return options[0]?.kind || "explorer";
-}
-
-function currentDirectoryOpenTargetKind() {
-  return normalizeDirectoryOpenTargetKind(selectedDirectoryOpenTargetKind.value);
-}
-
-const currentDirectoryOpenTarget = computed<DirectoryOpenTargetOption>(() => {
-  const currentKind = currentDirectoryOpenTargetKind();
-  return directoryOpenTargets.value.find((item) => item.kind === currentKind)
-    || directoryOpenTargets.value[0]
-    || DEFAULT_DIRECTORY_OPEN_TARGETS[0];
-});
-
-const selectedDirectoryOpenTargetTitle = computed(() => `用 ${currentDirectoryOpenTarget.value.label} 打开当前目录`);
-
-async function loadDirectoryOpenTargets() {
-  if (!localFileSystemAvailable) return;
-  directoryOpenTargetsLoading.value = true;
-  try {
-    const payload = await listTransportFileReaderDirectoryOpenTargets<DirectoryOpenTargetsResult>();
-    directoryOpenTargetOptions.value = normalizeDirectoryOpenTargetOptions(Array.isArray(payload.options) ? payload.options : []);
-  } catch {
-    directoryOpenTargetOptions.value = [];
-  } finally {
-    const stored = readStoredDirectoryOpenTargetKind();
-    const fallbackKind = directoryOpenTargets.value[0]?.kind || "explorer";
-    const nextKind = normalizeDirectoryOpenTargetKind(stored || fallbackKind);
-    selectedDirectoryOpenTargetKind.value = nextKind;
-    if (!stored || stored !== nextKind) {
-      storeDirectoryOpenTargetKind(nextKind);
-    }
-    directoryOpenTargetsLoading.value = false;
-  }
-}
-
 async function selectDirectoryOpenTarget(kind: string) {
-  const nextKind = normalizeDirectoryOpenTargetKind(kind);
-  selectedDirectoryOpenTargetKind.value = nextKind;
-  storeDirectoryOpenTargetKind(nextKind);
+  const nextKind = baseSelectDirectoryOpenTarget(kind);
   directoryOpenTargetDropdownOpen.value = false;
   await openDirectoryAtTreeRoot(nextKind);
 }
@@ -2911,7 +2789,7 @@ function closeDirectoryOpenTargetDropdown() {
   directoryOpenTargetDropdownOpen.value = false;
 }
 
-async function openDirectoryAtTreeRoot(kind = currentDirectoryOpenTargetKind()) {
+async function openDirectoryAtTreeRoot(kind = selectedDirectoryOpenTargetKind.value) {
   closeDirectoryOpenTargetDropdown();
   if (!localFileSystemAvailable) return;
   const root = directoryTreeRoot.value;
@@ -2920,12 +2798,12 @@ async function openDirectoryAtTreeRoot(kind = currentDirectoryOpenTargetKind()) 
   await openDirectoryWithTarget(path, kind);
 }
 
-async function openDirectoryWithTarget(path: string, targetKind = currentDirectoryOpenTargetKind()) {
+async function openDirectoryWithTarget(path: string, targetKind = selectedDirectoryOpenTargetKind.value) {
   if (!localFileSystemAvailable) return;
   const normalizedPath = normalizePath(path);
   if (!normalizedPath) return;
   try {
-    await openTransportFileReaderDirectoryTarget(normalizedPath, targetKind);
+    await baseOpenDirectoryWithTarget(normalizedPath, targetKind);
   } catch (error) {
     reportFileReaderActionFailure("打开当前目录", normalizedPath, error);
   }
