@@ -1798,8 +1798,11 @@ function openAttachmentPath(path: string) {
 }
 
 .ecall-activity-item-summary {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  /* 单行截断：长命令/路径用 ellipsis 收尾，不允许多行撑开标题。
+     完整内容在 <details> 展开后的详情区可见。 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 条目 details 原生开合：chevron 旋转由 details[open] 驱动，不进 Vue 状态 */

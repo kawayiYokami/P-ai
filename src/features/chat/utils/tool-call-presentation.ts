@@ -353,16 +353,26 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
   
   function summarizeCommandTool(args: unknown): string {
     if (!args) return toolTimelineText("notProvided");
-    if (typeof args === "string") return args;
+    if (typeof args === "string") return collapseCommandForSummary(args);
     if (typeof args !== "object") return String(args);
-  
+
     const obj = args as Record<string, unknown>;
     const command = safeTextFromRecord(obj, ["command", "cmd", "shell", "input", "commandText"]);
     const fallback = safeTextFromRecord(obj, ["args", "arguments", "argv", "params"]);
-    if (command) return command;
-    if (fallback) return fallback;
+    if (command) return collapseCommandForSummary(command);
+    if (fallback) return collapseCommandForSummary(fallback);
     const compact = toCompactValue(obj);
     return compact || toolTimelineText("checkArgs");
+  }
+
+  // 工具摘要只保留命令的第一行——heredoc / 多行脚本会让标题撑成几十行。
+  // 多行时把第一行显示出来，加 (N 行) 提示；单行命令原样返回。
+  function collapseCommandForSummary(command: string): string {
+    const text = String(command || "");
+    const lines = text.split(/\r\n|\n|\r/);
+    const firstLine = lines[0].replace(/\s+/g, " ").trim();
+    if (lines.length === 1) return firstLine;
+    return `${firstLine} (${lines.length} 行)`;
   }
   
   function summarizeFileTool(args: unknown): string {
