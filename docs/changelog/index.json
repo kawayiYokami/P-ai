@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-21T07:46:35.983Z",
-  "latestVersion": "v0.93.0",
+  "generatedAt": "2026-09-23T21:51:49.702Z",
+  "latestVersion": "v0.94.0",
   "releases": [
+    {
+      "version": "v0.94.0",
+      "path": "docs/changelog/releases/v0.94.0.md",
+      "summary": "**工作区选择器改成「目录 → 工作树 → 分支」三级联动**：先选目录，再从该目录下的工作树里选，最后选这条工作树真实检出的分支；被别的工作树占用的分支直接禁用，不再出现「选 main 又勾工作树」这类矛盾组合。新建工作树就地填基分支与名称，确认即建好并选中，不再等到发第一条消息才建。"
+    },
     {
       "version": "v0.93.0",
       "path": "docs/changelog/releases/v0.93.0.md",
