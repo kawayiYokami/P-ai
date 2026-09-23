@@ -291,7 +291,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.config.sttApiConfigId = cfg.sttApiConfigId ?? undefined;
     options.config.sttAutoSend = !!cfg.sttAutoSend;
     options.config.terminalShellKind = String((cfg as AppConfig).terminalShellKind ?? "");
-    options.config.simpleSetupMode = (cfg as { simpleSetupMode?: unknown }).simpleSetupMode !== false;
+    options.config.simpleSetupMode = false;
     options.config.shellWorkspaces = Array.isArray(cfg.shellWorkspaces)
       ? cfg.shellWorkspaces
           .map((v) => ({

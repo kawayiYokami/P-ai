@@ -15,7 +15,7 @@
         v-if="!quickModel"
         class="btn btn-xs btn-outline btn-warning gap-1"
         type="button"
-        @click="emit('jump', 'chatSettings')"
+        @click="emit('jump', hasConfiguredProviders ? 'chatSettings' : 'api')"
       >
         <span>{{ t("config.welcome.cards.quickModel.title") }}</span>
         <span class="opacity-80">{{ t("config.welcome.notSet") }}</span>
@@ -24,7 +24,7 @@
         v-if="!expertModel"
         class="btn btn-xs btn-outline btn-warning gap-1"
         type="button"
-        @click="emit('jump', 'chatSettings')"
+        @click="emit('jump', hasConfiguredProviders ? 'chatSettings' : 'api')"
       >
         <span>{{ t("config.welcome.cards.expertModel.title") }}</span>
         <span class="opacity-80">{{ t("config.welcome.notSet") }}</span>
@@ -39,31 +39,62 @@
       </div>
     </div>
 
-    <!-- 快速配置向导卡片 -->
-    <div class="card bg-base-100 card-border border-base-300 card-sm overflow-hidden">
-      <div class="card-body flex-row items-center justify-between gap-4 px-4 py-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <div class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Sparkles class="size-5" />
+    <!-- 引导卡片：完整设置（主推） vs 新手向导（小白极简） -->
+    <div v-if="!hasConfiguredProviders || !hasConfiguredModels" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <!-- 完整设置（推荐大多数用户） -->
+      <div class="card bg-base-100 card-border border-base-300 hover:border-primary/40 transition-colors card-sm overflow-hidden">
+        <div class="card-body gap-2.5 px-4 py-3.5">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <div class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-base-200 text-base-content/80">
+                <Cpu class="size-4" />
+              </div>
+              <span class="text-sm font-semibold text-base-content">{{ t("config.welcome.expertSetupTitle") }}</span>
+            </div>
+            <span class="badge badge-xs badge-neutral font-normal">{{ t("config.welcome.expertSetupBadge") }}</span>
           </div>
-          <div class="min-w-0">
-            <div class="text-sm font-semibold text-base-content flex items-center gap-2">
-              <span>{{ t("config.welcome.quickSetupTitle") }}</span>
-              <span class="badge badge-xs badge-primary/20 text-primary font-normal">{{ t("config.welcome.quickSetupBadge") }}</span>
-            </div>
-            <div class="text-xs text-base-content/60 truncate mt-0.5">
-              {{ t("config.welcome.quickSetupDesc") }}
-            </div>
+          <p class="text-xs text-base-content/70 leading-relaxed min-h-8">
+            {{ t("config.welcome.expertSetupDesc") }}
+          </p>
+          <div class="flex justify-end pt-1">
+            <button
+              class="btn btn-sm btn-primary gap-1.5"
+              type="button"
+              @click="emit('jump', 'api')"
+            >
+              <Cpu class="size-3.5" />
+              <span>{{ t("config.welcome.startExpertSetup") }}</span>
+            </button>
           </div>
         </div>
-        <button
-          class="btn btn-sm btn-outline btn-primary shrink-0 gap-1.5"
-          type="button"
-          @click="emit('open-quick-setup')"
-        >
-          <SlidersHorizontal class="size-3.5" />
-          <span>{{ t("config.welcome.startQuickSetup") }}</span>
-        </button>
+      </div>
+
+      <!-- 快速配置向导（小白极简） -->
+      <div class="card bg-base-100 card-border border-base-300 card-sm overflow-hidden">
+        <div class="card-body gap-2.5 px-4 py-3.5">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <div class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-base-200 text-base-content/70">
+                <Sparkles class="size-4" />
+              </div>
+              <span class="text-sm font-semibold text-base-content">{{ t("config.welcome.quickSetupTitle") }}</span>
+            </div>
+            <span class="badge badge-xs badge-ghost font-normal">{{ t("config.welcome.quickSetupBadgeNovice") }}</span>
+          </div>
+          <p class="text-xs text-base-content/60 leading-relaxed min-h-8">
+            {{ t("config.welcome.quickSetupDescNovice") }}
+          </p>
+          <div class="flex justify-end pt-1">
+            <button
+              class="btn btn-sm btn-ghost bg-base-200 hover:bg-base-300 gap-1.5"
+              type="button"
+              @click="emit('open-quick-setup')"
+            >
+              <SlidersHorizontal class="size-3.5" />
+              <span>{{ t("config.welcome.startQuickSetup") }}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -110,7 +141,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { MessageSquare, SlidersHorizontal, Sparkles } from "@lucide/vue";
+import { Cpu, MessageSquare, SlidersHorizontal, Sparkles } from "@lucide/vue";
 import type { ApiConfigItem, AppConfig } from "../../../../types/app";
 import UsageTrailWall from "./UsageTrailWall.vue";
 import {
@@ -207,6 +238,8 @@ const runtimeDeps = computed<MissingDep[]>(() => {
 
 const quickModel = computed(() => findModel(props.config.apiConfigs || [], props.config.toolReviewApiConfigId));
 const expertModel = computed(() => findModel(props.config.apiConfigs || [], props.config.expertApiConfigId));
+const hasConfiguredProviders = computed(() => (props.config.apiProviders || []).length > 0);
+const hasConfiguredModels = computed(() => Boolean(expertModel.value || quickModel.value));
 
 async function installPrerequisite(kind: HostRuntimePrerequisiteKind) {
   if (installingPrerequisite.value) return;

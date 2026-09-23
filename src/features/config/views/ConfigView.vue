@@ -62,7 +62,7 @@
           :title="t('config.welcome.quickSetupTitle')"
           @click="emit('update:simpleSetupMode', true)"
         >
-          <Sparkles class="h-3.5 w-3.5 text-primary" />
+          <Sparkles class="h-3.5 w-3.5 shrink-0 opacity-70" />
           <span class="truncate">{{ t("config.welcome.quickSetupTitle") }}</span>
         </button>
       </div>
@@ -136,7 +136,7 @@
             :title="t('config.welcome.quickSetupTitle')"
             @click="configDrawerOpen = false; emit('update:simpleSetupMode', true)"
           >
-            <Sparkles class="h-3.5 w-3.5 text-primary" />
+            <Sparkles class="h-3.5 w-3.5 shrink-0 opacity-70" />
             <span class="truncate">{{ t("config.welcome.quickSetupTitle") }}</span>
           </button>
         </div>

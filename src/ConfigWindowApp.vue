@@ -880,7 +880,6 @@ async function setSimpleSetupMode(value: boolean) {
   const allow = await unsavedGuard.confirmLeaveIfDirty();
   if (!allow) return;
   config.simpleSetupMode = next;
-  void saveConfig();
 }
 
 function setUiFont(value: string) {

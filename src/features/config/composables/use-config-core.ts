@@ -371,7 +371,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       ...(options.config.sttApiConfigId ? { sttApiConfigId: options.config.sttApiConfigId } : {}),
       ...(options.config.sttAutoSend ? { sttAutoSend: true } : {}),
       terminalShellKind: String(options.config.terminalShellKind ?? ""),
-      simpleSetupMode: options.config.simpleSetupMode !== false,
+      simpleSetupMode: false,
       shellWorkspaces: [...(options.config.shellWorkspaces || [])],
       // `cachedTools` is runtime-derived and should not be client-controlled on save.
       mcpServers: (options.config.mcpServers || []).map((item) => ({
@@ -518,7 +518,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       sttApiConfigId: options.config.sttApiConfigId,
       sttAutoSend: !!options.config.sttAutoSend,
       terminalShellKind: String(options.config.terminalShellKind ?? ""),
-      simpleSetupMode: options.config.simpleSetupMode !== false,
+      simpleSetupMode: false,
       shellWorkspaces: [...(options.config.shellWorkspaces || [])],
       mcpServers: [...(options.config.mcpServers || [])],
       remoteImChannels: [...(options.config.remoteImChannels || [])],

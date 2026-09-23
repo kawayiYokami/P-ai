@@ -5,21 +5,20 @@
         <div v-if="errorText" class="alert alert-error py-2 text-sm">{{ errorText }}</div>
         <div v-if="statusText" class="alert alert-success py-2 text-sm">{{ statusText }}</div>
         <div class="flex items-center justify-between gap-3">
-          <div class="min-w-0 flex-1">
-            <h2 class="text-sm font-semibold text-base-content">{{ t("simpleSetup.welcomeTitle") }}</h2>
-            <div class="text-xs leading-relaxed opacity-60 mt-0.5">
-              {{ t("simpleSetup.advancedHint") }}
-            </div>
-          </div>
-          <div class="flex items-center gap-2 shrink-0">
+          <div class="w-44 shrink-0 flex justify-start">
             <button
-              class="btn btn-ghost btn-sm text-xs gap-1 opacity-70 hover:opacity-100"
+              class="btn btn-ghost btn-sm text-xs gap-1.5 opacity-70 hover:opacity-100 font-normal px-2"
               type="button"
               @click="emit('switch-to-advanced')"
             >
+              <SlidersHorizontal class="h-3.5 w-3.5" />
               <span>{{ t("simpleSetup.switchToAdvanced") }}</span>
-              <ArrowRight class="h-3.5 w-3.5" />
             </button>
+          </div>
+          <div class="min-w-0 flex-1 text-center">
+            <h2 class="text-sm font-semibold text-base-content truncate">{{ t("simpleSetup.welcomeTitle") }}</h2>
+          </div>
+          <div class="w-44 shrink-0 flex justify-end">
             <button
               class="btn btn-primary btn-sm shrink-0"
               type="button"
@@ -64,7 +63,10 @@
       <!-- 模型供应商 -->
       <section class="card bg-base-100 border border-base-300">
         <div class="card-body gap-3 p-4">
-          <h3 class="text-sm font-semibold">{{ t("simpleSetup.provider") }}</h3>
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="text-sm font-semibold">{{ t("simpleSetup.provider") }}</h3>
+            <span class="text-xs text-base-content/50">{{ t("simpleSetup.firstProviderHint") }}</span>
+          </div>
           <!-- 供应商网格：2 列对称布局 -->
           <div class="grid grid-cols-2 gap-2">
             <button
@@ -182,7 +184,7 @@
                 :for="`simple-model-${card.id}`"
               >
                 <span class="flex items-center gap-2">
-                  <component :is="card.icon" class="h-4 w-4 shrink-0 text-primary" />
+                  <component :is="card.icon" class="h-4 w-4 shrink-0 opacity-70" />
                   <span class="text-sm font-semibold text-base-content">{{ card.label }}</span>
                 </span>
                 <span class="text-xs font-normal">{{ card.hint }}</span>
@@ -278,7 +280,7 @@
         <div class="card-body gap-3 p-4">
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2">
-              <Sparkles class="h-4 w-4 text-warning shrink-0" />
+              <Sparkles class="h-4 w-4 shrink-0 opacity-70" />
               <h3 class="text-sm font-semibold">{{ t("simpleSetup.accelerationTitle") }}</h3>
             </div>
             <button
@@ -322,12 +324,12 @@ import { computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   AlertCircle,
-  ArrowRight,
   Brain,
   CheckCircle2,
   Eye,
   EyeOff,
   RefreshCw,
+  SlidersHorizontal,
   Sparkles,
   Zap,
 } from "@lucide/vue";

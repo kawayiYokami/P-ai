@@ -512,7 +512,13 @@
       "quickSetupTitle": "快速配置精靈",
       "quickSetupBadge": "新手推薦",
       "quickSetupDesc": "一鍵極簡配置常用模型、API Key、介面語言與核心快捷鍵，快速開啟智慧協作。",
-      "startQuickSetup": "啟動精靈"
+      "startQuickSetup": "啟動精靈",
+      "expertSetupTitle": "配置模型供應商 (API)",
+      "expertSetupBadge": "完整設定 · 推薦",
+      "expertSetupDesc": "支援 OpenAI、Claude、Gemini、DeepSeek、本地 Ollama 及相容端點，自主自訂模型分工與 MCP 工具生態。",
+      "startExpertSetup": "前往配置",
+      "quickSetupBadgeNovice": "小白極簡",
+      "quickSetupDescNovice": "初次上手或僅需單一常用供應商？一鍵填寫 Key 快速起步，隨時可前往完整設定。"
     },
     "imageGeneration": {
       "title": "獨立圖像生成",
@@ -3087,7 +3093,8 @@
   },
   "simpleSetup": {
     "providerName": "簡單供應商",
-    "provider": "供應商",
+    "provider": "你的首個供應商",
+    "firstProviderHint": "對應完整設定清單的首項主力，兩端互通",
     "apiProtocol": "API 協定",
     "models": "模型",
     "modelQuick": "快速",
@@ -3116,8 +3123,7 @@
     "saveAndStart": "儲存並開始對話",
     "introTitle": "簡單設定",
     "introDesc": "適合快速開始，僅設定單一供應商與基礎能力。",
-    "advancedHint": "如需增加多個供應商和更多功能，請切換到進階設定。",
-    "welcomeTitle": "歡迎使用 P-ai，完成以下基礎設定即可開啟智慧協作",
+    "welcomeTitle": "歡迎使用 P-ai",
     "testConnection": "測試連線",
     "testingConnection": "測試中...",
     "connectionSuccess": "連線正常 ({latency}ms)",
@@ -3127,6 +3133,6 @@
     "resetDefault": "恢復預設",
     "accelerationTitle": "語音與記憶加速（可選推薦）",
     "accelerationDesc": "填入矽基流動 API Key 可免費解鎖高精度語音輸入與本地記憶檢索加速；留空則使用離線基礎引擎。",
-    "switchToAdvanced": "前往完整設定"
+    "switchToAdvanced": "完整設定"
   }
 }

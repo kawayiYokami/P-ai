@@ -516,7 +516,13 @@
       "quickSetupTitle": "Quick Setup Wizard",
       "quickSetupBadge": "Recommended",
       "quickSetupDesc": "Configure preferred models, API key, language, and core shortcuts in minutes.",
-      "startQuickSetup": "Start Wizard"
+      "startQuickSetup": "Start Wizard",
+      "expertSetupTitle": "Configure Model Providers (API)",
+      "expertSetupBadge": "Full Settings · Recommended",
+      "expertSetupDesc": "Support for OpenAI, Claude, Gemini, DeepSeek, local Ollama, and any compatible endpoint. Customize model roles and MCP tools.",
+      "startExpertSetup": "Configure Providers",
+      "quickSetupBadgeNovice": "Novice Simple",
+      "quickSetupDescNovice": "First time or only need a single key? Set up quickly with defaults, switch to Full Settings anytime."
     },
     "imageGeneration": {
       "title": "Independent image generation",
@@ -3093,7 +3099,8 @@
   },
   "simpleSetup": {
     "providerName": "Simple Provider",
-    "provider": "Provider",
+    "provider": "Your First Provider",
+    "firstProviderHint": "Syncs with the 1st primary provider in Full Settings",
     "apiProtocol": "API Protocol",
     "models": "Models",
     "modelQuick": "Quick",
@@ -3122,8 +3129,7 @@
     "saveAndStart": "Save & Start Chat",
     "introTitle": "Simple Setup",
     "introDesc": "Quick start with a single provider and essential features.",
-    "advancedHint": "To add multiple providers and more features, switch to Advanced Settings.",
-    "welcomeTitle": "Welcome to P-ai! Complete the basic setup below to get started.",
+    "welcomeTitle": "Welcome to P-ai",
     "testConnection": "Test Connection",
     "testingConnection": "Testing...",
     "connectionSuccess": "Connected ({latency}ms)",
@@ -3133,6 +3139,6 @@
     "resetDefault": "Reset",
     "accelerationTitle": "Speech & Memory Acceleration (Optional)",
     "accelerationDesc": "Enter a SiliconFlow API Key to unlock high-accuracy STT and memory search acceleration for free. Leave empty to use offline engines.",
-    "switchToAdvanced": "Go to Full Settings"
+    "switchToAdvanced": "Full Settings"
   }
 }
