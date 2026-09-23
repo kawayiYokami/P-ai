@@ -44,6 +44,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
   const DEFAULT_CONTEXT_WINDOW_TOKENS = 256000;
   const DEFAULT_CODEX_AUTH_MODE = "read_local";
   const DEFAULT_CODEX_LOCAL_AUTH_PATH = "~/.codex/auth.json";
+  const DEFAULT_CODEX_ORIGINATOR = "codex-tui";
   const DEFAULT_REASONING_EFFORT = "medium";
 
   function apiConfigDisplayName(providerName: string, modelValue: string, reasoningEffort: string): string {
@@ -108,6 +109,10 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       baseUrl: "https://api.openai.com/v1",
       codexAuthMode: DEFAULT_CODEX_AUTH_MODE,
       codexLocalAuthPath: DEFAULT_CODEX_LOCAL_AUTH_PATH,
+      codexCustomUrl: "",
+      codexCustomApiKey: "",
+      codexOriginator: DEFAULT_CODEX_ORIGINATOR,
+      codexResidencyRequirement: "",
       apiKeys: [],
       keyCursor: 0,
       cachedModelOptions: modelName ? [modelName] : [],
@@ -170,6 +175,10 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           baseUrl: api.baseUrl,
           codexAuthMode: normalizeCodexAuthMode(api.codexAuthMode),
           codexLocalAuthPath: String(api.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH,
+          codexCustomUrl: String(api.codexCustomUrl || "").trim(),
+          codexCustomApiKey: String(api.codexCustomApiKey || "").trim(),
+          codexOriginator: String(api.codexOriginator || DEFAULT_CODEX_ORIGINATOR).trim() || DEFAULT_CODEX_ORIGINATOR,
+          codexResidencyRequirement: String(api.codexResidencyRequirement || "").trim(),
           apiKeys: api.apiKey ? [api.apiKey] : [],
           keyCursor: 0,
           cachedModelOptions: api.model ? [api.model] : [],

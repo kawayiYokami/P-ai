@@ -473,6 +473,7 @@ const FALLBACK_CONTEXT_WINDOW_MAX = 2_000_000;
 const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_CODEX_AUTH_MODE: CodexAuthMode = "read_local";
 const DEFAULT_CODEX_LOCAL_AUTH_PATH = "~/.codex/auth.json";
+const DEFAULT_CODEX_ORIGINATOR = "codex-tui";
 const DEFAULT_REASONING_EFFORT = "medium";
 const DEFAULT_GEMINI_REASONING_EFFORT = "high";
 const DEFAULT_OPENAI_REASONING_EFFORT = "high";
@@ -1482,6 +1483,7 @@ function cloneProvider(provider: ApiProviderConfigItem): ApiProviderConfigItem {
   return {
     id: String(provider.id || "").trim(),
     name: String(provider.name || "").trim(),
+    deprecated: !!provider.deprecated,
     requestFormat: normalizeApiRequestFormat(provider.requestFormat),
     allowConcurrentRequests: !!provider.allowConcurrentRequests,
     maxConcurrentRequests: provider.maxConcurrentRequests ?? null,
@@ -1502,10 +1504,12 @@ function cloneProvider(provider: ApiProviderConfigItem): ApiProviderConfigItem {
     baseUrl: String(provider.baseUrl || "").trim(),
     codexAuthMode: (String(provider.codexAuthMode || DEFAULT_CODEX_AUTH_MODE).trim() || DEFAULT_CODEX_AUTH_MODE) as CodexAuthMode,
     codexLocalAuthPath: String(provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH,
-    codexCustomUrl: String(provider.codexCustomUrl || "").trim() || undefined,
-    codexCustomApiKey: String(provider.codexCustomApiKey || "").trim() || undefined,
-    codexOriginator: String(provider.codexOriginator || "").trim() || undefined,
-    codexResidencyRequirement: String(provider.codexResidencyRequirement || "").trim() || undefined,
+    // 与 applyLoadedConfig / buildConfigPayload 口径一致：空字符串保留为 ""，不要写成 undefined。
+    // 否则脏检测会因「saved 有键值 / current 键缺失」误报。
+    codexCustomUrl: String(provider.codexCustomUrl || "").trim(),
+    codexCustomApiKey: String(provider.codexCustomApiKey || "").trim(),
+    codexOriginator: String(provider.codexOriginator || "").trim(),
+    codexResidencyRequirement: String(provider.codexResidencyRequirement || "").trim(),
     apiKeys: Array.isArray(provider.apiKeys) ? provider.apiKeys.map((value) => String(value || "")) : [],
     keyCursor: Math.max(0, Math.round(Number(provider.keyCursor ?? 0))),
     cachedModelOptions: Array.isArray(provider.cachedModelOptions)
@@ -1682,6 +1686,7 @@ function createProvider(seed: string, capability: ApiCapability = selectedCapabi
   return {
     id: `api-provider-${seed}`,
     name: `API Provider ${providerList.value.length + 1}`,
+    deprecated: false,
     requestFormat,
     allowConcurrentRequests: true,
     maxConcurrentRequests: null,
@@ -1694,6 +1699,10 @@ function createProvider(seed: string, capability: ApiCapability = selectedCapabi
     baseUrl: providerPresets.find((preset) => preset.urls[requestFormat])?.urls[requestFormat] || (isCodex ? DEFAULT_CODEX_BASE_URL : "https://api.openai.com/v1"),
     codexAuthMode: DEFAULT_CODEX_AUTH_MODE,
     codexLocalAuthPath: DEFAULT_CODEX_LOCAL_AUTH_PATH,
+    codexCustomUrl: "",
+    codexCustomApiKey: "",
+    codexOriginator: DEFAULT_CODEX_ORIGINATOR,
+    codexResidencyRequirement: "",
     apiKeys: isCodex ? [] : [""],
     keyCursor: 0,
     cachedModelOptions: [],
