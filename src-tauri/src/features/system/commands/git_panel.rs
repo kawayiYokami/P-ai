@@ -1619,6 +1619,87 @@ async fn git_panel_worktrees(
     git_panel_worktrees_inner(input, &state).await
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelWorktreeAddInput {
+    /// 仓库根（主工作树路径）
+    repo_root: String,
+    /// 新工作树的目标目录
+    path: String,
+    /// 新分支名（checkout_existing=false 时使用）
+    #[serde(default)]
+    branch: String,
+    /// 基分支/基点（checkout_existing=false 时作为 -b 的起点；true 时作为检出目标）
+    base_branch: String,
+    /// true：直接检出已有分支（分支名=base_branch，不再派生新分支）
+    #[serde(default)]
+    checkout_existing: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelWorktreeAddOutput {
+    path: String,
+    branch: String,
+}
+
+/// 新建工作树：子弹窗确认后调用。
+/// checkout_existing=false → `git worktree add -b <branch> <path> <base>`（从基分支派生新分支）
+/// checkout_existing=true  → `git worktree add <path> <base>`（直接检出已有分支，
+/// 该分支不能被其他工作树占用，前端已禁用，后端再兜底校验一次）。
+async fn git_panel_worktree_add_inner(
+    input: GitPanelWorktreeAddInput,
+) -> Result<GitPanelWorktreeAddOutput, String> {
+    let repo_root = git_panel_validate_path(&input.repo_root)?;
+    let path = git_panel_validate_path(&input.path)?;
+    let base = git_panel_validate_reference(&input.base_branch)?;
+    if input.checkout_existing {
+        // 兜底：目标分支不能被其他工作树占用
+        let stdout = git_executor()
+            .run_read(&repo_root, &["worktree", "list", "--porcelain"])
+            .await
+            .map_err(|err| format!("读取工作树列表失败：{err}"))?;
+        let occupied = parse_worktree_list(&stdout)
+            .iter()
+            .any(|entry| entry.branch.trim() == base.trim());
+        if occupied {
+            return Err(format!("分支 {base} 已被其他工作树检出，不能直接检出"));
+        }
+        let output = git_executor()
+            .run_write(&repo_root, &["worktree", "add", &path, &base])
+            .await
+            .map_err(|err| format!("git worktree add 执行失败：{err}"))?;
+        if output.exit_code != 0 {
+            return Err(format!(
+                "git worktree add 失败：{} {}",
+                output.stderr.trim(),
+                output.stdout.trim()
+            ));
+        }
+        return Ok(GitPanelWorktreeAddOutput { path, branch: base });
+    }
+    let branch = git_panel_validate_reference(&input.branch)?;
+    let output = git_executor()
+        .run_write(&repo_root, &["worktree", "add", "-b", &branch, &path, &base])
+        .await
+        .map_err(|err| format!("git worktree add 执行失败：{err}"))?;
+    if output.exit_code != 0 {
+        return Err(format!(
+            "git worktree add 失败：{} {}",
+            output.stderr.trim(),
+            output.stdout.trim()
+        ));
+    }
+    Ok(GitPanelWorktreeAddOutput { path, branch })
+}
+
+#[tauri::command]
+async fn git_panel_worktree_add(
+    input: GitPanelWorktreeAddInput,
+) -> Result<GitPanelWorktreeAddOutput, String> {
+    git_panel_worktree_add_inner(input).await
+}
+
 /// 记录一次打开：前端切换仓库/工作树后调用，供仓库栏按「最近打开」排序。
 #[tauri::command]
 async fn git_panel_remember_repo(

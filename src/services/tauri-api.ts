@@ -3229,6 +3229,22 @@ export async function gitPanelWorktrees(
   });
 }
 
+export interface GitPanelWorktreeAddOutput {
+  path: string;
+  branch: string;
+}
+
+/** 新建工作树：checkoutExisting=false 时 -b <branch> <path> <baseBranch>；true 时直接检出已有分支 */
+export async function gitPanelWorktreeAdd(input: {
+  repoRoot: string;
+  path: string;
+  branch?: string;
+  baseBranch: string;
+  checkoutExisting?: boolean;
+}): Promise<GitPanelWorktreeAddOutput> {
+  return invokeTauri<GitPanelWorktreeAddOutput>("git_panel_worktree_add", { input });
+}
+
 /** 记录一次「打开过的仓库/工作树」，供仓库栏按最近打开排序；入参不完整时不做任何事 */
 export async function gitPanelRememberRepo(workspacePath: string, repoRoot: string): Promise<void> {
   const normalizedRoot = String(repoRoot || "").trim();

@@ -53,10 +53,8 @@ describe("useChatWorkspacePickerFlow", () => {
   });
   it("binds the picked worktree path when saving", async () => {
     const { flow, saveChatWorkspaces } = createFlow("approval", "worktree", true);
-    flow.setChatWorkspaceWorktree({
-      branch: "feat/relay",
-      worktreePath: "E:/repo/.pai/.worktree/20260921-a1b2c3d4",
-    });
+    flow.setChatWorkspaceWorktreePath("E:/repo/.pai/.worktree/20260921-a1b2c3d4");
+    flow.setChatWorkspaceBranch("feat/relay");
     await flow.saveChatWorkspacePicker();
     expect(saveChatWorkspaces).toHaveBeenCalledWith(
       expect.any(Array),
@@ -66,14 +64,18 @@ describe("useChatWorkspacePickerFlow", () => {
       "E:/repo/.pai/.worktree/20260921-a1b2c3d4",
     );
   });
-  it("clears the worktree binding when a plain branch is picked", async () => {
+  it("keeps the worktree binding when the branch is checked out in-place", async () => {
     const { flow, saveChatWorkspaces } = createFlow("approval", "worktree", true);
-    flow.setChatWorkspaceWorktree({
-      branch: "feat/relay",
-      worktreePath: "E:/repo/.pai/.worktree/20260921-a1b2c3d4",
-    });
+    flow.setChatWorkspaceWorktreePath("E:/repo/.pai/.worktree/20260921-a1b2c3d4");
+    // 第三级是选中树的真实 checkout：切分支不动工作树绑定
     flow.setChatWorkspaceBranch("main");
     await flow.saveChatWorkspacePicker();
-    expect(saveChatWorkspaces).toHaveBeenCalledWith(expect.any(Array), false, "worktree", "main", "");
+    expect(saveChatWorkspaces).toHaveBeenCalledWith(
+      expect.any(Array),
+      false,
+      "worktree",
+      "main",
+      "E:/repo/.pai/.worktree/20260921-a1b2c3d4",
+    );
   });
 });

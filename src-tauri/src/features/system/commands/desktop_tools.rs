@@ -2063,6 +2063,31 @@ fn update_chat_shell_workspace_layout_inner(
         .shell_worktree_path
         .as_deref()
         .map(|value| value.trim().to_string());
+    // 选中了工作树路径时，探测该路径的真实当前分支写入 shell_recorded_branch——
+    // 系统提示词读 meta 展示「在哪个工作树、什么分支」，不在注入时再探测。
+    // 探测失败（非 git / git 不可用）时保留前端传入值，不阻断保存。
+    let normalized_recorded_branch = match normalized_worktree_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(worktree_path) => {
+            let probed = std::process::Command::new("git")
+                .args(["branch", "--show-current"])
+                .current_dir(worktree_path)
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+                .unwrap_or_default();
+            if !probed.is_empty() {
+                Some(normalize_shell_work_branch_text(&probed))
+            } else {
+                normalized_recorded_branch
+            }
+        }
+        None => normalized_recorded_branch,
+    };
     let updated = apply_conversation_chat_workspace_changes(
         state,
         &conversation_id,

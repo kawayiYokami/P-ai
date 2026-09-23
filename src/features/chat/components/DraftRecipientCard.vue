@@ -78,19 +78,15 @@
           :access="selectedAccess"
           :work-mode="selectedWorkMode"
           :selected-branch="selectedBranch"
-          :branch-entries="branchEntries"
-          :worktree-branch-map="worktreeBranchMap"
-          :branch-loading="branchLoading"
-          :git-root-available="gitRootAvailable"
-          :git-check-message="worktreeCheckMessage"
-          :branch-locked-reason="branchLockedReason"
+          :selected-worktree-path="selectedWorktreePath"
           :available-workspaces="mergedOptions"
+          :sync-workspace-branch="props.syncWorkspaceBranch"
+          :git-root-check="props.gitRootCheck"
           @update:main-path="handleMainPathUpdate"
           @update:access="handleAccessUpdate"
           @update:work-mode="handleWorkModeUpdate"
           @update:branch="handleBranchUpdate"
-          @select-worktree="handleWorktreeSelect"
-          @browse-main="browseWorkspaceDirectory"
+          @update:worktree-path="handleWorktreePathUpdate"
           @add-secondary="handleAddSecondary"
           @remove-secondary="handleRemoveSecondary"
         />
@@ -219,24 +215,15 @@
         </Transition>
       </div>
     </div>
-
-    <WorkspaceDirectoryPickerDialog
-      :open="directoryPickerOpen"
-      :initial-path="directoryPickerInitialPath"
-      @close="directoryPickerOpen = false"
-      @select="onDirectoryPicked"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Pencil } from "@lucide/vue";
-import { gitPanelBranchList, gitPanelCheckoutCheck, gitPanelCheckout, gitPanelHeadState, gitPanelWorktrees, type GitPanelBranchEntry } from "../../../services/tauri-api";
 import { agentPersonaOptionId, type AgentPersonaOption } from "../../shared/agent-persona-options";
 import WorkspaceConfigCard from "../../shared/components/WorkspaceConfigCard.vue";
-import WorkspaceDirectoryPickerDialog from "../../shared/components/WorkspaceDirectoryPickerDialog.vue";
 import type { ShellWorkspace, ShellWorkMode } from "../../../types/app";
 import { stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
 import { pushRecentWorkspacePath } from "../../../utils/recent-workspaces";
@@ -262,13 +249,12 @@ const props = withDefaults(defineProps<{
   workspaceAccess?: ShellWorkspaceAccess | "";
   workspaceWorkMode?: ShellWorkMode;
   workspaceBranch?: string;
+  workspaceWorktreePath?: string;
   workspaces?: ShellWorkspace[];
   workspaceAutonomousMode?: boolean;
   saveWorkspace?: (input: { path: string; name: string; access: ShellWorkspaceAccess; workMode: ShellWorkMode }) => Promise<void>;
-  // 新的多目录+分支持久化通道，优先于 saveWorkspace
   saveWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, branch?: string, worktreePath?: string) => Promise<void>;
   gitRootCheck?: (path: string) => Promise<boolean>;
-  /** 草稿卡内切换分支成功后按目标目录同步「本会话工作分支」记录 */
   syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
 }>(), {
   options: () => [],
@@ -281,6 +267,7 @@ const props = withDefaults(defineProps<{
   workspaceAccess: "",
   workspaceWorkMode: "directory",
   workspaceBranch: "",
+  workspaceWorktreePath: "",
   workspaces: () => [],
   workspaceAutonomousMode: false,
 });
@@ -328,53 +315,20 @@ function commitTitle() {
   emit("update:title", next);
 }
 
-// ========== 草稿工作区（以 WorkspaceConfigCard 为唯一真相源） ==========
+// ========== 草稿工作区 ==========
 
 const selectedPath = ref("");
 const selectedAccess = ref<ShellWorkspaceAccess>("approval");
 const selectedWorkMode = ref<ShellWorkMode>("directory");
 const selectedBranch = ref("");
-/** 草稿绑定的已有工作树路径；非空表示这次保存直接把会话绑到该工作树 */
 const selectedWorktreePath = ref("");
 const secondaryPaths = ref<string[]>([]);
-const branchEntries = ref<GitPanelBranchEntry[]>([]);
-/** 分支名（小写）→ 该分支已检出的工作树路径；命中表示该分支已被工作树占用 */
-const worktreeBranchMap = ref<Record<string, string>>({});
-const branchLoading = ref(false);
-const gitRootAvailable = ref(false);
-const worktreeCheckMessage = ref("");
-/** 变基进行中：HEAD 游离，切分支会破坏变基现场，此时锁住分支下拉 */
-const rebaseInProgress = ref(false);
 const saving = ref(false);
 let pendingSave = false;
-let checkSequence = 0;
-let branchSequence = 0;
-let lastGitCheckPath = "";
 
 const hasWorkspaceCapability = computed(() => {
   return Boolean(props.saveWorkspace || props.saveWorkspaces || props.workspaceOptions.length > 0);
 });
-
-/** 分支下拉的锁定原因；为空表示可正常切换 */
-const branchLockedReason = computed(() => (rebaseInProgress.value ? t("chat.workspaceBranchRebasing") : ""));
-
-/**
- * 取一次 HEAD 状态：变基进行中 HEAD 游离，切分支会破坏变基现场，命中就锁住分支下拉。
- * 取不到状态时按「不锁」处理，保持分支切换原有可用性。
- */
-async function refreshRebaseState(path: string) {
-  const normalized = String(path || "").trim();
-  if (!normalized) {
-    rebaseInProgress.value = false;
-    return;
-  }
-  try {
-    const state = await gitPanelHeadState(normalized);
-    rebaseInProgress.value = Boolean(state?.rebaseInProgress);
-  } catch {
-    rebaseInProgress.value = false;
-  }
-}
 
 function normalizeAccess(value: unknown): ShellWorkspaceAccess {
   const text = String(value || "").trim();
@@ -392,7 +346,10 @@ function findOptionByPath(path: string): WorkspaceOption | null {
 
 function syncSecondaryFromProps() {
   const list = Array.isArray(props.workspaces) ? props.workspaces : [];
-  const secondaries = list.filter((ws) => String(ws.level || "").trim().toLowerCase() === "secondary").map((ws) => stripExtendedPathPrefix(String(ws.path || "").trim())).filter(Boolean);
+  const secondaries = list
+    .filter((ws) => String(ws.level || "").trim().toLowerCase() === "secondary")
+    .map((ws) => stripExtendedPathPrefix(String(ws.path || "").trim()))
+    .filter(Boolean);
   const deduped: string[] = [];
   const seen = new Set<string>();
   for (const path of secondaries) {
@@ -405,12 +362,13 @@ function syncSecondaryFromProps() {
 }
 
 watch(
-  () => [props.workspaceAccess, props.workspaceWorkMode, props.workspaceBranch] as const,
-  ([nextAccess, nextMode, nextBranch]) => {
+  () => [props.workspaceAccess, props.workspaceWorkMode, props.workspaceBranch, props.workspaceWorktreePath] as const,
+  ([nextAccess, nextMode, nextBranch, nextWorktree]) => {
     selectedAccess.value = normalizeAccess(nextAccess);
     selectedWorkMode.value = nextMode === "worktree" ? "worktree" : "directory";
     const normalizedBranch = String(nextBranch || "").trim();
     if (normalizedBranch) selectedBranch.value = normalizedBranch;
+    selectedWorktreePath.value = String(nextWorktree || "").trim();
   },
   { immediate: true },
 );
@@ -418,16 +376,7 @@ watch(
 watch(
   () => props.workspaceRootPath,
   (nextPath) => {
-    const normalized = stripExtendedPathPrefix(String(nextPath || "").trim());
-    if (selectedPath.value !== normalized) worktreeCheckMessage.value = "";
-    selectedPath.value = normalized;
-    if (normalized && normalized !== lastGitCheckPath) void runGitRootCheck(normalized);
-    else if (!normalized) {
-      gitRootAvailable.value = false;
-      branchEntries.value = [];
-      branchLoading.value = false;
-      lastGitCheckPath = "";
-    }
+    selectedPath.value = stripExtendedPathPrefix(String(nextPath || "").trim());
   },
   { immediate: true },
 );
@@ -440,18 +389,19 @@ watch(
   { immediate: true, deep: true },
 );
 
-watch(
-  () => props.workspaceBranch,
-  (nextBranch) => {
-    const normalized = String(nextBranch || "").trim();
-    if (normalized) selectedBranch.value = normalized;
-  },
-);
-
 function buildSnapshotWorkspaces(): ShellWorkspace[] {
   const mainName = String(findOptionByPath(selectedPath.value)?.name || "").trim() || selectedPath.value.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || selectedPath.value;
   const items: ShellWorkspace[] = [];
-  if (selectedPath.value) items.push({ id: `conversation-workspace-main-${Date.now().toString(36)}`, name: mainName, path: selectedPath.value, level: "main", access: selectedAccess.value, builtIn: false });
+  if (selectedPath.value) {
+    items.push({
+      id: `conversation-workspace-main-${Date.now().toString(36)}`,
+      name: mainName,
+      path: selectedPath.value,
+      level: "main",
+      access: selectedAccess.value,
+      builtIn: false,
+    });
+  }
   const seen = new Set<string>([String(selectedPath.value || "").trim().toLowerCase()]);
   for (const secPath of secondaryPaths.value) {
     const normalized = String(secPath || "").trim();
@@ -460,7 +410,14 @@ function buildSnapshotWorkspaces(): ShellWorkspace[] {
     if (seen.has(key)) continue;
     seen.add(key);
     const secName = String(findOptionByPath(normalized)?.name || "").trim() || normalized.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || normalized;
-    items.push({ id: `conversation-workspace-sec-${key}-${Math.random().toString(36).slice(2, 6)}`, name: secName, path: normalized, level: "secondary", access: selectedAccess.value, builtIn: false });
+    items.push({
+      id: `conversation-workspace-sec-${key}-${Math.random().toString(36).slice(2, 6)}`,
+      name: secName,
+      path: normalized,
+      level: "secondary",
+      access: selectedAccess.value,
+      builtIn: false,
+    });
   }
   return items;
 }
@@ -468,7 +425,10 @@ function buildSnapshotWorkspaces(): ShellWorkspace[] {
 async function commitSave() {
   if (!selectedPath.value) return;
   if (props.saveWorkspaces) {
-    if (saving.value) { pendingSave = true; return; }
+    if (saving.value) {
+      pendingSave = true;
+      return;
+    }
     saving.value = true;
     try {
       while (true) {
@@ -523,147 +483,8 @@ function restoreFromProps() {
   selectedAccess.value = normalizeAccess(props.workspaceAccess);
   selectedWorkMode.value = props.workspaceWorkMode === "worktree" ? "worktree" : "directory";
   selectedBranch.value = String(props.workspaceBranch || "").trim();
-  selectedWorktreePath.value = "";
+  selectedWorktreePath.value = String(props.workspaceWorktreePath || "").trim();
   syncSecondaryFromProps();
-  gitRootAvailable.value = false;
-  worktreeCheckMessage.value = "";
-  branchEntries.value = [];
-  branchLoading.value = false;
-}
-
-async function runGitRootCheck(path: string) {
-  const sequence = ++checkSequence;
-  lastGitCheckPath = path;
-  if (!path) {
-    gitRootAvailable.value = false;
-    worktreeCheckMessage.value = "";
-    branchEntries.value = [];
-    rebaseInProgress.value = false;
-    return;
-  }
-  // 检查期间保留上一目录的 gitRootAvailable/branchEntries，不立即隐藏，避免切换时跳动
-  worktreeCheckMessage.value = "";
-  branchLoading.value = true;
-  await refreshRebaseState(path);
-  let available = false;
-  try {
-    if (props.gitRootCheck) {
-      available = await props.gitRootCheck(path);
-    } else {
-      try {
-        const entries = await gitPanelBranchList(path);
-        if (entries.length === 0) {
-          available = false;
-        } else {
-          available = true;
-          if (sequence === checkSequence) {
-            branchEntries.value = entries;
-            const current = entries.find((e) => e.isCurrent)?.name;
-            if (current && !String(selectedBranch.value || "").trim()) {
-              selectedBranch.value = String(current).trim();
-            }
-            gitRootAvailable.value = true;
-            worktreeCheckMessage.value = "";
-            branchLoading.value = false;
-            return;
-          }
-        }
-      } catch {
-        available = false;
-      }
-    }
-    if (sequence !== checkSequence) return;
-    gitRootAvailable.value = Boolean(available);
-    worktreeCheckMessage.value = "";
-  } catch {
-    if (sequence !== checkSequence) return;
-    gitRootAvailable.value = false;
-    worktreeCheckMessage.value = "";
-  } finally {
-    if (sequence === checkSequence) branchLoading.value = false;
-  }
-  if (!gitRootAvailable.value && selectedWorkMode.value !== "directory") {
-    selectedWorkMode.value = "directory";
-    void commitSave();
-  }
-  if (gitRootAvailable.value) {
-    void loadBranchList(path);
-  } else {
-    branchEntries.value = [];
-  }
-}
-
-async function loadBranchList(path: string) {
-  const seq = ++branchSequence;
-  const normalized = String(path || "").trim();
-  if (!normalized) {
-    branchEntries.value = [];
-    return;
-  }
-  branchLoading.value = true;
-  await refreshRebaseState(normalized);
-  try {
-    const entries = await gitPanelBranchList(normalized);
-    if (seq !== branchSequence) return;
-    branchEntries.value = entries;
-    void loadWorktreeBranchMap(normalized);
-    const current = entries.find((e) => e.isCurrent)?.name;
-    if (current) {
-      const curName = String(current).trim();
-      // 若用户尚未选择分支，默认选中当前分支
-      if (!String(selectedBranch.value || "").trim()) {
-        selectedBranch.value = curName;
-        void commitSave();
-      }
-    } else if (!String(selectedBranch.value || "").trim() && entries.length > 0) {
-      selectedBranch.value = String(entries[0]?.name || "").trim();
-      void commitSave();
-    }
-  } catch (error) {
-    if (seq !== branchSequence) return;
-    // 分支拉取失败不阻塞主流程，仅清空列表
-    console.warn("[分支] 获取分支列表失败", error);
-    branchEntries.value = [];
-  } finally {
-    if (seq === branchSequence) branchLoading.value = false;
-  }
-}
-
-/** 选中已被工作树检出的分支：这次保存直接把会话绑到该工作树目录 */
-function handleWorktreeSelect(payload: { branch: string; worktreePath: string }) {
-  const branch = String(payload?.branch || "").trim();
-  const worktreePath = String(payload?.worktreePath || "").trim();
-  if (branch) selectedBranch.value = branch;
-  selectedWorktreePath.value = worktreePath;
-  void commitSave();
-}
-
-/**
- * 取当前仓库已有工作树，按分支名建映射（排除主工作树，它就是仓库根）。
- * 命中表示该分支已被某个工作树检出，选中时直接绑定那个目录而不是新建。
- */
-async function loadWorktreeBranchMap(path: string) {
-  const normalized = String(path || "").trim();
-  const repoRoot = String(selectedPath.value || "").trim();
-  if (!normalized || !repoRoot) {
-    worktreeBranchMap.value = {};
-    return;
-  }
-  try {
-    const result = await gitPanelWorktrees(normalized, repoRoot);
-    const map: Record<string, string> = {};
-    for (const entry of result.worktrees || []) {
-      if (entry.isMain) continue;
-      const branch = String(entry.branch || "").trim().toLowerCase();
-      const worktreePath = String(entry.path || "").trim();
-      if (!branch || !worktreePath) continue;
-      map[branch] = worktreePath;
-    }
-    worktreeBranchMap.value = map;
-  } catch (error) {
-    console.warn("[工作区] 获取工作树列表失败:", { path: normalized, error });
-    worktreeBranchMap.value = {};
-  }
 }
 
 function handleMainPathUpdate(path: string) {
@@ -675,134 +496,46 @@ function handleMainPathUpdate(path: string) {
   selectedPath.value = normalized;
   const source = findOptionByPath(normalized);
   if (source) selectedAccess.value = normalizeAccess(source.access);
-  if (isPathChanged) { selectedBranch.value = ""; selectedWorktreePath.value = ""; branchEntries.value = []; rebaseInProgress.value = false; }
+  if (isPathChanged) {
+    selectedBranch.value = "";
+    selectedWorktreePath.value = "";
+    selectedWorkMode.value = "directory";
+  }
   void commitSave();
-  void runGitRootCheck(normalized);
 }
 
 function handleAccessUpdate(access: ShellWorkspaceAccess) {
   const normalized = normalizeAccess(access);
   if (selectedAccess.value === normalized) return;
   selectedAccess.value = normalized;
-  // 统一权限：同步所有目录的 access（本地预览）
   void commitSave();
 }
 
-async function handleWorkModeUpdate(mode: ShellWorkMode) {
-  const normalized = mode === "worktree" ? "worktree" : "directory";
-  if (selectedWorkMode.value === normalized) return;
-  if (normalized === "worktree" && !gitRootAvailable.value) return;
-  if (normalized === "directory") {
-    selectedWorkMode.value = "directory" as ShellWorkMode;
-    if (gitRootAvailable.value && selectedPath.value) {
-      try {
-        const entries = await gitPanelBranchList(selectedPath.value);
-        const current = entries.find((e) => e.isCurrent)?.name;
-        if (current) {
-          const curName = String(current).trim();
-          if (curName) selectedBranch.value = curName;
-        }
-        branchEntries.value = entries;
-      } catch {
-        // ignore
-      }
-    }
-    selectedWorktreePath.value = "";
-    worktreeCheckMessage.value = "";
-    void commitSave();
-    return;
-  }
-  selectedWorkMode.value = "worktree" as ShellWorkMode;
-  worktreeCheckMessage.value = "";
-  if (gitRootAvailable.value && branchEntries.value.length === 0 && selectedPath.value) {
-    void loadBranchList(selectedPath.value);
-  }
+function handleWorkModeUpdate(mode: ShellWorkMode) {
+  selectedWorkMode.value = mode === "worktree" ? "worktree" : "directory";
   void commitSave();
 }
 
-async function handleBranchUpdate(branch: string) {
-  const normalized = String(branch || "").trim();
+function handleBranchUpdate(branch: string) {
+  selectedBranch.value = String(branch || "").trim();
+  void commitSave();
+}
+
+function handleWorktreePathUpdate(payload: { worktreePath: string; branch: string; isMain: boolean }) {
+  selectedWorktreePath.value = payload.isMain ? "" : payload.worktreePath;
+  selectedWorkMode.value = payload.isMain ? "directory" : "worktree";
+  if (payload.branch) selectedBranch.value = payload.branch;
+  void commitSave();
+}
+
+function handleAddSecondary(path: string) {
+  const normalized = stripExtendedPathPrefix(String(path || "").trim());
   if (!normalized) return;
-  // 普通选分支：清空工作树绑定，交给后端按新分支重新推导（选中已有工作树会走 handleWorktreeSelect 覆盖）
-  selectedWorktreePath.value = "";
-  if (selectedBranch.value === normalized) return;
-  if (selectedWorkMode.value === "worktree") {
-    selectedBranch.value = normalized;
-    worktreeCheckMessage.value = "";
-    void commitSave();
-    return;
-  }
-  if (!gitRootAvailable.value || !selectedPath.value) {
-    selectedBranch.value = normalized;
-    worktreeCheckMessage.value = "";
-    void commitSave();
-    return;
-  }
-  branchLoading.value = true;
-  worktreeCheckMessage.value = "";
-  try {
-    const check = await gitPanelCheckoutCheck(selectedPath.value, normalized);
-    const dirtyPaths: string[] = (check as unknown as { dirtyPaths: string[] }).dirtyPaths || [];
-    if (Array.isArray(dirtyPaths) && dirtyPaths.length > 0) {
-      const preview = dirtyPaths.slice(0, 3).join(", ");
-      const more = dirtyPaths.length > 3 ? t("chat.workspaceBranchDirtyMore", { count: dirtyPaths.length - 3 }) : "";
-      const detail = preview ? t("chat.workspaceBranchDirtyDetail", { preview, more }) : "";
-      worktreeCheckMessage.value = t("chat.workspaceBranchDirtyBlocked", { detail });
-      return;
-    }
-    try {
-      await gitPanelCheckout(selectedPath.value, normalized);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      worktreeCheckMessage.value = t("chat.workspaceBranchCheckoutFailed", { message });
-      return;
-    }
-    // 会话内自己切的分支：按目标目录同步记录，避免之后被守卫当成「在别处切过」而拦一次
-    await props.syncWorkspaceBranch?.(selectedPath.value);
-    selectedBranch.value = normalized;
-    try {
-      const entries = await gitPanelBranchList(selectedPath.value);
-      branchEntries.value = entries;
-    } catch {
-      // ignore
-    }
-    void commitSave();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    worktreeCheckMessage.value = t("chat.workspaceBranchCheckFailed", { message });
-  } finally {
-    branchLoading.value = false;
-  }
-}
-
-const directoryPickerOpen = ref(false);
-const directoryPickerMode = ref<"main" | "secondary">("main");
-const directoryPickerInitialPath = ref("");
-
-function browseWorkspaceDirectory() {
-  directoryPickerMode.value = "main";
-  directoryPickerInitialPath.value = String(selectedPath.value || "").trim();
-  directoryPickerOpen.value = true;
-}
-
-function handleAddSecondary() {
-  directoryPickerMode.value = "secondary";
-  directoryPickerInitialPath.value = String(selectedPath.value || "").trim();
-  directoryPickerOpen.value = true;
-}
-
-function onDirectoryPicked(pickedPath: string) {
-  const path = stripExtendedPathPrefix(String(pickedPath || "").trim());
-  directoryPickerOpen.value = false;
-  if (!path) return;
-  pushRecentWorkspacePath(path);
-  if (directoryPickerMode.value === "main") handleMainPathUpdate(path);
-  else {
-    const key = path.toLowerCase();
-    if (secondaryPaths.value.some((p) => p.toLowerCase() === key) || String(selectedPath.value || "").trim().toLowerCase() === key) return;
-    secondaryPaths.value = [...secondaryPaths.value, path];
-    void commitSave();
-  }
+  const key = normalized.toLowerCase();
+  if (secondaryPaths.value.some((p) => p.toLowerCase() === key) || String(selectedPath.value || "").trim().toLowerCase() === key) return;
+  pushRecentWorkspacePath(normalized);
+  secondaryPaths.value = [...secondaryPaths.value, normalized];
+  void commitSave();
 }
 
 function handleRemoveSecondary(path: string) {
@@ -810,15 +543,6 @@ function handleRemoveSecondary(path: string) {
   secondaryPaths.value = secondaryPaths.value.filter((p) => p.toLowerCase() !== key);
   void commitSave();
 }
-
-watch(
-  () => selectedWorkMode.value,
-  (mode) => {
-    if (mode === "worktree" && gitRootAvailable.value && branchEntries.value.length === 0) {
-      void loadBranchList(selectedPath.value);
-    }
-  },
-);
 
 // ========== 人格候选 ==========
 
@@ -840,12 +564,8 @@ const selectedOption = computed<AgentPersonaOption | null>(() => {
   );
 });
 
-// 行星候选直接按人格（agentId）铺开展示：组织已扁平为「人格即目标」，一个人格一张卡片
 const recentOptions = computed<AgentPersonaOption[]>(() => props.recentOptions);
 
-const allOptions = computed<AgentPersonaOption[]>(() => props.options);
-
-// 卡片副标签只用于提示配置缺失：模型名与供应商名不再展示。
 function optionSubLabel(option: AgentPersonaOption): string {
   return option.modelMissing ? t("chat.personaModelNotConfigured") : "";
 }
@@ -854,7 +574,6 @@ function resolveAvatarUrl(agentId: string): string {
   return props.avatarUrlMap?.[agentId] || "";
 }
 
-// 背景光斑从当前人格头像取主色：头像换色时重新取一次，取不到就交给模板降级到主题色
 const glowColor = ref<string | null>(null);
 let glowToken = 0;
 const selectedAvatarUrl = computed(() => {
@@ -883,7 +602,6 @@ function agentInitials(name: string): string {
 }
 
 function handleSelectFromAll(option: AgentPersonaOption) {
-  // 切换人格后保持全量卡片墙展开，不自动收起，方便连续比较与再切换
   emit("change", { agentId: option.agentId });
 }
 </script>

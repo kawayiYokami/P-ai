@@ -275,6 +275,7 @@ describe("canonicalWorkspaceRootForComparison", () => {
   it("回溯 .pai/.worktree 段到仓库根，大小写与分隔符归一", () => {
     expect(canonicalWorkspaceRootForComparison("E:\\work\\proj\\.pai\\.worktree\\abc123")).toBe("e:/work/proj");
     expect(canonicalWorkspaceRootForComparison("E:/work/proj/.pai/.worktree/")).toBe("e:/work/proj");
+    expect(canonicalWorkspaceRootForComparison("E:/work/proj/.pai/worktree/feature-x")).toBe("e:/work/proj");
     expect(canonicalWorkspaceRootForComparison("\\\\?\\E:\\work\\proj")).toBe("e:/work/proj");
     expect(canonicalWorkspaceRootForComparison("E:/work/proj")).toBe("e:/work/proj");
   });

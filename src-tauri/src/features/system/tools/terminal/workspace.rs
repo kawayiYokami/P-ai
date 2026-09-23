@@ -1040,6 +1040,23 @@ fn terminal_prompt_trusted_roots_block(
             lines.push("注意不要让 .pai/ 被 Git 追踪。不要自动删除工作树或分支，除非用户明确要求。".to_string());
         } else {
             lines.push("用户希望直接在当前工作目录中工作，请将其作为本次任务的默认读取、修改和命令执行根目录。".to_string());
+            // 工作树信息来自会话 meta（保存工作区/切分支时探测写入），
+            // 注入时不探测 git，避免慢仓库/网络盘拖慢 prompt 生成。
+            let meta_worktree = conversation
+                .map(|value| value.shell_worktree_path.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_default();
+            if !meta_worktree.is_empty() {
+                let meta_branch = conversation
+                    .map(|value| value.shell_recorded_branch.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| "(detached)".to_string());
+                lines.push(format!(
+                    "当前会话绑定在 git 工作树「{}」，分支「{}」。",
+                    terminal_path_for_user(std::path::Path::new(&meta_worktree)),
+                    meta_branch
+                ));
+            }
         }
         lines.push(".pai/ 是 PAI 的项目级资产目录（通常被 Git 忽略），存放与项目本身无关、不应残留进代码库的资产，请主动按目录职责管理与维护：\n- .pai/skills/：项目专用 Skill\n- .pai/mcp/：项目级 MCP 预留位置\n- .pai/plan/{domain}/：按领域归类的计划文件\n- .pai/report/：审查、调查、验收报告\n- .pai/workflow/：项目固定工作流\n- .pai/reference-projects/：外部参考仓库（独立 Git 状态）\n- .pai/.worktree/：隔离开发工作树\n- .pai/temp/：可丢弃的临时产物".to_string());
     }

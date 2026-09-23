@@ -99,6 +99,7 @@
             :workspace-access="currentWorkspaceAccess"
             :workspace-work-mode="props.currentWorkspaceWorkMode || 'directory'"
             :workspace-branch="props.currentWorkspaceBranch || ''"
+            :workspace-worktree-path="props.currentWorkspaceWorktreePath || ''"
             :workspaces="props.workspaces"
             :workspace-autonomous-mode="Boolean(props.currentWorkspaceAutonomousMode)"
             :save-workspace="props.saveDraftWorkspaces ? handleDraftWorkspaceSaveLegacy : undefined"

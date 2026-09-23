@@ -2,7 +2,8 @@
   <Teleport to="body">
     <dialog
       ref="dialogRef"
-      class="modal"
+      class="modal z-[1100]"
+      :class="{ 'modal-open': open }"
       :open="open"
       @close="onDialogClose"
       @cancel.prevent="onDialogClose"

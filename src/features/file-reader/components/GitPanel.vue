@@ -814,6 +814,26 @@ const branchesScroller = ref<HTMLElement | null>(null);
 const historyScroller = ref<HTMLElement | null>(null);
 const stashScroller = ref<HTMLElement | null>(null);
 
+// ==================== 数据加载标记与防抖冷却 ====================
+// 按需懒加载：各数据首次加载成功置标记，折叠/切走不重复拉取
+const historyLoaded = ref(false);
+const stashesLoaded = ref(false);
+const branchesLoaded = ref(false);
+/** 其余数据的加载冷却：自动触发 1 秒内不重复请求；写操作后的刷新与用户主动刷新可穿透 */
+const REFRESH_CD_MS = 1000;
+const lastBranchesLoad = ref(0);
+const lastStashesLoad = ref(0);
+const lastHistoryLoad = ref(0);
+let discoverSequence = 0;
+
+// ==================== 浮层卡片与高亮状态 ====================
+// 最后点击打开的 diff 文件路径（用于树行高亮）
+const lastClickedDiffPath = ref("");
+const commitCard = ref<{ entry: GitPanelLogEntry | null; x: number; y: number }>({ entry: null, x: 0, y: 0 });
+const commitCardRef = ref<HTMLElement | null>(null);
+const stashMenu = ref<{ entry: GitPanelStashEntry | null; x: number; y: number }>({ entry: null, x: 0, y: 0 });
+const stashMenuRef = ref<HTMLElement | null>(null);
+
 // ==================== 派生状态 ====================
 const stagedEntries = computed(() => {
   return statusEntries.value.filter((entry) => {
@@ -1048,12 +1068,6 @@ watch(statusError, (message) => {
 });
 
 // ==================== 数据加载 ====================
-// 按需懒加载：上栏展开才拉更改/暂存，下栏切到对应 tab 才拉历史/存储/分支；
-// 各数据首次加载成功置标记，折叠/切走不重复拉取（更改/暂存的标记在共享状态源里）
-const historyLoaded = ref(false);
-const stashesLoaded = ref(false);
-const branchesLoaded = ref(false);
-
 // 按当前可见状态加载缺失数据：上栏展开 → 更改/暂存；下栏展开 → 当前 tab 对应数据
 function ensureVisibleData() {
   if (!statusLoaded.value && !changesCollapsed.value) {
@@ -1069,23 +1083,10 @@ function ensureVisibleData() {
   }
 }
 
-// 折叠/切 tab 变化时重新评估可见数据；immediate 保证初始即展开时也加载
-watch([changesCollapsed, activeGitTab, historyCollapsed], () => ensureVisibleData(), {
-  immediate: true,
-});
-
-// 收起下栏时提交视图卸载，关闭预览卡
-watch(historyCollapsed, (collapsed) => {
-  if (collapsed) {
-    closeCommitCard();
-  }
-});
-
-let discoverSequence = 0;
-
 function resetRepoScopedState() {
   branchPickerOpen.value = false;
   closeCommitCard();
+  closeStashMenu();
   lastClickedDiffPath.value = "";
   commitFilesMap.value = {};
   historyLoaded.value = false;
@@ -1194,18 +1195,6 @@ async function fetchWorktreeRoots(root: string): Promise<string[]> {
   }
 }
 
-// 仓库根变化（切换仓库或工作树、重新探查）时重置仓库级状态并重取工作树与可见数据
-watch(
-  repoRoot,
-  (nextRoot, prevRoot) => {
-    if (nextRoot !== prevRoot) {
-      resetRepoScopedState();
-    }
-    void loadWorktrees();
-    ensureVisibleData();
-  },
-  { immediate: true },
-);
 
 /** 路径归一化：统一分隔符、去掉尾斜杠、忽略大小写（与后端仓库路径比较口径一致） */
 function normalizeRepoPath(path: string): string {
@@ -1246,24 +1235,6 @@ function switchRepo(path: string) {
   void gitPanelRememberRepo(String(props.workspacePath || "").trim(), path).catch(() => {});
   ensureVisibleData();
 }
-
-// 展开仓库栏才首次探查（懒加载）；之后只读后端缓存。
-// immediate：初始即展开时也要触发加载，否则列表一直空到手动刷新。
-watch(
-  repoCollapsed,
-  (collapsed) => {
-    if (!collapsed && !reposLoaded.value) {
-      void loadDiscover(false);
-    }
-  },
-  { immediate: true },
-);
-
-/** 其余数据的加载冷却：自动触发 1 秒内不重复请求；写操作后的刷新与用户主动刷新可穿透 */
-const REFRESH_CD_MS = 1000;
-const lastBranchesLoad = ref(0);
-const lastStashesLoad = ref(0);
-const lastHistoryLoad = ref(0);
 
 async function refreshChanges() {
   changesRefreshing.value = true;
@@ -1408,6 +1379,44 @@ watch([stashHasMore, activeGitTab], async ([hasMore, tab]) => {
     stashObserver = undefined;
   }
 });
+
+// ==================== 视图与数据联动监听 ====================
+// 仓库根变化（切换仓库或工作树、重新探查）时重置仓库级状态并重取工作树与可见数据
+watch(
+  repoRoot,
+  (nextRoot, prevRoot) => {
+    if (nextRoot !== prevRoot) {
+      resetRepoScopedState();
+    }
+    void loadWorktrees();
+    ensureVisibleData();
+  },
+  { immediate: true },
+);
+
+// 折叠/切 tab 变化时重新评估可见数据；immediate 保证初始即展开时也加载
+watch([changesCollapsed, activeGitTab, historyCollapsed], () => ensureVisibleData(), {
+  immediate: true,
+});
+
+// 收起下栏时提交视图卸载，关闭预览卡
+watch(historyCollapsed, (collapsed) => {
+  if (collapsed) {
+    closeCommitCard();
+  }
+});
+
+// 展开仓库栏才首次探查（懒加载）；之后只读后端缓存。
+// immediate：初始即展开时也要触发加载，否则列表一直空到手动刷新。
+watch(
+  repoCollapsed,
+  (collapsed) => {
+    if (!collapsed && !reposLoaded.value) {
+      void loadDiscover(false);
+    }
+  },
+  { immediate: true },
+);
 
 async function refreshHistory() {
   if (busy.value) return;
@@ -1665,9 +1674,6 @@ async function runCheckoutBranch(name: string) {
 }
 
 // ==================== commit 右键预览卡 ====================
-const commitCard = ref<{ entry: GitPanelLogEntry | null; x: number; y: number }>({ entry: null, x: 0, y: 0 });
-const commitCardRef = ref<HTMLElement | null>(null);
-
 function openCommitMenu(entry: GitPanelLogEntry, event: MouseEvent) {
   const anchor = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
   const cardWidth = 288; // w-72
@@ -1712,9 +1718,6 @@ function handleCommitCardKeydown(event: KeyboardEvent) {
 }
 
 // ==================== stash 操作菜单 ====================
-const stashMenu = ref<{ entry: GitPanelStashEntry | null; x: number; y: number }>({ entry: null, x: 0, y: 0 });
-const stashMenuRef = ref<HTMLElement | null>(null);
-
 function openStashMenu(stash: GitPanelStashEntry, event: MouseEvent) {
   const anchor = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
   const cardWidth = 224; // w-56
@@ -2038,9 +2041,7 @@ function commitFileStatusClass(status: string) {
 }
 
 // ==================== diff 打开 ====================
-// 最后点击打开的 diff 文件路径（用于树行高亮）
-const lastClickedDiffPath = ref("");
-
+// 最后点击打开的 diff 文件路径（用于树行高亮，已在顶部声明）
 function openDiff(payload: { path: string; staged: boolean; untracked?: boolean }) {
   lastClickedDiffPath.value = payload.path;
   emit("openDiff", {

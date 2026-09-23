@@ -1560,6 +1560,7 @@ fn main() {
             git_panel_watch_stop,
             git_panel_discover,
             git_panel_worktrees,
+            git_panel_worktree_add,
             git_panel_remember_repo,
             git_panel_status,
             git_panel_head_state,

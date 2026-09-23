@@ -2342,7 +2342,19 @@
     "workspaceBranchDirtyMore": " 等{count}個檔案",
     "workspaceBranchCheckoutFailed": "切換分支失敗：{message}",
     "workspaceBranchCheckFailed": "檢查分支失敗：{message}",
-    "workspaceBranchRebasing": "變基進行中，無法切換分支"
+    "workspaceBranchRebasing": "變基進行中，無法切換分支",
+    "workspaceWorktreeLabel": "工作樹",
+    "workspaceBranchLabel": "分支",
+    "workspaceWorktreePlaceholder": "選擇工作樹",
+    "worktreeMain": "主工作樹",
+    "worktreeNew": "新建工作樹…",
+    "branchOccupied": "已佔用",
+    "worktreeNewTitle": "新建工作樹",
+    "worktreeNewBase": "基分支",
+    "worktreeNewName": "工作樹名稱",
+    "worktreeNewNamePlaceholder": "將作為新分支名與目錄名（位於 .pai/.worktree/）",
+    "worktreeNewMissing": "請填寫基分支和工作樹名稱",
+    "worktreeNewFailed": "建立工作樹失敗：{message}"
   },
   "memory": {
     "title": "记忆列表",

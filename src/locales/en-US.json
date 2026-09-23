@@ -2348,7 +2348,19 @@
     "workspaceBranchDirtyMore": " and {count} more file(s)",
     "workspaceBranchCheckoutFailed": "Failed to switch branch: {message}",
     "workspaceBranchCheckFailed": "Failed to check branch: {message}",
-    "workspaceBranchRebasing": "Rebase in progress, cannot switch branch"
+    "workspaceBranchRebasing": "Rebase in progress, cannot switch branch",
+    "workspaceWorktreeLabel": "Tree",
+    "workspaceBranchLabel": "Branch",
+    "workspaceWorktreePlaceholder": "Select worktree",
+    "worktreeMain": "Main worktree",
+    "worktreeNew": "New worktree…",
+    "branchOccupied": "Occupied",
+    "worktreeNewTitle": "New Worktree",
+    "worktreeNewBase": "Base branch",
+    "worktreeNewName": "Worktree name",
+    "worktreeNewNamePlaceholder": "Used as the new branch and directory name (in .pai/.worktree/)",
+    "worktreeNewMissing": "Please fill in the base branch and worktree name",
+    "worktreeNewFailed": "Failed to create worktree: {message}"
   },
   "memory": {
     "title": "Memories",

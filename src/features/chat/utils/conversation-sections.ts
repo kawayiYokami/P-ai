@@ -165,13 +165,15 @@ function normalizeWorkspaceSectionPath(path: string): string {
 export function canonicalWorkspaceRootForComparison(path: string): string {
   const normalized = normalizeWorkspaceSectionPath(path);
   if (!normalized) return "";
-  // 单文件单工作树固定在 {gitRoot}/.pai/.worktree/{id}（兼容 legacy 8 位），
+  // 单文件单工作树固定在 {gitRoot}/.pai/.worktree/{id}（兼容 legacy 8 位与无前导点变体），
   // 打开工作树目录时回溯到 gitRoot，保证 host 与会话能归到同一「当前项目」。
-  const marker = "/.pai/.worktree/";
-  const markerIndex = normalized.indexOf(marker);
-  if (markerIndex !== -1) return normalized.slice(0, markerIndex);
-  const suffix = "/.pai/.worktree";
-  if (normalized.endsWith(suffix)) return normalized.slice(0, normalized.length - suffix.length);
+  for (const marker of ["/.pai/.worktree/", "/.pai/worktree/"]) {
+    const markerIndex = normalized.indexOf(marker);
+    if (markerIndex !== -1) return normalized.slice(0, markerIndex);
+  }
+  for (const suffix of ["/.pai/.worktree", "/.pai/worktree"]) {
+    if (normalized.endsWith(suffix)) return normalized.slice(0, normalized.length - suffix.length);
+  }
   return normalized;
 }
 

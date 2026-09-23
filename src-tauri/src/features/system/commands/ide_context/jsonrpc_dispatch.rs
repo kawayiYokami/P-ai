@@ -721,6 +721,10 @@ async fn git_panel_dispatch(
             let input = ide_chat_parse_param_field::<GitPanelWorkspaceRepoInput>(request.params, "input")?;
             ide_chat_serialize(git_panel_worktrees_inner(input, state).await?)
         }
+        "git_panel_worktree_add" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorktreeAddInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_worktree_add_inner(input).await?)
+        }
         "git_panel_remember_repo" => {
             let input = ide_chat_parse_param_field::<GitPanelWorkspaceRepoInput>(request.params, "input")?;
             let workspace_path = git_panel_validate_path(&input.workspace_path)?;

@@ -161,30 +161,17 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
     chatWorkspaceDraftError.value = "";
     const next = normalizeShellWorkMode(String(mode || ""));
     chatWorkspaceDraftWorkMode.value = next;
-    if (next !== "worktree") {
-      // directory 模式：分支显示由 git 真值驱动，草稿清空等待回填
-      chatWorkspaceDraftBranch.value = "";
-      chatWorkspaceDraftWorktreePath.value = "";
-    } else {
-      // worktree：回到持久化意图；未创建时保留意图，已创建时对话框会用 git 真值覆盖
-      const persisted = String(options.chatWorkspaceBranch.value || "").trim();
-      chatWorkspaceDraftBranch.value = persisted;
-    }
   }
 
+  /** 第三级：对选中工作树执行 checkout（选中树不变，只换该树的分支） */
   function setChatWorkspaceBranch(branch: string) {
     const normalized = String(branch || "").trim();
     chatWorkspaceDraftBranch.value = normalized;
-    // 换到没有工作树的分支：清空绑定，交给后端按新分支重新推导
-    chatWorkspaceDraftWorktreePath.value = "";
   }
 
-  /** 选中已被工作树检出的分支：这次保存直接把会话绑到该工作树目录，不再新建 */
-  function setChatWorkspaceWorktree(payload: { branch?: string; worktreePath?: string }) {
-    const branch = String(payload?.branch || "").trim();
-    const worktreePath = String(payload?.worktreePath || "").trim();
-    if (branch) chatWorkspaceDraftBranch.value = branch;
-    chatWorkspaceDraftWorktreePath.value = worktreePath;
+  /** 第二级：选中某个已有工作树（空串=主工作树）；workMode 由 dialog 同步 emit */
+  function setChatWorkspaceWorktreePath(worktreePath: string) {
+    chatWorkspaceDraftWorktreePath.value = String(worktreePath || "").trim();
   }
 
   async function openChatWorkspaceDir(workspaceId: string) {
@@ -279,6 +266,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
           }
         }
       }
+      // 选中树是链接树时把路径与意图分支一并落库；主树则清空（=跟随主目录语义）
       const branchToSave = normalizedMode === "worktree" ? String(chatWorkspaceDraftBranch.value || "").trim() : "";
       const worktreeToSave = normalizedMode === "worktree" ? String(chatWorkspaceDraftWorktreePath.value || "").trim() : "";
       await options.saveChatWorkspaces(draft, chatWorkspaceDraftAutonomousMode.value, normalizedMode, branchToSave, worktreeToSave);
@@ -305,7 +293,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
     setChatWorkspaceAccess,
     setChatWorkspaceAccessLegacy,
     setChatWorkspaceBranch,
-    setChatWorkspaceWorktree,
+    setChatWorkspaceWorktreePath,
     setChatWorkspaceAutonomousMode,
     setChatWorkspaceWorkMode,
     removeChatWorkspace,

@@ -48,17 +48,16 @@ function canonicalWorkspaceRootForExtension(pathValue) {
   let normalized = raw.replace(/^\\\\\?\\unc\\/i, "//").replace(/^\\\\\?\\/i, "").replace(/^\\\\.\\/i, "");
   normalized = normalized.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   if (!normalized) return raw;
-  const marker = "/.pai/.worktree/";
-  const markerIndex = normalized.indexOf(marker);
-  if (markerIndex !== -1) {
-    // 用归一化后的切片长度反推原始前缀截断：保证 host 与会话 canonical 一致。
-    const prefixLen = markerIndex;
-    // normalized 与 raw 的前缀在去掉反斜杠差异后一一对应，直接在归一化空间切片后返回。
-    // 为避免大小写与分隔符差异，返回归一化后的 canonical（前端会再次归一化，仍相等）。
-    return normalized.slice(0, prefixLen);
+  for (const marker of ["/.pai/.worktree/", "/.pai/worktree/"]) {
+    const markerIndex = normalized.indexOf(marker);
+    if (markerIndex !== -1) {
+      // 用归一化后的切片长度反推原始前缀截断：保证 host 与会话 canonical 一致。
+      return normalized.slice(0, markerIndex);
+    }
   }
-  const suffix = "/.pai/.worktree";
-  if (normalized.endsWith(suffix)) return normalized.slice(0, normalized.length - suffix.length);
+  for (const suffix of ["/.pai/.worktree", "/.pai/worktree"]) {
+    if (normalized.endsWith(suffix)) return normalized.slice(0, normalized.length - suffix.length);
+  }
   return raw;
 }
 
