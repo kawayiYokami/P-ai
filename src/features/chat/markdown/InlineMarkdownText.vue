@@ -36,7 +36,18 @@ function parseInlineWithHeadings(text: string): InlineSegment[] {
     }
     segments.push(...parseInlineSegments(line));
   });
-  return segments;
+  // 相邻的 strong 段之间如果没有文本/空白分隔，插一个换行让它们各占一行——
+  // 思维链流式输出常是 "**Step1****Step2****Step3**" 这种无间隔格式，
+  // 直接渲染会连成一片不可读。
+  const spaced: InlineSegment[] = [];
+  for (const seg of segments) {
+    const prev = spaced[spaced.length - 1];
+    if (seg.type === "strong" && prev?.type === "strong") {
+      spaced.push({ type: "html_br" });
+    }
+    spaced.push(seg);
+  }
+  return spaced;
 }
 
 const parsedSegments = computed<InlineSegment[]>(() =>
