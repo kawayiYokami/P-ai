@@ -150,8 +150,18 @@ export function createUnsavedChangesGuard(): UnsavedChangesGuardContext {
 
   async function handleDiscard() {
     try {
+      // 「放弃修改」要清干净所有 dirty checker 的草稿，不能只跑选中的那个——
+      // 否则下一个 dirty checker 还会再弹一次窗，表现为「第一次放弃没生效」。
+      // 先跑当前 activeChecker（用户刚刚确认的那个），再扫一遍其它仍 dirty 的 checker。
       if (activeChecker?.onDiscard) {
         await Promise.resolve(activeChecker.onDiscard());
+      }
+      for (const checker of checkers.values()) {
+        if (checker === activeChecker) continue;
+        if (!checker.isDirty()) continue;
+        if (checker.onDiscard) {
+          await Promise.resolve(checker.onDiscard());
+        }
       }
     } finally {
       dialogOpen.value = false;

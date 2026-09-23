@@ -488,6 +488,7 @@ const props = defineProps<{
   configDirty: boolean;
   savingConfig: boolean;
   saveApiConfigAction: () => Promise<boolean> | boolean;
+  restoreApiConfigAction: () => boolean;
   normalizeApiBindingsAction: () => void;
   lastSavedConfigJson: string;
   setStatusAction: (text: string) => void;
@@ -1182,9 +1183,11 @@ const savedProviderMap = computed(() => {
   if (!raw) return new Map<string, ApiProviderConfigItem>();
   try {
     const parsed = JSON.parse(raw) as { apiProviders?: ApiProviderConfigItem[] };
+    // 深拷贝 saved 原样——不要用 cloneProvider 那种「列字段重建」，
+    // 否则会把 saved 里的 deprecated/codex* 字段剥成 undefined，下游比对永远脏。
     return new Map(
       (Array.isArray(parsed.apiProviders) ? parsed.apiProviders : [])
-        .map((provider) => [String(provider.id || "").trim(), cloneProvider(provider)] as const)
+        .map((provider) => [String(provider.id || "").trim(), JSON.parse(JSON.stringify(provider)) as ApiProviderConfigItem] as const)
         .filter(([id]) => !!id),
     );
   } catch {
@@ -1477,64 +1480,6 @@ function providerConcurrentLimitLabel(provider: ApiProviderConfigItem): string {
 
 function updateProviderConcurrentLimit(provider: ApiProviderConfigItem, value: string | number) {
   encodeProviderConcurrentLimit(provider, value);
-}
-
-function cloneProvider(provider: ApiProviderConfigItem): ApiProviderConfigItem {
-  return {
-    id: String(provider.id || "").trim(),
-    name: String(provider.name || "").trim(),
-    deprecated: !!provider.deprecated,
-    requestFormat: normalizeApiRequestFormat(provider.requestFormat),
-    allowConcurrentRequests: !!provider.allowConcurrentRequests,
-    maxConcurrentRequests: provider.maxConcurrentRequests ?? null,
-    enableText: !!provider.enableText,
-    enableImage: !!provider.enableImage,
-    enableAudio: !!provider.enableAudio,
-    enableVideo: !!provider.enableVideo,
-    enableTools: provider.enableTools !== false,
-    tools: Array.isArray(provider.tools)
-      ? provider.tools.map((tool) => ({
-        id: String(tool.id || "").trim(),
-        command: String(tool.command || "").trim(),
-        args: Array.isArray(tool.args) ? [...tool.args] : [],
-        enabled: tool.enabled !== false,
-        values: { ...(tool.values || {}) },
-      }))
-      : [],
-    baseUrl: String(provider.baseUrl || "").trim(),
-    codexAuthMode: (String(provider.codexAuthMode || DEFAULT_CODEX_AUTH_MODE).trim() || DEFAULT_CODEX_AUTH_MODE) as CodexAuthMode,
-    codexLocalAuthPath: String(provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH,
-    // 与 applyLoadedConfig 的口径对齐：codexCustom*/codexOriginator 空值写成 ""/默认串；
-    // codexResidencyRequirement 空值写 undefined（键省略）——否则脏检测误报。
-    codexCustomUrl: String(provider.codexCustomUrl || "").trim(),
-    codexCustomApiKey: String(provider.codexCustomApiKey || "").trim(),
-    codexOriginator: String(provider.codexOriginator || DEFAULT_CODEX_ORIGINATOR).trim() || DEFAULT_CODEX_ORIGINATOR,
-    codexResidencyRequirement: String(provider.codexResidencyRequirement || "").trim() || undefined,
-    apiKeys: Array.isArray(provider.apiKeys) ? provider.apiKeys.map((value) => String(value || "")) : [],
-    keyCursor: Math.max(0, Math.round(Number(provider.keyCursor ?? 0))),
-    cachedModelOptions: Array.isArray(provider.cachedModelOptions)
-      ? provider.cachedModelOptions.map((value) => String(value || "").trim()).filter(Boolean)
-      : [],
-    models: Array.isArray(provider.models)
-      ? provider.models.map((model) => ({
-        id: String(model.id || "").trim(),
-        model: String(model.model || "").trim(),
-        displayName: String(model.displayName || "").trim(),
-        deprecated: !!model.deprecated,
-        enableImage: !!model.enableImage,
-        enableAudio: !!model.enableAudio,
-        enableVideo: !!model.enableVideo,
-        enableTools: model.enableTools !== false,
-        reasoningEffort: normalizedModelReasoningEffort(provider, model),
-        temperature: Number(model.temperature ?? 1),
-        customTemperatureEnabled: !!model.customTemperatureEnabled,
-        contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? AUTO_CONTEXT_WINDOW_TOKENS)),
-        customMaxOutputTokensEnabled: !!model.customMaxOutputTokensEnabled,
-        maxOutputTokens: Number(model.maxOutputTokens ?? 4096),
-      }))
-      : [],
-    failureRetryCount: Math.max(0, Math.round(Number(provider.failureRetryCount ?? 0))),
-  };
 }
 
 function normalizedModelReasoningEffort(_provider: ApiProviderConfigItem, model: ApiModelConfigItem): string {
@@ -1877,22 +1822,14 @@ async function switchCapabilityTab(capability: ApiTopTab) {
 }
 
 function revertUnsavedConfigIfNeeded() {
-  // 放弃修改：按 savedProviderMap 整份还原 apiProviders + 重建草稿。
-  // 不能只针对 selectedProvider：selectedProvider 可能已被 normalize/切换改指向，
-  // 也可能为 null；草稿里的改动必须无条件清掉。
-  const saved = savedProviderMap.value;
-  const nextProviders = props.config.apiProviders
-    .map((provider) => {
-      const savedProvider = saved.get(String(provider.id || "").trim());
-      return savedProvider ? cloneProvider(savedProvider) : provider;
-    })
-    // 不在 savedProviderMap 里的 provider 是本次新增的，直接移除
-    .filter((provider) => saved.has(String(provider.id || "").trim()));
-  props.config.apiProviders.splice(0, props.config.apiProviders.length, ...nextProviders);
-  // browsingProviderId 也清掉：放弃修改后「正在浏览的 provider」可能已被还原或移除，
+  // 放弃修改：复用现成的 restoreLastSavedConfigSnapshot（applyLoadedConfig 路径），
+  // 它用同一份 normalize 口径把整份 config 写回 saved 快照——不要在这里另写
+  // 一套逐字段 clone，口径对不齐会留脏。
+  props.restoreApiConfigAction();
+  // browsingProviderId 也清掉：还原后「正在浏览的 provider」可能已被移除，
   // 留着会让 selectedProvider 指向不存在的 provider。
   browsingProviderId.value = "";
-  // config 已还原，草稿需要跟随重建，避免残留旧草稿
+  // config 已还原，草稿需要跟随重建，避免残留旧草稿。
   rebuildDraftGroups();
 }
 
