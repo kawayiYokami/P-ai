@@ -838,8 +838,8 @@ function setDelegateModelOption(option: DelegateModelOption) {
   delegateModelSelection.value = option;
   switch (option) {
     case "follow_session":
-      // 跟随会话：留空即代表默认跟随会话（与后端空值语义一致）
-      writeDelegateModel("");
+      // 跟随会话：显式写 role:session 哨兵，与存储映射注释保持一致
+      writeDelegateModel(DELEGATE_MODEL_ROLE_SESSION);
       break;
     case "expert":
       writeDelegateModel(DELEGATE_MODEL_ROLE_EXPERT);

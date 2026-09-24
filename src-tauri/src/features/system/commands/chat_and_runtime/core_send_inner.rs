@@ -167,7 +167,8 @@ fn build_chat_candidate_api_ids(
     requested_api_config_id: Option<&str>,
     conversation_preferred_api_config_id: Option<&str>,
 ) -> Result<(Vec<String>, bool), String> {
-    let mut candidate_api_ids = agent_effective_chat_api_config_ids(app_config, agent);
+    // 主会话只看单次指定与会话首选模型；人格 apiConfigIds 是委托专用配置，不参与聊天候选。
+    let mut candidate_api_ids = Vec::<String>::new();
     let preferred_model_applied = if let Some(requested_api_config_id) =
         requested_api_config_id.map(str::trim).filter(|value| !value.is_empty())
     {
@@ -1136,7 +1137,7 @@ async fn send_chat_message_inner(
         let selected_api_id = candidate_api_ids
             .first()
             .cloned()
-            .ok_or_else(|| format!("Agent '{}' has no available chat model.", effective_agent_id))?;
+            .ok_or_else(|| "未指定会话模型：请在输入面板选择模型后重试".to_string())?;
         let selected_api = app_config
             .api_configs
             .iter()
@@ -3646,7 +3647,8 @@ mod core_send_inner_tests {
                 .expect("build candidates");
 
         assert!(!preferred_applied);
-        assert_eq!(candidate_api_ids, vec!["api-expert".to_string()]);
+        // 人格模型（含 role:expert）不进入主会话候选
+        assert!(candidate_api_ids.is_empty());
     }
 
     #[test]
@@ -3725,14 +3727,13 @@ mod core_send_inner_tests {
     }
 
     #[test]
-    fn build_chat_candidate_api_ids_should_not_fallback_for_private_workspace_agent() {
+    fn build_chat_candidate_api_ids_should_ignore_agent_models() {
         let app_config = AppConfig {
             api_configs: vec![test_chat_api("api-a", false), test_chat_api("api-b", false)],
             api_providers: Vec::new(),
             ..AppConfig::default()
         };
-        let mut agent = test_agent_with_models(vec!["api-a", "api-b"], true);
-        agent.source = default_private_workspace_source();
+        let agent = test_agent_with_models(vec!["api-a", "api-b"], true);
 
         let (candidate_api_ids, preferred_applied) = build_chat_candidate_api_ids(
             &app_config,
@@ -3743,7 +3744,8 @@ mod core_send_inner_tests {
         .expect("build candidates");
 
         assert!(!preferred_applied);
-        assert_eq!(candidate_api_ids, vec!["api-a".to_string()]);
+        // 主会话不看人格模型：requested 与 preferred 均为空时无候选
+        assert!(candidate_api_ids.is_empty());
     }
 
     #[test]

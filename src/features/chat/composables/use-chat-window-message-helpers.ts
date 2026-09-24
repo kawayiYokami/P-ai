@@ -26,6 +26,7 @@ export function buildPersonasSnapshotJson(personas: PersonaProfile[]) {
       name: item.name,
       systemPrompt: item.systemPrompt,
       residentSkillNames: (item.residentSkillNames || []).map((s) => String(s || "").trim()).filter(Boolean),
+      apiConfigIds: (item.apiConfigIds || []).map((id) => String(id || "").trim()).filter(Boolean),
       childAgentIds: (item.childAgentIds || []).map((id) => String(id || "").trim()).filter(Boolean).sort(),
       permissionControl: normalizePermissionControl(item.permissionControl),
       privateMemoryEnabled: !!item.privateMemoryEnabled,

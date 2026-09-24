@@ -315,11 +315,17 @@ async fn confirm_plan_and_continue_inner(
             .as_deref()
             .ok_or_else(|| "缺少可用于继续执行计划的人格。".to_string())?
             .to_string();
-        let agent = runtime_agent_by_id(&runtime_org, &agent_id)
+        let _agent = runtime_agent_by_id(&runtime_org, &agent_id)
             .filter(|agent| !agent.is_built_in_user)
             .ok_or_else(|| format!("计划继续执行的人格不存在或不可用: agent_id={agent_id}"))?;
-        let api_config_id = agent_primary_chat_api_config_id(app_config, agent)
-            .ok_or_else(|| format!("人格模型未配置或不可用于聊天: {}", agent.id))?;
+        // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
+        let api_config_id = conversation_meta
+            .preferred_api_config_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .and_then(|raw| resolve_chat_api_config_id(app_config, raw))
+            .ok_or_else(|| "未指定会话模型：请在输入面板选择模型后重试".to_string())?;
         let selected_api = app_config
             .api_configs
             .iter()
@@ -1430,14 +1436,21 @@ async fn submit_chat_message_inner(
             return Err(format!("执行人格不存在或不可用: agentId={agent_id}"));
         }
         let agent_elapsed_ms = agent_started_at.elapsed().as_millis();
-        let agent = runtime_agent_by_id(&runtime_org, &agent_id)
-            .ok_or_else(|| format!("执行人格已经消失：{agent_id}"))?;
-        let api_config_id = agent_primary_chat_api_config_id(&app_config, agent)
-            .ok_or_else(|| format!("人格模型未配置或不可用于聊天: {}", agent.id))?;
+        if runtime_agent_by_id(&runtime_org, &agent_id).is_none() {
+            return Err(format!("执行人格已经消失：{agent_id}"));
+        }
 
         let conversation_started_at = std::time::Instant::now();
         let conversation_meta =
             conversation_service_v2().get_conversation_meta(state, &conversation_id)?;
+        // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
+        let api_config_id = conversation_meta
+            .preferred_api_config_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .and_then(|raw| resolve_chat_api_config_id(&app_config, raw))
+            .ok_or_else(|| "未指定会话模型：请在输入面板选择模型后重试".to_string())?;
         let mention_background = read_user_mention_context_snapshot(
             state,
             &conversation_meta,
@@ -1678,14 +1691,21 @@ async fn send_chat_message(
             return Err(format!("执行人格不存在或不可用: agentId={agent_id}"));
         }
         let agent_elapsed_ms = agent_started_at.elapsed().as_millis();
-        let agent = runtime_agent_by_id(&runtime_org, &agent_id)
-            .ok_or_else(|| format!("执行人格已经消失：{agent_id}"))?;
-        let api_config_id = agent_primary_chat_api_config_id(&app_config, agent)
-            .ok_or_else(|| format!("人格模型未配置或不可用于聊天: {}", agent.id))?;
+        if runtime_agent_by_id(&runtime_org, &agent_id).is_none() {
+            return Err(format!("执行人格已经消失：{agent_id}"));
+        }
 
         let conversation_started_at = std::time::Instant::now();
         let conversation_meta =
             conversation_service_v2().get_conversation_meta(&state, &conversation_id)?;
+        // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
+        let api_config_id = conversation_meta
+            .preferred_api_config_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .and_then(|raw| resolve_chat_api_config_id(&app_config, raw))
+            .ok_or_else(|| "未指定会话模型：请在输入面板选择模型后重试".to_string())?;
         let mention_background = read_user_mention_context_snapshot(
             &state,
             &conversation_meta,
@@ -1886,14 +1906,21 @@ async fn send_user_mention_message_inner(
             return Err(format!("执行人格不存在或不可用: agentId={agent_id}"));
         }
         let agent_elapsed_ms = agent_started_at.elapsed().as_millis();
-        let agent = runtime_agent_by_id(&runtime_org, &agent_id)
-            .ok_or_else(|| format!("执行人格已经消失：{agent_id}"))?;
-        let api_config_id = agent_primary_chat_api_config_id(&app_config, agent)
-            .ok_or_else(|| format!("人格模型未配置或不可用于聊天: {}", agent.id))?;
+        if runtime_agent_by_id(&runtime_org, &agent_id).is_none() {
+            return Err(format!("执行人格已经消失：{agent_id}"));
+        }
 
         let conversation_started_at = std::time::Instant::now();
         let conversation_meta =
             conversation_service_v2().get_conversation_meta(state, &conversation_id)?;
+        // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
+        let api_config_id = conversation_meta
+            .preferred_api_config_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .and_then(|raw| resolve_chat_api_config_id(&app_config, raw))
+            .ok_or_else(|| "未指定会话模型：请在输入面板选择模型后重试".to_string())?;
         let mention_background = read_user_mention_context_snapshot(
             state,
             &conversation_meta,

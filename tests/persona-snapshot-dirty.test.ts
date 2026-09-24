@@ -43,6 +43,27 @@ describe("buildPersonasSnapshotJson", () => {
     expect(snapshot2).not.toBe(snapshot3);
   });
 
+  it("detects changes in apiConfigIds (delegate model)", () => {
+    const persona = createPersona();
+    persona.apiConfigIds = ["role:expert"];
+    const snapshot1 = buildPersonasSnapshotJson([persona]);
+
+    // 跟随会话写入空数组，必须判脏，否则保存按钮不亮、改动永远无法落盘
+    persona.apiConfigIds = [];
+    const snapshot2 = buildPersonasSnapshotJson([persona]);
+    expect(snapshot1).not.toBe(snapshot2);
+
+    persona.apiConfigIds = ["role:session"];
+    const snapshot3 = buildPersonasSnapshotJson([persona]);
+    expect(snapshot2).not.toBe(snapshot3);
+
+    // 顺序语义：apiConfigIds 首元素是主模型，顺序变化必须判脏
+    persona.apiConfigIds = ["role:expert", "role:session"];
+    const snapshot4 = buildPersonasSnapshotJson([persona]);
+    persona.apiConfigIds = ["role:session", "role:expert"];
+    expect(buildPersonasSnapshotJson([persona])).not.toBe(snapshot4);
+  });
+
   it("detects changes in permissionControl", () => {
     const persona = createPersona();
     const snapshot1 = buildPersonasSnapshotJson([persona]);
