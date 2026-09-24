@@ -26,6 +26,8 @@ fn normalize_mcp_server_input(input: McpServerInput) -> Result<McpServerConfig, 
         name,
         enabled: false,
         definition_json,
+        oauth_capable: false,
+        has_oauth_token: false,
         tool_policies: Vec::new(),
         cached_tools: Vec::new(),
         last_status: String::new(),
@@ -117,7 +119,13 @@ fn mcp_runtime_state_mark_starting(server: &McpServerConfig) {
 
 fn mcp_runtime_state_mark_probe_failure(server: &McpServerConfig, status: &str, error: &str) {
     let cached_tools = list_tools_from_runtime(server);
-    let effective_status = if cached_tools.is_empty() { status } else { "stale" };
+    let effective_status = if status == "auth_required" {
+        "auth_required"
+    } else if cached_tools.is_empty() {
+        status
+    } else {
+        "stale"
+    };
     mcp_runtime_state_set(&server.id, true, effective_status, error, cached_tools);
 }
 
@@ -154,8 +162,19 @@ fn mcp_current_server_matches_probe(
     }
 }
 
+fn mcp_check_and_extract_auth_challenge(err: &str) -> Option<String> {
+    // 只认连接层从 WWW-Authenticate 头构造的 auth_required: 前缀；
+    // 普通 401 文本（如 SSE transport、token 过期）不含 challenge 参数，不能当作 OAuth 挑战。
+    err.find("auth_required:").map(|idx| {
+        let after = &err[idx + "auth_required:".len()..];
+        after.split(" | ").next().unwrap_or(after).trim().to_string()
+    })
+}
+
 fn mcp_status_from_runtime_error(error: &str) -> &'static str {
-    if error.to_ascii_lowercase().contains("timed out") || error.contains("超时") {
+    if mcp_check_and_extract_auth_challenge(error).is_some() {
+        "auth_required"
+    } else if error.to_ascii_lowercase().contains("timed out") || error.contains("超时") {
         "timeout"
     } else {
         "failed"
@@ -217,10 +236,24 @@ async fn mcp_probe_server_tools_background(
     let tools = match tools_res {
         Ok(tools) => tools,
         Err(err) => {
-            let Some(current_server) = mcp_current_server_matches_probe(&state, &server, trigger) else {
+            let Some(mut current_server) = mcp_current_server_matches_probe(&state, &server, trigger) else {
                 mcp_disconnect_cached_client_if_definition(&server.id, &server.definition_json).await;
                 return;
             };
+            if let Some(challenge) = mcp_check_and_extract_auth_challenge(&err) {
+                let _ = set_workspace_mcp_policy_oauth_capable(&state, &current_server.id, true);
+                current_server.oauth_capable = true;
+                let challenge_trimmed = challenge.trim();
+                if !challenge_trimmed.is_empty() {
+                    mcp_oauth_set_cached_challenge(&current_server.id, challenge_trimmed);
+                }
+                mcp_runtime_state_mark_probe_failure(&current_server, "auth_required", "需要 OAuth 授权登录");
+                runtime_log_info(format!(
+                    "[MCP OAuth] 探测到需要授权登录 server_id={} trigger={}",
+                    current_server.id, trigger
+                ));
+                return;
+            }
             let status = mcp_status_from_runtime_error(&err);
             mcp_runtime_state_mark_probe_failure(&current_server, status, &err);
             let label = if status == "timeout" { "超时" } else { "失败" };
@@ -426,6 +459,15 @@ async fn mcp_list_server_tools_inner(
     let tools = match mcp_list_server_tools_runtime(&server).await {
         Ok(tools) => tools,
         Err(err) => {
+            if let Some(challenge) = mcp_check_and_extract_auth_challenge(&err) {
+                let _ = set_workspace_mcp_policy_oauth_capable(state, &server.id, true);
+                let challenge_trimmed = challenge.trim();
+                if !challenge_trimmed.is_empty() {
+                    mcp_oauth_set_cached_challenge(&server.id, challenge_trimmed);
+                }
+                mcp_runtime_state_mark_probe_failure(&server, "auth_required", "需要 OAuth 授权登录");
+                return Err("需要 OAuth 授权登录".to_string());
+            }
             let status = mcp_status_from_runtime_error(&err);
             mcp_runtime_state_mark_probe_failure(&server, status, &err);
             return Err(err);
@@ -753,4 +795,82 @@ async fn mcp_fix_definition_inner(
         issues: Vec::new(),
         model_name: Some(output.model_name),
     })
+}
+
+#[tauri::command]
+async fn mcp_oauth_login(
+    input: McpServerIdInput,
+    state: State<'_, AppState>,
+) -> Result<McpOAuthStatusResult, String> {
+    mcp_oauth_login_inner(input, state.inner()).await
+}
+
+async fn mcp_oauth_login_inner(
+    input: McpServerIdInput,
+    state: &AppState,
+) -> Result<McpOAuthStatusResult, String> {
+    let server_id = input.server_id.trim();
+    if server_id.is_empty() {
+        return Err("serverId is required".to_string());
+    }
+    mcp_oauth_start_login(state, server_id).await
+}
+
+#[tauri::command]
+fn mcp_oauth_cancel(input: McpServerIdInput) -> Result<bool, String> {
+    mcp_oauth_cancel_inner(input)
+}
+
+fn mcp_oauth_cancel_inner(input: McpServerIdInput) -> Result<bool, String> {
+    let server_id = input.server_id.trim();
+    if server_id.is_empty() {
+        return Err("serverId is required".to_string());
+    }
+    Ok(mcp_oauth_cancel_login_session(server_id))
+}
+
+#[tauri::command]
+fn mcp_oauth_status(
+    input: McpServerIdInput,
+    state: State<'_, AppState>,
+) -> Result<McpOAuthStatusResult, String> {
+    mcp_oauth_status_inner(input, state.inner())
+}
+
+fn mcp_oauth_status_inner(
+    input: McpServerIdInput,
+    state: &AppState,
+) -> Result<McpOAuthStatusResult, String> {
+    let server_id = input.server_id.trim();
+    if server_id.is_empty() {
+        return Err("serverId is required".to_string());
+    }
+    let has_credentials = mcp_oauth_has_credentials(state, server_id);
+    Ok(mcp_oauth_get_session_status(server_id, has_credentials))
+}
+
+#[tauri::command]
+async fn mcp_oauth_clear_credentials(
+    input: McpServerIdInput,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    mcp_oauth_clear_credentials_inner(input, state.inner()).await
+}
+
+async fn mcp_oauth_clear_credentials_inner(
+    input: McpServerIdInput,
+    state: &AppState,
+) -> Result<bool, String> {
+    let server_id = input.server_id.trim();
+    if server_id.is_empty() {
+        return Err("serverId is required".to_string());
+    }
+    let deleted = mcp_oauth_delete_credential(state, server_id)?;
+    mcp_oauth_clear_cached_challenge(server_id);
+    mcp_disconnect_cached_client(server_id).await;
+    // 保留部署：policy.enabled 不变，运行时标记为待授权。
+    // 重启后监管探测同样会因缺少凭据得到 auth_required，与重启前 UI 一致。
+    mcp_runtime_state_set(server_id, true, "auth_required", "需要 OAuth 授权登录", Vec::new());
+    runtime_log_info(format!("[MCP OAuth] 清除凭据完成 server_id={}", server_id));
+    Ok(deleted)
 }

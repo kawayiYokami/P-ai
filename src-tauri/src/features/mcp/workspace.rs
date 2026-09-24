@@ -12,6 +12,8 @@ struct McpToolPoliciesFile {
     #[serde(default)]
     enabled: bool,
     #[serde(default)]
+    oauth_capable: bool,
+    #[serde(default)]
     tools: Vec<McpToolPolicy>,
 }
 
@@ -31,14 +33,65 @@ fn llm_workspace_mcp_policies_dir(state: &AppState) -> Result<PathBuf, String> {
     Ok(llm_workspace_mcp_root(state)?.join("policies"))
 }
 
+static GLOBAL_MCP_OAUTH_DIR: std::sync::OnceLock<std::sync::RwLock<Option<PathBuf>>> = std::sync::OnceLock::new();
+
+fn mcp_oauth_get_global_dir_lock() -> &'static std::sync::RwLock<Option<PathBuf>> {
+    GLOBAL_MCP_OAUTH_DIR.get_or_init(|| std::sync::RwLock::new(None))
+}
+
+fn mcp_oauth_set_global_dir(dir: PathBuf) {
+    if let Ok(mut guard) = mcp_oauth_get_global_dir_lock().write() {
+        *guard = Some(dir);
+    }
+}
+
+fn mcp_oauth_credential_path_for_server(server_id: &str) -> Option<PathBuf> {
+    let guard = mcp_oauth_get_global_dir_lock().read().ok()?;
+    let dir = guard.as_ref()?;
+    let file = format!("{}.json", sanitize_mcp_server_id_for_filename(server_id));
+    Some(dir.join(file))
+}
+
+fn llm_workspace_mcp_oauth_dir(state: &AppState) -> Result<PathBuf, String> {
+    let dir = llm_workspace_mcp_root(state)?.join("oauth");
+    mcp_oauth_set_global_dir(dir.clone());
+    Ok(dir)
+}
+
+fn mcp_oauth_credential_path(state: &AppState, server_id: &str) -> Result<PathBuf, String> {
+    let file = format!("{}.json", sanitize_mcp_server_id_for_filename(server_id));
+    Ok(llm_workspace_mcp_oauth_dir(state)?.join(file))
+}
+
+fn mcp_oauth_has_credentials(state: &AppState, server_id: &str) -> bool {
+    mcp_oauth_credential_path(state, server_id)
+        .map(|p| p.exists())
+        .unwrap_or(false)
+}
+
+fn mcp_oauth_delete_credential(state: &AppState, server_id: &str) -> Result<bool, String> {
+    let path = mcp_oauth_credential_path(state, server_id)?;
+    if path.exists() {
+        fs::remove_file(&path)
+            .map_err(|err| format!("Delete MCP OAuth credential failed ({}): {err}", path.display()))?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 fn ensure_workspace_mcp_layout_at_root(workspace_root: &Path) -> Result<(), String> {
     let mcp_root = llm_workspace_mcp_root_at(workspace_root);
     let mcp_servers = mcp_root.join("servers");
     let mcp_policies = mcp_root.join("policies");
+    let mcp_oauth = mcp_root.join("oauth");
     fs::create_dir_all(&mcp_servers)
         .map_err(|err| format!("Create MCP servers dir failed ({}): {err}", mcp_servers.display()))?;
     fs::create_dir_all(&mcp_policies)
         .map_err(|err| format!("Create MCP policies dir failed ({}): {err}", mcp_policies.display()))?;
+    fs::create_dir_all(&mcp_oauth)
+        .map_err(|err| format!("Create MCP oauth dir failed ({}): {err}", mcp_oauth.display()))?;
+    mcp_oauth_set_global_dir(mcp_oauth);
     let legacy_readme = mcp_root.join("README.md");
     if legacy_readme.exists() {
         let _ = fs::remove_file(&legacy_readme);
@@ -112,6 +165,8 @@ fn parse_workspace_mcp_server_from_file(path: &PathBuf) -> Result<McpServerConfi
         name,
         enabled: false,
         definition_json,
+        oauth_capable: false,
+        has_oauth_token: false,
         tool_policies: Vec::new(),
         cached_tools: Vec::new(),
         last_status: String::new(),
@@ -176,6 +231,7 @@ fn load_workspace_mcp_server_policy(
         return Ok(McpToolPoliciesFile {
             server_id: server_id.to_string(),
             enabled: false,
+            oauth_capable: false,
             tools: Vec::new(),
         });
     }
@@ -185,6 +241,7 @@ fn load_workspace_mcp_server_policy(
         return Ok(McpToolPoliciesFile {
             server_id: server_id.to_string(),
             enabled: false,
+            oauth_capable: false,
             tools: Vec::new(),
         });
     }
@@ -228,6 +285,7 @@ fn save_workspace_mcp_server_policy(
             payload.server_id.trim().to_string()
         },
         enabled: payload.enabled,
+        oauth_capable: payload.oauth_capable,
         tools: normalize_mcp_tool_policies(payload.tools.clone()),
     };
     let text = serde_json::to_string_pretty(&out)
@@ -279,6 +337,16 @@ fn set_workspace_mcp_policy_enabled(
     save_workspace_mcp_server_policy(state, server_id, &policy)
 }
 
+fn set_workspace_mcp_policy_oauth_capable(
+    state: &AppState,
+    server_id: &str,
+    oauth_capable: bool,
+) -> Result<(), String> {
+    let mut policy = load_workspace_mcp_server_policy(state, server_id)?;
+    policy.oauth_capable = oauth_capable;
+    save_workspace_mcp_server_policy(state, server_id, &policy)
+}
+
 fn load_workspace_mcp_servers(state: &AppState) -> Result<Vec<McpServerConfig>, String> {
     let (mut servers, errors) = load_workspace_mcp_servers_with_errors(state)?;
     for err in errors {
@@ -287,6 +355,8 @@ fn load_workspace_mcp_servers(state: &AppState) -> Result<Vec<McpServerConfig>, 
     for server in &mut servers {
         let policy = load_workspace_mcp_server_policy(state, &server.id)?;
         server.enabled = policy.enabled;
+        server.oauth_capable = policy.oauth_capable;
+        server.has_oauth_token = mcp_oauth_has_credentials(state, &server.id);
         server.tool_policies = policy.tools;
     }
     Ok(servers)
@@ -334,6 +404,7 @@ fn remove_workspace_mcp_server(state: &AppState, server_id: &str) -> Result<bool
     if policy_path.exists() {
         let _ = fs::remove_file(&policy_path);
     }
+    let _ = mcp_oauth_delete_credential(state, server_id);
     Ok(removed)
 }
 

@@ -63,6 +63,38 @@ async fn ide_chat_mcp_undeploy_server_for_web_settings(
     ide_chat_serialize(mcp_undeploy_server_inner(input, state).await?)
 }
 
+async fn ide_chat_mcp_oauth_login_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<McpServerIdInput>(params, "input")?;
+    ide_chat_serialize(mcp_oauth_login_inner(input, state).await?)
+}
+
+fn ide_chat_mcp_oauth_cancel_for_web_settings(
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<McpServerIdInput>(params, "input")?;
+    ide_chat_serialize(mcp_oauth_cancel_inner(input)?)
+}
+
+fn ide_chat_mcp_oauth_status_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<McpServerIdInput>(params, "input")?;
+    ide_chat_serialize(mcp_oauth_status_inner(input, state)?)
+}
+
+async fn ide_chat_mcp_oauth_clear_credentials_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<McpServerIdInput>(params, "input")?;
+    ide_chat_serialize(mcp_oauth_clear_credentials_inner(input, state).await?)
+}
+
 fn ide_chat_mcp_set_tool_enabled_for_web_settings(
     state: &AppState,
     params: Value,

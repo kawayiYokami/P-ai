@@ -56,6 +56,18 @@ struct McpServerIdInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct McpOAuthStatusResult {
+    server_id: String,
+    status: String,
+    message: String,
+    #[serde(default)]
+    auth_url: String,
+    #[serde(default)]
+    has_credentials: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct McpDefinitionValidateInput {
     definition_json: String,
     /// 全工作区其他卡片的组内成员名集合，用于跨卡片重名检测

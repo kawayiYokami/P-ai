@@ -175,6 +175,10 @@ struct McpServerConfig {
     #[serde(default)]
     definition_json: String,
     #[serde(default)]
+    oauth_capable: bool,
+    #[serde(default)]
+    has_oauth_token: bool,
+    #[serde(default)]
     tool_policies: Vec<McpToolPolicy>,
     #[serde(default)]
     cached_tools: Vec<McpCachedTool>,

@@ -388,6 +388,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         name: item.name,
         enabled: !!item.enabled,
         definitionJson: item.definitionJson,
+        oauthCapable: !!item.oauthCapable,
+        hasOauthToken: !!item.hasOauthToken,
         toolPolicies: [...(item.toolPolicies || [])],
         lastStatus: item.lastStatus || "",
         lastError: item.lastError || "",

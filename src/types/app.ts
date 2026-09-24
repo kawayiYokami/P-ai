@@ -321,11 +321,21 @@ export type McpServerConfig = {
   name: string;
   enabled: boolean;
   definitionJson: string;
+  oauthCapable?: boolean;
+  hasOauthToken?: boolean;
   toolPolicies: McpToolPolicy[];
   cachedTools?: McpCachedTool[];
   lastStatus?: string;
   lastError?: string;
   updatedAt?: string;
+};
+
+export type McpOAuthStatusResult = {
+  serverId: string;
+  status: string;
+  message: string;
+  authUrl?: string;
+  hasCredentials?: boolean;
 };
 
 export type AgentPermissionMode = "whitelist" | "blacklist";

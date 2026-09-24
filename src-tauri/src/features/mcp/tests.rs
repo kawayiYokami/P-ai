@@ -207,6 +207,8 @@ fn test_server_with_definition(definition_json: &str) -> McpServerConfig {
         name: "测试组".to_string(),
         enabled: false,
         definition_json: definition_json.to_string(),
+        oauth_capable: false,
+        has_oauth_token: false,
         tool_policies: Vec::new(),
         cached_tools: Vec::new(),
         last_status: String::new(),
@@ -604,6 +606,142 @@ mod sse_transport_tests {
             result.issues
         );
     }
+}
+
+#[test]
+fn test_mcp_oauth_parse_callback_query() {
+    let req = "GET /callback?code=test_auth_code_123&state=xyz_state_456 HTTP/1.1";
+    let Some(OAuthCallbackQuery::Code { code, state, issuer }) = parse_oauth_callback_query(req) else {
+        panic!("should parse query");
+    };
+    assert_eq!(code, "test_auth_code_123");
+    assert_eq!(state, "xyz_state_456");
+    assert_eq!(issuer, None);
+
+    let req_with_iss = "GET /callback?code=abc&state=def&iss=https%3A%2F%2Fclerk.context7.com HTTP/1.1";
+    let Some(OAuthCallbackQuery::Code { code: code_iss, state: state_iss, issuer: issuer_iss }) = parse_oauth_callback_query(req_with_iss) else {
+        panic!("should parse query with iss");
+    };
+    assert_eq!(code_iss, "abc");
+    assert_eq!(state_iss, "def");
+    assert_eq!(issuer_iss, Some("https://clerk.context7.com".to_string()));
+
+    let req_encoded = "GET /callback?code=hello%20world&state=foo%2Bbar HTTP/1.1";
+    let Some(OAuthCallbackQuery::Code { code: code2, state: state2, issuer: issuer2 }) = parse_oauth_callback_query(req_encoded) else {
+        panic!("should parse encoded query");
+    };
+    assert_eq!(code2, "hello world");
+    assert_eq!(state2, "foo+bar");
+    assert_eq!(issuer2, None);
+
+    let req_error = "GET /callback?error=access_denied&error_description=User%20denied&state=xyz HTTP/1.1";
+    let Some(OAuthCallbackQuery::Error { error, error_description }) = parse_oauth_callback_query(req_error) else {
+        panic!("should parse error query");
+    };
+    assert_eq!(error, "access_denied");
+    assert_eq!(error_description, Some("User denied".to_string()));
+
+    let req_no_code = "GET /callback?state=xyz HTTP/1.1";
+    assert!(parse_oauth_callback_query(req_no_code).is_none());
+
+    let req_favicon = "GET /favicon.ico HTTP/1.1";
+    assert!(parse_oauth_callback_query(req_favicon).is_none());
+}
+
+#[test]
+fn test_mcp_extract_scope_from_header() {
+    let header = r#"Bearer error="insufficient_scope", scope="read write email""#;
+    assert_eq!(mcp_extract_scope_from_header(header), Some("read write email".to_string()));
+
+    let header_single = r#"Bearer scope="profile""#;
+    assert_eq!(mcp_extract_scope_from_header(header_single), Some("profile".to_string()));
+
+    let header_none = r#"Bearer error="invalid_token""#;
+    assert_eq!(mcp_extract_scope_from_header(header_none), None);
+}
+
+#[test]
+fn test_mcp_oauth_challenge_cache() {
+    let test_server = "test_challenge_server_123";
+    assert_eq!(mcp_oauth_get_cached_challenge(test_server), None);
+
+    mcp_oauth_set_cached_challenge(test_server, "test_challenge_data");
+    assert_eq!(
+        mcp_oauth_get_cached_challenge(test_server),
+        Some("test_challenge_data".to_string())
+    );
+
+    mcp_oauth_clear_cached_challenge(test_server);
+    assert_eq!(mcp_oauth_get_cached_challenge(test_server), None);
+}
+
+#[tokio::test]
+async fn test_mcp_file_credential_store() {
+    let temp_dir = std::env::temp_dir().join(format!("pai_mcp_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let cred_path = temp_dir.join("test_cred.json");
+    let store = McpFileCredentialStore::new(cred_path.clone());
+
+    let loaded = store.load().await.expect("load ok");
+    assert!(loaded.is_none());
+
+    let test_creds = rmcp::transport::auth::StoredCredentials::new(
+        "test_client_id".to_string(),
+        None,
+        vec!["read".to_string(), "write".to_string()],
+        Some(1234567890),
+    ).with_issuer(Some("https://auth.example.com".to_string()));
+    store.save(test_creds).await.expect("save ok");
+    assert!(cred_path.exists());
+
+    let loaded2 = store.load().await.expect("load ok").expect("some creds");
+    assert_eq!(loaded2.client_id, "test_client_id");
+    assert_eq!(loaded2.granted_scopes, vec!["read".to_string(), "write".to_string()]);
+    assert_eq!(loaded2.issuer, Some("https://auth.example.com".to_string()));
+
+    store.clear().await.expect("clear ok");
+    assert!(!cred_path.exists());
+    let loaded3 = store.load().await.expect("load ok");
+    assert!(loaded3.is_none());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_mcp_check_and_extract_auth_challenge() {
+    let single_member_err = "MCP 组内 1 个成员连接失败: context7: auth_required: Bearer resource_metadata=\"https://mcp.context7.com/.well-known/oauth-protected-resource\"";
+    assert_eq!(
+        mcp_check_and_extract_auth_challenge(single_member_err),
+        Some("Bearer resource_metadata=\"https://mcp.context7.com/.well-known/oauth-protected-resource\"".to_string())
+    );
+    assert_eq!(mcp_status_from_runtime_error(single_member_err), "auth_required");
+
+    let direct_err = "auth_required: Bearer realm=\"pai\"";
+    assert_eq!(
+        mcp_check_and_extract_auth_challenge(direct_err),
+        Some("Bearer realm=\"pai\"".to_string())
+    );
+    assert_eq!(mcp_status_from_runtime_error(direct_err), "auth_required");
+
+    let multi_member_err = "MCP 组内 2 个成员连接失败: s1: auth_required: Bearer challenge_1 | s2: connect error";
+    assert_eq!(
+        mcp_check_and_extract_auth_challenge(multi_member_err),
+        Some("Bearer challenge_1".to_string())
+    );
+    assert_eq!(mcp_status_from_runtime_error(multi_member_err), "auth_required");
+
+    // 普通 401 文本没有 auth_required: 前缀（SSE transport、token 过期等），
+    // 不含 challenge 参数，不应被识别为 OAuth 挑战。
+    let status_401_err = "HTTP request failed with 401 Unauthorized";
+    assert_eq!(mcp_check_and_extract_auth_challenge(status_401_err), None);
+    assert_eq!(mcp_status_from_runtime_error(status_401_err), "failed");
+
+    let timeout_err = "Connection timed out after 30 seconds";
+    assert_eq!(mcp_check_and_extract_auth_challenge(timeout_err), None);
+    assert_eq!(mcp_status_from_runtime_error(timeout_err), "timeout");
+
+    let other_err = "failed to spawn process: file not found";
+    assert_eq!(mcp_check_and_extract_auth_challenge(other_err), None);
+    assert_eq!(mcp_status_from_runtime_error(other_err), "failed");
 }
 
 

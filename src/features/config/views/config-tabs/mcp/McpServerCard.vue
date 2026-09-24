@@ -25,6 +25,9 @@
             <span v-else-if="draft.lastStatus === 'disabled'" class="badge badge-sm badge-neutral">
               {{ t('config.mcp.statusDisabled') }}
             </span>
+            <span v-else-if="draft.lastStatus === 'auth_required'" class="badge badge-sm badge-warning">
+              {{ t('config.mcp.statusAuthRequired') }}
+            </span>
             <span v-else-if="draft.lastStatus === 'failed'" class="badge badge-sm badge-error">
               {{ t('config.mcp.statusFailed') }}
             </span>
@@ -46,8 +49,73 @@
           />
         </div>
 
-        <div v-if="draft.lastError" class="p-2.5 rounded-field bg-error/10 border border-error/20 text-xs text-error">
+        <div v-if="draft.lastError && draft.lastStatus !== 'auth_required'" class="p-2.5 rounded-field bg-error/10 border border-error/20 text-xs text-error">
           {{ draft.lastError }}
+        </div>
+
+        <!-- OAuth 2.1 认证状态与操作 -->
+        <div
+          v-if="draft.oauthCapable || draft.lastStatus === 'auth_required' || draft.hasOauthToken || (oauthStatus && oauthStatus.status !== 'idle')"
+          class="flex flex-wrap items-center justify-between gap-2 p-3 rounded-field bg-base-200/50 border border-base-300"
+        >
+          <div class="flex items-center gap-2">
+            <KeyRound class="h-4 w-4 text-warning shrink-0" />
+            <div class="flex flex-col">
+              <span class="text-xs font-medium">OAuth 2.1</span>
+              <span class="text-caption opacity-70">
+                {{ oauthStatus?.message || (draft.hasOauthToken ? t('config.mcp.oauthAuthorized') : t('config.mcp.statusAuthRequired')) }}
+              </span>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            <!-- 正在授权 -->
+            <template v-if="oauthStatus?.status === 'authorizing'">
+              <span class="loading loading-spinner loading-xs text-primary"></span>
+              <span class="text-xs opacity-80">{{ t('config.mcp.oauthLoggingIn') }}</span>
+              <button
+                type="button"
+                class="btn btn-xs btn-ghost text-error ml-1"
+                @click="$emit('oauthCancel', draft.id)"
+              >
+                {{ t('config.mcp.oauthCancel') }}
+              </button>
+            </template>
+
+            <!-- 已授权 -->
+            <template v-else-if="draft.hasOauthToken">
+              <span class="badge badge-xs badge-success mr-1">{{ t('config.mcp.oauthAuthorized') }}</span>
+              <button
+                type="button"
+                class="btn btn-xs btn-outline"
+                :disabled="disabled"
+                @click="$emit('oauthLogin', draft.id)"
+              >
+                {{ t('config.mcp.oauthReauth') }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-xs btn-ghost text-error"
+                :disabled="disabled"
+                @click="$emit('oauthClearCredentials', draft.id)"
+              >
+                {{ t('config.mcp.oauthClearCredentials') }}
+              </button>
+            </template>
+
+            <!-- 未授权 / 需要授权 -->
+            <template v-else>
+              <button
+                type="button"
+                class="btn btn-xs btn-primary gap-1"
+                :disabled="disabled"
+                @click="$emit('oauthLogin', draft.id)"
+              >
+                <KeyRound class="h-3 w-3" />
+                <span>{{ t('config.mcp.oauthLogin') }}</span>
+              </button>
+            </template>
+          </div>
         </div>
       </div>
     </div>
@@ -103,7 +171,8 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import type { McpServerConfig, McpToolDescriptor } from "../../../../../types/app";
+import { KeyRound } from "@lucide/vue";
+import type { McpOAuthStatusResult, McpServerConfig, McpToolDescriptor } from "../../../../../types/app";
 import McpToolList from "./McpToolList.vue";
 import { renameFirstMcpServerMember } from "../../../utils/mcp-definition";
 
@@ -126,6 +195,7 @@ const props = defineProps<{
   server: McpServerView;
   disabled?: boolean;
   hasIssues?: boolean;
+  oauthStatus?: McpOAuthStatusResult | null;
 }>();
 
 const emit = defineEmits<{
@@ -136,6 +206,9 @@ const emit = defineEmits<{
   (e: "toggleDeploy", server: McpServerView): void;
   (e: "toggleTool", payload: { serverId: string; toolName: string; enabled: boolean }): void;
   (e: "refreshTools", serverId: string): void;
+  (e: "oauthLogin", serverId: string): void;
+  (e: "oauthCancel", serverId: string): void;
+  (e: "oauthClearCredentials", serverId: string): void;
 }>();
 
 const draft = reactive<McpServerView>({ ...props.server });

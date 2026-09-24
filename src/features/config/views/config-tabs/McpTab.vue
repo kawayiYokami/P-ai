@@ -54,6 +54,16 @@
               <span>{{ t('common.save') }}</span>
             </button>
             <button
+              v-if="selectedServer.lastStatus === 'auth_required' || (selectedServer.oauthCapable && !selectedServer.hasOauthToken)"
+              class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3"
+              type="button"
+              :disabled="loading || oauthStatusMap[selectedServer.id]?.status === 'authorizing'"
+              @click="handleOAuthLogin(selectedServer.id)"
+            >
+              <KeyRound class="h-4 w-4" />
+              <span>{{ t('config.mcp.oauthLogin') }}</span>
+            </button>
+            <button
               class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3"
               :class="selectedServer.enabled ? 'btn-warning' : 'btn-success'"
               type="button"
@@ -139,6 +149,7 @@
           :server="selectedServer"
           :disabled="loading"
           :has-issues="issueList.length > 0"
+          :oauth-status="oauthStatusMap[selectedServer.id] || null"
           @change="onServerChange"
           @remove="removeServer"
           @validate="validateDefinition"
@@ -146,6 +157,9 @@
           @toggle-deploy="toggleDeploy"
           @toggle-tool="onToggleTool"
           @refresh-tools="refreshTools"
+          @oauth-login="handleOAuthLogin"
+          @oauth-cancel="handleOAuthCancel"
+          @oauth-clear-credentials="handleOAuthClearCredentials"
         />
       </div>
 
@@ -214,7 +228,10 @@
                   <span class="badge badge-sm" :class="getStatusBadgeClass(server.lastStatus)">
                     {{ getStatusLabel(server.lastStatus) }}
                   </span>
-                  <span class="badge badge-sm badge-ghost">
+                  <span v-if="server.lastStatus === 'auth_required' || (server.oauthCapable && !server.hasOauthToken)" class="badge badge-sm badge-warning badge-outline">
+                    {{ t('config.mcp.oauthLogin') }}
+                  </span>
+                  <span v-else class="badge badge-sm badge-ghost">
                     {{ server.toolItems.length > 0 ? t('config.mcp.toolCount', { count: server.toolItems.length }) : t('config.mcp.probingTools') }}
                   </span>
                 </template>
@@ -251,6 +268,7 @@ import {
   CheckCircle,
   ChevronRight,
   FolderOpen,
+  KeyRound,
   Plus,
   Power,
   RefreshCw,
@@ -271,6 +289,7 @@ import type {
   McpDefinitionValidateResult,
   McpFixDefinitionResult,
   McpListServerToolsResult,
+  McpOAuthStatusResult,
   McpServerConfig,
   McpToolDescriptor,
   McpValidationIssue,
@@ -302,6 +321,7 @@ const inDetailMode = ref(false);
 const searchQuery = ref("");
 const servers = ref<McpServerView[]>([]);
 const selectedServerId = ref("");
+const oauthStatusMap = ref<Record<string, McpOAuthStatusResult>>({});
 const localFileSystemAvailable = getTransportCapabilities().localFileSystem;
 
 const nodeMissing = ref(false);
@@ -357,6 +377,7 @@ function backToList() {
 function getStatusBadgeClass(status?: string): string {
   if (status === "ready" || status === "deployed") return "badge-success";
   if (status === "starting" || status === "deploying") return "badge-warning";
+  if (status === "auth_required") return "badge-warning";
   if (status === "stale") return "badge-warning";
   if (status === "timeout" || status === "failed") return "badge-error";
   if (status === "stopped" || status === "disabled") return "badge-neutral";
@@ -367,6 +388,7 @@ function getStatusLabel(status?: string): string {
   if (status === "ready" || status === "deployed") return t("config.mcp.statusReady");
   if (status === "stopped") return t("config.mcp.statusStopped");
   if (status === "starting" || status === "deploying") return t("config.mcp.statusStarting");
+  if (status === "auth_required") return t("config.mcp.statusAuthRequired");
   if (status === "stale") return t("config.mcp.statusStale");
   if (status === "timeout") return t("config.mcp.statusTimeout");
   if (status === "disabled") return t("config.mcp.statusDisabled");
@@ -864,7 +886,7 @@ async function toggleDeploy(server: McpServerView) {
 }
 
 async function pollServerTools(serverId: string) {
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     try {
       const result = await invokeTauri<McpListServerToolsResult>("mcp_list_server_tools_cached", {
@@ -875,6 +897,18 @@ async function pollServerTools(serverId: string) {
         target.toolItems = result.tools;
         target.lastElapsedMs = result.elapsedMs;
       }
+      const serverList = await invokeTauri<McpServerConfig[]>("mcp_list_servers");
+      const updatedServer = serverList.find((s) => s.id === serverId);
+      if (updatedServer && target) {
+        target.lastStatus = updatedServer.lastStatus;
+        target.lastError = updatedServer.lastError;
+        target.oauthCapable = updatedServer.oauthCapable;
+        target.hasOauthToken = updatedServer.hasOauthToken;
+        if (target.lastStatus === "auth_required") {
+          setStatus(`${t("config.mcp.statusAuthRequired")}: ${target.name || serverId}`);
+          return;
+        }
+      }
       if (result.tools.length > 0) {
         setStatus(
           `${t("config.mcp.deploySuccess")}: ${target?.name ?? serverId}（tools=${result.tools.length}）`,
@@ -884,6 +918,88 @@ async function pollServerTools(serverId: string) {
     } catch {
       return;
     }
+  }
+}
+
+async function handleOAuthLogin(serverId: string) {
+  loading.value = true;
+  try {
+    const res = await invokeTauri<McpOAuthStatusResult>("mcp_oauth_login", {
+      input: { serverId },
+    });
+    oauthStatusMap.value[serverId] = res;
+    setStatus(res.message || t("config.mcp.oauthLoggingIn"));
+    void pollOAuthStatus(serverId);
+  } catch (error) {
+    setStatus(`${t("config.mcp.oauthFailed")}: ${toErrorMessage(error)}`, true);
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function pollOAuthStatus(serverId: string) {
+  for (let attempt = 0; attempt < 120; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const res = await invokeTauri<McpOAuthStatusResult>("mcp_oauth_status", {
+        input: { serverId },
+      });
+      oauthStatusMap.value[serverId] = res;
+      if (res.status === "success") {
+        const target = servers.value.find((s) => s.id === serverId);
+        setStatus(`${t("config.mcp.oauthSuccess")}: ${target?.name || serverId}`);
+        await reloadServers();
+        void pollServerTools(serverId);
+        return;
+      } else if (res.status === "error" || res.status === "expired") {
+        setStatus(`${t("config.mcp.oauthFailed")}: ${res.message}`, true);
+        return;
+      } else if (res.status === "cancelled" || res.status === "idle") {
+        return;
+      }
+    } catch {
+      return;
+    }
+  }
+}
+
+async function handleOAuthCancel(serverId: string) {
+  try {
+    await invokeTauri<boolean>("mcp_oauth_cancel", {
+      input: { serverId },
+    });
+    if (oauthStatusMap.value[serverId]) {
+      oauthStatusMap.value[serverId].status = "cancelled";
+      oauthStatusMap.value[serverId].message = t("config.mcp.oauthCancelled");
+    }
+    setStatus(t("config.mcp.oauthCancelled"));
+  } catch (error) {
+    setStatus(`${t("config.mcp.oauthFailed")}: ${toErrorMessage(error)}`, true);
+  }
+}
+
+async function handleOAuthClearCredentials(serverId: string) {
+  if (!window.confirm(t("config.mcp.oauthClearConfirm"))) {
+    return;
+  }
+  loading.value = true;
+  try {
+    await invokeTauri<boolean>("mcp_oauth_clear_credentials", {
+      input: { serverId },
+    });
+    delete oauthStatusMap.value[serverId];
+    const server = servers.value.find((s) => s.id === serverId);
+    if (server) {
+      server.hasOauthToken = false;
+      server.lastStatus = "stopped";
+      server.toolItems = [];
+    }
+    setStatus(t("config.mcp.oauthCleared"));
+    await reloadServers();
+  } catch (error) {
+    setStatus(`${t("config.mcp.oauthFailed")}: ${toErrorMessage(error)}`, true);
+  } finally {
+    loading.value = false;
   }
 }
 

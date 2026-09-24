@@ -313,6 +313,8 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
           name: String((v as { name?: unknown })?.name || "").trim(),
           enabled: !!(v as { enabled?: unknown })?.enabled,
           definitionJson: String((v as { definitionJson?: unknown })?.definitionJson || "").trim(),
+          oauthCapable: !!(v as { oauthCapable?: unknown })?.oauthCapable,
+          hasOauthToken: !!(v as { hasOauthToken?: unknown })?.hasOauthToken,
           toolPolicies: Array.isArray((v as { toolPolicies?: unknown[] })?.toolPolicies)
             ? ((v as { toolPolicies?: unknown[] }).toolPolicies || []).map((p) => ({
                 toolName: String((p as { toolName?: unknown })?.toolName || "").trim(),
@@ -558,6 +560,8 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
             name: String((v as { name?: unknown })?.name || "").trim(),
             enabled: !!(v as { enabled?: unknown })?.enabled,
             definitionJson: String((v as { definitionJson?: unknown })?.definitionJson || "").trim(),
+            oauthCapable: !!(v as { oauthCapable?: unknown })?.oauthCapable,
+            hasOauthToken: !!(v as { hasOauthToken?: unknown })?.hasOauthToken,
             toolPolicies: Array.isArray((v as { toolPolicies?: unknown[] })?.toolPolicies)
               ? ((v as { toolPolicies?: unknown[] }).toolPolicies || []).map((p) => ({
                   toolName: String((p as { toolName?: unknown })?.toolName || "").trim(),

@@ -570,6 +570,25 @@ fn mcp_runtime_state_set_tool_enabled(server_id: &str, tool_name: &str, enabled:
     });
 }
 
+fn mcp_extract_scope_from_header(header: &str) -> Option<String> {
+    let raw = header.trim();
+    let params_str = if let Some(idx) = raw.find(' ') {
+        &raw[idx..]
+    } else {
+        raw
+    };
+    for part in params_str.split(',') {
+        let part = part.trim();
+        if let Some(rest) = part.strip_prefix("scope=") {
+            let trimmed = rest.trim_matches('"').trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
 #[derive(Clone)]
 struct CustomStreamableHttpClient {
     client: reqwest::Client,
@@ -635,6 +654,19 @@ impl rmcp::transport::streamable_http_client::StreamableHttpClient for CustomStr
         if response.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED {
             return Err(
                 rmcp::transport::streamable_http_client::StreamableHttpError::ServerDoesNotSupportSse,
+            );
+        }
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            let header_str = response
+                .headers()
+                .get(reqwest::header::WWW_AUTHENTICATE)
+                .and_then(|h| h.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            return Err(
+                rmcp::transport::streamable_http_client::StreamableHttpError::AuthRequired(
+                    rmcp::transport::streamable_http_client::AuthRequiredError::new(header_str),
+                ),
             );
         }
         let response = response
@@ -739,6 +771,32 @@ impl rmcp::transport::streamable_http_client::StreamableHttpClient for CustomStr
             .await
             .map_err(rmcp::transport::streamable_http_client::StreamableHttpError::Client)?;
         let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            let header_str = response
+                .headers()
+                .get(reqwest::header::WWW_AUTHENTICATE)
+                .and_then(|h| h.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            return Err(
+                rmcp::transport::streamable_http_client::StreamableHttpError::AuthRequired(
+                    rmcp::transport::streamable_http_client::AuthRequiredError::new(header_str),
+                ),
+            );
+        }
+        if status == reqwest::StatusCode::FORBIDDEN {
+            if let Some(header) = response.headers().get(reqwest::header::WWW_AUTHENTICATE) {
+                let header_str = header.to_str().unwrap_or("").to_string();
+                let scope = mcp_extract_scope_from_header(&header_str);
+                return Err(
+                    rmcp::transport::streamable_http_client::StreamableHttpError::InsufficientScope(
+                        rmcp::transport::streamable_http_client::InsufficientScopeError::new(
+                            header_str, scope,
+                        ),
+                    ),
+                );
+            }
+        }
         let response = response
             .error_for_status()
             .map_err(rmcp::transport::streamable_http_client::StreamableHttpError::Client)?;
@@ -895,7 +953,10 @@ fn mcp_connect_stdio_command(parsed: &ParsedMcpServerDefinition) -> Result<tokio
     Ok(cmd)
 }
 
-async fn mcp_connect_client(parsed: &ParsedMcpServerDefinition) -> Result<McpConnectedClient, String> {
+async fn mcp_connect_client(
+    server_id: &str,
+    parsed: &ParsedMcpServerDefinition,
+) -> Result<McpConnectedClient, String> {
     match parsed.transport {
         McpTransportKind::Stdio => {
             let cmd = mcp_connect_stdio_command(parsed)?;
@@ -1007,15 +1068,49 @@ async fn mcp_connect_client(parsed: &ParsedMcpServerDefinition) -> Result<McpCon
                 }
             }
 
-            let transport =
-                rmcp::transport::StreamableHttpClientTransport::with_client(custom_client, config);
-            ().serve(transport)
-                .await
-                .map(|client| McpConnectedClient {
-                    client,
-                    process_tree_guard: None,
-                })
-                .map_err(|err| format!("Connect MCP streamable HTTP server failed: {err}"))
+            let cred_path_opt = mcp_oauth_credential_path_for_server(server_id)
+                .filter(|p| p.exists());
+
+            if let Some(cred_path) = cred_path_opt {
+                let store = McpFileCredentialStore::new(cred_path);
+                let mut auth_manager = AuthorizationManager::new(url)
+                    .await
+                    .map_err(|err| format!("Init MCP OAuth manager failed: {err}"))?;
+                auth_manager.set_credential_store(store);
+                let _ = auth_manager.initialize_from_store().await;
+                let auth_client = rmcp::transport::auth::AuthClient::new(custom_client, auth_manager);
+                let transport =
+                    rmcp::transport::StreamableHttpClientTransport::with_client(auth_client, config);
+                match ().serve(transport).await {
+                    Ok(client) => Ok(McpConnectedClient {
+                        client,
+                        process_tree_guard: None,
+                    }),
+                    Err(err) => {
+                        if let Some(challenge) = err.auth_challenge() {
+                            Err(format!("auth_required: {challenge}"))
+                        } else {
+                            Err(format!("Connect MCP streamable HTTP server failed: {err}"))
+                        }
+                    }
+                }
+            } else {
+                let transport =
+                    rmcp::transport::StreamableHttpClientTransport::with_client(custom_client, config);
+                match ().serve(transport).await {
+                    Ok(client) => Ok(McpConnectedClient {
+                        client,
+                        process_tree_guard: None,
+                    }),
+                    Err(err) => {
+                        if let Some(challenge) = err.auth_challenge() {
+                            Err(format!("auth_required: {challenge}"))
+                        } else {
+                            Err(format!("Connect MCP streamable HTTP server failed: {err}"))
+                        }
+                    }
+                }
+            }
         }
         McpTransportKind::Sse => {
             let (sink, stream) = connect_sse_transport(parsed).await?;
@@ -1058,7 +1153,7 @@ async fn mcp_connect_single_member(
 ) -> Result<(), String> {
     let connected = tokio::time::timeout(
         std::time::Duration::from_secs(MCP_CONNECT_TIMEOUT_SECS),
-        mcp_connect_client(parsed),
+        mcp_connect_client(&server.id, parsed),
     )
     .await
     .map_err(|_| {
