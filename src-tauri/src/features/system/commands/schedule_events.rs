@@ -110,33 +110,26 @@ fn schedule_event_apply_run_metadata_from_detail(run: &mut ScheduleRun, detail: 
             run.base_url = value.to_string();
         }
     }
-    if run.headers.is_empty() {
-        if let Some(value) = detail.get("headers").and_then(Value::as_array) {
-            let mut headers = Vec::new();
-            for item in value {
-                let name = item.get("name").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty());
-                let header_value = item.get("value").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty());
-                if let (Some(name), Some(header_value)) = (name, header_value) {
-                    headers.push(LlmRoundLogHeader { name: name.to_string(), value: header_value.to_string() });
-                }
-            }
-            if !headers.is_empty() {
-                run.headers = headers;
+    if let Some(value) = detail.get("headers").and_then(Value::as_array) {
+        let mut headers = Vec::new();
+        for item in value {
+            let name = item.get("name").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty());
+            let header_value = item.get("value").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty());
+            if let (Some(name), Some(header_value)) = (name, header_value) {
+                headers.push(LlmRoundLogHeader { name: name.to_string(), value: header_value.to_string() });
             }
         }
-    }
-    if run.tools.is_none() {
-        if let Some(value) = detail.get("tools").cloned() {
-            if !value.is_null() {
-                run.tools = Some(value);
-            }
+        if !headers.is_empty() {
+            run.headers = headers;
         }
     }
-    if run.tools.is_none() {
-        if let Some(value) = detail.get("availableTools").cloned() {
-            if !value.is_null() {
-                run.tools = Some(value);
-            }
+    if let Some(value) = detail.get("tools").cloned() {
+        if !value.is_null() {
+            run.tools = Some(value);
+        }
+    } else if let Some(value) = detail.get("availableTools").cloned() {
+        if !value.is_null() && run.tools.is_none() {
+            run.tools = Some(value);
         }
     }
 }
@@ -1062,6 +1055,28 @@ fn schedule_run_to_llm_entry(run: &ScheduleRun) -> LlmRoundLogEntry {
                 resp_obj.insert("reasoningContentLength".to_string(), serde_json::json!(reasoning_len));
                 resp_obj.insert("toolCallCount".to_string(), serde_json::json!(tool_count));
                 if !tool_names.is_empty() { resp_obj.insert("toolCallNames".to_string(), log_tool_call_names_value(tool_names.clone())); }
+                let round_tools = start
+                    .detail
+                    .get("availableTools")
+                    .or_else(|| start.detail.get("tools"))
+                    .cloned()
+                    .or_else(|| tools.clone());
+                let round_headers = if headers.is_empty() {
+                    start.detail.get("headers").and_then(Value::as_array).map(|arr| {
+                        let mut hdrs = Vec::new();
+                        for item in arr {
+                            if let (Some(n), Some(v)) = (
+                                item.get("name").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()),
+                                item.get("value").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()),
+                            ) {
+                                hdrs.push(LlmRoundLogHeader { name: n.to_string(), value: v.to_string() });
+                            }
+                        }
+                        hdrs
+                    }).unwrap_or_default()
+                } else {
+                    headers.clone()
+                };
                 let round = LlmRoundLogEntry {
                     id: round_id,
                     created_at: start.created_at.clone(),
@@ -1071,8 +1086,8 @@ fn schedule_run_to_llm_entry(run: &ScheduleRun) -> LlmRoundLogEntry {
                     provider: if provider.is_empty() { start.detail.get("providerName").and_then(Value::as_str).unwrap_or("").to_string() } else { provider.clone() },
                     model: if model.is_empty() { start.detail.get("modelName").and_then(Value::as_str).unwrap_or("").to_string() } else { model.clone() },
                     base_url: base_url.clone(),
-                    headers: headers.clone(),
-                    tools: tools.clone(),
+                    headers: round_headers,
+                    tools: round_tools,
                     response: Some(Value::Object(resp_obj)),
                     error: err.clone(),
                     elapsed_ms: end.elapsed_ms.saturating_sub(start.elapsed_ms),

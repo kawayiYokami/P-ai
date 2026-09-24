@@ -1298,6 +1298,9 @@ async fn send_chat_message_inner(
     let runtime_context_for_schedule_events = runtime_context.clone();
     let requested_conversation_id_for_schedule_events = requested_conversation_id.clone();
     let trace_id_for_schedule_events = trace_id.clone();
+    let last_execution_log_parts =
+        std::sync::Arc::new(std::sync::Mutex::new(None::<ModelCallLogParts>));
+    let last_execution_log_parts_for_run = last_execution_log_parts.clone();
     let run = async move {
     let state = state_for_run;
     let log_run_stage = |stage: &str| {
@@ -2175,8 +2178,20 @@ async fn send_chat_message_inner(
                 .ok()
                 .map(|reply| reply.round_logs_recorded_internally)
                 .unwrap_or(false);
-            // 已切换至调度事件：旧 chat 单轮日志不再写入，仅保留 schedule_event 打点
-            let _ = &chat_round_execution.log_parts;
+            if let Some(tools) = &chat_round_execution.log_parts.tools {
+                let _ = schedule_event_update_run_metadata(
+                    &state,
+                    &conversation_id,
+                    &trace_id_for_run,
+                    serde_json::json!({
+                        "tools": tools,
+                        "headers": chat_round_execution.log_parts.headers,
+                    }),
+                );
+            }
+            if let Ok(mut guard) = last_execution_log_parts_for_run.lock() {
+                *guard = Some(chat_round_execution.log_parts);
+            }
             let request_finish_stage = format!(
                 "model_request.finish[candidate_api_id={},attempt={}]",
                 candidate_selected_api.id, attempt
@@ -3028,17 +3043,20 @@ async fn send_chat_message_inner(
         );
     }
     let timeline = stage_timeline.lock().ok().map(|items| items.clone());
-    let (mut pipeline_headers, pipeline_tools) = latest_chat_round_headers_and_tools(
-        state,
-        Some(&chat_session_key_for_log),
-        resolved_api_for_log.request_format,
-        &selected_api_for_log.name,
-        &selected_api_for_log.model,
-        &resolved_api_for_log.base_url,
-    );
-    if pipeline_headers.is_empty() {
-        pipeline_headers = masked_auth_headers(&selected_api_for_log.api_key);
-    }
+    let last_parts = last_execution_log_parts
+        .lock()
+        .ok()
+        .and_then(|mut g| g.take());
+    let (pipeline_headers, pipeline_tools) = if let Some(parts) = &last_parts {
+        let headers = if parts.headers.is_empty() {
+            masked_auth_headers(&selected_api_for_log.api_key)
+        } else {
+            parts.headers.clone()
+        };
+        (headers, parts.tools.clone())
+    } else {
+        (masked_auth_headers(&selected_api_for_log.api_key), None)
+    };
     // 调度事件：全量 Run 头补齐（同次调度内 headers/baseUrl/tools 仅在 Run 头存一次，不在后续事件重复）
     {
         let _ = schedule_event_update_run_metadata(

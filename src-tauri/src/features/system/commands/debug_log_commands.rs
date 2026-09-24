@@ -1008,17 +1008,6 @@ fn llm_round_log_capacity_for_state(state: &AppState) -> usize {
         .unwrap_or(DEFAULT_LLM_ROUND_LOG_CAPACITY)
 }
 
-fn latest_chat_round_headers_and_tools(
-    _state: &AppState,
-    _chat_session_key: Option<&str>,
-    _request_format: RequestFormat,
-    _provider_name: &str,
-    _model_name: &str,
-    _base_url: &str,
-) -> (Vec<LlmRoundLogHeader>, Option<Value>) {
-    // 已切换至调度事件：旧 pipeline 缓冲不再使用，直接返回空由调用方回退至 masked_auth
-    (Vec::new(), None)
-}
 
 #[tauri::command]
 fn list_recent_llm_round_logs(state: State<'_, AppState>) -> Result<Vec<LlmRoundLogEntry>, String> {
@@ -1099,7 +1088,12 @@ fn llm_round_log_section_value(entry: &LlmRoundLogEntry, section: &str) -> Optio
         "raw_response" => response.cloned(),
         "tools" => {
             let mut tools = serde_json::Map::<String, Value>::new();
-            if let Some(value) = entry.tools.as_ref() {
+            let effective_tools = entry.tools.as_ref().or_else(|| {
+                entry.rounds.as_ref().and_then(|rounds| {
+                    rounds.iter().find_map(|r| r.tools.as_ref())
+                })
+            });
+            if let Some(value) = effective_tools {
                 if let Some(compact) = compact_log_tools_value(value) {
                     tools.insert("availableTools".to_string(), compact);
                 }
@@ -1658,5 +1652,40 @@ mod debug_log_tests {
         let message = "abc8fdd1d0e-4423-4fd5-8a23-61f22364d606";
         let shortened = shorten_uuids_in_log(message);
         assert_eq!(shortened, message);
+    }
+
+    #[test]
+    fn test_llm_round_log_section_tools_available() {
+        let entry = LlmRoundLogEntry {
+            id: "test-run".to_string(),
+            created_at: "2026-09-25T00:00:00Z".to_string(),
+            trace_id: None,
+            scene: "chat".to_string(),
+            request_format: "openai".to_string(),
+            provider: "test".to_string(),
+            model: "test-model".to_string(),
+            base_url: "http://localhost".to_string(),
+            headers: Vec::new(),
+            tools: Some(serde_json::json!([
+                {"name": "tavily_search"},
+                {"name": "websearch"}
+            ])),
+            response: Some(serde_json::json!({
+                "toolCallNames": ["websearch"]
+            })),
+            error: None,
+            elapsed_ms: 100,
+            timeline: None,
+            round_count: Some(1),
+            tool_call_count: Some(1),
+            rounds: None,
+            success: true,
+        };
+        let section = llm_round_log_section_value(&entry, "tools").expect("tools section should exist");
+        let tools_map = section.as_object().expect("should be map");
+        let available = tools_map.get("availableTools").expect("availableTools must exist").as_array().expect("array");
+        assert_eq!(available.len(), 2);
+        let called = tools_map.get("toolCallNames").expect("toolCallNames must exist").as_array().expect("array");
+        assert_eq!(called.len(), 1);
     }
 }

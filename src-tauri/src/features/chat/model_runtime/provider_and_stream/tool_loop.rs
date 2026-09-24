@@ -262,14 +262,20 @@ fn push_tool_loop_round_start(
     chat_session_key: &str,
     provider_name: &str,
     model_name: &str,
+    available_tools: Option<Value>,
 ) {
     let Some(state) = state else {
         return;
     };
-    let detail = serde_json::json!({
+    let mut detail = serde_json::json!({
         "modelName": model_name,
         "providerName": provider_name,
     });
+    if let Some(tools) = available_tools {
+        if let Some(map) = detail.as_object_mut() {
+            map.insert("availableTools".to_string(), tools);
+        }
+    }
     let _ = schedule_event_push_to_latest_run(
         state,
         chat_session_key,
@@ -597,6 +603,7 @@ async fn run_genai_tool_loop(
             chat_session_key,
             selected_api.name.as_str(),
             model_name,
+            runtime_tool_names_for_log(&tool_assembly),
         );
         let round_output = async {
             let _provider_concurrency_guard = maybe_acquire_provider_concurrency_guard(
@@ -1295,6 +1302,7 @@ async fn run_genai_tool_loop_non_stream(
             chat_session_key,
             selected_api.name.as_str(),
             model_name,
+            runtime_tool_names_for_log(&tool_assembly),
         );
         let round = {
             let mut request = genai::chat::ChatRequest::from_messages(
