@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-23T21:51:49.702Z",
-  "latestVersion": "v0.94.0",
+  "generatedAt": "2026-09-24T11:42:17.314Z",
+  "latestVersion": "v0.94.1",
   "releases": [
+    {
+      "version": "v0.94.1",
+      "path": "docs/changelog/releases/v0.94.1.md",
+      "summary": "图像生成供应商的编辑不再静默丢失：切列表页/详情页时若未保存，会先弹「保存并离开 / 放弃修改」；空列表下新增供应商不再失败。"
+    },
     {
       "version": "v0.94.0",
       "path": "docs/changelog/releases/v0.94.0.md",
