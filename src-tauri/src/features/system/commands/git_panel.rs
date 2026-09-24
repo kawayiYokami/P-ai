@@ -1049,6 +1049,9 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
         "log".to_string(),
         "-n".to_string(),
         limit.to_string(),
+        // decorate 用 full：%D 输出 refs/heads/、refs/remotes/<remote>/、refs/tags/ 全名，
+        // 前端据此区分本地分支、远程跟踪分支与 tag（short 形式无法区分同名本地/远程）
+        "--decorate=full".to_string(),
         "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%P%x1f%D%x1f%B%x1e".to_string(),
     ];
     if skip > 0 {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  MAX_INLINE_REFS,
   SWIMLANE_WIDTH,
   computeCommitGraph,
   graphColor,
@@ -7,11 +8,12 @@ import {
   laneX,
   parseRefs,
   renderGraphRowSVG,
+  splitInlineRefs,
 } from "./git-commit-graph";
 import type { GitPanelLogEntry } from "../../services/tauri-api";
 
 const RAW =
-  "802a6be74827584ac003cff2c59ade091ffe968b\x1f802a6be7\x1fkawayiYokami\x1f2026-08-21T01:38:20+08:00\x1f929ae2dfb5513275ea24fe199942b816fbc68c31\x1fHEAD -> main\x1ffix(file-reader): Git 面板折叠条移除冗余标题并支持按钮换行\x1e" +
+  "802a6be74827584ac003cff2c59ade091ffe968b\x1f802a6be7\x1fkawayiYokami\x1f2026-08-21T01:38:20+08:00\x1f929ae2dfb5513275ea24fe199942b816fbc68c31\x1fHEAD -> refs/heads/main\x1ffix(file-reader): Git 面板折叠条移除冗余标题并支持按钮换行\x1e" +
   "929ae2dfb5513275ea24fe199942b816fbc68c31\x1f929ae2df\x1fkawayiYokami\x1f2026-08-21T01:35:57+08:00\x1fdd0e72aedc3ea0de07cfaa2f0dff16a47f627479\x1f\x1ffix(file-reader): 提交历史右键改为行尾更多操作按钮\x1e" +
   "dd0e72aedc3ea0de07cfaa2f0dff16a47f627479\x1fdd0e72ae\x1fkawayiYokami\x1f2026-08-21T01:30:19+08:00\x1f00f12027b9f2a9ae7f74acf011e2ff4d9878645d\x1f\x1ffix(file-reader): 阻止 GitTree 行右键时弹出原生浏览器菜单\x1e";
 
@@ -47,11 +49,52 @@ describe("commit graph (VS Code swimlane)", () => {
     });
   });
 
-  it("parses refs", () => {
-    const parsed = parseRefs("HEAD -> main, origin/main, tag: v1.0");
+  it("parses refs with type and skips remote HEAD", () => {
+    const parsed = parseRefs(
+      "HEAD -> refs/heads/main, refs/remotes/origin/main, refs/remotes/origin/HEAD, refs/tags/v1.0",
+    );
     expect(parsed.isHead).toBe(true);
-    expect(parsed.branches.map((b) => b.name)).toEqual(["main", "origin/main", "v1.0"]);
+    expect(parsed.branches.map((b) => b.name)).toEqual(["main", "main", "v1.0"]);
+    expect(parsed.branches.find((b) => b.remote === "origin" && !b.isTag)?.name).toBe("main");
     expect(parsed.branches.find((b) => b.name === "v1.0")?.isTag).toBe(true);
+  });
+
+  it("merges same-name local and remote branches into one badge", () => {
+    const entries: GitPanelLogEntry[] = [
+      {
+        hash: "A",
+        shortHash: "A",
+        author: "a",
+        date: "d",
+        parents: [],
+        refs: "HEAD -> refs/heads/feature/x, refs/remotes/origin/feature/x, refs/remotes/gitee/feature/x, refs/tags/v1",
+        message: "a",
+      },
+    ];
+    const refs = computeCommitGraph(entries).rows[0].refs;
+    // 三个同名分支合成一个徽章，展示名取本地名；tag 与分支不同名不参与合并
+    expect(refs.map((r) => r.name)).toEqual(["feature/x", "v1"]);
+    expect(refs[0].detail).toEqual(["feature/x", "origin/feature/x", "gitee/feature/x"]);
+  });
+
+  it("keeps remote-only branches and folds overflow refs", () => {
+    const entries: GitPanelLogEntry[] = [
+      {
+        hash: "A",
+        shortHash: "A",
+        author: "a",
+        date: "d",
+        parents: [],
+        refs: "refs/heads/a, refs/heads/b, refs/remotes/origin/c, refs/tags/t1, refs/tags/t2",
+        message: "a",
+      },
+    ];
+    const refs = computeCommitGraph(entries).rows[0].refs;
+    expect(refs.map((r) => r.name)).toEqual(["a", "b", "origin/c", "t1", "t2"]);
+    const { inline, overflow } = splitInlineRefs(refs);
+    expect(inline.length).toBe(MAX_INLINE_REFS);
+    expect(overflow.length).toBe(refs.length - MAX_INLINE_REFS);
+    expect([...inline, ...overflow]).toEqual(refs);
   });
 
   it("keeps first parent in place and pushes new lanes", () => {

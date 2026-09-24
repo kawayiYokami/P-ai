@@ -294,14 +294,19 @@
                       {{ row.node.data.entry.message }}
                       <span class="text-caption opacity-50"> {{ row.node.data.entry.author }}</span>
                     </span>
-                    <!-- 分支终点标签：颜色与图中该 ref 的线色一致 -->
+                    <!-- 分支终点标签：颜色与图中该 ref 的线色一致；同名本地/远程分支已合并 -->
                     <span
                       v-for="ref in row.node.data.refs"
                       :key="ref.name"
                       class="max-w-24 min-w-0 truncate rounded px-1 text-caption font-medium"
                       :style="{ color: graphColor(ref.colorIndex), backgroundColor: graphColor(ref.colorIndex) + '1A' }"
-                      :title="ref.name"
+                      :title="refTitle(ref)"
                     >{{ ref.name }}</span>
+                    <span
+                      v-if="row.node.data.hiddenRefs.length > 0"
+                      class="shrink-0 rounded bg-base-content/10 px-1 text-caption font-medium opacity-70"
+                      :title="row.node.data.hiddenRefs.map(refTitle).join('\n')"
+                    >+{{ row.node.data.hiddenRefs.length }}</span>
                     <button
                       type="button"
                       class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 px-0"
@@ -651,6 +656,7 @@ import {
   graphColor,
   laneLine,
   renderGraphRowSVG,
+  splitInlineRefs,
   type CommitGraphRef,
 } from "../git-commit-graph";
 import {
@@ -1855,11 +1861,16 @@ async function resetSoftCommit() {
 
 // ==================== commit 展开（GitTree 懒加载） ====================
 type CommitNode =
-  | { kind: "commit"; entry: GitPanelLogEntry; graphSvg: string; refs: CommitGraphRef[] }
+  | { kind: "commit"; entry: GitPanelLogEntry; graphSvg: string; refs: CommitGraphRef[]; hiddenRefs: CommitGraphRef[] }
   | { kind: "all"; hash: string; lineX: number; lineColor: string; graphWidth: number }
   | { kind: "loading"; hash: string; lineX: number; lineColor: string; graphWidth: number }
   | { kind: "empty"; hash: string; lineX: number; lineColor: string; graphWidth: number }
   | { kind: "file"; hash: string; file: GitPanelCommitFileEntry; lineX: number; lineColor: string; graphWidth: number };
+
+/** ref 徽章 tooltip：合并徽章列出全部来源引用名 */
+function refTitle(ref: CommitGraphRef): string {
+  return ref.detail.join("\n");
+}
 
 /** 提交 tab 树：父节点=提交（懒加载 diff 文件子节点） */
 const commitTreeNodes = computed<GitTreeNode<CommitNode>[]>(() => {
@@ -1869,13 +1880,15 @@ const commitTreeNodes = computed<GitTreeNode<CommitNode>[]>(() => {
     const graphWidth = graph.widthByRow[i];
     // 子节点延续竖线：位置与颜色取自父提交行的节点泳道
     const line = laneLine(row.circleIndex, row.circleColorIndex);
+    const { inline, overflow } = splitInlineRefs(row.refs);
     const node: GitTreeNode<CommitNode> = {
       key: entry.hash,
       data: {
         kind: "commit",
         entry,
         graphSvg: renderGraphRowSVG(row),
-        refs: row.refs,
+        refs: inline,
+        hiddenRefs: overflow,
       },
       expandable: true,
       title: `${entry.hash}\n${entry.author} ${entry.date}`,

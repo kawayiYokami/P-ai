@@ -28,8 +28,11 @@ export interface SwimlaneNode {
 
 /** 单行上显示的 ref 徽章（颜色与图中该 ref 的线色一致，照抄 VS Code references 推断） */
 export interface CommitGraphRef {
+  /** 展示名：有本地分支时取本地名，纯远程分支回落到 remote/name，tag 取 tag 名 */
   name: string;
   isTag: boolean;
+  /** 该徽章聚合的全部引用名（本地分支 + 各远程跟踪分支），用于 tooltip */
+  detail: string[];
   colorIndex: number;
 }
 
@@ -52,10 +55,33 @@ export interface CommitGraphResult {
   widthByRow: number[];
 }
 
-/** 解析 %D refs：返回引用名列表（含 tag）与 HEAD 信息 */
+/** 解析 %D refs：返回引用列表（含 tag）与 HEAD 信息 */
 export interface ParsedRef {
+  /** 引用全名（refs/heads/x、refs/remotes/origin/x、refs/tags/v1），作为颜色分配的稳定键 */
+  id: string;
+  /** 去掉 refs/heads/ 或 refs/remotes/<remote>/ 后的分支名 / tag 名 */
   name: string;
   isTag: boolean;
+  /** 远程跟踪分支所属 remote；本地分支与 tag 为 undefined */
+  remote?: string;
+}
+
+/** 把 git 的 ref 名解析成带类型的引用（兼容 --decorate=full 与 short 两种形式） */
+function toParsedRef(raw: string): ParsedRef {
+  if (raw.startsWith("refs/tags/")) {
+    return { id: raw, name: raw.slice("refs/tags/".length), isTag: true };
+  }
+  if (raw.startsWith("refs/heads/")) {
+    return { id: raw, name: raw.slice("refs/heads/".length), isTag: false };
+  }
+  if (raw.startsWith("refs/remotes/")) {
+    const rest = raw.slice("refs/remotes/".length);
+    const slash = rest.indexOf("/");
+    if (slash === -1) return { id: raw, name: rest, isTag: false, remote: rest };
+    return { id: raw, name: rest.slice(slash + 1), isTag: false, remote: rest.slice(0, slash) };
+  }
+  // short 形式兜底：无法区分本地/远程，按本地分支处理
+  return { id: raw, name: raw, isTag: false };
 }
 
 export function parseRefs(refs: string): { branches: ParsedRef[]; isHead: boolean } {
@@ -66,16 +92,58 @@ export function parseRefs(refs: string): { branches: ParsedRef[]; isHead: boolea
   for (const item of refs.split(",").map((s) => s.trim()).filter(Boolean)) {
     if (item === "HEAD") {
       isHead = true;
-    } else if (item.startsWith("HEAD -> ")) {
-      isHead = true;
-      branches.push({ name: item.slice("HEAD -> ".length).trim(), isTag: false });
-    } else if (item.startsWith("tag: ")) {
-      branches.push({ name: item.slice("tag: ".length).trim(), isTag: true });
-    } else {
-      branches.push({ name: item, isTag: false });
+      continue;
     }
+    if (item.startsWith("HEAD -> ")) {
+      isHead = true;
+      branches.push(toParsedRef(item.slice("HEAD -> ".length).trim()));
+      continue;
+    }
+    if (item.startsWith("tag: ")) {
+      branches.push(toParsedRef(item.slice("tag: ".length).trim()));
+      continue;
+    }
+    const parsed = toParsedRef(item);
+    // refs/remotes/<remote>/HEAD 只是 remote 的默认分支指针，不承载信息（VS Code 同样跳过）
+    if (parsed.remote && parsed.name === "HEAD") continue;
+    branches.push(parsed);
   }
   return { branches, isHead };
+}
+
+/** 同行同类型引用合并为一个徽章：同名本地分支与各远程跟踪分支聚合到一项 */
+function mergeRefs(refs: ParsedRef[], colorOf: (ref: ParsedRef) => number): CommitGraphRef[] {
+  const merged: CommitGraphRef[] = [];
+  const indexByKey = new Map<string, number>();
+
+  for (const ref of refs) {
+    const label = ref.remote ? `${ref.remote}/${ref.name}` : ref.name;
+    const key = `${ref.isTag ? "tag" : "branch"}:${ref.name}`;
+    let index = indexByKey.get(key);
+    if (index === undefined) {
+      index = merged.length;
+      indexByKey.set(key, index);
+      merged.push({ name: label, isTag: ref.isTag, detail: [], colorIndex: colorOf(ref) });
+    } else if (!ref.isTag && !ref.remote) {
+      // 本地分支比远程跟踪分支更能代表这条分支，展示名让给本地名
+      merged[index].name = label;
+    }
+    merged[index].detail.push(label);
+  }
+
+  return merged;
+}
+
+/** 单行内联展示的 ref 徽章上限，超出部分折叠成 +N */
+export const MAX_INLINE_REFS = 3;
+
+/** 按上限切分 ref 徽章：inline 直接展示，overflow 折叠为 +N */
+export function splitInlineRefs(refs: CommitGraphRef[]): {
+  inline: CommitGraphRef[];
+  overflow: CommitGraphRef[];
+} {
+  if (refs.length <= MAX_INLINE_REFS) return { inline: refs, overflow: [] };
+  return { inline: refs.slice(0, MAX_INLINE_REFS), overflow: refs.slice(MAX_INLINE_REFS) };
 }
 
 /**
@@ -83,7 +151,7 @@ export function parseRefs(refs: string): { branches: ParsedRef[]; isHead: boolea
  * @param entries 提交列表（新 → 旧，即 git log 顺序）
  */
 export function computeCommitGraph(entries: GitPanelLogEntry[]): CommitGraphResult {
-  // ref 名 → 颜色：新 ref 出现时轮转分配，同 ref 复用
+  // ref 全名 → 颜色：新 ref 出现时轮转分配，同 ref 复用
   const refColorMap = new Map<string, number>();
   let colorIndex = -1;
   const nextColor = (): number => {
@@ -97,8 +165,8 @@ export function computeCommitGraph(entries: GitPanelLogEntry[]): CommitGraphResu
   const parsedRefs = new Map(entries.map((entry) => [entry.hash, parseRefs(entry.refs)]));
   for (const { branches } of parsedRefs.values()) {
     for (const ref of branches) {
-      if (!refColorMap.has(ref.name)) {
-        refColorMap.set(ref.name, nextColor());
+      if (!refColorMap.has(ref.id)) {
+        refColorMap.set(ref.id, nextColor());
       }
     }
   }
@@ -108,7 +176,7 @@ export function computeCommitGraph(entries: GitPanelLogEntry[]): CommitGraphResu
   for (const entry of entries) {
     const { branches, isHead } = parsedRefs.get(entry.hash)!;
     const refColorIndex = branches
-      .map((r) => refColorMap.get(r.name))
+      .map((r) => refColorMap.get(r.id))
       .find((c) => c !== undefined);
 
     const input = rows.length > 0 ? rows[rows.length - 1].output.map((n) => ({ ...n })) : [];
@@ -140,7 +208,7 @@ export function computeCommitGraph(entries: GitPanelLogEntry[]): CommitGraphResu
       const colorIndexForParent = i === 0
         ? refColorIndex
         : (parsedRefs.get(entry.parents[i])?.branches ?? [])
-            .map((r) => refColorMap.get(r.name))
+            .map((r) => refColorMap.get(r.id))
             .find((c) => c !== undefined);
       output.push({ id: entry.parents[i], colorIndex: colorIndexForParent ?? nextColor() });
     }
@@ -163,12 +231,9 @@ export function computeCommitGraph(entries: GitPanelLogEntry[]): CommitGraphResu
       circleColorIndex,
       isHead,
       isMerge: entry.parents.length > 1,
-      // refs 颜色：colorMap 已分配则用其线色，否则按 VS Code fallback 用节点圆颜色
-      refs: branches.map((ref) => ({
-        name: ref.name,
-        isTag: ref.isTag,
-        colorIndex: refColorMap.get(ref.name) ?? circleColorIndex,
-      })),
+      // refs 颜色：colorMap 已分配则用其线色，否则按 VS Code fallback 用节点圆颜色；
+      // 同名本地/远程分支合并为一个徽章后再交给渲染层
+      refs: mergeRefs(branches, (ref) => refColorMap.get(ref.id) ?? circleColorIndex),
     });
   }
 
