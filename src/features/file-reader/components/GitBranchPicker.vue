@@ -23,24 +23,46 @@
         <template v-else-if="row.node.data.kind === 'branch'">
           <GitBranch
             class="h-3.5 w-3.5 shrink-0"
-            :class="row.node.data.branch.isCurrent ? 'text-primary' : (row.node.data.worktreePath ? 'opacity-30' : 'opacity-60')"
+            :class="isSelectMode
+              ? (isSelected(row.node.data.branch.name) ? 'text-primary' : 'opacity-60')
+              : (row.node.data.branch.isCurrent ? 'text-primary' : (row.node.data.worktreePath ? 'opacity-30' : 'opacity-60'))"
           />
-          <span class="min-w-0 flex-1 truncate" :class="row.node.data.worktreePath ? 'opacity-40' : ''">
+          <span
+            class="min-w-0 flex-1 truncate"
+            :class="isSelectMode
+              ? (isSelected(row.node.data.branch.name) ? 'font-medium text-primary' : '')
+              : (row.node.data.worktreePath ? 'opacity-40' : '')"
+          >
             {{ row.node.data.branch.name }}
           </span>
-          <span
-            v-if="row.node.data.worktreePath"
-            class="shrink-0 rounded-full bg-base-content/10 px-1.5 py-0.5 text-caption opacity-60"
-            :title="row.node.data.worktreePath"
-          >
-            {{ t("gitPanel.worktreeOccupied") }}
-          </span>
-          <span v-else-if="row.node.data.branch.isCurrent" class="shrink-0 opacity-50">{{ t("gitPanel.current") }}</span>
+          <!-- 取值模式：只表达“选中”，占用与当前分支对基分支无意义 -->
+          <template v-if="isSelectMode">
+            <Check v-if="isSelected(row.node.data.branch.name)" class="h-3.5 w-3.5 shrink-0 text-primary" />
+          </template>
+          <template v-else>
+            <span
+              v-if="row.node.data.worktreePath"
+              class="shrink-0 rounded-full bg-base-content/10 px-1.5 py-0.5 text-caption opacity-60"
+              :title="row.node.data.worktreePath"
+            >
+              {{ t("gitPanel.worktreeOccupied") }}
+            </span>
+            <span v-else-if="row.node.data.branch.isCurrent" class="shrink-0 opacity-50">{{ t("gitPanel.current") }}</span>
+          </template>
         </template>
         <!-- 远程分支 -->
         <template v-else-if="row.node.data.kind === 'remote-branch'">
-          <Cloud class="h-3 w-3 shrink-0 opacity-60" />
-          <span class="min-w-0 flex-1 truncate">{{ row.node.data.branch.name }}</span>
+          <Cloud
+            class="h-3 w-3 shrink-0"
+            :class="isSelectMode && isSelected(row.node.data.branch.name) ? 'text-primary' : 'opacity-60'"
+          />
+          <span
+            class="min-w-0 flex-1 truncate"
+            :class="isSelectMode && isSelected(row.node.data.branch.name) ? 'font-medium text-primary' : ''"
+          >
+            {{ row.node.data.branch.name }}
+          </span>
+          <Check v-if="isSelectMode && isSelected(row.node.data.branch.name)" class="h-3.5 w-3.5 shrink-0 text-primary" />
         </template>
       </template>
     </GitTree>
@@ -49,14 +71,17 @@
 
 <script setup lang="ts">
 /**
- * 分支切换下拉：本地/远程两组，按「末次提交时间倒序 + `/` 折叠分组」排列，选中即切换。
+ * 分支树展示组件：本地/远程两组，按「末次提交时间倒序 + `/` 折叠分组」排列。
  *
- * 与 Git 面板折叠条上的分支下拉共用同一套排序分组（git-branch-order.ts）与切换流程；
- * 面板与首页卡片墙两处都用它，避免各自维护一份分支列表与切换逻辑。
+ * 两种用法，展示层完全复用，差别只在点击行为：
+ * - mode="checkout"（默认）：选中即切换分支（预检冲突 → 确认 → checkout），
+ *   被其他工作树占用的分支不可点。Git 面板折叠条与首页环境卡用它。
+ * - mode="select"：纯取值，点击只抛 select 事件，不预检、不确认、不落盘；
+ *   占用与「当前」标记不适用，因此不渲染。新建工作树的基分支选择用它。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Cloud, Folder, GitBranch } from "@lucide/vue";
+import { Check, Cloud, Folder, GitBranch } from "@lucide/vue";
 import {
   gitPanelBranchList,
   gitPanelCheckout,
@@ -78,9 +103,18 @@ const props = withDefaults(defineProps<{
   repoRoot?: string;
   /** 外部指定的当前分支；不给则取分支列表里的 HEAD 标记 */
   currentBranch?: string;
+  /** 点击语义：checkout=切换分支，select=仅取值 */
+  mode?: "checkout" | "select";
+  /** mode="select" 时高亮并打勾的分支名 */
+  selected?: string;
+  /** 是否展示远程分支分组 */
+  showRemote?: boolean;
 }>(), {
   repoRoot: "",
   currentBranch: "",
+  mode: "checkout",
+  selected: "",
+  showRemote: true,
 });
 
 const emit = defineEmits<{
@@ -88,9 +122,13 @@ const emit = defineEmits<{
   (e: "switched", name: string): void;
   /** 切换失败或预检拦截；message 为面向用户的说明 */
   (e: "error", message: string): void;
+  /** mode="select"：用户点选了某个分支 */
+  (e: "select", name: string): void;
 }>();
 
 const { t } = useI18n();
+
+const isSelectMode = computed(() => props.mode === "select");
 
 const branches = ref<GitPanelBranchEntry[]>([]);
 /** 分支名（小写）→ 该分支已检出的工作树路径；命中表示分支被工作树占用，不能切换 */
@@ -104,7 +142,14 @@ const collapsedKeys = ["header:remote"];
 
 const localBranches = computed(() => branches.value.filter((branch) => !branch.isRemote));
 const remoteBranches = computed(() => branches.value.filter((branch) => branch.isRemote));
-const hasAnyBranch = computed(() => branches.value.length > 0);
+const hasAnyBranch = computed(() =>
+  localBranches.value.length > 0 || (props.showRemote && remoteBranches.value.length > 0),
+);
+
+/** 行内判断：取值模式下该分支是否即当前选中项 */
+function isSelected(name: string): boolean {
+  return String(props.selected || "").trim() === name;
+}
 
 /** 分支名（小写）→ 已检出的工作树路径 */
 function worktreePathOf(branchName: string): string {
@@ -141,7 +186,7 @@ function toGitTreeNodes(
 const treeNodes = computed<GitTreeNode<BranchRow>[]>(() => {
   const roots: GitTreeNode<BranchRow>[] = [];
   const sortedLocal = sortBranchesForDisplay(localBranches.value);
-  const sortedRemote = sortBranchesForDisplay(remoteBranches.value);
+  const sortedRemote = props.showRemote ? sortBranchesForDisplay(remoteBranches.value) : [];
   if (sortedLocal.length > 0) {
     roots.push({
       key: "header:local",
@@ -168,9 +213,10 @@ async function load() {
   const seq = ++loadSeq;
   loading.value = true;
   try {
+    // 取值模式不切换分支，用不到「分支是否被工作树占用」，省一次 worktree list
     const [result, worktrees] = await Promise.all([
       gitPanelBranchList(root),
-      gitPanelWorktrees(root, root).catch(() => null),
+      isSelectMode.value ? Promise.resolve(null) : gitPanelWorktrees(root, root).catch(() => null),
     ]);
     if (seq !== loadSeq) return;
     branches.value = result;
@@ -197,6 +243,11 @@ async function load() {
 async function onRowClick(row: GitTreeFlatRow<BranchRow>) {
   const data = row.node.data;
   if (data.kind !== "branch" && data.kind !== "remote-branch") return;
+  // 取值模式：选中即抛事件，由调用方决定落点，不做任何预检或切换
+  if (isSelectMode.value) {
+    emit("select", data.branch.name);
+    return;
+  }
   if (data.branch.isCurrent) return;
   // 分支已被其他工作树检出：checkout 必然失败，拦在点击之前
   if (data.kind === "branch" && data.worktreePath) return;

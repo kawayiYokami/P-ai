@@ -285,14 +285,39 @@
         <div class="modal-box w-full max-w-md border border-base-content/10 bg-base-100 shadow-2xl">
           <h3 class="text-sm font-semibold">{{ t("chat.worktreeNewTitle") }}</h3>
           <div class="mt-3 flex flex-col gap-3">
-            <label class="flex flex-col gap-1">
+            <div class="flex flex-col gap-1">
               <span class="text-xs text-base-content/60">{{ t("chat.worktreeNewBase") }}</span>
-              <select v-model="newWorktreeBase" class="select select-bordered select-sm w-full">
-                <option v-for="entry in branchEntries.filter((e) => !e.isRemote)" :key="entry.name" :value="entry.name">
-                  {{ entry.name }}
-                </option>
-              </select>
-            </label>
+              <EcallDropdown
+                v-model="newWorktreeBaseOpen"
+                :teleport="dropdownTeleport"
+                :teleport-to="dropdownTeleportTo"
+                root-class="w-full"
+                panel-class="w-full"
+              >
+                <template #trigger="{ toggle }">
+                  <button
+                    type="button"
+                    class="btn btn-sm w-full justify-between font-normal"
+                    @click="toggle"
+                  >
+                    <span class="min-w-0 truncate">{{ newWorktreeBase || "—" }}</span>
+                    <ChevronDown class="size-3.5 shrink-0 opacity-50" />
+                  </button>
+                </template>
+                <template #default>
+                  <OverlayScrollArea class="p-1" scroller-class="max-h-64 overscroll-contain">
+                    <GitBranchPicker
+                      :repo-root="newWorktreeRepoRoot"
+                      mode="select"
+                      :show-remote="false"
+                      :selected="newWorktreeBase"
+                      @select="onNewWorktreeBaseSelect"
+                      @error="(message) => (newWorktreeError = message)"
+                    />
+                  </OverlayScrollArea>
+                </template>
+              </EcallDropdown>
+            </div>
             <label class="flex flex-col gap-1">
               <span class="text-xs text-base-content/60">{{ t("chat.worktreeNewName") }}</span>
               <input
@@ -335,6 +360,7 @@ import { Folder, FolderOpen, FolderSearch, FolderPlus, ChevronDown, Check, GitBr
 import EcallDropdown from "./EcallDropdown.vue";
 import OverlayScrollArea from "./OverlayScrollArea.vue";
 import WorkspaceDirectoryPickerDialog from "./WorkspaceDirectoryPickerDialog.vue";
+import GitBranchPicker from "../../file-reader/components/GitBranchPicker.vue";
 import GitTree, { type GitTreeFlatRow, type GitTreeNode } from "../../file-reader/components/GitTree.vue";
 import { buildBranchTree, sortBranchesForDisplay, type BranchTreeNode } from "../../file-reader/git-branch-order";
 import { formatRecentRelativeTime } from "../utils/relative-time";
@@ -787,8 +813,19 @@ const newWorktreeOpen = ref(false);
 const newWorktreeInputRef = ref<HTMLInputElement | null>(null);
 const newWorktreeName = ref("");
 const newWorktreeBase = ref("");
+const newWorktreeBaseOpen = ref(false);
 const newWorktreeBusy = ref(false);
 const newWorktreeError = ref("");
+
+/** 基分支候选来自主仓库：即使当前处于工作树，也要回主树取分支列表 */
+const newWorktreeRepoRoot = computed(() =>
+  resolveMainRepoRoot(stripExtendedPathPrefix(String(props.mainPath || "").trim())),
+);
+
+function onNewWorktreeBaseSelect(name: string) {
+  newWorktreeBase.value = name;
+  newWorktreeBaseOpen.value = false;
+}
 
 function handleNewWorktree(close: () => void) {
   close();
@@ -830,7 +867,7 @@ async function confirmNewWorktree() {
     newWorktreeError.value = t("chat.worktreeNewMissing");
     return;
   }
-  const repoRoot = resolveMainRepoRoot(stripExtendedPathPrefix(String(props.mainPath || "").trim()));
+  const repoRoot = newWorktreeRepoRoot.value;
   const path = newWorktreeTargetPath(name);
   if (!repoRoot || !path) {
     newWorktreeError.value = t("chat.worktreeNewFailed", { message: "无法推导工作树路径" });
