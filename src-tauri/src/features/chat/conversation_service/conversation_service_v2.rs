@@ -1485,6 +1485,8 @@ impl ConversationServiceV2 {
         conversation.shell_workspaces = conversation_meta.shell_workspaces.clone();
         conversation.shell_autonomous_mode = conversation_meta.shell_autonomous_mode;
         conversation.shell_work_mode = normalize_shell_work_mode_text(&conversation_meta.shell_work_mode);
+        conversation.shell_work_branch = conversation_meta.shell_work_branch.clone();
+        conversation.shell_worktree_path = conversation_meta.shell_worktree_path.clone();
         conversation.shell_recorded_branch = conversation_meta.shell_recorded_branch.clone();
         conversation.archived_at = conversation_meta.archived_at.clone();
         conversation.current_todos = conversation_meta.current_todos.clone();

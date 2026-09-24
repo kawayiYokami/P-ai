@@ -1090,23 +1090,14 @@ fn resolve_chat_shell_worktree_info(
     if git_root.trim().is_empty() {
         return (String::new(), false);
     }
-    // 会话字段优先（须落在当前仓库的 .pai/.worktree/ 下）
+    // 工作树路径完全由用户显式选择的会话字段决定，不再推导
     if let Some(recorded) = conversation_recorded_worktree_path(conv, &git_root) {
         return (
             recorded.to_string_lossy().to_string(),
             conversation_worktree_dir_is_valid(&recorded),
         );
     }
-    // 字段为空：在 .pai/.worktree/ 下推导已有目录（新规则通配 → 全量 id → 8 位）
-    if let Some(existing) = resolve_existing_conversation_worktree_dir(&git_root, &conv.id) {
-        return (existing.to_string_lossy().to_string(), true);
-    }
-    // 未创建时仍返回将要使用的路径供前端作意图展示，但标记不存在
-    let planned = PathBuf::from(root)
-        .join(".pai")
-        .join(".worktree")
-        .join(conversation_worktree_dir_name(&conv.id));
-    (planned.to_string_lossy().to_string(), false)
+    (String::new(), false)
 }
 
 fn build_chat_shell_workspace_output(

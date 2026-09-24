@@ -466,6 +466,8 @@ impl ConversationServiceV2 {
     }
 
     /// 字段级写入本会话工作树路径：走 metadata 权威面，避免被完整快照回滚。
+    /// 保留供前端工作区保存链路使用。
+    #[allow(dead_code)]
     fn set_shell_worktree_path(
         &self,
         state: &AppState,
