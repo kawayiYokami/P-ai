@@ -381,7 +381,7 @@ import {
   Trash2,
   WandSparkles,
 } from "@lucide/vue";
-import type { ApiModelConfigItem, ApiProviderConfigItem, ApiRequestFormat, AppConfig, CodexAuthMode, CodexAuthStatus } from "../../../../types/app";
+import type { ApiModelConfigItem, ApiProviderConfigItem, ApiRequestFormat, AppConfig, CodexAuthMode, CodexAuthStatus, ImageGenerationProviderConfigItem } from "../../../../types/app";
 import ApiKeyListCard, { type ApiKeyConnectionStatus } from "../../components/ApiKeyListCard.vue";
 import ApiModelCard from "../../components/ApiModelCard.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
@@ -392,6 +392,11 @@ import type { UnderlineTabItem } from "../../components/UnderlineTabs.vue";
 import { canUseTransportGenaiChatAdapters, invokeTauri, listTransportGenaiChatAdapters, openTransportExternalUrl } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import ImageGenerationTab from "./ImageGenerationTab.vue";
+import {
+  appendImageGenerationProvider,
+  createImageGenerationProvider,
+  imageGenerationEndpointId,
+} from "../../utils/image-generation-config";
 import { normalizeApiRequestFormat } from "../../utils/api-request-format";
 import {
   CODEX_REASONING_EFFORTS,
@@ -461,10 +466,10 @@ type ImageGenerationToolbarState = {
 };
 type ImageGenerationTabPublicInstance = {
   toolbarState: ImageGenerationToolbarState;
-  addProvider: () => void;
-  removeSelectedProvider: () => void;
+  addProvider: () => ImageGenerationProviderConfigItem;
+  removeSelectedProvider: () => boolean;
   restoreImageConfig: () => void;
-  saveImageConfig: () => Promise<void>;
+  saveImageConfig: () => Promise<boolean>;
 };
 
 const SLIDER_CONTEXT_MIN = 16_000;
@@ -507,7 +512,6 @@ onMounted(() => {
     priority: 10,
     // 只在详情页（inDetailMode）才认为当前 provider 是「正在被编辑的草稿」；
     // 列表页 selectedProvider 会兜底到 activeProviderList[0]，不代表用户在改它。
-    // imageGeneration tab 走自己的 dirty 检测（imageToolbarDirty），不在此 checker 范围。
     isDirty: () => inDetailMode.value && activeTopTab.value !== "imageGeneration" && currentProviderDirty.value,
     title: t("config.unsavedConfirm.title"),
     message: t("config.unsavedConfirm.message"),
@@ -518,7 +522,22 @@ onMounted(() => {
       return await handleSaveApiConfig();
     },
   });
-  onUnmounted(unregister);
+  const unregisterImage = unsavedGuard.registerDirtyChecker("image-provider", {
+    priority: 10,
+    isDirty: () => inDetailMode.value && activeTopTab.value === "imageGeneration" && imageToolbarDirty.value,
+    title: t("config.unsavedConfirm.title"),
+    message: t("config.unsavedConfirm.message"),
+    onDiscard: () => {
+      restoreImageProviderConfig();
+    },
+    onSave: async () => {
+      return await saveImageProviderConfig();
+    },
+  });
+  onUnmounted(() => {
+    unregister();
+    unregisterImage();
+  });
 });
 const openaiReasoningEffortOptions = computed(() => [
   { value: "none", label: t("config.api.reasoningOff") },
@@ -956,6 +975,20 @@ function enterProvider(id: string) {
 }
 
 async function backToList() {
+  if (activeTopTab.value === "imageGeneration") {
+    if (imageToolbarDirty.value) {
+      const allow = await unsavedGuard.confirmLeaveIfDirty({
+        canSaveAndLeave: true,
+        onSave: async () => {
+          return await saveImageProviderConfig();
+        },
+      });
+      if (!allow) return;
+      restoreImageProviderConfig();
+    }
+    inDetailMode.value = false;
+    return;
+  }
   if (currentProviderDirty.value) {
     const allow = await unsavedGuard.confirmLeaveIfDirty({
       canSaveAndLeave: true,
@@ -995,7 +1028,10 @@ function isProviderDirty(provider: ApiProviderConfigItem): boolean {
 
 const currentDetailTitle = computed(() => {
   if (activeTopTab.value === "imageGeneration") {
-    return imageGenerationTabRef.value?.toolbarState.providers.find((p) => p.id === imageToolbarSelectedProviderId.value)?.label || "";
+    const fromToolbar = imageGenerationTabRef.value?.toolbarState.providers.find((p) => p.id === imageToolbarSelectedProviderId.value)?.label;
+    if (fromToolbar) return fromToolbar;
+    const direct = (props.config.imageProviders || []).find((p) => p.id === selectedImageProviderId.value);
+    return direct ? (direct.name || direct.id) : "";
   }
   return selectedProvider.value?.name || selectedProvider.value?.id || "";
 });
@@ -1683,20 +1719,26 @@ async function selectProvider(providerId: string) {
 }
 
 function addImageProvider() {
-  imageGenerationTabRef.value?.addProvider();
+  const seed = `${Date.now()}-${(props.config.imageProviders || []).length + 1}`;
+  const codexProvider = (props.config.apiProviders || []).find((p) => p.requestFormat === "codex" && !p.deprecated);
+  const provider = appendImageGenerationProvider(props.config, "openai", seed, codexProvider?.id);
+  selectedImageProviderId.value = provider.id;
+  return provider;
 }
 
 function removeImageProvider() {
-  imageGenerationTabRef.value?.removeSelectedProvider();
-  inDetailMode.value = false;
+  const removed = imageGenerationTabRef.value?.removeSelectedProvider();
+  if (removed) {
+    inDetailMode.value = false;
+  }
 }
 
 function restoreImageProviderConfig() {
   imageGenerationTabRef.value?.restoreImageConfig();
 }
 
-function saveImageProviderConfig() {
-  void imageGenerationTabRef.value?.saveImageConfig();
+async function saveImageProviderConfig(): Promise<boolean> {
+  return (await imageGenerationTabRef.value?.saveImageConfig()) ?? false;
 }
 
 function selectModelCard(modelId: string) {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendImageGenerationProvider,
   createImageGenerationProvider,
   deriveImageGenerationModelOptions,
   normalizeImageGenerationModelId,
@@ -47,5 +48,31 @@ describe("image-generation-config", () => {
     expect(resolveSelectedImageProviderId(providers, second.id)).toBe(second.id);
     expect(resolveSelectedImageProviderId(providers, "missing")).toBe(first.id);
     expect(resolveSelectedImageProviderId([], "missing")).toBe("");
+  });
+
+  it("应支持向空或既有列表中添加新供应商并保持唯一 ID", () => {
+    const list: ReturnType<typeof createImageGenerationProvider>[] = [];
+    const p1 = createImageGenerationProvider("openai", "1");
+    list.push(p1);
+    const p2 = createImageGenerationProvider("openai", "2");
+    list.push(p2);
+
+    expect(list).toHaveLength(2);
+    expect(p1.id).not.toBe(p2.id);
+    expect(resolveSelectedImageProviderId(list, p2.id)).toBe(p2.id);
+  });
+
+  it("appendImageGenerationProvider 应安全操作配置并自动绑定首个默认端点", () => {
+    const fakeConfig: { imageProviders?: ReturnType<typeof createImageGenerationProvider>[]; imageGenerationModelId?: string } = {};
+    const created = appendImageGenerationProvider(fakeConfig as any, "openai", "abc");
+
+    expect(fakeConfig.imageProviders).toHaveLength(1);
+    expect(fakeConfig.imageProviders![0]?.id).toBe(created.id);
+    expect(fakeConfig.imageGenerationModelId).toBe(`${created.id}::${created.models[0].id}`);
+
+    // 第二次添加时已有默认端点，不应覆盖已有默认端点
+    const second = appendImageGenerationProvider(fakeConfig as any, "openai", "def");
+    expect(fakeConfig.imageProviders).toHaveLength(2);
+    expect(fakeConfig.imageGenerationModelId).toBe(`${created.id}::${created.models[0].id}`);
   });
 });

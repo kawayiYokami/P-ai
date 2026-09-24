@@ -158,6 +158,10 @@
       <div class="card-body items-center justify-center text-center text-sm text-base-content/55">
         <ImageIcon class="h-10 w-10 opacity-35" />
         <p>{{ t("config.imageGeneration.selectOrAddProvider") }}</p>
+        <button class="btn btn-sm btn-primary mt-2 gap-1.5" type="button" @click="addProvider">
+          <Plus class="h-4 w-4" />
+          <span>{{ t("config.imageGeneration.addProvider") }}</span>
+        </button>
       </div>
     </div>
   </div>
@@ -185,6 +189,7 @@ import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import ApiKeyListCard from "../../components/ApiKeyListCard.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import {
+  appendImageGenerationProvider,
   createImageGenerationModel,
   createImageGenerationProvider,
   imageGenerationEndpointId,
@@ -548,24 +553,24 @@ function clearInvalidDefaultModel() {
 }
 
 function addProvider() {
-  const provider = createImageGenerationProvider("openai", nextSeed());
-  if (provider.providerType === "codex") {
-    provider.codexApiProviderId = codexApiProviders.value[0]?.id;
-  }
-  props.config.imageProviders.push(provider);
+  const provider = appendImageGenerationProvider(
+    props.config,
+    "openai",
+    nextSeed(),
+    codexApiProviders.value[0]?.id,
+  );
   selectedProviderId.value = provider.id;
-  if (!props.config.imageGenerationModelId && provider.models[0]) {
-    props.config.imageGenerationModelId = imageGenerationEndpointId(provider.id, provider.models[0].id);
-  }
+  return provider;
 }
 
-function removeSelectedProvider() {
+function removeSelectedProvider(): boolean {
   const provider = selectedProvider.value;
-  if (!provider) return;
-  if (!window.confirm(t("config.imageGeneration.confirmRemoveProvider", { name: provider.name }))) return;
+  if (!provider) return false;
+  if (!window.confirm(t("config.imageGeneration.confirmRemoveProvider", { name: provider.name }))) return false;
   const index = props.config.imageProviders.findIndex((item) => item.id === provider.id);
   if (index >= 0) props.config.imageProviders.splice(index, 1);
   clearInvalidDefaultModel();
+  return true;
 }
 
 function updateSelectedApiKeys(apiKeys: string[]) {
@@ -676,15 +681,16 @@ function restoreImageConfig() {
   props.setStatusAction(t("config.imageGeneration.restored"));
 }
 
-async function saveImageConfig() {
-  if (!imageDirty.value) return;
+async function saveImageConfig(): Promise<boolean> {
+  if (!imageDirty.value) return false;
   if (enabledWorkflowError.value) {
     props.setStatusAction(enabledWorkflowError.value);
-    return;
+    return false;
   }
   const saved = await Promise.resolve(props.saveConfigAction());
-  if (!saved) return;
+  if (!saved) return false;
   props.setStatusAction(t("config.imageGeneration.saved"));
+  return true;
 }
 
 defineExpose({

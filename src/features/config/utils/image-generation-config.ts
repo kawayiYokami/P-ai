@@ -415,3 +415,24 @@ export function imageGenerationProviderTemplate(
 ): ProviderTemplate {
   return PROVIDER_TEMPLATES[providerType];
 }
+
+export function appendImageGenerationProvider(
+  config: Pick<AppConfig, "imageProviders" | "imageGenerationModelId">,
+  providerType: ImageGenerationProviderKind = "openai",
+  seed = Date.now().toString(),
+  codexApiProviderId?: string,
+): ImageGenerationProviderConfigItem {
+  if (!Array.isArray(config.imageProviders)) {
+    config.imageProviders = [];
+  }
+  const provider = createImageGenerationProvider(providerType, seed);
+  if (providerType === "codex" && codexApiProviderId) {
+    provider.codexApiProviderId = codexApiProviderId;
+  }
+  config.imageProviders.push(provider);
+  if (!config.imageGenerationModelId && provider.models[0]) {
+    config.imageGenerationModelId = imageGenerationEndpointId(provider.id, provider.models[0].id);
+  }
+  return provider;
+}
+
