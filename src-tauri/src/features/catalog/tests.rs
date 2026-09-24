@@ -103,6 +103,47 @@ mod catalog_tests {
     }
 
     #[test]
+    fn modelscope_required_env_should_read_schema_required_list() {
+        // 空 schema：无环境变量，且不得把 schema 顶层键名当变量名。
+        let empty = serde_json::json!({
+            "EnvSchema": { "properties": {}, "required": [], "type": "object" }
+        });
+        assert!(modelscope_required_env_names(&empty).is_empty());
+
+        // 字段为 null 的畸形 schema：同样按无变量处理。
+        let nullish = serde_json::json!({
+            "EnvSchema": { "properties": null, "required": null, "type": "" }
+        });
+        assert!(modelscope_required_env_names(&nullish).is_empty());
+
+        // 正常 schema：required 数组里才是变量名。
+        let real = serde_json::json!({
+            "EnvSchema": {
+                "properties": {
+                    "AMAP_MAPS_API_KEY": { "type": "string" },
+                    "OPTIONAL_ONE": { "type": "string" }
+                },
+                "required": ["AMAP_MAPS_API_KEY"],
+                "type": "object"
+            }
+        });
+        assert_eq!(
+            modelscope_required_env_names(&real),
+            vec!["AMAP_MAPS_API_KEY".to_string()]
+        );
+
+        // 整条 entry 的空 schema 不得产生任何 required_env。
+        let entry = modelscope_mcp_entry(&serde_json::json!({
+            "Path": "@modelcontextprotocol",
+            "Name": "fetch",
+            "EnvSchema": { "properties": {}, "required": [], "type": "object" },
+            "ServerConfig": [{ "mcpServers": { "fetch": { "command": "uvx" } } }]
+        }));
+        assert!(entry.required_env.is_empty(), "空 schema 不应渲染环境变量表单");
+        assert!(entry.install_ready);
+    }
+
+    #[test]
     fn remote_catalog_cache_staleness_should_respect_ttl_boundary() {
         let now = chrono::Utc::now().timestamp_millis();
         let fresh = RemoteCatalogCacheFile {

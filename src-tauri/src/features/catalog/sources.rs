@@ -12,7 +12,9 @@ fn catalog_cache_key_hash(raw: &str) -> String {
 }
 
 fn catalog_cache_file_name(source: &str, query: &str, page: u32, page_size: u32) -> String {
-    let key = format!("{source}|{query}|{page}|{page_size}");
+    // 缓存存的是归一化后的 CatalogEntry；解析口径变化时必须升版本，
+    // 否则旧缓存里已冻结的错误字段（如把 schema 键名当环境变量）会继续被原样读出。
+    let key = format!("v2|{source}|{query}|{page}|{page_size}");
     let digest = catalog_cache_key_hash(&key);
     format!(
         "catalog_cache_{}_{}.json",
@@ -46,14 +48,6 @@ fn json_string_list(value: &Value, key: &str) -> Vec<String> {
                 .filter(|item| !item.is_empty())
                 .collect::<Vec<_>>()
         })
-        .unwrap_or_default()
-}
-
-fn json_object_keys(value: &Value, key: &str) -> Vec<String> {
-    value
-        .get(key)
-        .and_then(|item| item.as_object())
-        .map(|map| map.keys().cloned().collect::<Vec<_>>())
         .unwrap_or_default()
 }
 
@@ -113,6 +107,24 @@ fn modelscope_pick_definition(item: &Value) -> Option<(String, Value)> {
     None
 }
 
+/// 魔搭 `EnvSchema` 是标准 JSON Schema：环境变量名在 `required` 数组里。
+/// 上游曾把 schema 顶层键名（properties/required/type）误当变量名下发，
+/// 这里只认 `required` 里的字符串元素，无法解析时按无变量处理。
+fn modelscope_required_env_names(item: &Value) -> Vec<String> {
+    item.get("EnvSchema")
+        .and_then(|schema| schema.get("required"))
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|name| name.as_str())
+                .map(|name| name.trim().to_string())
+                .filter(|name| !name.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
 fn modelscope_mcp_entry(item: &Value) -> CatalogEntry {
     let chinese = json_str(item, "ChineseName");
     let english = json_str(item, "Name");
@@ -164,15 +176,7 @@ fn modelscope_mcp_entry(item: &Value) -> CatalogEntry {
         transport,
         install_ready: !definition_json.is_empty(),
         definition_json,
-        required_env: json_object_keys(item, "EnvSchema")
-            .into_iter()
-            .filter(|_| {
-                item.get("EnvSchema")
-                    .and_then(|schema| schema.get("required"))
-                    .and_then(|value| value.as_array())
-                    .is_some()
-            })
-            .collect(),
+        required_env: modelscope_required_env_names(item),
         tools,
         detail_url: String::new(),
         installed: false,
