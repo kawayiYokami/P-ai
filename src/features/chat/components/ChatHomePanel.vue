@@ -31,7 +31,10 @@
         <HomeWorkspaceCard
           v-if="workspaceRootPath"
           :workspace-root-path="workspaceRootPath"
-          @open="emit('openWorkspace')"
+          :worktree-path="worktreePath"
+          :worktree-branch="worktreeBranch"
+          :work-mode="workMode"
+          @open="(path) => emit('openWorkspace', path)"
           @error="(message) => emit('gitError', message)"
         />
         <HomeSideChatCreateCard
@@ -115,7 +118,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { FolderTree, LayoutGrid } from "@lucide/vue";
-import type { BackgroundShellTaskSummary, ConversationDelegateStatusSummary } from "../../../types/app";
+import type { BackgroundShellTaskSummary, ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review";
 import type { ChatMonitorPanelMode } from "../composables/chat-ui-layout-storage";
@@ -135,6 +138,9 @@ const props = withDefaults(defineProps<{
   conversationId?: string;
   latestPlan?: LatestPlanSummary | null;
   workspaceRootPath?: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  workMode?: ShellWorkMode;
   /** Git 仓库根；与工作目录可能不同（仓库在上级目录），为空时回落到工作目录 */
   gitRepoRoot?: string;
   branch?: string;
@@ -157,6 +163,9 @@ const props = withDefaults(defineProps<{
   conversationId: "",
   latestPlan: null,
   workspaceRootPath: "",
+  worktreePath: "",
+  worktreeBranch: "",
+  workMode: "directory",
   gitRepoRoot: "",
   branch: "",
   changeCount: 0,
@@ -177,7 +186,7 @@ const emit = defineEmits<{
   (e: "closeFile", path: string): void;
   (e: "openSideChat", conversationId: string): void;
   (e: "createSideChat"): void;
-  (e: "openWorkspace"): void;
+  (e: "openWorkspace", path?: string): void;
   (e: "openGitChanges"): void;
   (e: "openGitCommits"): void;
   (e: "branchSwitched", workspacePath: string): void;

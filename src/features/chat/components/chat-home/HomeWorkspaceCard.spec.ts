@@ -102,4 +102,40 @@ describe("HomeWorkspaceCard", () => {
     expect(html).not.toContain("切换打开目标");
     expect(html).not.toContain("打开当前目录");
   });
+
+  it("renders worktree card and toggle button when in worktree mode with distinct worktreePath", async () => {
+    const app = createSSRApp({
+      render: () =>
+        h(HomeWorkspaceCard, {
+          workspaceRootPath: "E:/github/easy_call_ai",
+          worktreePath: "E:/github/easy_call_ai/.pai/.worktree/feat",
+          worktreeBranch: "feature/backend-tantivy",
+          workMode: "worktree",
+        }),
+    });
+    app.use(i18n);
+    const html = await renderToString(app);
+
+    expect(html).toContain("工作树");
+    expect(html).toContain("feature/backend-tantivy");
+    expect(html).toContain("ecall-home-workspace-toggle");
+    expect(html).toContain("切换到工作目录");
+  });
+
+  it("does not render toggle button when worktreePath equals workspaceRootPath", async () => {
+    const app = createSSRApp({
+      render: () =>
+        h(HomeWorkspaceCard, {
+          workspaceRootPath: "E:/github/easy_call_ai",
+          worktreePath: "E:/github/easy_call_ai",
+          worktreeBranch: "feature/backend-tantivy",
+          workMode: "worktree",
+        }),
+    });
+    app.use(i18n);
+    const html = await renderToString(app);
+
+    expect(html).toContain("工作目录");
+    expect(html).not.toContain("ecall-home-workspace-toggle");
+  });
 });
