@@ -381,15 +381,6 @@ async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result
 
 // ========== bing search ==========
 
-fn contains_cjk(text: &str) -> bool {
-    text.chars().any(|ch| {
-        ('\u{4E00}'..='\u{9FFF}').contains(&ch)
-            || ('\u{3400}'..='\u{4DBF}').contains(&ch)
-            || ('\u{3040}'..='\u{30FF}').contains(&ch)
-            || ('\u{AC00}'..='\u{D7AF}').contains(&ch)
-    })
-}
-
 fn decode_b64_relaxed(input: &str) -> Option<String> {
     let mut candidates = Vec::new();
     candidates.push(input.trim().to_string());
@@ -472,12 +463,8 @@ async fn builtin_bing_search_fallback(state: &AppState, query: &str) -> Result<V
     let raw_query = query.trim();
     let mut last_error: Option<String> = None;
     let mut last_request_url: Option<String> = None;
-    let prefer_cn = contains_cjk(raw_query);
-    let bases = if prefer_cn {
-        ["https://cn.bing.com", "https://www.bing.com"]
-    } else {
-        ["https://www.bing.com", "https://cn.bing.com"]
-    };
+    // cn.bing.com 对非浏览器请求返回缓存导航页，统一用 www.bing.com
+    let bases = ["https://www.bing.com"];
     for base in bases {
         let item_sel =
             Selector::parse("li.b_algo").map_err(|err| format!("Parse selector failed: {err}"))?;
