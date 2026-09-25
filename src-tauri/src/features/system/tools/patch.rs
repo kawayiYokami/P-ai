@@ -745,9 +745,14 @@ fn apply_patch_assess_safety(
         let Some(workspace) = terminal_match_workspace_for_session_target(state, _session_id, path)
             .unwrap_or(None)
         else {
+            runtime_log_warn(format!(
+                "[补丁拦截] 写入目标未命中本会话权限白名单，session={}，target={}",
+                _session_id,
+                terminal_path_for_user(path),
+            ));
             return Ok(ApplyPatchSafetyCheck::Reject {
                 reason: format!(
-                    "补丁路径未命中已配置工作目录：{}",
+                    "补丁路径未命中本会话可写范围：{}",
                     terminal_path_for_user(&path)
                 ),
             });
@@ -759,9 +764,6 @@ fn apply_patch_assess_safety(
         return Ok(ApplyPatchSafetyCheck::Reject {
             reason: "当前目录权限为只读，禁止执行补丁。".to_string(),
         });
-    }
-    if let Some(reason) = terminal_worktree_write_rejection(state, _session_id, &target_paths)? {
-        return Ok(ApplyPatchSafetyCheck::Reject { reason });
     }
     Ok(ApplyPatchSafetyCheck::AutoApprove)
 }

@@ -803,7 +803,7 @@ fn terminal_allowed_project_roots_for_session_canonical(
     let conversation = terminal_session_conversation(state, session_id)?;
     let mut roots = Vec::<PathBuf>::new();
     let mut seen = std::collections::HashSet::<String>::new();
-    for ws in terminal_allowed_workspaces_for_conversation_canonical(state, conversation.as_ref())? {
+    for ws in terminal_session_permitted_workspaces(state, conversation.as_ref())? {
         let canonical = ws.path;
         let key = normalize_terminal_path_for_compare(&canonical);
         if seen.insert(key) {
@@ -854,6 +854,52 @@ fn terminal_default_workspace_for_conversation_resolved(
         .ok_or_else(|| "No default workspace available".to_string())
 }
 
+/// 本会话的权限白名单：读、写、执行 cwd、补丁目标统一以它为准，判定口径唯一。
+/// - 工作树模式且已绑定有效工作树：只放行「主工作区/.pai」资产目录与「绑定的工作树」，
+///   两者都继承会话主工作区的访问级别；
+/// - 其他情况：会话可见的全部 shell 工作区。
+fn terminal_session_permitted_workspaces(
+    state: &AppState,
+    conversation: Option<&Conversation>,
+) -> Result<Vec<TerminalWorkspaceResolved>, String> {
+    let default_workspace =
+        terminal_default_workspace_for_conversation_resolved(state, conversation)?;
+    let bound_worktree = conversation.and_then(|value| {
+        (normalize_shell_work_mode_text(&value.shell_work_mode) == SHELL_WORK_MODE_WORKTREE)
+            .then(|| {
+                terminal_conversation_worktree_dir_for_conversation(value, &default_workspace.path)
+            })
+            .flatten()
+    });
+    let Some(worktree) = bound_worktree else {
+        return terminal_allowed_workspaces_for_conversation_canonical(state, conversation);
+    };
+    let access = default_workspace.access.clone();
+    let worktree_key = normalize_terminal_path_for_compare(&worktree);
+    let worktree_name = worktree
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "worktree".to_string());
+    Ok(vec![
+        TerminalWorkspaceResolved {
+            id: "session-worktree-assets".to_string(),
+            name: ".pai".to_string(),
+            level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+            access: access.clone(),
+            built_in: false,
+            path: terminal_normalize_for_access_check(&default_workspace.path.join(".pai")),
+        },
+        TerminalWorkspaceResolved {
+            id: format!("session-worktree-{worktree_key}"),
+            name: worktree_name,
+            level: SHELL_WORKSPACE_LEVEL_SECONDARY.to_string(),
+            access,
+            built_in: false,
+            path: worktree,
+        },
+    ])
+}
+
 fn terminal_match_workspace_for_target_in_conversation(
     state: &AppState,
     conversation: Option<&Conversation>,
@@ -865,7 +911,7 @@ fn terminal_match_workspace_for_target_in_conversation(
     let normalized = terminal_normalize_for_access_check(target);
     let mut best_match: Option<TerminalWorkspaceResolved> = None;
     let mut best_len = 0usize;
-    for workspace in terminal_allowed_workspaces_for_conversation_canonical(state, conversation)? {
+    for workspace in terminal_session_permitted_workspaces(state, conversation)? {
         if !path_is_within(&workspace.path, &normalized) {
             continue;
         }
@@ -885,58 +931,6 @@ fn terminal_match_workspace_for_session_target(
 ) -> Result<Option<TerminalWorkspaceResolved>, String> {
     let conversation = terminal_session_conversation(state, session_id)?;
     terminal_match_workspace_for_target_in_conversation(state, conversation.as_ref(), target)
-}
-
-fn terminal_worktree_write_rejection(
-    state: &AppState,
-    session_id: &str,
-    targets: &[PathBuf],
-) -> Result<Option<String>, String> {
-    let Some(conversation) = terminal_session_conversation(state, session_id)? else {
-        return Ok(None);
-    };
-    if conversation.shell_autonomous_mode {
-        return Ok(None);
-    }
-    let mode = normalize_shell_work_mode_text(&conversation.shell_work_mode);
-    if mode == SHELL_WORK_MODE_DIRECTORY {
-        return Ok(None);
-    }
-    let root = terminal_default_workspace_for_conversation_resolved(state, Some(&conversation))?.path;
-    let pai_dir = terminal_normalize_for_access_check(&root.join(".pai"));
-    let worktree_dir = terminal_normalize_for_access_check(&pai_dir.join(".worktree"));
-    // worktree 模式下，工作树路径完全由会话字段决定（用户显式选择）。
-    // 未绑定时放行主工作区；已绑定时项目改动只能在选定工作树，.pai/ 资产仍可写。
-    let recorded = conversation_recorded_worktree_path(&conversation, &root.to_string_lossy());
-    let Some(dedicated) = recorded else {
-        return Ok(None);
-    };
-    let dedicated = terminal_normalize_for_access_check(&dedicated);
-    for target in targets {
-        let target = terminal_normalize_for_access_check(target);
-        if path_is_within(&dedicated, &target) {
-            continue;
-        }
-        // .pai/ 下的资产文件（plan、skill 等）放行；只有落在 .pai/.worktree/ 下的其他工作树要拦
-        if path_is_within(&pai_dir, &target) {
-            if path_is_within(&worktree_dir, &target) {
-                return Ok(Some(format!(
-                    "当前工作模式为“工作树”，写入目标“{}”属于其他工作树。当前会话只能在“{}”修改项目；计划、Skill 等工作记录仍可写入“{}”。",
-                    terminal_path_for_user(&target),
-                    terminal_path_for_user(&dedicated),
-                    terminal_path_for_user(&pai_dir),
-                )));
-            }
-            continue;
-        }
-        return Ok(Some(format!(
-            "当前工作模式为“工作树”，写入目标“{}”不在允许范围内。当前会话只能在“{}”修改项目；计划、Skill 等工作记录仍可写入“{}”。",
-            terminal_path_for_user(&target),
-            terminal_path_for_user(&dedicated),
-            terminal_path_for_user(&pai_dir),
-        )));
-    }
-    Ok(None)
 }
 
 fn terminal_prompt_trusted_roots_block(
@@ -991,35 +985,38 @@ fn terminal_prompt_trusted_roots_block(
         lines.push("当前会话已开启“给予本会话最大权限”：终端与补丁工具可访问任意目录，并跳过目录权限、智能评估与人工审批。".to_string());
     }
     if let Some(default_workspace) = &default_workspace {
-        lines.push(format!(
-            "{}：当前工作目录（Session Working Directory）",
-            terminal_path_for_user(&default_workspace.path)
-        ));
+        let root = terminal_path_for_user(&default_workspace.path);
         let work_mode = conversation
             .map(|value| normalize_shell_work_mode_text(&value.shell_work_mode))
             .unwrap_or_else(default_shell_work_mode);
-        if work_mode == SHELL_WORK_MODE_WORKTREE {
-            let root = terminal_path_for_user(&default_workspace.path);
-            let worktree = conversation
-                .and_then(|value| {
-                    conversation_recorded_worktree_path(value, &root)
-                        .filter(|path| conversation_worktree_dir_is_valid(path))
-                        .map(|path| terminal_path_for_user(&path))
-                });
-            if let Some(worktree) = worktree {
-                lines.push(format!(
-                    "用户选择了工作树「{}」，项目改动直接在这里进行；本项目的工作记录仍维护在「{}/.pai/**」，包括 plan、skill 等所有 .pai 文件。",
-                    worktree, root
-                ));
-            } else {
-                lines.push(format!(
-                    "用户选择了工作树模式，但尚未绑定工作树。当前工作目录仍是主工作区「{}」。请在会话工作区配置中选择工作树后再进行项目改动。",
-                    root
-                ));
-            }
+        let bound_worktree = if work_mode == SHELL_WORK_MODE_WORKTREE {
+            conversation.and_then(|value| {
+                conversation_recorded_worktree_path(value, &root)
+                    .filter(|path| conversation_worktree_dir_is_valid(path))
+                    .map(|path| terminal_path_for_user(&path))
+            })
+        } else {
+            None
+        };
+        if let Some(worktree) = bound_worktree {
+            // 已绑定：shell 实际落点与项目改动都在工作树，开头就说清，
+            // 避免模型在「主工作区 vs 工作树」两个路径之间猜。
+            lines.push(format!(
+                "{}：当前 shell 工作目录（Session Working Directory）。用户为本会话选择了工作树，你在这里工作：读代码、执行命令、修改项目、Git 提交都在这个目录进行。",
+                worktree
+            ));
+            lines.push(format!(
+                "{}：主工作区（仓库根）。本会话不要在这里改动或提交项目文件（权限层会拒绝）；「{}/.pai/**」例外，plan、skill 等工作记录仍写在那里。",
+                root, root
+            ));
+            lines.push("工作树是仓库的独立检出，只包含已提交内容；主工作区里未提交的改动不会出现在工作树中。".to_string());
             lines.push("当你已经能一句话说清这条工作线在做什么时，把当前工作树的分支改成一个能表达它的语义名；目录名不要改。改名时机不限，做晚了没有代价。".to_string());
             lines.push("注意不要让 .pai/ 被 Git 追踪。不要自动删除工作树或分支，除非用户明确要求。".to_string());
         } else {
+            lines.push(format!(
+                "{}：当前工作目录（Session Working Directory）",
+                root
+            ));
             lines.push("用户希望直接在当前工作目录中工作，请将其作为本次任务的默认读取、修改和命令执行根目录。".to_string());
             // 工作树信息来自会话 meta（保存工作区/切分支时探测写入），
             // 注入时不探测 git，避免慢仓库/网络盘拖慢 prompt 生成。
@@ -1070,8 +1067,14 @@ fn terminal_conversation_worktree_dir_for_conversation(
     conversation: &Conversation,
     root: &Path,
 ) -> Option<PathBuf> {
-    conversation_recorded_worktree_path(conversation, &root.to_string_lossy())
-        .filter(|path| conversation_worktree_dir_is_valid(path))
+    let recorded = conversation_recorded_worktree_path(conversation, &root.to_string_lossy())?;
+    if !conversation_worktree_dir_is_valid(&recorded) {
+        return None;
+    }
+    // 统一 canonical 形式：会话字段里的工作树路径可能是正斜杠文本，
+    // 若原样返回，会与 canonicalize 后的 cwd / 写入目标在分隔符上不一致，
+    // 导致 path_is_within 误判为不在白名单内。
+    Some(terminal_normalize_for_access_check(&recorded))
 }
 
 /// 终端默认工作目录：工作树模式下指向会话绑定的工作树（已创建时），否则沿用会话主工作区。
@@ -1116,17 +1119,18 @@ fn terminal_session_root_canonical(state: &AppState, session_id: &str) -> Result
     }
 }
 
+/// cwd 校验：目标必须落在本会话权限白名单内（主工作区/工作树）。
+/// 与 write/patch 判定同一白名单，保证「shell 能落到的目录」与「能写的目录」口径一致。
 fn ensure_terminal_workdir_allowed(
     state: &AppState,
     session_id: &str,
     cwd: &Path,
 ) -> Result<(), String> {
-    let session_root = terminal_session_root_canonical(state, session_id)?;
-    if path_is_within(&session_root, cwd) {
+    if terminal_match_workspace_for_session_target(state, session_id, cwd)?.is_some() {
         return Ok(());
     }
     Err(format!(
-        "Working directory is outside current shell root: {}. Call shell_switch_workspace first.",
+        "Working directory is outside current shell root: {}. 本会话仅允许在主工作区或已绑定的工作树内执行命令；请改用这些目录，或在会话工作区配置中调整工作树绑定。",
         cwd.to_string_lossy()
     ))
 }
@@ -2186,10 +2190,9 @@ mod terminal_workspace_tests {
         let block = terminal_prompt_trusted_roots_block(&state, &api, Some(&conversation))
             .expect("terminal block");
 
-        // 未绑定工作树：提示用户先选择，不自动生成路径
-        assert!(block.contains("尚未绑定工作树"));
-        assert!(block.contains("不要让 .pai/ 被 Git 追踪"));
-        assert!(!block.contains("用户希望直接在当前工作目录中工作"));
+        // 工作树模式下未命中有效绑定：按会话白名单回落到主工作区直连提示
+        assert!(block.contains("用户希望直接在当前工作目录中工作"));
+        assert!(!block.contains("尚未绑定工作树"));
         let _ = std::fs::remove_dir_all(temp_root);
     }
 
@@ -2227,109 +2230,178 @@ mod terminal_workspace_tests {
         let block = terminal_prompt_trusted_roots_block(&state, &api, Some(&conversation))
             .expect("terminal block");
 
-        // 未绑定工作树：提示用户先选择
-        assert!(block.contains("工作树"));
-        assert!(block.contains("尚未绑定工作树"));
-        assert!(block.contains("目录名不要改"));
+        // 工作树模式下未命中有效绑定：按会话白名单回落到主工作区直连提示
+        assert!(block.contains("用户希望直接在当前工作目录中工作"));
+        assert!(!block.contains("尚未绑定工作树"));
         let _ = std::fs::remove_dir_all(temp_root);
     }
 
     #[test]
-    fn terminal_worktree_write_rejection_should_enforce_mode_boundaries() {
+    fn terminal_prompt_trusted_roots_block_should_point_shell_cwd_at_bound_worktree() {
         let temp_root = std::env::temp_dir().join(format!(
-            "easy-call-ai-terminal-worktree-write-boundary-test-{}",
+            "easy-call-ai-terminal-bound-worktree-prompt-test-{}",
             uuid::Uuid::new_v4()
         ));
         let root = temp_root.join("project");
-        let pai_dir = root.join(".pai");
-        let conversation_id = "a1b2c3d4-conversation";
-        std::fs::create_dir_all(pai_dir.join("plan")).expect("create plan directory");
-        // 工作树路径由用户显式选择；这里用 .pai/.worktree/ 下的计划路径模拟已绑定状态。
-        // 工作区 root 经过 canonicalize（Windows 上是 \\?\ 前缀），用同基准构造路径。
-        let canonical_root = root.canonicalize().expect("canonicalize root");
-        let bound_dir = canonical_root
-            .join(".pai")
-            .join(".worktree")
-            .join("user-selected");
-        let other_worktree_dir = pai_dir.join(".worktree").join("other-session");
-        std::fs::create_dir_all(&other_worktree_dir).expect("create other worktree directory");
+        std::fs::create_dir_all(&root).expect("创建项目根目录失败");
+        let conversation_id = "a1b2c3d4-bound-prompt-conversation";
+
+        // prompt 只认已注册的有效工作树，造真实仓库与工作树
+        assert!(run_git(&root, &["init", "--quiet"]).status.success(), "git init 应成功");
+        std::fs::write(root.join("README.md"), "seed").expect("写入种子文件失败");
+        assert!(run_git(&root, &["add", "README.md"]).status.success(), "git add 应成功");
+        assert!(
+            run_git(
+                &root,
+                &["-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-m", "init", "--quiet"],
+            )
+            .status
+            .success(),
+            "提交应成功"
+        );
+        let bound_dir = root.join(".pai").join(".worktree").join("bound");
+        let bound_dir_text = bound_dir.to_string_lossy().to_string();
+        assert!(
+            run_git(&root, &["worktree", "add", "-b", "bound-branch", &bound_dir_text])
+                .status
+                .success(),
+            "创建工作树应成功"
+        );
+
         let state = build_test_state(root.clone());
         let workspace = ShellWorkspaceConfig {
             id: "workspace-main".to_string(),
             name: "项目".to_string(),
             path: root.to_string_lossy().to_string(),
             level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
-            access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
             built_in: false,
         };
         let mut config = AppConfig::default();
         config.shell_workspaces = vec![workspace.clone()];
-        state_write_config_cached(&state, &config).expect("write config");
+        state_write_config_cached(&state, &config).expect("写入配置失败");
         let mut conversation = build_workspace_test_conversation(conversation_id);
         conversation.shell_workspaces = vec![workspace];
+        conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
+        conversation.shell_worktree_path = bound_dir_text;
+        let mut api = ApiConfig::default();
+        api.enable_tools = true;
+        api.tools = vec![ApiToolConfig {
+            id: "exec".to_string(),
+            command: String::new(),
+            args: Vec::new(),
+            enabled: true,
+            values: Value::Null,
+        }];
+
+        let block = terminal_prompt_trusted_roots_block(&state, &api, Some(&conversation))
+            .expect("terminal block");
+
+        // 已绑定：开头直接声明 shell 落点在工作树，并说明主工作区分工
+        assert!(
+            block.contains("当前 shell 工作目录（Session Working Directory）"),
+            "应声明 shell 工作目录：{block}"
+        );
+        assert!(
+            block.contains(&terminal_path_for_user(&bound_dir)),
+            "应写明工作树路径：{block}"
+        );
+        assert!(block.contains("主工作区（仓库根）"));
+        assert!(block.contains("只包含已提交内容"));
+        assert!(!block.contains("尚未绑定工作树"));
+        let _ = std::fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn terminal_permitted_workspaces_should_enforce_worktree_boundaries() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-call-ai-terminal-permitted-workspaces-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let root = temp_root.join("project");
+        std::fs::create_dir_all(&root).expect("创建项目根目录失败");
+        let conversation_id = "a1b2c3d4-permitted-workspaces-conversation";
+
+        // 造真实仓库与工作树：只有已注册的工作树才会被白名单认作会话可写范围
+        assert!(run_git(&root, &["init", "--quiet"]).status.success(), "git init 应成功");
+        std::fs::write(root.join("README.md"), "seed").expect("写入种子文件失败");
+        assert!(run_git(&root, &["add", "README.md"]).status.success(), "git add 应成功");
+        assert!(
+            run_git(
+                &root,
+                &["-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-m", "init", "--quiet"],
+            )
+            .status
+            .success(),
+            "提交应成功"
+        );
+        let bound_dir = root.join(".pai").join(".worktree").join("bound");
+        let bound_dir_text = bound_dir.to_string_lossy().to_string();
+        assert!(
+            run_git(&root, &["worktree", "add", "-b", "bound-branch", &bound_dir_text])
+                .status
+                .success(),
+            "创建工作树应成功"
+        );
+        let other_dir = temp_root.join("other-worktree");
+        let other_dir_text = other_dir.to_string_lossy().to_string();
+        assert!(
+            run_git(&root, &["worktree", "add", "-b", "other-branch", &other_dir_text])
+                .status
+                .success(),
+            "创建其它工作树应成功"
+        );
+
+        let state = build_test_state(root.clone());
+        let workspace = ShellWorkspaceConfig {
+            id: "workspace-main".to_string(),
+            name: "项目".to_string(),
+            path: root.to_string_lossy().to_string(),
+            level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
+            built_in: false,
+        };
+        let mut config = AppConfig::default();
+        config.shell_workspaces = vec![workspace.clone()];
+        state_write_config_cached(&state, &config).expect("写入配置失败");
+
+        let mut conversation = build_workspace_test_conversation(conversation_id);
+        conversation.shell_workspaces = vec![workspace];
+        conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
+        conversation.shell_worktree_path = bound_dir_text;
         let session_id = normalize_terminal_tool_session_id(&inflight_chat_key(
             DEFAULT_AGENT_ID,
             Some(&conversation.id),
         ));
         let mut data = AppData::default();
-        data.conversations.push(conversation.clone());
+        data.conversations.push(conversation);
+        state_write_app_data_cached(&state, &data).expect("写入会话失败");
 
-        // 未绑定工作树：worktree 模式放行主工作区
-        conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
-        data.conversations[0] = conversation.clone();
-        state_write_app_data_cached(&state, &data).expect("write unbound conversation");
-        assert!(terminal_worktree_write_rejection(
-            &state,
-            &session_id,
-            &[root.join("src").join("main.rs")],
-        )
-        .expect("check unbound root source")
-        .is_none());
+        let access_of = |target: &std::path::Path| {
+            terminal_match_workspace_for_session_target(&state, &session_id, target)
+                .expect("白名单匹配失败")
+                .map(|workspace| workspace.access)
+        };
 
-        // 绑定工作树后：项目改动只能在选定工作树，.pai/ 仍可写。
-        // 走字段级 metadata 写入面（与前端保存路径一致），避免被缓存快照回滚。
-        conversation_service_v2()
-            .set_shell_workspace(
-                &state,
-                conversation_id,
-                None, None, None, None, None, None,
-                Some(bound_dir.to_string_lossy().to_string()),
-            )
-            .expect("写入工作树路径字段");
-        let root_source_rejection = terminal_worktree_write_rejection(
-            &state,
-            &session_id,
-            &[root.join("src").join("main.rs")],
-        )
-        .expect("check bound root source");
-        assert!(root_source_rejection
-            .as_deref()
-            .is_some_and(|reason| reason.contains("不在允许范围")));
-        assert!(terminal_worktree_write_rejection(
-            &state,
-            &session_id,
-            &[bound_dir.join("src").join("main.rs")],
-        )
-        .expect("check bound worktree")
-        .is_none());
-        assert!(terminal_worktree_write_rejection(
-            &state,
-            &session_id,
-            &[pai_dir.join("plan").join("record.md")],
-        )
-        .expect("check bound plan")
-        .is_none());
-        let other_worktree_rejection = terminal_worktree_write_rejection(
-            &state,
-            &session_id,
-            &[other_worktree_dir.join("src").join("main.rs")],
-        )
-        .expect("check other worktree");
-        assert!(other_worktree_rejection
-            .as_deref()
-            .is_some_and(|reason| reason.contains("属于其他工作树")));
+        // 工作树模式：只有绑定的工作树 + .pai 资产放行，主工作区项目文件与其它工作树都拒绝
+        assert!(
+            access_of(&root.join("src").join("main.rs")).is_none(),
+            "工作树模式下主工作区项目文件不在白名单"
+        );
+        assert!(
+            access_of(&bound_dir.join("src").join("main.rs")).is_some(),
+            "绑定的工作树应在白名单内"
+        );
+        assert!(
+            access_of(&root.join(".pai").join("plan").join("record.md")).is_some(),
+            ".pai 资产应在白名单内"
+        );
+        assert!(
+            access_of(&other_dir.join("src").join("main.rs")).is_none(),
+            "未绑定的其它工作树不在白名单内"
+        );
 
-        // 切回目录模式：放行主工作区
+        // 切回目录模式：白名单回到会话工作区列表，主工作区放行
         conversation_service_v2()
             .set_shell_workspace(
                 &state,
@@ -2339,15 +2411,12 @@ mod terminal_workspace_tests {
                 None, None, None,
             )
             .expect("切换目录模式");
-        assert!(terminal_worktree_write_rejection(
-            &state,
-            &session_id,
-            &[root.join("src").join("main.rs")],
-        )
-        .expect("check directory mode")
-        .is_none());
+        assert!(
+            access_of(&root.join("src").join("main.rs")).is_some(),
+            "目录模式下主工作区应在白名单内"
+        );
 
-        // autonomous 模式：放行一切
+        // autonomous：放行一切
         conversation_service_v2()
             .set_shell_workspace(
                 &state,
@@ -2358,13 +2427,10 @@ mod terminal_workspace_tests {
                 None, None, None,
             )
             .expect("开启 autonomous");
-        assert!(terminal_worktree_write_rejection(
-            &state,
-            &session_id,
-            &[root.join("src").join("main.rs")],
-        )
-        .expect("check autonomous mode")
-        .is_none());
+        assert!(
+            access_of(&root.join("src").join("main.rs")).is_some(),
+            "autonomous 模式应放行一切"
+        );
         let _ = std::fs::remove_dir_all(temp_root);
     }
 
@@ -2640,6 +2706,194 @@ mod terminal_workspace_tests {
             std::fs::canonicalize(&resolved).expect("解析结果应是真实目录"),
             std::fs::canonicalize(&bound_dir).expect("工作树目录应存在"),
             "工作树模式下终端默认工作目录应指向会话绑定的工作树"
+        );
+
+        let _ = std::fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn terminal_cwd_should_allow_worktree_outside_main_workspace() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-call-ai-terminal-worktree-external-cwd-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let root = temp_root.join("project");
+        std::fs::create_dir_all(&root).expect("创建项目根目录失败");
+        let conversation_id = "a1b2c3d4-external-cwd-conversation";
+
+        // 造真实 git 仓库，并把工作树注册到主工作区之外（模拟用户自选的外部路径）
+        assert!(run_git(&root, &["init", "--quiet"]).status.success(), "git init 应成功");
+        std::fs::write(root.join("README.md"), "seed").expect("写入种子文件失败");
+        assert!(run_git(&root, &["add", "README.md"]).status.success(), "git add 应成功");
+        assert!(
+            run_git(
+                &root,
+                &["-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-m", "init", "--quiet"],
+            )
+            .status
+            .success(),
+            "提交应成功"
+        );
+        let bound_dir = temp_root.join("external-worktree");
+        let bound_dir_text = bound_dir.to_string_lossy().to_string();
+        assert!(
+            run_git(
+                &root,
+                &["worktree", "add", "-b", "external-branch", &bound_dir_text],
+            )
+            .status
+            .success(),
+            "创建主工作区之外的工作树应成功"
+        );
+
+        let state = build_test_state(root.clone());
+        let workspace = ShellWorkspaceConfig {
+            id: "workspace-main".to_string(),
+            name: "项目".to_string(),
+            path: root.to_string_lossy().to_string(),
+            level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+            built_in: false,
+        };
+        let mut config = AppConfig::default();
+        config.shell_workspaces = vec![workspace.clone()];
+        state_write_config_cached(&state, &config).expect("写入配置失败");
+
+        let mut conversation = build_workspace_test_conversation(conversation_id);
+        conversation.shell_workspaces = vec![workspace];
+        conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
+        conversation.shell_worktree_path = bound_dir_text;
+        let session_id = normalize_terminal_tool_session_id(&inflight_chat_key(
+            DEFAULT_AGENT_ID,
+            Some(&conversation.id),
+        ));
+        let mut data = AppData::default();
+        data.conversations.push(conversation);
+        state_write_app_data_cached(&state, &data).expect("写入会话失败");
+
+        // 默认 cwd 落在主工作区之外的工作树内，必须放行而不是拦死
+        let resolved =
+            resolve_terminal_cwd(&state, &session_id, None).expect("工作树内默认 cwd 应放行");
+        assert_eq!(
+            std::fs::canonicalize(&resolved).expect("解析结果应是真实目录"),
+            std::fs::canonicalize(&bound_dir).expect("工作树目录应存在"),
+            "默认 cwd 应指向主工作区之外的工作树"
+        );
+        assert!(
+            terminal_match_workspace_for_session_target(
+                &state,
+                &session_id,
+                &bound_dir.join("src").join("main.rs"),
+            )
+            .expect("工作树内路径匹配失败")
+            .is_some(),
+            "主工作区之外的工作树路径应命中会话工作区匹配"
+        );
+
+        // 统一白名单：工作树内目标继承会话主工作区权限，范围外目标一律不匹配
+        assert_eq!(
+            terminal_match_workspace_for_session_target(
+                &state,
+                &session_id,
+                &bound_dir.join("src").join("main.rs"),
+            )
+            .expect("工作树内路径匹配失败")
+            .map(|workspace| workspace.access),
+            Some(SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string()),
+            "工作树内目标的访问级别应继承会话主工作区"
+        );
+        assert!(
+            terminal_match_workspace_for_session_target(
+                &state,
+                &session_id,
+                &temp_root.join("somewhere-else").join("file.txt"),
+            )
+            .expect("范围外路径匹配失败")
+            .is_none(),
+            "范围外目标不应命中白名单"
+        );
+
+        let _ = std::fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn terminal_cwd_should_match_worktree_bound_with_forward_slash_path() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-call-ai-terminal-worktree-slash-path-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let root = temp_root.join("project");
+        std::fs::create_dir_all(&root).expect("创建项目根目录失败");
+        let conversation_id = "a1b2c3d4-slash-path-conversation";
+
+        assert!(run_git(&root, &["init", "--quiet"]).status.success(), "git init 应成功");
+        std::fs::write(root.join("README.md"), "seed").expect("写入种子文件失败");
+        assert!(run_git(&root, &["add", "README.md"]).status.success(), "git add 应成功");
+        assert!(
+            run_git(
+                &root,
+                &["-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-m", "init", "--quiet"],
+            )
+            .status
+            .success(),
+            "提交应成功"
+        );
+        // 工作树必须落在主工作区与 .pai 之外，否则会被白名单的 .pai 条目兜住，掩盖判定问题
+        let bound_dir = temp_root.join("external-slash-worktree");
+        let bound_dir_text = bound_dir.to_string_lossy().to_string();
+        assert!(
+            run_git(
+                &root,
+                &["worktree", "add", "-b", "slash-branch", &bound_dir_text],
+            )
+            .status
+            .success(),
+            "创建工作树应成功"
+        );
+
+        let state = build_test_state(root.clone());
+        let workspace = ShellWorkspaceConfig {
+            id: "workspace-main".to_string(),
+            name: "项目".to_string(),
+            path: root.to_string_lossy().to_string(),
+            level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+            built_in: false,
+        };
+        let mut config = AppConfig::default();
+        config.shell_workspaces = vec![workspace.clone()];
+        state_write_config_cached(&state, &config).expect("写入配置失败");
+
+        let mut conversation = build_workspace_test_conversation(conversation_id);
+        conversation.shell_workspaces = vec![workspace];
+        conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
+        // 会话字段常以正斜杠文本落盘（前端 JSON 序列化），必须与 canonical 路径等价比较
+        conversation.shell_worktree_path = bound_dir_text.replace('\\', "/");
+        let session_id = normalize_terminal_tool_session_id(&inflight_chat_key(
+            DEFAULT_AGENT_ID,
+            Some(&conversation.id),
+        ));
+        let mut data = AppData::default();
+        data.conversations.push(conversation);
+        state_write_app_data_cached(&state, &data).expect("写入会话失败");
+
+        // cwd / 写入目标都经 canonicalize（反斜杠），正斜杠绑定路径必须仍判定为命中
+        assert!(
+            terminal_match_workspace_for_session_target(
+                &state,
+                &session_id,
+                &bound_dir.join("src").join("main.rs"),
+            )
+            .expect("工作树内路径匹配失败")
+            .is_some(),
+            "正斜杠绑定的工作树仍应命中白名单"
+        );
+        let resolved = resolve_terminal_cwd(&state, &session_id, None)
+            .expect("正斜杠绑定工作树的默认 cwd 应放行");
+        assert_eq!(
+            std::fs::canonicalize(&resolved).expect("解析结果应是真实目录"),
+            std::fs::canonicalize(&bound_dir).expect("工作树目录应存在"),
+            "正斜杠绑定工作树的默认 cwd 应指向工作树"
         );
 
         let _ = std::fs::remove_dir_all(temp_root);

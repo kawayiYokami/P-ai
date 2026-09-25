@@ -912,7 +912,7 @@ async fn builtin_shell_exec(
     let workspace_path_text = session_root_text.clone();
     let cwd = match resolve_terminal_cwd(state, &normalized_session, None) {
         Ok(path) => path,
-        Err(err) if err.contains("Call shell_switch_workspace first.") => {
+        Err(err) if err.contains("outside current shell root") => {
             let review = terminal_local_review_value(
                 &ui_language,
                 "当前会话还没有切换到可执行命令的工作目录，请先切换工作目录后再执行。",
@@ -1147,37 +1147,6 @@ async fn builtin_shell_exec(
                 "readWhitelistHint": terminal_read_whitelist_usage_hint(),
                 "cwd": terminal_path_for_user(&cwd),
                 "command": cmd,
-            }));
-        }
-    }
-
-    if is_write_command {
-        let mode_write_targets = if matches!(write_risk, TerminalWriteRisk::Unknown) {
-            vec![command_analysis.final_execution_cwd(&cwd)]
-        } else {
-            write_target_paths.clone()
-        };
-        if let Some(reason) = terminal_worktree_write_rejection(
-            state,
-            &normalized_session,
-            &mode_write_targets,
-        )? {
-            let review = terminal_local_review_value(
-                &ui_language,
-                "当前工作模式的附加写入范围已拒绝本次终端命令；请按返回的允许路径调整命令。",
-            );
-            return Ok(serde_json::json!({
-                "ok": false,
-                "approved": false,
-                "blockedReason": "worktree_mode_write_restricted",
-                "message": reason,
-                "toolReview": review,
-                "rootPath": session_root_text,
-                "workspacePath": workspace_path_text,
-                "allowedProjectRoots": allowed_project_roots,
-                "cwd": terminal_path_for_user(&cwd),
-                "command": cmd,
-                "writeTargets": mode_write_targets.iter().map(|path| terminal_path_for_user(path)).collect::<Vec<_>>(),
             }));
         }
     }

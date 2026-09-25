@@ -622,6 +622,10 @@ fn create_side_chat_conversation_blocking(
     side_chat.shell_workspaces = parent.shell_workspaces.clone();
     side_chat.shell_autonomous_mode = parent.shell_autonomous_mode;
     side_chat.shell_work_mode = normalize_shell_work_mode_text(&parent.shell_work_mode);
+    // 工作树绑定与分支记录跟随父会话：追问会话与父会话共用同一工作树与权限范围
+    side_chat.shell_worktree_path = parent.shell_worktree_path.clone();
+    side_chat.shell_work_branch = parent.shell_work_branch.clone();
+    side_chat.shell_recorded_branch = parent.shell_recorded_branch.clone();
     side_chat.current_todos = parent.current_todos.clone();
     side_chat.user_profile_snapshot = parent.user_profile_snapshot.clone();
     side_chat.preferred_api_config_id = parent.preferred_api_config_id.clone();

@@ -142,27 +142,16 @@ fn normalize_target_for_access_check(path: &std::path::Path) -> PathBuf {
     sanitized
 }
 
-fn session_root_canonical(
-    state: &AppState,
-    session_id: &str,
- ) -> Result<PathBuf, String> {
-    terminal_session_root_canonical(state, session_id)
-}
-
 fn path_allowed(
     state: &AppState,
     session_id: &str,
     target: &std::path::Path,
 ) -> Result<bool, String> {
-    let root = session_root_canonical(state, session_id)?;
-    let target = normalize_target_for_access_check(target);
-    if exec_path_is_within(&root, &target) {
-        return Ok(true);
-    }
-    Ok(false)
+    // 与终端 cwd / write / patch 同一白名单：命中本会话权限范围即放行
+    Ok(terminal_match_workspace_for_session_target(state, session_id, target)?.is_some())
 }
 
-/// 校验 cwd 位于会话根目录内。收到拒绝时提示先调用 shell_switch_workspace。
+/// 校验 cwd 位于本会话允许的执行根内（主工作区或已绑定的工作树）。
 /// canonicalize 是同步阻塞 I/O，统一放到 spawn_blocking 中执行，
 /// 避免在 async 后端路径上阻塞 runtime 工作线程。
 async fn assert_cwd_allowed(
@@ -175,7 +164,7 @@ async fn assert_cwd_allowed(
             return Ok(());
         }
         Err(format!(
-            "Working directory is outside current shell root: {}. Call shell_switch_workspace first.",
+            "Working directory is outside current shell root: {}. 本会话仅允许在主工作区或已绑定的工作树内执行命令；请改用这些目录，或在会话工作区配置中调整工作树绑定。",
             cwd.to_string_lossy()
         ))
     })

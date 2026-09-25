@@ -71,15 +71,6 @@ impl TerminalCommandAnalysis {
         }
         out
     }
-
-    fn final_execution_cwd(&self, initial_cwd: &Path) -> PathBuf {
-        self.accesses
-            .iter()
-            .rev()
-            .find(|access| access.intent == TerminalPathIntent::ChangeDirectory)
-            .map(|access| access.path.clone())
-            .unwrap_or_else(|| initial_cwd.to_path_buf())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
