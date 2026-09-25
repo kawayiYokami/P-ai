@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-25T05:19:58.572Z",
-  "latestVersion": "v0.94.2",
+  "generatedAt": "2026-09-25T22:38:35.590Z",
+  "latestVersion": "v0.94.3",
   "releases": [
+    {
+      "version": "v0.94.3",
+      "path": "docs/changelog/releases/v0.94.3.md",
+      "summary": "**工作树模式下终端命令不再被误判越界**：会话绑定工作树后，命令的默认目录直接落在工作树里，执行命令不会再被「不在允许目录」挡下。"
+    },
     {
       "version": "v0.94.2",
       "path": "docs/changelog/releases/v0.94.2.md",
