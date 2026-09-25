@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-24T11:42:17.314Z",
-  "latestVersion": "v0.94.1",
+  "generatedAt": "2026-09-25T05:19:58.572Z",
+  "latestVersion": "v0.94.2",
   "releases": [
+    {
+      "version": "v0.94.2",
+      "path": "docs/changelog/releases/v0.94.2.md",
+      "summary": "**MCP 服务可以完成 OAuth 授权登录**：连接需要授权的 streamable_http 服务时，配置页会出现登录入口，通过本地回调完成授权并把凭据保存下来；授权被拒绝时直接结束流程，不再一直等到超时。"
+    },
     {
       "version": "v0.94.1",
       "path": "docs/changelog/releases/v0.94.1.md",
