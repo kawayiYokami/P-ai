@@ -68,19 +68,6 @@ fn normalize_prompt_tool_calls(raw_calls: &[Value]) -> Vec<NormalizedToolCallRec
             let (arguments_value, arguments_text, raw_arguments) = normalize_tool_call_arguments(
                 raw.get("function").and_then(|func| func.get("arguments")),
             );
-            let norm_is_object = arguments_value.is_object();
-            let raw_type = match &raw_arguments {
-                Value::Object(_) => "object",
-                Value::String(_) => "string",
-                Value::Null => "null",
-                _ => "other",
-            };
-            runtime_log_debug(format!(
-                "[历史回放] 工具调用参数规范化: tool={}，原始类型={}，规范化后是否为对象={}",
-                tool_name.as_deref().unwrap_or("(unknown)"),
-                raw_type,
-                norm_is_object
-            ));
             NormalizedToolCallRecord {
                 invocation_id,
                 provider_call_id,
