@@ -255,6 +255,7 @@ const emit = defineEmits<{
   (e: "openDelegateDetail", status: ConversationDelegateStatusSummary): void;
   (e: "abortDelegate", status: ConversationDelegateStatusSummary): void;
   (e: "assistantLinkClick", event: MouseEvent): void;
+  (e: "taskMutated", task: TaskEntry): void;
 }>();
 
 const { t, locale } = useI18n();
@@ -746,6 +747,7 @@ function handleTaskRefreshEvent(payload: TaskChangedMonitorPayload | null | unde
 function handleTaskMutated(task: TaskEntry) {
   taskEditorOpen.value = false;
   taskEditorTask.value = task;
+  emit("taskMutated", task);
   void loadConversationTasks();
 }
 

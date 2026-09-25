@@ -290,7 +290,9 @@ fn task_mark_dispatch_sent(state: &AppState, task: &TaskRecordStored) -> Result<
     if task_record_is_one_time(task) {
         return task_complete_one_time_dispatch_if_needed(state, task);
     }
-    task_store_mark_triggered(&state.data_path, &task.task_id)
+    task_store_mark_triggered(&state.data_path, &task.task_id)?;
+    task_publish_changed_event(state, "updated", &task.task_id, None);
+    Ok(())
 }
 
 fn task_mark_dispatch_skipped(
@@ -319,6 +321,7 @@ fn task_mark_dispatch_skipped(
             reason
         ),
     )?;
+    task_publish_changed_event(state, "updated", &task.task_id, None);
     task_complete_one_time_dispatch_if_needed(state, task)
 }
 
@@ -348,6 +351,7 @@ fn task_fail_missing_bound_conversation(
             task.task_id,
             conversation_id
         ));
+        task_publish_changed_event(state, "completed", &task.task_id, None);
     }
     Ok(())
 }
@@ -373,6 +377,7 @@ fn task_fail_unavailable_owner(
             task.task_id,
             reason.trim()
         ));
+        task_publish_changed_event(state, "completed", &task.task_id, None);
     }
     Ok(())
 }

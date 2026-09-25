@@ -817,6 +817,7 @@
             @open-delegate-detail="openDelegateArchiveDetail"
             @abort-delegate="abortDelegate"
             @assistant-link-click="handleAssistantLinkClick"
+            @task-mutated="refreshRunningTaskCount"
           />
         </div>
         </div>
@@ -1526,11 +1527,13 @@ function closeTaskDialog() {
 
 function handleTaskCreated(task: TaskEntry) {
   taskDialogOpen.value = false;
+  void refreshRunningTaskCount();
   emit("taskCreated", task);
 }
 
 function handleTaskUpdated(task: TaskEntry) {
   taskDialogOpen.value = false;
+  void refreshRunningTaskCount();
   emit("taskUpdated", task);
 }
 
@@ -3095,6 +3098,11 @@ const homePanelRunningTasks = ref<TaskEntry[]>([]);
 let runningTaskRequestSeq = 0;
 let runningTaskRequestConversationId = "";
 
+function isTaskActive(task: TaskEntry | null | undefined): boolean {
+  const state = String(task?.completionState || "").trim().toLowerCase();
+  return Boolean(state) && state !== "completed" && state !== "failed_completed";
+}
+
 async function refreshRunningTaskCount() {
   const conversationId = String(props.activeConversationId || "").trim();
   if (!conversationId) {
@@ -3110,7 +3118,7 @@ async function refreshRunningTaskCount() {
     const tasks = await invokeTauri<TaskEntry[]>("task.list", {});
     if (seq !== runningTaskRequestSeq || runningTaskRequestConversationId !== String(props.activeConversationId || "").trim()) return;
     const activeTasks = (Array.isArray(tasks) ? tasks : []).filter((task) =>
-      String(task?.completionState || "").trim() === "active"
+      isTaskActive(task)
       && String(task?.conversationId || "").trim() === conversationId,
     );
     runningTaskCount.value = activeTasks.length;
@@ -3137,11 +3145,39 @@ watch(
   { immediate: true },
 );
 
+watch(
+  () => props.chatRightPanelMode,
+  (mode) => {
+    if (mode === "home") {
+      void refreshRunningTaskCount();
+    }
+  },
+);
+
 let unlistenTaskChanged: (() => void) | null = null;
 let unlistenTaskRecovered: (() => void) | null = null;
+let unlistenRoundFinished: (() => void) | null = null;
+let taskPollTimer: ReturnType<typeof window.setInterval> | null = null;
+
+function syncTaskPollTimer() {
+  const hasActive = runningTaskCount.value > 0 || homePanelRunningTasks.value.length > 0;
+  if (hasActive && taskPollTimer == null && typeof window !== "undefined") {
+    taskPollTimer = window.setInterval(() => {
+      void refreshRunningTaskCount();
+    }, 15000);
+  } else if (!hasActive && taskPollTimer != null) {
+    window.clearInterval(taskPollTimer);
+    taskPollTimer = null;
+  }
+}
+
+watch(runningTaskCount, () => syncTaskPollTimer());
 
 onMounted(() => {
   unlistenTaskChanged = onTransportNotification("monitor.changed", handleRunningTaskRefreshEvent);
+  unlistenRoundFinished = onTransportNotification("chat.roundFinished", () => {
+    void refreshRunningTaskCount();
+  });
   unlistenTaskRecovered = onTransportRecovered(() => {
     void refreshRunningTaskCount();
   });
@@ -3150,8 +3186,14 @@ onMounted(() => {
 onBeforeUnmount(() => {
   unlistenTaskChanged?.();
   unlistenTaskChanged = null;
+  unlistenRoundFinished?.();
+  unlistenRoundFinished = null;
   unlistenTaskRecovered?.();
   unlistenTaskRecovered = null;
+  if (taskPollTimer != null) {
+    window.clearInterval(taskPollTimer);
+    taskPollTimer = null;
+  }
 });
 
 // ==================== panes ====================
