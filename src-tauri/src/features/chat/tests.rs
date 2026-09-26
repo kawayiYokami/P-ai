@@ -5610,6 +5610,52 @@
     }
 
     #[test]
+    fn conversation_service_v2_should_create_draft_with_explicit_agent() {
+        let state = test_chat_runtime_state();
+        let git_init = std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&state.llm_workspace_path)
+            .output()
+            .expect("initialize git workspace");
+        assert!(git_init.status.success(), "git init should succeed");
+
+        let config = AppConfig::default();
+        write_config(&state.config_path, &config).expect("write config");
+        let mut custom_agent = default_agent();
+        custom_agent.id = "persona-inherited".to_string();
+        custom_agent.name = "继承人格".to_string();
+        state_write_agents_cached(
+            &state,
+            &[default_agent(), custom_agent, default_user_persona()],
+        )
+        .expect("write agents");
+
+        let created = conversation_service_v2()
+            .create_conversation(
+                &state,
+                &CreateUnarchivedConversationInput {
+                    api_config_id: None,
+                    agent_id: Some("persona-inherited".to_string()),
+                    title: None,
+                    copy_source_conversation_id: None,
+                    shell_workspaces: None,
+                    shell_work_mode: None,
+                    shell_work_branch: None,
+                    shell_autonomous_mode: None,
+                    is_draft: Some(true),
+                },
+            )
+            .expect("create draft with explicit inherited agent");
+
+        let draft = state_read_conversation_cached(&state, &created.conversation_id)
+            .expect("draft conversation should exist");
+        assert_eq!(
+            draft.agent_id, "persona-inherited",
+            "draft must inherit the explicitly passed agent (current conversation persona)"
+        );
+    }
+
+    #[test]
     fn conversation_service_v2_should_keep_normal_create_non_draft() {
         let state = test_chat_runtime_state();
         let git_init = std::process::Command::new("git")

@@ -1187,6 +1187,9 @@ struct OpenDraftConversationInput {
     shell_work_branch: Option<String>,
     #[serde(default)]
     shell_autonomous_mode: Option<bool>,
+    /// 打开草稿时继承的人格（来自当前会话）；None 表示不指定，由后端回落默认助理人格
+    #[serde(default)]
+    agent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1214,10 +1217,18 @@ async fn open_draft_conversation_inner(
     let shell_workspaces = input.as_ref().and_then(|item| item.shell_workspaces.clone());
     let shell_work_mode = input.as_ref().and_then(|item| item.shell_work_mode.clone());
     let shell_autonomous_mode = input.as_ref().and_then(|item| item.shell_autonomous_mode);
+    let requested_agent_id = input.as_ref().and_then(|item| item.agent_id.clone());
     let output = tokio::task::spawn_blocking(
         move || -> Result<OpenDraftConversationOutput, String> {
+            // 继承人格先校验：无效（已删除/用户人格）时退回不指定，由后端回落默认助理人格，
+            // 不能因为一个悬空人格 id 就阻断草稿创建。
+            let inherited_agent_id = normalize_draft_agent_id(&app_state, requested_agent_id)?;
             if let Some(conversation_id) = find_existing_draft_conversation_id(&app_state)? {
-                if shell_workspaces.is_some() || shell_work_mode.is_some() || shell_autonomous_mode.is_some() {
+                if shell_workspaces.is_some()
+                    || shell_work_mode.is_some()
+                    || shell_autonomous_mode.is_some()
+                    || inherited_agent_id.is_some()
+                {
                     conversation_service_v2().apply_external_metadata_patch(
                         &app_state,
                         &conversation_id,
@@ -1226,6 +1237,7 @@ async fn open_draft_conversation_inner(
                             shell_workspaces: shell_workspaces.clone(),
                             shell_work_mode: shell_work_mode.clone(),
                             shell_autonomous_mode,
+                            routing_agent_id: inherited_agent_id.clone(),
                             ..Default::default()
                         },
                     )?;
@@ -1237,7 +1249,7 @@ async fn open_draft_conversation_inner(
             }
             let input = CreateUnarchivedConversationInput {
                 api_config_id: None,
-                agent_id: None,
+                agent_id: inherited_agent_id,
                 title: None,
                 copy_source_conversation_id: None,
                 shell_workspaces,
@@ -1413,6 +1425,32 @@ fn validate_draft_agent(state: &AppState, agent_id: &str) -> Result<(), String> 
         ));
     }
     Ok(())
+}
+
+/// 归一化「打开草稿时继承的人格」：空串或不存在的人格一律视为未指定（返回 None），
+/// 由调用方回落到默认助理人格。悬空人格 id 只记 warn，不阻断草稿创建。
+fn normalize_draft_agent_id(
+    state: &AppState,
+    agent_id: Option<String>,
+) -> Result<Option<String>, String> {
+    let Some(raw) = agent_id else {
+        return Ok(None);
+    };
+    let candidate = raw.trim().to_string();
+    if candidate.is_empty() {
+        return Ok(None);
+    }
+    let agents = state_read_agents_cached(state)?;
+    if agents
+        .iter()
+        .any(|agent| agent.id == candidate && !agent.is_built_in_user)
+    {
+        return Ok(Some(candidate));
+    }
+    runtime_log_warn(format!(
+        "[会话草稿] 跳过，任务=继承当前会话人格，原因=人格不存在或不可用，agent_id={candidate}"
+    ));
+    Ok(None)
 }
 
 async fn create_unarchived_conversation_inner(

@@ -528,8 +528,29 @@ export default defineComponent({
     const app = useChatWindowApp();
     const embedded = isEmbeddedWebHost();
 
+    // 新建草稿继承「当前会话人格」：与工作区同口径，把当前会话的人格直接传给后端。
+    // 仅当当前是普通未归档本地会话时继承；系统通知会话、草稿自身、远程联系人会话都返回空串，
+    // 由后端回落默认助理人格。人格若已从清单消失（悬空）同样不传，避免锁死新建。
+    function resolveDraftInheritedAgentId(): string {
+      const currentId = String(app.currentChatConversationId?.value || "").trim();
+      if (!currentId) return "";
+      const items = app.chatUnarchivedConversationItems?.value || [];
+      const item = items.find(
+        (it: { conversationId?: string }) => String(it?.conversationId || "").trim() === currentId,
+      );
+      if (!item) return "";
+      if (item.isSystemNotificationConversation || item.isDraft) return "";
+      const agentId = String(item.agentId || "").trim();
+      if (!agentId) return "";
+      const exists = (app.personas?.value || []).some(
+        (p: { id?: string }) => String(p?.id || "").trim() === agentId,
+      );
+      return exists ? agentId : "";
+    }
+
     // 打开草稿会话：从文件夹分节新建时带该文件夹；标题栏/composer 新建时带当前会话工作区
     function openDraftConversationFromEntry(payload?: { workspaceRootPath?: string } | Record<string, unknown>) {
+      const agentId = resolveDraftInheritedAgentId();
       const workspaceRootPath = String((payload as { workspaceRootPath?: string } | undefined)?.workspaceRootPath || "").trim();
       if (workspaceRootPath) {
         const name = workspaceRootPath.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || workspaceRootPath;
@@ -544,6 +565,7 @@ export default defineComponent({
           }],
           shellWorkMode: "directory",
           shellAutonomousMode: false,
+          agentId,
         });
         return;
       }
@@ -555,6 +577,7 @@ export default defineComponent({
           shellWorkspaces: hostWorkspaces,
           shellWorkMode: "directory",
           shellAutonomousMode: false,
+          agentId,
         });
         return;
       }
@@ -569,6 +592,7 @@ export default defineComponent({
         })),
         shellWorkMode: app.chatWorkspaceWorkMode?.value,
         shellAutonomousMode: app.chatWorkspaceAutonomousMode?.value,
+        agentId,
       });
     }
 

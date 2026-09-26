@@ -66,16 +66,19 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
   // 新建会话 = 打开（或创建）会话草稿：设置直接落在草稿字段上，
   // 发出第一句话时后端自动转正并创建下一个备用草稿。
   // workspace 传入时，后端在返回前把工作区写入草稿。
+  // agentId 传入时，后端在返回前把该人格写入草稿（继承当前会话人格）。
   async function openDraftConversation(workspace?: {
     shellWorkspaces?: ShellWorkspace[];
     shellWorkMode?: ShellWorkMode;
     shellAutonomousMode?: boolean;
+    agentId?: string;
   }) {
     try {
       const result = await openTransportConversationDraft<{ conversationId: string; created: boolean }>({
         shellWorkspaces: workspace?.shellWorkspaces || null,
         shellWorkMode: workspace?.shellWorkMode || null,
         shellAutonomousMode: workspace?.shellAutonomousMode || null,
+        agentId: String(workspace?.agentId || "").trim() || null,
       });
       const conversationId = String(result?.conversationId || "").trim();
       if (!conversationId) return "";
