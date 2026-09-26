@@ -2672,6 +2672,8 @@
       "light": "淺色",
       "dark": "深色"
     },
+    "switchToLight": "切換至淺色模式",
+    "switchToDark": "切換至深色模式",
     "themeHue": "主題色相",
     "contrast": "對比度",
     "brightness": "亮度",

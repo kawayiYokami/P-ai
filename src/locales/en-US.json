@@ -2678,6 +2678,8 @@
       "light": "Light",
       "dark": "Dark"
     },
+    "switchToLight": "Switch to light mode",
+    "switchToDark": "Switch to dark mode",
     "themeHue": "Theme Hue",
     "contrast": "Contrast",
     "brightness": "Brightness",
