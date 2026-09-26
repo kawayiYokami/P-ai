@@ -2678,6 +2678,8 @@
       "light": "浅色",
       "dark": "深色"
     },
+    "switchToLight": "切换到浅色模式",
+    "switchToDark": "切换到深色模式",
     "themeHue": "主题色相",
     "contrast": "对比度",
     "brightness": "亮度",

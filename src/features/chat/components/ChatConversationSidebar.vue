@@ -164,6 +164,15 @@
         </div>
         <div class="flex items-center gap-1">
           <button
+            type="button"
+            class="btn btn-ghost btn-xs h-7 min-h-7 w-7 min-w-7 p-0"
+            :title="themeToggleTitle"
+            @click="toggleTheme"
+          >
+            <Sun v-if="!darkMode" class="h-4 w-4" />
+            <Moon v-else class="h-4 w-4" />
+          </button>
+          <button
             v-if="activeConversationTab !== 'task'"
             type="button"
             class="btn btn-ghost btn-xs h-7 min-h-7 w-7 min-w-7 p-0"
@@ -311,7 +320,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Archive, ChevronDown, LayoutList, List, Search, Settings, SquarePen } from "@lucide/vue";
+import { Archive, ChevronDown, LayoutList, List, Moon, Search, Settings, SquarePen, Sun } from "@lucide/vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import ChatConversationItem from "./ChatConversationItem.vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
@@ -319,6 +328,7 @@ import { stripToolcallMarkers } from "../../../utils/chat-message-semantics";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import { invokeTauri } from "../../../services/tauri-api";
 import { usePipelineStatus } from "../../shell/composables/use-pipeline-status";
+import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
 import ApiConfigPicker from "../../config/components/ApiConfigPicker.vue";
 import { formatConversationListTime } from "../utils/conversation-time";
 import {
@@ -396,6 +406,11 @@ const emit = defineEmits<{
 }>();
 
 const { t, locale } = useI18n();
+const { currentTheme, toggleTheme } = useAppTheme();
+const darkMode = computed(() => isDarkAppTheme(currentTheme.value));
+const themeToggleTitle = computed(() =>
+  darkMode.value ? t("appearance.switchToLight") : t("appearance.switchToDark"),
+);
 /** 头像上拉菜单：DaisyUI dropdown 依赖焦点开合，选中菜单项后主动失焦收起 */
 function closeUserMenu(event: MouseEvent) {
   (event.currentTarget as HTMLElement | null)?.closest(".dropdown")
