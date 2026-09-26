@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-25T22:38:35.590Z",
-  "latestVersion": "v0.94.3",
+  "generatedAt": "2026-09-26T11:09:04.134Z",
+  "latestVersion": "v0.94.6",
   "releases": [
+    {
+      "version": "v0.94.6",
+      "path": "docs/changelog/releases/v0.94.6.md",
+      "summary": "**修复新建会话失败、整个新建入口被锁死的问题**：曾经创建并删除过人格后，残留的人格记录会让新建会话一直报「会话草稿缺少可用的助理人格」而无法创建。现在助理人格固定为内置的默认人格，不再受残留记录影响，新建会话恢复正常。"
+    },
     {
       "version": "v0.94.3",
       "path": "docs/changelog/releases/v0.94.3.md",
