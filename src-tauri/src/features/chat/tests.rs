@@ -5566,7 +5566,7 @@
     }
 
     #[test]
-    fn conversation_service_v2_should_create_draft_with_current_assistant_persona_outside_org() {
+    fn conversation_service_v2_should_ignore_dangling_assistant_agent_id_for_draft() {
         let state = test_chat_runtime_state();
         let git_init = std::process::Command::new("git")
             .args(["init", "--quiet"])
@@ -5577,22 +5577,12 @@
 
         let config = AppConfig::default();
         write_config(&state.config_path, &config).expect("write config");
-        state_write_agents_cached(
-            &state,
-            &[
-                {
-                    let mut agent = default_agent();
-                    agent.id = "persona-outside-department".to_string();
-                    agent.name = "游离人格".to_string();
-                    agent
-                },
-                default_agent(),
-                default_user_persona(),
-            ],
-        )
-        .expect("write agents");
-        state_service_set_assistant_agent_id(&state, "persona-outside-department")
-            .expect("write assistant department agent id");
+        state_write_agents_cached(&state, &[default_agent(), default_user_persona()])
+            .expect("write agents");
+        // 模拟历史遗留：kv 里残留一个已被删除的人格 id（悬空值）。
+        // 助理人格恒为内置 default-agent，该悬空值既不能阻断草稿创建，也不能被采用。
+        state_service_set_assistant_agent_id(&state, "persona-deleted")
+            .expect("write dangling assistant agent id");
 
         let created = conversation_service_v2()
             .create_conversation(
@@ -5609,13 +5599,13 @@
                     is_draft: Some(true),
                 },
             )
-            .expect("create draft with current assistant persona");
+            .expect("draft creation must not fail on a dangling assistant agent id");
 
         let draft = state_read_conversation_cached(&state, &created.conversation_id)
             .expect("draft conversation should exist");
         assert_eq!(
-            draft.agent_id, "persona-outside-department",
-            "draft must use the current assistant persona even when it has no structural relationship to the assistant root"
+            draft.agent_id, DEFAULT_AGENT_ID,
+            "draft must always use the built-in default assistant, ignoring the dangling kv value"
         );
     }
 

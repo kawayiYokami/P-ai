@@ -652,27 +652,7 @@ fn apply_chat_settings_patch(
     input: ChatSettingsPatch,
 ) -> Result<ChatSettings, String> {
     let mut agents_changed = false;
-    if let Some(agent_id) = input.assistant_agent_id {
-        let target_agent_id = agent_id.trim().to_string();
-        let runtime_snapshot = build_runtime_organization_snapshot_from_parts(
-            &state.data_path,
-            config,
-            agents,
-        )?;
-        if !target_agent_id.is_empty()
-            && !runtime_snapshot
-                .agents
-                .iter()
-                .any(|a| a.id == target_agent_id && !a.is_built_in_user)
-        {
-            return Err("Selected agent not found.".to_string());
-        }
-        if !target_agent_id.is_empty()
-            && state_service_get_assistant_agent_id(state)? != target_agent_id
-        {
-            state_service_set_assistant_agent_id(state, &target_agent_id)?;
-        }
-    }
+    // assistant_agent_id 恒为内置的 default-agent，这里不再接受外部改写，也不再写入 kv。
     if let Some(response_style_id) = input.response_style_id {
         let next = normalize_response_style_id(&response_style_id);
         if state_service_get_response_style_id(state)? != next {

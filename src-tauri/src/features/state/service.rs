@@ -123,10 +123,12 @@ fn state_service_set_main_conversation_id(
 
 // ---------- 标量字符串配置 ----------
 
-fn state_service_get_assistant_agent_id(state: &AppState) -> Result<String, String> {
-    Ok(state_service_get_kv(state, "assistant_agent_id")?
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(default_assistant_agent_id))
+/// 助理人格恒为内置的 default-agent。
+/// 「当前助理人格」没有用户入口，历史上只被新建人格等副作用写入 kv；
+/// 人格一旦删除，kv 里的 id 就会悬空，读到它的入口全部失真。
+/// 因此这里不再读 kv，直接返回内置默认人格。
+fn state_service_get_assistant_agent_id(_state: &AppState) -> Result<String, String> {
+    Ok(default_assistant_agent_id())
 }
 
 fn state_service_set_assistant_agent_id(

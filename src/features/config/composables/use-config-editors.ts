@@ -98,7 +98,6 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
           }))
         : [],
     }));
-    const previousAssistantAgentId = options.assistantAgentId.value;
     const previousPersonaEditorId = options.personaEditorId.value;
     const id = `persona-${Date.now()}`;
     const now = new Date().toISOString();
@@ -120,12 +119,10 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
       childAgentIds: [],
       apiConfigIds: [],
     });
-    options.assistantAgentId.value = id;
     options.personaEditorId.value = id;
     const saved = await options.savePersonas();
     if (!saved) {
       options.personas.value = previousPersonas;
-      options.assistantAgentId.value = previousAssistantAgentId;
       options.personaEditorId.value = previousPersonaEditorId;
       return;
     }
