@@ -35,6 +35,7 @@ export function buildPersonasSnapshotJson(personas: PersonaProfile[]) {
       avatarUpdatedAt: item.avatarUpdatedAt || "",
       isBuiltInUser: !!item.isBuiltInUser,
       isBuiltInSystem: !!item.isBuiltInSystem,
+      includeSystemRules: item.includeSystemRules !== false,
       source: item.source || "",
       scope: item.scope || "",
       tools: (item.tools || []).map((tool) => ({
