@@ -1128,6 +1128,17 @@ function showStreamingUi(block: ChatMessageBlock): boolean {
   return !!block.isStreaming && !isOwnMessage(block);
 }
 
+function retryStatusLabel(text: string): string {
+  const value = String(text || "").trim();
+  if (!value) return "";
+  if (!(value.includes("重试") || value.includes("Retrying"))) return "";
+  const match = value.match(/\((\d+)\s*\/\s*(\d+)\)/);
+  if (match) {
+    return t("chat.statusRetrying", { current: match[1], total: match[2] });
+  }
+  return t("chat.statusRetryingPlain");
+}
+
 function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
   const providerMeta = (block.providerMeta || {}) as Record<string, unknown>;
   const schedulingState = String((providerMeta as Record<string, unknown>)._schedulingState || "").trim();
@@ -1142,8 +1153,9 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
     return text;
   };
   const toolStatusText = String(providerMeta._toolStatusText || "").trim();
-  if (toolStatusText && (toolStatusText.includes("重试") || toolStatusText.includes("429"))) {
-    return toolStatusText;
+  const retryLabel = retryStatusLabel(toolStatusText);
+  if (retryLabel) {
+    return retryLabel;
   }
   if (schedulingState) {
     switch (schedulingState) {
@@ -1173,8 +1185,9 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
 
   const normalizeRequestPhaseText = (text: string): string => {
     if (!text) return "";
-    if (text.includes("重试") || text.includes("429")) {
-      return text;
+    const retryLabel = retryStatusLabel(text);
+    if (retryLabel) {
+      return retryLabel;
     }
     if (text.includes("准备调度") || text.includes("处理附件") || text.includes("上下文")) {
       return t("chat.statusPreparingMessage");

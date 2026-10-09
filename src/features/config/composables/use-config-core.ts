@@ -118,7 +118,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       keyCursor: 0,
       cachedModelOptions: modelName ? [modelName] : [],
       models: modelName ? [createApiModel(seed, modelName)] : [],
-      failureRetryCount: 0,
+      failureRetryCount: 5,
     };
   }
 
@@ -199,7 +199,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
             customMaxOutputTokensEnabled: !!api.customMaxOutputTokensEnabled,
             maxOutputTokens: toFiniteMaxOutputTokens(api.maxOutputTokens),
           }],
-          failureRetryCount: 0,
+          failureRetryCount: 5,
         }));
       } else {
         options.config.apiProviders = [createApiProvider()];

@@ -762,7 +762,7 @@ fn default_llm_round_log_capacity() -> u32 {
 }
 
 fn default_failure_retry_count() -> u32 {
-    0
+    5
 }
 
 fn default_provider_non_stream_base_urls() -> Vec<String> {

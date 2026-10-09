@@ -402,7 +402,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
                 maxOutputTokens: Math.round(Number((model as { maxOutputTokens?: unknown }).maxOutputTokens ?? 4096)),
               }))
             : [],
-          failureRetryCount: Math.max(0, Number((provider as { failureRetryCount?: unknown }).failureRetryCount || 0)),
+          failureRetryCount: Math.max(0, Number((provider as { failureRetryCount?: unknown }).failureRetryCount ?? 5)),
         }))
       : [];
     options.config.apiConfigs.splice(

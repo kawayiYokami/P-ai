@@ -1973,6 +1973,8 @@
     "copyFailed": "复制失败，请检查剪贴板权限后重试",
     "statusPreparingMessage": "准备上下文",
     "statusWaitingReply": "等待回应",
+    "statusRetrying": "正在重试（{current}/{total}）",
+    "statusRetryingPlain": "正在重试",
     "statusReadMessage": "已阅读消息",
     "statusAwaitingThinking": "思考中",
     "statusThinking": "思考中",

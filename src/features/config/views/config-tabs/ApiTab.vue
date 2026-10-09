@@ -1582,7 +1582,7 @@ function normalizeProviderForCompare(provider: ApiProviderConfigItem) {
           maxOutputTokens: Number(model.maxOutputTokens ?? 4096),
         }))
         : [],
-    failureRetryCount: Math.max(0, Math.round(Number(provider.failureRetryCount ?? 0))),
+    failureRetryCount: Math.max(0, Math.round(Number(provider.failureRetryCount ?? 5))),
   };
 }
 
@@ -1722,7 +1722,7 @@ function createProvider(seed: string, capability: ApiCapability = selectedCapabi
     keyCursor: 0,
     cachedModelOptions: [],
     models: [],
-    failureRetryCount: 0,
+    failureRetryCount: 5,
   };
 }
 

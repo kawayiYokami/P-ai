@@ -2181,6 +2181,8 @@
     "copyFailed": "Copy failed. Please check clipboard permissions and try again.",
     "statusPreparingMessage": "Preparing context",
     "statusWaitingReply": "Waiting for reply",
+    "statusRetrying": "Retrying ({current}/{total})",
+    "statusRetryingPlain": "Retrying",
     "statusReadMessage": "Message read",
     "statusAwaitingThinking": "Thinking",
     "statusThinking": "Thinking",

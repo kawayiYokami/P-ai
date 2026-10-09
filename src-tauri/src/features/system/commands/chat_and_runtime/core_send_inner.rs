@@ -298,26 +298,78 @@ fn legacy_attachment_relative_paths_for_prompt(
 enum RetryKind {
     Empty,
     RateLimited,
+    ServerError,
+    Transport,
     NonRetryable,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 struct RetryBudget {
-    empty_used: u8,
-    rate_used: u8,
+    used: u32,
 }
 
-const MAX_EMPTY_RETRIES: u8 = 3;
-const WAIT_EMPTY_SECS: u64 = 5;
-const MAX_RATE_RETRIES: u8 = 3;
-const WAIT_RATE_SECS: u64 = 30;
+// 退避基线对齐 opencode：初始 2s、每次翻倍、向上抖动 25%、无 retry-after 时封顶 30s。
+const RETRY_INITIAL_DELAY_MS: u64 = 2_000;
+const RETRY_BACKOFF_FACTOR: u64 = 2;
+const RETRY_JITTER_PERCENT: u64 = 25;
+const RETRY_MAX_DELAY_NO_HEADERS_MS: u64 = 30_000;
+const RETRY_MAX_DELAY_MS: u64 = 2_147_483_647;
+const RETRY_DEFAULT_MAX_ATTEMPTS: u32 = 5;
 
-fn is_rate_limited_error(err: &str) -> bool {
-    let lower = err.to_ascii_lowercase();
-    // 明确的额度耗尽/计费类错误属于硬性限制，不可重试。
-    // "quota exceeded" 只有自带重试提示（如 "quota exceeded, please retry"）时才当作限流，
-    // 否则同样按硬性限制处理，避免无意义的重试。
-    if lower.contains("insufficient_quota")
+// 连接/超时类关键词，对齐 opencode 的网络类错误匹配。
+const RETRY_TRANSPORT_PATTERNS: &[&str] = &[
+    "timeout",
+    "timed out",
+    "time out",
+    "connection reset",
+    "connection refused",
+    "connection lost",
+    "connection error",
+    "econnreset",
+    "econnrefused",
+    "etimedout",
+    "socket hang up",
+    "socket connection was closed",
+    "reset before headers",
+    "fetch failed",
+    "failed to fetch",
+    "network error",
+    "upstream connect",
+    "broken pipe",
+    "unexpected eof",
+    "error sending request",
+];
+
+// 服务端/过载类关键词。
+const RETRY_SERVER_PATTERNS: &[&str] = &[
+    "overloaded",
+    "service unavailable",
+    "service_unavailable",
+    "internal error",
+    "internal_error",
+    "internal server error",
+    "provider returned error",
+    "provider_returned_error",
+    "resource exhausted",
+    "resource_exhausted",
+    "try again later",
+    "temporarily unavailable",
+    "at capacity",
+];
+
+fn contains_status_code(lower: &str, code: &str) -> bool {
+    lower
+        .split(|c: char| !c.is_ascii_digit())
+        .any(|token| token == code)
+}
+
+fn contains_any_pattern(lower: &str, patterns: &[&str]) -> bool {
+    patterns.iter().any(|pattern| lower.contains(pattern))
+}
+
+fn is_hard_limit_error(lower: &str) -> bool {
+    // 额度耗尽/计费类与上下文溢出属于硬性限制，重试无意义。
+    lower.contains("insufficient_quota")
         || lower.contains("quota_exceeded")
         || lower.contains("exceeded your current quota")
         || lower.contains("out of quota")
@@ -325,19 +377,36 @@ fn is_rate_limited_error(err: &str) -> bool {
         || lower.contains("usage limit reached")
         || lower.contains("billing")
         || (lower.contains("quota exceeded") && !lower.contains("retry"))
-    {
-        return false;
+        || lower.contains("context_length_exceeded")
+        || lower.contains("maximum context length")
+        || lower.contains("context length exceeded")
+        || lower.contains("too many tokens")
+}
+
+fn classify_retry_kind_for_error_text(err: &str) -> RetryKind {
+    let lower = err.to_ascii_lowercase();
+    if lower.trim().is_empty() || is_hard_limit_error(&lower) {
+        return RetryKind::NonRetryable;
     }
-    let has_429 = lower
-        .split(|c: char| !c.is_ascii_digit())
-        .any(|token| token == "429");
-    if has_429 {
-        return true;
-    }
-    lower.contains("rate limit")
+    if contains_status_code(&lower, "429")
+        || lower.contains("rate limit")
         || lower.contains("too many requests")
         || lower.contains("rate_limit_exceeded")
         || (lower.contains("quota exceeded") && lower.contains("retry"))
+    {
+        return RetryKind::RateLimited;
+    }
+    if ["500", "502", "503", "504", "524"]
+        .iter()
+        .any(|code| contains_status_code(&lower, code))
+        || contains_any_pattern(&lower, RETRY_SERVER_PATTERNS)
+    {
+        return RetryKind::ServerError;
+    }
+    if contains_any_pattern(&lower, RETRY_TRANSPORT_PATTERNS) {
+        return RetryKind::Transport;
+    }
+    RetryKind::NonRetryable
 }
 
 fn classify_retry_kind_for_result(result: &Result<ModelReply, String>) -> RetryKind {
@@ -348,33 +417,60 @@ fn classify_retry_kind_for_result(result: &Result<ModelReply, String>) -> RetryK
                 RetryKind::Empty
             }
         },
-        Err(err) => {
-            if is_rate_limited_error(err) {
-                RetryKind::RateLimited
-            } else {
-                RetryKind::NonRetryable
-            }
-        }
+        Err(err) => classify_retry_kind_for_error_text(err),
     }
 }
 
-fn retry_policy(kind: RetryKind, budget: &RetryBudget) -> Option<std::time::Duration> {
-    match kind {
-        RetryKind::Empty => {
-            if budget.empty_used < MAX_EMPTY_RETRIES {
-                Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
-            } else {
-                None
-            }
-        }
-        RetryKind::RateLimited => {
-            if budget.rate_used < MAX_RATE_RETRIES {
-                Some(std::time::Duration::from_secs(WAIT_RATE_SECS))
-            } else {
-                None
-            }
-        }
-        RetryKind::NonRetryable => None,
+fn retry_kind_is_retryable(kind: RetryKind) -> bool {
+    !matches!(kind, RetryKind::NonRetryable)
+}
+
+fn pseudo_random_below(max: u64) -> u64 {
+    if max == 0 {
+        return 0;
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| u64::from(elapsed.subsec_nanos()))
+        .unwrap_or(0);
+    nanos % max
+}
+
+/// 尽力从错误文本解析 retry-after（毫秒）。上游响应头通常拿不到，解析失败返回 None。
+fn parse_retry_after_ms(err: &str) -> Option<u64> {
+    let lower = err.to_ascii_lowercase();
+    let index = lower.find("retry-after")? + "retry-after".len();
+    let digits: String = lower[index..]
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    let seconds = digits.parse::<u64>().ok()?;
+    Some(seconds.saturating_mul(1_000).min(RETRY_MAX_DELAY_MS))
+}
+
+fn retry_delay_ms(attempt: u32, retry_after_ms: Option<u64>) -> u64 {
+    if let Some(ms) = retry_after_ms {
+        return ms.min(RETRY_MAX_DELAY_MS);
+    }
+    let exponent = RETRY_BACKOFF_FACTOR.saturating_pow(attempt.saturating_sub(1));
+    let base = RETRY_INITIAL_DELAY_MS
+        .saturating_mul(exponent)
+        .min(RETRY_MAX_DELAY_NO_HEADERS_MS);
+    let jitter = base.saturating_mul(RETRY_JITTER_PERCENT) / 100;
+    (base + pseudo_random_below(jitter + 1)).min(RETRY_MAX_DELAY_NO_HEADERS_MS)
+}
+
+fn retry_delay(attempt: u32, retry_after_ms: Option<u64>) -> std::time::Duration {
+    std::time::Duration::from_millis(retry_delay_ms(attempt, retry_after_ms))
+}
+
+/// 有效重试次数：0 视为未配置，落到默认次数，保证历史配置也能生效；上限 20。
+fn effective_retry_count(configured: u32) -> u32 {
+    if configured == 0 {
+        RETRY_DEFAULT_MAX_ATTEMPTS
+    } else {
+        configured.min(20)
     }
 }
 
@@ -2240,43 +2336,54 @@ async fn send_chat_message_inner(
                     ModelReplyContentState::Visible => unreachable!(),
                 },
                 Err(error) => {
-                    if retry_kind == RetryKind::RateLimited {
-                        runtime_log_warn(format!(
-                            "[聊天] 命中限流429，按限流重试: conversation_id={}，api_config_id={}，model={}，attempt={}，err={}",
-                            conversation_id, candidate_selected_api.id, candidate_selected_api.model, attempt, error
-                        ));
-                        (
-                            "请求过于频繁(429)".to_string(),
-                            format!("请求过于频繁(429)，已停止重试：{error}"),
-                        )
-                    } else {
-                        (
+                    match retry_kind {
+                        RetryKind::RateLimited => {
+                            runtime_log_warn(format!(
+                                "[聊天] 命中限流429，按限流重试: conversation_id={}，api_config_id={}，model={}，attempt={}，err={}",
+                                conversation_id, candidate_selected_api.id, candidate_selected_api.model, attempt, error
+                            ));
+                            (
+                                "请求过于频繁(429)".to_string(),
+                                format!("请求过于频繁(429)，已停止重试：{error}"),
+                            )
+                        }
+                        RetryKind::ServerError => {
+                            runtime_log_warn(format!(
+                                "[聊天] 上游服务端错误，按瞬态失败重试: conversation_id={}，api_config_id={}，model={}，attempt={}，err={}",
+                                conversation_id, candidate_selected_api.id, candidate_selected_api.model, attempt, error
+                            ));
+                            (
+                                "上游服务异常".to_string(),
+                                format!("上游服务异常，已停止重试：{error}"),
+                            )
+                        }
+                        RetryKind::Transport => {
+                            runtime_log_warn(format!(
+                                "[聊天] 连接或超时失败，按瞬态失败重试: conversation_id={}，api_config_id={}，model={}，attempt={}，err={}",
+                                conversation_id, candidate_selected_api.id, candidate_selected_api.model, attempt, error
+                            ));
+                            (
+                                "网络连接异常".to_string(),
+                                format!("网络连接异常，已停止重试：{error}"),
+                            )
+                        }
+                        _ => (
                             "模型请求失败".to_string(),
                             format!("模型请求失败，已停止重试：{error}"),
-                        )
+                        ),
                     }
                 }
             };
 
-            if let Some(wait) = retry_policy(retry_kind, &retry_budget) {
-                let (retry_index, max_for_kind, wait_seconds) = match retry_kind {
-                    RetryKind::Empty => (
-                        (retry_budget.empty_used + 1) as usize,
-                        MAX_EMPTY_RETRIES as usize,
-                        wait.as_secs(),
-                    ),
-                    RetryKind::RateLimited => (
-                        (retry_budget.rate_used + 1) as usize,
-                        MAX_RATE_RETRIES as usize,
-                        wait.as_secs(),
-                    ),
-                    RetryKind::NonRetryable => unreachable!(),
+            let max_attempts = effective_retry_count(candidate_selected_api.failure_retry_count);
+            if retry_kind_is_retryable(retry_kind) && retry_budget.used < max_attempts {
+                let retry_index = retry_budget.used + 1;
+                let retry_after_ms = match &chat_round_execution.result {
+                    Err(error) => parse_retry_after_ms(error),
+                    Ok(_) => None,
                 };
-                match retry_kind {
-                    RetryKind::Empty => retry_budget.empty_used += 1,
-                    RetryKind::RateLimited => retry_budget.rate_used += 1,
-                    RetryKind::NonRetryable => {}
-                }
+                let wait = retry_delay(retry_index, retry_after_ms);
+                retry_budget.used += 1;
                 let retry_event = AssistantDeltaEvent {
                     delta: "".to_string(),
                     kind: Some("tool_status".to_string()),
@@ -2289,10 +2396,19 @@ async fn send_chat_message_inner(
                     tool_status: Some("running".to_string()),
                     tool_args: None,
                     message: Some(format!(
-                        "{reason_text}，正在重试 ({retry_index}/{max_for_kind})，等待 {wait_seconds} 秒..."
+                        "{reason_text}，正在重试 ({retry_index}/{max_attempts})..."
                     )),
                     stream_cache: None,
                 };
+                runtime_log_info(format!(
+                    "[聊天] 瞬态失败，按重试策略等待: conversation_id={}，api_config_id={}，kind={:?}，attempt={}/{}，delay_ms={}",
+                    conversation_id,
+                    candidate_selected_api.id,
+                    retry_kind,
+                    retry_index,
+                    max_attempts,
+                    wait.as_millis()
+                ));
                 let _ = update_conversation_stream_runtime_cache(&state, &conversation_id, &retry_event);
                 let _ = on_delta.send(retry_event.clone());
                 emit_assistant_delta_app_event(&state, &conversation_id, &assistant_delta_broadcast_event(&retry_event));
@@ -4552,128 +4668,132 @@ mod core_send_inner_tests {
     }
 
     #[test]
-    fn retry_state_should_classify_rate_limited_and_non_retryable() {
-        assert!(is_rate_limited_error("HTTP 429 rate limit"));
-        assert!(is_rate_limited_error("429 Too Many Requests"));
-        assert!(is_rate_limited_error("quota exceeded, please retry"));
-        assert!(is_rate_limited_error("rate_limit_exceeded"));
-        assert!(is_rate_limited_error("Rate Limit hit: 429"));
-        assert!(!is_rate_limited_error("404 Not Found"));
-        assert!(!is_rate_limited_error("401 Unauthorized"));
-        assert!(!is_rate_limited_error("model not found"));
-        assert!(!is_rate_limited_error("500 internal error"));
-        // 429 子串边界：1429 不应误判
-        assert!(!is_rate_limited_error("error code 1429"));
-        assert!(!is_rate_limited_error(""));
-
-        let empty_reply: Result<ModelReply, String> = Ok(test_model_reply("", "", ""));
+    fn retry_state_should_classify_transient_and_non_retryable() {
         assert_eq!(
-            classify_retry_kind_for_result(&empty_reply),
-            RetryKind::Empty
-        );
-        let reasoning_only: Result<ModelReply, String> =
-            Ok(test_model_reply("", "", "只有思维链"));
-        assert_eq!(
-            classify_retry_kind_for_result(&reasoning_only),
-            RetryKind::Empty
-        );
-        let visible: Result<ModelReply, String> = Ok(test_model_reply("正文", "", ""));
-        assert_eq!(
-            classify_retry_kind_for_result(&visible),
-            RetryKind::NonRetryable
-        );
-        let rate_err: Result<ModelReply, String> = Err("429 rate limit".to_string());
-        assert_eq!(
-            classify_retry_kind_for_result(&rate_err),
+            classify_retry_kind_for_error_text("HTTP 429 rate limit"),
             RetryKind::RateLimited
         );
-        let not_found: Result<ModelReply, String> = Err("404 Not Found".to_string());
         assert_eq!(
-            classify_retry_kind_for_result(&not_found),
+            classify_retry_kind_for_error_text("429 Too Many Requests"),
+            RetryKind::RateLimited
+        );
+        assert_eq!(
+            classify_retry_kind_for_error_text("rate_limit_exceeded"),
+            RetryKind::RateLimited
+        );
+        assert_eq!(
+            classify_retry_kind_for_error_text("500 internal error"),
+            RetryKind::ServerError
+        );
+        assert_eq!(
+            classify_retry_kind_for_error_text("HTTP 503 Service Unavailable"),
+            RetryKind::ServerError
+        );
+        assert_eq!(
+            classify_retry_kind_for_error_text("provider returned error: overloaded"),
+            RetryKind::ServerError
+        );
+        assert_eq!(
+            classify_retry_kind_for_error_text("error sending request: operation timed out"),
+            RetryKind::Transport
+        );
+        assert_eq!(
+            classify_retry_kind_for_error_text("connection reset by peer"),
+            RetryKind::Transport
+        );
+        // 硬性错误不可重试
+        assert_eq!(
+            classify_retry_kind_for_error_text("404 Not Found"),
+            RetryKind::NonRetryable
+        );
+        assert_eq!(
+            classify_retry_kind_for_error_text("401 Unauthorized"),
+            RetryKind::NonRetryable
+        );
+        assert_eq!(
+            classify_retry_kind_for_error_text("insufficient_quota"),
+            RetryKind::NonRetryable
+        );
+        assert_eq!(
+            classify_retry_kind_for_error_text("maximum context length exceeded"),
+            RetryKind::NonRetryable
+        );
+        // 429 子串边界：1429 不应误判为限流
+        assert_eq!(
+            classify_retry_kind_for_error_text("error code 1429"),
+            RetryKind::NonRetryable
+        );
+        assert_eq!(
+            classify_retry_kind_for_error_text(""),
             RetryKind::NonRetryable
         );
     }
 
     #[test]
-    fn retry_policy_should_be_independent_per_kind_and_linear() {
-        let mut budget = RetryBudget::default();
-        // Empty 独立 3 次
-        assert_eq!(
-            retry_policy(RetryKind::Empty, &budget),
-            Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
-        );
-        budget.empty_used = 2;
-        assert_eq!(
-            retry_policy(RetryKind::Empty, &budget),
-            Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
-        );
-        budget.empty_used = 3;
-        assert_eq!(retry_policy(RetryKind::Empty, &budget), None);
+    fn classify_retry_kind_for_result_should_map_reply_states() {
+        let empty_reply: Result<ModelReply, String> = Ok(test_model_reply("", "", ""));
+        assert_eq!(classify_retry_kind_for_result(&empty_reply), RetryKind::Empty);
+        let reasoning_only: Result<ModelReply, String> =
+            Ok(test_model_reply("", "", "只有思维链"));
+        assert_eq!(classify_retry_kind_for_result(&reasoning_only), RetryKind::Empty);
+        let visible: Result<ModelReply, String> = Ok(test_model_reply("正文", "", ""));
+        assert_eq!(classify_retry_kind_for_result(&visible), RetryKind::NonRetryable);
+        let rate_err: Result<ModelReply, String> = Err("429 rate limit".to_string());
+        assert_eq!(classify_retry_kind_for_result(&rate_err), RetryKind::RateLimited);
+        let transport_err: Result<ModelReply, String> = Err("socket hang up".to_string());
+        assert_eq!(classify_retry_kind_for_result(&transport_err), RetryKind::Transport);
+    }
 
-        // RateLimited 独立 3 次，不受 Empty 影响
-        let mut budget2 = RetryBudget {
-            empty_used: 3,
-            rate_used: 0,
-        };
-        assert_eq!(
-            retry_policy(RetryKind::RateLimited, &budget2),
-            Some(std::time::Duration::from_secs(WAIT_RATE_SECS))
-        );
-        budget2.rate_used = 3;
-        assert_eq!(retry_policy(RetryKind::RateLimited, &budget2), None);
+    #[test]
+    fn retry_delay_should_follow_exponential_backoff_with_cap() {
+        // 无 retry-after：指数退避，落在 [base, base * 1.25] 区间内
+        let first = retry_delay_ms(1, None);
+        assert!((RETRY_INITIAL_DELAY_MS..=RETRY_INITIAL_DELAY_MS * 125 / 100).contains(&first));
+        let third = retry_delay_ms(3, None);
+        let base3 = RETRY_INITIAL_DELAY_MS * 4;
+        assert!((base3..=base3 * 125 / 100).contains(&third));
+        // 封顶
+        assert!(retry_delay_ms(20, None) <= RETRY_MAX_DELAY_NO_HEADERS_MS);
+        // retry-after 优先于指数退避
+        assert_eq!(retry_delay_ms(1, Some(12_000)), 12_000);
+    }
 
-        // 线性：混合序列各看各
-        let budget3 = RetryBudget {
-            empty_used: 1,
-            rate_used: 1,
-        };
-        assert_eq!(
-            retry_policy(RetryKind::Empty, &budget3),
-            Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
-        );
-        assert_eq!(
-            retry_policy(RetryKind::RateLimited, &budget3),
-            Some(std::time::Duration::from_secs(WAIT_RATE_SECS))
-        );
+    #[test]
+    fn parse_retry_after_should_read_seconds_from_error_text() {
+        assert_eq!(parse_retry_after_ms("retry-after: 30"), Some(30_000));
+        assert_eq!(parse_retry_after_ms("Retry-After 5"), Some(5_000));
+        assert_eq!(parse_retry_after_ms("no header here"), None);
+    }
 
-        // NonRetryable 永远不重试
-        assert_eq!(
-            retry_policy(RetryKind::NonRetryable, &RetryBudget::default()),
-            None
-        );
-        assert_eq!(
-            retry_policy(RetryKind::NonRetryable, &budget3),
-            None
-        );
+    #[test]
+    fn effective_retry_count_should_fall_back_to_default() {
+        assert_eq!(effective_retry_count(0), RETRY_DEFAULT_MAX_ATTEMPTS);
+        assert_eq!(effective_retry_count(3), 3);
+        assert_eq!(effective_retry_count(99), 20);
+    }
+
+    #[test]
+    fn retry_kind_is_retryable_should_exclude_non_retryable() {
+        assert!(retry_kind_is_retryable(RetryKind::Empty));
+        assert!(retry_kind_is_retryable(RetryKind::RateLimited));
+        assert!(retry_kind_is_retryable(RetryKind::ServerError));
+        assert!(retry_kind_is_retryable(RetryKind::Transport));
+        assert!(!retry_kind_is_retryable(RetryKind::NonRetryable));
     }
 
     #[test]
     fn retry_budget_should_reset_on_success_via_new_request_scope() {
-        // 成功清零 = 请求内局部变量随栈销毁；用“新请求从0开始”来验证语义
+        // 成功清零 = 请求内局部变量随栈销毁；用“新请求从 0 开始”来验证语义
         let budget_after_success = RetryBudget::default();
-        assert_eq!(budget_after_success.empty_used, 0);
-        assert_eq!(budget_after_success.rate_used, 0);
-        assert_eq!(
-            retry_policy(RetryKind::Empty, &budget_after_success),
-            Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
-        );
-        assert_eq!(
-            retry_policy(RetryKind::RateLimited, &budget_after_success),
-            Some(std::time::Duration::from_secs(WAIT_RATE_SECS))
-        );
+        assert_eq!(budget_after_success.used, 0);
 
         // 已耗尽的预算在新请求里应重新可用
         let exhausted = RetryBudget {
-            empty_used: MAX_EMPTY_RETRIES,
-            rate_used: MAX_RATE_RETRIES,
+            used: RETRY_DEFAULT_MAX_ATTEMPTS,
         };
-        assert_eq!(retry_policy(RetryKind::Empty, &exhausted), None);
-        assert_eq!(retry_policy(RetryKind::RateLimited, &exhausted), None);
+        assert!(!(exhausted.used < RETRY_DEFAULT_MAX_ATTEMPTS));
         let fresh = RetryBudget::default();
-        assert_eq!(
-            retry_policy(RetryKind::Empty, &fresh),
-            Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
-        );
+        assert!(fresh.used < RETRY_DEFAULT_MAX_ATTEMPTS);
     }
 
     #[test]

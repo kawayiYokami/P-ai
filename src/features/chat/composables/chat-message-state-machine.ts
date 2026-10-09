@@ -609,7 +609,7 @@ function reduceAssistantDelta(
     const msg = toolStatusText;
     if (toolStatusState === "running") {
       if (msg.includes("正在调用工具")) schedulingState = "executing_tool";
-      else if (msg.includes("正在进入模型请求") || msg.includes("等待回应") || msg.includes("等待响应")) schedulingState = "waiting_response";
+      else if (msg.includes("正在重试") || msg.includes("正在进入模型请求") || msg.includes("等待回应") || msg.includes("等待响应")) schedulingState = "waiting_response";
       else if (msg.includes("正在准备调度") || msg.includes("正在处理附件") || msg.includes("上下文")) schedulingState = "preparing_context";
     }
   } else if (kind === "assistant_tool_event") {

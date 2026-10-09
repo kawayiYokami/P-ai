@@ -608,7 +608,7 @@ export function useSimpleSetup() {
       keyCursor: 0,
       cachedModelOptions,
       models,
-      failureRetryCount: 0,
+      failureRetryCount: 5,
     };
     const endpoints: ApiConfigItem[] = provider.models.map((model) => ({
       id: `${provider.id}::${model.id}`,
@@ -724,7 +724,7 @@ export function useSimpleSetup() {
         customMaxOutputTokensEnabled: false,
         maxOutputTokens: 4096,
       }],
-      failureRetryCount: 0,
+      failureRetryCount: 5,
     };
     config.apiProviders = [...(config.apiProviders || []).filter((item) => item.id !== providerId), provider];
     config.apiConfigs = [...(config.apiConfigs || []).filter((item) => !item.id.startsWith(`${providerId}::`)), {
