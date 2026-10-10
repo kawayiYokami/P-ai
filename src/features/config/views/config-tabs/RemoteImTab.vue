@@ -254,8 +254,8 @@
             </div>
           </div>
 
-          <!-- 分组创建/重命名编辑行 -->
-          <div v-if="contactGroupEditMode" class="flex items-center gap-1 px-1">
+          <!-- 分组创建编辑行（重命名改为在分组名处就地编辑） -->
+          <div v-if="contactGroupEditMode === 'create'" class="flex items-center gap-1 px-1">
             <input
               v-model="contactGroupNameDraft"
               type="text"
@@ -284,7 +284,7 @@
             </button>
           </div>
           <p
-            v-if="contactGroupError"
+            v-if="contactGroupEditMode !== 'rename' && contactGroupError"
             class="px-1 text-caption text-error break-all whitespace-pre-wrap"
             style="overflow-wrap:anywhere"
           >
@@ -317,7 +317,38 @@
                     <ChevronDown v-if="!isContactSectionCollapsed(section)" class="h-3.5 w-3.5 opacity-60" />
                     <ChevronRight v-else class="h-3.5 w-3.5 opacity-60" />
                   </button>
-                  <span class="truncate text-xs font-bold text-base-content/70">{{ section.name }}</span>
+                  <template v-if="isContactGroupRenaming(section)">
+                    <input
+                      :ref="focusContactGroupRenameInput"
+                      v-model="contactGroupNameDraft"
+                      type="text"
+                      class="input input-bordered input-xs h-7 min-w-0 max-w-56 flex-1 text-xs"
+                      :placeholder="t('config.remoteIm.contactGroupNamePlaceholder')"
+                      :disabled="contactGroupBusy"
+                      @contextmenu.stop.prevent
+                      @click.stop
+                      @keydown.enter.prevent="submitContactGroupEdit"
+                      @keydown.esc.prevent="cancelContactGroupEdit"
+                    />
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-xs h-7 min-h-0 px-2"
+                      :disabled="contactGroupBusy"
+                      @click.stop="submitContactGroupEdit"
+                    >
+                      <span v-if="contactGroupBusy" class="loading loading-spinner loading-xs"></span>
+                      <Check v-else class="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs h-7 min-h-0 px-2"
+                      :disabled="contactGroupBusy"
+                      @click.stop="cancelContactGroupEdit"
+                    >
+                      <X class="h-3.5 w-3.5" />
+                    </button>
+                  </template>
+                  <span v-else class="truncate text-xs font-bold text-base-content/70">{{ section.name }}</span>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
                   <button
@@ -331,6 +362,14 @@
                   </button>
                 </div>
               </div>
+
+              <p
+                v-if="isContactGroupRenaming(section) && contactGroupError"
+                class="px-1 text-caption text-error break-all whitespace-pre-wrap"
+                style="overflow-wrap:anywhere"
+              >
+                {{ contactGroupError }}
+              </p>
 
               <div v-show="!isContactSectionCollapsed(section)" class="space-y-2">
                 <div
@@ -3476,6 +3515,23 @@ function startContactGroupRename(group: RemoteImContactGroup) {
   contactGroupEditTargetId.value = group.id;
   contactGroupNameDraft.value = group.name;
   contactGroupError.value = "";
+}
+
+/** 当前分组是否正处于就地重命名状态：仅对真实分组（非「未分组」段）生效。 */
+function isContactGroupRenaming(section: ContactListSection): boolean {
+  return contactGroupEditMode.value === "rename"
+    && !!section.group
+    && contactGroupEditTargetId.value === section.group.id;
+}
+
+/** 就地重命名输入框挂载后自动聚焦并全选，省去再次点击。 */
+function focusContactGroupRenameInput(el: unknown) {
+  const node = el as HTMLInputElement | null;
+  if (!node || typeof node.focus !== "function") return;
+  nextTick(() => {
+    node.focus();
+    node.select?.();
+  });
 }
 
 function cancelContactGroupEdit() {
