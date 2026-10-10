@@ -352,9 +352,12 @@ impl ConversationServiceV2 {
         drop(guard);
         let store_paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
         ensure_chat_store_conversation_readable(state, &conversation_id, &store_paths)?;
-        let rewind_state =
-            read_chat_store_rewind_state_meta_view(state, &store_paths, &conversation_meta, message_id)?;
-        let backup_record_ids = collect_backup_record_ids_from_messages(&rewind_state.removed_messages);
+        // 预览只关心「被撤回的消息里有没有可回滚的备份」，不需要保留侧的历史统计，
+        // 因此走轻量切片读取，避免从撤回点向会话开头逐页回溯扫描。
+        let rewind_slice = message_store::chat_store_read_rewind_slice(&store_paths, message_id)?
+            .ok_or_else(|| "Target message not found in active conversation.".to_string())?;
+        let backup_record_ids =
+            collect_backup_record_ids_from_messages(&rewind_slice.removed_messages);
         let existing_backup_count = backup_record_ids
             .iter()
             .filter(|record_id| apply_patch_record_path(&state.data_path, record_id).exists())
@@ -363,7 +366,7 @@ impl ConversationServiceV2 {
             "[会话撤回] 预览诊断，任务=preview_rewind_conversation，conversation_id={}，message_id={}，removed_messages={}，backup_record_ids={}，existing_backup_count={}，missing_backup_count={}",
             conversation_id,
             message_id,
-            rewind_state.removed_messages.len(),
+            rewind_slice.removed_messages.len(),
             backup_record_ids.len(),
             existing_backup_count,
             backup_record_ids.len().saturating_sub(existing_backup_count)
