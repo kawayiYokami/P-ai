@@ -384,6 +384,15 @@ fn ide_chat_set_wheelchair_mode_command(state: &AppState, params: Value) -> Resu
     ide_chat_serialize(set_conversation_wheelchair_mode_inner(input, state)?)
 }
 
+fn ide_chat_dismiss_wheelchair_suggestion_command(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input =
+        ide_chat_parse_param_field::<DismissConversationWheelchairSuggestionInput>(params, "input")?;
+    ide_chat_serialize(dismiss_conversation_wheelchair_suggestion_inner(input, state)?)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IdeChatReadPlanFileInput {
@@ -1020,6 +1029,14 @@ fn ide_chat_set_conversation_wheelchair_mode(
 ) -> Result<Value, String> {
     let input = ide_chat_parse_params::<SetConversationWheelchairModeInput>(params)?;
     ide_chat_serialize(set_conversation_wheelchair_mode_inner(input, state)?)
+}
+
+fn ide_chat_dismiss_conversation_wheelchair_suggestion(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<DismissConversationWheelchairSuggestionInput>(params)?;
+    ide_chat_serialize(dismiss_conversation_wheelchair_suggestion_inner(input, state)?)
 }
 
 async fn ide_chat_confirm_plan(state: &AppState, params: Value) -> Result<Value, String> {

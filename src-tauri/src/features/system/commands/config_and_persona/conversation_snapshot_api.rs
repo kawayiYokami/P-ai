@@ -78,6 +78,9 @@ struct UnarchivedConversationSummary {
     plan_mode_enabled: bool,
     #[serde(default)]
     wheelchair_mode_enabled: bool,
+    /// 待用户处理的轮椅建议。只有用户点填入或点关闭才会清空，切换会话不清。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    wheelchair_suggestion: Option<WheelchairSuggestion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     auto_push_remote_contact_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -610,6 +613,8 @@ fn build_unarchived_conversation_summary_from_meta_view(
         current_todo: conversation_current_todo_text_from_items(&conversation_meta.current_todos),
         plan_mode_enabled: get_conversation_plan_mode_enabled(state, conversation_id).unwrap_or(false),
         wheelchair_mode_enabled: get_conversation_wheelchair_mode_enabled(state, conversation_id).unwrap_or(false),
+        wheelchair_suggestion: get_conversation_wheelchair_suggestion(state, conversation_id)
+            .unwrap_or(None),
         auto_push_remote_contact_id: conversation_meta.auto_push_remote_contact_id.clone(),
         last_error: conversation_meta.last_error.clone(),
         detached_window_open: detached_window_label.is_some(),
@@ -1646,6 +1651,7 @@ mod conversation_snapshot_api_tests {
             current_todo: None,
             plan_mode_enabled: false,
             wheelchair_mode_enabled: false,
+            wheelchair_suggestion: None,
             detached_window_open: false,
             detached_window_label: None,
             state: ConversationListItemState {

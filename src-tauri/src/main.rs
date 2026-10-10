@@ -1346,6 +1346,7 @@ fn main() {
             mark_conversation_read,
             set_conversation_plan_mode,
             set_conversation_wheelchair_mode,
+            dismiss_conversation_wheelchair_suggestion,
             set_conversation_preferred_model,
             set_conversation_auto_push_remote_contact,
             create_unarchived_conversation,

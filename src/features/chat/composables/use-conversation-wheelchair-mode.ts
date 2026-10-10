@@ -1,16 +1,16 @@
-import { computed, onScopeDispose, ref, type Ref } from "vue";
-import { invokeTauri, onTransportNotification } from "../../../services/tauri-api";
+import { computed, type Ref } from "vue";
+import { invokeTauri } from "../../../services/tauri-api";
+
+type ConversationWheelchairSuggestionPayload = {
+  type?: string;
+  text?: string;
+  options?: string[];
+};
 
 type ConversationWheelchairModeSummary = {
   conversationId: string;
   wheelchairModeEnabled?: boolean;
-};
-
-export type WheelchairSuggestionPayload = {
-  conversationId?: string;
-  type?: "suggest" | "options";
-  text?: string;
-  options?: string[];
+  wheelchairSuggestion?: ConversationWheelchairSuggestionPayload | null;
 };
 
 export type WheelchairSuggestion = {
@@ -22,27 +22,25 @@ export type WheelchairSuggestion = {
 type UseConversationWheelchairModeOptions<T extends ConversationWheelchairModeSummary> = {
   currentConversationId: Ref<string>;
   unarchivedConversations: Ref<T[]>;
-  /**
-   * 宿主侧可选注入的 suggestion ref。
-   * 追问视图（ConversationView）没有 unarchivedConversations 总表，
-   * 它的开关来自 use-conversation-view-runtime 的 snapshot ref，
-   * 建议气泡也由 runtime 持有；主窗口则走本 composable 内部的默认 ref。
-   */
-  wheelchairSuggestion?: Ref<WheelchairSuggestion | null>;
 };
 
+/**
+ * 轮椅模式的开关和建议芯片都挂在会话运行时内存账本上，由概览项带下来。
+ * 建议只在用户点填入或点关闭时消失；切换会话、刷新界面都不会清掉。
+ */
 export function useConversationWheelchairMode<T extends ConversationWheelchairModeSummary>(
   options: UseConversationWheelchairModeOptions<T>,
 ) {
-  const internalSuggestion = ref<WheelchairSuggestion | null>(null);
-  const suggestionRef = options.wheelchairSuggestion ?? internalSuggestion;
+  function findConversationById(conversationId: string): T | undefined {
+    const normalizedConversationId = String(conversationId || "").trim();
+    if (!normalizedConversationId) return undefined;
+    return options.unarchivedConversations.value.find(
+      (item) => String(item.conversationId || "").trim() === normalizedConversationId,
+    );
+  }
 
   function getConversationWheelchairModeEnabledById(conversationId: string): boolean {
-    const normalizedConversationId = String(conversationId || "").trim();
-    if (!normalizedConversationId) return false;
-    return !!options.unarchivedConversations.value.find((item) =>
-      String(item.conversationId || "").trim() === normalizedConversationId
-    )?.wheelchairModeEnabled;
+    return !!findConversationById(conversationId)?.wheelchairModeEnabled;
   }
 
   function patchConversationWheelchairModeInOverview(conversationId: string, enabled: boolean) {
@@ -60,6 +58,31 @@ export function useConversationWheelchairMode<T extends ConversationWheelchairMo
       return {
         ...item,
         wheelchairModeEnabled: !!enabled,
+      };
+    });
+    if (changed) {
+      options.unarchivedConversations.value = next;
+    }
+  }
+
+  function patchConversationWheelchairSuggestionInOverview(
+    conversationId: string,
+    suggestion: ConversationWheelchairSuggestionPayload | null,
+  ) {
+    const normalizedConversationId = String(conversationId || "").trim();
+    if (!normalizedConversationId) return;
+    let changed = false;
+    const next = options.unarchivedConversations.value.map((item) => {
+      if (String(item.conversationId || "").trim() !== normalizedConversationId) {
+        return item;
+      }
+      if (!item.wheelchairSuggestion === !suggestion) {
+        return item;
+      }
+      changed = true;
+      return {
+        ...item,
+        wheelchairSuggestion: suggestion,
       };
     });
     if (changed) {
@@ -104,26 +127,25 @@ export function useConversationWheelchairMode<T extends ConversationWheelchairMo
     return setConversationWheelchairMode(conversationId, value);
   }
 
-  function dismissWheelchairSuggestion() {
-    suggestionRef.value = null;
+  async function dismissWheelchairSuggestion(): Promise<void> {
+    const conversationId = String(options.currentConversationId.value || "").trim();
+    if (!conversationId) return;
+    // 先本地清掉让界面立刻响应；后端账本同步清空，切走再回来不会复活。
+    patchConversationWheelchairSuggestionInOverview(conversationId, null);
+    try {
+      await invokeTauri<{ conversationId: string; dismissed: boolean }>(
+        "conversation.wheelchairSuggestion.dismiss",
+        {
+          input: { conversationId },
+        },
+      );
+    } catch (error) {
+      console.warn("[轮椅模式] 清掉建议芯片失败", {
+        conversationId,
+        error,
+      });
+    }
   }
-
-  const stopWheelchairSuggestionEvent = onTransportNotification<WheelchairSuggestionPayload>(
-    "conversation.wheelchairSuggestion",
-    (payload) => {
-      const conversationId = String(payload?.conversationId || "").trim();
-      const currentConversationId = String(options.currentConversationId.value || "").trim();
-      if (!conversationId || conversationId !== currentConversationId) return;
-      const type = payload?.type === "options" ? "options" : "suggest";
-      const text = String(payload?.text || "");
-      const items = Array.isArray(payload?.options) ? payload!.options!.map((item) => String(item || "")) : [];
-      suggestionRef.value = { type, text, options: items };
-    },
-  );
-
-  onScopeDispose(() => {
-    stopWheelchairSuggestionEvent();
-  });
 
   const currentConversationWheelchairModeEnabled = computed(() => {
     const conversationId = String(options.currentConversationId.value || "").trim();
@@ -131,9 +153,21 @@ export function useConversationWheelchairMode<T extends ConversationWheelchairMo
     return getConversationWheelchairModeEnabledById(conversationId);
   });
 
+  const wheelchairSuggestion = computed<WheelchairSuggestion | null>(() => {
+    const conversationId = String(options.currentConversationId.value || "").trim();
+    if (!conversationId) return null;
+    const raw = findConversationById(conversationId)?.wheelchairSuggestion;
+    if (!raw) return null;
+    const type = raw.type === "options" ? "options" : "suggest";
+    const text = String(raw.text || "");
+    const items = Array.isArray(raw.options) ? raw.options.map((item) => String(item || "")) : [];
+    if (!text.trim() && items.length === 0) return null;
+    return { type, text, options: items };
+  });
+
   return {
     currentConversationWheelchairModeEnabled,
-    wheelchairSuggestion: suggestionRef,
+    wheelchairSuggestion,
     setConversationWheelchairMode,
     setCurrentConversationWheelchairMode,
     updateWheelchairModeEnabled: setCurrentConversationWheelchairMode,

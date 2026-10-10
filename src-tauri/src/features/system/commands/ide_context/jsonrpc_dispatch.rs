@@ -331,6 +331,9 @@ async fn ide_chat_handle_jsonrpc_request(
         "conversation.wheelchairMode.set" => {
             ide_chat_set_conversation_wheelchair_mode(state, request.params)
         }
+        "conversation.wheelchairSuggestion.dismiss" => {
+            ide_chat_dismiss_conversation_wheelchair_suggestion(state, request.params)
+        }
         "conversation.plan.confirm" => ide_chat_confirm_plan(state, request.params).await,
         "conversation.plan.readFile" => ide_chat_read_plan_file(state, request.params),
         "conversation.rewindPreview" => ide_chat_preview_rewind_conversation(state, request.params).await,
@@ -653,6 +656,9 @@ async fn ide_chat_handle_jsonrpc_request(
         "set_conversation_plan_mode" => ide_chat_set_plan_mode_command(state, request.params),
         "set_conversation_wheelchair_mode" => {
             ide_chat_set_wheelchair_mode_command(state, request.params)
+        }
+        "dismiss_conversation_wheelchair_suggestion" => {
+            ide_chat_dismiss_wheelchair_suggestion_command(state, request.params)
         }
         "set_conversation_preferred_model" => ide_chat_set_preferred_model_command(state, request.params),
         "confirm_plan_and_continue" => ide_chat_confirm_plan_command(state, request.params).await,
@@ -1087,6 +1093,7 @@ mod web_native_capability_tests {
             "rewind_conversation_from_message",
             "set_conversation_plan_mode",
             "set_conversation_wheelchair_mode",
+            "dismiss_conversation_wheelchair_suggestion",
             "set_conversation_preferred_model",
             "confirm_plan_and_continue",
             "resolve_terminal_approval",

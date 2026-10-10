@@ -8,20 +8,9 @@
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WheelchairAdviceUserSuggestion {
-    #[serde(rename = "type")]
-    pub suggestion_type: String,
-    #[serde(default)]
-    pub text: String,
-    #[serde(default)]
-    pub options: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct WheelchairAdviceResult {
     #[serde(default)]
-    pub user_suggestion: Option<WheelchairAdviceUserSuggestion>,
+    pub user_suggestion: Option<WheelchairSuggestion>,
     #[serde(default)]
     pub assistant_guidance: Option<String>,
 }
@@ -296,6 +285,12 @@ fn finish_wheelchair_delegate(
     }
     let Ok(result) = run_result else {
         let _ = delegate_store_update_status(&state.data_path, &delegate.delegate_id, DELEGATE_STATUS_FAILED);
+        emit_conversation_delegate_status_updated(
+            state,
+            conversation_id,
+            &delegate.delegate_id,
+            DELEGATE_STATUS_FAILED,
+        );
         runtime_log_info(format!(
             "[轮椅模式] 委托没有可用结果，conversation_id={}，delegate_id={}",
             conversation_id, delegate.delegate_id
@@ -303,7 +298,17 @@ fn finish_wheelchair_delegate(
         return;
     };
     let _ = delegate_store_update_status(&state.data_path, &delegate.delegate_id, DELEGATE_STATUS_COMPLETED);
+    emit_conversation_delegate_status_updated(
+        state,
+        conversation_id,
+        &delegate.delegate_id,
+        DELEGATE_STATUS_COMPLETED,
+    );
     let Some(advice) = wheelchair_parse_advise_output(&result.assistant_text) else {
+        runtime_log_info(format!(
+            "[轮椅模式] 委托正文没有可解析的建议，conversation_id={}，delegate_id={}",
+            conversation_id, delegate.delegate_id
+        ));
         return;
     };
     if !get_conversation_wheelchair_mode_enabled(state, conversation_id).unwrap_or(false) {
@@ -312,19 +317,26 @@ fn finish_wheelchair_delegate(
     if let Some(guidance) = advice.assistant_guidance.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
         let _ = set_conversation_pending_wheelchair_guide(state, conversation_id, Some(guidance.to_string()));
     }
-    if let Some(suggestion) = advice.user_suggestion.as_ref() {
-        let payload = serde_json::json!({
-            "conversationId": conversation_id,
-            "type": suggestion.suggestion_type,
-            "text": suggestion.text,
-            "options": suggestion.options,
-        });
-        ide_chat_broadcast_notification("conversation.wheelchairSuggestion", payload.clone());
-        let app_handle = state.app_handle.lock().ok().and_then(|guard| guard.as_ref().cloned());
-        if let Some(app_handle) = app_handle {
-            let _ = app_handle.emit("easy-call:wheelchair-suggestion", payload);
+    // 建议写进会话运行时账本，并广播概览项。用户不点填入也不点关闭，它就一直在。
+    if let Some(suggestion) = advice.user_suggestion {
+        let has_content =
+            !suggestion.text.trim().is_empty() || !suggestion.options.is_empty();
+        if has_content {
+            let _ = set_conversation_wheelchair_suggestion(
+                state,
+                conversation_id,
+                Some(suggestion),
+            );
+            let _ = emit_unarchived_conversation_overview_item_updated_from_state(
+                state,
+                conversation_id,
+            );
         }
     }
+    runtime_log_info(format!(
+        "[轮椅模式] 完成，任务=落地建议，conversation_id={}，delegate_id={}",
+        conversation_id, delegate.delegate_id
+    ));
 }
 
 /// 用户发问时打断该会话正在跑的轮椅委托。被打断的结果不再落地。
@@ -337,9 +349,7 @@ pub(crate) fn abort_wheelchair_delegate(
         return Ok(());
     };
     set_conversation_wheelchair_delegate_id(state, conversation_id, None)?;
-    let aborted = abort_delegate_runtime_thread(state, &delegate_id, reason)?;
-    if !aborted {
-        let _ = delegate_store_update_status(&state.data_path, &delegate_id, DELEGATE_STATUS_FAILED);
-    }
+    // 线程不在了说明这一轮早已收尾（完成或已打断），由收尾那一步负责状态，这里不再改。
+    abort_delegate_runtime_thread(state, &delegate_id, reason)?;
     Ok(())
 }

@@ -499,6 +499,32 @@ pub(crate) fn get_conversation_wheelchair_delegate_id(
         .and_then(|slot| slot.wheelchair_delegate_id.clone()))
 }
 
+pub(crate) fn set_conversation_wheelchair_suggestion(
+    state: &AppState,
+    conversation_id: &str,
+    suggestion: Option<WheelchairSuggestion>,
+) -> Result<(), String> {
+    let normalized_conversation_id = conversation_id.trim();
+    if normalized_conversation_id.is_empty() {
+        return Ok(());
+    }
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let slot = conversation_slot_mut(&mut slots, normalized_conversation_id);
+    slot.wheelchair_suggestion = suggestion;
+    slot.last_activity_at = now_iso();
+    Ok(())
+}
+
+pub(crate) fn get_conversation_wheelchair_suggestion(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Option<WheelchairSuggestion>, String> {
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id.trim())
+        .and_then(|slot| slot.wheelchair_suggestion.clone()))
+}
+
 pub(crate) fn take_conversation_pending_wheelchair_guide(
     state: &AppState,
     conversation_id: &str,

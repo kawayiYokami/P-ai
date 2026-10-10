@@ -1078,6 +1078,7 @@ export type UnarchivedConversationSummary = {
   currentTodo?: string;
   planModeEnabled?: boolean;
   wheelchairModeEnabled?: boolean;
+  wheelchairSuggestion?: { type?: string; text?: string; options?: string[] } | null;
   autoPushRemoteContactId?: string;
   activeGoal?: ConversationGoalState | null;
   currentTodos?: ChatTodoItem[];
@@ -1155,6 +1156,7 @@ export type ChatConversationOverviewItem = {
   currentTodo?: string;
   planModeEnabled?: boolean;
   wheelchairModeEnabled?: boolean;
+  wheelchairSuggestion?: { type?: string; text?: string; options?: string[] } | null;
   autoPushRemoteContactId?: string;
   activeGoal?: ConversationGoalState | null;
   currentTodos?: ChatTodoItem[];

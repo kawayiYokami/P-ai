@@ -559,6 +559,8 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       Math.max(0, Number(item.unreadCount || 0)),
       !!item.isPinned,
       !!item.isSystemNotificationConversation,
+      // 轮椅建议只改这个字段，不带动 updatedAt；漏判会把这类概览项更新当成无变化丢弃
+      JSON.stringify(item.wheelchairSuggestion || null),
     ].join("|");
   }
 

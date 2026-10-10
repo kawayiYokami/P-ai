@@ -416,6 +416,51 @@ fn set_conversation_wheelchair_mode_inner(
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DismissConversationWheelchairSuggestionInput {
+    conversation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DismissConversationWheelchairSuggestionOutput {
+    conversation_id: String,
+    dismissed: bool,
+}
+
+#[tauri::command]
+fn dismiss_conversation_wheelchair_suggestion(
+    input: DismissConversationWheelchairSuggestionInput,
+    state: State<'_, AppState>,
+) -> Result<DismissConversationWheelchairSuggestionOutput, String> {
+    dismiss_conversation_wheelchair_suggestion_inner(input, state.inner())
+}
+
+/// 用户主动清掉建议芯片：填入或点关闭都会走这里。这是建议唯一会消失的途径。
+fn dismiss_conversation_wheelchair_suggestion_inner(
+    input: DismissConversationWheelchairSuggestionInput,
+    state: &AppState,
+) -> Result<DismissConversationWheelchairSuggestionOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空".to_string());
+    }
+    let dismissed = get_conversation_wheelchair_suggestion(state, conversation_id)?.is_some();
+    if dismissed {
+        set_conversation_wheelchair_suggestion(state, conversation_id, None)?;
+        emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
+        runtime_log_info(format!(
+            "[轮椅模式] 完成，任务=清掉建议芯片，会话ID={}",
+            conversation_id
+        ));
+    }
+    Ok(DismissConversationWheelchairSuggestionOutput {
+        conversation_id: conversation_id.to_string(),
+        dismissed,
+    })
+}
+
 #[tauri::command]
 fn set_conversation_preferred_model(
     input: SetConversationPreferredModelInput,
