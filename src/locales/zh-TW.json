@@ -2251,6 +2251,14 @@
       "sidebarHint": "點擊下方連結在側邊欄閱讀計劃",
       "linkLabel": "計劃："
     },
+    "wheelchair": {
+      "mode": "輪椅模式",
+      "enterMode": "開啟輪椅模式",
+      "exitMode": "關閉",
+      "enabled": "輪椅模式已開啟",
+      "modeOff": "未開啟",
+      "fill": "填入"
+    },
     "localImageUnavailable": "圖片不可用",
     "goal": {
       "buttonTitle": "啟動目標",

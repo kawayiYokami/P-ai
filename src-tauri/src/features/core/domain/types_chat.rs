@@ -580,6 +580,9 @@ struct ConversationRuntimeSlot {
     active_remote_im_activation_sources: Vec<RemoteImActivationSource>,
     active_remote_im_assistant_context: Option<RemoteImConversationAssistantContext>,
     plan_mode_enabled: bool,
+    wheelchair_mode_enabled: bool,
+    pending_wheelchair_guide: Option<String>,
+    wheelchair_delegate_id: Option<String>,
     last_activity_at: String,
 }
 
@@ -643,6 +646,9 @@ impl Default for ConversationRuntimeSlot {
             active_remote_im_activation_sources: Vec::new(),
             active_remote_im_assistant_context: None,
             plan_mode_enabled: false,
+            wheelchair_mode_enabled: false,
+            pending_wheelchair_guide: None,
+            wheelchair_delegate_id: None,
             last_activity_at: String::new(),
         }
     }

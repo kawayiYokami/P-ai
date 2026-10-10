@@ -572,7 +572,12 @@ async fn run_genai_tool_loop(
     let mut auto_compaction_applied = false;
     let mut tools_disabled_for_context_exhaustion = false;
     let mut tool_repeat_guard = ToolRepeatGuard::default();
-    for round_index in 0..INTERNAL_MAX_TOOL_LOOP_ROUNDS {
+    let tool_round_limit = if _max_tool_iterations == 0 {
+        INTERNAL_MAX_TOOL_LOOP_ROUNDS
+    } else {
+        _max_tool_iterations.min(INTERNAL_MAX_TOOL_LOOP_ROUNDS)
+    };
+    for round_index in 0..tool_round_limit {
         let round_started_at = std::time::Instant::now();
         let mut emit_text_boundary_before_next_chunk = !full_assistant_text.trim().is_empty();
         if round_index > 0 && !auto_compaction_applied {
@@ -1321,7 +1326,12 @@ async fn run_genai_tool_loop_non_stream(
     let mut auto_compaction_applied = false;
     let mut tools_disabled_for_context_exhaustion = false;
     let mut tool_repeat_guard = ToolRepeatGuard::default();
-    for round_index in 0..INTERNAL_MAX_TOOL_LOOP_ROUNDS {
+    let tool_round_limit = if _max_tool_iterations == 0 {
+        INTERNAL_MAX_TOOL_LOOP_ROUNDS
+    } else {
+        _max_tool_iterations.min(INTERNAL_MAX_TOOL_LOOP_ROUNDS)
+    };
+    for round_index in 0..tool_round_limit {
         let round_started_at = std::time::Instant::now();
         if round_index > 0 && !auto_compaction_applied {
             auto_compaction_applied = maybe_apply_auto_compaction_before_tool_continue_genai(

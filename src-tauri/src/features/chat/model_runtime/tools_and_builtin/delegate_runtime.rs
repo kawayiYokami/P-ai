@@ -233,7 +233,7 @@ impl<'a> Drop for NoApprovalDialogGuard<'a> {
     }
 }
 
-async fn delegate_execute_agent_prompt(
+async fn delegate_execute_agent_prompt_limited(
     app_state: &AppState,
     delegate: &DelegateEntry,
     target_api_config_id: &str,
@@ -246,6 +246,7 @@ async fn delegate_execute_agent_prompt(
     event_source: &str,
     dispatch_reason: &str,
     request_id: String,
+    tool_round_limit: Option<usize>,
 ) -> Result<SendChatResult, String> {
     let request = SendChatRequest {
         payload: ChatInputPayload {
@@ -280,6 +281,7 @@ async fn delegate_execute_agent_prompt(
             model_config_id: Some(target_api_config_id.to_string()),
             event_source: runtime_context_trimmed(Some(event_source)),
             dispatch_reason: runtime_context_trimmed(Some(dispatch_reason)),
+            tool_round_limit,
             ..RuntimeContext::default()
         }),
         trigger_only: false,
@@ -287,6 +289,38 @@ async fn delegate_execute_agent_prompt(
     let noop_channel = tauri::ipc::Channel::new(|_| Ok(()));
     let _guard = NoApprovalDialogGuard::enter(app_state, delegate_conversation_id.to_string());
     send_chat_message_inner(request, app_state, &noop_channel).await
+}
+
+async fn delegate_execute_agent_prompt(
+    app_state: &AppState,
+    delegate: &DelegateEntry,
+    target_api_config_id: &str,
+    root_conversation_id: &str,
+    delegate_conversation_id: &str,
+    prompt_text: String,
+    display_text: Option<String>,
+    provider_meta: Value,
+    speaker_agent_id: String,
+    event_source: &str,
+    dispatch_reason: &str,
+    request_id: String,
+) -> Result<SendChatResult, String> {
+    delegate_execute_agent_prompt_limited(
+        app_state,
+        delegate,
+        target_api_config_id,
+        root_conversation_id,
+        delegate_conversation_id,
+        prompt_text,
+        display_text,
+        provider_meta,
+        speaker_agent_id,
+        event_source,
+        dispatch_reason,
+        request_id,
+        None,
+    )
+    .await
 }
 
 async fn delegate_execute_agent_initial_run(

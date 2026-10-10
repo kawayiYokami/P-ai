@@ -76,6 +76,8 @@ struct UnarchivedConversationSummary {
     current_todo: Option<String>,
     #[serde(default)]
     plan_mode_enabled: bool,
+    #[serde(default)]
+    wheelchair_mode_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     auto_push_remote_contact_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -607,6 +609,7 @@ fn build_unarchived_conversation_summary_from_meta_view(
         runtime_state: unarchived_conversation_runtime_state(state, &conversation_meta.id),
         current_todo: conversation_current_todo_text_from_items(&conversation_meta.current_todos),
         plan_mode_enabled: get_conversation_plan_mode_enabled(state, conversation_id).unwrap_or(false),
+        wheelchair_mode_enabled: get_conversation_wheelchair_mode_enabled(state, conversation_id).unwrap_or(false),
         auto_push_remote_contact_id: conversation_meta.auto_push_remote_contact_id.clone(),
         last_error: conversation_meta.last_error.clone(),
         detached_window_open: detached_window_label.is_some(),
@@ -1264,6 +1267,20 @@ struct SetConversationPlanModeOutput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SetConversationWheelchairModeInput {
+    conversation_id: String,
+    wheelchair_mode_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetConversationWheelchairModeOutput {
+    conversation_id: String,
+    wheelchair_mode_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SetConversationPreferredModelInput {
     conversation_id: String,
     #[serde(default)]
@@ -1628,6 +1645,7 @@ mod conversation_snapshot_api_tests {
             runtime_state: None,
             current_todo: None,
             plan_mode_enabled: false,
+            wheelchair_mode_enabled: false,
             detached_window_open: false,
             detached_window_label: None,
             state: ConversationListItemState {

@@ -2241,6 +2241,14 @@
       "sidebarHint": "点击下方链接在侧边栏阅读计划",
       "linkLabel": "计划："
     },
+    "wheelchair": {
+      "mode": "轮椅模式",
+      "enterMode": "开启轮椅模式",
+      "exitMode": "关闭",
+      "enabled": "轮椅模式已开启",
+      "modeOff": "未开启",
+      "fill": "填入"
+    },
     "localImageUnavailable": "图片不可用",
     "goal": {
       "buttonTitle": "启动目标",

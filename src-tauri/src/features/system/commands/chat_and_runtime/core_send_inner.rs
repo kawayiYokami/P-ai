@@ -1288,6 +1288,18 @@ async fn send_chat_message_inner(
     };
     runtime_context.executor_agent_id = Some(effective_agent_id.clone());
     log_chat_stage("runtime_and_session_ready");
+    if runtime_conversation_id.is_none() {
+        if let Some(conversation_id) = requested_conversation_id.as_deref() {
+            if !trigger_only {
+                let _ = abort_wheelchair_delegate(
+                    state,
+                    conversation_id,
+                    "用户已发问，轮椅委托停止",
+                );
+            }
+        }
+    }
+    let tool_round_limit = runtime_context.tool_round_limit.unwrap_or(0);
 
     // 调度状态更新：运行时与会话解析完成，即将进入上下文构建阶段
     // 单发通道到不了 Web（WebSocket 丢弃 Channel），必须再走一次广播。
@@ -1814,6 +1826,21 @@ async fn send_chat_message_inner(
                 format!("{plan_block}\n{existing_meta}")
             };
         }
+        // 轮椅模式：注入上一轮审查产出的助理引导（单次即焚）
+        if let Ok(Some(guide)) =
+            take_conversation_pending_wheelchair_guide(&state, &conversation.id)
+        {
+            let guide_block = format!(
+                "<wheelchair-guide>\n[轮椅模式辅助提示]：{}\n</wheelchair-guide>",
+                guide.trim()
+            );
+            let existing_meta = prepared_prompt.latest_user_meta_text.trim();
+            prepared_prompt.latest_user_meta_text = if existing_meta.is_empty() {
+                guide_block
+            } else {
+                format!("{existing_meta}\n{guide_block}")
+            };
+        }
         log_run_stage("prepare_context.prompt_built");
         let remote_im_auto_send_source = resolve_remote_im_auto_send_source(
             &state,
@@ -2225,7 +2252,11 @@ async fn send_chat_message_inner(
                 Some(&state),
                 tool_loop_auto_compaction_context.as_ref(),
                 on_delta,
-                app_config.tool_max_iterations as usize,
+                if tool_round_limit > 0 {
+                    tool_round_limit
+                } else {
+                    app_config.tool_max_iterations as usize
+                },
                 &chat_session_key,
                 Some(&conversation_id),
             )
@@ -3223,6 +3254,23 @@ async fn send_chat_message_inner(
     }
     // 已切换至调度事件：旧 pipeline 日志不再写入
     let _ = (&trace_id, &chat_session_key_for_log, &timeline, &final_result);
+    // 轮椅模式：主会话调度成功结束后发起一个只读委托。
+    if final_result.is_ok() && runtime_conversation_id.is_none() {
+        if let Ok(result) = final_result.as_ref() {
+            let wc_conversation_id = result.conversation_id.clone();
+            let wc_agent_id = effective_agent_id_for_failure_persist.clone();
+            if let Err(err) = start_wheelchair_delegate_after_reply(
+                state,
+                &wc_conversation_id,
+                &wc_agent_id,
+            ) {
+                runtime_log_warn(format!(
+                    "[轮椅模式] 委托发起失败，conversation_id={}，error={}",
+                    wc_conversation_id, err
+                ));
+            }
+        }
+    }
     // 兜底催处理：归档阶段可能短暂阻塞出队，这里在当前轮次结束后补一次调度触发。
     trigger_chat_queue_processing(state);
     final_result

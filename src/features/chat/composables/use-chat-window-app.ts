@@ -1046,6 +1046,7 @@ export function useChatWindowApp() {
     ...shellData.githubUpdate,
     ...shellData.archivesView,
     ...shellData.conversationPlanMode,
+    ...shellData.conversationWheelchairMode,
     ...shellData.goalTask,
     ...shellData.archiveImport,
     ...configDerived,

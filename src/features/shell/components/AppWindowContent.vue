@@ -141,6 +141,8 @@
         :terminal-approval-resolving="terminalApprovalResolving"
         :chat-model-options="textCapableApiConfigs"
         :plan-mode-enabled="planModeEnabled"
+        :wheelchair-mode-enabled="wheelchairModeEnabled"
+        :wheelchair-suggestion="wheelchairSuggestion"
         :chat-usage-percent="chatUsagePercent"
         :trim-tip="trimTip"
         :media-drag-active="mediaDragActive"
@@ -227,6 +229,8 @@
         @pick-attachments="pickAttachments"
         @update:conversation-preferred-api-config-id="updateConversationPreferredApiConfigId"
         @update:plan-mode-enabled="updatePlanModeEnabled"
+        @update:wheelchair-mode-enabled="updateWheelchairModeEnabled"
+        @dismiss-wheelchair-suggestion="dismissWheelchairSuggestion"
         @send-chat="sendChat"
         @stop-chat="stopChat"
         @clear-chat-error="clearChatError"
@@ -646,6 +650,8 @@ const props = defineProps<{
   approveTerminalApprovalForSession: (requestId?: string) => void;
   approveTerminalApprovalForWorkspace: (requestId?: string) => void;
   planModeEnabled: boolean;
+  wheelchairModeEnabled?: boolean;
+  wheelchairSuggestion?: { type: "suggest" | "options"; text: string; options: string[] } | null;
   chatUsagePercent: number;
   trimTip: string;
   mediaDragActive: boolean;
@@ -815,6 +821,8 @@ const props = defineProps<{
   removeChatMention: (value: string | { agentId?: string }) => void;
   updateConversationPreferredApiConfigId: (value: string) => void;
   updatePlanModeEnabled: (value: boolean) => void;
+  updateWheelchairModeEnabled: (value: boolean) => void;
+  dismissWheelchairSuggestion: () => void;
   setSideConversationListVisible: (value: boolean) => void;
   setToolReviewPanelOpen: (value: boolean) => void;
   openChatReaderPanel: () => Promise<void>;

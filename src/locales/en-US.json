@@ -2263,6 +2263,14 @@
       "sidebarHint": "Click the link below to read the plan in the sidebar",
       "linkLabel": "Plan: "
     },
+    "wheelchair": {
+      "mode": "Wheelchair Mode",
+      "enterMode": "Enable Wheelchair Mode",
+      "exitMode": "Off",
+      "enabled": "Wheelchair Mode Enabled",
+      "modeOff": "Off",
+      "fill": "Fill"
+    },
     "localImageUnavailable": "Image unavailable",
     "goal": {
       "buttonTitle": "Start Goal",

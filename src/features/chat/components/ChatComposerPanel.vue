@@ -112,6 +112,43 @@
             @remove-file="removePanelAttachmentFile($event)"
             @toggle-bridge="togglePanelBridge($event)"
           />
+          <!-- 轮椅模式建议芯片 -->
+          <div
+            v-if="wheelchairSuggestion"
+            class="mb-2 flex items-center gap-2 rounded-box border border-base-300 bg-base-100 px-3 py-2"
+          >
+            <Lightbulb class="h-4 w-4 shrink-0 text-warning" />
+            <template v-if="wheelchairSuggestion.type === 'suggest'">
+              <span class="min-w-0 flex-1 truncate text-sm">{{ wheelchairSuggestion.text }}</span>
+              <button
+                type="button"
+                class="btn btn-xs btn-ghost shrink-0"
+                @click="fillWheelchairSuggestion(wheelchairSuggestion.text)"
+              >
+                {{ t("chat.wheelchair.fill") }}
+              </button>
+            </template>
+            <template v-else-if="wheelchairSuggestion.type === 'options'">
+              <div class="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                <button
+                  v-for="(opt, idx) in wheelchairSuggestion.options"
+                  :key="idx"
+                  type="button"
+                  class="badge badge-sm cursor-pointer gap-1 border-base-300 bg-base-200 px-2.5 py-2 text-xs hover:bg-base-300"
+                  @click="fillWheelchairSuggestion(opt)"
+                >
+                  {{ opt }}
+                </button>
+              </div>
+            </template>
+            <button
+              type="button"
+              class="btn btn-xs btn-circle btn-ghost shrink-0"
+              @click="dismissWheelchairSuggestion"
+            >
+              <X class="h-3 w-3" />
+            </button>
+          </div>
         </template>
         <template #body>
           <div ref="composerRootRef" class="relative">
@@ -136,6 +173,22 @@
                     class="badge badge-sm shrink-0"
                     :class="planModeEnabled ? 'badge-info' : 'badge-ghost'"
                   >{{ planModeEnabled ? t("chat.plan.exitMode") : t("chat.plan.modeOff") }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors"
+                  :class="wheelchairModeEnabled ? 'bg-warning/10' : 'hover:bg-base-200'"
+                  :title="wheelchairModeEnabled ? t('chat.wheelchair.exitMode') : t('chat.wheelchair.enterMode')"
+                  @click="toggleWheelchairMode()"
+                >
+                  <span class="flex min-w-0 items-center gap-2">
+                    <Accessibility class="h-4 w-4 shrink-0" :class="wheelchairModeEnabled ? 'text-warning' : 'opacity-60'" />
+                    <span class="truncate">{{ wheelchairModeEnabled ? t("chat.wheelchair.enabled") : t("chat.wheelchair.enterMode") }}</span>
+                  </span>
+                  <span
+                    class="badge badge-sm shrink-0"
+                    :class="wheelchairModeEnabled ? 'badge-warning' : 'badge-ghost'"
+                  >{{ wheelchairModeEnabled ? t("chat.wheelchair.exitMode") : t("chat.wheelchair.modeOff") }}</span>
                 </button>
                 <div class="border-t border-base-300" />
                 <div class="flex flex-wrap content-start gap-2 max-h-48 overflow-y-auto p-2">
@@ -269,6 +322,15 @@
             </template>
             <template #right>
               <button
+                v-if="wheelchairModeEnabled"
+                type="button"
+                class="inline-flex h-8 min-h-8 shrink-0 select-none items-center rounded-full bg-warning px-3 text-xs font-medium leading-none text-warning-content"
+                :title="t('chat.wheelchair.mode')"
+                @click="toggleWheelchairMode()"
+              >
+                {{ t("chat.wheelchair.mode") }}
+              </button>
+              <button
                 v-if="planModeEnabled"
                 type="button"
                 class="inline-flex h-8 min-h-8 shrink-0 select-none items-center rounded-full bg-info px-3 text-xs font-medium leading-none text-info-content"
@@ -345,7 +407,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowUp, CalendarPlus, Check, ClipboardList, Paperclip, Plus, Square, Target, X } from "@lucide/vue";
+import { Accessibility, ArrowUp, CalendarPlus, Check, ClipboardList, Lightbulb, Paperclip, Plus, Square, Target, X } from "@lucide/vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption } from "../../../types/app";
 import ChatSelectionActionPanel from "./ChatSelectionActionPanel.vue";
 import ChatModelPicker from "../../config/components/ApiConfigPicker.vue";
@@ -385,6 +447,8 @@ const props = withDefaults(defineProps<{
   chatModelOptions: ApiConfigItem[];
   workspaceAccess?: "approval" | "full_access" | "";
   planModeEnabled: boolean;
+  wheelchairModeEnabled?: boolean;
+  wheelchairSuggestion?: { type: "suggest" | "options"; text: string; options: string[] } | null;
   chatting: boolean;
   /** 提交期：发送请求尚未返回。此时停止入口也应可见并可用。 */
   submitPending?: boolean;
@@ -433,6 +497,8 @@ const emit = defineEmits<{
   (e: "update:conversationPreferredApiConfigId", value: string): void;
   (e: "update:workspaceAccess", value: "approval" | "full_access"): void;
   (e: "update:planModeEnabled", value: boolean): void;
+  (e: "update:wheelchairModeEnabled", value: boolean): void;
+  (e: "dismissWheelchairSuggestion"): void;
   (e: "attachIdeContextReference", value: IdeContextReferenceItem): void;
   (e: "removeIdeContextReference", value: string): void;
   (e: "sendChat"): void;
@@ -998,6 +1064,21 @@ function selectConversationPreferredModel(id: string) {
 function togglePlanMode() {
   if (!planModeToggleAllowed.value) return;
   emit("update:planModeEnabled", !props.planModeEnabled);
+}
+
+function toggleWheelchairMode() {
+  emit("update:wheelchairModeEnabled", !props.wheelchairModeEnabled);
+}
+
+function fillWheelchairSuggestion(text: string) {
+  const current = props.chatInput.trim();
+  const next = current ? `${current}\n${text}` : text;
+  emit("update:chatInput", next);
+  emit("dismissWheelchairSuggestion");
+}
+
+function dismissWheelchairSuggestion() {
+  emit("dismissWheelchairSuggestion");
 }
 
 function resizeChatInput() {

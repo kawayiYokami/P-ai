@@ -1077,6 +1077,7 @@ export type UnarchivedConversationSummary = {
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context" | "archiving" | "compacting";
   currentTodo?: string;
   planModeEnabled?: boolean;
+  wheelchairModeEnabled?: boolean;
   autoPushRemoteContactId?: string;
   activeGoal?: ConversationGoalState | null;
   currentTodos?: ChatTodoItem[];
@@ -1152,6 +1153,8 @@ export type ChatConversationOverviewItem = {
   pinIndex?: number;
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context" | "archiving" | "compacting";
   currentTodo?: string;
+  planModeEnabled?: boolean;
+  wheelchairModeEnabled?: boolean;
   autoPushRemoteContactId?: string;
   activeGoal?: ConversationGoalState | null;
   currentTodos?: ChatTodoItem[];

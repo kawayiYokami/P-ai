@@ -559,6 +559,8 @@
             :preferred-chat-model-id="preferredChatModelId"
             :chat-model-options="chatModelOptions"
             :plan-mode-enabled="planModeEnabled"
+            :wheelchair-mode-enabled="wheelchairModeEnabled"
+            :wheelchair-suggestion="wheelchairSuggestion"
             :workspace-access="workspaceAccess"
             :frontend-round-phase="frontendRoundPhase" :chat-usage-percent="chatUsagePercent"
             :chatting="chatting" :busy="conversationInteractionBusy"
@@ -586,6 +588,8 @@
             @update:conversation-preferred-api-config-id="$emit('update:conversationPreferredApiConfigId', $event)"
             @update:workspace-access="$emit('updateWorkspaceAccess', $event)"
             @update:plan-mode-enabled="$emit('update:planModeEnabled', $event)"
+            @update:wheelchair-mode-enabled="$emit('update:wheelchairModeEnabled', $event)"
+            @dismiss-wheelchair-suggestion="$emit('dismissWheelchairSuggestion')"
             @attach-ide-context-reference="handleAttachIdeContextReference"
             @remove-ide-context-reference="handleRemoveIdeContextReference"
             @send-chat="handleSendChat" @stop-chat="$emit('stopChat')"
@@ -943,6 +947,8 @@ const props = defineProps<{
   chatInput: string; instructionPresets: PromptCommandPreset[];
   conversationCallPrimaryApiConfigId: string; preferredChatModelId?: string; toolReviewApiConfigId?: string; toolReviewRefreshTick: number; chatModelOptions: ApiConfigItem[];
   planModeEnabled: boolean; chatUsagePercent: number;
+  wheelchairModeEnabled?: boolean;
+  wheelchairSuggestion?: { type: "suggest" | "options"; text: string; options: string[] } | null;
   mediaDragActive: boolean; chatting: boolean; trimming: boolean; trimmingConversationId?: string;
   compactingConversation: boolean; compactingConversationId?: string;
   conversationBusy: boolean; frozen: boolean; messageBlocks: ChatMessageBlock[];
@@ -1014,6 +1020,8 @@ const emit = defineEmits<{
   (e: "update:conversationPreferredApiConfigId", value: string): void;
   (e: "updateWorkspaceAccess", value: "approval" | "full_access"): void;
   (e: "update:planModeEnabled", value: boolean): void;
+  (e: "update:wheelchairModeEnabled", value: boolean): void;
+  (e: "dismissWheelchairSuggestion"): void;
   (e: "sendChat", payload?: { extraTextBlocks?: string[] }): void;
   (e: "stopChat"): void; (e: "trimConversation"): void; (e: "openConversationList"): void; (e: "openSettings"): void;
   (e: "clearChatError"): void;

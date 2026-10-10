@@ -377,6 +377,46 @@ fn set_conversation_plan_mode_inner(
 }
 
 #[tauri::command]
+fn set_conversation_wheelchair_mode(
+    input: SetConversationWheelchairModeInput,
+    state: State<'_, AppState>,
+) -> Result<SetConversationWheelchairModeOutput, String> {
+    set_conversation_wheelchair_mode_inner(input, state.inner())
+}
+
+fn set_conversation_wheelchair_mode_inner(
+    input: SetConversationWheelchairModeInput,
+    state: &AppState,
+) -> Result<SetConversationWheelchairModeOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空".to_string());
+    }
+
+    let current_enabled =
+        get_conversation_wheelchair_mode_enabled(state, conversation_id).unwrap_or(false);
+    if current_enabled == input.wheelchair_mode_enabled {
+        return Ok(SetConversationWheelchairModeOutput {
+            conversation_id: conversation_id.to_string(),
+            wheelchair_mode_enabled: input.wheelchair_mode_enabled,
+        });
+    }
+
+    set_conversation_wheelchair_mode_enabled(state, conversation_id, input.wheelchair_mode_enabled)?;
+    emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
+    runtime_log_info(format!(
+        "[轮椅模式] 完成，任务=切换会话运行时轮椅模式，会话ID={}，状态={}",
+        conversation_id,
+        if input.wheelchair_mode_enabled { "开启" } else { "关闭" }
+    ));
+
+    Ok(SetConversationWheelchairModeOutput {
+        conversation_id: conversation_id.to_string(),
+        wheelchair_mode_enabled: input.wheelchair_mode_enabled,
+    })
+}
+
+#[tauri::command]
 fn set_conversation_preferred_model(
     input: SetConversationPreferredModelInput,
     state: State<'_, AppState>,

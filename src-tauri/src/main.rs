@@ -67,6 +67,7 @@ include!("features/chat/conversation_prompt_service.rs");
 include!("features/chat/conversation_service/mod.rs");
 include!("features/chat/model_runtime.rs");
 include!("features/chat/scheduler.rs");
+include!("features/chat/conversation_wheelchair_service.rs");
 include!("features/remote_im/channel_store.rs");
 include!("features/remote_im/markdown_filter.rs");
 include!("features/remote_im/onebot_v11_ws.rs");
@@ -1344,6 +1345,7 @@ fn main() {
             record_conversation_workspace_branch,
             mark_conversation_read,
             set_conversation_plan_mode,
+            set_conversation_wheelchair_mode,
             set_conversation_preferred_model,
             set_conversation_auto_push_remote_contact,
             create_unarchived_conversation,

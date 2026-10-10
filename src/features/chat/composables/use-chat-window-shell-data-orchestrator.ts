@@ -5,6 +5,7 @@ import { useAgentWorkPresence } from "./use-agent-work-presence";
 import { useArchiveImport } from "./use-archive-import";
 import { useArchivesView } from "./use-archives-view";
 import { useConversationPlanMode } from "./use-conversation-plan-mode";
+import { useConversationWheelchairMode } from "./use-conversation-wheelchair-mode";
 import { useGoalTask } from "./use-goal-task";
 
 export function useChatWindowShellDataOrchestrator(bindings: Record<string, any>) {
@@ -36,6 +37,10 @@ export function useChatWindowShellDataOrchestrator(bindings: Record<string, any>
     currentConversationId: bindings.currentChatConversationId,
     unarchivedConversations: archivesView.unarchivedConversations,
   });
+  const conversationWheelchairMode = useConversationWheelchairMode({
+    currentConversationId: bindings.currentChatConversationId,
+    unarchivedConversations: archivesView.unarchivedConversations,
+  });
 
   const goalTask = useGoalTask({
     t: bindings.tr,
@@ -48,6 +53,7 @@ export function useChatWindowShellDataOrchestrator(bindings: Record<string, any>
     archivesView,
     archiveImport,
     conversationPlanMode,
+    conversationWheelchairMode,
     goalTask,
     agentWorkPresence: useAgentWorkPresence(),
   };

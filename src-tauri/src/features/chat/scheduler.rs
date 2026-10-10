@@ -439,6 +439,78 @@ pub(crate) fn get_conversation_plan_mode_enabled(
         .unwrap_or(false))
 }
 
+pub(crate) fn set_conversation_wheelchair_mode_enabled(
+    state: &AppState,
+    conversation_id: &str,
+    enabled: bool,
+) -> Result<(), String> {
+    let normalized_conversation_id = conversation_id.trim();
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let slot = conversation_slot_mut(&mut slots, normalized_conversation_id);
+    slot.wheelchair_mode_enabled = enabled;
+    slot.last_activity_at = now_iso();
+    Ok(())
+}
+
+pub(crate) fn get_conversation_wheelchair_mode_enabled(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id.trim())
+        .map(|slot| slot.wheelchair_mode_enabled)
+        .unwrap_or(false))
+}
+
+pub(crate) fn set_conversation_pending_wheelchair_guide(
+    state: &AppState,
+    conversation_id: &str,
+    guide: Option<String>,
+) -> Result<(), String> {
+    let normalized_conversation_id = conversation_id.trim();
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let slot = conversation_slot_mut(&mut slots, normalized_conversation_id);
+    slot.pending_wheelchair_guide = guide;
+    slot.last_activity_at = now_iso();
+    Ok(())
+}
+
+pub(crate) fn set_conversation_wheelchair_delegate_id(
+    state: &AppState,
+    conversation_id: &str,
+    delegate_id: Option<String>,
+) -> Result<(), String> {
+    let normalized_conversation_id = conversation_id.trim();
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let slot = conversation_slot_mut(&mut slots, normalized_conversation_id);
+    slot.wheelchair_delegate_id = delegate_id.filter(|value| !value.trim().is_empty());
+    slot.last_activity_at = now_iso();
+    Ok(())
+}
+
+pub(crate) fn get_conversation_wheelchair_delegate_id(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Option<String>, String> {
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id.trim())
+        .and_then(|slot| slot.wheelchair_delegate_id.clone()))
+}
+
+pub(crate) fn take_conversation_pending_wheelchair_guide(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Option<String>, String> {
+    let normalized_conversation_id = conversation_id.trim();
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let Some(slot) = slots.get_mut(normalized_conversation_id) else {
+        return Ok(None);
+    };
+    Ok(slot.pending_wheelchair_guide.take())
+}
+
 fn release_conversation_processing_claim(
     state: &AppState,
     conversation_id: &str,

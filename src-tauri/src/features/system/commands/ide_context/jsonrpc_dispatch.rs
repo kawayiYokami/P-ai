@@ -328,6 +328,9 @@ async fn ide_chat_handle_jsonrpc_request(
         }
         "terminalApproval.list" => ide_chat_list_pending_terminal_approvals(state),
         "conversation.planMode.set" => ide_chat_set_conversation_plan_mode(state, request.params),
+        "conversation.wheelchairMode.set" => {
+            ide_chat_set_conversation_wheelchair_mode(state, request.params)
+        }
         "conversation.plan.confirm" => ide_chat_confirm_plan(state, request.params).await,
         "conversation.plan.readFile" => ide_chat_read_plan_file(state, request.params),
         "conversation.rewindPreview" => ide_chat_preview_rewind_conversation(state, request.params).await,
@@ -648,6 +651,9 @@ async fn ide_chat_handle_jsonrpc_request(
             ide_chat_preview_rewind_conversation(state, request.params).await
         }
         "set_conversation_plan_mode" => ide_chat_set_plan_mode_command(state, request.params),
+        "set_conversation_wheelchair_mode" => {
+            ide_chat_set_wheelchair_mode_command(state, request.params)
+        }
         "set_conversation_preferred_model" => ide_chat_set_preferred_model_command(state, request.params),
         "confirm_plan_and_continue" => ide_chat_confirm_plan_command(state, request.params).await,
         "resolve_terminal_approval" => ide_chat_resolve_terminal_approval_command(state, request.params),
@@ -1080,6 +1086,7 @@ mod web_native_capability_tests {
             "rebind_unarchived_conversation_recipient",
             "rewind_conversation_from_message",
             "set_conversation_plan_mode",
+            "set_conversation_wheelchair_mode",
             "set_conversation_preferred_model",
             "confirm_plan_and_continue",
             "resolve_terminal_approval",

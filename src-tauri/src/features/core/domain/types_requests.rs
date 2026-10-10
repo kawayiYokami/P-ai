@@ -221,6 +221,9 @@ struct RuntimeContext {
     /// 远程应答委托多轮执行时，禁止 core_send 在每一轮结束后立即外发。
     #[serde(default)]
     remote_im_defer_auto_send: bool,
+    /// 仅进程内传递。有值时这次调度的工具循环最多跑这么多轮，0 表示沿用内部上限。
+    #[serde(skip)]
+    tool_round_limit: Option<usize>,
 }
 
 /// 压缩保留消息：一轮已完成但未写入旧段的 assistant 正文/思维链/工具事件。
