@@ -6,12 +6,13 @@
 
 /// 助理回复完成后的入口。调度已经结束，这里只发起一个只读委托。
 
+/// 模型在正文里给出的 advise 块。
+/// 字段名必须与提示词里写的 key 一致（snake_case）；额外接受 camelCase 写法。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct WheelchairAdviceResult {
-    #[serde(default)]
+    #[serde(default, alias = "userSuggestion")]
     pub user_suggestion: Option<WheelchairSuggestion>,
-    #[serde(default)]
+    #[serde(default, alias = "assistantGuidance")]
     pub assistant_guidance: Option<String>,
 }
 
@@ -68,11 +69,10 @@ fn wheelchair_review_prompt(
 - 尽快回答。普通沟通不要调查。
 - 只有需要核对助理刚才改了什么时才使用工具。整个委托最多三轮工具调用。
 - 工作区是只读的。不要尝试修改文件，不要执行写入命令。
-- 不要把调查过程写进回答。回答正文只保留一个 <advise> 块。
+- 给出建议时调用 advise 工具，把内容放进它的参数里。不要在正文里复述建议，也不要再用标签或代码块包裹。
 
-【输出格式】
-<advise>{{"user_suggestion": {{"type": "suggest", "text": "建议文本"}}, "assistant_guidance": "给助理的提示"}}</advise>
-- user_suggestion（可选）：向用户展示的建议。type 为 "suggest"（单条建议文本）或 "options"（多个快捷选项，此时 options 为 2~4 个候选短语列表）。
+【advise 工具参数】
+- user_suggestion（可选）：向用户展示的建议。type 为 "suggest"（单条建议文本，写在 text）或 "options"（多个快捷选项，写在 options，2~4 个候选短语）。
 - assistant_guidance（可选）：向助理注入的提示，帮助助理在下一轮更好地理解用户。
 
 建议内容请使用{language}。
@@ -88,42 +88,38 @@ fn wheelchair_review_prompt(
     )
 }
 
-/// 解析模型输出中的 advise 调用。
-/// 模型被要求在文本中嵌入 <advise>{JSON}</advise> 块；逐个标签尝试，失败则回退整体/```json 解析。
-fn wheelchair_parse_advise_output(text: &str) -> Option<WheelchairAdviceResult> {
-    let trimmed = text.trim();
-    // 逐个 <advise> 标签尝试，避免首个标签内 JSON 残缺时丢失后续合法块
-    let mut cursor = 0usize;
-    while let Some(rel_start) = trimmed[cursor..].find("<advise>") {
-        let start = cursor + rel_start;
-        let after_tag = &trimmed[start + "<advise>".len()..];
-        if let Some(end) = after_tag.find("</advise>") {
-            let json_str = after_tag[..end].trim();
-            if let Ok(result) = serde_json::from_str::<WheelchairAdviceResult>(json_str) {
-                return Some(result);
+/// 从本轮助手消息的工具调用记录里取 advise 参数。
+/// 建议走原生工具调用，不再从正文里解析标签。
+fn wheelchair_advice_from_tool_calls(
+    message: Option<&ChatMessage>,
+) -> Option<WheelchairAdviceResult> {
+    let events = message?.tool_call.as_ref()?;
+    for event in events {
+        let Some(calls) = event.get("tool_calls").and_then(Value::as_array) else {
+            continue;
+        };
+        for call in calls {
+            let Some(function) = call.get("function") else {
+                continue;
+            };
+            if function.get("name").and_then(Value::as_str).map(str::trim)
+                != Some(ADVISE_TOOL_NAME)
+            {
+                continue;
             }
-            cursor = start + "<advise>".len();
-        } else {
-            break;
-        }
-    }
-    // 尝试直接解析整个文本为 JSON（模型可能直接输出 JSON）
-    if let Ok(result) = serde_json::from_str::<WheelchairAdviceResult>(trimmed) {
-        return Some(result);
-    }
-    // 逐个 ```json 代码块尝试
-    let mut cursor = 0usize;
-    while let Some(rel_start) = trimmed[cursor..].find("```json") {
-        let start = cursor + rel_start + 7;
-        let after = &trimmed[start..];
-        if let Some(end) = after.find("```") {
-            let json_str = after[..end].trim();
-            if let Ok(result) = serde_json::from_str::<WheelchairAdviceResult>(json_str) {
-                return Some(result);
+            let Some(raw_arguments) = function.get("arguments") else {
+                continue;
+            };
+            let arguments = match raw_arguments {
+                Value::String(text) => match serde_json::from_str::<Value>(text) {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                },
+                other => other.clone(),
+            };
+            if let Ok(advice) = serde_json::from_value::<WheelchairAdviceResult>(arguments) {
+                return Some(advice);
             }
-            cursor = start;
-        } else {
-            break;
         }
     }
     None
@@ -304,9 +300,9 @@ fn finish_wheelchair_delegate(
         &delegate.delegate_id,
         DELEGATE_STATUS_COMPLETED,
     );
-    let Some(advice) = wheelchair_parse_advise_output(&result.assistant_text) else {
+    let Some(advice) = wheelchair_advice_from_tool_calls(result.assistant_message.as_ref()) else {
         runtime_log_info(format!(
-            "[轮椅模式] 委托正文没有可解析的建议，conversation_id={}，delegate_id={}",
+            "[轮椅模式] 委托没有给出 advise 工具调用，conversation_id={}，delegate_id={}",
             conversation_id, delegate.delegate_id
         ));
         return;
@@ -327,10 +323,19 @@ fn finish_wheelchair_delegate(
                 conversation_id,
                 Some(suggestion),
             );
-            let _ = emit_unarchived_conversation_overview_item_updated_from_state(
+            let broadcast = emit_unarchived_conversation_overview_item_updated_from_state(
                 state,
                 conversation_id,
             );
+            runtime_log_info(format!(
+                "[轮椅模式] 广播建议，conversation_id={}，账本已写入={}，概览广播={:?}",
+                conversation_id,
+                get_conversation_wheelchair_suggestion(state, conversation_id)
+                    .ok()
+                    .flatten()
+                    .is_some(),
+                broadcast
+            ));
         }
     }
     runtime_log_info(format!(
@@ -352,4 +357,93 @@ pub(crate) fn abort_wheelchair_delegate(
     // 线程不在了说明这一轮早已收尾（完成或已打断），由收尾那一步负责状态，这里不再改。
     abort_delegate_runtime_thread(state, &delegate_id, reason)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod wheelchair_advice_tests {
+    use super::*;
+
+    fn assistant_message_with_tool_calls(events: Vec<Value>) -> ChatMessage {
+        ChatMessage {
+            id: "message-a".to_string(),
+            role: "assistant".to_string(),
+            created_at: now_iso(),
+            speaker_agent_id: Some("agent-a".to_string()),
+            parts: vec![MessagePart::Text {
+                text: String::new(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: Some(events),
+            mcp_call: None,
+            meme_annotations: None,
+        }
+    }
+
+    fn advise_event(arguments: &str) -> Value {
+        serde_json::json!({
+            "role": "assistant",
+            "content": Value::Null,
+            "tool_calls": [{
+                "id": "call-advise",
+                "type": "function",
+                "function": {
+                    "name": ADVISE_TOOL_NAME,
+                    "arguments": arguments
+                }
+            }]
+        })
+    }
+
+    #[test]
+    fn advice_should_come_from_advise_tool_call() {
+        let message = assistant_message_with_tool_calls(vec![advise_event(
+            r#"{"user_suggestion":{"type":"suggest","text":"换个说法试试"},"assistant_guidance":"下一轮精简表达"}"#,
+        )]);
+        let advice = wheelchair_advice_from_tool_calls(Some(&message)).expect("应取到建议");
+        let suggestion = advice.user_suggestion.expect("应有用户建议");
+        assert_eq!(suggestion.suggestion_type, "suggest");
+        assert_eq!(suggestion.text, "换个说法试试");
+        assert_eq!(advice.assistant_guidance.as_deref(), Some("下一轮精简表达"));
+    }
+
+    #[test]
+    fn advice_should_support_options_form_and_skip_other_tools() {
+        let message = assistant_message_with_tool_calls(vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call-read",
+                    "type": "function",
+                    "function": { "name": "read", "arguments": r#"{"path":"/tmp/a"}"# }
+                }]
+            }),
+            advise_event(r#"{"user_suggestion":{"type":"options","options":["继续","换个思路"]}}"#),
+        ]);
+        let advice = wheelchair_advice_from_tool_calls(Some(&message)).expect("应取到建议");
+        let suggestion = advice.user_suggestion.expect("应有用户建议");
+        assert_eq!(suggestion.suggestion_type, "options");
+        assert_eq!(
+            suggestion.options,
+            vec!["继续".to_string(), "换个思路".to_string()]
+        );
+        assert!(advice.assistant_guidance.is_none());
+    }
+
+    #[test]
+    fn advice_should_be_none_without_advise_call() {
+        let message = assistant_message_with_tool_calls(vec![serde_json::json!({
+            "role": "assistant",
+            "content": "只是文本",
+            "tool_calls": [{
+                "id": "call-read",
+                "type": "function",
+                "function": { "name": "read", "arguments": "{}" }
+            }]
+        })]);
+        assert!(wheelchair_advice_from_tool_calls(Some(&message)).is_none());
+        assert!(wheelchair_advice_from_tool_calls(None).is_none());
+    }
 }
