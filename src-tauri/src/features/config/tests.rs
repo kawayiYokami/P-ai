@@ -595,6 +595,57 @@ maxOutputTokens = 8192
     }
 
     #[test]
+    fn provider_without_concurrency_fields_defaults_to_unlimited() {
+        let provider: ApiProviderConfig = serde_json::from_value(serde_json::json!({
+            "id": "p",
+            "name": "P",
+            "baseUrl": "https://example.invalid/v1",
+        }))
+        .expect("provider json");
+        assert!(provider.allow_concurrent_requests);
+        assert_eq!(provider.max_concurrent_requests, None);
+    }
+
+    #[test]
+    fn normalize_app_config_upgrades_legacy_serial_default_to_unlimited() {
+        let mut provider = ApiProviderConfig::default();
+        provider.id = "user-provider".to_string();
+        provider.name = "User".to_string();
+        provider.allow_concurrent_requests = false;
+        provider.max_concurrent_requests = None;
+        let mut cfg = AppConfig {
+            api_providers: vec![provider],
+            api_configs: Vec::new(),
+            ..AppConfig::default()
+        };
+
+        normalize_app_config(&mut cfg);
+
+        assert!(cfg.api_providers[0].allow_concurrent_requests);
+        assert_eq!(cfg.api_providers[0].max_concurrent_requests, None);
+        assert!(cfg.api_configs.iter().all(|api| api.allow_concurrent_requests && api.max_concurrent_requests.is_none()));
+    }
+
+    #[test]
+    fn normalize_app_config_keeps_explicit_serial_limit() {
+        let mut provider = ApiProviderConfig::default();
+        provider.id = "user-provider".to_string();
+        provider.name = "User".to_string();
+        provider.allow_concurrent_requests = true;
+        provider.max_concurrent_requests = Some(1);
+        let mut cfg = AppConfig {
+            api_providers: vec![provider],
+            api_configs: Vec::new(),
+            ..AppConfig::default()
+        };
+
+        normalize_app_config(&mut cfg);
+
+        assert_eq!(cfg.api_providers[0].max_concurrent_requests, Some(1));
+        assert_eq!(cfg.api_configs[0].max_concurrent_requests, Some(1));
+    }
+
+    #[test]
     fn app_config_should_accept_save_payload_without_selected_api_config_id() {
         let cfg: AppConfig = serde_json::from_str(r#"{"hotkey":"Alt+·"}"#)
             .expect("缺少 selectedApiConfigId 时仍应能反序列化");

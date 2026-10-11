@@ -347,7 +347,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
           name: String((provider as { name?: unknown }).name || "").trim(),
           deprecated: !!(provider as { deprecated?: unknown }).deprecated,
           requestFormat: normalizeApiRequestFormat((provider as { requestFormat?: unknown }).requestFormat),
-          allowConcurrentRequests: !!(provider as { allowConcurrentRequests?: unknown }).allowConcurrentRequests,
+          allowConcurrentRequests: (provider as { allowConcurrentRequests?: unknown }).allowConcurrentRequests !== false,
           maxConcurrentRequests: (() => {
             const raw = (provider as { maxConcurrentRequests?: unknown }).maxConcurrentRequests;
             if (raw == null) return null;

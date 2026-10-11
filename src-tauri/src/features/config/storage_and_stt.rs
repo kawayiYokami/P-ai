@@ -211,6 +211,14 @@ fn consume_api_key_for_request(resolved_api: &ResolvedApiConfig) -> String {
     }
 }
 
+fn normalize_unlimited_concurrency_default(config: &mut AppConfig) {
+    for provider in &mut config.api_providers {
+        if provider.max_concurrent_requests.is_none() {
+            provider.allow_concurrent_requests = true;
+        }
+    }
+}
+
 fn migrate_legacy_api_configs_into_providers(config: &mut AppConfig) {
     let only_default_placeholder_providers = !config.api_providers.is_empty()
         && config
@@ -303,10 +311,10 @@ fn is_default_placeholder_provider(provider: &ApiProviderConfig) -> bool {
                     && left.enabled == right.enabled
                     && left.values == right.values
             });
+    // 并发默认从串行改成不限制，旧占位和新占位不能靠这个字段区分。
     provider.id == "default-provider-openai"
         && provider.name == "Default OpenAI"
         && matches!(provider.request_format, RequestFormat::OpenAI)
-        && !provider.allow_concurrent_requests
         && provider.enable_text
         && !provider.enable_image
         && !provider.enable_audio
@@ -930,6 +938,7 @@ fn normalize_app_config(config: &mut AppConfig) {
         return;
     }
     migrate_legacy_api_configs_into_providers(config);
+    normalize_unlimited_concurrency_default(config);
     expand_api_configs_from_providers(config);
     config.selected_api_config_id =
         remap_legacy_api_config_id_to_endpoint(config, &config.selected_api_config_id);

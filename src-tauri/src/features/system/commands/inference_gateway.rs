@@ -297,17 +297,18 @@ fn provider_system_message_user_fallback(state: Option<&AppState>, base_url: &st
     provider_system_message_user_fallback_cached(state, base_url)
 }
 
+fn effective_provider_concurrency_limit(max_concurrent_requests: Option<u32>) -> Option<usize> {
+    max_concurrent_requests.map(|max| max.max(1) as usize)
+}
+
 async fn maybe_acquire_provider_concurrency_guard(
     state: Option<&AppState>,
     resolved_api: &ResolvedApiConfig,
     model_name: &str,
 ) -> Result<Option<ProviderConcurrencyGuard>, String> {
-    let effective_max: Option<usize> = if let Some(max) = resolved_api.max_concurrent_requests {
-        Some(max.max(1) as usize)
-    } else if resolved_api.allow_concurrent_requests {
+    // 没写上限就是不限制。串行只由明确的上限 1 表示，旧的 allow=false 不再当成串行。
+    let Some(max) = effective_provider_concurrency_limit(resolved_api.max_concurrent_requests) else {
         return Ok(None);
-    } else {
-        Some(1)
     };
     let Some(app_state) = state else {
         return Ok(None);
@@ -321,7 +322,6 @@ async fn maybe_acquire_provider_concurrency_guard(
         return Ok(None);
     };
 
-    let max = effective_max.unwrap_or(1);
     runtime_log_info(format!(
         "[推理并发] 开始等待供应商并发门: provider_id={}, model={}, max={}",
         provider_id, model_name, max
@@ -1113,6 +1113,13 @@ async fn call_archive_summary_model_with_timeout(
 #[cfg(test)]
 mod inference_gateway_tests {
     use super::*;
+
+    #[test]
+    fn missing_concurrency_limit_means_unlimited_and_one_means_serial() {
+        assert_eq!(effective_provider_concurrency_limit(None), None);
+        assert_eq!(effective_provider_concurrency_limit(Some(1)), Some(1));
+        assert_eq!(effective_provider_concurrency_limit(Some(4)), Some(4));
+    }
 
     #[test]
     fn streaming_error_detector_should_match_known_patterns() {

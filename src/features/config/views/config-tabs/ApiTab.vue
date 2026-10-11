@@ -1485,9 +1485,6 @@ function capabilityFromRequestFormat(format: ApiRequestFormat | string): ApiCapa
 }
 
 function decodeProviderConcurrentLimit(provider: ApiProviderConfigItem): number {
-  if (!provider.allowConcurrentRequests) {
-    return 1;
-  }
   const raw = Number(provider.maxConcurrentRequests ?? 0);
   if (!Number.isFinite(raw) || raw <= 0) {
     return 0;

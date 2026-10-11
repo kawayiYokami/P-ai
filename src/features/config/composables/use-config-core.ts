@@ -165,7 +165,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           name: api.name,
           deprecated: false,
           requestFormat: normalizeApiRequestFormat(api.requestFormat),
-          allowConcurrentRequests: !!api.allowConcurrentRequests,
+          allowConcurrentRequests: api.maxConcurrentRequests == null ? true : api.allowConcurrentRequests !== false,
           maxConcurrentRequests: api.maxConcurrentRequests ?? null,
           enableText: !!api.enableText,
           enableImage: !!api.enableImage,

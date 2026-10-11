@@ -1757,7 +1757,7 @@ fn build_new_provider(name: &str) -> ApiProviderConfig {
         id: slugify_with_fallback(name, "provider"),
         name: name.to_string(),
         request_format: default_request_format(),
-        allow_concurrent_requests: false,
+        allow_concurrent_requests: true,
         max_concurrent_requests: None,
         enable_text: true,
         enable_image: false,
