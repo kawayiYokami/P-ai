@@ -79,6 +79,7 @@
     </div>
     <template v-else>
     <InputPanelDock
+      :deck-extra-visible="!!wheelchairSuggestion"
       :queue-events="queueEnabled && !systemNotificationMode && !remoteContactMode ? visibleQueueEvents : []"
       :user-persona-name="queueUserPersonaName"
       :queue-visible="props.queueVisible ?? true"
@@ -87,6 +88,32 @@
       @recall-to-input="handleRecallToInput"
       @mark-guided="handleQueueMarkGuided"
     >
+        <template #deck-extra>
+          <!-- 护航建议：贴在底盘露头层，与队列同层，不进输入卡内部 -->
+          <div
+            v-if="wheelchairSuggestion"
+            class="flex items-start gap-2 px-2 py-1 text-xs"
+          >
+            <template v-if="wheelchairSuggestion.type === 'suggest'">
+              <!-- 单条建议是给用户读的点评，不是可以直接发出去的话，所以只展示不填入 -->
+              <span class="min-w-0 flex-1 text-sm">{{ wheelchairSuggestion.text }}</span>
+            </template>
+            <template v-else-if="wheelchairSuggestion.type === 'options'">
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <button
+                  v-for="(opt, idx) in wheelchairSuggestion.options"
+                  :key="idx"
+                  type="button"
+                  class="flex min-w-0 items-start gap-2 rounded-lg border border-base-300 bg-base-100 px-2 py-1 text-left text-sm transition-colors hover:border-primary hover:text-primary"
+                  @click="fillWheelchairSuggestion(opt)"
+                >
+                  <span class="shrink-0 tabular-nums text-primary">{{ idx + 1 }}.</span>
+                  <span class="min-w-0 flex-1">{{ opt }}</span>
+                </button>
+              </div>
+            </template>
+          </div>
+        </template>
         <template #attachments>
           <div v-if="selectedMentions.length > 0" class="mb-2 flex flex-wrap gap-1">
             <span
@@ -112,43 +139,6 @@
             @remove-file="removePanelAttachmentFile($event)"
             @toggle-bridge="togglePanelBridge($event)"
           />
-          <!-- 轮椅模式建议芯片 -->
-          <div
-            v-if="wheelchairSuggestion"
-            class="mb-2 flex items-center gap-2 rounded-box border border-base-300 bg-base-100 px-3 py-2"
-          >
-            <Lightbulb class="h-4 w-4 shrink-0 text-warning" />
-            <template v-if="wheelchairSuggestion.type === 'suggest'">
-              <span class="min-w-0 flex-1 truncate text-sm">{{ wheelchairSuggestion.text }}</span>
-              <button
-                type="button"
-                class="btn btn-xs btn-ghost shrink-0"
-                @click="fillWheelchairSuggestion(wheelchairSuggestion.text)"
-              >
-                {{ t("chat.wheelchair.fill") }}
-              </button>
-            </template>
-            <template v-else-if="wheelchairSuggestion.type === 'options'">
-              <div class="flex min-w-0 flex-1 flex-wrap gap-1.5">
-                <button
-                  v-for="(opt, idx) in wheelchairSuggestion.options"
-                  :key="idx"
-                  type="button"
-                  class="badge badge-sm cursor-pointer gap-1 border-base-300 bg-base-200 px-2.5 py-2 text-xs hover:bg-base-300"
-                  @click="fillWheelchairSuggestion(opt)"
-                >
-                  {{ opt }}
-                </button>
-              </div>
-            </template>
-            <button
-              type="button"
-              class="btn btn-xs btn-circle btn-ghost shrink-0"
-              @click="dismissWheelchairSuggestion"
-            >
-              <X class="h-3 w-3" />
-            </button>
-          </div>
         </template>
         <template #body>
           <div ref="composerRootRef" class="relative">
@@ -182,7 +172,7 @@
                   @click="toggleWheelchairMode()"
                 >
                   <span class="flex min-w-0 items-center gap-2">
-                    <Accessibility class="h-4 w-4 shrink-0" :class="wheelchairModeEnabled ? 'text-warning' : 'opacity-60'" />
+                    <LifeBuoy class="h-4 w-4 shrink-0" :class="wheelchairModeEnabled ? 'text-warning' : 'opacity-60'" />
                     <span class="truncate">{{ wheelchairModeEnabled ? t("chat.wheelchair.enabled") : t("chat.wheelchair.enterMode") }}</span>
                   </span>
                   <span
@@ -407,7 +397,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Accessibility, ArrowUp, CalendarPlus, Check, ClipboardList, Lightbulb, Paperclip, Plus, Square, Target, X } from "@lucide/vue";
+import { ArrowUp, CalendarPlus, Check, ClipboardList, LifeBuoy, Paperclip, Plus, Square, Target, X } from "@lucide/vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption } from "../../../types/app";
 import ChatSelectionActionPanel from "./ChatSelectionActionPanel.vue";
 import ChatModelPicker from "../../config/components/ApiConfigPicker.vue";
@@ -1064,20 +1054,18 @@ function selectConversationPreferredModel(id: string) {
 function togglePlanMode() {
   if (!planModeToggleAllowed.value) return;
   emit("update:planModeEnabled", !props.planModeEnabled);
+  closeInstructionPanel();
 }
 
 function toggleWheelchairMode() {
   emit("update:wheelchairModeEnabled", !props.wheelchairModeEnabled);
+  closeInstructionPanel();
 }
 
 function fillWheelchairSuggestion(text: string) {
   const current = props.chatInput.trim();
   const next = current ? `${current}\n${text}` : text;
   emit("update:chatInput", next);
-  emit("dismissWheelchairSuggestion");
-}
-
-function dismissWheelchairSuggestion() {
   emit("dismissWheelchairSuggestion");
 }
 

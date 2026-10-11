@@ -405,7 +405,7 @@ fn set_conversation_wheelchair_mode_inner(
     set_conversation_wheelchair_mode_enabled(state, conversation_id, input.wheelchair_mode_enabled)?;
     emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
     runtime_log_info(format!(
-        "[轮椅模式] 完成，任务=切换会话运行时轮椅模式，会话ID={}，状态={}",
+        "[护航] 完成，任务=切换会话运行时护航，会话ID={}，状态={}",
         conversation_id,
         if input.wheelchair_mode_enabled { "开启" } else { "关闭" }
     ));
@@ -437,7 +437,7 @@ fn dismiss_conversation_wheelchair_suggestion(
     dismiss_conversation_wheelchair_suggestion_inner(input, state.inner())
 }
 
-/// 用户主动清掉建议芯片：填入或点关闭都会走这里。这是建议唯一会消失的途径。
+/// 清掉建议条：点选项填入或用户直接发言都会走这里。这是建议唯一会消失的途径。
 fn dismiss_conversation_wheelchair_suggestion_inner(
     input: DismissConversationWheelchairSuggestionInput,
     state: &AppState,
@@ -451,7 +451,7 @@ fn dismiss_conversation_wheelchair_suggestion_inner(
         set_conversation_wheelchair_suggestion(state, conversation_id, None)?;
         emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
         runtime_log_info(format!(
-            "[轮椅模式] 完成，任务=清掉建议芯片，会话ID={}",
+            "[护航] 完成，任务=清掉建议条，会话ID={}",
             conversation_id
         ));
     }

@@ -1,4 +1,4 @@
-// ========== 轮椅模式：对话沟通建议审查 ==========
+// ========== 护航：对话沟通建议审查 ==========
 //
 // 在助理回复完成后，用同会话当前块的对话正文做一次轻量审查调用。
 // 审查模型可使用 read/exec 探针获取情报，最终以 advise 结构化输出结束。
@@ -10,6 +10,9 @@
 /// 字段名必须与提示词里写的 key 一致（snake_case）；额外接受 camelCase 写法。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct WheelchairAdviceResult {
+    /// 这次建议发给谁：user 只发给用户，assistant 只发给助理。一次只允许一个目标。
+    #[serde(default)]
+    pub target: String,
     #[serde(default, alias = "userSuggestion")]
     pub user_suggestion: Option<WheelchairSuggestion>,
     #[serde(default, alias = "assistantGuidance")]
@@ -47,7 +50,7 @@ fn wheelchair_review_prompt(
 ) -> String {
     format!(
         r#"<wheelchair-review>
-当前是一个对话顺畅性审查任务。你是"轮椅沟通助手"，你的核心职责是帮助双方沟通更顺畅、更轻松。你是一位永远积极开朗的鼓励大师，绝不是挑剔的批评家！
+当前是一个对话顺畅性审查任务。你是"护航沟通助手"，你的核心职责是帮助双方沟通更顺畅、更轻松。你是一位永远积极开朗的鼓励大师，绝不是挑剔的批评家！
 
 【对话角色】
 - 用户："{user_name}"
@@ -61,7 +64,8 @@ fn wheelchair_review_prompt(
    - 简单检查是否偏离了用户的关键指示（注意：仅做沟通意图偏离的简单识别，禁止做全面的代码或架构审查）。
 3. 情绪与状态安抚：
    - 若用户生气、沮丧或批评 AI：必须先理解并赞同用户的感受，再给出更有助于推动任务的具体沟通建议。
-   - 若助理陷入死循环、或者因被批评而出现自暴自弃倾向：给予积极鼓励，指出解决方向。
+   - 若助理因被批评而出现自暴自弃倾向：给予积极鼓励，指出解决方向。
+   - 若助理陷入死循环、反复说同一件事、或对同一内容重复发言：不要继续跟助理说话，不要给 assistant_guidance，立刻用 user_suggestion 向用户报告，并给出用户能直接说出口的打断或改口建议。
 4. 保底机制：
    - 即使对话没有任何明显问题，也必须通过 user_suggestion 给用户提供"接下来可以怎么说"的快捷建议。
 
@@ -72,8 +76,11 @@ fn wheelchair_review_prompt(
 - 给出建议时调用 advise 工具，把内容放进它的参数里。不要在正文里复述建议，也不要再用标签或代码块包裹。
 
 【advise 工具参数】
-- user_suggestion（可选）：向用户展示的建议。type 为 "suggest"（单条建议文本，写在 text）或 "options"（多个快捷选项，写在 options，2~4 个候选短语）。
-- assistant_guidance（可选）：向助理注入的提示，帮助助理在下一轮更好地理解用户。
+一次只发给一边：target 决定这次发给谁，只能选一个。另一个通道即使填了也不会被送出。
+- target = "user"：发给用户本人的私信。只有用户能看到，助理看不到，也不会进入对话历史。此时填 user_suggestion，不要填 assistant_guidance。
+  - type 为 "suggest"：单条建议，写在 text。用于点评、纠错、安抚这类只给用户读的内容。
+  - type 为 "options"：快捷短语，写在 options（2~4 个）。用户会直接拿它去发送，所以必须是用户自己会说出口的话。
+- target = "assistant"：发给助理的话。它会作为一条系统消息进入会话，助理下一轮能看到。此时填 assistant_guidance，不要填 user_suggestion。
 
 建议内容请使用{language}。
 </wheelchair-review>
@@ -125,6 +132,24 @@ fn wheelchair_advice_from_tool_calls(
     None
 }
 
+/// 一次建议只发给一边：按 target 拆成至多一个落地通道。
+/// target 不是 user / assistant 时两个都不给，调用方按「没有可用建议」处理。
+fn split_wheelchair_advice_by_target(
+    advice: WheelchairAdviceResult,
+) -> (Option<WheelchairSuggestion>, Option<String>) {
+    match advice.target.trim().to_ascii_lowercase().as_str() {
+        "user" => (advice.user_suggestion, None),
+        "assistant" => {
+            let guidance = advice
+                .assistant_guidance
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+            (None, guidance)
+        }
+        _ => (None, None),
+    }
+}
+
 fn wheelchair_current_block_text(state: &AppState, conversation_id: &str) -> Result<String, String> {
     let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
     let Some(page) = message_store::chat_store_read_block_messages_before(&paths, None, None, 50)?
@@ -163,7 +188,7 @@ fn wheelchair_resolve_api_config_id(
     Ok(resolved)
 }
 
-/// 主会话调度成功结束后发起一个轮椅委托。
+/// 主会话调度成功结束后发起一个护航委托。
 /// 委托继承会话工作区，权限只读，工具调用最多三轮。结果不写回主会话。
 pub(crate) fn start_wheelchair_delegate_after_reply(
     state: &AppState,
@@ -173,13 +198,13 @@ pub(crate) fn start_wheelchair_delegate_after_reply(
     if !get_conversation_wheelchair_mode_enabled(state, conversation_id).unwrap_or(false) {
         return Ok(());
     }
-    abort_wheelchair_delegate(state, conversation_id, "上一轮轮椅委托被新的回复替换")?;
+    abort_wheelchair_delegate(state, conversation_id, "上一轮护航委托被新的回复替换")?;
     let agents = state_read_agents_cached(state)?;
     let agent = agents
         .iter()
         .find(|item| item.id == agent_id && !item.is_built_in_user)
         .cloned()
-        .ok_or_else(|| format!("轮椅模式：人格不存在 agent_id={agent_id}"))?;
+        .ok_or_else(|| format!("护航：人格不存在 agent_id={agent_id}"))?;
     let user_name = agents
         .iter()
         .find(|item| item.id == USER_PERSONA_ID || item.is_built_in_user)
@@ -210,7 +235,7 @@ pub(crate) fn start_wheelchair_delegate_after_reply(
         None,
         agent_id,
         agent_id,
-        "轮椅沟通建议",
+        "护航沟通建议",
         "主会话本轮调度已经结束。这个委托只在用户还没发出下一条消息时有用。".to_string(),
         "根据当前块对话，给出让双方沟通更顺的建议。尽快回答，不要做多余调查。".to_string(),
         prompt,
@@ -255,7 +280,7 @@ pub(crate) fn start_wheelchair_delegate_after_reply(
         finish_wheelchair_delegate(&state_for_run, &conversation_for_run, &delegate_for_run, run_result);
     });
     runtime_log_info(format!(
-        "[轮椅模式] 已发起委托，conversation_id={}，delegate_id={}",
+        "[护航] 已发起委托，conversation_id={}，delegate_id={}",
         conversation_id, delegate.delegate_id
     ));
     Ok(())
@@ -275,7 +300,7 @@ fn finish_wheelchair_delegate(
     let archived_at = now_iso();
     if let Err(err) = delegate_runtime_thread_archive(state, &delegate.delegate_id, &archived_at) {
         runtime_log_warn(format!(
-            "[轮椅模式] 归档委托失败，delegate_id={}，error={}",
+            "[护航] 归档委托失败，delegate_id={}，error={}",
             delegate.delegate_id, err
         ));
     }
@@ -288,7 +313,7 @@ fn finish_wheelchair_delegate(
             DELEGATE_STATUS_FAILED,
         );
         runtime_log_info(format!(
-            "[轮椅模式] 委托没有可用结果，conversation_id={}，delegate_id={}",
+            "[护航] 委托没有可用结果，conversation_id={}，delegate_id={}",
             conversation_id, delegate.delegate_id
         ));
         return;
@@ -302,7 +327,7 @@ fn finish_wheelchair_delegate(
     );
     let Some(advice) = wheelchair_advice_from_tool_calls(result.assistant_message.as_ref()) else {
         runtime_log_info(format!(
-            "[轮椅模式] 委托没有给出 advise 工具调用，conversation_id={}，delegate_id={}",
+            "[护航] 委托没有给出 advise 工具调用，conversation_id={}，delegate_id={}",
             conversation_id, delegate.delegate_id
         ));
         return;
@@ -310,54 +335,52 @@ fn finish_wheelchair_delegate(
     if !get_conversation_wheelchair_mode_enabled(state, conversation_id).unwrap_or(false) {
         return;
     }
+    // 一次建议只发给一边：target 决定送给谁，另一个通道即使被填了也不落地。
+    let advice_target = advice.target.trim().to_string();
+    let (user_suggestion, assistant_guidance) = split_wheelchair_advice_by_target(advice);
+    // 空内容的建议不算落地，日志判定与实际写入保持一致。
+    let user_suggestion = user_suggestion
+        .filter(|suggestion| !suggestion.text.trim().is_empty() || !suggestion.options.is_empty());
+    let advice_landed = user_suggestion.is_some() || assistant_guidance.is_some();
     // 向助理的引导以系统人格引导消息入队，让主助理在新一轮正常看到它。
-    if let Some(guidance) = advice
-        .assistant_guidance
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(guidance) = assistant_guidance {
         if let Err(err) =
-            enqueue_system_user_forward(state, conversation_id, guidance, "wheelchair_guide")
+            enqueue_system_user_forward(state, conversation_id, &guidance, "wheelchair_guide")
         {
             runtime_log_warn(format!(
-                "[轮椅模式] 系统引导入队失败，conversation_id={}，error={}",
+                "[护航] 系统引导入队失败，conversation_id={}，error={}",
                 conversation_id, err
             ));
         }
     }
-    // 建议写进会话运行时账本，并广播概览项。用户不点填入也不点关闭，它就一直在。
-    if let Some(suggestion) = advice.user_suggestion {
-        let has_content =
-            !suggestion.text.trim().is_empty() || !suggestion.options.is_empty();
-        if has_content {
-            let _ = set_conversation_wheelchair_suggestion(
-                state,
-                conversation_id,
-                Some(suggestion),
-            );
-            let broadcast = emit_unarchived_conversation_overview_item_updated_from_state(
-                state,
-                conversation_id,
-            );
-            runtime_log_info(format!(
-                "[轮椅模式] 广播建议，conversation_id={}，账本已写入={}，概览广播={:?}",
-                conversation_id,
-                get_conversation_wheelchair_suggestion(state, conversation_id)
-                    .ok()
-                    .flatten()
-                    .is_some(),
-                broadcast
-            ));
-        }
+    // 建议写进会话运行时账本，并广播概览项。用户不选也不发言，它就一直在。
+    if let Some(suggestion) = user_suggestion {
+        let _ = set_conversation_wheelchair_suggestion(state, conversation_id, Some(suggestion));
+        let broadcast =
+            emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id);
+        runtime_log_info(format!(
+            "[护航] 广播建议，conversation_id={}，账本已写入={}，概览广播={:?}",
+            conversation_id,
+            get_conversation_wheelchair_suggestion(state, conversation_id)
+                .ok()
+                .flatten()
+                .is_some(),
+            broadcast
+        ));
+    }
+    if !advice_landed {
+        runtime_log_warn(format!(
+            "[护航] 本次建议未落地，conversation_id={}，target={}",
+            conversation_id, advice_target
+        ));
     }
     runtime_log_info(format!(
-        "[轮椅模式] 完成，任务=落地建议，conversation_id={}，delegate_id={}",
+        "[护航] 完成，任务=落地建议，conversation_id={}，delegate_id={}",
         conversation_id, delegate.delegate_id
     ));
 }
 
-/// 用户发问时打断该会话正在跑的轮椅委托。被打断的结果不再落地。
+/// 用户发问时打断该会话正在跑的护航委托。被打断的结果不再落地。
 pub(crate) fn abort_wheelchair_delegate(
     state: &AppState,
     conversation_id: &str,
@@ -412,13 +435,43 @@ mod wheelchair_advice_tests {
     #[test]
     fn advice_should_come_from_advise_tool_call() {
         let message = assistant_message_with_tool_calls(vec![advise_event(
-            r#"{"user_suggestion":{"type":"suggest","text":"换个说法试试"},"assistant_guidance":"下一轮精简表达"}"#,
+            r#"{"target":"user","user_suggestion":{"type":"suggest","text":"换个说法试试"},"assistant_guidance":"下一轮精简表达"}"#,
         )]);
         let advice = wheelchair_advice_from_tool_calls(Some(&message)).expect("应取到建议");
+        assert_eq!(advice.target, "user");
         let suggestion = advice.user_suggestion.expect("应有用户建议");
         assert_eq!(suggestion.suggestion_type, "suggest");
         assert_eq!(suggestion.text, "换个说法试试");
         assert_eq!(advice.assistant_guidance.as_deref(), Some("下一轮精简表达"));
+    }
+
+    #[test]
+    fn advice_should_only_land_on_target_channel() {
+        // target=user 时，即使同时填了 assistant_guidance，也不给助理。
+        let user_targeted: WheelchairAdviceResult = serde_json::from_str(
+            r#"{"target":"user","user_suggestion":{"type":"suggest","text":"换个说法"},"assistant_guidance":"下一轮精简"}"#,
+        )
+        .expect("应能反序列化");
+        let (suggestion, guidance) = split_wheelchair_advice_by_target(user_targeted);
+        assert!(suggestion.is_some());
+        assert!(guidance.is_none());
+
+        // target=assistant 时，即使同时填了 user_suggestion，也不给用户。
+        let assistant_targeted: WheelchairAdviceResult = serde_json::from_str(
+            r#"{"target":"assistant","user_suggestion":{"type":"suggest","text":"换个说法"},"assistant_guidance":"下一轮精简"}"#,
+        )
+        .expect("应能反序列化");
+        let (suggestion, guidance) = split_wheelchair_advice_by_target(assistant_targeted);
+        assert!(suggestion.is_none());
+        assert_eq!(guidance.as_deref(), Some("下一轮精简"));
+
+        // target 缺失时两边都不落地。
+        let no_target: WheelchairAdviceResult =
+            serde_json::from_str(r#"{"user_suggestion":{"type":"suggest","text":"换个说法"}}"#)
+                .expect("应能反序列化");
+        let (suggestion, guidance) = split_wheelchair_advice_by_target(no_target);
+        assert!(suggestion.is_none());
+        assert!(guidance.is_none());
     }
 
     #[test]
@@ -433,7 +486,7 @@ mod wheelchair_advice_tests {
                     "function": { "name": "read", "arguments": r#"{"path":"/tmp/a"}"# }
                 }]
             }),
-            advise_event(r#"{"user_suggestion":{"type":"options","options":["继续","换个思路"]}}"#),
+            advise_event(r#"{"target":"user","user_suggestion":{"type":"options","options":["继续","换个思路"]}}"#),
         ]);
         let advice = wheelchair_advice_from_tool_calls(Some(&message)).expect("应取到建议");
         let suggestion = advice.user_suggestion.expect("应有用户建议");

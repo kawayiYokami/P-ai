@@ -2253,7 +2253,7 @@
       }
     },
     "plan": {
-      "mode": "Plan Mode",
+      "mode": "Plan",
       "enterMode": "Switch to Plan Mode",
       "exitMode": "Exit Plan Mode",
       "enabled": "Plan Mode Enabled",
@@ -2264,12 +2264,11 @@
       "linkLabel": "Plan: "
     },
     "wheelchair": {
-      "mode": "Wheelchair Mode",
-      "enterMode": "Enable Wheelchair Mode",
+      "mode": "Escort",
+      "enterMode": "Enable Escort",
       "exitMode": "Off",
-      "enabled": "Wheelchair Mode Enabled",
-      "modeOff": "Off",
-      "fill": "Fill"
+      "enabled": "Escort Enabled",
+      "modeOff": "Off"
     },
     "localImageUnavailable": "Image unavailable",
     "goal": {

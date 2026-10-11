@@ -8,6 +8,9 @@
         @recall-to-input="emit('recallToInput', $event)"
         @mark-guided="emit('markGuided', $event)"
       />
+      <div v-if="deckExtraVisible" :class="{ 'border-t border-base-300': hasQueue }">
+        <slot name="deck-extra" />
+      </div>
     </template>
     <template #main>
       <div v-if="$slots.attachments">
@@ -33,18 +36,25 @@ const props = withDefaults(defineProps<{
   queueEvents?: ChatQueueEvent[];
   userPersonaName?: string;
   queueVisible?: boolean;
+  deckExtraVisible?: boolean;
   isRounded?: boolean;
   dockBg?: "base-100" | "base-200" | "base-300";
 }>(), {
   queueEvents: () => [],
   userPersonaName: "",
   queueVisible: true,
+  deckExtraVisible: false,
   isRounded: false,
   dockBg: "base-200",
 });
 
-/** 露头显隐：底座内容为空时只见底卡包面卡，有队列时露头在面卡上方 */
-const hasExtra = computed(() => !!props.queueVisible && (props.queueEvents?.length ?? 0) > 0);
+/** 有队列露头时，建议条与队列之间才需要分割线 */
+const hasQueue = computed(
+  () => !!props.queueVisible && (props.queueEvents?.length ?? 0) > 0,
+);
+
+/** 露头显隐：底座内容为空时只见底卡包面卡，有队列或额外露头内容时露头在面卡上方 */
+const hasExtra = computed(() => hasQueue.value || !!props.deckExtraVisible);
 
 const emit = defineEmits<{
   (e: "recallToInput", event: ChatQueueEvent): void;

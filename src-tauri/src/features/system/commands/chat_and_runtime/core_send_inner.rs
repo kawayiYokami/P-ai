@@ -1294,7 +1294,7 @@ async fn send_chat_message_inner(
                 let _ = abort_wheelchair_delegate(
                     state,
                     conversation_id,
-                    "用户已发问，轮椅委托停止",
+                    "用户已发问，护航委托停止",
                 );
             }
         }
@@ -3239,7 +3239,7 @@ async fn send_chat_message_inner(
     }
     // 已切换至调度事件：旧 pipeline 日志不再写入
     let _ = (&trace_id, &chat_session_key_for_log, &timeline, &final_result);
-    // 轮椅模式：主会话调度成功结束后发起一个只读委托。
+    // 护航：主会话调度成功结束后发起一个只读委托。
     if final_result.is_ok() && runtime_conversation_id.is_none() {
         if let Ok(result) = final_result.as_ref() {
             let wc_conversation_id = result.conversation_id.clone();
@@ -3250,7 +3250,7 @@ async fn send_chat_message_inner(
                 &wc_agent_id,
             ) {
                 runtime_log_warn(format!(
-                    "[轮椅模式] 委托发起失败，conversation_id={}，error={}",
+                    "[护航] 委托发起失败，conversation_id={}，error={}",
                     wc_conversation_id, err
                 ));
             }

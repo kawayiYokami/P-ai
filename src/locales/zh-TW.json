@@ -2241,7 +2241,7 @@
       }
     },
     "plan": {
-      "mode": "計劃模式",
+      "mode": "計劃",
       "enterMode": "切換到計劃模式",
       "exitMode": "退出計劃",
       "enabled": "計劃模式已開啟",
@@ -2252,12 +2252,11 @@
       "linkLabel": "計劃："
     },
     "wheelchair": {
-      "mode": "輪椅模式",
-      "enterMode": "開啟輪椅模式",
+      "mode": "護航",
+      "enterMode": "開啟護航",
       "exitMode": "關閉",
-      "enabled": "輪椅模式已開啟",
-      "modeOff": "未開啟",
-      "fill": "填入"
+      "enabled": "護航已開啟",
+      "modeOff": "未開啟"
     },
     "localImageUnavailable": "圖片不可用",
     "goal": {

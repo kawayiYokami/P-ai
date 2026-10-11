@@ -24,6 +24,7 @@
         <button type="button" class="btn btn-xs" :class="demoMentions.length > 0 ? 'btn-primary' : 'btn-ghost'" @click="demoMentions.length > 0 ? (demoMentions = []) : resetDemoMentions()">提及</button>
         <button type="button" class="btn btn-xs" :class="goalActive ? 'btn-primary' : 'btn-ghost'" @click="goalActive = !goalActive">目标</button>
         <button type="button" class="btn btn-xs" :class="planModeEnabled ? 'btn-primary' : 'btn-ghost'" @click="planModeEnabled = !planModeEnabled">计划模式</button>
+        <button type="button" class="btn btn-xs" :class="demoWheelchairSuggestionKind !== 'off' ? 'btn-primary' : 'btn-ghost'" @click="cycleDemoWheelchairSuggestion">建议：{{ demoWheelchairSuggestionLabel }}</button>
       </div>
 
       <InputPanelCanvas :bg="demoContainerBg" :is-rounded="false">
@@ -43,6 +44,8 @@
           :chat-model-options="demoChatModelOptions"
           :workspace-access="demoWorkspaceAccess"
           :plan-mode-enabled="planModeEnabled"
+          :wheelchair-mode-enabled="demoWheelchairModeEnabled"
+          :wheelchair-suggestion="demoWheelchairSuggestion"
           :chatting="false"
           frontend-round-phase="idle"
           :busy="demoBusy"
@@ -80,6 +83,8 @@
           @update:conversation-preferred-api-config-id="demoPreferredModelId = $event"
           @update:workspace-access="demoWorkspaceAccess = $event"
           @update:plan-mode-enabled="planModeEnabled = $event"
+          @update:wheelchair-mode-enabled="demoWheelchairModeEnabled = $event"
+          @dismiss-wheelchair-suggestion="demoWheelchairSuggestionKind = 'off'"
           @attach-ide-context-reference="attachDemoBridge($event.id)"
           @remove-ide-context-reference="detachDemoBridge($event)"
           @send-chat="handleDemoSend"
@@ -132,6 +137,41 @@ const demoBridges = ref(makeDemoBridges());
 const demoMentions = ref<ChatMentionTarget[]>(makeDemoMentions());
 const goalActive = ref(false);
 const planModeEnabled = ref(false);
+const WHEELCHAIR_SUGGESTION_CYCLE = ["off", "suggest", "options"] as const;
+type DemoWheelchairSuggestionKind = (typeof WHEELCHAIR_SUGGESTION_CYCLE)[number];
+const demoWheelchairSuggestionKind = ref<DemoWheelchairSuggestionKind>("off");
+const demoWheelchairModeEnabled = ref(false);
+const demoWheelchairSuggestionLabel = computed(() => {
+  if (demoWheelchairSuggestionKind.value === "suggest") return "单条";
+  if (demoWheelchairSuggestionKind.value === "options") return "多选";
+  return "关闭";
+});
+const demoWheelchairSuggestion = computed<
+  { type: "suggest" | "options"; text: string; options: string[] } | null
+>(() => {
+  if (demoWheelchairSuggestionKind.value === "suggest") {
+    return {
+      type: "suggest",
+      text: "下次可以说是「随便调个工具，别跟上次一样」，这样能直接命中观测点",
+      options: [],
+    };
+  }
+  if (demoWheelchairSuggestionKind.value === "options") {
+    return {
+      type: "options",
+      text: "",
+      options: ["继续处理下一步", "换个思路试试", "先看一下当前状态", "把这段拆成 todo"],
+    };
+  }
+  return null;
+});
+
+function cycleDemoWheelchairSuggestion(): void {
+  const idx = WHEELCHAIR_SUGGESTION_CYCLE.indexOf(demoWheelchairSuggestionKind.value);
+  const next = WHEELCHAIR_SUGGESTION_CYCLE[(idx + 1) % WHEELCHAIR_SUGGESTION_CYCLE.length];
+  demoWheelchairSuggestionKind.value = next;
+  demoWheelchairModeEnabled.value = next !== "off";
+}
 const demoPreferredModelId = ref("demo-model");
 const demoWorkspaceAccess = ref<"approval" | "full_access">("approval");
 const demoPersonaNameMap = ref<Record<string, string>>({ "user-persona": "红豆" });

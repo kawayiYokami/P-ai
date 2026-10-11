@@ -25,8 +25,8 @@ type UseConversationWheelchairModeOptions<T extends ConversationWheelchairModeSu
 };
 
 /**
- * 轮椅模式的开关和建议芯片都挂在会话运行时内存账本上，由概览项带下来。
- * 建议只在用户点填入或点关闭时消失；切换会话、刷新界面都不会清掉。
+ * 护航的开关和建议条都挂在会话运行时内存账本上，由概览项带下来。
+ * 建议只在用户点选项或直接发言时消失；切换会话、刷新界面都不会清掉。
  */
 export function useConversationWheelchairMode<T extends ConversationWheelchairModeSummary>(
   options: UseConversationWheelchairModeOptions<T>,
@@ -112,7 +112,7 @@ export function useConversationWheelchairMode<T extends ConversationWheelchairMo
       if (getConversationWheelchairModeEnabledById(normalizedConversationId) === nextValue) {
         patchConversationWheelchairModeInOverview(normalizedConversationId, previousValue);
       }
-      console.warn("[轮椅模式] 切换会话轮椅模式失败", {
+      console.warn("[护航] 切换会话护航失败", {
         conversationId: normalizedConversationId,
         nextValue,
         error,
@@ -140,7 +140,7 @@ export function useConversationWheelchairMode<T extends ConversationWheelchairMo
         },
       );
     } catch (error) {
-      console.warn("[轮椅模式] 清掉建议芯片失败", {
+      console.warn("[护航] 清掉建议条失败", {
         conversationId,
         error,
       });

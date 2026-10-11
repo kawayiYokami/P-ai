@@ -78,7 +78,7 @@ struct UnarchivedConversationSummary {
     plan_mode_enabled: bool,
     #[serde(default)]
     wheelchair_mode_enabled: bool,
-    /// 待用户处理的轮椅建议。只有用户点填入或点关闭才会清空，切换会话不清。
+    /// 待用户处理的护航建议。只有用户点选项或直接发言才会清空，切换会话不清。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     wheelchair_suggestion: Option<WheelchairSuggestion>,
     #[serde(skip_serializing_if = "Option::is_none")]

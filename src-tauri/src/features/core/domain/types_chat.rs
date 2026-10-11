@@ -572,7 +572,7 @@ struct RemoteImConversationAssistantContext {
     agent_name: String,
 }
 
-/// 轮椅模式给用户看的一条建议。只存在会话运行时内存账本里，不落盘。
+/// 护航给用户看的一条建议。只存在会话运行时内存账本里，不落盘。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WheelchairSuggestion {
@@ -594,7 +594,7 @@ struct ConversationRuntimeSlot {
     plan_mode_enabled: bool,
     wheelchair_mode_enabled: bool,
     wheelchair_delegate_id: Option<String>,
-    /// 待用户处理的建议芯片。用户不点填入也不点关闭就一直留着，切走会话再回来仍可读。
+    /// 待用户处理的建议条。用户不选也不发言就一直留着，切走会话再回来仍可读。
     wheelchair_suggestion: Option<WheelchairSuggestion>,
     last_activity_at: String,
 }

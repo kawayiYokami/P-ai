@@ -3970,6 +3970,8 @@ function performSendChat() {
     locallyPromotedConversationId.value = conversationId;
   }
   const extraTextBlocks = attachedIdeContextReferences.value.map((item) => String(item.textBlock || "").trim()).filter(Boolean);
+  // 用户直接发言等于放弃护航建议：走到这一步才算真的发送，分支守卫拦下的那次不清。
+  emit("dismissWheelchairSuggestion");
   emit("sendChat", extraTextBlocks.length > 0 ? { extraTextBlocks } : undefined);
   clearAttachedIdeContextReferences();
 }

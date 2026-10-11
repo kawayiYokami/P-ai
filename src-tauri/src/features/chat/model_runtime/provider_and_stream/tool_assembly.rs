@@ -1019,7 +1019,7 @@ pub(crate) async fn assemble_runtime_tools(
             }
         }
     }
-    // 轮椅委托额外挂一个 advise 工具：建议以结构化参数回来，不再解析正文。
+    // 护航委托额外挂一个 advise 工具：建议以结构化参数回来，不再解析正文。
     if wheelchair_delegate_tool_session(state, tool_session_id) {
         tool_definitions.push(advise_provider_tool_definition());
         tools.push(Box::new(BuiltinAdviseTool {}));
@@ -1265,22 +1265,27 @@ struct BuiltinWindowsTool {}
 
 const ADVISE_TOOL_NAME: &str = "advise";
 
-/// 轮椅委托专属工具：建议以结构化参数回来，不再从正文里解析标签。
+/// 护航委托专属工具：建议以结构化参数回来，不再从正文里解析标签。
 fn advise_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
         ADVISE_TOOL_NAME,
-        "给出沟通建议并结束本次任务。user_suggestion 会展示给用户，assistant_guidance 会注入给助理。",
+        "给出沟通建议并结束本次任务。一次只能发给一边：target 选 user 就只给用户，选 assistant 就只给助理。",
         serde_json::json!({
             "type": "object",
             "properties": {
+                "target": {
+                    "type": "string",
+                    "enum": ["user", "assistant"],
+                    "description": "这次建议发给谁，只能选一个。user 只发给用户本人，助理看不到；assistant 只发给助理，会作为系统消息进入会话。"
+                },
                 "user_suggestion": {
                     "type": "object",
-                    "description": "展示给用户的建议。",
+                    "description": "target 为 user 时填写。发给用户本人的私信，只有用户能看到，助理看不到，也不进入对话历史。",
                     "properties": {
                         "type": {
                             "type": "string",
                             "enum": ["suggest", "options"],
-                            "description": "suggest 表示单条建议文本；options 表示多个快捷短语。"
+                            "description": "suggest 表示只给用户读的单条建议；options 表示用户会直接拿去发送的快捷短语。"
                         },
                         "text": {
                             "type": "string",
@@ -1289,16 +1294,17 @@ fn advise_provider_tool_definition() -> ProviderToolDefinition {
                         "options": {
                             "type": "array",
                             "items": { "type": "string" },
-                            "description": "type 为 options 时的候选短语列表。"
+                            "description": "type 为 options 时的候选短语列表，必须是用户自己会说出口的话。"
                         }
                     },
                     "required": ["type"]
                 },
                 "assistant_guidance": {
                     "type": "string",
-                    "description": "注入给助理的提示，帮助下一轮沟通更顺。"
+                    "description": "target 为 assistant 时填写。发给助理的话，会作为系统消息进入会话，助理下一轮能看到。"
                 }
-            }
+            },
+            "required": ["target"]
         }),
     )
 }
@@ -1322,7 +1328,7 @@ impl RuntimeToolDyn for BuiltinAdviseTool {
             // 建议内容由收尾步骤直接从本轮的工具调用参数里读，这里只回执。
             let args: Value = serde_json::from_str(&args_json).unwrap_or(Value::Null);
             runtime_log_debug(format!(
-                "[轮椅模式] advise 工具已调用，user_suggestion={}，assistant_guidance={}",
+                "[护航] advise 工具已调用，user_suggestion={}，assistant_guidance={}",
                 args.get("user_suggestion").map_or(false, |value| !value.is_null()),
                 args.get("assistant_guidance")
                     .and_then(Value::as_str)
@@ -1339,7 +1345,7 @@ impl RuntimeToolDyn for BuiltinAdviseTool {
     }
 }
 
-/// 该工具会话是否属于轮椅委托。只有它会额外挂载 advise 工具。
+/// 该工具会话是否属于护航委托。只有它会额外挂载 advise 工具。
 fn wheelchair_delegate_tool_session(state: &AppState, tool_session_id: &str) -> bool {
     let Some(delegate_id) = delegate_session_conversation_id(tool_session_id) else {
         return false;
