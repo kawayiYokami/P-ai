@@ -1,6 +1,5 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, type Ref, watch } from "vue";
 import { isMobileTouchViewport } from "../../shared/utils/mobile-viewport";
-import { isDesktopTauriHost } from "../../../services/tauri-api";
 import { probeChatScroll } from "./chat-scroll-probe";
 
 const TODO_DROPDOWN_SAFE_GAP = 30;
@@ -15,7 +14,6 @@ type UseChatScrollLayoutOptions = {
   busy: Ref<boolean>;
   frozen: Ref<boolean>;
   timelineItemCount: Ref<number>;
-  isWebRoundedMode?: Ref<boolean>;
   onReachedBottom: () => void;
   focusComposerInput: (options?: FocusOptions) => void;
 };
@@ -63,9 +61,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     if (composerReservedHeight.value !== composerHeight) {
       composerReservedHeight.value = composerHeight;
     }
-    // 桌面灌满 +16，Web双栏悬浮突出 24px 圆角 +40
-    const isFloating = options.isWebRoundedMode?.value ?? (!isDesktopTauriHost() && false);
-    const nextOffset = Math.max(16, composerHeight + (isFloating ? 40 : 16));
+    const nextOffset = Math.max(16, composerHeight + 16);
     if (jumpToBottomOffset.value !== nextOffset) {
       jumpToBottomOffset.value = nextOffset;
     }

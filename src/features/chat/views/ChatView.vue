@@ -425,9 +425,8 @@
         <div
           ref="composerContainer"
           class="relative shrink-0 bg-base-200 p-0"
-          :class="isWebRoundedMode ? 'border-transparent bg-transparent px-4 pt-0 pb-3' : ''"
         >
-          <div class="w-full" :class="isWebRoundedMode ? '-mt-6' : ''">
+          <div class="w-full">
           <div
             v-if="activeConversationIsRemoteContact"
             class="absolute bottom-full left-1/2 z-20 mb-3 -translate-x-1/2"
@@ -488,14 +487,13 @@
             :items="approvalQuestionItems"
             v-model="approvalQuestionAnswers"
             :submitting="!!terminalApprovalResolving"
-            :class="isWebRoundedMode ? 'pb-1' : 'px-4 pb-4 pt-1'"
+            class="px-4 pb-4 pt-1"
             @submit="handleApprovalQuestionSubmit"
             @approve-for-workspace="handleApprovalQuestionWorkspaceRemember"
           />
           <div
             v-else-if="activeConversationRecipientMissing"
-            class="rounded-box border border-warning/30 bg-warning/10 p-4 text-sm"
-            :class="isWebRoundedMode ? '' : 'm-4'"
+            class="m-4 rounded-box border border-warning/30 bg-warning/10 p-4 text-sm"
           >
             <div class="flex flex-col gap-4">
               <!-- 信息区：图标锚点 + 标题 + 说明，独立成块不被操作区挤压 -->
@@ -580,7 +578,6 @@
             :ide-context-groups="mergedVisibleIdeContextGroups" :attached-ide-context-references="attachedIdeContextReferences"
             :current-theme="currentTheme"
             :show-conversation-actions="showConversationActions"
-            :is-rounded="isWebRoundedMode"
             @update:chat-input="$emit('update:chatInput', $event)" @add-mention="$emit('addMention', $event)"
             @remove-mention="$emit('removeMention', $event)" @remove-clipboard-image="$emit('removeClipboardImage', $event)"
             @remove-queued-attachment-notice="$emit('removeQueuedAttachmentNotice', $event)"
@@ -849,7 +846,6 @@ import {
   copyTransportChatImageToClipboard,
   getTransportHostContext,
   invokeTauri,
-  isDesktopTauriHost,
   onTransportNotification,
   onTransportRecovered,
   openTransportExternalUrl,
@@ -1806,9 +1802,6 @@ defineExpose({
   openDirectoryInReader,
 });
 
-// Web双栏圆角悬浮判：桌面常直角，Web左右栏同时在位才圆角
-const isWebRoundedMode = ref(false);
-
 const {
   scrollContainer, composerContainer, toolbarContainer, chatLayoutRoot,
   latestOwnElasticMinHeight, atConversationBottom, userScrollingUp,
@@ -1820,7 +1813,6 @@ const {
   chatting: toRef(props, "chatting"), busy: conversationInteractionBusy,
   frozen: toRef(props, "frozen"),
   timelineItemCount: computed(() => virtualRenderItems.value.length),
-  isWebRoundedMode: isWebRoundedMode as unknown as Ref<boolean>,
   onReachedBottom: () => emit("reachedBottom"),
   focusComposerInput: (options) => composerPanelRef.value?.focusInput(options),
 });
@@ -3392,11 +3384,6 @@ rightPaneLayoutSnapshot.value = effectiveToolReviewPanelOpen.value ? rightPaneIn
 const leftPaneTransitionCssEnabled = computed(() => leftPaneLayoutSnapshot.value);
 const rightPaneTransitionCssEnabled = computed(() => rightPaneLayoutSnapshot.value);
 
-watch(
-  () => !isDesktopTauriHost() && leftPaneInLayout.value && rightPaneInLayout.value,
-  (val) => { isWebRoundedMode.value = val; },
-  { immediate: true },
-);
 // css 由快照决定：push 动画，overlay 瞬切；拖拽时 Transition 未激活不受影响；isPaneTransitioning 仅用于锁测量
 
 function handleLeftPaneBeforeTransition() {
