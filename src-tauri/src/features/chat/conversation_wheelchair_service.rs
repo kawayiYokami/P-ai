@@ -310,8 +310,21 @@ fn finish_wheelchair_delegate(
     if !get_conversation_wheelchair_mode_enabled(state, conversation_id).unwrap_or(false) {
         return;
     }
-    if let Some(guidance) = advice.assistant_guidance.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        let _ = set_conversation_pending_wheelchair_guide(state, conversation_id, Some(guidance.to_string()));
+    // 向助理的引导以系统人格引导消息入队，让主助理在新一轮正常看到它。
+    if let Some(guidance) = advice
+        .assistant_guidance
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Err(err) =
+            enqueue_system_user_forward(state, conversation_id, guidance, "wheelchair_guide")
+        {
+            runtime_log_warn(format!(
+                "[轮椅模式] 系统引导入队失败，conversation_id={}，error={}",
+                conversation_id, err
+            ));
+        }
     }
     // 建议写进会话运行时账本，并广播概览项。用户不点填入也不点关闭，它就一直在。
     if let Some(suggestion) = advice.user_suggestion {

@@ -593,7 +593,6 @@ struct ConversationRuntimeSlot {
     active_remote_im_assistant_context: Option<RemoteImConversationAssistantContext>,
     plan_mode_enabled: bool,
     wheelchair_mode_enabled: bool,
-    pending_wheelchair_guide: Option<String>,
     wheelchair_delegate_id: Option<String>,
     /// 待用户处理的建议芯片。用户不点填入也不点关闭就一直留着，切走会话再回来仍可读。
     wheelchair_suggestion: Option<WheelchairSuggestion>,
@@ -661,7 +660,6 @@ impl Default for ConversationRuntimeSlot {
             active_remote_im_assistant_context: None,
             plan_mode_enabled: false,
             wheelchair_mode_enabled: false,
-            pending_wheelchair_guide: None,
             wheelchair_delegate_id: None,
             wheelchair_suggestion: None,
             last_activity_at: String::new(),

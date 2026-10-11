@@ -1826,21 +1826,6 @@ async fn send_chat_message_inner(
                 format!("{plan_block}\n{existing_meta}")
             };
         }
-        // 轮椅模式：注入上一轮审查产出的助理引导（单次即焚）
-        if let Ok(Some(guide)) =
-            take_conversation_pending_wheelchair_guide(&state, &conversation.id)
-        {
-            let guide_block = format!(
-                "<wheelchair-guide>\n[轮椅模式辅助提示]：{}\n</wheelchair-guide>",
-                guide.trim()
-            );
-            let existing_meta = prepared_prompt.latest_user_meta_text.trim();
-            prepared_prompt.latest_user_meta_text = if existing_meta.is_empty() {
-                guide_block
-            } else {
-                format!("{existing_meta}\n{guide_block}")
-            };
-        }
         log_run_stage("prepare_context.prompt_built");
         let remote_im_auto_send_source = resolve_remote_im_auto_send_source(
             &state,
