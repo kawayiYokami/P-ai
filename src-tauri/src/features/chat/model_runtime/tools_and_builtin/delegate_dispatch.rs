@@ -309,26 +309,18 @@ fn spawn_delegate_task(
                 } else {
                     result.assistant_text.clone()
                 };
-                if let Err(err) = delegate_enqueue_result_message(
+                // 后台委托完成以「系统人格引导消息入队」投递，与用户 @委托、代码审查保持一致：
+                // 引导入队会把结果当作引导插话并激活主助理，而不是只往会话里平铺一条结果消息。
+                if let Err(err) = conversation_service_v2().enqueue_delegate_completion_notification(
                     &app_state_for_publish,
                     &root_conversation_id,
                     &delegate_for_publish.target_agent_id,
+                    &delegate_for_publish.title,
                     &text,
-                    serde_json::json!({
-                        "messageKind": "delegate_result",
-                        "delegateId": delegate_for_publish.delegate_id,
-                        "delegateKind": delegate_for_publish.kind,
-                        "resultStatus": "completed",
-                        "speakerAgentId": delegate_for_publish.target_agent_id,
-                        "sourceAgentId": delegate_for_publish.source_agent_id,
-                        "targetAgentId": delegate_for_publish.target_agent_id,
-                    }),
-                    delegate_for_publish.notify_assistant_when_done,
-                )
-                .await
-                {
+                    "delegate_tool_background_completion",
+                ) {
                     runtime_log_error(format!(
-                        "[委托线程] 投递委托完成消息失败: delegate_id={}, target_agent_id={}, root_conversation_id={}, error={}",
+                        "[委托线程] 投递委托完成引导消息失败: delegate_id={}, target_agent_id={}, root_conversation_id={}, error={}",
                         delegate_for_publish.delegate_id,
                         delegate_for_publish.target_agent_id,
                         root_conversation_id,
@@ -560,7 +552,7 @@ async fn builtin_delegate(
         validated.why,
         validated.goal,
         validated.todo,
-        false,
+        true,
         call_stack,
     )?;
 
@@ -648,7 +640,7 @@ async fn delegate_execute_sync(
         validated.why,
         validated.goal,
         validated.todo,
-        false,
+        true,
         call_stack,
     )?;
     let mut abort_guard = SyncDelegateAbortGuard::new(app_state.clone(), delegate.delegate_id.clone());
