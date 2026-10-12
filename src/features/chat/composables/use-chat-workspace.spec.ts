@@ -2,9 +2,11 @@ import { computed, ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invokeTauriMock = vi.hoisted(() => vi.fn());
+const gitPanelHeadStateMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../services/tauri-api", () => ({
   invokeTauri: invokeTauriMock,
+  gitPanelHeadState: gitPanelHeadStateMock,
 }));
 
 vi.mock("vue-i18n", () => ({
@@ -58,6 +60,17 @@ function createWorkspace(conversationId: string) {
 describe("useChatWorkspace 工作区刷新竞态", () => {
   beforeEach(() => {
     invokeTauriMock.mockReset();
+    gitPanelHeadStateMock.mockReset();
+  });
+
+  it("读分支只查 head_state，不走会全量扫描工作区的 status", async () => {
+    const { workspace } = createWorkspace("conv-a");
+    gitPanelHeadStateMock.mockResolvedValueOnce({ branch: "feature/only-branch" });
+
+    await expect(workspace.readChatWorkspaceBranch("E:/repo-a")).resolves.toBe("feature/only-branch");
+
+    expect(gitPanelHeadStateMock).toHaveBeenCalledWith("E:/repo-a");
+    expect(invokeTauriMock).not.toHaveBeenCalled();
   });
 
   it("丢弃过期响应：切会话后晚到的旧会话响应不覆盖新会话工作区", async () => {

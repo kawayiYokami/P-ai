@@ -1,6 +1,6 @@
 import { computed, ref, type ComputedRef } from "vue";
 import { useI18n } from "vue-i18n";
-import { gitPanelStatus, invokeTauri } from "../../../services/tauri-api";
+import { gitPanelHeadState, invokeTauri } from "../../../services/tauri-api";
 import { isRepoInWorkspace } from "./use-chat-branch-guard";
 import type { ChatShellWorkspaceState, ShellWorkspace, ShellWorkMode } from "../../../types/app";
 import {
@@ -248,8 +248,10 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     const path = String(workspacePath || "").trim();
     if (!path) return "";
     try {
-      const status = await gitPanelStatus(path);
-      return String(status?.branch || "").trim();
+      // 只读分支名：用 head_state 而不是 status。status 会全量扫工作区未跟踪文件，
+      // 而这里只需要一个分支名，多扫出的结果全被丢弃。
+      const headState = await gitPanelHeadState(path);
+      return String(headState?.branch || "").trim();
     } catch (error) {
       console.warn("[工作区] 读取当前分支失败", error);
       return "";
