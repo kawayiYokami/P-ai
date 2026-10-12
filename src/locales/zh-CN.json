@@ -2503,9 +2503,12 @@
     "branchOccupied": "已占用",
     "worktreeNewTitle": "新建工作树",
     "worktreeNewBase": "基分支",
+    "worktreeNewTarget": "目标分支",
     "worktreeNewName": "工作树名称",
     "worktreeNewNamePlaceholder": "将作为新分支名与目录名（位于 .pai/.worktree/）",
+    "worktreeNewNamePlaceholderTarget": "将作为目录名（位于 .pai/.worktree/）",
     "worktreeNewMissing": "请填写基分支和工作树名称",
+    "worktreeNewMissingTarget": "请选择目标分支并填写工作树名称",
     "worktreeNewFailed": "创建工作树失败：{message}"
   },
   "memory": {

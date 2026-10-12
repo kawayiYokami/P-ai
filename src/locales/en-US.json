@@ -2503,9 +2503,12 @@
     "branchOccupied": "Occupied",
     "worktreeNewTitle": "New Worktree",
     "worktreeNewBase": "Base branch",
+    "worktreeNewTarget": "Target branch",
     "worktreeNewName": "Worktree name",
     "worktreeNewNamePlaceholder": "Used as the new branch and directory name (in .pai/.worktree/)",
+    "worktreeNewNamePlaceholderTarget": "Used as the directory name (in .pai/.worktree/)",
     "worktreeNewMissing": "Please fill in the base branch and worktree name",
+    "worktreeNewMissingTarget": "Please pick a target branch and fill in the worktree name",
     "worktreeNewFailed": "Failed to create worktree: {message}"
   },
   "memory": {

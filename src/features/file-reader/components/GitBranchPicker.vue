@@ -24,20 +24,31 @@
           <GitBranch
             class="h-3.5 w-3.5 shrink-0"
             :class="isSelectMode
-              ? (isSelected(row.node.data.branch.name) ? 'text-primary' : 'opacity-60')
+              ? (isSelected(row.node.data.branch.name)
+                  ? 'text-primary'
+                  : (occupancyAware && row.node.data.worktreePath ? 'opacity-30' : 'opacity-60'))
               : (row.node.data.branch.isCurrent ? 'text-primary' : (row.node.data.worktreePath ? 'opacity-30' : 'opacity-60'))"
           />
           <span
             class="min-w-0 flex-1 truncate"
             :class="isSelectMode
-              ? (isSelected(row.node.data.branch.name) ? 'font-medium text-primary' : '')
+              ? (isSelected(row.node.data.branch.name)
+                  ? 'font-medium text-primary'
+                  : (occupancyAware && row.node.data.worktreePath ? 'opacity-40' : ''))
               : (row.node.data.worktreePath ? 'opacity-40' : '')"
           >
             {{ row.node.data.branch.name }}
           </span>
-          <!-- 取值模式：只表达“选中”，占用与当前分支对基分支无意义 -->
+          <!-- 取值模式：默认只表达“选中”；开启占用识别后额外标出已被检出的分支 -->
           <template v-if="isSelectMode">
-            <Check v-if="isSelected(row.node.data.branch.name)" class="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span
+              v-if="occupancyAware && row.node.data.worktreePath && !isSelected(row.node.data.branch.name)"
+              class="shrink-0 rounded-full bg-base-content/10 px-1.5 py-0.5 text-caption opacity-60"
+              :title="row.node.data.worktreePath"
+            >
+              {{ t("gitPanel.worktreeOccupied") }}
+            </span>
+            <Check v-else-if="isSelected(row.node.data.branch.name)" class="h-3.5 w-3.5 shrink-0 text-primary" />
           </template>
           <template v-else>
             <span
@@ -77,7 +88,9 @@
  * - mode="checkout"（默认）：选中即切换分支（预检冲突 → 确认 → checkout），
  *   被其他工作树占用的分支不可点。Git 面板折叠条与首页环境卡用它。
  * - mode="select"：纯取值，点击只抛 select 事件，不预检、不确认、不落盘；
- *   占用与「当前」标记不适用，因此不渲染。新建工作树的基分支选择用它。
+ *   默认占用与「当前」标记不适用，因此不渲染。新建工作树的基分支选择用它。
+ *   置 disableOccupied 后改为识别占用：加载工作树列表、把已被检出的分支
+ *   标灰并禁止选中（含主工作树），供「检出已有分支」建工作树时选目标分支。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -109,12 +122,15 @@ const props = withDefaults(defineProps<{
   selected?: string;
   /** 是否展示远程分支分组 */
   showRemote?: boolean;
+  /** 取值模式下是否加载并禁用已被工作树检出的分支（含主工作树）；默认 false */
+  disableOccupied?: boolean;
 }>(), {
   repoRoot: "",
   currentBranch: "",
   mode: "checkout",
   selected: "",
   showRemote: true,
+  disableOccupied: false,
 });
 
 const emit = defineEmits<{
@@ -129,6 +145,8 @@ const emit = defineEmits<{
 const { t } = useI18n();
 
 const isSelectMode = computed(() => props.mode === "select");
+/** 是否识别「分支已被检出」：checkout 模式天然需要；取值模式仅 disableOccupied 时开启 */
+const occupancyAware = computed(() => !isSelectMode.value || props.disableOccupied);
 
 const branches = ref<GitPanelBranchEntry[]>([]);
 /** 分支名（小写）→ 该分支已检出的工作树路径；命中表示分支被工作树占用，不能切换 */
@@ -213,17 +231,19 @@ async function load() {
   const seq = ++loadSeq;
   loading.value = true;
   try {
-    // 取值模式不切换分支，用不到「分支是否被工作树占用」，省一次 worktree list
+    // 取值模式默认不切换分支，用不到「分支是否被工作树占用」，省一次 worktree list；
+    // 开启占用识别时（新建工作树选目标分支）必须加载，否则会把已被检出的分支放行
     const [result, worktrees] = await Promise.all([
       gitPanelBranchList(root),
-      isSelectMode.value ? Promise.resolve(null) : gitPanelWorktrees(root, root).catch(() => null),
+      occupancyAware.value ? gitPanelWorktrees(root, root).catch(() => null) : Promise.resolve(null),
     ]);
     if (seq !== loadSeq) return;
     branches.value = result;
     const map: Record<string, string> = {};
     for (const entry of worktrees?.worktrees || []) {
-      // 主工作树就是仓库根，它检出的当前分支仍可正常选择
-      if (entry.isMain) continue;
+      // checkout 模式：主工作树检出的当前分支仍可正常选择，跳过主树
+      // 占用识别（建工作树选目标分支）：主树分支已被检出，不能再被其他工作树检出，需计入
+      if (entry.isMain && !props.disableOccupied) continue;
       const branch = String(entry.branch || "").trim().toLowerCase();
       const worktreePath = String(entry.path || "").trim();
       if (!branch || !worktreePath) continue;
@@ -243,8 +263,10 @@ async function load() {
 async function onRowClick(row: GitTreeFlatRow<BranchRow>) {
   const data = row.node.data;
   if (data.kind !== "branch" && data.kind !== "remote-branch") return;
-  // 取值模式：选中即抛事件，由调用方决定落点，不做任何预检或切换
+  // 取值模式：选中即抛事件，由调用方决定落点，不做任何预检或切换；
+  // 开启占用识别时，已被检出的分支不可选（建工作树直接检出会失败）
   if (isSelectMode.value) {
+    if (occupancyAware.value && data.kind === "branch" && data.worktreePath) return;
     emit("select", data.branch.name);
     return;
   }

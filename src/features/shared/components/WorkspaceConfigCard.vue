@@ -285,8 +285,30 @@
         <div class="modal-box w-full max-w-md border border-base-content/10 bg-base-100 shadow-2xl">
           <h3 class="text-sm font-semibold">{{ t("chat.worktreeNewTitle") }}</h3>
           <div class="mt-3 flex flex-col gap-3">
+            <div class="join w-full" role="radiogroup">
+              <button
+                type="button"
+                role="radio"
+                class="join-item btn btn-sm flex-1"
+                :class="newWorktreeMode === 'base' ? 'btn-primary' : 'bg-base-200 border-base-300'"
+                :aria-checked="newWorktreeMode === 'base'"
+                @click="onNewWorktreeModeChange('base')"
+              >
+                {{ t("chat.worktreeNewBase") }}
+              </button>
+              <button
+                type="button"
+                role="radio"
+                class="join-item btn btn-sm flex-1"
+                :class="newWorktreeMode === 'target' ? 'btn-primary' : 'bg-base-200 border-base-300'"
+                :aria-checked="newWorktreeMode === 'target'"
+                @click="onNewWorktreeModeChange('target')"
+              >
+                {{ t("chat.worktreeNewTarget") }}
+              </button>
+            </div>
             <div class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/60">{{ t("chat.worktreeNewBase") }}</span>
+              <span class="text-xs text-base-content/60">{{ t(newWorktreeBranchLabelKey) }}</span>
               <EcallDropdown
                 v-model="newWorktreeBaseOpen"
                 :teleport="dropdownTeleport"
@@ -310,6 +332,7 @@
                       :repo-root="newWorktreeRepoRoot"
                       mode="select"
                       :show-remote="false"
+                      :disable-occupied="newWorktreeMode === 'target'"
                       :selected="newWorktreeBase"
                       @select="onNewWorktreeBaseSelect"
                       @error="(message) => (newWorktreeError = message)"
@@ -325,7 +348,7 @@
                 v-model="newWorktreeName"
                 type="text"
                 class="input input-bordered input-sm w-full"
-                :placeholder="t('chat.worktreeNewNamePlaceholder')"
+                :placeholder="t(newWorktreeNamePlaceholderKey)"
                 @keydown.enter.prevent="confirmNewWorktree"
               />
               <span v-if="newWorktreeName.trim()" class="text-caption text-base-content/40 font-mono truncate block">
@@ -811,24 +834,46 @@ async function onBranchRowClick(row: GitTreeFlatRow<BranchRowData>, close: () =>
 
 const newWorktreeOpen = ref(false);
 const newWorktreeInputRef = ref<HTMLInputElement | null>(null);
+/** 分支语义：base=从基分支派生新分支；target=直接检出已有分支 */
+const newWorktreeMode = ref<"base" | "target">("base");
 const newWorktreeName = ref("");
 const newWorktreeBase = ref("");
 const newWorktreeBaseOpen = ref(false);
 const newWorktreeBusy = ref(false);
 const newWorktreeError = ref("");
 
+const newWorktreeBranchLabelKey = computed(() =>
+  newWorktreeMode.value === "target" ? "chat.worktreeNewTarget" : "chat.worktreeNewBase",
+);
+const newWorktreeNamePlaceholderKey = computed(() =>
+  newWorktreeMode.value === "target" ? "chat.worktreeNewNamePlaceholderTarget" : "chat.worktreeNewNamePlaceholder",
+);
+
 /** 基分支候选来自主仓库：即使当前处于工作树，也要回主树取分支列表 */
 const newWorktreeRepoRoot = computed(() =>
   resolveMainRepoRoot(stripExtendedPathPrefix(String(props.mainPath || "").trim())),
 );
 
+function onNewWorktreeModeChange(mode: "base" | "target") {
+  if (newWorktreeMode.value === mode) return;
+  newWorktreeMode.value = mode;
+  // 两种模式下分支的语义不同（基点 vs 检出目标），清掉旧选中避免误用
+  newWorktreeBase.value = "";
+  newWorktreeError.value = "";
+}
+
 function onNewWorktreeBaseSelect(name: string) {
   newWorktreeBase.value = name;
   newWorktreeBaseOpen.value = false;
+  // 目标分支模式下工作树名称只作目录名，默认取分支名免去重复输入
+  if (newWorktreeMode.value === "target" && !String(newWorktreeName.value || "").trim()) {
+    newWorktreeName.value = name;
+  }
 }
 
 function handleNewWorktree(close: () => void) {
   close();
+  newWorktreeMode.value = "base";
   newWorktreeName.value = "";
   newWorktreeBase.value = String(props.selectedBranch || "").trim() || (branchEntries.value.find((b) => !b.isRemote)?.name || "");
   newWorktreeError.value = "";
@@ -863,8 +908,9 @@ function newWorktreeTargetPath(name: string): string {
 async function confirmNewWorktree() {
   const name = String(newWorktreeName.value || "").trim();
   const base = String(newWorktreeBase.value || "").trim();
+  const isTarget = newWorktreeMode.value === "target";
   if (!name || !base) {
-    newWorktreeError.value = t("chat.worktreeNewMissing");
+    newWorktreeError.value = t(isTarget ? "chat.worktreeNewMissingTarget" : "chat.worktreeNewMissing");
     return;
   }
   const repoRoot = newWorktreeRepoRoot.value;
@@ -879,9 +925,10 @@ async function confirmNewWorktree() {
     const result = await gitPanelWorktreeAdd({
       repoRoot,
       path,
-      branch: name,
+      // 目标分支模式下不再派生新分支，name 仅作目录名，branch 留空
+      branch: isTarget ? "" : name,
       baseBranch: base,
-      checkoutExisting: false,
+      checkoutExisting: isTarget,
     });
     newWorktreeOpen.value = false;
     await loadWorktrees(repoRoot);
