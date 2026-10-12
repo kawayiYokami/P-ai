@@ -205,7 +205,7 @@ async fn run_operate_tool(
                     Some(pair) => pair,
                     None => break,
                 };
-                let hit_note = mouse_hit_note(&target, monitor);
+                let hit_note = mouse_hit_note(&target, monitor).await;
                 let verify_note = if verify { post_action_verify_note() } else { String::new() };
                 let step = DesktopScriptStepResult {
                     line,

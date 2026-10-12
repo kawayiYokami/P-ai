@@ -553,21 +553,20 @@ async fn apply_foreground_policy(
 
 /// 查询屏幕坐标命中的可交互元素描述（E3）：让模型确认前台点击实际点到了什么。
 /// 只扫目标窗口；坐标落在空白处、窗口未暴露 UIA 或读取失败时返回 None。
-fn hit_element_summary(window_id: usize, screen_x: i32, screen_y: i32) -> Option<String> {
+async fn hit_element_summary(window_id: usize, screen_x: i32, screen_y: i32) -> Option<String> {
     let bounds = primary_monitor_bounds().ok()?;
     let max_x = bounds.width.saturating_sub(1) as f64;
     let max_y = bounds.height.saturating_sub(1) as f64;
     if max_x <= 0.0 || max_y <= 0.0 {
         return None;
     }
-    let elements = crate::platform::collect_window_ui_elements(
-        window_id,
-        bounds.x as f64,
-        bounds.y as f64,
-        bounds.width as f64,
-        bounds.height as f64,
-        false,
-    );
+    let (origin_x, origin_y) = (bounds.x as f64, bounds.y as f64);
+    let (width, height) = (bounds.width as f64, bounds.height as f64);
+    // 目标窗口无响应时 UIA 跨进程调用会长时间不返回；限时执行，超时按「读不到」降级，不拖死脚本
+    let elements = run_ui_call_timed("hit_element_summary", move || {
+        crate::platform::collect_window_ui_elements(window_id, origin_x, origin_y, width, height, false)
+    })
+    .await?;
     if elements.is_empty() {
         return None;
     }
@@ -587,7 +586,7 @@ const WAIT_UNTIL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_
 async fn wait_until(condition: &WaitCondition, timeout: std::time::Duration) -> DesktopToolResult<String> {
     let deadline = std::time::Instant::now() + timeout;
     loop {
-        if let Some(description) = wait_condition_met(condition) {
+        if let Some(description) = wait_condition_met(condition).await {
             return Ok(description);
         }
         if std::time::Instant::now() >= deadline {
@@ -610,7 +609,7 @@ fn wait_condition_missing(condition: &WaitCondition) -> String {
 }
 
 /// 条件是否成立；成立时返回现场描述。
-fn wait_condition_met(condition: &WaitCondition) -> Option<String> {
+async fn wait_condition_met(condition: &WaitCondition) -> Option<String> {
     match condition {
         WaitCondition::Window { title } => {
             let needle = title.to_lowercase();
@@ -626,14 +625,13 @@ fn wait_condition_met(condition: &WaitCondition) -> Option<String> {
                 None => foreground_window_id()?,
             };
             let bounds = primary_monitor_bounds().ok()?;
-            let elements = crate::platform::collect_window_ui_elements(
-                window_id,
-                bounds.x as f64,
-                bounds.y as f64,
-                bounds.width as f64,
-                bounds.height as f64,
-                false,
-            );
+            let (origin_x, origin_y) = (bounds.x as f64, bounds.y as f64);
+            let (width, height) = (bounds.width as f64, bounds.height as f64);
+            // 目标窗口无响应时 UIA 调用会长时间不返回；限时执行，超时按「未命中」继续轮询
+            let elements = run_ui_call_timed("wait_until.element", move || {
+                crate::platform::collect_window_ui_elements(window_id, origin_x, origin_y, width, height, false)
+            })
+            .await?;
             elements
                 .into_iter()
                 .find(|e| !e.name.trim().is_empty() && e.name.to_lowercase().contains(&needle))
@@ -648,7 +646,7 @@ fn foreground_window_id() -> Option<usize> {
 }
 
 /// 前台坐标点击后附带命中元素描述（E3）；无法定位时返回空串，不影响步骤结果。
-fn mouse_hit_note(target: &NormalizedPoint, monitor: Option<u32>) -> String {
+async fn mouse_hit_note(target: &NormalizedPoint, monitor: Option<u32>) -> String {
     let Ok(bounds) = monitor_bounds_by_id(monitor) else {
         return String::new();
     };
@@ -657,6 +655,7 @@ fn mouse_hit_note(target: &NormalizedPoint, monitor: Option<u32>) -> String {
     };
     let (x, y) = normalized_point_to_screen(target, &bounds);
     hit_element_summary(window_id, x, y)
+        .await
         .map(|text| format!("，{text}"))
         .unwrap_or_default()
 }
@@ -1106,7 +1105,7 @@ async fn execute_screenshot_action(
     let tree = if elements {
         let mode_for_scan = mode.clone();
         Some(
-            tokio::task::spawn_blocking(move || collect_ui_tree_for_mode(&mode_for_scan, include_text))
+            run_ui_call_timed("screenshot.ui_tree", move || collect_ui_tree_for_mode(&mode_for_scan, include_text))
                 .await
                 .unwrap_or_default(),
         )
@@ -1123,14 +1122,23 @@ async fn execute_screenshot_action(
 
 /// 按元素名解析窗口内控件：每次执行新鲜扫描，不依赖截图快照（ref 已取消）。
 /// 返回 (窗口内序号, 类型, 全名)；找不到或命中多个时错误自带候选。
-fn resolve_element_by_name(window_id: u32, name: &str) -> DesktopToolResult<(usize, String, String)> {
-    crate::platform::app_find_element_by_name(window_id as usize, name).map_err(DesktopToolError::invalid_params)
+async fn resolve_element_by_name(window_id: u32, name: &str) -> DesktopToolResult<(usize, String, String)> {
+    let window_id = window_id as usize;
+    let name_owned = name.to_string();
+    let label_name = name.to_string();
+    // 目标窗口无响应时 UIA 跨进程寻址会长时间不返回；限时执行，超时按失败上报（需要结果的动作不能伪装成空结果）
+    run_ui_call_timed("app.find_element", move || {
+        crate::platform::app_find_element_by_name(window_id, &name_owned)
+    })
+    .await
+    .ok_or_else(|| DesktopToolError::internal_error(format!("元素定位超时（目标窗口可能无响应）：{label_name}")))?
+    .map_err(DesktopToolError::invalid_params)
 }
 
 async fn build_app_target(window_id: u32, target: AppScriptTarget, monitor: Option<u32>) -> DesktopToolResult<AppTarget> {
     match target {
         AppScriptTarget::Name(name) => {
-            let (ordinal, control_type, full_name) = resolve_element_by_name(window_id, &name)?;
+            let (ordinal, control_type, full_name) = resolve_element_by_name(window_id, &name).await?;
             Ok(AppTarget::NamedElement { ordinal, control_type, name: full_name })
         }
         AppScriptTarget::Point(point) => {
@@ -1145,31 +1153,31 @@ async fn execute_app_click(window_id: u32, target: AppScriptTarget, monitor: Opt
     sleep_duration(pre_delay).await;
     let app_target = build_app_target(window_id, target, monitor).await?;
     let window_id = window_id as usize;
-    // UIA 重扫与 pattern 调用是同步阻塞 COM 调用，放阻塞线程池执行
-    tokio::task::spawn_blocking(move || crate::platform::app_click(window_id, &app_target, repeat, dblclick))
+    // UIA 重扫与 pattern 调用是同步阻塞 COM 调用，放阻塞线程池执行并限时，避免目标窗口无响应时拖死脚本
+    run_ui_call_timed("app.click", move || crate::platform::app_click(window_id, &app_target, repeat, dblclick))
         .await
-        .map_err(|err| DesktopToolError::internal_error(format!("app click task failed: {err}")))?
+        .ok_or_else(|| DesktopToolError::internal_error("app click 超时（目标窗口可能无响应）"))?
         .map_err(DesktopToolError::invalid_params)
 }
 
 async fn execute_app_set_value(window_id: u32, name: &str, text: String, pre_delay: std::time::Duration) -> DesktopToolResult<&'static str> {
     sleep_duration(pre_delay).await;
-    let (ordinal, control_type, full_name) = resolve_element_by_name(window_id, name)?;
+    let (ordinal, control_type, full_name) = resolve_element_by_name(window_id, name).await?;
     let app_target = AppTarget::NamedElement { ordinal, control_type, name: full_name };
     let window_id = window_id as usize;
-    tokio::task::spawn_blocking(move || crate::platform::app_set_value(window_id, &app_target, &text))
+    run_ui_call_timed("app.setvalue", move || crate::platform::app_set_value(window_id, &app_target, &text))
         .await
-        .map_err(|err| DesktopToolError::internal_error(format!("app setvalue task failed: {err}")))?
+        .ok_or_else(|| DesktopToolError::internal_error("app setvalue 超时（目标窗口可能无响应）"))?
         .map_err(DesktopToolError::invalid_params)
 }
 
 async fn execute_app_get_value(window_id: u32, name: &str) -> DesktopToolResult<String> {
-    let (ordinal, control_type, full_name) = resolve_element_by_name(window_id, name)?;
+    let (ordinal, control_type, full_name) = resolve_element_by_name(window_id, name).await?;
     let app_target = AppTarget::NamedElement { ordinal, control_type, name: full_name };
     let window_id = window_id as usize;
-    tokio::task::spawn_blocking(move || crate::platform::app_get_value(window_id, &app_target))
+    run_ui_call_timed("app.getvalue", move || crate::platform::app_get_value(window_id, &app_target))
         .await
-        .map_err(|err| DesktopToolError::internal_error(format!("app getvalue task failed: {err}")))?
+        .ok_or_else(|| DesktopToolError::internal_error("app getvalue 超时（目标窗口可能无响应）"))?
         .map_err(DesktopToolError::invalid_params)
 }
 
@@ -1183,9 +1191,9 @@ async fn execute_app_scroll(window_id: u32, target: AppScriptTarget, monitor: Op
             sleep_duration(delay).await;
         }
         let app_target = app_target.clone();
-        method = tokio::task::spawn_blocking(move || crate::platform::app_scroll(window_id, &app_target, horizontal, positive, true, 1))
+        method = run_ui_call_timed("app.scroll", move || crate::platform::app_scroll(window_id, &app_target, horizontal, positive, true, 1))
             .await
-            .map_err(|err| DesktopToolError::internal_error(format!("app scroll task failed: {err}")))?
+            .ok_or_else(|| DesktopToolError::internal_error("app scroll 超时（目标窗口可能无响应）"))?
             .map_err(DesktopToolError::invalid_params)?;
     }
     Ok(method)
@@ -1200,12 +1208,12 @@ async fn execute_app_key(window_id: u32, keys: &[String], repeat: u32, delay: st
         if idx > 0 {
             sleep_duration(delay).await;
         }
-        method = tokio::task::spawn_blocking({
+        method = run_ui_call_timed("app.key", {
             let keys = keys.clone();
             move || crate::platform::app_key(window_id, &keys, 1)
         })
         .await
-        .map_err(|err| DesktopToolError::internal_error(format!("app key task failed: {err}")))?
+        .ok_or_else(|| DesktopToolError::internal_error("app key 超时（目标窗口可能无响应）"))?
         .map_err(DesktopToolError::invalid_params)?;
     }
     Ok(method)
@@ -1287,9 +1295,8 @@ fn click_notes(outcome: &AppClickOutcome) -> Option<String> {
 /// 动作完成后查询目标窗口的内部焦点控件；仅对修改型动作有意义，失败静默为 None。
 async fn query_focus_summary(window_id: u32) -> Option<(String, String)> {
     let window_id = window_id as usize;
-    tokio::task::spawn_blocking(move || crate::platform::app_focus_summary(window_id))
+    run_ui_call_timed("app.focus_summary", move || crate::platform::app_focus_summary(window_id))
         .await
-        .ok()
         .and_then(|result| result.ok())
         .flatten()
 }

@@ -5,6 +5,7 @@ include!("tools/image_normalizer_for_llm_request.rs");
 include!("tools/xcap_screenshot.rs");
 include!("tools/ui_automation.rs");
 include!("tools/operate_parser.rs");
+include!("tools/operate_blocking.rs");
 include!("tools/operate_actions.rs");
 include!("tools/operate_runner.rs");
 include!("tools/windows_tool.rs");
