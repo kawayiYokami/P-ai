@@ -474,6 +474,13 @@ fn effective_retry_count(configured: u32) -> u32 {
     }
 }
 
+/// 这次调度传给工具循环的轮次上限。
+/// 显式正数（例如护航的 3）原样传递；未指定或 0 传 0，由循环沿用内部上限。
+/// 不读取 `tool_max_iterations`：该配置已从界面移除，默认值 10 会把普通调度截成失败。
+fn tool_loop_round_limit_for_dispatch(explicit: Option<usize>) -> usize {
+    explicit.filter(|limit| *limit > 0).unwrap_or(0)
+}
+
 async fn send_chat_message_inner(
     input: SendChatRequest,
     state: &AppState,
@@ -1299,7 +1306,7 @@ async fn send_chat_message_inner(
             }
         }
     }
-    let tool_round_limit = runtime_context.tool_round_limit.unwrap_or(0);
+    let tool_round_limit = tool_loop_round_limit_for_dispatch(runtime_context.tool_round_limit);
 
     // 调度状态更新：运行时与会话解析完成，即将进入上下文构建阶段
     // 单发通道到不了 Web（WebSocket 丢弃 Channel），必须再走一次广播。
@@ -2237,11 +2244,7 @@ async fn send_chat_message_inner(
                 Some(&state),
                 tool_loop_auto_compaction_context.as_ref(),
                 on_delta,
-                if tool_round_limit > 0 {
-                    tool_round_limit
-                } else {
-                    app_config.tool_max_iterations as usize
-                },
+                tool_round_limit,
                 &chat_session_key,
                 Some(&conversation_id),
             )
@@ -3278,6 +3281,13 @@ fn should_create_assistant_provider_meta(
 #[cfg(test)]
 mod core_send_inner_tests {
     use super::*;
+
+    #[test]
+    fn tool_loop_round_limit_for_dispatch_keeps_internal_ceiling_unless_explicit() {
+        assert_eq!(tool_loop_round_limit_for_dispatch(None), 0);
+        assert_eq!(tool_loop_round_limit_for_dispatch(Some(0)), 0);
+        assert_eq!(tool_loop_round_limit_for_dispatch(Some(3)), 3);
+    }
 
     fn test_chat_api(id: &str, enable_image: bool) -> ApiConfig {
         ApiConfig {
