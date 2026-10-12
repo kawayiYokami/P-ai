@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-12T16:58:37.636Z",
-  "latestVersion": "v0.97.0",
+  "generatedAt": "2026-10-12T19:40:08.132Z",
+  "latestVersion": "v0.97.1",
   "releases": [
+    {
+      "version": "v0.97.1",
+      "path": "docs/changelog/releases/v0.97.1.md",
+      "summary": "**修复后台委托完成后不会唤醒助理的问题**：模型自己发起的后台委托，结果回来后现在会作为引导插话、并把主助理唤醒继续处理，表现和你在输入框 @某个下级人格发起的委托一致。"
+    },
     {
       "version": "v0.97.0",
       "path": "docs/changelog/releases/v0.97.0.md",
