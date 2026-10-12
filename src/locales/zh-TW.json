@@ -2263,7 +2263,8 @@
       "enterMode": "開啟護航",
       "exitMode": "關閉",
       "enabled": "護航已開啟",
-      "modeOff": "未開啟"
+      "modeOff": "未開啟",
+      "costHint": "每輪都會發起唯讀委託，會明顯增加 token 消耗"
     },
     "localImageUnavailable": "圖片不可用",
     "goal": {

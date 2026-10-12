@@ -2275,7 +2275,8 @@
       "enterMode": "Enable Escort",
       "exitMode": "Off",
       "enabled": "Escort Enabled",
-      "modeOff": "Off"
+      "modeOff": "Off",
+      "costHint": "Starts a read-only delegate every turn, noticeably increasing token usage"
     },
     "localImageUnavailable": "Image unavailable",
     "goal": {

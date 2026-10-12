@@ -173,7 +173,12 @@
                 >
                   <span class="flex min-w-0 items-center gap-2">
                     <LifeBuoy class="h-4 w-4 shrink-0" :class="wheelchairModeEnabled ? 'text-warning' : 'opacity-60'" />
-                    <span class="truncate">{{ wheelchairModeEnabled ? t("chat.wheelchair.enabled") : t("chat.wheelchair.enterMode") }}</span>
+                    <span class="flex min-w-0 flex-col">
+                      <span class="truncate">{{ wheelchairModeEnabled ? t("chat.wheelchair.enabled") : t("chat.wheelchair.enterMode") }}</span>
+                      <span v-if="!wheelchairModeEnabled" class="truncate text-caption text-base-content/50">
+                        {{ t("chat.wheelchair.costHint") }}
+                      </span>
+                    </span>
                   </span>
                   <span
                     class="badge badge-sm shrink-0"
