@@ -1069,8 +1069,14 @@
         "onebotV11": "OneBot v11",
         "feishu": "Feishu",
         "dingtalk": "DingTalk",
-        "weixinOc": "Personal WeChat"
+        "weixinOc": "Personal WeChat",
+        "qqOfficial": "QQ Official Bot"
       },
+      "qqOfficialCredentials": "QQ Official Bot Credentials",
+      "qqOfficialAppId": "AppID",
+      "qqOfficialAppSecret": "AppSecret",
+      "qqOfficialSandbox": "Use sandbox environment",
+      "qqOfficialHint": "Get AppID and AppSecret after creating the bot on the QQ Open Platform. Production requires an IP whitelist entry for your public IP; new bots stay in sandbox mode until published.",
       "filterMarkdown": "Filter Markdown",
       "filterMarkdownHint": "Clean common Markdown syntax only when sending to this channel. Chat history still keeps the original model output.",
       "sendAsMarkdown": "Send as Markdown",
@@ -1082,6 +1088,7 @@
       "dingtalkClientSecret": "Client Secret",
       "enableNeedDingtalkCredentials": "Please fill DingTalk Client ID and Client Secret before enabling the channel.",
       "enableNeedFeishuCredentials": "Please fill appId and appSecret in Credentials (JSON) before enabling the channel.",
+      "enableNeedQqOfficialCredentials": "Please fill AppID and AppSecret before enabling the QQ Official Bot channel.",
       "napcatConfig": "OneBot v11 Configuration",
       "wsHost": "Reverse WS Host",
       "wsPort": "Reverse WS Port",

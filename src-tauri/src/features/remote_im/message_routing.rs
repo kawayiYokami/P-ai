@@ -215,6 +215,11 @@ fn remote_im_append_contact_log(contact: &RemoteImContact, level: &str, message:
                     .add_contact_log(&channel_id, &level, &message, &contact_record_id)
                     .await;
             }
+            RemoteImPlatform::QqOfficial => {
+                qq_official_manager()
+                    .add_contact_log(&channel_id, &level, &message, &contact_record_id)
+                    .await;
+            }
             _ => {
                 onebot_v11_ws_manager()
                     .add_contact_log(&channel_id, &level, &message, &contact_record_id)
@@ -250,6 +255,11 @@ async fn remote_im_append_contact_log_async(
         }
         RemoteImPlatform::WeixinOc => {
             weixin_oc_manager()
+                .add_contact_log(channel_id, level, message, contact_record_id)
+                .await;
+        }
+        RemoteImPlatform::QqOfficial => {
+            qq_official_manager()
                 .add_contact_log(channel_id, level, message, contact_record_id)
                 .await;
         }

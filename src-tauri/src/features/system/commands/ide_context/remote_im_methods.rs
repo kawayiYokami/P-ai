@@ -27,6 +27,9 @@ async fn remote_im_get_channel_status_inner(
                 qrcode_url: None,
             }),
             RemoteImPlatform::WeixinOc => Ok(weixin_oc_manager().build_status(&channel.id).await),
+            RemoteImPlatform::QqOfficial => {
+                Ok(qq_official_manager().get_channel_status(&channel.id).await)
+            }
         };
     }
     get_channel_connection_status(channel_id).await
@@ -112,6 +115,10 @@ async fn remote_im_restart_channel_inner(
         weixin_oc_manager()
             .reconcile_channel_runtime(&effective_channel, state.clone())
             .await?;
+    } else if channel.platform == RemoteImPlatform::QqOfficial {
+        qq_official_manager()
+            .reconcile_channel_runtime(&effective_channel, state.clone())
+            .await?;
     }
 
     if channel.platform == RemoteImPlatform::Dingtalk {
@@ -120,6 +127,8 @@ async fn remote_im_restart_channel_inner(
             .await)
     } else if channel.platform == RemoteImPlatform::WeixinOc {
         Ok(weixin_oc_manager().build_status(&channel_id).await)
+    } else if channel.platform == RemoteImPlatform::QqOfficial {
+        Ok(qq_official_manager().get_channel_status(&channel_id).await)
     } else {
         Ok(manager.get_connection_status(&channel_id).await)
     }
@@ -183,6 +192,7 @@ async fn get_remote_im_channel_logs(
     match channel.platform {
         RemoteImPlatform::Dingtalk => Ok(dingtalk_stream_manager().get_logs(&channel_id).await),
         RemoteImPlatform::WeixinOc => Ok(weixin_oc_manager().get_logs(&channel_id).await),
+        RemoteImPlatform::QqOfficial => Ok(qq_official_manager().get_logs(&channel_id).await),
         _ => get_channel_logs(channel_id).await,
     }
 }

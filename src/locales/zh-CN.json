@@ -1069,8 +1069,14 @@
         "onebotV11": "OneBot v11",
         "feishu": "飞书",
         "dingtalk": "钉钉",
-        "weixinOc": "个人微信"
+        "weixinOc": "个人微信",
+        "qqOfficial": "QQ 官方机器人"
       },
+      "qqOfficialCredentials": "QQ 官方机器人凭证",
+      "qqOfficialAppId": "AppID",
+      "qqOfficialAppSecret": "AppSecret",
+      "qqOfficialSandbox": "使用沙箱环境",
+      "qqOfficialHint": "在 QQ 开放平台创建机器人后获取 AppID 与 AppSecret。正式环境需先在平台配置本机公网 IP 白名单；新机器人在上线前默认处于沙箱模式。",
       "filterMarkdown": "过滤 Markdown",
       "filterMarkdownHint": "仅在发送到该渠道时清洗常见 Markdown 语法，聊天历史仍保留模型原文。",
       "sendAsMarkdown": "以Markdown发送",
@@ -1082,6 +1088,7 @@
       "dingtalkClientSecret": "Client Secret",
       "enableNeedDingtalkCredentials": "请先填写钉钉 Client ID 和 Client Secret，再启用渠道。",
       "enableNeedFeishuCredentials": "请先在凭证(JSON)中填写 appId 和 appSecret，再启用渠道。",
+      "enableNeedQqOfficialCredentials": "请先填写 AppID 和 AppSecret，再启用 QQ 官方机器人渠道。",
       "napcatConfig": "OneBot v11 配置",
       "wsHost": "反向WS主机",
       "wsPort": "反向WS端口",

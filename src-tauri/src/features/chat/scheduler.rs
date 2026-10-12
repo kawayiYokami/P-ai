@@ -1566,6 +1566,50 @@ async fn activate_main_assistant(
             .await;
     }
 
+    // 对 QQ 官方机器人渠道发送「输入中」状态（主动消息路径，不占用被动回复配额）
+    let qq_official_typing_sources: Vec<(RemoteImChannelConfig, String, String)> = {
+        let config = state_read_config_cached(state);
+        let config = match config {
+            Ok(c) => c,
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[聊天调度] 读取配置失败，跳过 QQ 官方机器人 typing 启动: error={}",
+                    err
+                ));
+                AppConfig::default()
+            }
+        };
+        remote_im_activation_sources
+            .iter()
+            .filter(|src| src.platform == RemoteImPlatform::QqOfficial)
+            .filter_map(|src| {
+                let channel = remote_im_channel_by_id(&config, &src.channel_id)?;
+                let effective_channel =
+                    remote_im_channel_with_effective_credentials(state, channel).ok()?;
+                let credentials = QqOfficialCredentials::from_value(&effective_channel.credentials);
+                if credentials.normalized_app_id().is_empty()
+                    || credentials.normalized_app_secret().is_empty()
+                {
+                    runtime_log_warn(format!(
+                        "[聊天调度] 跳过 QQ 官方机器人 typing: 缺少有效凭证, channel_id={}, remote_contact_id={}",
+                        src.channel_id, src.remote_contact_id
+                    ));
+                    return None;
+                }
+                Some((
+                    effective_channel,
+                    src.remote_contact_type.clone(),
+                    src.remote_contact_id.clone(),
+                ))
+            })
+            .collect()
+    };
+    for (channel, contact_type, contact_id) in &qq_official_typing_sources {
+        qq_official_manager()
+            .send_input_notify(channel, contact_type, contact_id)
+            .await;
+    }
+
     // 构造 trigger_only 请求
     let request = SendChatRequest {
         trigger_only: true, // 不写入新消息，只触发助理回复

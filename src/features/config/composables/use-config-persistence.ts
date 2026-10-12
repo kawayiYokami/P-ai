@@ -124,7 +124,7 @@ function normalizeSkippedGithubUpdateVersion(value: unknown): string {
 function mapRemoteImChannel(item: unknown): RemoteImChannelConfig {
   const platformRaw = String((item as { platform?: unknown })?.platform || "").trim().toLowerCase();
   const platform =
-    platformRaw === "feishu" || platformRaw === "dingtalk" || platformRaw === "onebot_v11" || platformRaw === "weixin_oc"
+    platformRaw === "feishu" || platformRaw === "dingtalk" || platformRaw === "onebot_v11" || platformRaw === "weixin_oc" || platformRaw === "qq_official"
       ? platformRaw
       : "onebot_v11";
   return {

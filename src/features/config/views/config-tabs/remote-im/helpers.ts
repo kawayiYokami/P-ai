@@ -143,6 +143,7 @@ export function platformLabelOf(platform: string): string {
   if (value === "feishu") return "Feishu";
   if (value === "dingtalk") return "DingTalk";
   if (value === "weixin_oc") return "个人微信";
+  if (value === "qq_official") return "QQ 官方机器人";
   return "OneBot v11";
 }
 

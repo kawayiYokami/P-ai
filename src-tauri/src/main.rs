@@ -73,6 +73,7 @@ include!("features/remote_im/markdown_filter.rs");
 include!("features/remote_im/onebot_v11_ws.rs");
 include!("features/remote_im/dingtalk_stream.rs");
 include!("features/remote_im/weixin_oc.rs");
+include!("features/remote_im/qq_official.rs");
 include!("features/remote_im.rs");
 include!("features/remote_im/maintenance.rs");
 include!("features/remote_im_adapters.rs");
@@ -755,6 +756,60 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
         });
     }
 
+    let qq_official_channels: Vec<_> = config
+        .remote_im_channels
+        .iter()
+        .filter(|ch| ch.enabled && ch.platform == RemoteImPlatform::QqOfficial)
+        .cloned()
+        .collect();
+    for channel in qq_official_channels {
+        let state_clone = event_state.clone();
+        tauri::async_runtime::spawn(async move {
+            let channel_id = channel.id.clone();
+            qq_official_manager()
+                .add_log(
+                    &channel_id,
+                    "info",
+                    "[启动] 前端就绪，准备启动 QQ 官方机器人渠道",
+                )
+                .await;
+            let effective_channel =
+                match remote_im_channel_with_effective_credentials(&state_clone, &channel) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        qq_official_manager()
+                            .add_log(
+                                &channel_id,
+                                "error",
+                                "[启动] QQ 官方机器人渠道私有状态读取失败，详情请查看后端诊断日志",
+                            )
+                            .await;
+                        runtime_log_error(format!(
+                            "[启动] QQ 官方机器人渠道私有状态读取失败: channel_id={}, error={}",
+                            channel_id, err
+                        ));
+                        return;
+                    }
+                };
+            if let Err(err) = qq_official_manager()
+                .reconcile_channel_runtime(&effective_channel, state_clone)
+                .await
+            {
+                qq_official_manager()
+                    .add_log(
+                        &channel_id,
+                        "error",
+                        "[启动] QQ 官方机器人渠道启动失败，详情请查看后端诊断日志",
+                    )
+                    .await;
+                runtime_log_error(format!(
+                    "[启动] 前端就绪后启动 QQ 官方机器人渠道失败: channel_id={}, error={}",
+                    channel_id, err
+                ));
+            }
+        });
+    }
+
     let weixin_channels: Vec<_> = config
         .remote_im_channels
         .iter()
@@ -905,6 +960,25 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
                         )),
                         Err(_) => runtime_log_error(format!(
                             "[退出] 个人微信渠道停止超时: channel_id={}，timeout_ms=10000",
+                            channel_id
+                        )),
+                    }
+                })),
+                RemoteImPlatform::QqOfficial => shutdown_futures.push(Box::pin(async move {
+                    let stop_started = std::time::Instant::now();
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        qq_official_manager().stop_channel(&channel_id),
+                    )
+                    .await
+                    {
+                        Ok(()) => runtime_log_info(format!(
+                            "[退出] QQ 官方机器人渠道已停止: channel_id={}，duration_ms={}",
+                            channel_id,
+                            stop_started.elapsed().as_millis()
+                        )),
+                        Err(_) => runtime_log_error(format!(
+                            "[退出] QQ 官方机器人渠道停止超时: channel_id={}，timeout_ms=10000",
                             channel_id
                         )),
                     }

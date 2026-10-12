@@ -97,6 +97,7 @@
                   <option value="feishu">{{ t("config.remoteIm.platformOptions.feishu") }}</option>
                   <option value="dingtalk">{{ t("config.remoteIm.platformOptions.dingtalk") }}</option>
                   <option value="weixin_oc">{{ t('config.remoteIm.platformOptions.weixinOc') }}</option>
+                  <option value="qq_official">{{ t('config.remoteIm.platformOptions.qqOfficial') }}</option>
                 </select>
               </div>
             </div>
@@ -170,6 +171,42 @@
                   <img :src="weixinQrImageSrc" alt="weixin login qr" class="w-48 h-48 rounded-box border border-base-300 object-contain bg-white p-2" />
                   <span class="text-caption opacity-60">{{ t('config.remoteIm.scanQrCode') }}</span>
                 </div>
+              </div>
+            </template>
+
+            <!-- QQ 官方机器人凭证 -->
+            <template v-else-if="selectedChannel.platform === 'qq_official'">
+              <div class="rounded-field border border-base-300 bg-base-200/20 p-3 space-y-3">
+                <div class="text-xs font-bold">{{ t('config.remoteIm.qqOfficialCredentials') }}</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label class="text-caption opacity-60">{{ t('config.remoteIm.qqOfficialAppId') }}</label>
+                    <input v-model="qqOfficialCredentials.appId" class="input input-bordered input-sm h-9 w-full text-xs" placeholder="102xxxxxxx" />
+                  </div>
+                  <div>
+                    <label class="text-caption opacity-60">{{ t('config.remoteIm.qqOfficialAppSecret') }}</label>
+                    <div class="flex items-center gap-1.5">
+                      <input
+                        v-model="qqOfficialCredentials.appSecret"
+                        :type="showQqOfficialSecret ? 'text' : 'password'"
+                        class="input input-bordered input-sm h-9 w-full text-xs"
+                        placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      />
+                      <button
+                        class="btn btn-sm min-h-[2.25rem] h-9 px-2.5 btn-ghost shrink-0 text-xs"
+                        type="button"
+                        @click="showQqOfficialSecret = !showQqOfficialSecret"
+                      >
+                        {{ showQqOfficialSecret ? t('config.remoteIm.hide') : t('config.remoteIm.show') }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <label class="flex items-center gap-2 text-xs cursor-pointer">
+                  <input v-model="qqOfficialCredentials.sandbox" type="checkbox" class="checkbox checkbox-sm" />
+                  <span>{{ t('config.remoteIm.qqOfficialSandbox') }}</span>
+                </label>
+                <div class="text-caption opacity-60 leading-relaxed">{{ t('config.remoteIm.qqOfficialHint') }}</div>
               </div>
             </template>
 
@@ -864,7 +901,7 @@
               <div class="flex items-center gap-2 min-w-0">
                 <span
                   class="size-2 rounded-full shrink-0"
-                  :class="selectedChannel.platform === 'onebot_v11'
+                  :class="selectedChannel.platform === 'onebot_v11' || selectedChannel.platform === 'qq_official'
                     ? (channelRuntimeStates[selectedChannel.id]?.connected ? 'bg-success' : (selectedChannel.enabled ? 'bg-warning' : 'bg-base-300'))
                     : (selectedChannel.platform === 'dingtalk'
                       ? (channelRuntimeStates[selectedChannel.id]?.connected ? 'bg-success' : (selectedChannel.enabled ? 'bg-warning' : 'bg-base-300'))
@@ -898,6 +935,7 @@
                   <option value="feishu">{{ t("config.remoteIm.platformOptions.feishu") }}</option>
                   <option value="dingtalk">{{ t("config.remoteIm.platformOptions.dingtalk") }}</option>
                   <option value="weixin_oc">{{ t('config.remoteIm.weixinPlatform') }}</option>
+                  <option value="qq_official">{{ t('config.remoteIm.platformOptions.qqOfficial') }}</option>
                 </select>
               </div>
               <div class="border-b-base-content/5 flex items-start justify-between gap-3 border-b border-dashed py-2">
@@ -982,6 +1020,42 @@
                 <div v-else-if="weixinLoginState.qrcodeImgContent" class="border-b-base-content/5 flex flex-col gap-2 border-b border-dashed py-2">
                   <span class="font-semibold">{{ t('config.remoteIm.scanQrCode') }}</span>
                   <img :src="weixinQrImageSrc" alt="weixin login qr" class="w-48 h-48 rounded-box border border-base-300 object-contain bg-white p-2" />
+                </div>
+              </template>
+
+              <!-- QQ 官方机器人凭证 -->
+              <template v-else-if="selectedChannel.platform === 'qq_official'">
+                <div class="border-b-base-content/5 flex flex-col gap-2 border-b border-dashed py-2 mt-2">
+                  <span class="font-semibold">{{ t('config.remoteIm.qqOfficialCredentials') }}</span>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label class="text-caption opacity-60">{{ t('config.remoteIm.qqOfficialAppId') }}</label>
+                      <input v-model="qqOfficialCredentials.appId" class="input input-bordered input-sm h-9 w-full text-xs" placeholder="102xxxxxxx" />
+                    </div>
+                    <div>
+                      <label class="text-caption opacity-60">{{ t('config.remoteIm.qqOfficialAppSecret') }}</label>
+                      <div class="flex items-center gap-1.5">
+                        <input
+                          v-model="qqOfficialCredentials.appSecret"
+                          :type="showQqOfficialSecret ? 'text' : 'password'"
+                          class="input input-bordered input-sm h-9 w-full text-xs"
+                          placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                        />
+                        <button
+                          class="btn btn-sm btn-ghost shrink-0 text-xs"
+                          type="button"
+                          @click="showQqOfficialSecret = !showQqOfficialSecret"
+                        >
+                          {{ showQqOfficialSecret ? t('config.remoteIm.hide') : t('config.remoteIm.show') }}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <label class="flex items-center gap-2 text-xs cursor-pointer">
+                    <input v-model="qqOfficialCredentials.sandbox" type="checkbox" class="checkbox checkbox-sm" />
+                    <span>{{ t('config.remoteIm.qqOfficialSandbox') }}</span>
+                  </label>
+                  <span class="text-caption opacity-60 leading-relaxed">{{ t('config.remoteIm.qqOfficialHint') }}</span>
                 </div>
               </template>
 
@@ -1763,6 +1837,7 @@ const contactOperationIds = ref<Record<string, boolean>>({});
 const credentialDrafts = ref<Record<string, string>>({});
 const napcatCredentials = ref({ wsHost: "0.0.0.0", wsPort: 6199, wsToken: "" });
 const dingtalkCredentials = ref({ clientId: "", clientSecret: "" });
+const qqOfficialCredentials = ref({ appId: "", appSecret: "", sandbox: false });
 const weixinCredentials = ref({
   baseUrl: "https://ilinkai.weixin.qq.com",
   botType: WEIXIN_OC_BOT_TYPE,
@@ -1771,6 +1846,7 @@ const weixinCredentials = ref({
   apiTimeoutMs: WEIXIN_OC_API_TIMEOUT_MS,
 });
 const showDingtalkSecret = ref(false);
+const showQqOfficialSecret = ref(false);
 const suppressCredentialSync = ref(false);
 const inDetailMode = ref(false);
 const channelSearchQuery = ref("");
@@ -1813,7 +1889,11 @@ function getChannelStatusInfo(channel: RemoteImChannelConfig) {
     return { dot: "bg-base-300", text: t("config.remoteIm.statusDisabled"), connected: false };
   }
   const runtime = channelRuntimeStates.value[channel.id];
-  if (channel.platform === "onebot_v11" || channel.platform === "dingtalk") {
+  if (
+    channel.platform === "onebot_v11" ||
+    channel.platform === "dingtalk" ||
+    channel.platform === "qq_official"
+  ) {
     if (runtime?.connected) {
       return { dot: "bg-success", text: t("config.remoteIm.statusConnected"), connected: true };
     }
@@ -1838,6 +1918,7 @@ function platformBadgeText(platform: RemoteImPlatform): string {
     case "dingtalk": return "钉";
     case "feishu": return "飞";
     case "onebot_v11": return "QQ";
+    case "qq_official": return "官";
     default: return "IM";
   }
 }
@@ -1852,6 +1933,8 @@ function getPlatformIconColor(platform: RemoteImPlatform): string {
       return "text-cyan-500 bg-cyan-500/10 border-cyan-500/20";
     case "onebot_v11":
       return "text-amber-500 bg-amber-500/10 border-amber-500/20";
+    case "qq_official":
+      return "text-sky-500 bg-sky-500/10 border-sky-500/20";
     default:
       return "text-primary bg-primary/10 border-primary/20";
   }
@@ -2010,6 +2093,7 @@ const channelPlatformOptions = computed<Array<{ platform: RemoteImPlatform; labe
   { platform: "feishu", label: t("config.remoteIm.platformOptions.feishu") },
   { platform: "dingtalk", label: t("config.remoteIm.platformOptions.dingtalk") },
   { platform: "weixin_oc", label: t("config.remoteIm.platformOptions.weixinOc") },
+  { platform: "qq_official", label: t("config.remoteIm.platformOptions.qqOfficial") },
 ]);
 
 const channelSnapshot = computed(() => {
@@ -2355,6 +2439,13 @@ function validateChannelBeforeEnable(channel: RemoteImChannelConfig): string {
       return t("config.remoteIm.enableNeedFeishuCredentials");
     }
   }
+  if (channel.platform === "qq_official") {
+    const appId = asNonEmptyString(creds.appId);
+    const appSecret = asNonEmptyString(creds.appSecret);
+    if (!appId || !appSecret) {
+      return t("config.remoteIm.enableNeedQqOfficialCredentials");
+    }
+  }
   if (channel.platform === "weixin_oc") {
     const baseUrl = asNonEmptyString(creds.baseUrl) || "https://ilinkai.weixin.qq.com";
     channel.credentials = {
@@ -2373,6 +2464,7 @@ function defaultChannelName(platform: RemoteImPlatform): string {
   if (platform === "feishu") return "Feishu";
   if (platform === "dingtalk") return "DingTalk";
   if (platform === "weixin_oc") return t('config.remoteIm.weixinPlatform');
+  if (platform === "qq_official") return t('config.remoteIm.platformOptions.qqOfficial');
   return "OneBot v11";
 }
 
@@ -2525,6 +2617,19 @@ function loadDingtalkCredentials(channel: RemoteImChannelConfig) {
   });
 }
 
+function loadQqOfficialCredentials(channel: RemoteImChannelConfig) {
+  suppressCredentialSync.value = true;
+  const creds = channel.credentials || {};
+  qqOfficialCredentials.value = {
+    appId: String(creds.appId || creds.appID || ""),
+    appSecret: String(creds.appSecret || ""),
+    sandbox: Boolean(creds.sandbox),
+  };
+  nextTick(() => {
+    suppressCredentialSync.value = false;
+  });
+}
+
 function loadWeixinCredentials(channel: RemoteImChannelConfig) {
   suppressCredentialSync.value = true;
   const creds = channel.credentials || {};
@@ -2569,8 +2674,10 @@ async function saveChannels() {
           loadDingtalkCredentials(selectedChannel.value);
         } else if (selectedChannel.value.platform === "weixin_oc") {
           loadWeixinCredentials(selectedChannel.value);
+        } else if (selectedChannel.value.platform === "qq_official") {
+          loadQqOfficialCredentials(selectedChannel.value);
         }
-        if (selectedChannel.value.platform === "onebot_v11" || selectedChannel.value.platform === "dingtalk" || selectedChannel.value.platform === "weixin_oc") {
+        if (selectedChannel.value.platform === "onebot_v11" || selectedChannel.value.platform === "dingtalk" || selectedChannel.value.platform === "weixin_oc" || selectedChannel.value.platform === "qq_official") {
           try {
             const status = await invokeTauri<ChannelConnectionStatus>(
               "remote_im_restart_channel",
@@ -2616,7 +2723,7 @@ async function toggleChannelEnabled(channel: RemoteImChannelConfig, enabled: boo
     const result = await Promise.resolve(props.saveConfigAction());
     if (result) {
       props.setStatusAction(enabled ? t('config.remoteIm.channelEnabled') : t('config.remoteIm.channelToggled'));
-      if (channel.platform === "onebot_v11" || channel.platform === "dingtalk" || channel.platform === "weixin_oc") {
+      if (channel.platform === "onebot_v11" || channel.platform === "dingtalk" || channel.platform === "weixin_oc" || channel.platform === "qq_official") {
         try {
           const status = await invokeTauri<ChannelConnectionStatus>(
             "remote_im_restart_channel",
@@ -3754,6 +3861,7 @@ function platformLabelText(platform: string): string {
   if (value === "weixin_oc") return t("config.remoteIm.platformOptions.weixinOc");
   if (value === "feishu") return t("config.remoteIm.platformOptions.feishu");
   if (value === "dingtalk") return t("config.remoteIm.platformOptions.dingtalk");
+  if (value === "qq_official") return t("config.remoteIm.platformOptions.qqOfficial");
   return t("config.remoteIm.platformOptions.onebotV11");
 }
 
@@ -3806,7 +3914,7 @@ async function refreshChannelStatusById(channelId: string) {
 
 async function refreshAllChannelStatuses() {
   const jobs = channels.value
-    .filter((item) => item.platform === "onebot_v11" || item.platform === "dingtalk" || item.platform === "weixin_oc")
+    .filter((item) => item.platform === "onebot_v11" || item.platform === "dingtalk" || item.platform === "weixin_oc" || item.platform === "qq_official")
     .map((item) => refreshChannelStatusById(item.id));
   await Promise.all(jobs);
 }
@@ -3849,6 +3957,13 @@ function channelStatusPreview(channel: RemoteImChannelConfig): string {
     if (status.connected) return t("config.remoteIm.connected");
     return t("config.remoteIm.dingtalkConnectingState");
   }
+  if (channel.platform === "qq_official") {
+    const status = channelRuntimeStates.value[channel.id];
+    if (!channel.enabled) return t("config.remoteIm.disabledState");
+    if (!status) return t("config.remoteIm.dingtalkConnectingState");
+    if (status.connected) return t("config.remoteIm.connected");
+    return status.lastError || status.statusText || t("config.remoteIm.dingtalkConnectingState");
+  }
   if (channel.platform === "feishu") {
     return channel.enabled
       ? t("config.remoteIm.feishuSendOnlyState")
@@ -3873,7 +3988,7 @@ function channelStatusPreview(channel: RemoteImChannelConfig): string {
 
 function channelListStatusBadgeText(channel: RemoteImChannelConfig): string {
   if (!channel.enabled) return t("config.remoteIm.disabledState");
-  if (channel.platform === "onebot_v11" || channel.platform === "dingtalk" || channel.platform === "weixin_oc") {
+  if (channel.platform === "onebot_v11" || channel.platform === "dingtalk" || channel.platform === "weixin_oc" || channel.platform === "qq_official") {
     const status = channelRuntimeStates.value[channel.id];
     if (status?.connected) return t("config.remoteIm.connected");
     if (channel.platform === "onebot_v11" && status?.statusText === "binding_retry") return t('config.remoteIm.statusRetryBinding');
@@ -3889,7 +4004,7 @@ function channelListStatusBadgeText(channel: RemoteImChannelConfig): string {
 
 function channelListStatusBadgeClass(channel: RemoteImChannelConfig): string {
   if (!channel.enabled) return "badge-ghost";
-  if (channel.platform === "onebot_v11" || channel.platform === "dingtalk" || channel.platform === "weixin_oc") {
+  if (channel.platform === "onebot_v11" || channel.platform === "dingtalk" || channel.platform === "weixin_oc" || channel.platform === "qq_official") {
     const status = channelRuntimeStates.value[channel.id];
     if (channel.platform === "onebot_v11" && status?.statusText === "bind_failed") return "badge-error";
     if (channel.platform === "onebot_v11" && status?.statusText === "disabled") return "badge-ghost";
@@ -4014,6 +4129,10 @@ watch(selectedChannelId, () => {
       loadWeixinCredentials(selectedChannel.value);
       channelStatus.value = channelRuntimeStates.value[selectedChannel.value.id] ?? null;
       void refreshChannelStatus();
+    } else if (selectedChannel.value.platform === "qq_official") {
+      loadQqOfficialCredentials(selectedChannel.value);
+      channelStatus.value = channelRuntimeStates.value[selectedChannel.value.id] ?? null;
+      void refreshChannelStatus();
     } else {
       channelStatus.value = null;
     }
@@ -4047,6 +4166,19 @@ watch(dingtalkCredentials, () => {
       ...current,
       clientId: dingtalkCredentials.value.clientId || "",
       clientSecret: dingtalkCredentials.value.clientSecret || "",
+    };
+  }
+}, { deep: true });
+
+watch(qqOfficialCredentials, () => {
+  if (suppressCredentialSync.value) return;
+  if (selectedChannel.value && selectedChannel.value.platform === "qq_official") {
+    const current = selectedChannel.value.credentials || {};
+    selectedChannel.value.credentials = {
+      ...current,
+      appId: qqOfficialCredentials.value.appId || "",
+      appSecret: qqOfficialCredentials.value.appSecret || "",
+      sandbox: Boolean(qqOfficialCredentials.value.sandbox),
     };
   }
 }, { deep: true });
@@ -4087,6 +4219,10 @@ onMounted(() => {
       void refreshChannelStatus();
     } else if (selectedChannel.value.platform === "weixin_oc") {
       loadWeixinCredentials(selectedChannel.value);
+      channelStatus.value = channelRuntimeStates.value[selectedChannel.value.id] ?? null;
+      void refreshChannelStatus();
+    } else if (selectedChannel.value.platform === "qq_official") {
+      loadQqOfficialCredentials(selectedChannel.value);
       channelStatus.value = channelRuntimeStates.value[selectedChannel.value.id] ?? null;
       void refreshChannelStatus();
     }

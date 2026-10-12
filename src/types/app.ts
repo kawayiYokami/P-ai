@@ -412,7 +412,7 @@ export type RecordHotkeyUpdateResult = {
   maxRecordSeconds: number;
 };
 
-export type RemoteImPlatform = "feishu" | "dingtalk" | "onebot_v11" | "weixin_oc";
+export type RemoteImPlatform = "feishu" | "dingtalk" | "onebot_v11" | "weixin_oc" | "qq_official";
 
 export type RemoteImChannelConfig = {
   id: string;

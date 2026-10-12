@@ -10,7 +10,7 @@ import {
 
 function normalizeRemoteImPlatform(value: unknown): RemoteImPlatform {
   const text = String(value || "").trim().toLowerCase();
-  if (text === "feishu" || text === "dingtalk" || text === "onebot_v11" || text === "weixin_oc") {
+  if (text === "feishu" || text === "dingtalk" || text === "onebot_v11" || text === "weixin_oc" || text === "qq_official") {
     return text as RemoteImPlatform;
   }
   return "onebot_v11";

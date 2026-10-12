@@ -39,6 +39,7 @@ fn remote_im_platform_store_key(platform: &RemoteImPlatform) -> &'static str {
         RemoteImPlatform::Dingtalk => "dingtalk",
         RemoteImPlatform::OnebotV11 => "onebot_v11",
         RemoteImPlatform::WeixinOc => "weixin_oc",
+        RemoteImPlatform::QqOfficial => "qq_official",
     }
 }
 
@@ -277,7 +278,10 @@ fn remote_im_channel_private_state_from_legacy_credentials(
             changed |= remote_im_merge_non_empty(&mut out.user_id, remote_im_take_string_field(obj, "userId"));
             changed |= remote_im_merge_non_empty(&mut out.sync_buf, remote_im_take_string_field(obj, "syncBuf"));
         }
-        RemoteImPlatform::Dingtalk | RemoteImPlatform::Feishu | RemoteImPlatform::OnebotV11 => {}
+        RemoteImPlatform::Dingtalk
+        | RemoteImPlatform::Feishu
+        | RemoteImPlatform::OnebotV11
+        | RemoteImPlatform::QqOfficial => {}
     }
 
     changed.then_some(out)

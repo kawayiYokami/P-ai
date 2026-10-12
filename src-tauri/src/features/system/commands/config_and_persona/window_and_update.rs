@@ -589,6 +589,9 @@ fn stop_removed_remote_im_channel_runtimes(
                 RemoteImPlatform::WeixinOc => {
                     weixin_oc_manager().stop_channel(&channel_id).await;
                 }
+                RemoteImPlatform::QqOfficial => {
+                    qq_official_manager().stop_channel(&channel_id).await;
+                }
                 RemoteImPlatform::Feishu => {}
             }
             if let Err(err) =

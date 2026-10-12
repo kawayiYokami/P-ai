@@ -1496,12 +1496,44 @@ impl RemoteImSdk for WeixinOcSdk {
     }
 }
 
+struct QqOfficialSdk;
+
+impl RemoteImSdk for QqOfficialSdk {
+    fn platform(&self) -> RemoteImPlatform {
+        RemoteImPlatform::QqOfficial
+    }
+
+    fn validate_channel(&self, channel: &RemoteImChannelConfig) -> Result<(), String> {
+        let credentials = QqOfficialCredentials::from_value(&channel.credentials);
+        if credentials.normalized_app_id().is_empty() {
+            return Err(format!("qq official channel '{}' missing appId", channel.id));
+        }
+        if credentials.normalized_app_secret().is_empty() {
+            return Err(format!(
+                "qq official channel '{}' missing appSecret",
+                channel.id
+            ));
+        }
+        Ok(())
+    }
+
+    fn send_outbound<'a>(
+        &'a self,
+        channel: &'a RemoteImChannelConfig,
+        contact: &'a RemoteImContact,
+        payload: &'a Value,
+    ) -> Pin<Box<dyn Future<Output = Result<String, RemoteImSdkSendError>> + Send + 'a>> {
+        Box::pin(async move { qq_official_send_outbound(channel, contact, payload).await })
+    }
+}
+
 fn remote_im_sdk_for_platform(platform: &RemoteImPlatform) -> Box<dyn RemoteImSdk> {
     match platform {
         RemoteImPlatform::Feishu => Box::new(FeishuSdk),
         RemoteImPlatform::Dingtalk => Box::new(DingtalkSdk),
         RemoteImPlatform::OnebotV11 => Box::new(OnebotV11Sdk),
         RemoteImPlatform::WeixinOc => Box::new(WeixinOcSdk),
+        RemoteImPlatform::QqOfficial => Box::new(QqOfficialSdk),
     }
 }
 

@@ -981,6 +981,8 @@ enum RemoteImPlatform {
     OnebotV11,
     #[serde(rename = "weixin_oc")]
     WeixinOc,
+    #[serde(rename = "qq_official")]
+    QqOfficial,
 }
 
 impl<'de> serde::Deserialize<'de> for RemoteImPlatform {
@@ -995,6 +997,7 @@ impl<'de> serde::Deserialize<'de> for RemoteImPlatform {
             "dingtalk" => Self::Dingtalk,
             "onebot_v11" | "napcat" => Self::OnebotV11,
             "weixin_oc" => Self::WeixinOc,
+            "qq_official" => Self::QqOfficial,
             _ => {
                 runtime_log_warn(format!(
                     "[RemoteImPlatform反序列化] 收到未知平台值: '{}' (规范化后: '{}'), 回退到OnebotV11",
