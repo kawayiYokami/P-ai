@@ -25,6 +25,9 @@ tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
+# 2.6.0 起要求 tauri ^2.12，会把 wry 抬到 0.57 并拉入 webview2-com 0.39，
+# 与本项目钉死的 webview2-com =0.38.2（webview_health.rs 依赖）冲突；2.5.x 要求 tauri ^2.8.2，与当前锁定版本兼容。
+tauri-plugin-autostart = ">=2.5.1, <2.6.0"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 time = { version = "0.3.53", features = ["local-offset"] }

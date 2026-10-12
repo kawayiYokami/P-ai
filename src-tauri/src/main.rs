@@ -22,6 +22,7 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, Position, State,
 };
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
 use uuid::Uuid;
@@ -1217,7 +1218,12 @@ fn main() {
         runtime_log_warn(format!("[单实例] 当前为调试构建，跳过单实例拦截"));
         builder
     } else {
-        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // 开机自启拉起被单实例拦下时保持静默，不替用户弹窗
+            if args.iter().any(|arg| arg.as_str() == AUTOSTART_LAUNCH_FLAG) {
+                runtime_log_info("[单实例] 检测到开机自启拉起，已有实例在运行，保持静默".to_string());
+                return;
+            }
             let chat_is_visible = app
                 .get_webview_window("chat")
                 .and_then(|window| window.is_visible().ok())
@@ -1249,9 +1255,16 @@ fn main() {
 
     let ide_context_runtime = IdeContextRuntime::new();
 
+    // 开机自启拉起时，本次启动静默驻留托盘，不弹窗
+    let launched_by_autostart = argv.iter().any(|arg| arg.as_str() == AUTOSTART_LAUNCH_FLAG);
+
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec![AUTOSTART_LAUNCH_FLAG]),
+        ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -1262,7 +1275,7 @@ fn main() {
         )
         .manage(state)
         .manage(ide_context_runtime)
-        .setup(|app| {
+        .setup(move |app| {
             let app_handle = app.handle().clone();
             match app_handle.state::<AppState>().app_handle.lock() {
                 Ok(mut handle_slot) => {
@@ -1288,6 +1301,8 @@ fn main() {
             initialize_window_layout_store(&app_handle);
             attach_window_layout_persistence(&app_handle);
             hide_on_close(&app_handle);
+            // 已开启自启时按当前可执行文件路径刷新注册项，便携版挪目录后自愈
+            refresh_autostart_target(&app_handle);
             let startup_window_label = match state_read_config_cached(app_state.inner()) {
                 Ok(mut config) => {
                     normalize_app_config(&mut config);
@@ -1298,7 +1313,11 @@ fn main() {
                     "main"
                 }
             };
-            if let Err(err) = show_window(&app_handle, startup_window_label) {
+            if launched_by_autostart {
+                runtime_log_info(format!(
+                    "[启动] 开机自启拉起，静默驻留托盘，不显示窗口（原启动窗口={startup_window_label}）"
+                ));
+            } else if let Err(err) = show_window(&app_handle, startup_window_label) {
                 runtime_log_error(format!("[启动] 显示启动窗口失败: target={startup_window_label}, error={err}"));
                 if let Some(window) = app_handle.get_webview_window(startup_window_label) {
                     let _ = window.unminimize();
@@ -1361,6 +1380,8 @@ fn main() {
             set_github_update_method,
             set_skipped_github_update_version,
             set_ui_language,
+            get_autostart_enabled,
+            set_autostart_enabled,
             load_config,
             generate_image,
             test_image_to_video,

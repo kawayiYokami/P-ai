@@ -569,6 +569,11 @@ export function canUseTransportGenaiChatAdapters(): boolean {
   return isTauriRuntimeAvailable();
 }
 
+/** 开机自启仅桌面宿主可设置；Web/VS Code 无此能力，业务层直接读语义能力控制显隐。 */
+export function canUseTransportAutostart(): boolean {
+  return isTauriRuntimeAvailable();
+}
+
 function nativeTransportConnectionState(): TransportConnectionState {
   return {
     configured: true,
@@ -1023,6 +1028,18 @@ export function listTransportSystemFonts<T>(): Promise<T> {
 /** genai 内置 chat 适配器清单仅桌面宿主可查，Web/VS Code 无此能力。 */
 export function listTransportGenaiChatAdapters<T>(): Promise<T> {
   return invokeRequiredNativeTransport<T>("genai 内置聊天适配器清单", "list_genai_chat_adapters");
+}
+
+/** 开机自启仅桌面宿主可设置，Web/VS Code 无此能力。 */
+export function getTransportAutostartEnabled(): Promise<boolean> {
+  return invokeRequiredNativeTransport<boolean>("开机自启", "get_autostart_enabled");
+}
+
+/** 设置开机自启，返回落定后的实际状态；仅桌面宿主可用。 */
+export function setTransportAutostartEnabled(enabled: boolean): Promise<boolean> {
+  return invokeRequiredNativeTransport<boolean>("开机自启", "set_autostart_enabled", {
+    enabled: Boolean(enabled),
+  });
 }
 
 /** 打开（或创建）会话草稿：Web/VS Code 经 WS 桥由后端 dispatcher 提供。 */
@@ -1646,6 +1663,8 @@ const WEB_BRIDGE_NATIVE_ONLY_COMMANDS = new Set([
   "show_quick_setup_window",
   "complete_quick_setup_and_open_chat",
   "list_system_fonts",
+  "get_autostart_enabled",
+  "set_autostart_enabled",
   "list_genai_chat_adapters",
   "open_runtime_logs_window",
   "sync_tray_icon",

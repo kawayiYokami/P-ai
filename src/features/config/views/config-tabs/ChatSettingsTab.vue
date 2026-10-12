@@ -183,6 +183,22 @@
       </div>
     </template>
 
+    <template #row-autostart>
+      <div class="flex min-w-0 items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-sm">{{ t("config.chatSettings.autostart") }}</div>
+          <p class="mt-1 text-xs text-base-content/60">{{ t("config.chatSettings.autostartHint") }}</p>
+        </div>
+        <input
+          :checked="autostartEnabled"
+          type="checkbox"
+          class="toggle toggle-sm toggle-primary shrink-0"
+          :disabled="autostartBusy"
+          @change="onAutostartChange"
+        />
+      </div>
+    </template>
+
     <template #row-instruction-presets>
       <div class="grid min-w-0 gap-3">
         <div v-if="instructionPresetsDraft.length === 0" class="text-sm opacity-60">
@@ -287,11 +303,14 @@ import ConfigValueSelect from "../../components/ConfigValueSelect.vue";
 import WorkspaceDirectoryPickerDialog from "../../../shared/components/WorkspaceDirectoryPickerDialog.vue";
 import type { AppConfig, ApiConfigItem, ChatSettingsPatch, ConversationApiSettingsPatch, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../../types/app";
 import {
+  canUseTransportAutostart,
+  getTransportAutostartEnabled,
   getTransportCapabilities,
   invokeTauri,
   migrateTransportShellWorkspaceDirectory,
   onTransportNotification,
   openTransportExternalUrl,
+  setTransportAutostartEnabled,
 } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
 import { deriveImageGenerationModelOptions } from "../../utils/image-generation-config";
@@ -558,6 +577,37 @@ async function onTerminalShellKindChange(event: Event) {
   }
 }
 
+// 开机自启：桌面宿主专属能力，状态以系统注册项为准，不落配置
+const canAutostart = canUseTransportAutostart();
+const autostartEnabled = ref(false);
+const autostartBusy = ref(false);
+
+async function loadAutostart() {
+  if (!canAutostart) return;
+  try {
+    autostartEnabled.value = await getTransportAutostartEnabled();
+  } catch (error) {
+    console.warn("读取开机自启状态失败", error);
+  }
+}
+
+async function onAutostartChange(event: Event) {
+  const target = event.target as HTMLInputElement | null;
+  const next = target?.checked ?? false;
+  const previous = autostartEnabled.value;
+  autostartEnabled.value = next;
+  autostartBusy.value = true;
+  try {
+    // 以系统返回的实际状态为准，避免界面与注册项不一致
+    autostartEnabled.value = await setTransportAutostartEnabled(next);
+  } catch (error) {
+    autostartEnabled.value = previous;
+    console.warn("设置开机自启失败", error);
+  } finally {
+    autostartBusy.value = false;
+  }
+}
+
 // 桌面操作开关没有独立保存按钮，改动后立即持久化，避免重启后配置丢失。
 async function onDesktopOperateChange(event: Event) {
   const target = event.target as HTMLInputElement | null;
@@ -590,6 +640,7 @@ function openGitDownloadLink() {
 
 onMounted(() => {
   void loadTerminalShellCandidates();
+  void loadAutostart();
 });
 const templateGroups = computed<ConfigTemplateGroup[]>(() => [
   {
@@ -630,6 +681,14 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => [
     title: t("config.chatSettings.instructionPresetsTitle"),
     rows: [{ key: "instruction-presets", items: [] }],
   },
+  // 开机自启仅桌面宿主可设，Web / VS Code 宿主整组隐藏
+  ...(canAutostart
+    ? [{
+        key: "startup",
+        title: t("config.chatSettings.startupTitle"),
+        rows: [{ key: "autostart", items: [] }],
+      }]
+    : []),
 ]);
 const responseStyleSegmentOptions = computed(() =>
   props.responseStyleOptions.map((style) => ({

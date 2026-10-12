@@ -1007,7 +1007,10 @@
       "previewSystemPrompt": "系统提示词",
       "desktopOperateTitle": "电脑使用",
       "desktopOperateEnabled": "允许操作电脑",
-      "desktopOperateEnabledHint": "关闭后，模型无法使用鼠标、键盘、截图等电脑操作能力。"
+      "desktopOperateEnabledHint": "关闭后，模型无法使用鼠标、键盘、截图等电脑操作能力。",
+      "startupTitle": "启动",
+      "autostart": "开机自启",
+      "autostartHint": "登录系统后自动启动 PAI，静默驻留托盘，不弹出窗口。"
     },
     "networkAccess": {
       "title": "网络访问",

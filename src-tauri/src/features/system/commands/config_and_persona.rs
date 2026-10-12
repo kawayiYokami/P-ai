@@ -16,5 +16,8 @@ include!("config_and_persona/migration.rs");
 // ==================== 消息仓库启动迁移 ====================
 include!("config_and_persona/message_store_migration.rs");
 
+// ==================== 开机自启 ====================
+include!("config_and_persona/autostart.rs");
+
 // ==================== 存储管理 ====================
 include!("config_and_persona/storage_usage.rs");
