@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-09T05:06:23.845Z",
-  "latestVersion": "v0.96.6",
+  "generatedAt": "2026-10-12T16:58:37.636Z",
+  "latestVersion": "v0.97.0",
   "releases": [
+    {
+      "version": "v0.97.0",
+      "path": "docs/changelog/releases/v0.97.0.md",
+      "summary": "**新增「护航」模式**：开启后，每轮回答结束会再给一条沟通建议，可以是给你的点评，也可以是一组可直接点选的下一步；工具栏会出现「护航」标记，和计划模式同一个菜单里开关，开启前会提示这会明显增加 token 消耗。建议只有在你点了某个选项、或自己直接发言之后才消失，切会话、刷新界面都还在。"
+    },
     {
       "version": "v0.96.6",
       "path": "docs/changelog/releases/v0.96.6.md",
