@@ -221,12 +221,12 @@ describe("createToolCallPresentation", () => {
     const result = presentation.toolCallSemanticPresentation({
       name: "operate",
       argsText: JSON.stringify({
-        script: "mouse left click @0.5,0.5\nwait 1\nkey Enter",
+        script: "mouse left click @960,540\nwait 1\nkey Enter",
       }),
     });
 
     expect(result.action).toBe("桌面操作");
-    expect(result.target).toContain("mouse left click @0.5,0.5");
+    expect(result.target).toContain("mouse left click @960,540");
     expect(result.target).toContain("(3 步)");
   });
 

@@ -26,7 +26,7 @@ struct OperateRequest {
 }
 
 fn operate_script_example() -> String {
-    r#"mouse left click @0.50,0.10
+    r#"mouse left click @960,108
 wait 0.5
 text "B站热榜"
 key Enter
@@ -74,6 +74,9 @@ struct LatestScreenshotInfo {
     mode: String,
     width: u32,
     height: u32,
+    /// 该图对应的屏幕矩形（虚拟桌面物理像素）。图可能被 max_pixels 等比缩小，
+    /// 模型按 width/height 与 bounds 的比例换算出屏幕坐标后再写进脚本。
+    bounds: ScreenBounds,
     #[serde(skip_serializing_if = "Option::is_none")]
     saved_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -199,46 +202,51 @@ enum FocusPolicy {
     Strict,
 }
 
-#[derive(Debug, Clone)]
-struct NormalizedPoint {
-    x: f64,
-    y: f64,
+/// 屏幕坐标：虚拟桌面物理像素。主屏左上角通常为 (0,0)，副屏在主屏左侧或上方时坐标为负。
+#[derive(Debug, Clone, Copy)]
+struct ScreenPoint {
+    x: i32,
+    y: i32,
 }
 
-#[derive(Debug, Clone)]
-struct NormalizedRegion {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
+/// 屏幕矩形：虚拟桌面物理像素。
+#[derive(Debug, Clone, Copy)]
+struct ScreenRect {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
 }
+
+/// 坐标合理范围上限：防止溢出与明显离谱的值（真实虚拟桌面远小于此）。
+const MAX_SCREEN_COORDINATE: i32 = 100_000;
 
 #[derive(Debug, Clone)]
 enum ScreenshotModeSpec {
     Desktop,
     FocusedWindow,
-    Region(NormalizedRegion),
+    Region(ScreenRect),
     WindowId(u32),
     /// 按标题/进程名引用窗口（G2），执行时解析为句柄
     WindowName(String),
     Monitor(u32),
 }
 
-/// app 动作目标：元素名（新鲜扫描、唯一命中）或归一化坐标（@x,y，窗口内命中测试）。
+/// app 动作目标：元素名（新鲜扫描、唯一命中）或屏幕绝对像素坐标（@x,y，窗口内命中测试）。
 /// el= 已退役：模型写 ref 序号时并不知道那是不是它想点的东西，写名字时它知道自己在说什么。
 #[derive(Debug, Clone)]
 enum AppScriptTarget {
     Name(String),
-    Point(NormalizedPoint),
+    Point(ScreenPoint),
 }
 
 #[derive(Debug, Clone)]
 enum AppScriptAction {
-    Click { target: AppScriptTarget, monitor: Option<u32>, repeat: u32, dblclick: bool, pre_delay: std::time::Duration },
+    Click { target: AppScriptTarget, repeat: u32, dblclick: bool, pre_delay: std::time::Duration },
     SetValue { name: String, text: String, pre_delay: std::time::Duration, verify: bool },
     /// 后台滚动（A3）：horizontal=false 为垂直（positive=true 向下），true 为水平（positive=true 向右）。
     /// 符号与 enigo scroll 约定一致：垂直正=下，水平正=右。
-    Scroll { target: AppScriptTarget, monitor: Option<u32>, horizontal: bool, positive: bool, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration },
+    Scroll { target: AppScriptTarget, horizontal: bool, positive: bool, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration },
     Key { keys: Vec<String>, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration },
     GetValue { name: String },
 }
@@ -274,9 +282,9 @@ enum ClipboardOp {
 
 #[derive(Debug, Clone)]
 enum DesktopScriptAction {
-    MouseClick { line: usize, button: OperateMouseButton, target: NormalizedPoint, monitor: Option<u32>, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration, press: std::time::Duration, window_target: Option<ForegroundTarget>, focus: FocusPolicy, verify: bool },
-    MouseDrag { line: usize, button: OperateMouseButton, from: NormalizedPoint, to: NormalizedPoint, monitor: Option<u32>, duration: Option<std::time::Duration>, pre_delay: std::time::Duration, window_target: Option<ForegroundTarget>, focus: FocusPolicy },
-    MouseMove { line: usize, target: NormalizedPoint, monitor: Option<u32>, pre_delay: std::time::Duration, window_target: Option<ForegroundTarget>, focus: FocusPolicy },
+    MouseClick { line: usize, button: OperateMouseButton, target: ScreenPoint, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration, press: std::time::Duration, window_target: Option<ForegroundTarget>, focus: FocusPolicy, verify: bool },
+    MouseDrag { line: usize, button: OperateMouseButton, from: ScreenPoint, to: ScreenPoint, duration: Option<std::time::Duration>, pre_delay: std::time::Duration, window_target: Option<ForegroundTarget>, focus: FocusPolicy },
+    MouseMove { line: usize, target: ScreenPoint, pre_delay: std::time::Duration, window_target: Option<ForegroundTarget>, focus: FocusPolicy },
     MouseButtonState { line: usize, button: OperateMouseButton, pressed: bool, pre_delay: std::time::Duration, window_target: Option<ForegroundTarget>, focus: FocusPolicy },
     /// 前台滚动（A3）：horizontal=false 为垂直（direction>0 向下），true 为水平（direction>0 向右）。
     /// 符号按 enigo 约定（引入于 116a8ed3b 的旧符号正负颠倒，本次一并修正）。
@@ -289,8 +297,8 @@ enum DesktopScriptAction {
     WindowActivate { line: usize, target: ForegroundTarget },
     Screenshot { line: usize, mode: ScreenshotModeSpec, save_path: Option<String>, quality: f32, elements: bool, include_text: bool, max_pixels: Option<u64> },
     /// 窗口变量声明：`w = app "记事本"`，本次调用内有效，重复声明即覆盖
-    AppDeclare { line: usize, var: String, name: String, monitor: Option<u32> },
-    /// 变量动作：`w click "保存"` / `w setvalue "用户名" = "admin"` / `w click @0.3,0.4`
+    AppDeclare { line: usize, var: String, name: String },
+    /// 变量动作：`w click "保存"` / `w setvalue "用户名" = "admin"` / `w click @960,540`
     App { line: usize, var: String, action: AppScriptAction, post_delay: std::time::Duration },
     Clipboard { line: usize, op: ClipboardOp },
 }
@@ -427,45 +435,70 @@ fn parse_named_params(line: usize, action: &str, tokens: &[String], allowed: &[&
     Ok(out)
 }
 
-fn parse_normalized_pair(line: usize, action: &str, raw: &str) -> DesktopToolResult<NormalizedPoint> {
+/// 坐标已改为虚拟桌面绝对像素，`monitor=` 不再参与坐标换算：出现在坐标类动作里直接报错并指路。
+fn reject_monitor_param(line: usize, action: &str, tokens: &[String]) -> DesktopToolResult<()> {
+    if tokens.iter().any(|token| token.trim().to_ascii_lowercase().starts_with("monitor=")) {
+        return Err(operate_line_error(
+            line,
+            action,
+            "monitor 参数已移除：坐标改为虚拟桌面绝对像素，跨显示器唯一，不再需要指定坐标基准；截图请用 `screenshot monitor=<id>`".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// 坐标解析：`@x,y` 为虚拟桌面物理像素（整数）。旧归一化写法（如 @0.5,0.5）直接报错，不静默取整。
+fn parse_screen_point(line: usize, action: &str, raw: &str) -> DesktopToolResult<ScreenPoint> {
     let value = raw.trim().strip_prefix('@').ok_or_else(|| operate_line_error(line, action, format!("坐标非法：必须使用 @x,y 形式，当前为 `{raw}`")))?;
     let parts = value.split(',').map(str::trim).collect::<Vec<_>>();
     if parts.len() != 2 {
         return Err(operate_line_error(line, action, format!("坐标非法：必须使用 @x,y 形式，当前为 `{raw}`")));
     }
-    let x = parts[0].parse::<f64>().map_err(|_| operate_line_error(line, action, format!("坐标非法：x 必须是数字，当前为 `{}`", parts[0])))?;
-    let y = parts[1].parse::<f64>().map_err(|_| operate_line_error(line, action, format!("坐标非法：y 必须是数字，当前为 `{}`", parts[1])))?;
-    if !(0.0..=1.0).contains(&x) {
-        return Err(operate_line_error(line, action, format!("坐标非法：x 必须在 0.0~1.0 之间，当前为 {x}")));
-    }
-    if !(0.0..=1.0).contains(&y) {
-        return Err(operate_line_error(line, action, format!("坐标非法：y 必须在 0.0~1.0 之间，当前为 {y}")));
-    }
-    Ok(NormalizedPoint { x, y })
+    Ok(ScreenPoint {
+        x: parse_pixel_axis(line, action, "x", parts[0])?,
+        y: parse_pixel_axis(line, action, "y", parts[1])?,
+    })
 }
 
-fn parse_normalized_region(line: usize, action: &str, raw: &str) -> DesktopToolResult<NormalizedRegion> {
+/// 单轴像素解析：必须是整数。小数按旧归一化写法给出迁移提示，避免静默取整后点到屏幕角落。
+fn parse_pixel_axis(line: usize, action: &str, axis: &str, raw: &str) -> DesktopToolResult<i32> {
+    let trimmed = raw.trim();
+    let value = trimmed.parse::<i32>().map_err(|_| {
+        if trimmed.parse::<f64>().is_ok() {
+            operate_line_error(line, action, format!("坐标非法：{axis} 必须是整数像素，当前为 `{trimmed}`；坐标已改为虚拟桌面绝对像素，不再是 0~1 归一化"))
+        } else {
+            operate_line_error(line, action, format!("坐标非法：{axis} 必须是整数像素，当前为 `{trimmed}`"))
+        }
+    })?;
+    if value.abs() > MAX_SCREEN_COORDINATE {
+        return Err(operate_line_error(line, action, format!("坐标非法：{axis} 超出合理范围（绝对值不超过 {MAX_SCREEN_COORDINATE}），当前为 {value}")));
+    }
+    Ok(value)
+}
+
+/// 像素长度解析：必须为正整数。
+fn parse_pixel_extent(line: usize, action: &str, field: &str, raw: &str) -> DesktopToolResult<u32> {
+    let trimmed = raw.trim();
+    let value = trimmed.parse::<u32>().map_err(|_| operate_line_error(line, action, format!("{field} 非法：必须是正整数像素，当前为 `{trimmed}`")))?;
+    if value == 0 || value > MAX_SCREEN_COORDINATE as u32 {
+        return Err(operate_line_error(line, action, format!("{field} 非法：必须在 1~{MAX_SCREEN_COORDINATE} 之间，当前为 {value}")));
+    }
+    Ok(value)
+}
+
+/// region 解析：`@x,y,w,h` 为虚拟桌面物理像素矩形（整数）。
+fn parse_screen_region(line: usize, action: &str, raw: &str) -> DesktopToolResult<ScreenRect> {
     let value = raw.trim().strip_prefix('@').ok_or_else(|| operate_line_error(line, action, format!("region 非法：必须使用 @x,y,w,h 形式，当前为 `{raw}`")))?;
     let parts = value.split(',').map(str::trim).collect::<Vec<_>>();
     if parts.len() != 4 {
         return Err(operate_line_error(line, action, format!("region 非法：必须使用 @x,y,w,h 形式，当前为 `{raw}`")));
     }
-    let x = parts[0].parse::<f64>().map_err(|_| operate_line_error(line, action, format!("region x 非法：必须是数字，当前为 `{}`", parts[0])))?;
-    let y = parts[1].parse::<f64>().map_err(|_| operate_line_error(line, action, format!("region y 非法：必须是数字，当前为 `{}`", parts[1])))?;
-    let width = parts[2].parse::<f64>().map_err(|_| operate_line_error(line, action, format!("region width 非法：必须是数字，当前为 `{}`", parts[2])))?;
-    let height = parts[3].parse::<f64>().map_err(|_| operate_line_error(line, action, format!("region height 非法：必须是数字，当前为 `{}`", parts[3])))?;
-    for (name, value) in [("x", x), ("y", y), ("width", width), ("height", height)] {
-        if !(0.0..=1.0).contains(&value) {
-            return Err(operate_line_error(line, action, format!("region {name} 非法：必须在 0.0~1.0 之间，当前为 {value}")));
-        }
-    }
-    if width <= 0.0 || height <= 0.0 {
-        return Err(operate_line_error(line, action, "region width/height 非法：必须大于 0".to_string()));
-    }
-    if x + width > 1.0 || y + height > 1.0 {
-        return Err(operate_line_error(line, action, "region 非法：x+width 与 y+height 必须不超过 1.0".to_string()));
-    }
-    Ok(NormalizedRegion { x, y, width, height })
+    Ok(ScreenRect {
+        x: parse_pixel_axis(line, action, "region x", parts[0])?,
+        y: parse_pixel_axis(line, action, "region y", parts[1])?,
+        width: parse_pixel_extent(line, action, "region width", parts[2])?,
+        height: parse_pixel_extent(line, action, "region height", parts[3])?,
+    })
 }
 
 fn parse_mouse_button(line: usize, raw: &str) -> DesktopToolResult<OperateMouseButton> {
@@ -497,6 +530,7 @@ fn parse_mouse_line(line_no: usize, tokens: &[String]) -> DesktopToolResult<Desk
     if tokens.len() < 2 {
         return Err(operate_line_error(line_no, "mouse", "非法：至少需要按钮、滚动方向或 move".to_string()));
     }
+    reject_monitor_param(line_no, "mouse", tokens)?;
     let subject = tokens[1].trim().to_ascii_lowercase();
     if subject == "scroll_up" || subject == "scroll_down" || subject == "scroll_left" || subject == "scroll_right" {
         let params = parse_named_params(line_no, "mouse", &tokens[2..], &["repeat", "delay", "pre_delay", "target", "focus"])?;
@@ -518,12 +552,11 @@ fn parse_mouse_line(line_no: usize, tokens: &[String]) -> DesktopToolResult<Desk
         if tokens.len() < 3 {
             return Err(operate_line_error(line_no, "mouse", "非法：移动格式应为 `mouse move @x,y`".to_string()));
         }
-        let target = parse_normalized_pair(line_no, "mouse", &tokens[2])?;
-        let params = parse_named_params(line_no, "mouse", &tokens[3..], &["pre_delay", "monitor", "target", "focus"])?;
+        let target = parse_screen_point(line_no, "mouse", &tokens[2])?;
+        let params = parse_named_params(line_no, "mouse", &tokens[3..], &["pre_delay", "target", "focus"])?;
         let pre_delay = params.get("pre_delay").map(|v| parse_seconds_token(line_no, "mouse", v, "pre_delay")).transpose()?.unwrap_or_default();
-        let monitor = params.get("monitor").map(|v| parse_monitor_token(line_no, "mouse", v)).transpose()?;
         let (window_target, focus) = parse_foreground_params(line_no, "mouse", &params)?;
-        return Ok(DesktopScriptAction::MouseMove { line: line_no, target, monitor, pre_delay, window_target, focus });
+        return Ok(DesktopScriptAction::MouseMove { line: line_no, target, pre_delay, window_target, focus });
     }
     if tokens.len() < 3 {
         return Err(operate_line_error(line_no, "mouse", "非法：格式应为 `mouse <button> click @x,y` / `mouse <button> drag @x1,y1 @x2,y2` / `mouse <button> down|up`".to_string()));
@@ -543,28 +576,26 @@ fn parse_mouse_line(line_no: usize, tokens: &[String]) -> DesktopToolResult<Desk
         if tokens.len() < 5 {
             return Err(operate_line_error(line_no, "mouse", "非法：拖拽格式应为 `mouse <button> drag @x1,y1 @x2,y2 [duration=s]`".to_string()));
         }
-        let from = parse_normalized_pair(line_no, "mouse", &tokens[3])?;
-        let to = parse_normalized_pair(line_no, "mouse", &tokens[4])?;
-        let params = parse_named_params(line_no, "mouse", &tokens[5..], &["duration", "pre_delay", "monitor", "target", "focus"])?;
+        let from = parse_screen_point(line_no, "mouse", &tokens[3])?;
+        let to = parse_screen_point(line_no, "mouse", &tokens[4])?;
+        let params = parse_named_params(line_no, "mouse", &tokens[5..], &["duration", "pre_delay", "target", "focus"])?;
         let duration = params.get("duration").map(|v| parse_seconds_token(line_no, "mouse", v, "duration")).transpose()?;
         let pre_delay = params.get("pre_delay").map(|v| parse_seconds_token(line_no, "mouse", v, "pre_delay")).transpose()?.unwrap_or_default();
-        let monitor = params.get("monitor").map(|v| parse_monitor_token(line_no, "mouse", v)).transpose()?;
         let (window_target, focus) = parse_foreground_params(line_no, "mouse", &params)?;
-        return Ok(DesktopScriptAction::MouseDrag { line: line_no, button, from, to, monitor, duration, pre_delay, window_target, focus });
+        return Ok(DesktopScriptAction::MouseDrag { line: line_no, button, from, to, duration, pre_delay, window_target, focus });
     }
     if verb != "click" {
         return Err(operate_line_error(line_no, "mouse", format!("非法：暂只支持 `click` / `drag`，当前为 `{}`", tokens[2])));
     }
-    let target = parse_normalized_pair(line_no, "mouse", &tokens[3])?;
-    let params = parse_named_params(line_no, "mouse", &tokens[4..], &["repeat", "delay", "pre_delay", "press", "monitor", "target", "focus", "verify"])?;
+    let target = parse_screen_point(line_no, "mouse", &tokens[3])?;
+    let params = parse_named_params(line_no, "mouse", &tokens[4..], &["repeat", "delay", "pre_delay", "press", "target", "focus", "verify"])?;
     let repeat = params.get("repeat").map(|v| parse_repeat_token(line_no, "mouse", v)).transpose()?.unwrap_or(1);
     let delay = params.get("delay").map(|v| parse_seconds_token(line_no, "mouse", v, "delay")).transpose()?.unwrap_or_default();
     let pre_delay = params.get("pre_delay").map(|v| parse_seconds_token(line_no, "mouse", v, "pre_delay")).transpose()?.unwrap_or_default();
     let press = params.get("press").map(|v| parse_seconds_token(line_no, "mouse", v, "press")).transpose()?.unwrap_or_default();
-    let monitor = params.get("monitor").map(|v| parse_monitor_token(line_no, "mouse", v)).transpose()?;
     let (window_target, focus) = parse_foreground_params(line_no, "mouse", &params)?;
     let verify = params.get("verify").map(|v| parse_bool_token(line_no, "mouse", v)).transpose()?.unwrap_or(false);
-    Ok(DesktopScriptAction::MouseClick { line: line_no, button, target, monitor, repeat, delay, pre_delay, press, window_target, focus, verify })
+    Ok(DesktopScriptAction::MouseClick { line: line_no, button, target, repeat, delay, pre_delay, press, window_target, focus, verify })
 }
 
 /// windowId 解析：十进制或 0x 前缀十六进制（与 windows 工具的 id 口径一致）
@@ -578,12 +609,12 @@ fn parse_window_id_token(line: usize, action: &str, raw: &str) -> DesktopToolRes
     parsed.map_err(|_| operate_line_error(line, action, format!("windowId 非法：必须是十进制或 0x 前缀十六进制，当前为 `{raw}`")))
 }
 
-/// 变量动作目标解析：`@x,y` 归一化坐标，或元素名（带双引号；无空格单名可省略引号）。
+/// 变量动作目标解析：`@x,y` 屏幕绝对像素坐标，或元素名（带双引号；无空格单名可省略引号）。
 /// el= 已退役，出现即报错并给改写示例。
 fn parse_var_target(line: usize, var: &str, verb: &str, token: &str) -> DesktopToolResult<AppScriptTarget> {
     let trimmed = token.trim();
     if trimmed.starts_with('@') {
-        return Ok(AppScriptTarget::Point(parse_normalized_pair(line, var, trimmed)?));
+        return Ok(AppScriptTarget::Point(parse_screen_point(line, var, trimmed)?));
     }
     let lowered = trimmed.to_ascii_lowercase();
     if lowered.starts_with("el=") {
@@ -596,14 +627,14 @@ fn parse_var_target(line: usize, var: &str, verb: &str, token: &str) -> DesktopT
     Ok(AppScriptTarget::Name(name))
 }
 
-/// `w = app "记事本" [monitor=n]`：声明本次调用内的窗口变量，重复声明即覆盖。
+/// `w = app "记事本"`：声明本次调用内的窗口变量，重复声明即覆盖。
 fn parse_var_declare_line(
     line_no: usize,
     tokens: &[String],
     declared: &mut std::collections::HashSet<String>,
 ) -> DesktopToolResult<DesktopScriptAction> {
     if tokens.len() < 4 || tokens[1] != "=" || !tokens[2].trim().eq_ignore_ascii_case("app") {
-        return Err(operate_line_error(line_no, "脚本", "非法：声明格式应为 `w = app \"窗口名\" [monitor=n]`，例如：w = app \"记事本\""));
+        return Err(operate_line_error(line_no, "脚本", "非法：声明格式应为 `w = app \"窗口名\"`，例如：w = app \"记事本\""));
     }
     let var = tokens[0].trim().to_string();
     if !is_var_name(&var) {
@@ -617,10 +648,12 @@ fn parse_var_declare_line(
     if name.trim().is_empty() {
         return Err(operate_line_error(line_no, &var, "窗口名不能为空，需给\"标题/进程名\"".to_string()));
     }
-    let params = parse_named_params(line_no, &var, &tokens[4..], &["monitor"])?;
-    let monitor = params.get("monitor").map(|v| parse_monitor_token(line_no, &var, v)).transpose()?;
+    reject_monitor_param(line_no, &var, &tokens[4..])?;
+    if tokens.len() > 4 {
+        return Err(operate_line_error(line_no, &var, format!("声明格式应为 `w = app \"窗口名\"`，不接受额外参数 `{}`", tokens[4])));
+    }
     declared.insert(var.clone());
-    Ok(DesktopScriptAction::AppDeclare { line: line_no, var, name, monitor })
+    Ok(DesktopScriptAction::AppDeclare { line: line_no, var, name })
 }
 
 fn parse_var_action_line(
@@ -636,6 +669,7 @@ fn parse_var_action_line(
         return Err(operate_line_error(line_no, &var, "非法：格式应为 `w click \"名\"|@x,y` / `w setvalue \"名\" = \"内容\"` / `w getvalue \"名\"` / `w scroll_up \"名\"|@x,y` / `w key <combo>`".to_string()));
     }
     let verb = tokens[1].trim().to_ascii_lowercase();
+    reject_monitor_param(line_no, &var, &tokens[2..])?;
     // post_delay 是全部变量动作共享的收尾等待：动作完成后等 UI 响应（弹菜单/联想词）再返回，
     // 避免下一条动作拿到过期的元素树
     let parse_post_delay = |params: &std::collections::HashMap<String, String>| -> DesktopToolResult<std::time::Duration> {
@@ -651,13 +685,12 @@ fn parse_var_action_line(
                 return Err(operate_line_error(line_no, &var, "非法：格式应为 `w click \"名\"|@x,y [参数]`".to_string()));
             }
             let target = parse_var_target(line_no, &var, "click", &tokens[2])?;
-            let params = parse_named_params(line_no, &var, &tokens[3..], &["repeat", "dblclick", "pre_delay", "post_delay", "monitor"])?;
+            let params = parse_named_params(line_no, &var, &tokens[3..], &["repeat", "dblclick", "pre_delay", "post_delay"])?;
             let repeat = params.get("repeat").map(|v| parse_repeat_token(line_no, &var, v)).transpose()?.unwrap_or(1);
             let dblclick = params.get("dblclick").map(|v| parse_bool_token(line_no, &var, v)).transpose()?.unwrap_or(false);
             let pre_delay = params.get("pre_delay").map(|v| parse_seconds_token(line_no, &var, v, "pre_delay")).transpose()?.unwrap_or_default();
-            let monitor = params.get("monitor").map(|v| parse_monitor_token(line_no, &var, v)).transpose()?;
             let post_delay = parse_post_delay(&params)?;
-            Ok(DesktopScriptAction::App { line: line_no, var, action: AppScriptAction::Click { target, monitor, repeat, dblclick, pre_delay }, post_delay })
+            Ok(DesktopScriptAction::App { line: line_no, var, action: AppScriptAction::Click { target, repeat, dblclick, pre_delay }, post_delay })
         }
         "setvalue" => {
             if tokens.len() < 5 || tokens[3] != "=" {
@@ -703,11 +736,10 @@ fn parse_var_action_line(
                 return Err(operate_line_error(line_no, &var, format!("非法：格式应为 `w {verb} \"名\"|@x,y [参数]`")));
             }
             let target = parse_var_target(line_no, &var, &verb, &tokens[2])?;
-            let params = parse_named_params(line_no, &var, &tokens[3..], &["repeat", "delay", "pre_delay", "post_delay", "monitor"])?;
+            let params = parse_named_params(line_no, &var, &tokens[3..], &["repeat", "delay", "pre_delay", "post_delay"])?;
             let repeat = params.get("repeat").map(|v| parse_repeat_token(line_no, &var, v)).transpose()?.unwrap_or(1);
             let delay = params.get("delay").map(|v| parse_seconds_token(line_no, &var, v, "delay")).transpose()?.unwrap_or_default();
             let pre_delay = params.get("pre_delay").map(|v| parse_seconds_token(line_no, &var, v, "pre_delay")).transpose()?.unwrap_or_default();
-            let monitor = params.get("monitor").map(|v| parse_monitor_token(line_no, &var, v)).transpose()?;
             let post_delay = parse_post_delay(&params)?;
             // 符号与 enigo 约定一致：垂直正=下、水平正=右
             let (horizontal, positive) = match verb.as_str() {
@@ -716,7 +748,7 @@ fn parse_var_action_line(
                 "scroll_left" => (true, false),
                 _ => (true, true),
             };
-            let action = AppScriptAction::Scroll { target, monitor, horizontal, positive, repeat, delay, pre_delay };
+            let action = AppScriptAction::Scroll { target, horizontal, positive, repeat, delay, pre_delay };
             Ok(DesktopScriptAction::App { line: line_no, var, action, post_delay })
         }
         "key" => {
@@ -887,7 +919,7 @@ fn parse_screenshot_line(line_no: usize, tokens: &[String]) -> DesktopToolResult
         if !matches!(mode, ScreenshotModeSpec::Desktop) {
             return Err(operate_line_error(line_no, "screenshot", "非法：focused_window/window_id/window 与 region 不能同时出现".to_string()));
         }
-        mode = ScreenshotModeSpec::Region(parse_normalized_region(line_no, "screenshot", raw)?);
+        mode = ScreenshotModeSpec::Region(parse_screen_region(line_no, "screenshot", raw)?);
     }
     if let Some(raw) = params.get("monitor") {
         if !matches!(mode, ScreenshotModeSpec::Desktop) {

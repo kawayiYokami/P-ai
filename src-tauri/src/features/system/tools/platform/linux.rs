@@ -153,16 +153,12 @@ fn get_window_property(
 const MAX_TREE_DEPTH: usize = 20;
 
 /// 批量扫描指定窗口列表的可交互元素树。
-/// windows 为 (xcap window id, 窗口标题) 列表；返回扁平元素列表（归一化坐标，基准为主屏）。
+/// windows 为 (xcap window id, 窗口标题) 列表；返回扁平元素列表（虚拟桌面物理像素坐标）。
 pub fn collect_ui_tree_for_windows(
     windows: &[(usize, String)],
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
     _include_text: bool,
 ) -> Vec<UiElementInfo> {
-    if windows.is_empty() || primary_width <= 0.0 || primary_height <= 0.0 {
+    if windows.is_empty() {
         return Vec::new();
     }
     let windows = windows.to_vec();
@@ -174,14 +170,7 @@ pub fn collect_ui_tree_for_windows(
             Err(_) => return Vec::new(),
         };
         rt.block_on(async move {
-            scan_atspi(
-                &windows,
-                primary_origin_x,
-                primary_origin_y,
-                primary_width,
-                primary_height,
-            )
-            .await
+            scan_atspi(&windows).await
         })
     })
     .join()
@@ -189,33 +178,15 @@ pub fn collect_ui_tree_for_windows(
 }
 
 /// 对指定窗口扫描可交互元素树；窗口 id 为 0 时忽略。
-pub fn collect_window_ui_elements(
-    window_id: usize,
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
-    include_text: bool,
-) -> Vec<UiElementInfo> {
+pub fn collect_window_ui_elements(window_id: usize, include_text: bool) -> Vec<UiElementInfo> {
     if window_id == 0 {
         return Vec::new();
     }
-    collect_ui_tree_for_windows(
-        &[(window_id, String::new())],
-        primary_origin_x,
-        primary_origin_y,
-        primary_width,
-        primary_height,
-        include_text,
-    )
+    collect_ui_tree_for_windows(&[(window_id, String::new())], include_text)
 }
 
 async fn scan_atspi(
     windows: &[(usize, String)],
-    origin_x: f64,
-    origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
 ) -> Vec<UiElementInfo> {
     let conn = match atspi::AccessibilityConnection::new().await {
         Ok(c) => c,
@@ -257,10 +228,6 @@ async fn scan_atspi(
                 conn.connection(),
                 matched_id as u32,
                 matched_title,
-                origin_x,
-                origin_y,
-                primary_width,
-                primary_height,
                 &mut all,
                 0,
             )
@@ -340,7 +307,7 @@ async fn component_proxy<'c>(
         .ok()
 }
 
-/// 递归收集窗口内可交互元素（role 白名单 + Enabled/Showing + 屏幕坐标归一化）。
+/// 递归收集窗口内可交互元素（role 白名单 + Enabled/Showing + 屏幕物理像素坐标）。
 /// 直接递归的 async fn 会产生无限大小 future 类型（E0733），改为返回装箱 Future 的普通函数，
 /// 递归调用通过 Box::pin 执行，消除编译错误。
 #[allow(clippy::too_many_arguments)]
@@ -349,10 +316,6 @@ fn collect_elements<'a>(
     conn: &'a atspi::zbus::Connection,
     window_id: u32,
     window_title: &'a str,
-    origin_x: f64,
-    origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
     out: &'a mut Vec<UiElementInfo>,
     depth: usize,
 ) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
@@ -385,10 +348,10 @@ fn collect_elements<'a>(
                                 window_title: window_title.to_string(),
                                 control_type: role_name(&role).to_string(),
                                 name,
-                                x: (ex as f64 - origin_x) / primary_width,
-                                y: (ey as f64 - origin_y) / primary_height,
-                                width: ew as f64 / primary_width,
-                                height: eh as f64 / primary_height,
+                                x: ex,
+                                y: ey,
+                                width: ew,
+                                height: eh,
                                 focused: state.contains(atspi::State::Focused),
                             });
                         }
@@ -412,10 +375,6 @@ fn collect_elements<'a>(
                 conn,
                 window_id,
                 window_title,
-                origin_x,
-                origin_y,
-                primary_width,
-                primary_height,
                 out,
                 depth + 1,
             )
@@ -502,9 +461,7 @@ mod linux_platform_tests {
 
     #[test]
     fn zero_inputs_should_return_empty() {
-        assert!(collect_window_ui_elements(0, 0.0, 0.0, 1920.0, 1080.0, false).is_empty());
-        assert!(collect_window_ui_elements(123, 0.0, 0.0, 0.0, 1080.0, false).is_empty());
-        assert!(collect_window_ui_elements(123, 0.0, 0.0, 1920.0, 0.0, false).is_empty());
+        assert!(collect_window_ui_elements(0, false).is_empty());
     }
 
     /// 真实桌面冒烟测试：枚举窗口 + 激活前台 + 控件树扫描。
@@ -536,7 +493,7 @@ mod linux_platform_tests {
             .take(3)
             .map(|w| (w.window_id, w.title.clone()))
             .collect();
-        let elems = collect_ui_tree_for_windows(&targets, 0.0, 0.0, 1920.0, 1080.0, false);
+        let elems = collect_ui_tree_for_windows(&targets, false);
         eprintln!("[probe] scanned {} elements from {} windows", elems.len(), targets.len());
         for e in elems.iter().take(5) {
             eprintln!("  {}({}) at {}x{}", e.control_type, e.name, e.x, e.y);

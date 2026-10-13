@@ -3,7 +3,7 @@
 // 仅在 macOS 编译（platform/mod.rs 按 cfg 引入）。包含：
 // - list windows：复用 xcap window_list()（CGWindowListCopyWindowInfo 全量枚举）
 // - activate window：AXRaise（单窗口精确提升）+ NSRunningApplication（应用前台）+ 轮询验证
-// - 控件树：AXUIElement 遍历（防环去重 + 角色白名单 + 坐标归一化）
+// - 控件树：AXUIElement 遍历（防环去重 + 角色白名单 + 屏幕物理像素坐标）
 //
 // 平台固有限制（在工具描述中提示）：
 // - 控件树 / 激活需要「辅助功能」权限（AXIsProcessTrusted 检测，缺失时属性读取 kAXErrorAPIDisabled）
@@ -320,16 +320,12 @@ pub fn activate_window(window_id: usize) -> (String, bool) {
 // ==================== 控件树 ====================
 
 /// 批量扫描指定窗口列表的可交互元素树。
-/// windows 为 (xcap window_id, 窗口标题) 列表；返回扁平元素列表（归一化坐标，基准为主屏）。
+/// windows 为 (xcap window_id, 窗口标题) 列表；返回扁平元素列表（屏幕物理像素坐标）。
 pub fn collect_ui_tree_for_windows(
     windows: &[(usize, String)],
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
     _include_text: bool,
 ) -> Vec<UiElementInfo> {
-    if windows.is_empty() || primary_width <= 0.0 || primary_height <= 0.0 {
+    if windows.is_empty() {
         return Vec::new();
     }
     // 控件树读取需要辅助功能权限；缺失时直接返回空（summary 由 operate 侧提示）
@@ -385,18 +381,7 @@ pub fn collect_ui_tree_for_windows(
             }
         }
         if let Some(root) = matched {
-            scan_elements(
-                &root,
-                *wid as u32,
-                title,
-                primary_origin_x,
-                primary_origin_y,
-                primary_width,
-                primary_height,
-                &mut out,
-                0,
-                &mut Vec::new(),
-            );
+            scan_elements(&root, *wid as u32, title, &mut out, 0, &mut Vec::new());
         }
     }
     out.truncate(MAX_ELEMENTS);
@@ -404,25 +389,11 @@ pub fn collect_ui_tree_for_windows(
 }
 
 /// 对指定窗口扫描可交互元素树；窗口 id 为 0 时忽略。
-pub fn collect_window_ui_elements(
-    window_id: usize,
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
-    include_text: bool,
-) -> Vec<UiElementInfo> {
+pub fn collect_window_ui_elements(window_id: usize, include_text: bool) -> Vec<UiElementInfo> {
     if window_id == 0 {
         return Vec::new();
     }
-    collect_ui_tree_for_windows(
-        &[(window_id, String::new())],
-        primary_origin_x,
-        primary_origin_y,
-        primary_width,
-        primary_height,
-        include_text,
-    )
+    collect_ui_tree_for_windows(&[(window_id, String::new())], include_text)
 }
 
 /// 递归收集窗口内可交互元素。
@@ -432,10 +403,6 @@ fn scan_elements(
     node: &AxEl,
     window_id: u32,
     window_title: &str,
-    origin_x: f64,
-    origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
     out: &mut Vec<UiElementInfo>,
     depth: usize,
     visited: &mut Vec<*const c_void>,
@@ -476,10 +443,10 @@ fn scan_elements(
                             window_title: window_title.to_string(),
                             control_type: role_name(role).to_string(),
                             name,
-                            x: (p.x - origin_x) / primary_width,
-                            y: (p.y - origin_y) / primary_height,
-                            width: s.width / primary_width,
-                            height: s.height / primary_height,
+                            x: p.x.round() as i32,
+                            y: p.y.round() as i32,
+                            width: s.width.round() as i32,
+                            height: s.height.round() as i32,
                             focused: node.attr_bool(ATTR_FOCUSED).unwrap_or(false),
                         });
                     }
@@ -492,18 +459,7 @@ fn scan_elements(
         if out.len() >= MAX_ELEMENTS {
             return;
         }
-        scan_elements(
-            &child,
-            window_id,
-            window_title,
-            origin_x,
-            origin_y,
-            primary_width,
-            primary_height,
-            out,
-            depth + 1,
-            visited,
-        );
+        scan_elements(&child, window_id, window_title, out, depth + 1, visited);
     }
 }
 

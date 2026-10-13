@@ -395,22 +395,19 @@ pub struct IUIAutomationCondition_Vtbl {
 // ==================== 遍历入口 ====================
 
 /// 批量扫描指定窗口列表的可交互元素树（一次 COM/automation 实例复用）。
-/// windows 为 (hwnd, 窗口标题) 列表；返回扁平元素列表（归一化坐标，带 window 字段）。
-/// 归一化基准为主屏：primary_origin_x/y 为主屏在虚拟屏幕中的原点，width/height 为主屏尺寸。
+/// windows 为 (hwnd, 窗口标题) 列表；返回扁平元素列表（虚拟桌面物理像素坐标，带 window 字段）。
 pub fn collect_ui_tree_for_windows(
     windows: &[(usize, String)],
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
     include_text: bool,
 ) -> Vec<UiElementInfo> {
-    if windows.is_empty() || primary_width <= 0.0 || primary_height <= 0.0 {
+    if windows.is_empty() {
         return Vec::new();
     }
     let mut all = Vec::with_capacity(64);
 
-    let (automation, _co_guard) = match create_uia_automation() {
+    // 不解构元组：字段按声明顺序释放，IUIAutomation 必须先于 ComGuard（CoUninitialize）释放；
+    // 先卸载 COM 再 Release 已创建的 UIA 对象会触发访问冲突。
+    let session = match create_uia_automation() {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
@@ -419,16 +416,7 @@ pub fn collect_ui_tree_for_windows(
             break;
         }
         let remaining = MAX_ELEMENTS - all.len();
-        let mut scanned = scan_window(
-            &automation,
-            *hwnd,
-            primary_origin_x,
-            primary_origin_y,
-            primary_width,
-            primary_height,
-            remaining,
-            include_text,
-        );
+        let mut scanned = scan_window(&session.0, *hwnd, remaining, include_text);
         for elem in scanned.iter_mut() {
             elem.window_id = *hwnd as u32;
             elem.window_title = title.clone();
@@ -439,23 +427,9 @@ pub fn collect_ui_tree_for_windows(
 }
 
 /// 对指定窗口句柄扫描可交互元素树。
-/// hwnd 为 0 时忽略该窗口（失败跳过）；返回扁平元素列表（归一化坐标）。
-pub fn collect_window_ui_elements(
-    hwnd: usize,
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
-    include_text: bool,
-) -> Vec<UiElementInfo> {
-    collect_ui_tree_for_windows(
-        &[(hwnd, String::new())],
-        primary_origin_x,
-        primary_origin_y,
-        primary_width,
-        primary_height,
-        include_text,
-    )
+/// hwnd 为 0 时忽略该窗口（失败跳过）；返回扁平元素列表（虚拟桌面物理像素坐标）。
+pub fn collect_window_ui_elements(hwnd: usize, include_text: bool) -> Vec<UiElementInfo> {
+    collect_ui_tree_for_windows(&[(hwnd, String::new())], include_text)
 }
 
 /// 扫描到的原始元素（保留 COM 对象与原始屏幕坐标，供 pattern 调用复用）
@@ -471,10 +445,6 @@ struct RawUiElement {
 fn scan_window(
     automation: &IUIAutomation,
     hwnd: usize,
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
     max_elements: usize,
     include_text: bool,
 ) -> Vec<UiElementInfo> {
@@ -489,20 +459,16 @@ fn scan_window(
     }
     collect_raw_elements(automation, hwnd, max_elements, include_text)
         .into_iter()
-        .map(|raw| {
-            let w = (raw.rect.right - raw.rect.left) as f64;
-            let h = (raw.rect.bottom - raw.rect.top) as f64;
-            UiElementInfo {
-                window_id: hwnd as u32,
-                window_title: String::new(),
-                control_type: raw.type_name.to_string(),
-                name: raw.name,
-                x: (raw.rect.left as f64 - primary_origin_x) / primary_width,
-                y: (raw.rect.top as f64 - primary_origin_y) / primary_height,
-                width: w / primary_width,
-                height: h / primary_height,
-                focused: raw.focused,
-            }
+        .map(|raw| UiElementInfo {
+            window_id: hwnd as u32,
+            window_title: String::new(),
+            control_type: raw.type_name.to_string(),
+            name: raw.name,
+            x: raw.rect.left,
+            y: raw.rect.top,
+            width: raw.rect.right - raw.rect.left,
+            height: raw.rect.bottom - raw.rect.top,
+            focused: raw.focused,
         })
         .collect()
 }
@@ -637,9 +603,9 @@ fn create_uia_automation() -> Result<(IUIAutomation, ComGuard), String> {
 }
 
 fn with_uia_automation<T>(f: impl FnOnce(&IUIAutomation) -> Result<T, String>) -> Result<T, String> {
-    let (automation, guard) = create_uia_automation()?;
-    let _keep_alive = guard;
-    f(&automation)
+    // 不解构元组：automation 必须先于 COM 守卫释放（见 collect_ui_tree_for_windows 注释）
+    let session = create_uia_automation()?;
+    f(&session.0)
 }
 
 /// 核对名字寻址元素的执行前状态：与解析时新鲜扫描的记录比对。
@@ -1364,7 +1330,7 @@ pub fn window_is_alive(window_id: usize) -> bool {
 #[cfg(test)]
 mod windows_platform_tests {
     use super::*;
-    // tools.rs 被 include 进 main（crate root），window_list / primary_monitor_bounds /
+    // tools.rs 被 include 进 main（crate root），window_list / virtual_desktop_bounds /
     // runtime_log_info 都在 crate root；eprintln! 宏在 main.rs:29 被重定义为 runtime_log_info
     use crate::runtime_log_info;
 
@@ -1456,9 +1422,8 @@ mod windows_platform_tests {
 
     #[test]
     fn zero_inputs_should_return_empty() {
-        assert!(collect_window_ui_elements(0, 0.0, 0.0, 1920.0, 1080.0, false).is_empty());
-        assert!(collect_window_ui_elements(123, 0.0, 0.0, 0.0, 1080.0, false).is_empty());
-        assert!(collect_window_ui_elements(123, 0.0, 0.0, 1920.0, 0.0, false).is_empty());
+        assert!(collect_window_ui_elements(0, false).is_empty());
+        assert!(collect_ui_tree_for_windows(&[], false).is_empty());
     }
 
     /// 真实桌面冒烟测试：枚举窗口 + 激活前台窗口验证。
@@ -1485,7 +1450,7 @@ mod windows_platform_tests {
     #[test]
     #[ignore = "需要真实 Windows 桌面"]
     fn real_desktop_should_scan_window_tree() {
-        // window_list / primary_monitor_bounds 是 crate root（main include）私有函数
+        // window_list / virtual_desktop_bounds 是 crate root（main include）私有函数
         let windows = crate::window_list().expect("list windows");
         let targets: Vec<(usize, String)> = windows
             .iter()
@@ -1493,16 +1458,9 @@ mod windows_platform_tests {
             .map(|w| (w.id().unwrap_or(0) as usize, w.title().unwrap_or_default()))
             .collect();
         assert!(!targets.is_empty(), "桌面应有可见窗口");
-        let bounds = crate::primary_monitor_bounds().expect("primary bounds");
-        eprintln!("primary bounds: x={} y={} w={} h={}", bounds.x, bounds.y, bounds.width, bounds.height);
-        let elems = collect_ui_tree_for_windows(
-            &targets,
-            bounds.x as f64,
-            bounds.y as f64,
-            bounds.width as f64,
-            bounds.height as f64,
-            false,
-        );
+        let bounds = crate::virtual_desktop_bounds().expect("virtual desktop bounds");
+        eprintln!("virtual desktop bounds: x={} y={} w={} h={}", bounds.x, bounds.y, bounds.width, bounds.height);
+        let elems = collect_ui_tree_for_windows(&targets, false);
         // 不强制非空（自绘窗口/游戏可能不暴露 UIA），但扫描本身不能 panic
         eprintln!("scanned {} elements from {} windows", elems.len(), targets.len());
         for e in elems.iter().take(5) {
@@ -1550,7 +1508,8 @@ mod windows_platform_tests {
             1
         }
 
-        let (automation, _guard) = create_uia_automation().expect("UIA init");
+        let session = create_uia_automation().expect("UIA init");
+        let automation = &session.0;
         unsafe {
             EnumWindows(Some(enum_cb), 0);
         }
@@ -1630,7 +1589,8 @@ mod windows_platform_tests {
             1
         }
 
-        let (automation, _com_guard) = create_uia_automation().expect("UIA init");
+        let session = create_uia_automation().expect("UIA init");
+        let automation = &session.0;
         unsafe {
             EnumWindows(Some(enum_cb), 0);
         }

@@ -90,7 +90,7 @@ async fn run_operate_tool(
     let started = std::time::Instant::now();
     let mut warnings = Vec::<String>::new();
     if !ensure_dpi_awareness() {
-        warnings.push("DPI 感知未生效（进程可能已被宿主设为其他感知模式）：高缩放或多显示器场景下坐标可能偏移，请用 screenshot 核对实际位置，或用 monitor= 指定显示器".to_string());
+        warnings.push("DPI 感知未生效（进程可能已被宿主设为其他感知模式）：高缩放或多显示器场景下坐标可能偏移，请用 screenshot 核对实际位置".to_string());
         runtime_log_warn("[桌面脚本] DPI 感知设置失败，高缩放或多显示器场景下坐标可能偏移".to_string());
     }
     let actions = parse_script(&input)?;
@@ -121,9 +121,9 @@ async fn run_operate_tool(
         .map(|w| w.window_id);
     // 上次截图的内容哈希（F1）：画面相同时不重复传输 base64
     let mut last_screenshot_hash: Option<u64> = None;
-    // 脚本内窗口变量表（变量 → (窗口名, 声明行 monitor)）：声明行登记，使用行现查句柄，不缓存；
+    // 脚本内窗口变量表（变量 → 窗口名）：声明行登记，使用行现查句柄，不缓存；
     // 脚本结束即丢弃，不跨调用
-    let mut app_symbols = std::collections::HashMap::<String, (String, Option<u32>)>::new();
+    let mut app_symbols = std::collections::HashMap::<String, String>::new();
 
     // 步骤失败即记录失败位置并停止后续步骤，已完成的步骤仍然返回（D1）
     macro_rules! run_step {
@@ -199,13 +199,13 @@ async fn run_operate_tool(
             }
         }
         match action {
-            DesktopScriptAction::MouseClick { line, button, target, monitor, repeat, delay, pre_delay, press, window_target, focus, verify } => {
+            DesktopScriptAction::MouseClick { line, button, target, repeat, delay, pre_delay, press, window_target, focus, verify } => {
                 let focus_note = ensure_foreground!(line, window_target, focus);
-                let ((), retried) = match run_step_retry!(line, execute_mouse_click(&mut enigo, button, &target, monitor, repeat, delay, pre_delay, press)) {
+                let ((), retried) = match run_step_retry!(line, execute_mouse_click(&mut enigo, button, &target, repeat, delay, pre_delay, press)) {
                     Some(pair) => pair,
                     None => break,
                 };
-                let hit_note = mouse_hit_note(&target, monitor).await;
+                let hit_note = mouse_hit_note(&target).await;
                 let verify_note = if verify { post_action_verify_note() } else { String::new() };
                 let step = DesktopScriptStepResult {
                     line,
@@ -220,9 +220,9 @@ async fn run_operate_tool(
                 ));
                 steps.push(step);
             }
-            DesktopScriptAction::MouseDrag { line, button, from, to, monitor, duration, pre_delay, window_target, focus } => {
+            DesktopScriptAction::MouseDrag { line, button, from, to, duration, pre_delay, window_target, focus } => {
                 let focus_note = ensure_foreground!(line, window_target, focus);
-                let ((), retried) = match run_step_retry!(line, execute_mouse_drag(&mut enigo, button, &from, &to, monitor, duration, pre_delay)) {
+                let ((), retried) = match run_step_retry!(line, execute_mouse_drag(&mut enigo, button, &from, &to, duration, pre_delay)) {
                     Some(pair) => pair,
                     None => break,
                 };
@@ -239,9 +239,9 @@ async fn run_operate_tool(
                 ));
                 steps.push(step);
             }
-            DesktopScriptAction::MouseMove { line, target, monitor, pre_delay, window_target, focus } => {
+            DesktopScriptAction::MouseMove { line, target, pre_delay, window_target, focus } => {
                 let focus_note = ensure_foreground!(line, window_target, focus);
-                let ((), retried) = match run_step_retry!(line, execute_mouse_move(&mut enigo, &target, monitor, pre_delay)) {
+                let ((), retried) = match run_step_retry!(line, execute_mouse_move(&mut enigo, &target, pre_delay)) {
                     Some(pair) => pair,
                     None => break,
                 };
@@ -304,14 +304,13 @@ async fn run_operate_tool(
                 ));
                 steps.push(step);
             }
-            DesktopScriptAction::AppDeclare { line, var, name, monitor } => {
-                // 声明只登记名字与显示器，不查句柄；重复声明即覆盖
-                app_symbols.insert(var.clone(), (name.clone(), monitor));
-                let monitor_note = monitor.map(|id| format!(", monitor={id}")).unwrap_or_default();
+            DesktopScriptAction::AppDeclare { line, var, name } => {
+                // 声明只登记名字，不查句柄；重复声明即覆盖
+                app_symbols.insert(var.clone(), name.clone());
                 let step = DesktopScriptStepResult {
                     line,
                     kind: DesktopScriptStepKind::App,
-                    summary: format!("app declare completed, {var} = app \"{name}\"{monitor_note}"),
+                    summary: format!("app declare completed, {var} = app \"{name}\""),
                     ok: true,
                     saved_path: None,
                 };
@@ -323,7 +322,7 @@ async fn run_operate_tool(
             }
             DesktopScriptAction::App { line, var, action, post_delay } => {
                 // 变量每次使用现查句柄，不缓存（窗口关闭重开后句柄会变，同脚本重跑行为一致）
-                let (name, declared_monitor) = match app_symbols.get(&var) {
+                let name = match app_symbols.get(&var) {
                     Some(entry) => entry.clone(),
                     None => {
                         failure = Some(OperateFailure { line, message: format!("变量 `{var}` 未声明：先用 `{var} = app \"窗口名\"` 声明"), focus_failed: None });
@@ -337,16 +336,6 @@ async fn run_operate_tool(
                         break;
                     }
                 };
-                // 坐标基准显示器：动作行 monitor 优先，未写时用声明行 monitor
-                let mut action = action;
-                if declared_monitor.is_some() {
-                    match &mut action {
-                        AppScriptAction::Click { monitor, .. } | AppScriptAction::Scroll { monitor, .. } if monitor.is_none() => {
-                            *monitor = declared_monitor;
-                        }
-                        _ => {}
-                    }
-                }
                 let ((verb, method, extra), retried) = match run_step_retry!(line, execute_app_action(window_id, action.clone(), post_delay)) {
                     Some(triple) => triple,
                     None => break,
@@ -539,6 +528,7 @@ async fn run_operate_tool(
                     mode: mode_name.clone(),
                     width: result.width,
                     height: result.height,
+                    bounds: result.bounds.clone(),
                     saved_path: result.path.clone(),
                     tree: ui_tree,
                 });
@@ -720,7 +710,7 @@ mod operate_tool_tests {
 
     #[test]
     fn parse_mouse_click_script() {
-        match parse_single("mouse left click @0.50,0.10 repeat=2 delay=0.1") {
+        match parse_single("mouse left click @960,108 repeat=2 delay=0.1") {
             DesktopScriptAction::MouseClick { repeat, .. } => assert_eq!(repeat, 2),
             _ => panic!("expected mouse click"),
         }
@@ -760,10 +750,10 @@ mod operate_tool_tests {
 
     #[test]
     fn parse_mouse_move_script() {
-        match parse_single("mouse move @0.25,0.40 pre_delay=0.2") {
+        match parse_single("mouse move @480,432 pre_delay=0.2") {
             DesktopScriptAction::MouseMove { target, pre_delay, .. } => {
-                assert!((target.x - 0.25).abs() < f64::EPSILON);
-                assert!((target.y - 0.40).abs() < f64::EPSILON);
+                assert_eq!(target.x, 480);
+                assert_eq!(target.y, 432);
                 assert_eq!(pre_delay, std::time::Duration::from_millis(200));
             }
             _ => panic!("expected mouse move"),
@@ -772,13 +762,13 @@ mod operate_tool_tests {
 
     #[test]
     fn parse_mouse_drag_script() {
-        match parse_single("mouse left drag @0.10,0.20 @0.80,0.90") {
+        match parse_single("mouse left drag @192,216 @1536,972") {
             DesktopScriptAction::MouseDrag { button, from, to, duration, .. } => {
                 assert_eq!(button, OperateMouseButton::Left);
-                assert!((from.x - 0.10).abs() < f64::EPSILON);
-                assert!((from.y - 0.20).abs() < f64::EPSILON);
-                assert!((to.x - 0.80).abs() < f64::EPSILON);
-                assert!((to.y - 0.90).abs() < f64::EPSILON);
+                assert_eq!(from.x, 192);
+                assert_eq!(from.y, 216);
+                assert_eq!(to.x, 1536);
+                assert_eq!(to.y, 972);
                 assert!(duration.is_none());
             }
             _ => panic!("expected mouse drag"),
@@ -787,7 +777,7 @@ mod operate_tool_tests {
 
     #[test]
     fn parse_mouse_drag_with_duration() {
-        match parse_single("mouse right drag @0.0,0.0 @1.0,1.0 duration=0.4 pre_delay=0.1") {
+        match parse_single("mouse right drag @0,0 @1920,1080 duration=0.4 pre_delay=0.1") {
             DesktopScriptAction::MouseDrag { button, duration, pre_delay, .. } => {
                 assert_eq!(button, OperateMouseButton::Right);
                 assert_eq!(duration, Some(std::time::Duration::from_secs_f64(0.4)));
@@ -799,13 +789,13 @@ mod operate_tool_tests {
 
     #[test]
     fn parse_mouse_drag_requires_two_points() {
-        let err = parse_script(&OperateRequest { script: "mouse left drag @0.1,0.1".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
+        let err = parse_script(&OperateRequest { script: "mouse left drag @192,108".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
         assert!(err.message.contains("拖拽格式"));
     }
 
     #[test]
     fn parse_foreground_target_by_window_id() {
-        match parse_single("mouse left click @0.5,0.5 target=12345 focus=strict") {
+        match parse_single("mouse left click @960,540 target=12345 focus=strict") {
             DesktopScriptAction::MouseClick { window_target, focus, .. } => {
                 assert!(matches!(window_target, Some(ForegroundTarget::WindowId(12345))));
                 assert_eq!(focus, FocusPolicy::Strict);
@@ -852,7 +842,7 @@ mod operate_tool_tests {
 
     #[test]
     fn parse_mouse_drag_accepts_target() {
-        match parse_single("mouse left drag @0.1,0.1 @0.9,0.9 target=42") {
+        match parse_single("mouse left drag @192,108 @1728,972 target=42") {
             DesktopScriptAction::MouseDrag { window_target, focus, .. } => {
                 assert!(matches!(window_target, Some(ForegroundTarget::WindowId(42))));
                 assert_eq!(focus, FocusPolicy::Verify);
@@ -922,25 +912,18 @@ mod operate_tool_tests {
     #[test]
     fn parse_var_declare_script() {
         match parse_single("w = app \"记事本\"") {
-            DesktopScriptAction::AppDeclare { var, name, monitor, .. } => {
+            DesktopScriptAction::AppDeclare { var, name, .. } => {
                 assert_eq!(var, "w");
                 assert_eq!(name, "记事本");
-                assert!(monitor.is_none());
             }
             _ => panic!("expected app declare"),
         }
     }
 
     #[test]
-    fn parse_var_declare_with_monitor() {
-        match parse_single("note = app \"记事本\" monitor=1") {
-            DesktopScriptAction::AppDeclare { var, name, monitor, .. } => {
-                assert_eq!(var, "note");
-                assert_eq!(name, "记事本");
-                assert_eq!(monitor, Some(1));
-            }
-            _ => panic!("expected app declare"),
-        }
+    fn parse_var_declare_rejects_monitor() {
+        let err = parse_script(&OperateRequest { script: "note = app \"记事本\" monitor=1".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
+        assert!(err.message.contains("monitor 参数已移除"), "unexpected message: {}", err.message);
     }
 
     #[test]
@@ -976,7 +959,7 @@ mod operate_tool_tests {
 
     #[test]
     fn parse_var_click_by_point() {
-        let actions = parse_var_script("w", "记事本", "w click @0.50,0.50 repeat=2");
+        let actions = parse_var_script("w", "记事本", "w click @960,540 repeat=2");
         match &actions[1] {
             DesktopScriptAction::App { var, action, .. } => {
                 assert_eq!(var, "w");
@@ -1027,7 +1010,7 @@ mod operate_tool_tests {
 
     #[test]
     fn parse_var_scroll_left_is_horizontal() {
-        let actions = parse_var_script("w", "记事本", "w scroll_left @0.5,0.5");
+        let actions = parse_var_script("w", "记事本", "w scroll_left @960,540");
         match &actions[1] {
             DesktopScriptAction::App { action, .. } => {
                 assert!(matches!(
@@ -1074,7 +1057,7 @@ mod operate_tool_tests {
 
     #[test]
     fn parse_var_setvalue_rejects_point_target() {
-        let err = parse_script(&OperateRequest { script: "w = app \"记事本\"\nw setvalue @0.5,0.5 = \"hi\"".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
+        let err = parse_script(&OperateRequest { script: "w = app \"记事本\"\nw setvalue @960,540 = \"hi\"".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
         assert!(err.message.contains("setvalue"));
         assert!(err.message.contains("已退役"));
     }
@@ -1093,7 +1076,7 @@ mod operate_tool_tests {
 
     #[test]
     fn parse_var_getvalue_rejects_point_target() {
-        let err = parse_script(&OperateRequest { script: "w = app \"记事本\"\nw getvalue @0.5,0.5".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
+        let err = parse_script(&OperateRequest { script: "w = app \"记事本\"\nw getvalue @960,540".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
         assert!(err.message.contains("getvalue"));
         assert!(err.message.contains("已退役"));
     }
@@ -1142,7 +1125,7 @@ mod operate_tool_tests {
 
     #[test]
     fn parse_screenshot_window_id_conflicts_with_region() {
-        let err = parse_script(&OperateRequest { script: "screenshot window_id=1 region=@0.1,0.1,0.2,0.2".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
+        let err = parse_script(&OperateRequest { script: "screenshot window_id=1 region=@192,108,384,216".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
         assert!(err.message.contains("window_id"));
     }
 
@@ -1213,17 +1196,39 @@ mod operate_tool_tests {
     }
 
     #[test]
-    fn mouse_coordinates_must_be_normalized() {
-        let err = parse_script(&OperateRequest { script: "mouse left click @1.2,0.5".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
+    fn mouse_coordinates_must_be_integer_pixels() {
+        // 旧归一化写法（小数）直接报错，不静默取整后点到屏幕角落
+        let err = parse_script(&OperateRequest { script: "mouse left click @0.5,0.5".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
         assert!(err.message.contains("第 1 行 mouse"));
-        assert!(err.message.contains("0.0~1.0"));
+        assert!(err.message.contains("必须是整数像素"), "unexpected message: {}", err.message);
+        // 超出合理范围上限
+        let err = parse_script(&OperateRequest { script: "mouse left click @200000,100".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
+        assert!(err.message.contains("超出合理范围"), "unexpected message: {}", err.message);
     }
 
     #[test]
     fn screenshot_region_should_parse() {
-        match parse_single("screenshot region=@0.10,0.10,0.80,0.60") {
+        match parse_single("screenshot region=@192,108,1536,648") {
             DesktopScriptAction::Screenshot { mode: ScreenshotModeSpec::Region(_), .. } => {}
             _ => panic!("expected screenshot region"),
+        }
+    }
+
+    #[test]
+    fn screenshot_region_zero_extent_should_reject() {
+        let err = parse_script(&OperateRequest { script: "screenshot region=@100,100,0,200".to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
+        assert!(err.message.contains("region width"), "unexpected message: {}", err.message);
+    }
+
+    #[test]
+    fn negative_coordinates_should_parse_for_left_side_monitor() {
+        // 副屏在主屏左侧时坐标为负，必须原样解析而不是被当成非法输入
+        match parse_single("mouse move @-100,200") {
+            DesktopScriptAction::MouseMove { target, .. } => {
+                assert_eq!(target.x, -100);
+                assert_eq!(target.y, 200);
+            }
+            _ => panic!("expected mouse move"),
         }
     }
 

@@ -302,44 +302,64 @@ fn release_parsed_key(enigo: &mut enigo::Enigo, key: ParsedKey, prefer_real_key:
     }
 }
 
-fn primary_monitor_bounds() -> DesktopToolResult<ScreenBounds> {
+/// 虚拟桌面矩形：所有显示器的并集（Windows 虚拟屏幕坐标系）。
+/// 绝对坐标以它为校验边界：主屏左上角通常为 (0,0)，副屏在主屏左侧或上方时坐标为负。
+fn virtual_desktop_bounds() -> DesktopToolResult<ScreenBounds> {
     let monitors = monitor_list()?;
-    let monitor = resolve_primary_monitor(&monitors);
-    let x = monitor.x().unwrap_or(0);
-    let y = monitor.y().unwrap_or(0);
-    let width = monitor.width().map_err(|err| DesktopToolError::internal_error(format!("read monitor width failed: {err}")))?;
-    let height = monitor.height().map_err(|err| DesktopToolError::internal_error(format!("read monitor height failed: {err}")))?;
-    Ok(ScreenBounds { x, y, width, height })
-}
-
-/// 按显示器 id 取坐标基准；id 为 None 时用主屏。id 越界时明确报错，不静默回退到主屏。
-fn monitor_bounds_by_id(monitor_id: Option<u32>) -> DesktopToolResult<ScreenBounds> {
-    let Some(id) = monitor_id else {
-        return primary_monitor_bounds();
-    };
-    let monitors = monitor_list()?;
-    let monitor = resolve_monitor_by_id(&monitors, id)
-        .ok_or_else(|| DesktopToolError::invalid_params(format!("显示器不存在：monitor={id}；可用 screenshot 确认显示器编号，或省略 monitor 使用主屏")))?;
-    let width = monitor.width().map_err(|err| DesktopToolError::internal_error(format!("read monitor width failed: {err}")))?;
-    let height = monitor.height().map_err(|err| DesktopToolError::internal_error(format!("read monitor height failed: {err}")))?;
-    Ok(ScreenBounds { x: monitor.x().unwrap_or(0), y: monitor.y().unwrap_or(0), width, height })
-}
-
-fn normalized_point_to_screen(point: &NormalizedPoint, bounds: &ScreenBounds) -> (i32, i32) {
-    let max_x = bounds.width.saturating_sub(1) as f64;
-    let max_y = bounds.height.saturating_sub(1) as f64;
-    (bounds.x + (point.x * max_x).round() as i32, bounds.y + (point.y * max_y).round() as i32)
-}
-
-fn normalized_region_to_screen(region: &NormalizedRegion, bounds: &ScreenBounds) -> ScreenBounds {
-    let width_f = bounds.width as f64;
-    let height_f = bounds.height as f64;
-    ScreenBounds {
-        x: bounds.x + (region.x * width_f).round() as i32,
-        y: bounds.y + (region.y * height_f).round() as i32,
-        width: (region.width * width_f).round().max(1.0) as u32,
-        height: (region.height * height_f).round().max(1.0) as u32,
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+    for monitor in &monitors {
+        let x = monitor.x().unwrap_or(0);
+        let y = monitor.y().unwrap_or(0);
+        let width = monitor.width().map_err(|err| DesktopToolError::internal_error(format!("read monitor width failed: {err}")))? as i32;
+        let height = monitor.height().map_err(|err| DesktopToolError::internal_error(format!("read monitor height failed: {err}")))? as i32;
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x.saturating_add(width));
+        max_y = max_y.max(y.saturating_add(height));
     }
+    if min_x > max_x || min_y > max_y {
+        return Err(DesktopToolError::internal_error("no monitor detected".to_string()));
+    }
+    Ok(ScreenBounds {
+        x: min_x,
+        y: min_y,
+        width: (max_x - min_x) as u32,
+        height: (max_y - min_y) as u32,
+    })
+}
+
+/// 按显示器 id 取矩形；id 越界或读取失败时返回 None。
+fn monitor_rect_by_id(monitor_id: u32) -> Option<ScreenBounds> {
+    let monitors = monitor_list().ok()?;
+    let monitor = resolve_monitor_by_id(&monitors, monitor_id)?;
+    Some(ScreenBounds {
+        x: monitor.x().unwrap_or(0),
+        y: monitor.y().unwrap_or(0),
+        width: monitor.width().ok()?,
+        height: monitor.height().ok()?,
+    })
+}
+
+/// 坐标必须落在虚拟桌面内：越界时系统会把点击静默钳到屏幕边缘，模型会误以为点到了目标位置。
+fn validate_screen_point(point: &ScreenPoint) -> DesktopToolResult<()> {
+    let bounds = virtual_desktop_bounds()?;
+    let max_x = bounds.x.saturating_add(bounds.width as i32);
+    let max_y = bounds.y.saturating_add(bounds.height as i32);
+    if point.x >= bounds.x && point.y >= bounds.y && point.x < max_x && point.y < max_y {
+        return Ok(());
+    }
+    Err(DesktopToolError::invalid_params(format!(
+        "坐标越界：@({}, {}) 不在虚拟桌面范围内（x {}~{}，y {}~{}；副屏在主屏左侧或上方时坐标为负，可用 screenshot 确认目标位置）",
+        point.x,
+        point.y,
+        bounds.x,
+        max_x - 1,
+        bounds.y,
+        max_y - 1
+    )))
 }
 
 async fn sleep_duration(duration: std::time::Duration) {
@@ -554,27 +574,17 @@ async fn apply_foreground_policy(
 /// 查询屏幕坐标命中的可交互元素描述（E3）：让模型确认前台点击实际点到了什么。
 /// 只扫目标窗口；坐标落在空白处、窗口未暴露 UIA 或读取失败时返回 None。
 async fn hit_element_summary(window_id: usize, screen_x: i32, screen_y: i32) -> Option<String> {
-    let bounds = primary_monitor_bounds().ok()?;
-    let max_x = bounds.width.saturating_sub(1) as f64;
-    let max_y = bounds.height.saturating_sub(1) as f64;
-    if max_x <= 0.0 || max_y <= 0.0 {
-        return None;
-    }
-    let (origin_x, origin_y) = (bounds.x as f64, bounds.y as f64);
-    let (width, height) = (bounds.width as f64, bounds.height as f64);
     // 目标窗口无响应时 UIA 跨进程调用会长时间不返回；限时执行，超时按「读不到」降级，不拖死脚本
     let elements = run_ui_call_timed("hit_element_summary", move || {
-        crate::platform::collect_window_ui_elements(window_id, origin_x, origin_y, width, height, false)
+        crate::platform::collect_window_ui_elements(window_id, false)
     })
     .await?;
     if elements.is_empty() {
         return None;
     }
-    let nx = (screen_x - bounds.x) as f64 / max_x;
-    let ny = (screen_y - bounds.y) as f64 / max_y;
     let hit = elements
         .iter()
-        .find(|e| nx >= e.x && nx <= e.x + e.width && ny >= e.y && ny <= e.y + e.height)?;
+        .find(|e| screen_x >= e.x && screen_x <= e.x + e.width && screen_y >= e.y && screen_y <= e.y + e.height)?;
     let name = if hit.name.trim().is_empty() { "(无名称)" } else { hit.name.trim() };
     Some(format!("命中元素：{}「{}」", hit.control_type, name))
 }
@@ -624,12 +634,9 @@ async fn wait_condition_met(condition: &WaitCondition) -> Option<String> {
                 Some(target) => resolve_foreground_window(target).ok()?.window_id,
                 None => foreground_window_id()?,
             };
-            let bounds = primary_monitor_bounds().ok()?;
-            let (origin_x, origin_y) = (bounds.x as f64, bounds.y as f64);
-            let (width, height) = (bounds.width as f64, bounds.height as f64);
             // 目标窗口无响应时 UIA 调用会长时间不返回；限时执行，超时按「未命中」继续轮询
             let elements = run_ui_call_timed("wait_until.element", move || {
-                crate::platform::collect_window_ui_elements(window_id, origin_x, origin_y, width, height, false)
+                crate::platform::collect_window_ui_elements(window_id, false)
             })
             .await?;
             elements
@@ -646,24 +653,20 @@ fn foreground_window_id() -> Option<usize> {
 }
 
 /// 前台坐标点击后附带命中元素描述（E3）；无法定位时返回空串，不影响步骤结果。
-async fn mouse_hit_note(target: &NormalizedPoint, monitor: Option<u32>) -> String {
-    let Ok(bounds) = monitor_bounds_by_id(monitor) else {
-        return String::new();
-    };
+async fn mouse_hit_note(target: &ScreenPoint) -> String {
     let Some(window_id) = foreground_window_id() else {
         return String::new();
     };
-    let (x, y) = normalized_point_to_screen(target, &bounds);
-    hit_element_summary(window_id, x, y)
+    hit_element_summary(window_id, target.x, target.y)
         .await
         .map(|text| format!("，{text}"))
         .unwrap_or_default()
 }
 
-async fn execute_mouse_click(enigo: &mut enigo::Enigo, button: OperateMouseButton, target: &NormalizedPoint, monitor: Option<u32>, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration, press: std::time::Duration) -> DesktopToolResult<()> {
+async fn execute_mouse_click(enigo: &mut enigo::Enigo, button: OperateMouseButton, target: &ScreenPoint, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration, press: std::time::Duration) -> DesktopToolResult<()> {
     sleep_duration(pre_delay).await;
-    let bounds = monitor_bounds_by_id(monitor)?;
-    let (x, y) = normalized_point_to_screen(target, &bounds);
+    validate_screen_point(target)?;
+    let (x, y) = (target.x, target.y);
     enigo.move_mouse(x, y, enigo::Coordinate::Abs).map_err(|err| map_input_err(err, "move mouse failed"))?;
     let mapped = map_mouse_button(button);
     for idx in 0..repeat {
@@ -681,10 +684,10 @@ async fn execute_mouse_click(enigo: &mut enigo::Enigo, button: OperateMouseButto
     Ok(())
 }
 
-async fn execute_mouse_move(enigo: &mut enigo::Enigo, target: &NormalizedPoint, monitor: Option<u32>, pre_delay: std::time::Duration) -> DesktopToolResult<()> {
+async fn execute_mouse_move(enigo: &mut enigo::Enigo, target: &ScreenPoint, pre_delay: std::time::Duration) -> DesktopToolResult<()> {
     sleep_duration(pre_delay).await;
-    let bounds = monitor_bounds_by_id(monitor)?;
-    let (x, y) = normalized_point_to_screen(target, &bounds);
+    validate_screen_point(target)?;
+    let (x, y) = (target.x, target.y);
     enigo.move_mouse(x, y, enigo::Coordinate::Abs).map_err(|err| map_input_err(err, "mouse move failed"))
 }
 
@@ -701,11 +704,12 @@ fn default_drag_duration(x1: i32, y1: i32, x2: i32, y2: i32) -> std::time::Durat
     std::time::Duration::from_secs_f64(secs)
 }
 
-async fn execute_mouse_drag(enigo: &mut enigo::Enigo, button: OperateMouseButton, from: &NormalizedPoint, to: &NormalizedPoint, monitor: Option<u32>, duration: Option<std::time::Duration>, pre_delay: std::time::Duration) -> DesktopToolResult<()> {
+async fn execute_mouse_drag(enigo: &mut enigo::Enigo, button: OperateMouseButton, from: &ScreenPoint, to: &ScreenPoint, duration: Option<std::time::Duration>, pre_delay: std::time::Duration) -> DesktopToolResult<()> {
     sleep_duration(pre_delay).await;
-    let bounds = monitor_bounds_by_id(monitor)?;
-    let (x1, y1) = normalized_point_to_screen(from, &bounds);
-    let (x2, y2) = normalized_point_to_screen(to, &bounds);
+    validate_screen_point(from)?;
+    validate_screen_point(to)?;
+    let (x1, y1) = (from.x, from.y);
+    let (x2, y2) = (to.x, to.y);
     let mapped = map_mouse_button(button);
     enigo.move_mouse(x1, y1, enigo::Coordinate::Abs).map_err(|err| map_input_err(err, "move mouse failed"))?;
     enigo.button(mapped, enigo::Direction::Press).map_err(|err| map_input_err(err, "mouse down failed"))?;
@@ -1068,10 +1072,12 @@ async fn execute_screenshot_action(
             _ => None,
         },
         region: match mode {
-            ScreenshotModeSpec::Region(region) => {
-                let bounds = primary_monitor_bounds()?;
-                Some(normalized_region_to_screen(region, &bounds))
-            }
+            ScreenshotModeSpec::Region(region) => Some(ScreenBounds {
+                x: region.x,
+                y: region.y,
+                width: region.width,
+                height: region.height,
+            }),
             _ => None,
         },
         save_path,
@@ -1135,23 +1141,22 @@ async fn resolve_element_by_name(window_id: u32, name: &str) -> DesktopToolResul
     .map_err(DesktopToolError::invalid_params)
 }
 
-async fn build_app_target(window_id: u32, target: AppScriptTarget, monitor: Option<u32>) -> DesktopToolResult<AppTarget> {
+async fn build_app_target(window_id: u32, target: AppScriptTarget) -> DesktopToolResult<AppTarget> {
     match target {
         AppScriptTarget::Name(name) => {
             let (ordinal, control_type, full_name) = resolve_element_by_name(window_id, &name).await?;
             Ok(AppTarget::NamedElement { ordinal, control_type, name: full_name })
         }
         AppScriptTarget::Point(point) => {
-            let bounds = monitor_bounds_by_id(monitor)?;
-            let (x, y) = normalized_point_to_screen(&point, &bounds);
-            Ok(AppTarget::Point { screen_x: x, screen_y: y })
+            validate_screen_point(&point)?;
+            Ok(AppTarget::Point { screen_x: point.x, screen_y: point.y })
         }
     }
 }
 
-async fn execute_app_click(window_id: u32, target: AppScriptTarget, monitor: Option<u32>, repeat: u32, dblclick: bool, pre_delay: std::time::Duration) -> DesktopToolResult<AppClickOutcome> {
+async fn execute_app_click(window_id: u32, target: AppScriptTarget, repeat: u32, dblclick: bool, pre_delay: std::time::Duration) -> DesktopToolResult<AppClickOutcome> {
     sleep_duration(pre_delay).await;
-    let app_target = build_app_target(window_id, target, monitor).await?;
+    let app_target = build_app_target(window_id, target).await?;
     let window_id = window_id as usize;
     // UIA 重扫与 pattern 调用是同步阻塞 COM 调用，放阻塞线程池执行并限时，避免目标窗口无响应时拖死脚本
     run_ui_call_timed("app.click", move || crate::platform::app_click(window_id, &app_target, repeat, dblclick))
@@ -1181,9 +1186,9 @@ async fn execute_app_get_value(window_id: u32, name: &str) -> DesktopToolResult<
         .map_err(DesktopToolError::invalid_params)
 }
 
-async fn execute_app_scroll(window_id: u32, target: AppScriptTarget, monitor: Option<u32>, horizontal: bool, positive: bool, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration) -> DesktopToolResult<&'static str> {
+async fn execute_app_scroll(window_id: u32, target: AppScriptTarget, horizontal: bool, positive: bool, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration) -> DesktopToolResult<&'static str> {
     sleep_duration(pre_delay).await;
-    let app_target = build_app_target(window_id, target, monitor).await?;
+    let app_target = build_app_target(window_id, target).await?;
     let window_id = window_id as usize;
     let mut method = "scrollpattern";
     for idx in 0..repeat {
@@ -1224,8 +1229,8 @@ async fn execute_app_key(window_id: u32, keys: &[String], repeat: u32, delay: st
 /// 让模型不重截就能确认焦点去向。post_delay 在动作完成后统一等待。
 async fn execute_app_action(window_id: u32, action: AppScriptAction, post_delay: std::time::Duration) -> DesktopToolResult<(&'static str, &'static str, Option<String>)> {
     let (verb, method, prefix) = match action {
-        AppScriptAction::Click { target, monitor, repeat, dblclick, pre_delay } => {
-            let outcome = execute_app_click(window_id, target, monitor, repeat, dblclick, pre_delay).await?;
+        AppScriptAction::Click { target, repeat, dblclick, pre_delay } => {
+            let outcome = execute_app_click(window_id, target, repeat, dblclick, pre_delay).await?;
             ("click", outcome.method, click_notes(&outcome))
         }
         AppScriptAction::SetValue { name, text, pre_delay, verify } => {
@@ -1246,8 +1251,8 @@ async fn execute_app_action(window_id: u32, action: AppScriptAction, post_delay:
             let value = execute_app_get_value(window_id, &name).await?;
             return Ok(("getvalue", "valuepattern", Some(format!("value={value:?}"))));
         }
-        AppScriptAction::Scroll { target, monitor, horizontal, positive, repeat, delay, pre_delay } => {
-            let method = execute_app_scroll(window_id, target, monitor, horizontal, positive, repeat, delay, pre_delay).await?;
+        AppScriptAction::Scroll { target, horizontal, positive, repeat, delay, pre_delay } => {
+            let method = execute_app_scroll(window_id, target, horizontal, positive, repeat, delay, pre_delay).await?;
             ("scroll", method, None)
         }
         AppScriptAction::Key { keys, repeat, delay, pre_delay } => {
@@ -1301,8 +1306,8 @@ async fn query_focus_summary(window_id: u32) -> Option<(String, String)> {
         .flatten()
 }
 
-/// 元素矩形与归一化 region 矩形是否有交集（region 为相对主屏 0~1 归一化）。
-fn element_intersects_region(e: &UiElementInfo, rx0: f64, ry0: f64, rx1: f64, ry1: f64) -> bool {
+/// 元素矩形与 region 矩形是否有交集（两者都是虚拟桌面物理像素）。
+fn element_intersects_region(e: &UiElementInfo, rx0: i32, ry0: i32, rx1: i32, ry1: i32) -> bool {
     let (ex0, ey0) = (e.x, e.y);
     let (ex1, ey1) = (e.x + e.width, e.y + e.height);
     ex0 < rx1 && ex1 > rx0 && ey0 < ry1 && ey1 > ry0
@@ -1311,33 +1316,17 @@ fn element_intersects_region(e: &UiElementInfo, rx0: f64, ry0: f64, rx1: f64, ry
 /// 按截图模式扫描可交互元素树：focused_window 只扫聚焦窗口，desktop 扫全部可见窗口，
 /// region 只返回与截图区域相交窗口的元素（元素矩形与 region 有交集才保留）。
 fn collect_ui_tree_for_mode(mode: &ScreenshotModeSpec, include_text: bool) -> Vec<UiElementInfo> {
-    // Monitor 模式的坐标基准是目标显示器；其余模式沿用主屏。
-    let bounds = match mode {
-        ScreenshotModeSpec::Monitor(id) => match monitor_bounds_by_id(Some(*id)) {
-            Ok(b) => b,
-            Err(_) => return Vec::new(),
-        },
-        _ => match primary_monitor_bounds() {
-            Ok(b) => b,
-            Err(_) => return Vec::new(),
-        },
-    };
-    let origin_x = bounds.x as f64;
-    let origin_y = bounds.y as f64;
-    let primary_width = bounds.width as f64;
-    let primary_height = bounds.height as f64;
-
     let windows = match window_list() {
         Ok(w) => w,
         Err(_) => return Vec::new(),
     };
-    // region 归一化矩形（相对主屏），用于窗口级与元素级过滤
+    // region 物理像素矩形，用于窗口级与元素级过滤
     let region_rect = match mode {
         ScreenshotModeSpec::Region(region) => Some((
             region.x,
             region.y,
-            region.x + region.width,
-            region.y + region.height,
+            region.x + region.width as i32,
+            region.y + region.height as i32,
         )),
         _ => None,
     };
@@ -1366,32 +1355,34 @@ fn collect_ui_tree_for_mode(mode: &ScreenshotModeSpec, include_text: bool) -> Ve
             .iter()
             .map(|w| (w.id().unwrap_or(0) as usize, w.title().unwrap_or_default()))
             .collect(),
-        ScreenshotModeSpec::Monitor(_) => windows
-            .iter()
-            // 只扫与该显示器矩形相交的窗口，避免为副屏截图时扫进主屏的全部窗口
-            .filter(|w| {
-                let (wx0, wy0) = (w.x().unwrap_or(0), w.y().unwrap_or(0));
-                let (wx1, wy1) = (wx0 + w.width().unwrap_or(0) as i32, wy0 + w.height().unwrap_or(0) as i32);
-                wx0 < bounds.x + bounds.width as i32 && wx1 > bounds.x && wy0 < bounds.y + bounds.height as i32 && wy1 > bounds.y
-            })
-            .map(|w| (w.id().unwrap_or(0) as usize, w.title().unwrap_or_default()))
-            .collect(),
+        ScreenshotModeSpec::Monitor(id) => {
+            let Some(bounds) = monitor_rect_by_id(*id) else {
+                return Vec::new();
+            };
+            windows
+                .iter()
+                // 只扫与该显示器矩形相交的窗口，避免为副屏截图时扫进主屏的全部窗口
+                .filter(|w| {
+                    let (wx0, wy0) = (w.x().unwrap_or(0), w.y().unwrap_or(0));
+                    let (wx1, wy1) = (wx0 + w.width().unwrap_or(0) as i32, wy0 + w.height().unwrap_or(0) as i32);
+                    wx0 < bounds.x + bounds.width as i32 && wx1 > bounds.x && wy0 < bounds.y + bounds.height as i32 && wy1 > bounds.y
+                })
+                .map(|w| (w.id().unwrap_or(0) as usize, w.title().unwrap_or_default()))
+                .collect()
+        }
         ScreenshotModeSpec::Region(_) => windows
             .iter()
             // 窗口级过滤：窗口矩形与 region 有交集才扫，减少无用窗口的 UIA 遍历
             .filter(|w| {
                 let Some((rx0, ry0, rx1, ry1)) = region_rect else { return false };
-                let (wx0, wy0) = ((w.x().unwrap_or(0) - bounds.x) as f64 / primary_width, (w.y().unwrap_or(0) - bounds.y) as f64 / primary_height);
-                let (wx1, wy1) = (
-                    (w.x().unwrap_or(0) + w.width().unwrap_or(0) as i32 - bounds.x) as f64 / primary_width,
-                    (w.y().unwrap_or(0) + w.height().unwrap_or(0) as i32 - bounds.y) as f64 / primary_height,
-                );
+                let (wx0, wy0) = (w.x().unwrap_or(0), w.y().unwrap_or(0));
+                let (wx1, wy1) = (wx0 + w.width().unwrap_or(0) as i32, wy0 + w.height().unwrap_or(0) as i32);
                 wx0 < rx1 && wx1 > rx0 && wy0 < ry1 && wy1 > ry0
             })
             .map(|w| (w.id().unwrap_or(0) as usize, w.title().unwrap_or_default()))
             .collect(),
     };
-    let mut elements = collect_ui_tree_for_windows(&targets, origin_x, origin_y, primary_width, primary_height, include_text);
+    let mut elements = collect_ui_tree_for_windows(&targets, include_text);
     if let Some((rx0, ry0, rx1, ry1)) = region_rect {
         // 元素级过滤：元素矩形与 region 有交集才保留（region 截图区域之外的元素不返回）
         elements.retain(|e| element_intersects_region(e, rx0, ry0, rx1, ry1));
@@ -1447,27 +1438,34 @@ mod operate_actions_tests {
 
     #[test]
     fn region_tree_should_filter_out_of_region_elements() {
-        // region = @0.16,0.04,0.36,0.9（归一化矩形 x:0.16~0.52, y:0.04~0.94）
-        let region = ScreenshotModeSpec::Region(NormalizedRegion { x: 0.16, y: 0.04, width: 0.36, height: 0.9 });
+        // region = @200,40,600,1000（物理像素矩形 x:200~800, y:40~1040）
+        let region = ScreenRect { x: 200, y: 40, width: 600, height: 1000 };
         let all = vec![
             // region 内
-            UiElementInfo { window_id: 1, window_title: "in".into(), control_type: "Button".into(), name: "in".into(), x: 0.3, y: 0.5, width: 0.05, height: 0.05, focused: false },
-            // 完全在 region 外（任务栏 y=0.958 场景）
-            UiElementInfo { window_id: 2, window_title: "taskbar".into(), control_type: "Button".into(), name: "taskbar".into(), x: 0.3, y: 0.958, width: 0.05, height: 0.03, focused: false },
-            // x 越界（Chrome 场景，y 高达 4.x）
-            UiElementInfo { window_id: 3, window_title: "chrome".into(), control_type: "Button".into(), name: "chrome".into(), x: 0.3, y: 4.2, width: 0.05, height: 0.05, focused: false },
-            // 部分相交：矩形左边缘在 region 内，右边缘超出
-            UiElementInfo { window_id: 4, window_title: "partial".into(), control_type: "Edit".into(), name: "partial".into(), x: 0.4, y: 0.5, width: 0.3, height: 0.05, focused: false },
-            // 负坐标（PAI 窗口主屏外元素）
-            UiElementInfo { window_id: 5, window_title: "neg".into(), control_type: "Button".into(), name: "neg".into(), x: -0.2, y: 0.5, width: 0.05, height: 0.05, focused: false },
+            UiElementInfo { window_id: 1, window_title: "in".into(), control_type: "Button".into(), name: "in".into(), x: 300, y: 500, width: 60, height: 40, focused: false },
+            // 完全在 region 外（任务栏场景）
+            UiElementInfo { window_id: 2, window_title: "taskbar".into(), control_type: "Button".into(), name: "taskbar".into(), x: 300, y: 1060, width: 60, height: 30, focused: false },
+            // 右侧越界（x 超出 region 右边界）
+            UiElementInfo { window_id: 3, window_title: "right".into(), control_type: "Button".into(), name: "right".into(), x: 900, y: 500, width: 50, height: 50, focused: false },
+            // 部分相交：左边缘在 region 内，右边缘超出
+            UiElementInfo { window_id: 4, window_title: "partial".into(), control_type: "Edit".into(), name: "partial".into(), x: 700, y: 500, width: 300, height: 50, focused: false },
+            // 负坐标（副屏在主屏左侧）
+            UiElementInfo { window_id: 5, window_title: "neg".into(), control_type: "Button".into(), name: "neg".into(), x: -400, y: 500, width: 50, height: 50, focused: false },
         ];
         let kept: Vec<&UiElementInfo> = all
             .iter()
-            .filter(|e| element_intersects_region(e, 0.16, 0.04, 0.52, 0.94))
+            .filter(|e| {
+                element_intersects_region(
+                    e,
+                    region.x,
+                    region.y,
+                    region.x + region.width as i32,
+                    region.y + region.height as i32,
+                )
+            })
             .collect();
         let names: Vec<&str> = kept.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, vec!["in", "partial"]);
-        let _ = region;
     }
 
     #[test]
@@ -1539,26 +1537,41 @@ mod operate_actions_tests {
     }
 
     #[test]
-    fn normalized_region_should_include_screen_offsets() {
-        let region = NormalizedRegion {
-            x: 0.25,
-            y: 0.5,
-            width: 0.4,
-            height: 0.25,
-        };
-        let bounds = ScreenBounds {
+    fn element_intersects_region_should_exclude_touching_edges() {
+        let element = UiElementInfo {
+            window_id: 1,
+            window_title: "t".into(),
+            control_type: "Button".into(),
+            name: "b".into(),
             x: 100,
             y: 200,
-            width: 800,
-            height: 600,
+            width: 50,
+            height: 30,
+            focused: false,
         };
+        // 元素矩形 x:100~150, y:200~230
+        assert!(element_intersects_region(&element, 120, 210, 200, 260));
+        // 右边缘正好贴住 region 左边界，不算相交
+        assert!(!element_intersects_region(&element, 150, 210, 200, 260));
+        // 下边缘正好贴住 region 上边界，不算相交
+        assert!(!element_intersects_region(&element, 120, 230, 200, 260));
+        // 负坐标 region（副屏在主屏左侧）
+        assert!(element_intersects_region(&element, -100, 0, 400, 300));
+    }
 
-        let screen = normalized_region_to_screen(&region, &bounds);
-
-        assert_eq!(screen.x, 300);
-        assert_eq!(screen.y, 500);
-        assert_eq!(screen.width, 320);
-        assert_eq!(screen.height, 150);
+    #[test]
+    fn validate_screen_point_should_reject_out_of_desktop() {
+        // 依赖真实显示器，无头环境跳过（坐标边界由系统给出，无法在测试里假设具体数值）
+        let Ok(bounds) = virtual_desktop_bounds() else {
+            return;
+        };
+        assert!(validate_screen_point(&ScreenPoint { x: bounds.x, y: bounds.y }).is_ok());
+        let err = validate_screen_point(&ScreenPoint { x: bounds.x - 1, y: bounds.y }).unwrap_err();
+        assert!(err.message.contains("坐标越界"), "unexpected message: {}", err.message);
+        let max_x = bounds.x.saturating_add(bounds.width as i32);
+        let max_y = bounds.y.saturating_add(bounds.height as i32);
+        let err = validate_screen_point(&ScreenPoint { x: max_x, y: max_y }).unwrap_err();
+        assert!(err.message.contains("坐标越界"), "unexpected message: {}", err.message);
     }
 
     #[test]

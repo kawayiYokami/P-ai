@@ -36,7 +36,7 @@ pub struct WindowInfo {
     pub focused: bool,
 }
 
-/// 单个可交互元素（归一化坐标，基准为主屏，与 operate mouse @x,y 一致）
+/// 单个可交互元素（虚拟桌面物理像素坐标，与 operate mouse @x,y 同坐标系）
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiElementInfo {
@@ -44,10 +44,10 @@ pub struct UiElementInfo {
     pub window_title: String,
     pub control_type: String,
     pub name: String,
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
     /// 该元素当前是否持有键盘焦点（激活窗口后用于确认焦点是否落在目标控件）
     pub focused: bool,
 }
@@ -213,44 +213,19 @@ pub fn window_is_alive(window_id: usize) -> bool {
 }
 
 /// 批量扫描指定窗口列表的可交互元素树（一次 COM/automation 实例复用）。
-/// windows 为 (平台窗口 id, 窗口标题) 列表；返回扁平元素列表（归一化坐标）。
+/// windows 为 (平台窗口 id, 窗口标题) 列表；返回扁平元素列表（虚拟桌面物理像素坐标）。
 #[cfg(target_os = "windows")]
 pub fn collect_ui_tree_for_windows(
     windows: &[(usize, String)],
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
     include_text: bool,
 ) -> Vec<UiElementInfo> {
-    windows::collect_ui_tree_for_windows(
-        windows,
-        primary_origin_x,
-        primary_origin_y,
-        primary_width,
-        primary_height,
-        include_text,
-    )
+    windows::collect_ui_tree_for_windows(windows, include_text)
 }
 
 /// 对指定窗口扫描可交互元素树；窗口 id 为 0 时忽略。
 #[cfg(target_os = "windows")]
-pub fn collect_window_ui_elements(
-    window_id: usize,
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
-    include_text: bool,
-) -> Vec<UiElementInfo> {
-    windows::collect_window_ui_elements(
-        window_id,
-        primary_origin_x,
-        primary_origin_y,
-        primary_width,
-        primary_height,
-        include_text,
-    )
+pub fn collect_window_ui_elements(window_id: usize, include_text: bool) -> Vec<UiElementInfo> {
+    windows::collect_window_ui_elements(window_id, include_text)
 }
 
 #[cfg(target_os = "linux")]
@@ -266,39 +241,14 @@ pub fn activate_window(window_id: usize) -> (String, bool) {
 #[cfg(target_os = "linux")]
 pub fn collect_ui_tree_for_windows(
     windows: &[(usize, String)],
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
     include_text: bool,
 ) -> Vec<UiElementInfo> {
-    linux::collect_ui_tree_for_windows(
-        windows,
-        primary_origin_x,
-        primary_origin_y,
-        primary_width,
-        primary_height,
-        include_text,
-    )
+    linux::collect_ui_tree_for_windows(windows, include_text)
 }
 
 #[cfg(target_os = "linux")]
-pub fn collect_window_ui_elements(
-    window_id: usize,
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
-    include_text: bool,
-) -> Vec<UiElementInfo> {
-    linux::collect_window_ui_elements(
-        window_id,
-        primary_origin_x,
-        primary_origin_y,
-        primary_width,
-        primary_height,
-        include_text,
-    )
+pub fn collect_window_ui_elements(window_id: usize, include_text: bool) -> Vec<UiElementInfo> {
+    linux::collect_window_ui_elements(window_id, include_text)
 }
 
 #[cfg(target_os = "macos")]
@@ -314,39 +264,14 @@ pub fn activate_window(window_id: usize) -> (String, bool) {
 #[cfg(target_os = "macos")]
 pub fn collect_ui_tree_for_windows(
     windows: &[(usize, String)],
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
     include_text: bool,
 ) -> Vec<UiElementInfo> {
-    macos::collect_ui_tree_for_windows(
-        windows,
-        primary_origin_x,
-        primary_origin_y,
-        primary_width,
-        primary_height,
-        include_text,
-    )
+    macos::collect_ui_tree_for_windows(windows, include_text)
 }
 
 #[cfg(target_os = "macos")]
-pub fn collect_window_ui_elements(
-    window_id: usize,
-    primary_origin_x: f64,
-    primary_origin_y: f64,
-    primary_width: f64,
-    primary_height: f64,
-    include_text: bool,
-) -> Vec<UiElementInfo> {
-    macos::collect_window_ui_elements(
-        window_id,
-        primary_origin_x,
-        primary_origin_y,
-        primary_width,
-        primary_height,
-        include_text,
-    )
+pub fn collect_window_ui_elements(window_id: usize, include_text: bool) -> Vec<UiElementInfo> {
+    macos::collect_window_ui_elements(window_id, include_text)
 }
 
 // ==================== 未支持平台兜底（FreeBSD 等） ====================
@@ -364,23 +289,12 @@ pub fn activate_window(_window_id: usize) -> (String, bool) {
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 pub fn collect_ui_tree_for_windows(
     _windows: &[(usize, String)],
-    _primary_origin_x: f64,
-    _primary_origin_y: f64,
-    _primary_width: f64,
-    _primary_height: f64,
     _include_text: bool,
 ) -> Vec<UiElementInfo> {
     Vec::new()
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub fn collect_window_ui_elements(
-    _window_id: usize,
-    _primary_origin_x: f64,
-    _primary_origin_y: f64,
-    _primary_width: f64,
-    _primary_height: f64,
-    _include_text: bool,
-) -> Vec<UiElementInfo> {
+pub fn collect_window_ui_elements(_window_id: usize, _include_text: bool) -> Vec<UiElementInfo> {
     Vec::new()
 }
