@@ -27,6 +27,22 @@ fn ensure_dpi_awareness() -> bool {
     }
 }
 
+/// 绝对鼠标移动：坐标为虚拟桌面物理像素。
+/// Windows 必须自己发 SendInput——enigo 的 Coordinate::Abs 按主屏尺寸归一化且不带
+/// MOUSEEVENTF_VIRTUALDESK，主屏之外的合法坐标会被系统静默钳到主屏边缘；
+/// Linux / macOS 的 enigo 绝对坐标本身就是全局屏幕坐标，直接复用。
+fn move_pointer(enigo: &mut enigo::Enigo, x: i32, y: i32) -> DesktopToolResult<()> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = enigo;
+        crate::platform::mouse_move_absolute(x, y).map_err(DesktopToolError::internal_error)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        enigo.move_mouse(x, y, enigo::Coordinate::Abs).map_err(|err| map_input_err(err, "move mouse failed"))
+    }
+}
+
 fn map_mouse_button(button: OperateMouseButton) -> enigo::Button {
     match button {
         OperateMouseButton::Left => enigo::Button::Left,
@@ -343,22 +359,29 @@ fn monitor_rect_by_id(monitor_id: u32) -> Option<ScreenBounds> {
     })
 }
 
-/// 坐标必须落在虚拟桌面内：越界时系统会把点击静默钳到屏幕边缘，模型会误以为点到了目标位置。
+/// 坐标必须落在某块显示器上：越界时系统会把点击静默钳到屏幕边缘，模型会误以为点到了目标位置。
+/// 逐块判断而不是用包围盒——L 形多屏布局里，包围盒会放行落在显示器之间空洞的坐标。
 fn validate_screen_point(point: &ScreenPoint) -> DesktopToolResult<()> {
-    let bounds = virtual_desktop_bounds()?;
-    let max_x = bounds.x.saturating_add(bounds.width as i32);
-    let max_y = bounds.y.saturating_add(bounds.height as i32);
-    if point.x >= bounds.x && point.y >= bounds.y && point.x < max_x && point.y < max_y {
-        return Ok(());
+    let monitors = monitor_list()?;
+    for monitor in &monitors {
+        let x = monitor.x().unwrap_or(0);
+        let y = monitor.y().unwrap_or(0);
+        let (Ok(width), Ok(height)) = (monitor.width(), monitor.height()) else {
+            continue;
+        };
+        let max_x = x.saturating_add(width as i32);
+        let max_y = y.saturating_add(height as i32);
+        if point.x >= x && point.y >= y && point.x < max_x && point.y < max_y {
+            return Ok(());
+        }
     }
+    // 报错时给出整体范围，便于模型判断往哪边修正
+    let bounds = virtual_desktop_bounds()?;
+    let right = bounds.x.saturating_add(bounds.width as i32) - 1;
+    let bottom = bounds.y.saturating_add(bounds.height as i32) - 1;
     Err(DesktopToolError::invalid_params(format!(
-        "坐标越界：@({}, {}) 不在虚拟桌面范围内（x {}~{}，y {}~{}；副屏在主屏左侧或上方时坐标为负，可用 screenshot 确认目标位置）",
-        point.x,
-        point.y,
-        bounds.x,
-        max_x - 1,
-        bounds.y,
-        max_y - 1
+        "坐标越界：@({}, {}) 不在任何显示器范围内（虚拟桌面 x {}~{}，y {}~{}；副屏在主屏左侧或上方时坐标为负，可用 screenshot 确认目标位置）",
+        point.x, point.y, bounds.x, right, bounds.y, bottom
     )))
 }
 
@@ -667,7 +690,7 @@ async fn execute_mouse_click(enigo: &mut enigo::Enigo, button: OperateMouseButto
     sleep_duration(pre_delay).await;
     validate_screen_point(target)?;
     let (x, y) = (target.x, target.y);
-    enigo.move_mouse(x, y, enigo::Coordinate::Abs).map_err(|err| map_input_err(err, "move mouse failed"))?;
+    move_pointer(enigo, x, y)?;
     let mapped = map_mouse_button(button);
     for idx in 0..repeat {
         if press.is_zero() {
@@ -688,7 +711,7 @@ async fn execute_mouse_move(enigo: &mut enigo::Enigo, target: &ScreenPoint, pre_
     sleep_duration(pre_delay).await;
     validate_screen_point(target)?;
     let (x, y) = (target.x, target.y);
-    enigo.move_mouse(x, y, enigo::Coordinate::Abs).map_err(|err| map_input_err(err, "mouse move failed"))
+    move_pointer(enigo, x, y)
 }
 
 /// 拖拽插值帧间隔：约 60fps。瞬移式移动会被多数应用识别成「点了一下」而不是拖拽，
@@ -711,7 +734,7 @@ async fn execute_mouse_drag(enigo: &mut enigo::Enigo, button: OperateMouseButton
     let (x1, y1) = (from.x, from.y);
     let (x2, y2) = (to.x, to.y);
     let mapped = map_mouse_button(button);
-    enigo.move_mouse(x1, y1, enigo::Coordinate::Abs).map_err(|err| map_input_err(err, "move mouse failed"))?;
+    move_pointer(enigo, x1, y1)?;
     enigo.button(mapped, enigo::Direction::Press).map_err(|err| map_input_err(err, "mouse down failed"))?;
     let total = duration.unwrap_or_else(|| default_drag_duration(x1, y1, x2, y2));
     let steps = ((total.as_secs_f64() / MOUSE_DRAG_FRAME_INTERVAL.as_secs_f64()).round() as u32).max(1);
@@ -719,10 +742,10 @@ async fn execute_mouse_drag(enigo: &mut enigo::Enigo, button: OperateMouseButton
         let ratio = step as f64 / steps as f64;
         let x = (x1 as f64 + (x2 - x1) as f64 * ratio).round() as i32;
         let y = (y1 as f64 + (y2 - y1) as f64 * ratio).round() as i32;
-        if let Err(err) = enigo.move_mouse(x, y, enigo::Coordinate::Abs) {
+        if let Err(err) = move_pointer(enigo, x, y) {
             // 中途失败必须主动松开，否则按键残留按下状态，后续操作全部异常
             let _ = enigo.button(mapped, enigo::Direction::Release);
-            return Err(map_input_err(err, "drag move failed"));
+            return Err(err);
         }
         sleep_duration(MOUSE_DRAG_FRAME_INTERVAL).await;
     }

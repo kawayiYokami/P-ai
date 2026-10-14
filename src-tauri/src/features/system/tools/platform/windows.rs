@@ -392,6 +392,59 @@ pub struct IUIAutomationCondition_Vtbl {
     pub base__: windows_core::IUnknown_Vtbl,
 }
 
+// ==================== 鼠标注入 ====================
+
+/// SendInput 绝对坐标单轴归一化：0~65535 覆盖整块虚拟桌面（带 MOUSEEVENTF_VIRTUALDESK）。
+/// value 为虚拟桌面物理像素，origin/extent 为虚拟桌面在该轴上的原点与边长。
+fn normalize_absolute_axis(value: i32, origin: i32, extent: i32) -> i32 {
+    let span = extent as i64 - 1;
+    if span <= 0 {
+        return 0;
+    }
+    (((value - origin) as i64 * 65535 + span / 2) / span) as i32
+}
+
+/// 绝对鼠标移动：坐标为虚拟桌面物理像素。
+/// enigo 的 Coordinate::Abs 按主屏尺寸归一化且不带 MOUSEEVENTF_VIRTUALDESK，
+/// 主屏之外的合法坐标会被系统静默钳到主屏边缘，所以这里自己发 SendInput。
+pub fn mouse_move_absolute(x: i32, y: i32) -> Result<(), String> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEINPUT, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_MOVE,
+        MOUSEEVENTF_VIRTUALDESK,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    };
+
+    unsafe {
+        let vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        if vw <= 1 || vh <= 1 {
+            return Err(format!("读取虚拟桌面尺寸失败：{vw}x{vh}"));
+        }
+        let input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: normalize_absolute_axis(x, vx, vw),
+                    dy: normalize_absolute_axis(y, vy, vh),
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        let sent = SendInput(1, &input, std::mem::size_of::<INPUT>() as i32);
+        if sent != 1 {
+            return Err(format!("SendInput 注入鼠标移动失败：sent={sent}"));
+        }
+    }
+    Ok(())
+}
+
 // ==================== 遍历入口 ====================
 
 /// 批量扫描指定窗口列表的可交互元素树（一次 COM/automation 实例复用）。
@@ -1424,6 +1477,66 @@ mod windows_platform_tests {
     fn zero_inputs_should_return_empty() {
         assert!(collect_window_ui_elements(0, false).is_empty());
         assert!(collect_ui_tree_for_windows(&[], false).is_empty());
+    }
+
+    #[test]
+    fn absolute_axis_should_map_virtual_desktop_span() {
+        // 主屏 0~2559 映射到 0~65535
+        assert_eq!(normalize_absolute_axis(0, 0, 2560), 0);
+        assert_eq!(normalize_absolute_axis(2559, 0, 2560), 65535);
+        assert_eq!(normalize_absolute_axis(1280, 0, 2560), 32780);
+        // 副屏在主屏左侧：虚拟桌面原点 -1920、边长 4480，负坐标必须落在 0 以上
+        assert_eq!(normalize_absolute_axis(-1920, -1920, 4480), 0);
+        assert_eq!(normalize_absolute_axis(2559, -1920, 4480), 65535);
+        assert!(normalize_absolute_axis(-800, -1920, 4480) > 0);
+        assert!(normalize_absolute_axis(-800, -1920, 4480) < normalize_absolute_axis(0, -1920, 4480));
+        // 边长非法时不 panic
+        assert_eq!(normalize_absolute_axis(100, 0, 1), 0);
+    }
+
+    /// 真实桌面冒烟：绝对移动必须精确落在目标像素，测试结束把光标移回原位。
+    /// 依赖真实 Windows 桌面，默认忽略，手动 `--ignored` 跑。
+    /// 前台若是独占鼠标的窗口（全屏游戏用 Raw Input），注入会被系统接受但光标不动，
+    /// 这种情况打印原因后按环境跳过，请在普通窗口前台重跑。
+    #[test]
+    #[ignore = "需要真实 Windows 桌面"]
+    fn real_desktop_mouse_move_should_land_on_target_pixel() {
+        use windows_sys::Win32::Foundation::POINT;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowTextW, SM_CXVIRTUALSCREEN,
+            SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+        };
+
+        // 与生产路径一致：operate 注入前会先声明 DPI 感知（operate_actions.rs），
+        // 否则本进程看到的虚拟屏幕尺寸与系统注入用的物理尺寸不在同一空间
+        let _ = enigo::set_dpi_awareness();
+        let mut fg_title = [0u16; 256];
+        let fg_len = unsafe { GetWindowTextW(GetForegroundWindow(), fg_title.as_mut_ptr(), fg_title.len() as i32) };
+        let foreground = String::from_utf16_lossy(&fg_title[..fg_len.max(0) as usize]);
+        unsafe {
+            eprintln!(
+                "[probe] foreground={foreground} virtual screen: {}x{} origin=({},{})",
+                GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                GetSystemMetrics(SM_CYVIRTUALSCREEN),
+                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                GetSystemMetrics(SM_YVIRTUALSCREEN),
+            );
+        }
+
+        let mut origin = POINT { x: 0, y: 0 };
+        assert_ne!(unsafe { GetCursorPos(&mut origin) }, 0, "读取光标位置失败");
+
+        mouse_move_absolute(120, 140).expect("move mouse");
+        let mut landed = POINT { x: 0, y: 0 };
+        assert_ne!(unsafe { GetCursorPos(&mut landed) }, 0, "读取光标位置失败");
+        eprintln!("[probe] landed=({}, {}) origin=({}, {})", landed.x, landed.y, origin.x, origin.y);
+        if (landed.x, landed.y) == (origin.x, origin.y) {
+            eprintln!("[probe] 光标未移动，前台 `{foreground}` 可能独占鼠标，本次跳过落点断言");
+            return;
+        }
+        assert_eq!((landed.x, landed.y), (120, 140), "绝对移动落点与目标像素不一致");
+
+        let _ = mouse_move_absolute(origin.x, origin.y);
     }
 
     /// 真实桌面冒烟测试：枚举窗口 + 激活前台窗口验证。

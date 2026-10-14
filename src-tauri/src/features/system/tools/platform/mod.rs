@@ -228,6 +228,12 @@ pub fn collect_window_ui_elements(window_id: usize, include_text: bool) -> Vec<U
     windows::collect_window_ui_elements(window_id, include_text)
 }
 
+/// 绝对鼠标移动，坐标为虚拟桌面物理像素（Windows 用 SendInput + MOUSEEVENTF_VIRTUALDESK）。
+#[cfg(target_os = "windows")]
+pub fn mouse_move_absolute(x: i32, y: i32) -> Result<(), String> {
+    windows::mouse_move_absolute(x, y)
+}
+
 #[cfg(target_os = "linux")]
 pub fn list_all_windows() -> Vec<WindowInfo> {
     linux::list_all_windows()

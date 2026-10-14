@@ -93,27 +93,30 @@ fn maybe_save_screenshot_bytes(
     ))
 }
 
-fn normalize_region_crop(
+/// region 是虚拟桌面绝对像素矩形：找一块完整包含它的显示器。
+/// xcap 的 capture_region 只接受显示器内偏移，跨显示器矩形无法一次裁剪，直接报错让模型分次截图。
+fn resolve_monitor_containing_region(
+    monitors: &[xcap::Monitor],
     region: &ScreenBounds,
-    frame_width: u32,
-    frame_height: u32,
-) -> DesktopToolResult<(u32, u32, u32, u32)> {
-    let x0 = region.x.max(0) as i64;
-    let y0 = region.y.max(0) as i64;
-    let x1 = (region.x as i64 + region.width as i64).max(0);
-    let y1 = (region.y as i64 + region.height as i64).max(0);
-    let max_x = frame_width as i64;
-    let max_y = frame_height as i64;
-    let sx = x0.min(max_x);
-    let sy = y0.min(max_y);
-    let ex = x1.min(max_x);
-    let ey = y1.min(max_y);
-    if ex <= sx || ey <= sy {
-        return Err(DesktopToolError::invalid_params(
-            "region is outside captured monitor bounds",
-        ));
+) -> DesktopToolResult<xcap::Monitor> {
+    let x0 = region.x;
+    let y0 = region.y;
+    let x1 = region.x.saturating_add(region.width as i32);
+    let y1 = region.y.saturating_add(region.height as i32);
+    for monitor in monitors {
+        let mx = monitor.x().unwrap_or(0);
+        let my = monitor.y().unwrap_or(0);
+        let (Ok(mw), Ok(mh)) = (monitor.width(), monitor.height()) else {
+            continue;
+        };
+        if x0 >= mx && y0 >= my && x1 <= mx.saturating_add(mw as i32) && y1 <= my.saturating_add(mh as i32) {
+            return Ok(monitor.clone());
+        }
     }
-    Ok((sx as u32, sy as u32, ex as u32, ey as u32))
+    Err(DesktopToolError::invalid_params(format!(
+        "region 必须完整落在一块显示器内：@({}, {}), {}x{} 超出单块显示器范围；跨显示器请分次截图",
+        region.x, region.y, region.width, region.height
+    )))
 }
 
 fn monitor_list() -> DesktopToolResult<Vec<xcap::Monitor>> {
@@ -182,12 +185,6 @@ fn capture_once_xcap(
 
     let mx = monitor.x().unwrap_or(0);
     let my = monitor.y().unwrap_or(0);
-    let mw = monitor.width().map_err(|err| {
-        DesktopToolError::internal_error(format!("read monitor width failed: {err}"))
-    })?;
-    let mh = monitor.height().map_err(|err| {
-        DesktopToolError::internal_error(format!("read monitor height failed: {err}"))
-    })?;
 
     let started = Instant::now();
     let (rgba, width, height, bounds) = match input.mode {
@@ -196,9 +193,15 @@ fn capture_once_xcap(
                 .region
                 .as_ref()
                 .ok_or_else(|| DesktopToolError::invalid_params("region is required"))?;
-            let (sx, sy, ex, ey) = normalize_region_crop(region, mw, mh)?;
-            let crop_width = ex - sx;
-            let crop_height = ey - sy;
+            // region 是虚拟桌面绝对像素：先找完整包含它的显示器，再换算成该显示器内偏移
+            // （xcap 的 capture_region 只接受显示器内偏移，跨显示器矩形无法一次裁剪）
+            let monitor = resolve_monitor_containing_region(&monitors, region)?;
+            let region_x = monitor.x().unwrap_or(0);
+            let region_y = monitor.y().unwrap_or(0);
+            let sx = (region.x - region_x) as u32;
+            let sy = (region.y - region_y) as u32;
+            let crop_width = region.width;
+            let crop_height = region.height;
             let image = monitor.capture_region(sx, sy, crop_width, crop_height).map_err(|err| {
                 DesktopToolError::internal_error(format!("capture region failed: {err}"))
             })?;
@@ -207,8 +210,8 @@ fn capture_once_xcap(
                 crop_width,
                 crop_height,
                 ScreenBounds {
-                    x: mx.saturating_add(sx as i32),
-                    y: my.saturating_add(sy as i32),
+                    x: region.x,
+                    y: region.y,
                     width: crop_width,
                     height: crop_height,
                 },
