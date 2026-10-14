@@ -11149,8 +11149,9 @@
     fn exec_tool_rule_should_include_rg_guidance_when_rg_installed() {
         let block = build_builtin_tool_rule_block("exec", true).expect("exec tool rule");
 
-        assert!(block.contains("当前环境 `rg` 可用时，优先使用 `rg` 进行搜索"));
+        assert!(block.contains("`rg` 可用时优先用它搜索"));
         assert!(block.contains("rg --files"));
+        assert!(block.contains("rg -n"));
     }
 
     #[test]

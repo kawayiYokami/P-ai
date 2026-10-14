@@ -412,7 +412,7 @@ mod goal_tests {
         assert!(hidden.contains("用时：10min"));
         assert!(hidden.contains("<objective>"));
         assert!(hidden.contains("完成目标"));
-        assert!(hidden.contains("续跑行为"));
+        assert!(hidden.contains("目标的状态"));
         assert!(hidden.contains("完成审计"));
     }
 
@@ -497,7 +497,7 @@ mod goal_tests {
         assert!(text.contains("用时："));
         assert!(text.contains("<objective>"));
         assert!(text.contains(objective));
-        assert!(text.contains("续跑行为"));
+        assert!(text.contains("目标的状态"));
         assert!(text.contains("完成审计"));
         assert!(!text.contains("这次要继续做什么"));
     }

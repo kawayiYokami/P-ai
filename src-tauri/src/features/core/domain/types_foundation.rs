@@ -88,7 +88,7 @@ fn response_style_preset_optional(id: &str) -> Option<ResponseStylePreset> {
 fn highest_instruction_markdown() -> String {
     prompt_xml_block(
         "system rules",
-        include_str!("../../../../../src/constants/highest-instruction.md").trim(),
+        include_str!("../../../../resources/prompts/highest-instruction.md").trim(),
     )
 }
 

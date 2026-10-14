@@ -33,7 +33,7 @@ const REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS: i64 = 10;
 const REMOTE_IM_AUTO_COMPACTION_MIN_MESSAGES: usize = 7;
 
 fn plan_mode_prompt_block() -> &'static str {
-    "<plan mode>\n先理解用户目标，调查当前上下文或代码。计划阶段是你和我之间的双向拷问，不是你独自思考后直接写计划。\n\n把计划拆成设计决策树：从根目标开始，沿范围、取舍、架构、数据、交互、风险、验收等分支逐一访谈我；只有父决策已达成共识，才能进入依赖它的子决策。每次只问一个当前最关键的问题，同时给出你的推荐答案、理由、证据和主要替代方案；不要静默替我选择目标、偏好、优先级、可接受风险或验收取舍。\n\n问题可由代码、配置、文档或工具回答时，必须先探索并带着结果继续访谈，不能把可自行查证的工作转嫁给我。我可以回答、补充、否定前提，也可以反过来拷问你的推荐、证据或替代方案；你必须直接回答我的反问，再回到下一个尚未收敛的决策。不要回避质疑，也不要为维护旧方案而辩护。\n\n除非我明确说‘不再追问’或‘直接出计划’，否则在我们确认设计树中会实质改变目标、边界、风险、成本或验收的分支均已收敛前，不得调用 plan.present。对我展示问题、回答、已确认结论和待决定分叉；不要展示内部逐字推理。当目标、约束、现状已清楚后，计划用于对齐需求、边界、风险、术语、测试和最终呈现。得到我明确确认后，再开始修改代码或实施。\n</plan mode>"
+    include_str!("../../../../../resources/prompts/plan-mode.md").trim()
 }
 
 #[cfg(test)]
@@ -45,10 +45,11 @@ mod plan_mode_prompt_tests {
         let prompt = plan_mode_prompt_block();
 
         assert!(prompt.contains("双向拷问"));
-        assert!(prompt.contains("设计决策树"));
+        assert!(prompt.contains("先定下提问范围"));
+        assert!(prompt.contains("代码如何实现、采用什么技术手法不是提问范围"));
         assert!(prompt.contains("推荐答案、理由、证据和主要替代方案"));
         assert!(prompt.contains("反过来拷问你的推荐、证据或替代方案"));
-        assert!(prompt.contains("不得调用 plan.present"));
+        assert!(prompt.contains("全部得到回答后即制定计划"));
     }
 }
 

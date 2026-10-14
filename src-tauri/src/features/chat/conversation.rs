@@ -2961,6 +2961,13 @@ fn build_builtin_tool_general_rule_block() -> String {
 const EXEC_TOOL_RULE_SHELL_MD: &str = include_str!("../../../resources/prompts/exec-tool-rule-shell.md");
 const EXEC_TOOL_RULE_RG_MD: &str = include_str!("../../../resources/prompts/exec-tool-rule-rg.md");
 const DEEP_RECALL_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/deep-recall-tool-rule.md");
+const TODO_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/todo-tool-rule.md");
+const GOAL_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/goal-tool-rule.md");
+const DELEGATE_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/delegate-tool-rule.md");
+const TASK_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/task-tool-rule.md");
+const FILE_EDIT_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/file-edit-tool-rule.md");
+const QUESTION_AND_PLANNING_RULE_MD: &str = include_str!("../../../resources/prompts/question-and-planning-rule.md");
+const PLAN_PROTOCOL_MD: &str = include_str!("../../../resources/prompts/plan-protocol.md");
 
 fn build_builtin_tool_rule_block(tool_id: &str, rg_installed: bool) -> Option<String> {
     let (block_name, body) = match tool_id.trim() {
@@ -2973,38 +2980,8 @@ fn build_builtin_tool_rule_block(tool_id: &str, rg_installed: bool) -> Option<St
             return Some(prompt_xml_block("exec tool rule", body));
         }
         "deeprecall" => ("deep recall tool rule", DEEP_RECALL_TOOL_RULE_MD.trim()),
-        "todo" => (
-            "todo tool rule",
-            "## 何时使用\n\
-             - 当前这轮已经明确要开始执行。\n\
-             - 任务能拆成 3~7 个可完成、可验证的步骤。\n\
-             - 正在执行的 plan 需要落到当前步骤时，用 todo 推进。\n\n\
-             ## 使用要求\n\
-             - 拆成 3~7 步。\n\
-             - 每一步都必须有可验证、可完成的结果。\n\
-             - 开始执行后及时更新状态。\n\
-             - 任一时刻只允许一个 `in_progress`。\n\
-             - 计划变化时同步修正 todo。\n\n\
-             ## 定位\n\
-             - todo 是当前会话内的执行步骤板。\n\
-             - plan 对齐需求边界后，todo 承接当前执行。",
-        ),
-        "goal" => (
-            "goal tool rule",
-            "## 定位\n\
-             - goal 是绑定当前会话的长期持续目标，用于用户希望勿打扰、少询问、自动续跑到完成或严格阻塞的场景。\n\
-             - `create_goal` 用于启动用户希望少询问、勿打扰持续推进的目标；已有 active goal 时保持现有目标。\n\
-             - `update_goal` 只允许在目标真正完成或严格阻塞审计成立时调用。\n\n\
-             ## 完成\n\
-             - 只有当前证据能证明原始目标的全部显式要求都满足，才调用 `update_goal` 并设置 `status: \"complete\"`。\n\
-             - complete 必须提供 evidence，说明哪些当前状态、文件、命令输出、测试或运行结果证明目标完成。\n\
-             - 完成证据以原始目标的全部显式要求为准。\n\n\
-             ## 阻塞\n\
-             - 只有同一阻塞条件连续至少三轮 goal 轮次重复，且没有用户输入或外部状态变化就无法继续推进时，才调用 `update_goal` 并设置 `status: \"blocked\"`。\n\
-             - blocked 必须提供 `blocking_condition`，说明同一阻塞条件是什么。\n\n\
-             ## 活跃状态\n\
-             - 如果目标尚未被完整证明完成，也未满足严格阻塞条件，就保持 goal active，继续朝最终状态推进。",
-        ),
+        "todo" => ("todo tool rule", TODO_TOOL_RULE_MD.trim()),
+        "goal" => ("goal tool rule", GOAL_TOOL_RULE_MD.trim()),
         "get_session" | "inform_session" => (
             "session tool rule",
             "## 定位\n\
@@ -3016,48 +2993,11 @@ fn build_builtin_tool_rule_block(tool_id: &str, rg_installed: bool) -> Option<St
              - `inform_session` 只负责投递，不会自动让目标会话继续推理。\n\
              - 通知正文应简洁、可执行、可读，不要把整轮冗长思考原样倾倒给别的会话。",
         ),
-        "delegate" => (
-            "delegate tool rule",
-            "## 何时优先使用\n\
-             - 当前工作有职责或能力更匹配的直属下级人格时，优先使用 delegate。\n\
-             - 子任务不需要完整当前上下文，只要用 `why`、`goal`、`todo` 就能独立说明清楚时，优先委托。\n\
-             - 简单但繁琐的搜索、排查、比对、整理、验证、资料收集、影响面摸底等工作，适合委托给下级人格完成。\n\
-             - 主线程需要这个结果继续下一步时，也可以委托，但必须使用 `mode: \"wait\"` 等待结果。`wait` 可以并发发出多个委托，它只表示等待结果，不表示串行。\n\n\
-             ## 何时不要使用\n\
-             - 没有合适的直属下级人格。\n\
-             - 子任务无法脱离完整当前上下文，压缩成背景后会丢失关键判断依据。\n\
-             - 用户要求你本人直接完成，或任务需要你立即和用户连续澄清。\n\n\
-             ## 使用要求\n\
-             - 除非用户明确指示后台运行，否则一律使用 `mode: \"wait\"`。\n\
-             - 需要并发委托时，也应使用 `wait`；一次发出多个 `wait` 委托后等待全部结果再整合。\n\
-             - 只有用户明确要求后台运行、不等待结果时，才使用 `mode: \"background\"`。\n\
-             - 当前已经在委托线程中再次委托时，只允许使用 `wait`。\n\
-             - 若目标岗位由你本人兼任，只允许使用 `wait`。\n\
-             - `agent_id` 直接填「你的直属下级人格」清单中的人格名称即可（也兼容人格 ID）。\n\
-             - `why` 写清父任务、已知事实、必要上下文、约束和前序结果；不要只写一句空泛背景。\n\
-             - `goal` 写清本次子任务要完成什么，目标应可判断是否完成。\n\
-             - `todo` 写清优先关注点、范围边界、交付要求和需要避免的方向。\n\
-             - 收到同步委托结果后，必须由你整合、判断、裁决并继续推进，不要机械转述。\n\
-             - 对下级返回的关键结论、风险判断、文件定位、数据口径或会影响最终决策的发现，必须挑选重点亲自核验；可以信任下级完成繁琐工作，但不要盲目相信未经核验的关键结论。",
-        ),
-        "task" => (
-            "task tool rule",
-            "## 定义\n\
-             - 用户给出明确的时间、延后执行、周期触发、定时提醒或定时检查要求。\n\
-             - 事情需要在未来某个时间点或按 cron 周期自动触发。\n\
-             - 触发后需要启动一次委托，结果再回到来源会话。\n\n\
-             - trigger 写调度时间、重复频率和结束时间。\n\
-             - goal、why、todo 写触发后这一次要完成什么、为什么做、关注哪些边界。",
-        ),
-        "write" | "delete" | "update" | "move" | "file_edit" => (
-            "file edit tool rule",
-            "请优先使用文件编辑工具写文件，不要使用终端或者 python 写入。\n\
-             - 新增完整文件或明确要写入完整内容时，使用 `write`。\n\
-             - 删除整个文件时，使用 `delete`。\n\
-             - 删除或修改文件中的局部内容时，使用 `update`；不要把局部内容删除写成 `delete`。\n\
-             - 移动或重命名文件时，使用 `move`。\n\
-             - 如果 `update` 的目标片段不唯一，应扩大 `old_string` 上下文，或明确设置 `replace_all: true`。 ",
-        ),
+        "delegate" => ("delegate tool rule", DELEGATE_TOOL_RULE_MD.trim()),
+        "task" => ("task tool rule", TASK_TOOL_RULE_MD.trim()),
+        "write" | "delete" | "update" | "move" | "file_edit" => {
+            ("file edit tool rule", FILE_EDIT_TOOL_RULE_MD.trim())
+        }
         _ => return None,
     };
     Some(prompt_xml_block(block_name, body))
@@ -3119,61 +3059,29 @@ fn build_question_and_planning_rule_block(
         })
         .unwrap_or_else(|| "{会话工作目录或助理空间}\\.pai\\plan".to_string());
     let plan_tool_sections = if plan_tool_enabled {
-        format!(
-            "## 何时使用 plan\n\
-             - 重构：大规模模块拆分、架构调整、技术栈迁移。\n\
-             - 全新功能域设计：涉及多模块、跨前后端、接口协议或数据模型设计。\n\
-             - 用户明确要求写计划。\n\
-             - 常规功能迭代、简单 UI 改动、文档更新、小修小补等日常工作，直接实现。\n\n\
-             ## plan 和 todo\n\
-             - 计划文档用于锁定需求、目标、边界、风险、统一口径、术语、应该有的测试和最终呈现。\n\
-             - todo 用于承接计划确认后的 3~7 步当前执行。\n\
-             - 最终形态只描述用户可感知结果、数据契约示例或验收样例。\n\
-             - 实现开始后发现计划不准确，应优先修正计划或说明偏差。\n\n\
-             ## 计划文件\n\
-             - 先把计划写成 Markdown 文件，再调用 plan。\n\
-             - 优先写到：{preferred_plan_dir}\n\
-             - 先按计划的主要业务产出选择一个领域目录，再写入 `.pai/plan/{{domain}}/`；可用领域包括 `chat`、`remote-im`、`runtime`、`tools`、`storage`、`memory`、`model`、`organization`、`ui`、`platform`、`release`。\n\
-             - 文件命名使用 `.pai/plan/{{domain}}/YYYYMMDD_中文关键词.md`，日期统一使用 8 位数字。\n\
-             - 不按 `active`、`archive` 或年月创建额外状态层级；计划完成后保留在原领域目录。\n\
-             - 计划一旦提交，后续 `plan.present` 与 `plan.complete` 始终使用同一份物理路径，不要擅自移动已提交计划。\n\
-             - 计划应包含：用户原始关键指令、目标、需求描述、风险、边界、统一口径、术语解释、应该有的测试；最终呈现结果和相关文件可按需补充。\n\
-             - 用户原始关键指令只节选影响目标、边界、风险或验收的原文；用户口误后纠正时，采用纠正后的版本。\n\
-             - `plan.present` 只提交 `path`。\n\
-             - `plan.complete` 也只提交同一份 `path`。\n\
-             - 局部修订计划时，优先补丁修改现有计划文件。\n\n\
-             ## 规划方式\n\
-             - 写计划前先扫描核心上下文，确认用户目标、现状、风险和关键缺失项。\n\
-             - 计划未定前，先做最小必要调查。\n\
-             - 计划要约束需求边界，保持简洁。\n\
-             - 遇到非显性分叉或明显成本差异，先和用户同步，再进入重度开发。\n\
-             - 必须先得到用户明确确认后，才可进入实现阶段。\n\
-             - 新信息进入后及时修正计划。"
-        )
+        PLAN_PROTOCOL_MD
+            .trim()
+            .replace("{preferred_plan_dir}", &preferred_plan_dir)
     } else {
         String::new()
     };
+    let mut body = String::from(QUESTION_AND_PLANNING_RULE_MD.trim());
+    if !plan_tool_sections.is_empty() {
+        // 计划协议插在「提问之法」与「核心逻辑」之间，与原拼接顺序一致。
+        if let Some(pos) = body.find("## 核心逻辑") {
+            body.insert_str(pos, &format!("{plan_tool_sections}\n\n"));
+        } else {
+            body.push_str("\n\n");
+            body.push_str(&plan_tool_sections);
+        }
+    }
     prompt_xml_block(
         if plan_tool_enabled {
             "plan tool rule"
         } else {
             "question and planning rule"
         },
-        &format!(
-            "## 提问之法\n\
-             - **价值锚定**：只有缺失信息会显著影响方向、风险、成本或产出时，才向用户提问。\n\
-             - **前置分析**：提问前先检索上下文，形成初步逻辑模型。\n\
-             - **低通量**：首轮提问必须精准，避免堆砌问题清单。\n\
-             - **自主检索**：代码、配置、既有文档可自证时，先自己查。\n\
-             - **默认推进**：存在高概率、低风险默认假设时，带着假设推进并明确告知。\n\
-             - **拒绝外包**：自身职责内的分析、设计和决策，不转嫁给用户。\n\n\
-             {plan_tool_sections}\
-             ## 核心逻辑\n\
-             - 提问是为了破除需求、边界、风险或验收口径的核心不确定性。\n\
-             - 计划是把当前认知转化为需求和边界契约。\n\
-             - 提问基于初步计划和核心缺口。\n\
-             - 架构判断基于已明确的关键因子。"
-        ),
+        &body,
     )
 }
 

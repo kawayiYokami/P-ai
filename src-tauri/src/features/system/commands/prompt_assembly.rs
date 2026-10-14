@@ -662,11 +662,11 @@ mod prompt_assembly_tests {
         let group = build_human_interface_environment_block(Some("group"));
 
         assert!(local.contains("桌面应用的本地 WebUI"));
-        assert!(local.contains("调用工具、读取文件"));
+        assert!(local.contains("调用工具、读文件"));
         assert!(private.contains("Todo 发生实质变化"));
-        assert!(private.contains("不要为每次工具调用"));
+        assert!(private.contains("后台发生即可"));
         assert!(group.contains("群友和正在解决的问题永远是重点"));
-        assert!(group.contains("不得再发送中间进度"));
+        assert!(group.contains("都不再出现"));
         assert!(!group.contains("Todo 发生实质变化"));
     }
 
