@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-14T20:14:49.082Z",
-  "latestVersion": "v0.97.3",
+  "generatedAt": "2026-10-14T22:00:56.511Z",
+  "latestVersion": "v0.97.4",
   "releases": [
+    {
+      "version": "v0.97.4",
+      "path": "docs/changelog/releases/v0.97.4.md",
+      "summary": "**护航建议按对话状态分三种情况给出**：对话顺畅时，护航会给出 2~4 个你接下来可以直接发送的短语；你被误解、卡住或情绪上来时，护航提示你换个问法或先接住你的情绪；助理答非所问、术语堆砌、反复确认、停在汇报上时，护航把修正方向直接给助理下一轮。"
+    },
     {
       "version": "v0.97.3",
       "path": "docs/changelog/releases/v0.97.3.md",
