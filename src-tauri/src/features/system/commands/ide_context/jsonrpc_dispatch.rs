@@ -76,6 +76,8 @@ fn ide_chat_web_native_only_method(method: &str) -> bool {
             | "show_quick_setup_window"
             | "complete_quick_setup_and_open_chat"
             | "list_system_fonts"
+            | "get_autostart_enabled"
+            | "set_autostart_enabled"
             | "list_genai_chat_adapters"
     )
 }
