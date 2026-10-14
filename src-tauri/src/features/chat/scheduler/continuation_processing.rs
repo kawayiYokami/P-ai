@@ -92,7 +92,7 @@ fn maybe_enqueue_goal_continue_after_idle(
         RuntimeToolOriginScope::RemoteGroup | RuntimeToolOriginScope::RemoteUnknown
     ) {
         runtime_log_warn(format!(
-            "[目标续跑] 跳过，任务=goal_continue，conversation_id={}，goal_id={}，原因=远程群聊及其来源会话禁止 Goal",
+            "[目标续跑] 跳过，任务=goal_continue，conversation_id={}，goal_id={}，原因=远程群聊的应答委托禁止 Goal",
             conversation_id, goal.goal_id
         ));
         return Ok(false);

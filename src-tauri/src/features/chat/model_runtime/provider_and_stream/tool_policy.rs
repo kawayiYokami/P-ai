@@ -340,7 +340,7 @@ fn builtin_tool_runtime_unavailable_reason(
         }
         BuiltinToolRuntimeScope::NotRemoteGroup
             if origin_scope == RuntimeToolOriginScope::RemoteGroup => {
-            Some("远程群聊及其来源委托禁止使用 Goal 工具".to_string())
+            Some("远程群聊的应答委托禁止使用 Goal 工具".to_string())
         }
         BuiltinToolRuntimeScope::NotRemoteGroup
             if origin_scope == RuntimeToolOriginScope::RemoteUnknown =>

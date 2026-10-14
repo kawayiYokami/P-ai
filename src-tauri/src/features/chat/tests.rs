@@ -10556,7 +10556,7 @@
                 "assistant-department",
             )
             .as_deref(),
-            Some("远程群聊及其来源委托禁止使用 Goal 工具")
+            Some("远程群聊的应答委托禁止使用 Goal 工具")
         );
         assert_attached_sets_equal(&remote_group_delegate_assembly);
 
@@ -10583,7 +10583,7 @@
                 "assistant-department",
             )
             .as_deref(),
-            Some("远程群聊及其来源委托禁止使用 Goal 工具")
+            Some("远程群聊的应答委托禁止使用 Goal 工具")
         );
         assert_attached_sets_equal(&disabled_channel_assembly);
 
