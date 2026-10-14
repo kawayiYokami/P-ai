@@ -1161,6 +1161,9 @@ watch(
 
 watch(visibleTreeRows, () => scheduleFileReaderWatchTargetUpdate());
 
+// 悬浮目录树加载了新目录后，也要把它纳入监听，才能收到它的变更事件
+watch(hoverDirectoryTreeNodes, () => scheduleFileReaderWatchTargetUpdate());
+
 // ==================== Address Scroll ====================
 
 function updateAddressScrollState() {
@@ -1353,6 +1356,13 @@ function collectFileReaderWatchTargets(): FileReaderWatchTarget[] {
     if (!normalized || isGitInternalPath(normalized)) continue;
     targets.push({ path: normalized, kind: "directory" });
   }
+  // 悬浮目录树只展示过的目录不会进侧栏树，同样要纳入监听，否则它没有失效来源
+  for (const node of Object.values(hoverDirectoryTreeNodes.value)) {
+    if (!node?.loaded) continue;
+    const normalized = normalizePath(node.path);
+    if (!normalized || isGitInternalPath(normalized)) continue;
+    targets.push({ path: normalized, kind: "directory" });
+  }
   const seen = new Set<string>();
   return targets.filter((target) => {
     const normalized = normalizePath(target.path);
@@ -1391,7 +1401,9 @@ function handleFileReaderWatchEvent(payload: FileReaderWatchEventPayload) {
     scheduleAutoRefreshActiveTab();
     return;
   }
-  if (String(payload?.kind || "").trim() === "directory" && directoryTreeRoot.value && isPathRelevantToVisibleDirectory(changedPath)) {
+  if (String(payload?.kind || "").trim() !== "directory") return;
+  invalidateHoverDirectoryCache(changedPath);
+  if (directoryTreeRoot.value && isPathRelevantToVisibleDirectory(changedPath)) {
     scheduleAutoRefreshDirectoryNode(changedPath);
   }
 }
@@ -1792,6 +1804,8 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
     directoryTreeWidth.value = FILE_READER_DIRECTORY_TREE_DEFAULT_WIDTH;
     directoryTreeFilter.value = "";
     directoryNodes.value = {};
+    hoverDirectoryTreeNodes.value = {};
+    dismissHoverDirectoryTree();
 
     const initialRoot = normalizePath(fallbackRootPath || "");
     if (!storageKey) {
@@ -2711,6 +2725,47 @@ async function loadHoverSubDirectory(entry: FileReaderDirectoryEntry) {
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     updateHoverDirectoryNode(normalizedPath, { loading: false, loaded: true, error: errorMsg });
+  }
+}
+
+/** 目录内容变化：让悬浮目录树对应节点的缓存失效 */
+function invalidateHoverDirectoryCache(path: string) {
+  const normalizedPath = normalizePath(path);
+  if (!normalizedPath) return;
+  const node = hoverDirectoryTreeNodes.value[normalizedPath];
+  // 只处理已加载完成的节点：加载中的由在途请求落地最新结果，避免并发重读覆盖
+  if (!node?.loaded) return;
+  // 正显示在悬浮面板里就地重读，其余只标记失效，等下次展开再拉
+  if (isPathWithinHoverRoot(normalizedPath)) {
+    void reloadHoverDirectoryNode(normalizedPath);
+    return;
+  }
+  updateHoverDirectoryNode(normalizedPath, { loaded: false, loading: false, error: "", entries: [] });
+}
+
+function isPathWithinHoverRoot(normalizedPath: string): boolean {
+  if (!hoverDirectoryTreeVisible.value) return false;
+  const rootPath = normalizePath(hoverDirectoryTreeRoot.value?.path || "");
+  if (!rootPath) return false;
+  return normalizedPath === rootPath || normalizedPath.startsWith(`${rootPath}/`);
+}
+
+/** 就地重读：保留现有条目直到新结果到达，避免整个悬浮面板闪成 loading */
+async function reloadHoverDirectoryNode(path: string) {
+  const normalizedPath = normalizePath(path);
+  if (!normalizedPath) return;
+  const wasExpanded = hoverDirectoryTreeNodes.value[normalizedPath]?.expanded ?? true;
+  try {
+    const payload = await requestFileReaderDirectory(normalizedPath);
+    const resolvedPath = normalizePath(payload.path || normalizedPath);
+    updateHoverDirectoryNode(resolvedPath, {
+      name: String(payload.name || titleFromPath(resolvedPath)),
+      entries: normalizeDirectoryEntries(payload.entries || []),
+      loaded: true, loading: false, error: "", expanded: wasExpanded,
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    updateHoverDirectoryNode(normalizedPath, { loaded: true, loading: false, error: errorMsg });
   }
 }
 
