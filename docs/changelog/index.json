@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-12T19:40:08.132Z",
-  "latestVersion": "v0.97.1",
+  "generatedAt": "2026-10-14T04:56:14.754Z",
+  "latestVersion": "v0.97.2",
   "releases": [
+    {
+      "version": "v0.97.2",
+      "path": "docs/changelog/releases/v0.97.2.md",
+      "summary": "**桌面脚本一次可以回传多张截图**：一个脚本里连续截几张图，模型现在能一次看到每一张，不再只剩最后一张；写多步操作时能按截图逐步核对。"
+    },
     {
       "version": "v0.97.1",
       "path": "docs/changelog/releases/v0.97.1.md",
