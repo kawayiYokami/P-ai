@@ -109,10 +109,8 @@ async fn run_operate_tool(
     let mut steps = Vec::<DesktopScriptStepResult>::new();
     let mut failure: Option<OperateFailure> = None;
     let mut latest_screenshot: Option<LatestScreenshotInfo> = None;
-    let mut image_mime = None;
-    let mut image_base64 = None;
-    let mut width = None;
-    let mut height = None;
+    // 本次调用内截取的图片，按执行顺序累积；画面与上一次完全相同而被去重的那张不入列
+    let mut screenshots: Vec<OperateScreenshotPart> = Vec::new();
     let mut latest_windows: Option<Vec<WindowBrief>> = None;
     // 执行前的前台（C4）：restore_focus=true 时结束后切回，恢复失败只记 warnings
     let initial_foreground = crate::platform::list_all_windows()
@@ -524,6 +522,21 @@ async fn run_operate_tool(
                 } else {
                     String::new()
                 };
+                // 本次调用内的截图全部按顺序回传，模型一次能看到脚本里截的每一张画面；
+                // 画面与上一次完全相同的去重项不重复入列。
+                if let Some(base64) = base64_out.filter(|value| !value.is_empty()) {
+                    screenshots.push(OperateScreenshotPart {
+                        kind: "image".to_string(),
+                        mime_type: result.image_mime.clone(),
+                        data: base64,
+                        width: result.width,
+                        height: result.height,
+                        line,
+                        mode: mode_name.clone(),
+                        bounds: result.bounds.clone(),
+                        saved_path: result.path.clone(),
+                    });
+                }
                 latest_screenshot = Some(LatestScreenshotInfo {
                     mode: mode_name.clone(),
                     width: result.width,
@@ -532,10 +545,6 @@ async fn run_operate_tool(
                     saved_path: result.path.clone(),
                     tree: ui_tree,
                 });
-                image_mime = Some(result.image_mime.clone());
-                image_base64 = base64_out;
-                width = Some(result.width);
-                height = Some(result.height);
                 let step = DesktopScriptStepResult {
                     line,
                     kind: DesktopScriptStepKind::Screenshot,
@@ -597,11 +606,12 @@ async fn run_operate_tool(
     let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let ok = failure.is_none();
     runtime_log_info(format!(
-        "[桌面脚本] {}，任务=run_operate_tool，executed_count={}，failed_line={}，elapsed_ms={}，latest_screenshot={}，image_mime={}，has_image_base64={}，width={}，height={}",
+        "[桌面脚本] {}，任务=run_operate_tool，executed_count={}，failed_line={}，elapsed_ms={}，screenshots={}，latest_screenshot={}",
         if ok { "完成" } else { "中断" },
         steps.len(),
         failure.as_ref().map(|item| item.line.to_string()).unwrap_or_else(|| "-".to_string()),
         elapsed_ms,
+        screenshots.len(),
         latest_screenshot
             .as_ref()
             .map(|shot| format!(
@@ -611,15 +621,7 @@ async fn run_operate_tool(
                 shot.height,
                 shot.saved_path.as_deref().unwrap_or("-")
             ))
-            .unwrap_or_else(|| "none".to_string()),
-        image_mime.as_deref().unwrap_or("-"),
-        image_base64.as_ref().map(|_| true).unwrap_or(false),
-        width
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "-".to_string()),
-        height
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "-".to_string())
+            .unwrap_or_else(|| "none".to_string())
     ));
 
     // 操作审计（J2）：逐步骤记录时间、动作、目标、结果，关键操作可追溯
@@ -656,10 +658,7 @@ async fn run_operate_tool(
         steps,
         failure,
         latest_screenshot,
-        image_mime,
-        image_base64,
-        width,
-        height,
+        screenshots,
         windows: latest_windows,
         warnings: if warnings.is_empty() { None } else { Some(warnings) },
     })

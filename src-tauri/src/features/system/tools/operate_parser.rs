@@ -83,6 +83,26 @@ struct LatestScreenshotInfo {
     tree: Option<Vec<UiElementInfo>>,
 }
 
+/// 单张截图的图片负载。字段名与工具结果的 parts 约定保持一致（type/mimeType/data），
+/// 转发层用同一套规则把它提取成图片 part；`data` 被提取后会从给模型的文本里移除。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OperateScreenshotPart {
+    #[serde(rename = "type")]
+    kind: String,
+    mime_type: String,
+    data: String,
+    width: u32,
+    height: u32,
+    /// 该图对应的脚本行号
+    line: usize,
+    mode: String,
+    /// 该图对应的屏幕矩形（虚拟桌面物理像素）；图被 max_pixels 缩小过时按比例换算坐标
+    bounds: ScreenBounds,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    saved_path: Option<String>,
+}
+
 /// window list 的紧凑窗口条目：只留模型真正用得上的字段（按 id / 名字引用窗口、判断是否最小化）。
 /// 坐标、尺寸、进程号对 operate 动作没有用处，去掉后 22 个窗口不再一次吃掉两百行上下文。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,14 +140,10 @@ struct OperateResponse {
     failure: Option<OperateFailure>,
     #[serde(skip_serializing_if = "Option::is_none")]
     latest_screenshot: Option<LatestScreenshotInfo>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    image_mime: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    image_base64: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    width: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    height: Option<u32>,
+    /// 本次调用内截取的图片，按执行顺序排列；画面与上一次完全相同而被去重的那张不在此列。
+    /// 字段名与工具结果的 parts 约定对齐（type/mimeType/data），转发层按图片通道一并回传。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    screenshots: Vec<OperateScreenshotPart>,
     /// window list 动作返回的可见窗口列表（最近一次），紧凑字段
     #[serde(skip_serializing_if = "Option::is_none")]
     windows: Option<Vec<WindowBrief>>,

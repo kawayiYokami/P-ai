@@ -91,6 +91,10 @@ fn extract_forward_images_from_value(value: &Value) -> Vec<ScreenshotForwardImag
                     return None;
                 }
                 let data = part.get("data").and_then(Value::as_str)?;
+                // 空负载不是可用图片：模型不支持图片时只回保存路径，不该生成空图片 part
+                if data.trim().is_empty() {
+                    return None;
+                }
                 Some(ScreenshotForwardImagePayload {
                     mime: part
                         .get("mimeType")
@@ -114,6 +118,10 @@ fn extract_forward_images_from_value(value: &Value) -> Vec<ScreenshotForwardImag
             .collect()
     };
 
+    // operate 的 screenshots 数组与 parts 用同一套字段约定（type/mimeType/data），复用同一套提取
+    if let Some(items) = value.get("screenshots").and_then(Value::as_array) {
+        images.extend(collect_parts(items));
+    }
     if let Some(parts) = value.get("parts").and_then(Value::as_array) {
         images.extend(collect_parts(parts));
     }
@@ -291,6 +299,18 @@ fn screenshot_value_boundary_should_extract_multiple_images() {
     assert_eq!(images.len(), 2);
     assert_eq!(images[0].mime, "image/webp");
     assert_eq!(images[1].mime, "image/png");
+}
+
+#[cfg(test)]
+#[test]
+fn screenshot_parts_without_payload_should_be_skipped() {
+    // 模型不支持图片时 operate 不会带上 data，空负载不该生成空图片 part
+    let value = serde_json::json!({
+        "screenshots": [
+            {"type": "image", "mimeType": "image/webp", "data": "", "width": 10, "height": 10}
+        ]
+    });
+    assert!(extract_forward_images_from_value(&value).is_empty());
 }
 
 #[cfg(test)]

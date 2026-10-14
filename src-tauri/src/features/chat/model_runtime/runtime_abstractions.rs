@@ -470,6 +470,61 @@ mod runtime_tool_result_tests {
     }
 
     #[test]
+    fn operate_result_forwards_every_screenshot_part_not_base64_text() {
+        let result = provider_tool_result_from_value(
+            "operate",
+            serde_json::json!({
+                "ok": true,
+                "executedCount": 3,
+                "latestScreenshot": { "mode": "region", "width": 60, "height": 40, "bounds": { "x": 10, "y": 20, "width": 60, "height": 40 } },
+                "screenshots": [
+                    {
+                        "type": "image",
+                        "mimeType": "image/webp",
+                        "data": "FIRST",
+                        "width": 100,
+                        "height": 80,
+                        "line": 1,
+                        "mode": "desktop",
+                        "bounds": { "x": 0, "y": 0, "width": 100, "height": 80 }
+                    },
+                    {
+                        "type": "image",
+                        "mimeType": "image/webp",
+                        "data": "SECOND",
+                        "width": 60,
+                        "height": 40,
+                        "line": 3,
+                        "mode": "region",
+                        "bounds": { "x": 10, "y": 20, "width": 60, "height": 40 }
+                    }
+                ]
+            }),
+        );
+
+        assert!(!result.output.contains("FIRST"));
+        assert!(!result.output.contains("SECOND"));
+        let images = result
+            .parts
+            .iter()
+            .filter_map(|part| match part {
+                ProviderToolResultPart::Image { data_base64, width, height, .. } => {
+                    Some((data_base64.clone(), *width, *height))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            images,
+            vec![
+                ("FIRST".to_string(), 100, 80),
+                ("SECOND".to_string(), 60, 40),
+            ],
+            "一次调用内的每张截图都应按执行顺序进入图片通道"
+        );
+    }
+
+    #[test]
     fn read_media_described_result_keeps_no_image_part() {
         let result = provider_tool_result_from_value(
             "read_media",
