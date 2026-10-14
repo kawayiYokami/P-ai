@@ -99,16 +99,16 @@
               <span class="min-w-0 flex-1 text-sm">{{ wheelchairSuggestion.text }}</span>
             </template>
             <template v-else-if="wheelchairSuggestion.type === 'options'">
-              <div class="flex min-w-0 flex-1 flex-col gap-1">
+              <div class="flex min-w-0 flex-1 flex-wrap gap-1">
                 <button
                   v-for="(opt, idx) in wheelchairSuggestion.options"
                   :key="idx"
                   type="button"
-                  class="flex min-w-0 items-start gap-2 rounded-lg border border-base-300 bg-base-100 px-2 py-1 text-left text-sm transition-colors hover:border-primary hover:text-primary"
+                  class="inline-flex max-w-full items-start gap-1.5 rounded-lg border border-base-300 bg-base-100 px-3 py-2 text-left text-sm transition-colors hover:border-primary hover:text-primary"
                   @click="fillWheelchairSuggestion(opt)"
                 >
                   <span class="shrink-0 tabular-nums text-primary">{{ idx + 1 }}.</span>
-                  <span class="min-w-0 flex-1">{{ opt }}</span>
+                  <span class="min-w-0">{{ opt }}</span>
                 </button>
               </div>
             </template>
