@@ -111,6 +111,10 @@ Main file locations after installation:
 - Icon: `/usr/share/pixmaps/p-ai.png`
 - Default data directory: `~/.config/p-ai/`
 
+## MCP examples
+
+- [Parallel Search MCP](docs/mcp/parallel-search.md): optional free web search and page fetching with no account or API key.
+
 ## Acknowledgments
 
 This project relies on these excellent upstream projects and communities: [Tauri](https://tauri.app/) · [Vue 3](https://vuejs.org/) · [DaisyUI](https://daisyui.com/) · [Tailwind CSS](https://tailwindcss.com/) · [rust-genai](https://github.com/jeremychone/rust-genai) · [rmcp](https://github.com/modelcontextprotocol/rust-sdk) · [Shiki](https://shiki.style/) · [Mermaid](https://mermaid.js.org/) · [KaTeX](https://katex.org/) · [markstream-vue](https://www.npmjs.com/package/markstream-vue) · [tokio](https://tokio.rs/) · [reqwest](https://github.com/seanmonstar/reqwest) · [rusqlite](https://github.com/rusqlite/rusqlite) · [tantivy](https://github.com/quickwit-oss/tantivy) · [AstrBot](https://github.com/AstrBotDevs/AstrBot)
