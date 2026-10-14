@@ -1295,15 +1295,22 @@ async fn send_chat_message_inner(
     };
     runtime_context.executor_agent_id = Some(effective_agent_id.clone());
     log_chat_stage("runtime_and_session_ready");
-    if runtime_conversation_id.is_none() {
+    // 用户发言时，护航委托的时机已过：立即打断正在跑的护航委托，避免过期建议落地。
+    // 用户发言经调度器统一以 trigger_only=true 触发，故不能用 trigger_only 判别；
+    // 改用 runtime_context.event_source 判定「这次调度是否由用户发言引发」。
+    let is_user_speech_dispatch = runtime_context
+        .event_source
+        .as_deref()
+        .map(str::trim)
+        .map(|source| source == "user_message")
+        .unwrap_or(false);
+    if runtime_conversation_id.is_none() && is_user_speech_dispatch {
         if let Some(conversation_id) = requested_conversation_id.as_deref() {
-            if !trigger_only {
-                let _ = abort_wheelchair_delegate(
-                    state,
-                    conversation_id,
-                    "用户已发问，护航委托停止",
-                );
-            }
+            let _ = abort_wheelchair_delegate(
+                state,
+                conversation_id,
+                "用户已发问，护航委托停止",
+            );
         }
     }
     let tool_round_limit = tool_loop_round_limit_for_dispatch(runtime_context.tool_round_limit);
