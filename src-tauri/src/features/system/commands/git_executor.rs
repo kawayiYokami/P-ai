@@ -5,8 +5,11 @@
 // 设计要点：
 // - run_read：同一 (workdir, args) 执行中时，后来的请求等待同一个结果，不重复执行；
 //   完成后按 TTL 缓存，未过期直接返回。
-// - run_write / run_network：全局 async Mutex 串行（防 index.lock 冲突），成功后
-//   invalidate 该仓库的读缓存。
+// - run_write：本地写命令（add/commit/checkout/stash/reset/discard/worktree）经
+//   local_write_lock 串行；撞上外部 Git 进程（如 VS Code）的 index.lock / refs 锁时
+//   指数退避重试，成功后 invalidate 该仓库读缓存。
+// - run_network：纯网络命令（fetch/push）只经 network_lock，不阻塞本地写。
+// - run_pull：pull 会改 worktree 与 index，同时持 network_lock 与 local_write_lock。
 // - 失败结果短 TTL（500ms），避免多端反复打同一失败命令叠加风暴。
 //
 // 注意：本文件由 include! 并入 main.rs 根作用域，不得顶层 use 与既有模块重名的
@@ -20,6 +23,27 @@ pub struct GitPanelRunOutput {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: i32,
+}
+
+// ---------- 锁冲突判定与重试参数 ----------
+
+/// 撞锁后的额外重试次数上限（首次执行之外最多再试 3 次）。
+const GIT_LOCK_MAX_RETRIES: u32 = 3;
+/// 退避基准间隔，按 2^n 递增：150ms → 300ms → 600ms（累计约 1.05s）。
+const GIT_LOCK_BASE_DELAY_MS: u64 = 150;
+
+/// 判定一次 git 失败是否属于「锁被外部 Git 进程占用」。
+/// 外部进程（如 VS Code 的 Git 扩展）短暂持有 `.git/index.lock` 或 refs 锁时，
+/// git 以非零退出码返回下列文案之一；等待锁释放后重试即可成功，不该直接抛给用户。
+fn git_lock_conflict(output: &GitPanelRunOutput) -> bool {
+    if output.exit_code == 0 {
+        return false;
+    }
+    let text = format!("{}\n{}", output.stdout, output.stderr);
+    text.contains("index.lock")
+        || text.contains("Another git process seems to be running")
+        || text.contains("cannot lock ref")
+        || (text.contains("Unable to create") && text.contains("File exists"))
 }
 
 // ---------- Runner 抽象（测试注入点） ----------
@@ -136,7 +160,11 @@ pub struct GitExecutor {
     ttl: std::time::Duration,
     fail_ttl: std::time::Duration,
     network_timeout: std::time::Duration,
-    write_lock: tokio::sync::Mutex<()>,
+    /// 本地写锁：add/commit/checkout/stash/reset/discard/worktree 等会改 index 或
+    /// worktree 的命令互斥，防止自身并发制造 index.lock 冲突。
+    local_write_lock: tokio::sync::Mutex<()>,
+    /// 网络锁：fetch/push/pull 互斥。与本地写锁分离，让慢速网络操作不再阻塞本地写。
+    network_lock: tokio::sync::Mutex<()>,
 }
 
 impl GitExecutor {
@@ -155,7 +183,8 @@ impl GitExecutor {
             ttl,
             fail_ttl,
             network_timeout: std::time::Duration::from_secs(60),
-            write_lock: tokio::sync::Mutex::new(()),
+            local_write_lock: tokio::sync::Mutex::new(()),
+            network_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -314,41 +343,89 @@ impl GitExecutor {
         }
     }
 
-    /// 写命令：全局互斥串行（防 index.lock 冲突），成功（退出码 0）后清掉该仓库读缓存。
+    /// 写命令：本地写锁互斥串行，撞外部 Git 进程的锁时指数退避重试；
+    /// 成功（退出码 0）后清掉该仓库读缓存。
     pub async fn run_write(
         &self,
         workdir: &str,
         args: &[&str],
     ) -> Result<GitPanelRunOutput, String> {
-        let _guard = self.write_lock.lock().await;
-        let result = self.runner.run(workdir, args).await;
-        if let Ok(output) = &result {
-            if output.exit_code == 0 {
-                self.invalidate(workdir);
-            }
-        }
+        let _guard = self.local_write_lock.lock().await;
+        let result = self.run_with_lock_retry(workdir, args).await;
+        self.invalidate_on_success(workdir, &result);
         result
     }
 
-    /// 网络命令（fetch/pull/push）：写互斥 + 60 秒超时 + 成功后失效。
+    /// 纯网络命令（fetch/push）：只经网络锁，不阻塞本地写命令。
     pub async fn run_network(
         &self,
         workdir: &str,
         args: &[&str],
     ) -> Result<GitPanelRunOutput, String> {
-        let _guard = self.write_lock.lock().await;
-        let wait = self.runner.run(workdir, args);
+        let _guard = self.network_lock.lock().await;
+        let wait = self.run_with_lock_retry(workdir, args);
         // 远端无响应时避免前端无限等待；默认 60 秒足够覆盖大仓库传输（测试可调短）。
         match tokio::time::timeout(self.network_timeout, wait).await {
             Ok(result) => {
-                if let Ok(output) = &result {
-                    if output.exit_code == 0 {
-                        self.invalidate(workdir);
-                    }
-                }
+                self.invalidate_on_success(workdir, &result);
                 result
             }
             Err(_) => Err("git 网络操作超时：远端无响应，已终止".to_string()),
+        }
+    }
+
+    /// pull：既走网络又会改 worktree 与 index，需同时持网络锁与本地写锁。
+    /// 锁顺序固定为 network_lock → local_write_lock，避免与其他路径互相等待。
+    pub async fn run_pull(
+        &self,
+        workdir: &str,
+        args: &[&str],
+    ) -> Result<GitPanelRunOutput, String> {
+        let _network_guard = self.network_lock.lock().await;
+        let _local_guard = self.local_write_lock.lock().await;
+        let wait = self.run_with_lock_retry(workdir, args);
+        match tokio::time::timeout(self.network_timeout, wait).await {
+            Ok(result) => {
+                self.invalidate_on_success(workdir, &result);
+                result
+            }
+            Err(_) => Err("git 网络操作超时：远端无响应，已终止".to_string()),
+        }
+    }
+
+    /// 执行一条命令，撞锁（外部 Git 进程持锁）时按 2^n 退避重试。
+    /// 调用方需已持有相应锁；重试期间仍持锁，避免自身再制造并发。
+    async fn run_with_lock_retry(
+        &self,
+        workdir: &str,
+        args: &[&str],
+    ) -> Result<GitPanelRunOutput, String> {
+        let mut attempt = 0u32;
+        loop {
+            let result = self.runner.run(workdir, args).await;
+            let should_retry = matches!(&result, Ok(output) if git_lock_conflict(output))
+                && attempt < GIT_LOCK_MAX_RETRIES;
+            if !should_retry {
+                return result;
+            }
+            let delay = GIT_LOCK_BASE_DELAY_MS * 2u64.pow(attempt);
+            runtime_log_info(format!(
+                "[Git] 命令撞锁，第 {} 次重试（等待 {}ms）：git {}",
+                attempt + 1,
+                delay,
+                args.first().copied().unwrap_or("git")
+            ));
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            attempt += 1;
+        }
+    }
+
+    /// 命令成功（退出码 0）后清掉该仓库读缓存。
+    fn invalidate_on_success(&self, workdir: &str, result: &Result<GitPanelRunOutput, String>) {
+        if let Ok(output) = result {
+            if output.exit_code == 0 {
+                self.invalidate(workdir);
+            }
         }
     }
 
@@ -396,7 +473,7 @@ mod git_executor_tests {
 
     use futures_util::FutureExt;
 
-    /// 可控 fake runner：记录调用、可设延迟与失败。
+    /// 可控 fake runner：记录调用、可设延迟、失败与撞锁次数。
     #[derive(Clone)]
     struct FakeRunner {
         calls: Arc<Mutex<Vec<(String, Vec<String>)>>>,
@@ -404,6 +481,8 @@ mod git_executor_tests {
         /// 仅当 args 完全匹配此列表时才应用 delay；None 表示所有命令都延迟。
         delay_args: Option<Vec<String>>,
         fail: bool,
+        /// 前 N 次调用返回 index.lock 冲突，之后成功（模拟外部 Git 进程短暂持锁）。
+        lock_conflict_times: usize,
     }
 
     impl FakeRunner {
@@ -413,6 +492,7 @@ mod git_executor_tests {
                 delay: Duration::ZERO,
                 delay_args: None,
                 fail: false,
+                lock_conflict_times: 0,
             }
         }
         fn with_delay(mut self, delay: Duration) -> Self {
@@ -427,6 +507,11 @@ mod git_executor_tests {
         }
         fn with_fail(mut self) -> Self {
             self.fail = true;
+            self
+        }
+        /// 前 N 次调用返回 index.lock 冲突，之后成功。
+        fn with_lock_conflict(mut self, times: usize) -> Self {
+            self.lock_conflict_times = times;
             self
         }
         fn call_count(&self) -> usize {
@@ -459,9 +544,14 @@ mod git_executor_tests {
                 None => !delay.is_zero(),
             };
             let fail = self.fail;
+            let lock_conflict_times = self.lock_conflict_times;
             async move {
                 // 先记录发起，再模拟耗时；被取消时也留下记录，便于断言重试次数。
-                calls.lock().unwrap().push((workdir, args.clone()));
+                let seq = {
+                    let mut guard = calls.lock().unwrap();
+                    guard.push((workdir, args.clone()));
+                    guard.len()
+                };
                 if delay_applies {
                     tokio::time::sleep(delay).await;
                 }
@@ -470,6 +560,13 @@ mod git_executor_tests {
                         stdout: String::new(),
                         stderr: "fake boom".to_string(),
                         exit_code: 1,
+                    })
+                } else if seq <= lock_conflict_times {
+                    Ok(GitPanelRunOutput {
+                        stdout: String::new(),
+                        stderr: "fatal: Unable to create '/repo/.git/index.lock': File exists."
+                            .to_string(),
+                        exit_code: 128,
                     })
                 } else {
                     Ok(GitPanelRunOutput {
@@ -653,6 +750,111 @@ mod git_executor_tests {
             let result = executor.run_network("/repo", &["fetch"]).await;
             assert!(result.is_err());
             assert!(result.unwrap_err().contains("超时"));
+        });
+    }
+
+    #[test]
+    fn write_retries_on_index_lock_conflict() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            // 前 2 次撞锁，第 3 次成功。
+            let runner = FakeRunner::new().with_lock_conflict(2);
+            let executor = new_executor(
+                runner.clone(),
+                Duration::from_secs(2),
+                Duration::from_millis(500),
+            );
+
+            let result = executor.run_write("/repo", &["add", "a.txt"]).await;
+            assert!(result.is_ok(), "撞锁后应自动重试成功：{result:?}");
+            assert_eq!(
+                runner.call_count_for(&["add", "a.txt"]),
+                3,
+                "撞锁 2 次 + 成功 1 次，共 3 次调用"
+            );
+        });
+    }
+
+    #[test]
+    fn write_gives_up_after_max_lock_retries() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            // 一直撞锁：首次 + 3 次重试 = 4 次后放弃，返回原始失败输出。
+            let runner = FakeRunner::new().with_lock_conflict(usize::MAX);
+            let executor = new_executor(
+                runner.clone(),
+                Duration::from_secs(2),
+                Duration::from_millis(500),
+            );
+
+            let output = executor
+                .run_write("/repo", &["add", "a.txt"])
+                .await
+                .expect("run_write 本身应返回 Ok：git 非零退出码不算执行错误");
+            assert_ne!(output.exit_code, 0, "超过重试上限后应返回原始失败输出");
+            assert_eq!(
+                runner.call_count_for(&["add", "a.txt"]),
+                4,
+                "首次 + 3 次重试，共 4 次调用"
+            );
+        });
+    }
+
+    #[test]
+    fn network_lock_does_not_block_local_write() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            // fetch 持网络锁 300ms，期间本地 add 不应被阻塞。
+            let runner = FakeRunner::new().with_delay_for(&["fetch"], Duration::from_millis(300));
+            let executor = std::sync::Arc::new(new_executor(
+                runner.clone(),
+                Duration::from_secs(2),
+                Duration::from_millis(500),
+            ));
+
+            let e = executor.clone();
+            let fetch = tokio::spawn(async move { e.run_network("/repo", &["fetch"]).await });
+            tokio::time::sleep(Duration::from_millis(30)).await;
+
+            let start = std::time::Instant::now();
+            executor.run_write("/repo", &["add", "a.txt"]).await.unwrap();
+            let elapsed = start.elapsed();
+            fetch.await.unwrap().unwrap();
+
+            assert!(
+                elapsed < Duration::from_millis(200),
+                "本地写不应等待网络操作，实际耗时 {elapsed:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn pull_blocks_local_write_until_done() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            // pull 会改 worktree/index，持本地写锁 200ms，期间 add 必须等待。
+            let runner = FakeRunner::new()
+                .with_delay_for(&["pull"], Duration::from_millis(200));
+            let executor = std::sync::Arc::new(new_executor(
+                runner.clone(),
+                Duration::from_secs(2),
+                Duration::from_millis(500),
+            ));
+
+            let e = executor.clone();
+            let pull =
+                tokio::spawn(async move { e.run_pull("/repo", &["pull"]).await });
+            tokio::time::sleep(Duration::from_millis(30)).await;
+
+            let start = std::time::Instant::now();
+            executor.run_write("/repo", &["add", "a.txt"]).await.unwrap();
+            let elapsed = start.elapsed();
+            pull.await.unwrap().unwrap();
+
+            assert!(
+                elapsed >= Duration::from_millis(100),
+                "pull 持本地写锁期间 add 应等待，实际耗时 {elapsed:?}"
+            );
         });
     }
 

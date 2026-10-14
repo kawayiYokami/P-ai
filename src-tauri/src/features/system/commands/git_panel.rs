@@ -1028,7 +1028,7 @@ async fn git_panel_fetch(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOut
 async fn git_panel_pull(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    git_executor().run_network(&repo_root, &["pull"]).await
+    git_executor().run_pull(&repo_root, &["pull"]).await
 }
 
 #[tauri::command]
@@ -1046,7 +1046,7 @@ async fn git_panel_sync(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOutp
     if fetch_result.exit_code != 0 {
         return Ok(fetch_result);
     }
-    git_executor().run_network(&repo_root, &["pull"]).await
+    git_executor().run_pull(&repo_root, &["pull"]).await
 }
 
 // ---------- 命令：历史与提交图 ----------
