@@ -500,7 +500,7 @@ const props = defineProps<{
   restoreApiConfigAction: () => boolean;
   normalizeApiBindingsAction: () => void;
   lastSavedConfigJson: string;
-  setStatusAction: (text: string) => void;
+  setStatusAction: (text: string, tone?: "default" | "success" | "error", sticky?: boolean) => void;
 }>();
 
 const emit = defineEmits<{
@@ -603,7 +603,7 @@ function reportConnectionStatusToBar(apiKey: string, status: { status: "success"
   const detail = status.status === "success"
     ? t("config.api.testConnectionSuccess", { latency: status.latencyMs })
     : t("config.api.testConnectionFailed", { error: status.error });
-  props.setStatusAction(`${preview} ${detail}`);
+  props.setStatusAction(`${preview} ${detail}`, status.status === "success" ? "success" : "error", true);
 }
 
 function handleConnectionStatusDotClick(apiKey: string) {
@@ -2378,7 +2378,7 @@ async function runConnectionTestFirstKey() {
   if (!usesGrokLogin && !apiKey.trim()) {
     const errText = "API key is empty";
     connectionTestResults.value = [{ keyPreview: "-", success: false, error: errText }];
-    props.setStatusAction(t("config.api.testConnectionFailed", { error: errText }));
+    props.setStatusAction(t("config.api.testConnectionFailed", { error: errText }), "error", true);
     return;
   }
   connectionTestFirstKeyRunning.value = true;
@@ -2403,7 +2403,7 @@ async function runConnectionTestAllKeys() {
   if (keys.length === 0) {
     const errText = "API key is empty";
     connectionTestResults.value = [{ keyPreview: "-", success: false, error: errText }];
-    props.setStatusAction(t("config.api.testConnectionFailed", { error: errText }));
+    props.setStatusAction(t("config.api.testConnectionFailed", { error: errText }), "error", true);
     return;
   }
   connectionTestAllKeysRunning.value = true;
@@ -2420,7 +2420,7 @@ async function runConnectionTestAllKeys() {
     }
     const successCount = results.filter((r) => r.success).length;
     const failedCount = results.length - successCount;
-    props.setStatusAction(t("config.api.testAllKeysSummary", { success: successCount, failed: failedCount }));
+    props.setStatusAction(t("config.api.testAllKeysSummary", { success: successCount, failed: failedCount }), "default", true);
   } finally {
     connectionTestAllKeysRunning.value = false;
   }

@@ -25,8 +25,9 @@
           <div class="flex flex-wrap items-center justify-between gap-2">
             <span class="text-sm">{{ t('config.memory.embeddingModel') }}</span>
             <div class="flex flex-wrap justify-end gap-2">
-              <button class="btn btn-sm" :disabled="loading || !embeddingApiConfigId" @click="testEmbeddingProvider">
-                {{ t('config.memory.testEmbedding') }}
+              <button class="btn btn-sm" :disabled="embeddingTesting || !embeddingApiConfigId" @click="testEmbeddingProvider">
+                <span v-if="embeddingTesting" class="loading loading-spinner loading-xs"></span>
+                {{ embeddingTesting ? t('config.memory.testing') : t('config.memory.testEmbedding') }}
               </button>
               <button
                 class="btn btn-sm btn-primary"
@@ -51,8 +52,9 @@
           <div class="flex flex-wrap items-center justify-between gap-2">
             <span class="text-sm">{{ t('config.memory.rerankModel') }}</span>
             <div class="flex flex-wrap justify-end gap-2">
-              <button class="btn btn-sm" :disabled="loading || !rerankApiConfigId" @click="testRerankProvider">
-                {{ t('config.memory.testRerank') }}
+              <button class="btn btn-sm" :disabled="rerankTesting || !rerankApiConfigId" @click="testRerankProvider">
+                <span v-if="rerankTesting" class="loading loading-spinner loading-xs"></span>
+                {{ rerankTesting ? t('config.memory.testing') : t('config.memory.testRerank') }}
               </button>
               <button
                 class="btn btn-sm"
@@ -443,10 +445,6 @@
         </div>
       </template>
     </ConfigTemplate>
-
-    <div v-if="opMessage" class="break-all rounded-box bg-base-200/50 px-2 py-1.5 text-sm">
-      {{ opMessage }}
-    </div>
   </div>
 </template>
 
@@ -541,9 +539,17 @@ type ChatHistorySearchStats = {
 };
 
 const { t } = useI18n();
-const props = withDefaults(defineProps<{ syncLocked?: boolean }>(), {
+const props = withDefaults(defineProps<{
+  syncLocked?: boolean;
+  setStatusAction?: (text: string, tone?: "default" | "success" | "error") => void;
+}>(), {
   syncLocked: false,
 });
+
+// 反馈统一走配置窗口的全局 toast（ConfigStatusToast），不在页面里堆状态行
+function notify(text: string, tone: "default" | "success" | "error" = "default") {
+  props.setStatusAction?.(text, tone);
+}
 const emit = defineEmits<{
   (e: "sync-lock-change", value: boolean): void;
 }>();
@@ -553,7 +559,6 @@ const DETAILED_MEMORY_PAGE_SIZE = 10;
 const COMPACT_MEMORY_PAGE_SIZE = 20;
 const PROFILE_ATTRIBUTE_TAGS = ["用户别名", "事实属性", "技能树", "关系图谱", "活跃项目", "用户要求"] as const;
 const loading = ref(false);
-const opMessage = ref("");
 const memoryList = ref<MemoryEntry[]>([]);
 const memoryPage = ref(1);
 const memoryViewMode = ref<"detailed" | "compact">("detailed");
@@ -567,6 +572,9 @@ const embeddingApiConfigId = ref("");
 const rerankApiConfigId = ref("");
 const embeddingLastPassedTestKey = ref("");
 const rerankLastPassedTestKey = ref("");
+// 两个测试各自独立的进行中状态，避免互相干扰、也不占用全局 loading
+const embeddingTesting = ref(false);
+const rerankTesting = ref(false);
 const apiConfigs = ref<ApiConfigLite[]>([]);
 const personaOptions = ref<PersonaLite[]>([]);
 const personaNameMap = ref<Record<string, string>>({});
@@ -818,7 +826,7 @@ async function withLoading<T>(fn: () => Promise<T>): Promise<T | null> {
   try {
     return await fn();
   } catch (err) {
-    opMessage.value = t('sidebar.memoryOperationFailed', { error: String(err) });
+    notify(t('sidebar.memoryOperationFailed', { error: String(err) }), "error");
     return null;
   } finally {
     loading.value = false;
@@ -832,7 +840,7 @@ async function deleteMemory(memoryId: string) {
   if (!result) return;
   memoryList.value = memoryList.value.filter((memory) => memory.id !== memoryId);
   memoryPage.value = Math.max(1, Math.min(memoryPage.value, memoryPageCount.value));
-  opMessage.value = t('config.memory.memoryDeleted');
+  notify(t('config.memory.memoryDeleted'), "success");
 }
 
 async function refreshMemories() {
@@ -841,7 +849,7 @@ async function refreshMemories() {
   memoryList.value = result;
   memoryPage.value = 1;
   isSearchMode.value = false;
-  opMessage.value = t('config.memory.loadedCount', { count: result.length });
+  notify(t('config.memory.loadedCount', { count: result.length }), "success");
 }
 
 async function searchMemories() {
@@ -874,7 +882,7 @@ async function searchMemories() {
   }));
   memoryPage.value = 1;
   isSearchMode.value = true;
-  opMessage.value = t('config.memory.searchCompleted', { count: result.memories.length });
+  notify(t('config.memory.searchCompleted', { count: result.memories.length }), "success");
 }
 
 function chatHistorySourceLabel(sourceKind: string): string {
@@ -991,15 +999,15 @@ async function handleMemoryImportDone(result: {
   totalCount: number;
 }) {
   await refreshMemories();
-  opMessage.value = t("config.memory.importDone", {
+  notify(t("config.memory.importDone", {
     created: result.createdCount,
     merged: result.mergedCount,
     total: result.totalCount,
-  });
+  }), "success");
 }
 
 function handleMemoryExportDone(result: { count: number }) {
-  opMessage.value = t("config.memory.exportedCount", { count: result.count });
+  notify(t("config.memory.exportedCount", { count: result.count }), "success");
 }
 
 function loadMemoryViewModePreference(): void {
@@ -1024,8 +1032,10 @@ function persistMemoryViewMode(mode: "detailed" | "compact"): void {
 }
 
 async function testEmbeddingProvider() {
-  const result = await withLoading(() =>
-    invokeTauri<{ providerKind: string; modelName: string; vectorDim: number; elapsedMs: number }>(
+  if (embeddingTesting.value) return;
+  embeddingTesting.value = true;
+  try {
+    const result = await invokeTauri<{ providerKind: string; modelName: string; vectorDim: number; elapsedMs: number }>(
       "test_memory_embedding_provider",
       {
         input: {
@@ -1034,16 +1044,21 @@ async function testEmbeddingProvider() {
           modelName: selectedEmbeddingApiConfig.value?.model || undefined,
         },
       },
-    ),
-  );
-  if (!result) return;
-  embeddingLastPassedTestKey.value = embeddingCurrentTestKey.value;
-  opMessage.value = t('config.memory.embeddingTestSuccess', { provider: result.providerKind, dim: result.vectorDim, ms: result.elapsedMs });
+    );
+    embeddingLastPassedTestKey.value = embeddingCurrentTestKey.value;
+    notify(t('config.memory.embeddingTestSuccess', { provider: result.providerKind, dim: result.vectorDim, ms: result.elapsedMs }), "success");
+  } catch (err) {
+    notify(t('config.memory.embeddingTestFailed', { error: String(err) }), "error");
+  } finally {
+    embeddingTesting.value = false;
+  }
 }
 
 async function testRerankProvider() {
-  const result = await withLoading(() =>
-    invokeTauri<{ providerKind: string; modelName: string; elapsedMs: number; resultCount: number; topIndex?: number; topScore?: number }>(
+  if (rerankTesting.value) return;
+  rerankTesting.value = true;
+  try {
+    const result = await invokeTauri<{ providerKind: string; modelName: string; elapsedMs: number; resultCount: number; topIndex?: number; topScore?: number }>(
       "test_memory_rerank_provider",
       {
         input: {
@@ -1051,11 +1066,14 @@ async function testRerankProvider() {
           modelName: selectedRerankApiConfig.value?.model || undefined,
         },
       },
-    ),
-  );
-  if (!result) return;
-  rerankLastPassedTestKey.value = rerankCurrentTestKey.value;
-  opMessage.value = t('config.memory.rerankTestSuccess', { provider: result.providerKind, count: result.resultCount, ms: result.elapsedMs });
+    );
+    rerankLastPassedTestKey.value = rerankCurrentTestKey.value;
+    notify(t('config.memory.rerankTestSuccess', { provider: result.providerKind, count: result.resultCount, ms: result.elapsedMs }), "success");
+  } catch (err) {
+    notify(t('config.memory.rerankTestFailed', { error: String(err) }), "error");
+  } finally {
+    rerankTesting.value = false;
+  }
 }
 
 async function saveEmbeddingBinding() {
@@ -1070,7 +1088,7 @@ async function saveEmbeddingBinding() {
     );
     if (!result) return;
     embeddingLastPassedTestKey.value = "";
-    opMessage.value = t('config.memory.embeddingClosed');
+    notify(t('config.memory.embeddingClosed'), "default");
     return;
   }
   emit("sync-lock-change", true);
@@ -1091,7 +1109,7 @@ async function saveEmbeddingBinding() {
     ),
   );
   if (result) {
-    opMessage.value = t('config.memory.embeddingSyncSuccess', { added: result.added, deleted: result.deleted, batchCount: result.batchCount });
+    notify(t('config.memory.embeddingSyncSuccess', { added: result.added, deleted: result.deleted, batchCount: result.batchCount }), "success");
   }
   await refreshSyncProgress();
   stopSyncProgressPolling();
@@ -1113,7 +1131,7 @@ async function saveRerankBinding() {
     );
     if (!result) return;
     rerankLastPassedTestKey.value = "";
-    opMessage.value = t('config.memory.rerankClosed');
+    notify(t('config.memory.rerankClosed'), "default");
     return;
   }
   const result = await withLoading(() =>
@@ -1128,7 +1146,7 @@ async function saveRerankBinding() {
     ),
   );
   if (!result) return;
-  opMessage.value = t('config.memory.rerankSaved');
+  notify(t('config.memory.rerankSaved'), "success");
 }
 
 async function loadApiConfigs() {

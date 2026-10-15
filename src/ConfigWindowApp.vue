@@ -299,7 +299,7 @@
 
     <StartupOverlay v-if="startupOverlayVisible" />
 
-    <ConfigStatusToast :text="status" :tone="statusTone" />
+    <ConfigStatusToast :text="status" :tone="statusTone" :nonce="statusNonce" :sticky="statusSticky" />
 
     <FileLinkContextMenu
       :state="fileLinkMenuState"
@@ -504,6 +504,8 @@ const {
   setStatus,
   setStatusError,
   statusTone,
+  statusNonce,
+  statusSticky,
   localeOptions,
   applyUiLanguage,
 } = useAppCore({

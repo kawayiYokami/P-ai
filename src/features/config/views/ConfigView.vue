@@ -323,6 +323,7 @@
           <MemoryTab
             v-else-if="props.configTab === 'memory'"
             :sync-locked="memorySyncLocked"
+            :set-status-action="setStatusAction"
             @sync-lock-change="onMemorySyncLockChange"
           />
 
@@ -616,7 +617,7 @@ const props = defineProps<{
   updateRecordBackgroundWakeEnabledAction: (value: boolean) => Promise<boolean> | boolean;
   restoreConfigAction: () => boolean;
   lastSavedConfigJson: string;
-  setStatusAction: (text: string, tone?: StatusTone) => void;
+  setStatusAction: (text: string, tone?: StatusTone, sticky?: boolean) => void;
   savePersonaRelations?: (updates: { agentId: string; childAgentIds: string[] }[]) => Promise<boolean>;
 }>();
 

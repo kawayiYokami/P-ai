@@ -28,15 +28,23 @@ export function useAppCore(options: UseAppCoreOptions) {
   }
 
   const statusTone = ref<StatusTone>("default");
+  // 每次 setStatus 自增，让「内容相同」的重复提示也能重新弹出
+  const statusNonce = ref(0);
+  // sticky 提示不自动消失，需用户手动关闭（用于连接测试结果这类）
+  const statusSticky = ref(false);
 
-  function setStatus(text: string, tone: StatusTone = "default") {
+  function setStatus(text: string, tone: StatusTone = "default", sticky = false) {
     options.status.value = text;
     statusTone.value = tone;
+    statusSticky.value = sticky;
+    statusNonce.value += 1;
   }
 
   function setStatusError(key: string, error: unknown) {
     options.status.value = formatI18nError(options.t, key, error);
     statusTone.value = "error";
+    statusSticky.value = false;
+    statusNonce.value += 1;
   }
 
   const localeOptions = computed<Array<{ value: SupportedLocale; label: string }>>(() => [
@@ -62,6 +70,8 @@ export function useAppCore(options: UseAppCoreOptions) {
     setStatus,
     setStatusError,
     statusTone,
+    statusNonce,
+    statusSticky,
     localeOptions,
     applyUiLanguage,
   };
