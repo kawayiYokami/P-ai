@@ -10,6 +10,23 @@ export type FileReaderFilePayload = {
   virtualized?: boolean;
   totalLines?: number;
   blockLineCount?: number;
+  /** 读取时的文件字节数，与 modifiedMs 一起构成内容来源签名 */
+  len?: number;
+  /** 读取时的文件修改时间（毫秒时间戳） */
+  modifiedMs?: number;
+};
+
+/** 文件当前签名，仅用于判断磁盘内容相对已读内容是否变化 */
+export type FileReaderFileSignature = {
+  len: number;
+  modifiedMs: number;
+};
+
+export type FileReaderFileStatPayload = {
+  path: string;
+  exists: boolean;
+  len: number;
+  modifiedMs: number;
 };
 
 export type FileReaderFileBlockPayload = {
@@ -57,6 +74,10 @@ export type FileTab = {
   loading: boolean;
   error: string;
   diffSource?: GitDiffTabSource;
+  /** 当前内容对应的磁盘签名；切入标签时据此判断是否需要重读 */
+  signature?: FileReaderFileSignature | null;
+  /** 离开该标签时的滚动位置（像素），仅运行时记忆 */
+  scrollTop?: number;
 };
 
 export type VirtualCodeBlock = {

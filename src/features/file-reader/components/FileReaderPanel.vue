@@ -718,6 +718,7 @@ import type {
   FileReaderDirectoryPayload,
   FileReaderFileBlockPayload,
   FileReaderFilePayload,
+  FileReaderFileStatPayload,
   FileReaderSessionState,
   FileReaderWatchEventPayload,
   FileReaderWatchTarget,
@@ -1939,18 +1940,69 @@ function upsertLoadingTab(path: string, reuseActiveTab = false) {
   return tab;
 }
 
+// 标签切换代次：任何 await 期间发生新的切换，都让旧续体作废，避免把上一个标签的滚动位置/上下文写到新标签
+let fileReaderTabActivationToken = 0;
+let fileReaderTabActivationPath = "";
+
 function setActiveTab(path: string) {
   const normalizedPath = normalizePath(path);
   const changed = !sameNormalizedPath(activePath.value, normalizedPath);
+  const activationToken = ++fileReaderTabActivationToken;
+  fileReaderTabActivationPath = normalizedPath;
+  if (changed) captureActiveScrollPosition();
   activePath.value = normalizedPath;
   scheduleAddressScrollStateUpdate();
   const tab = tabs.value.find((item) => item.path === normalizedPath);
   if (tab && !tab.loaded && !tab.loading) {
     void openPath(normalizedPath);
   } else if (changed) {
-    void resetScrollAndCaptureFirstPage();
+    void activateLoadedTab(tab, normalizedPath, activationToken);
   } else {
     void nextTick(() => captureVisibleRangeContextNow());
+  }
+}
+
+// 切出标签前记下滚动位置，切入同标签时复用；各标签互不污染
+function captureActiveScrollPosition() {
+  const tab = activeTab.value;
+  if (!tab) return;
+  const scroller = activeContentScroller();
+  if (scroller) tab.scrollTop = scroller.scrollTop;
+}
+
+// 切入一个已加载标签：非 diff 伪路径先比对磁盘签名，未变就复用缓存内容并恢复滚动，变了才重读。
+// 后台标签不在监听范围内（watch 只登记 active），变化只能靠切入这一刻主动查。
+async function activateLoadedTab(tab: FileTab | null | undefined, path: string, activationToken: number) {
+  if (!tab) return;
+  const isDiffPseudo = String(path || "").startsWith("git-diff:");
+  // 只有文本类、且不是 git-diff 伪路径的标签才有磁盘签名可查；媒体标签直接复用
+  const stale = !isDiffPseudo && isTextFileKind(tab.kind) && await activeTabSignatureChanged(tab, path);
+  if (activationToken !== fileReaderTabActivationToken) return;
+  if (stale) {
+    tab.scrollTop = 0;
+    await openPath(path);
+    // openPath 内部会把 activePath 指向自己；若期间又切了标签，把它还回最新目标
+    if (activationToken !== fileReaderTabActivationToken) {
+      activePath.value = fileReaderTabActivationPath;
+      return;
+    }
+  }
+  await nextTick();
+  if (activationToken !== fileReaderTabActivationToken) return;
+  const scroller = activeContentScroller();
+  if (scroller) scroller.scrollTop = tab.scrollTop ?? 0;
+  captureVisibleRangeContextNow({ force: true });
+}
+
+async function activeTabSignatureChanged(tab: FileTab, path: string): Promise<boolean> {
+  if (!tab.signature) return true;
+  try {
+    const stat = await requestFileReaderFileStat(path);
+    if (!stat.exists) return true;
+    return stat.len !== tab.signature.len || stat.modifiedMs !== tab.signature.modifiedMs;
+  } catch (error) {
+    console.warn("[文件阅读器] 查询文件签名失败", { path, error });
+    return true;
   }
 }
 
@@ -2096,6 +2148,9 @@ async function openPath(path: string, options: { reuseActiveTab?: boolean; targe
     tab.virtualized = !!payload.virtualized;
     tab.totalLines = Number(payload.totalLines || 0);
     tab.blockLineCount = Number(payload.blockLineCount || 0);
+    tab.signature = typeof payload.len === "number" && typeof payload.modifiedMs === "number"
+      ? { len: payload.len, modifiedMs: payload.modifiedMs }
+      : null;
     tab.loaded = true;
     tab.error = "";
     tab.loading = false;
@@ -2486,6 +2541,12 @@ async function requestFileReaderFile(path: string): Promise<FileReaderFilePayloa
     };
   }
   return await invokeTauri<FileReaderFilePayload>("fileReader.readFile", { path: normalizedPath });
+}
+
+async function requestFileReaderFileStat(path: string): Promise<FileReaderFileStatPayload> {
+  const normalizedPath = normalizePath(path);
+  if (!normalizedPath) return { path: "", exists: false, len: 0, modifiedMs: 0 };
+  return await invokeTauri<FileReaderFileStatPayload>("fileReader.statFile", { path: normalizedPath });
 }
 
 async function requestFileReaderFileBlock(path: string, startLine: number, lineCount: number): Promise<FileReaderFileBlockPayload> {

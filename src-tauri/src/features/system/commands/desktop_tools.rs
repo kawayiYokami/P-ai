@@ -2193,6 +2193,17 @@ struct FileReaderFilePayload {
     virtualized: bool,
     total_lines: usize,
     block_line_count: usize,
+    len: u64,
+    modified_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileReaderFileStatPayload {
+    path: String,
+    exists: bool,
+    len: u64,
+    modified_ms: u128,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2706,6 +2717,7 @@ fn read_file_reader_file_inner(path: String, window_label: Option<&str>) -> Resu
     } else {
         rope.to_string()
     };
+    let modified_ms = file_reader_watch_modified_ms(&metadata);
     Ok(FileReaderFilePayload {
         path: resolved_path.to_string_lossy().replace('\\', "/"),
         name,
@@ -2716,6 +2728,36 @@ fn read_file_reader_file_inner(path: String, window_label: Option<&str>) -> Resu
         virtualized,
         total_lines,
         block_line_count: if virtualized { FILE_READER_BLOCK_LINE_COUNT } else { 0 },
+        len: file_size,
+        modified_ms,
+    })
+}
+
+/// 轻量查询文件的当前签名（len + mtime），供前端切入标签时判断是否需要重读，不读正文。
+#[tauri::command]
+async fn stat_file_reader_file(path: String) -> Result<FileReaderFileStatPayload, String> {
+    tokio::task::spawn_blocking(move || stat_file_reader_file_inner(path))
+        .await
+        .map_err(|err| format!("读取文件信息任务失败：{err}"))?
+}
+
+fn stat_file_reader_file_inner(path: String) -> Result<FileReaderFileStatPayload, String> {
+    let raw_path = path.trim();
+    if raw_path.is_empty() {
+        return Err("path is required".to_string());
+    }
+    let fingerprint = file_reader_watch_fingerprint(raw_path);
+    let resolved_path = PathBuf::from(raw_path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(raw_path))
+        .to_string_lossy()
+        .replace('\\', "/");
+    Ok(FileReaderFileStatPayload {
+        path: resolved_path,
+        // 目录不算可读文件，按不存在处理，让前端走重读分支给出真实报错
+        exists: fingerprint.exists && !fingerprint.is_dir,
+        len: fingerprint.len,
+        modified_ms: fingerprint.modified_ms,
     })
 }
 

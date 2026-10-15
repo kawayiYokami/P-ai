@@ -1680,6 +1680,7 @@ fn main() {
             open_file_reader_window_command,
             read_file_reader_file,
             read_file_reader_file_block,
+            stat_file_reader_file,
             list_file_reader_directory,
             list_file_reader_directory_open_targets,
             update_file_reader_watch_targets,
