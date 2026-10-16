@@ -1190,6 +1190,30 @@ async fn describe_media_with_multimodal_api(
     Ok(reply.assistant_text.trim().to_string())
 }
 
+/// read_media 图片的像素上限：4K。4K 以内保持原始尺寸，超出才等比缩到 4K 内。
+const READ_MEDIA_IMAGE_MAX_PIXELS: u64 = 3840 * 2160;
+
+/// 读到的图片统一走 LLM 请求规范化（转 webp），保证发出去的格式是供应商收的。
+/// 规范化失败说明这张图连本地都解不出，直接按格式异常报错，不把原图丢给上游。
+fn read_media_normalize_provider_image(
+    mime: String,
+    raw: Vec<u8>,
+) -> Result<(String, Vec<u8>), String> {
+    let options = LlmRequestImageNormalizeOptions {
+        target_pixel_budget: READ_MEDIA_IMAGE_MAX_PIXELS,
+        webp_quality: IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_WEBP_QUALITY,
+        max_source_bytes: IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_SOURCE_BYTES,
+        max_dimension: IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_DIMENSION,
+    };
+    let normalized = normalize_image_bytes_for_llm_request_with_options(
+        &raw,
+        Some(mime.as_str()),
+        options,
+    )
+    .map_err(|err| format!("图片格式异常：{err}"))?;
+    Ok((normalized.mime, normalized.bytes))
+}
+
 async fn builtin_read_media(
     state: &AppState,
     request: ReadMediaRequest,
@@ -1217,6 +1241,7 @@ async fn builtin_read_media(
         let mime = media_mime_from_path(&path)
             .unwrap_or("image/png")
             .to_string();
+        let (mime, raw) = read_media_normalize_provider_image(mime, raw)?;
         let content_base64 = B64.encode(&raw);
         runtime_log_debug(format!(
             "[read_media] 直接返回原图：模型支持图片输入，mime={}，字节数={}，description={}",
@@ -1320,6 +1345,12 @@ async fn builtin_read_media(
             ReadMediaDetectedType::Video => "video/mp4",
         })
         .to_string();
+    // 图片统一转 webp 再发，音频/视频保持原样
+    let (mime, raw) = if detected == ReadMediaDetectedType::Image {
+        read_media_normalize_provider_image(mime, raw)?
+    } else {
+        (mime, raw)
+    };
     let content_base64 = B64.encode(&raw);
     let description = request.description.unwrap_or_default().trim().to_string();
     use sha2::{Digest, Sha256};
@@ -2469,11 +2500,11 @@ fn builtin_read_media_should_fail_when_audio_capability_is_disabled() {
 
 #[cfg(test)]
 #[test]
-fn builtin_read_media_should_return_original_image_when_model_supports_image() {
+fn builtin_read_media_should_return_normalized_image_when_model_supports_image() {
         let root = std::env::temp_dir().join(format!("eca-read-media-direct-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let file = root.join("sample.png");
-        std::fs::write(&file, b"\x89PNG\r\n\x1a\nfake-image-bytes").expect("write image");
+        write_test_png_file(&file);
         let state = test_read_file_state();
         let value = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -2491,7 +2522,7 @@ fn builtin_read_media_should_return_original_image_when_model_supports_image() {
 
         assert_eq!(value.get("mediaType").and_then(Value::as_str), Some("image"));
         assert_eq!(value.get("directImage").and_then(Value::as_bool), Some(true));
-        assert_eq!(value.get("imageMime").and_then(Value::as_str), Some("image/png"));
+        assert_eq!(value.get("imageMime").and_then(Value::as_str), Some("image/webp"));
         assert!(value
             .get("imageBase64")
             .and_then(Value::as_str)
@@ -2507,12 +2538,12 @@ fn builtin_read_media_should_return_original_image_when_model_supports_image() {
 
 #[cfg(test)]
 #[test]
-fn builtin_read_media_should_return_original_image_with_description_hint_when_model_supports_image() {
-        // description 非空时图片仍直返原图，description 作为解析侧重提示透传给当前模型。
+fn builtin_read_media_should_return_normalized_image_with_description_hint_when_model_supports_image() {
+        // description 非空时图片仍直返当前模型，description 作为解析侧重提示透传。
         let root = std::env::temp_dir().join(format!("eca-read-media-direct-desc-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let file = root.join("sample.png");
-        std::fs::write(&file, b"\x89PNG\r\n\x1a\nfake-image-bytes").expect("write image");
+        write_test_png_file(&file);
         let state = test_read_file_state();
         let value = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -2530,6 +2561,7 @@ fn builtin_read_media_should_return_original_image_with_description_hint_when_mo
 
         assert_eq!(value.get("mediaType").and_then(Value::as_str), Some("image"));
         assert_eq!(value.get("directImage").and_then(Value::as_bool), Some(true));
+        assert_eq!(value.get("imageMime").and_then(Value::as_str), Some("image/webp"));
         assert!(value
             .get("imageBase64")
             .and_then(Value::as_str)
@@ -2699,4 +2731,73 @@ fn build_pdf_image_read_result_should_paginate_by_page_start() {
         let parts = value.get("parts").and_then(Value::as_array).expect("parts");
         assert_eq!(parts.len(), 1);
         assert_eq!(parts[0].get("pageIndex").and_then(Value::as_u64), Some(1));
+}
+
+#[cfg(test)]
+#[test]
+fn read_media_should_normalize_bmp_to_webp() {
+    let source = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        8,
+        8,
+        image::Rgb([10, 20, 30]),
+    ));
+    let mut bmp = Vec::<u8>::new();
+    source
+        .write_to(&mut std::io::Cursor::new(&mut bmp), image::ImageFormat::Bmp)
+        .expect("encode bmp");
+
+    let (mime, normalized) =
+        read_media_normalize_provider_image("image/bmp".to_string(), bmp).expect("normalize bmp");
+    assert_eq!(mime, "image/webp");
+    assert_eq!(
+        image::guess_format(&normalized).expect("guess format"),
+        image::ImageFormat::WebP
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn read_media_should_normalize_png_to_webp_and_keep_dimensions() {
+    let source = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        1600,
+        900,
+        image::Rgb([1, 2, 3]),
+    ));
+    let mut png = Vec::<u8>::new();
+    source
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("encode png");
+
+    let (mime, normalized) =
+        read_media_normalize_provider_image("image/png".to_string(), png).expect("normalize png");
+    assert_eq!(mime, "image/webp");
+    assert_eq!(
+        image::guess_format(&normalized).expect("guess format"),
+        image::ImageFormat::WebP
+    );
+    let decoded = image::load_from_memory(&normalized).expect("decode normalized image");
+    assert_eq!((decoded.width(), decoded.height()), (1600, 900));
+}
+
+#[cfg(test)]
+#[test]
+fn read_media_should_reject_unreadable_image() {
+    let err =
+        read_media_normalize_provider_image("image/png".to_string(), b"\x89PNG\r\n\x1a\nfake".to_vec())
+            .expect_err("unreadable image should fail");
+    assert!(err.contains("图片格式异常"));
+}
+
+#[cfg(test)]
+fn write_test_png_file(path: &std::path::Path) {
+    let source = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        4,
+        4,
+        image::Rgb([7, 8, 9]),
+    ));
+    let mut bytes = Vec::<u8>::new();
+    source
+        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .expect("encode png");
+    std::fs::write(path, bytes).expect("write image");
 }
