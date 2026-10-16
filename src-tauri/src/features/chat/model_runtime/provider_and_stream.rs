@@ -1,6 +1,9 @@
 // ---- 共享类型 ----
 include!("provider_and_stream/types.rs");
 
+// ---- 流式失败留档 ----
+include!("provider_and_stream/stream_failure_capture.rs");
+
 // ---- 截图缓存基础设施 ----
 include!("provider_and_stream/screenshot_cache.rs");
 

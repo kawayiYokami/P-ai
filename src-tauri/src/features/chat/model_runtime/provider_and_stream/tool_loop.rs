@@ -630,6 +630,11 @@ async fn run_genai_tool_loop(
             let mut round_usage = None;
             let mut round_assistant_provider_meta = None::<Value>;
 
+            let stream_guard = StreamFailureGuard::new(
+                tool_abort_state.map(|state| state.data_path.clone()),
+                usage_conversation_id.map(str::to_string),
+            );
+            let round_options = stream_guard.attach(options.clone());
             let mut stream = {
                 let mut request = genai::chat::ChatRequest::from_messages(
                     sanitize_genai_messages_before_request(messages.clone(), "genai_tool_loop_stream"),
@@ -645,7 +650,7 @@ async fn run_genai_tool_loop(
                     request = request.with_tools(genai_tools.clone());
                 }
                 client
-                    .exec_chat_stream(model_spec.clone(), request, Some(&options))
+                    .exec_chat_stream(model_spec.clone(), request, Some(&round_options))
                     .await
                     .map_err(|err| format!("GenAI 流式请求构建失败：{err}"))?
                     .stream
@@ -734,7 +739,10 @@ async fn run_genai_tool_loop(
                                 .collect::<Vec<_>>();
                         }
                     }
-                    Err(err) => return Err(format!("GenAI 流式处理失败：{err}")),
+                    Err(err) => {
+                        stream_guard.note_stream_error(&err);
+                        return Err(format!("GenAI 流式处理失败：{err}"));
+                    }
                 }
             }
             Ok::<GenaiToolLoopRoundOutput, String>(GenaiToolLoopRoundOutput {

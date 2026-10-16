@@ -885,7 +885,9 @@ async fn invoke_quick_model_reply_with_prepared_prompt(
             request_api_key.clone(),
         );
         let request = build_provider_genai_request(&prepared)?;
-        let options = build_provider_genai_chat_options(&resolved_api, adapter_kind, true, false, None);
+        let stream_guard = StreamFailureGuard::new(Some(state.data_path.clone()), None);
+        let options = stream_guard
+            .attach(build_provider_genai_chat_options(&resolved_api, adapter_kind, true, false, None));
         let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
             &resolved_api,
             &model_name,
@@ -897,7 +899,16 @@ async fn invoke_quick_model_reply_with_prepared_prompt(
             .await
             .map_err(|err| format!("快速模型流式请求失败：{err}"))?
             .stream;
-        collect_streaming_model_reply_genai(&mut stream, None, None, None, None, None).await
+        collect_streaming_model_reply_genai(
+            &mut stream,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&stream_guard),
+        )
+        .await
     };
     if let Some(timeout_secs) = timeout_secs {
         let call_started = std::time::Instant::now();

@@ -884,7 +884,12 @@ async fn call_model_genai_stream_internal(
         model_name,
         request_api_key.clone(),
     );
-    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, None);
+    let stream_guard = StreamFailureGuard::new(
+        app_state.map(|state| state.data_path.clone()),
+        usage_conversation_id.map(str::to_string),
+    );
+    let options = stream_guard
+        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, None));
 
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
@@ -905,6 +910,7 @@ async fn call_model_genai_stream_internal(
         usage_conversation_id,
         Some(usage_provider_key.as_str()),
         Some(model_name),
+        Some(&stream_guard),
     )
     .await
 }
@@ -1064,7 +1070,12 @@ async fn call_model_openai_responses(
         request_api_key.clone(),
     );
     let request = build_genai_chat_request(&prepared)?;
-    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, None);
+    let stream_guard = StreamFailureGuard::new(
+        app_state.map(|state| state.data_path.clone()),
+        usage_conversation_id.map(str::to_string),
+    );
+    let options = stream_guard
+        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, None));
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
@@ -1084,6 +1095,7 @@ async fn call_model_openai_responses(
         usage_conversation_id,
         Some(usage_provider_key.as_str()),
         Some(model_name),
+        Some(&stream_guard),
     )
     .await
 }
@@ -1176,7 +1188,12 @@ async fn call_model_anthropic(
         request_api_key.clone(),
     );
     let request = build_genai_chat_request(&prepared)?;
-    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, None);
+    let stream_guard = StreamFailureGuard::new(
+        app_state.map(|state| state.data_path.clone()),
+        usage_conversation_id.map(str::to_string),
+    );
+    let options = stream_guard
+        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, None));
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
@@ -1196,6 +1213,7 @@ async fn call_model_anthropic(
         usage_conversation_id,
         Some(usage_provider_key.as_str()),
         Some(model_name),
+        Some(&stream_guard),
     )
     .await
 }

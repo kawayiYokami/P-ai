@@ -47,6 +47,7 @@ async fn collect_streaming_model_reply_genai<S>(
     usage_conversation_id: Option<&str>,
     usage_provider_key: Option<&str>,
     usage_model_name: Option<&str>,
+    stream_guard: Option<&StreamFailureGuard>,
 ) -> Result<ModelReply, String>
 where
     S: futures_util::Stream<Item = Result<genai::chat::ChatStreamEvent, genai::Error>> + Unpin,
@@ -154,6 +155,9 @@ where
                     "[聊天] GenAI 流式收集失败: error={:?}",
                     err
                 ));
+                if let Some(guard) = stream_guard {
+                    guard.note_stream_error(&err);
+                }
                 return Err(format!("GenAI 流式收集失败：{:?}", err));
             }
         }
@@ -221,6 +225,7 @@ mod stream_collect_tests {
         let reply = collect_streaming_model_reply_genai(
             stream,
             Some(&channel),
+            None,
             None,
             None,
             None,
