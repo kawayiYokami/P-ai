@@ -140,6 +140,15 @@ fn goal_create_goal_inner(
         },
     )?;
     emit_goal_updated(state, normalized_conversation_id, conversation.active_goal.as_ref());
+    // goal 已激活：停掉正在跑的护航委托，避免它的引导消息挤占目标续跑的收尾分支。
+    if let Err(err) =
+        abort_wheelchair_delegate(state, normalized_conversation_id, "goal 已激活，护航停止")
+    {
+        runtime_log_warn(format!(
+            "[护航] 停止失败，任务=goal 激活后停止护航，conversation_id={}，error={}",
+            normalized_conversation_id, err
+        ));
+    }
     clear_goal_continue_suppression(state, normalized_conversation_id, "goal_created")?;
     if let Err(err) = maybe_enqueue_goal_continue_after_idle(state, normalized_conversation_id) {
         runtime_log_warn(format!(

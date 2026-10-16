@@ -161,6 +161,19 @@ pub(crate) fn start_wheelchair_delegate_after_reply(
     if !get_conversation_wheelchair_mode_enabled(state, conversation_id).unwrap_or(false) {
         return Ok(());
     }
+    // goal 进行中不发起护航：护航引导会占住目标续跑的收尾分支，把续跑挤掉。
+    if conversation_service_v2()
+        .get_active_goal(state, conversation_id)
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        runtime_log_info(format!(
+            "[护航] 跳过，任务=发起委托，conversation_id={}，原因=goal 进行中",
+            conversation_id
+        ));
+        return Ok(());
+    }
     abort_wheelchair_delegate(state, conversation_id, "上一轮护航委托被新的回复替换")?;
     let agents = state_read_agents_cached(state)?;
     let agent = agents
