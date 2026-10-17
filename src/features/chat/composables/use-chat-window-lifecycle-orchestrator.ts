@@ -38,6 +38,7 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
     locale: bindings.locale,
     agentWorkPresence: bindings.agentWorkPresence,
     enqueueTerminalApprovalRequest: bindings.enqueueTerminalApprovalRequest,
+    removeTerminalApprovalRequest: bindings.removeTerminalApprovalRequest,
     clearMatchingConversationChatErrors: bindings.clearMatchingConversationChatErrors,
     refreshConversationHistory: bindings.refreshConversationHistory,
     assistantAgentId: bindings.assistantAgentId,

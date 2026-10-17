@@ -2164,6 +2164,7 @@ const TRANSPORT_NOTIFICATION_EVENT_ALIASES: Record<string, string | string[]> = 
   "theme.changed": "easy-call:theme-changed",
   "locale.changed": "easy-call:locale-changed",
   "terminalApproval.requested": "easy-call:terminal-approval-request",
+  "terminalApproval.resolved": "easy-call:terminal-approval-resolved",
   "conversation.apiUpdated": "easy-call:conversation-api-updated",
   "chat.settingsUpdated": "easy-call:chat-settings-updated",
   "config.updated": "easy-call:config-updated",

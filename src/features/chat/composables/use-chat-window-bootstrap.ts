@@ -28,6 +28,9 @@ export function useChatWindowBootstrap(bindings: Record<string, any>) {
     onTerminalApprovalRequested: (payload) => {
       bindings.enqueueTerminalApprovalRequest(payload);
     },
+    onTerminalApprovalResolved: (payload) => {
+      bindings.removeTerminalApprovalRequest(payload?.requestId);
+    },
     onConversationApiUpdated: async (payload) => {
       applyConversationApiBootstrapUpdate({ config: bindings.config }, payload);
       bindings.clearMatchingConversationChatErrors((text: string) => text.includes("不支持图片附件") || text.includes("PDF 附件"));

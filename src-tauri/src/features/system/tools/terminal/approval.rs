@@ -10,6 +10,34 @@ struct PendingTerminalApprovalRequest {
     session_id: String,
     workspace_path: Option<String>,
     payload: TerminalApprovalRequestPayload,
+    // 处理审批时用它广播「已处理」，让其它窗口同步撤下同一条审批卡片
+    app_handle: tauri::AppHandle,
+}
+
+/// 审批等待期的清理守卫。
+///
+/// 审批等待的是 oneshot 接收端，一旦上层执行轮次被中断、工具提前退出，
+/// 等待它的 future 会被直接丢弃，函数尾部那些收尾语句根本不会执行，
+/// 于是这条审批会以僵尸卡片的形式永久留在待办表里。把摘除动作放进 Drop，
+/// 保证无论从哪条路离开，表里都不会留下已经没人在等的审批。
+struct PendingTerminalApprovalGuard {
+    pending: Arc<Mutex<std::collections::HashMap<String, PendingTerminalApprovalRequest>>>,
+    request_id: String,
+}
+
+impl Drop for PendingTerminalApprovalGuard {
+    fn drop(&mut self) {
+        let removed = self
+            .pending
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(&self.request_id));
+        // 正常审批已经在 resolve 里摘除并广播过，这里还能摘到就说明没人处理它：
+        // 轮次被中断或工具提前退出，审批已经作废，通知各窗口撤下卡片。
+        if let Some(request) = removed {
+            broadcast_terminal_approval_resolved(&request.app_handle, &self.request_id, false, None);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -278,14 +306,18 @@ async fn terminal_request_user_approval(
                 session_id: normalize_terminal_tool_session_id(session_id),
                 workspace_path: payload.workspace_path.clone(),
                 payload: payload.clone(),
+                app_handle: app_handle.clone(),
             },
         );
     }
 
+    // 从这一刻起，任何离开路径（正常收口、中断、提前返回）都会摘除这条审批
+    let _pending_guard = PendingTerminalApprovalGuard {
+        pending: state.terminal_pending_approvals.clone(),
+        request_id: request_id.clone(),
+    };
+
     if let Err(err) = app_handle.emit("easy-call:terminal-approval-request", &payload) {
-        if let Ok(mut pending) = state.terminal_pending_approvals.lock() {
-            pending.remove(&request_id);
-        }
         return Err(format!("Emit terminal approval request failed: {err}"));
     }
     if let Ok(value) = serde_json::to_value(&payload) {
@@ -314,10 +346,6 @@ async fn terminal_request_user_approval(
     }
 
     let wait_result = rx.await;
-
-    if let Ok(mut pending) = state.terminal_pending_approvals.lock() {
-        pending.remove(&request_id);
-    }
 
     match wait_result {
         Ok(decision) => Ok(decision),
@@ -366,14 +394,50 @@ fn resolve_terminal_approval_request(
     };
 
     let normalized_reason = normalize_terminal_approval_reason(reason);
-    if pending_request.sender.send(TerminalApprovalDecision { approved, reason: normalized_reason }).is_err() {
+    let decision = TerminalApprovalDecision {
+        approved,
+        reason: normalized_reason.clone(),
+    };
+    if pending_request.sender.send(decision).is_err() {
         runtime_log_debug(format!(
             "[工具调试] 终端审批接收端已关闭: {}",
             trimmed
         ));
+        // 接收端没了说明这次执行已经结束，审批作废；其它窗口挂着的卡片同样要撤下
+        broadcast_terminal_approval_resolved(
+            &pending_request.app_handle,
+            trimmed,
+            approved,
+            normalized_reason.as_deref(),
+        );
         return Ok(false);
     }
+    // 审批是所有窗口共用的一条记录，处理方之外还有别的窗口挂着同一张卡片，
+    // 必须广播「已处理」，否则其它窗口只能等到下次重新拉取才撤下。
+    broadcast_terminal_approval_resolved(
+        &pending_request.app_handle,
+        trimmed,
+        approved,
+        normalized_reason.as_deref(),
+    );
     Ok(true)
+}
+
+fn broadcast_terminal_approval_resolved(
+    app_handle: &tauri::AppHandle,
+    request_id: &str,
+    approved: bool,
+    reason: Option<&str>,
+) {
+    let payload = serde_json::json!({
+        "requestId": request_id,
+        "approved": approved,
+        "reason": reason,
+    });
+    if let Err(err) = app_handle.emit("easy-call:terminal-approval-resolved", &payload) {
+        runtime_log_warn(format!("[审批通知] 广播已处理事件失败: {err}"));
+    }
+    ide_chat_broadcast_notification("terminalApproval.resolved", payload);
 }
 
 fn approve_terminal_approval_for_session_request(

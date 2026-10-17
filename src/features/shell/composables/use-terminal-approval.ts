@@ -117,6 +117,14 @@ export function useTerminalApproval(options: UseTerminalApprovalOptions) {
     });
   }
 
+  function removeTerminalApprovalRequest(requestId: string) {
+    const normalized = String(requestId || "").trim();
+    if (!normalized) return;
+    const index = options.queue.value.findIndex((item) => item.requestId === normalized);
+    if (index < 0) return;
+    options.queue.value.splice(index, 1);
+  }
+
   async function resolveTerminalApproval(approved: boolean, requestId?: string, reason?: string) {
     if (options.resolving.value) return;
     const normalizedRequestId = String(requestId || "").trim();
@@ -134,7 +142,9 @@ export function useTerminalApproval(options: UseTerminalApprovalOptions) {
         approved,
         ...(normalizedReason ? { reason: normalizedReason } : {}),
       });
-      options.queue.value.splice(targetIndex, 1);
+      // 后端在命令返回之前就会广播 resolved，本窗口可能已收到并摘掉这一项，
+      // 队列此时已经左移；按 id 重新定位，不能用旧索引删掉顺位补上来的另一条审批。
+      removeTerminalApprovalRequest(current.requestId);
     } catch (error) {
       options.onError?.({ action: "resolve", request: current, error });
       if (!options.onError) console.warn("[终端审批] 失败，操作=处理审批", error);
@@ -169,7 +179,7 @@ export function useTerminalApproval(options: UseTerminalApprovalOptions) {
       await invokeTauri(command, {
         requestId: current.requestId,
       });
-      options.queue.value.splice(targetIndex, 1);
+      removeTerminalApprovalRequest(current.requestId);
     } catch (error) {
       options.onError?.({ action, request: current, error });
       if (!options.onError) console.warn(`[终端审批] 失败，操作=${action}`, error);
@@ -188,8 +198,19 @@ export function useTerminalApproval(options: UseTerminalApprovalOptions) {
 
   async function rehydrateTerminalApprovals(): Promise<number> {
     try {
+      // 只对「请求发出时本地已挂着」的审批做撤下判定：请求往返期间新到达的审批
+      // 不在快照里，但它们仍然有效，不能拿旧快照把它们一起清掉。
+      const knownRequestIds = options.queue.value.map((item) => item.requestId);
       const items = await invokeTauri<TerminalApprovalRequestPayload[]>("terminalApproval.list");
       if (!Array.isArray(items)) return 0;
+      // 后端 pending 表是唯一权威：本地还挂着、后端已没有的，说明这条审批
+      // 已在别的窗口处理或已失效，本地必须同步撤下，否则卡片会一直留在界面上。
+      const pendingIds = new Set(
+        items.map((item) => String(item?.requestId || "").trim()).filter(Boolean),
+      );
+      for (const requestId of knownRequestIds) {
+        if (!pendingIds.has(requestId)) removeTerminalApprovalRequest(requestId);
+      }
       let added = 0;
       for (const item of items) {
         const before = options.queue.value.length;
@@ -211,6 +232,7 @@ export function useTerminalApproval(options: UseTerminalApprovalOptions) {
     getConversationTerminalApprovalCurrent,
     hasConversationTerminalApprovals,
     enqueueTerminalApprovalRequest,
+    removeTerminalApprovalRequest,
     denyTerminalApproval,
     approveTerminalApproval,
     approveTerminalApprovalForSession,

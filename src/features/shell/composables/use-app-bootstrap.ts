@@ -50,6 +50,7 @@ type AppBootstrapOptions = {
   onThemeChanged: (theme: PersistedThemePreferences) => void;
   onLocaleChanged: (locale: string) => void;
   onTerminalApprovalRequested?: (payload: TerminalApprovalRequestPayload) => void;
+  onTerminalApprovalResolved?: (payload: { requestId?: string; approved?: boolean; reason?: string }) => void;
   onConversationApiUpdated?: (payload: ConversationApiSettingsPayload) => void;
   onChatSettingsUpdated?: (payload: ChatSettingsPayload) => void;
   onConfigUpdated?: (payload: AppConfig) => void;
@@ -95,6 +96,9 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
       });
       subscribe<TerminalApprovalRequestPayload>("terminalApproval.requested", (payload) => {
         options.onTerminalApprovalRequested?.(payload);
+      });
+      subscribe<{ requestId?: string; approved?: boolean; reason?: string }>("terminalApproval.resolved", (payload) => {
+        options.onTerminalApprovalResolved?.(payload);
       });
       subscribe<ConversationApiSettingsPayload>("conversation.apiUpdated", (payload) => {
         options.onConversationApiUpdated?.(payload);
