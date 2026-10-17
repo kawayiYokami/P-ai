@@ -899,6 +899,7 @@ fn read_conversation_for_backup_cleanup(
         auto_push_remote_contact_id: conversation_meta.auto_push_remote_contact_id,
         cumulative_usage: conversation_meta.cumulative_usage,
         active_goal: conversation_meta.active_goal,
+        team: conversation_meta.team,
         last_error: conversation_meta.last_error,
     })
 }

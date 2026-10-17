@@ -41,7 +41,10 @@ pub(super) struct ConversationPersistMeta {
     is_draft: bool,
     auto_push_remote_contact_id: Option<String>,
     cumulative_usage: ConversationCumulativeUsage,
+    #[serde(default)]
     active_goal: Option<ConversationGoalState>,
+    #[serde(default)]
+    team: TeamState,
     fast_request_turns: Vec<FastRequestTurn>,
     last_message_id: Option<String>,
     last_message_at: Option<String>,
@@ -198,6 +201,8 @@ pub(super) struct ConversationShardMeta {
     cumulative_usage: ConversationCumulativeUsage,
     #[serde(default)]
     active_goal: Option<ConversationGoalState>,
+    #[serde(default)]
+    team: TeamState,
     #[serde(default)]
     fast_request_turns: Vec<FastRequestTurn>,
     #[serde(default)]
@@ -452,6 +457,10 @@ impl ConversationShardMeta {
         self.active_goal.as_ref()
     }
 
+    pub(super) fn team(&self) -> &TeamState {
+        &self.team
+    }
+
     pub(super) fn fast_request_turns(&self) -> &[FastRequestTurn] {
         self.fast_request_turns.as_slice()
     }
@@ -513,6 +522,7 @@ impl ConversationShardMeta {
         target.auto_push_remote_contact_id = self.auto_push_remote_contact_id.clone();
         target.cumulative_usage = self.cumulative_usage.clone();
         target.active_goal = self.active_goal.clone();
+        target.team = self.team.clone();
         target.fast_request_turns = self.fast_request_turns.clone();
         target.last_error = self.last_error.clone();
     }
@@ -550,6 +560,7 @@ impl ConversationShardMeta {
         self.auto_push_remote_contact_id = source.auto_push_remote_contact_id.clone();
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
+        self.team = source.team.clone();
         self.fast_request_turns = source.fast_request_turns.clone();
         self.last_error = source.last_error.clone();
     }
@@ -587,6 +598,7 @@ impl ConversationShardMeta {
         self.auto_push_remote_contact_id = source.auto_push_remote_contact_id.clone();
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
+        self.team = source.team.clone();
         self.last_error = source.last_error.clone();
     }
 
@@ -621,6 +633,7 @@ impl ConversationShardMeta {
         self.auto_push_remote_contact_id = source.auto_push_remote_contact_id.clone();
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
+        self.team = source.team.clone();
         self.last_error = source.last_error.clone();
     }
 
@@ -897,6 +910,7 @@ impl ConversationShardMeta {
             auto_push_remote_contact_id: conversation.auto_push_remote_contact_id.clone(),
             cumulative_usage: conversation.cumulative_usage.clone(),
             active_goal: conversation.active_goal.clone(),
+            team: conversation.team.clone(),
             fast_request_turns: conversation.fast_request_turns.clone(),
             last_error: conversation.last_error.clone(),
             last_message_id: conversation.messages.last().map(|message| message.id.clone()),
@@ -996,6 +1010,7 @@ impl ConversationShardMeta {
             auto_push_remote_contact_id: meta.auto_push_remote_contact_id.clone(),
             cumulative_usage: meta.cumulative_usage.clone(),
             active_goal: meta.active_goal.clone(),
+            team: meta.team.clone(),
             fast_request_turns: meta.fast_request_turns.clone(),
             last_message_id: meta.last_message_id.clone(),
             last_message_at: meta.last_message_at.clone(),
@@ -1046,6 +1061,7 @@ impl ConversationShardMeta {
             auto_push_remote_contact_id: self.auto_push_remote_contact_id.clone(),
             cumulative_usage: self.cumulative_usage.clone(),
             active_goal: self.active_goal.clone(),
+            team: self.team.clone(),
             fast_request_turns: self.fast_request_turns.clone(),
             last_message_id: self.last_message_id.clone(),
             last_message_at: self.last_message_at.clone(),
@@ -1097,6 +1113,7 @@ impl ConversationShardMeta {
             auto_push_remote_contact_id: self.auto_push_remote_contact_id,
             cumulative_usage: self.cumulative_usage,
             active_goal: self.active_goal,
+            team: self.team,
             last_error: self.last_error,
         }
     }
@@ -1216,6 +1233,7 @@ mod message_store_meta_tests {
             }),
             last_error: Some("测试轮次失败".to_string()),
             is_draft: false,
+            team: TeamState::default(),
         }
     }
 

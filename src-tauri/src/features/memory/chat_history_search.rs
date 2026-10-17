@@ -541,6 +541,7 @@ fn chat_history_collect_slices_for_state(
             auto_push_remote_contact_id: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             active_goal: conversation_meta.active_goal.clone(),
+            team: conversation_meta.team.clone(),
             last_error: conversation_meta.last_error.clone(),
         };
         let (segments, skipped_live_blocks) =

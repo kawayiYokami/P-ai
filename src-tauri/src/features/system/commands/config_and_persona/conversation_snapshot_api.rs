@@ -103,6 +103,11 @@ struct ChildConversationSummary {
     conversation_kind: String,
     parent_conversation_id: Option<String>,
     updated_at: String,
+    /// 队员身份标记：在队时带上编号与名字，普通追问为空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    team_number: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    team_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -566,13 +571,18 @@ fn build_unarchived_conversation_summary_from_meta_view(
             child.conversation_kind.trim() == CONVERSATION_KIND_SIDE_CHAT
                 && child.status.trim() != "archived"
         })
-        .map(|child| ChildConversationSummary {
-            conversation_id: child.id,
-            title: child.title,
-            status: child.status,
-            conversation_kind: child.conversation_kind,
-            parent_conversation_id: child.parent_conversation_id,
-            updated_at: child.updated_at,
+        .map(|child| {
+            let membership = child.team.membership.as_ref();
+            ChildConversationSummary {
+                conversation_id: child.id,
+                title: child.title,
+                status: child.status,
+                conversation_kind: child.conversation_kind,
+                parent_conversation_id: child.parent_conversation_id,
+                updated_at: child.updated_at,
+                team_number: membership.map(|entry| entry.number),
+                team_name: membership.map(|entry| entry.name.clone()),
+            }
         })
         .collect::<Vec<_>>();
     UnarchivedConversationSummary {

@@ -553,6 +553,7 @@ fn ide_chat_conversation_from_meta_view(conversation_meta: &ConversationMetaView
         auto_push_remote_contact_id: conversation_meta.auto_push_remote_contact_id.clone(),
         cumulative_usage: conversation_meta.cumulative_usage.clone(),
         active_goal: conversation_meta.active_goal.clone(),
+        team: conversation_meta.team.clone(),
         last_error: conversation_meta.last_error.clone(),
     }
 }

@@ -4029,7 +4029,7 @@
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         }
@@ -9879,7 +9879,7 @@
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         });
@@ -11248,7 +11248,7 @@
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         };
@@ -11308,7 +11308,7 @@
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         });
@@ -11384,7 +11384,7 @@
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         });
@@ -13137,4 +13137,606 @@
         // 空字符串视为无首选
         let resolved = resolve_follow_session_delegate_api_config(&app_config, Some("  "));
         assert_eq!(resolved.as_deref(), Some("provider-a::expert"));
+    }
+
+    // ==================== 会话队伍工具 ====================
+
+    fn team_test_state() -> AppState {
+        let state = test_chat_runtime_state();
+        state_write_agents_cached(&state, &[default_agent(), default_user_persona()])
+            .expect("write agents");
+        state
+    }
+
+    fn team_session_id(conversation_id: &str) -> String {
+        format!("{}::{}", DEFAULT_AGENT_ID, conversation_id)
+    }
+
+    fn persist_team_leader(state: &AppState, conversation_id: &str) -> Conversation {
+        let now = now_iso();
+        let mut leader = test_chat_conversation(conversation_id, "active", &now);
+        leader.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
+        state_schedule_conversation_persist(state, &leader).expect("persist leader");
+        flush_pending_persists_blocking(state).expect("flush leader");
+        leader
+    }
+
+    fn recruit_member(
+        state: &AppState,
+        leader_id: &str,
+        name: &str,
+    ) -> Value {
+        test_runtime()
+            .block_on(builtin_team_recruit(
+                state,
+                &team_session_id(leader_id),
+                TeamRecruitToolArgs {
+                    name: name.to_string(),
+                    duty: Some("查资料".to_string()),
+                    work_branch: None,
+                },
+            ))
+            .expect("recruit member")
+    }
+
+    fn member_message_kinds(state: &AppState, conversation_id: &str) -> Vec<String> {
+        conversation_service_v2()
+            .get_conversation_prompt_context(state, conversation_id)
+            .expect("read conversation")
+            .messages
+            .iter()
+            .filter_map(|message| summary_context_message_kind(message).map(str::to_string))
+            .collect()
+    }
+
+    #[test]
+    fn team_recruit_should_register_member_without_activation() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        assert_eq!(output["number"].as_u64(), Some(1));
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+
+        let leader_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &leader.id)
+            .expect("leader meta");
+        assert_eq!(leader_meta.team.members.len(), 1);
+        assert_eq!(leader_meta.team.next_number, 2);
+        let entry = &leader_meta.team.members[0];
+        assert_eq!(entry.number, 1);
+        assert_eq!(entry.name, "李工");
+        assert_eq!(entry.status, TEAM_MEMBER_STATUS_ACTIVE);
+        assert_eq!(entry.conversation_id, member_id);
+
+        let member_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &member_id)
+            .expect("member meta");
+        assert_eq!(member_meta.conversation_kind.trim(), CONVERSATION_KIND_SIDE_CHAT);
+        let membership = member_meta.team.membership.as_ref().expect("membership");
+        assert_eq!(membership.number, 1);
+        assert_eq!(membership.name, "李工");
+        assert_eq!(membership.leader_conversation_id, leader.id);
+
+        // 招募不激活队员：目标会话没有排队事件，也没有助理回复。
+        assert!(
+            !conversation_has_pending_queue_events(&state, &member_id).expect("member queue"),
+            "招募不应给队员排队任何事件"
+        );
+        assert_eq!(
+            member_message_kinds(&state, &member_id),
+            vec!["summary_context_seed".to_string()],
+            "队员会话开局只有一条身份摘要消息"
+        );
+        // 招募回执要带一份队长行事指引给队长：开篇点明身份，且不含行内代码。
+        let leader_guide = output["leaderGuide"].as_str().unwrap_or("");
+        assert!(
+            leader_guide.contains("你已经成功招募了一名新的队员"),
+            "招募回执应带队长行事指引：{leader_guide}"
+        );
+        assert!(
+            !leader_guide.contains('`'),
+            "队长行事指引不应出现行内代码：{leader_guide}"
+        );
+        // 队员的身份摘要要带一份队员行事指引给队员：同样点明身份，且不含行内代码。
+        let seed_text = conversation_service_v2()
+            .get_conversation_prompt_context(&state, &member_id)
+            .expect("member context")
+            .messages
+            .iter()
+            .find(|message| summary_context_message_kind(message).is_some())
+            .map(message_text_content)
+            .unwrap_or_default();
+        assert!(
+            seed_text.contains("你已经被招募为一名队员"),
+            "队员身份摘要应带队员行事指引：{seed_text}"
+        );
+        assert!(
+            !seed_text.contains('`'),
+            "队员行事指引不应出现行内代码：{seed_text}"
+        );
+    }
+
+    #[test]
+    fn team_recruit_should_reject_duplicate_active_name() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        recruit_member(&state, &leader.id, "李工");
+        let second = test_runtime().block_on(builtin_team_recruit(
+            &state,
+            &team_session_id(&leader.id),
+            TeamRecruitToolArgs {
+                name: "李工".to_string(),
+                duty: None,
+                work_branch: None,
+            },
+        ));
+        assert!(second.is_err(), "同一支队伍不得出现重名队员");
+        let leader_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &leader.id)
+            .expect("leader meta");
+        assert_eq!(leader_meta.team.members.len(), 1);
+    }
+
+    #[test]
+    fn team_info_should_switch_between_active_and_history() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        recruit_member(&state, &leader.id, "李工");
+        test_runtime()
+            .block_on(builtin_team_dismiss(
+                &state,
+                &team_session_id(&leader.id),
+                TeamDismissToolArgs { number: 1 },
+            ))
+            .expect("dismiss member");
+
+        let active = builtin_team_info(
+            &state,
+            &team_session_id(&leader.id),
+            TeamInfoToolArgs { scope: None },
+        )
+        .expect("team info active");
+        assert_eq!(active["members"].as_array().map(Vec::len), Some(0));
+        assert_eq!(active["activeMemberCount"].as_u64(), Some(0));
+
+        let history = builtin_team_info(
+            &state,
+            &team_session_id(&leader.id),
+            TeamInfoToolArgs {
+                scope: Some("history".to_string()),
+            },
+        )
+        .expect("team info history");
+        let members = history["members"].as_array().expect("members");
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0]["number"].as_u64(), Some(1));
+        assert_eq!(members[0]["status"].as_str(), Some(TEAM_MEMBER_STATUS_DISMISSED));
+        // 编号不回收：请离后下一个队员拿 2 号。
+        let next = recruit_member(&state, &leader.id, "王工");
+        assert_eq!(next["number"].as_u64(), Some(2));
+    }
+
+    #[test]
+    fn team_info_should_report_member_state() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+
+        let idle = builtin_team_info(
+            &state,
+            &team_session_id(&leader.id),
+            TeamInfoToolArgs { scope: None },
+        )
+        .expect("team info idle");
+        assert_eq!(idle["members"][0]["state"].as_str(), Some("idle"));
+
+        // 上一轮失败：名册报 error，并带上失败原因。
+        set_conversation_list_activity_mark(
+            &state,
+            &member_id,
+            ConversationListActivityMark {
+                activity: "failed".to_string(),
+                failed_message: Some("模型请求失败".to_string()),
+                completed_at: None,
+            },
+        );
+        let failed = builtin_team_info(
+            &state,
+            &team_session_id(&leader.id),
+            TeamInfoToolArgs { scope: None },
+        )
+        .expect("team info failed");
+        assert_eq!(failed["members"][0]["state"].as_str(), Some("error"));
+        assert_eq!(
+            failed["members"][0]["stateDetail"].as_str(),
+            Some("模型请求失败")
+        );
+
+        // 正在跑：忙碌压过报错，detail 说明在做什么。
+        set_conversation_runtime_state(&state, &member_id, MainSessionState::AssistantStreaming)
+            .expect("set runtime state");
+        let busy = builtin_team_info(
+            &state,
+            &team_session_id(&leader.id),
+            TeamInfoToolArgs { scope: None },
+        )
+        .expect("team info busy");
+        assert_eq!(busy["members"][0]["state"].as_str(), Some("busy"));
+        assert_eq!(
+            busy["members"][0]["stateDetail"].as_str(),
+            Some("正在生成回复")
+        );
+    }
+
+    #[test]
+    fn team_dismiss_should_clear_membership_and_keep_history() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+
+        test_runtime()
+            .block_on(builtin_team_dismiss(
+                &state,
+                &team_session_id(&leader.id),
+                TeamDismissToolArgs { number: 1 },
+            ))
+            .expect("dismiss member");
+
+        let member_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &member_id)
+            .expect("member meta");
+        assert!(
+            member_meta.team.membership.is_none(),
+            "请离后队员会话不再持有成员身份"
+        );
+
+        // 请离通知异步写入：等它落进会话。
+        let notice_seen = test_runtime().block_on(async {
+            for _ in 0..50 {
+                if member_message_kinds(&state, &member_id)
+                    .iter()
+                    .any(|kind| kind == "team_notice")
+                {
+                    return true;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            false
+        });
+        assert!(notice_seen, "请离后应给队员留一条不激活的系统说明");
+    }
+
+    #[test]
+    fn team_info_should_close_roster_entry_of_deleted_member_conversation() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+
+        conversation_service_v2()
+            .delete_conversation(&state, &member_id)
+            .expect("delete member conversation");
+
+        // 名册挂在队长会话上，删会话不会自己收口；查名册时核对一次并收口。
+        let info = builtin_team_info(
+            &state,
+            &team_session_id(&leader.id),
+            TeamInfoToolArgs { scope: None },
+        )
+        .expect("team info after delete");
+        assert_eq!(info["activeMemberCount"].as_u64(), Some(0));
+        assert_eq!(info["members"].as_array().map(Vec::len), Some(0));
+        let closed = info["closedMissingMembers"]
+            .as_array()
+            .expect("closed missing members");
+        assert_eq!(closed.len(), 1, "失效队员要能被看见");
+        assert_eq!(closed[0]["number"].as_u64(), Some(1));
+
+        // 历史名册里那条转成已请离，编号保留。
+        let history = builtin_team_info(
+            &state,
+            &team_session_id(&leader.id),
+            TeamInfoToolArgs {
+                scope: Some("history".to_string()),
+            },
+        )
+        .expect("team info history");
+        let member = history["members"]
+            .as_array()
+            .expect("members")
+            .iter()
+            .find(|member| member["number"].as_u64() == Some(1))
+            .expect("roster entry");
+        assert_eq!(
+            member["status"].as_str(),
+            Some(TEAM_MEMBER_STATUS_DISMISSED),
+            "会话已删的在队条目要收口成已请离"
+        );
+        assert!(member["dismissedAt"].is_string(), "收口时要记下请离时间");
+    }
+
+    #[test]
+    fn team_dismiss_should_close_roster_even_if_member_conversation_missing() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        conversation_service_v2()
+            .delete_conversation(&state, &member_id)
+            .expect("delete member conversation");
+        // 模拟修复前留下的脏数据：会话已删、名册仍写在队。
+        state_update_conversation_metadata_cached(&state, &leader.id, |leader| {
+            if let Some(member) = leader
+                .team
+                .members
+                .iter_mut()
+                .find(|member| member.number == 1)
+            {
+                member.status = TEAM_MEMBER_STATUS_ACTIVE.to_string();
+                member.dismissed_at = None;
+            }
+            Ok(())
+        })
+        .expect("restore dirty roster");
+
+        // 会话已不存在，请离仍要收口，而不是报错回滚成在队。
+        test_runtime()
+            .block_on(builtin_team_dismiss(
+                &state,
+                &team_session_id(&leader.id),
+                TeamDismissToolArgs { number: 1 },
+            ))
+            .expect("dismiss missing member conversation");
+
+        let leader_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &leader.id)
+            .expect("leader meta");
+        assert_eq!(leader_meta.team.active_member_count(), 0);
+        let member = leader_meta
+            .team
+            .members
+            .iter()
+            .find(|member| member.number == 1)
+            .expect("roster entry");
+        assert_eq!(member.status, TEAM_MEMBER_STATUS_DISMISSED);
+    }
+
+    #[test]
+    fn team_send_should_enqueue_team_message_with_chosen_mode() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        // 队员正忙：消息应进队列而不是被直接投送，便于断言投递形态。
+        set_conversation_runtime_state_and_emit(&state, &member_id, MainSessionState::AssistantStreaming)
+            .expect("mark member busy");
+
+        builtin_team_send(
+            &state,
+            &team_session_id(&leader.id),
+            TeamSendToolArgs {
+                number: 1,
+                content: "去查 A".to_string(),
+                mode: Some("guided".to_string()),
+            },
+        )
+        .expect("team send");
+
+        let slots = lock_conversation_runtime_slots(&state).expect("slots");
+        let slot = slots.get(&member_id).expect("member slot");
+        let event = slot.pending_queue.back().expect("queued event");
+        assert_eq!(event.queue_mode, ChatQueueMode::Guided);
+        assert!(matches!(event.source, ChatEventSource::System));
+        assert!(event.activate_assistant);
+        let text = message_text_content(&event.messages[0]);
+        assert!(text.contains("去查 A"), "消息正文应带上队长交代的内容：{text}");
+        assert_eq!(
+            event.messages[0]
+                .provider_meta
+                .as_ref()
+                .and_then(|meta| meta.get("messageKind"))
+                .and_then(Value::as_str),
+            Some("team_message")
+        );
+    }
+
+    #[test]
+    fn team_report_should_enqueue_message_to_leader() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        // 队长正忙：汇报应进队列。
+        set_conversation_runtime_state_and_emit(&state, &leader.id, MainSessionState::AssistantStreaming)
+            .expect("mark leader busy");
+
+        builtin_team_report(
+            &state,
+            &team_session_id(&member_id),
+            TeamReportToolArgs {
+                content: "查完了".to_string(),
+                mode: None,
+            },
+        )
+        .expect("team report");
+
+        let slots = lock_conversation_runtime_slots(&state).expect("slots");
+        let slot = slots.get(&leader.id).expect("leader slot");
+        let event = slot.pending_queue.back().expect("queued event");
+        // 默认走引导：不指定 mode 时应立即插入改道，而不是排队等收口。
+        assert_eq!(event.queue_mode, ChatQueueMode::Guided);
+        let text = message_text_content(&event.messages[0]);
+        assert!(text.contains("第 1 号队员"), "汇报正文应报编号：{text}");
+        assert!(text.contains("李工"), "汇报正文应报名字：{text}");
+        assert!(text.contains("查完了"));
+    }
+
+    #[test]
+    fn team_report_should_honor_explicit_queue_mode() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        set_conversation_runtime_state_and_emit(&state, &leader.id, MainSessionState::AssistantStreaming)
+            .expect("mark leader busy");
+
+        builtin_team_report(
+            &state,
+            &team_session_id(&member_id),
+            TeamReportToolArgs {
+                content: "查完了".to_string(),
+                mode: Some("queue".to_string()),
+            },
+        )
+        .expect("team report queue");
+
+        let slots = lock_conversation_runtime_slots(&state).expect("slots");
+        let slot = slots.get(&leader.id).expect("leader slot");
+        let event = slot.pending_queue.back().expect("queued event");
+        assert_eq!(event.queue_mode, ChatQueueMode::Normal);
+    }
+
+    #[test]
+    fn team_send_should_default_to_guided_mode() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        set_conversation_runtime_state_and_emit(&state, &member_id, MainSessionState::AssistantStreaming)
+            .expect("mark member busy");
+
+        builtin_team_send(
+            &state,
+            &team_session_id(&leader.id),
+            TeamSendToolArgs {
+                number: 1,
+                content: "去查 B".to_string(),
+                mode: None,
+            },
+        )
+        .expect("team send");
+
+        let slots = lock_conversation_runtime_slots(&state).expect("slots");
+        let slot = slots.get(&member_id).expect("member slot");
+        let event = slot.pending_queue.back().expect("queued event");
+        // 队长默认引导：不指定 mode 时立即插入队员当前轮次。
+        assert_eq!(event.queue_mode, ChatQueueMode::Guided);
+    }
+
+    #[test]
+    fn team_tools_should_reject_wrong_role_conversation() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+
+        // 队员会话不能用队长的队伍工具。
+        let as_member = builtin_team_info(
+            &state,
+            &team_session_id(&member_id),
+            TeamInfoToolArgs { scope: None },
+        );
+        assert!(as_member.is_err(), "队员会话不得使用队长工具");
+
+        // 普通追问会话既不是队长也不是队员，两边都不给。
+        let plain = persist_team_leader(&state, "conversation-plain-side");
+        let mut plain_conversation = plain.clone();
+        plain_conversation.conversation_kind = CONVERSATION_KIND_SIDE_CHAT.to_string();
+        plain_conversation.parent_conversation_id = Some(leader.id.clone());
+        state_schedule_conversation_persist(&state, &plain_conversation).expect("persist plain");
+        flush_pending_persists_blocking(&state).expect("flush plain");
+        assert!(builtin_team_info(
+            &state,
+            &team_session_id(&plain_conversation.id),
+            TeamInfoToolArgs { scope: None },
+        )
+        .is_err());
+        assert!(builtin_team_report(
+            &state,
+            &team_session_id(&plain_conversation.id),
+            TeamReportToolArgs {
+                content: "随口一说".to_string(),
+                mode: None,
+            },
+        )
+        .is_err());
+    }
+
+    fn team_assembly(state: &AppState, session_id: &str) -> RuntimeToolAssembly {
+        let mut selected_api = ApiConfig::default();
+        selected_api.id = "api-team-assembly".to_string();
+        selected_api.name = "队伍装配测试模型".to_string();
+        selected_api.request_format = RequestFormat::OpenAI;
+        selected_api.enable_text = true;
+        selected_api.enable_tools = true;
+        selected_api.base_url = "https://api.openai.com/v1".to_string();
+        selected_api.api_key = "k".to_string();
+        selected_api.model = "gpt-4o-mini".to_string();
+        let config = AppConfig {
+            api_configs: vec![selected_api.clone()],
+            api_providers: Vec::new(),
+            ..AppConfig::default()
+        };
+        write_config(&state.config_path, &config).expect("write config");
+        refresh_global_tool_schema_cache(state);
+        let agent = default_agent();
+        test_runtime().block_on(assemble_runtime_tools(
+            &config,
+            &selected_api,
+            &agent,
+            Some(state),
+            session_id,
+        ))
+    }
+
+    fn mounted_team_tools(assembly: &RuntimeToolAssembly) -> Vec<String> {
+        assembly
+            .tool_definitions
+            .iter()
+            .map(|tool| tool.name.clone())
+            .filter(|name| name.starts_with("team_"))
+            .collect()
+    }
+
+    #[test]
+    fn team_tools_should_be_mounted_by_session_role() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let has = |tools: &[String], name: &str| tools.iter().any(|item| item == name);
+
+        // 队长会话挂四个，不给 team_report。
+        let leader_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&leader.id)));
+        for name in ["team_info", "team_recruit", "team_dismiss", "team_send"] {
+            assert!(has(&leader_tools, name), "队长会话缺少 {name}：{leader_tools:?}");
+        }
+        assert!(!has(&leader_tools, "team_report"), "队长会话不该有 team_report：{leader_tools:?}");
+
+        // 队员会话只留 team_report，队长那四个都不挂。
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        let member_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&member_id)));
+        assert!(has(&member_tools, "team_report"), "队员会话缺少 team_report：{member_tools:?}");
+        for name in ["team_info", "team_recruit", "team_dismiss", "team_send"] {
+            assert!(!has(&member_tools, name), "队员会话不该有 {name}：{member_tools:?}");
+        }
+
+        // 普通追问不是队长也不是队员，一个队伍工具都不挂。
+        let mut plain = persist_team_leader(&state, "conversation-plain-side");
+        plain.conversation_kind = CONVERSATION_KIND_SIDE_CHAT.to_string();
+        plain.parent_conversation_id = Some(leader.id.clone());
+        state_schedule_conversation_persist(&state, &plain).expect("persist plain");
+        flush_pending_persists_blocking(&state).expect("flush plain");
+        let plain_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&plain.id)));
+        assert!(plain_tools.is_empty(), "普通追问不该挂队伍工具：{plain_tools:?}");
     }

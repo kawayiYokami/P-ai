@@ -1096,6 +1096,9 @@ export type ChildConversationSummary = {
   conversationKind: string;
   parentConversationId?: string;
   updatedAt: string;
+  /** 队员身份标记：在队时带编号与名字，普通追问为空。 */
+  teamNumber?: number;
+  teamName?: string;
 };
 
 export type ConversationListItemState = {

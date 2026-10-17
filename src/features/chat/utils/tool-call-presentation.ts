@@ -65,6 +65,11 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     "websearch",
     "operate",
     "wait",
+    "team_info",
+    "team_recruit",
+    "team_dismiss",
+    "team_send",
+    "team_report",
     "config",
     "pai_config",
     "configure_pai",
@@ -795,6 +800,70 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     }
 
 
+    // 25. 队伍工具 (team_info / team_recruit / team_dismiss / team_send / team_report)
+    if (toolName === "team_info") {
+      const action = toolTimelineText("actionTeamInfo");
+      const scope = safeStringValue(obj, "scope");
+      const target = scope === "history"
+        ? toolTimelineText("teamScopeHistory")
+        : toolTimelineText("teamScopeActive");
+      return {
+        action,
+        target,
+        text: formatFullText(action, target),
+      };
+    }
+
+    if (toolName === "team_recruit") {
+      const action = toolTimelineText("actionTeamRecruit");
+      const name = safeStringValue(obj, "name");
+      const target = compactText(name || toCompactValue(args), 40);
+      return {
+        action,
+        target,
+        text: formatFullText(action, target),
+      };
+    }
+
+    if (toolName === "team_dismiss") {
+      const action = toolTimelineText("actionTeamDismiss");
+      const number = obj.number;
+      const target = number !== undefined && number !== null
+        ? toolTimelineText("teamMemberNumber", { number: String(number) })
+        : toCompactValue(args);
+      return {
+        action,
+        target,
+        text: formatFullText(action, target),
+      };
+    }
+
+    if (toolName === "team_send") {
+      const action = toolTimelineText("actionTeamSend");
+      const number = obj.number;
+      const numberText = number !== undefined && number !== null
+        ? toolTimelineText("teamMemberNumber", { number: String(number) })
+        : "";
+      const content = compactText(safeStringValue(obj, "content") || toCompactValue(args), 40);
+      const target = [numberText, content].filter(Boolean).join(" ");
+      return {
+        action,
+        target,
+        text: formatFullText(action, target),
+      };
+    }
+
+    if (toolName === "team_report") {
+      const action = toolTimelineText("actionTeamReport");
+      const target = compactText(safeStringValue(obj, "content") || toCompactValue(args), 40);
+      return {
+        action,
+        target,
+        text: formatFullText(action, target),
+      };
+    }
+
+
     // 26. 外部 / MCP 工具：统一显示「链接到 {mcp工具名}」
     const action = toolTimelineText("actionConnectMcp");
     const target = toolName;
@@ -841,6 +910,11 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     if (raw === "websearch") return toolTimelineText("actionWebSearch");
     if (raw === "operate") return toolTimelineText("actionOperate");
     if (raw === "wait") return toolTimelineText("actionWait");
+    if (raw === "team_info") return toolTimelineText("actionTeamInfo");
+    if (raw === "team_recruit") return toolTimelineText("actionTeamRecruit");
+    if (raw === "team_dismiss") return toolTimelineText("actionTeamDismiss");
+    if (raw === "team_send") return toolTimelineText("actionTeamSend");
+    if (raw === "team_report") return toolTimelineText("actionTeamReport");
 
     // 外部 / MCP 工具：统一使用「链接到 {toolName}」
     return `${toolTimelineText("actionConnectMcp")} ${raw}`;

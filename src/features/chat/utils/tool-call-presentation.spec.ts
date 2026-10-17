@@ -28,6 +28,14 @@ function createPresentation(agentNames: Record<string, string> = {}) {
     "status.toolTimeline.actionRemember": "记录记忆",
     "status.toolTimeline.actionSearch": "搜索文件",
     "status.toolTimeline.actionTask": "定时任务",
+    "status.toolTimeline.actionTeamDismiss": "请离队员",
+    "status.toolTimeline.actionTeamInfo": "查看队伍",
+    "status.toolTimeline.actionTeamRecruit": "招募队员",
+    "status.toolTimeline.actionTeamReport": "汇报队长",
+    "status.toolTimeline.actionTeamSend": "发送给队员",
+    "status.toolTimeline.teamMemberNumber": "{number} 号队员",
+    "status.toolTimeline.teamScopeActive": "当前队员",
+    "status.toolTimeline.teamScopeHistory": "历史队员",
     "status.toolTimeline.actionTodo": "待办清单",
     "status.toolTimeline.actionUpdate": "更新",
     "status.toolTimeline.actionWait": "等待",
@@ -39,7 +47,15 @@ function createPresentation(agentNames: Record<string, string> = {}) {
   return createToolCallPresentation({
     t: (key, params) => {
       const match = dictionary[key];
-      if (match) return match;
+      if (match) {
+        if (params && Object.keys(params).length > 0) {
+          return Object.entries(params).reduce(
+            (acc, [name, value]) => acc.replace(new RegExp(`\\{${name}\\}`, "g"), String(value)),
+            match,
+          );
+        }
+        return match;
+      }
       const name = key.split(".").pop() || key;
       return params && Object.keys(params).length > 0 ? `${name}:${JSON.stringify(params)}` : name;
     },
@@ -317,6 +333,59 @@ describe("createToolCallPresentation", () => {
     });
     expect(editRes.action).toBe("编辑图片");
     expect(editRes.target).toBe("去除背景人物");
+  });
+
+  it("队伍工具：名册、招募、请离、发送与汇报", () => {
+    const presentation = createPresentation();
+
+    const infoActive = presentation.toolCallSemanticPresentation({
+      name: "team_info",
+      argsText: JSON.stringify({ scope: "active" }),
+    });
+    expect(infoActive.action).toBe("查看队伍");
+    expect(infoActive.target).toBe("当前队员");
+    expect(infoActive.text).toBe("查看队伍 当前队员");
+
+    const infoHistory = presentation.toolCallSemanticPresentation({
+      name: "team_info",
+      argsText: JSON.stringify({ scope: "history" }),
+    });
+    expect(infoHistory.target).toBe("历史队员");
+
+    const recruit = presentation.toolCallSemanticPresentation({
+      name: "team_recruit",
+      argsText: JSON.stringify({ name: "李工", task: "跟进重构" }),
+    });
+    expect(recruit.action).toBe("招募队员");
+    expect(recruit.target).toBe("李工");
+    expect(recruit.text).toBe("招募队员 李工");
+
+    const dismiss = presentation.toolCallSemanticPresentation({
+      name: "team_dismiss",
+      argsText: JSON.stringify({ number: 2 }),
+    });
+    expect(dismiss.action).toBe("请离队员");
+    expect(dismiss.target).toBe("2 号队员");
+
+    const send = presentation.toolCallSemanticPresentation({
+      name: "team_send",
+      argsText: JSON.stringify({ number: 1, content: "把登录接口的测试补上" }),
+    });
+    expect(send.action).toBe("发送给队员");
+    expect(send.target).toBe("1 号队员 把登录接口的测试补上");
+
+    const report = presentation.toolCallSemanticPresentation({
+      name: "team_report",
+      argsText: JSON.stringify({ content: "已完成测试，分支 feature/login-test" }),
+    });
+    expect(report.action).toBe("汇报队长");
+    expect(report.target).toContain("已完成测试");
+
+    expect(presentation.toolCallDisplayName("team_info")).toBe("查看队伍");
+    expect(presentation.toolCallDisplayName("team_recruit")).toBe("招募队员");
+    expect(presentation.toolCallDisplayName("team_dismiss")).toBe("请离队员");
+    expect(presentation.toolCallDisplayName("team_send")).toBe("发送给队员");
+    expect(presentation.toolCallDisplayName("team_report")).toBe("汇报队长");
   });
 
   it("外部 / MCP 工具：统一显示「链接到 {mcp工具名}」", () => {

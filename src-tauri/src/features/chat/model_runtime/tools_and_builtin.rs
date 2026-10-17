@@ -10,6 +10,7 @@ include!("tools_and_builtin/builtin_memory.rs");
 include!("tools_and_builtin/builtin_plan.rs");
 include!("tools_and_builtin/tool_arg_types.rs");
 include!("tools_and_builtin/builtin_session.rs");
+include!("tools_and_builtin/builtin_team.rs");
 include!("tools_and_builtin/builtin_background.rs");
 include!("tools_and_builtin/builtin_meme.rs");
 include!("tools_and_builtin/builtin_local_image.rs");

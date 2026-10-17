@@ -980,7 +980,7 @@ const props = defineProps<{
   chatMonitorPanelMode: ChatMonitorPanelMode;
   sideChatPanelEnabled?: boolean;
   /** 右侧主页「追问」卡片数据；追问会话由宿主容器持有 */
-  sideChatItems?: Array<{ id: string; title: string }>;
+  sideChatItems?: Array<{ id: string; title: string; label?: string }>;
   createConversationAgentOptions: AgentPersonaOption[];
   recipientOptionsReady?: boolean;
   defaultCreateConversationAgentId: string;
@@ -2982,7 +2982,11 @@ function selectMonitorPanelTab(key: string) {
 
 const sideChatItems = computed(() =>
   (Array.isArray(props.sideChatItems) ? props.sideChatItems : [])
-    .map((item) => ({ id: String(item?.id || "").trim(), title: String(item?.title || "").trim() }))
+    .map((item) => ({
+      id: String(item?.id || "").trim(),
+      title: String(item?.title || "").trim(),
+      label: String(item?.label || "").trim(),
+    }))
     .filter((item) => item.id),
 );
 

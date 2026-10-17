@@ -911,16 +911,30 @@ const chatViewRef = ref<{
   openDirectoryInReader: (path: string) => Promise<boolean>;
 } | null>(null);
 
-const sideChatTabs = computed(() => (props.sideConversations || []).map((conversation) => ({
-  key: String(conversation.conversationId || "").trim(),
-  label: String(conversation.title || "").trim() || props.t("chat.sideChat.title"),
-  icon: MessageSquareMore,
-  closeable: true,
-})));
+const sideChatTabs = computed(() => (props.sideConversations || []).map((conversation) => {
+  const teamNumber = typeof conversation.teamNumber === "number" ? conversation.teamNumber : 0;
+  const teamName = String(conversation.teamName || "").trim();
+  const badge = teamNumber > 0 && teamName
+    ? props.t("chat.sideChat.teamBadge", { number: teamNumber, name: teamName })
+    : "";
+  return {
+    key: String(conversation.conversationId || "").trim(),
+    label: String(conversation.title || "").trim() || props.t("chat.sideChat.title"),
+    // 队员的卡片头标直接写队员名，不再统一叫「追问」；普通追问保持原样。
+    cardLabel: teamName || props.t("chat.sideChat.title"),
+    badge,
+    icon: MessageSquareMore,
+    closeable: true,
+  };
+}));
 
 /** 右侧主页「追问」卡片数据：当前打开的追问会话 */
 const sideChatItems = computed(() =>
-  sideChatTabs.value.map((tab) => ({ id: String(tab.key || "").trim(), title: String(tab.label || "").trim() })),
+  sideChatTabs.value.map((tab) => ({
+    id: String(tab.key || "").trim(),
+    title: String(tab.label || "").trim(),
+    label: String(tab.cardLabel || "").trim(),
+  })),
 );
 
 /** 主页点某张追问小卡：切到追问面板并激活对应会话 */

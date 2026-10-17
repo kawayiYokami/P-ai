@@ -942,6 +942,7 @@ async fn send_chat_message_inner(
             auto_push_remote_contact_id: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             active_goal: None,
+            team: TeamState::default(),
             last_error: None,
         }
     };
@@ -3464,7 +3465,7 @@ mod core_send_inner_tests {
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         }
@@ -4208,7 +4209,7 @@ mod core_send_inner_tests {
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         };

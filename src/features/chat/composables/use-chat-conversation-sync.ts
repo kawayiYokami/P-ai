@@ -561,6 +561,8 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       !!item.isSystemNotificationConversation,
       // 护航建议只改这个字段，不带动 updatedAt；漏判会把这类概览项更新当成无变化丢弃
       JSON.stringify(item.wheelchairSuggestion || null),
+      // 招募/请离只改子会话集合，不带动 updatedAt；漏判会让追问磁贴不即时出现
+      JSON.stringify(item.childConversations || []),
     ].join("|");
   }
 

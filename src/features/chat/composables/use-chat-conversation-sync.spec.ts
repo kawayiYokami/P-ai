@@ -105,6 +105,27 @@ describe("applyConversationOverviewItemUpdated", () => {
     expect(bindings.unarchivedConversations.value[0].agentId).toBe("persona-new");
   });
 
+  it("仅 childConversations 变化（招募/请离队员）时必须替换列表项", () => {
+    const bindings = createBindings();
+    bindings.unarchivedConversations.value = [
+      { ...overviewItem("a", "2026-08-09T11:00:00"), childConversations: [] },
+    ];
+    const { applyConversationOverviewItemUpdated } = useChatConversationSync(bindings);
+    const before = bindings.unarchivedConversations.value;
+
+    applyConversationOverviewItemUpdated({
+      conversation: {
+        ...overviewItem("a", "2026-08-09T11:00:00"),
+        childConversations: [
+          { conversationId: "m1", title: "测试队员甲", teamNumber: 1, teamName: "测试队员甲" },
+        ],
+      },
+    });
+
+    expect(bindings.unarchivedConversations.value).not.toBe(before);
+    expect(bindings.unarchivedConversations.value[0].childConversations).toHaveLength(1);
+  });
+
   it("lastError 变化时同步到会话错误文本，为空时清除", () => {
     const bindings = createBindings();
     bindings.unarchivedConversations.value = [

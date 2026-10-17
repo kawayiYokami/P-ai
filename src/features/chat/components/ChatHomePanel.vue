@@ -50,6 +50,7 @@
           v-for="item in sideChats"
           :key="`side-chat-${item.id}`"
           :title="item.title"
+          :label="item.label"
           @open="emit('openSideChat', item.id)"
         />
         <HomeShellCard
@@ -153,7 +154,7 @@ const props = withDefaults(defineProps<{
   openFiles?: Array<{ path: string; label: string }>;
   activePath?: string;
   /** 当前打开的追问会话 */
-  sideChats?: Array<{ id: string; title: string }>;
+  sideChats?: Array<{ id: string; title: string; label?: string }>;
   /** 追问能力是否可用；不可用时首页不出现「新建追问」入口卡 */
   sideChatEnabled?: boolean;
   delegates?: ConversationDelegateStatusSummary[];

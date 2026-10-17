@@ -218,6 +218,43 @@ const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
         prompt_rule_id: Some("session"),
         visible_in_permission_lists: false,
     },
+    // 队伍工具：挂在会话上按「是不是队长／队员」二次筛选，权限层不再单独控制。
+    // 使用说明只写在各自的工具描述里，不注入系统提示词。
+    BuiltinToolPolicy {
+        id: "team_info",
+        permission_class: BuiltinToolPermissionClass::SystemExempt,
+        runtime_scope: BuiltinToolRuntimeScope::Any,
+        prompt_rule_id: None,
+        visible_in_permission_lists: false,
+    },
+    BuiltinToolPolicy {
+        id: "team_recruit",
+        permission_class: BuiltinToolPermissionClass::SystemExempt,
+        runtime_scope: BuiltinToolRuntimeScope::Any,
+        prompt_rule_id: None,
+        visible_in_permission_lists: false,
+    },
+    BuiltinToolPolicy {
+        id: "team_dismiss",
+        permission_class: BuiltinToolPermissionClass::SystemExempt,
+        runtime_scope: BuiltinToolRuntimeScope::Any,
+        prompt_rule_id: None,
+        visible_in_permission_lists: false,
+    },
+    BuiltinToolPolicy {
+        id: "team_send",
+        permission_class: BuiltinToolPermissionClass::SystemExempt,
+        runtime_scope: BuiltinToolRuntimeScope::Any,
+        prompt_rule_id: None,
+        visible_in_permission_lists: false,
+    },
+    BuiltinToolPolicy {
+        id: "team_report",
+        permission_class: BuiltinToolPermissionClass::SystemExempt,
+        runtime_scope: BuiltinToolRuntimeScope::Any,
+        prompt_rule_id: None,
+        visible_in_permission_lists: false,
+    },
     BuiltinToolPolicy {
         id: "plan",
         permission_class: BuiltinToolPermissionClass::LocalConversationExempt,

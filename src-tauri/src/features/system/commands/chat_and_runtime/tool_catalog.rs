@@ -148,6 +148,41 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
+            BuiltinTeamInfoTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
+            BuiltinTeamRecruitTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
+            BuiltinTeamDismissTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
+            BuiltinTeamSendTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
+            BuiltinTeamReportTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
             BuiltinTaskTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),

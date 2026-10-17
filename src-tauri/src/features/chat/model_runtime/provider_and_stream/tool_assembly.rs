@@ -362,6 +362,31 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
             session_id: preview_session_id.clone(),
         }
         .provider_tool_definition(),
+        BuiltinTeamInfoTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
+        BuiltinTeamRecruitTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
+        BuiltinTeamDismissTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
+        BuiltinTeamSendTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
+        BuiltinTeamReportTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
         BuiltinTaskTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
@@ -945,6 +970,24 @@ pub(crate) async fn assemble_runtime_tools(
         discoverable_tools.retain(|tool| tool.definition.name != OPERATE_TOOL_NAME);
         runtime_log_info("[工具装配] 电脑使用已关闭，operate 工具不挂载".to_string());
     }
+    // 队伍工具按会话形态挂载：队长会话挂队长那四个、去掉 team_report；队员会话只去掉队长那四个、
+    // 保留自己的全部工作工具（文件、终端等）与 team_report；其余会话（普通追问、委托）一律不挂。
+    match team_role_for_session(state, tool_session_id) {
+        TeamToolRole::Leader => {
+            discoverable_tools.retain(|tool| {
+                !tool.definition.name.trim().eq_ignore_ascii_case(TEAM_MEMBER_TOOL_NAME)
+            });
+        }
+        TeamToolRole::Member => {
+            discoverable_tools.retain(|tool| !team_tool_is_leader_tool(tool.definition.name.trim()));
+        }
+        TeamToolRole::None => {
+            discoverable_tools.retain(|tool| {
+                let name = tool.definition.name.trim();
+                !team_tool_is_leader_tool(name) && !name.eq_ignore_ascii_case(TEAM_MEMBER_TOOL_NAME)
+            });
+        }
+    }
     let resolved = resolve_legal_runtime_tools(
         app_config,
         selected_api,
@@ -1129,6 +1172,26 @@ fn build_builtin_runtime_tool_executor(
             session_id: tool_session_id.to_string(),
         }),
         "inform_session" => Box::new(BuiltinInformSessionTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
+        "team_info" => Box::new(BuiltinTeamInfoTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
+        "team_recruit" => Box::new(BuiltinTeamRecruitTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
+        "team_dismiss" => Box::new(BuiltinTeamDismissTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
+        "team_send" => Box::new(BuiltinTeamSendTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
+        "team_report" => Box::new(BuiltinTeamReportTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
         }),
@@ -1618,6 +1681,28 @@ mod tool_assembly_permission_tests {
             missing.is_empty(),
             "runtime builtins must have explicit policy entries: {missing:?}"
         );
+    }
+
+    #[test]
+    fn team_tools_should_be_registered_in_global_schema_cache() {
+        let state = AppState::new().expect("create state for team schema coverage");
+        let names = build_global_tool_schema_cache(&state)
+            .into_iter()
+            .map(|tool| tool.definition.name)
+            .collect::<Vec<_>>();
+
+        for name in [
+            "team_info",
+            "team_recruit",
+            "team_dismiss",
+            "team_send",
+            "team_report",
+        ] {
+            assert!(
+                names.iter().any(|item| item == name),
+                "队伍工具未进入全局工具 Schema 缓存，装配阶段将永远挂不上：{name}"
+            );
+        }
     }
 
     #[test]

@@ -479,6 +479,81 @@ fn conversation_goal_is_active(goal: &ConversationGoalState) -> bool {
     goal.status.trim() == "active"
 }
 
+/// 会话的队伍状态。队长会话用名册（`members` / `next_number`），队员会话用 `membership`，
+/// 两者互斥：一个会话要么是队长，要么是某个队长的队员。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TeamState {
+    /// 队长会话的名字结果：下一个可用编号，单调递增、不回收。
+    #[serde(default)]
+    next_number: u32,
+    /// 队长会话的队员名册（含已请离的历史条目）。
+    #[serde(default)]
+    members: Vec<TeamMemberEntry>,
+    /// 队员会话的成员身份：我是谁的几号队员。
+    #[serde(default)]
+    membership: Option<TeamMembership>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TeamMemberEntry {
+    number: u32,
+    conversation_id: String,
+    name: String,
+    #[serde(default)]
+    duty: String,
+    /// active = 在队；dismissed = 已请离（会话本体仍是普通追问）。
+    status: String,
+    recruited_at: String,
+    #[serde(default)]
+    dismissed_at: Option<String>,
+    /// 队员自己的工作树路径与意图分支；为空表示跟随队长工作区。
+    #[serde(default)]
+    worktree_path: String,
+    #[serde(default)]
+    work_branch: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TeamMembership {
+    leader_conversation_id: String,
+    number: u32,
+    name: String,
+    #[serde(default)]
+    duty: String,
+}
+
+const TEAM_MEMBER_STATUS_ACTIVE: &str = "active";
+const TEAM_MEMBER_STATUS_DISMISSED: &str = "dismissed";
+
+impl TeamState {
+    fn next_number_for_recruit(&self) -> u32 {
+        self.next_number.max(1)
+    }
+
+    fn active_member_count(&self) -> usize {
+        self.members
+            .iter()
+            .filter(|member| member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
+            .count()
+    }
+
+    fn find_active_member_by_number(&self, number: u32) -> Option<&TeamMemberEntry> {
+        self.members.iter().find(|member| {
+            member.number == number && member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE
+        })
+    }
+
+    fn has_active_member_named(&self, name: &str) -> bool {
+        let name = name.trim();
+        self.members.iter().any(|member| {
+            member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE && member.name.trim() == name
+        })
+    }
+}
+
 fn conversation_cumulative_usage_weighted_tokens(
     cumulative_usage: &ConversationCumulativeUsage,
 ) -> u64 {
@@ -562,6 +637,9 @@ struct Conversation {
     cumulative_usage: ConversationCumulativeUsage,
     #[serde(default)]
     active_goal: Option<ConversationGoalState>,
+    /// 队伍状态：队长会话持名册，队员会话持成员身份。
+    #[serde(default)]
+    team: TeamState,
     #[serde(default)]
     last_error: Option<String>,
 }

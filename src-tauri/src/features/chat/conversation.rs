@@ -736,6 +736,7 @@ mod summary_context_title_tests {
             active_goal: None, last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            team: TeamState::default(),
         }
     }
 
@@ -1104,6 +1105,7 @@ fn build_conversation_record(
         auto_push_remote_contact_id: None,
         cumulative_usage: ConversationCumulativeUsage::default(),
         active_goal: None,
+        team: TeamState::default(),
         last_error: None,
     }
 }
@@ -3524,6 +3526,7 @@ fn build_prompt_with_mode(
         auto_push_remote_contact_id: conversation.auto_push_remote_contact_id.clone(),
         cumulative_usage: conversation.cumulative_usage.clone(),
         active_goal: conversation.active_goal.clone(),
+        team: conversation.team.clone(),
         last_error: conversation.last_error.clone(),
     };
     let recall_memory_ids = collect_prompt_retrieved_memory_ids(&enriched_conversation.messages);

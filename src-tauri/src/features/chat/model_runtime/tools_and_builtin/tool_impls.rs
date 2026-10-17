@@ -1036,6 +1036,36 @@ struct BuiltinInformSessionTool {
     session_id: String,
 }
 
+#[derive(Debug, Clone)]
+struct BuiltinTeamInfoTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinTeamRecruitTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinTeamDismissTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinTeamSendTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinTeamReportTool {
+    app_state: AppState,
+    session_id: String,
+}
+
 impl RuntimeToolMetadata for BuiltinTodoTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         todo_provider_tool_definition()
@@ -1366,11 +1396,187 @@ impl RuntimeValueTool for BuiltinInformSessionTool {
     }
 }
 
+impl RuntimeToolMetadata for BuiltinTeamInfoTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "team_info",
+            "查看当前队伍名册：队员数量、编号、名字、职责，以及每个队员此刻的状态——state=busy 表示正在跑（stateDetail 写明在生成回复还是整理上下文），state=error 表示上一轮失败（stateDetail 是失败原因），state=idle 表示空着手。scope=active 只列在队队员，scope=history 连已请离的也列出来。招募前先查一次，确认没有重名、也看清编号对应谁；派活前先看状态，别把新活塞给正在跑的队员。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "scope": { "type": "string", "enum": ["active", "history"], "description": "active=当前在队队员（默认）；history=含已请离的历史名册。" }
+              },
+              "required": [],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinTeamRecruitTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "team_recruit",
+            "招募一名队员：新建一个属于本会话的追问会话，写清名字与职责。招募不会激活队员，之后要用 team_send 发指示。给了 work_branch 就为它新建一条独立工作树并从那分支起。适合把一整块需要持续跟进的活交给一个人；一次性、不需要看过程的活更适合用 delegate。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "name": { "type": "string", "description": "队员名字，同一支队伍内不能重名。" },
+                "duty": { "type": "string", "description": "这名队员的职责，写清它负责干什么。" },
+                "work_branch": { "type": "string", "description": "可选。给了就为它新建独立工作树并以该分支为起点；不给则与队长共用工作区。" }
+              },
+              "required": ["name"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinTeamDismissTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "team_dismiss",
+            "把一名队员请出队伍：只要给编号。它不是删除——那个会话转为普通追问，历史与工作树都保留，编号不再复用。适合队员的活已经收完、不再需要它的时候；还想用就重新招募一个新的。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "number": { "type": "integer", "description": "队员编号。" }
+              },
+              "required": ["number"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinTeamSendTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "team_send",
+            "给指定编号的队员发消息。默认 mode=guided，会在对方执行完一个工具后立刻插入、当场改道；mode=queue 则等对方当前这一轮收尾再进。招募后第一件事通常就是用它把活交代清楚；队员中途需要改方向、补背景也靠它。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "number": { "type": "integer", "description": "队员编号。" },
+                "content": { "type": "string", "description": "要交代给队员的内容。" },
+                "mode": { "type": "string", "enum": ["guided", "queue"], "description": "guided=立即插入改道（默认）；queue=排队等对方收尾。" }
+              },
+              "required": ["number", "content"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinTeamReportTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "team_report",
+            "队员向队长汇报：把进展、结论或需要拍板的事发给队长。默认 mode=guided，立刻插入队长当前轮次；mode=queue 排队等队长收尾。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "content": { "type": "string", "description": "要汇报给队长的内容。" },
+                "mode": { "type": "string", "enum": ["guided", "queue"], "description": "guided=立即插入改道（默认）；queue=排队等队长收尾。" }
+              },
+              "required": ["content"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeValueTool for BuiltinTeamInfoTool {
+    const NAME: &'static str = "team_info";
+    type Args = TeamInfoToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            let result = builtin_team_info(&self.app_state, &self.session_id, args)
+                .map_err(ToolInvokeError::from);
+            if let Err(err) = &result {
+                runtime_log_error(format!("[工具执行] 内置工具 team_info 执行失败: 错误={err}"));
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeValueTool for BuiltinTeamRecruitTool {
+    const NAME: &'static str = "team_recruit";
+    type Args = TeamRecruitToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            let result = builtin_team_recruit(&self.app_state, &self.session_id, args)
+                .await
+                .map_err(ToolInvokeError::from);
+            if let Err(err) = &result {
+                runtime_log_error(format!("[工具执行] 内置工具 team_recruit 执行失败: 错误={err}"));
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeValueTool for BuiltinTeamDismissTool {
+    const NAME: &'static str = "team_dismiss";
+    type Args = TeamDismissToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            let result = builtin_team_dismiss(&self.app_state, &self.session_id, args)
+                .await
+                .map_err(ToolInvokeError::from);
+            if let Err(err) = &result {
+                runtime_log_error(format!("[工具执行] 内置工具 team_dismiss 执行失败: 错误={err}"));
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeValueTool for BuiltinTeamSendTool {
+    const NAME: &'static str = "team_send";
+    type Args = TeamSendToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            let result = builtin_team_send(&self.app_state, &self.session_id, args)
+                .map_err(ToolInvokeError::from);
+            if let Err(err) = &result {
+                runtime_log_error(format!("[工具执行] 内置工具 team_send 执行失败: 错误={err}"));
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeValueTool for BuiltinTeamReportTool {
+    const NAME: &'static str = "team_report";
+    type Args = TeamReportToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            let result = builtin_team_report(&self.app_state, &self.session_id, args)
+                .map_err(ToolInvokeError::from);
+            if let Err(err) = &result {
+                runtime_log_error(format!("[工具执行] 内置工具 team_report 执行失败: 错误={err}"));
+            }
+            result
+        })
+    }
+}
+
 impl RuntimeValueTool for BuiltinTaskTool {
     const NAME: &'static str = "task";
     type Args = TaskToolArgsWire;
     type Error = ToolInvokeError;
-
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
         Box::pin(async move {
         runtime_log_debug(format!(

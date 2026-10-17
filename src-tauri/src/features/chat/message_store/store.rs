@@ -2415,7 +2415,7 @@ mod message_store_reader_tests {
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         }

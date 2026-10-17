@@ -682,6 +682,33 @@ fn create_side_chat_conversation_blocking(
     }
 
     let with_context = input.with_context.unwrap_or(true);
+    let side_chat = side_chat_build_record(state, parent_id, &parent, with_context)?;
+    let side_chat_id = side_chat.id.clone();
+    let title = side_chat.title.clone();
+    side_chat_persist_record(state, parent_id, &side_chat)?;
+    runtime_log_info(format!(
+        "[追问会话] 完成，任务=创建真实会话，parent_conversation_id={}，conversation_id={}，message_count={}，with_context={}",
+        parent_id,
+        side_chat_id,
+        side_chat.messages.len(),
+        with_context
+    ));
+    Ok(CreateSideChatConversationOutput {
+        conversation_id: side_chat_id,
+        parent_conversation_id: parent_id.to_string(),
+        conversation_kind: CONVERSATION_KIND_SIDE_CHAT.to_string(),
+        title,
+    })
+}
+
+/// 追问会话的记录构造：校验父会话、按需复制父会话最新一块消息、继承工作区与模型配置。
+/// 队员招募复用这条路，只是传入 `with_context = false` 并另写身份摘要消息。
+pub(crate) fn side_chat_build_record(
+    state: &AppState,
+    parent_id: &str,
+    parent: &ConversationMetaView,
+    with_context: bool,
+) -> Result<Conversation, String> {
     let copied_messages = if with_context {
         let store_paths = message_store::message_store_paths(&state.data_path, parent_id)?;
         ensure_chat_store_conversation_readable(state, parent_id, &store_paths)?;
@@ -737,8 +764,17 @@ fn create_side_chat_conversation_blocking(
             .map(|message| message.created_at.clone());
         side_chat.fork_message_cursor = Some(last_message.id.clone());
     }
+    Ok(side_chat)
+}
+
+/// 追问会话落库：写盘 + 挂进父会话的子会话清单 + 广播父会话概览。
+pub(crate) fn side_chat_persist_record(
+    state: &AppState,
+    parent_id: &str,
+    side_chat: &Conversation,
+) -> Result<(), String> {
     let side_chat_id = side_chat.id.clone();
-    state_schedule_conversation_persist(state, &side_chat)?;
+    state_schedule_conversation_persist(state, side_chat)?;
     state_update_conversation_metadata_cached(state, parent_id, |conversation| {
         if !conversation.child_conversation_ids.iter().any(|id| id == &side_chat_id) {
             conversation.child_conversation_ids.push(side_chat_id.clone());
@@ -746,19 +782,7 @@ fn create_side_chat_conversation_blocking(
         Ok(())
     })?;
     let _ = emit_unarchived_conversation_overview_item_updated_from_state(state, parent_id);
-    runtime_log_info(format!(
-        "[追问会话] 完成，任务=创建真实会话，parent_conversation_id={}，conversation_id={}，message_count={}，with_context={}",
-        parent_id,
-        side_chat_id,
-        side_chat.messages.len(),
-        with_context
-    ));
-    Ok(CreateSideChatConversationOutput {
-        conversation_id: side_chat_id,
-        parent_conversation_id: parent_id.to_string(),
-        conversation_kind: CONVERSATION_KIND_SIDE_CHAT.to_string(),
-        title,
-    })
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4104,7 +4128,7 @@ mod unarchived_conversations_tests {
             plan_mode_enabled: true,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         }

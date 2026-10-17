@@ -86,6 +86,10 @@
                 aria-hidden="true"
               />
             </template>
+            <span
+              v-if="!fileVariant && tab.badge"
+              class="badge badge-xs shrink-0 border-base-300 bg-base-100"
+            >{{ tab.badge }}</span>
             <span class="min-w-0 overflow-hidden whitespace-nowrap font-medium" :class="fileVariant ? 'file-tab-label-fade' : 'truncate'">{{ tab.label }}</span>
           </button>
           <button
@@ -174,6 +178,7 @@ type PanelTabStripItem = {
   key: string;
   label: string;
   title?: string;
+  badge?: string;
   iconSrc?: string;
   icon?: Component;
   closeable?: boolean;

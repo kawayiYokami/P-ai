@@ -131,6 +131,8 @@ struct ConversationMetaView {
     shell_recorded_branch: String,
     current_todos: Vec<ConversationTodoItem>,
     active_goal: Option<ConversationGoalState>,
+    #[serde(default)]
+    team: TeamState,
     fast_request_turns: Vec<FastRequestTurn>,
     last_message_id: Option<String>,
     last_error: Option<String>,
@@ -321,6 +323,7 @@ impl ConversationMetaView {
             shell_recorded_branch: meta.shell_recorded_branch().to_string(),
             current_todos: meta.current_todos().to_vec(),
             active_goal: meta.active_goal().cloned(),
+            team: meta.team().clone(),
             fast_request_turns: meta.fast_request_turns().to_vec(),
             last_message_id,
             last_error: meta.last_error().map(ToOwned::to_owned),
@@ -1506,6 +1509,7 @@ impl ConversationServiceV2 {
             conversation_meta.auto_push_remote_contact_id.clone();
         conversation.cumulative_usage = conversation_meta.cumulative_usage.clone();
         conversation.active_goal = conversation_meta.active_goal.clone();
+        conversation.team = conversation_meta.team.clone();
         conversation.fast_request_turns = conversation_meta.fast_request_turns.clone();
         conversation
     }

@@ -948,6 +948,7 @@ fn preserve_field_level_conversation_metadata(
     target.preferred_api_config_id = source.preferred_api_config_id.clone();
     target.auto_push_remote_contact_id = source.auto_push_remote_contact_id.clone();
     target.active_goal = source.active_goal.clone();
+    target.team = source.team.clone();
     target.fast_request_turns = source.fast_request_turns.clone();
 }
 

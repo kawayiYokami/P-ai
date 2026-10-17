@@ -2,7 +2,7 @@
   <CardShell
     tone="secondary"
     :icon="MessageSquareMore"
-    :label="t('chat.sideChat.title')"
+    :label="label || t('chat.sideChat.title')"
     interactive
     @select="emit('open')"
   >
@@ -18,6 +18,8 @@ import CardShell from "./CardShell.vue";
 
 defineProps<{
   title: string;
+  /** 卡片头标；队员卡片传队员名，普通追问留空走默认「追问」 */
+  label?: string;
 }>();
 
 const emit = defineEmits<{

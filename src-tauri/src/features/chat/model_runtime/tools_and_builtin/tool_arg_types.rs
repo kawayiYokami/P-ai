@@ -101,6 +101,44 @@ struct InformSessionToolArgs {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+struct TeamInfoToolArgs {
+    /// active = 当前在队的队员；history = 含已请离的历史名册。
+    #[serde(default)]
+    scope: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct TeamRecruitToolArgs {
+    name: String,
+    #[serde(default)]
+    duty: Option<String>,
+    /// 指定后为这名队员新建一条独立工作树，并以该分支为起点；不指定则跟随队长工作区。
+    #[serde(default)]
+    work_branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct TeamDismissToolArgs {
+    number: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct TeamSendToolArgs {
+    number: u32,
+    content: String,
+    /// guided = 引导（对方执行完一个工具就插入并重启）；queue = 排队等对方这一轮收尾。
+    #[serde(default)]
+    mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct TeamReportToolArgs {
+    content: String,
+    #[serde(default)]
+    mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct DelegateToolArgs {
     agent_id: String,

@@ -1260,8 +1260,7 @@ fn conversation_recorded_worktree_path(
 }
 
 /// 会话工作树目录名：{本地日期 YYYYMMDD}-{会话 id 前 8 位}。
-/// 保留供未来手动创建工作树时复用；当前无生产调用方。
-#[allow(dead_code)]
+/// 队员招募新建独立工作树时用。
 fn conversation_worktree_dir_name(conversation_id: &str) -> String {
     let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
     let local = time::OffsetDateTime::now_utc().to_offset(offset);
@@ -1284,8 +1283,7 @@ fn conversation_worktree_dir_is_valid(path: &Path) -> bool {
                 .unwrap_or(false))
 }
 
-/// 实际执行 git worktree add；保留供未来手动创建工作树时复用。
-#[allow(dead_code)]
+/// 实际执行 git worktree add；队员招募需要独立工作树时使用。
 async fn ensure_conversation_worktree_internal(
     git_root: &str,
     worktree_path: &Path,
@@ -1896,7 +1894,7 @@ mod terminal_workspace_tests {
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         });
@@ -1980,7 +1978,7 @@ mod terminal_workspace_tests {
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None, last_error: None,
+            active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         });
