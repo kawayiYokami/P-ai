@@ -11,6 +11,9 @@ struct IdeContextReference {
     #[serde(default)]
     language_id: Option<String>,
     source: String,
+    // diff 编辑器里的文件来自某个提交/暂存版本，这里记下版本号；普通文件为空
+    #[serde(default)]
+    version: String,
     captured_at: String,
 }
 

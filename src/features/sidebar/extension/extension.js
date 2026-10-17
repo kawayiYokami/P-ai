@@ -131,17 +131,53 @@ function readDocumentLineRange(document, startLine, endLine) {
   return document.getText(new vscode.Range(new vscode.Position(start, 0), new vscode.Position(end, endCharacter))).slice(0, MAX_CONTEXT_CHARS);
 }
 
+// Git 扩展把原始磁盘路径和版本写进 git: URI 的 query（见 extensions/git/src/uri.ts 的
+// toGitUri/fromGitUri），diff 编辑器里的文档就是这种 URI，按 fsPath 取会拿到空值。
+// 这里把 file: 与 git: 统一还原成「磁盘路径 + 版本」，其它 scheme 一律不采集。
+function documentFileLocation(uri) {
+  if (!uri) return null;
+  if (uri.scheme === "file") {
+    const filePath = String(uri.fsPath || "").trim();
+    return filePath ? { filePath, version: "" } : null;
+  }
+  if (uri.scheme !== "git") return null;
+  try {
+    const params = JSON.parse(uri.query || "{}");
+    const filePath = String(params.path || "").trim();
+    if (!filePath) return null;
+    return { filePath, version: String(params.ref || "").trim() };
+  } catch {
+    return null;
+  }
+}
+
+// diff 里的文档不是磁盘上的当前版本，只给路径会让模型读到错的内容，
+// 因此按可见范围带上该版本原文（与 VS Code 隐式上下文取 visibleRanges 的做法一致）。
+function documentContentForReference(editor) {
+  const document = editor && editor.document;
+  if (!document) return "";
+  const ranges = Array.isArray(editor.visibleRanges) ? editor.visibleRanges : [];
+  if (ranges.length === 0) return "";
+  const start = ranges[0].start.line;
+  const end = ranges[ranges.length - 1].end.line;
+  return readDocumentLineRange(document, start, end);
+}
+
 function createReference(document, source, startLineZeroBased, endLineZeroBased, content, capturedAt) {
-  const filePath = document.uri.fsPath;
-  if (!filePath || document.uri.scheme !== "file") return null;
+  const location = documentFileLocation(document.uri);
+  if (!location) return null;
+  const filePath = location.filePath;
   const workspace = workspaceForFile(filePath);
   const relativePath = relativePathForFile(filePath, workspace.path);
   const fileName = path.basename(filePath);
   const hasLineRange = source !== "active_file";
   const startLine = hasLineRange ? Math.max(1, startLineZeroBased + 1) : undefined;
   const endLine = hasLineRange ? Math.max(startLine, endLineZeroBased + 1) : undefined;
+  const versionSuffix = location.version ? `@${location.version}` : "";
   const reference = {
-    id: hasLineRange ? `${source}:${filePath}:${startLine}:${endLine}` : `${source}:${filePath}`,
+    id: hasLineRange
+      ? `${source}:${filePath}${versionSuffix}:${startLine}:${endLine}`
+      : `${source}:${filePath}${versionSuffix}`,
     workspacePath: workspace.path,
     workspaceName: workspace.name || path.basename(workspace.path || "") || "Workspace",
     filePath,
@@ -153,6 +189,7 @@ function createReference(document, source, startLineZeroBased, endLineZeroBased,
     content: String(content || "").trim(),
     languageId: document.languageId || undefined,
     source,
+    version: location.version,
     capturedAt,
     textBlock: "",
   };
@@ -165,9 +202,17 @@ function collectIdeContextReferences() {
   const capturedAt = nowIso();
   const referencesByFile = new Map();
   const visibleEditors = vscode.window.visibleTextEditors || [];
-  for (const editor of visibleEditors) {
+  // 活动编辑器排在最前：diff 编辑器里两侧同属一个文件，先入的优先保留，
+  // 这样采集到的是用户正在看的那一侧，而不是碰巧先遍历到的那一侧。
+  const activeEditor = vscode.window.activeTextEditor;
+  const orderedEditors = activeEditor
+    ? [activeEditor, ...visibleEditors.filter((editor) => editor !== activeEditor)]
+    : visibleEditors;
+  for (const editor of orderedEditors) {
     const document = editor.document;
-    if (!document || document.uri.scheme !== "file") continue;
+    if (!document) continue;
+    const location = documentFileLocation(document.uri);
+    if (!location) continue;
     let reference = null;
     const selection = editor.selection;
     if (selection && !selection.isEmpty) {
@@ -177,7 +222,9 @@ function collectIdeContextReferences() {
       reference = createReference(document, "selection", start.line, end.line, content, capturedAt);
     }
     if (!reference) {
-      reference = createReference(document, "active_file", 0, 0, "", capturedAt);
+      // 只有 diff 里的文档才需要带上原文：磁盘上的当前版本已经不是用户看到的那个
+      const content = location.version ? documentContentForReference(editor) : "";
+      reference = createReference(document, "active_file", 0, 0, content, capturedAt);
     }
     if (!reference) continue;
     const fileKey = path.resolve(reference.filePath).replace(/\\/g, "/").toLowerCase();
@@ -194,6 +241,7 @@ function ideContextSignature(references) {
     .map((reference) => [
       reference.source,
       reference.filePath,
+      reference.version || "",
       reference.startLine || 0,
       reference.endLine || 0,
       reference.content,
@@ -216,6 +264,7 @@ function snapshotPayloadFromReferences(references, discovery) {
       content: reference.content,
       languageId: reference.languageId,
       source: reference.source,
+      version: reference.version || "",
       capturedAt: reference.capturedAt,
     })),
     updatedAt: nowIso(),

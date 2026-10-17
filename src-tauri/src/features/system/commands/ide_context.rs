@@ -12,6 +12,8 @@ struct IdeContextReferenceInput {
     #[serde(default)]
     language_id: Option<String>,
     source: String,
+    #[serde(default)]
+    version: String,
     captured_at: String,
 }
 #[derive(Debug, Clone, Deserialize)]
@@ -63,6 +65,8 @@ struct IdeContextReferenceItemOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     language_id: Option<String>,
     source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
     captured_at: String,
     text_block: String,
 }

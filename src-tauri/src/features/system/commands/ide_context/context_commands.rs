@@ -52,6 +52,7 @@ fn upsert_ide_context_snapshot_internal(
                         .map(|value| value.trim().to_string())
                         .filter(|value| !value.is_empty()),
                     source,
+                    version: reference.version.trim().to_string(),
                     captured_at: ide_context_normalize_time_or_now(
                         "references[].capturedAt",
                         &reference.captured_at,
@@ -460,6 +461,7 @@ fn query_ide_context_references_internal(
                     content: reference.content.clone(),
                     language_id: reference.language_id.clone(),
                     source: reference.source.clone(),
+                    version: Some(reference.version.clone()).filter(|value| !value.trim().is_empty()),
                     captured_at: reference.captured_at.clone(),
                     text_block,
                 });
@@ -518,6 +520,7 @@ mod ide_context_query_tests {
                     content: "const value = 1;".to_string(),
                     language_id: Some("typescript".to_string()),
                     source: "active_file".to_string(),
+                    version: String::new(),
                     captured_at: now_iso(),
                 }],
                 updated_at: Some(now_iso()),

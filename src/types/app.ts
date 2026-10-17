@@ -299,6 +299,7 @@ export type IdeContextReferenceItem = {
   content: string;
   languageId?: string;
   source: string;
+  version?: string;
   capturedAt: string;
   textBlock: string;
 };

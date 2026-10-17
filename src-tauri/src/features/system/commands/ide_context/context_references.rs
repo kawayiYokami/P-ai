@@ -211,13 +211,26 @@ fn ide_context_text_block(file_path: &str, reference: &IdeContextReference) -> S
         file_path,
         ide_context_line_suffix(reference.start_line, reference.end_line)
     );
+    let version = reference.version.trim();
     if reference.content.chars().count() > IDE_CONTEXT_TEXT_BLOCK_CONTENT_LIMIT {
-        return format!("用户引用了文件片段：{location}");
+        return if version.is_empty() {
+            format!("用户引用了文件片段：{location}")
+        } else {
+            format!("用户引用了文件片段：{location}（版本: {version}）")
+        };
     }
-    if reference.source.trim() == "active_file" {
-        return ["[IDE 上下文引用]".to_string(), format!("文件: {file_path}")].join("\n");
+    // 普通活动文件只给路径，模型按路径读磁盘即可；diff 里的文件带了该版本原文，走下面的完整分支
+    if reference.source.trim() == "active_file" && reference.content.trim().is_empty() {
+        let mut lines = vec!["[IDE 上下文引用]".to_string(), format!("文件: {file_path}")];
+        if !version.is_empty() {
+            lines.push(format!("版本: {version}（diff 中查看的版本，非磁盘当前内容）"));
+        }
+        return lines.join("\n");
     }
     let mut lines = vec!["[IDE 上下文引用]".to_string(), format!("文件: {file_path}")];
+    if !version.is_empty() {
+        lines.push(format!("版本: {version}（diff 中查看的版本，非磁盘当前内容）"));
+    }
     if reference.start_line.is_some() || reference.end_line.is_some() {
         let line_text = match (reference.start_line, reference.end_line) {
             (Some(start), Some(end)) if end > start => format!("{start}-{end}"),
