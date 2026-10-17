@@ -1,9 +1,94 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { statusMock, logMock, watchStartMock, watchStopMock } = vi.hoisted(() => ({
+  statusMock: vi.fn(),
+  logMock: vi.fn(),
+  watchStartMock: vi.fn(async () => ({})),
+  watchStopMock: vi.fn(async () => ({})),
+}));
+
+vi.mock("../../../services/tauri-api", () => ({
+  appendTransportProbeLog: () => {},
+  gitPanelStatus: statusMock,
+  gitPanelLog: logMock,
+  gitPanelDiscover: async () => ({ gitAvailable: true, checked: true, repos: [], defaultRepoRoot: "" }),
+  gitPanelWatchStart: watchStartMock,
+  gitPanelWatchStop: watchStopMock,
+  onTransportNotification: () => () => {},
+}));
+
 import {
   isSameRepoPath,
   readRememberedRepoRoot,
   rememberRepoRoot,
+  useWorkspaceGitStatus,
 } from "./use-workspace-git-status";
+
+const flushAsync = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("重新进入时对齐仓库状态", () => {
+  beforeEach(() => {
+    statusMock.mockReset();
+    logMock.mockReset();
+    statusMock.mockResolvedValue({
+      entries: [],
+      truncated: false,
+      stagedTotal: 0,
+      unstagedTotal: 0,
+      branch: "main",
+      repoRoot: "",
+    });
+    logMock.mockResolvedValue({ entries: [] });
+  });
+
+  it("从没人看回到有人看时强制拉一次状态与最近提交", async () => {
+    const git = useWorkspaceGitStatus();
+    git.setRepoRoot("E:/repo-reenter");
+    statusMock.mockClear();
+    logMock.mockClear();
+    git.acquire();
+    await flushAsync();
+    expect(statusMock).toHaveBeenCalledTimes(1);
+    expect(logMock).toHaveBeenCalledTimes(1);
+    git.release();
+  });
+
+  it("已经有人在看时再次 acquire 不重复拉取", async () => {
+    const git = useWorkspaceGitStatus();
+    git.setRepoRoot("E:/repo-reenter");
+    git.acquire();
+    await flushAsync();
+    statusMock.mockClear();
+    git.acquire();
+    await flushAsync();
+    expect(statusMock).not.toHaveBeenCalled();
+    git.release();
+    git.release();
+  });
+
+  it("卡片墙在场时面板重新接管也要对齐一次", async () => {
+    const git = useWorkspaceGitStatus();
+    git.setRepoRoot("E:/repo-reenter");
+    git.acquire();
+    await flushAsync();
+    statusMock.mockClear();
+    git.acquirePanel();
+    await flushAsync();
+    expect(statusMock).toHaveBeenCalledTimes(1);
+    git.releasePanel();
+    git.release();
+  });
+
+  it("仓库根为空时不发请求", async () => {
+    const git = useWorkspaceGitStatus();
+    git.setRepoRoot("");
+    statusMock.mockClear();
+    git.acquire();
+    await flushAsync();
+    expect(statusMock).not.toHaveBeenCalled();
+    git.release();
+  });
+});
 
 describe("isSameRepoPath", () => {
   it("斜杠方向与盘符大小写差异视为同一仓库", () => {

@@ -1089,6 +1089,16 @@ function ensureVisibleData() {
   }
 }
 
+/** 会话切换后按需加载标记失效：同一仓库的数据也属于上一个会话的观察时刻，不能拿它顶用 */
+function markLazyDataStale() {
+  historyLoaded.value = false;
+  stashesLoaded.value = false;
+  branchesLoaded.value = false;
+  lastHistoryLoad.value = 0;
+  lastStashesLoad.value = 0;
+  lastBranchesLoad.value = 0;
+}
+
 function resetRepoScopedState() {
   branchPickerOpen.value = false;
   closeCommitCard();
@@ -2163,6 +2173,12 @@ watch(
     const workspaceChanged = normalizeRepoPath(nextWorkspace) !== normalizeRepoPath(prevWorkspace);
     const sessionRootChanged = normalizeRepoPath(nextSessionRoot) !== normalizeRepoPath(prevSessionRoot);
     const sessionKeyChanged = nextSessionKey !== prevSessionKey;
+    if (sessionKeyChanged) {
+      // 换了会话，之前「已经加载过」的标记就失效了：同一仓库的数据也属于上一个会话的观察时刻，
+      // 不能因为仓库路径没变就跳过重取。
+      markLazyDataStale();
+      void loadStatus(true);
+    }
     if (workspaceChanged || sessionRootChanged || sessionKeyChanged) {
       void loadDiscover(false);
     }

@@ -361,11 +361,23 @@ function detachForegroundListeners() {
   document.removeEventListener("visibilitychange", handleForegroundReturn);
 }
 
+/** 重新进入时对齐一次：变化信号只覆盖在场期间发生的改动，离场期间积压的不会重放 */
+function alignOnReenter() {
+  if (!repoRoot.value) return;
+  gitWatchProbe("重新进入，强制刷新状态", { root: repoRoot.value });
+  void loadStatus(true);
+  void loadRecentCommits();
+}
+
 /** 普通消费方（卡片墙等）声明需要实时数据 */
 function acquire() {
+  const wasIdle = consumerCount === 0;
   consumerCount += 1;
   if (consumerCount === 1) attachForegroundListeners();
   syncWatcher();
+  // 从「没人看」回到「有人看」时先对齐一次，否则会一直显示离场那一刻的快照。
+  // 重开面板、切回聊天都会走到这里。
+  if (wasIdle) alignOnReenter();
 }
 
 function release() {
@@ -376,8 +388,12 @@ function release() {
 
 /** Git 面板声明占用：面板在时仓库根由面板控制 */
 function acquirePanel() {
+  const wasIdlePanel = panelCount === 0;
   panelCount += 1;
   acquire();
+  // 面板重新接管仓库根时也要对齐：卡片墙可能一直在看，acquire 不会从 0 起步，
+  // 但面板自己那份数据仍是上次离开时的
+  if (wasIdlePanel && consumerCount > 1) alignOnReenter();
 }
 
 function releasePanel() {
