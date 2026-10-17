@@ -172,6 +172,8 @@
         :current-workspace-display-name="currentChatWorkspaceDisplayName"
         :current-workspace-root-path="currentChatWorkspaceRootPath"
         :current-workspace-autonomous-mode="currentChatWorkspaceAutonomousMode"
+        :current-workspace-team-enabled="currentChatWorkspaceTeamEnabled"
+        :current-workspace-team-agent-ids="currentChatWorkspaceTeamAgentIds || []"
         :current-workspace-work-mode="currentChatWorkMode"
         :current-workspace-worktree-path="currentChatWorktreePath"
         :current-workspace-worktree-exists="currentChatWorktreeExists"
@@ -181,6 +183,7 @@
         :workspaces="currentChatWorkspaces"
         :config-shell-workspaces="config.shellWorkspaces || []"
         :save-draft-workspaces="saveDraftWorkspaces"
+        :save-draft-team-mode="saveDraftTeamMode"
         :sync-workspace-branch="syncWorkspaceBranch"
         :draft-workspace-git-root-check="draftWorkspaceGitRootCheck"
         :active-agent-id="currentChatAgentId"
@@ -672,6 +675,10 @@ const props = defineProps<{
   currentChatWorkspaceDisplayName: string;
   currentChatWorkspaceRootPath: string;
   currentChatWorkspaceAutonomousMode: boolean;
+  /** 组队模式：新建会话时选定 */
+  currentChatWorkspaceTeamEnabled: boolean;
+  /** 组队模式下预选的队员人格（不含队长），顺序即队员编号顺序 */
+  currentChatWorkspaceTeamAgentIds?: string[];
   currentChatWorkspaces: ShellWorkspace[];
   currentChatWorkMode?: ShellWorkMode;
   currentChatWorkBranch?: string;
@@ -680,6 +687,7 @@ const props = defineProps<{
   checkBranchBeforeSend?: () => Promise<BranchGuardCheck>;
   acceptBranchGuardPrompt?: () => void;
   saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string, shellWorktreePath?: string) => Promise<void>;
+  saveDraftTeamMode?: (teamEnabled: boolean, memberAgentIds: string[]) => Promise<void>;
   /** 会话内自己切分支成功后按工作目录同步「本会话工作分支」记录 */
   syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;

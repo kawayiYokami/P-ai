@@ -1440,6 +1440,7 @@ fn main() {
             record_conversation_workspace_branch,
             mark_conversation_read,
             set_conversation_plan_mode,
+            set_conversation_team_mode,
             set_conversation_wheelchair_mode,
             dismiss_conversation_wheelchair_suggestion,
             set_conversation_preferred_model,

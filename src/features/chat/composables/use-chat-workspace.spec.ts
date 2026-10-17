@@ -126,3 +126,44 @@ describe("useChatWorkspace 工作区刷新竞态", () => {
     expect(workspace.chatWorkspaceRootPath.value).toBe("E:/repo-new");
   });
 });
+
+describe("useChatWorkspace 组队模式", () => {
+  beforeEach(() => {
+    invokeTauriMock.mockReset();
+    gitPanelHeadStateMock.mockReset();
+  });
+
+  it("切换组队时把预选队员人格一起提交，并用后端回显回填", async () => {
+    const { workspace } = createWorkspace("conv-draft");
+    invokeTauriMock.mockResolvedValueOnce({
+      conversationId: "conv-draft",
+      teamEnabled: true,
+      memberAgentIds: ["agent-b", "agent-c"],
+    });
+
+    await workspace.saveChatTeamMode(true, ["agent-b", "agent-c"]);
+
+    expect(invokeTauriMock).toHaveBeenCalledWith("conversation.teamMode.set", {
+      conversationId: "conv-draft",
+      teamEnabled: true,
+      memberAgentIds: ["agent-b", "agent-c"],
+    });
+    expect(workspace.chatWorkspaceTeamEnabled.value).toBe(true);
+    expect(workspace.chatWorkspaceTeamAgentIds.value).toEqual(["agent-b", "agent-c"]);
+  });
+
+  it("切回单人时清空预选队员，失败则整体回滚", async () => {
+    const { workspace } = createWorkspace("conv-draft");
+    invokeTauriMock.mockResolvedValueOnce({
+      conversationId: "conv-draft",
+      teamEnabled: true,
+      memberAgentIds: ["agent-b"],
+    });
+    await workspace.saveChatTeamMode(true, ["agent-b"]);
+
+    invokeTauriMock.mockRejectedValueOnce(new Error("boom"));
+    await expect(workspace.saveChatTeamMode(false, [])).rejects.toThrow("boom");
+    expect(workspace.chatWorkspaceTeamEnabled.value).toBe(true);
+    expect(workspace.chatWorkspaceTeamAgentIds.value).toEqual(["agent-b"]);
+  });
+});

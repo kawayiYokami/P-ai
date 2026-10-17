@@ -330,6 +330,7 @@ async fn ide_chat_handle_jsonrpc_request(
         }
         "terminalApproval.list" => ide_chat_list_pending_terminal_approvals(state),
         "conversation.planMode.set" => ide_chat_set_conversation_plan_mode(state, request.params),
+        "conversation.teamMode.set" => ide_chat_set_conversation_team_mode(state, request.params),
         "conversation.wheelchairMode.set" => {
             ide_chat_set_conversation_wheelchair_mode(state, request.params)
         }

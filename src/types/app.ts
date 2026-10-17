@@ -267,6 +267,12 @@ export type ChatShellWorkspaceState = {
   rootPath: string;
   workspaces?: ShellWorkspace[];
   autonomousMode?: boolean;
+  /** 组队模式：true = 这个会话挂了队长工具，可以招募队员 */
+  teamEnabled?: boolean;
+  /** 新建会话预选的队员人格（不含队长），按选择顺序在首轮发言时建成队员 */
+  teamPendingMemberAgents?: string[];
+  /** 是否为会话草稿：草稿一律从单人模式开始 */
+  isDraft?: boolean;
   shellWorkMode?: ShellWorkMode;
   shellWorkBranch?: string;
   /** 会话记录的工作分支：本会话上次在哪个分支上工作；与 shellWorkBranch（工作树意图分支）无关 */

@@ -377,6 +377,95 @@ fn set_conversation_plan_mode_inner(
 }
 
 #[tauri::command]
+fn set_conversation_team_mode(
+    input: SetConversationTeamModeInput,
+    state: State<'_, AppState>,
+) -> Result<SetConversationTeamModeOutput, String> {
+    set_conversation_team_mode_inner(input, state.inner())
+}
+
+fn set_conversation_team_mode_inner(
+    input: SetConversationTeamModeInput,
+    state: &AppState,
+) -> Result<SetConversationTeamModeOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空".to_string());
+    }
+
+    let meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
+    if meta.team.membership.is_some() {
+        return Err("这是队员会话，不能切换组队模式".to_string());
+    }
+    if !input.team_enabled
+        && meta
+            .team
+            .members
+            .iter()
+            .any(|member| member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
+    {
+        return Err("队伍里还有队员，先把所有队员请离才能切回单人".to_string());
+    }
+
+    // 预选队员只在新建会话（草稿）阶段有意义：首轮发言时据此一次性建出队员会话。
+    let member_agent_ids = input
+        .member_agent_ids
+        .iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if !member_agent_ids.is_empty() {
+        if !meta.is_draft {
+            return Err("只有新建会话时可以选择队员人格".to_string());
+        }
+        let runtime_org = load_runtime_organization_snapshot(state)?;
+        for agent_id in &member_agent_ids {
+            let agent = runtime_org
+                .agents
+                .iter()
+                .find(|item| item.id.trim() == agent_id.as_str())
+                .ok_or_else(|| format!("队员人格不存在：{agent_id}"))?;
+            if agent.is_built_in_user || agent.is_built_in_system {
+                return Err("队员不能是用户或系统人格".to_string());
+            }
+        }
+    }
+
+    // 单人模式不保留预选队员：避免「开关关着却挂着待建队员」的僵尸状态
+    let persisted_member_agent_ids = if input.team_enabled {
+        member_agent_ids.clone()
+    } else {
+        Vec::new()
+    };
+
+    if meta.team.enabled != input.team_enabled
+        || meta.team.pending_member_agents != persisted_member_agent_ids
+    {
+        state_update_conversation_metadata_cached(state, conversation_id, |conversation| {
+            conversation.team.enabled = input.team_enabled;
+            if !input.team_enabled {
+                conversation.team.pending_member_agents.clear();
+            } else if conversation.is_draft {
+                conversation.team.pending_member_agents = persisted_member_agent_ids.clone();
+            }
+            Ok(())
+        })?;
+        runtime_log_info(format!(
+            "[队伍] 完成，任务=切换会话组队模式，会话ID={}，模式={}，待建队员数={}",
+            conversation_id,
+            if input.team_enabled { "组队" } else { "单人" },
+            persisted_member_agent_ids.len()
+        ));
+    }
+
+    Ok(SetConversationTeamModeOutput {
+        conversation_id: conversation_id.to_string(),
+        team_enabled: input.team_enabled,
+        member_agent_ids: persisted_member_agent_ids,
+    })
+}
+
+#[tauri::command]
 fn set_conversation_wheelchair_mode(
     input: SetConversationWheelchairModeInput,
     state: State<'_, AppState>,
@@ -1357,6 +1446,8 @@ async fn open_draft_conversation_inner(
                         },
                     )?;
                 }
+                // 草稿一律从单人开始：复用旧草稿时清掉上次留下的组队开关与预选队员。
+                reset_draft_team_state(&app_state, &conversation_id)?;
                 return Ok(OpenDraftConversationOutput {
                     conversation_id,
                     created: false,
@@ -1391,6 +1482,23 @@ async fn open_draft_conversation_inner(
         &output.conversation_id,
     );
     Ok(output)
+}
+
+/// 草稿一律从单人开始：清掉组队开关与预选队员，避免复用旧草稿时残留上次的选择。
+fn reset_draft_team_state(state: &AppState, conversation_id: &str) -> Result<(), String> {
+    let meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
+    if !meta.is_draft || (!meta.team.enabled && meta.team.pending_member_agents.is_empty()) {
+        return Ok(());
+    }
+    state_update_conversation_metadata_cached(state, conversation_id, |conversation| {
+        conversation.team.enabled = false;
+        conversation.team.pending_member_agents.clear();
+        Ok(())
+    })?;
+    runtime_log_info(format!(
+        "[队伍] 完成，任务=重置草稿组队模式为单人，会话ID={conversation_id}"
+    ));
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

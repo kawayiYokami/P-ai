@@ -1282,6 +1282,24 @@ struct SetConversationPlanModeOutput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SetConversationTeamModeInput {
+    conversation_id: String,
+    team_enabled: bool,
+    /// 新建会话时预选的队员人格（不含队长），按顺序创建队员
+    #[serde(default)]
+    member_agent_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetConversationTeamModeOutput {
+    conversation_id: String,
+    team_enabled: bool,
+    member_agent_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SetConversationWheelchairModeInput {
     conversation_id: String,
     wheelchair_mode_enabled: bool,

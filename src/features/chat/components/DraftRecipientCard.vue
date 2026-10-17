@@ -80,10 +80,13 @@
           :selected-branch="selectedBranch"
           :selected-worktree-path="selectedWorktreePath"
           :available-workspaces="mergedOptions"
+          :team-enabled="workspaceTeamEnabled"
+          show-team-mode
           :sync-workspace-branch="props.syncWorkspaceBranch"
           :git-root-check="props.gitRootCheck"
           @update:main-path="handleMainPathUpdate"
           @update:access="handleAccessUpdate"
+          @update:team-enabled="handleTeamModeUpdate"
           @update:work-mode="handleWorkModeUpdate"
           @update:branch="handleBranchUpdate"
           @update:worktree-path="handleWorktreePathUpdate"
@@ -99,31 +102,40 @@
               v-for="option in recentOptions"
               :key="option.id"
               class="flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-2xl border border-base-300 bg-base-100/60 px-1 py-2.5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-base-100 hover:shadow-lg"
-              :class="selectedAgentId === option.agentId ? 'border-primary/60 bg-primary/10' : ''"
+              :class="isPersonaSelected(option.agentId) ? 'border-primary/60 bg-primary/10' : ''"
             >
               <button
                 type="button"
                 class="flex w-full flex-col items-center gap-1.5"
-                @click="emit('change', { agentId: option.agentId })"
+                @click="handlePersonaPick(option.agentId)"
               >
-                <div class="avatar">
-                  <div
-                    class="h-14 w-14 rounded-full transition-shadow"
-                    :class="selectedAgentId === option.agentId ? 'ring-2 ring-primary' : ''"
-                  >
-                    <img
-                      v-if="resolveAvatarUrl(option.agentId)"
-                      :src="resolveAvatarUrl(option.agentId)"
-                      :alt="option.agentName"
-                      class="h-14 w-14 rounded-full object-cover"
-                    />
+                <div class="relative">
+                  <div class="avatar">
                     <div
-                      v-else
-                      class="flex h-14 w-14 items-center justify-center rounded-full bg-primary/80 text-lg font-semibold text-primary-content"
+                      class="h-14 w-14 rounded-full transition-shadow"
+                      :class="isPersonaSelected(option.agentId) ? 'ring-2 ring-primary' : ''"
                     >
-                      {{ agentInitials(option.agentName) }}
+                      <img
+                        v-if="resolveAvatarUrl(option.agentId)"
+                        :src="resolveAvatarUrl(option.agentId)"
+                        :alt="option.agentName"
+                        class="h-14 w-14 rounded-full object-cover"
+                      />
+                      <div
+                        v-else
+                        class="flex h-14 w-14 items-center justify-center rounded-full bg-primary/80 text-lg font-semibold text-primary-content"
+                      >
+                        {{ agentInitials(option.agentName) }}
+                      </div>
                     </div>
                   </div>
+                  <span
+                    v-if="personaBadge(option.agentId)"
+                    class="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary leading-none text-primary-content"
+                  >
+                    <Flag v-if="personaBadge(option.agentId) === 'leader'" class="h-3 w-3" />
+                    <UserRound v-else class="h-3 w-3" />
+                  </span>
                 </div>
                 <span class="max-w-full truncate text-center text-xs leading-tight text-base-content/80">
                   {{ option.agentName }}
@@ -131,7 +143,7 @@
                 <span
                   v-if="optionSubLabel(option)"
                   class="max-w-full truncate rounded-full px-1.5 py-0.5 text-caption leading-tight"
-                  :class="option.id === selectedId
+                  :class="isPersonaSelected(option.agentId)
                     ? 'bg-primary/15 font-medium text-primary'
                     : 'bg-base-content/10 text-base-content/60'"
                 >
@@ -169,31 +181,40 @@
                   v-for="option in options"
                   :key="option.id"
                   class="flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-2xl border border-base-300 bg-base-100/60 px-1 py-2.5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-base-100 hover:shadow-lg"
-                  :class="selectedAgentId === option.agentId ? 'border-primary/60 bg-primary/10' : ''"
+                  :class="isPersonaSelected(option.agentId) ? 'border-primary/60 bg-primary/10' : ''"
                 >
                   <button
                     type="button"
                     class="flex w-full flex-col items-center gap-1.5"
-                    @click="handleSelectFromAll(option)"
+                    @click="handlePersonaPick(option.agentId)"
                   >
-                    <div class="avatar">
-                      <div
-                        class="h-14 w-14 rounded-full transition-shadow"
-                        :class="selectedAgentId === option.agentId ? 'ring-2 ring-primary' : ''"
-                      >
-                        <img
-                          v-if="resolveAvatarUrl(option.agentId)"
-                          :src="resolveAvatarUrl(option.agentId)"
-                          :alt="option.agentName"
-                          class="h-14 w-14 rounded-full object-cover"
-                        />
+                    <div class="relative">
+                      <div class="avatar">
                         <div
-                          v-else
-                          class="flex h-14 w-14 items-center justify-center rounded-full bg-primary/80 text-lg font-semibold text-primary-content"
+                          class="h-14 w-14 rounded-full transition-shadow"
+                          :class="isPersonaSelected(option.agentId) ? 'ring-2 ring-primary' : ''"
                         >
-                          {{ agentInitials(option.agentName) }}
+                          <img
+                            v-if="resolveAvatarUrl(option.agentId)"
+                            :src="resolveAvatarUrl(option.agentId)"
+                            :alt="option.agentName"
+                            class="h-14 w-14 rounded-full object-cover"
+                          />
+                          <div
+                            v-else
+                            class="flex h-14 w-14 items-center justify-center rounded-full bg-primary/80 text-lg font-semibold text-primary-content"
+                          >
+                            {{ agentInitials(option.agentName) }}
+                          </div>
                         </div>
                       </div>
+                      <span
+                        v-if="personaBadge(option.agentId)"
+                        class="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary leading-none text-primary-content"
+                      >
+                        <Flag v-if="personaBadge(option.agentId) === 'leader'" class="h-3 w-3" />
+                        <UserRound v-else class="h-3 w-3" />
+                      </span>
                     </div>
                     <span class="max-w-full truncate text-center text-xs leading-tight text-base-content/80">
                       {{ option.agentName }}
@@ -201,7 +222,7 @@
                     <span
                       v-if="optionSubLabel(option)"
                       class="max-w-full truncate rounded-full px-1.5 py-0.5 text-caption leading-tight"
-                      :class="option.id === selectedId
+                      :class="isPersonaSelected(option.agentId)
                         ? 'bg-primary/15 font-medium text-primary'
                         : 'bg-base-content/10 text-base-content/60'"
                     >
@@ -214,6 +235,12 @@
           </div>
         </Transition>
       </div>
+      <p
+        v-if="workspaceTeamEnabled"
+        class="max-w-md text-center text-xs leading-relaxed text-base-content/55"
+      >
+        {{ t("chat.teamInitialMembersTip") }}
+      </p>
     </div>
   </div>
 </template>
@@ -221,7 +248,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Pencil } from "@lucide/vue";
+import { Flag, Pencil, UserRound } from "@lucide/vue";
 import { agentPersonaOptionId, type AgentPersonaOption } from "../../shared/agent-persona-options";
 import WorkspaceConfigCard from "../../shared/components/WorkspaceConfigCard.vue";
 import type { ShellWorkspace, ShellWorkMode } from "../../../types/app";
@@ -252,6 +279,10 @@ const props = withDefaults(defineProps<{
   workspaceWorktreePath?: string;
   workspaces?: ShellWorkspace[];
   workspaceAutonomousMode?: boolean;
+  workspaceTeamEnabled?: boolean;
+  /** 组队模式下已选的队员人格（不含队长），按选择顺序 */
+  workspaceTeamAgentIds?: string[];
+  saveTeamMode?: (enabled: boolean, memberAgentIds: string[]) => Promise<void>;
   saveWorkspace?: (input: { path: string; name: string; access: ShellWorkspaceAccess; workMode: ShellWorkMode }) => Promise<void>;
   saveWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, branch?: string, worktreePath?: string) => Promise<void>;
   gitRootCheck?: (path: string) => Promise<boolean>;
@@ -270,6 +301,8 @@ const props = withDefaults(defineProps<{
   workspaceWorktreePath: "",
   workspaces: () => [],
   workspaceAutonomousMode: false,
+  workspaceTeamEnabled: false,
+  workspaceTeamAgentIds: () => [],
 });
 
 const emit = defineEmits<{
@@ -516,6 +549,98 @@ function handleWorkModeUpdate(mode: ShellWorkMode) {
   void commitSave();
 }
 
+// 单人 / 组队不走 commitSave：它不依赖工作目录，草稿还没选目录时也要能切
+async function handleTeamModeUpdate(teamEnabled: boolean) {
+  if (!props.saveTeamMode) return;
+  // 重复点击同一段不应重置选择：组队状态下再点组队会把已选队员清空
+  if (teamEnabled === Boolean(props.workspaceTeamEnabled)) return;
+  // 打开组队时，把当前已选的人格直接当 1 号队长；关掉时清空队员
+  if (teamEnabled) {
+    const leader = String(props.selectedAgentId || "").trim();
+    teamOrder.value = leader ? [leader] : [];
+  } else {
+    teamOrder.value = [];
+  }
+  try {
+    await props.saveTeamMode(teamEnabled, teamEnabled ? teamOrder.value.slice(1) : []);
+  } catch {
+    // 失败时上层已把状态回滚，这里不再重复提示
+  }
+}
+
+// ========== 组队模式：有序多选人格 ==========
+// 顺序即编号：第 1 个是队长（会话人格），后面的按顺序在首轮发言时建成队员。
+const teamOrder = ref<string[]>([]);
+
+function syncTeamOrderFromProps() {
+  if (!props.workspaceTeamEnabled) {
+    teamOrder.value = [];
+    return;
+  }
+  const leader = String(props.selectedAgentId || "").trim();
+  const members = (props.workspaceTeamAgentIds || [])
+    .map((value) => String(value || "").trim())
+    .filter((value) => value && value !== leader);
+  teamOrder.value = leader ? [leader, ...members] : [...members];
+}
+
+watch(
+  () => [props.workspaceTeamEnabled, props.selectedAgentId, props.workspaceTeamAgentIds] as const,
+  syncTeamOrderFromProps,
+  { immediate: true, deep: true },
+);
+
+function isPersonaSelected(agentId: string): boolean {
+  const id = String(agentId || "").trim();
+  if (!id) return false;
+  if (!props.workspaceTeamEnabled) return String(props.selectedAgentId || "").trim() === id;
+  return teamOrder.value.includes(id);
+}
+
+/** 组队模式下的身份角标：队长挂旗子，队员挂队员图标；单人模式不显示 */
+function personaBadge(agentId: string): "leader" | "member" | "" {
+  if (!props.workspaceTeamEnabled) return "";
+  const index = teamOrder.value.indexOf(String(agentId || "").trim());
+  if (index < 0) return "";
+  return index === 0 ? "leader" : "member";
+}
+
+async function persistTeamOrder() {
+  if (!props.saveTeamMode) return;
+  try {
+    await props.saveTeamMode(true, teamOrder.value.slice(1));
+  } catch {
+    // 失败时上层已把状态回滚，这里不再重复提示
+  }
+}
+
+async function handleTeamPersonaPick(agentId: string) {
+  const id = String(agentId || "").trim();
+  if (!id) return;
+  const index = teamOrder.value.indexOf(id);
+  if (index >= 0) {
+    // 队长就是会话人格，队伍不能清空：只剩一个人时点击不生效
+    if (teamOrder.value.length <= 1) return;
+    teamOrder.value.splice(index, 1);
+  } else {
+    teamOrder.value.push(id);
+  }
+  // 队长跟着列表首位走：第一个被选中的人格就是会话人格
+  const nextLeader = String(teamOrder.value[0] || "").trim();
+  if (nextLeader && nextLeader !== String(props.selectedAgentId || "").trim()) {
+    emit("change", { agentId: nextLeader });
+  }
+  await persistTeamOrder();
+}
+
+function handlePersonaPick(agentId: string) {
+  if (props.workspaceTeamEnabled) {
+    void handleTeamPersonaPick(agentId);
+    return;
+  }
+  emit("change", { agentId: String(agentId || "").trim() });
+}
+
 function handleBranchUpdate(branch: string) {
   selectedBranch.value = String(branch || "").trim();
   void commitSave();
@@ -599,10 +724,6 @@ function agentInitials(name: string): string {
     return firstTwo.toUpperCase();
   }
   return text.charAt(0).toUpperCase();
-}
-
-function handleSelectFromAll(option: AgentPersonaOption) {
-  emit("change", { agentId: option.agentId });
 }
 </script>
 

@@ -207,6 +207,24 @@
 
     <!-- 权限 + 额外目录胶囊 + 添加目录：同排居中，放不下自动折行 -->
     <div class="flex w-full flex-wrap items-center justify-center gap-2">
+      <!-- 单人 / 组队：新建会话时选定，决定这个会话挂不挂队长工具 -->
+      <div
+        v-if="showTeamMode"
+        class="flex shrink-0 items-center rounded-selector border border-base-content/10 bg-base-content/5 p-0.5"
+      >
+        <button
+          v-for="modeOption in TEAM_MODE_OPTIONS"
+          :key="modeOption"
+          type="button"
+          class="rounded-selector px-3.5 py-2 text-xs font-medium leading-none transition-colors"
+          :class="(modeOption === 'team') === teamEnabled
+            ? 'bg-base-100 text-base-content'
+            : 'text-base-content/55 hover:text-base-content'"
+          @click="handleTeamModeClick(modeOption)"
+        >
+          {{ t(modeOption === "team" ? "chat.teamModeTeam" : "chat.teamModeSingle") }}
+        </button>
+      </div>
       <div class="flex shrink-0 items-center rounded-selector border border-base-content/10 bg-base-content/5 p-0.5">
         <button
           v-for="accessOption in ACCESS_OPTIONS"
@@ -416,12 +434,18 @@ const ACCESS_LABEL_KEY: Record<ShellWorkspaceAccess, string> = {
   approval: "Approval",
   full_access: "FullAccess",
 };
+/** 单人 / 组队：决定这个会话是否挂队长工具 */
+const TEAM_MODE_OPTIONS = ["single", "team"] as const;
 
 const props = withDefaults(defineProps<{
   mainPath: string;
   secondaryPaths?: string[];
   access: ShellWorkspaceAccess;
   workMode?: ShellWorkMode;
+  /** 组队模式：true = 组队，false = 单人 */
+  teamEnabled?: boolean;
+  /** 是否渲染单人/组队选择；只有新建会话这类场景需要 */
+  showTeamMode?: boolean;
   selectedBranch?: string;
   /** 当前选中的工作树路径（主树=仓库根/空串）；空串表示跟随主工作树 */
   selectedWorktreePath?: string;
@@ -435,6 +459,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   secondaryPaths: () => [],
   workMode: "directory",
+  teamEnabled: false,
+  showTeamMode: false,
   selectedBranch: "",
   selectedWorktreePath: "",
   availableWorkspaces: () => [],
@@ -446,6 +472,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: "update:mainPath", value: string): void;
   (e: "update:access", value: ShellWorkspaceAccess): void;
+  (e: "update:teamEnabled", value: boolean): void;
   (e: "update:workMode", value: ShellWorkMode): void;
   (e: "update:branch", value: string): void;
   /** 选中某个已有工作树（主树或链接树）：调用方据此绑定工作树目录 */
@@ -456,6 +483,13 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+/** 点已选中的那一段不重复触发：否则组队会以空队员列表重写一次，把已选队员清掉 */
+function handleTeamModeClick(modeOption: (typeof TEAM_MODE_OPTIONS)[number]) {
+  const nextEnabled = modeOption === "team";
+  if (nextEnabled === Boolean(props.teamEnabled)) return;
+  emit("update:teamEnabled", nextEnabled);
+}
 
 const mainDropdownOpen = ref(false);
 const worktreeDropdownOpen = ref(false);

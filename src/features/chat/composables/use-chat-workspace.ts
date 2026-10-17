@@ -35,6 +35,10 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
   const chatWorkspacePickerOpen = ref(false);
   const chatWorkspaceItems = ref<ShellWorkspace[]>([]);
   const chatWorkspaceAutonomousMode = ref(false);
+  /** 组队模式：新建会话时选定，决定这个会话是否挂队长工具 */
+  const chatWorkspaceTeamEnabled = ref(false);
+  /** 组队模式下预选的队员人格（不含队长），顺序即队员编号顺序 */
+  const chatWorkspaceTeamAgentIds = ref<string[]>([]);
   const chatWorkspaceWorkMode = ref<ShellWorkMode>("directory");
   const chatWorkspaceBranch = ref("");
   const chatWorkspaceRecordedBranch = ref("");
@@ -110,17 +114,47 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
 
   function applyChatWorkspaceState(state: ChatShellWorkspaceState) {
     const nextPath = String(state.rootPath || "").trim();
+    const conversationId = String(options.activeConversationId.value || "").trim();
+    // 进入另一个草稿会话时，组队选择一律回到单人：上次留下的组队状态不带过来
+    const enteringDraft = Boolean(state.isDraft)
+      && conversationId !== ""
+      && chatWorkspaceStateConversationId.value !== conversationId;
+    const nextTeamEnabled = Boolean(state.teamEnabled);
+    const nextTeamMembers = Array.isArray(state.teamPendingMemberAgents)
+      ? state.teamPendingMemberAgents.map((value) => String(value || "").trim()).filter(Boolean)
+      : [];
     chatWorkspaceItems.value = Array.isArray(state.workspaces) ? state.workspaces : [];
     chatWorkspaceAutonomousMode.value = Boolean(state.autonomousMode);
+    if (enteringDraft && (nextTeamEnabled || nextTeamMembers.length > 0)) {
+      chatWorkspaceTeamEnabled.value = false;
+      chatWorkspaceTeamAgentIds.value = [];
+      void resetDraftTeamMode(conversationId);
+    } else {
+      chatWorkspaceTeamEnabled.value = nextTeamEnabled;
+      chatWorkspaceTeamAgentIds.value = nextTeamMembers;
+    }
     chatWorkspaceWorkMode.value = normalizeShellWorkMode(String(state.shellWorkMode || ""));
     chatWorkspaceBranch.value = String(state.shellWorkBranch || "").trim();
     chatWorkspaceRecordedBranch.value = String(state.shellRecordedBranch || "").trim();
-    chatWorkspaceStateConversationId.value = String(options.activeConversationId.value || "").trim();
+    chatWorkspaceStateConversationId.value = conversationId;
     chatWorkspaceWorktreePath.value = String((state as any).worktreePath || (state as any).worktree_path || "").trim();
     chatWorkspaceWorktreeExists.value = Boolean((state as any).worktreeExists ?? (state as any).worktree_exists);
     chatWorkspaceName.value = resolveWorkspaceDisplayName(nextPath, String(state.workspaceName || "").trim());
     chatWorkspacePath.value = nextPath;
     chatWorkspaceRootPath.value = nextPath;
+  }
+
+  /** 草稿回到单人：失败不打断用户，下次进入草稿会再试一次 */
+  async function resetDraftTeamMode(conversationId: string) {
+    try {
+      await invokeTauri("conversation.teamMode.set", {
+        conversationId,
+        teamEnabled: false,
+        memberAgentIds: [],
+      });
+    } catch {
+      // 静默失败：界面已经按单人显示，后端残留会在下次进入草稿时再清
+    }
   }
 
   async function checkChatWorkspaceGitRoot(path: string): Promise<boolean> {
@@ -175,6 +209,8 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
       chatWorkspaceRootPath.value = "";
       chatWorkspaceItems.value = [];
       chatWorkspaceAutonomousMode.value = false;
+      chatWorkspaceTeamEnabled.value = false;
+      chatWorkspaceTeamAgentIds.value = [];
       chatWorkspaceWorkMode.value = "directory";
       chatWorkspaceBranch.value = "";
       chatWorkspaceRecordedBranch.value = "";
@@ -336,6 +372,42 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     }
   }
 
+  async function saveChatTeamMode(teamEnabled: boolean, memberAgentIds: string[] = []) {
+    const conversationId = String(options.activeConversationId.value || "").trim();
+    if (!conversationId) {
+      options.setStatus("当前会话未就绪，暂时不能设置组队模式");
+      return;
+    }
+    const previous = chatWorkspaceTeamEnabled.value;
+    const previousMembers = chatWorkspaceTeamAgentIds.value;
+    const nextMembers = teamEnabled
+      ? memberAgentIds.map((value) => String(value || "").trim()).filter(Boolean)
+      : [];
+    chatWorkspaceTeamEnabled.value = teamEnabled;
+    chatWorkspaceTeamAgentIds.value = nextMembers;
+    try {
+      const result = await invokeTauri<{
+        conversationId: string;
+        teamEnabled: boolean;
+        memberAgentIds?: string[];
+      }>(
+        "conversation.teamMode.set",
+        { conversationId, teamEnabled, memberAgentIds: nextMembers },
+      );
+      // 保存期间切走会话时丢弃回填，否则会把 A 会话的模式写到 B 会话上
+      if (String(options.activeConversationId.value || "").trim() !== conversationId) return;
+      chatWorkspaceTeamEnabled.value = Boolean(result.teamEnabled);
+      chatWorkspaceTeamAgentIds.value = Array.isArray(result.memberAgentIds)
+        ? result.memberAgentIds.map((value) => String(value || "").trim()).filter(Boolean)
+        : [];
+    } catch (error) {
+      chatWorkspaceTeamEnabled.value = previous;
+      chatWorkspaceTeamAgentIds.value = previousMembers;
+      options.setStatusError("status.requestFailed", error);
+      throw error;
+    }
+  }
+
   return {
     chatWorkspaceName,
     chatWorkspacePath,
@@ -343,6 +415,8 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspacePickerOpen,
     chatWorkspaceChoices,
     chatWorkspaceAutonomousMode,
+    chatWorkspaceTeamEnabled,
+    chatWorkspaceTeamAgentIds,
     chatWorkspaceWorkMode,
     chatWorkspaceBranch,
     chatWorkspaceRecordedBranch,
@@ -358,6 +432,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     openChatWorkspacePicker,
     closeChatWorkspacePicker,
     saveChatWorkspaces,
+    saveChatTeamMode,
     syncChatWorkspaceBranch,
     readChatWorkspaceBranch,
   };

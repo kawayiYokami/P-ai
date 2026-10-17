@@ -507,6 +507,22 @@ async fn send_chat_message_inner(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
+    // ========== 组队会话的首轮发言：按预选顺序把队员建出来 ==========
+    // 只在草稿转正这一刻做一次；失败只记日志，不挡住用户这条消息。
+    if let Some(conversation_id) = input
+        .session
+        .as_ref()
+        .and_then(|session| session.conversation_id.clone())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        if let Err(err) = team_create_pending_members(state, &conversation_id).await {
+            runtime_log_warn(format!(
+                "[队伍] 失败，任务=预创建队员，会话ID={conversation_id}，error={err}"
+            ));
+        }
+    }
+
     // ========== 提前初始化流式缓存 ==========
     // 在调度开始时就创建后端流式缓存，避免首回还没开始就切换会话导致丢失流式草稿。
     // 后续 delta 事件到达后会通过 update_conversation_stream_runtime_cache 持续更新缓存内容。

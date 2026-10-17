@@ -484,6 +484,13 @@ fn conversation_goal_is_active(goal: &ConversationGoalState) -> bool {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TeamState {
+    /// 组队模式开关：新建会话时选定，决定这个会话是否挂队长工具。
+    /// 单人会话为 false，模型看不到任何队伍工具；名册非空的老会话按组队处理。
+    #[serde(default)]
+    enabled: bool,
+    /// 新建会话时预选的队员人格：按点击顺序排，首轮发言时据此一次性创建队员。
+    #[serde(default)]
+    pending_member_agents: Vec<String>,
     /// 队长会话的名字结果：下一个可用编号，单调递增、不回收。
     #[serde(default)]
     next_number: u32,

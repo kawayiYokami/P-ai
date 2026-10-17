@@ -5768,6 +5768,46 @@
     }
 
     #[test]
+    fn draft_should_reset_team_mode_to_single_on_open() {
+        let state = test_chat_runtime_state();
+        let created = conversation_service_v2()
+            .create_conversation(
+                &state,
+                &CreateUnarchivedConversationInput {
+                    api_config_id: None,
+                    agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+                    title: None,
+                    copy_source_conversation_id: None,
+                    shell_workspaces: None,
+                    shell_work_mode: None,
+                    shell_work_branch: None,
+                    shell_autonomous_mode: None,
+                    is_draft: Some(true),
+                },
+            )
+            .expect("create draft conversation");
+
+        // 模拟上次在草稿里选过组队与初始队员
+        state_update_conversation_metadata_cached(&state, &created.conversation_id, |conversation| {
+            conversation.team.enabled = true;
+            conversation.team.pending_member_agents = vec!["agent-a".to_string()];
+            Ok(())
+        })
+        .expect("seed draft team state");
+
+        reset_draft_team_state(&state, &created.conversation_id).expect("reset draft team state");
+
+        let meta = conversation_service_v2()
+            .get_conversation_meta(&state, &created.conversation_id)
+            .expect("read draft meta after reset");
+        assert!(!meta.team.enabled, "草稿必须回到单人模式");
+        assert!(
+            meta.team.pending_member_agents.is_empty(),
+            "草稿的预选队员必须清空"
+        );
+    }
+
+    #[test]
     fn conversation_service_v2_should_reject_unknown_draft_agent() {
         let state = test_chat_runtime_state();
         let git_init = std::process::Command::new("git")
@@ -13156,6 +13196,8 @@
         let now = now_iso();
         let mut leader = test_chat_conversation(conversation_id, "active", &now);
         leader.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
+        // 新建会话默认是单人模式，队伍用例一律显式开成组队
+        leader.team.enabled = true;
         state_schedule_conversation_persist(state, &leader).expect("persist leader");
         flush_pending_persists_blocking(state).expect("flush leader");
         leader
@@ -13739,4 +13781,113 @@
         flush_pending_persists_blocking(&state).expect("flush plain");
         let plain_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&plain.id)));
         assert!(plain_tools.is_empty(), "普通追问不该挂队伍工具：{plain_tools:?}");
+    }
+
+    #[test]
+    fn team_tools_should_follow_conversation_team_mode() {
+        let state = team_test_state();
+        let has = |tools: &[String], name: &str| tools.iter().any(|item| item == name);
+        let now = now_iso();
+        let mut single = test_chat_conversation("conversation-single-mode", "active", &now);
+        single.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
+        state_schedule_conversation_persist(&state, &single).expect("persist single");
+        flush_pending_persists_blocking(&state).expect("flush single");
+
+        // 单人模式：一个队伍工具都不挂
+        let single_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&single.id)));
+        assert!(single_tools.is_empty(), "单人会话不该挂队伍工具：{single_tools:?}");
+
+        // 切到组队后挂上队长四件套
+        set_conversation_team_mode_inner(
+            SetConversationTeamModeInput {
+                conversation_id: single.id.clone(),
+                team_enabled: true,
+                member_agent_ids: Vec::new(),
+            },
+            &state,
+        )
+        .expect("switch to team mode");
+        let team_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&single.id)));
+        for name in ["team_info", "team_recruit", "team_dismiss", "team_send"] {
+            assert!(has(&team_tools, name), "组队会话缺少 {name}：{team_tools:?}");
+        }
+
+        // 还有在队队员时不允许切回单人
+        recruit_member(&state, &single.id, "李工");
+        let err = set_conversation_team_mode_inner(
+            SetConversationTeamModeInput {
+                conversation_id: single.id.clone(),
+                team_enabled: false,
+                member_agent_ids: Vec::new(),
+            },
+            &state,
+        )
+        .expect_err("切回单人应当被拒绝");
+        assert!(err.contains("请离"), "错误信息应提示先请离队员：{err}");
+    }
+
+    #[test]
+    fn team_should_create_pending_members_on_first_message() {
+        let state = team_test_state();
+        let mut second = default_agent();
+        second.id = "agent-second".to_string();
+        second.name = "王工".to_string();
+        state_write_agents_cached(
+            &state,
+            &[default_agent(), second.clone(), default_user_persona()],
+        )
+        .expect("write agents");
+
+        let now = now_iso();
+        let mut draft = test_chat_conversation("conversation-team-draft", "active", &now);
+        draft.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
+        draft.is_draft = true;
+        draft.team.enabled = true;
+        draft.team.pending_member_agents = vec![second.id.clone()];
+        state_schedule_conversation_persist(&state, &draft).expect("persist draft");
+        flush_pending_persists_blocking(&state).expect("flush draft");
+
+        let created = test_runtime()
+            .block_on(team_create_pending_members(&state, &draft.id))
+            .expect("create pending members");
+        assert_eq!(created.len(), 1, "应按预选人格建出一名队员");
+
+        let meta = conversation_service_v2()
+            .get_conversation_meta(&state, &draft.id)
+            .expect("leader meta");
+        assert!(meta.team.pending_member_agents.is_empty(), "预选列表应清空");
+        assert_eq!(meta.team.members.len(), 1);
+        assert_eq!(meta.team.members[0].name, "王工");
+        assert_eq!(meta.team.members[0].conversation_id, created[0]);
+
+        let member_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &created[0])
+            .expect("member meta");
+        assert_eq!(member_meta.agent_id, second.id, "队员会话应使用自己的人格");
+        assert!(member_meta.team.membership.is_some());
+
+        // 预选已清空，再跑一次不该重复建员
+        let again = test_runtime()
+            .block_on(team_create_pending_members(&state, &draft.id))
+            .expect("second run");
+        assert!(again.is_empty(), "预选清空后不应再建队员");
+    }
+
+    #[test]
+    fn team_tools_should_stay_mounted_when_roster_has_active_member() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-legacy-roster");
+        recruit_member(&state, &leader.id, "李工");
+        // 老会话没有组队开关，但名册里有人：不能因为开关默认为假就丢掉队长入口
+        state_update_conversation_metadata_cached(&state, &leader.id, |conversation| {
+            conversation.team.enabled = false;
+            Ok(())
+        })
+        .expect("turn team switch off");
+
+        let tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&leader.id)));
+        assert!(
+            tools.iter().any(|name| name == "team_recruit"),
+            "名册里有在队队员时应保持队长身份：{tools:?}"
+        );
     }

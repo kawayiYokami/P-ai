@@ -36,6 +36,9 @@ fn team_leader_meta(state: &AppState, session_id: &str) -> Result<ConversationMe
     {
         return Err("只有未归档的普通会话可以作为队长使用队伍工具".to_string());
     }
+    if !team_mode_active(&meta.team) {
+        return Err("这个会话是单人模式，没有队伍工具；需要组队请在新建会话时选择组队".to_string());
+    }
     Ok(meta)
 }
 
@@ -57,6 +60,12 @@ fn team_member_meta(
     Ok((meta, membership))
 }
 
+/// 组队模式是否生效：会话自己开了组队，或者名册里还有在队队员。
+/// 后半条是为了兼容老会话——它们没有这个开关，但已经带人，不能因为开关默认为假就丢掉队长入口。
+fn team_mode_active(team: &TeamState) -> bool {
+    team.enabled || team.members.iter().any(|member| member.status == "active")
+}
+
 /// 工具装配用的角色判定：队长（普通会话）/ 队员（带成员身份的追问）/ 都不是。
 fn team_role_for_session(state: &AppState, session_id: &str) -> TeamToolRole {
     let Ok(conversation_id) = team_session_conversation_id(session_id) else {
@@ -71,6 +80,7 @@ fn team_role_for_session(state: &AppState, session_id: &str) -> TeamToolRole {
     if meta.conversation_kind.trim() == CONVERSATION_KIND_CHAT
         && meta.status.trim() != "archived"
         && !meta.is_draft
+        && team_mode_active(&meta.team)
     {
         return TeamToolRole::Leader;
     }
@@ -82,6 +92,17 @@ enum TeamToolRole {
     Leader,
     Member,
     None,
+}
+
+/// 建好一名队员后的结果，招募工具与预创建共用。
+struct TeamCreatedMember {
+    number: u32,
+    name: String,
+    duty: String,
+    conversation_id: String,
+    worktree_path: String,
+    work_branch: String,
+    worktree_warning: Option<String>,
 }
 
 fn team_tool_is_leader_tool(name: &str) -> bool {
@@ -555,29 +576,33 @@ fn builtin_team_send(
     }))
 }
 
-async fn builtin_team_recruit(
+/// 建一名队员：占编号 → 建追问会话（可指定人格）→ 写成员身份与身份摘要 → 回填名册会话 id。
+/// 招募工具与新建会话的预创建共用这一条路径；work_branch 非空时顺带建队员工作树。
+async fn team_create_member(
     state: &AppState,
-    session_id: &str,
-    args: TeamRecruitToolArgs,
-) -> Result<Value, String> {
-    let leader = team_leader_meta(state, session_id)?;
+    leader: &ConversationMetaView,
+    name: &str,
+    duty: &str,
+    work_branch: &str,
+    agent_id: &str,
+) -> Result<TeamCreatedMember, String> {
     let leader_conversation_id = leader.id.clone();
-    let name = args.name.trim().to_string();
+    let name = name.trim().to_string();
     if name.is_empty() {
         return Err("name 不能为空".to_string());
     }
-    let duty = args.duty.unwrap_or_default().trim().to_string();
-    let work_branch = args.work_branch.unwrap_or_default().trim().to_string();
+    let duty = duty.trim().to_string();
+    let work_branch = work_branch.trim().to_string();
+    let agent_id = agent_id.trim().to_string();
 
     // 先占编号并登记占位条目：编号单调递增、失败也不回收。
     let mut allocated_number: Option<u32> = None;
     let recruited_at = now_iso();
     state_update_conversation_metadata_cached(state, &leader_conversation_id, |conversation| {
-        if conversation.team.has_active_member_named(&name) {
-            return Err(format!("队伍里已经有叫「{name}」的队员了"));
-        }
         let number = conversation.team.next_number_for_recruit();
         conversation.team.next_number = number + 1;
+        // 招募即进入组队：即便这个会话原本是单人模式（比如直接调用），招完人也得留下队长入口。
+        conversation.team.enabled = true;
         conversation.team.members.push(TeamMemberEntry {
             number,
             conversation_id: String::new(),
@@ -597,7 +622,7 @@ async fn builtin_team_recruit(
     };
 
     // 建队员会话：不带上下文，只写一条身份摘要消息；招募本身不激活队员。
-    let mut member = match side_chat_build_record(state, &leader_conversation_id, &leader, false) {
+    let mut member = match side_chat_build_record(state, &leader_conversation_id, leader, false) {
         Ok(record) => record,
         Err(err) => {
             rollback_team_member_entry(state, &leader_conversation_id, number, "");
@@ -606,6 +631,26 @@ async fn builtin_team_recruit(
     };
     let member_conversation_id = member.id.clone();
     member.title = name.clone();
+    // 指定人格时，队员会话用它自己的人格，模型也跟着这个人格的默认模型走；
+    // 不指定就沿用追问默认（继承队长）。
+    if !agent_id.is_empty() {
+        match load_runtime_organization_snapshot(state) {
+            Ok(runtime_org) => {
+                member.preferred_api_config_id = conversation_preferred_model_repair_candidate(
+                    &runtime_org.config,
+                    &runtime_org.agents,
+                    &agent_id,
+                    None,
+                );
+            }
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[队伍] 跳过，任务=解析队员人格默认模型，agent_id={agent_id}，error={err}"
+                ));
+            }
+        }
+        member.agent_id = agent_id.clone();
+    }
     member.team.membership = Some(TeamMembership {
         leader_conversation_id: leader_conversation_id.clone(),
         number,
@@ -676,18 +721,114 @@ async fn builtin_team_recruit(
     runtime_log_info(format!(
         "[队伍] 完成，任务=招募队员，leader_conversation_id={leader_conversation_id}，number={number}，name={name}，conversation_id={member_conversation_id}"
     ));
+    Ok(TeamCreatedMember {
+        number,
+        name,
+        duty,
+        conversation_id: member_conversation_id,
+        worktree_path,
+        work_branch,
+        worktree_warning,
+    })
+}
+
+async fn builtin_team_recruit(
+    state: &AppState,
+    session_id: &str,
+    args: TeamRecruitToolArgs,
+) -> Result<Value, String> {
+    let leader = team_leader_meta(state, session_id)?;
+    let name = args.name.trim().to_string();
+    if name.is_empty() {
+        return Err("name 不能为空".to_string());
+    }
+    if leader.team.has_active_member_named(&name) {
+        return Err(format!("队伍里已经有叫「{name}」的队员了"));
+    }
+    let member = team_create_member(
+        state,
+        &leader,
+        &name,
+        args.duty.as_deref().unwrap_or_default(),
+        args.work_branch.as_deref().unwrap_or_default(),
+        "",
+    )
+    .await?;
     Ok(serde_json::json!({
         "ok": true,
-        "number": number,
-        "name": name,
-        "duty": duty,
-        "conversationId": member_conversation_id,
-        "worktreePath": worktree_path,
-        "workBranch": work_branch,
-        "worktreeWarning": worktree_warning,
+        "number": member.number,
+        "name": member.name,
+        "duty": member.duty,
+        "conversationId": member.conversation_id,
+        "worktreePath": member.worktree_path,
+        "workBranch": member.work_branch,
+        "worktreeWarning": member.worktree_warning,
         "note": "队员已就位但不会被激活；要用它请再用 team_send 发一条指示",
         "leaderGuide": TEAM_LEADER_GUIDE_MD.trim(),
     }))
+}
+
+/// 首轮发言时按新建会话里预选的顺序，把队员一次性建出来；只做一次，建完清空预选列表。
+async fn team_create_pending_members(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Vec<String>, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Ok(meta) = conversation_service_v2().get_conversation_meta(state, conversation_id) else {
+        return Ok(Vec::new());
+    };
+    // 只在草稿转正这一刻建：已经发过言的会话不再补建
+    if !meta.is_draft || !meta.team.enabled || meta.team.pending_member_agents.is_empty() {
+        return Ok(Vec::new());
+    }
+    let pending = meta.team.pending_member_agents.clone();
+    // 先取人格快照再清预选：快照失败时预选还在，下次发言还能重试
+    let runtime_org = match load_runtime_organization_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=读取人格失败，error={err}"
+            ));
+            return Ok(Vec::new());
+        }
+    };
+    // 清空预选，避免中途失败后下一轮重复建员
+    state_update_conversation_metadata_cached(state, conversation_id, |conversation| {
+        conversation.team.pending_member_agents.clear();
+        Ok(())
+    })?;
+    let mut created = Vec::new();
+    for agent_id in pending {
+        let agent_id = agent_id.trim().to_string();
+        let Some(agent) = runtime_org
+            .agents
+            .iter()
+            .find(|item| item.id.trim() == agent_id.as_str())
+        else {
+            runtime_log_warn(format!(
+                "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=人格不存在，agent_id={agent_id}"
+            ));
+            continue;
+        };
+        let name = agent.name.trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+        match team_create_member(state, &meta, &name, "", "", &agent_id).await {
+            Ok(member) => created.push(member.conversation_id),
+            Err(err) => runtime_log_warn(format!(
+                "[队伍] 失败，任务=预创建队员，会话ID={conversation_id}，agent_id={agent_id}，error={err}"
+            )),
+        }
+    }
+    runtime_log_info(format!(
+        "[队伍] 完成，任务=预创建队员，会话ID={conversation_id}，创建数={}",
+        created.len()
+    ));
+    Ok(created)
 }
 
 /// 招募失败回滚：撤掉名册条目，并顺手拆掉可能已经落盘的队员会话引用，

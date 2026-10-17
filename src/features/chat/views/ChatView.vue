@@ -102,6 +102,9 @@
             :workspace-worktree-path="props.currentWorkspaceWorktreePath || ''"
             :workspaces="props.workspaces"
             :workspace-autonomous-mode="Boolean(props.currentWorkspaceAutonomousMode)"
+            :workspace-team-enabled="Boolean(props.currentWorkspaceTeamEnabled)"
+            :workspace-team-agent-ids="props.currentWorkspaceTeamAgentIds || []"
+            :save-team-mode="props.saveDraftTeamMode"
             :save-workspace="props.saveDraftWorkspaces ? handleDraftWorkspaceSaveLegacy : undefined"
             :save-workspaces="props.saveDraftWorkspaces ? handleDraftWorkspaceSave : undefined"
             :git-root-check="props.draftWorkspaceGitRootCheck"
@@ -952,6 +955,9 @@ const props = defineProps<{
   latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number; scrollToBottomBehavior: "auto" | "smooth" | "own_top" | "manual" | "follow";
   currentWorkspaceName: string; currentWorkspaceDisplayName?: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
   currentWorkspaceAutonomousMode?: boolean;
+  currentWorkspaceTeamEnabled?: boolean;
+  /** 组队模式下预选的队员人格（不含队长），顺序即队员编号顺序 */
+  currentWorkspaceTeamAgentIds?: string[];
   currentWorkspaceWorkMode?: ShellWorkMode;
   currentWorkspaceBranch?: string;
   currentWorkspaceWorktreePath?: string;
@@ -962,6 +968,7 @@ const props = defineProps<{
   acceptBranchGuardPrompt?: () => void;
   configShellWorkspaces?: ShellWorkspace[];
   saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string, shellWorktreePath?: string) => Promise<void>;
+  saveDraftTeamMode?: (teamEnabled: boolean, memberAgentIds: string[]) => Promise<void>;
   /** 会话内自己切分支成功后按工作目录同步「本会话工作分支」记录，避免下次发送时拦自己 */
   syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
