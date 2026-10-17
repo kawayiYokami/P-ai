@@ -777,14 +777,32 @@ async fn team_create_pending_members(
     if conversation_id.is_empty() {
         return Ok(Vec::new());
     }
-    let Ok(meta) = conversation_service_v2().get_conversation_meta(state, conversation_id) else {
-        return Ok(Vec::new());
+    let meta = match conversation_service_v2().get_conversation_meta(state, conversation_id) {
+        Ok(meta) => meta,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=读取会话失败，error={err}"
+            ));
+            return Ok(Vec::new());
+        }
     };
-    // 只在草稿转正这一刻建：已经发过言的会话不再补建
-    if !meta.is_draft || !meta.team.enabled || meta.team.pending_member_agents.is_empty() {
+    // 预选只在草稿阶段可写、建完立刻清空，本身就是一次性的。
+    // 这里不能用 is_draft 判定：第一条用户消息落盘时草稿已经转正，等到调度开始时
+    // is_draft 恒为 false，会把建员整个跳过。
+    if !meta.team.enabled {
+        runtime_log_debug(format!(
+            "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=会话未开启组队"
+        ));
+        return Ok(Vec::new());
+    }
+    if meta.team.pending_member_agents.is_empty() {
+        runtime_log_debug(format!(
+            "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=没有预选队员"
+        ));
         return Ok(Vec::new());
     }
     let pending = meta.team.pending_member_agents.clone();
+    let pending_count = pending.len();
     // 先取人格快照再清预选：快照失败时预选还在，下次发言还能重试
     let runtime_org = match load_runtime_organization_snapshot(state) {
         Ok(snapshot) => snapshot,
@@ -815,6 +833,9 @@ async fn team_create_pending_members(
         };
         let name = agent.name.trim().to_string();
         if name.is_empty() {
+            runtime_log_warn(format!(
+                "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=人格名为空，agent_id={agent_id}"
+            ));
             continue;
         }
         match team_create_member(state, &meta, &name, "", "", &agent_id).await {
@@ -824,10 +845,16 @@ async fn team_create_pending_members(
             )),
         }
     }
-    runtime_log_info(format!(
-        "[队伍] 完成，任务=预创建队员，会话ID={conversation_id}，创建数={}",
-        created.len()
-    ));
+    if created.is_empty() {
+        runtime_log_warn(format!(
+            "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=没有建出任何队员，预选数={pending_count}"
+        ));
+    } else {
+        runtime_log_info(format!(
+            "[队伍] 完成，任务=预创建队员，会话ID={conversation_id}，创建数={}，预选数={pending_count}",
+            created.len()
+        ));
+    }
     Ok(created)
 }
 

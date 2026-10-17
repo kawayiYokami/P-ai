@@ -1330,6 +1330,22 @@ fn release_submit_trace_id(state: &AppState, trace_id: &str) {
     }
 }
 
+/// 队员会话以自己的身份运行。
+/// 前台传来的 agent 是主会话的人格（侧边追问活跃时不会跟着切换），
+/// 所以带成员身份的会话一律以会话记录里的人格为准。
+fn resolve_dispatch_agent_id(
+    conversation_meta: &ConversationMetaView,
+    requested_agent_id: &str,
+) -> String {
+    if conversation_meta.team.membership.is_some() {
+        let own_agent_id = conversation_meta.agent_id.trim();
+        if !own_agent_id.is_empty() {
+            return own_agent_id.to_string();
+        }
+    }
+    requested_agent_id.trim().to_string()
+}
+
 async fn submit_chat_message_inner(
     input: SendChatRequest,
     state: &AppState,
@@ -1449,6 +1465,8 @@ async fn submit_chat_message_inner(
         let conversation_started_at = std::time::Instant::now();
         let conversation_meta =
             conversation_service_v2().get_conversation_meta(state, &conversation_id)?;
+        // 队员会话以自己的身份运行：前台 agent 是主会话的人格
+        let agent_id = resolve_dispatch_agent_id(&conversation_meta, &agent_id);
         // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
         let api_config_id = conversation_meta
             .preferred_api_config_id
@@ -1704,6 +1722,8 @@ async fn send_chat_message(
         let conversation_started_at = std::time::Instant::now();
         let conversation_meta =
             conversation_service_v2().get_conversation_meta(&state, &conversation_id)?;
+        // 队员会话以自己的身份运行：前台 agent 是主会话的人格
+        let agent_id = resolve_dispatch_agent_id(&conversation_meta, &agent_id);
         // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
         let api_config_id = conversation_meta
             .preferred_api_config_id
@@ -1919,6 +1939,8 @@ async fn send_user_mention_message_inner(
         let conversation_started_at = std::time::Instant::now();
         let conversation_meta =
             conversation_service_v2().get_conversation_meta(state, &conversation_id)?;
+        // 队员会话以自己的身份运行：前台 agent 是主会话的人格
+        let agent_id = resolve_dispatch_agent_id(&conversation_meta, &agent_id);
         // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
         let api_config_id = conversation_meta
             .preferred_api_config_id

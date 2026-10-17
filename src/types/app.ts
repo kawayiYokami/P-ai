@@ -1102,6 +1102,8 @@ export type ChildConversationSummary = {
   conversationKind: string;
   parentConversationId?: string;
   updatedAt: string;
+  /** 该追问会话自己的执行人格；侧边面板据此显示人格名与头像。 */
+  agentId?: string;
   /** 队员身份标记：在队时带编号与名字，普通追问为空。 */
   teamNumber?: number;
   teamName?: string;

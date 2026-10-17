@@ -103,6 +103,9 @@ struct ChildConversationSummary {
     conversation_kind: String,
     parent_conversation_id: Option<String>,
     updated_at: String,
+    /// 该追问会话自己的执行人格；侧边面板据此显示人格名与头像，不再回落到主会话。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    agent_id: String,
     /// 队员身份标记：在队时带上编号与名字，普通追问为空。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     team_number: Option<u32>,
@@ -580,6 +583,7 @@ fn build_unarchived_conversation_summary_from_meta_view(
                 conversation_kind: child.conversation_kind,
                 parent_conversation_id: child.parent_conversation_id,
                 updated_at: child.updated_at,
+                agent_id: child.agent_id,
                 team_number: membership.map(|entry| entry.number),
                 team_name: membership.map(|entry| entry.name.clone()),
             }

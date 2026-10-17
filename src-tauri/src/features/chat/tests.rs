@@ -13874,6 +13874,57 @@
     }
 
     #[test]
+    fn team_should_create_pending_members_after_draft_promoted() {
+        // 真实时序：第一条用户消息落盘时草稿就转正了，调度才开始，建员不能因此被跳过
+        let state = team_test_state();
+        let mut second = default_agent();
+        second.id = "agent-second".to_string();
+        second.name = "王工".to_string();
+        state_write_agents_cached(
+            &state,
+            &[default_agent(), second.clone(), default_user_persona()],
+        )
+        .expect("write agents");
+
+        let now = now_iso();
+        let mut promoted = test_chat_conversation("conversation-team-promoted", "active", &now);
+        promoted.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
+        promoted.is_draft = false;
+        promoted.team.enabled = true;
+        promoted.team.pending_member_agents = vec![second.id.clone()];
+        state_schedule_conversation_persist(&state, &promoted).expect("persist promoted");
+        flush_pending_persists_blocking(&state).expect("flush promoted");
+
+        let created = test_runtime()
+            .block_on(team_create_pending_members(&state, &promoted.id))
+            .expect("create pending members after promotion");
+        assert_eq!(created.len(), 1, "草稿转正后仍应按预选建出队员");
+
+        let meta = conversation_service_v2()
+            .get_conversation_meta(&state, &promoted.id)
+            .expect("leader meta");
+        assert!(meta.team.pending_member_agents.is_empty(), "预选列表应清空");
+        assert_eq!(meta.team.members.len(), 1);
+        assert_eq!(meta.team.members[0].name, "王工");
+
+        // 队员会话必须以自己的人格运行：前台传上来的 agent 是队长的人格
+        let member_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &created[0])
+            .expect("member meta");
+        assert!(member_meta.team.membership.is_some());
+        assert_eq!(
+            resolve_dispatch_agent_id(&member_meta, DEFAULT_AGENT_ID),
+            second.id,
+            "队员会话的发言人应是队员自己的人格"
+        );
+        assert_eq!(
+            resolve_dispatch_agent_id(&meta, DEFAULT_AGENT_ID),
+            DEFAULT_AGENT_ID,
+            "普通会话仍用请求里的执行人格"
+        );
+    }
+
+    #[test]
     fn team_tools_should_stay_mounted_when_roster_has_active_member() {
         let state = team_test_state();
         let leader = persist_team_leader(&state, "conversation-legacy-roster");

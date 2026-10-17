@@ -1931,8 +1931,7 @@
       "create": "New follow-up",
       "close": "Close follow-up",
       "newPageInContext": "Follow up in this conversation with {persona}",
-      "newPageBlank": "Follow up in a blank conversation with {persona}",
-      "teamBadge": "No.{number} · {name}"
+      "newPageBlank": "Follow up in a blank conversation with {persona}"
     },
     "rightSidebarToggle": "Right Sidebar",
     "conversationSearchPlaceholder": "Search title or last two messages",

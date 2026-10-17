@@ -2065,8 +2065,7 @@
       "create": "新建追问",
       "close": "关闭追问",
       "newPageInContext": "在原会话追问「{persona}」",
-      "newPageBlank": "在空白会话追问「{persona}」",
-      "teamBadge": "{number} 号 · {name}"
+      "newPageBlank": "在空白会话追问「{persona}」"
     },
     "rightSidebarToggle": "右侧栏",
     "conversationSearchPlaceholder": "搜索会话标题或最近两条消息",

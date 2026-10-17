@@ -316,11 +316,11 @@
               :subscription-slot="sideChatSubscriptionSlot"
               :conversation-id="sideConversationId"
               :api-config-id="conversationCallPrimaryApiConfigId"
-              :agent-id="currentChatAgentId"
-              :persona-name="selectedPersonaName"
+              :agent-id="sideChatAgentId"
+              :persona-name="sideChatPersonaName"
               :user-alias="userAlias"
               :user-avatar-url="userAvatarUrl"
-              :assistant-avatar-url="selectedPersonaAvatarUrl"
+              :assistant-avatar-url="sideChatPersonaAvatarUrl"
               :persona-name-map="chatPersonaNameMap"
               :persona-avatar-url-map="chatPersonaAvatarUrlMap"
               :chat-model-options="textCapableApiConfigs"
@@ -504,7 +504,7 @@ import ChatView from "../../chat/views/ChatView.vue";
 import ConversationView from "../../chat/views/ConversationView.vue";
 import ChatRightPanelSwitcher from "../../chat/components/ChatRightPanelSwitcher.vue";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
-import { MessageSquareMore, Plus } from "@lucide/vue";
+import { MessageSquareMore, Plus, UserRound } from "@lucide/vue";
 import type { TerminalApprovalConversationItem } from "../composables/use-terminal-approval";
 import type { BranchGuardCheck } from "../../chat/composables/use-chat-branch-guard";
 import ArchivesView from "../../archive/views/ArchivesView.vue";
@@ -919,19 +919,50 @@ const chatViewRef = ref<{
   openDirectoryInReader: (path: string) => Promise<boolean>;
 } | null>(null);
 
+/** 当前打开的追问会话记录；侧边面板的人格、头像与发送人格都以它为准。 */
+const activeSideConversation = computed(() => {
+  const id = String(props.sideConversationId || "").trim();
+  if (!id) return null;
+  return (props.sideConversations || []).find(
+    (conversation) => String(conversation.conversationId || "").trim() === id,
+  ) || null;
+});
+
+/** 追问会话自己的执行人格；拿不到时退回主会话人格，保持旧行为。 */
+const sideChatAgentId = computed(() => {
+  const ownAgentId = String(activeSideConversation.value?.agentId || "").trim();
+  return ownAgentId || String(props.currentChatAgentId || "").trim();
+});
+
+const sideChatPersonaName = computed(() => {
+  const agentId = sideChatAgentId.value;
+  const ownName = agentId ? String(props.chatPersonaNameMap?.[agentId] || "").trim() : "";
+  return ownName || props.selectedPersonaName;
+});
+
+const sideChatPersonaAvatarUrl = computed(() => {
+  const agentId = sideChatAgentId.value;
+  const ownAvatar = agentId ? String(props.chatPersonaAvatarUrlMap?.[agentId] || "").trim() : "";
+  return ownAvatar || props.selectedPersonaAvatarUrl;
+});
+
 const sideChatTabs = computed(() => (props.sideConversations || []).map((conversation) => {
   const teamNumber = typeof conversation.teamNumber === "number" ? conversation.teamNumber : 0;
   const teamName = String(conversation.teamName || "").trim();
-  const badge = teamNumber > 0 && teamName
-    ? props.t("chat.sideChat.teamBadge", { number: teamNumber, name: teamName })
+  // 队员标签不挂胶囊；普通追问保持对话图标。
+  const isTeamMember = teamNumber > 0 && teamName !== "";
+  // 队员用会话自己的人格头像；会话没带人格时退回队员图标。
+  const teamAgentId = String(conversation.agentId || "").trim();
+  const teamAgentAvatarUrl = teamAgentId
+    ? String(props.chatPersonaAvatarUrlMap?.[teamAgentId] || "").trim()
     : "";
   return {
     key: String(conversation.conversationId || "").trim(),
     label: String(conversation.title || "").trim() || props.t("chat.sideChat.title"),
     // 队员的卡片头标直接写队员名，不再统一叫「追问」；普通追问保持原样。
     cardLabel: teamName || props.t("chat.sideChat.title"),
-    badge,
-    icon: MessageSquareMore,
+    icon: isTeamMember ? (teamAgentAvatarUrl ? undefined : UserRound) : MessageSquareMore,
+    iconSrc: isTeamMember && teamAgentAvatarUrl ? teamAgentAvatarUrl : undefined,
     closeable: true,
   };
 }));

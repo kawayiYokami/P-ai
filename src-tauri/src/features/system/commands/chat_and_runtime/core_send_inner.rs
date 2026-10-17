@@ -521,6 +521,8 @@ async fn send_chat_message_inner(
                 "[队伍] 失败，任务=预创建队员，会话ID={conversation_id}，error={err}"
             ));
         }
+    } else {
+        runtime_log_debug("[队伍] 跳过，任务=预创建队员，原因=本次调度没有会话ID".to_string());
     }
 
     // ========== 提前初始化流式缓存 ==========
@@ -534,7 +536,20 @@ async fn send_chat_message_inner(
             .map(str::trim)
             .filter(|v| !v.is_empty())
         {
-            let early_agent_id = session.agent_id.trim();
+            // 队员会话以自己的身份运行：前台传来的是主会话人格，这里必须和
+            // send_chat_message_inner 里的 resolve_dispatch_agent_id 保持一致，
+            // 否则本轮 assistant 消息会挂在队长名下，界面上显示成队长在说话。
+            let requested_agent_id = session.agent_id.trim();
+            let resolved_agent_id = conversation_service_v2()
+                .get_conversation_meta(state, cid)
+                .map(|meta| resolve_dispatch_agent_id(&meta, requested_agent_id))
+                .unwrap_or_else(|_| requested_agent_id.to_string());
+            let early_agent_id = resolved_agent_id.trim();
+            if early_agent_id != requested_agent_id {
+                runtime_log_info(format!(
+                    "[聊天发送] 完成，任务=人格校准，会话ID={cid}，请求人格={requested_agent_id}，采用人格={early_agent_id}"
+                ));
+            }
             if !early_agent_id.is_empty() {
                 let stream_started_at = now_iso();
                 let stream_started_at_ms = now_unix_ms();

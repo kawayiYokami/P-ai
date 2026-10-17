@@ -77,7 +77,7 @@
                 v-if="tab.iconSrc"
                 :src="tab.iconSrc"
                 alt=""
-                class="panel-tab-strip-icon size-4 shrink-0 object-contain"
+                class="panel-tab-strip-icon size-4 shrink-0 rounded-full object-cover"
               />
               <component
                 :is="tab.icon"
