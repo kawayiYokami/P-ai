@@ -193,6 +193,16 @@ async fn ide_chat_file_reader_read(params: Value) -> Result<Value, String> {
     serde_json::to_value(payload).map_err(|err| format!("serialize file reader payload failed: {err}"))
 }
 
+/// 文件签名：Web 宿主用它判断切回标签时磁盘内容是否变过，与桌面端同一条实现。
+async fn ide_chat_file_reader_stat(params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<IdeChatFileReaderReadInput>(params)?;
+    let path = input.path;
+    let payload = tokio::task::spawn_blocking(move || stat_file_reader_file_inner(path))
+        .await
+        .map_err(|err| format!("读取文件签名任务失败：{err}"))??;
+    serde_json::to_value(payload).map_err(|err| format!("serialize file reader stat failed: {err}"))
+}
+
 /// 下载用的原始字节读取：Web 宿主没有系统保存对话框，用它拿真实字节做浏览器下载。
 /// 限制单文件大小，避免一次性把超大文件塞进桥接消息。
 const FILE_DOWNLOAD_MAX_BYTES: u64 = 64 * 1024 * 1024;

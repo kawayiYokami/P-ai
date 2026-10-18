@@ -7,6 +7,7 @@ fn ide_chat_web_native_only_method(method: &str) -> bool {
             | "list_file_reader_directory_open_targets"
             | "read_file_reader_file"
             | "read_file_reader_file_block"
+            | "stat_file_reader_file"
             | "read_plan_file_content"
             | "open_file_reader_directory_target"
             | "open_file_reader_directory_shell"
@@ -238,6 +239,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "fileReader.readFile" => ide_chat_file_reader_read(request.params).await,
         "fileReader.readRawFile" => ide_chat_file_reader_read_raw(request.params).await,
         "fileReader.readFileBlock" => ide_chat_file_reader_read_block(request.params).await,
+        "fileReader.statFile" => ide_chat_file_reader_stat(request.params).await,
         "conversation.delete" => ide_chat_delete_conversation(state, request.params).await,
         "conversation.batchArchive" => ide_chat_batch_archive_conversations(state, request.params).await,
         "conversation.rebindRecipient" => ide_chat_rebind_conversation_recipient(state, request.params).await,
