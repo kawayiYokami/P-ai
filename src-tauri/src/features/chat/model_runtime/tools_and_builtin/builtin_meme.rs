@@ -1,8 +1,15 @@
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct MemeToolArgs {
-    emotion: String,
-    path: String,
+    /// 操作类型：add（默认）/ list / delete / rename。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    emotion: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    new_emotion: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -696,9 +703,11 @@ fn meme_prompt_rule_block(state: Option<&AppState>, agent_id: &str) -> Option<St
              - 只能使用上方已经存在的 meme 名。\n\n\
              ## 不要这样做\n\
              - 不要编造不存在的 meme 名。\n\
-             - 不要调用工具查询 meme 列表。\n\n\
+             - 名单已在上方列出，不必为了获取名单调用 `list`。\n\n\
              ## 何时调用工具\n\
-             - 只有需要把当前看到的图片收入贴纸库时，才调用 `meme` 工具。\n\
+             - 需要把当前看到的图片收入表情库时，用 `meme` 的 `add`。\n\
+             - 需要删除或改名时，用 `delete` / `rename`，表情名取上方列表里的名字。\n\
+             - 需要确认某张表情图的文件路径时，才用 `list`。\n\
              - `emotion` 是贴纸名，也是后续可使用的 `:meme名:`。",
             names.join("、")
         ),
@@ -856,25 +865,132 @@ fn meme_target_path_for_new_asset(
     Ok(root.join(format!("{emotion}.{ext}")))
 }
 
+/// 删除人格库里的一个表情项，连带清掉它的 dHash 索引项。
+fn meme_delete_asset(state: &AppState, agent_id: &str, name: &str) -> Result<(), String> {
+    let name = ensure_valid_meme_name(name)?;
+    let grouped = meme_available_assets(state, agent_id)?;
+    let candidate = grouped
+        .get(&name)
+        .ok_or_else(|| format!("未找到表情：{name}"))?;
+
+    std::fs::remove_file(&candidate.absolute_path).map_err(|err| {
+        format!(
+            "删除表情文件失败: path={}, err={err}",
+            candidate.absolute_path.display()
+        )
+    })?;
+
+    let mut dhash_index = meme_load_dhash_index(state, agent_id);
+    dhash_index.remove(&candidate.relative_path);
+    if let Err(err) = meme_persist_dhash_index(state, agent_id, &dhash_index) {
+        runtime_log_warn(format!("[表情贴纸] 删除后持久化 dHash 索引失败: {err}"));
+    }
+    runtime_log_info(format!(
+        "[表情贴纸] 删除表情完成: agent_id={}, name={}",
+        agent_id, name
+    ));
+    Ok(())
+}
+
+/// 重命名人格库里的一个表情项，文件改名并同步 dHash 索引 key。
+fn meme_rename_asset(state: &AppState, agent_id: &str, from: &str, to: &str) -> Result<(), String> {
+    let from = ensure_valid_meme_name(from)?;
+    let to = ensure_valid_meme_name(to)?;
+    if from == to {
+        return Ok(());
+    }
+
+    let grouped = meme_available_assets(state, agent_id)?;
+    let candidate = grouped
+        .get(&from)
+        .ok_or_else(|| format!("未找到表情：{from}"))?;
+    if grouped.contains_key(&to) {
+        return Err(format!("目标表情名已存在：{to}"));
+    }
+
+    let ext = candidate
+        .absolute_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or(MEME_NORMALIZED_EXT);
+    let target_path = candidate
+        .absolute_path
+        .with_file_name(format!("{to}.{ext}"));
+    std::fs::rename(&candidate.absolute_path, &target_path).map_err(|err| {
+        format!(
+            "重命名表情文件失败: from={}, to={}, err={err}",
+            candidate.absolute_path.display(),
+            target_path.display()
+        )
+    })?;
+
+    let mut dhash_index = meme_load_dhash_index(state, agent_id);
+    if let Some(hash) = dhash_index.remove(&candidate.relative_path) {
+        dhash_index.insert(workspace_relative_path(state, &target_path), hash);
+    }
+    if let Err(err) = meme_persist_dhash_index(state, agent_id, &dhash_index) {
+        runtime_log_warn(format!("[表情贴纸] 重命名后持久化 dHash 索引失败: {err}"));
+    }
+    runtime_log_info(format!(
+        "[表情贴纸] 重命名表情完成: agent_id={}, from={}, to={}",
+        agent_id, from, to
+    ));
+    Ok(())
+}
+
+/// 列出人格库全部表情，带图片绝对路径，便于模型自行读图确认内容。
+fn meme_list_assets_json(state: &AppState, agent_id: &str) -> Result<serde_json::Value, String> {
+    let grouped = meme_available_assets(state, agent_id)?;
+    let mut items = Vec::with_capacity(grouped.len());
+    for candidate in grouped.values() {
+        let bytes = std::fs::metadata(&candidate.absolute_path)
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        items.push(serde_json::json!({
+            "name": candidate.name,
+            "emotion": candidate.name,
+            "mime": candidate.mime,
+            "path": candidate.absolute_path.to_string_lossy(),
+            "relativePath": candidate.relative_path,
+            "bytes": bytes,
+        }));
+    }
+    Ok(serde_json::json!({
+        "ok": true,
+        "action": "list",
+        "count": items.len(),
+        "memes": items,
+    }))
+}
+
 impl RuntimeToolMetadata for BuiltinMemeTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "meme",
-            "把当前看到的图片收入助理空间（Assistant Space）下的 `.meme` 贴纸库。不要用本工具查询列表；如果需要在回答中使用贴纸，直接输出 `:meme名:`，例如 `:坏笑:`。只有在需要新增贴纸库存时才调用本工具。",
+            "管理当前人格的表情库。`add` 把图片收入表情库；`list` 列出该人格全部表情及图片路径；`delete` 按名字删除；`rename` 改名。若要在回答中使用贴纸，直接输出 `:表情名:`，例如 `:坏笑:`，不需要调用本工具。",
             serde_json::json!({
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["add", "list", "delete", "rename"],
+                        "description": "操作类型，默认 add。add=把图片收入表情库；list=列出该人格全部表情及图片路径；delete=按名字删除，删除后无法恢复；rename=改名。"
+                    },
                     "emotion": {
                         "type": "string",
-                        "description": "贴纸名，也是聊天里使用的 `:meme名:`。例如 emotion 为 `坏笑`，聊天时使用 `:坏笑:`。不能为空，且不能包含空格、冒号或路径分隔符。"
+                        "description": "表情名，也是聊天里使用的 `:表情名:`。add / delete / rename 必填，不能包含空格、冒号或路径分隔符。"
+                    },
+                    "newEmotion": {
+                        "type": "string",
+                        "description": "新表情名。仅 action=rename 时必填。"
                     },
                     "path": {
                         "type": "string",
-                        "description": "图片文件路径。可以是工作区相对路径，也可以是绝对路径。"
+                        "description": "图片文件路径。可以是工作区相对路径，也可以是绝对路径。仅 action=add 时必填。"
                     }
                 },
-                "required": ["emotion", "path"]
+                "required": ["action"]
             }),
         )
     }
@@ -887,9 +1003,76 @@ impl RuntimeValueTool for BuiltinMemeTool {
 
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
         Box::pin(async move {
-            let emotion = ensure_valid_meme_name(&args.emotion).map_err(ToolInvokeError::from)?;
-            let source_path =
-                meme_resolve_source_path(&self.app_state, &args.path).map_err(ToolInvokeError::from)?;
+            let action = args
+                .action
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("add")
+                .to_ascii_lowercase();
+            let require_emotion = |action: &str, args: &MemeToolArgs| -> Result<String, ToolInvokeError> {
+                args.emotion
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.to_string())
+                    .ok_or_else(|| {
+                        ToolInvokeError::from(format!("action={action} 需要 emotion 参数"))
+                    })
+            };
+            match action.as_str() {
+                "list" => {
+                    return meme_list_assets_json(&self.app_state, &self.agent_id)
+                        .map_err(ToolInvokeError::from);
+                }
+                "delete" => {
+                    let name = require_emotion(&action, &args)?;
+                    meme_delete_asset(&self.app_state, &self.agent_id, &name)
+                        .map_err(ToolInvokeError::from)?;
+                    return Ok(serde_json::json!({
+                        "ok": true,
+                        "action": "delete",
+                        "name": name,
+                    }));
+                }
+                "rename" => {
+                    let from = require_emotion(&action, &args)?;
+                    let to = args
+                        .new_emotion
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| {
+                            ToolInvokeError::from(
+                                "action=rename 需要 newEmotion 参数".to_string(),
+                            )
+                        })?;
+                    meme_rename_asset(&self.app_state, &self.agent_id, &from, to)
+                        .map_err(ToolInvokeError::from)?;
+                    return Ok(serde_json::json!({
+                        "ok": true,
+                        "action": "rename",
+                        "from": from,
+                        "to": to,
+                    }));
+                }
+                "add" => {}
+                other => {
+                    return Err(ToolInvokeError::from(format!(
+                        "不支持的 action：`{other}`，只能是 add / list / delete / rename"
+                    )));
+                }
+            }
+            let emotion = ensure_valid_meme_name(args.emotion.as_deref().unwrap_or(""))
+                .map_err(ToolInvokeError::from)?;
+            let path_raw = args
+                .path
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ToolInvokeError::from("action=add 需要 path 参数".to_string()))?;
+            let source_path = meme_resolve_source_path(&self.app_state, path_raw)
+                .map_err(ToolInvokeError::from)?;
             let detected =
                 meme_detect_image_format_from_path(&source_path).map_err(ToolInvokeError::from)?;
             let source_hash = compute_meme_dhash_hex(&source_path).map_err(ToolInvokeError::from)?;
@@ -1080,21 +1263,81 @@ pub(crate) mod builtin_meme_tests {
     }
 
     #[test]
-    fn meme_tool_args_should_only_accept_emotion_and_path() {
-        let parsed = serde_json::from_value::<MemeToolArgs>(serde_json::json!({
+    fn meme_tool_args_should_parse_action_variants() {
+        let add = serde_json::from_value::<MemeToolArgs>(serde_json::json!({
+            "action": "add",
             "emotion": "坏笑",
             "path": "source.png",
         }))
-        .expect("parse new args");
-        assert_eq!(parsed.emotion, "坏笑");
-        assert_eq!(parsed.path, "source.png");
+        .expect("parse add args");
+        assert_eq!(add.action.as_deref(), Some("add"));
+        assert_eq!(add.emotion.as_deref(), Some("坏笑"));
+        assert_eq!(add.path.as_deref(), Some("source.png"));
+
+        let rename = serde_json::from_value::<MemeToolArgs>(serde_json::json!({
+            "action": "rename",
+            "emotion": "坏笑",
+            "newEmotion": "开心",
+        }))
+        .expect("parse rename args");
+        assert_eq!(rename.new_emotion.as_deref(), Some("开心"));
+
+        let list = serde_json::from_value::<MemeToolArgs>(serde_json::json!({ "action": "list" }))
+            .expect("parse list args");
+        assert!(list.emotion.is_none());
 
         assert!(serde_json::from_value::<MemeToolArgs>(serde_json::json!({
-            "name": "坏笑",
+            "action": "add",
             "category": "坏笑",
-            "path": "source.png",
         }))
         .is_err());
+    }
+
+    #[test]
+    fn meme_list_assets_json_should_expose_absolute_and_relative_paths() {
+        let state = meme_test_state();
+        let file = test_meme_root(&state).join("坏笑.webp");
+        write_test_png(&file);
+
+        let value = meme_list_assets_json(&state, TEST_AGENT_ID).expect("list assets");
+        let memes = value
+            .get("memes")
+            .and_then(|item| item.as_array())
+            .expect("memes array");
+
+        assert_eq!(memes.len(), 1);
+        assert_eq!(memes[0].get("name").and_then(|v| v.as_str()), Some("坏笑"));
+        assert_eq!(
+            memes[0].get("path").and_then(|v| v.as_str()),
+            Some(file.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            memes[0].get("relativePath").and_then(|v| v.as_str()),
+            Some(".meme/agent-meme-test/坏笑.webp")
+        );
+    }
+
+    #[test]
+    fn meme_delete_and_rename_asset_should_update_library() {
+        let state = meme_test_state();
+        write_test_png(&test_meme_root(&state).join("坏笑.webp"));
+
+        meme_rename_asset(&state, TEST_AGENT_ID, "坏笑", "开心").expect("rename asset");
+        let after_rename = meme_available_assets(&state, TEST_AGENT_ID).expect("scan after rename");
+        assert!(after_rename.contains_key("开心"));
+        assert!(!after_rename.contains_key("坏笑"));
+
+        meme_delete_asset(&state, TEST_AGENT_ID, "开心").expect("delete asset");
+        assert!(meme_available_assets(&state, TEST_AGENT_ID)
+            .expect("scan after delete")
+            .is_empty());
+    }
+
+    #[test]
+    fn meme_delete_asset_should_reject_unknown_name() {
+        let state = meme_test_state();
+        let err = meme_delete_asset(&state, TEST_AGENT_ID, "不存在").expect_err("should fail");
+        assert!(err.contains("未找到"));
     }
 
     #[test]

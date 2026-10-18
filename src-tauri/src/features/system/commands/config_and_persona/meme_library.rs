@@ -213,74 +213,11 @@ fn add_agent_meme_inner(
 }
 
 fn delete_agent_meme_inner(input: AgentMemeDeleteInput, state: &AppState) -> Result<(), String> {
-    let name = ensure_valid_meme_name(&input.name)?;
-    let grouped = meme_available_assets(state, &input.agent_id)?;
-    let candidate = grouped
-        .get(&name)
-        .ok_or_else(|| format!("未找到表情：{name}"))?;
-
-    std::fs::remove_file(&candidate.absolute_path).map_err(|err| {
-        format!(
-            "删除表情文件失败: path={}, err={err}",
-            candidate.absolute_path.display()
-        )
-    })?;
-
-    let mut dhash_index = meme_load_dhash_index(state, &input.agent_id);
-    dhash_index.remove(&candidate.relative_path);
-    if let Err(err) = meme_persist_dhash_index(state, &input.agent_id, &dhash_index) {
-        runtime_log_warn(format!("[表情贴纸] 删除后持久化 dHash 索引失败: {err}"));
-    }
-    runtime_log_info(format!(
-        "[表情贴纸] 表情管理器删除完成: agent_id={}, name={}",
-        input.agent_id, name
-    ));
-    Ok(())
+    meme_delete_asset(state, &input.agent_id, &input.name)
 }
 
 fn rename_agent_meme_inner(input: AgentMemeRenameInput, state: &AppState) -> Result<(), String> {
-    let old_name = ensure_valid_meme_name(&input.name)?;
-    let new_name = ensure_valid_meme_name(&input.new_name)?;
-    if old_name == new_name {
-        return Ok(());
-    }
-
-    let grouped = meme_available_assets(state, &input.agent_id)?;
-    let candidate = grouped
-        .get(&old_name)
-        .ok_or_else(|| format!("未找到表情：{old_name}"))?;
-    if grouped.contains_key(&new_name) {
-        return Err(format!("目标表情名已存在：{new_name}"));
-    }
-
-    let ext = candidate
-        .absolute_path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or(MEME_NORMALIZED_EXT);
-    let target_path = candidate
-        .absolute_path
-        .with_file_name(format!("{new_name}.{ext}"));
-    std::fs::rename(&candidate.absolute_path, &target_path).map_err(|err| {
-        format!(
-            "重命名表情文件失败: from={}, to={}, err={err}",
-            candidate.absolute_path.display(),
-            target_path.display()
-        )
-    })?;
-
-    let mut dhash_index = meme_load_dhash_index(state, &input.agent_id);
-    if let Some(hash) = dhash_index.remove(&candidate.relative_path) {
-        dhash_index.insert(workspace_relative_path(state, &target_path), hash);
-    }
-    if let Err(err) = meme_persist_dhash_index(state, &input.agent_id, &dhash_index) {
-        runtime_log_warn(format!("[表情贴纸] 重命名后持久化 dHash 索引失败: {err}"));
-    }
-    runtime_log_info(format!(
-        "[表情贴纸] 表情管理器重命名完成: agent_id={}, from={}, to={}",
-        input.agent_id, old_name, new_name
-    ));
-    Ok(())
+    meme_rename_asset(state, &input.agent_id, &input.name, &input.new_name)
 }
 
 #[tauri::command]
