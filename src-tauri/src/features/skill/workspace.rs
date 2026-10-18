@@ -590,11 +590,7 @@ fn filter_skills_for_agent(
     skills
         .iter()
         .filter(|item| {
-            agent_permission_allows_any_name(
-                agent,
-                AgentPermissionCategory::Skill,
-                &[item.name.as_str()],
-            )
+            agent_permission_allows_name(agent, AgentPermissionCategory::Skill, &item.name)
         })
         .cloned()
         .collect()

@@ -546,33 +546,29 @@ fn agent_permission_candidates<'a>(
     permission_control_candidates(agent.map(|item| &item.permission_control), category)
 }
 
-fn permission_control_allows_any_name(
+/// 名单只有一个身份：条目名。白名单命中即允许，黑名单命中即拒绝。
+fn permission_control_allows_name(
     control: Option<(&AgentPermissionControl, &[String])>,
-    candidate_names: &[&str],
+    name: &str,
 ) -> bool {
     let Some((control, list)) = control else {
         return true;
     };
-    let matches = candidate_names.iter().any(|candidate| {
-        let candidate = candidate.trim();
-        !candidate.is_empty() && list.iter().any(|item| item == candidate)
-    });
+    let name = name.trim();
+    let matched = !name.is_empty() && list.iter().any(|item| item.trim() == name);
     if normalize_permission_mode(&control.mode) == "whitelist" {
-        matches
+        matched
     } else {
-        !matches
+        !matched
     }
 }
 
-fn agent_permission_allows_any_name(
+fn agent_permission_allows_name(
     agent: Option<&AgentProfile>,
     category: AgentPermissionCategory,
-    candidate_names: &[&str],
+    name: &str,
 ) -> bool {
-    permission_control_allows_any_name(
-        agent_permission_candidates(agent, category),
-        candidate_names,
-    )
+    permission_control_allows_name(agent_permission_candidates(agent, category), name)
 }
 
 fn permission_mode_label(mode: &str) -> &'static str {
@@ -591,7 +587,7 @@ fn agent_permission_restricted_reason(
     let Some((control, _)) = agent_permission_candidates(agent, category) else {
         return None;
     };
-    if agent_permission_allows_any_name(agent, category, &[item_name]) {
+    if agent_permission_allows_name(agent, category, item_name) {
         return None;
     }
     let category_label = match category {
@@ -696,37 +692,33 @@ mod types_storage_tests {
     }
 
     #[test]
-    fn agent_permission_allows_any_name_should_handle_whitelist_and_blacklist() {
+    fn agent_permission_allows_name_should_handle_whitelist_and_blacklist() {
         let whitelist = build_agent_with_permission_control(
             "whitelist",
             vec!["fetch"],
             vec!["assistant-space-guide"],
             vec!["server-a::search"],
         );
-        assert!(agent_permission_allows_any_name(
+        assert!(agent_permission_allows_name(
             Some(&whitelist),
             AgentPermissionCategory::BuiltinTool,
-            &["fetch"],
+            "fetch",
         ));
-        assert!(!agent_permission_allows_any_name(
+        assert!(!agent_permission_allows_name(
             Some(&whitelist),
             AgentPermissionCategory::BuiltinTool,
-            &["websearch"],
+            "websearch",
         ));
-        assert!(!agent_permission_allows_any_name(
+        assert!(!agent_permission_allows_name(
             Some(&whitelist),
             AgentPermissionCategory::Skill,
-            &["mcp-setup"],
+            "mcp-setup",
         ));
-        assert!(agent_permission_allows_any_name(
+        // MCP 名单只认模型调用名，`server::tool` 不再具备任何特赦效果。
+        assert!(!agent_permission_allows_name(
             Some(&whitelist),
             AgentPermissionCategory::McpTool,
-            &["server-a::search", "server-id::search", "search"],
-        ));
-        assert!(!agent_permission_allows_any_name(
-            Some(&whitelist),
-            AgentPermissionCategory::McpTool,
-            &["server-b::other", "other"],
+            "search",
         ));
 
         let blacklist = build_agent_with_permission_control(
@@ -735,25 +727,20 @@ mod types_storage_tests {
             vec!["assistant-space-guide"],
             vec!["server-a::search"],
         );
-        assert!(!agent_permission_allows_any_name(
+        assert!(!agent_permission_allows_name(
             Some(&blacklist),
             AgentPermissionCategory::BuiltinTool,
-            &["fetch"],
+            "fetch",
         ));
-        assert!(agent_permission_allows_any_name(
+        assert!(agent_permission_allows_name(
             Some(&blacklist),
             AgentPermissionCategory::BuiltinTool,
-            &["websearch"],
+            "websearch",
         ));
-        assert!(!agent_permission_allows_any_name(
+        assert!(agent_permission_allows_name(
             Some(&blacklist),
             AgentPermissionCategory::McpTool,
-            &["server-a::search", "search"],
-        ));
-        assert!(agent_permission_allows_any_name(
-            Some(&blacklist),
-            AgentPermissionCategory::McpTool,
-            &["server-b::other", "other"],
+            "search",
         ));
     }
 

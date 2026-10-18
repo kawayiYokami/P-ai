@@ -27,7 +27,6 @@ enum CachedRuntimeToolSource {
 #[derive(Debug, Clone)]
 struct CachedRuntimeToolSchema {
     source: CachedRuntimeToolSource,
-    permission_candidate_names: Vec<String>,
     definition: ProviderToolDefinition,
     compatibility_error: Option<String>,
 }
@@ -35,7 +34,6 @@ struct CachedRuntimeToolSchema {
 impl CachedRuntimeToolSchema {
     fn builtin(definition: ProviderToolDefinition) -> Self {
         Self {
-            permission_candidate_names: vec![definition.name.clone()],
             source: CachedRuntimeToolSource::Builtin,
             definition,
             compatibility_error: None,
@@ -49,26 +47,20 @@ impl CachedRuntimeToolSchema {
         compatibility_error: Option<String>,
         definition: ProviderToolDefinition,
     ) -> Self {
-        let provider_tool_name = definition.name.clone();
         Self {
             source: CachedRuntimeToolSource::Mcp {
                 server_id: server_id.to_string(),
                 server_name: server_name.to_string(),
                 runtime_tool_name: runtime_tool_name.to_string(),
             },
-            permission_candidate_names: vec![
-                format!("{server_name}::{runtime_tool_name}"),
-                format!("{server_id}::{runtime_tool_name}"),
-                format!("{server_name}_{runtime_tool_name}"),
-                runtime_tool_name.to_string(),
-                format!("{server_name}::{provider_tool_name}"),
-                format!("{server_id}::{provider_tool_name}"),
-                format!("{server_name}_{provider_tool_name}"),
-                provider_tool_name,
-            ],
             definition,
             compatibility_error,
         }
+    }
+
+    /// 权限名单里该工具的唯一身份：模型实际调用名。
+    fn permission_name(&self) -> &str {
+        self.definition.name.trim()
     }
 
     fn source_label(&self) -> String {
@@ -748,25 +740,15 @@ fn runtime_tool_denied_reason(
             tool_restricted_by_agent_permission(current_agent, tool_name)
         }
         CachedRuntimeToolSource::Mcp { .. } => {
-            let candidate_names = tool
-                .permission_candidate_names
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>();
-            if agent_permission_allows_any_name(
+            let name = tool.permission_name();
+            if agent_permission_allows_name(
                 Some(current_agent),
                 AgentPermissionCategory::McpTool,
-                &candidate_names,
+                name,
             ) {
                 None
             } else {
-                Some(format!(
-                    "当前人格权限不允许 MCP 工具 `{}`",
-                    tool.permission_candidate_names
-                        .first()
-                        .map(String::as_str)
-                        .unwrap_or(tool_name)
-                ))
+                Some(format!("当前人格权限不允许 MCP 工具 `{name}`"))
             }
         }
     }
@@ -1784,20 +1766,20 @@ mod tool_assembly_permission_tests {
         assert_eq!(names, vec!["read", "read_media", "exec", "fetch", "websearch"]);
 
         let reviewer = default_reviewer_agent();
-        assert!(agent_permission_allows_any_name(
+        assert!(agent_permission_allows_name(
             Some(&reviewer),
             AgentPermissionCategory::Skill,
-            &["code-review"],
+            "code-review",
         ));
-        assert!(!agent_permission_allows_any_name(
+        assert!(!agent_permission_allows_name(
             Some(&reviewer),
             AgentPermissionCategory::Skill,
-            &["assistant-space-guide"],
+            "assistant-space-guide",
         ));
-        assert!(agent_permission_allows_any_name(
+        assert!(agent_permission_allows_name(
             Some(&reviewer),
             AgentPermissionCategory::Skill,
-            &["memory-generation"],
+            "memory-generation",
         ));
 
         // saddler 已不再内置；这里按原来的权限白名单手工构造，保留「按白名单裁剪工具」这条路径的覆盖。
@@ -1854,15 +1836,15 @@ mod tool_assembly_permission_tests {
                 "image_edit",
             ]
         );
-        assert!(agent_permission_allows_any_name(
+        assert!(agent_permission_allows_name(
             Some(&support),
             AgentPermissionCategory::Skill,
-            &["news-analyst"],
+            "news-analyst",
         ));
-        assert!(agent_permission_allows_any_name(
+        assert!(agent_permission_allows_name(
             Some(&support),
             AgentPermissionCategory::Skill,
-            &["memory-generation"],
+            "memory-generation",
         ));
     }
 
@@ -1904,8 +1886,9 @@ mod tool_assembly_permission_tests {
     }
 
     #[test]
-    fn legal_tool_resolver_should_keep_mcp_permission_compatibility_names() {
+    fn legal_tool_resolver_matches_mcp_permission_by_provider_tool_name_only() {
         let mut agent = whitelist_agent(&[]);
+        // 带 server 前缀的旧写法不再被识别，名单里只剩这一条时工具不挂载。
         agent.permission_control.mcp_tool_names = vec!["server-id::search".to_string()];
         let config = AppConfig::default();
         let policy = RuntimeToolPolicy {
@@ -1929,8 +1912,9 @@ mod tool_assembly_permission_tests {
             Some(&memory),
             &tools,
         );
-        assert_eq!(resolved.attached.len(), 1);
+        assert!(resolved.attached.is_empty());
 
+        // 模型实际调用名是唯一身份。
         agent.permission_control.mcp_tool_names = vec!["search".to_string()];
         let resolved = resolve_legal_runtime_tools(
             &config,

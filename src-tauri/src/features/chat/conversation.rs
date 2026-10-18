@@ -3012,10 +3012,10 @@ fn agent_builtin_tool_enabled(current_agent: Option<&AgentProfile>, id: &str) ->
     if agent_builtin_tool_unavailable_reason(current_agent, id).is_some() {
         return false;
     }
-    if !agent_permission_allows_any_name(
+    if !agent_permission_allows_name(
         current_agent,
         AgentPermissionCategory::BuiltinTool,
-        &[id],
+        id,
     ) {
         return false;
     }

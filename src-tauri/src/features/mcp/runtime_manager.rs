@@ -392,20 +392,9 @@ impl RuntimeToolDyn for CachedMcpRuntimeTool {
                     "MCP 工具 `{tool_name}` 当前不可用：执行人格已不存在"
                 )));
             };
-            let qualified_by_name = format!("{}::{runtime_tool_name}", server.name);
-            let qualified_by_id = format!("{}::{runtime_tool_name}", server.id);
-            if !agent_permission_allows_any_name(
-                Some(agent),
-                AgentPermissionCategory::McpTool,
-                &[
-                    qualified_by_name.as_str(),
-                    qualified_by_id.as_str(),
-                    runtime_tool_name.as_str(),
-                    tool_name.as_str(),
-                ],
-            ) {
+            if !agent_permission_allows_name(Some(agent), AgentPermissionCategory::McpTool, &tool_name) {
                 return Ok(ProviderToolResult::error(format!(
-                    "MCP 工具 `{qualified_by_name}` 当前不可用：人格权限已撤销"
+                    "MCP 工具 `{tool_name}` 当前不可用：人格权限已撤销"
                 )));
             }
             let (peer, _) = match mcp_get_or_connect_peer_for_tool(
