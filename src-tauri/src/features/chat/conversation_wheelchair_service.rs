@@ -115,8 +115,9 @@ fn split_wheelchair_advice_by_target(
 
 fn wheelchair_current_block_text(state: &AppState, conversation_id: &str) -> Result<String, String> {
     let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    let Some(page) = message_store::chat_store_read_block_messages_before(&paths, None, None, 50)?
-    else {
+    // 取整块：块本身就是上下文整理的边界，超限的内容早就被压缩进上一块了，
+    // 这里再截条数只会把工具密集的那一段正文削掉。
+    let Some(page) = message_store::chat_store_read_block_page(&paths, None)? else {
         return Ok(String::new());
     };
     Ok(wheelchair_extract_block_texts(&page.messages))
