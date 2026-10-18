@@ -2502,6 +2502,7 @@
     "workspaceBranchCheckFailed": "Failed to check branch: {message}",
     "workspaceBranchRebasing": "Rebase in progress, cannot switch branch",
     "workspaceWorktreeLabel": "Tree",
+    "teamModeLabel": "Session mode",
     "teamModeSingle": "Solo",
     "teamModeTeam": "Team",
     "teamInitialMembersTip": "Pick the starting members. Whether or not you pick any, the leader will keep recruiting as needed. Starting members use the leader's workspace by default.",
