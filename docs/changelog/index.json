@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-14T22:00:56.511Z",
-  "latestVersion": "v0.97.4",
+  "generatedAt": "2026-10-18T00:57:55.947Z",
+  "latestVersion": "v0.97.5",
   "releases": [
+    {
+      "version": "v0.97.5",
+      "path": "docs/changelog/releases/v0.97.5.md",
+      "summary": "**新增实验性功能：组队会话**。"
+    },
     {
       "version": "v0.97.4",
       "path": "docs/changelog/releases/v0.97.4.md",
