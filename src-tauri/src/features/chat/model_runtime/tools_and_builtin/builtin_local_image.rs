@@ -10,7 +10,6 @@ enum PersistedInlineMessageSegment {
     Text { text: String },
     Meme {
         name: String,
-        category: String,
         mime: String,
         relative_path: String,
         bytes_base64: String,
@@ -545,13 +544,11 @@ fn inline_segment_from_meme_segment(segment: PersistedMemeSegment) -> PersistedI
         PersistedMemeSegment::Text { text } => PersistedInlineMessageSegment::Text { text },
         PersistedMemeSegment::Meme {
             name,
-            category,
             mime,
             relative_path,
             bytes_base64,
         } => PersistedInlineMessageSegment::Meme {
             name,
-            category,
             mime,
             relative_path,
             bytes_base64,
@@ -563,7 +560,6 @@ fn inline_segment_from_meme_segment(segment: PersistedMemeSegment) -> PersistedI
 struct MemeAnnotationInlineReference {
     start: usize,
     end: usize,
-    meme: String,
     path: String,
 }
 
@@ -587,7 +583,6 @@ fn collect_meme_annotation_inline_references(
         out.push(MemeAnnotationInlineReference {
             start,
             end,
-            meme: meme.to_string(),
             path: path.to_string(),
         });
         cursor = end;
@@ -612,15 +607,8 @@ fn inline_segment_from_meme_annotation(
         .filter(|value| !value.is_empty())
         .unwrap_or("meme")
         .to_string();
-    let category = reference
-        .meme
-        .trim()
-        .trim_start_matches(':')
-        .trim_end_matches(':')
-        .to_string();
     Ok(PersistedInlineMessageSegment::Meme {
         name,
-        category,
         mime,
         relative_path: workspace_relative_path(state, &path),
         bytes_base64: B64.encode(raw),
@@ -716,8 +704,8 @@ fn resolve_text_and_meme_annotations_to_inline_segments(
 
 fn resolve_text_to_persisted_inline_segments(
     state: &AppState,
+    agent_id: &str,
     text: &str,
-    seed_source: &str,
 ) -> Result<Option<Vec<PersistedInlineMessageSegment>>, String> {
     if text.trim().is_empty() {
         return Ok(None);
@@ -732,7 +720,7 @@ fn resolve_text_to_persisted_inline_segments(
         match segment {
             PersistedInlineMessageSegment::Text { text } => {
                 if let Some(meme_segments) =
-                    resolve_text_to_persisted_meme_segments(state, &text, seed_source)?
+                    resolve_text_to_persisted_meme_segments(state, agent_id, &text)?
                 {
                     if meme_segments
                         .iter()
@@ -892,8 +880,9 @@ mod local_image_reference_tests {
     #[test]
     fn meme_annotations_should_replace_repeated_tokens_in_order() {
         let state = local_image_test_state();
-        let first = meme_workspace_root(&state).join("坏笑.webp");
-        let second = meme_workspace_root(&state).join("坏笑(2).webp");
+        let meme_root = meme_agent_root(&state, "agent-meme-test").expect("test meme root");
+        let first = meme_root.join("坏笑.webp");
+        let second = meme_root.join("坏笑(2).webp");
         write_test_png(&first);
         write_test_png(&second);
 

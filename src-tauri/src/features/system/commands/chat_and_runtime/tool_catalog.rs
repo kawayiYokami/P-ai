@@ -233,6 +233,7 @@ async fn builtin_tool_definitions_for_frontend(
         frontend_tool_definition(
             BuiltinMemeTool {
                 app_state: state.clone(),
+                agent_id: String::new(),
             }
             .provider_tool_definition(),
         ),

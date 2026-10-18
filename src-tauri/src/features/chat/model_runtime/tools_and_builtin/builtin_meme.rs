@@ -8,6 +8,8 @@ struct MemeToolArgs {
 #[derive(Debug, Clone)]
 struct BuiltinMemeTool {
     app_state: AppState,
+    /// 表情库归属人格：写入与读取都落在该人格的私有目录下。
+    agent_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -18,7 +20,6 @@ enum PersistedMemeSegment {
     },
     Meme {
         name: String,
-        category: String,
         mime: String,
         #[serde(rename = "relativePath")]
         relative_path: String,
@@ -38,7 +39,6 @@ struct MemeAssetCandidate {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MemeDHashDuplicateMatch {
     name: String,
-    category: String,
     relative_path: String,
     distance: u32,
 }
@@ -74,8 +74,31 @@ fn meme_workspace_root(state: &AppState) -> PathBuf {
         .join(".meme")
 }
 
-fn meme_dhash_index_path(state: &AppState) -> PathBuf {
-    meme_workspace_root(state).join(MEME_DHASH_INDEX_FILE_NAME)
+/// 人格 id 作为表情库目录名时的清洗：只保留 ASCII 字母数字与 `-` `_`，其余替换为下划线。
+fn meme_agent_dir_name(agent_id: &str) -> String {
+    let trimmed = agent_id.trim();
+    let mut out = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    out.trim_matches('_').to_string()
+}
+
+/// 人格私有表情库根目录。人格 id 为空或清洗后为空时返回 None，调用方按空库处理。
+fn meme_agent_root(state: &AppState, agent_id: &str) -> Option<PathBuf> {
+    let dir_name = meme_agent_dir_name(agent_id);
+    if dir_name.is_empty() {
+        return None;
+    }
+    Some(meme_workspace_root(state).join(dir_name))
+}
+
+fn meme_dhash_index_path(state: &AppState, agent_id: &str) -> Option<PathBuf> {
+    meme_agent_root(state, agent_id).map(|root| root.join(MEME_DHASH_INDEX_FILE_NAME))
 }
 
 fn meme_label_is_valid(raw: &str) -> bool {
@@ -105,37 +128,12 @@ fn ensure_valid_meme_name(raw: &str) -> Result<String, String> {
 }
 
 fn meme_asset_name_from_path(path: &Path) -> String {
-    let stem = path
-        .file_stem()
+    path.file_stem()
         .and_then(|value| value.to_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("meme");
-    stem
-        .split_once("__")
-        .map(|(head, _)| head.trim())
-        .filter(|value| !value.is_empty())
-        .unwrap_or(stem)
+        .unwrap_or("meme")
         .to_string()
-}
-
-fn meme_relative_path_parts(relative_path: &str) -> (String, String) {
-    let normalized = relative_path.replace('\\', "/");
-    let without_root = normalized
-        .strip_prefix(".meme/")
-        .unwrap_or(normalized.as_str());
-    let parts = without_root
-        .split('/')
-        .filter(|part| !part.trim().is_empty())
-        .collect::<Vec<_>>();
-    let file_name = parts.last().copied().unwrap_or("meme.webp");
-    let name = meme_asset_name_from_path(Path::new(file_name));
-    let category = if parts.len() >= 2 {
-        parts.first().copied().unwrap_or(name.as_str()).to_string()
-    } else {
-        name.clone()
-    };
-    (name, category)
 }
 
 fn meme_is_dhash_index_file(path: &Path) -> bool {
@@ -145,143 +143,67 @@ fn meme_is_dhash_index_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn meme_push_asset_candidate(
-    state: &AppState,
-    grouped: &mut std::collections::BTreeMap<String, Vec<MemeAssetCandidate>>,
-    meme_name: &str,
-    path: PathBuf,
-) -> Result<(), String> {
-    let detected = match meme_detect_image_format_from_path(&path) {
-        Ok(value) => value,
-        Err(err) => {
-            runtime_log_warn(format!(
-                "[表情贴纸] 跳过无法识别真实格式的素材: path={}, err={err}",
-                path.display()
-            ));
-            return Ok(());
-        }
-    };
-    let relative_path = workspace_relative_path(state, &path);
-    grouped
-        .entry(meme_name.to_string())
-        .or_default()
-        .push(MemeAssetCandidate {
-            name: meme_asset_name_from_path(&path),
-            mime: detected.mime,
-            absolute_path: path,
-            relative_path,
-        });
-    Ok(())
-}
-
 fn meme_available_assets(
     state: &AppState,
-) -> Result<std::collections::BTreeMap<String, Vec<MemeAssetCandidate>>, String> {
-    let root = meme_workspace_root(state);
+    agent_id: &str,
+) -> Result<std::collections::BTreeMap<String, MemeAssetCandidate>, String> {
+    let Some(root) = meme_agent_root(state, agent_id) else {
+        return Ok(std::collections::BTreeMap::new());
+    };
     if !root.exists() {
         return Ok(std::collections::BTreeMap::new());
     }
     let entries = std::fs::read_dir(&root)
         .map_err(|err| format!("读取表情目录失败: path={}, err={err}", root.display()))?;
-    let entries = entries
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|err| format!("读取表情目录项失败: {err}"))?;
-    let folder_names = entries
-        .iter()
-        .filter_map(|entry| {
-            let path = entry.path();
-            if !path.is_dir() {
-                return None;
-            }
-            let name = entry.file_name().to_str()?.trim().to_string();
-            if meme_label_is_valid(&name) {
-                Some(name)
-            } else {
-                None
-            }
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    let mut grouped = std::collections::BTreeMap::<String, Vec<MemeAssetCandidate>>::new();
+    let mut candidates = Vec::<MemeAssetCandidate>::new();
     for entry in entries {
+        let entry = entry.map_err(|err| format!("读取表情目录项失败: {err}"))?;
         let path = entry.path();
-        if path.is_file() {
-            if meme_is_dhash_index_file(&path) {
-                continue;
-            }
-            let meme_name = meme_asset_name_from_path(&path);
-            if !meme_label_is_valid(&meme_name) {
-                continue;
-            }
-            if folder_names.contains(&meme_name) {
-                continue;
-            }
-            meme_push_asset_candidate(state, &mut grouped, &meme_name, path)?;
+        if !path.is_file() || meme_is_dhash_index_file(&path) {
             continue;
         }
-        if !path.is_dir() {
-            continue;
-        }
-        let meme_name = entry
-            .file_name()
-            .to_str()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| format!("表情目录名非法: {}", path.display()))?
-            .to_string();
+        let meme_name = meme_asset_name_from_path(&path);
         if !meme_label_is_valid(&meme_name) {
-            runtime_log_warn(format!("[表情贴纸] 跳过非法表情目录名: {}", path.display()));
             continue;
         }
-        let child_dir = std::fs::read_dir(&path)
-            .map_err(|err| format!("读取表情子目录失败: path={}, err={err}", path.display()))?;
-        let mut variants = Vec::<MemeAssetCandidate>::new();
-        for child in child_dir {
-            let child = child.map_err(|err| format!("读取表情文件失败: {err}"))?;
-            let child_path = child.path();
-            if !child_path.is_file() || meme_is_dhash_index_file(&child_path) {
+        let detected = match meme_detect_image_format_from_path(&path) {
+            Ok(value) => value,
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[表情贴纸] 跳过无法识别真实格式的素材: path={}, err={err}",
+                    path.display()
+                ));
                 continue;
             }
-            let detected = match meme_detect_image_format_from_path(&child_path) {
-                Ok(value) => value,
-                Err(err) => {
-                    runtime_log_warn(format!(
-                        "[表情贴纸] 跳过无法识别真实格式的素材: path={}, err={err}",
-                        child_path.display()
-                    ));
-                    continue;
-                }
-            };
-            let relative_path = workspace_relative_path(state, &child_path);
-            variants.push(MemeAssetCandidate {
-                name: meme_asset_name_from_path(&child_path),
-                mime: detected.mime,
-                absolute_path: child_path,
-                relative_path,
-            });
-        }
-        if !variants.is_empty() {
-            variants.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-            grouped.insert(meme_name, variants);
-        }
+        };
+        let relative_path = workspace_relative_path(state, &path);
+        candidates.push(MemeAssetCandidate {
+            name: meme_name,
+            mime: detected.mime,
+            absolute_path: path,
+            relative_path,
+        });
     }
-    for variants in grouped.values_mut() {
-        variants.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    // 一名一图：同名文件按相对路径字典序取第一个，其余按重复跳过。
+    candidates.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    let mut grouped = std::collections::BTreeMap::<String, MemeAssetCandidate>::new();
+    for candidate in candidates {
+        if let Some(existing) = grouped.get(&candidate.name) {
+            runtime_log_warn(format!(
+                "[表情贴纸] 同名表情文件重复，已跳过: kept={}, skipped={}",
+                existing.relative_path, candidate.relative_path
+            ));
+            continue;
+        }
+        grouped.insert(candidate.name.clone(), candidate);
     }
     Ok(grouped)
 }
 
-fn meme_available_names(state: &AppState) -> Result<Vec<String>, String> {
-    Ok(meme_available_assets(state)?
+fn meme_available_names(state: &AppState, agent_id: &str) -> Result<Vec<String>, String> {
+    Ok(meme_available_assets(state, agent_id)?
         .into_keys()
         .collect::<Vec<_>>())
-}
-
-fn meme_names_summary_text(state: &AppState) -> String {
-    match meme_available_names(state) {
-        Ok(names) if !names.is_empty() => names.join("、"),
-        Ok(_) => "（当前没有可用表情）".to_string(),
-        Err(err) => format!("（读取失败：{}）", err),
-    }
 }
 
 fn meme_magic_detect_image_format(raw: &[u8]) -> Option<MemeDetectedImageFormat> {
@@ -615,8 +537,13 @@ fn meme_hamming_distance(left: &str, right: &str) -> Option<u32> {
     Some((left ^ right).count_ones())
 }
 
-fn meme_load_dhash_index(state: &AppState) -> std::collections::BTreeMap<String, String> {
-    let index_path = meme_dhash_index_path(state);
+fn meme_load_dhash_index(
+    state: &AppState,
+    agent_id: &str,
+) -> std::collections::BTreeMap<String, String> {
+    let Some(index_path) = meme_dhash_index_path(state, agent_id) else {
+        return std::collections::BTreeMap::new();
+    };
     if !index_path.exists() {
         return std::collections::BTreeMap::new();
     }
@@ -643,9 +570,12 @@ fn meme_load_dhash_index(state: &AppState) -> std::collections::BTreeMap<String,
 
 fn meme_persist_dhash_index(
     state: &AppState,
+    agent_id: &str,
     index: &std::collections::BTreeMap<String, String>,
 ) -> Result<(), String> {
-    let index_path = meme_dhash_index_path(state);
+    let Some(index_path) = meme_dhash_index_path(state, agent_id) else {
+        return Ok(());
+    };
     if let Some(parent) = index_path.parent() {
         std::fs::create_dir_all(parent).map_err(|err| {
             format!(
@@ -667,13 +597,13 @@ fn meme_persist_dhash_index(
 
 fn meme_sync_dhash_index(
     state: &AppState,
-    grouped: &std::collections::BTreeMap<String, Vec<MemeAssetCandidate>>,
+    agent_id: &str,
+    grouped: &std::collections::BTreeMap<String, MemeAssetCandidate>,
 ) -> std::collections::BTreeMap<String, String> {
-    let mut index = meme_load_dhash_index(state);
+    let mut index = meme_load_dhash_index(state, agent_id);
     let mut changed = false;
     let expected = grouped
         .values()
-        .flat_map(|items| items.iter())
         .map(|candidate| {
             (
                 candidate.relative_path.clone(),
@@ -701,7 +631,7 @@ fn meme_sync_dhash_index(
     }
 
     if changed {
-        if let Err(err) = meme_persist_dhash_index(state, &index) {
+        if let Err(err) = meme_persist_dhash_index(state, agent_id, &index) {
             runtime_log_warn(format!("[表情贴纸] 持久化 dHash 索引失败: {err}"));
         }
     }
@@ -710,20 +640,13 @@ fn meme_sync_dhash_index(
 
 fn meme_find_duplicate_in_assets(
     source_hash: &str,
-    grouped: &std::collections::BTreeMap<String, Vec<MemeAssetCandidate>>,
+    grouped: &std::collections::BTreeMap<String, MemeAssetCandidate>,
     dhash_index: &std::collections::BTreeMap<String, String>,
 ) -> Option<MemeDHashDuplicateMatch> {
     let mut best_match = None::<MemeDHashDuplicateMatch>;
-    let candidates_by_path = grouped
+    let names_by_path = grouped
         .iter()
-        .flat_map(|(category, items)| {
-            items.iter().map(move |candidate| {
-                (
-                    candidate.relative_path.as_str(),
-                    (category.as_str(), candidate.name.as_str()),
-                )
-            })
-        })
+        .map(|(name, candidate)| (candidate.relative_path.as_str(), name.as_str()))
         .collect::<std::collections::BTreeMap<_, _>>();
     for (relative_path, existing_hash) in dhash_index {
         let Some(distance) = meme_hamming_distance(source_hash, existing_hash) else {
@@ -736,15 +659,12 @@ fn meme_find_duplicate_in_assets(
         if distance > MEME_DHASH_DISTANCE_THRESHOLD {
             continue;
         }
-        let (name, category) =
-            if let Some((category, name)) = candidates_by_path.get(relative_path.as_str()) {
-                ((*name).to_string(), (*category).to_string())
-            } else {
-                meme_relative_path_parts(relative_path)
-            };
+        let name = match names_by_path.get(relative_path.as_str()) {
+            Some(name) => (*name).to_string(),
+            None => meme_asset_name_from_path(Path::new(relative_path)),
+        };
         let current = MemeDHashDuplicateMatch {
             name,
-            category,
             relative_path: relative_path.clone(),
             distance,
         };
@@ -759,9 +679,9 @@ fn meme_find_duplicate_in_assets(
     best_match
 }
 
-fn meme_prompt_rule_block(state: Option<&AppState>) -> Option<String> {
+fn meme_prompt_rule_block(state: Option<&AppState>, agent_id: &str) -> Option<String> {
     let state = state?;
-    let names = meme_available_names(state).ok()?;
+    let names = meme_available_names(state, agent_id).ok()?;
     if names.is_empty() {
         return None;
     }
@@ -785,21 +705,8 @@ fn meme_prompt_rule_block(state: Option<&AppState>) -> Option<String> {
     ))
 }
 
-fn choose_meme_variant_index(seed_source: &str, meme_category: &str, token_index: usize, count: usize) -> usize {
-    use std::hash::{Hash, Hasher};
-
-    if count <= 1 {
-        return 0;
-    }
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    seed_source.hash(&mut hasher);
-    meme_category.hash(&mut hasher);
-    token_index.hash(&mut hasher);
-    (hasher.finish() as usize) % count
-}
-
-fn meme_token_is_valid(category: &str) -> bool {
-    let trimmed = category.trim();
+fn meme_token_is_valid(name: &str) -> bool {
+    let trimmed = name.trim();
     !trimmed.is_empty()
         && !trimmed.chars().any(char::is_whitespace)
         && !trimmed.contains(':')
@@ -808,17 +715,16 @@ fn meme_token_is_valid(category: &str) -> bool {
 
 fn resolve_text_to_persisted_meme_segments(
     state: &AppState,
+    agent_id: &str,
     text: &str,
-    seed_source: &str,
 ) -> Result<Option<Vec<PersistedMemeSegment>>, String> {
-    let grouped = meme_available_assets(state)?;
+    let grouped = meme_available_assets(state, agent_id)?;
     if grouped.is_empty() || text.trim().is_empty() {
         return Ok(None);
     }
     let mut segments = Vec::<PersistedMemeSegment>::new();
     let mut scan_cursor = 0usize;
     let mut text_cursor = 0usize;
-    let mut token_index = 0usize;
     let mut matched_any = false;
 
     while scan_cursor < text.len() {
@@ -830,12 +736,12 @@ fn resolve_text_to_persisted_meme_segments(
             break;
         };
         let end = start + 1 + end_rel;
-        let category = &text[start + 1..end];
-        if !meme_token_is_valid(category) {
+        let name = &text[start + 1..end];
+        if !meme_token_is_valid(name) {
             scan_cursor = start + 1;
             continue;
         }
-        let Some(candidates) = grouped.get(category) else {
+        let Some(chosen) = grouped.get(name) else {
             scan_cursor = start + 1;
             continue;
         };
@@ -844,12 +750,6 @@ fn resolve_text_to_persisted_meme_segments(
                 text: text[text_cursor..start].to_string(),
             });
         }
-        let chosen = &candidates[choose_meme_variant_index(
-            seed_source,
-            category,
-            token_index,
-            candidates.len(),
-        )];
         let raw = std::fs::read(&chosen.absolute_path).map_err(|err| {
             format!(
                 "读取表情文件失败: path={}, err={err}",
@@ -858,13 +758,11 @@ fn resolve_text_to_persisted_meme_segments(
         })?;
         segments.push(PersistedMemeSegment::Meme {
             name: chosen.name.clone(),
-            category: category.to_string(),
             mime: chosen.mime.clone(),
             relative_path: chosen.relative_path.clone(),
             bytes_base64: B64.encode(raw),
         });
         matched_any = true;
-        token_index += 1;
         scan_cursor = end + 1;
         text_cursor = end + 1;
     }
@@ -882,16 +780,15 @@ fn resolve_text_to_persisted_meme_segments(
 
 fn build_meme_annotations(
     state: &AppState,
+    agent_id: &str,
     text: &str,
-    seed_source: &str,
 ) -> Result<Vec<MemeAnnotation>, String> {
-    let grouped = meme_available_assets(state)?;
+    let grouped = meme_available_assets(state, agent_id)?;
     if grouped.is_empty() || text.trim().is_empty() {
         return Ok(Vec::new());
     }
     let mut annotations = Vec::<MemeAnnotation>::new();
     let mut scan_cursor = 0usize;
-    let mut token_index = 0usize;
 
     while scan_cursor < text.len() {
         let Some(start_rel) = text[scan_cursor..].find(':') else {
@@ -902,26 +799,19 @@ fn build_meme_annotations(
             break;
         };
         let end = start + 1 + end_rel;
-        let category = &text[start + 1..end];
-        if !meme_token_is_valid(category) {
+        let name = &text[start + 1..end];
+        if !meme_token_is_valid(name) {
             scan_cursor = start + 1;
             continue;
         }
-        let Some(candidates) = grouped.get(category) else {
+        let Some(chosen) = grouped.get(name) else {
             scan_cursor = start + 1;
             continue;
         };
-        let chosen = &candidates[choose_meme_variant_index(
-            seed_source,
-            category,
-            token_index,
-            candidates.len(),
-        )];
         annotations.push(MemeAnnotation {
-            meme: format!(":{}:", category),
+            meme: format!(":{}:", name),
             path: chosen.absolute_path.to_string_lossy().to_string(),
         });
-        token_index += 1;
         scan_cursor = end + 1;
     }
 
@@ -949,125 +839,28 @@ fn meme_resolve_source_path(state: &AppState, raw: &str) -> Result<PathBuf, Stri
     Ok(candidate)
 }
 
-fn meme_root_file_path(state: &AppState, emotion: &str, ext: &str) -> PathBuf {
-    meme_workspace_root(state).join(format!("{emotion}.{ext}"))
-}
-
-fn meme_variant_file_name(emotion: &str, index: usize, ext: &str) -> String {
-    if index <= 1 {
-        format!("{emotion}.{ext}")
-    } else {
-        format!("{emotion}({index}).{ext}")
-    }
-}
-
-fn meme_next_variant_path(dir: &Path, emotion: &str, ext: &str) -> PathBuf {
-    let mut index = 1usize;
-    loop {
-        let candidate = dir.join(meme_variant_file_name(emotion, index, ext));
-        if !candidate.exists() {
-            return candidate;
-        }
-        index += 1;
-    }
-}
-
-/// 扫描根目录下与表情名同名的图片根文件（任意支持的后缀，如 .webp/.gif）
-fn meme_find_root_asset_file(state: &AppState, emotion: &str) -> Option<PathBuf> {
-    let root = meme_workspace_root(state);
-    let entries = std::fs::read_dir(&root).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() || meme_is_dhash_index_file(&path) {
-            continue;
-        }
-        if meme_asset_name_from_path(&path) != emotion {
-            continue;
-        }
-        if meme_detect_image_format_from_path(&path).is_ok() {
-            return Some(path);
-        }
-    }
-    None
-}
-
-fn meme_move_root_asset_into_folder(
-    state: &AppState,
-    emotion: &str,
-    dhash_index: &mut std::collections::BTreeMap<String, String>,
-) -> Result<(), String> {
-    let Some(root_file) = meme_find_root_asset_file(state, emotion) else {
-        return Ok(());
-    };
-    let target_dir = meme_workspace_root(state).join(emotion);
-    std::fs::create_dir_all(&target_dir).map_err(|err| {
-        format!(
-            "创建表情目录失败: path={}, err={err}",
-            target_dir.display()
-        )
-    })?;
-    let ext = root_file
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(MEME_NORMALIZED_EXT);
-    let target_path = meme_next_variant_path(&target_dir, emotion, ext);
-    let old_relative_path = workspace_relative_path(state, &root_file);
-    std::fs::rename(&root_file, &target_path).map_err(|err| {
-        format!(
-            "合并同名表情失败: from={}, to={}, err={err}",
-            root_file.display(),
-            target_path.display()
-        )
-    })?;
-    let new_relative_path = workspace_relative_path(state, &target_path);
-    let hash = dhash_index
-        .remove(&old_relative_path)
-        .or_else(|| compute_meme_dhash_hex(&target_path).ok());
-    if let Some(hash) = hash {
-        dhash_index.insert(new_relative_path, hash);
-    }
-    Ok(())
-}
-
 fn meme_target_path_for_new_asset(
     state: &AppState,
+    agent_id: &str,
     emotion: &str,
     ext: &str,
-    dhash_index: &mut std::collections::BTreeMap<String, String>,
 ) -> Result<PathBuf, String> {
-    let root = meme_workspace_root(state);
-    let target_dir = root.join(emotion);
-    let has_root_file = meme_find_root_asset_file(state, emotion).is_some();
-    if target_dir.exists() || has_root_file {
-        meme_move_root_asset_into_folder(state, emotion, dhash_index)?;
-        std::fs::create_dir_all(&target_dir).map_err(|err| {
-            format!(
-                "创建表情目录失败: path={}, err={err}",
-                target_dir.display()
-            )
-        })?;
-        return Ok(meme_next_variant_path(&target_dir, emotion, ext));
-    }
+    let root = meme_agent_root(state, agent_id)
+        .ok_or_else(|| "表情库归属人格为空，无法写入表情".to_string())?;
     std::fs::create_dir_all(&root).map_err(|err| {
         format!(
             "创建表情目录失败: path={}, err={err}",
             root.display()
         )
     })?;
-    Ok(meme_root_file_path(state, emotion, ext))
+    Ok(root.join(format!("{emotion}.{ext}")))
 }
 
 impl RuntimeToolMetadata for BuiltinMemeTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
-        let names = meme_names_summary_text(&self.app_state);
         ProviderToolDefinition::new(
             "meme",
-            format!(
-                "把当前看到的图片收入助理空间（Assistant Space）下的 `.meme` 贴纸库。当前可用 meme：{}。不要用本工具查询列表；如果需要在回答中使用贴纸，直接输出 `:meme名:`，例如 `:坏笑:`。只有在需要新增贴纸库存时才调用本工具。",
-                names
-            ),
+            "把当前看到的图片收入助理空间（Assistant Space）下的 `.meme` 贴纸库。不要用本工具查询列表；如果需要在回答中使用贴纸，直接输出 `:meme名:`，例如 `:坏笑:`。只有在需要新增贴纸库存时才调用本工具。",
             serde_json::json!({
                 "type": "object",
                 "additionalProperties": false,
@@ -1100,8 +893,8 @@ impl RuntimeValueTool for BuiltinMemeTool {
             let detected =
                 meme_detect_image_format_from_path(&source_path).map_err(ToolInvokeError::from)?;
             let source_hash = compute_meme_dhash_hex(&source_path).map_err(ToolInvokeError::from)?;
-            let grouped = meme_available_assets(&self.app_state).map_err(ToolInvokeError::from)?;
-            let mut dhash_index = meme_sync_dhash_index(&self.app_state, &grouped);
+            let grouped = meme_available_assets(&self.app_state, &self.agent_id).map_err(ToolInvokeError::from)?;
+            let mut dhash_index = meme_sync_dhash_index(&self.app_state, &self.agent_id, &grouped);
             if let Some(duplicate) =
                 meme_find_duplicate_in_assets(&source_hash, &grouped, &dhash_index)
             {
@@ -1111,17 +904,8 @@ impl RuntimeValueTool for BuiltinMemeTool {
                     duplicate.relative_path,
                     duplicate.distance
                 ));
-                let variant_count = grouped
-                    .get(&duplicate.category)
-                    .map(|items| items.len())
-                    .unwrap_or(0);
                 let duplicate_mime = grouped
-                    .get(&duplicate.category)
-                    .and_then(|items| {
-                        items
-                            .iter()
-                            .find(|item| item.relative_path == duplicate.relative_path)
-                    })
+                    .get(&duplicate.name)
                     .map(|item| item.mime.clone())
                     .unwrap_or_else(|| MEME_NORMALIZED_MIME.to_string());
                 return Ok(serde_json::json!({
@@ -1129,11 +913,23 @@ impl RuntimeValueTool for BuiltinMemeTool {
                     "action": "duplicate_skipped",
                     "duplicate": true,
                     "name": duplicate.name,
-                    "category": duplicate.category,
                     "mime": duplicate_mime,
                     "relativePath": duplicate.relative_path,
-                    "variantCount": variant_count,
                     "distance": duplicate.distance,
+                }));
+            }
+            // 一名一图：同名已存在时显式拒绝，避免静默覆盖用户已有表情。
+            if let Some(existing) = grouped.get(&emotion) {
+                runtime_log_info(format!(
+                    "[表情贴纸] 同名表情已存在，拒绝覆盖: name={}, existing={}",
+                    emotion, existing.relative_path
+                ));
+                return Ok(serde_json::json!({
+                    "ok": false,
+                    "action": "name_exists",
+                    "name": emotion,
+                    "relativePath": existing.relative_path,
+                    "message": format!("表情名 `:{emotion}:` 已存在，请换一个名字，或先让用户删掉旧表情。"),
                 }));
             }
             let original_ext = source_path
@@ -1169,9 +965,9 @@ impl RuntimeValueTool for BuiltinMemeTool {
             .map_err(ToolInvokeError::from)?;
             let target_path = meme_target_path_for_new_asset(
                 &self.app_state,
+                &self.agent_id,
                 &emotion,
                 &normalized.ext,
-                &mut dhash_index,
             )
             .map_err(ToolInvokeError::from)?;
             let output_size = normalized.bytes.len();
@@ -1206,37 +1002,73 @@ impl RuntimeValueTool for BuiltinMemeTool {
             ));
             let relative_path = workspace_relative_path(&self.app_state, &target_path);
             dhash_index.insert(relative_path.clone(), source_hash);
-            if let Err(err) = meme_persist_dhash_index(&self.app_state, &dhash_index) {
+            if let Err(err) = meme_persist_dhash_index(&self.app_state, &self.agent_id, &dhash_index) {
                 runtime_log_warn(format!(
                     "[表情贴纸] 新素材入库后持久化 dHash 索引失败: relative_path={}, err={err}",
                     relative_path
                 ));
             }
-            let variants = meme_available_assets(&self.app_state)
-                .map_err(ToolInvokeError::from)?
-                .get(&emotion)
-                .map(|items| items.len())
-                .unwrap_or(1);
             Ok(serde_json::json!({
                 "ok": true,
                 "action": "steal",
                 "name": emotion,
-                "category": emotion,
                 "emotion": emotion,
                 "mime": normalized.mime,
                 "relativePath": relative_path,
                 "width": normalized.width,
                 "height": normalized.height,
                 "frameCount": normalized.frame_count,
-                "variantCount": variants,
             }))
         })
     }
 }
 
 #[cfg(test)]
-mod builtin_meme_tests {
+pub(crate) mod builtin_meme_tests {
     use super::*;
+
+    #[test]
+    fn meme_available_assets_should_isolate_between_agents() {
+        let state = meme_test_state();
+        let root_a = meme_agent_root(&state, "agent-a").expect("root a");
+        let root_b = meme_agent_root(&state, "agent-b").expect("root b");
+        write_test_png(&root_a.join("坏笑.webp"));
+        write_test_png(&root_b.join("无语.webp"));
+
+        let a = meme_available_assets(&state, "agent-a").expect("scan a");
+        let b = meme_available_assets(&state, "agent-b").expect("scan b");
+
+        assert!(a.contains_key("坏笑"));
+        assert!(!a.contains_key("无语"));
+        assert!(b.contains_key("无语"));
+        assert!(!b.contains_key("坏笑"));
+    }
+
+    #[test]
+    fn meme_agent_dir_name_should_sanitize_and_reject_empty() {
+        assert_eq!(meme_agent_dir_name("agent-a"), "agent-a");
+        assert_eq!(meme_agent_dir_name("a/b:c d"), "a_b_c_d");
+        assert_eq!(meme_agent_dir_name("   "), "");
+        assert!(meme_agent_root(&meme_test_state(), "  ").is_none());
+    }
+
+    #[test]
+    fn meme_available_assets_should_be_empty_for_unknown_agent() {
+        let state = meme_test_state();
+        write_test_png(&meme_agent_root(&state, "agent-a").expect("root a").join("坏笑.webp"));
+
+        let empty = meme_available_assets(&state, "agent-b").expect("scan b");
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn meme_prompt_rule_block_should_be_none_for_empty_library() {
+        let state = meme_test_state();
+        write_test_png(&meme_agent_root(&state, "agent-a").expect("root a").join("坏笑.webp"));
+
+        assert!(meme_prompt_rule_block(Some(&state), "agent-b").is_none());
+        assert!(meme_prompt_rule_block(Some(&state), "agent-a").is_some());
+    }
 
     #[test]
     fn meme_name_validator_should_reject_invalid_names() {
@@ -1268,11 +1100,11 @@ mod builtin_meme_tests {
     #[test]
     fn resolve_text_to_persisted_meme_segments_should_preserve_text_before_invalid_colons() {
         let state = meme_test_state();
-        let existing = meme_workspace_root(&state).join("坏笑粉毛.webp");
+        let existing = test_meme_root(&state).join("坏笑粉毛.webp");
         write_test_png(&existing);
         let text = "| 指标 | 数值 |\n|:---|:---|\n| MA5 | 1373 |\n收尾:坏笑粉毛:";
 
-        let segments = resolve_text_to_persisted_meme_segments(&state, text, "seed")
+        let segments = resolve_text_to_persisted_meme_segments(&state, TEST_AGENT_ID, text)
             .expect("resolve meme segments")
             .expect("segments");
 
@@ -1284,17 +1116,17 @@ mod builtin_meme_tests {
         );
         assert!(matches!(
             segments.get(1),
-            Some(PersistedMemeSegment::Meme { category, .. }) if category == "坏笑粉毛"
+            Some(PersistedMemeSegment::Meme { name, .. }) if name == "坏笑粉毛"
         ));
     }
 
     #[test]
     fn build_meme_annotations_should_map_token_to_asset_path() {
         let state = meme_test_state();
-        let existing = meme_workspace_root(&state).join("坏笑.webp");
+        let existing = test_meme_root(&state).join("坏笑.webp");
         write_test_png(&existing);
 
-        let annotations = build_meme_annotations(&state, "你好 :坏笑: 收到", "seed")
+        let annotations = build_meme_annotations(&state, TEST_AGENT_ID, "你好 :坏笑: 收到")
             .expect("build meme annotations");
 
         assert_eq!(annotations.len(), 1);
@@ -1303,63 +1135,65 @@ mod builtin_meme_tests {
     }
 
     #[test]
-    fn meme_available_assets_should_include_root_files_and_prefer_folder_variants() {
+    fn meme_available_assets_should_scan_flat_root_files() {
         let state = meme_test_state();
-        write_test_png(&meme_workspace_root(&state).join("坏笑.webp"));
-        write_test_png(
-            &meme_workspace_root(&state)
-                .join("坏笑")
-                .join("坏笑(2).webp"),
-        );
-        write_test_png(&meme_workspace_root(&state).join("无语.webp"));
+        write_test_png(&test_meme_root(&state).join("坏笑.webp"));
+        write_test_png(&test_meme_root(&state).join("无语.webp"));
+        // 分类子目录已废弃，不再参与扫描
+        write_test_png(&test_meme_root(&state).join("坏笑").join("坏笑(2).webp"));
 
-        let grouped = meme_available_assets(&state).expect("scan meme assets");
+        let grouped = meme_available_assets(&state, TEST_AGENT_ID).expect("scan meme assets");
 
+        assert_eq!(grouped.len(), 2);
         assert_eq!(
-            grouped
-                .get("坏笑")
-                .map(|items| items.iter().map(|item| item.relative_path.as_str()).collect::<Vec<_>>()),
-            Some(vec![".meme/坏笑/坏笑(2).webp"]),
+            grouped.get("坏笑").map(|item| item.relative_path.as_str()),
+            Some(".meme/agent-meme-test/坏笑.webp"),
         );
         assert_eq!(
-            grouped
-                .get("无语")
-                .and_then(|items| items.first())
-                .map(|item| item.relative_path.as_str()),
-            Some(".meme/无语.webp"),
+            grouped.get("无语").map(|item| item.relative_path.as_str()),
+            Some(".meme/agent-meme-test/无语.webp"),
         );
     }
 
     #[test]
-    fn meme_target_path_should_merge_root_file_into_folder_for_second_variant() {
+    fn meme_available_assets_should_keep_first_on_duplicate_name() {
         let state = meme_test_state();
-        let root_file = meme_root_file_path(&state, "坏笑", MEME_NORMALIZED_EXT);
-        write_test_png(&root_file);
-        let mut dhash_index = std::collections::BTreeMap::new();
-        dhash_index.insert(".meme/坏笑.webp".to_string(), "abcd".to_string());
+        let root = test_meme_root(&state);
+        write_test_png(&root.join("坏笑.webp"));
+        write_test_png(&root.join("坏笑.gif"));
 
-        let target = meme_target_path_for_new_asset(
-            &state,
-            "坏笑",
-            MEME_NORMALIZED_EXT,
-            &mut dhash_index,
-        )
-        .expect("target path");
+        let grouped = meme_available_assets(&state, TEST_AGENT_ID).expect("scan meme assets");
 
-        assert!(!root_file.exists());
-        assert!(meme_workspace_root(&state)
-            .join("坏笑")
-            .join("坏笑.webp")
-            .exists());
         assert_eq!(
-            target,
-            meme_workspace_root(&state).join("坏笑").join("坏笑(2).webp")
+            grouped.get("坏笑").map(|item| item.relative_path.as_str()),
+            Some(".meme/agent-meme-test/坏笑.gif"),
         );
-        assert!(!dhash_index.contains_key(".meme/坏笑.webp"));
-        assert_eq!(
-            dhash_index.get(".meme/坏笑/坏笑.webp").map(String::as_str),
-            Some("abcd"),
-        );
+    }
+
+    #[test]
+    fn persisted_meme_segment_should_tolerate_legacy_category_field() {
+        let raw = serde_json::json!({
+            "type": "meme",
+            "name": "坏笑",
+            "category": "坏笑",
+            "mime": "image/webp",
+            "relativePath": ".meme/agent-meme-test/坏笑.webp",
+            "bytesBase64": "aGVsbG8=",
+        });
+
+        let segment = serde_json::from_value::<PersistedMemeSegment>(raw)
+            .expect("deserialize legacy meme segment");
+
+        assert!(matches!(segment, PersistedMemeSegment::Meme { name, .. } if name == "坏笑"));
+    }
+
+    #[test]
+    fn meme_target_path_should_stay_flat_under_agent_root() {
+        let state = meme_test_state();
+        let target = meme_target_path_for_new_asset(&state, TEST_AGENT_ID, "坏笑", MEME_NORMALIZED_EXT)
+            .expect("target path");
+
+        assert_eq!(target, test_meme_root(&state).join("坏笑.webp"));
     }
 
     #[test]
@@ -1378,7 +1212,7 @@ mod builtin_meme_tests {
         assert!(!hash.is_empty());
     }
 
-    fn meme_test_state() -> AppState {
+    pub(crate) fn meme_test_state() -> AppState {
         let root = std::env::temp_dir().join(format!("eca-meme-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp test root");
         std::fs::create_dir_all(root.join("llm-workspace")).expect("create temp llm workspace");
@@ -1471,6 +1305,12 @@ mod builtin_meme_tests {
         write_test_png_with_size(path, 32, 32);
     }
 
+    const TEST_AGENT_ID: &str = "agent-meme-test";
+
+    fn test_meme_root(state: &AppState) -> PathBuf {
+        meme_agent_root(state, TEST_AGENT_ID).expect("test meme root")
+    }
+
     fn write_test_png_with_size(path: &Path, width: u32, height: u32) {
         let image = image::RgbImage::from_fn(width, height, |x, y| {
             let r = ((x * 7 + y * 3) % 255) as u8;
@@ -1548,29 +1388,12 @@ mod builtin_meme_tests {
     }
 
     #[test]
-    fn meme_target_path_should_keep_gif_suffix_in_folder_variants() {
+    fn meme_target_path_should_keep_gif_suffix() {
         let state = meme_test_state();
-        let root_file = meme_root_file_path(&state, "小猪", "gif");
-        write_test_gif(&root_file, 2);
-        let mut dhash_index = std::collections::BTreeMap::new();
-        dhash_index.insert(".meme/小猪.gif".to_string(), "abcd".to_string());
-
-        let target = meme_target_path_for_new_asset(&state, "小猪", "gif", &mut dhash_index)
+        let target = meme_target_path_for_new_asset(&state, TEST_AGENT_ID, "小猪", "gif")
             .expect("target path");
 
-        assert!(!root_file.exists());
-        assert!(meme_workspace_root(&state)
-            .join("小猪")
-            .join("小猪.gif")
-            .exists());
-        assert_eq!(
-            target,
-            meme_workspace_root(&state).join("小猪").join("小猪(2).gif")
-        );
-        assert_eq!(
-            dhash_index.get(".meme/小猪/小猪.gif").map(String::as_str),
-            Some("abcd"),
-        );
+        assert_eq!(target, test_meme_root(&state).join("小猪.gif"));
     }
 
     #[test]
@@ -1591,43 +1414,42 @@ mod builtin_meme_tests {
     #[test]
     fn meme_dhash_duplicate_lookup_should_match_identical_images() {
         let state = meme_test_state();
-        let existing = meme_workspace_root(&state)
-            .join("happy")
-            .join("贴纸A__1.png");
+        let existing = test_meme_root(&state).join("happy.webp");
         let source = state.llm_workspace_path.join("downloads").join("candidate.png");
         write_test_png(&existing);
         write_test_png(&source);
 
-        let grouped = meme_available_assets(&state).expect("scan meme assets");
-        let index = meme_sync_dhash_index(&state, &grouped);
+        let grouped = meme_available_assets(&state, TEST_AGENT_ID).expect("scan meme assets");
+        let index = meme_sync_dhash_index(&state, TEST_AGENT_ID, &grouped);
         let source_hash = compute_meme_dhash_hex(&source).expect("compute source dhash");
         let duplicate =
             meme_find_duplicate_in_assets(&source_hash, &grouped, &index).expect("duplicate");
 
-        assert_eq!(duplicate.category, "happy");
-        assert_eq!(duplicate.name, "贴纸A");
-        assert_eq!(duplicate.relative_path, ".meme/happy/贴纸A__1.png");
+        assert_eq!(duplicate.name, "happy");
+        assert_eq!(duplicate.relative_path, ".meme/agent-meme-test/happy.webp");
         assert_eq!(duplicate.distance, 0);
-        assert!(meme_dhash_index_path(&state).exists());
+        assert!(meme_dhash_index_path(&state, TEST_AGENT_ID)
+            .expect("dhash index path")
+            .exists());
     }
 
     #[test]
     fn meme_dhash_sync_should_preserve_orphan_paths() {
         let state = meme_test_state();
-        let existing = meme_workspace_root(&state).join("坏笑.webp");
+        let existing = test_meme_root(&state).join("坏笑.webp");
         write_test_png(&existing);
         let mut old_index = std::collections::BTreeMap::new();
         old_index.insert(".meme/已删除.webp".to_string(), "0000000000000000".to_string());
-        meme_persist_dhash_index(&state, &old_index).expect("persist old index");
+        meme_persist_dhash_index(&state, TEST_AGENT_ID, &old_index).expect("persist old index");
 
-        let grouped = meme_available_assets(&state).expect("scan meme assets");
-        let synced = meme_sync_dhash_index(&state, &grouped);
+        let grouped = meme_available_assets(&state, TEST_AGENT_ID).expect("scan meme assets");
+        let synced = meme_sync_dhash_index(&state, TEST_AGENT_ID, &grouped);
 
         assert_eq!(
             synced.get(".meme/已删除.webp").map(String::as_str),
             Some("0000000000000000"),
         );
-        assert!(synced.contains_key(".meme/坏笑.webp"));
+        assert!(synced.contains_key(".meme/agent-meme-test/坏笑.webp"));
     }
 
     #[test]
@@ -1638,12 +1460,11 @@ mod builtin_meme_tests {
         let source_hash = compute_meme_dhash_hex(&source).expect("compute source dhash");
         let mut dhash_index = std::collections::BTreeMap::new();
         dhash_index.insert(".meme/已删除.webp".to_string(), source_hash.clone());
-        let grouped = meme_available_assets(&state).expect("scan meme assets");
+        let grouped = meme_available_assets(&state, TEST_AGENT_ID).expect("scan meme assets");
 
         let duplicate =
             meme_find_duplicate_in_assets(&source_hash, &grouped, &dhash_index).expect("duplicate");
 
-        assert_eq!(duplicate.category, "已删除");
         assert_eq!(duplicate.name, "已删除");
         assert_eq!(duplicate.relative_path, ".meme/已删除.webp");
         assert_eq!(duplicate.distance, 0);

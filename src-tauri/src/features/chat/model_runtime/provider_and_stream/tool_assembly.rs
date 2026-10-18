@@ -407,10 +407,14 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
         BuiltinDelegateTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
-            source_agent_id: preview_agent_id,
+            source_agent_id: preview_agent_id.clone(),
         }
         .provider_tool_definition(),
-        BuiltinMemeTool { app_state: state.clone() }.provider_tool_definition(),
+        BuiltinMemeTool {
+            app_state: state.clone(),
+            agent_id: preview_agent_id,
+        }
+        .provider_tool_definition(),
         BuiltinImageGenerateTool { app_state: state.clone() }.provider_tool_definition(),
         BuiltinImageEditTool { app_state: state.clone() }.provider_tool_definition(),
         BuiltinContactSendFilesTool {
@@ -1203,7 +1207,10 @@ fn build_builtin_runtime_tool_executor(
             session_id: tool_session_id.to_string(),
             agent_id: agent.id.trim().to_string(),
         }),
-        "meme" => Box::new(BuiltinMemeTool { app_state: state.clone() }),
+        "meme" => Box::new(BuiltinMemeTool {
+            app_state: state.clone(),
+            agent_id: agent.id.trim().to_string(),
+        }),
         "image_generate" => Box::new(BuiltinImageGenerateTool { app_state: state.clone() }),
         "image_edit" => Box::new(BuiltinImageEditTool { app_state: state.clone() }),
         "image_to_video" => Box::new(BuiltinImageToVideoTool { app_state: state.clone() }),

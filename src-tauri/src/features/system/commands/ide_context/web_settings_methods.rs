@@ -439,6 +439,40 @@ fn ide_chat_convert_private_agent_to_main_for_web_settings(
     ide_chat_serialize(convert_private_agent_to_main_inner(input, state)?)
 }
 
+fn ide_chat_list_agent_memes_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<AgentMemeListInput>(params, "input")?;
+    ide_chat_serialize(list_agent_memes_inner(input, state)?)
+}
+
+fn ide_chat_add_agent_meme_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<AgentMemeAddInput>(params, "input")?;
+    ide_chat_serialize(add_agent_meme_inner(input, state)?)
+}
+
+fn ide_chat_delete_agent_meme_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<AgentMemeDeleteInput>(params, "input")?;
+    delete_agent_meme_inner(input, state)?;
+    Ok(Value::Null)
+}
+
+fn ide_chat_rename_agent_meme_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<AgentMemeRenameInput>(params, "input")?;
+    rename_agent_meme_inner(input, state)?;
+    Ok(Value::Null)
+}
+
 fn ide_chat_check_tools_status_for_web_settings(
     state: &AppState,
     params: Value,

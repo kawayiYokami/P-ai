@@ -40,9 +40,16 @@
     <!-- 二级详情与三级子视图内容 -->
     <div v-if="inDetailMode" class="min-w-0 max-w-full">
       <div v-if="selectedPersona" class="grid gap-5 min-w-0 max-w-full">
+        <!-- 子视图：人格表情库 -->
+        <PersonaMemesTab
+          v-if="detailView === 'memes'"
+          key="memes"
+          :persona="selectedPersona"
+        />
+
         <!-- 子视图：随身技能与上下文顺序 -->
         <PersonaInjectionTable
-          v-if="detailView === 'injection'"
+          v-else-if="detailView === 'injection'"
           key="injection"
           :persona="selectedPersona"
           :skills="capabilitySkills"
@@ -498,6 +505,7 @@ import type { UnderlineTabItem } from "../../components/UnderlineTabs.vue";
 import MarkdownEditor from "../../components/MarkdownEditor.vue";
 import InlineMarkdownText from "../../../chat/markdown/InlineMarkdownText.vue";
 import PersonaInjectionTable from "./persona-capability/PersonaInjectionTable.vue";
+import PersonaMemesTab from "./persona-capability/PersonaMemesTab.vue";
 import PersonaPermissionView from "./persona-capability/PersonaPermissionView.vue";
 import PersonaDelegateView from "./persona-capability/PersonaDelegateView.vue";
 import { normalizePermissionCatalog } from "../../utils/permission-tree";
@@ -543,8 +551,8 @@ const { t } = useI18n();
 
 const inDetailMode = ref(false);
 
-// 二级详情视图：资料主页（默认）/ 随身技能与顺序 / 权限控制 / 委托人
-type PersonaDetailView = "profile" | "injection" | "permission" | "delegate";
+// 二级详情视图：资料主页（默认）/ 随身技能与顺序 / 权限控制 / 委托人 / 表情
+type PersonaDetailView = "profile" | "injection" | "permission" | "delegate" | "memes";
 const detailView = ref<PersonaDetailView>("profile");
 
 const capabilitySkills = ref<SkillSummaryItem[]>([]);
@@ -629,6 +637,10 @@ const detailSubMenuOptions = computed(() => {
       value: "delegate" as const,
       label: t("config.persona.delegate.title"),
       badge: childCount > 0 ? childCount : undefined,
+    },
+    {
+      value: "memes" as const,
+      label: t("config.persona.memes.tab"),
     },
   ];
 });

@@ -428,18 +428,17 @@ fn build_assistant_message_from_request_sequence(
 
 fn populate_assistant_meme_annotations(
     state: &AppState,
-    seed_source: &str,
+    agent_id: &str,
     assistant_text: &str,
 ) -> Result<Option<Vec<MemeAnnotation>>, String> {
-    let annotations = build_meme_annotations(state, assistant_text, seed_source)?;
+    let annotations = build_meme_annotations(state, agent_id, assistant_text)?;
     let annotation_tokens = annotations
         .iter()
         .map(|item| item.meme.trim().to_string())
         .collect::<Vec<_>>()
         .join(",");
     runtime_log_debug(format!(
-        "[表情替换] 生成，seed_source={}，text_len={}，annotation_count={}，tokens=[{}]，text={}",
-        seed_source,
+        "[表情替换] 生成，text_len={}，annotation_count={}，tokens=[{}]，text={}",
         assistant_text.chars().count(),
         annotations.len(),
         annotation_tokens,

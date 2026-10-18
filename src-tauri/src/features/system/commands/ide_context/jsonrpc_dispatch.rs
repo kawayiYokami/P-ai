@@ -373,6 +373,10 @@ async fn ide_chat_handle_jsonrpc_request(
             ide_chat_convert_private_agent_to_main_for_web_settings(state, request.params)
         }
         "save_agent_avatar" => ide_chat_save_agent_avatar_for_web_settings(state, request.params),
+        "list_agent_memes" => ide_chat_list_agent_memes_for_web_settings(state, request.params),
+        "add_agent_meme" => ide_chat_add_agent_meme_for_web_settings(state, request.params),
+        "delete_agent_meme" => ide_chat_delete_agent_meme_for_web_settings(state, request.params),
+        "rename_agent_meme" => ide_chat_rename_agent_meme_for_web_settings(state, request.params),
         "clear_agent_avatar" => ide_chat_clear_agent_avatar_for_web_settings(state, request.params),
         "set_agent_private_memory_enabled" => {
             ide_chat_set_agent_private_memory_enabled_for_web_settings(state, request.params)
@@ -1147,6 +1151,10 @@ mod web_native_capability_tests {
             "codex_get_builtin_models",
             "save_agent_avatar",
             "clear_agent_avatar",
+            "list_agent_memes",
+            "add_agent_meme",
+            "delete_agent_meme",
+            "rename_agent_meme",
             "generate_image",
             "test_image_to_video",
             "check_tools_status",

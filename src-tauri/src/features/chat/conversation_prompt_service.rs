@@ -743,7 +743,7 @@ impl ConversationPromptService {
         if meme_rule_enabled
             && builtin_tool_prompt_rule_allowed_in_origin("meme", prompt_origin_scope)
         {
-            if let Some(meme_block) = meme_prompt_rule_block(state).as_deref() {
+            if let Some(meme_block) = meme_prompt_rule_block(state, agent.id.trim()).as_deref() {
                 tool_rule_blocks.push(meme_block.trim().to_string());
             }
         }

@@ -641,11 +641,10 @@ async fn remote_im_auto_send_assistant_reply_to_source(
     } else {
         remote_im_build_text_content_items(
             state,
+            assistant_message
+                .and_then(|message| message.speaker_agent_id.as_deref())
+                .unwrap_or(""),
             &outbound_text,
-            &format!(
-                "remote_im_auto_send::{}::{}::{}",
-                source.channel_id, source.remote_contact_id, outbound_text
-            ),
         )
         .await?
     };

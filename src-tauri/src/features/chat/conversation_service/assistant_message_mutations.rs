@@ -552,10 +552,9 @@ impl ConversationServiceV2 {
                 completed_tool_history,
             )
         };
-        let assistant_message_seed = assistant_message.id.clone();
         assistant_message.meme_annotations = populate_assistant_meme_annotations(
             state,
-            &assistant_message_seed,
+            agent_id,
             assistant_message
                 .parts
                 .iter()

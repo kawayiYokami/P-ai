@@ -21,3 +21,6 @@ include!("config_and_persona/autostart.rs");
 
 // ==================== 存储管理 ====================
 include!("config_and_persona/storage_usage.rs");
+
+// ==================== 人格表情库管理 ====================
+include!("config_and_persona/meme_library.rs");

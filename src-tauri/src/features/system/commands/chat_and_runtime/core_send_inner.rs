@@ -2809,7 +2809,7 @@ async fn send_chat_message_inner(
                 let provider_meta_patch = normalize_assistant_provider_meta(provider_meta);
                 let meme_annotations = populate_assistant_meme_annotations(
                     &state,
-                    &assistant_message_id,
+                    &current_agent.id,
                     &final_text,
                 )?;
                 runtime_log_debug(format!(
@@ -2932,7 +2932,7 @@ async fn send_chat_message_inner(
                 );
                 assistant_message.meme_annotations = populate_assistant_meme_annotations(
                     &state,
-                    &assistant_message_id,
+                    &current_agent.id,
                     assistant_message
                         .parts
                         .iter()

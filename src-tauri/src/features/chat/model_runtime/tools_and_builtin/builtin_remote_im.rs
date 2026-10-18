@@ -301,7 +301,6 @@ async fn inline_segments_to_remote_im_content_items(
             }
             PersistedInlineMessageSegment::Meme {
                 name,
-                category: _,
                 mime,
                 relative_path: _,
                 bytes_base64,
@@ -341,10 +340,10 @@ async fn inline_segments_to_remote_im_content_items(
 
 async fn remote_im_build_text_content_items(
     state: &AppState,
+    agent_id: &str,
     text: &str,
-    seed_source: &str,
 ) -> Result<Vec<Value>, String> {
-    if let Some(segments) = resolve_text_to_persisted_inline_segments(state, text, seed_source)? {
+    if let Some(segments) = resolve_text_to_persisted_inline_segments(state, agent_id, text)? {
         let items = inline_segments_to_remote_im_content_items(&segments).await?;
         if !items.is_empty() {
             return Ok(items);
@@ -672,7 +671,6 @@ mod remote_im_local_image_tests {
         let segments = vec![
             PersistedInlineMessageSegment::Meme {
                 name: "image.webp".to_string(),
-                category: "test".to_string(),
                 mime: "image/webp".to_string(),
                 relative_path: "memes/image.webp".to_string(),
                 bytes_base64: "aGVsbG8=".to_string(),
