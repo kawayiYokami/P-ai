@@ -12,7 +12,7 @@ const apiConfigs = [
 ] as ApiConfigItem[];
 
 describe("buildAgentPersonaOptions", () => {
-  it("maps each persona to one option and marks a missing primary model as modelMissing", () => {
+  it("maps each persona to one option", () => {
     const options = buildAgentPersonaOptions({
       personas,
       apiConfigs,
@@ -21,22 +21,9 @@ describe("buildAgentPersonaOptions", () => {
     expect(options).toHaveLength(2);
     const alice = options.find((option) => option.agentId === "alice");
     expect(alice).toBeDefined();
-    expect(alice?.modelMissing).toBe(true);
     expect(alice?.modelName).toBeUndefined();
-    expect(alice?.providerName).toBeUndefined();
     const bob = options.find((option) => option.agentId === "bob");
-    expect(bob?.modelMissing).toBe(false);
     expect(bob?.modelName).toBe("ops-1");
-  });
-
-  it("keeps persona options when role:quick / role:expert resolves to a missing model", () => {
-    const options = buildAgentPersonaOptions({
-      personas,
-      apiConfigs,
-      toolReviewApiConfigId: "model-gone-too",
-    });
-    const alice = options.find((option) => option.agentId === "alice");
-    expect(alice?.modelMissing).toBe(true);
   });
 
   it("exposes the persona direct child agents as childAgentIds", () => {

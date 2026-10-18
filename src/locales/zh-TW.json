@@ -1838,7 +1838,6 @@
     "mentionUnavailableUserPersona": "使用者人格不能作為委派對象",
     "mentionUnavailableSelf": "當前前台身份不能召喚自己",
     "mentionUnavailableNoModel": "目標人格未配置可用文字模型",
-    "personaModelNotConfigured": "未設定模型",
     "personaRemoved": "已移除",
     "draftWorkModeDirectory": "目錄",
     "draftWorkModeIsolated": "專案內工作樹",

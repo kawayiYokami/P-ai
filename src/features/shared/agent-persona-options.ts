@@ -12,7 +12,6 @@ export type AgentPersonaOption = {
   providerName?: string;
   modelName?: string;
   apiConfigId?: string;
-  modelMissing?: boolean;
   personaMissing?: boolean;
   childAgentIds?: string[];
   unavailable?: boolean;
@@ -82,7 +81,6 @@ export function buildAgentPersonaOptions(input: BuildAgentPersonaOptionsInput): 
       providerName: apiConfig ? trimText(apiConfig.name || apiConfig.id) || undefined : undefined,
       modelName: apiConfig ? trimText(apiConfig.displayName || apiConfig.model) || undefined : undefined,
       apiConfigId: apiConfigId || undefined,
-      modelMissing: !apiConfig,
       personaMissing: false,
       childAgentIds: Array.isArray(persona.childAgentIds)
         ? persona.childAgentIds.map(trimText).filter(Boolean)

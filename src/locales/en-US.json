@@ -1838,7 +1838,6 @@
     "mentionUnavailableUserPersona": "The user persona cannot be delegated to",
     "mentionUnavailableSelf": "The current foreground identity cannot summon itself",
     "mentionUnavailableNoModel": "The target persona has no available text model",
-    "personaModelNotConfigured": "Model not configured",
     "personaRemoved": "Removed",
     "draftWorkModeDirectory": "Directory",
     "draftWorkModeIsolated": "Project worktrees",

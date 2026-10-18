@@ -41,9 +41,6 @@
           <span v-if="option.personaMissing" class="text-caption leading-none text-warning">
             {{ t("chat.personaRemoved") }}
           </span>
-          <span v-else-if="option.modelMissing" class="text-caption leading-none text-warning">
-            {{ t("chat.personaModelNotConfigured") }}
-          </span>
           <span v-else-if="option.unavailable" class="text-caption leading-none text-warning">
             {{ t("chat.personaRemoved") }}
           </span>

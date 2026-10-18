@@ -62,9 +62,6 @@
           <div v-if="!selectedOption" class="text-sm text-base-content/60">
             {{ t("chat.draftRecipientPickHint") }}
           </div>
-          <div v-else-if="optionSubLabel(selectedOption)" class="text-sm text-warning">
-            {{ optionSubLabel(selectedOption) }}
-          </div>
         </div>
       </div>
 
@@ -140,15 +137,6 @@
                 <span class="max-w-full truncate text-center text-xs leading-tight text-base-content/80">
                   {{ option.agentName }}
                 </span>
-                <span
-                  v-if="optionSubLabel(option)"
-                  class="max-w-full truncate rounded-full px-1.5 py-0.5 text-caption leading-tight"
-                  :class="isPersonaSelected(option.agentId)
-                    ? 'bg-primary/15 font-medium text-primary'
-                    : 'bg-base-content/10 text-base-content/60'"
-                >
-                  {{ optionSubLabel(option) }}
-                </span>
               </button>
             </div>
 
@@ -218,15 +206,6 @@
                     </div>
                     <span class="max-w-full truncate text-center text-xs leading-tight text-base-content/80">
                       {{ option.agentName }}
-                    </span>
-                    <span
-                      v-if="optionSubLabel(option)"
-                      class="max-w-full truncate rounded-full px-1.5 py-0.5 text-caption leading-tight"
-                      :class="isPersonaSelected(option.agentId)
-                        ? 'bg-primary/15 font-medium text-primary'
-                        : 'bg-base-content/10 text-base-content/60'"
-                    >
-                      {{ optionSubLabel(option) }}
                     </span>
                   </button>
                 </div>
@@ -690,10 +669,6 @@ const selectedOption = computed<AgentPersonaOption | null>(() => {
 });
 
 const recentOptions = computed<AgentPersonaOption[]>(() => props.recentOptions);
-
-function optionSubLabel(option: AgentPersonaOption): string {
-  return option.modelMissing ? t("chat.personaModelNotConfigured") : "";
-}
 
 function resolveAvatarUrl(agentId: string): string {
   return props.avatarUrlMap?.[agentId] || "";
