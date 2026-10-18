@@ -1031,7 +1031,7 @@
       "previewSystemPrompt": "System Prompt",
       "desktopOperateTitle": "Desktop Control",
       "desktopOperateEnabled": "Allow controlling your computer",
-      "desktopOperateEnabledHint": "When off, the model cannot use mouse, keyboard, screenshot or other desktop operations.",
+      "desktopOperateEnabledHint": "When off, the model cannot use mouse, keyboard, screenshot or other desktop operations; when on, it is still limited by the agent's permission settings.",
       "startupTitle": "Startup",
       "autostart": "Launch at login",
       "autostartHint": "Start PAI automatically after you sign in, staying quietly in the tray without opening a window."
