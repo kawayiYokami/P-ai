@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-18T00:57:55.947Z",
-  "latestVersion": "v0.97.5",
+  "generatedAt": "2026-10-19T10:11:58.469Z",
+  "latestVersion": "v0.97.6",
   "releases": [
+    {
+      "version": "v0.97.6",
+      "path": "docs/changelog/releases/v0.97.6.md",
+      "summary": "**表情库按人格独立，人格详情页新增表情管理。旧的全局表情不会自动带过来，需要到每个人格下重新添加，一个名字只对应一张图。**"
+    },
     {
       "version": "v0.97.5",
       "path": "docs/changelog/releases/v0.97.5.md",
