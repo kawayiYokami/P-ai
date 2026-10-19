@@ -137,6 +137,8 @@ struct TerminalBackgroundShellTask {
     status: std::sync::Mutex<TerminalBackgroundShellStatus>,
     exit_code: std::sync::Mutex<Option<i32>>,
     kill_requested: std::sync::atomic::AtomicBool,
+    /// 谁发起的 kill：user / assistant / system，None 表示尚未 kill。
+    kill_initiator: std::sync::Mutex<Option<String>>,
     /// kill 信号；monitor 通过 watch 感知，发出早于监听也不会丢（watch 保留最新值）。
     kill_signal_tx: tokio::sync::watch::Sender<bool>,
 }
@@ -243,6 +245,7 @@ async fn terminal_background_shell_request_kill(
     state: &AppState,
     conversation_id: &str,
     task_id: &str,
+    initiator: &str,
 ) -> Result<(bool, bool, String, String), String> {
     let maybe_task = terminal_background_shell_find(state, conversation_id, task_id).await;
     let Some(task) = maybe_task else {
@@ -255,6 +258,9 @@ async fn terminal_background_shell_request_kill(
         return Ok((false, true, label, log_path));
     }
     task.kill_requested.store(true, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut guard) = task.kill_initiator.lock() {
+        *guard = Some(initiator.trim().to_string());
+    }
     let _ = task.kill_signal_tx.send(true);
     // 等待 monitor 确认终态（含写回与登记表清理）；确认失败时只报告请求已受理。
     let mut confirmed = false;
@@ -510,7 +516,19 @@ fn terminal_background_shell_writeback(
     let title = match status {
         TerminalBackgroundShellStatus::Completed => "后台 shell 已完成",
         TerminalBackgroundShellStatus::Failed => "后台 shell 执行失败",
-        TerminalBackgroundShellStatus::Killed => "后台 shell 已被用户打断",
+        TerminalBackgroundShellStatus::Killed => {
+            let initiator = task
+                .kill_initiator
+                .lock()
+                .ok()
+                .and_then(|guard| guard.clone())
+                .unwrap_or_default();
+            match initiator.as_str() {
+                "assistant" => "后台 shell 已被助手终止",
+                "user" => "后台 shell 已被用户打断",
+                _ => "后台 shell 已终止",
+            }
+        }
         TerminalBackgroundShellStatus::TimedOut => "后台 shell 已超时",
         TerminalBackgroundShellStatus::Running => "后台 shell 状态更新",
     };
@@ -725,6 +743,7 @@ async fn terminal_background_shell_spawn_and_register(
         status: std::sync::Mutex::new(TerminalBackgroundShellStatus::Running),
         exit_code: std::sync::Mutex::new(None),
         kill_requested: std::sync::atomic::AtomicBool::new(false),
+        kill_initiator: std::sync::Mutex::new(None),
         kill_signal_tx,
     });
     terminal_background_shell_register(state, task.clone()).await;

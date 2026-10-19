@@ -41,7 +41,7 @@ async fn terminate_conversation_background_shell_task(
         return Err("taskId 不能为空".to_string());
     }
     let (killed, confirmed, status, log) =
-        terminal_background_shell_request_kill(state.inner(), &conversation_id, &task_id).await?;
+        terminal_background_shell_request_kill(state.inner(), &conversation_id, &task_id, "user").await?;
     Ok(serde_json::json!({
         "ok": true,
         "id": task_id,
@@ -80,6 +80,7 @@ async fn ide_chat_background_shell_terminate_command(state: &AppState, params: V
         state,
         &input.conversation_id,
         &input.task_id,
+        "user",
     )
     .await?;
     ide_chat_serialize(serde_json::json!({

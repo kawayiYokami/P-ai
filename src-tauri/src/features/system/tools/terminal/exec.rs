@@ -2388,6 +2388,7 @@ mod terminal_exec_tests {
             exit_code: std::sync::Mutex::new(None),
             log_path: terminal_background_shell_log_path("bg-shell-current"),
             kill_requested: std::sync::atomic::AtomicBool::new(false),
+            kill_initiator: std::sync::Mutex::new(None),
             kill_signal_tx: tokio::sync::watch::channel(false).0,
         });
         let other_task = std::sync::Arc::new(TerminalBackgroundShellTask {
@@ -2403,6 +2404,7 @@ mod terminal_exec_tests {
             exit_code: std::sync::Mutex::new(None),
             log_path: terminal_background_shell_log_path("bg-shell-other"),
             kill_requested: std::sync::atomic::AtomicBool::new(false),
+            kill_initiator: std::sync::Mutex::new(None),
             kill_signal_tx: tokio::sync::watch::channel(false).0,
         });
         {

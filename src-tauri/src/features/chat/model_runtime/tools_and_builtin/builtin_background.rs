@@ -73,7 +73,7 @@ async fn background_shell_kill_inner(
 ) -> Result<Value, String> {
     let conversation_id = background_tool_conversation_id(session_id)?;
     let (killed, confirmed, status, log) =
-        terminal_background_shell_request_kill(state, &conversation_id, task_id.trim()).await?;
+        terminal_background_shell_request_kill(state, &conversation_id, task_id.trim(), "assistant").await?;
     Ok(serde_json::json!({
         "ok": true,
         "action": "kill",
