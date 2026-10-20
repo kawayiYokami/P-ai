@@ -1705,6 +1705,7 @@ fn main() {
             git_panel_remember_repo,
             git_panel_status,
             git_panel_head_state,
+            git_panel_branch,
             git_panel_diff,
             git_panel_stage,
             git_panel_unstage,

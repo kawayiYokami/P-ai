@@ -97,16 +97,20 @@ describe("useChatBranchGuard.checkBranchBeforeSend", () => {
     const workMode = ref<ShellWorkMode>(overrides.workMode ?? "directory");
     const readCalls: string[] = [];
     const syncCalls: string[] = [];
+    const records: string[] = [];
     const guard = useChatBranchGuard({
       activeConversationId: computed(() => conversationId.value),
       recordedBranch,
       workspaceStateConversationId: stateConversationId,
       workspaceRootPath,
       workMode,
-      readBranchAtPath: async (path: string) => {
+      knownBranchAtPath: (path: string) => {
         readCalls.push(path);
         overrides.onRead?.(path);
         return overrides.branch ?? "main";
+      },
+      recordBranch: async (branch: string) => {
+        records.push(branch);
       },
       syncBranchAtPath: async (path: string) => {
         syncCalls.push(path);
@@ -120,6 +124,7 @@ describe("useChatBranchGuard.checkBranchBeforeSend", () => {
       workspaceRootPath,
       readCalls,
       syncCalls,
+      records,
     };
   }
 
@@ -127,13 +132,16 @@ describe("useChatBranchGuard.checkBranchBeforeSend", () => {
     const ctx = createGuard({ branch: "main", recordedBranch: "main" });
     await expect(ctx.guard.checkBranchBeforeSend()).resolves.toEqual({ kind: "ok" });
     expect(ctx.readCalls).toEqual(["E:/repo"]);
+    expect(ctx.records).toEqual([]);
     expect(ctx.syncCalls).toEqual([]);
   });
 
   it("记录为空（旧会话）：静默补上当前分支并放行，不打扰用户", async () => {
     const ctx = createGuard({ branch: "dev", recordedBranch: "" });
     await expect(ctx.guard.checkBranchBeforeSend()).resolves.toEqual({ kind: "ok" });
-    expect(ctx.syncCalls).toEqual(["E:/repo"]);
+    expect(ctx.records).toEqual(["dev"]);
+    // 直接写已知分支，不为了写记录再跑一次 git
+    expect(ctx.syncCalls).toEqual([]);
   });
 
   it("分支不一致：拦住这次发送，把两个分支都带出来", async () => {
@@ -143,16 +151,17 @@ describe("useChatBranchGuard.checkBranchBeforeSend", () => {
       repoBranch: "main",
       recordedBranch: "dev",
     });
-    expect(ctx.syncCalls).toEqual([]);
+    expect(ctx.records).toEqual([]);
   });
 
-  it("读不到分支（detached HEAD / 非 git 仓库）：放行，不记录", async () => {
+  it("已知分支为空（无 Git 卡在场 / detached HEAD）：放行，不写记录", async () => {
     const ctx = createGuard({ branch: "", recordedBranch: "dev" });
     await expect(ctx.guard.checkBranchBeforeSend()).resolves.toEqual({ kind: "ok" });
+    expect(ctx.records).toEqual([]);
     expect(ctx.syncCalls).toEqual([]);
   });
 
-  it("工作树会话：不判定也不回读", async () => {
+  it("工作树会话：不判定也不读分支", async () => {
     const ctx = createGuard({ workMode: "worktree", branch: "main", recordedBranch: "dev" });
     await expect(ctx.guard.checkBranchBeforeSend()).resolves.toEqual({ kind: "ok" });
     expect(ctx.readCalls).toEqual([]);
@@ -162,18 +171,6 @@ describe("useChatBranchGuard.checkBranchBeforeSend", () => {
     const ctx = createGuard({ stateConversationId: "conv-0", branch: "main", recordedBranch: "dev" });
     await expect(ctx.guard.checkBranchBeforeSend()).resolves.toEqual({ kind: "ok" });
     expect(ctx.readCalls).toEqual([]);
-  });
-
-  it("回读期间切走会话：这次判定作废，放行且不写记录", async () => {
-    const ctx = createGuard({
-      branch: "dev",
-      recordedBranch: "",
-      onRead: () => {
-        ctx.conversationId.value = "conv-2";
-      },
-    });
-    await expect(ctx.guard.checkBranchBeforeSend()).resolves.toEqual({ kind: "ok" });
-    expect(ctx.syncCalls).toEqual([]);
   });
 
   it("没有工作区根：不判定", async () => {

@@ -136,6 +136,13 @@ struct GitPanelHeadStateOutput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct GitPanelBranchOutput {
+    /// 当前分支名；HEAD 游离时为空串
+    branch: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GitPanelDiffOutput {
     diff: String,
 }
@@ -454,10 +461,28 @@ async fn git_panel_head_state_inner(
     input: GitPanelWorkspaceInput,
 ) -> Result<GitPanelHeadStateOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
-    let repo_root = git_panel_resolve_root(&workspace_path).await?;
+    // 直接在给定目录取 git 信息：git 自行向上定位仓库，工作树里定位到的就是该工作树，
+    // 不需要先解析仓库根再回头执行。
     Ok(GitPanelHeadStateOutput {
-        branch: git_panel_current_branch(&repo_root).await,
-        rebase_in_progress: git_panel_rebase_in_progress(&repo_root).await,
+        branch: git_panel_current_branch(&workspace_path).await,
+        rebase_in_progress: git_panel_rebase_in_progress(&workspace_path).await,
+    })
+}
+
+/// 只取当前分支名：一次 git 调用，供发送前分支守卫与分支回写使用。
+/// 不走读缓存：守卫要的是按下发送这一刻的真实分支，缓存 key 与写侧失效 key
+/// 在 Windows 上可能因路径分隔符不同而互不失效。
+async fn git_panel_branch_inner(
+    input: GitPanelWorkspaceInput,
+) -> Result<GitPanelBranchOutput, String> {
+    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    Ok(GitPanelBranchOutput {
+        branch: git_executor()
+            .run_read_uncached(&workspace_path, &["branch", "--show-current"])
+            .await
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
     })
 }
 
@@ -466,6 +491,11 @@ async fn git_panel_head_state(
     input: GitPanelWorkspaceInput,
 ) -> Result<GitPanelHeadStateOutput, String> {
     git_panel_head_state_inner(input).await
+}
+
+#[tauri::command]
+async fn git_panel_branch(input: GitPanelWorkspaceInput) -> Result<GitPanelBranchOutput, String> {
+    git_panel_branch_inner(input).await
 }
 
 /// 前端暂存组过滤规则的 Rust 复刻：X 列非空且非 ?，且排除「未跟踪 + 已暂存」矛盾项。

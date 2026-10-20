@@ -1,7 +1,8 @@
 import { computed } from "vue";
 import { useChatWorkspace } from "./use-chat-workspace";
 import { useChatWorkspacePickerFlow } from "./use-chat-workspace-picker-flow";
-import { useChatBranchGuard } from "./use-chat-branch-guard";
+import { isRepoInWorkspace, useChatBranchGuard } from "./use-chat-branch-guard";
+import { useWorkspaceGitStatus } from "../../file-reader/composables/use-workspace-git-status";
 
 export function useChatWindowWorkspaceOrchestrator(bindings: Record<string, any>) {
   const workspace = useChatWorkspace({
@@ -9,14 +10,22 @@ export function useChatWindowWorkspaceOrchestrator(bindings: Record<string, any>
     setStatus: bindings.setStatus,
     setStatusError: bindings.setStatusError,
   });
-  // 分支守卫在「按下发送」那一刻主动回读工作目录分支，不挂会话切换或 Git 状态回填
+  // 首页 Git 卡与侧边栏共用的实时状态：当前分支已经在这里，发送时直接读它，不再单独跑 git
+  const gitStatus = useWorkspaceGitStatus();
+  // 分支守卫在「按下发送」那一刻比对：会话记录的分支 vs 已经知道的当前分支
   const branchGuard = useChatBranchGuard({
     activeConversationId: computed(() => bindings.currentChatConversationId.value),
     recordedBranch: workspace.chatWorkspaceRecordedBranch,
     workspaceStateConversationId: workspace.chatWorkspaceStateConversationId,
     workspaceRootPath: workspace.chatWorkspaceRootPath,
     workMode: workspace.chatWorkspaceWorkMode,
-    readBranchAtPath: workspace.readChatWorkspaceBranch,
+    knownBranchAtPath: (path: string) => {
+      if (!gitStatus.statusLoaded.value) return "";
+      const knownRoot = String(gitStatus.repoRoot.value || "");
+      if (!isRepoInWorkspace(knownRoot, [path])) return "";
+      return String(gitStatus.currentBranch.value || "");
+    },
+    recordBranch: workspace.recordChatWorkspaceBranch,
     syncBranchAtPath: workspace.syncChatWorkspaceBranch,
   });
   const picker = useChatWorkspacePickerFlow({

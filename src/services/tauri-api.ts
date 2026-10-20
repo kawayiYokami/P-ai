@@ -3153,6 +3153,11 @@ export type GitPanelHeadStateOutput = {
   rebaseInProgress: boolean;
 };
 
+export type GitPanelBranchOutput = {
+  /** 当前分支名；HEAD 游离时为空串 */
+  branch: string;
+};
+
 export type GitPanelDiffOutput = {
   diff: string;
 };
@@ -3425,6 +3430,11 @@ export async function gitPanelStashDrop(workspacePath: string, stashRef: string)
 
 export async function gitPanelHeadState(workspacePath: string): Promise<GitPanelHeadStateOutput> {
   return invokeTauri<GitPanelHeadStateOutput>("git_panel_head_state", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+/** 只取当前分支名：一次 git 调用，不解析仓库根、不查变基 */
+export async function gitPanelBranch(workspacePath: string): Promise<GitPanelBranchOutput> {
+  return invokeTauri<GitPanelBranchOutput>("git_panel_branch", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
 }
 
 export async function gitPanelBranchList(workspacePath: string): Promise<GitPanelBranchEntry[]> {

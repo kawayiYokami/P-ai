@@ -277,28 +277,7 @@ impl GitExecutor {
                 key: key.clone(),
                 executor_id: my_id.unwrap(),
             };
-            let result = self
-                .runner
-                .run(workdir, args)
-                .await
-                .map(|output| {
-                    if output.exit_code != 0 {
-                        let stderr = output.stderr.trim();
-                        let stdout = output.stdout.trim();
-                        let detail = if !stderr.is_empty() {
-                            stderr.to_string()
-                        } else if !stdout.is_empty() {
-                            stdout.to_string()
-                        } else {
-                            format!("退出码 {}", output.exit_code)
-                        };
-                        let cmd = args.first().copied().unwrap_or("git");
-                        Err(format!("git {cmd} 失败：{detail}"))
-                    } else {
-                        Ok(output.stdout)
-                    }
-                })
-                .and_then(|r| r);
+            let result = self.run_once(workdir, args).await;
 
             // 唤醒等待者（先发结果，再落 Done；等待者醒来后读到 result 直接返回）。
             let _ = tx.send(Some(result.clone()));
@@ -327,6 +306,41 @@ impl GitExecutor {
             drop(guard);
             return result;
         }
+    }
+
+    /// 不走缓存的读命令：每次真实执行一次 git。
+    ///
+    /// 用于「必须是此刻真实状态」的场景（如发送前分支守卫）。读缓存按调用方传入的
+    /// workdir 原样字符串做 key，而写命令失效时用的是 rev-parse 产出的仓库根，
+    /// Windows 上两者分隔符不同（配置里是 `E:\repo`，git 返回 `E:/repo`），
+    /// 因此同一仓库在两种写法下互不失效。这条路径不读也不写缓存，不受该问题影响。
+    pub async fn run_read_uncached(&self, workdir: &str, args: &[&str]) -> Result<String, String> {
+        self.run_once(workdir, args).await
+    }
+
+    /// 真实执行一次 git，并把非零退出码映射成可读错误。
+    async fn run_once(&self, workdir: &str, args: &[&str]) -> Result<String, String> {
+        let cmd = args.first().copied().unwrap_or("git");
+        self.runner
+            .run(workdir, args)
+            .await
+            .map(|output| {
+                if output.exit_code != 0 {
+                    let stderr = output.stderr.trim();
+                    let stdout = output.stdout.trim();
+                    let detail = if !stderr.is_empty() {
+                        stderr.to_string()
+                    } else if !stdout.is_empty() {
+                        stdout.to_string()
+                    } else {
+                        format!("退出码 {}", output.exit_code)
+                    };
+                    Err(format!("git {cmd} 失败：{detail}"))
+                } else {
+                    Ok(output.stdout)
+                }
+            })
+            .and_then(|r| r)
     }
 
     /// 等待 in-flight 执行者的结果；执行者被取消（tx drop）时返回可读错误。
@@ -582,6 +596,48 @@ mod git_executor_tests {
 
     fn new_executor(runner: FakeRunner, ttl: Duration, fail_ttl: Duration) -> GitExecutor {
         GitExecutor::new(Arc::new(runner), ttl, fail_ttl)
+    }
+
+    #[test]
+    fn uncached_read_always_executes_and_leaves_no_cache() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let runner = FakeRunner::new();
+            let executor = new_executor(
+                runner.clone(),
+                Duration::from_secs(2),
+                Duration::from_millis(500),
+            );
+
+            // 先走缓存读一次，缓存里留下该 workdir 的 Done
+            executor.run_read("/repo", &["branch", "--show-current"]).await.unwrap();
+            assert_eq!(runner.call_count(), 1);
+
+            // 不走缓存的读必须每次都真实执行，不吃上一条缓存
+            executor.run_read_uncached("/repo", &["branch", "--show-current"]).await.unwrap();
+            executor.run_read_uncached("/repo", &["branch", "--show-current"]).await.unwrap();
+            assert_eq!(runner.call_count(), 3, "uncached 读不应命中缓存");
+        });
+    }
+
+    /// 写命令按仓库根失效、读命令按调用方原样路径做 key 时，两者字符串不同则失效不到。
+    /// 这条用例锁住该现象，说明 uncached 读为何是必要的。
+    #[test]
+    fn invalidate_with_repo_root_does_not_clear_other_path_spelling() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let runner = FakeRunner::new();
+            let executor = new_executor(
+                runner.clone(),
+                Duration::from_secs(2),
+                Duration::from_millis(500),
+            );
+
+            executor.run_read(r"E:\repo", &["branch", "--show-current"]).await.unwrap();
+            executor.invalidate("E:/repo");
+            executor.run_read(r"E:\repo", &["branch", "--show-current"]).await.unwrap();
+            assert_eq!(runner.call_count(), 1, "反斜杠 key 不应被正斜杠仓库根清掉");
+        });
     }
 
     #[test]

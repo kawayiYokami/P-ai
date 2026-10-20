@@ -2,11 +2,11 @@ import { computed, ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invokeTauriMock = vi.hoisted(() => vi.fn());
-const gitPanelHeadStateMock = vi.hoisted(() => vi.fn());
+const gitPanelBranchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../services/tauri-api", () => ({
   invokeTauri: invokeTauriMock,
-  gitPanelHeadState: gitPanelHeadStateMock,
+  gitPanelBranch: gitPanelBranchMock,
 }));
 
 vi.mock("vue-i18n", () => ({
@@ -60,16 +60,17 @@ function createWorkspace(conversationId: string) {
 describe("useChatWorkspace 工作区刷新竞态", () => {
   beforeEach(() => {
     invokeTauriMock.mockReset();
-    gitPanelHeadStateMock.mockReset();
+    gitPanelBranchMock.mockReset();
   });
 
-  it("读分支只查 head_state，不走会全量扫描工作区的 status", async () => {
+  it("读分支只发一次分支查询，不走 status 也不先解析仓库根", async () => {
     const { workspace } = createWorkspace("conv-a");
-    gitPanelHeadStateMock.mockResolvedValueOnce({ branch: "feature/only-branch" });
+    gitPanelBranchMock.mockResolvedValueOnce({ branch: "feature/only-branch" });
 
     await expect(workspace.readChatWorkspaceBranch("E:/repo-a")).resolves.toBe("feature/only-branch");
 
-    expect(gitPanelHeadStateMock).toHaveBeenCalledWith("E:/repo-a");
+    expect(gitPanelBranchMock).toHaveBeenCalledWith("E:/repo-a");
+    expect(gitPanelBranchMock).toHaveBeenCalledTimes(1);
     expect(invokeTauriMock).not.toHaveBeenCalled();
   });
 
@@ -130,7 +131,7 @@ describe("useChatWorkspace 工作区刷新竞态", () => {
 describe("useChatWorkspace 组队模式", () => {
   beforeEach(() => {
     invokeTauriMock.mockReset();
-    gitPanelHeadStateMock.mockReset();
+    gitPanelBranchMock.mockReset();
   });
 
   it("切换组队时把预选队员人格一起提交，并用后端回显回填", async () => {

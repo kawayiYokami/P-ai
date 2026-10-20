@@ -62,12 +62,15 @@ type UseChatBranchGuardOptions = {
   recordedBranch: Ref<string> | ComputedRef<string>;
   /** recordedBranch 所属的会话：与当前会话不一致时说明工作区状态还没刷回来，不判定 */
   workspaceStateConversationId: Ref<string> | ComputedRef<string>;
-  /** 会话工作区的根目录：判定就读它所在仓库的分支 */
+  /** 会话工作区的根目录：判定就看它所在仓库当前的分支 */
   workspaceRootPath: Ref<string> | ComputedRef<string>;
   workMode: Ref<ShellWorkMode> | ComputedRef<ShellWorkMode>;
-  /** 按工作目录回读真实分支；读不到（detached HEAD / 非 git）返回空串 */
-  readBranchAtPath: (workspacePath: string) => Promise<string>;
-  /** 按工作目录回读真实分支并复写会话记录；读不到时不写 */
+  /** 已经知道的当前分支（侧边栏/首页 Git 卡共享的实时状态）；不属于该目录或未知时返回空串。
+   *  发送路径不再为它执行 git：拿不到就当未知放行，不阻塞发送。 */
+  knownBranchAtPath: (workspacePath: string) => string;
+  /** 直接把已知分支写进会话记录，不再回读 git */
+  recordBranch: (branch: string) => Promise<void>;
+  /** 回读真实分支并复写会话记录；用于「继续对话」这类显式点击，频率低可以跑 git */
   syncBranchAtPath: (workspacePath: string) => Promise<void>;
 };
 
@@ -83,8 +86,9 @@ export function useChatBranchGuard(options: UseChatBranchGuardOptions) {
   }
 
   /**
-   * 发送前主动判定一次。回读是网络调用，期间用户可能已经切走会话或换了工作区，
-   * 所以回来后要重新确认会话与工作目录都没变，否则这一次判定作废（放行）。
+   * 发送前判定一次。
+   * 分支取自侧边栏已经知道的实时状态，发送路径不执行 git、也没有网络等待；
+   * 拿不到已知分支就当未知放行，宁可少提醒一次，也不让发送卡在 git 上。
    */
   async function checkBranchBeforeSend(): Promise<BranchGuardCheck> {
     const conversationId = currentConversationId();
@@ -95,16 +99,13 @@ export function useChatBranchGuard(options: UseChatBranchGuardOptions) {
     }
     const workspacePath = guardWorkspacePath();
     if (!workspacePath) return { kind: "ok" };
-    const branch = String((await options.readBranchAtPath(workspacePath)) || "").trim();
-    if (currentConversationId() !== conversationId || guardWorkspacePath() !== workspacePath) {
-      return { kind: "ok" };
-    }
+    const branch = String(options.knownBranchAtPath(workspacePath) || "").trim();
     if (!branch) return { kind: "ok" };
     const decision = decideBranchGuard(branch, options.recordedBranch.value);
     if (decision.kind === "none") return { kind: "ok" };
     if (decision.kind === "record") {
       // 旧会话没有记录（空记录语义是「未知」）：静默补上，不打扰用户
-      void options.syncBranchAtPath(workspacePath);
+      void options.recordBranch(decision.branch);
       return { kind: "ok" };
     }
     return {
