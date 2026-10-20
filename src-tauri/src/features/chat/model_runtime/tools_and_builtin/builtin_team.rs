@@ -745,13 +745,33 @@ async fn builtin_team_recruit(
     if leader.team.has_active_member_named(&name) {
         return Err(format!("队伍里已经有叫「{name}」的队员了"));
     }
+    // 队员人格：给了就用给的，不给默认用队长自身人格。
+    let requested_agent_id = args
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| leader.agent_id.trim());
+    if requested_agent_id.is_empty() {
+        return Err("队长会话没有可用人格，无法确定队员人格".to_string());
+    }
+    let runtime_org = load_runtime_organization_snapshot(state)
+        .map_err(|err| format!("读取人格失败：{err}"))?;
+    let agent = runtime_org
+        .agents
+        .iter()
+        .find(|item| item.id.trim() == requested_agent_id)
+        .ok_or_else(|| format!("队员人格不存在：{requested_agent_id}"))?;
+    if agent.is_built_in_user || agent.is_built_in_system {
+        return Err("队员不能是用户或系统人格".to_string());
+    }
     let member = team_create_member(
         state,
         &leader,
         &name,
         args.duty.as_deref().unwrap_or_default(),
         args.work_branch.as_deref().unwrap_or_default(),
-        "",
+        requested_agent_id,
     )
     .await?;
     Ok(serde_json::json!({

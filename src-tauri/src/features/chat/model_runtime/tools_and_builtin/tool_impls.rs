@@ -1423,7 +1423,8 @@ impl RuntimeToolMetadata for BuiltinTeamRecruitTool {
               "properties": {
                 "name": { "type": "string", "description": "队员名字，同一支队伍内不能重名。" },
                 "duty": { "type": "string", "description": "这名队员的职责，写清它负责干什么。" },
-                "work_branch": { "type": "string", "description": "可选。给了就为它新建独立工作树并以该分支为起点；不给则与队长共用工作区。" }
+                "work_branch": { "type": "string", "description": "可选。给了就为它新建独立工作树并以该分支为起点；不给则与队长共用工作区。" },
+                "agent_id": { "type": "string", "description": "可选。队员使用的人格 id；不给默认用你自己的人格。想让队员换个专长时再指定。" }
               },
               "required": ["name"],
               "additionalProperties": false

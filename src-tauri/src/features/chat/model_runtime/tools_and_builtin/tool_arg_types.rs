@@ -115,6 +115,9 @@ struct TeamRecruitToolArgs {
     /// 指定后为这名队员新建一条独立工作树，并以该分支为起点；不指定则跟随队长工作区。
     #[serde(default)]
     work_branch: Option<String>,
+    /// 可选。队员使用的人格 id；不给默认用队长自身人格。
+    #[serde(default)]
+    agent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

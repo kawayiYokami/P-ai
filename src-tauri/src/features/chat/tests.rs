@@ -13216,6 +13216,7 @@
                     name: name.to_string(),
                     duty: Some("查资料".to_string()),
                     work_branch: None,
+                    agent_id: None,
                 },
             ))
             .expect("recruit member")
@@ -13310,6 +13311,7 @@
                 name: "李工".to_string(),
                 duty: None,
                 work_branch: None,
+                agent_id: None,
             },
         ));
         assert!(second.is_err(), "同一支队伍不得出现重名队员");
@@ -13317,6 +13319,50 @@
             .get_conversation_meta(&state, &leader.id)
             .expect("leader meta");
         assert_eq!(leader_meta.team.members.len(), 1);
+    }
+
+    #[test]
+    fn team_recruit_should_support_explicit_agent_id() {
+        let state = team_test_state();
+        let mut second = default_agent();
+        second.id = "agent-second".to_string();
+        second.name = "王工".to_string();
+        state_write_agents_cached(
+            &state,
+            &[default_agent(), second.clone(), default_user_persona()],
+        )
+        .expect("write agents");
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = test_runtime()
+            .block_on(builtin_team_recruit(
+                &state,
+                &team_session_id(&leader.id),
+                TeamRecruitToolArgs {
+                    name: "王工".to_string(),
+                    duty: Some("写代码".to_string()),
+                    work_branch: None,
+                    agent_id: Some(second.id.clone()),
+                },
+            ))
+            .expect("recruit with explicit agent");
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        let member_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &member_id)
+            .expect("member meta");
+        assert_eq!(member_meta.agent_id, second.id, "指定人格时队员应使用该人格");
+
+        // 不存在的人格应被拒绝
+        let bad = test_runtime().block_on(builtin_team_recruit(
+            &state,
+            &team_session_id(&leader.id),
+            TeamRecruitToolArgs {
+                name: "赵工".to_string(),
+                duty: None,
+                work_branch: None,
+                agent_id: Some("agent-not-exists".to_string()),
+            },
+        ));
+        assert!(bad.is_err(), "不存在的人格应被拒绝");
     }
 
     #[test]
