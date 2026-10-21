@@ -19,15 +19,6 @@
           :conversation-id="conversationId"
           @open="(path) => emit('openFile', path)"
         />
-        <HomeFileCard
-          v-for="file in openFiles"
-          :key="`open-file-${file.path}`"
-          :label="file.label"
-          :path="file.path"
-          :active="file.path === activePath"
-          @open="emit('openFile', file.path)"
-          @close="emit('closeFile', file.path)"
-        />
         <HomeWorkspaceCard
           v-if="workspaceRootPath"
           :workspace-root-path="workspaceRootPath"
@@ -94,6 +85,15 @@
           :next-run-at="task.trigger?.next_run_at"
           :now-ms="nowMs"
           @open="emit('openMonitorTab', 'tasks')"
+        />
+        <HomeFileCard
+          v-for="file in openFiles"
+          :key="`open-file-${file.path}`"
+          :label="file.label"
+          :path="file.path"
+          :active="file.path === activePath"
+          @open="emit('openFile', file.path)"
+          @close="emit('closeFile', file.path)"
         />
       </div>
       <div v-else class="flex h-full flex-col items-center justify-center p-6 text-center">
