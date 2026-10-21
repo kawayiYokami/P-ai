@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-19T10:11:58.469Z",
-  "latestVersion": "v0.97.6",
+  "generatedAt": "2026-10-21T16:46:32.878Z",
+  "latestVersion": "v0.97.7",
   "releases": [
+    {
+      "version": "v0.97.7",
+      "path": "docs/changelog/releases/v0.97.7.md",
+      "summary": "**组队功能收拢到主页磁贴：队伍管理页统一管招募和名册。**"
+    },
     {
       "version": "v0.97.6",
       "path": "docs/changelog/releases/v0.97.6.md",
