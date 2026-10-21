@@ -1304,6 +1304,22 @@ struct SetConversationTeamModeOutput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct TeamRecruitConversationInput {
+    conversation_id: String,
+    agent_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TeamRecruitConversationOutput {
+    conversation_id: String,
+    parent_conversation_id: String,
+    number: u32,
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SetConversationWheelchairModeInput {
     conversation_id: String,
     wheelchair_mode_enabled: bool,

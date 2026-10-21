@@ -207,49 +207,6 @@
 
     <!-- 权限 + 额外目录胶囊 + 添加目录：同排居中，放不下自动折行 -->
     <div class="flex w-full flex-wrap items-center justify-center gap-2">
-      <!-- 单人 / 组队：新建会话时选定，决定这个会话挂不挂队长工具 -->
-      <EcallDropdown
-        v-if="showTeamMode"
-        v-model="teamModeDropdownOpen"
-        :teleport="dropdownTeleport"
-        :teleport-to="dropdownTeleportTo"
-        :match-trigger-width="false"
-        root-class="shrink-0"
-        panel-class="w-32"
-      >
-        <template #trigger="{ toggle, open }">
-          <button
-            type="button"
-            class="flex items-center gap-1.5 rounded-selector border border-base-content/10 bg-base-content/5 px-3.5 py-2 text-xs font-medium leading-none transition-colors hover:text-base-content"
-            :title="t('chat.teamModeLabel')"
-            @click="toggle"
-          >
-            <span :class="teamEnabled ? 'text-base-content' : 'text-base-content/55'">
-              {{ t(teamEnabled ? "chat.teamModeTeam" : "chat.teamModeSingle") }}
-            </span>
-            <ChevronDown
-              class="pointer-events-none h-3 w-3 shrink-0 text-base-content/40 transition-transform"
-              :class="open ? 'rotate-180' : ''"
-            />
-          </button>
-        </template>
-        <template #default="{ close }">
-          <div class="p-1">
-            <button
-              v-for="modeOption in TEAM_MODE_OPTIONS"
-              :key="modeOption"
-              type="button"
-              class="flex w-full items-center gap-2 rounded-selector px-2 py-1.5 text-left text-xs transition-colors hover:bg-base-200"
-              @click="handleTeamModeSelect(modeOption, close)"
-            >
-              <span class="min-w-0 flex-1 truncate">
-                {{ t(modeOption === "team" ? "chat.teamModeTeam" : "chat.teamModeSingle") }}
-              </span>
-              <Check v-if="(modeOption === 'team') === teamEnabled" class="h-3.5 w-3.5 shrink-0 text-primary" />
-            </button>
-          </div>
-        </template>
-      </EcallDropdown>
       <div class="flex shrink-0 items-center rounded-selector border border-base-content/10 bg-base-content/5 p-0.5">
         <button
           v-for="accessOption in ACCESS_OPTIONS"
@@ -459,18 +416,12 @@ const ACCESS_LABEL_KEY: Record<ShellWorkspaceAccess, string> = {
   approval: "Approval",
   full_access: "FullAccess",
 };
-/** 单人 / 组队：决定这个会话是否挂队长工具 */
-const TEAM_MODE_OPTIONS = ["single", "team"] as const;
 
 const props = withDefaults(defineProps<{
   mainPath: string;
   secondaryPaths?: string[];
   access: ShellWorkspaceAccess;
   workMode?: ShellWorkMode;
-  /** 组队模式：true = 组队，false = 单人 */
-  teamEnabled?: boolean;
-  /** 是否渲染单人/组队选择；只有新建会话这类场景需要 */
-  showTeamMode?: boolean;
   selectedBranch?: string;
   /** 当前选中的工作树路径（主树=仓库根/空串）；空串表示跟随主工作树 */
   selectedWorktreePath?: string;
@@ -484,8 +435,6 @@ const props = withDefaults(defineProps<{
 }>(), {
   secondaryPaths: () => [],
   workMode: "directory",
-  teamEnabled: false,
-  showTeamMode: false,
   selectedBranch: "",
   selectedWorktreePath: "",
   availableWorkspaces: () => [],
@@ -497,7 +446,6 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: "update:mainPath", value: string): void;
   (e: "update:access", value: ShellWorkspaceAccess): void;
-  (e: "update:teamEnabled", value: boolean): void;
   (e: "update:workMode", value: ShellWorkMode): void;
   (e: "update:branch", value: string): void;
   /** 选中某个已有工作树（主树或链接树）：调用方据此绑定工作树目录 */
@@ -509,21 +457,9 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-/** 点已选中的那一项不重复触发：否则组队会以空队员列表重写一次，把已选队员清掉 */
-function handleTeamModeSelect(
-  modeOption: (typeof TEAM_MODE_OPTIONS)[number],
-  close: () => void,
-) {
-  close();
-  const nextEnabled = modeOption === "team";
-  if (nextEnabled === Boolean(props.teamEnabled)) return;
-  emit("update:teamEnabled", nextEnabled);
-}
-
 const mainDropdownOpen = ref(false);
 const worktreeDropdownOpen = ref(false);
 const branchDropdownOpen = ref(false);
-const teamModeDropdownOpen = ref(false);
 
 const gitRootAvailable = ref(false);
 const gitCheckMessage = ref("");

@@ -172,8 +172,6 @@
         :current-workspace-display-name="currentChatWorkspaceDisplayName"
         :current-workspace-root-path="currentChatWorkspaceRootPath"
         :current-workspace-autonomous-mode="currentChatWorkspaceAutonomousMode"
-        :current-workspace-team-enabled="currentChatWorkspaceTeamEnabled"
-        :current-workspace-team-agent-ids="currentChatWorkspaceTeamAgentIds || []"
         :current-workspace-work-mode="currentChatWorkMode"
         :current-workspace-worktree-path="currentChatWorktreePath"
         :current-workspace-worktree-exists="currentChatWorktreeExists"
@@ -183,7 +181,6 @@
         :workspaces="currentChatWorkspaces"
         :config-shell-workspaces="config.shellWorkspaces || []"
         :save-draft-workspaces="saveDraftWorkspaces"
-        :save-draft-team-mode="saveDraftTeamMode"
         :sync-workspace-branch="syncWorkspaceBranch"
         :draft-workspace-git-root-check="draftWorkspaceGitRootCheck"
         :active-agent-id="currentChatAgentId"
@@ -212,7 +209,11 @@
         :chat-monitor-panel-mode="chatMonitorPanelMode"
         :side-chat-panel-enabled="true"
         :side-chat-items="sideChatItems"
+        :team-visible="teamManageVisible"
+        :team-member-count="teamManageMembers.length"
+        :team-recruit-enabled="Boolean(currentChatWorkspaceTeamEnabled)"
         @open-side-chat-conversation="openSideChatFromHome"
+        @open-team-management="openTeamManagement"
         @open-side-chat-new-page="openSideChatNewPage?.()"
         @update:chat-input="updateChatInput"
         @add-mention="addChatMention"
@@ -366,6 +367,20 @@
           </div>
         </template>
       </ChatView>
+      <TeamManagementDialog
+        :open="teamManageOpen"
+        :team-enabled="Boolean(currentChatWorkspaceTeamEnabled)"
+        :members="teamManageMembers"
+        :agent-options="createConversationAgentOptions"
+        :current-agent-id="currentChatAgentId"
+        :avatar-url-map="chatPersonaAvatarUrlMap"
+        :saving="teamManageSwitching"
+        :recruiting="teamManageRecruiting"
+        :error-message="teamManageError"
+        @close="closeTeamManagement"
+        @set-team-enabled="handleTeamManageSwitch"
+        @recruit="handleTeamManageRecruit"
+      />
       <div
         v-if="chatBusyOverlay"
         class="absolute inset-0 z-20 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px]"
@@ -509,6 +524,7 @@ import type { TerminalApprovalConversationItem } from "../composables/use-termin
 import type { BranchGuardCheck } from "../../chat/composables/use-chat-branch-guard";
 import ArchivesView from "../../archive/views/ArchivesView.vue";
 import MemoryDialog from "../../memory/components/dialogs/MemoryDialog.vue";
+import TeamManagementDialog from "../../chat/components/dialogs/TeamManagementDialog.vue";
 import PromptPreviewDialog from "../../chat/components/dialogs/PromptPreviewDialog.vue";
 import SelectionShareDialog from "../../chat/components/dialogs/SelectionShareDialog.vue";
 import { computed, ref, type VNodeRef } from "vue";
@@ -675,10 +691,8 @@ const props = defineProps<{
   currentChatWorkspaceDisplayName: string;
   currentChatWorkspaceRootPath: string;
   currentChatWorkspaceAutonomousMode: boolean;
-  /** 组队模式：新建会话时选定 */
+  /** 招募开关：队伍管理页用 */
   currentChatWorkspaceTeamEnabled: boolean;
-  /** 组队模式下预选的队员人格（不含队长），顺序即队员编号顺序 */
-  currentChatWorkspaceTeamAgentIds?: string[];
   currentChatWorkspaces: ShellWorkspace[];
   currentChatWorkMode?: ShellWorkMode;
   currentChatWorkBranch?: string;
@@ -982,6 +996,92 @@ function openSideChatFromHome(conversationId: string) {
   if (!id) return;
   props.updateChatRightPanelMode("sideChat");
   props.selectSideChatConversation?.(id);
+}
+
+/** 队伍管理：名册直接读追问列表里的队员标记（teamNumber>0），招募开关走工作区状态 */
+const currentOverviewItem = computed(() =>
+  (props.chatUnarchivedConversationItems || []).find(
+    (item) => String(item.conversationId || "").trim() === String(props.currentChatConversationId || "").trim(),
+  ) || null,
+);
+
+const teamManageVisible = computed(() => {
+  const id = String(props.currentChatConversationId || "").trim();
+  if (!id) return false;
+  const item = currentOverviewItem.value as any;
+  if (!item) return false;
+  if (item.isDraft) return false;
+  if (String(item.parentConversationId || "").trim()) return false;
+  if (String(item.conversationKind || "chat") !== "chat") return false;
+  return true;
+});
+
+const teamManageMembers = computed(() =>
+  (props.sideConversations || [])
+    .filter((item) => Number(item.teamNumber || 0) > 0 && String(item.teamName || "").trim() !== "")
+    .map((item) => {
+      const agentId = String(item.agentId || "").trim();
+      return {
+        conversationId: String(item.conversationId || "").trim(),
+        title: String(item.title || "").trim(),
+        teamNumber: Number(item.teamNumber || 0),
+        teamName: String(item.teamName || "").trim(),
+        agentId,
+        agentName: agentId ? String(props.chatPersonaNameMap?.[agentId] || "").trim() : "",
+      };
+    })
+    .sort((a, b) => a.teamNumber - b.teamNumber),
+);
+
+const teamManageOpen = ref(false);
+const teamManageRecruiting = ref(false);
+const teamManageSwitching = ref(false);
+const teamManageError = ref("");
+
+function openTeamManagement() {
+  teamManageError.value = "";
+  teamManageOpen.value = true;
+}
+
+function closeTeamManagement() {
+  if (teamManageRecruiting.value || teamManageSwitching.value) return;
+  teamManageOpen.value = false;
+}
+
+async function handleTeamManageSwitch(enabled: boolean) {
+  const conversationId = String(props.currentChatConversationId || "").trim();
+  if (!conversationId || !props.saveDraftTeamMode) return;
+  if (teamManageSwitching.value) return;
+  teamManageSwitching.value = true;
+  teamManageError.value = "";
+  try {
+    await props.saveDraftTeamMode(Boolean(enabled), []);
+  } catch (error) {
+    teamManageError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    teamManageSwitching.value = false;
+  }
+}
+
+async function handleTeamManageRecruit(agentIds: string[] | string) {
+  const conversationId = String(props.currentChatConversationId || "").trim();
+  const targets = (Array.isArray(agentIds) ? agentIds : [agentIds])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  if (!conversationId || targets.length === 0) return;
+  if (teamManageRecruiting.value) return;
+  teamManageRecruiting.value = true;
+  teamManageError.value = "";
+  try {
+    // 用户招募不受招募开关限制，逐个招募，失败即停并报错
+    for (const agentId of targets) {
+      await invokeTauri("conversation.teamRecruit", { conversationId, agentId });
+    }
+  } catch (error) {
+    teamManageError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    teamManageRecruiting.value = false;
+  }
 }
 
 function closeSideChatTab(conversationId: string) {

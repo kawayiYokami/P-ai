@@ -1028,6 +1028,11 @@ fn ide_chat_set_conversation_team_mode(state: &AppState, params: Value) -> Resul
     ide_chat_serialize(set_conversation_team_mode_inner(input, state)?)
 }
 
+async fn ide_chat_team_recruit(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<TeamRecruitConversationInput>(params)?;
+    ide_chat_serialize(team_recruit_conversation_inner(input, state).await?)
+}
+
 fn ide_chat_set_conversation_wheelchair_mode(
     state: &AppState,
     params: Value,

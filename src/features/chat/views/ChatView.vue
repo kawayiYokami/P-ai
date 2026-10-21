@@ -102,9 +102,6 @@
             :workspace-worktree-path="props.currentWorkspaceWorktreePath || ''"
             :workspaces="props.workspaces"
             :workspace-autonomous-mode="Boolean(props.currentWorkspaceAutonomousMode)"
-            :workspace-team-enabled="Boolean(props.currentWorkspaceTeamEnabled)"
-            :workspace-team-agent-ids="props.currentWorkspaceTeamAgentIds || []"
-            :save-team-mode="props.saveDraftTeamMode"
             :save-workspace="props.saveDraftWorkspaces ? handleDraftWorkspaceSaveLegacy : undefined"
             :save-workspaces="props.saveDraftWorkspaces ? handleDraftWorkspaceSave : undefined"
             :git-root-check="props.draftWorkspaceGitRootCheck"
@@ -738,6 +735,9 @@
           :active-path="homeFilePreview.activePath"
           :side-chats="sideChatItems"
           :side-chat-enabled="Boolean(sideChatPanelEnabled)"
+          :team-visible="Boolean(props.teamVisible)"
+          :team-member-count="Number(props.teamMemberCount || 0)"
+          :team-recruit-enabled="Boolean(props.teamRecruitEnabled)"
           :delegates="delegateStatuses"
           :running-tasks="homePanelRunningTasks"
           :shells="backgroundShells"
@@ -753,6 +753,7 @@
           @branch-switched="(path) => props.syncWorkspaceBranch?.(path)"
           @git-error="handleHomeGitError"
           @open-monitor-tab="openMonitorTabFromHome"
+          @open-team-management="emit('openTeamManagement')"
           @interrupt-shell="interruptShell"
         />
         <FileReaderPanel
@@ -955,9 +956,6 @@ const props = defineProps<{
   latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number; scrollToBottomBehavior: "auto" | "smooth" | "own_top" | "manual" | "follow";
   currentWorkspaceName: string; currentWorkspaceDisplayName?: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
   currentWorkspaceAutonomousMode?: boolean;
-  currentWorkspaceTeamEnabled?: boolean;
-  /** 组队模式下预选的队员人格（不含队长），顺序即队员编号顺序 */
-  currentWorkspaceTeamAgentIds?: string[];
   currentWorkspaceWorkMode?: ShellWorkMode;
   currentWorkspaceBranch?: string;
   currentWorkspaceWorktreePath?: string;
@@ -968,7 +966,6 @@ const props = defineProps<{
   acceptBranchGuardPrompt?: () => void;
   configShellWorkspaces?: ShellWorkspace[];
   saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string, shellWorktreePath?: string) => Promise<void>;
-  saveDraftTeamMode?: (teamEnabled: boolean, memberAgentIds: string[]) => Promise<void>;
   /** 会话内自己切分支成功后按工作目录同步「本会话工作分支」记录，避免下次发送时拦自己 */
   syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
@@ -988,6 +985,9 @@ const props = defineProps<{
   sideChatPanelEnabled?: boolean;
   /** 右侧主页「追问」卡片数据；追问会话由宿主容器持有 */
   sideChatItems?: Array<{ id: string; title: string; label?: string }>;
+  teamVisible?: boolean;
+  teamMemberCount?: number;
+  teamRecruitEnabled?: boolean;
   createConversationAgentOptions: AgentPersonaOption[];
   recipientOptionsReady?: boolean;
   defaultCreateConversationAgentId: string;
@@ -1011,6 +1011,7 @@ const emit = defineEmits<{
   (e: "openChatReaderDirectory", path: string, line?: number): void;
   (e: "openSideChatConversation", conversationId: string): void;
   (e: "openSideChatNewPage"): void;
+  (e: "openTeamManagement"): void;
   (e: "sidePanelWidthsChange", value: { leftWidth: number; rightWidth: number }): void;
   (e: "sidePanelWidthsCommit", value: { leftWidth: number; rightWidth: number }): void;
   (e: "update:conversation-list-tab", value: "local" | "contact" | "task"): void;

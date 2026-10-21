@@ -41,6 +41,12 @@
           v-if="sideChatEnabled"
           @create="emit('createSideChat')"
         />
+        <HomeTeamCard
+          v-if="teamVisible"
+          :member-count="teamMemberCount"
+          :recruit-enabled="teamRecruitEnabled"
+          @open="emit('openTeamManagement')"
+        />
         <HomeToolCard
           v-if="activeToolBatches.length"
           :batches="activeToolBatches"
@@ -130,6 +136,7 @@ import HomeEnvCard from "./chat-home/HomeEnvCard.vue";
 import HomeFileCard from "./chat-home/HomeFileCard.vue";
 import HomeWorkspaceCard from "./chat-home/HomeWorkspaceCard.vue";
 import HomeSideChatCreateCard from "./chat-home/HomeSideChatCreateCard.vue";
+import HomeTeamCard from "./chat-home/HomeTeamCard.vue";
 import HomeToolCard from "./chat-home/HomeToolCard.vue";
 import HomeSideChatCard from "./chat-home/HomeSideChatCard.vue";
 import HomeShellCard from "./chat-home/HomeShellCard.vue";
@@ -157,6 +164,10 @@ const props = withDefaults(defineProps<{
   sideChats?: Array<{ id: string; title: string; label?: string }>;
   /** 追问能力是否可用；不可用时首页不出现「新建追问」入口卡 */
   sideChatEnabled?: boolean;
+  /** 队伍管理入口是否可见；主页磁贴那打开队伍管理页 */
+  teamVisible?: boolean;
+  teamMemberCount?: number;
+  teamRecruitEnabled?: boolean;
   delegates?: ConversationDelegateStatusSummary[];
   runningTasks?: TaskEntry[];
   shells?: BackgroundShellTaskSummary[];
@@ -177,6 +188,9 @@ const props = withDefaults(defineProps<{
   activePath: "",
   sideChats: () => [],
   sideChatEnabled: false,
+  teamVisible: false,
+  teamMemberCount: 0,
+  teamRecruitEnabled: false,
   delegates: () => [],
   runningTasks: () => [],
   shells: () => [],
@@ -189,6 +203,7 @@ const emit = defineEmits<{
   (e: "closeFile", path: string): void;
   (e: "openSideChat", conversationId: string): void;
   (e: "createSideChat"): void;
+  (e: "openTeamManagement"): void;
   (e: "openWorkspace", path?: string): void;
   (e: "openGitChanges"): void;
   (e: "openGitCommits"): void;
@@ -242,6 +257,7 @@ const hasAnyCard = computed(
     Boolean(String(props.workspaceRootPath || "").trim())
     || Boolean(props.latestPlan)
     || props.sideChatEnabled
+    || Boolean(props.teamVisible)
     || props.openFiles.length > 0
     || props.sideChats.length > 0
     || runningShells.value.length > 0

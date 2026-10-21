@@ -457,6 +457,74 @@ fn set_conversation_team_mode_inner(
     })
 }
 
+/// 用户在队伍管理页主动招募：不受招募开关限制，随时可招。
+/// 招募开关只管 LLM 的 team_recruit 工具；LLM 入口另走 team_leader_meta_for_recruit 判定。
+/// 名字后端按「N 号 · 人格名」生成，不收 name/duty/workBranch。
+#[tauri::command]
+async fn team_recruit_conversation(
+    input: TeamRecruitConversationInput,
+    state: State<'_, AppState>,
+) -> Result<TeamRecruitConversationOutput, String> {
+    team_recruit_conversation_inner(input, state.inner()).await
+}
+
+async fn team_recruit_conversation_inner(
+    input: TeamRecruitConversationInput,
+    state: &AppState,
+) -> Result<TeamRecruitConversationOutput, String> {
+    let conversation_id = input.conversation_id.trim().to_string();
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空".to_string());
+    }
+    let agent_id = input.agent_id.trim().to_string();
+    if agent_id.is_empty() {
+        return Err("agentId 不能为空".to_string());
+    }
+    let leader = conversation_service_v2().get_conversation_meta(state, &conversation_id)?;
+    if leader.team.membership.is_some() {
+        return Err("这是队员会话，不能招募队员".to_string());
+    }
+    if leader.conversation_kind.trim() != CONVERSATION_KIND_CHAT
+        || leader.is_draft
+        || leader.status.trim() == "archived"
+    {
+        return Err("只有未归档的普通会话可以招募队员".to_string());
+    }
+    // 用户招募不受招募开关限制：开关只决定 LLM 的 team_recruit 工具挂不挂。
+    let runtime_org = load_runtime_organization_snapshot(state)
+        .map_err(|err| format!("读取人格失败：{err}"))?;
+    let agent = runtime_org
+        .agents
+        .iter()
+        .find(|item| item.id.trim() == agent_id.as_str())
+        .ok_or_else(|| format!("队员人格不存在：{agent_id}"))?;
+    if agent.is_built_in_user || agent.is_built_in_system {
+        return Err("队员不能是用户或系统人格".to_string());
+    }
+    let agent_name = agent.name.trim().to_string();
+    if agent_name.is_empty() {
+        return Err("队员人格缺少名字".to_string());
+    }
+    let name = format!(
+        "{number} 号 · {agent_name}",
+        number = leader.team.next_number_for_recruit()
+    );
+    if leader.team.has_active_member_named(&name) {
+        return Err(format!("队伍里已经有叫「{name}」的队员了"));
+    }
+    let member = team_create_member(state, &leader, &name, "", "", &agent_id).await?;
+    runtime_log_info(format!(
+        "[队伍] 完成，任务=用户招募队员，会话ID={conversation_id}，number={}，name={}",
+        member.number, member.name
+    ));
+    Ok(TeamRecruitConversationOutput {
+        conversation_id: member.conversation_id,
+        parent_conversation_id: conversation_id,
+        number: member.number,
+        name: member.name,
+    })
+}
+
 #[tauri::command]
 fn set_conversation_wheelchair_mode(
     input: SetConversationWheelchairModeInput,

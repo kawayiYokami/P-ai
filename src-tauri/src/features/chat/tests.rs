@@ -14019,6 +14019,68 @@
     }
 
     #[test]
+    fn team_recruit_conversation_should_create_named_member() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-user-recruit");
+        let output = test_runtime()
+            .block_on(team_recruit_conversation_inner(
+                TeamRecruitConversationInput {
+                    conversation_id: leader.id.clone(),
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                },
+                &state,
+            ))
+            .expect("user recruit");
+        assert_eq!(output.number, 1);
+        assert_eq!(output.name, "1 号 · Pai");
+        assert_eq!(output.parent_conversation_id, leader.id);
+        assert!(!output.conversation_id.trim().is_empty());
+        // 名册落盘且成员身份同写
+        let meta = conversation_service_v2()
+            .get_conversation_meta(&state, &leader.id)
+            .expect("leader meta");
+        assert_eq!(meta.team.members.len(), 1);
+        assert_eq!(meta.team.members[0].name, "1 号 · Pai");
+
+        // 开关关时用户招募不受限：开关只管 LLM 的 team_recruit 工具
+        state_update_conversation_metadata_cached(&state, &leader.id, |conversation| {
+            conversation.team.enabled = false;
+            Ok(())
+        })
+        .expect("turn recruit off");
+        let second = test_runtime()
+            .block_on(team_recruit_conversation_inner(
+                TeamRecruitConversationInput {
+                    conversation_id: leader.id.clone(),
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                },
+                &state,
+            ))
+            .expect("user recruit should ignore switch");
+        assert_eq!(second.number, 2);
+        assert_eq!(second.name, "2 号 · Pai");
+
+        // 不存在的人格被拒绝
+        state_update_conversation_metadata_cached(&state, &leader.id, |conversation| {
+            conversation.team.enabled = true;
+            Ok(())
+        })
+        .expect("turn recruit on");
+        assert!(
+            test_runtime()
+                .block_on(team_recruit_conversation_inner(
+                    TeamRecruitConversationInput {
+                        conversation_id: leader.id.clone(),
+                        agent_id: "agent-not-exists".to_string(),
+                    },
+                    &state,
+                ))
+                .is_err(),
+            "不存在的人格应被拒绝"
+        );
+    }
+
+    #[test]
     fn team_recruit_should_follow_recruit_switch_only() {
         let state = team_test_state();
         let leader = persist_team_leader(&state, "conversation-recruit-switch");
