@@ -7,6 +7,7 @@ import { normalizeShellWorkMode, normalizeWorkspaceAccess } from "../../../utils
 type UseChatWorkspacePickerFlowOptions = {
   chatWorkspaceChoices: Ref<ChatWorkspaceChoice[]>;
   chatWorkspaceAutonomousMode: Ref<boolean>;
+  chatWorkspaceTeamEnabled: Ref<boolean>;
   chatWorkspaceWorkMode: Ref<ShellWorkMode>;
   chatWorkspaceBranch: Ref<string>;
   chatWorkspaceWorktreePath: Ref<string>;
@@ -14,6 +15,7 @@ type UseChatWorkspacePickerFlowOptions = {
   openChatWorkspacePickerBase: () => void;
   closeChatWorkspacePickerBase: () => void;
   saveChatWorkspaces: (items: ChatWorkspaceChoice[], autonomousMode?: boolean, workMode?: ShellWorkMode, shellWorkBranch?: string, shellWorktreePath?: string) => Promise<void>;
+  saveChatTeamMode: (teamEnabled: boolean, memberAgentIds?: string[]) => Promise<void>;
   setStatus: (message: string) => void;
   setStatusError: (key: string, error: unknown) => void;
   workspaceAlreadyExistsText: string;
@@ -25,6 +27,8 @@ type UseChatWorkspacePickerFlowOptions = {
 export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOptions) {
   const chatWorkspaceDraftChoices = ref<ChatWorkspaceChoice[]>([]);
   const chatWorkspaceDraftAutonomousMode = ref(false);
+  /** 草稿组队开关：随保存一起落盘，切回单人时队员需已请离（后端校验） */
+  const chatWorkspaceDraftTeamEnabled = ref(false);
   const chatWorkspaceDraftWorkMode = ref<ShellWorkMode>("directory");
   const chatWorkspaceDraftBranch = ref("");
   /** 草稿绑定的已有工作树路径；非空表示这次保存要直接把会话绑到该工作树 */
@@ -45,6 +49,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
   function syncChatWorkspaceDraftFromCurrentState() {
     chatWorkspaceDraftChoices.value = cloneChatWorkspaceChoices(options.chatWorkspaceChoices.value);
     chatWorkspaceDraftAutonomousMode.value = Boolean(options.chatWorkspaceAutonomousMode.value);
+    chatWorkspaceDraftTeamEnabled.value = Boolean(options.chatWorkspaceTeamEnabled.value);
     chatWorkspaceDraftWorkMode.value = normalizeShellWorkMode(String(options.chatWorkspaceWorkMode.value || ""));
     const persistedBranch = String(options.chatWorkspaceBranch.value || "").trim();
     chatWorkspaceDraftWorktreePath.value = String(options.chatWorkspaceWorktreePath.value || "").trim();
@@ -155,6 +160,11 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
 
   function setChatWorkspaceAutonomousMode(enabled: boolean) {
     chatWorkspaceDraftAutonomousMode.value = Boolean(enabled);
+  }
+
+  function setChatWorkspaceTeamEnabled(enabled: boolean) {
+    chatWorkspaceDraftError.value = "";
+    chatWorkspaceDraftTeamEnabled.value = Boolean(enabled);
   }
 
   function setChatWorkspaceWorkMode(mode: ShellWorkMode) {
@@ -270,6 +280,19 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
       const branchToSave = normalizedMode === "worktree" ? String(chatWorkspaceDraftBranch.value || "").trim() : "";
       const worktreeToSave = normalizedMode === "worktree" ? String(chatWorkspaceDraftWorktreePath.value || "").trim() : "";
       await options.saveChatWorkspaces(draft, chatWorkspaceDraftAutonomousMode.value, normalizedMode, branchToSave, worktreeToSave);
+      // 组队开关随保存一起落盘：未改动时跳过，已有在队队员时切回单人由后端拒绝
+      const currentTeamEnabled = Boolean(options.chatWorkspaceTeamEnabled.value);
+      const nextTeamEnabled = Boolean(chatWorkspaceDraftTeamEnabled.value);
+      if (nextTeamEnabled !== currentTeamEnabled) {
+        try {
+          await options.saveChatTeamMode(nextTeamEnabled, []);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          chatWorkspaceDraftError.value = message;
+          options.setStatus(message);
+          return;
+        }
+      }
       options.closeChatWorkspacePickerBase();
       syncChatWorkspaceDraftFromCurrentState();
     } finally {
@@ -280,6 +303,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
   return {
     chatWorkspaceDraftChoices,
     chatWorkspaceDraftAutonomousMode,
+    chatWorkspaceDraftTeamEnabled,
     chatWorkspaceDraftWorkMode,
     chatWorkspaceDraftBranch,
     chatWorkspaceDraftWorktreePath,
@@ -295,6 +319,7 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
     setChatWorkspaceBranch,
     setChatWorkspaceWorktreePath,
     setChatWorkspaceAutonomousMode,
+    setChatWorkspaceTeamEnabled,
     setChatWorkspaceWorkMode,
     removeChatWorkspace,
     addSecondaryPath,

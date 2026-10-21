@@ -31,6 +31,7 @@ export function useChatWindowWorkspaceOrchestrator(bindings: Record<string, any>
   const picker = useChatWorkspacePickerFlow({
     chatWorkspaceChoices: workspace.chatWorkspaceChoices,
     chatWorkspaceAutonomousMode: workspace.chatWorkspaceAutonomousMode,
+    chatWorkspaceTeamEnabled: workspace.chatWorkspaceTeamEnabled,
     chatWorkspaceWorkMode: workspace.chatWorkspaceWorkMode,
     chatWorkspaceBranch: workspace.chatWorkspaceBranch,
     chatWorkspaceWorktreePath: workspace.chatWorkspaceWorktreePath,
@@ -38,6 +39,7 @@ export function useChatWindowWorkspaceOrchestrator(bindings: Record<string, any>
     openChatWorkspacePickerBase: workspace.openChatWorkspacePicker,
     closeChatWorkspacePickerBase: workspace.closeChatWorkspacePicker,
     saveChatWorkspaces: workspace.saveChatWorkspaces,
+    saveChatTeamMode: workspace.saveChatTeamMode,
     setStatus: bindings.setStatus,
     setStatusError: bindings.setStatusError,
     workspaceAlreadyExistsText: bindings.tr("config.tools.workspaceAlreadyExists"),

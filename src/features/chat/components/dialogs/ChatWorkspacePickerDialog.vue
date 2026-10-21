@@ -14,6 +14,8 @@
           :secondary-paths="secondaryPaths"
           :access="unifiedAccess"
           :work-mode="workMode"
+          :team-enabled="Boolean(teamEnabled)"
+          show-team-mode
           :selected-branch="selectedBranch"
           :selected-worktree-path="worktreePath"
           :available-workspaces="availableWorkspaceOptions"
@@ -21,6 +23,7 @@
           :sync-workspace-branch="syncWorkspaceBranch"
           @update:main-path="onMainPathUpdate"
           @update:access="onAccessUpdate"
+          @update:team-enabled="emit('setTeamEnabled', $event)"
           @update:work-mode="emit('setWorkMode', $event)"
           @update:branch="emit('setBranch', $event)"
           @update:worktree-path="onWorktreePathUpdate"
@@ -74,6 +77,8 @@ const props = withDefaults(defineProps<{
   saving: boolean;
   workspaces: ChatWorkspaceChoice[];
   autonomousMode: boolean;
+  /** 草稿组队开关：随保存一起落盘 */
+  teamEnabled?: boolean;
   workMode: ShellWorkMode;
   worktreePath?: string;
   worktreeExists?: boolean;
@@ -99,6 +104,7 @@ const emit = defineEmits<{
   (e: "setAccess", workspaceId: string, access: ChatWorkspaceChoice["access"]): void;
   (e: "setAccessUnified", access: ChatWorkspaceChoice["access"]): void;
   (e: "setAutonomousMode", enabled: boolean): void;
+  (e: "setTeamEnabled", enabled: boolean): void;
   (e: "setWorkMode", mode: ShellWorkMode): void;
   (e: "setBranch", branch: string): void;
   /** 第二级选中工作树后同步给上层（保存时写入 shell_worktree_path；空串=主工作树） */

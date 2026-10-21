@@ -5,6 +5,7 @@ import { useChatWorkspacePickerFlow } from "./use-chat-workspace-picker-flow";
 
 function createFlow(access: "approval" | "full_access" = "approval", mode: ShellWorkMode = "worktree", gitRootOk = true) {
   const saveChatWorkspaces = vi.fn(async () => undefined);
+  const saveChatTeamMode = vi.fn(async () => undefined);
   const setStatus = vi.fn();
   const flow = useChatWorkspacePickerFlow({
     chatWorkspaceChoices: ref([{
@@ -15,6 +16,7 @@ function createFlow(access: "approval" | "full_access" = "approval", mode: Shell
       access,
     }]),
     chatWorkspaceAutonomousMode: ref(false),
+    chatWorkspaceTeamEnabled: ref(false),
     chatWorkspaceWorkMode: ref<ShellWorkMode>(mode),
     chatWorkspaceBranch: ref(""),
     chatWorkspaceWorktreePath: ref(""),
@@ -22,6 +24,7 @@ function createFlow(access: "approval" | "full_access" = "approval", mode: Shell
     openChatWorkspacePickerBase: vi.fn(),
     closeChatWorkspacePickerBase: vi.fn(),
     saveChatWorkspaces,
+    saveChatTeamMode,
     setStatus,
     setStatusError: vi.fn(),
     workspaceAlreadyExistsText: "目录已存在",
@@ -30,7 +33,7 @@ function createFlow(access: "approval" | "full_access" = "approval", mode: Shell
     checkChatWorkspaceGitRoot: vi.fn(async () => gitRootOk),
   });
   flow.openChatWorkspacePicker();
-  return { flow, saveChatWorkspaces, setStatus };
+  return { flow, saveChatWorkspaces, saveChatTeamMode, setStatus };
 }
 
 describe("useChatWorkspacePickerFlow", () => {
@@ -77,5 +80,13 @@ describe("useChatWorkspacePickerFlow", () => {
       "main",
       "E:/repo/.pai/.worktree/20260921-a1b2c3d4",
     );
+  });
+  it("saves team mode only when the switch changes", async () => {
+    const { flow, saveChatTeamMode } = createFlow("approval", "directory", true);
+    await flow.saveChatWorkspacePicker();
+    expect(saveChatTeamMode).not.toHaveBeenCalled();
+    flow.setChatWorkspaceTeamEnabled(true);
+    await flow.saveChatWorkspacePicker();
+    expect(saveChatTeamMode).toHaveBeenCalledWith(true, []);
   });
 });
