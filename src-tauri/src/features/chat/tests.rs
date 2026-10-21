@@ -13803,16 +13803,23 @@
         let leader = persist_team_leader(&state, "conversation-team-leader");
         let has = |tools: &[String], name: &str| tools.iter().any(|item| item == name);
 
-        // 队长会话挂四个，不给 team_report。
+        // 招募开关开、名册为空：只挂 info + recruit，不给 dismiss/send/report。
         let leader_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&leader.id)));
-        for name in ["team_info", "team_recruit", "team_dismiss", "team_send"] {
+        for name in ["team_info", "team_recruit"] {
             assert!(has(&leader_tools, name), "队长会话缺少 {name}：{leader_tools:?}");
         }
-        assert!(!has(&leader_tools, "team_report"), "队长会话不该有 team_report：{leader_tools:?}");
+        for name in ["team_dismiss", "team_send", "team_report"] {
+            assert!(!has(&leader_tools, name), "名册为空时不该有 {name}：{leader_tools:?}");
+        }
 
-        // 队员会话只留 team_report，队长那四个都不挂。
+        // 招募后名册有人：info/recruit/dismiss/send 全挂，不给 team_report。
         let output = recruit_member(&state, &leader.id, "李工");
         let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        let roster_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&leader.id)));
+        for name in ["team_info", "team_recruit", "team_dismiss", "team_send"] {
+            assert!(has(&roster_tools, name), "有名册时缺少 {name}：{roster_tools:?}");
+        }
+        assert!(!has(&roster_tools, "team_report"), "队长会话不该有 team_report：{roster_tools:?}");
         let member_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&member_id)));
         assert!(has(&member_tools, "team_report"), "队员会话缺少 team_report：{member_tools:?}");
         for name in ["team_info", "team_recruit", "team_dismiss", "team_send"] {
@@ -13839,11 +13846,14 @@
         state_schedule_conversation_persist(&state, &single).expect("persist single");
         flush_pending_persists_blocking(&state).expect("flush single");
 
-        // 单人模式：一个队伍工具都不挂
+        // 招募开关关、名册为空：team_info 常驻，其余三个不挂
         let single_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&single.id)));
-        assert!(single_tools.is_empty(), "单人会话不该挂队伍工具：{single_tools:?}");
+        assert!(has(&single_tools, "team_info"), "info 应常驻方便查看权限：{single_tools:?}");
+        for name in ["team_recruit", "team_dismiss", "team_send", "team_report"] {
+            assert!(!has(&single_tools, name), "开关关且名册空时不该有 {name}：{single_tools:?}");
+        }
 
-        // 切到组队后挂上队长四件套
+        // 打开招募开关后：info + recruit，不给 dismiss/send
         set_conversation_team_mode_inner(
             SetConversationTeamModeInput {
                 conversation_id: single.id.clone(),
@@ -13854,13 +13864,22 @@
         )
         .expect("switch to team mode");
         let team_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&single.id)));
-        for name in ["team_info", "team_recruit", "team_dismiss", "team_send"] {
-            assert!(has(&team_tools, name), "组队会话缺少 {name}：{team_tools:?}");
+        for name in ["team_info", "team_recruit"] {
+            assert!(has(&team_tools, name), "开招募后缺少 {name}：{team_tools:?}");
+        }
+        for name in ["team_dismiss", "team_send", "team_report"] {
+            assert!(!has(&team_tools, name), "名册为空时不该有 {name}：{team_tools:?}");
         }
 
-        // 还有在队队员时不允许切回单人
+        // 招募后名册有人：四个全挂
         recruit_member(&state, &single.id, "李工");
-        let err = set_conversation_team_mode_inner(
+        let roster_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&single.id)));
+        for name in ["team_info", "team_recruit", "team_dismiss", "team_send"] {
+            assert!(has(&roster_tools, name), "有名册时缺少 {name}：{roster_tools:?}");
+        }
+
+        // 招募开关可独立关闭：名册保留，recruit 下掉，info/dismiss/send 留着
+        set_conversation_team_mode_inner(
             SetConversationTeamModeInput {
                 conversation_id: single.id.clone(),
                 team_enabled: false,
@@ -13868,8 +13887,12 @@
             },
             &state,
         )
-        .expect_err("切回单人应当被拒绝");
-        assert!(err.contains("请离"), "错误信息应提示先请离队员：{err}");
+        .expect("recruit switch off should succeed with active roster");
+        let switched_tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&single.id)));
+        for name in ["team_info", "team_dismiss", "team_send"] {
+            assert!(has(&switched_tools, name), "关招募后应保留 {name}：{switched_tools:?}");
+        }
+        assert!(!has(&switched_tools, "team_recruit"), "关招募后不该有 team_recruit：{switched_tools:?}");
     }
 
     #[test]
@@ -13975,7 +13998,7 @@
         let state = team_test_state();
         let leader = persist_team_leader(&state, "conversation-legacy-roster");
         recruit_member(&state, &leader.id, "李工");
-        // 老会话没有组队开关，但名册里有人：不能因为开关默认为假就丢掉队长入口
+        // 招募开关关、但名册里有人：recruit 下掉，info/dismiss/send 按名册留着
         state_update_conversation_metadata_cached(&state, &leader.id, |conversation| {
             conversation.team.enabled = false;
             Ok(())
@@ -13983,8 +14006,102 @@
         .expect("turn team switch off");
 
         let tools = mounted_team_tools(&team_assembly(&state, &team_session_id(&leader.id)));
+        for name in ["team_info", "team_dismiss", "team_send"] {
+            assert!(
+                tools.iter().any(|item| item == name),
+                "关招募后应按名册保留 {name}：{tools:?}"
+            );
+        }
         assert!(
-            tools.iter().any(|name| name == "team_recruit"),
-            "名册里有在队队员时应保持队长身份：{tools:?}"
+            !tools.iter().any(|item| item == "team_recruit"),
+            "关招募后不该有 team_recruit：{tools:?}"
         );
+    }
+
+    #[test]
+    fn team_recruit_should_follow_recruit_switch_only() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-recruit-switch");
+        state_update_conversation_metadata_cached(&state, &leader.id, |conversation| {
+            conversation.team.enabled = false;
+            Ok(())
+        })
+        .expect("turn recruit off");
+        // 开关关：招募拒绝，info 照常返回权限说明
+        let err = test_runtime()
+            .block_on(builtin_team_recruit(
+                &state,
+                &team_session_id(&leader.id),
+                TeamRecruitToolArgs {
+                    name: "李工".to_string(),
+                    duty: None,
+                    work_branch: None,
+                    agent_id: None,
+                },
+            ))
+            .expect_err("recruit should be rejected when switch off");
+        assert!(err.contains("招募开关"), "拒绝原因应指向招募开关：{err}");
+        let info = builtin_team_info(
+            &state,
+            &team_session_id(&leader.id),
+            TeamInfoToolArgs { scope: None },
+        )
+        .expect("team info should stay mounted");
+        assert_eq!(info["recruitEnabled"], serde_json::json!(false));
+        assert_eq!(info["canRecruit"], serde_json::json!(false));
+        assert!(
+            info["recruitUnavailableReason"].as_str().is_some_and(|v| !v.trim().is_empty()),
+            "关招募时 info 应给出原因"
+        );
+    }
+
+    #[test]
+    fn team_roster_tools_should_follow_roster_only() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-roster-only");
+        // 名册为空：dismiss/send 拒绝，info 照常
+        assert!(
+            test_runtime()
+                .block_on(builtin_team_dismiss(
+                    &state,
+                    &team_session_id(&leader.id),
+                    TeamDismissToolArgs { number: 1 },
+                ))
+                .is_err(),
+            "名册为空时 dismiss 应拒绝"
+        );
+        assert!(
+            builtin_team_send(
+                &state,
+                &team_session_id(&leader.id),
+                TeamSendToolArgs {
+                    number: 1,
+                    content: "hi".to_string(),
+                    mode: None,
+                },
+            )
+            .is_err(),
+            "名册为空时 send 应拒绝"
+        );
+        // 有名册后关掉招募开关：dismiss/send 照常按名册可用
+        recruit_member(&state, &leader.id, "李工");
+        set_conversation_team_mode_inner(
+            SetConversationTeamModeInput {
+                conversation_id: leader.id.clone(),
+                team_enabled: false,
+                member_agent_ids: Vec::new(),
+            },
+            &state,
+        )
+        .expect("recruit switch off should succeed");
+        builtin_team_send(
+            &state,
+            &team_session_id(&leader.id),
+            TeamSendToolArgs {
+                number: 1,
+                content: "开工".to_string(),
+                mode: None,
+            },
+        )
+        .expect("send should follow roster even when recruit off");
     }

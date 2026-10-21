@@ -395,17 +395,9 @@ fn set_conversation_team_mode_inner(
 
     let meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
     if meta.team.membership.is_some() {
-        return Err("这是队员会话，不能切换组队模式".to_string());
+        return Err("这是队员会话，不能切换招募开关".to_string());
     }
-    if !input.team_enabled
-        && meta
-            .team
-            .members
-            .iter()
-            .any(|member| member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
-    {
-        return Err("队伍里还有队员，先把所有队员请离才能切回单人".to_string());
-    }
+    // 招募开关独立于名册：关闭时名册保留，dismiss/send 照常按名册可用。
 
     // 预选队员只在新建会话（草稿）阶段有意义：首轮发言时据此一次性建出队员会话。
     let member_agent_ids = input
@@ -451,9 +443,9 @@ fn set_conversation_team_mode_inner(
             Ok(())
         })?;
         runtime_log_info(format!(
-            "[队伍] 完成，任务=切换会话组队模式，会话ID={}，模式={}，待建队员数={}",
+            "[队伍] 完成，任务=切换招募开关，会话ID={}，招募={}，待建队员数={}",
             conversation_id,
-            if input.team_enabled { "组队" } else { "单人" },
+            if input.team_enabled { "开" } else { "关" },
             persisted_member_agent_ids.len()
         ));
     }

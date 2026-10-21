@@ -956,13 +956,36 @@ pub(crate) async fn assemble_runtime_tools(
         discoverable_tools.retain(|tool| tool.definition.name != OPERATE_TOOL_NAME);
         runtime_log_info("[工具装配] 电脑使用已关闭，operate 工具不挂载".to_string());
     }
-    // 队伍工具按会话形态挂载：队长会话挂队长那四个、去掉 team_report；队员会话只去掉队长那四个、
-    // 保留自己的全部工作工具（文件、终端等）与 team_report；其余会话（普通追问、委托）一律不挂。
+    // 队伍工具按拆分门控挂载：队长会话 team_info 常驻、team_recruit 只看招募开关、
+    // team_dismiss/team_send 只看名册；队员会话只留 team_report；其余一律不挂。
     match team_role_for_session(state, tool_session_id) {
         TeamToolRole::Leader => {
-            discoverable_tools.retain(|tool| {
-                !tool.definition.name.trim().eq_ignore_ascii_case(TEAM_MEMBER_TOOL_NAME)
-            });
+            if let Some(flags) = team_leader_mount_flags(state, tool_session_id) {
+                discoverable_tools.retain(|tool| {
+                    let name = tool.definition.name.trim();
+                    if name.eq_ignore_ascii_case(TEAM_MEMBER_TOOL_NAME) {
+                        return false;
+                    }
+                    if name.eq_ignore_ascii_case("team_recruit") {
+                        return flags.recruit_enabled;
+                    }
+                    if name.eq_ignore_ascii_case("team_info") {
+                        return true;
+                    }
+                    if name.eq_ignore_ascii_case("team_dismiss")
+                        || name.eq_ignore_ascii_case("team_send")
+                    {
+                        return flags.has_active_member;
+                    }
+                    true
+                });
+            } else {
+                discoverable_tools.retain(|tool| {
+                    let name = tool.definition.name.trim();
+                    !team_tool_is_leader_tool(name)
+                        && !name.eq_ignore_ascii_case(TEAM_MEMBER_TOOL_NAME)
+                });
+            }
         }
         TeamToolRole::Member => {
             discoverable_tools.retain(|tool| !team_tool_is_leader_tool(tool.definition.name.trim()));

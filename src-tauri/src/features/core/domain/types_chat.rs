@@ -484,8 +484,8 @@ fn conversation_goal_is_active(goal: &ConversationGoalState) -> bool {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TeamState {
-    /// 组队模式开关：新建会话时选定，决定这个会话是否挂队长工具。
-    /// 单人会话为 false，模型看不到任何队伍工具；名册非空的老会话按组队处理。
+    /// 招募开关：只决定 team_recruit 是否挂载，与名册无关。
+    /// 开关关闭时模型看不到招募工具；其他队伍工具只看名册里有没有在队队员。
     #[serde(default)]
     enabled: bool,
     /// 新建会话时预选的队员人格：按点击顺序排，首轮发言时据此一次性创建队员。

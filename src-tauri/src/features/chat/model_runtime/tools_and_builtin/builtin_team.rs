@@ -1,7 +1,7 @@
 // ==================== 会话队伍（team） ====================
 //
 // 队伍 = 一个普通会话（队长）+ 它的若干追问会话（队员）。
-// - 队长工具：team_info / team_recruit / team_dismiss / team_send
+// - 队长工具：team_info（常驻） / team_recruit（看招募开关） / team_dismiss / team_send（看名册）
 // - 队员工具：team_report
 // 名册落队长会话的 team 字段，成员身份落队员会话自己的 team 字段；两处同写、以队长为准。
 // 通讯一律以系统身份投递到目标会话：引导或排队由发信方选择。
@@ -23,8 +23,9 @@ fn team_session_conversation_id(session_id: &str) -> Result<String, String> {
         .ok_or_else(|| "队伍工具缺少 conversation_id".to_string())
 }
 
-/// 当前会话是不是队长：普通会话、且自己不是别人的队员。
-fn team_leader_meta(state: &AppState, session_id: &str) -> Result<ConversationMetaView, String> {
+/// 队长会话底座：普通会话、且自己不是别人的队员，不看开关与名册。
+/// team_info 走这里常驻；招募与名册操作在此基础上再加各自门控。
+fn team_leader_session_meta(state: &AppState, session_id: &str) -> Result<ConversationMetaView, String> {
     let conversation_id = team_session_conversation_id(session_id)?;
     let meta = conversation_service_v2().get_conversation_meta(state, &conversation_id)?;
     if meta.team.membership.is_some() {
@@ -36,8 +37,23 @@ fn team_leader_meta(state: &AppState, session_id: &str) -> Result<ConversationMe
     {
         return Err("只有未归档的普通会话可以作为队长使用队伍工具".to_string());
     }
-    if !team_mode_active(&meta.team) {
-        return Err("这个会话是单人模式，没有队伍工具；需要组队请在新建会话时选择组队".to_string());
+    Ok(meta)
+}
+
+/// 招募入口：只看招募开关，不看有没有队员。
+fn team_leader_meta_for_recruit(state: &AppState, session_id: &str) -> Result<ConversationMetaView, String> {
+    let meta = team_leader_session_meta(state, session_id)?;
+    if !meta.team.enabled {
+        return Err("招募开关已关闭，当前不能招募；用 team_info 查看招募权限".to_string());
+    }
+    Ok(meta)
+}
+
+/// 名册操作入口（dismiss/send）：只看有没有在队队员，不看招募开关。
+fn team_leader_meta_for_roster(state: &AppState, session_id: &str) -> Result<ConversationMetaView, String> {
+    let meta = team_leader_session_meta(state, session_id)?;
+    if !team_has_active_member(&meta.team) {
+        return Err("队伍里还没有在队队员；用 team_info 查看名册".to_string());
     }
     Ok(meta)
 }
@@ -60,13 +76,41 @@ fn team_member_meta(
     Ok((meta, membership))
 }
 
-/// 组队模式是否生效：会话自己开了组队，或者名册里还有在队队员。
-/// 后半条是为了兼容老会话——它们没有这个开关，但已经带人，不能因为开关默认为假就丢掉队长入口。
-fn team_mode_active(team: &TeamState) -> bool {
-    team.enabled || team.members.iter().any(|member| member.status == "active")
+/// 名册里有没有在队队员：dismiss/send 与挂载共用，只看这个，不看招募开关。
+fn team_has_active_member(team: &TeamState) -> bool {
+    team.members
+        .iter()
+        .any(|member| member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
 }
 
-/// 工具装配用的角色判定：队长（普通会话）/ 队员（带成员身份的追问）/ 都不是。
+/// 队长挂载位的开关与名册快照：装配处按这个细粒度过滤。
+struct TeamLeaderMount {
+    recruit_enabled: bool,
+    has_active_member: bool,
+}
+
+fn team_leader_mount_flags(state: &AppState, session_id: &str) -> Option<TeamLeaderMount> {
+    let conversation_id = team_session_conversation_id(session_id).ok()?;
+    let meta = conversation_service_v2()
+        .get_conversation_meta(state, &conversation_id)
+        .ok()?;
+    if meta.team.membership.is_some() {
+        return None;
+    }
+    if meta.conversation_kind.trim() != CONVERSATION_KIND_CHAT
+        || meta.is_draft
+        || meta.status.trim() == "archived"
+    {
+        return None;
+    }
+    Some(TeamLeaderMount {
+        recruit_enabled: meta.team.enabled,
+        has_active_member: team_has_active_member(&meta.team),
+    })
+}
+
+/// 工具装配用的角色判定：队长（普通会话，不看开关与名册）/ 队员（带成员身份的追问）/ 都不是。
+/// 开关与名册的细粒度过滤在装配处按 team_leader_mount_flags 再做。
 fn team_role_for_session(state: &AppState, session_id: &str) -> TeamToolRole {
     let Ok(conversation_id) = team_session_conversation_id(session_id) else {
         return TeamToolRole::None;
@@ -80,7 +124,6 @@ fn team_role_for_session(state: &AppState, session_id: &str) -> TeamToolRole {
     if meta.conversation_kind.trim() == CONVERSATION_KIND_CHAT
         && meta.status.trim() != "archived"
         && !meta.is_draft
-        && team_mode_active(&meta.team)
     {
         return TeamToolRole::Leader;
     }
@@ -359,7 +402,7 @@ fn builtin_team_info(
     session_id: &str,
     args: TeamInfoToolArgs,
 ) -> Result<Value, String> {
-    let mut leader = team_leader_meta(state, session_id)?;
+    let mut leader = team_leader_session_meta(state, session_id)?;
     let closed_missing_members = team_close_missing_member_entries(state, &mut leader);
     let include_history = args
         .scope
@@ -375,13 +418,21 @@ fn builtin_team_info(
         })
         .map(|member| team_member_entry_json(state, member))
         .collect::<Vec<_>>();
+    let recruit_enabled = leader.team.enabled;
     let mut output = serde_json::json!({
         "ok": true,
         "scope": if include_history { "history" } else { "active" },
         "activeMemberCount": leader.team.active_member_count(),
         "nextNumber": leader.team.next_number_for_recruit(),
         "members": members,
+        "recruitEnabled": recruit_enabled,
+        "canRecruit": recruit_enabled,
+        "hasActiveMember": team_has_active_member(&leader.team),
     });
+    if !recruit_enabled {
+        output["recruitUnavailableReason"] =
+            serde_json::json!("招募开关已关闭，当前不能招募；需要用户在队伍管理页打开招募开关");
+    }
     if !closed_missing_members.is_empty() {
         output["closedMissingMembers"] = serde_json::json!(
             closed_missing_members
@@ -438,7 +489,7 @@ async fn builtin_team_dismiss(
     session_id: &str,
     args: TeamDismissToolArgs,
 ) -> Result<Value, String> {
-    let leader = team_leader_meta(state, session_id)?;
+    let leader = team_leader_meta_for_roster(state, session_id)?;
     let leader_conversation_id = leader.id.clone();
     let number = args.number;
     let mut dismissed: Option<(String, String)> = None;
@@ -535,7 +586,7 @@ fn builtin_team_send(
     session_id: &str,
     args: TeamSendToolArgs,
 ) -> Result<Value, String> {
-    let leader = team_leader_meta(state, session_id)?;
+    let leader = team_leader_meta_for_roster(state, session_id)?;
     let content = args.content.trim();
     if content.is_empty() {
         return Err("content 不能为空".to_string());
@@ -601,8 +652,6 @@ async fn team_create_member(
     state_update_conversation_metadata_cached(state, &leader_conversation_id, |conversation| {
         let number = conversation.team.next_number_for_recruit();
         conversation.team.next_number = number + 1;
-        // 招募即进入组队：即便这个会话原本是单人模式（比如直接调用），招完人也得留下队长入口。
-        conversation.team.enabled = true;
         conversation.team.members.push(TeamMemberEntry {
             number,
             conversation_id: String::new(),
@@ -737,7 +786,7 @@ async fn builtin_team_recruit(
     session_id: &str,
     args: TeamRecruitToolArgs,
 ) -> Result<Value, String> {
-    let leader = team_leader_meta(state, session_id)?;
+    let leader = team_leader_meta_for_recruit(state, session_id)?;
     let name = args.name.trim().to_string();
     if name.is_empty() {
         return Err("name 不能为空".to_string());
