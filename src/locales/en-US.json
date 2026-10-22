@@ -1693,7 +1693,17 @@
       "toolList": "Tool List",
       "noDescription": "(no description)",
       "empty": "No tools available",
-      "recentElapsed": "Recent elapsed time"
+      "recentElapsed": "Recent elapsed time",
+      "parameters": "Field Specs",
+      "expandAll": "Expand all field specs",
+      "collapseAll": "Collapse all field specs",
+      "expand": "Expand fields",
+      "collapse": "Collapse fields",
+      "required": "Required",
+      "optional": "Optional",
+      "default": "Default: {value}",
+      "enumValues": "Allowed values",
+      "noFieldDescription": "No description"
     },
     "logs": {
       "title": "Debug Settings",

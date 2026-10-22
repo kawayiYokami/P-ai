@@ -1693,7 +1693,17 @@
       "toolList": "工具列表",
       "noDescription": "(无描述)",
       "empty": "暂无工具",
-      "recentElapsed": "最近拉取耗时"
+      "recentElapsed": "最近拉取耗时",
+      "parameters": "字段说明",
+      "expandAll": "展开全部字段说明",
+      "collapseAll": "收起全部字段说明",
+      "expand": "展开字段说明",
+      "collapse": "收起字段说明",
+      "required": "必填",
+      "optional": "可选",
+      "default": "默认: {value}",
+      "enumValues": "可选值",
+      "noFieldDescription": "暂无字段说明"
     },
     "logs": {
       "title": "调试设置",

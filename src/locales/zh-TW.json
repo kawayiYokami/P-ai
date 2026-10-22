@@ -1693,7 +1693,17 @@
       "toolList": "工具列表",
       "noDescription": "(無描述)",
       "empty": "暫無工具",
-      "recentElapsed": "最近拉取耗時"
+      "recentElapsed": "最近拉取耗時",
+      "parameters": "欄位說明",
+      "expandAll": "展開全部欄位說明",
+      "collapseAll": "收起全部欄位說明",
+      "expand": "展開欄位說明",
+      "collapse": "收起欄位說明",
+      "required": "必填",
+      "optional": "選填",
+      "default": "預設: {value}",
+      "enumValues": "可選值",
+      "noFieldDescription": "暫無欄位說明"
     },
     "logs": {
       "title": "調試設定",
