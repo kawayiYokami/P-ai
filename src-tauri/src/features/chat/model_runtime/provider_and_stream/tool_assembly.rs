@@ -417,6 +417,7 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
         .provider_tool_definition(),
         BuiltinImageGenerateTool { app_state: state.clone() }.provider_tool_definition(),
         BuiltinImageEditTool { app_state: state.clone() }.provider_tool_definition(),
+        BuiltinImageToVideoTool { app_state: state.clone() }.provider_tool_definition(),
         BuiltinContactSendFilesTool {
             app_state: state.clone(),
             session_id: preview_session_id,
