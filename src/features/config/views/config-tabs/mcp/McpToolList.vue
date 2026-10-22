@@ -16,29 +16,34 @@
         {{ toolCompatibilityError(item.id) }}
       </div>
 
-      <!-- 纯排版参数字段列表 -->
-      <div v-if="toolParameters(item.id).length" class="mt-2 space-y-1 text-xs leading-relaxed">
-        <div
-          v-for="param in toolParameters(item.id)"
-          :key="`${item.id}-param-${param.name}`"
-          class="text-base-content/75"
-        >
-          <span class="font-mono font-medium text-base-content">{{ param.name }}</span><span v-if="param.required" class="text-error font-bold ml-0.5" title="必填">*</span>
-          <span class="font-mono text-[11px] text-base-content/50 ml-1.5">{{ param.type }}</span>
-          <span v-if="param.constraints" class="font-mono text-[11px] text-base-content/40 ml-1">({{ param.constraints }})</span>
-          <span v-if="param.defaultValue !== undefined" class="font-mono text-[11px] text-base-content/40 ml-1">{{ t('config.mcpToolList.default', { value: param.defaultValue }) }}</span>
-          <template v-if="param.description || param.enumValues?.length">
-            <span class="text-base-content/30 mx-1.5">—</span>
-            <span v-if="param.description">{{ param.description }}</span>
-            <span v-if="param.enumValues?.length" class="text-base-content/50 font-mono ml-1.5 text-[11px]">
+      <!-- 参数字段：字段名 / 类型 / 说明 三列对齐，靠排版压出层级 -->
+      <div
+        v-if="toolParameters(item.id).length"
+        class="mt-1.5 grid items-baseline gap-x-3 gap-y-[3px] border-t border-base-300/50 pt-1.5 text-[11px] leading-relaxed"
+        :style="{ gridTemplateColumns: 'minmax(6.5rem, auto) auto minmax(0, 1fr)' }"
+      >
+        <template v-for="param in toolParameters(item.id)" :key="`${item.id}-param-${param.name}`">
+          <span class="font-mono text-base-content/85 whitespace-nowrap">
+            {{ param.name }}<span
+              v-if="param.required"
+              class="text-error/60 text-[10px] ml-px"
+              :title="t('config.mcpToolList.required')"
+            >*</span>
+          </span>
+          <span class="font-mono text-[10px] text-base-content/35 whitespace-nowrap">{{ param.type }}</span>
+          <span class="text-base-content/60" :title="param.tooltipText">
+            <span v-if="param.constraints" class="font-mono text-[10px] text-base-content/40 mr-1">({{ param.constraints }})</span>
+            <span v-if="param.defaultValue !== undefined" class="font-mono text-[10px] text-base-content/40 mr-1">{{ t('config.mcpToolList.default', { value: param.defaultValue }) }}</span>
+            <span>{{ param.description }}</span>
+            <span v-if="param.enumValues?.length" class="font-mono text-[10px] text-base-content/45 ml-1">
               [{{ t('config.mcpToolList.enumValues') }}: {{ param.enumValues.join(', ') }}]
             </span>
-          </template>
-        </div>
+          </span>
+        </template>
       </div>
 
       <!-- 示例 -->
-      <div v-if="toolParameterExamples(item.id).length" class="mt-2 grid gap-1">
+      <div v-if="toolParameterExamples(item.id).length" class="mt-1.5 grid gap-1">
         <pre
           v-for="example in toolParameterExamples(item.id)"
           :key="`${item.id}-example-${example}`"
@@ -102,15 +107,28 @@ function toolCompatibilityError(id: string): string {
   return String(toolById(id)?.compatibilityError || "").trim();
 }
 
+// 参数结构按工具缓存，避免模板里多次取值时重复解析同一份 schema。
+const parametersByToolId = computed(() => {
+  const map = new Map<string, ToolParameterDetail[]>();
+  for (const tool of props.tools) {
+    map.set(tool.toolName, parseToolParameters(tool.parameters));
+  }
+  return map;
+});
+
+const examplesByToolId = computed(() => {
+  const map = new Map<string, string[]>();
+  for (const tool of props.tools) {
+    map.set(tool.toolName, parseToolExamples(tool.parameters));
+  }
+  return map;
+});
+
 function toolParameters(id: string): ToolParameterDetail[] {
-  const tool = toolById(id);
-  if (!tool) return [];
-  return parseToolParameters(tool.parameters);
+  return parametersByToolId.value.get(id) ?? [];
 }
 
 function toolParameterExamples(id: string): string[] {
-  const tool = toolById(id);
-  if (!tool) return [];
-  return parseToolExamples(tool.parameters);
+  return examplesByToolId.value.get(id) ?? [];
 }
 </script>

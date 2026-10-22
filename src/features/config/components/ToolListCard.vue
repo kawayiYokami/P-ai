@@ -3,7 +3,6 @@
     <div class="flex items-center gap-2 px-3 py-2 border-b border-base-300">
       <div class="font-medium">{{ title }}<span v-if="showCount">（{{ items.length }}）</span></div>
       <div class="ml-auto flex items-center gap-2">
-        <slot name="header-actions" />
         <span v-if="typeof elapsedMs === 'number'" class="text-xs opacity-70">{{ elapsedLabel }}: {{ elapsedMs }}ms</span>
         <button
           v-if="refreshable"
