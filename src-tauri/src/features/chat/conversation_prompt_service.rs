@@ -671,6 +671,7 @@ impl ConversationPromptService {
             prompt_runtime_policy.origin_scope = prompt_origin_scope;
         }
         let mut tool_rule_blocks = Vec::<String>::new();
+        tool_rule_blocks.push(build_system_reminder_rule_block());
         tool_rule_blocks.push(build_memory_rag_rule_block());
         let mut deferred_tool_blocks = Vec::<String>::new();
         let mut task_block = None;
@@ -937,60 +938,43 @@ impl ConversationPromptService {
     fn build_latest_user_payload(
         &self,
         _mode: PromptBuildMode,
-        state: Option<&AppState>,
-        conversation: &Conversation,
+        _state: Option<&AppState>,
+        _conversation: &Conversation,
         agent: &AgentProfile,
         overrides: &ChatPromptOverrides,
         prepared: &PreparedPrompt,
         stage_logger: Option<&dyn Fn(&str)>,
-    ) -> (String, String, Vec<String>, LatestUserExtraBlocksMode) {
+    ) -> (
+        String,
+        String,
+        Vec<String>,
+        Vec<String>,
+        LatestUserExtraBlocksMode,
+    ) {
         let Some(intent) = overrides.latest_user_intent.as_ref() else {
             return (
                 prepared.latest_user_text.clone(),
                 prepared.latest_user_meta_text.clone(),
                 prepared.latest_user_extra_blocks.clone(),
+                prepared.latest_user_trailing_blocks.clone(),
                 LatestUserExtraBlocksMode::ReplaceIfNonEmpty,
             );
         };
         match intent {
             LatestUserPayloadIntent::ChatRequest {
-                include_task_board,
-                include_todo_board,
                 attachment_relative_paths,
             } => {
-                let mut extra_blocks = Vec::<String>::new();
-                if *include_task_board {
-                    if let Some(state) = state {
-                        if let Some(task_board) = build_hidden_task_board_block(state) {
-                            extra_blocks.push(task_board);
-                        }
-                    }
-                }
-                if let Some(log_stage) = stage_logger {
-                    log_stage("prepare_context.task_board_ready");
-                }
-                if *include_todo_board {
-                    if let Some(todo_board) = build_conversation_todo_board_block(conversation) {
-                        extra_blocks.push(todo_board);
-                    }
-                }
-                if let Some(log_stage) = stage_logger {
-                    log_stage("prepare_context.todo_board_ready");
-                }
-                for (index, relative_path) in attachment_relative_paths.iter().enumerate() {
-                    let trimmed = relative_path.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    extra_blocks.push(build_attachment_notice_text(index, trimmed));
-                }
+                let trailing_blocks = build_attachments_block(attachment_relative_paths)
+                    .into_iter()
+                    .collect::<Vec<_>>();
                 if let Some(log_stage) = stage_logger {
                     log_stage("prepare_context.attachment_hints_ready");
                 }
                 (
                     prepared.latest_user_text.clone(),
                     prepared.latest_user_meta_text.clone(),
-                    extra_blocks,
+                    Vec::new(),
+                    trailing_blocks,
                     LatestUserExtraBlocksMode::Append,
                 )
             }
@@ -1013,6 +997,7 @@ impl ConversationPromptService {
                         .join("\n\n"),
                     String::new(),
                     Vec::new(),
+                    Vec::new(),
                     LatestUserExtraBlocksMode::ReplaceIfNonEmpty,
                 )
             }
@@ -1024,6 +1009,7 @@ impl ConversationPromptService {
                 text.clone(),
                 meta_text.clone(),
                 extra_blocks.clone(),
+                Vec::new(),
                 LatestUserExtraBlocksMode::ReplaceIfNonEmpty,
             ),
         }
@@ -1207,6 +1193,7 @@ impl ConversationPromptService {
                     latest_user_text,
                     latest_user_meta_text,
                     latest_user_extra_blocks,
+                    latest_user_trailing_blocks,
                     latest_user_extra_blocks_mode,
                 ) =
                     self.build_latest_user_payload(
@@ -1223,6 +1210,7 @@ impl ConversationPromptService {
                     latest_user_text,
                     latest_user_meta_text,
                     &latest_user_extra_blocks,
+                    &latest_user_trailing_blocks,
                     latest_user_extra_blocks_mode,
                     overrides.latest_images,
                     overrides.latest_audios,
@@ -1263,6 +1251,7 @@ impl ConversationPromptService {
                     latest_user_text,
                     latest_user_meta_text,
                     latest_user_extra_blocks,
+                    latest_user_trailing_blocks,
                     latest_user_extra_blocks_mode,
                 ) =
                     self.build_latest_user_payload(
@@ -1279,6 +1268,7 @@ impl ConversationPromptService {
                     latest_user_text,
                     latest_user_meta_text,
                     &latest_user_extra_blocks,
+                    &latest_user_trailing_blocks,
                     latest_user_extra_blocks_mode,
                     overrides.latest_images,
                     overrides.latest_audios,
@@ -1301,6 +1291,7 @@ impl ConversationPromptService {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         }
@@ -1318,6 +1309,7 @@ impl ConversationPromptService {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: vec![PreparedBinaryPayload {
                 mime: if mime.is_empty() {
                     "image/png".to_string()

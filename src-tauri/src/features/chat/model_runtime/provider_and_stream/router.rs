@@ -64,6 +64,7 @@ mod router_multimodal_filter_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: vec![PreparedBinaryPayload {
                 label: "图片#1".to_string(),
                 mime: "image/png".to_string(),

@@ -4,6 +4,7 @@ struct PreparedConversationPromptPayload {
     latest_user_text: String,
     latest_user_meta_text: String,
     latest_user_extra_blocks: Vec<String>,
+    latest_user_trailing_blocks: Vec<String>,
     latest_images: Vec<PreparedBinaryPayload>,
     latest_audios: Vec<PreparedBinaryPayload>,
 }

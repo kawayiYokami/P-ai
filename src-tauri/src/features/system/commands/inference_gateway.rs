@@ -75,15 +75,8 @@ fn prepared_prompt_to_fast_request_text(prepared: &PreparedPrompt) -> String {
         blocks.push(format!("system:\n{}", prepared.preamble.trim()));
     }
     for (index, message) in prepared.history_messages.iter().enumerate() {
-        let mut message_blocks = Vec::<String>::new();
-        if !message.text.trim().is_empty() {
-            message_blocks.push(message.text.trim().to_string());
-        }
-        for extra in &message.extra_text_blocks {
-            if !extra.trim().is_empty() {
-                message_blocks.push(extra.trim().to_string());
-            }
-        }
+        // 历史与真实请求同一入口，不允许分叉。
+        let message_blocks = prepared_history_user_text_blocks(message);
         if !message_blocks.is_empty() {
             blocks.push(format!(
                 "history {} {}:\n{}",
@@ -93,21 +86,7 @@ fn prepared_prompt_to_fast_request_text(prepared: &PreparedPrompt) -> String {
             ));
         }
     }
-    let mut latest_blocks = Vec::<String>::new();
-    for item in [
-        prepared.latest_user_meta_text.trim(),
-        prepared.latest_user_text.trim(),
-        prepared.latest_user_extra_text.trim(),
-    ] {
-        if !item.is_empty() {
-            latest_blocks.push(item.to_string());
-        }
-    }
-    for extra in &prepared.latest_user_extra_blocks {
-        if !extra.trim().is_empty() {
-            latest_blocks.push(extra.trim().to_string());
-        }
-    }
+    let mut latest_blocks = prepared_prompt_latest_user_text_blocks(prepared);
     if !prepared.latest_images.is_empty() {
         latest_blocks.push(format!("images: {}", prepared.latest_images.len()));
     }
@@ -391,7 +370,7 @@ fn move_system_preamble_to_user_prompt(prepared: &mut PreparedPrompt) -> bool {
     }
     let block = prompt_xml_block("system prompt", preamble);
     prepared.preamble.clear();
-    prepared_prompt_prepend_latest_user_extra_block(prepared, block);
+    prepared_prompt_append_latest_user_trailing_blocks(prepared, &[block]);
     true
 }
 
@@ -758,6 +737,7 @@ fn quick_json_prepared_prompt(prompt: &str) -> PreparedPrompt {
         latest_user_meta_text: String::new(),
         latest_user_extra_text: String::new(),
         latest_user_extra_blocks: Vec::new(),
+        latest_user_trailing_blocks: Vec::new(),
         latest_images: Vec::new(),
         latest_audios: Vec::new(),
     }
@@ -1126,6 +1106,35 @@ mod inference_gateway_tests {
     use super::*;
 
     #[test]
+    fn fast_request_text_should_include_trailing_blocks_after_body() {
+        let prepared = PreparedPrompt {
+            preamble: String::new(),
+            history_messages: Vec::new(),
+            latest_user_text: "看一下截图".to_string(),
+            latest_user_meta_text: "[红豆] 2026-10-22T15:14".to_string(),
+            latest_user_extra_text: "<memory_context>\n[id:3122] 记忆 A\n</memory_context>".to_string(),
+            latest_user_extra_blocks: vec![
+                "<memory_context>\n[id:3122] 记忆 A\n</memory_context>".to_string(),
+            ],
+            latest_user_trailing_blocks: vec![
+                "<attachments>\n<attachment index=\"1\">path: a.png</attachment>\n</attachments>".to_string(),
+            ],
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let text = prepared_prompt_to_fast_request_text(&prepared);
+        assert!(text.starts_with("user:\n<system-reminder>"));
+        assert!(text.contains("[id:3122]"));
+        assert!(text.contains("[红豆] 2026-10-22T15:14"));
+        assert!(text.contains("看一下截图"));
+        assert!(text.contains("<attachments>"));
+        let body_index = text.find("看一下截图").expect("body index");
+        let attachments_index = text.find("<attachments>").expect("attachments index");
+        assert!(body_index < attachments_index);
+    }
+
+    #[test]
     fn missing_concurrency_limit_means_unlimited_and_one_means_serial() {
         assert_eq!(effective_provider_concurrency_limit(None), None);
         assert_eq!(effective_provider_concurrency_limit(Some(1)), Some(1));
@@ -1174,7 +1183,7 @@ mod inference_gateway_tests {
     }
 
     #[test]
-    fn move_system_preamble_to_user_prompt_should_clear_preamble_and_prepend_extra() {
+    fn move_system_preamble_to_user_prompt_should_clear_preamble_and_append_trailing_block() {
         let mut prepared = PreparedPrompt {
             preamble: "你是严谨助手".to_string(),
             history_messages: Vec::new(),
@@ -1182,15 +1191,23 @@ mod inference_gateway_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: "原有补充".to_string(),
             latest_user_extra_blocks: vec!["原有补充".to_string()],
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
 
         assert!(move_system_preamble_to_user_prompt(&mut prepared));
         assert!(prepared.preamble.is_empty());
-        assert!(prepared.latest_user_extra_text.contains("你是严谨助手"));
-        assert!(prepared.latest_user_extra_text.starts_with("<system prompt>"));
-        assert!(prepared.latest_user_extra_text.ends_with("原有补充"));
+        assert_eq!(prepared.latest_user_extra_blocks, vec!["原有补充".to_string()]);
+        let trailing = prepared_prompt_latest_user_trailing_blocks(&prepared);
+        assert_eq!(trailing.len(), 1);
+        assert!(trailing[0].starts_with("<system prompt>"));
+        assert!(trailing[0].contains("你是严谨助手"));
+
+        let blocks = prepared_prompt_latest_user_text_blocks(&prepared);
+        assert_eq!(blocks[0], "<system-reminder>\n原有补充\n</system-reminder>");
+        assert_eq!(blocks[1], "你好");
+        assert!(blocks[2].starts_with("<system prompt>"));
     }
 
     #[test]

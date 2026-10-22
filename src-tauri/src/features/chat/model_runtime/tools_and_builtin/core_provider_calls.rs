@@ -269,20 +269,8 @@ fn prepared_history_to_genai_messages(
     let normalized_history_messages = normalized_prepared_history_messages(&prepared.history_messages);
     for hm in normalized_history_messages.iter() {
         if hm.role == "user" {
-            let mut text_blocks = Vec::<String>::new();
-            if let Some(time_text) = &hm.user_time_text {
-                if !time_text.trim().is_empty() {
-                    text_blocks.push(time_text.clone());
-                }
-            }
-            if !hm.text.trim().is_empty() {
-                text_blocks.push(hm.text.clone());
-            }
-            for block in &hm.extra_text_blocks {
-                if !block.trim().is_empty() {
-                    text_blocks.push(block.clone());
-                }
-            }
+            // 历史消息冻结：唯一入口 prepared_history_user_text_blocks，时间、正文、附加块直排。
+            let text_blocks = prepared_history_user_text_blocks(hm);
             // 空消息（无文本块且无媒体）不进请求体
             if text_blocks.is_empty() && hm.images.is_empty() && hm.audios.is_empty() {
                 continue;
@@ -1256,6 +1244,7 @@ mod openai_responses_genai_request_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         }
@@ -1388,8 +1377,11 @@ mod openai_responses_genai_request_tests {
             history_messages: Vec::new(),
             latest_user_text: "这是什么".to_string(),
             latest_user_meta_text: String::new(),
-            latest_user_extra_text: "[附件#1]\npath: {Assistant Space}/downloads/image.png".to_string(),
-            latest_user_extra_blocks: vec!["[附件#1]\npath: {Assistant Space}/downloads/image.png".to_string()],
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: vec![
+                "<attachments>\n<attachment index=\"1\">path: {Assistant Space}/downloads/image.png</attachment>\n</attachments>".to_string(),
+            ],
             latest_images: vec![PreparedBinaryPayload {
                 label: "图片#1".to_string(),
                 mime: "image/png".to_string(),
@@ -1409,6 +1401,7 @@ mod openai_responses_genai_request_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -1443,6 +1436,7 @@ mod openai_responses_genai_request_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -1489,6 +1483,7 @@ mod openai_responses_genai_request_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -1506,6 +1501,58 @@ mod openai_responses_genai_request_tests {
             request.messages[1].role,
             genai::chat::ChatRole::User
         ));
+    }
+
+    #[test]
+    fn history_user_should_keep_stored_order_without_wrapper() {
+        let prepared = PreparedPrompt {
+            preamble: String::new(),
+            history_messages: vec![PreparedHistoryMessage {
+                role: "user".to_string(),
+                text: "上一轮正文".to_string(),
+                extra_text_blocks: vec![
+                    "<active_plans>\n<active_plan index=\"1\">.pai/plan/a.md</active_plan>\n</active_plans>"
+                        .to_string(),
+                    "[IDE 上下文] src/main.rs".to_string(),
+                ],
+                user_time_text: Some("[红豆] 2026-10-22T15:14".to_string()),
+                images: Vec::new(),
+                audios: Vec::new(),
+                tool_calls: None,
+                tool_call_id: None,
+                reasoning_content: None,
+            }],
+            latest_user_text: "继续".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let messages = prepared_history_to_genai_messages(&prepared).expect("ok");
+        let texts = messages[0]
+            .content
+            .parts()
+            .iter()
+            .filter_map(|part| match part {
+                genai::chat::ContentPart::Text(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            texts.len(),
+            4,
+            "时间、正文、附加块直排，实际={:?}",
+            texts
+        );
+        assert!(!texts[0].starts_with("<system-reminder>"));
+        assert_eq!(texts[0], "[红豆] 2026-10-22T15:14");
+        assert_eq!(texts[1], "上一轮正文");
+        assert!(texts[2].contains("<active_plan index=\"1\">"));
+        assert_eq!(texts[3], "[IDE 上下文] src/main.rs");
     }
 
     fn history_pp_with_tool_calls(
@@ -1542,6 +1589,7 @@ mod openai_responses_genai_request_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         }
@@ -1666,6 +1714,7 @@ mod openai_responses_genai_request_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -2205,6 +2254,7 @@ mod openai_responses_genai_request_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -2238,6 +2288,7 @@ mod openai_responses_genai_request_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -2269,6 +2320,7 @@ mod openai_responses_genai_request_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -2323,6 +2375,7 @@ mod openai_responses_genai_request_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };

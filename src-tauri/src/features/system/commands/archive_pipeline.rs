@@ -1731,6 +1731,7 @@ mod archive_pipeline_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         }
@@ -1960,7 +1961,7 @@ mod archive_pipeline_tests {
         let mut user = test_message("u1", "user", "用户正文");
         user.extra_text_blocks = vec![
             "附件提取文本不应进入归档正文".to_string(),
-            "<memory_context>\n<id:memory-a>\n用户偏好短回复\n> 回归测试\n</id:memory-a>\n</memory_context>".to_string(),
+            "<memory_context>\n[id:memory-a] 用户偏好短回复\n> 回归测试\n</memory_context>".to_string(),
         ];
         user.provider_meta = Some(serde_json::json!({
             "hiddenPromptText": "隐藏提示不应进入归档正文",

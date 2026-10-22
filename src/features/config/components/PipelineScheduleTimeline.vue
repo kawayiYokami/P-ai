@@ -67,8 +67,6 @@ const stageLabelKeys: Record<string, string> = {
   "prepare_context.workspace_agents_ready": "config.logs.stages.workspaceReady",
   "prepare_context.todo_guide_ready": "config.logs.stages.todoGuideReady",
   "prepare_context.im_runtime_ready": "config.logs.stages.imReady",
-  "prepare_context.task_board_ready": "config.logs.stages.taskBoardReady",
-  "prepare_context.todo_board_ready": "config.logs.stages.todoBoardReady",
   "prepare_context.attachment_hints_ready": "config.logs.stages.attachmentHintsReady",
   "prepare_context.overrides_built": "config.logs.stages.overridesBuilt",
   "prepare_context.terminal_block_ready": "config.logs.stages.terminalBlockReady",

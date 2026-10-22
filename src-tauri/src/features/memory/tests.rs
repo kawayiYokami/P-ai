@@ -39,9 +39,9 @@
 
         let xml =
             build_memory_board_xml(&memories, &search_text, "").expect("should have one hit");
-        assert!(xml.starts_with("[id:m-user]\n"));
+        assert!(xml.starts_with("<memory_context>\n[id:m-user] "));
         assert!(xml.contains("user-hit"));
-        assert!(!xml.contains("<memory_context>"));
+        assert!(xml.contains("<memory_context>"));
         assert!(!xml.contains("assistant-only-hit"));
     }
 
@@ -185,7 +185,7 @@
         let xml =
             build_memory_board_xml(&memories, &search_text, "").expect("should produce board");
 
-        assert!(xml.starts_with("[id:m1]\n"));
+        assert!(xml.starts_with("<memory_context>\n[id:m1] "));
         assert_eq!(xml.matches("\n> ").count(), 7);
         assert!(xml.contains("rank-8"));
         assert!(xml.contains("rank-2"));

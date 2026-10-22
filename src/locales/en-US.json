@@ -1779,8 +1779,6 @@
         "workspaceReady": "Workspace Agents Ready",
         "todoGuideReady": "Todo Guide Ready",
         "imReady": "IM Runtime Ready",
-        "taskBoardReady": "Task Board Ready",
-        "todoBoardReady": "Todo Board Ready",
         "attachmentHintsReady": "Attachment Hints Ready",
         "overridesBuilt": "Overrides Built",
         "terminalBlockReady": "Terminal Context Ready",

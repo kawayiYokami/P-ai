@@ -315,7 +315,7 @@
             Some(now),
         );
         conv.user_profile_snapshot =
-            "[id:profile-1]\n偏好早晨回复\n> 近期交流稳定提到晨间安排"
+            "[id:profile-1] 偏好早晨回复\n> 近期交流稳定提到晨间安排"
                 .to_string();
 
         let fixed_system_prompt = build_core_system_prompt_text(
@@ -541,7 +541,7 @@
         let now = now_iso();
         let mut message = test_text_message("user", "继续", &now);
         message.extra_text_blocks.push(
-            "[id:m1]\n用户询问 codex 是什么\n> 无"
+            "[id:m1] 用户询问 codex 是什么\n> 无"
                 .to_string(),
         );
 
@@ -1118,6 +1118,7 @@
             latest_user_meta_text: "2026-02-11 17:30:45".to_string(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -1277,6 +1278,7 @@
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -1439,6 +1441,7 @@
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -1489,6 +1492,7 @@
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -1771,6 +1775,7 @@
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -2137,6 +2142,7 @@
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -3392,6 +3398,7 @@
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -3553,6 +3560,7 @@
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -3712,6 +3720,7 @@
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -3774,6 +3783,7 @@
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -4124,16 +4134,20 @@
                 "[系统提醒]\n固定快照".to_string(),
                 "普通附加块".to_string(),
             ],
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
 
         let expected = vec![
-            "[系统提醒]\n请在 20 个有效文本单位内进行回应。中文/日文/韩文按可见字形计 1，英语等按 Unicode 单词计 1，数字词和 Emoji 各计 1，标点与空白不计。",
-            "[系统提醒]\n固定快照",
-            "meta",
-            "触发消息",
-            "普通附加块",
+            format!(
+                "<system-reminder>\n{}\n{}\n{}\n</system-reminder>",
+                build_remote_im_group_reply_length_reminder(false, 20),
+                "[系统提醒]\n固定快照",
+                "普通附加块"
+            ),
+            "meta".to_string(),
+            "触发消息".to_string(),
         ];
         assert_eq!(prepared_prompt_latest_user_text_blocks(&prepared), expected);
 
@@ -5993,7 +6007,7 @@
             "新会话",
         );
 
-        assert!(conversation.user_profile_snapshot.contains("[id:"));
+        assert!(conversation.user_profile_snapshot.contains("<user_profile_snapshot>"));
         assert!(conversation.user_profile_snapshot.contains("本地用户长期偏好结构化回复"));
     }
 
@@ -11692,6 +11706,7 @@
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };

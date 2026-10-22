@@ -82,6 +82,7 @@ struct PreparedPrompt {
     latest_user_meta_text: String,
     latest_user_extra_text: String,
     latest_user_extra_blocks: Vec<String>,
+    latest_user_trailing_blocks: Vec<String>,
     latest_images: Vec<PreparedBinaryPayload>,
     latest_audios: Vec<PreparedBinaryPayload>,
 }
@@ -222,28 +223,45 @@ fn prepared_prompt_append_latest_user_extra_block(
     prepared_prompt_append_latest_user_extra_blocks(prepared, &[trimmed.to_string()]);
 }
 
-fn prepared_prompt_prepend_latest_user_extra_block(
+fn prepared_prompt_latest_user_trailing_blocks(prepared: &PreparedPrompt) -> Vec<String> {
+    normalize_prepared_prompt_extra_blocks(&prepared.latest_user_trailing_blocks)
+}
+
+fn prepared_prompt_set_latest_user_trailing_blocks(
     prepared: &mut PreparedPrompt,
-    block: impl AsRef<str>,
+    blocks: Vec<String>,
 ) {
-    let trimmed = block.as_ref().trim();
-    if trimmed.is_empty() {
-        return;
+    prepared.latest_user_trailing_blocks = normalize_prepared_prompt_extra_blocks(&blocks);
+}
+
+fn prepared_prompt_append_latest_user_trailing_blocks(
+    prepared: &mut PreparedPrompt,
+    blocks: &[String],
+) {
+    let mut merged = prepared_prompt_latest_user_trailing_blocks(prepared);
+    merged.extend(normalize_prepared_prompt_extra_blocks(blocks));
+    prepared_prompt_set_latest_user_trailing_blocks(prepared, merged);
+}
+
+// 前置提醒统一收进一个包裹块，整块排在用户正文之前。
+fn build_system_reminder_block(blocks: &[String]) -> Option<String> {
+    let normalized = normalize_prepared_prompt_extra_blocks(blocks);
+    if normalized.is_empty() {
+        return None;
     }
-    let mut merged = vec![trimmed.to_string()];
-    merged.extend(prepared_prompt_latest_user_extra_blocks(prepared));
-    prepared_prompt_set_latest_user_extra_blocks(prepared, merged);
+    Some(format!(
+        "<system-reminder>\n{}\n</system-reminder>",
+        normalized.join("\n")
+    ))
 }
 
 fn prepared_prompt_latest_user_text_blocks(prepared: &PreparedPrompt) -> Vec<String> {
     let mut blocks = Vec::<String>::new();
-    let extra_blocks = prepared_prompt_latest_user_extra_blocks(prepared);
-    blocks.extend(
-        extra_blocks
-            .iter()
-            .filter(|block| block.starts_with("[系统提醒]"))
-            .cloned(),
-    );
+    if let Some(reminder) =
+        build_system_reminder_block(&prepared_prompt_latest_user_extra_blocks(prepared))
+    {
+        blocks.push(reminder);
+    }
     for text in [
         prepared.latest_user_meta_text.trim(),
         prepared.latest_user_text.trim(),
@@ -252,11 +270,26 @@ fn prepared_prompt_latest_user_text_blocks(prepared: &PreparedPrompt) -> Vec<Str
             blocks.push(text.to_string());
         }
     }
-    blocks.extend(
-        extra_blocks
-            .into_iter()
-            .filter(|block| !block.starts_with("[系统提醒]")),
-    );
+    blocks.extend(prepared_prompt_latest_user_trailing_blocks(prepared));
+    blocks
+}
+
+// 历史消息唯一拼装入口：时间、正文、附加块按存量直排。真实请求、预览、快速文本共用此函数，不允许分叉。
+fn prepared_history_user_text_blocks(message: &PreparedHistoryMessage) -> Vec<String> {
+    let mut blocks = Vec::<String>::new();
+    if let Some(time_text) = &message.user_time_text {
+        if !time_text.trim().is_empty() {
+            blocks.push(time_text.clone());
+        }
+    }
+    if !message.text.trim().is_empty() {
+        blocks.push(message.text.clone());
+    }
+    for block in &message.extra_text_blocks {
+        if !block.trim().is_empty() {
+            blocks.push(block.clone());
+        }
+    }
     blocks
 }
 

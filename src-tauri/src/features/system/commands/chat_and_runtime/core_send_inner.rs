@@ -697,8 +697,6 @@ async fn send_chat_message_inner(
                 | "prepare_context.workspace_agents_ready"
                 | "prepare_context.todo_guide_ready"
                 | "prepare_context.im_runtime_ready"
-                | "prepare_context.task_board_ready"
-                | "prepare_context.todo_board_ready"
                 | "prepare_context.attachment_hints_ready"
                 | "prepare_context.overrides_built"
                   | "prepare_context.terminal_block_ready"
@@ -742,10 +740,6 @@ async fn send_chat_message_inner(
             "Todo 指南准备完成".to_string()
         } else if stage == "prepare_context.im_runtime_ready" {
             "IM 运行块准备完成".to_string()
-        } else if stage == "prepare_context.task_board_ready" {
-            "任务板准备完成".to_string()
-        } else if stage == "prepare_context.todo_board_ready" {
-            "会话 Todo 板准备完成".to_string()
         } else if stage == "prepare_context.attachment_hints_ready" {
             "附件提示块准备完成".to_string()
         } else if stage == "prepare_context.overrides_built" {
@@ -1815,18 +1809,14 @@ async fn send_chat_message_inner(
             &input.payload,
             used_canonical_latest_user_text,
         );
-        let has_chat_request_extra_blocks =
-            !trigger_only
-                && (!is_delegate_conversation
-                    || todo_enabled
-                    || attachment_relative_paths
-                        .iter()
-                        .any(|path| !path.trim().is_empty()));
+        let has_chat_request_extra_blocks = !trigger_only
+            && (!is_delegate_conversation
+                || attachment_relative_paths
+                    .iter()
+                    .any(|path| !path.trim().is_empty()));
         let chat_overrides = ChatPromptOverrides {
             latest_user_intent: has_chat_request_extra_blocks.then_some(
                 LatestUserPayloadIntent::ChatRequest {
-                    include_task_board: !is_delegate_conversation,
-                    include_todo_board: todo_enabled,
                     attachment_relative_paths,
                 },
             ),
@@ -3531,6 +3521,7 @@ mod core_send_inner_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: if latest_user_text.trim().is_empty() {
                 Vec::new()
             } else {

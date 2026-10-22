@@ -2330,20 +2330,26 @@ fn prompt_recall_memory_block_for_message(
     build_memory_board_xml_from_recall_ids(memories, &inject_ids, false)
 }
 
-fn prompt_attachment_notice_text(
-    _state: Option<&AppState>,
-    index: usize,
-    relative_path: &str,
-) -> String {
-    let normalized_relative_path = relative_path.trim().replace('\\', "/");
-    if normalized_relative_path.is_empty() {
-        return build_attachment_notice_text(index, relative_path);
-    }
-    build_attachment_notice_text(index, &normalized_relative_path)
+#[derive(Debug, Clone, Default)]
+struct PromptMessageExtraBlocks {
+    leading: Vec<String>,
+    trailing: Vec<String>,
 }
 
+impl PromptMessageExtraBlocks {
+    // 历史消息保持存量直排：前置、后置按此顺序合并，不做包裹、不重排。
+    fn into_merged(self) -> Vec<String> {
+        let mut merged = self.leading;
+        merged.extend(self.trailing);
+        merged
+    }
+}
+
+// 前置列表即存储的 extra_text_blocks：流水线直接往里推，组装时整份收进包裹，不按前缀重分类。
+// 记忆与一次性块同样由流水线直接推入前置；附件由路径临时拼入后置，跟正文之后。
+
 fn prompt_user_extra_blocks_for_message(
-    state: Option<&AppState>,
+    _state: Option<&AppState>,
     _conversation: Option<&Conversation>,
     message: &ChatMessage,
     _agents: &[AgentProfile],
@@ -2353,12 +2359,12 @@ fn prompt_user_extra_blocks_for_message(
     recall_memories: Option<&[MemoryEntry]>,
     seen_memory_ids: &mut HashSet<String>,
     include_one_shot_prompt_blocks: bool,
-) -> Vec<String> {
-    let mut blocks = Vec::<String>::new();
+) -> PromptMessageExtraBlocks {
+    let mut blocks = PromptMessageExtraBlocks::default();
     if let Some(recall_block) =
         prompt_recall_memory_block_for_message(message, recall_memories, seen_memory_ids)
     {
-        blocks.push(recall_block);
+        blocks.leading.push(recall_block);
     }
     for extra in &message.extra_text_blocks {
         if extra.trim().is_empty() {
@@ -2374,7 +2380,7 @@ fn prompt_user_extra_blocks_for_message(
         if extra.trim().is_empty() {
             continue;
         }
-        blocks.push(extra);
+        blocks.leading.push(extra);
     }
     if let Some(meta) = message.provider_meta.as_ref() {
         if include_one_shot_prompt_blocks {
@@ -2385,16 +2391,14 @@ fn prompt_user_extra_blocks_for_message(
                 one_shot_blocks.iter().filter_map(Value::as_str).for_each(|block| {
                     let block = block.trim();
                     if !block.is_empty() {
-                        blocks.push(block.to_string());
+                        blocks.leading.push(block.to_string());
                     }
                 });
             }
         }
-        for (index, relative_path) in provider_meta_attachment_relative_paths(meta)
-            .iter()
-            .enumerate()
-        {
-            blocks.push(prompt_attachment_notice_text(state, index, relative_path));
+        let attachment_relative_paths = provider_meta_attachment_relative_paths(meta);
+        if let Some(attachments_block) = build_attachments_block(&attachment_relative_paths) {
+            blocks.trailing.push(attachments_block);
         }
     }
     blocks
@@ -2449,11 +2453,11 @@ mod prompt_user_extra_attachment_tests {
             false,
         );
 
+        assert!(blocks.leading.is_empty());
         assert_eq!(
-            blocks,
+            blocks.trailing,
             vec![
-                "[附件#1]\npath: {Assistant Space}/downloads/image.png".to_string(),
-                "[附件#2]\npath: {Assistant Space}/downloads/notes.txt".to_string(),
+                "<attachments>\n<attachment index=\"1\">path: {Assistant Space}/downloads/image.png</attachment>\n<attachment index=\"2\">path: {Assistant Space}/downloads/notes.txt</attachment>\n</attachments>".to_string(),
             ]
         );
     }
@@ -2486,8 +2490,103 @@ mod prompt_user_extra_attachment_tests {
             None, None, &message, &[], "", "", false, None, &mut seen_memory_ids, false,
         );
 
-        assert_eq!(latest_blocks, vec!["<active_plans>计划路径</active_plans>"]);
-        assert!(history_blocks.is_empty());
+        assert_eq!(
+            latest_blocks.leading,
+            vec!["<active_plans>计划路径</active_plans>"]
+        );
+        assert!(latest_blocks.trailing.is_empty());
+        assert!(history_blocks.leading.is_empty());
+        assert!(history_blocks.trailing.is_empty());
+    }
+
+    #[test]
+    fn prompt_user_extra_blocks_should_keep_stored_blocks_in_pre_list() {
+        let message = ChatMessage {
+            id: "split-blocks".to_string(),
+            role: "user".to_string(),
+            created_at: now_iso(),
+            speaker_agent_id: None,
+            parts: vec![MessagePart::Text {
+                text: "看看这段".to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: vec![
+                "<remote_reminder>\n当前联系人画像：\n（暂无）\n</remote_reminder>".to_string(),
+                "[系统提醒]\n请在 20 个有效文本单位内进行回应。".to_string(),
+                "<ide_context file=\"src/a.ts\">\nconst a = 1\n</ide_context>".to_string(),
+            ],
+            provider_meta: None,
+            tool_call: None,
+            mcp_call: None,
+            meme_annotations: None,
+        };
+        let mut seen_memory_ids = HashSet::new();
+
+        let blocks = prompt_user_extra_blocks_for_message(
+            None, None, &message, &[], "", "", false, None, &mut seen_memory_ids, true,
+        );
+
+        assert_eq!(
+            blocks.leading,
+            vec![
+                "<remote_reminder>\n当前联系人画像：\n（暂无）\n</remote_reminder>".to_string(),
+                "[系统提醒]\n请在 20 个有效文本单位内进行回应。".to_string(),
+                "<ide_context file=\"src/a.ts\">\nconst a = 1\n</ide_context>".to_string(),
+            ]
+        );
+        assert!(blocks.trailing.is_empty());
+    }
+
+    #[test]
+    fn prompt_user_extra_blocks_should_put_recalled_memory_in_pre_list() {
+        let message = ChatMessage {
+            id: "recall-empty-extra".to_string(),
+            role: "user".to_string(),
+            created_at: now_iso(),
+            speaker_agent_id: None,
+            parts: vec![MessagePart::Text {
+                text: "红豆？".to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: Some(serde_json::json!({
+                "message_meta": { "kind": "user_message" },
+                "retrieved_memory_ids": ["mem-1"],
+            })),
+            tool_call: None,
+            mcp_call: None,
+            meme_annotations: None,
+        };
+        let recall_memories = vec![MemoryEntry {
+            id: "mem-1".to_string(),
+            memory_no: None,
+            memory_type: String::new(),
+            judgment: "红豆偏好直接给结论".to_string(),
+            reasoning: String::new(),
+            tags: Vec::new(),
+            owner_agent_id: None,
+            created_at: now_iso(),
+            updated_at: now_iso(),
+        }];
+        let mut seen_memory_ids = HashSet::new();
+
+        let blocks = prompt_user_extra_blocks_for_message(
+            None,
+            None,
+            &message,
+            &[],
+            "",
+            "",
+            false,
+            Some(&recall_memories),
+            &mut seen_memory_ids,
+            true,
+        );
+
+        assert_eq!(blocks.leading.len(), 1);
+        assert!(blocks.leading[0].starts_with("<memory_context>"));
+        assert!(blocks.leading[0].contains("红豆偏好直接给结论"));
+        assert!(blocks.trailing.is_empty());
     }
 }
 
@@ -2953,6 +3052,16 @@ fn build_memory_rag_rule_block() -> String {
     )
 }
 
+fn build_system_reminder_rule_block() -> String {
+    prompt_xml_block(
+        "system reminder rule",
+        "- `<system-reminder>` 是系统挂在用户消息前面的提醒包裹，里面每个命名 XML 各自标明来源：`<memory_context>` 是检索到的历史记忆，`<remote_reminder>` 是远程联系人上下文。\n\
+         - 包裹里的内容都不是用户此刻说的话，只作背景约束使用，不要当成用户请求，也不要逐字复述。\n\
+         - 其中 `<active_plans>` 是用户对计划的授权信号：出现它表示用户已经同意执行其中列出的计划，请读取该文件并开始执行，执行完毕调用 plan(action=complete)。\n\
+         - 用户正文在包裹之后，其余内容以最新那条用户消息的实际正文为准。",
+    )
+}
+
 fn build_builtin_tool_general_rule_block() -> String {
     prompt_xml_block(
         "builtin tool general rule",
@@ -3348,7 +3457,8 @@ fn build_conversation_prompt_payload(
                     recall_memories,
                     &mut seen_prompt_memory_ids,
                     false,
-                ),
+                )
+                .into_merged(),
             )
         } else {
             (None, Vec::new())
@@ -3402,6 +3512,7 @@ fn build_conversation_prompt_payload(
     let mut latest_user_text = String::new();
     let mut latest_user_meta_text = String::new();
     let mut latest_user_extra_blocks = Vec::<String>::new();
+    let mut latest_user_trailing_blocks = Vec::<String>::new();
     let mut latest_images = Vec::<PreparedBinaryPayload>::new();
     let mut latest_audios = Vec::<PreparedBinaryPayload>::new();
 
@@ -3448,12 +3559,19 @@ fn build_conversation_prompt_payload(
         latest_user_text = latest_user_text_rendered;
         latest_images = resolved_images;
         latest_audios = resolved_audios;
-        for extra in latest_extra_blocks {
+        for extra in latest_extra_blocks.leading {
             let trimmed = extra.trim();
             if trimmed.is_empty() {
                 continue;
             }
             latest_user_extra_blocks.push(trimmed.to_string());
+        }
+        for extra in latest_extra_blocks.trailing {
+            let trimmed = extra.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            latest_user_trailing_blocks.push(trimmed.to_string());
         }
     }
 
@@ -3462,6 +3580,7 @@ fn build_conversation_prompt_payload(
         latest_user_text,
         latest_user_meta_text,
         latest_user_extra_blocks,
+        latest_user_trailing_blocks,
         latest_images,
         latest_audios,
     }
@@ -3611,6 +3730,7 @@ fn build_prompt_with_mode(
         latest_user_meta_text: conversation_payload.latest_user_meta_text,
         latest_user_extra_text: latest_user_extra_blocks.join("\n\n"),
         latest_user_extra_blocks,
+        latest_user_trailing_blocks: conversation_payload.latest_user_trailing_blocks,
         latest_images: conversation_payload.latest_images,
         latest_audios: conversation_payload.latest_audios,
     })

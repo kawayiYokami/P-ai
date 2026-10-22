@@ -306,10 +306,29 @@ fn assistant_space_display_path(relative_path: &str) -> String {
 
 fn build_attachment_notice_text(index: usize, relative_path: &str) -> String {
     format!(
-        "[附件#{}]\npath: {}",
+        "<attachment index=\"{}\">path: {}</attachment>",
         index + 1,
         assistant_space_display_path(relative_path)
     )
+}
+
+// 附件属于用户发来的内容，整组跟在用户正文之后，不进入前置提醒包裹。
+fn build_attachments_block(relative_paths: &[String]) -> Option<String> {
+    let mut children = Vec::<String>::new();
+    for (index, relative_path) in relative_paths.iter().enumerate() {
+        let trimmed = relative_path.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        children.push(build_attachment_notice_text(index, trimmed));
+    }
+    if children.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "<attachments>\n{}\n</attachments>",
+        children.join("\n")
+    ))
 }
 
 fn queue_attachment_from_raw(

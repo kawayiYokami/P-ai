@@ -1779,8 +1779,6 @@
         "workspaceReady": "工作區智能體就緒",
         "todoGuideReady": "待辦指引就緒",
         "imReady": "聯繫人運行態就緒",
-        "taskBoardReady": "任務板就緒",
-        "todoBoardReady": "Todo 板就緒",
         "attachmentHintsReady": "附件提示就緒",
         "overridesBuilt": "覆蓋配置完成",
         "terminalBlockReady": "終端上下文就緒",

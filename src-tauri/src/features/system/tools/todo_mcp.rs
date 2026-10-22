@@ -130,21 +130,6 @@ fn todo_markdown_block(items: &[ConversationTodoItem]) -> Option<String> {
     Some(lines.join("\n"))
 }
 
-fn build_conversation_todo_board_block(conversation: &Conversation) -> Option<String> {
-    if conversation.current_todos.is_empty() {
-        return None;
-    }
-    let mut lines = Vec::<String>::new();
-    lines.push(format!("activeTodoCount: {}", conversation.current_todos.len()));
-    lines.push("todoCountSuggestion: 优先保持 3~7 步；过少容易失去追踪意义，过多容易失控".to_string());
-    for (idx, item) in conversation.current_todos.iter().enumerate() {
-        let todo_no = idx + 1;
-        lines.push(format!("todo[{todo_no}].content: {}", item.content.trim()));
-        lines.push(format!("todo[{todo_no}].status: {}", item.status.trim()));
-    }
-    Some(prompt_xml_block("todo board", lines.join("\n")))
-}
-
 fn build_todo_guide_block() -> String {
     prompt_xml_block(
         "todo guide",

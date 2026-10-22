@@ -18,8 +18,6 @@ struct ChatPromptOverrides {
 #[allow(dead_code)]
 enum LatestUserPayloadIntent {
     ChatRequest {
-        include_task_board: bool,
-        include_todo_board: bool,
         attachment_relative_paths: Vec<String>,
     },
     SummaryContext {
@@ -151,7 +149,12 @@ fn render_user_profile_memory_context_block(memories: &[MemoryEntry]) -> Option<
         .iter()
         .map(|memory| memory.id.clone())
         .collect::<Vec<_>>();
-    build_memory_board_xml_from_recall_ids(memories, &recall_ids, false)
+    // 画像快照要进系统提示，与用户消息里那块 <memory_context> 分开命名，避免同名标签指向两种来源。
+    build_memory_board_xml_from_recall_ids(memories, &recall_ids, false).map(|block| {
+        block
+            .replacen("<memory_context>", "<user_profile_snapshot>", 1)
+            .replacen("</memory_context>", "</user_profile_snapshot>", 1)
+    })
 }
 
 fn build_user_profile_snapshot_block(
@@ -403,6 +406,7 @@ fn apply_chat_latest_user_payload(
     latest_user_text: String,
     latest_user_meta_text: String,
     latest_user_extra_blocks: &[String],
+    latest_user_trailing_blocks: &[String],
     latest_user_extra_blocks_mode: LatestUserExtraBlocksMode,
     latest_images: Option<Vec<PreparedBinaryPayload>>,
     latest_audios: Option<Vec<PreparedBinaryPayload>>,
@@ -410,13 +414,25 @@ fn apply_chat_latest_user_payload(
     prepared.latest_user_text = latest_user_text;
     prepared.latest_user_meta_text = latest_user_meta_text;
     let normalized_extra_blocks = normalize_prepared_prompt_extra_blocks(latest_user_extra_blocks);
+    let normalized_trailing_blocks =
+        normalize_prepared_prompt_extra_blocks(latest_user_trailing_blocks);
     match latest_user_extra_blocks_mode {
         LatestUserExtraBlocksMode::Append => {
             prepared_prompt_append_latest_user_extra_blocks(prepared, &normalized_extra_blocks);
+            prepared_prompt_append_latest_user_trailing_blocks(
+                prepared,
+                &normalized_trailing_blocks,
+            );
         }
         LatestUserExtraBlocksMode::ReplaceIfNonEmpty => {
             if !normalized_extra_blocks.is_empty() {
                 prepared_prompt_set_latest_user_extra_blocks(prepared, normalized_extra_blocks);
+            }
+            if !normalized_trailing_blocks.is_empty() {
+                prepared_prompt_set_latest_user_trailing_blocks(
+                    prepared,
+                    normalized_trailing_blocks,
+                );
             }
         }
     }
@@ -514,7 +530,7 @@ mod prompt_assembly_tests {
         )
         .expect("build transient profile block")
         .expect("transient profile block should exist");
-        assert!(block.starts_with("[id:"));
+        assert!(block.starts_with("<user_profile_snapshot>"));
         assert!(!block.contains("<user profile snapshot>"));
         assert!(block.contains("远程用户"));
         assert!(block.contains(remote_user_id));
@@ -531,6 +547,7 @@ mod prompt_assembly_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: String::new(),
             latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -1040,8 +1057,6 @@ mod prompt_assembly_tests {
             None,
             Some(ChatPromptOverrides {
                 latest_user_intent: Some(LatestUserPayloadIntent::ChatRequest {
-                    include_task_board: false,
-                    include_todo_board: false,
                     attachment_relative_paths: vec!["downloads/loi.txt".to_string()],
                 }),
                 ..Default::default()
@@ -1055,13 +1070,12 @@ mod prompt_assembly_tests {
         assert_eq!(prepared.latest_user_text, "洛伊是谁");
 
         let blocks = prepared_prompt_latest_user_text_blocks(&prepared);
+        assert_eq!(blocks.len(), 3);
+        assert!(blocks[0].starts_with("[测试用户] "));
+        assert_eq!(blocks[1], "洛伊是谁");
         assert_eq!(
-            blocks,
-            vec![
-                prepared.latest_user_meta_text.clone(),
-                "洛伊是谁".to_string(),
-                build_attachment_notice_text(0, "downloads/loi.txt"),
-            ]
+            blocks[2],
+            "<attachments>\n<attachment index=\"1\">path: {Assistant Space}/downloads/loi.txt</attachment>\n</attachments>"
         );
 
         let messages = prepared_prompt_to_messages_json(&prepared);
@@ -1080,18 +1094,13 @@ mod prompt_assembly_tests {
             .collect::<Vec<_>>();
         assert_eq!(
             text_blocks,
-            vec![
-                prepared.latest_user_meta_text.as_str(),
-                "洛伊是谁",
-                build_attachment_notice_text(0, "downloads/loi.txt").as_str(),
-            ]
+            blocks.iter().map(String::as_str).collect::<Vec<_>>()
         );
     }
 
     #[test]
     fn apply_chat_latest_user_payload_should_replace_full_snapshot_extra_blocks_without_duplication() {
-        let memory_block =
-            "[id:959]\n记忆 A\n> 无".to_string();
+        let memory_block = "<memory_context>\n[id:959] 记忆 A\n</memory_context>".to_string();
         let mut prepared = PreparedPrompt {
             preamble: String::new(),
             history_messages: Vec::new(),
@@ -1099,6 +1108,7 @@ mod prompt_assembly_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: memory_block.clone(),
             latest_user_extra_blocks: vec![memory_block.clone()],
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -1108,6 +1118,7 @@ mod prompt_assembly_tests {
             "我有发截图吗？".to_string(),
             String::new(),
             &[memory_block.clone()],
+            &[],
             LatestUserExtraBlocksMode::ReplaceIfNonEmpty,
             None,
             None,
@@ -1115,14 +1126,16 @@ mod prompt_assembly_tests {
 
         assert_eq!(prepared.latest_user_extra_blocks.len(), 1);
         assert_eq!(prepared.latest_user_extra_blocks[0], memory_block);
-        assert_eq!(prepared.latest_user_extra_text.matches("[id:959]").count(), 1);
+        assert_eq!(
+            prepared.latest_user_extra_text.matches("[id:959]").count(),
+            1
+        );
     }
 
     #[test]
     fn apply_chat_latest_user_payload_should_append_incremental_extra_blocks_after_memory_block() {
-        let memory_block =
-            "[id:959]\n记忆 A\n> 无".to_string();
-        let task_block = "<task_board>\n待办一项\n</task_board>".to_string();
+        let memory_block = "<memory_context>\n[id:959] 记忆 A\n</memory_context>".to_string();
+        let later_block = "<late block>\n后置块\n</late block>".to_string();
         let mut prepared = PreparedPrompt {
             preamble: String::new(),
             history_messages: Vec::new(),
@@ -1130,6 +1143,7 @@ mod prompt_assembly_tests {
             latest_user_meta_text: String::new(),
             latest_user_extra_text: memory_block.clone(),
             latest_user_extra_blocks: vec![memory_block.clone()],
+            latest_user_trailing_blocks: Vec::new(),
             latest_images: Vec::new(),
             latest_audios: Vec::new(),
         };
@@ -1138,7 +1152,8 @@ mod prompt_assembly_tests {
             &mut prepared,
             "我有发截图吗？".to_string(),
             String::new(),
-            &[task_block.clone()],
+            &[later_block.clone()],
+            &["<attachments>\n<attachment index=\"1\">path: {Assistant Space}/downloads/a.png</attachment>\n</attachments>".to_string()],
             LatestUserExtraBlocksMode::Append,
             None,
             None,
@@ -1146,8 +1161,21 @@ mod prompt_assembly_tests {
 
         assert_eq!(prepared.latest_user_extra_blocks.len(), 2);
         assert_eq!(prepared.latest_user_extra_blocks[0], memory_block);
-        assert_eq!(prepared.latest_user_extra_blocks[1], task_block);
-        assert_eq!(prepared.latest_user_extra_text.matches("[id:959]").count(), 1);
+        assert_eq!(prepared.latest_user_extra_blocks[1], later_block);
+        assert_eq!(prepared.latest_user_trailing_blocks.len(), 1);
+        assert_eq!(
+            prepared.latest_user_extra_text.matches("[id:959]").count(),
+            1
+        );
+
+        let blocks = prepared_prompt_latest_user_text_blocks(&prepared);
+        assert_eq!(blocks.len(), 3);
+        assert!(blocks[0].starts_with("<system-reminder>"));
+        assert!(blocks[0].contains(&memory_block));
+        assert!(blocks[0].contains(&later_block));
+        assert!(blocks[0].ends_with("</system-reminder>"));
+        assert_eq!(blocks[1], "我有发截图吗？");
+        assert!(blocks[2].starts_with("<attachments>"));
     }
 
     #[test]

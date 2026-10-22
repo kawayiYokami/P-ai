@@ -248,13 +248,14 @@ fn build_remote_im_reply_delegate_system_reminder(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let mut reminder = format!("[系统提醒]\n当前联系人画像：\n{profile}");
+    let mut reminder = format!("<remote_reminder>\n当前联系人画像：\n{profile}");
     if let Some(processing_block) =
         build_remote_im_reply_delegate_processing_reminder(&processing_messages)
     {
         reminder.push_str("\n\n");
         reminder.push_str(&processing_block);
     }
+    reminder.push_str("\n</remote_reminder>");
     reminder
 }
 

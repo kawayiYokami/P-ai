@@ -3,7 +3,6 @@ const TASK_STATE_ACTIVE: &str = "active";
 const TASK_STATE_COMPLETED: &str = "completed";
 const TASK_STATE_FAILED_COMPLETED: &str = "failed_completed";
 const TASK_SCHEDULER_FALLBACK_SECONDS: u64 = 60;
-const TASK_MAX_BOARD_ITEMS: usize = 4;
 const TASK_TARGET_SCOPE_DESKTOP: &str = "desktop";
 const TASK_TARGET_SCOPE_CONTACT: &str = "contact";
 const TASK_BOUND_CONVERSATION_MISSING_CONCLUSION: &str = "绑定会话不存在，任务已终止。";
@@ -118,12 +117,6 @@ struct TaskRecordStored {
     updated_at_utc: String,
     last_triggered_at_utc: Option<String>,
     completed_at_utc: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TaskBoardSnapshot {
-    tasks: Vec<TaskEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -623,25 +623,9 @@ fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
         }
 
         if hm.role == "user" {
+            // 历史消息冻结：与真实请求同一入口 prepared_history_user_text_blocks。
             let mut content = Vec::<Value>::new();
-            if let Some(time_text) = &hm.user_time_text {
-                if !time_text.trim().is_empty() {
-                    content.push(serde_json::json!({
-                        "type": "text",
-                        "text": time_text,
-                    }));
-                }
-            }
-            if !hm.text.trim().is_empty() {
-                content.push(serde_json::json!({
-                    "type": "text",
-                    "text": hm.text,
-                }));
-            }
-            for block in &hm.extra_text_blocks {
-                if block.trim().is_empty() {
-                    continue;
-                }
+            for block in prepared_history_user_text_blocks(hm) {
                 content.push(serde_json::json!({
                     "type": "text",
                     "text": block,

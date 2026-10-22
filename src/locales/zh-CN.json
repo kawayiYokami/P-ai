@@ -1779,8 +1779,6 @@
         "workspaceReady": "工作区智能体就绪",
         "todoGuideReady": "待办指引就绪",
         "imReady": "联系人运行态就绪",
-        "taskBoardReady": "任务板就绪",
-        "todoBoardReady": "Todo 板就绪",
         "attachmentHintsReady": "附件提示就绪",
         "overridesBuilt": "覆盖配置完成",
         "terminalBlockReady": "终端上下文就绪",

@@ -383,7 +383,7 @@ async fn apply_prompt_image_fallbacks_to_prepared(
             }
         }
         if !converted_blocks.is_empty() {
-            prepared_prompt_append_latest_user_extra_blocks(prepared, &converted_blocks);
+            prepared_prompt_append_latest_user_trailing_blocks(prepared, &converted_blocks);
         }
         changed = true;
     }

@@ -395,59 +395,6 @@ fn task_is_due(entry: &TaskRecordStored, now: OffsetDateTime) -> bool {
         .unwrap_or(false)
 }
 
-fn task_build_board_snapshot(data_path: &PathBuf) -> Result<TaskBoardSnapshot, String> {
-    let tasks = task_store_list_tasks(data_path)?;
-    Ok(TaskBoardSnapshot {
-        tasks: tasks
-            .into_iter()
-            .filter(|item| {
-                item.completion_state == TASK_STATE_ACTIVE
-                    && item
-                        .conversation_id
-                        .as_deref()
-                        .map(task_conversation_id_is_system_notification)
-                        != Some(true)
-            })
-            .take(TASK_MAX_BOARD_ITEMS)
-            .collect(),
-    })
-}
-
-fn build_hidden_task_board_block(state: &AppState) -> Option<String> {
-    let snapshot = task_build_board_snapshot(&state.data_path).ok()?;
-    if snapshot.tasks.is_empty() {
-        return None;
-    }
-    let mut lines = Vec::<String>::new();
-    lines.push(format!("currentLocalTime: {}", now_local_rfc3339()));
-    lines.push("timeFormatNote: all task times below use local RFC3339 with timezone offset; copy the same format directly when writing run_at or end_at".to_string());
-    lines.push(format!("activeTaskCount: {}", snapshot.tasks.len()));
-    for (idx, task) in snapshot.tasks.iter().enumerate() {
-        let task_no = idx + 1;
-        lines.push(format!("task[{task_no}].id: {}", task.task_id));
-        lines.push(format!("task[{task_no}].goal: {}", task.goal.trim()));
-        if !task.todo.trim().is_empty() {
-            lines.push(format!("task[{task_no}].how: {}", task.todo.trim()));
-        }
-        if !task.why.trim().is_empty() {
-            lines.push(format!("task[{task_no}].why: {}", task.why.trim()));
-        }
-        if let Some(run_at) = task.trigger.run_at.as_deref() {
-            lines.push(format!("task[{task_no}].run_at: {}", run_at));
-        }
-        if let Some(cron_expression) = task.trigger.cron_expression.as_deref() {
-            lines.push(format!("task[{task_no}].cron_expression: {}", cron_expression));
-        }
-        if let Some(end_at) = task.trigger.end_at.as_deref() {
-            lines.push(format!("task[{task_no}].end_at: {}", end_at));
-        }
-        if let Some(next_run_at) = task.trigger.next_run_at.as_deref() {
-            lines.push(format!("task[{task_no}].next_run_at: {}", next_run_at));
-        }
-    }
-    Some(prompt_xml_block("task board", lines.join("\n")))
-}
-
 fn task_system_delegate_title(task: &TaskRecordStored) -> String {
     let goal = task_goal_from_legacy_fields(&task.title, &task.goal);
     let compact = goal.trim().chars().take(32).collect::<String>();

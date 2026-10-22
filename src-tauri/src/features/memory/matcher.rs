@@ -1195,7 +1195,9 @@ fn build_memory_board_xml_from_recall_ids(
         return None;
     }
 
-    Some(
+    // 外层是 XML 看板，内部是纯粹的记忆，一行一行：[id:xxx] 正文（id 后不换行）。
+    Some(format!(
+        "<memory_context>\n{}\n</memory_context>",
         ordered_memories
             .into_iter()
             .map(|memory| {
@@ -1203,22 +1205,22 @@ fn build_memory_board_xml_from_recall_ids(
                     let reasoning = memory.reasoning.trim();
                     let display_reasoning = if reasoning.is_empty() { "无" } else { reasoning };
                     format!(
-                        "[id:{}]\n{}\n> {}",
+                        "[id:{}] {}\n> {}",
                         memory.display_id(),
                         memory.judgment.trim(),
                         display_reasoning
                     )
                 } else {
                     format!(
-                        "[id:{}]\n{}",
+                        "[id:{}] {}",
                         memory.display_id(),
-                        memory.judgment.trim(),
+                        memory.judgment.trim()
                     )
                 }
             })
             .collect::<Vec<_>>()
-            .join("\n"),
-    )
+            .join("\n")
+    ))
 }
 
 #[cfg(test)]
