@@ -84,6 +84,7 @@ fn deep_recall_collect_messages(
     meta: &ConversationMetaView,
     agents: &[AgentProfile],
     user_alias: &str,
+    skip_live_block: bool,
 ) -> Result<Vec<DeepRecallMessage>, String> {
     let paths = message_store::message_store_paths(&state.data_path, &meta.id)?;
     let archived = deep_recall_conversation_is_archived(meta);
@@ -92,8 +93,9 @@ fn deep_recall_collect_messages(
     };
     let mut out = Vec::<DeepRecallMessage>::new();
     for block in page.blocks {
-        // 活跃块属于当前正在进行的对话，不纳入回忆范围（与 chat_history 收集边界一致）。
-        if !archived && block.is_latest {
+        // 只有发起本次回忆的那个会话才跳过活跃块：正在聊的内容不该当成回忆被搬回来。
+        // 其他会话的活跃块只是「最近一段」而已，不纳入会直接漏掉最新记忆。
+        if !archived && skip_live_block && block.is_latest {
             continue;
         }
         let Some(block_page) =
@@ -116,12 +118,14 @@ fn deep_recall_collect_messages(
     Ok(out)
 }
 
-/// 收集某个人格可回忆的会话：本地会话 + 归档 + 联系人会话，跳过委托会话与活跃块。
+/// 收集某个人格可回忆的会话：本地会话 + 归档 + 联系人会话，跳过委托会话。
 /// 只收归属该人格的会话——索引本身就是按人格定制的，非本人会话连读都不读。
+/// 只有 `live_block_skip_conversation_id` 指向的那个会话（发起本次回忆的会话）跳过活跃块。
 /// 会话序号按创建时间升序全局编号，会话内消息按时间顺序编号。
 fn deep_recall_collect_conversations(
     state: &AppState,
     agent_id: &str,
+    live_block_skip_conversation_id: Option<&str>,
 ) -> Result<Vec<DeepRecallConversation>, String> {
     let agents = state_read_agents_cached(state)?;
     let chat_index = state_read_chat_index_cached(state)?;
@@ -167,7 +171,16 @@ fn deep_recall_collect_conversations(
             continue;
         };
         let owner_agent_id = conversation_meta.agent_id.trim().to_string();
-        let messages = deep_recall_collect_messages(state, &conversation_meta, &agents, &user_alias)?;
+        let skip_live_block = live_block_skip_conversation_id
+            .map(|skip_id| skip_id == conversation_meta.id.trim())
+            .unwrap_or(false);
+        let messages = deep_recall_collect_messages(
+            state,
+            &conversation_meta,
+            &agents,
+            &user_alias,
+            skip_live_block,
+        )?;
         if messages.is_empty() {
             skipped_no_messages += 1;
             continue;
@@ -277,6 +290,32 @@ fn deep_recall_build_index(
     })
 }
 
+/// 发起本次回忆的那个会话 id：委托会话记录里记录的根会话。
+/// 只有它需要跳过活跃块——正在聊的内容不该被当成回忆搬回来；
+/// 其他会话的活跃块只是「最近一段」，一起跳过会把最新记忆整段漏掉。
+fn deep_recall_live_block_skip_conversation_id(
+    state: &AppState,
+    owner_key: &str,
+) -> Option<String> {
+    let owner_key = owner_key.trim();
+    if owner_key.is_empty() {
+        return None;
+    }
+    match delegate_conversation_store_read(&state.data_path, owner_key) {
+        Ok(Some(conversation)) => conversation
+            .root_conversation_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        Ok(None) => None,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[深度回忆] 读取发起会话失败，本次不跳过任何活跃块 owner_key={owner_key} 错误={err:?}"
+            ));
+            None
+        }
+    }
+}
+
 /// 取当前委托会话的内存索引；同槽命中直接复用，否则按人格收集并构建后写入本槽。
 fn deep_recall_index_for_key(
     state: &AppState,
@@ -292,7 +331,12 @@ fn deep_recall_index_for_key(
             return Ok(cached.clone());
         }
     }
-    let conversations = deep_recall_collect_conversations(state, agent_id)?;
+    let skip_conversation_id = deep_recall_live_block_skip_conversation_id(state, &owner_key);
+    let conversations = deep_recall_collect_conversations(
+        state,
+        agent_id,
+        skip_conversation_id.as_deref(),
+    )?;
     let cached = std::sync::Arc::new(deep_recall_build_index(&owner_key, conversations)?);
     let mut cache = deep_recall_index_cache()
         .lock()
