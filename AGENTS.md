@@ -156,7 +156,7 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 - 执行 Cargo 验证时，workdir 一律固定在仓库根，`CARGO_TARGET_DIR` 只写仓库内全路径 `src-tauri/target-tests`；不存在相对路径简写，禁止在 `src-tauri/` 内直接执行验证。若误建了根目录 `target-tests/` 或 `src-tauri/src-tauri/target-tests/` 等错误目录，必须立刻删除并改回仓库约定路径。
 - `cargo test` 位置参数一次只能直接接收一个测试名；需要跑多个离散测试时，必须分别执行多条命令，或改用能同时覆盖目标的单个过滤模式，不能把多个测试名直接并列写在同一条 `cargo test` 后面。
 - 本地 Cargo 缓存清理优先使用 `cargo-reclaim` trim（只回收过期 incremental/deps/build 缓存，保留最终二进制与热构建产物）；轻量清 `incremental` 仍可用 `pnpm clean:cargo-cache`，整目录删除用 `pnpm clean:cargo-cache:all`；不要手搓其他 `target-*` 清理路径。
-- 与用户沟通时不要主动暴露本机硬盘绝对路径，优先使用仓库内相对路径表述。
+- 项目代码、配置、测试与日志里禁止硬编码本机硬盘绝对路径，统一用相对仓库根的路径或运行时推导的路径。
 - 提交前仍必须修复并跑通本次改动影响到的必要测试；“禁止无用测试”不等于跳过必要验证。
 
 ### 更新与发布规则
