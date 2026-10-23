@@ -241,6 +241,38 @@ fn capture_once_xcap(
     Ok((rgba, width, height, bounds, capture_ms))
 }
 
+/// 在截图上绘制网格参考线：把图面按 cols/rows 等分，画浅灰半透线（不含外框）。
+/// 画在缩放后的图面上，线宽固定 1px，不会被缩放抹糊；刻意避开红/蓝等语义色，避免被误认成元素矩形。
+/// 份数由调用方限制在合理区间（见 operate 解析），这里只做防御性收敛。
+fn draw_screen_grid(image: &mut image::RgbaImage, grid: ScreenGrid) {
+    let cols = grid.cols.max(1);
+    let rows = grid.rows.max(1);
+    let width = image.width();
+    let height = image.height();
+    if width == 0 || height == 0 {
+        return;
+    }
+    const LINE_COLOR: image::Rgba<u8> = image::Rgba([200, 200, 200, 160]);
+    for i in 1..cols {
+        let x = (u64::from(width) * u64::from(i) / u64::from(cols)) as u32;
+        if x == 0 || x >= width {
+            continue;
+        }
+        for y in 0..height {
+            image.put_pixel(x, y, LINE_COLOR);
+        }
+    }
+    for i in 1..rows {
+        let y = (u64::from(height) * u64::from(i) / u64::from(rows)) as u32;
+        if y == 0 || y >= height {
+            continue;
+        }
+        for x in 0..width {
+            image.put_pixel(x, y, LINE_COLOR);
+        }
+    }
+}
+
 fn encode_screenshot_response(
     input: &ScreenshotRequest,
     rgba: &[u8],
@@ -265,7 +297,8 @@ fn encode_screenshot_response(
     // F2：调用方给像素预算时等比缩小到预算内（默认保持全尺寸，历史行为不变）
     let full_pixels = u64::from(width) * u64::from(height);
     let target_pixel_budget = input.max_pixels.unwrap_or(full_pixels).min(full_pixels).max(1);
-    let normalized = normalize_rgba_image_for_llm_request_with_options(
+    let grid = input.grid;
+    let normalized = normalize_rgba_image_for_llm_request_with_overlay(
         rgba,
         width,
         height,
@@ -274,6 +307,11 @@ fn encode_screenshot_response(
             webp_quality: input.webp_quality,
             max_source_bytes: u64::MAX,
             max_dimension: IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_DIMENSION,
+        },
+        |image| {
+            if let Some(grid) = grid {
+                draw_screen_grid(image, grid);
+            }
         },
     )
     .map_err(DesktopToolError::internal_error)?;
@@ -503,6 +541,7 @@ fn encode_screenshot_response_should_reject_over_10k_capture() {
         webp_quality: 75.0,
         include_base64: true,
         max_pixels: None,
+        grid: None,
     };
     let width = 10_001u32;
     let height = 8u32;
@@ -541,6 +580,7 @@ fn encode_screenshot_response_should_skip_base64_and_save_file_when_disabled() {
         webp_quality: 75.0,
         include_base64: false,
         max_pixels: None,
+        grid: None,
     };
     let width = 64u32;
     let height = 64u32;
@@ -571,4 +611,29 @@ fn encode_screenshot_response_should_skip_base64_and_save_file_when_disabled() {
         "screenshot file should exist on disk: {saved}"
     );
     let _ = std::fs::remove_file(&saved);
+}
+
+#[test]
+fn draw_screen_grid_should_stroke_equal_parts_without_touching_border() {
+    let mut image = image::RgbaImage::from_pixel(80, 60, image::Rgba([0, 0, 0, 255]));
+    draw_screen_grid(&mut image, ScreenGrid { cols: 4, rows: 3 });
+    // 4 列 3 行各产生 3 条与 2 条等分线：x=20/40/60，y=20/40
+    for x in [20u32, 40, 60] {
+        assert_ne!(image.get_pixel(x, 0).0[0], 0, "竖线应出现在 x={x}");
+    }
+    for y in [20u32, 40] {
+        assert_ne!(image.get_pixel(0, y).0[0], 0, "横线应出现在 y={y}");
+    }
+    // 边界与被非等分位置保持原样（不画外框，避免被误读成元素矩形）
+    assert_eq!(image.get_pixel(0, 0).0[0], 0);
+    assert_eq!(image.get_pixel(10, 10).0[0], 0);
+    assert_eq!(image.get_pixel(79, 59).0[0], 0);
+}
+
+#[test]
+fn draw_screen_grid_should_be_noop_on_single_part() {
+    // 1x1 没有等分点，调用方已在解析阶段拦截；这里确认绘制本身不会碰图面
+    let mut image = image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 0, 0, 255]));
+    draw_screen_grid(&mut image, ScreenGrid { cols: 1, rows: 1 });
+    assert!(image.pixels().all(|p| p.0[0] == 0));
 }

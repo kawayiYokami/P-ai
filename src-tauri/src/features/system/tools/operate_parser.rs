@@ -311,7 +311,7 @@ enum DesktopScriptAction {
     WaitUntil { line: usize, condition: WaitCondition, timeout: std::time::Duration },
     WindowList { line: usize },
     WindowActivate { line: usize, target: ForegroundTarget },
-    Screenshot { line: usize, mode: ScreenshotModeSpec, save_path: Option<String>, quality: f32, elements: bool, include_text: bool, max_pixels: Option<u64> },
+    Screenshot { line: usize, mode: ScreenshotModeSpec, save_path: Option<String>, quality: f32, elements: bool, include_text: bool, max_pixels: Option<u64>, grid: Option<ScreenGrid> },
     /// 窗口变量声明：`w = app "记事本"`，本次调用内有效，重复声明即覆盖
     AppDeclare { line: usize, var: String, name: String },
     /// 变量动作：`w click "保存"` / `w setvalue "用户名" = "admin"` / `w click @960,540`
@@ -914,7 +914,7 @@ fn parse_screenshot_line(line_no: usize, tokens: &[String]) -> DesktopToolResult
             other => return Err(operate_line_error(line_no, "screenshot", format!("非法参数 `{other}`"))),
         }
     }
-    let params = parse_named_params(line_no, "screenshot", &named_tokens, &["region", "save", "quality", "elements", "text", "window_id", "window", "monitor", "max_pixels"])?;
+    let params = parse_named_params(line_no, "screenshot", &named_tokens, &["region", "save", "quality", "elements", "text", "window_id", "window", "monitor", "max_pixels", "grid"])?;
     if let Some(raw) = params.get("window_id") {
         if !matches!(mode, ScreenshotModeSpec::Desktop) {
             return Err(operate_line_error(line_no, "screenshot", "非法：window_id 与 focused_window/region/window 不能同时出现".to_string()));
@@ -975,7 +975,34 @@ fn parse_screenshot_line(line_no: usize, tokens: &[String]) -> DesktopToolResult
         }
         Ok(parsed)
     }).transpose()?;
-    Ok(DesktopScriptAction::Screenshot { line: line_no, mode, save_path, quality, elements, include_text, max_pixels })
+    let grid = params.get("grid").map(|v| parse_screen_grid(line_no, v)).transpose()?;
+    Ok(DesktopScriptAction::Screenshot { line: line_no, mode, save_path, quality, elements, include_text, max_pixels, grid })
+}
+
+/// 解析 `grid=列x行`（也接受 `*` 分隔，如 `grid=8x6` / `grid=8*6`）。
+/// 份数范围限定 2~32：低于 2 没有等分点、画不出任何线，直接报错而不是静默出干净图；
+/// 高于 32 线密到遮住界面内容，反而干扰模型看图。
+fn parse_screen_grid(line_no: usize, raw: &str) -> DesktopToolResult<ScreenGrid> {
+    let value = strip_quoted_value(raw).unwrap_or_else(|| raw.trim().to_string());
+    let parts = value
+        .split(|c| c == 'x' || c == 'X' || c == '*')
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    if parts.len() != 2 {
+        return Err(operate_line_error(line_no, "screenshot", format!("grid 非法：必须使用 列x行 形式（如 grid=8x6），当前为 `{raw}`")));
+    }
+    let parse_count = |label: &str, text: &str| -> DesktopToolResult<u32> {
+        let parsed = text.parse::<u32>().map_err(|_| {
+            operate_line_error(line_no, "screenshot", format!("grid 非法：{label}必须是整数，当前为 `{text}`"))
+        })?;
+        if !(2..=32).contains(&parsed) {
+            return Err(operate_line_error(line_no, "screenshot", format!("grid 非法：{label}必须在 2~32 之间，当前为 `{text}`")));
+        }
+        Ok(parsed)
+    };
+    let cols = parse_count("列数", parts[0])?;
+    let rows = parse_count("行数", parts[1])?;
+    Ok(ScreenGrid { cols, rows })
 }
 
 /// `clipboard read` / `clipboard write "内容"`（A4）：剪贴板当数据通道用。

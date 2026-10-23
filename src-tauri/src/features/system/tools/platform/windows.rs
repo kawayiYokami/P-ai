@@ -6,10 +6,15 @@
 // - 控件树：手写 UIA COM vtable 绑定（不引入 windows crate，仅 windows-core + windows-sys）
 
 use super::{AppClickOutcome, AppTarget, MAX_ELEMENTS, UiElementInfo, WindowInfo};
+use crate::{runtime_log_info, runtime_log_warn};
 
-// ==================== UI Automation 最小绑定 ====================
-// 接口定义复制自 windows-0.61.3 生成代码（windows_core::imp::define_interface! 宏），
-// 仅保留本项目用到的 4 个接口与 8 个方法；未用到的方法槽位用 usize 占位（宽度一致，偏移正确）。
+// ==================== UI Automation 绑定 ====================
+// 接口定义复制自 windows-0.61.3 生成代码（windows_core::imp::define_interface! 宏）。
+//
+// 关键约束：IUIAutomation 的 vtable 槽位必须全量声明，即使本项目用不到。
+// 原因是 IUIAutomation2 等派生接口的 vtable 直接内嵌基础 vtable（base__: IUIAutomation_Vtbl），
+// 少写一个占位就会让派生接口的方法指到错误的函数上——不会报错，而是静默调用别的函数。
+// 新增派生接口时，一律按 SDK 声明顺序在末尾追加，未用到的槽位保留 usize 占位。
 // UIA_CONTROLTYPE_ID / UIA_*ControlTypeId 沿用 Windows SDK 官方命名，便于对照微软文档。
 
 use windows_core::imp::define_interface;
@@ -124,7 +129,10 @@ pub fn control_type_name(ct: UIA_CONTROLTYPE_ID) -> &'static str {
     }
 }
 
-// ==================== IUIAutomation ====================
+// ==================== IUIAutomation / IUIAutomation2 ====================
+//
+// 槽位顺序必须与 Windows SDK 声明一致：IUIAutomation2 的 vtable 接在 IUIAutomation 全部方法之后，
+// 少写一个占位就会让 SetConnectionTimeout 指到别的函数上。未用到的槽位统一 usize 占位。
 
 define_interface!(IUIAutomation, IUIAutomation_Vtbl, 0x30cbe57d_d9d0_452a_ab13_7ac5ac4825ee);
 interface_hierarchy!(IUIAutomation, windows_core::IUnknown);
@@ -152,6 +160,90 @@ pub struct IUIAutomation_Vtbl {
     _content_view_condition: usize,
     _create_cache_request: usize,
     pub CreateTrueCondition: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    _create_false_condition: usize,
+    _create_property_condition: usize,
+    _create_property_condition_ex: usize,
+    _create_and_condition: usize,
+    _create_and_condition_from_array: usize,
+    _create_and_condition_from_native_array: usize,
+    _create_or_condition: usize,
+    _create_or_condition_from_array: usize,
+    _create_or_condition_from_native_array: usize,
+    _create_not_condition: usize,
+    _add_automation_event_handler: usize,
+    _remove_automation_event_handler: usize,
+    _add_property_changed_event_handler_native_array: usize,
+    _add_property_changed_event_handler: usize,
+    _remove_property_changed_event_handler: usize,
+    _add_structure_changed_event_handler: usize,
+    _remove_structure_changed_event_handler: usize,
+    _add_focus_changed_event_handler: usize,
+    _remove_focus_changed_event_handler: usize,
+    _remove_all_event_handlers: usize,
+    _int_native_array_to_safe_array: usize,
+    _int_safe_array_to_native_array: usize,
+    _rect_to_variant: usize,
+    _variant_to_rect: usize,
+    _safe_array_to_rect_native_array: usize,
+    _create_proxy_factory_entry: usize,
+    _proxy_factory_mapping: usize,
+    _get_property_programmatic_name: usize,
+    _get_pattern_programmatic_name: usize,
+    _poll_for_potential_supported_patterns: usize,
+    _poll_for_potential_supported_properties: usize,
+    _check_not_supported: usize,
+    _reserved_not_supported_value: usize,
+    _reserved_mixed_attribute_value: usize,
+    _element_from_iaccessible: usize,
+    _element_from_iaccessible_build_cache: usize,
+}
+
+// IUIAutomation2：只为拿协议层超时能力。v1 的 CUIAutomation 没有超时，
+// 目标窗口的 UI 线程一旦停止泵消息，调用就会无限阻塞；v2 的 ConnectionTimeout/TransactionTimeout
+// 让这类调用以 ERROR_TIMEOUT 返回，把「挂死」变成「可上报的失败」。
+define_interface!(IUIAutomation2, IUIAutomation2_Vtbl, 0x34723aff_0c9d_49d0_9896_7ab52df8cd8a);
+interface_hierarchy!(IUIAutomation2, windows_core::IUnknown, IUIAutomation);
+
+impl core::ops::Deref for IUIAutomation2 {
+    type Target = IUIAutomation;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+
+#[allow(non_snake_case)]
+#[repr(C)]
+pub struct IUIAutomation2_Vtbl {
+    pub base__: IUIAutomation_Vtbl,
+    _auto_set_focus: usize,
+    _set_auto_set_focus: usize,
+    pub ConnectionTimeout: unsafe extern "system" fn(*mut core::ffi::c_void, *mut u32) -> windows_core::HRESULT,
+    pub SetConnectionTimeout: unsafe extern "system" fn(*mut core::ffi::c_void, u32) -> windows_core::HRESULT,
+    pub TransactionTimeout: unsafe extern "system" fn(*mut core::ffi::c_void, *mut u32) -> windows_core::HRESULT,
+    pub SetTransactionTimeout: unsafe extern "system" fn(*mut core::ffi::c_void, u32) -> windows_core::HRESULT,
+}
+
+#[allow(non_snake_case)]
+impl IUIAutomation2 {
+    pub unsafe fn ConnectionTimeout(&self) -> windows_core::Result<u32> {
+        let mut result = 0u32;
+        let hr = (windows_core::Interface::vtable(self).ConnectionTimeout)(windows_core::Interface::as_raw(self), &mut result);
+        if hr.is_ok() { Ok(result) } else { Err(hr.into()) }
+    }
+
+    pub unsafe fn SetConnectionTimeout(&self, timeout: u32) -> windows_core::Result<()> {
+        (windows_core::Interface::vtable(self).SetConnectionTimeout)(windows_core::Interface::as_raw(self), timeout).ok()
+    }
+
+    pub unsafe fn TransactionTimeout(&self) -> windows_core::Result<u32> {
+        let mut result = 0u32;
+        let hr = (windows_core::Interface::vtable(self).TransactionTimeout)(windows_core::Interface::as_raw(self), &mut result);
+        if hr.is_ok() { Ok(result) } else { Err(hr.into()) }
+    }
+
+    pub unsafe fn SetTransactionTimeout(&self, timeout: u32) -> windows_core::Result<()> {
+        (windows_core::Interface::vtable(self).SetTransactionTimeout)(windows_core::Interface::as_raw(self), timeout).ok()
+    }
 }
 
 #[allow(non_snake_case)]
@@ -528,6 +620,10 @@ fn scan_window(
 
 /// 对指定窗口做一次可交互元素扫描（保留 COM 元素对象）；过滤与排序语义与 scan_window 一致：
 /// 只保留白名单类型、enabled、矩形非空的元素，顺序为 FindAll 返回顺序。
+///
+/// 失败一律返回已收集到的部分（可能是空表）：调用方按「没有元素」处理。
+/// 因此每次失败的 HRESULT 都要记下来——协议层超时和「窗口没有暴露 UIA」在上层看到的结果完全相同，
+/// 只有这里的日志能区分，否则排障时无从判断是窗口卡住还是控件真的不暴露。
 fn collect_raw_elements(
     automation: &IUIAutomation,
     hwnd: usize,
@@ -538,15 +634,30 @@ fn collect_raw_elements(
     unsafe {
         let root = match automation.ElementFromHandle(hwnd as *mut core::ffi::c_void) {
             Ok(e) => e,
-            Err(_) => return elements,
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[控件树] 取窗口根元素失败，任务=collect_raw_elements，window_id=0x{hwnd:x}，HRESULT={err:?}（超时 or 窗口未响应）"
+                ));
+                return elements;
+            }
         };
         let condition = match automation.CreateTrueCondition() {
             Ok(c) => c,
-            Err(_) => return elements,
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[控件树] 创建遍历条件失败，任务=collect_raw_elements，window_id=0x{hwnd:x}，HRESULT={err:?}"
+                ));
+                return elements;
+            }
         };
         let array = match root.FindAll(TreeScope_Descendants, &condition) {
             Ok(a) => a,
-            Err(_) => return elements,
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[控件树] 遍历元素失败，任务=collect_raw_elements，window_id=0x{hwnd:x}，HRESULT={err:?}（重负载窗口可能触发事务超时）"
+                ));
+                return elements;
+            }
         };
         let len = array.Length().unwrap_or(0);
         for i in 0..len {
@@ -626,6 +737,19 @@ const UIA_INVOKE_PATTERN_ID: i32 = 10000;
 const UIA_VALUE_PATTERN_ID: i32 = 10002;
 const UIA_SCROLL_PATTERN_ID: i32 = 10004;
 
+/// UIA 协议层超时（毫秒）。两个超时职责不同，取值也不同：
+/// - 连接超时管「能不能连上目标窗口的 provider」，系统默认 2 秒。这里取 2 秒，让它在多数情况下
+///   先于外层单次调用限时（operate_blocking 的 3 秒）失败，模型能拿到 ERROR_TIMEOUT 而不是笼统的
+///   「平台调用超时」。
+/// - 事务超时管「provider 处理一批元素要多久」，系统默认 20 秒（微软文档明确说有些操作要处理上百个
+///   元素）。本项目单次 FindAll 最多取 MAX_ELEMENTS 个元素，全部降到 3 秒会让重负载窗口扫描失败并
+///   退化成空树。这里取 10 秒：仍比默认严格一半，但足以覆盖数百元素的正常扫描。
+///   它比外层 3 秒更长是有意的——外层超时只是不再等待，阻塞中的线程仍在；事务超时让那个线程最终
+///   能返回并释放，避免长时间占用阻塞线程池。
+/// 0 表示无限等待，这里刻意不暴露成可配置项。
+const UIA_CONNECTION_TIMEOUT_MS: u32 = 2_000;
+const UIA_TRANSACTION_TIMEOUT_MS: u32 = 10_000;
+
 /// 创建 UIA 实例（COM 初始化 + CoCreateInstance）；COM 守卫随返回值存活到调用结束。
 fn create_uia_automation() -> Result<(IUIAutomation, ComGuard), String> {
     // COM 初始化：S_OK=本代码首次初始化（需配平）；S_FALSE=线程已初始化（复用，无需配平）；
@@ -637,6 +761,63 @@ fn create_uia_automation() -> Result<(IUIAutomation, ComGuard), String> {
         return Err(format!("COM 初始化失败：HRESULT={coinit}"));
     }
     let guard = ComGuard::new(owns_com);
+    let automation = create_uia_with_timeouts()?;
+    Ok((automation, guard))
+}
+
+/// 优先用 CUIAutomation8 拿到 IUIAutomation2 并设置协议层超时；系统不支持时退回 CUIAutomation。
+/// CUIAutomation8 只在 Windows 8 及以上提供，Windows 7 上会创建失败，此时退回 v1（无超时，行为同旧版）。
+fn create_uia_with_timeouts() -> Result<IUIAutomation, String> {
+    // CLSID_CUIAutomation8 / IID_IUIAutomation2
+    let clsid_v2 = windows_sys::core::GUID::from_u128(0xe22ad333_b25f_460c_83d0_0581107395c9);
+    let iid_v2 = windows_sys::core::GUID::from_u128(0x34723aff_0c9d_49d0_9896_7ab52df8cd8a);
+    let mut raw: *mut core::ffi::c_void = core::ptr::null_mut();
+    let hr = unsafe {
+        windows_sys::Win32::System::Com::CoCreateInstance(
+            &clsid_v2,
+            core::ptr::null_mut(),
+            windows_sys::Win32::System::Com::CLSCTX_INPROC_SERVER,
+            &iid_v2,
+            &mut raw,
+        )
+    };
+    if hr >= 0 && !raw.is_null() {
+        let automation2 = unsafe { IUIAutomation2::from_raw(raw) };
+        // 设置失败不致命：只是没有协议层超时保护，继续用 v1 的调用面。
+        unsafe {
+            if automation2.SetConnectionTimeout(UIA_CONNECTION_TIMEOUT_MS).is_err() {
+                runtime_log_warn(format!(
+                    "[控件树] 设置 UIA 连接超时失败，继续执行，任务=create_uia_with_timeouts，timeout_ms={UIA_CONNECTION_TIMEOUT_MS}"
+                ));
+            }
+            if automation2.SetTransactionTimeout(UIA_TRANSACTION_TIMEOUT_MS).is_err() {
+                runtime_log_warn(format!(
+                    "[控件树] 设置 UIA 事务超时失败，继续执行，任务=create_uia_with_timeouts，timeout_ms={UIA_TRANSACTION_TIMEOUT_MS}"
+                ));
+            }
+        }
+        // IUIAutomation2 继承 IUIAutomation，这里交出基接口指针供既有调用面使用。
+        // cast 走 QueryInterface，引用计数升到 2；automation2 在本函数返回时析构降回 1，
+        // 交出的 base 独占一个引用，不存在悬垂。
+        match automation2.cast::<IUIAutomation>() {
+            Ok(base) => return Ok(base),
+            Err(err) => {
+                // 拿不到基接口说明这个 COM 对象不可用；既然已有可用的旧路径，退回比整条 UIA 失效更好。
+                runtime_log_warn(format!(
+                    "[控件树] IUIAutomation2 转 IUIAutomation 失败，退回 CUIAutomation，任务=create_uia_with_timeouts，原因={err}"
+                ));
+                return create_legacy_uia_automation();
+            }
+        }
+    }
+
+    runtime_log_info(format!(
+        "[控件树] CUIAutomation8 不可用，退回无超时的 CUIAutomation，任务=create_uia_with_timeouts，HRESULT={hr}"
+    ));
+    create_legacy_uia_automation()
+}
+
+fn create_legacy_uia_automation() -> Result<IUIAutomation, String> {
     let clsid = windows_sys::core::GUID::from_u128(0xff48dba4_60ef_4201_aa87_54103eef594e); // CLSID_CUIAutomation
     let iid = windows_sys::core::GUID::from_u128(0x30cbe57d_d9d0_452a_ab13_7ac5ac4825ee); // IID_IUIAutomation
     let mut automation_raw: *mut core::ffi::c_void = core::ptr::null_mut();
@@ -652,7 +833,7 @@ fn create_uia_automation() -> Result<(IUIAutomation, ComGuard), String> {
     if hr < 0 || automation_raw.is_null() {
         return Err(format!("创建 UIA 实例失败：HRESULT={hr}"));
     }
-    Ok((unsafe { IUIAutomation::from_raw(automation_raw) }, guard))
+    Ok(unsafe { IUIAutomation::from_raw(automation_raw) })
 }
 
 fn with_uia_automation<T>(f: impl FnOnce(&IUIAutomation) -> Result<T, String>) -> Result<T, String> {
@@ -1555,6 +1736,24 @@ mod windows_platform_tests {
             let (title, activated) = activate_window(fg.window_id);
             eprintln!("[probe] activate focused window 0x{:x}: title={:?} activated={}", fg.window_id, title, activated);
             assert!(activated, "激活前台窗口应成功");
+        }
+    }
+
+    /// 真实桌面冒烟测试：确认 UIA 客户端确实带着协议层超时（不是退回无超时的 v1）。
+    /// 依赖真实 Windows 桌面，默认忽略，手动 `--ignored` 跑。
+    #[test]
+    #[ignore = "需要真实 Windows 桌面"]
+    fn real_desktop_uia_client_should_carry_timeouts() {
+        // 走 create_uia_automation 而不是裸 CoInitializeEx：COM 初始化与反初始化由 ComGuard 配平，
+        // 测试自己初始化会让守卫无从收尾。
+        let session = create_uia_automation().expect("create UIA");
+        let automation2: IUIAutomation2 = session.0.cast().expect("应能取回 IUIAutomation2");
+        unsafe {
+            let connection = automation2.ConnectionTimeout().expect("读连接超时");
+            let transaction = automation2.TransactionTimeout().expect("读事务超时");
+            eprintln!("[probe] UIA timeouts: connection={connection}ms transaction={transaction}ms");
+            assert_eq!(connection, UIA_CONNECTION_TIMEOUT_MS);
+            assert_eq!(transaction, UIA_TRANSACTION_TIMEOUT_MS);
         }
     }
 

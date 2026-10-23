@@ -172,6 +172,21 @@ fn normalize_rgba_image_for_llm_request_with_options(
     height: u32,
     options: LlmRequestImageNormalizeOptions,
 ) -> Result<LlmRequestNormalizedImage, String> {
+    normalize_rgba_image_for_llm_request_with_overlay(rgba, width, height, options, |_| {})
+}
+
+/// 同上，但允许在缩放完成、编码之前对图面做一次绘制作业。
+/// 叠加在缩放后执行：绘制的线宽不会被缩放抹成半透明糊边（截图网格线依赖这一点）。
+fn normalize_rgba_image_for_llm_request_with_overlay<F>(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    options: LlmRequestImageNormalizeOptions,
+    overlay: F,
+) -> Result<LlmRequestNormalizedImage, String>
+where
+    F: FnOnce(&mut image::RgbaImage),
+{
     llm_request_image_validate_dimensions(width, height, &options)?;
     let rgba_image = image::RgbaImage::from_raw(width, height, rgba.to_vec()).ok_or_else(|| {
         format!(
@@ -184,7 +199,7 @@ fn normalize_rgba_image_for_llm_request_with_options(
     let dynamic = image::DynamicImage::ImageRgba8(rgba_image);
     let (target_width, target_height) =
         llm_request_image_output_dimensions(width, height, options.target_pixel_budget);
-    let normalized = if target_width == width && target_height == height {
+    let mut normalized = if target_width == width && target_height == height {
         dynamic
     } else {
         dynamic.resize_exact(
@@ -193,6 +208,11 @@ fn normalize_rgba_image_for_llm_request_with_options(
             image::imageops::FilterType::Lanczos3,
         )
     };
+    // 输入与缩放结果恒为 ImageRgba8，as_mut_rgba8 必然有值；用 if let 而非错误分支，
+    // 避免为不可能发生的场景制造错误路径。
+    if let Some(canvas) = normalized.as_mut_rgba8() {
+        overlay(canvas);
+    }
     let encoder = webp::Encoder::from_image(&normalized)
         .map_err(|err| format!("初始化 WebP 编码器失败: {err}"))?;
     let webp = encoder.encode(options.webp_quality);

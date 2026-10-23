@@ -1081,6 +1081,7 @@ async fn execute_screenshot_action(
     elements: bool,
     include_text: bool,
     max_pixels: Option<u64>,
+    grid: Option<ScreenGrid>,
 ) -> DesktopToolResult<(ScreenshotResponse, String, Option<Vec<UiElementInfo>>, usize)> {
     let use_default_path = save_path.is_none();
     let save_path = save_path.or_else(|| Some(default_operate_screenshot_path(screenshots_root)));
@@ -1107,6 +1108,7 @@ async fn execute_screenshot_action(
         webp_quality: quality,
         include_base64,
         max_pixels,
+        grid,
     };
     let result = match mode {
         ScreenshotModeSpec::Desktop | ScreenshotModeSpec::Region(_) | ScreenshotModeSpec::Monitor(_) => run_screenshot_tool(request).await?,

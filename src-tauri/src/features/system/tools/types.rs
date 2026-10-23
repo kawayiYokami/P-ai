@@ -57,6 +57,17 @@ struct ScreenBounds {
     height: u32,
 }
 
+/// 网格参考线：把截图按份数等分，画浅灰半透线。
+/// 目的是让模型看图时能说出「第几列第几行」，缩小目测比例带来的坐标误差。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScreenGrid {
+    /// 纵向切分份数（生成 cols-1 条竖线）
+    cols: u32,
+    /// 横向切分份数（生成 rows-1 条横线）
+    rows: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ScreenshotRequest {
@@ -76,6 +87,9 @@ struct ScreenshotRequest {
     /// operate 截图 DSL 的 max_pixels= 落到这里；其他调用方不传即历史行为。
     #[serde(default)]
     max_pixels: Option<u64>,
+    /// 网格参考线：None 表示画干净图（历史行为）。operate 截图 DSL 的 grid=列x行 落到这里。
+    #[serde(default)]
+    grid: Option<ScreenGrid>,
 }
 
 fn default_screenshot_mode() -> ScreenshotMode {

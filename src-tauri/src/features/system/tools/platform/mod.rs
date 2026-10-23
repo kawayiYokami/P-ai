@@ -146,9 +146,13 @@ pub fn ui_tree_empty_hint() -> Option<String> {
     }
 }
 
+/// Windows 控件树为空时给模型的提示。
+/// 这里刻意不再返回 None：空树有「窗口未暴露 UIA」和「协议层超时被截断」两种可能，
+/// 两者的应对方式完全不同（前者换坐标点击、后者重试或缩小范围），只报「为空」会让模型
+/// 按错误原因反复重试同一条命令。具体是哪种看日志里的 HRESULT，提示里两条都给。
 #[cfg(target_os = "windows")]
 pub fn ui_tree_empty_hint() -> Option<String> {
-    None
+    Some("Windows 控件树为空：可能是目标窗口未暴露 UIA 元素（自绘/Electron/游戏窗口），也可能是目标窗口无响应导致扫描超时被截断；请先用 window activate 确认窗口可响应后重试一次，仍为空则改用坐标点击（mouse click @x,y）或用 window_id/region 缩小扫描范围".to_string())
 }
 
 /// 查询目标窗口线程当前内部焦点控件（type, name）；无内部焦点或查询失败返回 None。

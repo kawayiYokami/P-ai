@@ -488,15 +488,17 @@ async fn run_operate_tool(
                 ));
                 steps.push(step);
             }
-            DesktopScriptAction::Screenshot { line, mode, save_path, quality, elements, include_text, max_pixels } => {
+            DesktopScriptAction::Screenshot { line, mode, save_path, quality, elements, include_text, max_pixels, grid } => {
                 let (result, mode_name, ui_tree, pruned) =
-                    run_step!(line, execute_screenshot_action(&mode, save_path, quality, screenshots_root, include_base64, elements, include_text, max_pixels));
+                    run_step!(line, execute_screenshot_action(&mode, save_path, quality, screenshots_root, include_base64, elements, include_text, max_pixels, grid));
                 // J3：默认路径截图顺手裁剪过期文件，只在清掉东西时告诉模型
                 if pruned > 0 {
                     warnings.push(format!("已清理 {pruned} 个过期临时截图（仅清理 operate_*.webp 默认路径，保留最新 200 个且 7 天内）"));
                 }
                 let tree_summary = match &ui_tree {
-                    // E4/H3：空树时把平台原因讲清楚，避免模型反复重试；Windows 沿用原有文案
+                    // E4/H3：空树时把平台原因讲清楚，避免模型反复重试。
+                    // Windows 分支现在也给出提示（区分「未暴露 UIA」与「扫描超时」两种可能），
+                    // None 分支只作为未支持平台的兜底保留。
                     Some(elems) if elems.is_empty() => {
                         match crate::platform::ui_tree_empty_hint() {
                             Some(hint) => format!("，{hint}"),
@@ -1119,6 +1121,86 @@ mod operate_tool_tests {
                 assert!(elements);
             }
             _ => panic!("expected screenshot action"),
+        }
+    }
+
+    #[test]
+    fn parse_screenshot_grid_should_accept_column_x_row() {
+        match parse_single("screenshot grid=8x6") {
+            DesktopScriptAction::Screenshot { grid, .. } => {
+                let grid = grid.expect("grid should be parsed");
+                assert_eq!((grid.cols, grid.rows), (8, 6));
+            }
+            _ => panic!("expected screenshot action"),
+        }
+        // `*` 分隔与大写 X 同样接受，避免模型写出近似形式就整段失败
+        match parse_single("screenshot grid=4*3") {
+            DesktopScriptAction::Screenshot { grid, .. } => {
+                let grid = grid.expect("grid should be parsed");
+                assert_eq!((grid.cols, grid.rows), (4, 3));
+            }
+            _ => panic!("expected screenshot action"),
+        }
+        match parse_single("screenshot grid=8X6") {
+            DesktopScriptAction::Screenshot { grid, .. } => {
+                let grid = grid.expect("grid should be parsed");
+                assert_eq!((grid.cols, grid.rows), (8, 6));
+            }
+            _ => panic!("expected screenshot action"),
+        }
+    }
+
+    #[test]
+    fn parse_screenshot_grid_should_combine_with_other_params() {
+        // grid 与 elements/region/quality 互不排斥，可同时出现
+        match parse_single("screenshot focused_window elements=true grid=4x4 quality=60") {
+            DesktopScriptAction::Screenshot { grid, elements, quality, .. } => {
+                let grid = grid.expect("grid should be parsed");
+                assert_eq!((grid.cols, grid.rows), (4, 4));
+                assert!(elements);
+                assert!((quality - 60.0).abs() < f32::EPSILON);
+            }
+            _ => panic!("expected screenshot action"),
+        }
+    }
+
+    #[test]
+    fn parse_screenshot_without_grid_should_keep_none() {
+        match parse_single("screenshot") {
+            DesktopScriptAction::Screenshot { grid, .. } => assert!(grid.is_none()),
+            _ => panic!("expected screenshot action"),
+        }
+    }
+
+    #[test]
+    fn parse_screenshot_grid_should_reject_invalid_counts() {
+        // 每条都断言具体措辞，而不只是「消息里出现 grid」：
+        // 若 grid 从白名单里被删掉，报错会变成「不支持的参数 `grid`」同样含 grid，
+        // 那样这两组断言就废了，必须靠措辞把「参数被接受但份数非法」区分出来。
+        for script in ["screenshot grid=1x6", "screenshot grid=8x1", "screenshot grid=33x6"] {
+            let err = parse_script(&OperateRequest { script: script.to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
+            assert!(
+                err.message.contains("必须在 2~32 之间"),
+                "script={script} 应因份数越界被拒，实际={}",
+                err.message
+            );
+        }
+        for script in ["screenshot grid=ax6", "screenshot grid=8xb"] {
+            let err = parse_script(&OperateRequest { script: script.to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
+            assert!(
+                err.message.contains("必须是整数"),
+                "script={script} 应因非整数被拒，实际={}",
+                err.message
+            );
+        }
+        // 分隔符个数不对：走的是「列x行 形式」那条分支，而非份数校验
+        for script in ["screenshot grid=8", "screenshot grid=8x6x2"] {
+            let err = parse_script(&OperateRequest { script: script.to_string(), timeout_ms: None, retry: None, restore_focus: None }).unwrap_err();
+            assert!(
+                err.message.contains("列x行"),
+                "script={script} 应因形式错误被拒，实际={}",
+                err.message
+            );
         }
     }
 
