@@ -127,6 +127,45 @@ fn emit_round_completed_event(
     }
 }
 
+/// 轮次从未宣布就被停止意图拦下时的收口广播。
+///
+/// 这条路径上既没有 announce，也就不会有任何生成侧终态：同一批消息的
+/// history_flushed 已经先广播出去了（`activateAssistant` 为真），前端据此点亮忙碌态，
+/// 若后端再不收口，界面就会永远停在运行中。这里补一条只含会话与空结果的
+/// round_completed，让前端按「本地轮次已 idle」的兜底分支收敛回空闲。
+///
+/// 与常规完成不同，这里不发送本地完成通知：用户是自己停下来的，不是等到了回复。
+fn emit_round_aborted_before_start_event(state: &AppState, conversation_id: &str) {
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    };
+    let Some(app_handle) = app_handle else {
+        runtime_log_error(format!(
+            "[聊天推送] emit round_aborted 失败: app_handle unavailable, conversation_id={}",
+            conversation_id
+        ));
+        return;
+    };
+    // 故意不带 activationId / requestId / assistantMessage：
+    // 这一轮从未宣布过，前端没有可对齐的身份，本地也不存在待冻结的气泡。
+    let payload = serde_json::json!({
+        "conversationId": conversation_id,
+        "status": "completed",
+        "assistantText": "",
+        "archivedBeforeSend": false,
+        "assistantMessage": serde_json::Value::Null,
+    });
+    ide_chat_broadcast_notification("chat.roundFinished", payload.clone());
+    match app_handle.emit(CHAT_ROUND_COMPLETED_EVENT, payload) {
+        Ok(_) => {}
+        Err(err) => runtime_log_error(format!(
+            "[聊天推送] emit round_aborted 失败: conversation_id={}, error={}",
+            conversation_id, err
+        )),
+    }
+}
+
 fn notify_local_chat_round_completed(
     state: &AppState,
     conversation_id: &str,

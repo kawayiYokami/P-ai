@@ -1445,6 +1445,9 @@ async fn activate_main_assistant(
             "[聊天调度] 停止请求先于轮次宣布，已跳过本轮: conversation_id={}, session={}",
             conversation_id, preflight_chat_key
         ));
+        // 这一轮虽然没有宣布，但同批消息的 history_flushed 已经发出，
+        // 前端已经点亮忙碌态。必须补一条终态，否则前端会一直停在运行中。
+        emit_round_aborted_before_start_event(state, conversation_id);
         return Err(CHAT_ABORTED_BY_USER_ERROR.to_string());
     }
 
