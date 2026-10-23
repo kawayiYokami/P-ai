@@ -1856,6 +1856,12 @@
       "actionFailed": "操作失败：{err}"
     },
     "loadingOlderMessages": "加载更早消息中",
+    "storageRepair": "自修复",
+    "storageRepairing": "修复中…",
+    "storageRepairDone": "索引已重建，共 {count} 条消息",
+    "storageRepairFailed": "自修复失败：{error}",
+    "storageRepairPartial": "已修复其余会话，{count} 个会话的块文件不可用：{error}",
+    "storageRepairPaused": "正在修复聊天索引，已暂停会话调度…",
     "command": "指令",
     "noInstructionPresets": "暂无指令预设",
     "noMentionCandidates": "暂无可提及人格",

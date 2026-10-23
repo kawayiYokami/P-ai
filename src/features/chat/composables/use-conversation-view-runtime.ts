@@ -735,6 +735,14 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     stop: () => flow.stopChat(),
     handleRecallTurn: rewindActions.handleRecallTurn,
     handleRegenerateTurn: rewindActions.handleRegenerateTurn,
+    refreshConversationAfterStorageRepair: async (conversationId?: string) => {
+      const target = String(conversationId || currentConversationId() || "").trim();
+      if (!target) return;
+      await synchronizeConversation(target, {
+        clearRuntime: true,
+        preserveExistingHistory: false,
+      });
+    },
     loadSnapshot,
     loadOlderHistory,
     loadOlderCompactionSegment,

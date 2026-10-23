@@ -24,11 +24,43 @@ struct ChatMetadataLocator {
 
 static CHAT_METADATA_WRITER_GATES: OnceLock<Mutex<std::collections::HashMap<String, std::sync::Weak<Mutex<()>>>>> = OnceLock::new();
 static CHAT_METADATA_PUBLICATION_GATES: OnceLock<Mutex<std::collections::HashMap<String, std::sync::Weak<std::sync::RwLock<()>>>>> = OnceLock::new();
+static CHAT_METADATA_LIBRARY_GATES: OnceLock<Mutex<std::collections::HashMap<String, std::sync::Weak<std::sync::RwLock<()>>>>> = OnceLock::new();
+
+/// 库级读写闸门。所有写入取读锁，整库修复取写锁。
+/// 没有它的话，修复在拼接新库的整段时间里，其他会话的写入会提交到旧库文件，
+/// 换库后这些写入只存在于被改名的坏库里，新索引里缺行。
+pub(super) fn chat_metadata_library_gate(data_path: &PathBuf) -> std::sync::Arc<std::sync::RwLock<()>> {
+    let key = chat_metadata_store_db_path(data_path).display().to_string();
+    let gates = CHAT_METADATA_LIBRARY_GATES
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let mut gates = gates.lock().unwrap_or_else(|poison| poison.into_inner());
+    gates.retain(|_, gate| gate.strong_count() > 0);
+    if let Some(gate) = gates.get(&key).and_then(std::sync::Weak::upgrade) {
+        return gate;
+    }
+    let gate = std::sync::Arc::new(std::sync::RwLock::new(()));
+    gates.insert(key, std::sync::Arc::downgrade(&gate));
+    gate
+}
+
+/// 在库级读锁内执行一次库操作。修复换库期间，任何打开库文件的动作都要排到它后面。
+pub(super) fn chat_metadata_store_with_library_read<T>(
+    data_path: &PathBuf,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let gate = chat_metadata_library_gate(data_path);
+    let _guard = gate.read().unwrap_or_else(|poison| poison.into_inner());
+    operation()
+}
 
 fn chat_metadata_store_with_writer_gate<T>(
     paths: &MessageStorePaths,
     operation: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
+    let library_gate = chat_metadata_library_gate(&paths.data_path);
+    let _library_guard = library_gate
+        .read()
+        .unwrap_or_else(|poison| poison.into_inner());
     let key = format!(
         "{}:{}",
         chat_metadata_store_db_path(&paths.data_path).display(),
@@ -74,6 +106,11 @@ fn chat_metadata_store_with_read_snapshot<T>(
     paths: &MessageStorePaths,
     operation: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
+    // 库级读锁：修复换库期间不能有连接在读这个文件。
+    let library_gate = chat_metadata_library_gate(&paths.data_path);
+    let _library_guard = library_gate
+        .read()
+        .unwrap_or_else(|poison| poison.into_inner());
     let gate = chat_metadata_store_publication_gate(paths);
     let _guard = gate.read().unwrap_or_else(|poison| poison.into_inner());
     operation()
@@ -120,7 +157,30 @@ fn chat_metadata_store_open(data_path: &PathBuf) -> Result<rusqlite::Connection,
     let conn = rusqlite::Connection::open(&db_path)
         .map_err(|err| format!("打开聊天元数据数据库失败，path={}，error={err}", db_path.display()))?;
     conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
+        CHAT_METADATA_SCHEMA_SQL_PREFIX,
+    )
+    .map_err(|err| format!("初始化聊天元数据数据库失败: {err}"))?;
+    for (column, definition) in [
+        ("role", "TEXT NOT NULL DEFAULT ''"),
+        ("created_at", "TEXT NOT NULL DEFAULT ''"),
+    ] {
+        let mut statement = conn.prepare("PRAGMA table_info(message_locator)")
+            .map_err(|err| format!("读取聊天 locator schema 失败: {err}"))?;
+        let columns = statement.query_map([], |row| row.get::<_, String>(1))
+            .map_err(|err| format!("读取聊天 locator schema 列失败: {err}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("解析聊天 locator schema 列失败: {err}"))?;
+        if !columns.iter().any(|item| item == column) {
+            conn.execute_batch(&format!("ALTER TABLE message_locator ADD COLUMN {column} {definition}"))
+                .map_err(|err| format!("升级聊天 locator schema 失败，column={column}，error={err}"))?;
+        }
+    }
+    Ok(conn)
+}
+
+/// 聊天索引库的建表语句与连接级 PRAGMA 合并为一份常量。
+/// 打开连接与损坏重建共用，避免两处 schema 各自演化。
+pub(super) const CHAT_METADATA_SCHEMA_SQL_PREFIX: &str = "PRAGMA journal_mode=WAL;
          PRAGMA synchronous=NORMAL;
          PRAGMA foreign_keys=ON;
          PRAGMA busy_timeout=10000;
@@ -198,26 +258,7 @@ fn chat_metadata_store_open(data_path: &PathBuf) -> Result<rusqlite::Connection,
            PRIMARY KEY (bucket, conversation_id, provider_key, model_name)
          );
          CREATE INDEX IF NOT EXISTS idx_usage_trail_bucket ON usage_trail(bucket);
-         CREATE INDEX IF NOT EXISTS idx_usage_trail_conversation ON usage_trail(conversation_id);",
-    )
-    .map_err(|err| format!("初始化聊天元数据数据库失败: {err}"))?;
-    for (column, definition) in [
-        ("role", "TEXT NOT NULL DEFAULT ''"),
-        ("created_at", "TEXT NOT NULL DEFAULT ''"),
-    ] {
-        let mut statement = conn.prepare("PRAGMA table_info(message_locator)")
-            .map_err(|err| format!("读取聊天 locator schema 失败: {err}"))?;
-        let columns = statement.query_map([], |row| row.get::<_, String>(1))
-            .map_err(|err| format!("读取聊天 locator schema 列失败: {err}"))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| format!("解析聊天 locator schema 列失败: {err}"))?;
-        if !columns.iter().any(|item| item == column) {
-            conn.execute_batch(&format!("ALTER TABLE message_locator ADD COLUMN {column} {definition}"))
-                .map_err(|err| format!("升级聊天 locator schema 失败，column={column}，error={err}"))?;
-        }
-    }
-    Ok(conn)
-}
+         CREATE INDEX IF NOT EXISTS idx_usage_trail_conversation ON usage_trail(conversation_id);";
 
 fn chat_metadata_store_migration_is_completed(
     data_path: &PathBuf,
@@ -248,14 +289,16 @@ fn chat_metadata_store_mark_migration_completed(
     data_path: &PathBuf,
     migration_key: &str,
 ) -> Result<(), String> {
-    let conn = chat_metadata_store_open(data_path)?;
-    conn.execute(
-        "INSERT INTO chat_storage_migrations(migration_key, state, updated_at) VALUES(?1, 'completed', ?2)
-         ON CONFLICT(migration_key) DO UPDATE SET state='completed', updated_at=excluded.updated_at",
-        rusqlite::params![migration_key, now_iso()],
-    )
-    .map_err(|err| format!("写入聊天元数据迁移状态失败，migration_key={migration_key}，error={err}"))?;
-    Ok(())
+    chat_metadata_store_with_library_read(data_path, || {
+        let conn = chat_metadata_store_open(data_path)?;
+        conn.execute(
+            "INSERT INTO chat_storage_migrations(migration_key, state, updated_at) VALUES(?1, 'completed', ?2)
+             ON CONFLICT(migration_key) DO UPDATE SET state='completed', updated_at=excluded.updated_at",
+            rusqlite::params![migration_key, now_iso()],
+        )
+        .map_err(|err| format!("写入聊天元数据迁移状态失败，migration_key={migration_key}，error={err}"))?;
+        Ok(())
+    })
 }
 
 fn chat_metadata_store_v3_conversation_migration_key(conversation_id: &str) -> String {
@@ -267,6 +310,15 @@ pub(super) fn chat_metadata_store_is_ready(data_path: &PathBuf) -> Result<bool, 
 }
 
 pub(super) fn chat_metadata_store_contains_conversation(
+    data_path: &PathBuf,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    chat_metadata_store_with_library_read(data_path, || {
+        chat_metadata_store_contains_conversation_inner(data_path, conversation_id)
+    })
+}
+
+fn chat_metadata_store_contains_conversation_inner(
     data_path: &PathBuf,
     conversation_id: &str,
 ) -> Result<bool, String> {
@@ -823,6 +875,14 @@ fn chat_metadata_store_message_count(paths: &MessageStorePaths) -> Result<usize,
 pub(super) fn chat_metadata_store_list_chat_index(
     data_path: &PathBuf,
 ) -> Result<Option<Vec<ChatIndexConversationItem>>, String> {
+    chat_metadata_store_with_library_read(data_path, || {
+        chat_metadata_store_list_chat_index_inner(data_path)
+    })
+}
+
+fn chat_metadata_store_list_chat_index_inner(
+    data_path: &PathBuf,
+) -> Result<Option<Vec<ChatIndexConversationItem>>, String> {
     let conn = chat_metadata_store_open(data_path)?;
     let mut stmt = conn.prepare("SELECT metadata_json FROM conversation_metadata")
         .map_err(|err| format!("准备读取 SQLite 会话列表失败: {err}"))?;
@@ -860,6 +920,14 @@ pub(super) struct ChatSearchConversationMeta {
 pub(super) fn chat_metadata_store_list_search_conversations(
     data_path: &PathBuf,
 ) -> Result<Vec<ChatSearchConversationMeta>, String> {
+    chat_metadata_store_with_library_read(data_path, || {
+        chat_metadata_store_list_search_conversations_inner(data_path)
+    })
+}
+
+fn chat_metadata_store_list_search_conversations_inner(
+    data_path: &PathBuf,
+) -> Result<Vec<ChatSearchConversationMeta>, String> {
     let conn = chat_metadata_store_open(data_path)?;
     let mut statement = conn
         .prepare("SELECT metadata_json FROM conversation_metadata")
@@ -895,6 +963,15 @@ pub(super) fn chat_metadata_store_list_search_conversations(
 /// 一次取回多个会话的消息定位。搜索要在全库范围读消息，逐会话各开连接会互相争锁，
 /// 这里用单连接一次扫完，调用方再按会话分组、并行读块。
 pub(super) fn chat_metadata_store_list_locators_by_conversation(
+    data_path: &PathBuf,
+    conversation_ids: &std::collections::HashSet<String>,
+) -> Result<std::collections::HashMap<String, Vec<MessageStoreIndexItem>>, String> {
+    chat_metadata_store_with_library_read(data_path, || {
+        chat_metadata_store_list_locators_by_conversation_inner(data_path, conversation_ids)
+    })
+}
+
+fn chat_metadata_store_list_locators_by_conversation_inner(
     data_path: &PathBuf,
     conversation_ids: &std::collections::HashSet<String>,
 ) -> Result<std::collections::HashMap<String, Vec<MessageStoreIndexItem>>, String> {
@@ -3143,6 +3220,12 @@ fn chat_metadata_store_drop_recover_operation(
 }
 
 fn chat_metadata_store_recover_operations(data_path: &PathBuf) -> Result<(), String> {
+    chat_metadata_store_with_library_read(data_path, || {
+        chat_metadata_store_recover_operations_inner(data_path)
+    })
+}
+
+fn chat_metadata_store_recover_operations_inner(data_path: &PathBuf) -> Result<(), String> {
     let conn = chat_metadata_store_open(data_path)?;
     let mut statement = conn.prepare(
         "SELECT operation_id, conversation_id, before_revision, after_revision, state, detail_json

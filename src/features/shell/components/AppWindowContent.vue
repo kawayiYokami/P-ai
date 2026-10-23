@@ -238,6 +238,7 @@
         @send-chat="sendChat"
         @stop-chat="stopChat"
         @clear-chat-error="clearChatError"
+        @refresh-conversation-after-storage-repair="refreshConversationAfterStorageRepair"
         @load-older-history="onLoadOlderChatHistory"
         @load-older-compaction-segment="onLoadOlderCompactionSegment"
         @reached-bottom="onReachedChatBottom"
@@ -859,6 +860,7 @@ const props = defineProps<{
   sendChat: () => void;
   stopChat: () => void;
   clearChatError: () => void;
+  refreshConversationAfterStorageRepair: () => void;
   onLoadOlderChatHistory: () => void;
   onLoadOlderCompactionSegment: () => void;
   onReachedChatBottom: () => void;

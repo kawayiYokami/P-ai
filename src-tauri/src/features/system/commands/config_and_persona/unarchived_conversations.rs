@@ -4122,6 +4122,55 @@ async fn rewind_conversation_from_message(
     rewind_conversation_from_message_inner(input, state.inner()).await
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationStorageRepairInput {
+    conversation_id: String,
+}
+
+fn chat_storage_repair_conversation_id(input: &ConversationStorageRepairInput) -> Result<String, String> {
+    let conversation_id = input.conversation_id.trim().to_string();
+    if conversation_id.is_empty() {
+        return Err("缺少会话信息".to_string());
+    }
+    Ok(conversation_id)
+}
+
+#[tauri::command]
+async fn get_conversation_storage_health(
+    input: ConversationStorageRepairInput,
+    state: State<'_, AppState>,
+) -> Result<message_store::ChatStorageHealth, String> {
+    let conversation_id = chat_storage_repair_conversation_id(&input)?;
+    let data_path = state.data_path.clone();
+    tokio::task::spawn_blocking(move || {
+        message_store::chat_metadata_store_probe_conversation(&data_path, &conversation_id)
+    })
+    .await
+    .map_err(|err| format!("会话存储探活任务异常：{err}"))
+}
+
+#[tauri::command]
+async fn repair_conversation_storage(
+    input: ConversationStorageRepairInput,
+    state: State<'_, AppState>,
+) -> Result<message_store::ChatStorageRepairOutcome, String> {
+    let conversation_id = chat_storage_repair_conversation_id(&input)?;
+    let runtime_state = get_conversation_runtime_state(state.inner(), &conversation_id)?;
+    if runtime_state != MainSessionState::Idle {
+        return Err("当前会话正在运行或整理上下文，完成后再修复。".to_string());
+    }
+    runtime_log_info(format!(
+        "[聊天索引修复] 用户触发，conversation_id={conversation_id}"
+    ));
+    let data_path = state.data_path.clone();
+    tokio::task::spawn_blocking(move || {
+        message_store::chat_metadata_store_repair_conversation(&data_path, &conversation_id)
+    })
+    .await
+    .map_err(|err| format!("聊天索引修复任务异常：{err}"))?
+}
+
 async fn rewind_conversation_from_message_inner(
     input: RewindConversationInput,
     state: &AppState,

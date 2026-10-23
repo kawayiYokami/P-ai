@@ -19,4 +19,5 @@ mod message_store {
     include!("migration.rs");
     include!("migration_v4.rs");
     include!("usage_trail.rs");
+    include!("repair.rs");
 }

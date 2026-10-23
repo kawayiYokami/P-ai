@@ -1856,6 +1856,12 @@
       "actionFailed": "Action failed: {err}"
     },
     "loadingOlderMessages": "Loading older messages",
+    "storageRepair": "Repair",
+    "storageRepairing": "Repairing…",
+    "storageRepairDone": "Index rebuilt, {count} messages",
+    "storageRepairFailed": "Repair failed: {error}",
+    "storageRepairPartial": "Other conversations repaired, {count} conversation(s) have unusable block files: {error}",
+    "storageRepairPaused": "Repairing chat index, conversation dispatch paused…",
     "command": "Command",
     "noInstructionPresets": "No instruction presets yet",
     "noMentionCandidates": "No mentionable personas",

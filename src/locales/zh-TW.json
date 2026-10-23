@@ -1856,6 +1856,12 @@
       "actionFailed": "操作失敗：{err}"
     },
     "loadingOlderMessages": "載入更早訊息中",
+    "storageRepair": "自修復",
+    "storageRepairing": "修復中…",
+    "storageRepairDone": "索引已重建，共 {count} 條訊息",
+    "storageRepairFailed": "自修復失敗：{error}",
+    "storageRepairPartial": "已修復其餘會話，{count} 個會話的區塊檔不可用：{error}",
+    "storageRepairPaused": "正在修復聊天索引，已暫停會話調度…",
     "command": "指令",
     "noInstructionPresets": "暫無指令預設",
     "noMentionCandidates": "暫無可提及人格",

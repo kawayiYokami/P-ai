@@ -124,8 +124,10 @@ pub(super) fn chat_metadata_store_usage_trail_upsert_delta(
     if delta.tokens.is_empty() {
         return Ok(());
     }
-    let conn = chat_metadata_store_open(data_path)?;
-    usage_trail_upsert_on_conn(&conn, normalized_bucket, delta)
+    chat_metadata_store_with_library_read(data_path, || {
+        let conn = chat_metadata_store_open(data_path)?;
+        usage_trail_upsert_on_conn(&conn, normalized_bucket, delta)
+    })
 }
 
 /// 在已打开的连接上执行台账 UPSERT（供写入链路与迁移事务共用）。
@@ -177,6 +179,15 @@ fn usage_trail_upsert_on_conn(
 
 /// 查询台账行；bucket_start 为本地小时桶下界（含），None 表示全部（含 epoch 历史桶）。
 pub(super) fn chat_metadata_store_usage_trail_query(
+    data_path: &PathBuf,
+    bucket_start: Option<&str>,
+) -> Result<Vec<UsageTrailRow>, String> {
+    chat_metadata_store_with_library_read(data_path, || {
+        chat_metadata_store_usage_trail_query_inner(data_path, bucket_start)
+    })
+}
+
+fn chat_metadata_store_usage_trail_query_inner(
     data_path: &PathBuf,
     bucket_start: Option<&str>,
 ) -> Result<Vec<UsageTrailRow>, String> {
@@ -238,6 +249,16 @@ pub(super) fn chat_metadata_store_usage_trail_query(
 /// 事务 + 进程内互斥：全程在一个事务内 UPSERT 并写入 completed 标记，
 /// 中途失败整体回滚，避免重跑时对已写入的 epoch 行再次累加（翻倍）。
 pub(super) fn chat_metadata_store_run_usage_trail_migration(
+    data_path: &PathBuf,
+    config: &AppConfig,
+    agents: &[AgentProfile],
+) -> Result<(), String> {
+    chat_metadata_store_with_library_read(data_path, || {
+        chat_metadata_store_run_usage_trail_migration_inner(data_path, config, agents)
+    })
+}
+
+fn chat_metadata_store_run_usage_trail_migration_inner(
     data_path: &PathBuf,
     config: &AppConfig,
     agents: &[AgentProfile],

@@ -464,6 +464,16 @@
                     <span class="font-bold">{{ requestErrorTitle }}</span>
                     <div class="flex shrink-0 items-center gap-1">
                       <button
+                        v-if="chatStorageRepairAvailable"
+                        type="button"
+                        class="btn btn-ghost btn-sm gap-1 text-error hover:bg-error/15"
+                        :disabled="chatStorageRepairing"
+                        @click="void repairChatStorage()"
+                      >
+                        <Wrench class="h-3.5 w-3.5" />
+                        <span>{{ chatStorageRepairing ? t("chat.storageRepairing") : t("chat.storageRepair") }}</span>
+                      </button>
+                      <button
                         type="button"
                         class="btn btn-ghost btn-sm gap-1 text-error hover:bg-error/15"
                         @click="void copyStatusText(chatStatusBanner.text)"
@@ -1041,6 +1051,7 @@ const emit = defineEmits<{
   (e: "sendChat", payload?: { extraTextBlocks?: string[] }): void;
   (e: "stopChat"): void; (e: "trimConversation"): void; (e: "openConversationList"): void; (e: "openSettings"): void;
   (e: "clearChatError"): void;
+  (e: "refreshConversationAfterStorageRepair"): void;
   (e: "createConversationBranchFromTurn", payload: { turnId: string }): void;
   (e: "branchConversationFromCurrent"): void;
   (e: "recallTurn", payload: { turnId: string }): void;
@@ -1161,6 +1172,98 @@ function showTransientNotice(text: string, tone: ChatStatusBannerTone = "success
   }, 2200);
 }
 
+// ==================== 聊天索引自修复 ====================
+const chatStorageRepairAvailable = ref(false);
+const chatStorageRepairing = ref(false);
+let chatStorageProbeToken = 0;
+
+/**
+ * 报错卡片一出现就探一次该会话的索引能否读出。
+ * 探测只读，不改库，也不改会话状态。
+ */
+async function probeChatStorageHealth(): Promise<void> {
+  // 令牌必须先失效再看早退：否则上一次探测在途时错误文案被清空，
+  // 它的结果回来仍会点亮按钮，把一个已经不存在的损坏重新摆到界面上。
+  const token = ++chatStorageProbeToken;
+  const errorText = String(props.chatErrorText || "").trim();
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (!errorText || !conversationId) {
+    chatStorageRepairAvailable.value = false;
+    return;
+  }
+  try {
+    const health = await invokeTauri<{ corrupted: boolean }>("conversation.storageHealth", {
+      input: { conversationId },
+    });
+    if (token !== chatStorageProbeToken) return;
+    chatStorageRepairAvailable.value = !!health?.corrupted;
+  } catch (error) {
+    if (token !== chatStorageProbeToken) return;
+    chatStorageRepairAvailable.value = false;
+    console.warn("[聊天索引修复] 探活失败", { conversationId, error });
+  }
+}
+
+async function repairChatStorage(): Promise<void> {
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (!conversationId || chatStorageRepairing.value) return;
+  chatStorageRepairing.value = true;
+  try {
+    const outcome = await invokeTauri<{
+      rebuiltConversationIds: string[];
+      rebuiltMessageCount: number;
+      failedConversations: Array<{ conversationId: string; detail: string }>;
+    }>("conversation.repairStorage", { input: { conversationId } });
+    const failed = Array.isArray(outcome?.failedConversations) ? outcome.failedConversations : [];
+    const thisConversationFailed = failed.some(
+      (item) => String(item?.conversationId || "").trim() === conversationId,
+    );
+    // 修复耗时期间用户可能已经切走，这时清错误、重读都会作用到别的会话上。
+    if (String(props.activeConversationId || "").trim() !== conversationId) {
+      chatStorageRepairAvailable.value = false;
+      return;
+    }
+    if (thisConversationFailed) {
+      // 这个会话没救回来：保留按钮让用户能重试，不要清掉它的错误。
+      showTransientNotice(
+        t("chat.storageRepairFailed", {
+          error: String(failed.find((item) => String(item?.conversationId || "").trim() === conversationId)?.detail || ""),
+        }),
+        "error",
+      );
+      return;
+    }
+    chatStorageRepairAvailable.value = false;
+    emit("clearChatError");
+    // 修好的库要重新读一遍，否则报错卡片消失了、内容还是旧的。
+    emit("refreshConversationAfterStorageRepair");
+    if (failed.length > 0) {
+      showTransientNotice(
+        t("chat.storageRepairPartial", { count: failed.length, error: failed[0]?.detail || "" }),
+        "error",
+      );
+    } else {
+      showTransientNotice(t("chat.storageRepairDone", { count: Number(outcome?.rebuiltMessageCount || 0) }));
+    }
+  } catch (error) {
+    console.warn("[聊天索引修复] 失败", { conversationId, error });
+    if (String(props.activeConversationId || "").trim() === conversationId) {
+      showTransientNotice(
+        t("chat.storageRepairFailed", { error: String((error as Error)?.message || error || "") }),
+        "error",
+      );
+    }
+  } finally {
+    chatStorageRepairing.value = false;
+  }
+}
+
+watch(
+  () => [String(props.chatErrorText || "").trim(), String(props.activeConversationId || "").trim()] as const,
+  () => void probeChatStorageHealth(),
+  { immediate: true },
+);
+
 async function copyStatusText(text: string) {
   const content = String(text || "").trim();
   if (!content) return;
@@ -1278,6 +1381,10 @@ function handleApprovalQuestionWorkspaceRemember(requestId: string) {
   emit("approveTerminalApprovalForWorkspace", normalized);
 }
 const chatStatusBanner = computed(() => {
+  // 修复期间独占该库，所有会话调度必须让路，这里给一条常驻提示。
+  if (chatStorageRepairing.value) {
+    return { text: t("chat.storageRepairPaused"), tone: "info" as ChatStatusBannerTone };
+  }
   if (transientNotice.value) return transientNotice.value;
   return baseChatStatusBanner.value;
 });
@@ -1286,7 +1393,7 @@ const requestErrorTitle = computed(() => {
   return title === "status.errorTitleRequest" ? "请求发生错误" : title;
 });
 const conversationInteractionBusy = computed(() =>
-  props.conversationBusy || isOrganizingContextBusy.value,
+  props.conversationBusy || isOrganizingContextBusy.value || chatStorageRepairing.value,
 );
 const activeConversationIsSystemNotification = computed(() =>
   !!props.systemNotificationMode || !!activeConversationSummary.value?.isSystemNotificationConversation,

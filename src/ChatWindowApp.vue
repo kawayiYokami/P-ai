@@ -315,6 +315,7 @@
       :send-chat="sendChatFromCurrentWindow"
       :stop-chat="chatFlow.stopChat"
       :clear-chat-error="clearChatError"
+      :refresh-conversation-after-storage-repair="refreshConversationAfterStorageRepair"
       :on-jump-to-conversation-bottom="ensureLatestForegroundTailThenScrollToBottom"
       :on-create-conversation-branch-from-turn="handleCreateConversationBranchFromTurn"
       :open-goal-task-dialog="openGoalTaskDialog"
@@ -617,10 +618,18 @@ export default defineComponent({
       onBeforeUnmount(stopRemoteCommands);
     }
 
+    // 索引修复完成后重读当前会话，避免「报错卡片消失但内容还是旧的」。
+    function refreshConversationAfterStorageRepair() {
+      const conversationId = String(app.currentChatConversationId?.value || "").trim();
+      if (!conversationId) return;
+      void app.switchChatConversation({ conversationId });
+    }
+
     return {
       ...app,
       hideWindowHeader: embedded,
       openDraftConversationFromEntry,
+      refreshConversationAfterStorageRepair,
     };
   },
 });

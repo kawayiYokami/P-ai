@@ -1499,6 +1499,8 @@ fn main() {
             request_conversation_messages_after_async,
             preview_rewind_conversation_from_message,
             rewind_conversation_from_message,
+            get_conversation_storage_health,
+            repair_conversation_storage,
             get_prompt_preview,
             get_system_prompt_preview,
             list_archives,

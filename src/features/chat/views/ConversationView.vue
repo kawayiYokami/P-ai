@@ -75,6 +75,7 @@
     @send-chat="runtime.send"
     @stop-chat="runtime.stop"
     @clear-chat-error="clearChatError"
+    @refresh-conversation-after-storage-repair="refreshConversationAfterStorageRepair"
     @load-older-history="runtime.loadOlderHistory"
     @load-older-compaction-segment="runtime.loadOlderCompactionSegment"
     @update:conversation-preferred-api-config-id="handleConversationPreferredApiConfigIdChange"
@@ -227,6 +228,10 @@ function clearChatError() {
   void invokeTauri("conversation.clearChatError", { input: { conversationId: cid } }).catch((error) => {
     console.warn("[会话错误] 追问清除失败", { conversationId: cid, error });
   });
+}
+
+function refreshConversationAfterStorageRepair() {
+  void runtime.refreshConversationAfterStorageRepair(conversationId.value);
 }
 
 // 焦点在本视图输入框内时的图片粘贴：与主会话共用同一份入队逻辑，
