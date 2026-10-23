@@ -521,22 +521,6 @@ fn normalize_provider_genai_base_url(
     }
 }
 
-/// OpenCode 端点会话头回退值：无会话上下文的调用（标题生成、摘要等）使用全局稳定标识
-const OPENCODE_SESSION_FALLBACK_ID: &str = "pai-standalone";
-
-/// 判断 base_url 是否指向 OpenCode 站点（x-opencode-session 会话头注入条件）。
-/// 只认 host、不钉路径形态，端点路径变化不受影响。
-fn is_opencode_ai_endpoint(base_url: &str) -> bool {
-    let Ok(parsed) = reqwest::Url::parse(base_url.trim()) else {
-        return false;
-    };
-    let Some(host) = parsed.host_str() else {
-        return false;
-    };
-    let host = host.to_ascii_lowercase();
-    host == "opencode.ai" || host.ends_with(".opencode.ai")
-}
-
 fn provider_genai_headers(api_config: &ResolvedApiConfig) -> genai::Headers {
     match api_config.request_format {
         RequestFormat::Codex => {
@@ -722,23 +706,19 @@ fn build_provider_genai_chat_options(
     adapter_kind: genai::adapter::AdapterKind,
     capture_reasoning_content: bool,
     capture_tool_calls: bool,
-    opencode_session_id: Option<&str>,
+    session_id: Option<&str>,
 ) -> genai::chat::ChatOptions {
     let capture_reasoning_content = capture_reasoning_content
         && !provider_genai_model_disables_reasoning(&api_config.model)
         && !provider_genai_reasoning_explicitly_disabled(api_config);
     let mut headers = provider_genai_headers(api_config);
-    if is_opencode_ai_endpoint(&api_config.base_url) {
-        // OpenCode 要求每对话稳定的会话标识用于路由与提示词缓存；无会话上下文时回退全局稳定值
-        let session_id = opencode_session_id
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(OPENCODE_SESSION_FALLBACK_ID);
-        headers.merge(vec![(
-            "x-opencode-session".to_string(),
-            session_id.to_string(),
-        )]);
-    }
+    // 会话标识统一由 provider_session_headers 决定注入哪些头，
+    // 判定看协议与宿主，不再只看 base_url 是否指向官方域名——指向中转时也要带上。
+    headers.merge(provider_session_headers(
+        session_id,
+        &api_config.base_url,
+        api_config.request_format,
+    ));
     let mut options = genai::chat::ChatOptions::default()
         .with_capture_usage(true)
         .with_capture_content(true)
@@ -877,7 +857,7 @@ async fn call_model_genai_stream_internal(
         usage_conversation_id.map(str::to_string),
     );
     let options = stream_guard
-        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, None));
+        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id));
 
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
@@ -990,7 +970,7 @@ async fn call_model_genai_non_stream_with_definitions(
         let genai_tools = runtime_tool_definitions_for_genai(&tool_definitions, adapter_kind).await?;
         request = request.with_tools(genai_tools);
     }
-    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, None);
+    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id);
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
@@ -1063,7 +1043,7 @@ async fn call_model_openai_responses(
         usage_conversation_id.map(str::to_string),
     );
     let options = stream_guard
-        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, None));
+        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id));
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
@@ -1111,7 +1091,7 @@ async fn call_model_gemini(
         model_name,
         request_api_key.clone(),
     );
-    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, None);
+    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id);
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
@@ -1181,7 +1161,7 @@ async fn call_model_anthropic(
         usage_conversation_id.map(str::to_string),
     );
     let options = stream_guard
-        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, None));
+        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id));
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
@@ -1834,7 +1814,7 @@ mod openai_responses_genai_request_tests {
         let headers = options.extra_headers.as_ref().expect("headers should exist");
         assert_eq!(
             header_value_of(headers, "x-opencode-session").as_deref(),
-            Some(OPENCODE_SESSION_FALLBACK_ID)
+            Some(PROVIDER_SESSION_FALLBACK_ID)
         );
     }
 
@@ -1846,17 +1826,6 @@ mod openai_responses_genai_request_tests {
             build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAI, true, true, Some("conv-123"));
         let headers = options.extra_headers.as_ref().expect("headers should exist");
         assert!(header_value_of(headers, "x-opencode-session").is_none());
-    }
-
-    #[test]
-    fn opencode_endpoint_detection_should_be_host_based() {
-        assert!(is_opencode_ai_endpoint("https://opencode.ai/zen/go/v1"));
-        assert!(is_opencode_ai_endpoint("https://opencode.ai/zen/go"));
-        assert!(is_opencode_ai_endpoint("https://opencode.ai/future-path/v9"));
-        assert!(is_opencode_ai_endpoint("https://api.opencode.ai/v1"));
-        assert!(!is_opencode_ai_endpoint("https://openai.com/v1"));
-        assert!(!is_opencode_ai_endpoint("https://api.openai.com/v1"));
-        assert!(!is_opencode_ai_endpoint("not a url"));
     }
 
     #[test]
