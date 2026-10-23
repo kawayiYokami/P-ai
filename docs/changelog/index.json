@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-21T16:46:32.878Z",
-  "latestVersion": "v0.97.7",
+  "generatedAt": "2026-10-23T09:41:28.701Z",
+  "latestVersion": "v0.97.8",
   "releases": [
+    {
+      "version": "v0.97.8",
+      "path": "docs/changelog/releases/v0.97.8.md",
+      "summary": "**新增会话搜索页：侧栏底部搜索按钮打开，可全库检索本地会话或远程联系人，点击结果直达会话，归档会话不在范围内。**"
+    },
     {
       "version": "v0.97.7",
       "path": "docs/changelog/releases/v0.97.7.md",
