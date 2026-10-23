@@ -853,7 +853,6 @@ pub(super) struct ChatSearchConversationMeta {
     pub archived_at: Option<String>,
     pub conversation_kind: String,
     pub shell_workspace_path: Option<String>,
-    pub created_at: String,
     pub updated_at: String,
 }
 
@@ -887,7 +886,6 @@ pub(super) fn chat_metadata_store_list_search_conversations(
             archived_at: meta.archived_at.clone(),
             conversation_kind: meta.conversation_kind.clone(),
             shell_workspace_path: meta.shell_workspace_path.clone(),
-            created_at: meta.created_at.clone(),
             updated_at: meta.updated_at.clone(),
         });
     }
@@ -941,9 +939,9 @@ pub(super) fn chat_metadata_store_list_locators_by_conversation(
     Ok(out)
 }
 
-/// 扫描结果：命中片段、阶段耗时、以及块级粗筛省下来的块数与实际解析的消息数。
-pub(super) struct MessageStoreScanOutcome {
-    pub messages: Vec<MessageStoreRenderedMessage>,
+/// 扫描结果：渲染产物、阶段耗时、以及块级粗筛省下来的块数与实际解析的消息数。
+pub(super) struct MessageStoreScanOutcome<T> {
+    pub messages: Vec<T>,
     pub stages: MessageStoreReadStages,
     pub skipped_blocks: usize,
     pub parsed_messages: usize,
@@ -965,18 +963,20 @@ fn message_store_block_matches(plain: &str, terms: &[String]) -> bool {
     terms.iter().any(|term| lowered.contains(term.as_str()))
 }
 
-/// 按已取回的消息定位读块、渲染并筛出命中的消息，不再碰 SQLite：并行调用时不会争数据库。
-/// 先按块粗筛，不含关键词的块整块跳过解析——解析 JSON 是这条链路上最贵的一步。
-pub(super) fn chat_metadata_store_scan_items_for_terms(
+/// 按已取回的消息定位读块、解析、渲染，不再碰 SQLite：并行调用时不会争数据库。
+/// 按块粗筛：整块明文不含任何关键词就跳过解析——解析 JSON 是这条链路上最贵的一步。
+pub(super) fn chat_metadata_store_scan_items_for_terms<T, F>(
     paths: &MessageStorePaths,
     items: &[MessageStoreIndexItem],
     terms: &[String],
-    render: &(dyn Fn(&ChatMessage) -> Option<MessageStoreRenderedMessage> + Sync),
-    filter: &(dyn Fn(&MessageStoreRenderedMessage) -> bool + Sync),
-) -> Result<MessageStoreScanOutcome, String> {
+    render: &F,
+) -> Result<MessageStoreScanOutcome<T>, String>
+where
+    F: Fn(&ChatMessage) -> Option<T> + Sync,
+{
     chat_metadata_store_with_read_snapshot(paths, || {
         let mut stages = MessageStoreReadStages::default();
-        let mut messages = Vec::<MessageStoreRenderedMessage>::new();
+        let mut messages = Vec::<T>::new();
         let mut skipped_blocks = 0usize;
         let mut parsed_messages = 0usize;
         if items.is_empty() {
@@ -987,7 +987,6 @@ pub(super) fn chat_metadata_store_scan_items_for_terms(
                 parsed_messages,
             });
         }
-
         let mut cursor = 0usize;
         while cursor < items.len() {
             let block_id = items[cursor].block_id;
@@ -1072,9 +1071,6 @@ pub(super) fn chat_metadata_store_scan_items_for_terms(
                 let Some(rendered) = rendered else {
                     continue;
                 };
-                if !filter(&rendered) {
-                    continue;
-                }
                 messages.push(rendered);
             }
         }
@@ -1087,30 +1083,134 @@ pub(super) fn chat_metadata_store_scan_items_for_terms(
         })
     })
 }
-/// 一次读回某会话的全部消息：单连接、单次 locator 查询、按块顺序批量解析，
-/// 避免每块都重新打开数据库。
-pub(super) fn chat_metadata_store_read_all_messages(
+/// 按块文件顺序读回一个会话的全部消息，用于需要完整会话内容的场景（深度回忆建索引）。
+/// 不查定位记录，也不加会话锁：块文件是临时文件加 rename 的原子替换，一次读到的要么是
+/// 旧块要么是新块，整块解析本身自洽，locator 与块之间的一致性保护在这里没有意义。
+pub(super) fn chat_metadata_store_scan_all_blocks<T, F>(
     paths: &MessageStorePaths,
-) -> Result<Vec<ChatMessage>, String> {
-    chat_metadata_store_with_read_snapshot(paths, || {
-        let conn = chat_metadata_store_open(&paths.data_path)?;
-        let locators = chat_metadata_store_query_locators(&conn, &paths.conversation_id, "", &[])?;
-        let items = locators
-            .into_iter()
-            .map(|locator| locator.item)
-            .collect::<Vec<_>>();
-        if items.is_empty() {
-            return Ok(Vec::new());
+    render: &F,
+) -> Result<MessageStoreScanOutcome<T>, String>
+where
+    F: Fn(&ChatMessage) -> Option<T> + Sync,
+{
+    let mut stages = MessageStoreReadStages::default();
+    let mut messages = Vec::<T>::new();
+    let mut skipped_blocks = 0usize;
+    let mut parsed_messages = 0usize;
+
+    let mut block_files = Vec::<(u32, bool, PathBuf)>::new();
+    if paths.blocks_dir.exists() {
+        let entries = std::fs::read_dir(&paths.blocks_dir).map_err(|err| {
+            format!(
+                "读取会话块目录失败，path={}，error={err}",
+                paths.blocks_dir.display()
+            )
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|err| format!("读取会话块目录项失败: {err}"))?;
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let (stem, is_v4) = if let Some(stem) = file_name.strip_suffix(".jsonl.zstd") {
+                (stem.to_string(), true)
+            } else if let Some(stem) = file_name.strip_suffix(".jsonl") {
+                (stem.to_string(), false)
+            } else {
+                // 原子替换用的临时文件与其它杂项不参与。
+                continue;
+            };
+            let Ok(block_id) = stem.parse::<u32>() else {
+                continue;
+            };
+            block_files.push((block_id, is_v4, entry.path()));
         }
-        read_jsonl_snapshot_messages_by_index_items_cached(&paths.messages_file, &items)
+    }
+    // 同一块号在 V4 迁移未收尾时会同时存在明文与压缩两份，取压缩那份，避免消息重复。
+    block_files.sort_by(|left, right| left.0.cmp(&right.0).then(right.1.cmp(&left.1)));
+    block_files.dedup_by_key(|item| item.0);
+
+    for (_, _, block_path) in block_files {
+        let is_v4 = block_path
+            .file_name()
+            .map(|name| name.to_string_lossy().ends_with(".jsonl.zstd"))
+            .unwrap_or(false);
+        let read_started = std::time::Instant::now();
+        let bytes = std::fs::read(&block_path).map_err(|err| {
+            format!(
+                "读取会话块失败，path={}，error={err}",
+                block_path.display()
+            )
+        })?;
+        stages.read_ms += read_started.elapsed().as_millis();
+
+        let decompress_started = std::time::Instant::now();
+        let plain = if is_v4 {
+            let decompressed = zstd_decompress_block(&bytes)?;
+            String::from_utf8(decompressed).map_err(|err| {
+                format!(
+                    "V4 压缩块解压后不是 UTF-8，path={}，error={err}",
+                    block_path.display()
+                )
+            })?
+        } else {
+            String::from_utf8(bytes).map_err(|err| {
+                format!("明文块不是 UTF-8，path={}，error={err}", block_path.display())
+            })?
+        };
+        stages.decompress_ms += decompress_started.elapsed().as_millis();
+
+        let parse_started = std::time::Instant::now();
+        let mut block_messages = Vec::<ChatMessage>::new();
+        if is_v4 {
+            for group in parse_jsonl_snapshot_group_blocks_v4(&plain)? {
+                let message = assemble_group_message(&group.lines).map_err(|err| {
+                    format!(
+                        "组装 V4 消息失败，path={}，offset={}，error={err}",
+                        block_path.display(),
+                        group.offset
+                    )
+                })?;
+                block_messages.push(message);
+            }
+        } else {
+            for line in plain.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let message = decode_jsonl_snapshot_message(line).map_err(|err| {
+                    format!(
+                        "解析 JSONL 消息失败，path={}，error={err}",
+                        block_path.display()
+                    )
+                })?;
+                block_messages.push(message);
+            }
+        }
+        stages.parse_ms += parse_started.elapsed().as_millis();
+        parsed_messages += block_messages.len();
+        if block_messages.is_empty() {
+            skipped_blocks += 1;
+        }
+
+        for message in &block_messages {
+            let render_started = std::time::Instant::now();
+            let rendered = render(message);
+            stages.render_ms += render_started.elapsed().as_millis();
+            if let Some(rendered) = rendered {
+                messages.push(rendered);
+            }
+        }
+    }
+
+    Ok(MessageStoreScanOutcome {
+        messages,
+        stages,
+        skipped_blocks,
+        parsed_messages,
     })
 }
 
-/// 搜索页专用的读取剖析：把查询定位、读文件、解压、解析、渲染分开计时，
-/// 并且每解析完一条消息就立刻渲染成正文，不再把整块消息留在内存里。
+/// 搜索页专用的读取剖析：把读文件、解压、解析、渲染分开计时。
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct MessageStoreReadStages {
-    pub locate_ms: u128,
     pub read_ms: u128,
     pub decompress_ms: u128,
     pub parse_ms: u128,
@@ -1121,13 +1221,7 @@ pub(super) struct MessageStoreReadStages {
 #[derive(Debug, Clone)]
 pub(super) struct MessageStoreRenderedMessage {
     pub rendered: String,
-    pub speaker: String,
     pub created_at: String,
-}
-
-pub(super) struct MessageStoreRenderedConversation {
-    pub messages: Vec<MessageStoreRenderedMessage>,
-    pub stages: MessageStoreReadStages,
 }
 
 fn chat_metadata_store_read_active_plans(

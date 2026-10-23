@@ -113,7 +113,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Search } from "@lucide/vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import ConfigValueSelect from "../../config/components/ConfigValueSelect.vue";

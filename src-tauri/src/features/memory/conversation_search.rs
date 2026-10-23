@@ -44,33 +44,16 @@ struct ConversationSearchHit {
     conversation_title: String,
     /// 标题为空时的兜底标题：会话的最近摘要标题。
     conversation_summary_title: String,
-    source_kind: String,
-    agent_id: String,
-    workspace_path: String,
-    speaker: String,
     created_at: String,
     snippet: String,
     /// 会话最近活动时间：标题为空时用来兜底显示，与侧栏标题口径一致。
     conversation_updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct ConversationSearchStats {
-    /// 按筛选条件命中的候选会话数。
-    scanned_conversations: usize,
-    /// 实际读过消息的会话数（提前返回后不再增长）。
-    read_conversations: usize,
-    /// 参与匹配的消息条数。
-    read_messages: usize,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ConversationSearchResult {
     hits: Vec<ConversationSearchHit>,
-    stats: ConversationSearchStats,
-    elapsed_ms: u128,
 }
 
 /// 一条命中片段：内部排序用会话序号与消息倒序号，对外再摊平成接口结构。
@@ -86,9 +69,6 @@ struct ConversationSearchCandidate {
     title: String,
     /// 会话标题为空时用它兜底：这才是点进会话后看到的那行标题。
     summary_title: String,
-    source_kind: String,
-    agent_id: String,
-    workspace_path: String,
     updated_at: String,
 }
 
@@ -299,9 +279,6 @@ fn conversation_search_collect_candidates(
                 .map(str::trim)
                 .unwrap_or("")
                 .to_string(),
-            source_kind: source_kind.to_string(),
-            agent_id: owner_agent_id,
-            workspace_path,
             updated_at: conversation_meta.updated_at.clone(),
         });
     }
@@ -382,28 +359,16 @@ fn conversation_search_messages(
         candidates.len(),
         candidate_started.elapsed().as_millis()
     ));
-    let mut stats = ConversationSearchStats {
-        scanned_conversations: candidates.len(),
-        ..Default::default()
-    };
 
     if query.is_empty() {
         runtime_log_info("[会话搜索] 跳过 空关键词".to_string());
-        return Ok(ConversationSearchResult {
-            hits: Vec::new(),
-            stats,
-            elapsed_ms: started.elapsed().as_millis(),
-        });
+        return Ok(ConversationSearchResult { hits: Vec::new() });
     }
 
     let terms = conversation_search_extract_terms(&query);
     if terms.is_empty() {
         runtime_log_info("[会话搜索] 跳过 关键词为空".to_string());
-        return Ok(ConversationSearchResult {
-            hits: Vec::new(),
-            stats,
-            elapsed_ms: started.elapsed().as_millis(),
-        });
+        return Ok(ConversationSearchResult { hits: Vec::new() });
     }
 
     let agents = state_read_agents_cached(state)?;
@@ -426,13 +391,10 @@ fn conversation_search_messages(
         chat_history_render_message(message, &agents, &user_alias).map(|item| {
             message_store::MessageStoreRenderedMessage {
                 rendered: item.rendered,
-                speaker: item.speaker_name,
                 created_at: item.created_at,
             }
         })
     };
-    let render_ref: &(dyn Fn(&ChatMessage) -> Option<message_store::MessageStoreRenderedMessage> + Sync) =
-        &render;
     let data_path = &state.data_path;
     let terms_ref = &terms;
     let worker_count = std::thread::available_parallelism()
@@ -484,8 +446,7 @@ fn conversation_search_messages(
                         &paths,
                         items,
                         terms_ref,
-                        render_ref,
-                        &|_rendered| true,
+                        &render,
                     ) {
                         Ok(read) => read,
                         Err(err) => {
@@ -525,10 +486,6 @@ fn conversation_search_messages(
                                 conversation_id: candidate.id.clone(),
                                 conversation_title: candidate.title.clone(),
                                 conversation_summary_title: candidate.summary_title.clone(),
-                                source_kind: candidate.source_kind.clone(),
-                                agent_id: candidate.agent_id.clone(),
-                                workspace_path: candidate.workspace_path.clone(),
-                                speaker: message.speaker.clone(),
                                 created_at: message.created_at.clone(),
                                 snippet: conversation_search_snippet(&message.rendered, terms_ref),
                                 conversation_updated_at: candidate.updated_at.clone(),
@@ -573,8 +530,6 @@ fn conversation_search_messages(
     });
     let hits = matched.into_iter().map(|item| item.hit).collect::<Vec<_>>();
 
-    stats.read_conversations = stage_totals.read_conversations;
-    stats.read_messages = stage_totals.read_messages;
     let early_stopped =
         hits.len() >= stop_threshold && stage_totals.read_conversations < candidates.len();
 
@@ -602,11 +557,7 @@ fn conversation_search_messages(
         stage_totals.match_ms
     ));
 
-    Ok(ConversationSearchResult {
-        hits,
-        stats,
-        elapsed_ms: started.elapsed().as_millis(),
-    })
+    Ok(ConversationSearchResult { hits })
 }
 
 #[tauri::command]
@@ -614,7 +565,7 @@ async fn search_conversation_messages(
     input: ConversationSearchInput,
     state: State<'_, AppState>,
 ) -> Result<ConversationSearchResult, String> {
-    // 全库重建索引是秒级重活，必须移出主线程，否则窗口消息循环被占住会显示未响应。
+    // 全库扫描是秒级重活，必须移出主线程，否则窗口消息循环被占住会显示未响应。
     let app_state = state.inner().clone();
     tokio::task::spawn_blocking(move || conversation_search_messages(&app_state, &input))
         .await
@@ -624,50 +575,6 @@ async fn search_conversation_messages(
 #[cfg(test)]
 mod conversation_search_tests {
     use super::*;
-
-    /// 真实数据实测：走完整命令路径，看提前停止在真实筛选条件下能省多少会话。
-    /// 仅手动执行：cargo test bench_conversation_search_scan -- --ignored --nocapture
-    #[test]
-    #[ignore]
-    fn bench_conversation_search_scan() {
-        let data_path =
-            std::path::PathBuf::from("E:/github/easy_call_ai/.pai/temp/benchdata/config_mark");
-        let state = AppState {
-            data_path,
-            ..AppState::new().expect("create test app state")
-        };
-        for (label, source_kinds, days) in [
-            ("本地会话·30天内", Some(vec!["localConversation".to_string()]), Some(30u32)),
-            ("本地会话·不限时间", Some(vec!["localConversation".to_string()]), None),
-            ("远程联系人·30天内", Some(vec!["contact".to_string()]), Some(30u32)),
-            ("本地会话·冷门词", Some(vec!["localConversation".to_string()]), None),
-        ] {
-            let query = if label.contains("冷门") {
-                "绝对不会命中的冷门关键词".to_string()
-            } else {
-                "绝区零".to_string()
-            };
-            let input = ConversationSearchInput {
-                query,
-                limit: Some(10),
-                agent_id: None,
-                source_kinds,
-                workspace_path: None,
-                days,
-            };
-            match conversation_search_messages(&state, &input) {
-                Ok(result) => println!(
-                    "{label} 命中={} 候选会话={} 读取会话={} 读取消息={} 耗时={}ms",
-                    result.hits.len(),
-                    result.stats.scanned_conversations,
-                    result.stats.read_conversations,
-                    result.stats.read_messages,
-                    result.elapsed_ms
-                ),
-                Err(err) => println!("{label} 失败 err={err}"),
-            }
-        }
-    }
 
     #[test]
     fn conversation_search_workspace_key_should_normalize_slashes_and_prefix() {
