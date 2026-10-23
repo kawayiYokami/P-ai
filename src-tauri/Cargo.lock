@@ -2666,8 +2666,8 @@ dependencies = [
 
 [[package]]
 name = "genai"
-version = "0.7.0-rc.5-WIP"
-source = "git+https://github.com/kawayiYokami/rust-genai.git?rev=453a8d1ccb9b8af8d43439f3b0268ae2af7aa718#453a8d1ccb9b8af8d43439f3b0268ae2af7aa718"
+version = "0.7.2-WIP"
+source = "git+https://github.com/kawayiYokami/rust-genai.git?rev=fd6c71c6b51c253c9c6582ecf9a48c1b2f140e6b#fd6c71c6b51c253c9c6582ecf9a48c1b2f140e6b"
 dependencies = [
  "base64 0.23.0",
  "bytes",
@@ -2675,7 +2675,7 @@ dependencies = [
  "futures",
  "macro_rules_attribute",
  "mime_guess",
- "paste",
+ "pastey",
  "regex",
  "reqwest",
  "serde",
