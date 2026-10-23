@@ -1,3 +1,28 @@
+/// 需要做通用归一化的适配器：OpenAI 兼容系（含 DeepSeek/Kimi/WorkBuddy 等）。
+/// Anthropic 与 Gemini 各有自己的 schema 契约，不在这里统一处理。
+fn tool_schema_normalization_applies(adapter_kind: genai::adapter::AdapterKind) -> bool {
+    matches!(
+        adapter_kind,
+        genai::adapter::AdapterKind::OpenAI
+            | genai::adapter::AdapterKind::OpenAIResp
+            | genai::adapter::AdapterKind::DeepSeek
+            | genai::adapter::AdapterKind::Moonshot
+            | genai::adapter::AdapterKind::Kimi
+            | genai::adapter::AdapterKind::BigModel
+            | genai::adapter::AdapterKind::MiniMax
+            | genai::adapter::AdapterKind::Aliyun
+            | genai::adapter::AdapterKind::Mimo
+            | genai::adapter::AdapterKind::OpenCodeGo
+            | genai::adapter::AdapterKind::OpenRouter
+            | genai::adapter::AdapterKind::Groq
+            | genai::adapter::AdapterKind::Together
+            | genai::adapter::AdapterKind::Fireworks
+            | genai::adapter::AdapterKind::Nebius
+            | genai::adapter::AdapterKind::Baidu
+            | genai::adapter::AdapterKind::Cohere
+    )
+}
+
 pub async fn runtime_tool_definitions_for_genai(
     definitions: &[ProviderToolDefinition],
     adapter_kind: genai::adapter::AdapterKind,
@@ -11,6 +36,10 @@ pub async fn runtime_tool_definitions_for_genai(
         let mut parameters = definition.parameters.clone();
         if matches!(adapter_kind, genai::adapter::AdapterKind::Gemini | genai::adapter::AdapterKind::Vertex) {
             gemini_to_openapi_schema(&mut parameters);
+        } else if tool_schema_normalization_applies(adapter_kind) {
+            // OpenAI 兼容通道原样转发，上游校验器对 $schema、联合 type 这类超集写法
+            // 容忍度不一；内置工具不带这些字段，第三方 MCP 的 schema 常带，统一收敛。
+            normalize_tool_schema(&mut parameters);
         }
         genai_tool = genai_tool.with_schema(parameters);
         out.push(genai_tool);
