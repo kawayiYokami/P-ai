@@ -17,7 +17,7 @@ fn encode_jsonl_snapshot_message(message: &ChatMessage) -> Result<String, String
         .map_err(|err| format!("序列化 JSONL 消息失败: {err}"))
 }
 
-fn decode_jsonl_snapshot_message(line: &str) -> Result<ChatMessage, String> {
+pub(super) fn decode_jsonl_snapshot_message(line: &str) -> Result<ChatMessage, String> {
     let parsed: JsonlSnapshotMessageLine =
         serde_json::from_str(line).map_err(|err| format!("解析 JSONL 消息失败: {err}"))?;
     if parsed.kind.trim() != JSONL_SNAPSHOT_MESSAGE_KIND {

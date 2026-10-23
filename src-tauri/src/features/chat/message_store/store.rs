@@ -1746,7 +1746,7 @@ fn build_message_store_block_summaries(
     Ok(summaries)
 }
 
-fn jsonl_snapshot_index_item_path(base_messages_file: &PathBuf, block_id: Option<u32>) -> Result<PathBuf, String> {
+pub(super) fn jsonl_snapshot_index_item_path(base_messages_file: &PathBuf, block_id: Option<u32>) -> Result<PathBuf, String> {
     let Some(block_id) = block_id else {
         return Err(format!(
             "会话块路径解析失败：索引缺少 block_id，path={}",

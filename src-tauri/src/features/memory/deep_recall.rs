@@ -81,13 +81,13 @@ fn deep_recall_conversation_is_archived(meta: &ConversationMetaView) -> bool {
 /// 渲染一个会话的消息序列（消息级，只保留正文，自动过滤工具调用等非文本部分）。
 fn deep_recall_collect_messages(
     state: &AppState,
-    meta: &ConversationMetaView,
+    conversation_id: &str,
+    archived: bool,
     agents: &[AgentProfile],
     user_alias: &str,
     skip_live_block: bool,
 ) -> Result<Vec<DeepRecallMessage>, String> {
-    let paths = message_store::message_store_paths(&state.data_path, &meta.id)?;
-    let archived = deep_recall_conversation_is_archived(meta);
+    let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
     let Some(page) = message_store::chat_store_read_block_page(&paths, None)? else {
         return Ok(Vec::new());
     };
@@ -176,7 +176,8 @@ fn deep_recall_collect_conversations(
             .unwrap_or(false);
         let messages = deep_recall_collect_messages(
             state,
-            &conversation_meta,
+            &conversation_meta.id,
+            deep_recall_conversation_is_archived(&conversation_meta),
             &agents,
             &user_alias,
             skip_live_block,

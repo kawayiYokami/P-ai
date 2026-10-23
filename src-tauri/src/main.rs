@@ -99,6 +99,7 @@ include!("features/memory/store.rs");
 include!("features/memory/matcher.rs");
 include!("features/memory/chat_history_search.rs");
 include!("features/memory/deep_recall.rs");
+include!("features/memory/conversation_search.rs");
 include!("features/memory/providers.rs");
 
 // ==================== MCP ====================
@@ -1515,6 +1516,7 @@ fn main() {
             search_memories_mixed,
             search_memories_recall,
             search_chat_history_slices,
+            search_conversation_messages,
             sync_memory_embedding_provider,
             test_memory_embedding_provider,
             test_memory_rerank_provider,

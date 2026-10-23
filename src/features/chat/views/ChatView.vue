@@ -39,6 +39,7 @@
           @delete-conversation="handleConversationDelete"
           @batch-archive-completed="handleBatchArchiveCompleted"
           @open-settings="$emit('openSettings')"
+          @open-conversation-search="openConversationSearch"
         />
         <div
           class="ecall-pane-splitter absolute bottom-0 top-0 right-0 z-10 w-1 cursor-col-resize"
@@ -66,6 +67,16 @@
             {{ t("chat.dropImageOrPdf") }}
           </div>
         </div>
+
+        <ConversationSearchPanel
+          v-show="conversationSearchOpen"
+          :open="conversationSearchOpen"
+          :agent-options="conversationSearchAgentOptions"
+          :workspace-options="conversationSearchWorkspaceOptions"
+          :notice="conversationSearchNotice"
+          @close="closeConversationSearch"
+          @select="handleConversationSearchSelect"
+        />
 
         <div class="relative flex min-h-0 flex-1 overflow-hidden">
           <div class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" @mouseenter="chatScrollbarRef?.reveal()" @mouseleave="chatScrollbarRef?.hide()">
@@ -931,6 +942,7 @@ import { useChatBlockTracking } from "../composables/use-chat-block-tracking";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { AgentPersonaOption } from "../../shared/agent-persona-options";
 import { clearNativeTextSelection } from "../../../utils/native-selection";
+import ConversationSearchPanel from "../components/ConversationSearchPanel.vue";
 
 // ==================== props / emits ====================
 
@@ -3974,6 +3986,65 @@ function performSendChat() {
   emit("sendChat", extraTextBlocks.length > 0 ? { extraTextBlocks } : undefined);
   clearAttachedIdeContextReferences();
 }
+/** 会话搜索页：由侧栏底部搜索按钮打开，覆盖在中间栏之上，不卸载聊天区。 */
+const conversationSearchOpen = ref(false);
+const conversationSearchNotice = ref("");
+
+const conversationSearchAgentOptions = computed(() => {
+  const items = props.conversationItems || props.unarchivedConversationItems || [];
+  const seen = new Map<string, string>();
+  for (const item of items) {
+    const id = String(item.agentId || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.set(id, String(props.personaNameMap?.[id] || "").trim() || id);
+  }
+  return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
+});
+
+const conversationSearchWorkspaceOptions = computed(() => {
+  const items = props.conversationItems || props.unarchivedConversationItems || [];
+  const seen = new Map<string, string>();
+  for (const item of items) {
+    const path = String(item.workspaceRootPath || "").trim();
+    if (!path || seen.has(path)) continue;
+    const label = String(item.workspaceLabel || "").trim()
+      || path.split(/[\\/]/).filter(Boolean).pop()
+      || path;
+    seen.set(path, label);
+  }
+  return Array.from(seen.entries()).map(([path, label]) => ({ path, label }));
+});
+
+
+function openConversationSearch() {
+  conversationSearchNotice.value = "";
+  conversationSearchOpen.value = true;
+}
+
+function closeConversationSearch() {
+  conversationSearchNotice.value = "";
+  conversationSearchOpen.value = false;
+}
+
+/** 搜索结果与近期会话点击：按会话 id 回到既有切换链路，联系人会话会自动切到对应侧栏分组。 */
+function handleConversationSearchSelect(conversationId: string) {
+  const id = String(conversationId || "").trim();
+  if (!id) return;
+  const items = props.conversationItems || props.unarchivedConversationItems || [];
+  const target = items.find((item) => String(item.conversationId || "").trim() === id);
+  if (!target) {
+    conversationSearchNotice.value = t("chat.conversationSearchPanel.conversationMissing");
+    return;
+  }
+  conversationSearchNotice.value = "";
+  conversationSearchOpen.value = false;
+  emit("switchConversation", {
+    conversationId: id,
+    kind: target.kind || "local_unarchived",
+    remoteContactId: String(target.remoteContactId || "").trim() || undefined,
+  });
+}
+
 function handleConversationListSelect(payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }) {
   const id = String(payload?.conversationId || "").trim();
   if (!id || id === String(props.activeConversationId || "").trim()) return;

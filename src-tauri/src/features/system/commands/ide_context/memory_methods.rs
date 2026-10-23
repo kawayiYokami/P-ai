@@ -74,6 +74,20 @@ fn ide_chat_search_chat_history_slices_for_web_settings(
     ide_chat_serialize(chat_history_search_slices(state, &input)?)
 }
 
+async fn ide_chat_search_conversation_messages_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<ConversationSearchInput>(params, "input")?;
+    let app_state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        conversation_search_messages(&app_state, &input)
+            .and_then(ide_chat_serialize)
+    })
+    .await
+    .map_err(|err| format!("会话搜索任务异常：{err}"))?
+}
+
 fn ide_chat_get_memory_provider_bindings_for_web_settings(
     state: &AppState,
 ) -> Result<Value, String> {

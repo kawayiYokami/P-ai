@@ -482,8 +482,16 @@
             type="button"
             class="btn btn-ghost btn-xs h-7 min-h-7 w-7 min-w-7 p-0"
             :class="showSearch ? 'text-primary' : 'text-base-content/55'"
-            :title="searchPlaceholder"
+            :title="t('chat.conversationFilter.title')"
             @click="showSearch = !showSearch"
+          >
+            <ListFilter class="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs h-7 min-h-7 w-7 min-w-7 p-0 text-base-content/55"
+            :title="t('chat.conversationSearchPanel.openTitle')"
+            @click="emit('openConversationSearch')"
           >
             <Search class="h-4 w-4" />
           </button>
@@ -628,7 +636,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
-import { Archive, Bell, Check, ChevronDown, ChevronRight, Clock, Folder, LayoutList, Moon, Search, Settings, SquarePen, Sun, UserRound } from "@lucide/vue";
+import { Archive, Bell, Check, ChevronDown, ChevronRight, Clock, Folder, LayoutList, ListFilter, Moon, Search, Settings, SquarePen, Sun, UserRound } from "@lucide/vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import ChatConversationItem from "./ChatConversationItem.vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
@@ -724,6 +732,7 @@ const emit = defineEmits<{
   (e: "editTask", task: TaskEntry): void;
   (e: "batchArchiveCompleted", payload: { archivedConversationIds: string[]; activeConversationId?: string }): void;
   (e: "openSettings"): void;
+  (e: "openConversationSearch"): void;
 }>();
 
 const { t, locale } = useI18n();

@@ -515,6 +515,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "delete_memory" => ide_chat_delete_memory_for_web_settings(state, request.params),
         "search_memories_mixed" => ide_chat_search_memories_mixed_for_web_settings(state, request.params),
         "search_chat_history_slices" => ide_chat_search_chat_history_slices_for_web_settings(state, request.params),
+        "search_conversation_messages" => ide_chat_search_conversation_messages_for_web_settings(state, request.params).await,
         "get_memory_provider_bindings" => ide_chat_get_memory_provider_bindings_for_web_settings(state),
         "get_memory_embedding_sync_progress" => ide_chat_get_memory_embedding_sync_progress_for_web_settings(state),
         "save_memory_embedding_binding" => ide_chat_save_memory_embedding_binding_for_web_settings(state, request.params),

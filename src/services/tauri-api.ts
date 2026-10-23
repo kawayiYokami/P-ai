@@ -195,6 +195,7 @@ const WEB_BRIDGE_COMMAND_TIMEOUT_MS: Record<string, number> = {
   remote_im_weixin_oc_sync_contacts: WEB_BRIDGE_LONG_TIMEOUT_MS,
   remote_im_restart_channel: WEB_BRIDGE_LONG_TIMEOUT_MS,
   search_chat_history_slices: WEB_BRIDGE_LONG_TIMEOUT_MS,
+  search_conversation_messages: WEB_BRIDGE_VERY_LONG_TIMEOUT_MS,
   search_memories_mixed: WEB_BRIDGE_LONG_TIMEOUT_MS,
   task_optimize_draft: WEB_BRIDGE_LONG_TIMEOUT_MS,
   test_embedding_connection: WEB_BRIDGE_LONG_TIMEOUT_MS,

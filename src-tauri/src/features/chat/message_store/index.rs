@@ -1,6 +1,6 @@
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct MessageStoreIndexItem {
+pub(super) struct MessageStoreIndexItem {
     message_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     block_id: Option<u32>,
