@@ -140,21 +140,21 @@
                 <div
                   v-for="cell in flatCalendarDays"
                   :key="cell.day.date"
-                  class="relative aspect-square rounded-field"
+                  class="relative aspect-square rounded-[3px]"
                   :style="{ ...calendarCellStyle(cell.day), gridColumn: String(cell.col), gridRow: String(cell.row) }"
                   @mouseenter="showDayTooltip($event, cell.day)"
                   @mouseleave="hideDayTooltip()"
                 ></div>
               </div>
             </div>
-            <!-- Less/More 色阶图例：多色块模拟连续渐变，与格子同渲染逻辑 -->
+            <!-- Less/More 色阶图例：与格子共用当年的分位锚点 -->
             <div class="mt-1 flex w-full items-center justify-end gap-1 text-caption opacity-50">
               <span>{{ t("config.welcome.trail.legendLess") }}</span>
               <div class="flex gap-px">
                 <div
-                  v-for="pct in [25, 40, 55, 70, 85, 100]"
+                  v-for="pct in calendarLegendPcts"
                   :key="pct"
-                  class="h-2 w-3 rounded-field"
+                  class="h-2 w-3 rounded-[3px]"
                   :style="legendStyle(pct)"
                 ></div>
               </div>
@@ -449,29 +449,60 @@ const weekdayLabels = computed(() => {
   return weekdays.map((day) => (day === "一" || day === "三" || day === "五" ? day : ""));
 });
 
-// 平滑色阶：锚点固定 (1, 25%) → (10M, 50%) → (100M, 75%) → (1B, 100%)
-// 0 无数据为灰底；有数据从 25% 起，token 取对数后在锚点间线性插值缓升
-const CALENDAR_ANCHORS: Array<{ log: number; pct: number }> = [
-  { log: 0, pct: 25 },      // 1 token
-  { log: 7, pct: 50 },      // 10M
-  { log: 8, pct: 75 },      // 100M
-  { log: 9, pct: 100 },     // 1B
-];
+// 平滑色阶：0 无数据为灰底，有数据从 25% 起缓升到 100% 主题色
+// 锚点取自当前年份非零用量的 25/50/75 分位（含最小与最大值），token 取对数后
+// 在锚点间线性插值；分位点随数据分布移动，日常用量不会被压在同一片极浅区域
+const CALENDAR_PCTS = [25, 44, 63, 81, 100];
+
+type CalendarScale = { logs: number[]; pcts: number[] };
+
+const calendarScale = computed<CalendarScale | null>(() => {
+  const tokens = (historyData.value?.calendar ?? [])
+    .map((day) => day.totalTokens)
+    .filter((value) => value > 0)
+    .sort((a, b) => a - b);
+  if (!tokens.length) return null;
+  const at = (p: number) => Math.log10(tokens[Math.min(tokens.length - 1, Math.floor(p * tokens.length))]);
+  const logs = [at(0), at(0.25), at(0.5), at(0.75), at(1)];
+  // 非零天数太少或取值过于集中时，分位点会重合到同一个值上，插值会把整年
+  // 压成一片同色。此时改用去重后的真实取值当锚点，让每个实际档位都落在
+  // 一个可辨的色深上，而不是让振幅更大的那几天去点亮整条色阶
+  if (logs.some((log, i) => i > 0 && log <= logs[i - 1])) {
+    const distinct = [...new Set(tokens)].sort((a, b) => a - b).map((value) => Math.log10(value));
+    // 全年每天用量完全相同，没有高低可分，统一取最深一档
+    if (distinct.length < 2) return { logs: distinct, pcts: [100] };
+    return {
+      logs: distinct,
+      pcts: distinct.map((_, i) => CALENDAR_PCTS[0] + ((100 - CALENDAR_PCTS[0]) * i) / (distinct.length - 1)),
+    };
+  }
+  return { logs, pcts: CALENDAR_PCTS };
+});
+
+// 图例色块与格子走同一套锚点，落地色与该年实际分位一致
+// 锚点可能远多于图例能放的格数，按色深区间等距取样，最多五格
+const calendarLegendPcts = computed<number[]>(() => {
+  const pcts = calendarScale.value?.pcts ?? CALENDAR_PCTS;
+  if (pcts.length <= 5) return pcts;
+  return Array.from({ length: 5 }, (_, i) => pcts[Math.round((i * (pcts.length - 1)) / 4)]);
+});
 
 function calendarPct(tokens: number): number | null {
   if (tokens <= 0) return null;
+  const scale = calendarScale.value;
+  if (!scale) return null;
+  const { logs, pcts } = scale;
   const log = Math.log10(tokens);
-  if (log <= 0) return 25;
-  if (log >= 9) return 100;
-  for (let i = 1; i < CALENDAR_ANCHORS.length; i += 1) {
-    const lo = CALENDAR_ANCHORS[i - 1];
-    const hi = CALENDAR_ANCHORS[i];
-    if (log <= hi.log) {
-      const ratio = (log - lo.log) / (hi.log - lo.log);
-      return lo.pct + (hi.pct - lo.pct) * ratio;
+  const last = logs.length - 1;
+  if (log <= logs[0]) return pcts[0];
+  if (log >= logs[last]) return pcts[last];
+  for (let i = 1; i <= last; i += 1) {
+    if (log <= logs[i]) {
+      const ratio = (log - logs[i - 1]) / (logs[i] - logs[i - 1]);
+      return pcts[i - 1] + (pcts[i] - pcts[i - 1]) * ratio;
     }
   }
-  return 100;
+  return pcts[last];
 }
 
 function cnMonth(datePrefix: string): string {
