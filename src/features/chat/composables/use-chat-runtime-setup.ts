@@ -149,6 +149,8 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
       chatting: bindings.chatting,
       trimming: bindings.trimming,
       compactingConversation: bindings.compactingConversation,
+      trimmingConversationId: bindings.trimmingConversationId,
+      compactingConversationId: bindings.compactingConversationId,
       chatErrorText: bindings.chatErrorText,
       chatInput: bindings.chatInput,
       selectedMentions: bindings.selectedChatMentions,

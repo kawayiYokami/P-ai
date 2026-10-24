@@ -22,6 +22,10 @@ type UseChatRewindActionsOptions = {
   chatting: Ref<boolean>;
   trimming: Ref<boolean>;
   compactingConversation: Ref<boolean>;
+  // 修剪与压缩都是窗口级布尔，但作用对象是某一个会话：
+  // 必须按 id 比对才和视图层忙碌口径一致，否则压缩别的会话会把当前会话的撤回也拦住。
+  trimmingConversationId?: Ref<string>;
+  compactingConversationId?: Ref<string>;
   chatErrorText: Ref<string>;
   chatInput: Ref<string>;
   selectedMentions: Ref<ChatMentionTarget[]>;
@@ -44,6 +48,24 @@ type UseChatRewindActionsOptions = {
 
 export function useChatRewindActions(options: UseChatRewindActionsOptions) {
   let rewindInFlight = false;
+
+  /**
+   * 当前会话是否真的在忙。与视图层 `isViewLayerBusy` 同一口径：
+   * 修剪/压缩只在「没有指定会话」或「指定的就是当前会话」时才算到当前会话头上。
+   *
+   * 这两者是窗口级布尔，后台压缩别的会话同样会把它们置真；若不看 id，
+   * 界面明明空闲却会把撤回拦下，出现「UI 正常但提示忙碌」的矛盾。
+   */
+  function currentConversationBusy(): boolean {
+    const conversationId = String(options.currentConversationId.value || "").trim();
+    const ownsConversation = (target?: Ref<string>) => {
+      const targetId = String(target?.value || "").trim();
+      return !targetId || !conversationId || targetId === conversationId;
+    };
+    return !!options.chatting.value
+      || (!!options.trimming.value && ownsConversation(options.trimmingConversationId))
+      || (!!options.compactingConversation.value && ownsConversation(options.compactingConversationId));
+  }
 
   function bytesBase64FromDataUrl(dataUrl: string): string {
     const text = String(dataUrl || "").trim();
@@ -261,13 +283,15 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       console.warn("[会话撤回] 跳过：已有撤回流程正在进行", { turnId: payload?.turnId });
       return;
     }
-    if (options.chatting.value || options.trimming.value || options.compactingConversation.value) {
+    if (currentConversationBusy()) {
       const message = t('dialogs.rewind.failedBusy');
       console.error("[会话撤回] 失败：当前会话处于忙碌状态", {
         turnId: payload?.turnId,
         chatting: options.chatting.value,
         trimming: options.trimming.value,
         compactingConversation: options.compactingConversation.value,
+        trimmingConversationId: String(options.trimmingConversationId?.value || ""),
+        compactingConversationId: String(options.compactingConversationId?.value || ""),
       });
       options.setChatErrorText(`撤回失败：${message}`);
       options.setStatusError("status.rewindConversationFailed", message);

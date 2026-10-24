@@ -616,6 +616,9 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     chatting,
     trimming,
     compactingConversation: ref(false),
+    // 追问会话的 trimming 是它自己的 ref，与本会话一一对应；
+    // 不传 id 时按「空 id 视为占用自身」处理，与原有行为一致。
+    compactingConversationId: ref(""),
     chatErrorText,
     chatInput,
     selectedMentions,
