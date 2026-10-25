@@ -661,6 +661,7 @@
           :delegating="launchDelegating"
           :error-text="codeReviewErrorText"
           :current-agent-id="props.activeAgentId"
+          :current-api-config-id="launchDialogDefaultApiConfigId"
           :agent-options="props.createConversationAgentOptions"
           :api-configs="props.chatModelOptions"
           :persona-avatar-url-map="props.personaAvatarUrlMap"
@@ -1134,6 +1135,11 @@ const launchPanel = ref<"delegate" | "review">(readLaunchPanel());
 const launchDelegating = ref(false);
 const launchDialogRef = ref<InstanceType<typeof ToolReviewTargetDialog> | null>(null);
 const codeReviewErrorText = ref("");
+/** 对话卡片默认模型 = 当前会话模型：优先会话显式首选，回退本次调用主模型 */
+const launchDialogDefaultApiConfigId = computed(() =>
+  String(props.preferredChatModelId || "").trim()
+  || String(props.conversationCallPrimaryApiConfigId || "").trim(),
+);
 const commitOptions = ref<ToolReviewCommitOption[]>([]);
 const commitOptionsLoading = ref(false);
 const commitTotal = ref(0);

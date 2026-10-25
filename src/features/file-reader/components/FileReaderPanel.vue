@@ -1162,6 +1162,12 @@ watch(
 
 watch(visibleTreeRows, () => scheduleFileReaderWatchTargetUpdate());
 
+// 前台文件切到哪儿，目录树就跟到哪儿：切标签、从其他入口打开文件都统一走这里，
+// 不再由各个打开分支各自补调用，避免漏掉入口。
+watch(activePath, (path) => {
+  void revealActivePathInDirectoryTree(path);
+});
+
 // 悬浮目录树加载了新目录后，也要把它纳入监听，才能收到它的变更事件
 watch(hoverDirectoryTreeNodes, () => scheduleFileReaderWatchTargetUpdate());
 
@@ -1843,6 +1849,8 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
       }
       if (restoreId !== restoringSessionId) return;
       await openPath(activePath.value);
+      // 恢复时 activePath 先于目录根落定，监听不会再触发，这里补一次定位
+      await revealActivePathInDirectoryTree(activePath.value);
       return;
     }
 
@@ -2089,11 +2097,11 @@ async function scrollActiveFileToLine(line: number) {
   captureVisibleRangeContextNow({ force: true });
 }
 
-async function openPath(path: string, options: { reuseActiveTab?: boolean; targetLine?: number; revealInDirectoryTree?: boolean } = {}) {
+async function openPath(path: string, options: { reuseActiveTab?: boolean; targetLine?: number } = {}) {
   const normalizedPath = normalizePath(path);
   if (!normalizedPath) return;
-  // revealInDirectoryTree 需要在目录树中定位，此时不能收起目录
-  if (!options.revealInDirectoryTree) collapseDirectoryTreeForOverlayOpen();
+  // 覆盖模式下目录树占满面板，打开文件先收起树让内容可见；目录定位统一由 activePath 监听处理
+  collapseDirectoryTreeForOverlayOpen();
   const shouldResetScrollAfterOpen = !sameNormalizedPath(activePath.value, normalizedPath);
   const current = tabs.value.find((tab) => tab.path === normalizedPath);
   if (current?.loading) {
@@ -2101,9 +2109,6 @@ async function openPath(path: string, options: { reuseActiveTab?: boolean; targe
     scheduleAddressScrollStateUpdate();
     if (shouldResetScrollAfterOpen) {
       void resetScrollAndCaptureFirstPage();
-    }
-    if (options.revealInDirectoryTree) {
-      await revealPathInDirectoryTree(normalizedPath);
     }
     return;
   }
@@ -2130,9 +2135,6 @@ async function openPath(path: string, options: { reuseActiveTab?: boolean; targe
       void resetActiveContentScrollToTop();
     }
     emit("openPath", normalizedPath);
-    if (options.revealInDirectoryTree) {
-      await revealPathInDirectoryTree(normalizedPath);
-    }
     return;
   }
   try {
@@ -2164,9 +2166,6 @@ async function openPath(path: string, options: { reuseActiveTab?: boolean; targe
       void nextTick(() => captureVisibleRangeContextNow({ force: true }));
     }
     emit("openPath", resolvedPath);
-    if (options.revealInDirectoryTree) {
-      await revealPathInDirectoryTree(resolvedPath);
-    }
     if (options.targetLine) {
       await scrollActiveFileToLine(options.targetLine);
     }
@@ -2593,7 +2592,12 @@ async function openDirectoryTree(path: string, options: { switchToFiles?: boolea
     asideMode.value = "files";
   }
   directoryRootPath.value = normalizedPath;
-  return await loadDirectory(normalizedPath, true);
+  const loaded = await loadDirectory(normalizedPath, true);
+  // 树刚打开时 activePath 不会变化，这里补一次定位，让树直接落到当前文件
+  if (loaded) {
+    await revealActivePathInDirectoryTree(activePath.value);
+  }
+  return loaded;
 }
 
 async function revealPathInDirectoryTree(path: string) {
@@ -2607,7 +2611,8 @@ async function revealPathInDirectoryTree(path: string) {
     const node = treeDirectoryNode(directoryPath);
     if (!node?.loaded || node.error) {
       await loadDirectory(directoryPath, true);
-    } else {
+    } else if (!node.expanded) {
+      // 已展开的目录不再写状态，避免每次切换标签都刷新整棵树
       updateDirectoryNode(directoryPath, { expanded: true, error: "" });
     }
   }
@@ -2619,7 +2624,23 @@ async function revealPathInDirectoryTree(path: string) {
   // menu 树行高不再固定：直接定位到目标行元素
   const target = scroller.querySelector(`a[data-tree-path="${CSS.escape(targetPath)}"]`);
   if (!(target instanceof HTMLElement)) return;
+  // 目标行已在视口内就不滚动，避免“点树里的文件”这类本就可见的场景被拉回居中位置
+  const targetRect = target.getBoundingClientRect();
+  const scrollerRect = scroller.getBoundingClientRect();
+  if (targetRect.top >= scrollerRect.top && targetRect.bottom <= scrollerRect.bottom) return;
   target.scrollIntoView({ block: "center" });
+}
+
+/** 前台文件变化后让目录树跟上：树未打开、处于过滤态、或目标不在当前根内都不动 */
+async function revealActivePathInDirectoryTree(path: string) {
+  const normalizedPath = normalizePath(path);
+  if (!normalizedPath) return;
+  if (!directoryRootPath.value) return;
+  // 过滤态是扁平展示，展开没有意义，清掉过滤反而会打断用户输入
+  if (directoryTreeFilter.value.trim()) return;
+  // git-diff 伪路径只取反查真实文件，本身不参与目录定位
+  if (normalizedPath.startsWith("git-diff:")) return;
+  await revealPathInDirectoryTree(normalizedPath);
 }
 
 function closeDirectoryTree() {

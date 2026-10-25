@@ -325,11 +325,11 @@ onMounted(async () => {
   const path = getTransportLaunchParameter("path");
   await restoreFileReaderSession(!path);
   if (path) {
-    void fileReaderPanelRef.value?.openPath(path, { revealInDirectoryTree: true });
+    void fileReaderPanelRef.value?.openPath(path);
   }
   try {
     unlistenOpenPath = onTransportNotification<{ path?: string }>("fileReader.openPath", (payload) => {
-      void fileReaderPanelRef.value?.openPath(payload?.path || "", { revealInDirectoryTree: true });
+      void fileReaderPanelRef.value?.openPath(payload?.path || "");
     });
   } catch (error) {
     console.error("[文件阅读窗口] 监听打开文件事件失败", error);

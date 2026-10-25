@@ -15,12 +15,13 @@
           <div class="text-xs font-medium text-base-content/60">{{ t("chat.toolReview.agentLabel") }}</div>
           <AgentPersonaSelect
             v-model:agent-id="selectedAgentId"
-            v-model:api-config-id="selectedApiConfigId"
+            :api-config-id="selectedApiConfigId"
             :options="agentSelectOptions"
             :api-configs="apiConfigs"
             :persona-avatar-url-map="personaAvatarUrlMap"
             show-model
             auto-select-first
+            @update:api-config-id="setSelectedApiConfigId"
           />
         </div>
       </div>
@@ -98,6 +99,7 @@ import AgentPersonaSelect from "../../shared/components/AgentPersonaSelect.vue";
 import SegmentedControl, { type SegmentedControlOption } from "../../config/components/SegmentedControl.vue";
 import type { ToolReviewCodeReviewScope, ToolReviewCommitOption } from "../composables/use-chat-tool-review";
 import type { AgentPersonaOption } from "../../shared/agent-persona-options";
+import { isModelRoleApiConfigId } from "../../config/utils/model-role-options";
 
 type LaunchPanel = "delegate" | "review";
 
@@ -117,6 +119,8 @@ const props = defineProps<{
   delegating?: boolean;
   errorText: string;
   currentAgentId: string;
+  /** 当前会话正在用的模型：打开对话卡片时模型选择器的默认值 */
+  currentApiConfigId?: string;
   agentOptions: AgentPersonaOption[];
   apiConfigs?: ApiConfigItem[];
   personaAvatarUrlMap?: Record<string, string>;
@@ -161,6 +165,18 @@ const scope = ref<ToolReviewCodeReviewScope>("main");
 const recentGoals = ref<RecentGoal[]>([]);
 
 const apiConfigs = computed(() => (Array.isArray(props.apiConfigs) ? props.apiConfigs : []));
+
+/** 卡片默认模型：当前会话正在用的模型。哨兵值不是模型，不能出现在选择器里。 */
+function conversationDefaultApiConfigId(): string {
+  const current = String(props.currentApiConfigId || "").trim();
+  return isModelRoleApiConfigId(current) ? "" : current;
+}
+
+/** 任何来源（人格自动选择、最近目标）写回的模型都先过一遍哨兵拦截 */
+function setSelectedApiConfigId(value: string) {
+  const next = String(value || "").trim();
+  selectedApiConfigId.value = isModelRoleApiConfigId(next) ? "" : next;
+}
 
 function onDialogClose() {
   if (props.submitting || props.delegating) {
@@ -233,10 +249,26 @@ watch(
       selectedAgentId.value = nextAgentId;
     }
     if (!selectedApiConfigId.value) {
-      selectedApiConfigId.value = String(selectedOption?.apiConfigId || "").trim();
+      selectedApiConfigId.value = conversationDefaultApiConfigId();
     }
   },
   { immediate: true },
+);
+
+watch(
+  () => [props.open, String(props.currentApiConfigId || "").trim()] as const,
+  ([open], previous) => {
+    if (!open) return;
+    const [wasOpen] = previous || [false];
+    // 每次打开都以当前会话模型为默认；已打开期间会话模型变化不打断用户选择
+    if (!wasOpen) {
+      selectedApiConfigId.value = conversationDefaultApiConfigId();
+      return;
+    }
+    if (!selectedApiConfigId.value) {
+      selectedApiConfigId.value = conversationDefaultApiConfigId();
+    }
+  },
 );
 
 watch(
@@ -329,8 +361,7 @@ function applyRecentGoal(item: RecentGoal) {
   if (agentSelectOptions.value.some((option) => option.agentId === item.agentId)) {
     selectedAgentId.value = item.agentId;
     if (!selectedApiConfigId.value) {
-      const option = agentSelectOptions.value.find((entry) => entry.agentId === item.agentId);
-      selectedApiConfigId.value = String(option?.apiConfigId || "").trim();
+      selectedApiConfigId.value = conversationDefaultApiConfigId();
     }
   }
 }
