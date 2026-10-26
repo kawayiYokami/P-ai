@@ -90,18 +90,22 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 
 ### 数据持久化
 
-标准安装把配置与运行数据放在 `ProjectDirs::from("ai", "easycall", "p-ai").config_dir()`；若可执行文件同级存在 `PORTABLE` 标记，则切换到可执行文件同级 `data/`。现役存储含 SQLite，不能再按「全是 JSON、无数据库」理解。
+标准安装先取 `ProjectDirs::from("ai", "easycall", "p-ai").config_dir()` 作为 `config_dir`；若可执行文件同级存在 `PORTABLE` 标记，则切到可执行文件同级 `data/`，并把 `config_dir` 设为 `data/config/`。现役存储含 SQLite，不能再按「全是 JSON、无数据库」理解。
 
-应用根目录 `app_root` 由 `app_root_from_data_path` 从 `config_mark` 锚点反推（平台感知：父目录名是 `config` 则取上级，否则用自身）。目录布局相对 `app_root`：
+业务数据根 `app_root` 由 `app_root_from_data_path` 从 `data_path`（`config_dir/config_mark`）反推：父目录名是 `config` 就取再上一级，否则用父目录自身。这不是平台差异。Windows 标准安装的 `config_dir` 末段就是 `config`，因此会抬到 `%APPDATA%\easycall\p-ai`；便携模式同样抬到 `data/`。
 
-- `app_config.toml` / `config_mark` — 标准安装在 `app_root` 直下；便携模式在 `config/` 下
-- `config/` — `agents.json` 等代理配置
+目录布局相对 `app_root`：
+
+- `app_config.toml` — 始终在 `config_dir` 下。Windows 标准安装和便携模式相对业务根是 `config/app_config.toml`；Linux / macOS 标准安装 `config_dir` 就是业务根，文件在 `app_root/app_config.toml`。`config_mark` 只是 `data_path` 的路径后缀，代码不创建、不读写该文件
+- `config/agents.json` — 代理配置，相对业务根始终在 `config/` 下
 - `state/state.sqlite` — 全局状态现役落点（旧 `runtime_state.json` 只走迁移读取）
 - `chat/chat_metadata.sqlite` + `chat/conversations/<id>/` — 聊天元数据与 V4 压缩块
 - `backups/` — 备份
 - `memory/memory_store.db`、`task/task_store.db`、`delegate/delegate_store.db`
 - `avatars/`、`media/`、`exports/` — 资源目录
-- `llm-workspace/` — Shell / Skills / MCP 运行工作区（相对 `app_root` 直下）
+- `llm-workspace/downloads/` — 下载落点，相对 `app_root`
+- `config/llm-workspace/` — Windows 标准安装下 skills / MCP / tool-output 的实际落点（`AppState.llm_workspace_path` 绑在 `config_dir` 上，不会随 `app_root` 上提）
+- 另有运行时目录：`auth/`、`indexes/`、`remote-im/`、`web-access/`、`temp/`、`tool-review-reports/`、`delegate-conversations/`
 
 完整表见 `docs/data-schema-v2.md`。
 
@@ -264,8 +268,8 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 
 #### 实际行为
 
-- `eprintln!` 宏在 `main.rs:29-33` 被重定义为 `runtime_log_info`，约 532 处调用全部走 info 级别。**新增日志不要用 `eprintln!` 打非 info 级别的内容，直接用对应 `runtime_log_*` 函数。**
-- `normalize_runtime_log`（`debug_log_commands.rs:343`）会从消息前缀自动提升级别：`[ERROR]`→error、`[WARN]`→warn、`[INFO]`→info、`[DEBUG]`→debug、`[TRACE]`→trace。
+- `eprintln!` 宏在 `main.rs` 启动处被重定义为 `runtime_log_info`。**新增日志不要用 `eprintln!` 打非 info 级别的内容，直接用对应 `runtime_log_*` 函数。**
+- `normalize_runtime_log`（`debug_log_commands.rs`）会从消息前缀自动提升级别：`[ERROR]`→error、`[WARN]`→warn、`[INFO]`→info、`[DEBUG]`→debug、`[TRACE]`→trace。
 
 ### 日志约定
 - 日志文案默认使用中文，避免中英混杂；仅在必要时保留英文标识（如集合名、配置键名、异常类名）。

@@ -47,7 +47,7 @@
 ### 5. delegate：列迁移
 
 - 模块：[delegate/store.rs](../src-tauri/src/features/delegate/store.rs)
-- 内容：`delegate_store_migrate_why_goal_todo`（旧列 background/instruction/question/specific_goal/deliverable_requirement/focus → why/goal/todo 重建）、`delegate_store_migrate_snapshot_columns`（snapshot 系列列补加）
+- 内容：`delegate_store_migrate_why_goal_todo`（旧列 background/instruction/question/specific_goal/deliverable_requirement/focus → why/goal/todo 重建）、`delegate_store_migrate_snapshot_columns`（snapshot 系列列补加）、`delegate_store_migrate_relax_legacy_department_columns`（历史部门列放宽）
 
 ### 6. config：归一化（非存储迁移）
 
@@ -63,5 +63,5 @@
 
 以下内容不再存在，任何新代码不得为其编写迁移：
 
-- `app_data.json` 全量 AppData（agents/conversations/archived 一体 JSON）——该文件只是路径锚点占位，已改名为 `config_mark`，从不读写内容
+- `app_data.json` 全量 AppData（agents/conversations/archived 一体 JSON）——现役代码不再读取；`config_mark` 只是 `data_path` 的路径后缀，不是由该文件改名而来，代码也不创建它
 - 记忆库在根目录的 legacy 形态、WAL checkpoint 手工迁移等为「从未发布形态」编写的迁移逻辑

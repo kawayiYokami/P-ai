@@ -21,7 +21,7 @@ PAI 是一個持續演進中的桌面 AI 工作系統。它不是聊天用戶端
 
 ### 入口與效率
 
-快捷鍵喚出、語音喚醒、背景語音輸入、快速截圖——PAI 把桌面 AI 的入口做到了「隨時喚出、隨時處理、隨時繼續」。支援本機對話、遠端對話、多對話並行，快捷指令可以一鍵觸發常用操作。
+快捷鍵喚出、Windows 背景語音喚醒（按住錄音鍵）、快速截圖——PAI 把桌面 AI 的入口做到了「隨時喚出、隨時處理、隨時繼續」。支援本機對話、遠端對話、多對話並行，快捷指令可以一鍵觸發常用操作。
 
 ### 組織與人格
 
@@ -121,7 +121,7 @@ Linux 上 AUR 包裝為 `easy-call-ai`；官方 `.deb` / `AppImage` 以 Release 
 
 ## 致謝
 
-這個專案能走到今天，依賴這些優秀的上游專案與社群：[Tauri](https://tauri.app/) · [Vue 3](https://vuejs.org/) · [DaisyUI](https://daisyui.com/) · [Tailwind CSS](https://tailwindcss.com/) · [rust-genai](https://github.com/kawayiYokami/rust-genai) · [rmcp](https://github.com/modelcontextprotocol/rust-sdk) · [Shiki](https://shiki.style/) · [Mermaid](https://mermaid.js.org/) · [KaTeX](https://katex.org/) · [tokio](https://tokio.rs/) · [reqwest](https://github.com/seanmonstar/reqwest) · [rusqlite](https://github.com/rusqlite/rusqlite) · [tantivy](https://github.com/quickwit-oss/tantivy) · [Linux.do](https://linux.do/) · [AstrBot](https://github.com/AstrBotDevs/AstrBot)
+這個專案能走到今天，依賴這些優秀的上游專案與社群：[Tauri](https://tauri.app/) · [Vue 3](https://vuejs.org/) · [DaisyUI](https://daisyui.com/) · [Tailwind CSS](https://tailwindcss.com/) · [rust-genai](https://github.com/kawayiYokami/rust-genai) · [rmcp](https://github.com/modelcontextprotocol/rust-sdk) · [Shiki](https://shiki.style/) · [Mermaid](https://mermaid.js.org/) · [KaTeX](https://katex.org/) · [tokio](https://tokio.rs/) · [reqwest](https://github.com/seanmonstar/reqwest) · [rusqlite](https://github.com/rusqlite/rusqlite) · [tantivy](https://github.com/quickwit-oss/tantivy) · [AstrBot](https://github.com/AstrBotDevs/AstrBot)
 
 專案作者還為 AstrBot 生態開發了三款外掛：[AngelHeart](https://github.com/kawayiYokami/astrbot_plugin_angel_heart)（智慧群聊互動） · [AngelMemory](https://github.com/kawayiYokami/astrbot_plugin_angel_memory)（層級記憶檢索） · [AngelSmile](https://github.com/kawayiYokami/astrbot_plugin_angel_smile)（表情包管理）
 

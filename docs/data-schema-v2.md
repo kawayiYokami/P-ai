@@ -1,29 +1,30 @@
 # 数据存储架构
 
 > 更新于 2026-10-26
-> 本文档描述当前版本的真实存储形态。旧版文档描述的 `app_data.json` AppData 全量 JSON（agents/conversations/archived 一体）形态已不存在，仅残留于迁移读取路径。
+> 本文档描述当前版本的真实存储形态。旧版文档描述的 `app_data.json` AppData 全量 JSON（agents/conversations/archived 一体）形态已不存在；现役代码不再读取该文件。
 
 ## 目录布局
 
-应用根目录 `app_root` 由 `app_root_from_data_path(data_path)` 以 `config_mark` 锚点反推（`features/core/domain/runtime_state.rs`）：
+业务数据根 `app_root` 由 `app_root_from_data_path(data_path)` 反推（`features/core/domain/runtime_state.rs`）：
 
-- `data_path = config_dir/config_mark`，`config_mark` 是空占位锚点文件（从不读写内容）
-- 若 `config_mark` 父目录名恰为 `config`（便携模式），取父目录的父目录为 `app_root`
-- 否则（标准安装），取 `config_mark` 的父目录本身为 `app_root`
+- `data_path = config_dir/config_mark`。`config_mark` 只是路径后缀，代码不创建、不读写该文件
+- 若 `data_path` 的父目录名恰为 `config`，取再上一级为 `app_root`；否则取父目录本身。这不是平台差异，也不是便携专属
+- Windows 标准安装的 `ProjectDirs::from("ai","easycall","p-ai").config_dir()` 末段就是 `config`，因此 `app_root` 会抬到 `%APPDATA%\easycall\p-ai`；Linux 约 `~/.config/p-ai`，macOS 约 `~/Library/Application Support/ai.easycall.p-ai`
 
-两种运行时形态（`features/core/domain/runtime_state.rs`）：
+`AppState` 构造时另有一份启动期 `app_root`：便携模式等于 `exe_dir/data/`，标准安装等于 `config_dir`。这份值只用于把旧 `avatars` / `media` / `exports` 和旧 `llm-workspace` 搬到启动期根下，并绑定 `llm_workspace_path`。业务路径（state / chat / memory / task / delegate / media 等）一律走 `app_root_from_data_path`。
 
-| 模式 | 触发条件 | app_root |
-|---|---|---|
-| 便携 | exe 同级存在 `PORTABLE` 标记 | `exe_dir/data/` |
-| 标准 | 默认 | `ProjectDirs::from("ai","easycall","p-ai").config_dir()` |
+两种运行时形态：
 
-### 布局总表（相对 app_root）
+| 模式 | 触发条件 | config_dir | 业务 app_root |
+|---|---|---|---|
+| 便携 | exe 同级存在 `PORTABLE` 标记 | `exe_dir/data/config/` | `exe_dir/data/` |
+| 标准 | 默认 | `ProjectDirs::from("ai","easycall","p-ai").config_dir()` | 由 `app_root_from_data_path` 反推；Windows 上会再上提一级 |
+
+### 布局总表（相对业务 app_root）
 
 | 路径 | 形态 | 说明 |
 |---|---|---|
-| `app_config.toml`（标准）或 `config/app_config.toml`（便携） | TOML | 顶层配置（热键、供应商、工具开关等） |
-| `config_mark`（标准）或 `config/config_mark`（便携） | 占位文件 | 路径锚点，从不读写内容 |
+| `config/app_config.toml`（Windows 标准 / 便携）或 `app_config.toml`（Linux / macOS 标准，位于业务根直下） | TOML | 顶层配置（热键、供应商、工具开关等）。实际路径始终是 `config_dir/app_config.toml` |
 | `config/agents.json` | JSON | 代理配置 |
 | `state/state.sqlite` | SQLite | 全局状态总库（V4，runtime_state 表为现役落点） |
 | `state/runtime_state.json` 等旧 JSON | JSON | 仅迁移读取，V4 起不再写入 |
@@ -36,14 +37,21 @@
 | `avatars/` | 目录 | 代理头像（webp） |
 | `media/` | 目录 | 媒体文件（`<sha256>.<ext>`） |
 | `exports/` | 目录 | 导出产物 |
-| `llm-workspace/` | 目录 | Shell / Skills / MCP 工作区（标准安装与便携模式都在 `app_root` 直下，不在 `config/` 下） |
-| `llm-workspace/downloads/` | 目录 | 下载落点 |
+| `llm-workspace/downloads/` | 目录 | 下载落点（相对业务 `app_root`） |
+| `config/llm-workspace/` | 目录 | Windows 标准安装下 skills / MCP / tool-output 的实际落点（`AppState.llm_workspace_path` 绑在 `config_dir`，不会随业务 `app_root` 上提） |
+| `auth/` | 目录 | Codex / Grok 等认证落点 |
+| `indexes/` | 目录 | 聊天历史检索索引 |
+| `remote-im/` | 目录 | 远程 IM 频道状态 |
+| `web-access/` | 目录 | Web 访问桥接令牌 |
+| `temp/` | 目录 | 临时产物 |
+| `tool-review-reports/` | 目录 | 工具审查报告 |
+| `delegate-conversations/` | 目录 | 委托会话存储 |
 
 ## 1. app_config.toml
 
 顶层字段（`types_config.rs`）：
 
-- 标量：`hotkey`、`uiLanguage`、`uiFont`、`codeFont`、`uiSizeScale`（别名 `uiSizePreset`）、`webAccessPort`、`webAccessEnabled`、`webAccessPassword`、`githubUpdateMethod`、`skippedGithubUpdateVersion`、`recordHotkey`、`recordBackgroundWakeEnabled`、`minRecordSeconds`、`maxRecordSeconds`、`toolMaxIterations`、`llmRoundLogCapacity`、`messageNotificationEnabled`、`messageNotificationSoundEnabled`、`desktopOperationNoticeEnabled`、`desktopOperateEnabled`、`selectedApiConfigId`、`expertApiConfigId`（别名 `chatApiConfigId`；旧键 `assistantDepartmentApiConfigId`）、`visionApiConfigId`、`toolReviewApiConfigId`、`sttApiConfigId`、`imageGenerationModelId`、`sttAutoSend`、`terminalShellKind`、`simpleSetupMode`
+- 标量：`hotkey`、`uiLanguage`、`uiFont`、`codeFont`、`uiSizeScale`（别名 `uiSizePreset`）、`webAccessPort`、`webAccessEnabled`、`webAccessPassword`、`githubUpdateMethod`、`skippedGithubUpdateVersion`、`recordHotkey`、`recordBackgroundWakeEnabled`、`minRecordSeconds`、`maxRecordSeconds`、`toolMaxIterations`、`llmRoundLogCapacity`、`messageNotificationEnabled`、`messageNotificationSoundEnabled`、`desktopOperationNoticeEnabled`、`desktopOperateEnabled`、`selectedApiConfigId`、`expertApiConfigId`（serde 别名 `chatApiConfigId`；旧键 `assistantDepartmentApiConfigId` 只在启动期抢救里搬迁）、`visionApiConfigId`、`toolReviewApiConfigId`、`sttApiConfigId`、`imageGenerationModelId`、`imageToVideoModelId`、`sttAutoSend`、`terminalShellKind`、`simpleSetupMode`
 - 数组：`shellWorkspaces[]`、`mcpServers[]`、`remoteImChannels[]`、`providerNonStreamBaseUrls[]`、`apiProviders[]`、`imageProviders[]`、`apiConfigs[]`
 
 > 旧配置里的 `departments[]` 已不是本应用的字段，只在 V5 数据迁移里被读取一次（`agent_org_migration.rs`）。
@@ -52,7 +60,7 @@
 
 `AgentsFile { agents: [AgentProfile] }`（`app_data_layout.rs`）。
 
-`AgentProfile` 字段（`types_chat.rs`）：`id`、`name`、`systemPrompt`、`tools[]`（ApiToolConfig）、`createdAt`、`updatedAt`、`avatarPath`、`avatarUpdatedAt`、`isBuiltInUser`、`isBuiltInSystem`、`privateMemoryEnabled`、`memoryRecallMode`、`source`、`scope`。
+`AgentProfile` 字段（`types_chat.rs`）：`id`、`name`、`systemPrompt`、`tools[]`（ApiToolConfig）、`createdAt`、`updatedAt`、`avatarPath`、`avatarUpdatedAt`、`isBuiltInUser`、`isBuiltInSystem`、`privateMemoryEnabled`、`memoryRecallMode`、`source`、`scope`、`summary`、`residentSkillNames`、`optionalSkillNames`、`includeSystemRules`、`apiConfigIds`、`apiConfigId`、`modelFailureFallbackEnabled`、`permissionControl`、`childAgentIds`。
 
 读写入口：`read_agents_shard` / `write_agents_shard`（`app_data_layout.rs`）。
 
@@ -100,7 +108,7 @@ PRAGMA：WAL、synchronous=NORMAL、foreign_keys=ON、busy_timeout=10000（`sqli
 | 文件/目录 | 内容 |
 |---|---|
 | `manifest.json` | `MessageStoreManifest`（`manifest.rs`）：`version`(=1)、`messageStoreKind`(conversationJson\|jsonlSnapshot)、`migrationState`(none\|building\|ready\|failed\|rollback)、`sourceConversationRevision`、`sourceMessageCount`、`lastMessageId`、`messagesJsonlBytes`、`messagesIndexRevision`、`updatedAt` |
-| `meta.json` | `ConversationPersistMeta`（`meta.rs`）：`metaSchemaVersion`、`id`、`title`、`agentId`、`boundConversationId`、`parentConversationId`、`childConversationIds`、`forkMessageCursor`、`unreadCount`、`conversationKind`、`rootConversationId`、`delegateId`、`createdAt`、`updatedAt`、`lastUserAt`、`lastAssistantAt`、`status`、`userProfileSnapshot`、`shellWorkspacePath`、`shellWorkspaces`、`shellAutonomousMode`、`shellWorkMode`、`archivedAt`、`currentTodos`、`memoryRecallTable`、`planModeEnabled`、`preferredApiConfigId`、`isDraft`、`autoPushRemoteContactId`、`cumulativeUsage`、`activeGoal`、`fastRequestTurns`、`lastMessageId`、`lastMessageAt`、`messageCount`、`bodyMessageCount`、`bodyTextLength`、`hasAssistantReply`、`hasContextCompactionMessage`、`latestSummaryTitle`、`previewMessages` |
+| `meta.json` | `ConversationPersistMeta`（`meta.rs`）：`metaSchemaVersion`、`id`、`title`、`agentId`、`boundConversationId`、`parentConversationId`、`childConversationIds`、`forkMessageCursor`、`unreadCount`、`conversationKind`、`rootConversationId`、`delegateId`、`createdAt`、`updatedAt`、`lastUserAt`、`lastAssistantAt`、`status`、`userProfileSnapshot`、`shellWorkspacePath`、`shellWorkspaces`、`shellAutonomousMode`、`shellWorkMode`、`shellWorkBranch`、`shellWorktreePath`、`shellRecordedBranch`、`archivedAt`、`currentTodos`、`memoryRecallTable`、`planModeEnabled`、`preferredApiConfigId`、`isDraft`、`autoPushRemoteContactId`、`cumulativeUsage`、`activeGoal`、`team`、`fastRequestTurns`、`lastMessageId`、`lastMessageAt`、`lastError`、`messageCount`、`bodyMessageCount`、`bodyTextLength`、`hasAssistantReply`、`hasContextCompactionMessage`、`latestSummaryTitle`、`previewMessages` |
 | `messages.idx.json` | `MessageStoreIndexFile`（`index.rs`）：`version`(=1)、`items[]`，每项 `messageId`、`blockId`、`offset`、`byteLen`；`compactionKind`/`role`/`createdAt` 为运行时字段、序列化时清空 |
 | `blocks/000000.jsonl` | V3 明文块遗留：每行一个消息 JSON，生产写入不再使用 |
 | `blocks/000000.jsonl.zstd` | V4 现役压缩块：整块单帧 zstd + 原子写 |
@@ -150,4 +158,4 @@ PRAGMA：WAL、synchronous=NORMAL、foreign_keys=ON、temp_store=MEMORY（`db.rs
 
 ## 9. 序列化约定
 
-所有结构体使用 `#[serde(rename_all = "camelCase")]`，Rust 下划线命名在 JSON/TOML 中变为驼峰。`config_mark` 与 `PORTABLE` 均为无扩展名标记文件。
+所有结构体使用 `#[serde(rename_all = "camelCase")]`，Rust 下划线命名在 JSON/TOML 中变为驼峰。`PORTABLE` 是可执行文件同级的无扩展名存在性标记；`config_mark` 只是 `data_path` 的路径后缀，代码不创建、不读写该文件。

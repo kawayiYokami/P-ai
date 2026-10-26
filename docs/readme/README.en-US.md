@@ -21,7 +21,7 @@ The same chat runtime is also available in the browser and as a VS Code sidebar.
 
 ### Entry & Efficiency
 
-Global hotkey summon, voice wakeup, background voice input, quick screenshot — PAI brings desktop AI access to "summon anytime, handle anything, continue anywhere." Supports local sessions, remote sessions, and multiple parallel sessions; quick commands can trigger common operations in one keystroke.
+Global hotkey summon, Windows background voice wake (hold the record key), quick screenshot — PAI brings desktop AI access to "summon anytime, handle anything, continue anywhere." Supports local sessions, remote sessions, and multiple parallel sessions; quick commands can trigger common operations in one keystroke.
 
 ### Organization & Personas
 

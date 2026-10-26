@@ -107,7 +107,7 @@ Web/侧边栏启动后不再展示单独的首屏选择 UI。初始化流程会�
 
 ## JSON-RPC 范围
 
-`/chat` 通道使用 JSON-RPC 2.0，分发入口 [jsonrpc_dispatch.rs](../src-tauri/src/features/system/commands/ide_context/jsonrpc_dispatch.rs)。点分方法名以该文件 `match` 臂为准（当前约 139 个，另有一批无点号的兼容别名，不要把两者加总后当产品方法数）。主要方法：
+`/chat` 通道使用 JSON-RPC 2.0，分发入口 [jsonrpc_dispatch.rs](../src-tauri/src/features/system/commands/ide_context/jsonrpc_dispatch.rs)。点分方法名以该文件 `match` 臂为准（当前约 139 个点分方法，另有一批无点号的兼容别名，不要把两者加总后当产品方法数）。主要方法：
 
 - 会话：`conversation.list`、`conversation.create`、`conversation.createSide`、`conversation.openDraft`、`conversation.updateDraft`、`conversation.blockPage`、`conversation.messageById`、`conversation.messagesBefore`、`conversation.messagesAfterAsync`、`conversation.rename`、`conversation.pin`、`conversation.markRead`、`conversation.archive`、`conversation.batchArchive`、`conversation.delete`、`conversation.rewind`、`conversation.rewindPreview`、`conversation.branchFromMessage`、`conversation.branchFromSelection`、`conversation.compact`、`conversation.compactPreview`、`conversation.fastRequestTurns`、`conversation.autoPush`、`conversation.rebindRecipient`、`conversation.forwardSelection`、`conversation.forwardRemoteContact`、`conversation.changedSince`、`conversation.freshnessSnapshot`、`conversation.runtimeSnapshot`、`conversation.setActive`、`conversation.resumeSubscription`、`conversation.streamProbe`、`conversation.foregroundLightSnapshot`
 - 发送/调度：`chat.send`、`chat.stop`、`chat.queueAttachment`、`chat.queueMarkGuided`、`chat.queueRecall`、`chat.queueSnapshot`、`chat.sessionStateSnapshot`
