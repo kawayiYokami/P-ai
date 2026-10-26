@@ -3507,6 +3507,8 @@ mod core_send_inner_tests {
                     mime: "image/png".to_string(),
                     content: B64.encode(format!("image-{idx}").as_bytes()),
                     saved_path: Some(format!("downloads/image-{idx}.png")),
+                    source_dimensions: None,
+                    prepared_dimensions: None,
                 }],
                 audios: Vec::new(),
                 tool_calls: None,
@@ -3530,6 +3532,8 @@ mod core_send_inner_tests {
                     mime: "image/png".to_string(),
                     content: B64.encode(b"latest"),
                     saved_path: Some("downloads/latest.png".to_string()),
+                    source_dimensions: None,
+                    prepared_dimensions: None,
                 }]
             },
             latest_audios: Vec::new(),
@@ -3557,6 +3561,8 @@ mod core_send_inner_tests {
             mime: "audio/webm".to_string(),
             content: B64.encode(b"audio"),
             saved_path: Some("C:/attachments/audio.webm".to_string()),
+            source_dimensions: None,
+            prepared_dimensions: None,
         });
         prepared.history_messages[0]
             .audios
@@ -3565,6 +3571,8 @@ mod core_send_inner_tests {
                 mime: "audio/webm".to_string(),
                 content: B64.encode(b"history-audio"),
                 saved_path: Some("C:/attachments/history.webm".to_string()),
+                source_dimensions: None,
+                prepared_dimensions: None,
             });
         let api = test_chat_api("text-only", false);
 
@@ -4375,6 +4383,8 @@ mod core_send_inner_tests {
             mime: "image/webp".to_string(),
             content: B64.encode(b"normalized-webp"),
             saved_path: None,
+            source_dimensions: None,
+            prepared_dimensions: None,
         }];
 
         let (latest_user_text, images, audios) = build_effective_prompt_media_from_prepared(
@@ -4423,6 +4433,8 @@ mod core_send_inner_tests {
             mime: "image/webp".to_string(),
             content: B64.encode(b"normalized-webp"),
             saved_path: Some("C:/attachments/image.png".to_string()),
+            source_dimensions: None,
+            prepared_dimensions: None,
         }];
 
         let (text, images, audios) = build_effective_prompt_media_from_prepared(

@@ -1508,12 +1508,11 @@ fn normalize_image_for_chat_upload(bytes: &[u8]) -> Result<LlmRequestNormalizedI
 fn normalize_image_base64_for_llm_request(
     mime: &str,
     bytes_base64: &str,
-) -> Result<(String, String), String> {
+) -> Result<LlmRequestNormalizedImage, String> {
     let raw = B64
         .decode(bytes_base64.trim())
         .map_err(|err| format!("解析图片 base64 失败: {err}"))?;
-    let normalized = normalize_image_bytes_for_llm_request(&raw, Some(mime.trim()))?;
-    Ok((normalized.mime, B64.encode(normalized.bytes)))
+    normalize_image_bytes_for_llm_request(&raw, Some(mime.trim()))
 }
 
 fn prepared_image_payload_for_llm_request(
@@ -1528,14 +1527,18 @@ fn prepared_image_payload_for_llm_request(
             content: bytes_base64,
             saved_path,
             label: label.unwrap_or_default(),
+            source_dimensions: None,
+            prepared_dimensions: None,
         });
     }
     match normalize_image_base64_for_llm_request(&mime, &bytes_base64) {
-        Ok((normalized_mime, normalized_base64)) => Some(PreparedBinaryPayload {
-            mime: normalized_mime,
-            content: normalized_base64,
+        Ok(normalized) => Some(PreparedBinaryPayload {
+            mime: normalized.mime,
+            content: B64.encode(normalized.bytes),
             saved_path,
             label: label.unwrap_or_default(),
+            source_dimensions: Some((normalized.source_width, normalized.source_height)),
+            prepared_dimensions: Some((normalized.output_width, normalized.output_height)),
         }),
         Err(err) => {
             runtime_log_warn(format!(
@@ -1626,6 +1629,8 @@ fn build_prepared_binary_payloads_from_message_parts(
                     content: bytes_base64.clone(),
                     saved_path,
                     label: format!("附件#{attachment_number}"),
+                    source_dimensions: None,
+                    prepared_dimensions: None,
                 });
             }
             MessagePart::Attachment { path, mime, .. } => {
@@ -1665,6 +1670,8 @@ fn build_prepared_binary_payloads_from_message_parts(
                                 content: B64.encode(raw),
                                 saved_path: Some(path.clone()),
                                 label,
+                                source_dimensions: None,
+                                prepared_dimensions: None,
                             }),
                             Err(err) => runtime_log_warn(format!(
                                 "[附件投影] 当前消息音频读取失败，跳过二进制但保留路径提示，path={}，error={}",
@@ -2717,6 +2724,8 @@ fn resolve_media_from_message(
                 content: content_base64,
                 saved_path: Some(path),
                 label,
+                source_dimensions: None,
+                prepared_dimensions: None,
             }),
             _ => {}
         }
@@ -2794,6 +2803,8 @@ fn resolve_media_from_message(
                         content: resolved,
                         saved_path: expected_saved_path,
                         label: String::new(),
+                        source_dimensions: None,
+                        prepared_dimensions: None,
                     });
                 }
             }

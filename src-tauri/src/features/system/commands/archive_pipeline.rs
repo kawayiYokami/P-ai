@@ -1721,6 +1721,8 @@ mod archive_pipeline_tests {
                     mime: "image/png".to_string(),
                     content: B64.encode(b"history-image"),
                     saved_path: Some("downloads/history.png".to_string()),
+                    source_dimensions: None,
+                    prepared_dimensions: None,
                 }],
                 audios: Vec::new(),
                 tool_calls: None,

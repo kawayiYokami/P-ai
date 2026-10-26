@@ -1367,6 +1367,8 @@ mod openai_responses_genai_request_tests {
                 mime: "image/png".to_string(),
                 content: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl1QAAAAASUVORK5CYII=".to_string(),
                 saved_path: Some("downloads/image.png".to_string()),
+                source_dimensions: None,
+                prepared_dimensions: None,
             }],
             latest_audios: Vec::new(),
         }

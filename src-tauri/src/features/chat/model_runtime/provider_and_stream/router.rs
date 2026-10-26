@@ -54,6 +54,8 @@ mod router_multimodal_filter_tests {
                     mime: "image/png".to_string(),
                     content: "history-base64".to_string(),
                     saved_path: Some("downloads/history.png".to_string()),
+                    source_dimensions: None,
+                    prepared_dimensions: None,
                 }],
                 audios: Vec::new(),
                 tool_calls: None,
@@ -70,6 +72,8 @@ mod router_multimodal_filter_tests {
                 mime: "image/png".to_string(),
                 content: "latest-base64".to_string(),
                 saved_path: Some("downloads/latest.png".to_string()),
+                source_dimensions: None,
+                prepared_dimensions: None,
             }],
             latest_audios: Vec::new(),
         };

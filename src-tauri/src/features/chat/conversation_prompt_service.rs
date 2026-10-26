@@ -1319,6 +1319,8 @@ impl ConversationPromptService {
                 content: image.bytes_base64.clone(),
                 saved_path: image.saved_path.clone(),
                 label: "图片#1".to_string(),
+                source_dimensions: None,
+                prepared_dimensions: None,
             }],
             latest_audios: Vec::new(),
         }

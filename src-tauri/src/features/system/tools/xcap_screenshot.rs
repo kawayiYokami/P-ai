@@ -282,19 +282,20 @@ fn encode_screenshot_response(
     capture_ms: u64,
     started: Instant,
 ) -> DesktopToolResult<ScreenshotResponse> {
-    if width > IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_DIMENSION
-        || height > IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_DIMENSION
+    if width > IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_SOURCE_DIMENSION
+        || height > IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_SOURCE_DIMENSION
     {
         return Err(DesktopToolError::invalid_params(format!(
             "截图分辨率过大（{}x{}），当前最多支持 {}x{}；请缩小截取范围：只截目标区域（region）、单块显示器（monitor）或目标窗口（window_id/window）",
             width,
             height,
-            IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_DIMENSION,
-            IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_DIMENSION
+            IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_SOURCE_DIMENSION,
+            IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_SOURCE_DIMENSION
         )));
     }
     let encode_started = Instant::now();
-    // F2：调用方给像素预算时等比缩小到预算内（默认保持全尺寸，历史行为不变）
+    // 调用方给像素预算时等比缩小到预算内（默认保持全尺寸，历史行为不变）。
+    // 单边长度已由本函数上方校验，这里只用像素预算缩放，单边不再额外设限。
     let full_pixels = u64::from(width) * u64::from(height);
     let target_pixel_budget = input.max_pixels.unwrap_or(full_pixels).min(full_pixels).max(1);
     let grid = input.grid;
@@ -303,14 +304,16 @@ fn encode_screenshot_response(
         width,
         height,
         LlmRequestImageNormalizeOptions {
-            target_pixel_budget,
+            pixel_budget: target_pixel_budget,
+            resize_dimension: width.max(height),
             webp_quality: input.webp_quality,
-            max_source_bytes: u64::MAX,
-            max_dimension: IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_DIMENSION,
         },
         |image| {
             if let Some(grid) = grid {
-                draw_screen_grid(image, grid);
+                // 输入恒为 RGBA，resize_exact 保持变体，as_mut_rgba8 必然有值
+                if let Some(canvas) = image.as_mut_rgba8() {
+                    draw_screen_grid(canvas, grid);
+                }
             }
         },
     )
@@ -611,6 +614,83 @@ fn encode_screenshot_response_should_skip_base64_and_save_file_when_disabled() {
         "screenshot file should exist on disk: {saved}"
     );
     let _ = std::fs::remove_file(&saved);
+}
+
+#[test]
+fn encode_screenshot_response_should_accept_2k_capture_and_respect_max_pixels() {
+    // 源尺寸上限与缩放后单边上限是两件事：2560x1440 属于合法源尺寸，
+    // 不能因为缩放后单边上限是 2048 就被当成非法截图拒掉。
+    let input = ScreenshotRequest {
+        mode: ScreenshotMode::Desktop,
+        monitor_id: None,
+        region: None,
+        save_path: None,
+        webp_quality: 75.0,
+        include_base64: true,
+        max_pixels: None,
+        grid: None,
+    };
+    let width = 2560u32;
+    let height = 1440u32;
+    let rgba = vec![0u8; (width as usize) * (height as usize) * 4];
+    let result = encode_screenshot_response(
+        &input,
+        &rgba,
+        width,
+        height,
+        ScreenBounds {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        },
+        0,
+        Instant::now(),
+    )
+    .expect("2k screenshot should encode");
+
+    assert!(result.image_base64.is_some());
+    assert_eq!(result.width, width);
+    assert_eq!(result.height, height);
+}
+
+#[test]
+fn encode_screenshot_response_should_scale_to_max_pixels() {
+    let input = ScreenshotRequest {
+        mode: ScreenshotMode::Desktop,
+        monitor_id: None,
+        region: None,
+        save_path: None,
+        webp_quality: 75.0,
+        include_base64: true,
+        max_pixels: Some(40_000),
+        grid: None,
+    };
+    let width = 1920u32;
+    let height = 1080u32;
+    let rgba = vec![0u8; (width as usize) * (height as usize) * 4];
+    let result = encode_screenshot_response(
+        &input,
+        &rgba,
+        width,
+        height,
+        ScreenBounds {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        },
+        0,
+        Instant::now(),
+    )
+    .expect("screenshot should encode");
+
+    assert!(
+        u64::from(result.width) * u64::from(result.height) <= 40_000,
+        "输出 {}x{} 超出 max_pixels 预算",
+        result.width,
+        result.height
+    );
 }
 
 #[test]

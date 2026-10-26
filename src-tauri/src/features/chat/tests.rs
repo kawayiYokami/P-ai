@@ -4122,6 +4122,74 @@
     }
 
     #[test]
+    fn image_resize_notice_should_only_cover_resized_images() {
+        let prepared = PreparedPrompt {
+            preamble: String::new(),
+            history_messages: Vec::new(),
+            latest_user_text: "看图".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
+            latest_images: vec![
+                PreparedBinaryPayload {
+                    mime: "image/webp".to_string(),
+                    content: "unused".to_string(),
+                    saved_path: None,
+                    label: "图片#1".to_string(),
+                    source_dimensions: Some((800, 600)),
+                    prepared_dimensions: Some((800, 600)),
+                },
+                PreparedBinaryPayload {
+                    mime: "image/webp".to_string(),
+                    content: "unused".to_string(),
+                    saved_path: None,
+                    label: "图片#2".to_string(),
+                    source_dimensions: Some((3000, 1500)),
+                    prepared_dimensions: Some((1448, 724)),
+                },
+            ],
+            latest_audios: Vec::new(),
+        };
+
+        let blocks = prepared_prompt_latest_user_text_blocks(&prepared);
+        let notice = blocks
+            .iter()
+            .find(|block| block.contains("<image_resize_notice>"))
+            .expect("应生成缩放提示");
+        // 未被缩放的图不出现，被缩放的图带上原尺寸与实际尺寸
+        assert!(!notice.contains("800x600"));
+        assert!(notice.contains("3000x1500"));
+        assert!(notice.contains("1448x724"));
+        assert!(notice.contains("第 2 张（共 2 张）"));
+    }
+
+    #[test]
+    fn image_resize_notice_should_be_absent_without_resize() {
+        let prepared = PreparedPrompt {
+            preamble: String::new(),
+            history_messages: Vec::new(),
+            latest_user_text: "看图".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
+            latest_images: vec![PreparedBinaryPayload {
+                mime: "image/webp".to_string(),
+                content: "unused".to_string(),
+                saved_path: None,
+                label: "图片#1".to_string(),
+                source_dimensions: Some((800, 600)),
+                prepared_dimensions: Some((800, 600)),
+            }],
+            latest_audios: Vec::new(),
+        };
+
+        let blocks = prepared_prompt_latest_user_text_blocks(&prepared);
+        assert!(!blocks.iter().any(|block| block.contains("<image_resize_notice>")));
+    }
+
+    #[test]
     fn remote_im_system_reminder_should_precede_meta_and_trigger_text() {
         let prepared = PreparedPrompt {
             preamble: String::new(),

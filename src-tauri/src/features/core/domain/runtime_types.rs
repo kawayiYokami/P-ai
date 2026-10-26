@@ -59,6 +59,20 @@ struct PreparedBinaryPayload {
     content: String,
     saved_path: Option<String>,
     label: String,
+    /// 图片原始尺寸；非图片或未经过尺寸处理时为 None
+    source_dimensions: Option<(u32, u32)>,
+    /// 实际发给模型的图片尺寸；与原图不同即表示被缩放
+    prepared_dimensions: Option<(u32, u32)>,
+}
+
+impl PreparedBinaryPayload {
+    /// 图片是否被缩放过（原尺寸与实际尺寸都存在且不同）
+    fn is_resized_image(&self) -> bool {
+        match (self.source_dimensions, self.prepared_dimensions) {
+            (Some(source), Some(prepared)) => source != prepared,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -255,6 +269,41 @@ fn build_system_reminder_block(blocks: &[String]) -> Option<String> {
     ))
 }
 
+/// 图片缩放提示：把被缩放过的图片原尺寸与实际尺寸写进上下文，
+/// 让模型知道看到的是缩略图，不会按原图精度去判断细节。
+/// `scope` 描述这段提示相对图片的位置：最新消息里图片在后，历史消息里图片在同一条内。
+fn build_image_resize_notice(
+    images: &[PreparedBinaryPayload],
+    scope: &str,
+) -> Option<String> {
+    let resized = images
+        .iter()
+        .enumerate()
+        .filter(|(_, image)| image.is_resized_image())
+        .collect::<Vec<_>>();
+    if resized.is_empty() {
+        return None;
+    }
+    let total = images.len();
+    let lines = resized
+        .iter()
+        .map(|(index, image)| {
+            let number = index + 1;
+            let (source_width, source_height) = image.source_dimensions.unwrap_or((0, 0));
+            let (prepared_width, prepared_height) = image.prepared_dimensions.unwrap_or((0, 0));
+            format!(
+                "第 {} 张（共 {} 张）图片已从 {}x{} 缩放为 {}x{} 像素。",
+                number, total, source_width, source_height, prepared_width, prepared_height
+            )
+        })
+        .collect::<Vec<_>>();
+    Some(format!(
+        "<image_resize_notice>\n{}中的以下图片被缩放后发送，你看到的是缩小版，细节精度低于原图：\n{}\n</image_resize_notice>",
+        scope,
+        lines.join("\n")
+    ))
+}
+
 fn prepared_prompt_latest_user_text_blocks(prepared: &PreparedPrompt) -> Vec<String> {
     let mut blocks = Vec::<String>::new();
     if let Some(reminder) =
@@ -269,6 +318,9 @@ fn prepared_prompt_latest_user_text_blocks(prepared: &PreparedPrompt) -> Vec<Str
         if !text.is_empty() {
             blocks.push(text.to_string());
         }
+    }
+    if let Some(notice) = build_image_resize_notice(&prepared.latest_images, "本条用户消息") {
+        blocks.push(notice);
     }
     blocks.extend(prepared_prompt_latest_user_trailing_blocks(prepared));
     blocks
@@ -289,6 +341,9 @@ fn prepared_history_user_text_blocks(message: &PreparedHistoryMessage) -> Vec<St
         if !block.trim().is_empty() {
             blocks.push(block.clone());
         }
+    }
+    if let Some(notice) = build_image_resize_notice(&message.images, "本条用户消息") {
+        blocks.push(notice);
     }
     blocks
 }

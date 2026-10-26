@@ -507,6 +507,8 @@ fn build_read_media_prepared_prompt(
         content: content_base64.to_string(),
         saved_path,
         label: "图片#1".to_string(),
+        source_dimensions: None,
+        prepared_dimensions: None,
     };
     PreparedPrompt {
         preamble: format!(
@@ -1191,28 +1193,40 @@ async fn describe_media_with_multimodal_api(
     Ok(reply.assistant_text.trim().to_string())
 }
 
-/// read_media 图片的像素上限：4K。4K 以内保持原始尺寸，超出才等比缩到 4K 内。
-const READ_MEDIA_IMAGE_MAX_PIXELS: u64 = 3840 * 2160;
-
-/// 读到的图片统一走 LLM 请求规范化（转 webp），保证发出去的格式是供应商收的。
+/// 读到的图片统一走 LLM 请求规范化（按统一尺寸预算缩放并转 webp），保证发出去的格式和尺寸供应商都收。
 /// 规范化失败说明这张图连本地都解不出，直接按格式异常报错，不把原图丢给上游。
 fn read_media_normalize_provider_image(
     mime: String,
     raw: Vec<u8>,
-) -> Result<(String, Vec<u8>), String> {
-    let options = LlmRequestImageNormalizeOptions {
-        target_pixel_budget: READ_MEDIA_IMAGE_MAX_PIXELS,
-        webp_quality: IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_WEBP_QUALITY,
-        max_source_bytes: IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_SOURCE_BYTES,
-        max_dimension: IMAGE_NORMALIZE_FOR_LLM_REQUEST_DEFAULT_MAX_DIMENSION,
+) -> Result<LlmRequestNormalizedImage, String> {
+    normalize_image_bytes_for_llm_request(&raw, Some(mime.as_str()))
+        .map_err(|err| format!("图片格式异常：{err}"))
+}
+
+/// 图片确实被缩放过时，用实际尺寸替换「原图」口径，避免模型按原图精度判断细节。
+fn read_media_image_text(
+    file_name: &str,
+    normalized: &LlmRequestNormalizedImage,
+    description: &str,
+) -> String {
+    let scaled = normalized.source_width != normalized.output_width
+        || normalized.source_height != normalized.output_height;
+    let subject = if scaled {
+        format!(
+            "{file_name} 的缩放图（原图 {}x{}，此处提供 {}x{}，细节精度低于原图）",
+            normalized.source_width,
+            normalized.source_height,
+            normalized.output_width,
+            normalized.output_height
+        )
+    } else {
+        format!("{file_name} 的原图")
     };
-    let normalized = normalize_image_bytes_for_llm_request_with_options(
-        &raw,
-        Some(mime.as_str()),
-        options,
-    )
-    .map_err(|err| format!("图片格式异常：{err}"))?;
-    Ok((normalized.mime, normalized.bytes))
+    if description.is_empty() {
+        format!("以下是 {subject}（作为下一条用户消息的图片提供），请直接观察图片内容并回应。")
+    } else {
+        format!("以下是 {subject}（作为下一条用户消息的图片提供），请按以下侧重观察图片并回应：{description}")
+    }
 }
 
 async fn builtin_read_media(
@@ -1232,8 +1246,9 @@ async fn builtin_read_media(
         .map(str::trim)
         .unwrap_or_default()
         .to_string();
-    // 当前对话模型本身支持图片输入时，直接返回原图 base64 交给模型自行观察，
+    // 当前对话模型本身支持图片输入时，直接返回图片 base64 交给模型自行观察，
     // 不再调用独立多模态模型生成文字描述；description 非空时作为解析侧重提示一并透传。
+    // 图片会先走 LLM 请求规范化（按统一尺寸预算缩放并转 webp），返回的不一定是原图字节。
     // 音频、视频体积大，不适用直返，仍走下面的多模态解析链路。
     if model_supports_image && detected == ReadMediaDetectedType::Image {
         let raw = tokio::fs::read(&path)
@@ -1242,31 +1257,27 @@ async fn builtin_read_media(
         let mime = media_mime_from_path(&path)
             .unwrap_or("image/png")
             .to_string();
-        let (mime, raw) = read_media_normalize_provider_image(mime, raw)?;
-        let content_base64 = B64.encode(&raw);
+        let media = read_media_normalize_provider_image(mime, raw)?;
+        let content_base64 = B64.encode(&media.bytes);
         runtime_log_debug(format!(
-            "[read_media] 直接返回原图：模型支持图片输入，mime={}，字节数={}，description={}",
-            mime,
-            raw.len(),
+            "[read_media] 直接返回图片：模型支持图片输入，mime={}，字节数={}，description={}",
+            media.mime,
+            media.bytes.len(),
             if description_text.is_empty() { "<空>" } else { description_text.as_str() }
         ));
         // text 是给当前模型的指令：告知它图片在后续的 user 消息里，让它直接观察并回应。
-        // 用祈使句而非陈述句，避免模型把「已返回原图」误读成「分析已完成」。
+        // 用祈使句而非陈述句，避免模型把「已返回图片」误读成「分析已完成」。
         let file_name = path
             .file_name()
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_else(|| path.to_string_lossy().to_string());
-        let text = if description_text.is_empty() {
-            format!("以下是 {file_name} 的原图（作为下一条用户消息的图片提供），请直接观察图片内容并回应。")
-        } else {
-            format!("以下是 {file_name} 的原图（作为下一条用户消息的图片提供），请按以下侧重观察图片并回应：{description_text}")
-        };
+        let text = read_media_image_text(&file_name, &media, &description_text);
         return Ok(serde_json::json!({
             "ok": true,
             "mediaType": detected.as_str(),
             "path": path.to_string_lossy().to_string(),
             "text": text,
-            "imageMime": mime,
+            "imageMime": media.mime,
             "imageBase64": content_base64,
             "directImage": true
         }));
@@ -1348,7 +1359,8 @@ async fn builtin_read_media(
         .to_string();
     // 图片统一转 webp 再发，音频/视频保持原样
     let (mime, raw) = if detected == ReadMediaDetectedType::Image {
-        read_media_normalize_provider_image(mime, raw)?
+        let media = read_media_normalize_provider_image(mime, raw)?;
+        (media.mime, media.bytes)
     } else {
         (mime, raw)
     };
@@ -2747,11 +2759,11 @@ fn read_media_should_normalize_bmp_to_webp() {
         .write_to(&mut std::io::Cursor::new(&mut bmp), image::ImageFormat::Bmp)
         .expect("encode bmp");
 
-    let (mime, normalized) =
+    let normalized =
         read_media_normalize_provider_image("image/bmp".to_string(), bmp).expect("normalize bmp");
-    assert_eq!(mime, "image/webp");
+    assert_eq!(normalized.mime, "image/webp");
     assert_eq!(
-        image::guess_format(&normalized).expect("guess format"),
+        image::guess_format(&normalized.bytes).expect("guess format"),
         image::ImageFormat::WebP
     );
 }
@@ -2769,14 +2781,14 @@ fn read_media_should_normalize_png_to_webp_and_keep_dimensions() {
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .expect("encode png");
 
-    let (mime, normalized) =
+    let normalized =
         read_media_normalize_provider_image("image/png".to_string(), png).expect("normalize png");
-    assert_eq!(mime, "image/webp");
+    assert_eq!(normalized.mime, "image/webp");
     assert_eq!(
-        image::guess_format(&normalized).expect("guess format"),
+        image::guess_format(&normalized.bytes).expect("guess format"),
         image::ImageFormat::WebP
     );
-    let decoded = image::load_from_memory(&normalized).expect("decode normalized image");
+    let decoded = image::load_from_memory(&normalized.bytes).expect("decode normalized image");
     assert_eq!((decoded.width(), decoded.height()), (1600, 900));
 }
 
@@ -2787,6 +2799,47 @@ fn read_media_should_reject_unreadable_image() {
         read_media_normalize_provider_image("image/png".to_string(), b"\x89PNG\r\n\x1a\nfake".to_vec())
             .expect_err("unreadable image should fail");
     assert!(err.contains("图片格式异常"));
+}
+
+#[cfg(test)]
+#[test]
+fn read_media_image_text_should_report_scaled_dimensions() {
+    let source = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        4000,
+        2000,
+        image::Rgb([1, 2, 3]),
+    ));
+    let mut png = Vec::<u8>::new();
+    source
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("encode png");
+    let normalized =
+        read_media_normalize_provider_image("image/png".to_string(), png).expect("normalize png");
+
+    let text = read_media_image_text("big.png", &normalized, "");
+    // 超过预算的图会被缩，文案不能再写「原图」，要给出原尺寸与实际尺寸
+    assert!(!text.contains("的原图"));
+    assert!(text.contains("4000x2000"));
+    assert!(text.contains(&format!("{}x{}", normalized.output_width, normalized.output_height)));
+}
+
+#[cfg(test)]
+#[test]
+fn read_media_image_text_should_keep_original_wording_without_scaling() {
+    let source = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        1600,
+        900,
+        image::Rgb([1, 2, 3]),
+    ));
+    let mut png = Vec::<u8>::new();
+    source
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("encode png");
+    let normalized =
+        read_media_normalize_provider_image("image/png".to_string(), png).expect("normalize png");
+
+    let text = read_media_image_text("small.png", &normalized, "");
+    assert!(text.contains("的原图"));
 }
 
 #[cfg(test)]
