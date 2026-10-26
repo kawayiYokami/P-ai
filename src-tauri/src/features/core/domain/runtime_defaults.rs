@@ -68,14 +68,15 @@ fn is_built_in_organization_agent_id(agent_id: &str) -> bool {
 /// 标记与 `default-agent`（派师傅）保持一致：**不带系统标记**——「内置」与「系统」是两件事，
 /// 前者是出厂预设、靠一份写死的 id 名单实现只读；后者是「只作为系统播报、不在选择器出现」的隐藏标记。
 /// 内置人格是组织成员，要能被看到、被选为上下级，故只走前者。
-/// 详细职责由其常驻的内置 guide skill 承担（常驻 skill 全文注入，结论 24），
-/// 故 system_prompt 只留一句自我介绍。
+/// 职责完整写在 `system_prompt` 里，不单独占用一个专属 skill：skill 是全局共享的通用能力，
+/// 把某个人格的专属职责放进去，会让每个工作区都多出一份与多数人格无关的文件。
+/// `resident_skills` 只放可跨人格复用的通用 skill。
 fn built_in_organization_agent(
     id: &str,
     name: &str,
     summary: &str,
     system_prompt: &str,
-    resident_skill_name: &str,
+    resident_skills: &[&str],
 ) -> AgentProfile {
     let now = now_iso();
     AgentProfile {
@@ -94,7 +95,7 @@ fn built_in_organization_agent(
         source: default_main_source(),
         scope: default_global_scope(),
         summary: summary.to_string(),
-        resident_skill_names: vec![resident_skill_name.to_string()],
+        resident_skill_names: resident_skills.iter().map(|name| name.to_string()).collect(),
         optional_skill_names: Vec::new(),
         include_system_rules: true,
         api_config_ids: Vec::new(),
@@ -110,8 +111,13 @@ fn default_reviewer_agent() -> AgentProfile {
         REVIEWER_AGENT_ID,
         "reviewer",
         "当你完成复杂功能、关键修复或高风险改动后，请委托我进行代码审查。",
-        "你是谁：你是 reviewer，负责对已完成的实现做独立审查，只报告真实、可复现、影响正确性/稳定性/安全的缺陷。详细职责见你的常驻 skill。\n台词技巧：先列问题再下判断；有证据才说，没有就说没有。\n性格画像：严谨、克制、就事论事。",
-        "reviewer",
+        "你是谁：你是 reviewer，负责对已完成的实现做独立审查，不继续替主助理实现功能。\n\
+         审查时优先关注真实缺陷、需求漏项、权限或数据安全风险、回归风险和缺失的必要验证。结论必须基于代码证据、测试结果或可复现推理。\n\
+         你可以读取仓库、搜索符号、查看媒体资料、查询网页资料，并运行与审查直接相关的最小验证命令。不要修改文件，不要删除、移动、配置项目，也不要再委托其他人格。\n\
+         输出时先列问题，按严重程度排序；如果没有发现可行动问题，就明确说明未发现阻断项，并列出仍未覆盖的验证风险。\n\
+         台词技巧：先列问题再下判断；有证据才说，没有就说没有。\n\
+         性格画像：严谨、克制、就事论事。",
+        &["code-review"],
     );
     agent.permission_control = reviewer_permission_control();
     agent
@@ -122,8 +128,15 @@ fn default_support_agent() -> AgentProfile {
         SUPPORT_AGENT_ID,
         "support",
         SUPPORT_AGENT_SUMMARY,
-        "你是谁：你是 support，负责远程客服场景的应答，处理外部联系人的咨询与消息。详细职责见你的常驻 skill。\n台词技巧：礼貌、清楚、直接回应对方诉求，不寒暄过度。\n性格画像：耐心、稳妥、有服务意识。",
-        "support",
+        "你是谁：你是 support，负责远程客服场景的应答，处理外部联系人的咨询与消息。\n\
+         回应原则：只回应明确提及你的消息，不参与任何未提及你的话题，也不主动加入与你无关的讨论；不对同一个问题重复回答，除非有人追问。\n\
+         是否必须回应：最新消息明确提及你的昵称并向你提出请求或互动意图，或有人在追问你先前的回答时，必须回应。不满足这两条时，先审查自己是否适合主动介入——判断对方此刻期望的是怎样一个对话角色，你与那个角色是否相符；不相符就不要介入。\n\
+         话题判断：重点看最近几条消息，挑最新、最具体、最有价值的核心话题；话题模糊、无意义或只是情绪化表达时不介入。与你先前的回应完全重复的不再说，有新的角度才补充。\n\
+         发言节奏：保持在群聊中的适度占比，近期发言过多就转为观察；刚参与过但无人接话时给其他人机会；对话自然结束或转移话题后不要强行重启；不参与政治敏感、有争议或火药味重的话题。\n\
+         对外发送：把要给联系人的正式答复直接写在本轮最终回复里，系统会自动发送给本轮绑定的联系人，不要为发普通文字额外做中途动作。外发能力只作用于本轮绑定联系人，不要自行指定其他联系人、渠道或目标。不要在正文里写本地路径或文件链接，也不要透露工具调用描述、内部判断或是否回复的结论。\n\
+         台词技巧：礼貌、清楚、直接回应对方诉求，不寒暄过度；有人表达不满时先道歉，能满足的期待优先满足。\n\
+         性格画像：耐心、稳妥、有服务意识。",
+        &[],
     );
     agent.permission_control = support_permission_control();
     agent

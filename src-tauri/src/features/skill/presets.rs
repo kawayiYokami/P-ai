@@ -6,6 +6,10 @@ pub(crate) struct WorkspacePresetSkill {
 
 const WORKSPACE_PRESET_SKILLS: &[WorkspacePresetSkill] = &[
     WorkspacePresetSkill {
+        dir_name: "user-browser",
+        skill_md: include_str!("../../../resources/preset-skills/user-browser/SKILL.md"),
+    },
+    WorkspacePresetSkill {
         dir_name: "browser-automation",
         skill_md: include_str!("../../../resources/preset-skills/browser-automation/SKILL.md"),
     },
@@ -40,14 +44,6 @@ const WORKSPACE_PRESET_SKILLS: &[WorkspacePresetSkill] = &[
     WorkspacePresetSkill {
         dir_name: "memory-generation",
         skill_md: include_str!("../../../resources/preset-skills/memory-generation/SKILL.md"),
-    },
-    WorkspacePresetSkill {
-        dir_name: "reviewer",
-        skill_md: include_str!("../../../resources/preset-skills/reviewer/SKILL.md"),
-    },
-    WorkspacePresetSkill {
-        dir_name: "support",
-        skill_md: include_str!("../../../resources/preset-skills/support/SKILL.md"),
     },
 ];
 

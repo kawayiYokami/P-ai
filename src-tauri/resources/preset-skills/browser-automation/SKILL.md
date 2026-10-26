@@ -1,6 +1,6 @@
 ---
 name: browser-automation
-description: 当需要操作浏览器、自动化网页交互、测试 Web UI 或爬取动态网页时，必须立刻阅读我。
+description: 当需要自动化网页交互、测试 Web UI、批量爬取动态网页或重复执行网页流程时，必须立刻阅读我。它起独立的浏览器实例，默认无头、profile 隔离，不使用用户自己的登录态。
 ---
 
 # Browser Automation
@@ -36,7 +36,7 @@ profile 默认只存在内存里，浏览器一关就丢；要跨重启保留登
 | `--browser=chrome` / `--browser=msedge` | **首选**。直接用本机已装的 Chrome / Edge，不需要下载；复用程序，profile 独立 |
 | 什么都不加 | Playwright 自带的 chromium，本机缓存里没有对应内核时需要额外下载 |
 | `--headed` | 显示窗口，默认是 headless |
-| `attach --cdp=chrome` | 接管一个已经开着的浏览器，能带上你现有的登录态。**仅在用户主动要求时使用**：要用户本人在目标浏览器打开 `chrome://inspect/#remote-debugging` 授权，且接管时浏览器会向用户弹权限确认 |
+| `attach --cdp=chrome` | 接管一个已经开着的浏览器，能带上现有登录态。**仅在用户主动要求时使用**：要用户本人在目标浏览器打开 `chrome://inspect/#remote-debugging` 授权，接管时浏览器会向用户弹权限确认；且 Chrome 136 起对默认数据目录已不再生效 |
 | `detach` | 只断开接管，不关那个外部浏览器 |
 
 本机有 Chrome 或 Edge 就用 `--browser=chrome` / `--browser=msedge`；只有确实需要自带内核、且缓存里缺对应版本时，才 `playwright-cli install-browser <browser>` 下载，不要主动下载。
