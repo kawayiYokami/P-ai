@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-23T09:41:28.701Z",
-  "latestVersion": "v0.97.8",
+  "generatedAt": "2026-10-26T06:49:55.533Z",
+  "latestVersion": "v0.97.9",
   "releases": [
+    {
+      "version": "v0.97.9",
+      "path": "docs/changelog/releases/v0.97.9.md",
+      "summary": "**会话索引库损坏时，聊天报错卡片上会多出「自修复」按钮：点一下即整库重建并按块文件恢复当前会话，修完自动重读，不必再放弃这个会话。**"
+    },
     {
       "version": "v0.97.8",
       "path": "docs/changelog/releases/v0.97.8.md",
