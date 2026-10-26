@@ -4,11 +4,11 @@
 
 ## 核心设计：统一传输适配层
 
-APP 与 Web/VS Code 的传输差异只收敛在 [tauri-api.ts](E:\github\easy_call_ai\src\services\tauri-api.ts)。业务层（composable / 组件）不感知宿主差异，只调用 `invokeTauri` 与 `onTransportNotification`。
+APP 与 Web/VS Code 的传输差异只收敛在 [tauri-api.ts](../src/services/tauri-api.ts)。业务层（composable / 组件）不感知宿主差异，只调用 `invokeTauri` 与 `onTransportNotification`。
 
 ### invokeTauri 双运行时分发
 
-`invokeTauri(command, args)`（[tauri-api.ts](E:\github\easy_call_ai\src\services\tauri-api.ts)）：
+`invokeTauri(command, args)`（[tauri-api.ts](../src/services/tauri-api.ts)）：
 
 1. 按 `isTauriRuntimeAvailable()` 判断运行时：Tauri 桌面走原生 `invoke()`，Web/VS Code 走 WebSocket JSON-RPC。
 2. 命令名先经 `TRANSPORT_COMMAND_CANONICAL_NAMES` 归一为规范名（legacy 别名 → 当前命令），再按运行时映射为 wire 名。
@@ -17,7 +17,7 @@ APP 与 Web/VS Code 的传输差异只收敛在 [tauri-api.ts](E:\github\easy_ca
 
 ### 流式通道抽象
 
-业务层只依赖 `TransportChannel<T>` 的 `onmessage`（[tauri-api.ts](E:\github\easy_call_ai\src\services\tauri-api.ts)）：
+业务层只依赖 `TransportChannel<T>` 的 `onmessage`（[tauri-api.ts](../src/services/tauri-api.ts)）：
 
 - 桌面运行时：对象就是 Tauri 原生 `Channel`。
 - Web 运行时：虚拟通道，流式事件由桥接通知订阅（`chat.assistantDelta` 等）承接，请求参数中剥离原生 Channel 对象。
@@ -30,7 +30,7 @@ APP 与 Web/VS Code 的传输差异只收敛在 [tauri-api.ts](E:\github\easy_ca
 
 ## 入口与端口
 
-桥接服务由 `src-tauri/src/features/system/commands/ide_context.rs` 启动。默认端口为 `8429`（`default_web_access_port`，[types_config.rs](E:\github\easy_call_ai\src-tauri\src\features\core\domain\types_config.rs)），可通过 `web_access_port` 配置（1024-65535 合法，非法回退默认）。监听地址为 `0.0.0.0`，所以同一台机器、局域网机器以及外部可达网络都可以访问该端口。
+桥接服务由 `src-tauri/src/features/system/commands/ide_context.rs` 启动。默认端口为 `8429`（`default_web_access_port`，[types_config.rs](../src-tauri/src/features/core/domain/types_config.rs)），可通过 `web_access_port` 配置（1024-65535 合法，非法回退默认）。监听地址为 `0.0.0.0`，所以同一台机器、局域网机器以及外部可达网络都可以访问该端口。
 
 配置页的"网络访问"tab 通过 `get_web_access_info` 获取当前状态：
 
@@ -67,9 +67,9 @@ HTTP 返回 `sidebar.html` 时会注入 `window.__PAI_SIDEBAR_BRIDGE__`，其中
 
 Web/侧边栏入口不再维护一套独立的低配聊天 UI，而是直接复用主聊天入口：
 
-- [main-sidebar.ts](E:\github\easy_call_ai\src\features\sidebar\main-sidebar.ts) `import "../../main-chat"` 复用主聊天入口，连接与文件选择器等边界能力由 tauri-api 统一处理，不复制聊天状态机。
+- [main-sidebar.ts](../src/features/sidebar/main-sidebar.ts) `import "../../main-chat"` 复用主聊天入口，连接与文件选择器等边界能力由 tauri-api 统一处理，不复制聊天状态机。
 - 宿主标记：`document.documentElement.setAttribute("data-host", "vscode" | "web")` 在挂载前设置，`sidebar-theme.css` 按 data-host 分流（vscode 跟随 VS Code 主题，web 走应用主题）。
-- 主聊天唯一前台运行时收敛在 [use-chat-foreground-runtime.ts](E:\github\easy_call_ai\src\features\chat\composables\use-chat-foreground-runtime.ts)，APP 与 Web 都从 main-chat 进入。
+- 主聊天唯一前台运行时收敛在 [use-chat-foreground-runtime.ts](../src/features/chat/composables/use-chat-foreground-runtime.ts)，APP 与 Web 都从 main-chat 进入。
 
 当前 Web/侧边栏支持：
 
@@ -107,7 +107,7 @@ Web/侧边栏启动后不再展示单独的首屏选择 UI。初始化流程会�
 
 ## JSON-RPC 范围
 
-`/chat` 通道使用 JSON-RPC 2.0，分发入口 [jsonrpc_dispatch.rs](E:\github\easy_call_ai\src-tauri\src\features\system\commands\ide_context\jsonrpc_dispatch.rs)。主要方法（约 89 个）：
+`/chat` 通道使用 JSON-RPC 2.0，分发入口 [jsonrpc_dispatch.rs](../src-tauri/src/features/system/commands/ide_context/jsonrpc_dispatch.rs)。点分方法名以该文件 `match` 臂为准（当前约 139 个，另有一批无点号的兼容别名，不要把两者加总后当产品方法数）。主要方法：
 
 - 会话：`conversation.list`、`conversation.create`、`conversation.createSide`、`conversation.openDraft`、`conversation.updateDraft`、`conversation.blockPage`、`conversation.messageById`、`conversation.messagesBefore`、`conversation.messagesAfterAsync`、`conversation.rename`、`conversation.pin`、`conversation.markRead`、`conversation.archive`、`conversation.batchArchive`、`conversation.delete`、`conversation.rewind`、`conversation.rewindPreview`、`conversation.branchFromMessage`、`conversation.branchFromSelection`、`conversation.compact`、`conversation.compactPreview`、`conversation.fastRequestTurns`、`conversation.autoPush`、`conversation.rebindRecipient`、`conversation.forwardSelection`、`conversation.forwardRemoteContact`、`conversation.changedSince`、`conversation.freshnessSnapshot`、`conversation.runtimeSnapshot`、`conversation.setActive`、`conversation.resumeSubscription`、`conversation.streamProbe`、`conversation.foregroundLightSnapshot`
 - 发送/调度：`chat.send`、`chat.stop`、`chat.queueAttachment`、`chat.queueMarkGuided`、`chat.queueRecall`、`chat.queueSnapshot`、`chat.sessionStateSnapshot`
@@ -134,5 +134,5 @@ Web/侧边栏启动后不再展示单独的首屏选择 UI。初始化流程会�
 本次实现相关的最小验证项：
 
 - `pnpm typecheck`
-- `cd src-tauri && cargo check`
-- `cd src-tauri && cargo test ide_context_tests`
+- `cargo check --manifest-path src-tauri/Cargo.toml`（workdir 固定仓库根）
+- `cargo test --manifest-path src-tauri/Cargo.toml ide_context_tests`（workdir 固定仓库根）

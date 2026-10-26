@@ -24,11 +24,11 @@ pnpm dev
 
 # 类型检查
 pnpm typecheck                              # 前端 Vue + TypeScript
-cd src-tauri && cargo check                  # Rust
+cargo check --manifest-path src-tauri/Cargo.toml   # Rust；workdir 固定仓库根
 
 # 测试
 pnpm test                                    # 前端 vitest
-cd src-tauri && cargo test                   # Rust 测试
+cargo test --manifest-path src-tauri/Cargo.toml    # Rust 测试；workdir 固定仓库根
 pnpm smoke                                   # Windows 集成冒烟测试（PowerShell）
 
 # 生产构建
@@ -52,30 +52,30 @@ Vue 组件 → invokeTauri() → Tauri invoke() → Rust #[tauri::command] → �
 
 ### Rust 后端 — include! 单入口模式
 
-`src-tauri/src/main.rs` 通过 `include!()` 宏将所有模块拉入同一编译单元：
+`src-tauri/src/main.rs` 通过 `include!()` 宏将功能域拉入同一编译单元。不要把 `main.rs` 的每一行 include 抄进文档；按现役功能域找代码：
 
-| include 文件 | 职责 |
-|---|---|
-| `features/core/domain.rs` | 数据模型、常量、响应风格 |
-| `features/config/storage_and_stt.rs` | 配置读写 (TOML)、本地/远程 STT |
-| `features/chat/conversation.rs` | 对话生命周期、自动归档逻辑 |
-| `features/chat/model_runtime.rs` | LLM 多供应商适配 (OpenAI/Gemini/Anthropic)，使用 rig-core |
-| `features/chat/model_runtime/provider_and_stream.rs` | 供应商具体实现与流式处理 |
-| `features/chat/model_runtime/tools_and_builtin.rs` | 工具执行（内置 + MCP） |
-| `features/system/commands.rs` | Tauri 命令处理入口，分拆至 commands/*.rs |
-| `features/system/tools.rs` | 桌面工具基础设施 (screenshot/wait/operate) |
-| `features/system/updater.rs` | GitHub Release 自动更新、便携版 helper、staging/回滚 |
-| `features/system/windowing.rs` | 窗口定位、显示、隐藏、托盘 |
-| `features/memory/matcher.rs` | 记忆搜索与匹配 |
+| 功能域 | 入口 | 职责 |
+|---|---|---|
+| core | `features/core/` | 数据模型、时间口径、请求格式 |
+| config / state | `features/config/`、`features/state/` | 配置读写、目录布局、全局状态 SQLite |
+| chat | `features/chat/` | 会话、消息存储、调度、LLM 运行时（`rust-genai`） |
+| remote_im | `features/remote_im/` | 微信 / 飞书 / 钉钉 / OneBot / QQ 官方 |
+| system | `features/system/` | 窗口、托盘、工具、更新、Tauri 命令 |
+| memory | `features/memory/` | 记忆库、匹配、深度回忆、embedding 供应商 |
+| capability | `features/{mcp,skill,catalog,goal,task,delegate}.rs` | MCP、Skill、目录、目标、任务、委托 |
+| image | `features/image_generation.rs` | 图像生成 |
+
+LLM 供应商适配在 `features/chat/model_runtime/`，运行时是 `rust-genai`（fork），不是 `rig-core`。
 
 ### Vue 前端 — Composable 驱动
 
-前端无全局状态库（无 Vuex/Pinia），状态通过 Vue Composition API 的 reactive refs 管理。核心逻辑封装在 composables 中，组件层很薄。
+前端无全局状态库（无 Vuex/Pinia），状态通过 Vue Composition API 的 reactive refs 管理。核心逻辑封装在 composables 中，组件层很薄。功能按 `src/features/` 分组，不要默认假设只有 shell / chat / config 三组。
 
-关键 composable 分组：
-- **shell/**: `use-app-bootstrap` (初始化)、`use-app-theme`、`use-window-shell`、`use-app-lifecycle`、`use-github-update`
-- **chat/**: `use-chat-flow` (流式缓冲与 delta 处理)、`use-chat-runtime` (会话持久化)、`use-chat-turns` (上下文窗口计算)、`use-chat-media` (图片/音频)、`use-speech-recording` (本地+远程 STT)
-- **config/**: `use-config-persistence` (加载/保存)、`use-config-runtime` (模型列表刷新)、`use-config-core` / `use-config-editors` (供应商与模型配置编辑)
+常见分组：
+- **shell/**: 初始化、主题、窗口壳、生命周期、更新
+- **chat/**: 流式缓冲、会话运行时、上下文窗口、媒体、语音
+- **config/**: 配置加载/保存、模型列表刷新、供应商与模型编辑
+- **sidebar / archive / memory / file-reader / shared/**: Web/VS Code 侧边栏、归档、记忆、文件阅读器、共享组件
 
 ### VS Code 侧边栏扩展
 
@@ -90,25 +90,28 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 
 ### 数据持久化
 
-默认情况下，配置与运行数据存储在 `ProjectDirs` 配置目录；若可执行文件同级存在 `PORTABLE` 标记文件，则切换到可执行文件同级 `data/` 目录（无数据库）。
+标准安装把配置与运行数据放在 `ProjectDirs::from("ai", "easycall", "p-ai").config_dir()`；若可执行文件同级存在 `PORTABLE` 标记，则切换到可执行文件同级 `data/`。现役存储含 SQLite，不能再按「全是 JSON、无数据库」理解。
 
-应用根目录 `app_root` 由 `app_root_from_data_path` 从 `config_mark` 锚点反推（平台感知：父目录名是 `config` 则取上级，否则用自身）。目录布局在 `app_root` 直下层：
+应用根目录 `app_root` 由 `app_root_from_data_path` 从 `config_mark` 锚点反推（平台感知：父目录名是 `config` 则取上级，否则用自身）。目录布局相对 `app_root`：
 
-- `app_config.toml` — 配置、API 供应商、热键、工具开关
-- `config_mark` — 路径锚点占位文件（从不读写内容，仅用于反推 app_root，替代早期伪装的 `app_data.json`）
-- `config/` — agents.json 等代理配置
-- `state/` — runtime_state.json 等运行时状态
-- `chat/conversations/` — 会话数据
+- `app_config.toml` / `config_mark` — 标准安装在 `app_root` 直下；便携模式在 `config/` 下
+- `config/` — `agents.json` 等代理配置
+- `state/state.sqlite` — 全局状态现役落点（旧 `runtime_state.json` 只走迁移读取）
+- `chat/chat_metadata.sqlite` + `chat/conversations/<id>/` — 聊天元数据与 V4 压缩块
 - `backups/` — 备份
-- `memory/` — 记忆库
-- `task/` — 任务存储
-- `delegate/` — 委托存储
+- `memory/memory_store.db`、`task/task_store.db`、`delegate/delegate_store.db`
 - `avatars/`、`media/`、`exports/` — 资源目录
-- `llm-workspace/` — Shell / Skills / MCP 等运行工作区
+- `llm-workspace/` — Shell / Skills / MCP 运行工作区（相对 `app_root` 直下）
+
+完整表见 `docs/data-schema-v2.md`。
 
 ### 支持的 API 格式
 
-`openai`（OpenAI/DeepSeek/Kimi）、`anthropic`（Claude）、`gemini`（Google）、`openai_tts`（远程 STT）
+请求格式定义在 `RequestFormat`（`features/core/domain/types_foundation.rs`），不是固定四项。常见分组：
+
+- 聊天：`openai`、`openai_responses`、`anthropic`、`gemini`、`deepseek`、`moonshot`、`mimo`、`ollama` 等
+- 语音：`openai_stt` / `mimo_asr`（STT），`openai_tts`（TTS，不是 STT）
+- 向量：`openai_embedding`、`gemini_embedding`、`openai_rerank`
 
 ## 开发约定
 

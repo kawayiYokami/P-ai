@@ -1,17 +1,17 @@
 # 数据存储架构
 
-> 更新于 2026-08-23
-> 本文档描述当前版本（HEAD=d48ed949）的真实存储形态。旧版文档描述的 `app_data.json` AppData 全量 JSON（agents/conversations/archived 一体）形态已不存在，仅残留于迁移读取路径。
+> 更新于 2026-10-26
+> 本文档描述当前版本的真实存储形态。旧版文档描述的 `app_data.json` AppData 全量 JSON（agents/conversations/archived 一体）形态已不存在，仅残留于迁移读取路径。
 
 ## 目录布局
 
-应用根目录 `app_root` 由 `app_root_from_data_path(data_path)` 以 `config_mark` 锚点反推（`runtime_state.rs`）：
+应用根目录 `app_root` 由 `app_root_from_data_path(data_path)` 以 `config_mark` 锚点反推（`features/core/domain/runtime_state.rs`）：
 
 - `data_path = config_dir/config_mark`，`config_mark` 是空占位锚点文件（从不读写内容）
 - 若 `config_mark` 父目录名恰为 `config`（便携模式），取父目录的父目录为 `app_root`
 - 否则（标准安装），取 `config_mark` 的父目录本身为 `app_root`
 
-两种运行时形态（`runtime_state.rs`）：
+两种运行时形态（`features/core/domain/runtime_state.rs`）：
 
 | 模式 | 触发条件 | app_root |
 |---|---|---|
@@ -22,8 +22,8 @@
 
 | 路径 | 形态 | 说明 |
 |---|---|---|
-| `app_config.toml` | TOML | 顶层配置（热键、供应商、工具开关等） |
-| `config_mark` | 占位文件 | 路径锚点，从不读写内容 |
+| `app_config.toml`（标准）或 `config/app_config.toml`（便携） | TOML | 顶层配置（热键、供应商、工具开关等） |
+| `config_mark`（标准）或 `config/config_mark`（便携） | 占位文件 | 路径锚点，从不读写内容 |
 | `config/agents.json` | JSON | 代理配置 |
 | `state/state.sqlite` | SQLite | 全局状态总库（V4，runtime_state 表为现役落点） |
 | `state/runtime_state.json` 等旧 JSON | JSON | 仅迁移读取，V4 起不再写入 |
@@ -36,7 +36,7 @@
 | `avatars/` | 目录 | 代理头像（webp） |
 | `media/` | 目录 | 媒体文件（`<sha256>.<ext>`） |
 | `exports/` | 目录 | 导出产物 |
-| `llm-workspace/` | 目录 | Shell / Skills / MCP 工作区 |
+| `llm-workspace/` | 目录 | Shell / Skills / MCP 工作区（标准安装与便携模式都在 `app_root` 直下，不在 `config/` 下） |
 | `llm-workspace/downloads/` | 目录 | 下载落点 |
 
 ## 1. app_config.toml
@@ -69,6 +69,7 @@ PRAGMA：busy_timeout=10000、WAL、synchronous=NORMAL、foreign_keys=ON（`stat
 | `pdf_image_cache` | `file_hash` PK, `file_path`, `file_name`, `total_pages`, `rendered_pages`, `dpi`, `images_json`, `conversation_ids`, `created_at`, `updated_at` | PDF 渲染缓存 |
 | `remote_im_contacts` | `id` PK, `channel_id`, `platform`, `remote_contact_type`, `remote_contact_id`, `config_json` | 远程 IM 联系人 |
 | `remote_im_group_members` | `contact_id`, `user_id`, `nickname`, `card`, `display_name`, `updated_at` | PK(contact_id, user_id) |
+| `remote_im_contact_groups` | `id` PK, `channel_id`, `name`, `sort_order`, `created_at`, `updated_at` | 渠道内联系人自定义分组 |
 | `remote_im_contact_checkpoints` | `contact_id` PK, `checkpoint_json` | 联系人断点 |
 | `window_layouts` | `window_label` PK, `width`/`height`/`x`/`y`, `maximized` | 窗口布局 |
 | `git_repo_history` | `repo_key` PK, `history_json` | git 面板历史 |
@@ -101,8 +102,8 @@ PRAGMA：WAL、synchronous=NORMAL、foreign_keys=ON、busy_timeout=10000（`sqli
 | `manifest.json` | `MessageStoreManifest`（`manifest.rs`）：`version`(=1)、`messageStoreKind`(conversationJson\|jsonlSnapshot)、`migrationState`(none\|building\|ready\|failed\|rollback)、`sourceConversationRevision`、`sourceMessageCount`、`lastMessageId`、`messagesJsonlBytes`、`messagesIndexRevision`、`updatedAt` |
 | `meta.json` | `ConversationPersistMeta`（`meta.rs`）：`metaSchemaVersion`、`id`、`title`、`agentId`、`boundConversationId`、`parentConversationId`、`childConversationIds`、`forkMessageCursor`、`unreadCount`、`conversationKind`、`rootConversationId`、`delegateId`、`createdAt`、`updatedAt`、`lastUserAt`、`lastAssistantAt`、`status`、`userProfileSnapshot`、`shellWorkspacePath`、`shellWorkspaces`、`shellAutonomousMode`、`shellWorkMode`、`archivedAt`、`currentTodos`、`memoryRecallTable`、`planModeEnabled`、`preferredApiConfigId`、`isDraft`、`autoPushRemoteContactId`、`cumulativeUsage`、`activeGoal`、`fastRequestTurns`、`lastMessageId`、`lastMessageAt`、`messageCount`、`bodyMessageCount`、`bodyTextLength`、`hasAssistantReply`、`hasContextCompactionMessage`、`latestSummaryTitle`、`previewMessages` |
 | `messages.idx.json` | `MessageStoreIndexFile`（`index.rs`）：`version`(=1)、`items[]`，每项 `messageId`、`blockId`、`offset`、`byteLen`；`compactionKind`/`role`/`createdAt` 为运行时字段、序列化时清空 |
-| `blocks/000000.jsonl` | V3 明文块：每行一个消息 JSON |
-| `blocks/000000.jsonl.zstd` | V4 压缩块：整块单帧 zstd + 原子写 |
+| `blocks/000000.jsonl` | V3 明文块遗留：每行一个消息 JSON，生产写入不再使用 |
+| `blocks/000000.jsonl.zstd` | V4 现役压缩块：整块单帧 zstd + 原子写 |
 | `messages.jsonl` | V2 遗留单文件；V3/V4 写入快照后被删除 |
 | `active_plans.jsonl` | 遗留文件名常量；现役活动计划存 `chat_metadata.sqlite.active_plan_records` |
 | `blobs/` | 遗留二进制目录 |

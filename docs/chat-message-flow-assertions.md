@@ -69,11 +69,11 @@
 
 ### 3.4 解压脚本
 
-仓库提供 [scripts/unpack_message_blocks.py](E:\github\easy_call_ai\scripts\unpack_message_blocks.py)：
+仓库提供 [scripts/unpack_message_blocks.py](../scripts/unpack_message_blocks.py)：
 
 ```bash
-python scripts/unpack_message_blocks.py D:\\paitest\\data
-python scripts/unpack_message_blocks.py D:\\paitest\\data --conversation ac7ed70e-...
+python scripts/unpack_message_blocks.py <data-dir>
+python scripts/unpack_message_blocks.py <data-dir> --conversation <conversation-id>
 ```
 
 - 流式解压全部 `.jsonl.zstd` 块到输出目录（默认输入目录同级 `unpacked-blocks/`）

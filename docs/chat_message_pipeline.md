@@ -1,5 +1,6 @@
 # 聊天消息管线
 
+> 状态：历史文稿（2026-03 管线草案）。队列 / 引导 / 主助理的现行语义以 [queue-and-guided-semantics.md](queue-and-guided-semantics.md) 和 [AGENTS.md](../AGENTS.md) 术语段为准。
 > 更新于 2026-03-13
 
 ## 需求

@@ -6,17 +6,16 @@ PAI 的 Markdown 渲染采用「自研渲染器 + 语义样式全局化 + 场景
 
 ### 统一渲染器
 
-核心组件：[AppMarkdownRenderer.vue](E:\github\easy_call_ai\src\features\chat\markdown\AppMarkdownRenderer.vue)
+核心组件：[AppMarkdownRenderer.vue](../src/features/chat/markdown/AppMarkdownRenderer.vue)
 
-- 统一导出入口：[index.ts](E:\github\easy_call_ai\src\features\chat\markdown\index.ts)
+- 统一导出入口：[index.ts](../src/features/chat/markdown/index.ts)
 - Props：`text` / `blocks`（二选一输入）、`isDark`、`streaming`、`variant`（`chat` / `document`）、`localImageBasePath`、`toolcallPreviewMap`
 - 渲染根节点挂 `ecall-markdown-content` 类，即可复用共享语义样式
 
 ### 块解析与流式增量
 
-- 块解析：[parse-markdown.ts](E:\github\easy_call_ai\src\features\chat\markdown\parse-markdown.ts)
-- 增量解析器：[incremental-markdown.ts](E:\github\easy_call_ai\src\features\chat\markdown\incremental-markdown.ts)（`IncrementalMarkdownBlockParser`，流式输出时逐块暴露）
-- 分段：[markdown-segments.ts](E:\github\easy_call_ai\src\features\chat\markdown\markdown-segments.ts)
+- 块解析与行内分段：[parse-markdown.ts](../src/features/chat/markdown/parse-markdown.ts)（`MarkdownBlock` / `InlineSegment`）
+- 增量解析器：[incremental-markdown.ts](../src/features/chat/markdown/incremental-markdown.ts)（`IncrementalMarkdownBlockParser`，流式输出时逐块暴露）
 
 支持的块类型：`paragraph` / `heading`(1-4) / `quote` / `list`(ordered) / `table` / `code` / `math` / `details` / `footnotes` / `hr`
 
@@ -26,19 +25,19 @@ PAI 的 Markdown 渲染采用「自研渲染器 + 语义样式全局化 + 场景
 
 | 节点 | 组件 | 说明 |
 |---|---|---|
-| 代码块 | [CodeBlock.ts](E:\github\easy_call_ai\src\features\chat\markdown\CodeBlock.ts) | 异步 import shiki 高亮；支持 `streaming` 增量高亮；mermaid 语言走 MermaidBlock |
-| Mermaid | [MermaidBlock.ts](E:\github\easy_call_ai\src\features\chat\markdown\MermaidBlock.ts) | 独立 mermaid 渲染 |
-| 数学 | [init-katex.ts](E:\github\easy_call_ai\src\features\chat\markdown\init-katex.ts) + [streaming-math.ts](E:\github\easy_call_ai\src\features\chat\markdown\streaming-math.ts) | KaTeX 渲染，流式数学支持 |
-| 图片 | [MarkdownImage.ts](E:\github\easy_call_ai\src\features\chat\markdown\MarkdownImage.ts) + [LazyMarkdownImage.ts](E:\github\easy_call_ai\src\features\chat\markdown\LazyMarkdownImage.ts) | 懒加载、本地图片 base path、图片预览弹窗 |
-| toolcall 引用 | [toolcall-ref-group.ts](E:\github\easy_call_ai\src\features\chat\markdown\toolcall-ref-group.ts) | 跨段落 toolcall 引用聚合、预览（经 `toolcallPreviewMap`） |
-| 自动链接 | [markdown-auto-link.ts](E:\github\easy_call_ai\src\features\chat\markdown\markdown-auto-link.ts) | 链接识别 |
-| 代码块预览 | [CodeBlockPreviewDialog.vue](E:\github\easy_call_ai\src\features\chat\components\dialogs\CodeBlockPreviewDialog.vue) | 大代码块弹窗 |
+| 代码块 | [CodeBlock.ts](../src/features/chat/markdown/CodeBlock.ts) | 异步 import shiki 高亮；支持 `streaming` 增量高亮；mermaid 语言走 MermaidBlock |
+| Mermaid | [MermaidBlock.ts](../src/features/chat/markdown/MermaidBlock.ts) | 独立 mermaid 渲染 |
+| 数学 | [init-katex.ts](../src/features/chat/markdown/init-katex.ts) + [streaming-math.ts](../src/features/chat/markdown/streaming-math.ts) | KaTeX 渲染，流式数学支持 |
+| 图片 | [MarkdownImage.ts](../src/features/chat/markdown/MarkdownImage.ts) + [LazyMarkdownImage.ts](../src/features/chat/markdown/LazyMarkdownImage.ts) | 懒加载、本地图片 base path、图片预览弹窗 |
+| toolcall 引用 | [toolcall-ref-group.ts](../src/features/chat/markdown/toolcall-ref-group.ts) | 跨段落 toolcall 引用聚合、预览（经 `toolcallPreviewMap`） |
+| 自动链接 | [markdown-auto-link.ts](../src/features/chat/markdown/markdown-auto-link.ts) | 链接识别 |
+| 代码块预览 | [CodeBlockPreviewDialog.vue](../src/features/chat/components/dialogs/CodeBlockPreviewDialog.vue) | 大代码块弹窗 |
 
 ## 共享语义样式
 
 通用 Markdown 语义节点统一维护在：
 
-- [markdown-content.css](E:\github\easy_call_ai\src\features\chat\markdown\markdown-content.css)（`.ecall-markdown-content`）
+- [markdown-content.css](../src/features/chat/markdown/markdown-content.css)（`.ecall-markdown-content`）
 
 包括：
 
