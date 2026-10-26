@@ -19,23 +19,23 @@
       <!-- 参数字段：字段名 / 类型 / 说明 三列对齐，靠排版压出层级 -->
       <div
         v-if="toolParameters(item.id).length"
-        class="mt-1.5 grid items-baseline gap-x-3 gap-y-[3px] border-t border-base-300/50 pt-1.5 text-[11px] leading-relaxed"
+        class="mt-1.5 grid items-baseline gap-x-3 gap-y-[3px] border-t border-base-300/50 pt-1.5 text-caption leading-relaxed"
         :style="{ gridTemplateColumns: 'minmax(6.5rem, auto) auto minmax(0, 1fr)' }"
       >
         <template v-for="param in toolParameters(item.id)" :key="`${item.id}-param-${param.name}`">
           <span class="font-mono text-base-content/85 whitespace-nowrap">
             {{ param.name }}<span
               v-if="param.required"
-              class="text-error/60 text-[10px] ml-px"
+              class="text-error/60 text-micro ml-px"
               :title="t('config.mcpToolList.required')"
             >*</span>
           </span>
-          <span class="font-mono text-[10px] text-base-content/35 whitespace-nowrap">{{ param.type }}</span>
+          <span class="font-mono text-micro text-base-content/35 whitespace-nowrap">{{ param.type }}</span>
           <span class="text-base-content/60" :title="param.tooltipText">
-            <span v-if="param.constraints" class="font-mono text-[10px] text-base-content/40 mr-1">({{ param.constraints }})</span>
-            <span v-if="param.defaultValue !== undefined" class="font-mono text-[10px] text-base-content/40 mr-1">{{ t('config.mcpToolList.default', { value: param.defaultValue }) }}</span>
+            <span v-if="param.constraints" class="font-mono text-micro text-base-content/40 mr-1">({{ param.constraints }})</span>
+            <span v-if="param.defaultValue !== undefined" class="font-mono text-micro text-base-content/40 mr-1">{{ t('config.mcpToolList.default', { value: param.defaultValue }) }}</span>
             <span>{{ param.description }}</span>
-            <span v-if="param.enumValues?.length" class="font-mono text-[10px] text-base-content/45 ml-1">
+            <span v-if="param.enumValues?.length" class="font-mono text-micro text-base-content/45 ml-1">
               [{{ t('config.mcpToolList.enumValues') }}: {{ param.enumValues.join(', ') }}]
             </span>
           </span>
