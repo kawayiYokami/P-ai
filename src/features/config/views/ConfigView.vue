@@ -174,7 +174,7 @@
           :normalize-api-bindings-action="normalizeApiBindingsAction"
           :last-saved-config-json="props.lastSavedConfigJson"
           :set-status-action="setStatusAction"
-          @refresh-models="$emit('refreshModels')"
+          @refresh-models="(provider) => $emit('refreshModels', provider)"
         />
       </div>
 
@@ -441,7 +441,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ApiConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
+import type { ApiConfigItem, ApiProviderConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
 import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind } from "../../shell/theme/theme-types";
 import type { StatusTone } from "../../shell/composables/use-app-core";
 import SettingsStickyLayout from "../components/SettingsStickyLayout.vue";
@@ -643,7 +643,7 @@ const emit = defineEmits<{
   (e: "activateGeneratedTheme"): void;
   (e: "updateGeneratedThemeControls", value: Partial<GeneratedThemeControls>): void;
   (e: "resetGeneratedTheme"): void;
-  (e: "refreshModels"): void;
+  (e: "refreshModels", provider: ApiProviderConfigItem | null): void;
   (e: "openMemoryViewer"): void;
   (e: "addApiConfig"): void;
   (e: "removeSelectedApiConfig"): void;

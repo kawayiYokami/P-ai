@@ -531,6 +531,7 @@ import SelectionShareDialog from "../../chat/components/dialogs/SelectionShareDi
 import { computed, ref, type VNodeRef } from "vue";
 import type {
   ApiConfigItem,
+  ApiProviderConfigItem,
   AppConfig,
   ArchiveSummary,
   ChatConversationOverviewItem,
@@ -808,7 +809,7 @@ const props = defineProps<{
   activateGeneratedTheme: () => void;
   updateGeneratedThemeControls: (patch: Partial<GeneratedThemeControls>) => void;
   resetGeneratedTheme: () => void;
-  refreshModels: () => void;
+  refreshModels: (provider?: ApiProviderConfigItem | null) => void;
   saveConfig: () => Promise<boolean> | boolean;
   updateRecordHotkey: (value: string) => Promise<boolean> | boolean;
   updateRecordBackgroundWakeEnabled: (value: boolean) => Promise<boolean> | boolean;

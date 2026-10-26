@@ -120,8 +120,15 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
     }
   }
 
-  async function refreshModels() {
-    const provider = options.selectedApiProvider.value;
+  /**
+   * 刷新指定供应商的模型列表。
+   *
+   * 不传 provider 时退回 selectedApiProvider：它是「当前选中端点」（providerId::modelId）
+   * 的派生值，供应商没有活跃模型时该端点为空，判断不出用户正在看的供应商。供应商页会把
+   * 详情页认定的供应商显式传进来，那里才是决定「刷新谁」的唯一来源。
+   */
+  async function refreshModels(target?: ApiProviderConfigItem | null) {
+    const provider = target ?? options.selectedApiProvider.value;
     if (!provider) {
       const msg = "当前未选中 API 供应商，无法刷新模型列表。";
       console.warn("[refreshModels]", msg, { selectedApiProvider: options.selectedApiProvider.value });

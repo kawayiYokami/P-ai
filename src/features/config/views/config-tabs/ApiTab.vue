@@ -192,7 +192,7 @@
       <ConfigCard v-if="!selectedProviderIsCodex" :title="t('config.api.modelCards')">
         <template #actions>
           <button class="btn btn-sm" type="button" :class="{ loading: props.refreshingModels }"
-            :disabled="props.refreshingModels" @click="$emit('refreshModels')">
+            :disabled="props.refreshingModels" @click="emit('refreshModels', selectedProvider)">
             <RefreshCw class="h-3.5 w-3.5" />
             <span>{{ t("config.api.refreshModels") }}</span>
           </button>
@@ -504,7 +504,9 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "refreshModels"): void;
+  // 携带详情页认定的当前供应商：刷新只认它，不依赖 selectedApiConfigId，
+  // 否则供应商删光模型（端点被置空）后刷新会误判「未选中供应商」。
+  (e: "refreshModels", provider: ApiProviderConfigItem | null): void;
 }>();
 
 const { t } = useI18n();
