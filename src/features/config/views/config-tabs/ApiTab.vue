@@ -1900,10 +1900,14 @@ function revertUnsavedConfigIfNeeded() {
   // 放弃修改：复用现成的 restoreLastSavedConfigSnapshot（applyLoadedConfig 路径），
   // 它用同一份 normalize 口径把整份 config 写回 saved 快照——不要在这里另写
   // 一套逐字段 clone，口径对不齐会留脏。
+  const browsingId = String(browsingProviderId.value || "").trim();
   props.restoreApiConfigAction();
-  // browsingProviderId 也清掉：还原后「正在浏览的 provider」可能已被移除，
-  // 留着会让 selectedProvider 指向不存在的 provider。
-  browsingProviderId.value = "";
+  // 还原后「正在浏览的 provider」可能已被移除：只有仍存在于活跃列表时才保留，
+  // 否则清掉。无条件清空会让「删光模型后放弃修改」停在详情页却解析不出 provider，
+  // 详情区整块渲染为空。
+  if (!browsingId || !activeProviderList.value.some((provider) => provider.id === browsingId)) {
+    browsingProviderId.value = "";
+  }
   // config 已还原，草稿需要跟随重建，避免残留旧草稿。
   rebuildDraftGroups();
 }
