@@ -87,7 +87,10 @@
           :class="mode === 'tree' ? 'flex-1' : 'max-w-[60%]'"
           :title="row.node.data.path"
         >
-          <span class="min-w-0 truncate">{{ row.node.data.name }}</span>
+          <span
+            class="min-w-0 truncate"
+            :class="isDeletedEntry(row.node.data.entry) ? 'line-through opacity-60' : ''"
+          >{{ row.node.data.name }}</span>
         </button>
         <span
           v-if="mode === 'list' && row.node.data.dir"
@@ -213,7 +216,13 @@ const treeNodes = computed<GitTreeNode<GitTreeItem>[]>(() => [
 /** 扁平 status 条目构建为目录树（文件叶子 + 目录中间节点） */
 function buildEntries(entries: GitPanelStatusEntry[]): GitTreeNode<GitTreeItem>[] {
   const root: GitTreeNode<GitTreeItem>[] = [];
-  for (const entry of entries) {
+  // 先按状态分组、组内按路径升序，树与平铺两种模式共用这一份顺序
+  const ordered = [...entries].sort((left, right) => {
+    const rankDiff = statusSortRank(left) - statusSortRank(right);
+    if (rankDiff !== 0) return rankDiff;
+    return left.path.localeCompare(right.path);
+  });
+  for (const entry of ordered) {
     const segments = entry.path.split("/");
     let siblings = root;
     let acc = "";
@@ -336,5 +345,18 @@ function statusClass(entry: GitPanelStatusEntry) {
   if (label === "A" || label === "U") return "text-success";
   if (label === "D") return "text-error";
   return "text-warning";
+}
+
+/** 删除状态：文件名划线、整体降透明度，和其他状态的条目一眼区分开 */
+function isDeletedEntry(entry: GitPanelStatusEntry) {
+  return statusLabel(entry) === "D";
+}
+
+/** 组内状态排序权重：新增 → 删除 → 修改 → 重命名 → 未跟踪，未知码排最后 */
+const STATUS_SORT_ORDER = ["A", "D", "M", "R", "U"];
+
+function statusSortRank(entry: GitPanelStatusEntry) {
+  const index = STATUS_SORT_ORDER.indexOf(statusLabel(entry));
+  return index === -1 ? STATUS_SORT_ORDER.length : index;
 }
 </script>
