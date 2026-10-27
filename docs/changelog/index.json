@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-26T06:49:55.533Z",
-  "latestVersion": "v0.97.9",
+  "generatedAt": "2026-10-27T15:03:24.532Z",
+  "latestVersion": "v0.97.10",
   "releases": [
+    {
+      "version": "v0.97.10",
+      "path": "docs/changelog/releases/v0.97.10.md",
+      "summary": "**助理可以直接用你自己已登录的 Chrome 办事：打开网页、点开链接、填表、读取需要登录才看得到的内容，全程都在你眼前那个窗口里发生，不用另建环境，也不用你重新登录。**"
+    },
     {
       "version": "v0.97.9",
       "path": "docs/changelog/releases/v0.97.9.md",
