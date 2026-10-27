@@ -825,12 +825,8 @@ pub(crate) fn build_hidden_skill_snapshot_block_for_agent(
     let permission_enabled = agent
         .map(|item| item.permission_control.enabled)
         .unwrap_or(false);
+    // 项目 Skill 不吃人格权限控制：当前项目是显式工作上下文，直接可用。
     let project = ensure_conversation_project_skills(state, conversation);
-    let project = if permission_enabled {
-        filter_skills_for_agent(agent, &project)
-    } else {
-        project
-    };
     let global = match global_enabled_skills(state) {
         Some(list) => list,
         None => {
@@ -853,7 +849,7 @@ pub(crate) fn build_hidden_skill_snapshot_block_for_agent(
     render_hidden_skill_snapshot_block(state, &merged, None)
 }
 
-/// 某人格当前可用的 skill：助理空间全局 Skill + 当前会话项目 Skill（项目同名覆盖）。
+/// 某人格当前可用的 skill：助理空间全局 Skill（吃权限控制）+ 当前会话项目 Skill（不吃权限控制，项目同名覆盖）。
 fn merged_available_skills(
     state: &AppState,
     conversation: &Conversation,
@@ -870,7 +866,6 @@ fn merged_available_skills(
         }
     };
     let project = ensure_conversation_project_skills(state, conversation);
-    let project = filter_skills_for_agent(Some(agent), &project);
     merge_skill_lists(global, project)
 }
 

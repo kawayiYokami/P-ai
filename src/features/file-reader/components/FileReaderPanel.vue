@@ -69,6 +69,14 @@
             />
           </div>
         </div>
+        <div
+          ref="directoryTreeTopButtonsRef"
+          class="flex shrink-0 items-center gap-1"
+          @pointerenter="handleDirectoryTreeKeepZonePointerEnter"
+          @pointerleave="handleDirectoryTreeKeepZonePointerLeave($event)"
+          @focusin="handleDirectoryTreeKeepZoneFocusIn"
+          @focusout="handleDirectoryTreeKeepZoneFocusOut"
+        >
         <button
           type="button"
           class="btn btn-sm btn-square shrink-0"
@@ -89,6 +97,7 @@
         >
           <GitBranch class="size-4" />
         </button>
+        </div>
       </template>
     </PanelTabStrip>
 
@@ -98,15 +107,15 @@
           v-if="directoryTreeRoot"
           ref="directoryTreeAsideRef"
           class="file-reader-aside-panel flex shrink-0 flex-col bg-base-200/35"
-          :class="[directoryOnly || directoryTreeFullscreen ? 'w-full' : '', directoryTreeRailCollapsed ? 'file-reader-aside-rail' : '']"
+          :class="[directoryOnly || directoryTreeFullscreen ? 'w-full' : '', directoryTreeRailCollapsed ? 'file-reader-aside-rail' : '', activeDirectoryTreeResize ? 'file-reader-aside-no-transition' : '']"
           :style="directoryAsideStyle"
           :aria-expanded="directoryTreeRailCollapsed ? 'false' : 'true'"
           @pointerenter="handleDirectoryTreeAsidePointerEnter"
-          @pointerleave="handleDirectoryTreeAsidePointerLeave"
+          @pointerleave="handleDirectoryTreeAsidePointerLeave($event)"
           @focusin="handleDirectoryTreeAsideFocusIn"
           @focusout="handleDirectoryTreeAsideFocusOut"
         >
-          <div v-if="directoryTreeRailCollapsed" class="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-hidden py-2">
+          <div v-if="directoryTreeRailContent === 'rail'" class="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-hidden py-2">
             <button
               type="button"
               class="btn btn-ghost btn-sm btn-square shrink-0"
@@ -125,7 +134,7 @@
               <Files v-else class="h-4 w-4" />
             </span>
           </div>
-          <div v-show="!directoryTreeRailCollapsed" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div v-show="directoryTreeRailContent === 'full'" class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <Transition name="file-reader-aside-content" mode="out-in">
             <div v-if="asideMode === 'files'" key="files" class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-base-300 bg-base-200/35 px-3 text-sm">
@@ -926,11 +935,61 @@ const fileReaderWatchSessionId = computed(() => String(props.sessionKey || props
 const directoryTreeWidth = ref(FILE_READER_DIRECTORY_TREE_DEFAULT_WIDTH);
 const activeDirectoryTreeResize = ref(false);
 const fileReaderLayoutWidth = ref(0);
-/** 悬停式收起：同一套面板只压成竖条，目录数据不断根；悬停/聚焦即展开，离开即收起（触屏点按走同一状态） */
+/** 悬停式收起：同一套面板只压成竖条，目录数据不断根；悬停/聚焦即展开（进入零容差），离开带 100px 容差桥接才收起（触屏点按走同一状态） */
 const directoryTreeAutoCollapsed = ref(false);
 const directoryTreeAsideHovering = ref(false);
 const directoryTreeAsideRef = ref<HTMLElement | null>(null);
+/** 右上 Files/Git 按钮区：与侧边栏同属悬停保持区，移过去不断开 */
+const directoryTreeTopButtonsRef = ref<HTMLElement | null>(null);
 const directoryTreeFilterInputRef = ref<HTMLInputElement | null>(null);
+/** 离开容差：离开触发范围比进入大一圈，按钮与侧边栏之间的缝隙、边缘抖动不会误收，否则文件树点不到 */
+const FILE_READER_DIRECTORY_TREE_HOVER_LEAVE_TOLERANCE_PX = 100;
+/** 离开兜底：指针离开后无后续移动事件（如移出窗口）时，最多等这么久就收 */
+const FILE_READER_DIRECTORY_TREE_HOVER_LEAVE_GRACE_MS = 400;
+let directoryTreeHoverLeaveTimer: number | null = null;
+
+function isPointerInsideRectWithTolerance(clientX: number, clientY: number, rect: DOMRect, tolerance: number): boolean {
+  return clientX >= rect.left - tolerance
+    && clientX <= rect.right + tolerance
+    && clientY >= rect.top - tolerance
+    && clientY <= rect.bottom + tolerance;
+}
+
+/** 保持区命中：侧边栏或右上按钮区，容差为 0 时就是元素本身 */
+function isPointerInsideDirectoryTreeKeepZone(clientX: number, clientY: number, tolerance: number): boolean {
+  const asideRect = directoryTreeAsideRef.value?.getBoundingClientRect();
+  if (asideRect && asideRect.width > 0 && asideRect.height > 0
+    && isPointerInsideRectWithTolerance(clientX, clientY, asideRect, tolerance)) return true;
+  const buttonsRect = directoryTreeTopButtonsRef.value?.getBoundingClientRect();
+  if (buttonsRect && buttonsRect.width > 0 && buttonsRect.height > 0
+    && isPointerInsideRectWithTolerance(clientX, clientY, buttonsRect, tolerance)) return true;
+  return false;
+}
+
+function cancelDirectoryTreeHoverLeaveWatch() {
+  if (directoryTreeHoverLeaveTimer !== null) {
+    window.clearTimeout(directoryTreeHoverLeaveTimer);
+    directoryTreeHoverLeaveTimer = null;
+  }
+  window.removeEventListener("pointermove", handleDirectoryTreeHoverLeaveMove);
+}
+
+/** 离开后的 pointermove 看守：在容差带里继续等，走出容差才收 */
+function handleDirectoryTreeHoverLeaveMove(event: PointerEvent) {
+  if (event.pointerType && event.pointerType !== "mouse" && event.pointerType !== "pen") return;
+  if (isPointerInsideDirectoryTreeKeepZone(event.clientX, event.clientY, FILE_READER_DIRECTORY_TREE_HOVER_LEAVE_TOLERANCE_PX)) return;
+  cancelDirectoryTreeHoverLeaveWatch();
+  collapseDirectoryTreeToRail();
+}
+
+function startDirectoryTreeHoverLeaveWatch() {
+  cancelDirectoryTreeHoverLeaveWatch();
+  window.addEventListener("pointermove", handleDirectoryTreeHoverLeaveMove);
+  directoryTreeHoverLeaveTimer = window.setTimeout(() => {
+    cancelDirectoryTreeHoverLeaveWatch();
+    collapseDirectoryTreeToRail();
+  }, FILE_READER_DIRECTORY_TREE_HOVER_LEAVE_GRACE_MS);
+}
 
 function canAutoCollapseDirectoryTree(): boolean {
   if (!directoryTreeRoot.value) return false;
@@ -943,7 +1002,7 @@ function canAutoCollapseDirectoryTree(): boolean {
   // 正在过滤（输入框有字或焦点在里面）不收，避免打断找文件
   if (directoryTreeFilter.value.trim()) return false;
   const focused = typeof document === "undefined" ? null : document.activeElement;
-  if (focused && (focused === directoryTreeFilterInputRef.value || directoryTreeAsideRef.value?.contains(focused))) return false;
+  if (focused && (focused === directoryTreeFilterInputRef.value || directoryTreeAsideRef.value?.contains(focused) || directoryTreeTopButtonsRef.value?.contains(focused))) return false;
   return true;
 }
 
@@ -959,23 +1018,60 @@ function expandDirectoryTreeFromRail() {
 }
 
 function handleDirectoryTreeAsidePointerEnter() {
+  cancelDirectoryTreeHoverLeaveWatch();
   directoryTreeAsideHovering.value = true;
   if (directoryTreeAutoCollapsed.value) directoryTreeAutoCollapsed.value = false;
 }
 
-function handleDirectoryTreeAsidePointerLeave() {
+function handleDirectoryTreeKeepZonePointerEnter() {
+  cancelDirectoryTreeHoverLeaveWatch();
+  directoryTreeAsideHovering.value = true;
+  if (directoryTreeAutoCollapsed.value) directoryTreeAutoCollapsed.value = false;
+}
+
+/** 离开只启动带容差的看守，不立即收：触屏无悬停，走原立即收 */
+function handleDirectoryTreeAsidePointerLeave(event: PointerEvent) {
   directoryTreeAsideHovering.value = false;
-  collapseDirectoryTreeToRail();
+  if (event.pointerType && event.pointerType !== "mouse" && event.pointerType !== "pen") {
+    collapseDirectoryTreeToRail();
+    return;
+  }
+  if (directoryTreeAutoCollapsed.value) return;
+  startDirectoryTreeHoverLeaveWatch();
+}
+
+function handleDirectoryTreeKeepZonePointerLeave(event: PointerEvent) {
+  directoryTreeAsideHovering.value = false;
+  if (event.pointerType && event.pointerType !== "mouse" && event.pointerType !== "pen") {
+    collapseDirectoryTreeToRail();
+    return;
+  }
+  if (directoryTreeAutoCollapsed.value) return;
+  startDirectoryTreeHoverLeaveWatch();
 }
 
 function handleDirectoryTreeAsideFocusIn() {
+  cancelDirectoryTreeHoverLeaveWatch();
   directoryTreeAsideHovering.value = true;
   if (directoryTreeAutoCollapsed.value) directoryTreeAutoCollapsed.value = false;
 }
 
 function handleDirectoryTreeAsideFocusOut(event: FocusEvent) {
   const next = event.relatedTarget as Node | null;
-  if (next && directoryTreeAsideRef.value?.contains(next)) return;
+  if (next && (directoryTreeAsideRef.value?.contains(next) || directoryTreeTopButtonsRef.value?.contains(next))) return;
+  directoryTreeAsideHovering.value = false;
+  collapseDirectoryTreeToRail();
+}
+
+function handleDirectoryTreeKeepZoneFocusIn() {
+  cancelDirectoryTreeHoverLeaveWatch();
+  directoryTreeAsideHovering.value = true;
+  if (directoryTreeAutoCollapsed.value) directoryTreeAutoCollapsed.value = false;
+}
+
+function handleDirectoryTreeKeepZoneFocusOut(event: FocusEvent) {
+  const next = event.relatedTarget as Node | null;
+  if (next && (directoryTreeTopButtonsRef.value?.contains(next) || directoryTreeAsideRef.value?.contains(next))) return;
   directoryTreeAsideHovering.value = false;
   collapseDirectoryTreeToRail();
 }
@@ -1204,6 +1300,30 @@ const directoryTreeRailCollapsed = computed(() =>
   && !directoryTreeFullscreen.value
   && !!activeTab.value,
 );
+/**
+ * 里层内容态：跟着竖条态走，但收起时延迟 180ms 再换（宽度 200ms 动画先带着旧内容被裁剪，
+ * 而不是文件列表瞬间闪掉；展开时立刻换，让全量内容随宽度长出来）。
+ */
+const directoryTreeRailContent = ref<"rail" | "full">("full");
+let directoryTreeRailContentTimer: number | null = null;
+function cancelDirectoryTreeRailContentTimer() {
+  if (directoryTreeRailContentTimer !== null) {
+    window.clearTimeout(directoryTreeRailContentTimer);
+    directoryTreeRailContentTimer = null;
+  }
+}
+watch(directoryTreeRailCollapsed, (collapsed) => {
+  cancelDirectoryTreeRailContentTimer();
+  if (!collapsed) {
+    directoryTreeRailContent.value = "full";
+    return;
+  }
+  directoryTreeRailContentTimer = window.setTimeout(() => {
+    directoryTreeRailContentTimer = null;
+    // 仍是收起才换，中间又展开回来就不再闪
+    if (directoryTreeRailCollapsed.value) directoryTreeRailContent.value = "rail";
+  }, 180);
+}, { immediate: true });
 
 const directoryAsideStyle = computed(() => {
   if (directoryOnly.value || directoryTreeFullscreen.value) return undefined;
@@ -3252,6 +3372,8 @@ onBeforeUnmount(() => {
   window.removeEventListener("pointerdown", handleGlobalPointerDown);
   window.removeEventListener("keydown", handleGlobalEscape);
   window.removeEventListener("keydown", handleFileReaderLineWrapShortcut);
+  cancelDirectoryTreeHoverLeaveWatch();
+  cancelDirectoryTreeRailContentTimer();
   stopDirectoryTreeResize();
   fileReaderLayoutResizeObserver?.disconnect();
   fileReaderLayoutResizeObserver = null;
@@ -3507,6 +3629,15 @@ defineExpose({
 }
 
 /* 侧边栏（文件/Git）伸缩与内容切换：自写 Transition，不用 daisyUI drawer（overlay 语义与现有 flex 挤压布局冲突） */
+/* 收/展共用基类上的宽度过渡：之前只写在竖条态上，展开时新样式无 transition 会直接蹦出来 */
+.file-reader-aside-panel {
+  overflow: hidden;
+  transition: width 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+/* 拖拽调宽时关闭过渡，避免每帧都被过渡拖慢；手柄只在展开态渲染，不会误伤收/展 */
+.file-reader-aside-panel.file-reader-aside-no-transition {
+  transition: none !important;
+}
 .file-reader-aside-enter-active,
 .file-reader-aside-leave-active {
   overflow: hidden;
@@ -3518,13 +3649,6 @@ defineExpose({
 .file-reader-aside-leave-to {
   width: 0 !important;
   opacity: 0;
-}
-.file-reader-aside-panel {
-  overflow: hidden;
-}
-/* 滚动停稳自动收起：同一面板在全宽与竖条之间过渡，拖拽调宽时不经过该类，不会被过渡拖慢 */
-.file-reader-aside-panel.file-reader-aside-rail {
-  transition: width 200ms cubic-bezier(0.2, 0, 0, 1);
 }
 .file-reader-aside-content-enter-active {
   transition:
@@ -3547,7 +3671,7 @@ defineExpose({
 @media (prefers-reduced-motion: reduce) {
   .file-reader-aside-enter-active,
   .file-reader-aside-leave-active,
-  .file-reader-aside-panel.file-reader-aside-rail,
+  .file-reader-aside-panel,
   .file-reader-aside-content-enter-active,
   .file-reader-aside-content-leave-active {
     transition: none !important;

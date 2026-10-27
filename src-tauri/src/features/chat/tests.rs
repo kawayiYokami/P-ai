@@ -13197,6 +13197,60 @@
     }
 
     #[test]
+    fn project_skills_should_bypass_agent_permission_whitelist() {
+        let state = test_chat_runtime_state();
+        hidden_skill_summaries_cache()
+            .lock()
+            .expect("lock skill cache")
+            .insert(
+                hidden_skill_cache_scope_key(&state),
+                vec![test_skill_summary(
+                    "assistant-space-guide",
+                    "助理空间旧描述",
+                    "空间正文",
+                )],
+            );
+        let project_root = state
+            .llm_workspace_path
+            .parent()
+            .expect("workspace parent")
+            .join(format!("project-{}", Uuid::new_v4()));
+        let skills_dir = project_root.join(".pai").join("skills");
+        let skill_dir = skills_dir.join("demo");
+        std::fs::create_dir_all(&skill_dir).expect("create project skill dir");
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: demo\ndescription: 项目专用能力\n---\n\n正文\n",
+        )
+        .expect("write project skill");
+        let mut conversation = test_chat_conversation(
+            "conversation-project-skills-bypass",
+            "active",
+            "2026-01-01T00:00:00Z",
+        );
+        conversation.shell_workspaces = vec![ShellWorkspaceConfig {
+            id: "project".to_string(),
+            name: "project".to_string(),
+            path: project_root.to_string_lossy().to_string(),
+            level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+            built_in: false,
+        }];
+        // 白名单只放行全局 skill，项目 skill 仍应出现。
+        let agent = test_agent_with_skill_lists(
+            vec![],
+            vec![],
+            Some("whitelist"),
+            vec!["assistant-space-guide"],
+        );
+        let block =
+            build_hidden_skill_snapshot_block_for_agent(&state, &conversation, Some(&agent));
+        assert!(block.contains("demo"), "项目 Skill 不吃权限控制，got: {block}");
+
+        let _ = std::fs::remove_dir_all(&project_root);
+    }
+
+    #[test]
     fn agent_follows_session_delegate_model_should_recognize_role_session_sentinel_and_empty() {
         let mut agent = default_agent();
         agent.api_config_ids = vec!["role:session".to_string()];
