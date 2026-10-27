@@ -4139,6 +4139,11 @@ function closeConversationSearch() {
   conversationSearchOpen.value = false;
 }
 
+// 任何路径切会话都要收起搜索覆盖页：侧栏直选、批量归档、外部切换都走 activeConversationId 兜底。
+watch(() => props.activeConversationId, () => {
+  if (conversationSearchOpen.value) closeConversationSearch();
+});
+
 /** 搜索结果与近期会话点击：按会话 id 回到既有切换链路，联系人会话会自动切到对应侧栏分组。 */
 function handleConversationSearchSelect(conversationId: string) {
   const id = String(conversationId || "").trim();
@@ -4162,6 +4167,7 @@ function handleConversationListSelect(payload: { conversationId: string; kind?: 
   const id = String(payload?.conversationId || "").trim();
   if (!id || id === String(props.activeConversationId || "").trim()) return;
   const target = (props.conversationItems || props.unarchivedConversationItems).find((item) => String(item.conversationId || "").trim() === id);
+  closeConversationSearch();
   emit("switchConversation", { conversationId: id, kind: payload?.kind || target?.kind, remoteContactId: String(payload?.remoteContactId || target?.remoteContactId || "").trim() || undefined });
   if (leftPaneOverlay.value) {
     emit("sideConversationListVisibleChange", false);
@@ -4180,6 +4186,7 @@ function handleBatchArchiveCompleted(payload: { archivedConversationIds: string[
   if (!currentId || !payload.archivedConversationIds.includes(currentId)) return;
   const nextId = String(payload.activeConversationId || "").trim();
   if (!nextId || nextId === currentId) return;
+  closeConversationSearch();
   emit("switchConversation", { conversationId: nextId, kind: "local_unarchived" });
 }
 function handleRebindConversationRecipient() {
