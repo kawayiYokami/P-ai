@@ -583,6 +583,117 @@ pub(crate) fn render_skill_summary(skills: &[SkillSummaryItem]) -> String {
     lines.join("\n")
 }
 
+fn skill_snapshot_path_under_root(skill_path: &str, root: &std::path::Path) -> bool {
+    let normalized_skill = skill_path.replace('\\', "/").to_lowercase();
+    let mut normalized_root = root.to_string_lossy().replace('\\', "/").to_lowercase();
+    if !normalized_root.ends_with('/') {
+        normalized_root.push('/');
+    }
+    normalized_skill.starts_with(&normalized_root)
+}
+
+/// 快照索引渲染：纯助理空间 Skill 保持旧格式（名字+描述），避免无意义的提示词膨胀；
+/// 一旦混入项目 Skill（路径不在 System 目录下），按双根树形输出，公共前缀只在根上写一次：
+/// [system] + System 根 + 相对路径，[project] + 各项目 skills 根 + 相对路径，
+/// 每行再带名字与说明，否则模型会按 System 目录拼接路径，读到不存在的文件。
+fn render_skill_index_for_snapshot(
+    skills: &[SkillSummaryItem],
+    skills_root: &std::path::Path,
+) -> String {
+    if skills.is_empty() {
+        return render_skill_summary(skills);
+    }
+    let has_external = skills
+        .iter()
+        .any(|item| !skill_snapshot_path_under_root(item.path.trim(), skills_root));
+    if !has_external {
+        return render_skill_summary(skills);
+    }
+    fn skill_desc(item: &SkillSummaryItem) -> &str {
+        let desc = item.description.trim();
+        if desc.is_empty() {
+            "(no description)"
+        } else {
+            desc
+        }
+    }
+    fn relative_under(path: &str, root: &std::path::Path) -> String {
+        let normalized = path.replace('\\', "/");
+        let mut root_str = root.to_string_lossy().replace('\\', "/");
+        if !root_str.ends_with('/') {
+            root_str.push('/');
+        }
+        if let Some(rel) = normalized
+            .to_lowercase()
+            .strip_prefix(&root_str.to_lowercase())
+            .and_then(|_| normalized.get(root_str.len()..))
+        {
+            rel.to_string()
+        } else {
+            normalized
+        }
+    }
+    fn root_display(root: &std::path::Path) -> String {
+        let mut s = root.to_string_lossy().replace('\\', "/");
+        if !s.ends_with('/') {
+            s.push('/');
+        }
+        s
+    }
+    let mut out = Vec::<String>::new();
+    let internal: Vec<&SkillSummaryItem> = skills
+        .iter()
+        .filter(|item| skill_snapshot_path_under_root(item.path.trim(), skills_root))
+        .collect();
+    if !internal.is_empty() {
+        out.push("[system]".to_string());
+        out.push(root_display(skills_root));
+        for item in internal {
+            let rel = relative_under(item.path.trim(), skills_root);
+            out.push(format!(
+                "  {} \u{2014} {}\u{ff1a}{}",
+                rel,
+                item.name.trim(),
+                skill_desc(item)
+            ));
+        }
+    }
+    // 项目 Skill 按各自的 skills 根分组（如 <project>/.pai/skills/），同根共一棵树。
+    let mut groups: std::collections::BTreeMap<String, Vec<&SkillSummaryItem>> =
+        std::collections::BTreeMap::new();
+    for item in skills
+        .iter()
+        .filter(|item| !skill_snapshot_path_under_root(item.path.trim(), skills_root))
+    {
+        let path = std::path::PathBuf::from(item.path.trim());
+        let group_root = path
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| root_display(p))
+            .unwrap_or_else(|| item.path.trim().to_string());
+        groups.entry(group_root).or_default().push(item);
+    }
+    for (group_root, items) in groups {
+        if !out.is_empty() {
+            out.push(String::new());
+        }
+        out.push("[project]".to_string());
+        out.push(group_root.clone());
+        // 组根用于求相对路径：去掉尾部斜杠转回 Path
+        let group_root_path = std::path::PathBuf::from(group_root.trim_end_matches('/'));
+        for item in items {
+            let rel = relative_under(item.path.trim(), &group_root_path);
+            out.push(format!(
+                "  {} \u{2014} {}\u{ff1a}{}",
+                rel,
+                item.name.trim(),
+                skill_desc(item)
+            ));
+        }
+    }
+    out.join("\n")
+}
+
 fn filter_skills_for_agent(
     agent: Option<&AgentProfile>,
     skills: &[SkillSummaryItem],
@@ -613,27 +724,44 @@ fn render_hidden_skill_snapshot_block(
             ),
         );
     }
-    let example_path = skills
+    // 示例名必须与示例路径的真实 Skill 对上：之前写死 assistant-space-guide，
+    // 路径却取 p-ai-config-guide，模型照抄就会读错文件。
+    let example_item = skills
         .iter()
         .find(|item| item.name.trim().eq_ignore_ascii_case("p-ai-config-guide"))
-        .map(|item| item.path.trim().to_string())
-        .unwrap_or_else(|| {
+        .or_else(|| skills.first());
+    let (example_name, example_path) = match example_item {
+        Some(item) => (
+            item.name.trim().to_string(),
+            item.path.trim().to_string(),
+        ),
+        None => (
+            "p-ai-config-guide".to_string(),
             skills_root_path
                 .join("p-ai-config-guide")
                 .join("SKILL.md")
                 .to_string_lossy()
-                .to_string()
-        });
-    let summary = render_skill_summary(skills);
+                .to_string(),
+        ),
+    };
+    let summary = render_skill_index_for_snapshot(skills, &skills_root_path);
+    let has_external = skills
+        .iter()
+        .any(|item| !skill_snapshot_path_under_root(item.path.trim(), &skills_root_path));
+    let usage = if has_external {
+        format!(
+            "System skill directory path: {}\n(global skills live here; project skills live outside it, use the full path in skill index)\n\nhow to read skill:\nexample:\n{}\nread this path: {}",
+            skills_root, example_name, example_path
+        )
+    } else {
+        format!(
+            "System skill directory path: {}\n\nhow to read skill:\nexample:\n{}\nread this path: {}",
+            skills_root, example_name, example_path
+        )
+    };
     format!(
         "{}\n\n{}",
-        prompt_xml_block(
-            "skill usage",
-            format!(
-                "System skill directory path: {}\n\nhow to read skill:\nexample:\nassistant-space-guide\nread this path: {}",
-                skills_root, example_path
-            ),
-        ),
+        prompt_xml_block("skill usage", usage),
         prompt_xml_block("skill index", summary)
     )
 }
@@ -1166,5 +1294,66 @@ pub(crate) fn open_skill_item_dir(state: &AppState, skill_path: &str) -> Result<
         Ok(target.to_string_lossy().to_string())
     } else {
         open_skills_workspace_dir(state)
+    }
+}
+
+#[cfg(test)]
+mod snapshot_index_tests {
+    use super::*;
+
+    fn summary_item(name: &str, description: &str, path: &str) -> SkillSummaryItem {
+        SkillSummaryItem {
+            name: name.to_string(),
+            description: description.to_string(),
+            content: String::new(),
+            path: path.to_string(),
+            additional_files: Vec::new(),
+            is_builtin: false,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn pure_system_keeps_legacy_format() {
+        let root = std::path::PathBuf::from("E:/sys/skills");
+        let skills = vec![summary_item(
+            "foo",
+            "foo desc",
+            "E:/sys/skills/foo/SKILL.md",
+        )];
+        assert_eq!(
+            render_skill_index_for_snapshot(&skills, &root),
+            "- foo: foo desc"
+        );
+    }
+
+    #[test]
+    fn mixed_system_and_project_renders_dual_root_tree() {
+        let root = std::path::PathBuf::from("E:/sys/skills");
+        let skills = vec![
+            summary_item("foo", "foo desc", "E:/sys/skills/foo/SKILL.md"),
+            summary_item(
+                "demo",
+                "项目专用能力",
+                "E:/proj/.pai/skills/demo/SKILL.md",
+            ),
+        ];
+        let out = render_skill_index_for_snapshot(&skills, &root);
+        assert!(out.contains("[system]"), "missing [system] in:\n{out}");
+        assert!(out.contains("[project]"), "missing [project] in:\n{out}");
+        assert!(
+            out.contains("foo/SKILL.md \u{2014} foo\u{ff1a}foo desc"),
+            "system leaf wrong in:\n{out}"
+        );
+        assert!(
+            out.contains("demo/SKILL.md \u{2014} demo\u{ff1a}项目专用能力"),
+            "project leaf wrong in:\n{out}"
+        );
+        // 公共前缀只在根上出现一次，不摊到每行。
+        assert!(out.contains("E:/sys/skills/"), "missing system root in:\n{out}");
+        assert!(
+            out.contains("E:/proj/.pai/skills/"),
+            "missing project root in:\n{out}"
+        );
     }
 }
