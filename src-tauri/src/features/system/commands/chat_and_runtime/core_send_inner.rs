@@ -3272,23 +3272,8 @@ async fn send_chat_message_inner(
     }
     // 已切换至调度事件：旧 pipeline 日志不再写入
     let _ = (&trace_id, &chat_session_key_for_log, &timeline, &final_result);
-    // 护航：主会话调度成功结束后发起一个只读委托。
-    if final_result.is_ok() && runtime_conversation_id.is_none() {
-        if let Ok(result) = final_result.as_ref() {
-            let wc_conversation_id = result.conversation_id.clone();
-            let wc_agent_id = effective_agent_id_for_failure_persist.clone();
-            if let Err(err) = start_wheelchair_delegate_after_reply(
-                state,
-                &wc_conversation_id,
-                &wc_agent_id,
-            ) {
-                runtime_log_warn(format!(
-                    "[护航] 委托发起失败，conversation_id={}，error={}",
-                    wc_conversation_id, err
-                ));
-            }
-        }
-    }
+    // 护航已搬到批处理尾部真正空闲分支（无引导、无待处理时）统一发起，这里不再直接发起，
+    // 避免被引导打断的半截轮次误触发。
     // 兜底催处理：归档阶段可能短暂阻塞出队，这里在当前轮次结束后补一次调度触发。
     trigger_chat_queue_processing(state);
     final_result

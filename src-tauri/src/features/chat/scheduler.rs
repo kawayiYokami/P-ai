@@ -611,7 +611,7 @@ async fn process_conversation_batch(
     state: &AppState,
     conversation_id: &str,
     events: Vec<ChatPendingEvent>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let event_ids = events
         .iter()
         .map(|event| event.id.clone())
@@ -1152,6 +1152,8 @@ async fn process_conversation_batch(
     emit_history_flushed_event(state, &history_flushed_payload, conversation_id, &event_ids);
 
     // 3. 如果需要激活，调用主助理。
+    // 只有真正跑完一轮助理回复，才算"本轮有产出"；护航据此判断是否已到可审的最终态。
+    let mut activated_round_completed = false;
     if should_activate {
         if let Some(activating_session_info) = activating_session_info.as_ref() {
             // 同一批里可能有多个激活请求，但前台主助理轮次只能有一个。
@@ -1209,6 +1211,7 @@ async fn process_conversation_batch(
                         Some(activated.activation_id.as_str()),
                         Some(activated.request_id.as_str()),
                     );
+                    activated_round_completed = true;
                     complete_pending_chat_events_with_result(state, &event_ids, result)?;
                     while !follow_up_sources.is_empty() {
                         let follow_up_started_at = now_iso();
@@ -1273,6 +1276,7 @@ async fn process_conversation_batch(
                                     Some(follow_up_activated.activation_id.as_str()),
                                     Some(follow_up_activated.request_id.as_str()),
                                 );
+                                activated_round_completed = true;
                             }
                             Err(err) => {
                                 emit_round_failed_event(
@@ -1317,7 +1321,8 @@ async fn process_conversation_batch(
                             ));
                         }
                         clear_conversation_list_activity_mark(state, conversation_id);
-                        return Ok(());
+                        // 用户中止：本轮没有产出完整回复，不算可审的最终态。
+                        return Ok(false);
                     }
                     emit_round_failed_event(
                         state,
@@ -1380,7 +1385,7 @@ async fn process_conversation_batch(
         )?;
     }
 
-    Ok(())
+    Ok(activated_round_completed)
 }
 
 /// 激活主助理

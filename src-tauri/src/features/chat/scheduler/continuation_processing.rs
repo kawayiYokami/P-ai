@@ -136,12 +136,82 @@ fn maybe_enqueue_goal_continue_after_idle(
     Ok(true)
 }
 
+fn trigger_wheelchair_after_idle(
+    state: &AppState,
+    conversation_id: &str,
+    result_is_ok: bool,
+    fallback_agent_id: Option<String>,
+) {
+    if !result_is_ok {
+        return;
+    }
+    let trimmed_id = conversation_id.trim();
+    if trimmed_id.is_empty() {
+        return;
+    }
+    let meta = conversation_service_v2()
+        .get_conversation_meta(state, trimmed_id)
+        .ok();
+    if let Some(meta) = meta.as_ref() {
+        if meta.is_delegate {
+            return;
+        }
+        if meta.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE {
+            return;
+        }
+    }
+    // 人格优先取会话元数据里的正式助理，事件里带的可能只是本轮临时执行者（远程联系人秘书会替换）。
+    let fallback_trimmed = fallback_agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let meta_agent_id = meta
+        .as_ref()
+        .map(|item| item.agent_id.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let Some(agent_id) = meta_agent_id.or(fallback_trimmed) else {
+        return;
+    };
+    // 真正建委托前复查一次该会话有没有进行中的调度：只要有新一轮已经接上，
+    // 本轮看到的对话就还不是最终态，等那一轮跑完再审。这比查残留队列更准。
+    match conversation_is_idle_for_goal_fallback(state, trimmed_id) {
+        Ok(true) => {}
+        Ok(false) => {
+            runtime_log_info(format!(
+                "[护航] 跳过，任务=发起委托，conversation_id={}，原因=该会话有进行中的调度",
+                trimmed_id
+            ));
+            return;
+        }
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[护航] 跳过，任务=发起委托，conversation_id={}，原因=调度状态读取失败，error={}",
+                trimmed_id, err
+            ));
+            return;
+        }
+    }
+    if let Err(err) = start_wheelchair_delegate_after_reply(state, trimmed_id, &agent_id) {
+        runtime_log_warn(format!(
+            "[护航] 委托发起失败，conversation_id={}，error={}",
+            trimmed_id, err
+        ));
+    }
+}
+
 async fn process_claimed_conversation_batch(
     state: &AppState,
     conversation_id: &str,
     events: Vec<ChatPendingEvent>,
 ) -> Result<(), String> {
-    let result = process_conversation_batch(state, conversation_id, events).await;
+    let batch_agent_id = events
+        .first()
+        .map(|event| event.session_info.agent_id.clone());
+    let batch_outcome = process_conversation_batch(state, conversation_id, events).await;
+    // 只有这一批真的跑完了一轮助理回复，才算到了可审的最终态；失败、中止、未激活都不算。
+    let round_completed = matches!(&batch_outcome, Ok(true));
+    let result_ok = batch_outcome.is_ok();
     // 该会话这一批已经收尾：还挂着的停止意图说明它想打断的那一轮没有出现
     // （例如事件在登记轮次前就失败了）。清掉，避免误伤后面真正的新轮次。
     match clear_conversation_stop_intents(state, conversation_id) {
@@ -167,18 +237,24 @@ async fn process_claimed_conversation_batch(
         trigger_guided_queue_processing(state, conversation_id);
     } else if conversation_has_pending_queue_events(state, conversation_id).unwrap_or(false) {
         trigger_chat_queue_processing(state);
-    } else if result.is_ok()
+    } else if result_ok
         && maybe_enqueue_goal_continue_after_idle(state, conversation_id).unwrap_or(false)
     {
         trigger_chat_queue_processing(state);
-    } else if result.is_ok()
+    } else if result_ok
         && maybe_enqueue_overdue_task_after_idle(state, conversation_id).unwrap_or(false)
     {
         trigger_chat_queue_processing(state);
     } else {
+        trigger_wheelchair_after_idle(
+            state,
+            conversation_id,
+            round_completed,
+            batch_agent_id.clone(),
+        );
         trigger_chat_queue_processing(state);
     }
-    result
+    batch_outcome.map(|_| ())
 }
 
 fn resolve_activation_reason(runtime_context: &RuntimeContext) -> String {
@@ -218,14 +294,14 @@ async fn process_guided_queue_after_round(
         conversation_id,
         guided_event_count
     ));
-    process_conversation_batch(state, conversation_id, guided_events).await?;
+    let round_completed = process_conversation_batch(state, conversation_id, guided_events).await?;
     runtime_log_info(format!(
         "[引导投送] 完成，任务=process_guided_queue_after_round，conversation_id={}，event_count={}，duration_ms={}",
         conversation_id,
         guided_event_count,
         started_at.elapsed().as_millis()
     ));
-    Ok(true)
+    Ok(round_completed)
 }
 
 async fn process_guided_queue_when_idle(
@@ -238,7 +314,13 @@ async fn process_guided_queue_when_idle(
     }
     emit_chat_queue_snapshot(state);
 
-    let result = process_guided_queue_after_round(state, conversation_id, guided_events).await;
+    let guided_agent_id = guided_events
+        .first()
+        .map(|event| event.session_info.agent_id.clone());
+    let guided_round_outcome =
+        process_guided_queue_after_round(state, conversation_id, guided_events).await;
+    let guided_round_completed = matches!(&guided_round_outcome, Ok(true));
+    let guided_result_ok = guided_round_outcome.is_ok();
     if let Err(release_err) = release_conversation_processing_claim(state, conversation_id) {
         runtime_log_warn(format!(
             "[引导投送] 失败，任务=release_guided_claim，conversation_id={}，error={}",
@@ -257,14 +339,26 @@ async fn process_guided_queue_when_idle(
     trigger_pending_guided_queue_processing(state);
     if conversation_has_guided_queue_events(state, conversation_id).unwrap_or(false) {
         trigger_guided_queue_processing(state, conversation_id);
-    } else if result.is_ok()
+    } else if conversation_has_pending_queue_events(state, conversation_id).unwrap_or(false) {
+        trigger_chat_queue_processing(state);
+    } else if guided_result_ok
+        && maybe_enqueue_goal_continue_after_idle(state, conversation_id).unwrap_or(false)
+    {
+        trigger_chat_queue_processing(state);
+    } else if guided_result_ok
         && maybe_enqueue_overdue_task_after_idle(state, conversation_id).unwrap_or(false)
     {
         trigger_chat_queue_processing(state);
     } else {
+        trigger_wheelchair_after_idle(
+            state,
+            conversation_id,
+            guided_round_completed,
+            guided_agent_id.clone(),
+        );
         trigger_chat_queue_processing(state);
     }
-    result.map(|_| ())
+    guided_round_outcome.map(|_| ())
 }
 
 pub(crate) fn trigger_guided_queue_processing(state: &AppState, conversation_id: &str) {
