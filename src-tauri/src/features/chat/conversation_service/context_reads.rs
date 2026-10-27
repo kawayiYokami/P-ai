@@ -1,4 +1,28 @@
-fn render_preserved_conversation_message_text(message: &ChatMessage) -> String {
+// 后端语义的保留对话正文：只读落库的后端字段，禁止读前端展示串。
+// - tool_call 事件是后端回放用的结构数据，assistant content 直接收；
+// - parts 最终正文取 raw 文本；历史脏数据里可能带展示用 [toolcall:] 标记，剥掉后再收，
+//   且正文已被工具事件正文覆盖的不再重复（中断落盘的展示串）。
+// 前端展示串（含标记、无人格信息）禁止进入摘要，见 project_message_for_frontend_display_only。
+fn strip_toolcall_markers_for_preserved_text(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("[toolcall:") {
+        output.push_str(&rest[..start]);
+        let after = &rest[start + "[toolcall:".len()..];
+        match after.find(']') {
+            Some(end) => rest = &after[end + 1..],
+            None => {
+                output.push_str(&rest[start..]);
+                rest = "";
+                break;
+            }
+        }
+    }
+    output.push_str(rest);
+    output
+}
+
+fn preserved_conversation_message_backend_text(message: &ChatMessage) -> String {
     let mut blocks = Vec::<String>::new();
     if message.role.trim().eq_ignore_ascii_case("assistant") {
         for event in message.tool_call.iter().flatten() {
@@ -19,9 +43,13 @@ fn render_preserved_conversation_message_text(message: &ChatMessage) -> String {
             }
         }
     }
-    let rendered = render_prompt_message_text(message);
-    if !rendered.trim().is_empty() {
-        blocks.push(rendered);
+    let rendered =
+        strip_toolcall_markers_for_preserved_text(&render_prompt_message_text(message));
+    let rendered = rendered.trim();
+    // 中断落盘的 parts 是带标记的展示串，剥掉标记后与工具事件正文相同，不再重复收；
+    // 正常落盘的最终正文与工具事件正文不同，保留。
+    if !rendered.is_empty() && !blocks.join("\n").contains(rendered) {
+        blocks.push(rendered.to_string());
     }
     blocks.join("\n")
 }

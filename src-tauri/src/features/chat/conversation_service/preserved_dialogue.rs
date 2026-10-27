@@ -138,6 +138,22 @@ fn compaction_preserved_dialogue_section(message: &ChatMessage) -> Option<String
     None
 }
 
+// 保留对话行首说话人按消息自身的 speaker_agent_id 解析，落空才用会话主人格名。
+// 行首此前一律贴主人格，会把组里其他人格的发言记到主人格名下。
+fn resolve_preserved_assistant_speaker<'a>(
+    speaker_agent_id: Option<&str>,
+    agent_names: &'a std::collections::HashMap<String, String>,
+    fallback_assistant_name: &'a str,
+) -> &'a str {
+    speaker_agent_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| agent_names.get(id))
+        .map(String::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(fallback_assistant_name)
+}
+
 fn preserved_dialogue_message_line(
     message: &ChatMessage,
     user_alias: &str,
@@ -147,7 +163,7 @@ fn preserved_dialogue_message_line(
     if !matches!(role, "user" | "assistant") {
         return None;
     }
-    let text = render_preserved_conversation_message_text(message);
+    let text = preserved_conversation_message_backend_text(message);
     let text = clean_text(text.trim());
     if text.is_empty() {
         return None;
@@ -232,6 +248,22 @@ impl ConversationServiceV2 {
         let mut accumulator = PreservedDialogueAccumulator::new(budget);
         let mut read_message_count = 0usize;
         let mut reached_summary = false;
+        // 人格 id→名映射：行首说话人按消息自身解析，读不到映射时后面按主人格名兜底。
+        let assistant_names_by_id: std::collections::HashMap<String, String> =
+            state_read_agents_cached(state)
+                .map(|agents| {
+                    agents
+                        .into_iter()
+                        .map(|agent| {
+                            (
+                                agent.id.trim().to_string(),
+                                agent.name.trim().to_string(),
+                            )
+                        })
+                        .filter(|(id, name)| !id.is_empty() && !name.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
 
         loop {
             let Some(page) = message_store::chat_store_read_block_messages_before(
@@ -261,8 +293,19 @@ impl ConversationServiceV2 {
                     }
                     break;
                 }
+                let line_assistant_name = if message.role.trim().eq_ignore_ascii_case("assistant")
+                {
+                    resolve_preserved_assistant_speaker(
+                        message.speaker_agent_id.as_deref(),
+                        &assistant_names_by_id,
+                        assistant_name,
+                    )
+                    .to_string()
+                } else {
+                    assistant_name.to_string()
+                };
                 let Some(line) =
-                    preserved_dialogue_message_line(message, user_alias, assistant_name)
+                    preserved_dialogue_message_line(message, user_alias, &line_assistant_name)
                 else {
                     continue;
                 };
@@ -330,6 +373,127 @@ mod preserved_dialogue_tests {
             "message_meta": { "kind": "context_compaction" }
         }));
         message
+    }
+
+    fn assistant_message_with_tool_events(
+        id: &str,
+        speaker_agent_id: Option<&str>,
+        parts_text: &str,
+        events: Vec<serde_json::Value>,
+    ) -> ChatMessage {
+        ChatMessage {
+            id: id.to_string(),
+            role: "assistant".to_string(),
+            created_at: now_iso(),
+            speaker_agent_id: speaker_agent_id.map(str::to_string),
+            parts: vec![MessagePart::Text {
+                text: parts_text.to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: if events.is_empty() {
+                None
+            } else {
+                Some(events)
+            },
+            mcp_call: None,
+            meme_annotations: None,
+        }
+    }
+
+    #[test]
+    fn preserved_line_should_strip_toolcall_markers_without_duplicating_tool_event_text() {
+        // 2026-10-27 摘要事故形态：中断落盘的 parts 是带标记的展示串，
+        // 与 tool_call 事件正文是同一句话。行里只留一句干净正文。
+        let message = assistant_message_with_tool_events(
+            "assistant-dirty",
+            Some("persona-owner"),
+            "[toolcall:call_00_aaa]现在把其余位置的「期待」统一换成「意料中」。 [toolcall:call_01_bbb]",
+            vec![serde_json::json!({
+                "role": "assistant",
+                "content": "现在把其余位置的「期待」统一换成「意料中」。",
+                "tool_calls": [{"id": "call_00_aaa"}]
+            })],
+        );
+
+        let line = preserved_dialogue_message_line(&message, "用户", "纳西妲")
+            .expect("dirty line");
+        assert_eq!(
+            line,
+            "纳西妲：现在把其余位置的「期待」统一换成「意料中」。"
+        );
+        assert!(!line.contains("[toolcall:"));
+    }
+
+    #[test]
+    fn preserved_line_should_keep_final_text_beyond_tool_event_text() {
+        // 正常落盘：工具事件是中间说明，parts 是最终结论，两句都要进摘要。
+        let message = assistant_message_with_tool_events(
+            "assistant-normal",
+            Some("persona-owner"),
+            "最后汇总",
+            vec![
+                serde_json::json!({
+                    "role": "assistant",
+                    "content": "先说明第一步",
+                    "tool_calls": [{"id": "call_1"}]
+                }),
+                serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "content": "文件内容"
+                }),
+            ],
+        );
+
+        let line = preserved_dialogue_message_line(&message, "用户", "纳西妲")
+            .expect("normal line");
+        assert!(line.contains("先说明第一步"));
+        assert!(line.contains("最后汇总"));
+        assert!(!line.contains("[toolcall:"));
+    }
+
+    #[test]
+    fn preserved_line_should_drop_marker_only_parts_text() {
+        let message = assistant_message_with_tool_events(
+            "assistant-marker-only",
+            Some("persona-owner"),
+            "[toolcall:call_1] [toolcall:call_2]",
+            vec![serde_json::json!({
+                "role": "assistant",
+                "content": "先说明第一步",
+                "tool_calls": [{"id": "call_1"}]
+            })],
+        );
+
+        let line = preserved_dialogue_message_line(&message, "用户", "纳西妲")
+            .expect("marker only line");
+        assert_eq!(line, "纳西妲：先说明第一步");
+    }
+
+    #[test]
+    fn resolve_preserved_assistant_speaker_should_prefer_message_speaker() {
+        let mut names = std::collections::HashMap::new();
+        names.insert("persona-owner".to_string(), "纳西妲".to_string());
+        names.insert("persona-member".to_string(), "队员甲".to_string());
+
+        assert_eq!(
+            resolve_preserved_assistant_speaker(
+                Some("persona-member"),
+                &names,
+                "纳西妲"
+            ),
+            "队员甲"
+        );
+        assert_eq!(
+            resolve_preserved_assistant_speaker(Some("persona-unknown"), &names, "纳西妲"),
+            "纳西妲"
+        );
+        assert_eq!(
+            resolve_preserved_assistant_speaker(None, &names, "纳西妲"),
+            "纳西妲"
+        );
     }
 
     #[test]
