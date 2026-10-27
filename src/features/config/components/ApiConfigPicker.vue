@@ -1,5 +1,5 @@
 <template>
-  <div ref="triggerWrapRef" :class="variant === 'field' ? 'relative min-w-0' : 'relative min-w-0'" v-bind="$attrs">
+  <div ref="triggerWrapRef" :class="variant === 'field' ? 'relative min-w-0 max-w-[90vw]' : 'relative min-w-0 max-w-[90vw]'" v-bind="$attrs">
     <button
       ref="triggerButtonRef"
       type="button"
@@ -255,7 +255,7 @@ async function refreshPosition() {
   const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
   const preferredWidth = Math.max(Math.round(triggerRect.width), 320);
-  const maxAllowedWidth = Math.max(220, viewportWidth - margin * 2);
+  const maxAllowedWidth = Math.max(220, Math.floor(viewportWidth * 0.9));
   const width = Math.min(preferredWidth, maxAllowedWidth);
   const spaceAbove = Math.max(0, triggerRect.top - margin - gap);
   const spaceBelow = Math.max(0, viewportHeight - triggerRect.bottom - margin - gap);
@@ -281,7 +281,7 @@ async function refreshPosition() {
       top: "auto",
       bottom: `${Math.round(bottom)}px`,
       width: `${Math.round(width)}px`,
-      maxWidth: `calc(100vw - ${margin * 2}px)`,
+      maxWidth: `90vw`,
       maxHeight: maxHeightPx,
       height: "auto",
     };
@@ -293,7 +293,7 @@ async function refreshPosition() {
       top: `${Math.round(top)}px`,
       bottom: "auto",
       width: `${Math.round(width)}px`,
-      maxWidth: `calc(100vw - ${margin * 2}px)`,
+      maxWidth: `90vw`,
       maxHeight: maxHeightPx,
       height: "auto",
     };

@@ -4,7 +4,8 @@
     teleport
     :match-trigger-width="false"
     placement="auto"
-    panel-class="w-80 max-w-[calc(100vw-2rem)]"
+    root-class="w-auto min-w-0 max-w-[90vw]"
+    panel-class="w-max min-w-52 max-w-[90vw]"
   >
     <template #trigger="{ toggle }">
       <button

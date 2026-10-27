@@ -6,7 +6,7 @@
         :hint="t('config.chatSettings.visionApiHint')"
       >
         <ApiConfigPicker
-          class="w-52 max-w-full"
+          class="w-auto max-w-[90vw]"
           size="sm"
           :model-value="config.visionApiConfigId ?? ''"
           :api-configs="imageCapableApiConfigs"
@@ -22,7 +22,7 @@
         :hint="t('config.chatSettings.toolReviewApiHint')"
       >
         <ApiConfigPicker
-          class="w-52 max-w-full"
+          class="w-auto max-w-[90vw]"
           size="sm"
           :model-value="config.toolReviewApiConfigId ?? ''"
           :api-configs="textCapableApiConfigs"
@@ -37,7 +37,7 @@
         :hint="t('config.chatSettings.expertChatModelHint')"
       >
         <ApiConfigPicker
-          class="w-52 max-w-full"
+          class="w-auto max-w-[90vw]"
           size="sm"
           :model-value="config.expertApiConfigId || ''"
           :api-configs="textCapableApiConfigs"
@@ -52,7 +52,7 @@
         :hint="t('config.imageGeneration.defaultModelHint')"
       >
         <ConfigValueSelect
-          class="w-52 max-w-full"
+          class="w-auto max-w-[90vw]"
           size="sm"
           :model-value="config.imageGenerationModelId || ''"
           :options="imageGenerationSelectOptions"
@@ -68,7 +68,7 @@
         :hint="t('config.imageGeneration.defaultVideoModelHint')"
       >
         <ConfigValueSelect
-          class="w-52 max-w-full"
+          class="w-auto max-w-[90vw]"
           size="sm"
           :model-value="config.imageToVideoModelId || ''"
           :options="imageToVideoSelectOptions"
@@ -84,7 +84,7 @@
         :hint="t('config.chatSettings.sttHint')"
       >
         <ConfigValueSelect
-          class="w-52 max-w-full"
+          class="w-auto max-w-[90vw]"
           size="sm"
           :model-value="config.sttApiConfigId ?? ''"
           :options="sttSelectOptions"
