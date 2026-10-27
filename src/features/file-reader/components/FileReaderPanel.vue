@@ -96,10 +96,36 @@
       <Transition name="file-reader-aside">
         <aside
           v-if="directoryTreeRoot"
+          ref="directoryTreeAsideRef"
           class="file-reader-aside-panel flex shrink-0 flex-col bg-base-200/35"
-          :class="directoryOnly || directoryTreeFullscreen ? 'w-full' : ''"
-          :style="directoryOnly || directoryTreeFullscreen ? undefined : { width: `${effectiveDirectoryTreeWidth}px` }"
+          :class="[directoryOnly || directoryTreeFullscreen ? 'w-full' : '', directoryTreeRailCollapsed ? 'file-reader-aside-rail' : '']"
+          :style="directoryAsideStyle"
+          :aria-expanded="directoryTreeRailCollapsed ? 'false' : 'true'"
+          @pointerenter="handleDirectoryTreeAsidePointerEnter"
+          @pointerleave="handleDirectoryTreeAsidePointerLeave"
+          @focusin="handleDirectoryTreeAsideFocusIn"
+          @focusout="handleDirectoryTreeAsideFocusOut"
         >
+          <div v-if="directoryTreeRailCollapsed" class="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-hidden py-2">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm btn-square shrink-0"
+              :title="t('fileReader.expandDirectory')"
+              :aria-label="t('fileReader.expandDirectory')"
+              @click="expandDirectoryTreeFromRail"
+            >
+              <ChevronsLeft class="h-4 w-4" />
+            </button>
+            <div class="my-1 h-px w-6 shrink-0 bg-base-300"></div>
+            <span
+              class="flex size-8 shrink-0 items-center justify-center text-base-content/60"
+              :title="asideMode === 'git' ? t('fileReader.gitTab') : t('fileReader.filesTab')"
+            >
+              <GitBranch v-if="asideMode === 'git'" class="h-4 w-4" />
+              <Files v-else class="h-4 w-4" />
+            </span>
+          </div>
+          <div v-show="!directoryTreeRailCollapsed" class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <Transition name="file-reader-aside-content" mode="out-in">
             <div v-if="asideMode === 'files'" key="files" class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-base-300 bg-base-200/35 px-3 text-sm">
@@ -133,6 +159,7 @@
             <label class="input input-bordered input-sm flex items-center gap-2">
               <Search class="h-4 w-4 shrink-0 opacity-60" />
               <input
+                ref="directoryTreeFilterInputRef"
                 v-model="directoryTreeFilter"
                 class="min-w-0 flex-1"
                 type="search"
@@ -149,7 +176,7 @@
               {{ directoryTreeRoot.error }}
           </div>
           <div v-else-if="visibleTreeRows.length === 0" class="px-3 py-2 text-xs opacity-60">
-            {{ directoryTreeFilter.trim() ? t('fileReader.noMatches') : t('fileReader.emptyDirectory') }}
+            {{ directoryTreeDebouncedFilter.trim() ? t('fileReader.noMatches') : t('fileReader.emptyDirectory') }}
           </div>
           <FileTreeMenu
             v-else
@@ -161,8 +188,8 @@
             :on-open-entry="handleTreeEntryOpen"
             :on-context-menu="openPathOnlyContextMenu"
             :active-path="activePath"
-            :force-open="!!directoryTreeFilter.trim()"
-            :filter="directoryTreeFilter"
+            :force-open="!!directoryTreeDebouncedFilter.trim()"
+            :filter="directoryTreeDebouncedFilter"
             :loading-text="t('fileReader.loadingDirectory')"
           />
         </OverlayScrollArea>
@@ -179,9 +206,10 @@
               />
             </div>
           </Transition>
+          </div>
         </aside>
       </Transition>
-      <main v-if="!directoryOnly" v-show="!directoryTreeFullscreen" class="flex min-h-0 flex-1 flex-col overflow-hidden bg-base-100">
+      <main v-if="!directoryOnly" v-show="!directoryTreeFullscreen" class="flex min-h-0 flex-1 flex-col overflow-hidden bg-base-100" @pointerdown.capture="collapseDirectoryTreeToRail">
         <div
           v-if="activeTab"
           class="relative flex h-8 shrink-0 items-center gap-2 border-b border-base-300 bg-base-100 px-3 text-sm text-base-content/60"
@@ -256,7 +284,7 @@
             <Eye v-else class="h-4 w-4" />
           </button>
         </div>
-        <div class="relative min-h-0 flex-1">
+        <div class="relative min-h-0 flex-1" @scroll.capture="handleContentScroll">
           <div
             ref="contentScroller"
             class="file-reader-content-stage h-full min-h-0 overflow-hidden"
@@ -471,7 +499,7 @@
         </slot>
       </main>
       <div
-        v-if="directoryTreeRoot && !directoryOnly && !directoryTreeFullscreen"
+        v-if="directoryTreeRoot && !directoryOnly && !directoryTreeFullscreen && !directoryTreeRailCollapsed"
         class="file-reader-resize-handle absolute bottom-0 top-0 z-10"
         :class="activeDirectoryTreeResize ? 'is-active' : ''"
         :style="{ right: `${effectiveDirectoryTreeWidth - 4}px` }"
@@ -567,8 +595,8 @@
               :on-toggle-directory="onHoverDirectoryToggle"
               :on-open-entry="openFileFromHoverTree"
               :on-context-menu="openPathOnlyContextMenu"
-              :force-open="!!directoryTreeFilter.trim()"
-              :filter="directoryTreeFilter"
+              :force-open="!!directoryTreeDebouncedFilter.trim()"
+              :filter="directoryTreeDebouncedFilter"
               :loading-text="t('fileReader.loadingDirectory')"
             />
           </OverlayScrollArea>
@@ -663,7 +691,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ChevronDown, Check, Code2, Copy, Eye, ExternalLink, FilePlus, Files, FileText, Folders, GitBranch, Home, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
+import { ChevronDown, Check, ChevronsLeft, Code2, Copy, Eye, ExternalLink, FilePlus, Files, FileText, Folders, GitBranch, Home, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportCapabilities,
@@ -817,6 +845,8 @@ const FILE_READER_DIRECTORY_TREE_MIN_WIDTH = 220;
 const FILE_READER_DIRECTORY_TREE_MAX_WIDTH = 640;
 const FILE_READER_DIRECTORY_TREE_DEFAULT_WIDTH = 320;
 const FILE_READER_CONTENT_MIN_WIDTH = 320;
+/** 悬停式收起的竖条宽度：只留图标，不断根、不重载 */
+const FILE_READER_DIRECTORY_TREE_RAIL_WIDTH = 48;
 const FILE_READER_DIRECTORY_TREE_COLLAPSE_EDGE_RATIO = 0.08;
 const FILE_READER_DIRECTORY_TREE_RESIZE_MOVE_THRESHOLD = 4;
 
@@ -842,6 +872,27 @@ const contextMenuTarget = ref<FileReaderContextMenuTarget | null>(null);
 const selectionAction = ref<FileReaderSelectionAction | null>(null);
 const directoryRootPath = ref("");
 const directoryTreeFilter = ref("");
+/** 文件过滤防抖：输入框即时回显，实际过滤在停止输入 1s 后才生效，避免大目录下每敲一个字就全树重算 */
+const directoryTreeDebouncedFilter = ref("");
+let directoryTreeFilterTimer: number | null = null;
+watch(directoryTreeFilter, (value) => {
+  if (directoryTreeFilterTimer) window.clearTimeout(directoryTreeFilterTimer);
+  if (!value.trim()) {
+    directoryTreeFilterTimer = null;
+    directoryTreeDebouncedFilter.value = "";
+    return;
+  }
+  directoryTreeFilterTimer = window.setTimeout(() => {
+    directoryTreeFilterTimer = null;
+    directoryTreeDebouncedFilter.value = value;
+  }, 1000);
+});
+function clearDirectoryTreeFilter() {
+  if (directoryTreeFilterTimer) window.clearTimeout(directoryTreeFilterTimer);
+  directoryTreeFilterTimer = null;
+  directoryTreeFilter.value = "";
+  directoryTreeDebouncedFilter.value = "";
+}
 const {
   directoryOpenTargetsLoading,
   directoryOpenTargetOptions,
@@ -875,6 +926,59 @@ const fileReaderWatchSessionId = computed(() => String(props.sessionKey || props
 const directoryTreeWidth = ref(FILE_READER_DIRECTORY_TREE_DEFAULT_WIDTH);
 const activeDirectoryTreeResize = ref(false);
 const fileReaderLayoutWidth = ref(0);
+/** 悬停式收起：同一套面板只压成竖条，目录数据不断根；悬停/聚焦即展开，离开即收起（触屏点按走同一状态） */
+const directoryTreeAutoCollapsed = ref(false);
+const directoryTreeAsideHovering = ref(false);
+const directoryTreeAsideRef = ref<HTMLElement | null>(null);
+const directoryTreeFilterInputRef = ref<HTMLInputElement | null>(null);
+
+function canAutoCollapseDirectoryTree(): boolean {
+  if (!directoryTreeRoot.value) return false;
+  if (directoryOnly.value || directoryTreeFullscreen.value) return false;
+  // 收起要求左边有打开的文件：无文件在读时保持展开
+  if (!activeTab.value) return false;
+  if (activeDirectoryTreeResize.value) return false;
+  if (directoryTreeAsideHovering.value) return false;
+  if (contextMenuOpen.value || fileDragActive.value || selectionAction.value) return false;
+  // 正在过滤（输入框有字或焦点在里面）不收，避免打断找文件
+  if (directoryTreeFilter.value.trim()) return false;
+  const focused = typeof document === "undefined" ? null : document.activeElement;
+  if (focused && (focused === directoryTreeFilterInputRef.value || directoryTreeAsideRef.value?.contains(focused))) return false;
+  return true;
+}
+
+/** 离开即收：指针离开侧边栏、正文滚动或焦点离开都走这里，条件不满足时保持展开 */
+function collapseDirectoryTreeToRail() {
+  if (!canAutoCollapseDirectoryTree()) return;
+  directoryTreeAutoCollapsed.value = true;
+}
+
+/** 悬停即显：移回/点按/聚焦都走这里展开，保证桌面与触屏同一状态 */
+function expandDirectoryTreeFromRail() {
+  directoryTreeAutoCollapsed.value = false;
+}
+
+function handleDirectoryTreeAsidePointerEnter() {
+  directoryTreeAsideHovering.value = true;
+  if (directoryTreeAutoCollapsed.value) directoryTreeAutoCollapsed.value = false;
+}
+
+function handleDirectoryTreeAsidePointerLeave() {
+  directoryTreeAsideHovering.value = false;
+  collapseDirectoryTreeToRail();
+}
+
+function handleDirectoryTreeAsideFocusIn() {
+  directoryTreeAsideHovering.value = true;
+  if (directoryTreeAutoCollapsed.value) directoryTreeAutoCollapsed.value = false;
+}
+
+function handleDirectoryTreeAsideFocusOut(event: FocusEvent) {
+  const next = event.relatedTarget as Node | null;
+  if (next && directoryTreeAsideRef.value?.contains(next)) return;
+  directoryTreeAsideHovering.value = false;
+  collapseDirectoryTreeToRail();
+}
 
 const hoverDirectoryTreeVisible = ref(false);
 const hoverDirectoryTreeRoot = ref<DirectoryNode | null>(null);
@@ -1079,7 +1183,7 @@ const addressScrollbarThumbStyle = computed(() => {
 const visibleTreeRows = computed<TreeRow[]>(() => {
   const root = directoryTreeRoot.value;
   if (!root || root.loading || root.error) return [];
-  return flattenDirectoryEntries(root.entries, 0, directoryTreeFilter.value);
+  return flattenDirectoryEntries(root.entries, 0, directoryTreeDebouncedFilter.value);
 });
 
 // 目录树「占满态」：由外层传入的窄屏浮层判定（narrowOverlay）驱动，面板不再自测宽度断手机。
@@ -1090,6 +1194,23 @@ const directoryTreeFullscreen = computed(
 const effectiveDirectoryTreeWidth = computed(() => {
   if (directoryTreeFullscreen.value) return fileReaderLayoutWidth.value;
   return clampDirectoryTreeWidth(directoryTreeWidth.value);
+});
+
+/** 竖条态：纯目录/占满态、有文件在读时才允许收起，其他形态各走自己的显隐 */
+const directoryTreeRailCollapsed = computed(() =>
+  directoryTreeAutoCollapsed.value
+  && !!directoryTreeRoot.value
+  && !directoryOnly.value
+  && !directoryTreeFullscreen.value
+  && !!activeTab.value,
+);
+
+const directoryAsideStyle = computed(() => {
+  if (directoryOnly.value || directoryTreeFullscreen.value) return undefined;
+  const width = directoryTreeRailCollapsed.value
+    ? FILE_READER_DIRECTORY_TREE_RAIL_WIDTH
+    : effectiveDirectoryTreeWidth.value;
+  return { width: `${width}px` };
 });
 
 const activePathSegments = computed(() => {
@@ -1171,6 +1292,12 @@ watch(activePath, (path) => {
 // 悬浮目录树加载了新目录后，也要把它纳入监听，才能收到它的变更事件
 watch(hoverDirectoryTreeNodes, () => scheduleFileReaderWatchTargetUpdate());
 
+// 无文件在读时保持展开；有文件且指针不在侧边栏上时收成竖条
+watch(() => activeTab.value, (tab) => {
+  if (!tab) expandDirectoryTreeFromRail();
+  else collapseDirectoryTreeToRail();
+});
+
 // ==================== Address Scroll ====================
 
 function updateAddressScrollState() {
@@ -1228,6 +1355,7 @@ function setDirectoryTreeWidth(width: number) {
 function startDirectoryTreeResize(event: PointerEvent) {
   if (event.button !== 0 || directoryOnly.value || directoryTreeFullscreen.value) return;
   event.preventDefault();
+  expandDirectoryTreeFromRail();
   activeDirectoryTreeResize.value = true;
   directoryTreeResizeStartX = event.clientX;
   directoryTreeResizeStartWidth = effectiveDirectoryTreeWidth.value;
@@ -1663,6 +1791,7 @@ function captureCurrentTextSelection() {
 function handleContentScroll() {
   closeSelectionAction();
   captureVisibleRangeContext();
+  collapseDirectoryTreeToRail();
 }
 
 function captureVisibleRangeContext() {
@@ -1809,7 +1938,8 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
     resetVirtualCodeCaches();
     directoryRootPath.value = "";
     directoryTreeWidth.value = FILE_READER_DIRECTORY_TREE_DEFAULT_WIDTH;
-    directoryTreeFilter.value = "";
+    expandDirectoryTreeFromRail();
+    clearDirectoryTreeFilter();
     directoryNodes.value = {};
     hoverDirectoryTreeNodes.value = {};
     dismissHoverDirectoryTree();
@@ -2588,6 +2718,7 @@ async function loadDirectory(path: string, expanded: boolean): Promise<boolean> 
 async function openDirectoryTree(path: string, options: { switchToFiles?: boolean } = {}): Promise<boolean> {
   const normalizedPath = normalizePath(path);
   if (!normalizedPath) return false;
+  expandDirectoryTreeFromRail();
   if (options.switchToFiles !== false) {
     asideMode.value = "files";
   }
@@ -2606,7 +2737,7 @@ async function revealPathInDirectoryTree(path: string) {
   const chain = directoryPathChain(rootPath, targetDirectoryPath);
   if (chain.length === 0) return;
 
-  directoryTreeFilter.value = "";
+  clearDirectoryTreeFilter();
   for (const directoryPath of chain) {
     const node = treeDirectoryNode(directoryPath);
     if (!node?.loaded || node.error) {
@@ -2644,8 +2775,9 @@ async function revealActivePathInDirectoryTree(path: string) {
 }
 
 function closeDirectoryTree() {
+  expandDirectoryTreeFromRail();
   directoryRootPath.value = "";
-  directoryTreeFilter.value = "";
+  clearDirectoryTreeFilter();
 }
 
 // 覆盖模式（浮层）下目录树会占满面板、内容区被隐藏，打开或切换文件后收起目录，避免新文件看不到。
@@ -2879,6 +3011,7 @@ async function toggleFilesPanel() {
       return;
     }
   }
+  expandDirectoryTreeFromRail();
   asideMode.value = "files";
 }
 
@@ -2892,7 +3025,10 @@ async function openGitPanel(tab?: "commits" | "stashes" | "branches") {
     // 不带目标的打开是常规入口，不能沿用上一次残留的目标标签页
     pendingGitTab.value = null;
   }
-  if (alreadyOpen) return;
+  if (alreadyOpen) {
+    expandDirectoryTreeFromRail();
+    return;
+  }
   if (!directoryTreeRoot.value) {
     const path = directoryToggleTargetPath.value;
     if (path) {
@@ -2911,6 +3047,7 @@ async function openGitPanel(tab?: "commits" | "stashes" | "branches") {
       return;
     }
   }
+  expandDirectoryTreeFromRail();
   asideMode.value = "git";
 }
 
@@ -3119,6 +3256,7 @@ onBeforeUnmount(() => {
   fileReaderLayoutResizeObserver?.disconnect();
   fileReaderLayoutResizeObserver = null;
   if (watchTargetUpdateTimer) window.clearTimeout(watchTargetUpdateTimer);
+  if (directoryTreeFilterTimer) window.clearTimeout(directoryTreeFilterTimer);
   if (autoRefreshFileTimer) window.clearTimeout(autoRefreshFileTimer);
   if (autoRefreshDirectoryTimer) window.clearTimeout(autoRefreshDirectoryTimer);
   if (visibleRangeCaptureTimer) window.clearTimeout(visibleRangeCaptureTimer);
@@ -3384,6 +3522,10 @@ defineExpose({
 .file-reader-aside-panel {
   overflow: hidden;
 }
+/* 滚动停稳自动收起：同一面板在全宽与竖条之间过渡，拖拽调宽时不经过该类，不会被过渡拖慢 */
+.file-reader-aside-panel.file-reader-aside-rail {
+  transition: width 200ms cubic-bezier(0.2, 0, 0, 1);
+}
 .file-reader-aside-content-enter-active {
   transition:
     opacity 160ms ease,
@@ -3405,6 +3547,7 @@ defineExpose({
 @media (prefers-reduced-motion: reduce) {
   .file-reader-aside-enter-active,
   .file-reader-aside-leave-active,
+  .file-reader-aside-panel.file-reader-aside-rail,
   .file-reader-aside-content-enter-active,
   .file-reader-aside-content-leave-active {
     transition: none !important;
