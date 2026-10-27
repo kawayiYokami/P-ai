@@ -15,4 +15,5 @@ include!("metadata_mutations.rs");
 include!("persistence.rs");
 include!("archive.rs");
 include!("session_notification_support.rs");
+include!("frontend_display_boundary.rs");
 include!("mutations.rs");
