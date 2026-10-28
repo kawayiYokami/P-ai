@@ -367,6 +367,10 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
       });
     }),
     chatErrorText,
+    setConversationChatError: (cid, text) => {
+      if (String(cid || "").trim() !== currentConversationId()) return;
+      chatErrorText.value = text;
+    },
     allMessages,
     t: options.t,
     formatRequestFailed: (error) => String(error instanceof Error ? error.message : error || ""),
