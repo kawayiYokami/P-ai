@@ -125,7 +125,6 @@ describe("followBottom intent", () => {
     const scroller = makeScroller({ scrollTop: 0, scrollHeight: 4000, clientHeight: 874 });
     layout.scrollContainer.value = scroller;
     layout.noteWheelScrollIntent();
-
     (scroller as { scrollTop: number }).scrollTop = 1830;
     layout.onScroll({ suppressFollowIntent: true });
     expect(layout.followBottom.value).toBe(false);
@@ -134,5 +133,53 @@ describe("followBottom intent", () => {
     (scroller as { scrollTop: number }).scrollTop = 1900;
     layout.onScroll();
     expect(layout.followBottom.value).toBe(true);
+  });
+
+  it("smooth 动画送达的滚动不翻转跟随", () => {
+    const layout = makeLayout();
+    const scroller = makeScroller({ scrollTop: 900, scrollHeight: 1000, clientHeight: 100 });
+    layout.scrollContainer.value = scroller;
+    layout.startFollowBottom();
+    layout.setFollowAnimating(1000);
+    // 动画自身把视口推到底：无用户意图，不得翻转（保持跟随）
+    (scroller as { scrollTop: number }).scrollTop = 900;
+    layout.onScroll();
+    expect(layout.followBottom.value).toBe(true);
+    expect(layout.isFollowAnimating()).toBe(false);
+  });
+
+  it("动画中人手上滚：先打断再退出跟随", () => {
+    const layout = makeLayout();
+    const scroller = makeScroller({ scrollTop: 900, scrollHeight: 2000, clientHeight: 100 });
+    layout.scrollContainer.value = scroller;
+    layout.startFollowBottom();
+    layout.setFollowAnimating(1900);
+    // 先建立基线：动画中无用户意图的送达不翻转
+    layout.onScroll();
+    expect(layout.followBottom.value).toBe(true);
+    expect(layout.isFollowAnimating()).toBe(true);
+    layout.noteWheelScrollIntent();
+    expect(layout.isFollowAnimating()).toBe(false);
+    (scroller as { scrollTop: number }).scrollTop = 700;
+    layout.onScroll();
+    expect(layout.followBottom.value).toBe(false);
+  });
+
+  it("键盘滚动键：视为用户意图", () => {
+    const layout = makeLayout();
+    const scroller = makeScroller({ scrollTop: 900, scrollHeight: 1000, clientHeight: 100 });
+    layout.scrollContainer.value = scroller;
+    layout.noteKeyboardScrollIntent();
+    layout.onScroll();
+    expect(layout.followBottom.value).toBe(true);
+  });
+
+  it("显式锁定跟随：清掉未完成的动画", () => {
+    const layout = makeLayout();
+    layout.scrollContainer.value = makeScroller({ scrollTop: 900, scrollHeight: 1000, clientHeight: 100 });
+    layout.startFollowBottom();
+    layout.setFollowAnimating(1000);
+    layout.stopFollowBottom();
+    expect(layout.isFollowAnimating()).toBe(false);
   });
 });

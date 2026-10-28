@@ -96,6 +96,7 @@
             @scroll="handleConversationScroll"
             @wheel="handleConversationWheelInput"
             @pointerdown="beginPointerScrollIntent"
+            @keydown="handleConversationKeydownInput"
           >
           <div ref="chatContentRoot" class="flex min-w-0 shrink-0 flex-col">
           <DraftRecipientCard
@@ -1940,7 +1941,8 @@ const {
   latestOwnElasticMinHeight, atConversationBottom, userScrollingUp,
   followBottom, startFollowBottom, stopFollowBottom,
   sessionControlPanelVisible, sessionFloatDockStyle, toolbarReservedHeight, scrollIdle, onScroll,
-  noteWheelScrollIntent, beginPointerScrollIntent, prepareBottomAlignmentLayout,
+  noteWheelScrollIntent, noteKeyboardScrollIntent, beginPointerScrollIntent,
+  setFollowAnimating, prepareBottomAlignmentLayout,
 } = useChatScrollLayout({
   activeConversationId: toRef(props, "activeConversationId"),
   chatting: toRef(props, "chatting"), busy: conversationInteractionBusy,
@@ -3602,6 +3604,16 @@ function handleConversationWheelInput(event: WheelEvent) {
   onConversationWheel(event);
 }
 
+// harness 同语义：滚动键先打断进行中的 smooth，再按正常意图归因；
+// 非滚动键不碰意图窗口，避免输入框打字误翻跟随。
+const SCROLL_INTENT_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+
+function handleConversationKeydownInput(event: KeyboardEvent) {
+  if (event.defaultPrevented) return;
+  if (!SCROLL_INTENT_KEYS.has(event.key)) return;
+  noteKeyboardScrollIntent();
+}
+
 // ==================== bottom follow (intent-driven) ====================
 
 const chatContentRoot = ref<HTMLElement | null>(null);
@@ -3630,9 +3642,19 @@ function pinChatToBottomWhileFollowing(contentDelta = 0) {
   const before = el.scrollTop;
   const targetTop = el.scrollHeight;
   if (contentDelta > PIN_SMOOTH_DISCRETE_DELTA_PX) {
-    // 离散插入：平滑滚到底；同时强制刷新滚动条 extent，否则 300ms 缓存过期时 thumb 会跳一下
-    el.scrollTo({ top: targetTop, behavior: "smooth" });
-    chatScrollbarRef.value?.updateThumb(true);
+    // 离散插入：平滑滚到底；同时强制刷新滚动条 extent，否则 300ms 缓存过期时 thumb 会跳一下。
+    // harness 同语义：起飞前登记 animating target，到岸由 onScroll 按贴底阈值清掉；
+    // reduced-motion 下走瞬时定位，不登记动画。
+    const reduceMotion = prefersReducedMotionTimeline.value
+      || (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
+    if (reduceMotion) {
+      el.scrollTop = el.scrollHeight;
+      chatScrollbarRef.value?.updateThumb(true);
+    } else {
+      setFollowAnimating(targetTop);
+      el.scrollTo({ top: targetTop, behavior: "smooth" });
+      chatScrollbarRef.value?.updateThumb(true);
+    }
   } else {
     el.scrollTop = el.scrollHeight;
     chatScrollbarRef.value?.updateThumb();

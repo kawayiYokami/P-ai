@@ -42,6 +42,10 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   let pendingChatLayoutResizeFrame = 0;
   let wheelScrollIntentUntil = 0;
   let pointerScrollIntentActive = false;
+  // harness 式跟随动画锁：smooth 贴底进行中有未完成 target 时，
+  // 动画自身送达的滚动不算用户意图，不翻转 followBottom；
+  // 用户手势先 interrupt 瞬冻，再按正常意图归因。
+  let followAnimTarget: number | null = null;
   let sessionControlPanelHideTimer: ReturnType<typeof setTimeout> | null = null;
   let previewIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -160,6 +164,12 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     restartScrollIdleTimer();
     const nextScrollTop = el.scrollTop;
     const previousScrollTop = lastScrollTop.value;
+    // 动画到岸：距底回到阈值内即视为送达，清掉未完成的 target；
+    // 到岸前动画自身的滚动不参与意图翻转（用户手势已在入口处先 interrupt）。
+    if (followAnimTarget !== null && isNearBottom(el)) {
+      followAnimTarget = null;
+    }
+    const followAnimating = followAnimTarget !== null;
     const userInitiatedScroll = pointerScrollIntentActive || Date.now() <= wheelScrollIntentUntil;
     if (userInitiatedScroll) {
       if (nextScrollTop > previousScrollTop) {
@@ -174,7 +184,8 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     const nearBottom = updateScrollPositionState(el, { notifyReachedBottom: true });
     // 跟随意图只由用户手势或显式跳转决定，程序化滚动（跳转落点、跟随自身贴底）不改动它：
     // 用户朝底部方向滚动＝有「滚到最下」的意图，解锁跟随；朝历史方向滚动＝离开底部，锁定。
-    if (userInitiatedScroll) {
+    // 动画进行中（smooth 贴底未到岸）的滚动是动画自身送达，不翻转。
+    if (userInitiatedScroll && !followAnimating) {
       const before = followBottom.value;
       if (nextScrollTop > previousScrollTop) {
         if (!options.suppressFollowIntent) followBottom.value = true;
@@ -207,9 +218,39 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
       probeChatScroll("stopFollowBottom", {});
     }
     followBottom.value = false;
+    followAnimTarget = null;
+  }
+
+  // smooth 贴底起飞前登记未完成 target；到岸由 onScroll 按贴底阈值清掉。
+  function setFollowAnimating(targetTop: number) {
+    followAnimTarget = targetTop;
+  }
+
+  function isFollowAnimating() {
+    return followAnimTarget !== null;
+  }
+
+  // 用户手势打断：先把进行中的 smooth 瞬冻在当前位置，再交还意图归因，
+  // 避免 smooth 动画与人手滚动互相顶牛（与 harness interrupt 同语义）。
+  function interruptFollowAnimation() {
+    const el = scrollContainer.value;
+    if (!el || followAnimTarget === null) return false;
+    followAnimTarget = null;
+    try {
+      el.scrollTo({ top: el.scrollTop, behavior: "instant" });
+    } catch {
+      el.scrollTop = el.scrollTop;
+    }
+    return true;
   }
 
   function noteWheelScrollIntent() {
+    interruptFollowAnimation();
+    wheelScrollIntentUntil = Date.now() + 500;
+  }
+
+  function noteKeyboardScrollIntent() {
+    interruptFollowAnimation();
     wheelScrollIntentUntil = Date.now() + 500;
   }
 
@@ -220,6 +261,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   }
 
   function beginPointerScrollIntent() {
+    interruptFollowAnimation();
     pointerScrollIntentActive = true;
     window.addEventListener("pointerup", endPointerScrollIntent);
     window.addEventListener("pointercancel", endPointerScrollIntent);
@@ -333,6 +375,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
           userScrollingUp.value = false;
           // 切换会话属于「定位到新消息」，不继承上一会话的跟随意图
           followBottom.value = false;
+          followAnimTarget = null;
         }
       });
     },
@@ -373,7 +416,11 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     toolbarReservedHeight,
     onScroll,
     noteWheelScrollIntent,
+    noteKeyboardScrollIntent,
     beginPointerScrollIntent,
+    setFollowAnimating,
+    isFollowAnimating,
+    interruptFollowAnimation,
     prepareBottomAlignmentLayout,
   };
 }
