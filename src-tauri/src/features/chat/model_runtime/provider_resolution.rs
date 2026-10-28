@@ -130,6 +130,9 @@ fn resolve_adapter_kind_from_base_url(base_url: &str) -> Option<genai::adapter::
     if host_matches("openrouter.ai") {
         return Some(genai::adapter::AdapterKind::OpenRouter);
     }
+    if host_matches("requesty.ai") {
+        return Some(genai::adapter::AdapterKind::OpenAI);
+    }
     if host_matches("groq.com") {
         return Some(genai::adapter::AdapterKind::Groq);
     }
@@ -369,6 +372,24 @@ mod provider_resolution_tests {
             ),
             Some(genai::adapter::AdapterKind::Aliyun)
         );
+    }
+
+    #[test]
+    fn auto_protocol_should_resolve_requesty_urls_as_openai_compatible() {
+        for base_url in [
+            "https://router.requesty.ai/v1",
+            "https://router.eu.requesty.ai/v1",
+        ] {
+            let resolved = resolve_model_protocol(
+                RequestFormat::Auto,
+                base_url,
+                "claude-sonnet-4-5",
+                genai::adapter::AdapterKind::OpenAI,
+            );
+            assert_eq!(resolved.adapter_kind, genai::adapter::AdapterKind::OpenAI);
+            assert_eq!(resolved.source, ModelProtocolResolutionSource::BaseUrl);
+            assert_eq!(resolved.auth_scheme, ProviderAuthScheme::Bearer);
+        }
     }
 
     #[test]
