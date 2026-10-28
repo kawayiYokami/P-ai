@@ -75,6 +75,7 @@ mod archive_host_selection_tests {
 
     fn mk_source(agent_id: &str, messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "c1".to_string(),
             title: "t".to_string(),
             agent_id: agent_id.to_string(),

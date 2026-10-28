@@ -550,6 +550,8 @@ impl ConversationServiceV2 {
                     refreshed_user_profile_snapshot.clone().unwrap_or_default();
                 metadata_conversation.updated_at = now.clone();
                 metadata_conversation.last_user_at = Some(now.clone());
+                // 压缩后清理 MCP 临时名单：压界丢掉拿取历史，留着就是无来源常驻。
+                metadata_conversation.loaded_mcp_tools = Vec::new();
                 cached.apply_metadata_fields_from_conversation(&metadata_conversation);
                 cached.apply_appended_messages(std::slice::from_ref(compression_message));
                 Ok(())

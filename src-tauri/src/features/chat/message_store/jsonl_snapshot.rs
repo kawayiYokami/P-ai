@@ -930,6 +930,7 @@ mod jsonl_snapshot_conversation_block_tests {
 
     fn test_conversation_for_blocks(messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-block-test".to_string(),
             title: "test".to_string(),
             agent_id: "agent".to_string(),

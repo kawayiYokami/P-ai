@@ -4007,6 +4007,7 @@
 
     fn test_chat_conversation(conversation_id: &str, status: &str, updated_at: &str) -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: conversation_id.to_string(),
             title: conversation_id.to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -9962,6 +9963,7 @@
         let now = now_iso();
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-root".to_string(),
             title: "主会话".to_string(),
             agent_id: "agent-root".to_string(),
@@ -11338,6 +11340,7 @@
         let now = now_utc_rfc3339();
         let mut data = AppData::default();
         let mut conversation = Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-summary-only".to_string(),
             title: "摘要会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -11398,6 +11401,7 @@
         let now = now_utc_rfc3339();
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-main".to_string(),
             title: "主会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -11471,6 +11475,7 @@
         let now = now_iso();
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-main".to_string(),
             title: "主会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -14303,4 +14308,359 @@
             },
         )
         .expect("send should follow roster even when recruit off");
+    }
+
+    // ==================== MCP 按需加载 ====================
+
+    /// 工具 schema 缓存、MCP 运行状态与握手说明都是进程级全局单例，涉及它们的测试必须串行。
+    fn mcp_fold_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn persist_test_mcp_server(
+        state: &AppState,
+        server_id: &str,
+        server_name: &str,
+        tools: Vec<McpToolDescriptor>,
+    ) {
+        let server = McpServerConfig {
+            id: server_id.to_string(),
+            name: server_name.to_string(),
+            enabled: true,
+            definition_json:
+                r#"{"mcpServers":{"fold":{"command":"node","args":["server.js"]}}}"#.to_string(),
+            oauth_capable: false,
+            has_oauth_token: false,
+            tool_policies: Vec::new(),
+            cached_tools: Vec::new(),
+            last_status: String::new(),
+            last_error: String::new(),
+            updated_at: now_iso(),
+        };
+        save_workspace_mcp_server(state, &server).expect("写入 MCP 服定义");
+        save_workspace_mcp_server_policy(
+            state,
+            server_id,
+            &McpToolPoliciesFile {
+                server_id: server_id.to_string(),
+                enabled: true,
+                oauth_capable: false,
+                tools: Vec::new(),
+            },
+        )
+        .expect("写入 MCP 服策略");
+        mcp_runtime_state_set(server_id, true, "ok", "", tools);
+    }
+
+    fn test_mcp_tool(tool_name: &str, compatibility_error: Option<&str>) -> McpToolDescriptor {
+        McpToolDescriptor {
+            tool_name: tool_name.to_string(),
+            description: format!("{tool_name} 的官方工具描述"),
+            enabled: true,
+            compatibility_error: compatibility_error.map(str::to_string),
+            member_name: "fold".to_string(),
+            raw_tool_name: tool_name.trim_start_matches("fold_").to_string(),
+            parameters: serde_json::json!({"type": "object", "properties": {}}),
+        }
+    }
+
+    fn mcp_fold_test_setup() -> (AppState, AgentProfile, ApiConfig, AppConfig, Conversation) {
+        let state = test_chat_runtime_state();
+        persist_test_mcp_server(
+            &state,
+            "mcp-fold",
+            "折叠测试服",
+            vec![
+                test_mcp_tool("fold_docs", None),
+                test_mcp_tool("fold_search", None),
+                test_mcp_tool(
+                    "fold_broken",
+                    Some("MCP 组成员名规范化后没有可用字符，工具无法挂载"),
+                ),
+            ],
+        );
+        let agent = default_agent();
+        let mut selected_api = ApiConfig::default();
+        selected_api.id = "api-mcp-fold".to_string();
+        selected_api.name = "MCP 折叠测试模型".to_string();
+        selected_api.request_format = RequestFormat::OpenAI;
+        selected_api.enable_text = true;
+        selected_api.enable_tools = true;
+        selected_api.base_url = "https://api.openai.com/v1".to_string();
+        selected_api.api_key = "k".to_string();
+        selected_api.model = "gpt-4o-mini".to_string();
+        let config = AppConfig {
+            api_configs: vec![selected_api.clone()],
+            api_providers: Vec::new(),
+            ..AppConfig::default()
+        };
+        write_config(&state.config_path, &config).expect("write config");
+        state_write_agents_cached(&state, &[agent.clone(), default_user_persona()])
+            .expect("write agents");
+        let conversation = build_conversation_record(
+            &selected_api.id,
+            &agent.id,
+            "MCP 折叠测试",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+        flush_pending_persists_blocking(&state).expect("flush conversation");
+        refresh_global_tool_schema_cache(&state);
+        (state, agent, selected_api, config, conversation)
+    }
+
+    fn mcp_fold_assembly(
+        state: &AppState,
+        agent: &AgentProfile,
+        api: &ApiConfig,
+        config: &AppConfig,
+        conversation_id: &str,
+    ) -> RuntimeToolAssembly {
+        let session_id = format!("{}::{}", agent.id, conversation_id);
+        test_runtime().block_on(assemble_runtime_tools(
+            config,
+            api,
+            agent,
+            Some(state),
+            &session_id,
+        ))
+    }
+
+    #[test]
+    fn mcp_tools_should_stay_folded_until_gettool_records_them() {
+        let _guard = mcp_fold_test_guard();
+        let (state, agent, api, config, conversation) = mcp_fold_test_setup();
+
+        let folded = mcp_fold_assembly(&state, &agent, &api, &config, &conversation.id);
+        assert!(
+            folded
+                .tool_definitions
+                .iter()
+                .any(|tool| tool.name == "get_tool"),
+            "内置 gettool 必须常驻"
+        );
+        assert!(
+            !folded
+                .tool_definitions
+                .iter()
+                .any(|tool| tool.name.starts_with("fold_")),
+            "MCP 工具默认必须全折叠"
+        );
+
+        let directory = build_mcp_directory_block(&state).expect("目录应常驻");
+        assert!(
+            directory.contains("(mcp-fold)"),
+            "目录缺少服名：{directory}"
+        );
+        assert!(directory.contains("fold_search"), "目录缺少工具名：{directory}");
+        assert!(
+            !directory.contains("fold_broken"),
+            "schema 不兼容的工具不该进目录：{directory}"
+        );
+
+        let session_id = format!("{}::{}", agent.id, conversation.id);
+        let gettool = BuiltinGetMcpTool {
+            app_state: state.clone(),
+            session_id,
+        };
+        let recorded = test_runtime()
+            .block_on(gettool.call_json(
+                r#"{"tool_names":["fold_docs","fold_search"]}"#.to_string(),
+            ))
+            .expect("拿取调用不应失败");
+        assert!(!recorded.is_error, "拿取失败：{}", recorded.output);
+        assert!(recorded.output.contains("已记录"), "{}", recorded.output);
+
+        let loaded = state_read_conversation_metadata_cached(&state, &conversation.id)
+            .expect("读会话元数据")
+            .loaded_mcp_tools()
+            .to_vec();
+        assert_eq!(
+            loaded,
+            vec!["fold_docs".to_string(), "fold_search".to_string()],
+            "名单应按拿取顺序落库"
+        );
+
+        let unfolded = mcp_fold_assembly(&state, &agent, &api, &config, &conversation.id);
+        let names: Vec<String> = unfolded
+            .tool_definitions
+            .iter()
+            .map(|tool| tool.name.clone())
+            .collect();
+        assert_eq!(
+            &names[names.len() - 2..],
+            ["fold_docs".to_string(), "fold_search".to_string()],
+            "MCP 工具应按拿取顺序追加在尾部：{names:?}"
+        );
+        assert!(!names.iter().any(|name| name == "fold_broken"));
+    }
+
+    #[test]
+    fn mcp_directory_should_prefer_handshake_instructions() {
+        let _guard = mcp_fold_test_guard();
+        let (state, _agent, _api, _config, _conversation) = mcp_fold_test_setup();
+        mcp_server_instructions_set("mcp-fold", "官方握手说明：可以查询代码仓库文档。");
+
+        let directory = build_mcp_directory_block(&state).expect("目录应常驻");
+
+        assert!(
+            directory.contains("官方握手说明"),
+            "目录应优先用握手 instructions：{directory}"
+        );
+        assert!(
+            !directory.contains("的官方工具描述"),
+            "有握手说明时不该退回工具描述聚合：{directory}"
+        );
+    }
+
+    #[test]
+    fn gettool_should_dedupe_names_and_only_suggest_for_unknown() {
+        let _guard = mcp_fold_test_guard();
+        let (state, agent, _api, _config, conversation) = mcp_fold_test_setup();
+        let session_id = format!("{}::{}", agent.id, conversation.id);
+        let gettool = BuiltinGetMcpTool {
+            app_state: state.clone(),
+            session_id,
+        };
+        let call = |args: &str| {
+            test_runtime()
+                .block_on(gettool.call_json(args.to_string()))
+                .expect("拿取调用不应失败")
+        };
+        let loaded_now = || {
+            state_read_conversation_metadata_cached(&state, &conversation.id)
+                .expect("读会话元数据")
+                .loaded_mcp_tools()
+                .to_vec()
+        };
+
+        let first = call(r#"{"tool_names":["fold_search","fold_docs","fold_search"]}"#);
+        assert!(!first.is_error, "{}", first.output);
+        assert_eq!(
+            loaded_now(),
+            vec!["fold_search".to_string(), "fold_docs".to_string()],
+            "重复点名只应记录一次且保持顺序"
+        );
+
+        let again = call(r#"{"tool_names":["fold_docs"]}"#);
+        assert!(!again.is_error, "{}", again.output);
+        assert_eq!(
+            loaded_now(),
+            vec!["fold_search".to_string(), "fold_docs".to_string()],
+            "已记录的名单不应重复追加"
+        );
+
+        let builtin = call(r#"{"tool_names":["fetch"]}"#);
+        assert!(!builtin.is_error, "{}", builtin.output);
+        assert!(
+            builtin.output.contains("无需拿取"),
+            "内置工具应短路：{}",
+            builtin.output
+        );
+        assert_eq!(
+            loaded_now(),
+            vec!["fold_search".to_string(), "fold_docs".to_string()],
+            "内置工具名不应写进 MCP 名单"
+        );
+
+        let typo = call(r#"{"tool_names":["fold_serch"]}"#);
+        assert!(typo.is_error, "错名必须报错：{}", typo.output);
+        assert!(
+            typo.output.contains("没有匹配到工具：fold_serch"),
+            "{}",
+            typo.output
+        );
+        assert!(
+            typo.output.contains("fold_search"),
+            "应给出相近建议：{}",
+            typo.output
+        );
+        assert_eq!(
+            loaded_now(),
+            vec!["fold_search".to_string(), "fold_docs".to_string()],
+            "错名只建议，不得自动装"
+        );
+
+        let incompatible = call(r#"{"tool_names":["fold_broken"]}"#);
+        assert!(incompatible.is_error, "{}", incompatible.output);
+        assert!(
+            incompatible.output.contains("没有匹配到工具"),
+            "schema 不兼容的工具不该被拿取：{}",
+            incompatible.output
+        );
+
+        let empty = call(r#"{"tool_names":[]}"#);
+        assert!(empty.is_error, "{}", empty.output);
+        assert!(
+            empty.output.contains("tool_names 为空"),
+            "{}",
+            empty.output
+        );
+    }
+
+    #[test]
+    fn context_compaction_should_clear_loaded_mcp_tools() {
+        let _guard = mcp_fold_test_guard();
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-mcp-compaction", "active", &now);
+        let user = test_text_message("user", "整理一下上下文", &now);
+        let mut assistant = test_text_message("assistant", "好的", &now);
+        assistant.speaker_agent_id = Some(DEFAULT_AGENT_ID.to_string());
+        conversation.messages = vec![user, assistant];
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+        let store_paths = message_store::message_store_paths(&state.data_path, &conversation.id)
+            .expect("message store paths");
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
+            .expect("write message store");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        persist_test_mcp_server(
+            &state,
+            "mcp-fold",
+            "折叠测试服",
+            vec![test_mcp_tool("fold_docs", None)],
+        );
+        refresh_global_tool_schema_cache(&state);
+
+        let session_id = format!("{}::{}", DEFAULT_AGENT_ID, conversation.id);
+        let gettool = BuiltinGetMcpTool {
+            app_state: state.clone(),
+            session_id,
+        };
+        let recorded = test_runtime()
+            .block_on(gettool.call_json(r#"{"tool_names":["fold_docs"]}"#.to_string()))
+            .expect("拿取调用不应失败");
+        assert!(!recorded.is_error, "{}", recorded.output);
+        assert_eq!(
+            state_read_conversation_metadata_cached(&state, &conversation.id)
+                .expect("读会话元数据")
+                .loaded_mcp_tools()
+                .to_vec(),
+            vec!["fold_docs".to_string()]
+        );
+        let compression_message = build_compaction_message(
+            "已整理",
+            Some("压缩"),
+            "force_context_usage_82",
+            None,
+            &[],
+        );
+        conversation_service_v2()
+            .persist_compaction_message(&state, &conversation, &compression_message, None)
+            .expect("追加压缩消息");
+
+        let loaded_after = state_read_conversation_metadata_cached(&state, &conversation.id)
+            .expect("读会话元数据")
+            .loaded_mcp_tools()
+            .to_vec();
+        assert!(
+            loaded_after.is_empty(),
+            "压缩后名单必须清空：{loaded_after:?}"
+        );
     }

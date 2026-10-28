@@ -2300,6 +2300,7 @@ fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() 
     let trigger = message("trigger", "user", "现在需要回答");
     let following = message("following", "user", "同批后续消息");
     let conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
         id: "remote-wake-conversation".to_string(),
         title: "remote wake".to_string(),
         agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -3343,6 +3344,7 @@ fn v3_chat_metadata_migration_should_import_v2_metadata_without_removing_v2_file
     let root = std::env::temp_dir().join(format!("eca-chat-v3-import-{}", Uuid::new_v4()));
     let data_path = root.join("config_mark");
     let mut conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
         id: "conv-v3-import".to_string(), title: "SQLite 会话".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, team: TeamState::default(), last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
         shell_work_branch: String::new(),
         shell_worktree_path: String::new(),
@@ -3550,6 +3552,7 @@ fn v3_chat_metadata_migration_should_skip_building_conversation_without_writing_
         meme_annotations: None,
     };
     let conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
         id: "conv-v3-skip-building".to_string(), title: "跳过 building".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: vec![message("m1"), message("m2")], fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, team: TeamState::default(), last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
         shell_work_branch: String::new(),
         shell_worktree_path: String::new(),
@@ -3595,6 +3598,7 @@ fn v3_chat_metadata_block_reader_should_stop_at_block_boundary() {
         "message_meta": { "kind": "context_compaction" }
     }));
     let conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
         id: "conv-v3-block-reader".to_string(), title: "SQLite block reader".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None,
         shell_work_branch: String::new(),
         shell_worktree_path: String::new(),
@@ -3641,6 +3645,7 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
         parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
     };
     let mut conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
         id: "conv-v3-physical-append".to_string(), title: "physical append".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, team: TeamState::default(), last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
         shell_work_branch: String::new(),
         shell_worktree_path: String::new(),
@@ -3717,6 +3722,7 @@ fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
         parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
     };
     let mut conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
         id: "conv-v3-orphan-tail".to_string(), title: "orphan tail".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, team: TeamState::default(), last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
         shell_work_branch: String::new(),
         shell_worktree_path: String::new(),
@@ -3772,6 +3778,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-mutations-{}", Uuid::new_v4()));
     let data_path = root.join("config_mark");
     let mut conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
         id: "conv-v3-mutations".to_string(), title: "SQLite mutation".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, team: TeamState::default(), last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
         shell_work_branch: String::new(),
         shell_worktree_path: String::new(),
@@ -3959,6 +3966,7 @@ fn v3_chat_metadata_snapshot_should_wait_for_same_conversation_writer() {
     let data_path = root.join("config_mark");
     chat_metadata_store_run_v3_migration(&data_path).expect("initialize v3 storage");
     let conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
         id: "snapshot-writer-gate-conversation".to_string(),
         title: "snapshot writer gate".to_string(),
         agent_id: DEFAULT_AGENT_ID.to_string(),

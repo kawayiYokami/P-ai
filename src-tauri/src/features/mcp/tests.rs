@@ -744,4 +744,40 @@ fn test_mcp_check_and_extract_auth_challenge() {
     assert_eq!(mcp_status_from_runtime_error(other_err), "failed");
 }
 
+#[test]
+fn mcp_tool_result_should_not_repeat_structured_and_text_payload() {
+    // deepwiki 这类服务会同时把同一份内容放进 structuredContent 和 content 文本。
+    let mut result = rmcp::model::CallToolResult::success(vec![
+        rmcp::model::ContentBlock::text("Available pages for repo:
+- 1 Overview"),
+    ]);
+    result.structured_content = Some(serde_json::json!({
+        "result": "Available pages for repo:
+- 1 Overview"
+    }));
 
+    let projected = provider_tool_result_from_mcp_call("fold_docs", result);
+
+    assert_eq!(
+        projected.output.matches("Available pages for repo").count(),
+        1,
+        "结构化与文本内容相同时只保留一份：{}",
+        projected.output
+    );
+}
+
+#[test]
+fn mcp_tool_result_should_keep_distinct_structured_and_text_payload() {
+    let mut result = rmcp::model::CallToolResult::success(vec![
+        rmcp::model::ContentBlock::text("文本段 A"),
+    ]);
+    result.structured_content = Some(serde_json::json!({ "result": "结构化段 B" }));
+
+    let projected = provider_tool_result_from_mcp_call("fold_docs", result);
+
+    assert!(
+        projected.output.contains("文本段 A") && projected.output.contains("结构化段 B"),
+        "内容不同时两份都要保留：{}",
+        projected.output
+    );
+}

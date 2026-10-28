@@ -276,6 +276,7 @@ mod delegate_conversation_store_tests {
 
     fn test_delegate_conversation(conversation_id: &str) -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: conversation_id.to_string(),
             title: "委托会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),

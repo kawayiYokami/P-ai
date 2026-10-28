@@ -542,6 +542,7 @@ fn chat_history_collect_slices_for_state(
             cumulative_usage: ConversationCumulativeUsage::default(),
             active_goal: conversation_meta.active_goal.clone(),
             team: conversation_meta.team.clone(),
+            loaded_mcp_tools: Vec::new(),
             last_error: conversation_meta.last_error.clone(),
         };
         let (segments, skipped_live_blocks) =

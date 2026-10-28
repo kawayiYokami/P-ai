@@ -518,6 +518,8 @@ include!("tool_loop/tool_result_handling.rs");
 include!("tool_loop/runtime_execution.rs");
 include!("tool_loop/compaction.rs");
 async fn run_genai_tool_loop(
+    app_config: &AppConfig,
+    agent: &AgentProfile,
     api_config: &ResolvedApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
@@ -556,7 +558,10 @@ async fn run_genai_tool_loop(
         usage_conversation_id,
     );
 
-    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tool_definitions, adapter_kind).await?;
+    let mut tool_assembly = tool_assembly;
+    let mut genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tool_definitions, adapter_kind).await?;
+    // get_tool 记录了新工具后置位：下一轮重新装配，把新工具的参数定义带进请求。
+    let mut tool_assembly_stale = false;
     let mut full_assistant_text = String::new();
     let mut full_activity_reasoning_text = String::new();
     let mut tool_history_events = Vec::<Value>::new();
@@ -578,6 +583,22 @@ async fn run_genai_tool_loop(
         _max_tool_iterations.min(INTERNAL_MAX_TOOL_LOOP_ROUNDS)
     };
     for round_index in 0..tool_round_limit {
+        if tool_assembly_stale {
+            tool_assembly = assemble_runtime_tools(
+                app_config,
+                selected_api,
+                agent,
+                tool_abort_state,
+                chat_session_key,
+            )
+            .await;
+            genai_tools = runtime_tool_definitions_for_genai(
+                &tool_assembly.tool_definitions,
+                adapter_kind,
+            )
+            .await?;
+            tool_assembly_stale = false;
+        }
         let round_started_at = std::time::Instant::now();
         let mut emit_text_boundary_before_next_chunk = !full_assistant_text.trim().is_empty();
         if round_index > 0 && !auto_compaction_applied {
@@ -968,6 +989,10 @@ async fn run_genai_tool_loop(
                 tool_args,
                 tool_result,
             } = executed_tool_call;
+            if tool_name == GETTOOL_TOOL_NAME && !tool_result.is_error {
+                // 新工具已写进会话名单：本轮装配作废，下一轮请求前重建。
+                tool_assembly_stale = true;
+            }
             let projection = project_provider_tool_result(tool_abort_state, &tool_name, &tool_result);
             let tool_result_event = tool_result_history_event(
                 &tool_call_id,
@@ -1280,6 +1305,8 @@ async fn execute_genai_non_stream_round(
 }
 
 async fn run_genai_tool_loop_non_stream(
+    app_config: &AppConfig,
+    agent: &AgentProfile,
     api_config: &ResolvedApiConfig,
     model_name: &str,
     prepared: PreparedPrompt,
@@ -1318,7 +1345,10 @@ async fn run_genai_tool_loop_non_stream(
         usage_conversation_id,
     );
 
-    let genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tool_definitions, adapter_kind).await?;
+    let mut tool_assembly = tool_assembly;
+    let mut genai_tools = runtime_tool_definitions_for_genai(&tool_assembly.tool_definitions, adapter_kind).await?;
+    // get_tool 记录了新工具后置位：下一轮重新装配，把新工具的参数定义带进请求。
+    let mut tool_assembly_stale = false;
     let mut full_assistant_text = String::new();
     let mut full_activity_reasoning_text = String::new();
     let mut tool_history_events = Vec::<Value>::new();
@@ -1340,6 +1370,22 @@ async fn run_genai_tool_loop_non_stream(
         _max_tool_iterations.min(INTERNAL_MAX_TOOL_LOOP_ROUNDS)
     };
     for round_index in 0..tool_round_limit {
+        if tool_assembly_stale {
+            tool_assembly = assemble_runtime_tools(
+                app_config,
+                selected_api,
+                agent,
+                tool_abort_state,
+                chat_session_key,
+            )
+            .await;
+            genai_tools = runtime_tool_definitions_for_genai(
+                &tool_assembly.tool_definitions,
+                adapter_kind,
+            )
+            .await?;
+            tool_assembly_stale = false;
+        }
         let round_started_at = std::time::Instant::now();
         if round_index > 0 && !auto_compaction_applied {
             auto_compaction_applied = maybe_apply_auto_compaction_before_tool_continue_genai(
@@ -1634,6 +1680,10 @@ async fn run_genai_tool_loop_non_stream(
                 tool_args,
                 tool_result,
             } = executed_tool_call;
+            if tool_name == GETTOOL_TOOL_NAME && !tool_result.is_error {
+                // 新工具已写进会话名单：本轮装配作废，下一轮请求前重建。
+                tool_assembly_stale = true;
+            }
             let projection = project_provider_tool_result(tool_abort_state, &tool_name, &tool_result);
             let tool_result_event = tool_result_history_event(
                 &tool_call_id,

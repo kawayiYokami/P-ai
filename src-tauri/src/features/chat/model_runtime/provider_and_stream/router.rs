@@ -174,6 +174,8 @@ async fn retry_openai_responses_with_system_message_user_fallback(
         )
         .await?;
         execute_openai_style_request(
+            app_config,
+            agent,
             api_config,
             selected_api,
             model_name,
@@ -202,6 +204,8 @@ async fn retry_openai_responses_with_system_message_user_fallback(
 }
 
 async fn dispatch_openai_style_call(
+    app_config: &AppConfig,
+    agent: &AgentProfile,
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
     model_name: &str,
@@ -216,6 +220,8 @@ async fn dispatch_openai_style_call(
 ) -> Result<ModelReply, String> {
     if matches!(selected_api.request_format, RequestFormat::DeepSeek | RequestFormat::DeepSeekKimi) {
         call_model_deepseek_kimi_with_tools(
+            app_config,
+            agent,
             api_config,
             selected_api,
             model_name,
@@ -231,6 +237,8 @@ async fn dispatch_openai_style_call(
         .await
     } else if selected_api.request_format.is_openai_responses_family() {
         call_model_openai_responses_with_tools(
+            app_config,
+            agent,
             api_config,
             selected_api,
             model_name,
@@ -246,6 +254,8 @@ async fn dispatch_openai_style_call(
         .await
     } else {
         call_model_openai_with_tools(
+            app_config,
+            agent,
             api_config,
             selected_api,
             model_name,
@@ -291,6 +301,8 @@ async fn prepare_openai_style_tool_assembly(
 }
 
 async fn execute_openai_style_request(
+    app_config: &AppConfig,
+    agent: &AgentProfile,
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
     model_name: &str,
@@ -310,6 +322,8 @@ async fn execute_openai_style_request(
                 match selected_api.request_format {
                     RequestFormat::DeepSeek | RequestFormat::DeepSeekKimi => {
                         call_model_deepseek_kimi_non_stream_with_tools(
+                            app_config,
+                            agent,
                             api_config,
                             selected_api,
                             model_name,
@@ -326,6 +340,8 @@ async fn execute_openai_style_request(
                     }
                     format if format.is_genai_chat() || format.is_auto() => {
                         call_model_openai_non_stream_with_tools(
+                            app_config,
+                            agent,
                             api_config,
                             selected_api,
                             model_name,
@@ -347,6 +363,8 @@ async fn execute_openai_style_request(
                 }
             } else {
                 dispatch_openai_style_call(
+                    app_config,
+                    agent,
                     api_config,
                     selected_api,
                     model_name,
@@ -422,6 +440,8 @@ async fn call_openai_style_non_stream_fallback(
     )
     .await?;
     execute_openai_style_request(
+        app_config,
+        agent,
         api_config,
         selected_api,
         model_name,
@@ -507,6 +527,8 @@ async fn call_model_dispatch(
             } else {
                 tool_manifest_for_log = runtime_tool_names_for_log(&tool_assembly);
                 call_model_gemini_with_tools(
+                    app_config,
+                    agent,
                     api_config,
                     selected_api,
                     model_name,
@@ -560,6 +582,8 @@ async fn call_model_dispatch(
             } else {
                 tool_manifest_for_log = runtime_tool_names_for_log(&tool_assembly);
                 call_model_anthropic_with_tools(
+                    app_config,
+                    agent,
                     api_config,
                     selected_api,
                     model_name,
@@ -620,6 +644,8 @@ async fn call_model_dispatch(
             )
             .await?;
             let stream_result = execute_openai_style_request(
+                app_config,
+                agent,
                 api_config,
                 selected_api,
                 model_name,
@@ -740,6 +766,8 @@ async fn call_model_dispatch(
                     )
                     .await?;
                     execute_openai_style_request(
+                        app_config,
+                        agent,
                         api_config,
                         selected_api,
                         model_name,

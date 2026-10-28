@@ -423,6 +423,7 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
             session_id: preview_session_id,
         }
         .provider_tool_definition(),
+        gettool_provider_tool_definition(),
     ];
     let mut definitions = builtin_definitions
         .into_iter()
@@ -957,6 +958,37 @@ pub(crate) async fn assemble_runtime_tools(
         discoverable_tools.retain(|tool| tool.definition.name != OPERATE_TOOL_NAME);
         runtime_log_info("[工具装配] 电脑使用已关闭，operate 工具不挂载".to_string());
     }
+    // MCP 按需加载：默认全折叠，只挂本会话已点名的临时名单。
+    // 内置常驻不动；目录走 system 常驻，参数下轮尾部追加，按拿取顺序排。
+    {
+        let loaded = mcp_loaded_tool_names_for_session(state, tool_session_id);
+        let order: std::collections::HashMap<String, usize> = loaded
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| (name.trim().to_string(), idx))
+            .collect();
+        discoverable_tools.retain(|tool| match &tool.source {
+            CachedRuntimeToolSource::Builtin => true,
+            CachedRuntimeToolSource::Mcp { .. } => {
+                order.contains_key(tool.definition.name.trim())
+            }
+        });
+        // 内置保持原序，MCP 按拿取顺序追加到尾部，保证顺序固定。
+        let (mut builtin_tools, mut mcp_tools): (
+            Vec<CachedRuntimeToolSchema>,
+            Vec<CachedRuntimeToolSchema>,
+        ) = discoverable_tools.into_iter().partition(|tool| {
+            matches!(tool.source, CachedRuntimeToolSource::Builtin)
+        });
+        mcp_tools.sort_by_key(|tool| {
+            order
+                .get(tool.definition.name.trim())
+                .copied()
+                .unwrap_or(usize::MAX)
+        });
+        builtin_tools.extend(mcp_tools);
+        discoverable_tools = builtin_tools;
+    }
     // 队伍工具按拆分门控挂载：队长会话 team_info 常驻、team_recruit 只看招募开关、
     // team_dismiss/team_send 只看名册；队员会话只留 team_report；其余一律不挂。
     match team_role_for_session(state, tool_session_id) {
@@ -1242,6 +1274,10 @@ fn build_builtin_runtime_tool_executor(
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
         }),
+        GETTOOL_TOOL_NAME => Box::new(BuiltinGetMcpTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
         _ => return Err(format!("未知内置工具：{tool_name}")),
     };
     if builtin_tool_requires_execution_reauthorization(tool_name) {
@@ -1328,6 +1364,346 @@ fn notify_desktop_operation_started(state: &AppState, script: &str) {
 
 const OPERATE_TOOL_NAME: &str = "operate";
 const WINDOWS_TOOL_NAME: &str = "windows";
+
+const GETTOOL_TOOL_NAME: &str = "get_tool";
+
+fn gettool_provider_tool_definition() -> ProviderToolDefinition {
+    ProviderToolDefinition::new(
+        GETTOOL_TOOL_NAME,
+        "按精确工具名拿取 MCP 工具。MCP 默认折叠，参数未下发，先调 get_tool 点名，下轮才可用。参数 tool_names 为精确工具名数组，不限个数，写错名会回相近建议。",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "tool_names": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "要拿取的 MCP 精确工具名数组，如 [\"deepwiki__ask_wiki_question\"]。以 MCP 目录中的工具名清单为准。"
+                }
+            },
+            "required": ["tool_names"]
+        }),
+    )
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinGetMcpTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+fn truncate_chars_for_mcp_directory(text: &str, limit: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= limit {
+        return trimmed.to_string();
+    }
+    trimmed.chars().take(limit).collect::<String>()
+}
+
+fn mcp_edit_distance_for_suggestion(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.trim().to_lowercase().chars().collect();
+    let b: Vec<char> = b.trim().to_lowercase().chars().collect();
+    if a.is_empty() {
+        return b.len();
+    }
+    if b.is_empty() {
+        return a.len();
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0usize; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        curr[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cost = if ca == cb { 0 } else { 1 };
+            curr[j + 1] = (prev[j] + cost).min((curr[j] + 1).min(prev[j + 1] + 1));
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
+}
+
+fn suggest_similar_mcp_tool_names(want: &str, candidates: &[String]) -> Vec<String> {
+    let want = want.trim();
+    if want.is_empty() || candidates.is_empty() {
+        return Vec::new();
+    }
+    let mut scored: Vec<(usize, String)> = candidates
+        .iter()
+        .filter(|name| !name.trim().is_empty())
+        .map(|name| (mcp_edit_distance_for_suggestion(want, name), name.clone()))
+        .collect();
+    scored.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    scored.into_iter().take(3).map(|(_, name)| name).collect()
+}
+
+fn mcp_loaded_tool_names_for_session(app_state: &AppState, tool_session_id: &str) -> Vec<String> {
+    let Ok(conversation_id) = goal_tool_conversation_id(tool_session_id) else {
+        return Vec::new();
+    };
+    // 只读会话元数据，不整读消息：装配是每轮请求的热路径。
+    state_read_conversation_metadata_cached(app_state, &conversation_id)
+        .map(|meta| meta.loaded_mcp_tools().to_vec())
+        .unwrap_or_default()
+}
+
+fn build_mcp_directory_block(state: &AppState) -> Option<String> {
+    // 目录来源复用全局工具 schema 缓存：只在 MCP 部署变化时重建，平时复用。
+    // 缓存为空时回退到运行时直读，避免首轮缓存未建时目录缺失。
+    let cached = read_global_tool_schema_cache(Some(state));
+    let mut ordered_servers = Vec::<(String, String)>::new();
+    let mut tools_by_server = std::collections::HashMap::<String, Vec<(String, String)>>::new();
+    for tool in cached.iter() {
+        // 装配会跳过 schema 不兼容的 MCP 工具，目录不能把它们列出来，否则点了也拿不到。
+        if tool.compatibility_error.is_some() {
+            continue;
+        }
+        if let CachedRuntimeToolSource::Mcp {
+            server_id,
+            server_name,
+            ..
+        } = &tool.source
+        {
+            let server_id = server_id.trim().to_string();
+            if server_id.is_empty() {
+                continue;
+            }
+            let server_name = server_name.trim().to_string();
+            if !tools_by_server.contains_key(&server_id) {
+                ordered_servers.push((server_id.clone(), server_name));
+                tools_by_server.insert(server_id.clone(), Vec::new());
+            }
+            if let Some(list) = tools_by_server.get_mut(&server_id) {
+                list.push((
+                    tool.definition.name.clone(),
+                    tool.definition.description.clone(),
+                ));
+            }
+        }
+    }
+    if !ordered_servers.is_empty() {
+        let mut lines = vec!["[MCP工具目录] MCP 默认折叠，参数未下发，按名调 get_tool 后下轮可用。".to_string()];
+        let mut any_tool = false;
+        for (server_id, server_name) in &ordered_servers {
+            let Some(list) = tools_by_server.get(server_id) else {
+                continue;
+            };
+            if list.is_empty() {
+                continue;
+            }
+            any_tool = true;
+            let server_label = if server_name.trim().is_empty() {
+                server_id.clone()
+            } else {
+                server_name.clone()
+            };
+            // 服描述优先用 MCP 握手 instructions（进程内内存态，不落盘），拿不到才退回工具描述聚合。
+            let description = match mcp_server_instructions_get(server_id) {
+                Some(text) => truncate_chars_for_mcp_directory(&text, 1000),
+                None => {
+                    let joined_description = list
+                        .iter()
+                        .map(|(_, description)| description.trim())
+                        .filter(|description| !description.is_empty())
+                        .collect::<Vec<_>>()
+                        .join("；");
+                    if joined_description.trim().is_empty() {
+                        "暂无官方描述".to_string()
+                    } else {
+                        truncate_chars_for_mcp_directory(&joined_description, 1000)
+                    }
+                }
+            };
+            let tool_names = list
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            lines.push(format!(
+                "-服 {} ({}): {}",
+                server_label.trim(),
+                server_id.trim(),
+                description
+            ));
+            lines.push(format!("  工具: {tool_names}"));
+        }
+        if any_tool {
+            lines.push("拿取示例: get_tool({\"tool_names\":[\"<精确工具名>\"]})，错名回3个相近建议，只建议不自动装。".to_string());
+            return Some(lines.join("\n"));
+        }
+    }
+    let servers = load_workspace_mcp_servers(state).ok()?;
+    let enabled: Vec<_> = servers.into_iter().filter(|server| server.enabled).collect();
+    if enabled.is_empty() {
+        return None;
+    }
+    let mut lines = vec!["[MCP工具目录] MCP 默认折叠，参数未下发，按名调 get_tool 后下轮可用。".to_string()];
+    let mut any_tool = false;
+    for server in enabled {
+        let tools = list_tools_from_runtime(&server)
+            .into_iter()
+            .filter(|tool| tool.enabled && tool.compatibility_error.is_none())
+            .collect::<Vec<_>>();
+        if tools.is_empty() {
+            continue;
+        }
+        any_tool = true;
+        let server_label = if server.name.trim().is_empty() {
+            server.id.clone()
+        } else {
+            server.name.clone()
+        };
+        // 服描述优先用 MCP 握手 instructions（进程内内存态，不落盘），拿不到才退回工具描述聚合。
+        let description = match mcp_server_instructions_get(&server.id) {
+            Some(text) => truncate_chars_for_mcp_directory(&text, 1000),
+            None => {
+                let joined_description = tools
+                    .iter()
+                    .map(|tool| tool.description.trim())
+                    .filter(|description| !description.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("；");
+                if joined_description.trim().is_empty() {
+                    "暂无官方描述".to_string()
+                } else {
+                    truncate_chars_for_mcp_directory(&joined_description, 1000)
+                }
+            }
+        };
+        let tool_names = tools
+            .iter()
+            .map(|tool| tool.tool_name.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(format!("-服 {} ({}): {}", server_label.trim(), server.id.trim(), description));
+        lines.push(format!("  工具: {tool_names}"));
+    }
+    if !any_tool {
+        return None;
+    }
+    lines.push("拿取示例: get_tool({\"tool_names\":[\"<精确工具名>\"]})，错名回3个相近建议，只建议不自动装。".to_string());
+    Some(lines.join("\n"))
+}
+
+impl RuntimeToolMetadata for BuiltinGetMcpTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        gettool_provider_tool_definition()
+    }
+}
+
+impl RuntimeToolDyn for BuiltinGetMcpTool {
+    fn name(&self) -> String {
+        GETTOOL_TOOL_NAME.to_string()
+    }
+
+    fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
+        let app_state = self.app_state.clone();
+        let session_id = self.session_id.clone();
+        Box::pin(async move {
+            let parsed: Value = serde_json::from_str(&args_json).unwrap_or(Value::Null);
+            let mut requested = Vec::<String>::new();
+            if let Some(names) = parsed.get("tool_names").and_then(Value::as_array) {
+                for item in names {
+                    if let Some(name) = item.as_str().map(str::trim).filter(|v| !v.is_empty()) {
+                        requested.push(name.to_string());
+                    }
+                }
+            }
+            // 兼容单写一个名的调用：tool_name / name。
+            if requested.is_empty() {
+                for key in ["tool_name", "name"] {
+                    if let Some(name) = parsed.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()) {
+                        requested.push(name.to_string());
+                        break;
+                    }
+                }
+            }
+            // 去重保序。
+            {
+                let mut seen = std::collections::HashSet::<String>::new();
+                requested.retain(|name| seen.insert(name.trim().to_string()));
+            }
+            if requested.is_empty() {
+                return Ok(ProviderToolResult::error(
+                    "没有匹配到工具：tool_names 为空，请按目录中的精确工具名填写".to_string(),
+                ));
+            }
+            let Ok(conversation_id) = goal_tool_conversation_id(&session_id) else {
+                return Ok(ProviderToolResult::error(
+                    "没有匹配到工具：当前会话无法解析，已取消拿取".to_string(),
+                ));
+            };
+            let cached = read_global_tool_schema_cache(Some(&app_state));
+            let mut known_mcp = Vec::<String>::new();
+            let mut builtin_set = std::collections::HashSet::<String>::new();
+            for tool in cached {
+                let incompatible = tool.compatibility_error.is_some();
+                match tool.source {
+                    CachedRuntimeToolSource::Builtin => {
+                        builtin_set.insert(tool.definition.name);
+                    }
+                    // schema 不兼容的工具装配时会被跳过，不让它进拿取候选池。
+                    CachedRuntimeToolSource::Mcp { .. } => {
+                        if !incompatible {
+                            known_mcp.push(tool.definition.name);
+                        }
+                    }
+                }
+            }
+            let known_set: std::collections::HashSet<String> =
+                known_mcp.iter().cloned().collect();
+            let mut unknown = Vec::<String>::new();
+            let mut to_record = Vec::<String>::new();
+            for name in &requested {
+                if builtin_set.contains(name) {
+                    // 内置常驻已挂载，无需记录。
+                    continue;
+                }
+                if known_set.contains(name) {
+                    to_record.push(name.clone());
+                } else {
+                    unknown.push(name.clone());
+                }
+            }
+            if !unknown.is_empty() {
+                let first = unknown[0].clone();
+                let suggestions = suggest_similar_mcp_tool_names(&first, &known_mcp);
+                let mut message = format!("没有匹配到工具：{first}");
+                if !suggestions.is_empty() {
+                    message.push_str(&format!("，你是否想要匹配{}？", suggestions.join("、")));
+                }
+                return Ok(ProviderToolResult::error(message));
+            }
+            if to_record.is_empty() {
+                return Ok(ProviderToolResult::text(
+                    "内置工具常驻已可用，无需拿取".to_string(),
+                ));
+            }
+            let mut merged = state_read_conversation_metadata_cached(&app_state, &conversation_id)
+                .map(|meta| meta.loaded_mcp_tools().to_vec())
+                .unwrap_or_default();
+            for name in to_record.iter() {
+                if !merged.iter().any(|existing| existing == name) {
+                    merged.push(name.clone());
+                }
+            }
+            let patch_result = conversation_service_v2().apply_external_metadata_patch(
+                &app_state,
+                &conversation_id,
+                "mcp_gettool_record_loaded_tools",
+                ConversationExternalMetadataPatch {
+                    loaded_mcp_tools: Some(merged.clone()),
+                    ..Default::default()
+                },
+            );
+            if let Err(err) = patch_result {
+                return Ok(ProviderToolResult::error(format!("拿取失败，已取消：{err}")));
+            }
+            Ok(ProviderToolResult::text(format!(
+                "已记录：{}，下轮可用",
+                to_record.join("、")
+            )))
+        })
+    }
+}
 
 #[derive(Debug, Clone)]
 struct BuiltinOperateTool {

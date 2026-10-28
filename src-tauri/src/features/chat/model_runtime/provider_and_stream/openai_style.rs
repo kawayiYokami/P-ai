@@ -1,4 +1,6 @@
 async fn call_model_openai_with_tools(
+    app_config: &AppConfig,
+    agent: &AgentProfile,
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
     model_name: &str,
@@ -13,6 +15,8 @@ async fn call_model_openai_with_tools(
 ) -> Result<ModelReply, String> {
     let adapter_kind = resolve_provider_genai_adapter_kind(api_config, model_name, genai::adapter::AdapterKind::OpenAI);
     run_genai_tool_loop(
+        app_config,
+        agent,
         api_config,
         model_name,
         prepared,
@@ -48,6 +52,8 @@ fn openai_style_adapter_kind_for_deepseek_kimi(
 }
 
 async fn call_model_openai_responses_with_tools(
+    app_config: &AppConfig,
+    agent: &AgentProfile,
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
     model_name: &str,
@@ -62,6 +68,8 @@ async fn call_model_openai_responses_with_tools(
 ) -> Result<ModelReply, String> {
     let adapter_kind = resolve_provider_genai_adapter_kind(api_config, model_name, genai::adapter::AdapterKind::OpenAIResp);
     run_genai_tool_loop(
+        app_config,
+        agent,
         api_config,
         model_name,
         prepared,
@@ -80,6 +88,8 @@ async fn call_model_openai_responses_with_tools(
 }
 
 async fn call_model_deepseek_kimi_with_tools(
+    app_config: &AppConfig,
+    agent: &AgentProfile,
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
     model_name: &str,
@@ -98,6 +108,8 @@ async fn call_model_deepseek_kimi_with_tools(
         openai_style_adapter_kind_for_deepseek_kimi(api_config, model_name),
     );
     run_genai_tool_loop(
+        app_config,
+        agent,
         api_config,
         model_name,
         prepared,
@@ -116,6 +128,8 @@ async fn call_model_deepseek_kimi_with_tools(
 }
 
 async fn call_model_openai_non_stream_with_tools(
+    app_config: &AppConfig,
+    agent: &AgentProfile,
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
     model_name: &str,
@@ -130,6 +144,8 @@ async fn call_model_openai_non_stream_with_tools(
 ) -> Result<ModelReply, String> {
     let adapter_kind = resolve_provider_genai_adapter_kind(api_config, model_name, genai::adapter::AdapterKind::OpenAI);
     run_genai_tool_loop_non_stream(
+        app_config,
+        agent,
         api_config,
         model_name,
         prepared,
@@ -148,6 +164,8 @@ async fn call_model_openai_non_stream_with_tools(
 }
 
 async fn call_model_deepseek_kimi_non_stream_with_tools(
+    app_config: &AppConfig,
+    agent: &AgentProfile,
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
     model_name: &str,
@@ -166,6 +184,8 @@ async fn call_model_deepseek_kimi_non_stream_with_tools(
         openai_style_adapter_kind_for_deepseek_kimi(api_config, model_name),
     );
     run_genai_tool_loop_non_stream(
+        app_config,
+        agent,
         api_config,
         model_name,
         prepared,

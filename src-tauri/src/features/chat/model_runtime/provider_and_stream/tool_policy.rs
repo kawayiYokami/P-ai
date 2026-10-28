@@ -183,6 +183,15 @@ const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
         prompt_rule_id: Some("todo"),
         visible_in_permission_lists: false,
     },
+    // MCP 展开参数的拿取入口：属于运行时机制工具，不受权限白名单影响，也不进权限列表。
+    // 使用说明写在工具描述与 MCP 目录里，不注入系统提示词。
+    BuiltinToolPolicy {
+        id: "get_tool",
+        permission_class: BuiltinToolPermissionClass::SystemExempt,
+        runtime_scope: BuiltinToolRuntimeScope::Any,
+        prompt_rule_id: None,
+        visible_in_permission_lists: false,
+    },
     BuiltinToolPolicy {
         id: "task",
         permission_class: BuiltinToolPermissionClass::SystemExempt,

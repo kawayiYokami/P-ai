@@ -45,6 +45,8 @@ pub(super) struct ConversationPersistMeta {
     active_goal: Option<ConversationGoalState>,
     #[serde(default)]
     team: TeamState,
+    #[serde(default)]
+    loaded_mcp_tools: Vec<String>,
     fast_request_turns: Vec<FastRequestTurn>,
     last_message_id: Option<String>,
     last_message_at: Option<String>,
@@ -203,6 +205,8 @@ pub(super) struct ConversationShardMeta {
     active_goal: Option<ConversationGoalState>,
     #[serde(default)]
     team: TeamState,
+    #[serde(default)]
+    loaded_mcp_tools: Vec<String>,
     #[serde(default)]
     fast_request_turns: Vec<FastRequestTurn>,
     #[serde(default)]
@@ -480,6 +484,10 @@ impl ConversationShardMeta {
         &self.cumulative_usage
     }
 
+    pub(super) fn loaded_mcp_tools(&self) -> &[String] {
+        self.loaded_mcp_tools.as_slice()
+    }
+
     pub(super) fn normalized_legacy_usage_totals(mut self) -> Self {
         self.cumulative_usage = self.cumulative_usage.clone().normalized_legacy_totals();
         self
@@ -523,6 +531,7 @@ impl ConversationShardMeta {
         target.cumulative_usage = self.cumulative_usage.clone();
         target.active_goal = self.active_goal.clone();
         target.team = self.team.clone();
+        target.loaded_mcp_tools = self.loaded_mcp_tools.clone();
         target.fast_request_turns = self.fast_request_turns.clone();
         target.last_error = self.last_error.clone();
     }
@@ -561,6 +570,7 @@ impl ConversationShardMeta {
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
         self.team = source.team.clone();
+        self.loaded_mcp_tools = source.loaded_mcp_tools.clone();
         self.fast_request_turns = source.fast_request_turns.clone();
         self.last_error = source.last_error.clone();
     }
@@ -599,6 +609,7 @@ impl ConversationShardMeta {
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
         self.team = source.team.clone();
+        self.loaded_mcp_tools = source.loaded_mcp_tools.clone();
         self.last_error = source.last_error.clone();
     }
 
@@ -911,6 +922,7 @@ impl ConversationShardMeta {
             cumulative_usage: conversation.cumulative_usage.clone(),
             active_goal: conversation.active_goal.clone(),
             team: conversation.team.clone(),
+            loaded_mcp_tools: conversation.loaded_mcp_tools.clone(),
             fast_request_turns: conversation.fast_request_turns.clone(),
             last_error: conversation.last_error.clone(),
             last_message_id: conversation.messages.last().map(|message| message.id.clone()),
@@ -1011,6 +1023,7 @@ impl ConversationShardMeta {
             cumulative_usage: meta.cumulative_usage.clone(),
             active_goal: meta.active_goal.clone(),
             team: meta.team.clone(),
+            loaded_mcp_tools: meta.loaded_mcp_tools.clone(),
             fast_request_turns: meta.fast_request_turns.clone(),
             last_message_id: meta.last_message_id.clone(),
             last_message_at: meta.last_message_at.clone(),
@@ -1062,6 +1075,7 @@ impl ConversationShardMeta {
             cumulative_usage: self.cumulative_usage.clone(),
             active_goal: self.active_goal.clone(),
             team: self.team.clone(),
+            loaded_mcp_tools: self.loaded_mcp_tools.clone(),
             fast_request_turns: self.fast_request_turns.clone(),
             last_message_id: self.last_message_id.clone(),
             last_message_at: self.last_message_at.clone(),
@@ -1114,6 +1128,7 @@ impl ConversationShardMeta {
             cumulative_usage: self.cumulative_usage,
             active_goal: self.active_goal,
             team: self.team,
+            loaded_mcp_tools: self.loaded_mcp_tools,
             last_error: self.last_error,
         }
     }
@@ -1163,6 +1178,7 @@ mod message_store_meta_tests {
 
     fn test_conversation() -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-meta".to_string(),
             title: "元数据会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),

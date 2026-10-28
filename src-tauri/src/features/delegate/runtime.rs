@@ -125,6 +125,7 @@ fn delegate_parent_shell_workspace(
             cumulative_usage: ConversationCumulativeUsage::default(),
             active_goal: conversation_meta.active_goal,
             team: conversation_meta.team,
+            loaded_mcp_tools: Vec::new(),
             last_error: conversation_meta.last_error,
         })
         .filter(|conversation| delegate_workspace_snapshot_from_conversation(conversation).is_some())

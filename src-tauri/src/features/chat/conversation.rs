@@ -701,6 +701,7 @@ mod summary_context_title_tests {
 
     fn test_conversation(messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-a".to_string(),
             title: String::new(),
             agent_id: "agent-a".to_string(),
@@ -1106,6 +1107,7 @@ fn build_conversation_record(
         cumulative_usage: ConversationCumulativeUsage::default(),
         active_goal: None,
         team: TeamState::default(),
+        loaded_mcp_tools: Vec::new(),
         last_error: None,
     }
 }
@@ -3657,6 +3659,7 @@ fn build_prompt_with_mode(
         cumulative_usage: conversation.cumulative_usage.clone(),
         active_goal: conversation.active_goal.clone(),
         team: conversation.team.clone(),
+        loaded_mcp_tools: conversation.loaded_mcp_tools.clone(),
         last_error: conversation.last_error.clone(),
     };
     let recall_memory_ids = collect_prompt_retrieved_memory_ids(&enriched_conversation.messages);

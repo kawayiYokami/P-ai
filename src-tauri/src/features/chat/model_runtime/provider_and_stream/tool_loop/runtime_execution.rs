@@ -56,7 +56,22 @@ async fn call_runtime_tool_by_name(
         let name = tool.name();
         name == tool_name || (tool_name == "read_file" && name == READ_TOOL_NAME)
     }) else {
-        return Err(format!("未找到工具：{tool_name}"));
+        // MCP 折叠后，未拿取或写错名都会走到这里：只建议不自动装，必须按精确名单重拿。
+        let known: Vec<String> = read_global_tool_schema_cache(None)
+            .into_iter()
+            .filter(|tool| {
+                matches!(tool.source, CachedRuntimeToolSource::Mcp { .. })
+                    && tool.compatibility_error.is_none()
+            })
+            .map(|tool| tool.definition.name)
+            .collect();
+        let suggestions = suggest_similar_mcp_tool_names(tool_name, &known);
+        let mut message = format!("没有匹配到工具：{tool_name}");
+        if !suggestions.is_empty() {
+            message.push_str(&format!("，你是否想要匹配{}？", suggestions.join("、")));
+        }
+        message.push_str("；请按目录中的精确工具名调 get_tool 拿取，下轮再用。");
+        return Err(message);
     };
     if let Some(timeout) = tool.timeout_override(tool_args) {
         match tokio::time::timeout(timeout, tool.call_json(tool_args.to_string())).await {

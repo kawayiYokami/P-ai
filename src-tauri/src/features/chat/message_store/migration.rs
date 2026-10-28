@@ -739,6 +739,7 @@ mod message_store_tests {
 
     fn test_conversation(messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-a".to_string(),
             title: "会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),

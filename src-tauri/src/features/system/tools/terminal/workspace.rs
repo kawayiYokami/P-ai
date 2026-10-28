@@ -1855,6 +1855,7 @@ mod terminal_workspace_tests {
         state_write_config_cached(&state, &config).expect("write config");
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conv-1".to_string(),
             title: "Conversation".to_string(),
             agent_id: "agent-1".to_string(),
@@ -1939,6 +1940,7 @@ mod terminal_workspace_tests {
         state_write_config_cached(&state, &config).expect("write config");
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conv-1".to_string(),
             title: "Conversation".to_string(),
             agent_id: "agent-1".to_string(),

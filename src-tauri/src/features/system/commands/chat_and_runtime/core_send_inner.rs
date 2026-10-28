@@ -968,6 +968,7 @@ async fn send_chat_message_inner(
             cumulative_usage: ConversationCumulativeUsage::default(),
             active_goal: None,
             team: TeamState::default(),
+            loaded_mcp_tools: Vec::new(),
             last_error: None,
         }
     };
@@ -3439,6 +3440,7 @@ mod core_send_inner_tests {
     fn test_remote_im_conversation_with_messages(messages: Vec<ChatMessage>) -> Conversation {
         let now = now_iso();
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "remote-conversation-a".to_string(),
             title: "远程联系人".to_string(),
             agent_id: "agent-a".to_string(),
@@ -4160,6 +4162,7 @@ mod core_send_inner_tests {
     fn conversation_upsert_final_assistant_message_should_update_last_same_assistant() {
         let now = now_iso();
         let mut conversation = Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-a".to_string(),
             title: "测试".to_string(),
             agent_id: "agent-a".to_string(),

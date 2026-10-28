@@ -671,6 +671,7 @@ struct ConversationExternalMetadataPatch {
     routing_root_conversation_id: Option<Option<String>>,
     routing_conversation_kind: Option<String>,
     is_draft: Option<bool>,
+    loaded_mcp_tools: Option<Vec<String>>,
 }
 
 fn conversation_service_v2() -> &'static ConversationServiceV2 {
@@ -1307,6 +1308,9 @@ impl ConversationServiceV2 {
                         }
                         if let Some(value) = patch.is_draft {
                             conversation.is_draft = value;
+                        }
+                        if let Some(value) = patch.loaded_mcp_tools {
+                            conversation.loaded_mcp_tools = value;
                         }
                         if conversation
                             .shell_workspace_path

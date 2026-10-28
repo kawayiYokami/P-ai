@@ -90,6 +90,7 @@ fn active_plan_records_in_progress_should_return_newest_first() {
     let data_path = root.join("config_mark");
     let paths = message_store_paths(&data_path, conversation_id).expect("message store paths");
     let conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
         id: conversation_id.to_string(),
         title: "active plan order".to_string(),
         agent_id: DEFAULT_AGENT_ID.to_string(),

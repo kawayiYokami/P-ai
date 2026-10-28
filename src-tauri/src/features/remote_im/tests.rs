@@ -371,6 +371,7 @@
             .expect("write main conversation id");
         let conversations = vec![
             Conversation {
+                loaded_mcp_tools: Vec::new(),
                 id: "conversation-main".to_string(),
                 title: "main".to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -408,6 +409,7 @@
                 is_draft: false,
             },
             Conversation {
+                loaded_mcp_tools: Vec::new(),
                 id: "conversation-sub".to_string(),
                 title: "sub".to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -533,6 +535,7 @@
             .expect("write main conversation id");
         let conversations = vec![
             Conversation {
+                loaded_mcp_tools: Vec::new(),
                 id: "conversation-main".to_string(),
                 title: "main".to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -570,6 +573,7 @@
                 is_draft: false,
             },
             Conversation {
+                loaded_mcp_tools: Vec::new(),
                 id: "conversation-sub".to_string(),
                 title: "sub".to_string(),
                 agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -704,6 +708,7 @@
     #[test]
     fn conversation_has_remote_im_platform_message_should_match_snake_case_origin_meta() {
         let conversation = Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conv-1".to_string(),
             title: "联系人".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -774,6 +779,7 @@
     #[test]
     fn conversation_has_remote_im_platform_message_should_ignore_legacy_origin_meta() {
         let conversation = Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conv-1".to_string(),
             title: "联系人".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -2016,6 +2022,7 @@
         let mut contact = remote_im_test_contact("contact-a", "conversation-a");
         contact.remote_contact_type = "group".to_string();
         let conversation = Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-a".to_string(),
             title: "群会话".to_string(),
             agent_id: "agent-a".to_string(),

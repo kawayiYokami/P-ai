@@ -931,6 +931,13 @@ impl ConversationPromptService {
             if let Some(log_stage) = stage_logger {
                 log_stage("prepare_context.im_runtime_ready");
             }
+            // MCP 按需加载目录：服名 + 官方服描述 + 工具名清单常驻，参数先藏。
+            if let Some(mcp_block) = build_mcp_directory_block(state) {
+                blocks.push(mcp_block);
+            }
+            if let Some(log_stage) = stage_logger {
+                log_stage("prepare_context.mcp_directory_ready");
+            }
         }
         blocks
     }

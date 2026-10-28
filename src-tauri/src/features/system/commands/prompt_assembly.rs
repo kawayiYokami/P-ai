@@ -634,6 +634,7 @@ mod prompt_assembly_tests {
 
     fn build_test_conversation(workspaces: Vec<ShellWorkspaceConfig>) -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conv-1".to_string(),
             title: "test".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),

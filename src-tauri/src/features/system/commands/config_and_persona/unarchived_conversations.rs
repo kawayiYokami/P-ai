@@ -1233,6 +1233,8 @@ fn clone_foreground_conversation_for_copy(
     conversation.delegate_id = None;
     conversation.status = "active".to_string();
     conversation.archived_at = None;
+    // MCP 临时名单不继承：复制出的会话按目录重拿。
+    conversation.loaded_mcp_tools = Vec::new();
     // 工作树路径是会话专属目录：复制出的会话必须重新解析，不能复用源会话的工作树
     conversation.shell_worktree_path = String::new();
     conversation.created_at = now.clone();
@@ -4311,8 +4313,27 @@ mod unarchived_conversations_tests {
         assert_ne!(copied.id, source.id, "复制出的会话应使用新 id");
     }
 
+    #[test]
+    fn clone_foreground_conversation_for_copy_should_drop_loaded_mcp_tools() {
+        let mut source = build_test_conversation();
+        source.loaded_mcp_tools = vec!["main_docs".to_string()];
+
+        let copied = clone_foreground_conversation_for_copy(&source, "agent-a", "副本");
+
+        assert!(
+            copied.loaded_mcp_tools.is_empty(),
+            "分叉出的会话必须按目录重拿，不继承 MCP 临时名单"
+        );
+        assert_eq!(
+            source.loaded_mcp_tools,
+            vec!["main_docs".to_string()],
+            "源会话的名单不应被复制逻辑改动"
+        );
+    }
+
     fn build_test_conversation() -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "source-conversation".to_string(),
             title: "原会话".to_string(),
             agent_id: "agent-a".to_string(),

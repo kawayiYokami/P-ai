@@ -802,6 +802,7 @@ mod chat_metadata_repair_tests {
 
     fn test_conversation(id: &str, message_count: usize) -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: id.to_string(),
             title: format!("fake-{id}"),
             agent_id: DEFAULT_AGENT_ID.to_string(),

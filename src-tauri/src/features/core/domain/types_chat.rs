@@ -647,6 +647,10 @@ struct Conversation {
     /// 队伍状态：队长会话持名册，队员会话持成员身份。
     #[serde(default)]
     team: TeamState,
+    /// MCP 按需加载临时名单：本会话已点名拿取的 MCP 精确工具名集合。
+    /// 重启不丢；压缩后清空；fork / 委托不继承。
+    #[serde(default)]
+    loaded_mcp_tools: Vec<String>,
     #[serde(default)]
     last_error: Option<String>,
 }

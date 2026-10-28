@@ -131,6 +131,10 @@ struct CachedMcpRuntimeTool {
     definition: rmcp::model::Tool,
 }
 
+fn normalize_mcp_display_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn provider_tool_result_from_mcp_call(
     tool_name: &str,
     result: rmcp::model::CallToolResult,
@@ -139,6 +143,9 @@ fn provider_tool_result_from_mcp_call(
     let mut display_lines = Vec::<String>::new();
     let mut metadata = ProviderToolMetadata::default();
 
+    // 结构化展示行延后决定：MCP 服务常把同一份内容同时放进 structuredContent 与 content 文本
+    // （如 deepwiki 的页面目录），content 文本才是给人看的版本，重复时不重复展示。
+    let mut structured_display: Option<String> = None;
     if let Some(structured) = result.structured_content.as_ref() {
         let mut structured = structured.clone();
         if metadata.backup_record_id.is_none() {
@@ -154,7 +161,7 @@ fn provider_tool_result_from_mcp_call(
             });
         }
         remove_inline_media_from_tool_value(&mut structured);
-        display_lines.push(tool_value_readable_text(&structured));
+        structured_display = Some(tool_value_readable_text(&structured));
     }
 
     for content in result.content {
@@ -255,6 +262,21 @@ fn provider_tool_result_from_mcp_call(
                 });
             }
             _ => {}
+        }
+    }
+
+    // 结构化展示只在 content 没有覆盖它时补上：content 文本已包含同一份内容就丢弃结构化那份。
+    if let Some(structured_text) = structured_display {
+        let normalized_structured = normalize_mcp_display_text(&structured_text);
+        let already_covered = !normalized_structured.is_empty()
+            && display_lines.iter().any(|line| {
+                let normalized_line = normalize_mcp_display_text(line);
+                !normalized_line.is_empty()
+                    && normalized_line.len() <= normalized_structured.len()
+                    && normalized_structured.contains(&normalized_line)
+            });
+        if !normalized_structured.is_empty() && !already_covered {
+            display_lines.push(structured_text.trim().to_string());
         }
     }
 
@@ -527,6 +549,65 @@ fn mcp_runtime_state_remove(server_id: &str) {
         }
     };
     guard.remove(server_id);
+    drop(guard);
+    mcp_server_instructions_remove(server_id);
+}
+
+/// MCP 握手 instructions 的内存缓存：只服务当前进程内的目录展示，不落盘。
+fn mcp_server_instructions_store() -> &'static Mutex<std::collections::HashMap<String, String>> {
+    static STORE: OnceLock<Mutex<std::collections::HashMap<String, String>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn mcp_server_instructions_set(server_id: &str, instructions: &str) {
+    let normalized_server_id = server_id.trim();
+    let normalized_instructions = instructions.trim();
+    if normalized_server_id.is_empty() || normalized_instructions.is_empty() {
+        return;
+    }
+    let mut guard = match mcp_server_instructions_store().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            runtime_log_info(format!(
+                "[MCP] 写入握手说明时锁中毒 for server_id={normalized_server_id}: {poisoned}"
+            ));
+            poisoned.into_inner()
+        }
+    };
+    guard.insert(
+        normalized_server_id.to_string(),
+        normalized_instructions.to_string(),
+    );
+}
+
+fn mcp_server_instructions_get(server_id: &str) -> Option<String> {
+    let guard = match mcp_server_instructions_store().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            runtime_log_info(format!(
+                "[MCP] 读取握手说明时锁中毒 for server_id={}: {}",
+                server_id.trim(),
+                poisoned
+            ));
+            poisoned.into_inner()
+        }
+    };
+    guard.get(server_id.trim()).cloned()
+}
+
+fn mcp_server_instructions_remove(server_id: &str) {
+    let mut guard = match mcp_server_instructions_store().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            runtime_log_info(format!(
+                "[MCP] 移除握手说明时锁中毒 for server_id={}: {}",
+                server_id.trim(),
+                poisoned
+            ));
+            poisoned.into_inner()
+        }
+    };
+    guard.remove(server_id.trim());
 }
 
 fn mcp_runtime_state_update<F>(server_id: &str, update: F)
@@ -1300,6 +1381,12 @@ async fn mcp_list_tools_with_peer(
             })?;
         cached.client.peer().clone()
     };
+    // 握手 instructions 是官方服描述来源，只放内存：重启后重新握手再取。
+    if let Some(info) = peer.peer_info() {
+        if let Some(instructions) = info.instructions.as_deref() {
+            mcp_server_instructions_set(&server.id, instructions);
+        }
+    }
     let tools = tokio::time::timeout(
         std::time::Duration::from_secs(MCP_REQUEST_TIMEOUT_SECS),
         peer.list_all_tools(),

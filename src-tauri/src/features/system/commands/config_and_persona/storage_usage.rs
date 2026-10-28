@@ -2203,6 +2203,7 @@ mod storage_usage_tests {
 
     fn storage_usage_test_conversation(conversation_id: &str, kind: &str) -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: conversation_id.to_string(),
             title: "测试会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),

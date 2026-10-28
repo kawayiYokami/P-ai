@@ -1,4 +1,6 @@
 async fn call_model_anthropic_with_tools(
+    app_config: &AppConfig,
+    agent: &AgentProfile,
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
     model_name: &str,
@@ -13,6 +15,8 @@ async fn call_model_anthropic_with_tools(
 ) -> Result<ModelReply, String> {
     let adapter_kind = resolve_provider_genai_adapter_kind(api_config, model_name, genai::adapter::AdapterKind::Anthropic);
     run_genai_tool_loop(
+        app_config,
+        agent,
         api_config,
         model_name,
         prepared,

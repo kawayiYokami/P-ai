@@ -813,6 +813,7 @@ mod message_store_migration_gate_tests {
 
     fn test_conversation(id: &str) -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: id.to_string(),
             title: "迁移测试会话".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),

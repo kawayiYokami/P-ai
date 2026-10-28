@@ -1643,6 +1643,7 @@ mod archive_pipeline_tests {
 
     fn test_conversation() -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-a".to_string(),
             title: "测试会话".to_string(),
             agent_id: "agent-a".to_string(),

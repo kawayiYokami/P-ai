@@ -2383,6 +2383,7 @@ mod message_store_reader_tests {
 
     fn test_conversation(messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-reader".to_string(),
             title: "reader".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),

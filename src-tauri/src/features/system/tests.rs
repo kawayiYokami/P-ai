@@ -312,6 +312,7 @@
         let now = now_iso();
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: conversation_id.clone(),
             title: "todo".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -516,6 +517,7 @@
             + estimated_tokens_for_text(&latest_assistant_line).ceil() as usize
             + estimated_tokens_for_text("\n").ceil() as usize;
         let conversation = Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: "conversation-token-budget".to_string(),
             title: "token budget".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),

@@ -43,6 +43,7 @@
     ) -> Conversation {
         let now = now_iso();
         Conversation {
+            loaded_mcp_tools: Vec::new(),
             id: Uuid::new_v4().to_string(),
             title: "t".to_string(),
             agent_id: DEFAULT_AGENT_ID.to_string(),

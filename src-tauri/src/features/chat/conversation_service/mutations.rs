@@ -900,6 +900,7 @@ fn read_conversation_for_backup_cleanup(
         cumulative_usage: conversation_meta.cumulative_usage,
         active_goal: conversation_meta.active_goal,
         team: conversation_meta.team,
+        loaded_mcp_tools: Vec::new(),
         last_error: conversation_meta.last_error,
     })
 }
