@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, ref, shallowRef, watch, type Ref } from "vue";
+import { computed, nextTick, onScopeDispose, ref, shallowRef, watch, type Ref } from "vue";
 import {
   bindTransportConversationStream,
   chatStreamNeedsFrontendBind,
@@ -583,6 +583,18 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
       clearRuntime: true,
       preserveExistingHistory: false,
     });
+    // 追问面板按会话 id 整棵重建，virtua 会从列表顶部开始渲染，没有主会话那样常驻的滚动位置；
+    // 这里补一次与主会话切换同口径的落位：流式中走 follow 持续贴底，否则瞬移到底。
+    if (disposed || conversationId !== currentConversationId()) return;
+    await nextTick();
+    if (disposed || conversationId !== currentConversationId()) return;
+    // 类型上 runtimeState 已被上面赋成 "idle"，快照里的真实状态要按值重新读一次。
+    const readyRuntimeState = String(runtimeState.value);
+    triggerConversationScrollToBottom(
+      conversationId,
+      "side_snapshot_ready",
+      readyRuntimeState === "assistant_streaming" ? "follow" : "auto",
+    );
   }, { immediate: true });
 
   function handleForegroundWake(event: Event) {

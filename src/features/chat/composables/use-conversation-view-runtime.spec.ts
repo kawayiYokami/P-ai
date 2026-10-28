@@ -692,4 +692,35 @@ describe("useConversationViewRuntime", () => {
     ).toHaveLength(1);
     scope.stop();
   });
+
+  it("打开追问会话后请求落位到最新消息", async () => {
+    invokeTauriMock.mockResolvedValueOnce({
+      conversationId: "conversation-a",
+      messages: [message("assistant-1", "历史正文")],
+      runtimeState: "idle",
+      shouldBindStream: false,
+    });
+
+    const { runtime, scope } = await createRuntime("conversation-a");
+    await vi.waitFor(() => expect(runtime.allMessages.value).toHaveLength(1));
+    await vi.waitFor(() => expect(runtime.conversationScrollToBottomRequest.value).toBe(1));
+    expect(runtime.scrollToBottomBehavior.value).toBe("auto");
+    scope.stop();
+  });
+
+  it("打开正在流式的追问会话时按跟随模式落位", async () => {
+    invokeTauriMock.mockResolvedValueOnce({
+      conversationId: "conversation-a",
+      messages: [message("assistant-1", "partial")],
+      runtimeState: "assistant_streaming",
+      shouldBindStream: true,
+      streamCache: { persistedAssistantMessageId: "assistant-1", assistantText: "partial", hasVisibleProgress: true },
+    });
+
+    const { runtime, scope } = await createRuntime("conversation-a");
+    await vi.waitFor(() => expect(runtime.allMessages.value).toHaveLength(1));
+    await vi.waitFor(() => expect(runtime.conversationScrollToBottomRequest.value).toBe(1));
+    expect(runtime.scrollToBottomBehavior.value).toBe("follow");
+    scope.stop();
+  });
 });
