@@ -35,7 +35,8 @@
         trimming: false,
         compactingConversation: false,
         activeConversationId: conversationId,
-        organizingContext: runtime.runtimeState.value === 'organizing_context',
+        organizingContext: runtime.runtimeState.value === 'organizing_context'
+          || runtime.runtimeState.value === 'compacting',
       })
     "
     :frozen="false"
@@ -215,6 +216,9 @@ const conversationItems = computed(() => conversationId.value ? [{
   kind: "local_unarchived" as const,
   messageCount: runtime.allMessages.value.length,
   agentId: agentId.value,
+  // 追问侧唯一的整理中信号：后端压缩管线推 organizing_context 时，
+  // ChatView 内部横幅与锁定都认这个字段，缺了就会无提示、无锁定。
+  runtimeState: runtime.runtimeState.value,
 }] : []);
 
 function updateChatInput(value: string) {

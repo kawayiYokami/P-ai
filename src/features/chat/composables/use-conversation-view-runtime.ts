@@ -101,6 +101,7 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     || chatting.value
     || runtimeState.value === "assistant_streaming"
     || runtimeState.value === "organizing_context"
+    || runtimeState.value === "compacting"
   );
   // 视图层交互忙碌由组件层统一调用 isViewLayerBusy 判定（chat-view-busy.ts），
   // 不再在 runtime 内自建一份拼装，避免与主会话外壳分叉。
