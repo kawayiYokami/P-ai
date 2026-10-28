@@ -3616,16 +3616,28 @@ let lastTailSpacerHeight = 0;
 // 此时视口停在上方，若照样下拉会把用户从历史位置直接拽到最底。
 // 容差取自实测：跟随状态下距底距离基本为 0，偶发瞬态最大 54px。
 const PIN_TO_BOTTOM_TOLERANCE_PX = 64;
+// 离散插入（引导/队列新气泡）与流式逐字增长的区分线：
+// 实测引导气泡单次增高约 67px，自己发言平滑路径单帧最大 11px，流式每 tick 增量更小。
+// 超过该线走平滑滚到底（与 own_top/手动回到底部同路），以下走瞬时跟随避免流式滞后。
+const PIN_SMOOTH_DISCRETE_DELTA_PX = 40;
 
-function pinChatToBottomWhileFollowing() {
+function pinChatToBottomWhileFollowing(contentDelta = 0) {
   if (!followBottom.value) return;
   const el = scrollContainer.value;
   if (!el) return;
   const distanceToBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
   if (distanceToBottom > PIN_TO_BOTTOM_TOLERANCE_PX) return;
   const before = el.scrollTop;
-  el.scrollTop = el.scrollHeight;
-  if (Math.abs(el.scrollTop - before) > 1) {
+  const targetTop = el.scrollHeight;
+  if (contentDelta > PIN_SMOOTH_DISCRETE_DELTA_PX) {
+    // 离散插入：平滑滚到底；同时强制刷新滚动条 extent，否则 300ms 缓存过期时 thumb 会跳一下
+    el.scrollTo({ top: targetTop, behavior: "smooth" });
+    chatScrollbarRef.value?.updateThumb(true);
+  } else {
+    el.scrollTop = el.scrollHeight;
+    chatScrollbarRef.value?.updateThumb();
+  }
+  if (Math.abs(el.scrollTop - before) > 1 || contentDelta > PIN_SMOOTH_DISCRETE_DELTA_PX) {
     probeChatScroll("跟随贴底", {
       before: Math.round(before),
       after: Math.round(el.scrollTop),
@@ -3633,7 +3645,6 @@ function pinChatToBottomWhileFollowing() {
       clientHeight: el.clientHeight,
     });
   }
-  chatScrollbarRef.value?.updateThumb();
 }
 
 // 换行让正文先长高，留白要等下一帧才缩短，中间这一帧会把视口顶下去再弹回来。
@@ -3665,7 +3676,7 @@ watch(chatContentRoot, (el, _prev, onCleanup) => {
     lastTailSpacerHeight = latestOwnTailSpacerMinHeight.value;
     lastChatContentHeight = height - absorbed;
     if (absorbed > 0) void el.offsetHeight;
-    if (absorbed < contentDelta) pinChatToBottomWhileFollowing();
+    if (absorbed < contentDelta) pinChatToBottomWhileFollowing(contentDelta - absorbed);
     if (latestOwnTailSpacerMinHeight.value > 0 || !latestOwnTailContentMeasured.value) {
       scheduleTailMetricsRefresh(1);
     }
