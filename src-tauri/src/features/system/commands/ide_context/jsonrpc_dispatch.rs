@@ -264,6 +264,23 @@ async fn ide_chat_handle_jsonrpc_request(
         "conversation.rename" => ide_chat_rename_conversation_command(state, request.params),
         "conversation.pin" => ide_chat_toggle_pin_command(state, request.params),
         "conversation.autoPush" => ide_chat_set_auto_push_command(state, request.params),
+        // 会话索引库探活与自修复：Web 端与桌面端共用同一份实现
+        "conversation.storageHealth" => {
+            match ide_chat_parse_param_field::<ConversationStorageRepairInput>(request.params, "input") {
+                Ok(input) => get_conversation_storage_health_inner(&input, state)
+                    .await
+                    .and_then(ide_chat_serialize),
+                Err(err) => Err(err),
+            }
+        }
+        "conversation.repairStorage" => {
+            match ide_chat_parse_param_field::<ConversationStorageRepairInput>(request.params, "input") {
+                Ok(input) => repair_conversation_storage_inner(&input, state)
+                    .await
+                    .and_then(ide_chat_serialize),
+                Err(err) => Err(err),
+            }
+        }
         "list_unarchived_conversations" => ide_chat_list_unarchived_conversations_for_web_settings(state).await,
         "conversation.overview.list" => ide_chat_list_unarchived_conversations_for_web_settings(state).await,
         "remote_im_list_contact_conversations" => {

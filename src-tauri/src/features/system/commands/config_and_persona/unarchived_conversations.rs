@@ -4143,7 +4143,15 @@ async fn get_conversation_storage_health(
     input: ConversationStorageRepairInput,
     state: State<'_, AppState>,
 ) -> Result<message_store::ChatStorageHealth, String> {
-    let conversation_id = chat_storage_repair_conversation_id(&input)?;
+    get_conversation_storage_health_inner(&input, state.inner()).await
+}
+
+/// 会话索引库探活：桌面命令与 Web 端 JSON-RPC 共用，避免两端各写一份
+async fn get_conversation_storage_health_inner(
+    input: &ConversationStorageRepairInput,
+    state: &AppState,
+) -> Result<message_store::ChatStorageHealth, String> {
+    let conversation_id = chat_storage_repair_conversation_id(input)?;
     let data_path = state.data_path.clone();
     tokio::task::spawn_blocking(move || {
         message_store::chat_metadata_store_probe_conversation(&data_path, &conversation_id)
@@ -4157,8 +4165,16 @@ async fn repair_conversation_storage(
     input: ConversationStorageRepairInput,
     state: State<'_, AppState>,
 ) -> Result<message_store::ChatStorageRepairOutcome, String> {
-    let conversation_id = chat_storage_repair_conversation_id(&input)?;
-    let runtime_state = get_conversation_runtime_state(state.inner(), &conversation_id)?;
+    repair_conversation_storage_inner(&input, state.inner()).await
+}
+
+/// 会话索引库修复：桌面命令与 Web 端 JSON-RPC 共用
+async fn repair_conversation_storage_inner(
+    input: &ConversationStorageRepairInput,
+    state: &AppState,
+) -> Result<message_store::ChatStorageRepairOutcome, String> {
+    let conversation_id = chat_storage_repair_conversation_id(input)?;
+    let runtime_state = get_conversation_runtime_state(state, &conversation_id)?;
     if runtime_state != MainSessionState::Idle {
         return Err("当前会话正在运行或整理上下文，完成后再修复。".to_string());
     }
