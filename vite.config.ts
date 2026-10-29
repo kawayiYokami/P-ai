@@ -86,6 +86,9 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // 双栈监听：旧的 tauri dev 窗口可能还指向 localhost（::1），
+    // 只绑 IPv4 会让它连不上。绑 "::" 时 IPv4 与 IPv6 都能进。
+    host: "::",
     watch: {
       ignored: [
         "**/.git/**",
