@@ -1,7 +1,7 @@
 import type { Ref } from "vue";
 import { normalizeAssistantStreamBlocks } from "../../../utils/chat-message-semantics";
 import {
-  assistantEventHasVisibleProgress,
+  assistantEventStartsStreaming,
   readDeltaMessage,
   readContextUsageUpdatePayload,
   readRoundCompletedPayload,
@@ -301,11 +301,11 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
       return;
     }
     if (parsed.kind === "tool_status") {
-      // 工具/重试状态本身就是促使 waiting -> streaming 的可见进度。
-      // 状态写入消息由 applyAssistantEventToMessage 完成（状态机 tool_status 分支
-      // 写 _toolStatusText/_toolStatusState），投影初始化会保留消息已有值，无需 refs。
+      // tool_status 是调度信号（准备上下文/等待回应/执行工具），只原地刷新
+      // 等待气泡的 _toolStatusText/_schedulingState，不触发 queued -> streaming。
+      // 只有正文/思维链/工具事件才算流式开始。
     }
-    if (round.phase === "queued" && round.gen === currentGen && assistantEventHasVisibleProgress(parsed)) {
+    if (round.phase === "queued" && round.gen === currentGen && assistantEventStartsStreaming(parsed)) {
       options.promoteQueuedRoundToStreaming(currentGen);
     }
     const currentRound = options.getRound();
@@ -421,8 +421,10 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
 
     if (parsed.kind === "tool_status") {
       // 工具状态即时处理（先冲刷缓冲保持事件顺序），不参与正文节流。
+      // queued 下也要原地应用：等待回应文案靠它刷新 schedulingState，
+      // 应用本身不提升阶段（状态机 tool_status 分支保 phase）。
       flushStreamTextBuffer();
-      if (currentRound.phase === "streaming" && !receivedCanonicalSnapshot) {
+      if ((currentRound.phase === "streaming" || currentRound.phase === "queued") && !receivedCanonicalSnapshot) {
         options.applyAssistantEventToMessage(currentRound.messageId, parsed);
       }
     }

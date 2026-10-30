@@ -278,3 +278,30 @@ export function assistantEventHasVisibleProgress(parsed: AssistantDeltaEvent): b
     || parsed.kind === "tool_status"
   );
 }
+
+/**
+ * queued -> streaming 的唯一触发条件：真正的内容进度。
+ * tool_status（准备上下文/等待回应/调用工具中等调度信号）只原地刷新
+ * 等待气泡的 `_schedulingState`，不算流式开始，否则准备上下文的下一跳
+ * 会直接跳成流式，等待回应没有独立的展示阶段。
+ */
+export function assistantEventStartsStreaming(parsed: AssistantDeltaEvent): boolean {
+  if (
+    !!readDeltaMessage(parsed)
+    || parsed.kind === "activity_reasoning_delta"
+    || parsed.kind === "assistant_tool_event"
+    || parsed.kind === "assistant_tool_result"
+  ) {
+    return true;
+  }
+  // 带快照的 tool_status：如果快照里已经有正文/块，说明本轮已有实质输出，
+  // 同样算流式开始；只有纯调度文案（无正文无块）才留在等待阶段。
+  const cache = parsed.streamCache as
+    | { assistantText?: unknown; streamBlocks?: unknown }
+    | undefined;
+  if (cache) {
+    if (String(cache.assistantText || "").trim()) return true;
+    if (Array.isArray(cache.streamBlocks) && cache.streamBlocks.length > 0) return true;
+  }
+  return false;
+}

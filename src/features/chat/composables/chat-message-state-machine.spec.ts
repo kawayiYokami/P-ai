@@ -98,6 +98,85 @@ describe("chat message state machine", () => {
     expect(state.messages[0]).toBe(waitingMessage);
   });
 
+  it("keeps scheduling-only tool_status in waiting instead of starting the stream", () => {
+    let state = createChatMessageState("conversation-1");
+    state = reduceChatMessageState(state, {
+      type: "round_started",
+      conversationId: "conversation-1",
+      assistantMessageId: "assistant-1",
+      activationId: "activation-1",
+      phase: "waiting",
+    });
+    state = reduceChatMessageState(state, {
+      type: "assistant_delta",
+      conversationId: "conversation-1",
+      event: {
+        activationId: "activation-1",
+        kind: "tool_status",
+        toolStatus: "running",
+        message: "正在准备调度...",
+      },
+    });
+    expect(state.round.phase).toBe("waiting");
+    expect(state.messages[0].providerMeta?._schedulingState).toBe("preparing_context");
+
+    state = reduceChatMessageState(state, {
+      type: "assistant_delta",
+      conversationId: "conversation-1",
+      event: {
+        activationId: "activation-1",
+        kind: "tool_status",
+        toolStatus: "running",
+        message: "正在进入模型请求阶段...",
+      },
+    });
+    expect(state.round.phase).toBe("waiting");
+    expect(state.messages[0].providerMeta?._schedulingState).toBe("waiting_response");
+
+    state = reduceChatMessageState(state, {
+      type: "assistant_delta",
+      conversationId: "conversation-1",
+      event: { activationId: "activation-1", kind: "activity_reasoning_delta", delta: "思考中" },
+    });
+    expect(state.round.phase).toBe("streaming");
+    expect(state.messages[0].providerMeta?._schedulingState).toBe("streaming_reasoning");
+  });
+
+  it("keeps tool-status-only snapshots in waiting until real content arrives", () => {
+    let state = createChatMessageState("conversation-1");
+    state = reduceChatMessageState(state, {
+      type: "round_started",
+      conversationId: "conversation-1",
+      assistantMessageId: "assistant-1",
+      activationId: "activation-1",
+      phase: "waiting",
+    });
+    state = reduceChatMessageState(state, {
+      type: "assistant_stream_snapshot",
+      conversationId: "conversation-1",
+      snapshot: {
+        persistedAssistantMessageId: "assistant-1",
+        activationId: "activation-1",
+        toolStatusText: "正在进入模型请求阶段...",
+        toolStatusState: "running",
+        schedulingState: "waiting_response",
+      },
+    });
+    expect(state.round.phase).toBe("waiting");
+
+    state = reduceChatMessageState(state, {
+      type: "assistant_stream_snapshot",
+      conversationId: "conversation-1",
+      snapshot: {
+        persistedAssistantMessageId: "assistant-1",
+        activationId: "activation-1",
+        assistantText: "正文",
+        streamBlocks: [{ text: "正文", tools: [] }],
+      },
+    });
+    expect(state.round.phase).toBe("streaming");
+  });
+
   it("replaces the streaming projection with the formal message and keeps planCard", () => {
     let state = createChatMessageState("conversation-1");
     state = reduceChatMessageState(state, {

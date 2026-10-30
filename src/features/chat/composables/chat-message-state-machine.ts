@@ -436,10 +436,11 @@ function reduceRoundStarted(
 }
 
 function snapshotHasVisibleProgress(snapshot: ChatMessageStreamSnapshot, blocks: unknown): boolean {
+  // 流式阶段判定：只有正文/内容块才算流式开始。纯调度文案
+  // （准备上下文/等待回应等 toolStatus）只对应等待阶段，不提升 phase，
+  // 否则准备上下文的下一跳会直接跳成流式，等待回应没有独立阶段。
   return !!(
     normalized(snapshot.assistantText)
-    || normalized(snapshot.toolStatusText)
-    || normalized(snapshot.toolStatusState)
     || normalizeAssistantStreamBlocks(blocks).length > 0
   );
 }
@@ -544,7 +545,11 @@ function reduceStreamSnapshot(
     ...current,
     messages: replaceMessage(current.messages, messageId, nextMessage),
     round: {
-      phase: snapshotHasVisibleProgress(snapshot, blocks) ? "streaming" : "waiting",
+      // 已在流式中的回合保持流式，避免纯调度快照把它打回等待；
+      // 等待中的回合只有见到正文/内容块才转流式，纯调度文案留在等待。
+      phase: current.round.phase === "streaming"
+        ? "streaming"
+        : (snapshotHasVisibleProgress(snapshot, blocks) ? "streaming" : "waiting"),
       assistantMessageId: messageId,
       activationId: normalized(snapshot.activationId || snapshot.requestId || current.round.activationId),
       requestId: normalized(snapshot.requestId || snapshot.activationId || current.round.requestId),
@@ -644,7 +649,9 @@ function reduceAssistantDelta(
     messages: replaceMessage(state.messages, messageId, nextMessage),
     round: {
       ...state.round,
-      phase: "streaming",
+      // 调度信号（准备上下文/等待回应）只刷新气泡文案，不提升阶段；
+      // 只有正文/思维链/工具事件才算流式开始。
+      phase: kind === "tool_status" ? state.round.phase : "streaming",
       activationId: normalized(deltaEvent.activationId || deltaEvent.requestId || state.round.activationId),
       requestId: normalized(deltaEvent.requestId || deltaEvent.activationId || state.round.requestId),
       revision: normalized(deltaEvent.revision || state.round.revision),
