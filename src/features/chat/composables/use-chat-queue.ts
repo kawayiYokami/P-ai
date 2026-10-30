@@ -169,6 +169,30 @@ export function useChatQueue(options: UseChatQueueOptions = {}) {
       }));
       unlisteners.push(onTransportNotification("chat.roundStarted", refreshRuntimeSnapshot));
       unlisteners.push(onTransportNotification("chat.roundFinished", refreshRuntimeSnapshot));
+      // 历史落地意味着队列已被消费：切会话期间错过快照推送时，靠它把队列刷掉，
+      // 否则切回会看到历史已刷出、队列还挂着的 ghost。
+      unlisteners.push(onTransportNotification("chat.historyFlushed", refreshRuntimeSnapshot));
+      // 浏览器切后台/息屏/弱网可能丢推送：回焦、可见、重连时补拉一次。
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+        const handleWindowReturn = () => {
+          if (typeof document !== "undefined" && document.hidden) return;
+          void refreshQueue();
+        };
+        const handleOnline = () => {
+          void refreshQueue();
+        };
+        window.addEventListener("focus", handleWindowReturn);
+        window.addEventListener("online", handleOnline);
+        const handleVisibility = () => {
+          if (typeof document !== "undefined" && !document.hidden) void refreshQueue();
+        };
+        if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+          document.addEventListener("visibilitychange", handleVisibility);
+          unlisteners.push(() => document.removeEventListener("visibilitychange", handleVisibility));
+        }
+        unlisteners.push(() => window.removeEventListener("focus", handleWindowReturn));
+        unlisteners.push(() => window.removeEventListener("online", handleOnline));
+      }
     } catch (error) {
       polling.value = false;
       while (unlisteners.length > 0) {

@@ -615,9 +615,19 @@ function onMenuOutsideClick(event: MouseEvent) {
 onMounted(() => { document.addEventListener('pointerdown', onMenuOutsideClick); });
 onBeforeUnmount(() => { document.removeEventListener('pointerdown', onMenuOutsideClick); });
 
-const { queueEvents, recallQueueEvent, markGuided } = useChatQueue({
+const { queueEvents, refreshQueue, recallQueueEvent, markGuided } = useChatQueue({
   enabled: queueEnabled,
 });
+
+// 切会话回来时补拉一次队列：在他会话期间本会话队列发出去了，
+// 期间那次快照推送浏览器可能没接住，不补就会看到历史已刷出、队列还挂着。
+watch(
+  () => String(props.activeConversationId || "").trim(),
+  (next, prev) => {
+    if (!next || next === prev) return;
+    void refreshQueue();
+  },
+);
 
 const visibleQueueEvents = computed(() => {
   if (props.queueEventsOverride !== undefined && props.queueEventsOverride !== null) {
