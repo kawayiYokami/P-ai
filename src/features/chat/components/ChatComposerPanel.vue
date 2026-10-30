@@ -293,6 +293,8 @@
                 :class="goalActive ? 'btn-primary' : 'btn-ghost'"
                 :disabled="frozen || goalDisabled"
                 :title="goalTitle || t('chat.goal.buttonTitle')"
+                @pointerdown.prevent
+                @mousedown.prevent
                 @click="emit('openGoalTask')"
               >
                 <Target class="h-3.5 w-3.5" />
@@ -302,6 +304,8 @@
                 type="button"
                 class="btn btn-sm btn-circle btn-ghost shrink-0 transition-transform duration-150 ease-out active:scale-90"
                 :title="t('chat.attach')"
+                @pointerdown.prevent
+                @mousedown.prevent
                 @click="emit('pickAttachments')"
               >
                 <Paperclip class="h-3.5 w-3.5" />
@@ -321,6 +325,8 @@
                 type="button"
                 class="inline-flex h-8 min-h-8 shrink-0 select-none items-center rounded-full bg-warning px-3 text-xs font-medium leading-none text-warning-content"
                 :title="t('chat.wheelchair.mode')"
+                @pointerdown.prevent
+                @mousedown.prevent
                 @click="toggleWheelchairMode()"
               >
                 {{ t("chat.wheelchair.mode") }}
@@ -330,6 +336,8 @@
                 type="button"
                 class="inline-flex h-8 min-h-8 shrink-0 select-none items-center rounded-full bg-info px-3 text-xs font-medium leading-none text-info-content"
                 :title="`Shift+Tab ${t('chat.plan.mode')}`"
+                @pointerdown.prevent
+                @mousedown.prevent
                 @click="togglePlanMode()"
               >
                 {{ t("chat.plan.mode") }}
@@ -339,6 +347,8 @@
                 type="button"
                 class="inline-flex h-8 min-h-8 shrink-0 select-none items-center rounded-full bg-base-200 px-3 text-xs font-medium leading-none text-base-content"
                 :title="`Shift+Tab ${t('chat.plan.mode')}`"
+                @pointerdown.prevent
+                @mousedown.prevent
                 @click="togglePlanMode()"
               >
                 {{ t("chat.plan.mode") }}
@@ -349,6 +359,8 @@
                 class="btn btn-sm btn-circle shrink-0 btn-error transition-transform duration-150 ease-out active:scale-90"
                 :disabled="frozen"
                 :title="`${t('chat.stop')} / ${t('chat.stopReplying')}`"
+                @pointerdown.prevent
+                @mousedown.prevent
                 @click="emit('stopChat')"
               >
                 <Square class="h-3.5 w-3.5 fill-current" />
@@ -360,6 +372,8 @@
                   :class="composerInputBlank ? 'bg-base-200' : 'btn-success'"
                   :disabled="!composerInputBlank && (frozen || busy)"
                   :title="composerInputBlank ? t('chat.sendModeMenu') : t('chat.send')"
+                  @pointerdown.prevent
+                  @mousedown.prevent
                   @click="composerInputBlank ? (sendModeMenuOpen = !sendModeMenuOpen) : handleSendChat()"
                   @contextmenu.prevent="sendModeMenuOpen = !sendModeMenuOpen"
                 >
@@ -373,6 +387,8 @@
                     <button
                       type="button"
                       class="flex min-h-8 w-full items-center justify-between gap-3 rounded-lg px-2.5 text-left text-sm transition-colors hover:bg-base-200"
+                      @pointerdown.prevent
+                      @mousedown.prevent
                       @click="setSendMode('enter')"
                     >
                       <span>{{ t("chat.sendModeEnter") }}</span>
@@ -381,6 +397,8 @@
                     <button
                       type="button"
                       class="flex min-h-8 w-full items-center justify-between gap-3 rounded-lg px-2.5 text-left text-sm transition-colors hover:bg-base-200"
+                      @pointerdown.prevent
+                      @mousedown.prevent
                       @click="setSendMode('ctrl_enter')"
                     >
                       <span>{{ t("chat.sendModeCtrlEnter") }}</span>

@@ -24,6 +24,7 @@
               type="button"
               class="input-panel-image-remove"
               aria-label="删除图片"
+              @pointerdown.prevent
               @mousedown.prevent
               @click.stop="$emit('removeImage', idx)"
             >
@@ -47,6 +48,8 @@
             <button
               v-if="!file.pending"
               class="btn btn-ghost btn-sm btn-square"
+              @pointerdown.prevent
+              @mousedown.prevent
               @click="$emit('removeFile', idx)"
             >
               <X class="h-3 w-3" />
@@ -66,6 +69,7 @@
               class="input-panel-bridge ecall-sweep-fill gap-1 py-3 max-w-full badge"
               :data-attached="item.attached ? 'true' : 'false'"
               :title="item.title || item.fileName"
+              @pointerdown.prevent
               @mousedown.prevent
               @click="$emit('toggleBridge', item.id)"
             >

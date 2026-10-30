@@ -8,6 +8,8 @@
         : 'btn btn-sm h-8 min-h-8 w-full min-w-0 justify-start text-left border-0 bg-transparent text-base-content shadow-none hover:bg-base-200/60'"
       :disabled="disabled || (normalizedOptions.length === 0 && extraOptions.length === 0 && !placeholder)"
       :title="selectedModelTitle"
+      @pointerdown.prevent
+      @mousedown.prevent
       @click="toggleDropdown"
     >
       <span
