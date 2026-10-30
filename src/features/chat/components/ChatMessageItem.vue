@@ -741,6 +741,7 @@ const emit = defineEmits<{
   (e: "toggleAudioPlayback", payload: { id: string; audio: { mime: string; bytesBase64?: string; mediaRef?: string } }): void;
   (e: "assistantLinkClick", event: MouseEvent): void;
   (e: "activityToggle", payload: { blockId: string; open: boolean; expandedKey?: string }): void;
+  (e: "reasoningStuckChange", payload: { key: string; stuck: boolean }): void;
 }>();
 
 const { t } = useI18n();
@@ -1626,6 +1627,8 @@ function setReasoningItemStuck(key: string, stuck: boolean): void {
   if (stuck) next.add(key);
   else next.delete(key);
   reasoningItemStuckKeys.value = next;
+  const blockId = String(props.block.id || "").trim();
+  emit("reasoningStuckChange", { key: blockId ? `${blockId}::${key}` : key, stuck });
 }
 
 const stickySentinelCleanups = new Map<string, () => void>();
@@ -2268,6 +2271,10 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stickySentinelCleanups.forEach((cleanup) => cleanup());
   stickySentinelCleanups.clear();
+  const blockId = String(props.block.id || "").trim();
+  for (const key of reasoningItemStuckKeys.value) {
+    emit("reasoningStuckChange", { key: blockId ? `${blockId}::${key}` : key, stuck: false });
+  }
   reasoningItemStuckKeys.value = new Set();
   teardownStreamingObserver();
   clearStreamingReleaseTimer();
