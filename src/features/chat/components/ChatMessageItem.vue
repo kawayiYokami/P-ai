@@ -1170,7 +1170,7 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
       case "streaming_tool":
         return t("chat.statusGeneratingTools");
       case "executing_tool":
-        return t("chat.statusGeneratingTools");
+        return t("chat.statusExecutingTools");
       case "idle":
         return "";
       default:
@@ -1207,7 +1207,7 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
   };
 
   if (doingTool || block.activityStatus === "running_tool") {
-    return t("chat.statusGeneratingTools");
+    return t("chat.statusExecutingTools");
   }
   if (hasSpeechContent) {
     return t("chat.statusTypingBody");
