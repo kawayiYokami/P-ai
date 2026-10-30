@@ -429,6 +429,7 @@ import InputPanelAttachments from "./input-panel/InputPanelAttachments.vue";
 import InputPanelDock from "./input-panel/InputPanelDock.vue";
 import InputPanelToolbar from "./input-panel/InputPanelToolbar.vue";
 import { useChatQueue, type ChatQueueEvent } from "../composables/use-chat-queue";
+import { isMobileTouchViewport } from "../../shared/utils/mobile-viewport";
 import { chatInputEnterConfirmsComposition } from "../composables/chat-composer-ime";
 import { clearChatComposerFocus, registerChatComposerFocus } from "../composables/chat-composer-focus";
 import { ideContextReferenceDisplayParts } from "../utils/ide-context-reference-display";
@@ -1200,6 +1201,10 @@ function handleSendChat() {
   recordSentTextIfNeeded(plainText);
   closeInstructionPanel();
   closeMentionPanel();
+  // 手机端回车/点发送后收起软键盘：桌面端保持聚焦，方便连着打字。
+  if (isMobileTouchViewport()) {
+    chatInputRef.value?.blur();
+  }
 }
 
 function handleWindowKeydown(event: KeyboardEvent) {
