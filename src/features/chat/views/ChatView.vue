@@ -2063,35 +2063,89 @@ function traceAlignLanding(index: number) {
   };
   window.setTimeout(tick, 150);
 }
+// 上推钉住：新用户消息插入到量完+留白到位之前，把视口顶住不让它跟着跳，历史待在原地；
+// 到位后再做唯一一次平滑上推。只钉数字，不提前滚。
+let ownTopAlignGen = 0;
+const ownTopAlignPinnedTop = ref<number | null>(null);
+
+watch(latestOwnElasticItemId, (next, prev) => {
+  const nextId = String(next || "").trim();
+  const prevId = String(prev || "").trim();
+  if (!nextId || !prevId || nextId === prevId) return;
+  const el = scrollContainer.value;
+  if (!el) return;
+  // watch 默认 pre flush，在 DOM 重排前跑，此时 scrollTop 还是插入前的值
+  ownTopAlignPinnedTop.value = el.scrollTop;
+}, { flush: "pre" });
+
+watch(() => String(props.activeConversationId || "").trim(), () => {
+  ownTopAlignGen += 1;
+  ownTopAlignPinnedTop.value = null;
+});
 // 最新用户消息对齐到视口顶部：与时间线跳转同一套 align: "start"。
-// 新消息刚插入时尾段尚未测量，落点会被夹到底部，这里按帧重试到找到锚点且尾段测量完成。
+// 插入到量完+留白到位之前视口钉住不动，历史原地待着；到位后再做唯一一次平滑上推。
 function alignLatestOwnMessageToTop() {
-  let lastIndex = -1;
-  let lastMeasured = false;
+  const gen = ++ownTopAlignGen;
   // 对齐到顶部就是「不贴底」：先退出跟随，否则流式内容一长就会被贴底顶走
   stopFollowBottom();
+  const entryEl = scrollContainer.value;
+  if (ownTopAlignPinnedTop.value == null && entryEl) {
+    ownTopAlignPinnedTop.value = entryEl.scrollTop;
+  }
+  const pinnedTop = ownTopAlignPinnedTop.value;
+  let measuredStableFrames = 0;
   probeChatScroll("对齐请求", { itemId: String(latestOwnElasticItemId.value || "").trim() });
-  const attempt = (retries = 24) => {
+  const attempt = (retries = 48) => {
+    if (gen !== ownTopAlignGen) return;
+    const el = scrollContainer.value;
+    // 钉住：插入与留白长高导致的 scrollTop 漂移立刻顶回去，历史不动
+    if (el && pinnedTop != null && Math.abs(el.scrollTop - pinnedTop) > 1) {
+      el.scrollTop = pinnedTop;
+    }
     const itemId = String(latestOwnElasticItemId.value || "").trim();
     const index = itemId ? virtualRenderItems.value.findIndex((item) => item.id === itemId) : -1;
     const measured = latestOwnTailContentMeasured.value;
     const canScroll = index >= 0 && !!virtuaRef.value;
-    // 找到锚点先落一次；尾段测量完成、留白到位后再落一次终稿
-    if (canScroll && (index !== lastIndex || (measured && !lastMeasured))) {
-      lastIndex = index;
-      lastMeasured = measured;
-      try { virtuaRef.value!.scrollToIndex(index, { align: "start", smooth: true } as any); } catch {}
-      probeChatScroll("对齐落点", {
-        index,
-        measured,
-        scrollTop: Math.round(scrollContainer.value?.scrollTop ?? -1),
-        followBottom: followBottom.value,
-        chatting: props.chatting,
-      });
-      if (measured) traceAlignLanding(index);
+    if (!canScroll || !measured) {
+      measuredStableFrames = 0;
+      if (retries > 0) {
+        requestAnimationFrame(() => attempt(retries - 1));
+        return;
+      }
+      if (canScroll) {
+        ownTopAlignPinnedTop.value = null;
+        try { virtuaRef.value!.scrollToIndex(index, { align: "start", smooth: true } as any); } catch {}
+        probeChatScroll("对齐落点", {
+          index,
+          measured,
+          fallback: true,
+          scrollTop: Math.round(scrollContainer.value?.scrollTop ?? -1),
+          followBottom: followBottom.value,
+          chatting: props.chatting,
+        });
+      } else {
+        ownTopAlignPinnedTop.value = null;
+      }
+      return;
     }
-    if (canScroll && measured) return;
-    if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
+    // 量完后再钉两帧，等留白 watcher 落到位再滚，避免第二跳
+    measuredStableFrames += 1;
+    if (measuredStableFrames < 3) {
+      if (retries > 0) {
+        requestAnimationFrame(() => attempt(retries - 1));
+        return;
+      }
+    }
+    ownTopAlignPinnedTop.value = null;
+    try { virtuaRef.value!.scrollToIndex(index, { align: "start", smooth: true } as any); } catch {}
+    probeChatScroll("对齐落点", {
+      index,
+      measured,
+      scrollTop: Math.round(scrollContainer.value?.scrollTop ?? -1),
+      followBottom: followBottom.value,
+      chatting: props.chatting,
+    });
+    traceAlignLanding(index);
   };
   void nextTick(() => requestAnimationFrame(() => attempt()));
 }
