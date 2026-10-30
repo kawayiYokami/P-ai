@@ -226,6 +226,8 @@
                         <details
                           v-if="item.kind === 'tool' && activityItemCanExpand(item)"
                           class="collapse rounded-none"
+                          :open="activityItemExpanded(item)"
+                          @toggle="onToolDetailsToggle(item, $event)"
                         >
                           <summary class="collapse-title flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
                             <span
@@ -717,6 +719,7 @@ const props = defineProps<{
   compactWithPrevious: boolean;
   canRegenerate: boolean;
   canConfirmPlan: boolean;
+  collapseActivitySignal?: string;
   currentWorkspaceRootPath?: string;
   currentTheme?: string;
   disableRecallAndBranchActions?: boolean;
@@ -737,7 +740,7 @@ const emit = defineEmits<{
   (e: "openImagePreview", image: { mime?: string; bytesBase64?: string; dataUrl?: string; localPath?: string; src?: string; alt?: string }): void;
   (e: "toggleAudioPlayback", payload: { id: string; audio: { mime: string; bytesBase64?: string; mediaRef?: string } }): void;
   (e: "assistantLinkClick", event: MouseEvent): void;
-  (e: "activityToggle", payload: { blockId: string; open: boolean }): void;
+  (e: "activityToggle", payload: { blockId: string; open: boolean; expandedKey?: string }): void;
 }>();
 
 const { t } = useI18n();
@@ -766,6 +769,24 @@ const activityDetailsRef = ref<HTMLDetailsElement | null>(null);
 const activityExpanded = ref(false);
 // 思维块展开态：只记用户手动改过的条目，没点过的一律收起
 const activityItemExpandedOverrides = ref<Record<string, boolean>>({});
+// 不同消息只能展开一个：活动面板打开时由父级记账，别的消息打开就收起这一条。
+// expandedKey 只在条目级互斥上报时带，顶层面板开关不带，避免误收条目。
+const collapseActivitySignal = computed(() => String(props.collapseActivitySignal || "").trim());
+watch(collapseActivitySignal, (signal) => {
+  if (!signal) return;
+  const [blockId, expandedKey] = signal.split("|");
+  if (String(blockId || "").trim() !== String(props.block.id || "").trim()) {
+    closeActivityDetails(true);
+    activityItemExpandedOverrides.value = {};
+    return;
+  }
+  const key = String(expandedKey || "").trim();
+  if (!key) return;
+  // 同一条：只留上报的那个展开位
+  const next: Record<string, boolean> = {};
+  next[key] = true;
+  activityItemExpandedOverrides.value = next;
+});
 // 工具结果按需加载：后端默认只下发占位文案（contentOmitted），
 // 用户点「查看结果」后才把真实内容填进 toolResultOverrides。
 const toolResultOverrides = ref<Record<string, string>>({});
@@ -1422,12 +1443,13 @@ function onActivityToggle(event: Event): void {
   emit("activityToggle", { blockId: String(props.block.id || ""), open: activityExpanded.value });
 }
 
-function closeActivityDetails(): void {
+function closeActivityDetails(silent = false): void {
   const details = activityDetailsRef.value;
   if (details instanceof HTMLDetailsElement) {
     details.open = false;
   }
   activityExpanded.value = false;
+  if (silent) return;
   emit("activityToggle", { blockId: String(props.block.id || ""), open: false });
 }
 
@@ -1542,10 +1564,32 @@ function activityItemFollowsStream(item: Extract<ChatActivityItem, { kind: "reas
 }
 
 function onActivityItemExpandedChange(item: ChatActivityItem, expanded: boolean): void {
+  if (expanded) {
+    // 同一条消息内只留一个展开位：点开谁就收起别的（思维/工具互斥）
+    const key = activityItemKey(item);
+    const next: Record<string, boolean> = {};
+    next[key] = true;
+    activityItemExpandedOverrides.value = next;
+    // 跨消息只留一个：通知父级收起别的消息里的展开
+    emit("activityToggle", {
+      blockId: String(props.block.id || ""),
+      open: true,
+      expandedKey: key,
+    });
+    return;
+  }
   activityItemExpandedOverrides.value = {
     ...activityItemExpandedOverrides.value,
-    [activityItemKey(item)]: expanded,
+    [activityItemKey(item)]: false,
   };
+}
+
+function onToolDetailsToggle(item: ChatActivityItem, event: Event): void {
+  const details = event.target instanceof HTMLDetailsElement
+    ? event.target
+    : (event.currentTarget instanceof HTMLDetailsElement ? event.currentTarget : null);
+  const open = details ? details.open : !activityItemExpanded(item);
+  onActivityItemExpandedChange(item, open);
 }
 
 function toggleReasoningItemExpanded(item: ChatActivityItem): void {
