@@ -775,10 +775,10 @@ fn apply_patch_apply_update(
     replace_all: bool,
 ) -> Result<ApplyPatchUpdateResult, String> {
     if old_string.is_empty() {
-        return Ok(ApplyPatchUpdateResult {
-            content: new_string.to_string(),
-            match_line_ranges: Vec::new(),
-        });
+        return Err(format!(
+            "update 失败：old_string 不能为空。请提供要替换的原文片段。\n最小 update 示例：{}",
+            apply_patch_operation_example("update")
+        ));
     }
     let old_preview = apply_patch_preview_text(old_string, 300);
     if !content.contains(old_string) {
@@ -1503,11 +1503,12 @@ mod apply_patch_tool_tests {
     }
 
     #[test]
-    fn apply_update_should_return_new_string_when_old_string_is_empty() {
-        let updated = apply_patch_apply_update("ignored", "", "new content\n", false)
-            .expect("empty old_string should succeed");
-        assert_eq!(updated.content, "new content\n");
-        assert!(updated.match_line_ranges.is_empty());
+    fn apply_update_should_reject_empty_old_string() {
+        let err = apply_patch_apply_update("old\ncontent\n", "", "new content\n", false)
+            .expect_err("empty old_string should be rejected");
+        assert!(err.contains("old_string 不能为空"));
+        assert!(err.contains("请提供要替换的原文片段"));
+        assert!(err.contains("最小 update 示例"));
     }
 
     #[test]
@@ -1673,8 +1674,8 @@ mod apply_patch_tool_tests {
     }
 
     #[tokio::test]
-    async fn execute_ops_should_overwrite_existing_file_when_update_old_string_is_empty() {
-        let data_path = make_temp_data_path("apply-patch-overwrite");
+    async fn execute_ops_should_reject_empty_old_string_and_leave_file_untouched() {
+        let data_path = make_temp_data_path("apply-patch-reject-empty-old");
         let cwd = app_root_from_data_path(&data_path).join("workspace");
         std::fs::create_dir_all(&cwd).expect("create cwd");
         let file = cwd.join("overwrite.txt");
@@ -1693,14 +1694,15 @@ mod apply_patch_tool_tests {
             .await
             .expect("execute");
 
-        assert!(outcome.failure.is_none());
-        assert_eq!(std::fs::read_to_string(&file).expect("read updated"), "new\ncontent\n");
-        assert_eq!(record.entries.len(), 1);
-        assert_eq!(record.entries[0].kind, ApplyPatchBackupKind::Update);
+        let failure = outcome.failure.expect("empty old_string should fail");
+        assert_eq!(failure.op, "update");
+        assert!(failure.message.contains("old_string 不能为空"));
+        assert!(outcome.changed.is_empty());
         assert_eq!(
-            record.entries[0].expected_current_content.as_deref(),
-            Some("new\ncontent\n")
+            std::fs::read_to_string(&file).expect("read untouched"),
+            "old\ncontent\n"
         );
+        assert!(record.entries.is_empty(), "失败时不应产生备份条目");
     }
 
     #[tokio::test]
