@@ -1373,6 +1373,7 @@ async function handleRecallToInput(event: {
 }) {
   if (props.queueEventsOverride !== undefined && props.queueEventsOverride !== null) {
     emit("queueRecall", event as ChatQueueEvent);
+    nextTick(() => focusInput({ preventScroll: true }));
     return;
   }
   if (event.source === "user" && event.queueMode !== "guided") {
@@ -1380,6 +1381,7 @@ async function handleRecallToInput(event: {
       const result = await recallQueueEvent(event.id);
       if (result.removed) {
         localChatInput.value = result.messageText || event.messageText || event.messagePreview || "";
+        nextTick(() => focusInput({ preventScroll: true }));
       }
     }
   }
@@ -1388,9 +1390,11 @@ async function handleRecallToInput(event: {
 function handleQueueMarkGuided(eventId: string) {
   if (props.queueEventsOverride !== undefined && props.queueEventsOverride !== null) {
     emit("queueMarkGuided", eventId);
+    nextTick(() => focusInput({ preventScroll: true }));
     return;
   }
   markGuided(eventId);
+  nextTick(() => focusInput({ preventScroll: true }));
 }
 
 function focusInput(options?: FocusOptions) {

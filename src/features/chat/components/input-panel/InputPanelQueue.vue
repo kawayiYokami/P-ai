@@ -28,6 +28,8 @@
         v-if="event.source === 'user' && event.queueMode !== 'guided'"
         class="btn btn-ghost btn-xs btn-square shrink-0"
         :title="t('chat.queue.recallToInput')"
+        @pointerdown.prevent
+        @mousedown.prevent
         @click="$emit('recallToInput', event)"
       >
         <Undo2 class="h-3 w-3" />
@@ -38,6 +40,8 @@
         :class="event.queueMode === 'guided' ? 'pointer-events-none text-primary' : ''"
         :title="event.queueMode === 'guided' ? t('chat.queue.guiding') : t('chat.queue.guide')"
         :disabled="event.queueMode === 'guided'"
+        @pointerdown.prevent
+        @mousedown.prevent
         @click="event.queueMode === 'guided' ? undefined : $emit('markGuided', event.id)"
       >
         {{ event.queueMode === "guided" ? t("chat.queue.guiding") : t("chat.queue.guide") }}
