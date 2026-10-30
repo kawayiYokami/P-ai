@@ -58,6 +58,7 @@ struct ApplyPatchToolOpArgs {
 #[derive(Debug, Clone)]
 enum ApplyPatchOp {
     Add { path: String, content: String },
+    Overwrite { path: String, content: String },
     Delete { path: String },
     Update { path: String, old_string: String, new_string: String, replace_all: bool },
     Move { path: String, to: String },
@@ -66,8 +67,10 @@ enum ApplyPatchOp {
 #[derive(Debug, Clone)]
 enum ApplyPatchResolvedOp {
     Add { path: PathBuf, content: String },
+    Overwrite { path: PathBuf, content: String },
     Delete { path: PathBuf },
-    Update { from: PathBuf, to: Option<PathBuf>, old_string: String, new_string: String, replace_all: bool },
+    Update { path: PathBuf, old_string: String, new_string: String, replace_all: bool },
+    Move { from: PathBuf, to: PathBuf },
 }
 
 #[derive(Debug, Clone)]
@@ -240,26 +243,42 @@ fn apply_patch_prepare_backup_entry(
                 backup_blob_file: Some(blob_file),
             })
         }
-        ApplyPatchResolvedOp::Update { from, to, old_string, new_string, replace_all } => {
-            if old_string.is_empty() && new_string.is_empty() {
-                let raw = std::fs::read(from)
-                    .map_err(|_| format!("Move 操作失败，文件不存在：{}", from.to_string_lossy()))?;
-                let blob_file = format!("{}.bin", Uuid::new_v4());
-                std::fs::write(apply_patch_blob_path(data_path, &blob_file), raw)
-                    .map_err(|err| format!("写入移动备份失败（{}）：{err}", from.to_string_lossy()))?;
-                return Ok(ApplyPatchBackupEntry {
-                    kind: ApplyPatchBackupKind::MoveUpdate,
-                    path: to.as_ref().unwrap_or(from).to_string_lossy().to_string(),
-                    from_path: to.as_ref().map(|_| from.to_string_lossy().to_string()),
-                    to_path: to.as_ref().map(|dest| dest.to_string_lossy().to_string()),
-                    expected_current_content: Some(String::new()),
-                    backup_blob_file: Some(blob_file),
-                });
-            }
+        ApplyPatchResolvedOp::Overwrite { path, content } => {
+            let raw = std::fs::read(path)
+                .map_err(|_| format!("Write File 失败，文件不存在：{}", path.to_string_lossy()))?;
+            let blob_file = format!("{}.bin", Uuid::new_v4());
+            std::fs::write(apply_patch_blob_path(data_path, &blob_file), raw)
+                .map_err(|err| format!("写入覆盖备份失败（{}）：{err}", path.to_string_lossy()))?;
+            Ok(ApplyPatchBackupEntry {
+                kind: ApplyPatchBackupKind::Update,
+                path: path.to_string_lossy().to_string(),
+                from_path: None,
+                to_path: None,
+                expected_current_content: Some(content.clone()),
+                backup_blob_file: Some(blob_file),
+            })
+        }
+        ApplyPatchResolvedOp::Move { from, to } => {
             let raw = std::fs::read(from)
-                .map_err(|_| format!("Update 操作失败，文件不存在：{}", from.to_string_lossy()))?;
+                .map_err(|_| format!("Move 操作失败，文件不存在：{}", from.to_string_lossy()))?;
+            let expected = decode_text_file_bytes(&raw).ok().map(|decoded| decoded.text);
+            let blob_file = format!("{}.bin", Uuid::new_v4());
+            std::fs::write(apply_patch_blob_path(data_path, &blob_file), raw)
+                .map_err(|err| format!("写入移动备份失败（{}）：{err}", from.to_string_lossy()))?;
+            Ok(ApplyPatchBackupEntry {
+                kind: ApplyPatchBackupKind::MoveUpdate,
+                path: to.to_string_lossy().to_string(),
+                from_path: Some(from.to_string_lossy().to_string()),
+                to_path: Some(to.to_string_lossy().to_string()),
+                expected_current_content: expected,
+                backup_blob_file: Some(blob_file),
+            })
+        }
+        ApplyPatchResolvedOp::Update { path, old_string, new_string, replace_all } => {
+            let raw = std::fs::read(path)
+                .map_err(|_| format!("Update 操作失败，文件不存在：{}", path.to_string_lossy()))?;
             let old_content = decode_text_file_bytes(&raw)
-                .map_err(|err| format!("Update 操作失败，{}：{}", err, from.to_string_lossy()))?
+                .map_err(|err| format!("Update 操作失败，{}：{}", err, path.to_string_lossy()))?
                 .text;
             let new_content = apply_patch_apply_update_with_line_ending_fallback(
                 &old_content,
@@ -269,16 +288,12 @@ fn apply_patch_prepare_backup_entry(
             )?;
             let blob_file = format!("{}.bin", Uuid::new_v4());
             std::fs::write(apply_patch_blob_path(data_path, &blob_file), raw)
-                .map_err(|err| format!("写入修改备份失败（{}）：{err}", from.to_string_lossy()))?;
+                .map_err(|err| format!("写入修改备份失败（{}）：{err}", path.to_string_lossy()))?;
             Ok(ApplyPatchBackupEntry {
-                kind: if to.is_some() {
-                    ApplyPatchBackupKind::MoveUpdate
-                } else {
-                    ApplyPatchBackupKind::Update
-                },
-                path: to.as_ref().unwrap_or(from).to_string_lossy().to_string(),
-                from_path: to.as_ref().map(|_| from.to_string_lossy().to_string()),
-                to_path: to.as_ref().map(|dest| dest.to_string_lossy().to_string()),
+                kind: ApplyPatchBackupKind::Update,
+                path: path.to_string_lossy().to_string(),
+                from_path: None,
+                to_path: None,
                 expected_current_content: Some(new_content.content),
                 backup_blob_file: Some(blob_file),
             })
@@ -571,6 +586,16 @@ fn apply_patch_ops_from_tool_args(args: ApplyPatchToolArgs) -> Result<Vec<ApplyP
                 };
                 ops.push(ApplyPatchOp::Add { path: op.path, content });
             }
+            "overwrite" => {
+                let Some(content) = op.content else {
+                    return Err(apply_patch_format_error(format!(
+                        r#"apply_patch 操作[{}] (overwrite) 缺少 "content" 字段。overwrite 操作必须提供完整文件内容。\n最小 overwrite 示例：{}"#,
+                        i,
+                        apply_patch_operation_example("overwrite")
+                    )));
+                };
+                ops.push(ApplyPatchOp::Overwrite { path: op.path, content });
+            }
             "delete" => {
                 if op.old_string.is_some() || op.new_string.is_some() || op.replace_all.is_some() {
                     return Err(apply_patch_format_error(format!(
@@ -597,6 +622,13 @@ fn apply_patch_ops_from_tool_args(args: ApplyPatchToolArgs) -> Result<Vec<ApplyP
                         apply_patch_operation_example("update")
                     )));
                 };
+                if old_string.is_empty() {
+                    return Err(apply_patch_format_error(format!(
+                        r#"apply_patch 操作[{}] (update) 的 "old_string" 不能为空。请提供要替换的原文片段。\n最小 update 示例：{}"#,
+                        i,
+                        apply_patch_operation_example("update")
+                    )));
+                }
                 if old_string == new_string {
                     return Err(apply_patch_format_error(format!(
                         "apply_patch 操作[{}] (update) old_string 和 new_string 完全相同。update 必须真的修改内容。\n最小 update 示例：{}",
@@ -623,7 +655,7 @@ fn apply_patch_ops_from_tool_args(args: ApplyPatchToolArgs) -> Result<Vec<ApplyP
             }
             other => {
                 return Err(apply_patch_format_error(format!(
-                    r#"apply_patch 操作[{}] 的 action "{}" 无效。必须是 "add"、"update"、"delete" 或 "move"。\n可参考最小 update 示例：{}"#,
+                    r#"apply_patch 操作[{}] 的 action "{}" 无效。必须是 "add"、"overwrite"、"update"、"delete" 或 "move"。\n可参考最小 update 示例：{}"#,
                     i,
                     other,
                     apply_patch_operation_example("update")
@@ -637,6 +669,7 @@ fn apply_patch_ops_from_tool_args(args: ApplyPatchToolArgs) -> Result<Vec<ApplyP
 fn apply_patch_operation_example(action: &str) -> &'static str {
     match action {
         "add" => r#"{"action":"add","path":"src/new.ts","content":"export const value = 1;\n"}"#,
+        "overwrite" => r#"{"action":"overwrite","path":"src/existing.ts","content":"export const value = 2;\n"}"#,
         "update" => r#"{"action":"update","path":"src/example.ts","old_string":"before","new_string":"after","replace_all":false}"#,
         "delete" => r#"{"action":"delete","path":"src/old.ts"}"#,
         "move" => r#"{"action":"move","path":"src/old.ts","to":"src/new.ts"}"#,
@@ -692,17 +725,18 @@ fn apply_patch_resolve_ops(base: &Path, ops: Vec<ApplyPatchOp>) -> Result<Vec<Ap
             ApplyPatchOp::Delete { path } => out.push(ApplyPatchResolvedOp::Delete {
                 path: apply_patch_resolve_path(base, &path)?,
             }),
+            ApplyPatchOp::Overwrite { path, content } => out.push(ApplyPatchResolvedOp::Overwrite {
+                path: apply_patch_resolve_path(base, &path)?,
+                content,
+            }),
             ApplyPatchOp::Update { path, old_string, new_string, replace_all } => {
-                let from = apply_patch_resolve_path(base, &path)?;
-                out.push(ApplyPatchResolvedOp::Update { from, to: None, old_string, new_string, replace_all });
+                let path = apply_patch_resolve_path(base, &path)?;
+                out.push(ApplyPatchResolvedOp::Update { path, old_string, new_string, replace_all });
             }
             ApplyPatchOp::Move { path, to } => {
                 let from = apply_patch_resolve_path(base, &path)?;
-                let dest = apply_patch_resolve_path(base, &to)?;
-                out.push(ApplyPatchResolvedOp::Update {
-                    from, to: Some(dest),
-                    old_string: String::new(), new_string: String::new(), replace_all: false,
-                });
+                let to = apply_patch_resolve_path(base, &to)?;
+                out.push(ApplyPatchResolvedOp::Move { from, to });
             }
         }
     }
@@ -724,13 +758,13 @@ fn apply_patch_assess_safety(
     let mut target_paths = Vec::<PathBuf>::new();
     for op in ops {
         match op {
-            ApplyPatchResolvedOp::Add { path, .. } => target_paths.push(path.clone()),
-            ApplyPatchResolvedOp::Delete { path } => target_paths.push(path.clone()),
-            ApplyPatchResolvedOp::Update { from, to, .. } => {
+            ApplyPatchResolvedOp::Add { path, .. }
+            | ApplyPatchResolvedOp::Overwrite { path, .. }
+            | ApplyPatchResolvedOp::Delete { path }
+            | ApplyPatchResolvedOp::Update { path, .. } => target_paths.push(path.clone()),
+            ApplyPatchResolvedOp::Move { from, to } => {
                 target_paths.push(from.clone());
-                if let Some(dest) = to {
-                    target_paths.push(dest.clone());
-                }
+                target_paths.push(to.clone());
             }
         }
     }
@@ -1057,22 +1091,20 @@ fn apply_patch_similar_line_ranges(content: &str, old_string: &str, limit: usize
 fn apply_patch_op_name(op: &ApplyPatchResolvedOp) -> &'static str {
     match op {
         ApplyPatchResolvedOp::Add { .. } => "add",
+        ApplyPatchResolvedOp::Overwrite { .. } => "overwrite",
         ApplyPatchResolvedOp::Delete { .. } => "delete",
-        ApplyPatchResolvedOp::Update { old_string, new_string, to, .. } => {
-            if old_string.is_empty() && new_string.is_empty() && to.is_some() {
-                "move"
-            } else {
-                "update"
-            }
-        }
+        ApplyPatchResolvedOp::Update { .. } => "update",
+        ApplyPatchResolvedOp::Move { .. } => "move",
     }
 }
 
 fn apply_patch_op_path(op: &ApplyPatchResolvedOp) -> Option<String> {
     match op {
-        ApplyPatchResolvedOp::Add { path, .. } => Some(terminal_path_for_user(path)),
-        ApplyPatchResolvedOp::Delete { path } => Some(terminal_path_for_user(path)),
-        ApplyPatchResolvedOp::Update { from, .. } => Some(terminal_path_for_user(from)),
+        ApplyPatchResolvedOp::Add { path, .. }
+        | ApplyPatchResolvedOp::Overwrite { path, .. }
+        | ApplyPatchResolvedOp::Delete { path }
+        | ApplyPatchResolvedOp::Update { path, .. } => Some(terminal_path_for_user(path)),
+        ApplyPatchResolvedOp::Move { from, .. } => Some(terminal_path_for_user(from)),
     }
 }
 
@@ -1109,32 +1141,57 @@ async fn apply_patch_execute_single_op(op: &ApplyPatchResolvedOp) -> Result<Valu
                 "path": terminal_path_for_user(path),
             }))
         }
-        ApplyPatchResolvedOp::Update { from, to, old_string, new_string, replace_all } => {
-            if old_string.is_empty() && new_string.is_empty() {
-                if let Some(dest) = to {
-                    let raw_move = tokio::fs::read(from).await
-                        .map_err(|_| format!("Move 操作失败，文件不存在：{}", from.to_string_lossy()))?;
-                    let _ = decode_text_file_bytes(&raw_move)
-                        .map_err(|err| format!("Move 操作失败，{}：{}", err, from.to_string_lossy()))?;
-                    if let Some(parent) = dest.parent() {
-                        tokio::fs::create_dir_all(parent)
-                            .await
-                            .map_err(|err| format!("创建目录失败（{}）：{err}", parent.to_string_lossy()))?;
-                    }
-                    if dest.exists() && terminal_normalize_for_access_check(dest) != terminal_normalize_for_access_check(from) {
-                        return Err(format!("重命名目标已存在：{}", dest.to_string_lossy()));
-                    }
-                    tokio::fs::rename(from, dest).await
-                        .map_err(|err| format!("重命名失败（{} -> {}）：{err}", from.to_string_lossy(), dest.to_string_lossy()))?;
-                    return Ok(serde_json::json!({ "op": "move", "from": terminal_path_for_user(from), "to": terminal_path_for_user(dest) }));
-                }
-                return Ok(serde_json::json!({ "op": "move", "path": terminal_path_for_user(from), "skipped": true }));
+        ApplyPatchResolvedOp::Overwrite { path, content } => {
+            if let Some(parent) = path.parent() {
+                tokio::fs::create_dir_all(parent)
+                    .await
+                    .map_err(|err| format!("创建目录失败（{}）：{err}", parent.to_string_lossy()))?;
             }
-            let raw = tokio::fs::read(from)
+            tokio::fs::write(path, content.as_bytes())
                 .await
-                .map_err(|_| format!("Update 操作失败，文件不存在：{}", from.to_string_lossy()))?;
+                .map_err(|err| format!("写入文件失败（{}）：{err}", path.to_string_lossy()))?;
+            Ok(serde_json::json!({
+                "op": "overwrite",
+                "path": terminal_path_for_user(path),
+                "bytes": content.len(),
+            }))
+        }
+        ApplyPatchResolvedOp::Move { from, to } => {
+            let raw_move = tokio::fs::read(from)
+                .await
+                .map_err(|_| format!("Move 操作失败，文件不存在：{}", from.to_string_lossy()))?;
+            let _ = decode_text_file_bytes(&raw_move)
+                .map_err(|err| format!("Move 操作失败，{}：{}", err, from.to_string_lossy()))?;
+            if let Some(parent) = to.parent() {
+                tokio::fs::create_dir_all(parent)
+                    .await
+                    .map_err(|err| format!("创建目录失败（{}）：{err}", parent.to_string_lossy()))?;
+            }
+            if to.exists()
+                && terminal_normalize_for_access_check(to)
+                    != terminal_normalize_for_access_check(from)
+            {
+                return Err(format!("Move 失败，目标已存在：{}", to.to_string_lossy()));
+            }
+            tokio::fs::rename(from, to).await.map_err(|err| {
+                format!(
+                    "Move 失败（{} -> {}）：{err}",
+                    from.to_string_lossy(),
+                    to.to_string_lossy()
+                )
+            })?;
+            Ok(serde_json::json!({
+                "op": "move",
+                "from": terminal_path_for_user(from),
+                "to": terminal_path_for_user(to),
+            }))
+        }
+        ApplyPatchResolvedOp::Update { path, old_string, new_string, replace_all } => {
+            let raw = tokio::fs::read(path)
+                .await
+                .map_err(|_| format!("Update 操作失败，文件不存在：{}", path.to_string_lossy()))?;
             let decoded = decode_text_file_bytes(&raw)
-                .map_err(|err| format!("Update 操作失败，{}：{}", err, from.to_string_lossy()))?;
+                .map_err(|err| format!("Update 操作失败，{}：{}", err, path.to_string_lossy()))?;
             let update_result = apply_patch_apply_update_with_line_ending_fallback(
                 &decoded.text,
                 old_string,
@@ -1143,13 +1200,13 @@ async fn apply_patch_execute_single_op(op: &ApplyPatchResolvedOp) -> Result<Valu
             )?;
             let encoded = decoded
                 .encode_like_original(&update_result.content)
-                .map_err(|err| format!("Update 操作失败，{}：{}", err, from.to_string_lossy()))?;
-            tokio::fs::write(from, encoded)
+                .map_err(|err| format!("Update 操作失败，{}：{}", err, path.to_string_lossy()))?;
+            tokio::fs::write(path, encoded)
                 .await
-                .map_err(|err| format!("更新文件失败（{}）：{err}", from.to_string_lossy()))?;
+                .map_err(|err| format!("更新文件失败（{}）：{err}", path.to_string_lossy()))?;
             Ok(serde_json::json!({
                 "op": "update",
-                "path": terminal_path_for_user(from),
+                "path": terminal_path_for_user(path),
                 "matchCount": update_result.match_line_ranges.len(),
                 "lineStart": update_result.match_line_ranges.first().map(|(start, _)| *start),
                 "lineEnd": update_result.match_line_ranges.first().map(|(_, end)| *end),
@@ -1325,16 +1382,15 @@ async fn builtin_write_file(
     let normalized_session = normalize_terminal_tool_session_id(session_id);
     let cwd = resolve_terminal_cwd(state, &normalized_session, None)?;
     let target_path = apply_patch_resolve_path(&cwd, &args.path)?;
-    let action = if args.overwrite && target_path.exists() {
-        "update".to_string()
-    } else {
-        "add".to_string()
-    };
-    let (content, old_string, new_string) = if action == "update" {
-        (None, Some(String::new()), Some(args.content))
-    } else {
-        (Some(args.content), None, None)
-    };
+    if target_path.exists() && !args.overwrite {
+        return Err(format!(
+            "write 失败，文件已存在：{}。若要整份替换已有内容，请设置 overwrite 为 true。",
+            terminal_path_for_user(&target_path)
+        ));
+    }
+    let action = if target_path.exists() { "overwrite" } else { "add" }.to_string();
+    let content = Some(args.content);
+    let (old_string, new_string) = (None, None);
     builtin_apply_patch_with_name(
         state,
         session_id,
@@ -1452,6 +1508,31 @@ mod apply_patch_tool_tests {
         assert_eq!(old_string, "before");
         assert_eq!(new_string, "after");
         assert!(*replace_all);
+    }
+
+    #[test]
+    fn tool_args_should_reject_empty_old_string_in_update() {
+        let args: ApplyPatchToolArgs = serde_json::from_str(
+            r#"{"operations":[{"action":"update","path":"a.txt","old_string":"","new_string":"after"}]}"#,
+        )
+        .expect("parse args");
+        let err = apply_patch_ops_from_tool_args(args).expect_err("empty old_string should be rejected");
+        assert!(err.contains("old_string"));
+        assert!(err.contains("不能为空"));
+    }
+
+    #[test]
+    fn tool_args_should_parse_overwrite_action() {
+        let args: ApplyPatchToolArgs = serde_json::from_str(
+            r#"{"operations":[{"action":"overwrite","path":"a.txt","content":"after"}]}"#,
+        )
+        .expect("parse args");
+        let ops = apply_patch_ops_from_tool_args(args).expect("convert overwrite");
+        let ApplyPatchOp::Overwrite { path, content } = &ops[0] else {
+            panic!("expected overwrite op");
+        };
+        assert_eq!(path, "a.txt");
+        assert_eq!(content, "after");
     }
 
     #[test]
@@ -1608,15 +1689,13 @@ mod apply_patch_tool_tests {
 
         let ops = vec![
             ApplyPatchResolvedOp::Update {
-                from: first.clone(),
-                to: None,
+                path: first.clone(),
                 old_string: "old".to_string(),
                 new_string: "new".to_string(),
                 replace_all: false,
             },
             ApplyPatchResolvedOp::Update {
-                from: second.clone(),
-                to: None,
+                path: second.clone(),
                 old_string: "missing".to_string(),
                 new_string: "new".to_string(),
                 replace_all: false,
@@ -1653,8 +1732,7 @@ mod apply_patch_tool_tests {
         std::fs::write(&file, [0xd6, 0xd0, 0xce, 0xc4, b'\n', b'o', b'l', b'd', b'\n'])
             .expect("seed gbk file");
         let ops = vec![ApplyPatchResolvedOp::Update {
-            from: file.clone(),
-            to: None,
+            path: file.clone(),
             old_string: "old".to_string(),
             new_string: "new".to_string(),
             replace_all: false,
@@ -1681,8 +1759,7 @@ mod apply_patch_tool_tests {
         let file = cwd.join("overwrite.txt");
         std::fs::write(&file, "old\ncontent\n").expect("seed file");
         let ops = vec![ApplyPatchResolvedOp::Update {
-            from: file.clone(),
-            to: None,
+            path: file.clone(),
             old_string: String::new(),
             new_string: "new\ncontent\n".to_string(),
             replace_all: false,
@@ -1703,6 +1780,102 @@ mod apply_patch_tool_tests {
             "old\ncontent\n"
         );
         assert!(record.entries.is_empty(), "失败时不应产生备份条目");
+    }
+
+    #[tokio::test]
+    async fn execute_ops_should_overwrite_file_and_backup_previous_content() {
+        let data_path = make_temp_data_path("apply-patch-overwrite-op");
+        let cwd = app_root_from_data_path(&data_path).join("workspace");
+        std::fs::create_dir_all(&cwd).expect("create cwd");
+        let file = cwd.join("overwrite.txt");
+        std::fs::write(&file, "old\ncontent\n").expect("seed file");
+        let ops = vec![ApplyPatchResolvedOp::Overwrite {
+            path: file.clone(),
+            content: "new\ncontent\n".to_string(),
+        }];
+        let mut record = apply_patch_empty_backup_record(&data_path, "s1", &cwd, "raw")
+            .expect("empty record");
+
+        let outcome = apply_patch_execute_ops(&data_path, &mut record, &ops)
+            .await
+            .expect("execute");
+
+        assert!(outcome.failure.is_none());
+        assert_eq!(outcome.changed[0]["op"], "overwrite");
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("read overwritten"),
+            "new\ncontent\n"
+        );
+        assert_eq!(record.entries.len(), 1);
+        assert_eq!(record.entries[0].kind, ApplyPatchBackupKind::Update);
+        assert_eq!(
+            record.entries[0].expected_current_content.as_deref(),
+            Some("new\ncontent\n")
+        );
+
+        apply_patch_restore_backup_record(&data_path, &record).expect("restore");
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("read restored"),
+            "old\ncontent\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_ops_should_move_file_and_restore_original_path() {
+        let data_path = make_temp_data_path("apply-patch-move-op");
+        let cwd = app_root_from_data_path(&data_path).join("workspace");
+        std::fs::create_dir_all(&cwd).expect("create cwd");
+        let from = cwd.join("from.txt");
+        let to = cwd.join("nested/to.txt");
+        std::fs::write(&from, "content\n").expect("seed file");
+        let ops = vec![ApplyPatchResolvedOp::Move {
+            from: from.clone(),
+            to: to.clone(),
+        }];
+        let mut record = apply_patch_empty_backup_record(&data_path, "s1", &cwd, "raw")
+            .expect("empty record");
+
+        let outcome = apply_patch_execute_ops(&data_path, &mut record, &ops)
+            .await
+            .expect("execute");
+
+        assert!(outcome.failure.is_none());
+        assert_eq!(outcome.changed[0]["op"], "move");
+        assert!(!from.exists(), "原路径应已移走");
+        assert_eq!(std::fs::read_to_string(&to).expect("read moved"), "content\n");
+        assert_eq!(record.entries.len(), 1);
+        assert_eq!(record.entries[0].kind, ApplyPatchBackupKind::MoveUpdate);
+
+        apply_patch_restore_backup_record(&data_path, &record).expect("restore");
+        assert!(from.exists(), "撤回后原路径应恢复");
+        assert_eq!(
+            std::fs::read_to_string(&from).expect("read restored"),
+            "content\n"
+        );
+        assert!(!to.exists(), "撤回后目标路径应移除");
+    }
+
+    #[tokio::test]
+    async fn execute_ops_should_reject_move_when_target_exists() {
+        let data_path = make_temp_data_path("apply-patch-move-exists");
+        let cwd = app_root_from_data_path(&data_path).join("workspace");
+        std::fs::create_dir_all(&cwd).expect("create cwd");
+        let from = cwd.join("from.txt");
+        let to = cwd.join("to.txt");
+        std::fs::write(&from, "from\n").expect("seed from");
+        std::fs::write(&to, "existing\n").expect("seed to");
+        let ops = vec![ApplyPatchResolvedOp::Move { from, to: to.clone() }];
+        let mut record = apply_patch_empty_backup_record(&data_path, "s1", &cwd, "raw")
+            .expect("empty record");
+
+        let outcome = apply_patch_execute_ops(&data_path, &mut record, &ops)
+            .await
+            .expect("execute");
+
+        let failure = outcome.failure.expect("target exists should fail");
+        assert_eq!(failure.op, "move");
+        assert!(failure.message.contains("目标已存在"));
+        assert_eq!(std::fs::read_to_string(&to).expect("read target"), "existing\n");
     }
 
     #[tokio::test]
@@ -1759,7 +1932,7 @@ mod apply_patch_tool_tests {
     }
 
     #[test]
-    fn resolve_ops_should_treat_move_as_rename_update_with_empty_strings() {
+    fn resolve_ops_should_resolve_move_into_move_op() {
         let cwd = std::env::temp_dir().join(format!("eca-apply-patch-move-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&cwd).expect("create cwd");
         let ops = vec![ApplyPatchOp::Move {
@@ -1768,26 +1941,17 @@ mod apply_patch_tool_tests {
         }];
         let resolved = apply_patch_resolve_ops(&cwd, ops).expect("resolve move");
         match &resolved[0] {
-            ApplyPatchResolvedOp::Update {
-                from,
-                to,
-                old_string,
-                new_string,
-                replace_all,
-            } => {
+            ApplyPatchResolvedOp::Move { from, to } => {
                 assert_eq!(
                     from,
                     &terminal_normalize_for_access_check(&cwd.join("from.txt"))
                 );
                 assert_eq!(
-                    to.as_ref().expect("move should have target"),
+                    to,
                     &terminal_normalize_for_access_check(&cwd.join("nested/to.txt"))
                 );
-                assert!(old_string.is_empty());
-                assert!(new_string.is_empty());
-                assert!(!replace_all);
             }
-            _ => panic!("expected move to resolve as update op"),
+            _ => panic!("expected move to resolve as move op"),
         }
     }
 

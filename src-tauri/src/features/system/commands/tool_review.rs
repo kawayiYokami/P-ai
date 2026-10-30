@@ -363,7 +363,7 @@ fn tool_review_patch_operation_for_item(item: &ToolReviewCollectedItem) -> Optio
                 let normalized = match op {
                     "add" => "add",
                     "delete" => "delete",
-                    "update" | "update_move" => "update",
+                    "overwrite" | "update" | "update_move" => "update",
                     _ => "update",
                 };
                 operations.push(normalized.to_string());
