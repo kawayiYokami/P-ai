@@ -84,7 +84,7 @@ fn decide_context_exhausted_round(turn_text: &str) -> ContextExhaustedRoundActio
     }
 }
 
-/// 工具整轮执行完立刻判定。判定前不得写正式历史，也不得写临时账本。
+/// 工具整轮执行完立刻判定。本轮结果无条件先写进当前消息，压缩只决定要不要重启。
 async fn apply_compaction_preserved_gate_after_tool_round(
     state: Option<&AppState>,
     context: Option<&ToolLoopAutoCompactionContext>,
@@ -123,20 +123,23 @@ async fn apply_compaction_preserved_gate_after_tool_round(
         selected_api.context_window_tokens
     ));
 
+    // 压缩前后是两个独立会话：压缩前把结果写进当前消息，压缩后新消息再从
+    // CompactionPreservedMessages 继承同一轮工具事件，两边的工具链各自完整。
+    for tool_result_event in completed_tool_result_events {
+        persist_completed_tool_group_result(
+            state,
+            context,
+            selected_api,
+            trusted_input_tokens,
+            chat_session_key,
+            assistant_tool_group_history_event.clone(),
+            tool_result_event.clone(),
+            ToolResultPersistKind::Completed,
+        )?;
+    }
+
     match classify_tool_round_gate(should_compact, context.is_some()) {
         ToolRoundGateIntent::WriteThrough => {
-            // 只有判定可写，才写正式历史。临时账本由调用方同步。
-            for tool_result_event in completed_tool_result_events {
-                persist_completed_tool_group_result(
-                    state,
-                    context,
-                    selected_api,
-                    trusted_input_tokens,
-                    chat_session_key,
-                    assistant_tool_group_history_event.clone(),
-                    tool_result_event.clone(),
-                )?;
-            }
             return Ok(ToolRoundCompactionGate::Continue);
         }
         ToolRoundGateIntent::DisableToolsAndClose => {
@@ -153,7 +156,7 @@ async fn apply_compaction_preserved_gate_after_tool_round(
         ToolRoundGateIntent::CompactThenRestart => {}
     }
 
-    // 超限：不写正式历史，不写临时账本；只把本轮工具组交给压缩后的新调度。
+    // 超限：本轮结果已经写进当前消息，再把这组工具事件交给压缩后的新调度继承。
     let state = state.ok_or_else(|| "缺少应用状态，无法整理上下文。".to_string())?;
     let context = context.ok_or_else(|| "缺少当前调度上下文，无法整理上下文。".to_string())?;
     if context.remote_im_reply_delegate_id.is_some() {
@@ -302,6 +305,68 @@ fn sync_completed_tool_history_cache(
     }
 }
 
+/// 执行前预写占位结果。历史里先出现这次调用与「尚未返回」，进程中断后仍能看出调过什么；
+/// 工具完成后追加真实结果，消费端取最新一条，占位本身保留不动。
+fn persist_pending_tool_group_result(
+    state: Option<&AppState>,
+    context: Option<&ToolLoopAutoCompactionContext>,
+    selected_api: &ApiConfig,
+    chat_session_key: &str,
+    assistant_tool_group_history_event: &Value,
+    tool_call_id: &str,
+    tool_name: &str,
+) -> Result<(), String> {
+    let tool_result_event = tool_result_history_event(
+        tool_call_id,
+        format!("工具 {tool_name} 已发起调用，尚未返回结果。"),
+        &ProviderToolMetadata::default(),
+    );
+    persist_completed_tool_group_result(
+        state,
+        context,
+        selected_api,
+        None,
+        chat_session_key,
+        assistant_tool_group_history_event.clone(),
+        tool_result_event,
+        ToolResultPersistKind::Pending,
+    )
+}
+
+/// 用户打断工具执行时补一条真实结果。占位保留，消费端取这条最新的。
+fn persist_user_aborted_tool_group_result(
+    state: Option<&AppState>,
+    context: Option<&ToolLoopAutoCompactionContext>,
+    selected_api: &ApiConfig,
+    chat_session_key: &str,
+    assistant_tool_group_history_event: &Value,
+    tool_call_id: &str,
+) -> Result<(), String> {
+    let tool_result_event = tool_result_history_event(
+        tool_call_id,
+        "用户打断了工具执行。".to_string(),
+        &ProviderToolMetadata::default(),
+    );
+    persist_completed_tool_group_result(
+        state,
+        context,
+        selected_api,
+        None,
+        chat_session_key,
+        assistant_tool_group_history_event.clone(),
+        tool_result_event,
+        ToolResultPersistKind::Aborted,
+    )
+}
+
+/// 这次落盘写的是什么结果。预写占位和打断结果都只落历史，不触发对外发送。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolResultPersistKind {
+    Pending,
+    Completed,
+    Aborted,
+}
+
 fn persist_completed_tool_group_result(
     state: Option<&AppState>,
     context: Option<&ToolLoopAutoCompactionContext>,
@@ -310,16 +375,21 @@ fn persist_completed_tool_group_result(
     chat_session_key: &str,
     assistant_tool_call_event: Value,
     tool_result_event: Value,
+    kind: ToolResultPersistKind,
 ) -> Result<(), String> {
     let Some(state) = state else {
-        runtime_log_warn(format!(
+        // 正式调度的唯一入口始终持有 AppState，这里缺失属于异常；
+        // 但拿不到状态也无从判断该不该落库，维持不写、不阻断。
+        runtime_log_error(format!(
             "[聊天] 跳过工具结果写历史，任务=append_tool_group_result，reason=state_missing，session={}",
             chat_session_key
         ));
         return Ok(());
     };
     let Some(context) = context else {
-        runtime_log_debug(format!(
+        // 运行时会话与远程 IM 动态边界不落库工具历史：这类会话本就没有持久化载体，
+        // 预写与结果写入一起跳过，属于既有设计，不是写入失败。
+        runtime_log_info(format!(
             "[聊天] 跳过工具结果写历史，任务=append_tool_group_result，reason=context_missing，session={}",
             chat_session_key
         ));
@@ -398,13 +468,15 @@ fn persist_completed_tool_group_result(
                     selected_api.context_window_tokens,
                 );
             }
-            maybe_spawn_remote_im_tool_persist_auto_send(
-                state,
-                context,
-                &result.0,
-                &assistant_tool_call_event,
-                &tool_result_event,
-            );
+            if kind == ToolResultPersistKind::Completed {
+                maybe_spawn_remote_im_tool_persist_auto_send(
+                    state,
+                    context,
+                    &result.0,
+                    &assistant_tool_call_event,
+                    &tool_result_event,
+                );
+            }
             runtime_log_info(format!(
                 "[聊天] 完成，任务=append_tool_group_result，session={}，conversation_id={}，assistant_message_id={}，tool_event_count={}，tool_name={}，has_backup_record_id={}",
                 chat_session_key,
@@ -417,11 +489,11 @@ fn persist_completed_tool_group_result(
             Ok(())
         }
         Err(err) => {
-            runtime_log_warn(format!(
+            runtime_log_error(format!(
                 "[聊天] 失败，任务=append_tool_group_result，session={}，conversation_id={}，error={}",
                 chat_session_key, context.conversation_id, err
             ));
-            Err(err)
+            Err(format!("{TOOL_HISTORY_PERSIST_FAILED_PREFIX}：{err}"))
         }
     }
 }

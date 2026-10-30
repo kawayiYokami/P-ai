@@ -2202,6 +2202,8 @@ async fn send_chat_message_inner(
     let mut active_selected_api = selected_api.clone();
     let mut active_resolved_api = resolved_api.clone();
     let mut fallback_errors = Vec::<String>::new();
+    // 数据层致命错误：命中后既不重试也不切换候选模型，直接终止本轮。
+    let mut fatal_error: Option<String> = None;
     let prepared_prompt = prepared_prompt;
     let mut conversation_for_request = conversation_for_request;
     for (candidate_index, candidate_api_id) in candidate_api_ids.iter().enumerate() {
@@ -2256,7 +2258,7 @@ async fn send_chat_message_inner(
         }
         let mut retry_budget = RetryBudget::default();
         let mut attempt: usize = 0;
-        let candidate_final_error: Option<String>;
+        let mut candidate_final_error: Option<String> = None;
         loop {
             attempt += 1;
             let request_start_stage = format!(
@@ -2352,6 +2354,18 @@ async fn send_chat_message_inner(
             }
 
             let retry_kind = classify_retry_kind_for_result(&chat_round_execution.result);
+            // 工具历史写不进库属于数据层致命错误：换模型重跑只会让同一批工具再执行一次，
+            // 所以既不重试也不切换候选模型，直接把错误交给收尾层回报前端。
+            if let Err(error) = &chat_round_execution.result {
+                if is_fatal_dispatch_error(error) {
+                    runtime_log_error(format!(
+                        "[聊天] 终止调度，任务=dispatch_aborted_on_tool_history_persist_failure，conversation_id={}，api_config_id={}，error={}",
+                        conversation_id, candidate_selected_api.id, error
+                    ));
+                    fatal_error = Some(error.clone());
+                    break;
+                }
+            }
             let (reason_text, final_error_text) = match &chat_round_execution.result {
                 Ok(reply) => match model_reply_content_state(reply) {
                     ModelReplyContentState::ReasoningOnly => {
@@ -2471,6 +2485,9 @@ async fn send_chat_message_inner(
             ));
             break;
         }
+        if fatal_error.is_some() {
+            break;
+        }
         if model_reply.is_some() {
             break;
         }
@@ -2501,6 +2518,9 @@ async fn send_chat_message_inner(
     }
     let model_reply =
         model_reply.ok_or_else(|| {
+            if let Some(fatal) = fatal_error.clone() {
+                return fatal;
+            }
             if fallback_errors.is_empty() {
                 "模型回复无效：未收到可用内容。".to_string()
             } else {
@@ -3280,6 +3300,11 @@ async fn send_chat_message_inner(
     final_result
 }
 
+/// 调度失败是否属于不可继续的数据层错误：命中后既不重试，也不切换候选模型。
+fn is_fatal_dispatch_error(message: &str) -> bool {
+    message.contains(TOOL_HISTORY_PERSIST_FAILED_PREFIX)
+}
+
 fn should_create_assistant_provider_meta(
     request_format: &RequestFormat,
     assistant_provider_meta_override: Option<&Value>,
@@ -3297,6 +3322,15 @@ fn should_create_assistant_provider_meta(
 #[cfg(test)]
 mod core_send_inner_tests {
     use super::*;
+
+    #[test]
+    fn fatal_dispatch_error_covers_tool_history_persist_failures() {
+        assert!(is_fatal_dispatch_error(
+            "工具历史写入失败：磁盘只读，写入分片失败"
+        ));
+        assert!(!is_fatal_dispatch_error("网络连接异常：connection reset"));
+        assert!(!is_fatal_dispatch_error("所有候选模型均失败：模型请求失败"));
+    }
 
     #[test]
     fn tool_loop_round_limit_for_dispatch_keeps_internal_ceiling_unless_explicit() {

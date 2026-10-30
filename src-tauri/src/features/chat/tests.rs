@@ -6279,6 +6279,72 @@
     }
 
     #[test]
+    fn conversation_service_v2_should_keep_multiple_results_for_same_tool_call_id() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-v2-tool-append-duplicate", "active", &now);
+        let mut assistant = test_text_message("assistant", "", &now);
+        assistant.id = "assistant-duplicate".to_string();
+        assistant.speaker_agent_id = Some(DEFAULT_AGENT_ID.to_string());
+        conversation.messages.push(assistant);
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, &conversation.id)
+                .expect("message store paths");
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
+            .expect("write message store");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        let (assistant_tool_event, pending_result) =
+            test_v2_single_tool_group_result("call-v2-dup", "exec");
+        conversation_service_v2()
+            .append_tool_event_to_assistant_message(
+                &state,
+                &AssistantMessageToolAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-duplicate".to_string(),
+                    assistant_tool_event: assistant_tool_event.clone(),
+                    tool_result_event: pending_result,
+                },
+            )
+            .expect("pending append should succeed");
+
+        let real_result = serde_json::json!({
+            "role": "tool",
+            "tool_call_id": "call-v2-dup",
+            "content": "真实结果"
+        });
+        let append = conversation_service_v2()
+            .append_tool_event_to_assistant_message(
+                &state,
+                &AssistantMessageToolAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-duplicate".to_string(),
+                    assistant_tool_event,
+                    tool_result_event: real_result,
+                },
+            )
+            .expect("real append should succeed");
+
+        // call 组只写一次，两次结果都保留，由消费端取最后一条。
+        assert_eq!(append.tool_event_count, 3);
+        let stored = conversation_service_v2()
+            .read_message_by_id(&state, &conversation.id, "assistant-duplicate")
+            .expect("read updated assistant message");
+        let events = stored.tool_call.unwrap_or_default();
+        assert_eq!(events.len(), 3);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.get("role").and_then(Value::as_str) == Some("tool"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
     fn conversation_service_v2_should_keep_completed_tool_round_when_compaction_message_is_appended()
     {
         let state = test_chat_runtime_state();

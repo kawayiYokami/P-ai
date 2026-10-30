@@ -592,20 +592,6 @@ fn tool_history_contains_assistant_tool_group_v2(
     })
 }
 
-fn tool_history_contains_tool_result_id_v2(events: &[Value], tool_call_id: &str) -> bool {
-    events.iter().any(|event| {
-        event
-            .get("role")
-            .and_then(Value::as_str)
-            .is_some_and(|role| role.trim().eq_ignore_ascii_case("tool"))
-            && event
-                .get("tool_call_id")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                == Some(tool_call_id)
-    })
-}
-
 fn validate_tool_group_result_append_v2(
     assistant_tool_call_event: &Value,
     tool_result_event: &Value,
@@ -945,6 +931,7 @@ impl ConversationServiceV2 {
             .tool_call
             .as_ref()
             .ok_or_else(|| "该消息没有工具调用记录".to_string())?;
+        let mut latest_content: Option<String> = None;
         for event in events {
             let role = event
                 .get("role")
@@ -972,9 +959,10 @@ impl ConversationServiceV2 {
                         .unwrap_or_else(|| value.to_string())
                 })
                 .unwrap_or_default();
-            return Ok(content);
+            // 同一调用可能先有预写占位、后有真实结果：取最后一条。
+            latest_content = Some(content);
         }
-        Err(format!("找不到工具结果：{normalized_tool_call_id}"))
+        latest_content.ok_or_else(|| format!("找不到工具结果：{normalized_tool_call_id}"))
     }
 
     fn get_raw_message_by_id(

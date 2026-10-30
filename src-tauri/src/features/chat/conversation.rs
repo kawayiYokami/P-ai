@@ -1013,6 +1013,29 @@ fn sanitize_tool_history_events(events: &[Value]) -> Vec<Value> {
                 };
             }
             "tool" => {
+                let tool_event_call_id = event
+                    .get("tool_call_id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or_default();
+                // 同一 tool_call_id 可能先有预写占位、后有真实结果：后者替换已输出的那条。
+                if !tool_event_call_id.is_empty() {
+                    let duplicated = sanitized.iter_mut().rev().find(|existing| {
+                        existing
+                            .get("role")
+                            .and_then(Value::as_str)
+                            .is_some_and(|role| role.trim().eq_ignore_ascii_case("tool"))
+                            && existing
+                                .get("tool_call_id")
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                == Some(tool_event_call_id)
+                    });
+                    if let Some(existing) = duplicated {
+                        *existing = event.clone();
+                        continue;
+                    }
+                }
                 if let Some(pending) = pending_assistant.as_mut() {
                     let tool_call_id = event
                         .get("tool_call_id")

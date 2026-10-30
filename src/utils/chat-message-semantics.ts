@@ -156,6 +156,25 @@ function sanitizeStoredToolHistoryEvents(
       continue;
     }
     if (role === "tool") {
+      const toolEventCallId = String(event.tool_call_id || "").trim();
+      // 同一 tool_call_id 可能先有预写占位、后有真实结果：后者替换已输出的那条。
+      if (toolEventCallId) {
+        let duplicatedIndex = -1;
+        for (let index = sanitized.length - 1; index >= 0; index -= 1) {
+          const existing = sanitized[index];
+          if (
+            String(existing.role || "").trim().toLowerCase() === "tool" &&
+            String(existing.tool_call_id || "").trim() === toolEventCallId
+          ) {
+            duplicatedIndex = index;
+            break;
+          }
+        }
+        if (duplicatedIndex >= 0) {
+          sanitized[duplicatedIndex] = event;
+          continue;
+        }
+      }
       if (pendingAssistant) {
         const toolCallId = String(event.tool_call_id || "").trim();
         const matchedIndex = pendingAssistant.allowedIds.indexOf(toolCallId);
@@ -466,15 +485,21 @@ function findAdjacentToolResult(
   assistantIndex: number,
   invocationId: string,
 ): NormalizedToolHistoryEvent | undefined {
+  let matched: NormalizedToolHistoryEvent | undefined;
   for (let index = assistantIndex + 1; index < events.length; index += 1) {
     const event = events[index];
-    if (event.role === "assistant") return undefined;
+    if (event.role === "assistant") break;
     if (event.role !== "tool") continue;
-    if (!invocationId || !event.toolCallId || event.toolCallId === invocationId) {
+    if (!invocationId) {
+      // 旧协议没有调用 id，无法判断哪条是后到结果，保持取第一条。
       return event;
     }
+    // 同一个 tool_call_id 可能先有预写占位、后有真实结果：取最后一条。
+    if (!event.toolCallId || event.toolCallId === invocationId) {
+      matched = event;
+    }
   }
-  return undefined;
+  return matched;
 }
 
 export function projectChatActivityForDisplay(message: ChatMessage): {

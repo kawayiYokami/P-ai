@@ -296,20 +296,49 @@ async fn execute_prepared_tool_call(
     })
 }
 
-async fn execute_prepared_tool_call_group_inner(
-    tools: &[Box<dyn RuntimeToolDyn>],
-    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
-    calls: Vec<PreparedToolCall>,
-) -> Result<Vec<ExecutedToolCall>, String> {
-    let futures = calls
-        .into_iter()
-        .map(|call| execute_prepared_tool_call(tools, on_delta, call))
-        .collect::<Vec<_>>();
-    let mut output = Vec::<ExecutedToolCall>::new();
-    for result in futures_util::future::join_all(futures).await {
-        output.push(result?);
+/// 一组工具的执行结果：跑完的照常交付，被用户打断的单独列出。
+struct ExecutedToolGroup {
+    executed: Vec<ExecutedToolCall>,
+    aborted_call_ids: Vec<String>,
+}
+
+/// 组内单个调用的结局。打断只作用于还没返回的调用，已完成的调用仍然交付结果。
+enum GroupCallOutcome {
+    Finished(Result<ExecutedToolCall, String>),
+    Aborted,
+}
+
+/// 把组内逐个结局整理成可交付结果：完成的照常返回，被打断的只记 id。
+/// 关键在于打断不会吞掉同一批里已经跑完的工具结果。
+fn collect_group_outcomes(
+    outcomes: Vec<GroupCallOutcome>,
+    calls_snapshot: &[(String, String)],
+) -> Result<ExecutedToolGroup, String> {
+    let mut executed = Vec::<ExecutedToolCall>::new();
+    let mut aborted_call_ids = Vec::<String>::new();
+    let mut first_error: Option<String> = None;
+    for (index, outcome) in outcomes.into_iter().enumerate() {
+        match outcome {
+            GroupCallOutcome::Finished(Ok(call)) => executed.push(call),
+            GroupCallOutcome::Finished(Err(err)) => {
+                if first_error.is_none() {
+                    first_error = Some(err);
+                }
+            }
+            GroupCallOutcome::Aborted => {
+                if let Some((_, tool_call_id)) = calls_snapshot.get(index) {
+                    aborted_call_ids.push(tool_call_id.clone());
+                }
+            }
+        }
     }
-    Ok(output)
+    match first_error {
+        Some(err) => Err(err),
+        None => Ok(ExecutedToolGroup {
+            executed,
+            aborted_call_ids,
+        }),
+    }
 }
 
 async fn execute_prepared_tool_call_group(
@@ -319,9 +348,12 @@ async fn execute_prepared_tool_call_group(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     request_id: Option<&str>,
     calls: Vec<PreparedToolCall>,
-) -> Result<Vec<ExecutedToolCall>, String> {
+) -> Result<ExecutedToolGroup, String> {
     if calls.is_empty() {
-        return Ok(Vec::new());
+        return Ok(ExecutedToolGroup {
+            executed: Vec::new(),
+            aborted_call_ids: Vec::new(),
+        });
     }
     for call in &calls {
         send_stream_rebind_required_event(on_delta, request_id, "tool_start");
@@ -360,34 +392,73 @@ async fn execute_prepared_tool_call_group(
         .iter()
         .map(|call| (call.tool_name.clone(), call.tool_call_id.clone()))
         .collect();
-    let run_group = execute_prepared_tool_call_group_inner(tools, on_delta, calls);
-    let executed_result: Result<Vec<ExecutedToolCall>, String> = if let Some(state) = tool_abort_state {
+    // 中断信号只做通知，不取消整组：已经跑完的调用照常交付结果，
+    // 只有还没返回的调用被标记为打断，避免同一批里已完成工具的结果被整批丢掉。
+    let abort_signal = if let Some(state) = tool_abort_state {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         register_inflight_tool_abort_handle(state, chat_session_key, abort_handle)?;
-        let result = futures_util::future::Abortable::new(run_group, abort_registration).await;
+        Some(futures_util::future::FutureExt::shared(
+            futures_util::future::FutureExt::map(
+                futures_util::future::Abortable::new(
+                    futures_util::future::pending::<()>(),
+                    abort_registration,
+                ),
+                |_| (),
+            ),
+        ))
+    } else {
+        None
+    };
+    let group_outcomes = {
+        let futures = calls
+            .into_iter()
+            .map(|call| {
+                let signal = abort_signal.clone();
+                async move {
+                    let execution = execute_prepared_tool_call(tools, on_delta, call);
+                    match signal {
+                        Some(signal) => {
+                            futures_util::pin_mut!(execution);
+                            match futures_util::future::select(execution, signal).await {
+                                futures_util::future::Either::Left((result, _)) => {
+                                    GroupCallOutcome::Finished(result)
+                                }
+                                futures_util::future::Either::Right((_aborted, _)) => {
+                                    GroupCallOutcome::Aborted
+                                }
+                            }
+                        }
+                        None => GroupCallOutcome::Finished(execution.await),
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        futures_util::future::join_all(futures).await
+    };
+    if let Some(state) = tool_abort_state {
         if let Err(err) = clear_inflight_tool_abort_handle(state, chat_session_key) {
             runtime_log_error(format!(
                 "[聊天] 清理进行中工具组中断句柄失败 (session={}): {}",
                 chat_session_key, err
             ));
         }
-        match result {
-            Ok(inner) => inner,
-            Err(_) => {
-                runtime_log_info(format!(
-                    "[聊天] 用户中止工具组调用 (session={})",
-                    chat_session_key
-                ));
-                Err(CHAT_ABORTED_BY_USER_ERROR.to_string())
-            }
+    }
+
+    let executed_result = collect_group_outcomes(group_outcomes, &calls_snapshot);
+    if let Ok(group) = executed_result.as_ref() {
+        if !group.aborted_call_ids.is_empty() {
+            runtime_log_info(format!(
+                "[聊天] 用户中止工具组调用 (session={}，已完成={}，被打断={})",
+                chat_session_key,
+                group.executed.len(),
+                group.aborted_call_ids.len()
+            ));
         }
-    } else {
-        run_group.await
-    };
+    }
     if let Some(state) = tool_abort_state {
         match executed_result.as_ref() {
-            Ok(executed) => {
-                for exec in executed {
+            Ok(group) => {
+                for exec in &group.executed {
                     let is_error = exec.tool_result.is_error;
                     let text_len = match exec.tool_result.parts.iter().find_map(|part| match part {
                         ProviderToolResultPart::Text { text } => Some(text.chars().count()),
@@ -417,6 +488,28 @@ async fn execute_prepared_tool_call_group(
                         "tool_result",
                         0,
                         Some(!is_error),
+                        detail,
+                    );
+                }
+                for aborted_call_id in &group.aborted_call_ids {
+                    let tool_name = calls_snapshot
+                        .iter()
+                        .find(|(_, tool_call_id)| tool_call_id == aborted_call_id)
+                        .map(|(tool_name, _)| tool_name.clone())
+                        .unwrap_or_default();
+                    let detail = serde_json::json!({
+                        "toolName": tool_name,
+                        "toolCallId": aborted_call_id,
+                        "isError": true,
+                        "isAborted": true,
+                        "error": CHAT_ABORTED_BY_USER_ERROR,
+                    });
+                    let _ = schedule_event_push_to_latest_run(
+                        state,
+                        chat_session_key,
+                        "tool_result",
+                        0,
+                        Some(false),
                         detail,
                     );
                 }

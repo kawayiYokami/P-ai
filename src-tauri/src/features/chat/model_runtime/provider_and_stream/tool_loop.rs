@@ -930,6 +930,8 @@ async fn run_genai_tool_loop(
             })
             .collect::<Vec<_>>();
         let mut round_completed_tool_result_events = Vec::<Value>::new();
+        // 本轮被用户打断、还没返回结果的调用；已完成的结果仍然照常交付并落库。
+        let mut round_aborted_call_ids = Vec::<String>::new();
         for batch in split_prepared_tool_calls_into_execution_batches(
             &tool_assembly.tools,
             &tool_assembly.tool_definitions,
@@ -972,7 +974,24 @@ async fn run_genai_tool_loop(
                 executable_calls.push(call);
             }
 
-            let executed_tool_calls = execute_prepared_tool_call_group(
+            let executable_call_ids = executable_calls
+                .iter()
+                .map(|call| (call.tool_call_id.clone(), call.tool_name.clone()))
+                .collect::<Vec<_>>();
+            // 预写失败等于崩溃保护没生效：此时继续执行工具，工具副作用将无从追溯。
+            // 直接中止本轮调度，把错误回报给前端，由用户决定是否重试。
+            for (tool_call_id, tool_name) in &executable_call_ids {
+                persist_pending_tool_group_result(
+                    tool_abort_state,
+                    auto_compaction_context,
+                    selected_api,
+                    chat_session_key,
+                    &assistant_tool_group_history_event,
+                    tool_call_id,
+                    tool_name,
+                )?;
+            }
+            let executed_group = match execute_prepared_tool_call_group(
                 tool_abort_state,
                 chat_session_key,
                 &tool_assembly.tools,
@@ -980,9 +999,14 @@ async fn run_genai_tool_loop(
                 auto_compaction_context.and_then(|ctx| ctx.request_id.as_deref()),
                 executable_calls,
             )
-            .await?;
+            .await
+            {
+                Ok(group) => group,
+                Err(err) => return Err(err),
+            };
+            round_aborted_call_ids = executed_group.aborted_call_ids.clone();
 
-            for executed_tool_call in executed_tool_calls {
+            for executed_tool_call in executed_group.executed {
             let ExecutedToolCall {
                 tool_call_id,
                 tool_name,
@@ -1080,6 +1104,10 @@ async fn run_genai_tool_loop(
                 // 判定前不写临时账本。
             }
             }
+            if !round_aborted_call_ids.is_empty() {
+                // 用户已经打断：这批里没返回的调用不再补执行，后续批次也不再开跑。
+                break;
+            }
 
             if let Some((call, err_text)) = repeat_block {
                 send_stream_rebind_required_event(
@@ -1147,6 +1175,46 @@ async fn run_genai_tool_loop(
             );
             // 与合法结果一致：纳入本轮持久化与压缩闸门统计，保证存储与展示一致。
             round_completed_tool_result_events.push(failure_event);
+        }
+
+        // 用户打断：已完成的调用结果照常落库，只给还没返回的调用补打断结果，然后中止本轮调度。
+        if !round_aborted_call_ids.is_empty() {
+            for tool_result_event in &round_completed_tool_result_events {
+                let tool_call_id = tool_result_event
+                    .get("tool_call_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if tool_call_id.is_empty() {
+                    continue;
+                }
+                persist_completed_tool_group_result(
+                    tool_abort_state,
+                    auto_compaction_context,
+                    selected_api,
+                    trusted_input_tokens,
+                    chat_session_key,
+                    assistant_tool_group_history_event.clone(),
+                    tool_result_event.clone(),
+                    ToolResultPersistKind::Completed,
+                )?;
+            }
+            for tool_call_id in &round_aborted_call_ids {
+                persist_user_aborted_tool_group_result(
+                    tool_abort_state,
+                    auto_compaction_context,
+                    selected_api,
+                    chat_session_key,
+                    &assistant_tool_group_history_event,
+                    tool_call_id,
+                )
+                .map_err(|err| {
+                    format!(
+                        "写入用户打断的工具结果失败，已终止本轮调度，tool_call_id={tool_call_id}，error={err}"
+                    )
+                })?;
+            }
+            return Err(CHAT_ABORTED_BY_USER_ERROR.to_string());
         }
 
         // 工具整轮执行完毕瞬间判定：判定前未写正式历史/临时账本。
@@ -1621,6 +1689,8 @@ async fn run_genai_tool_loop_non_stream(
             })
             .collect::<Vec<_>>();
         let mut round_completed_tool_result_events = Vec::<Value>::new();
+        // 本轮被用户打断、还没返回结果的调用；已完成的结果仍然照常交付并落库。
+        let mut round_aborted_call_ids = Vec::<String>::new();
         for batch in split_prepared_tool_calls_into_execution_batches(
             &tool_assembly.tools,
             &tool_assembly.tool_definitions,
@@ -1663,7 +1733,24 @@ async fn run_genai_tool_loop_non_stream(
                 executable_calls.push(call);
             }
 
-            let executed_tool_calls = execute_prepared_tool_call_group(
+            let executable_call_ids = executable_calls
+                .iter()
+                .map(|call| (call.tool_call_id.clone(), call.tool_name.clone()))
+                .collect::<Vec<_>>();
+            // 预写失败等于崩溃保护没生效：此时继续执行工具，工具副作用将无从追溯。
+            // 直接中止本轮调度，把错误回报给前端，由用户决定是否重试。
+            for (tool_call_id, tool_name) in &executable_call_ids {
+                persist_pending_tool_group_result(
+                    tool_abort_state,
+                    auto_compaction_context,
+                    selected_api,
+                    chat_session_key,
+                    &assistant_tool_group_history_event,
+                    tool_call_id,
+                    tool_name,
+                )?;
+            }
+            let executed_group = match execute_prepared_tool_call_group(
                 tool_abort_state,
                 chat_session_key,
                 &tool_assembly.tools,
@@ -1671,9 +1758,14 @@ async fn run_genai_tool_loop_non_stream(
                 auto_compaction_context.and_then(|ctx| ctx.request_id.as_deref()),
                 executable_calls,
             )
-            .await?;
+            .await
+            {
+                Ok(group) => group,
+                Err(err) => return Err(err),
+            };
+            round_aborted_call_ids = executed_group.aborted_call_ids.clone();
 
-            for executed_tool_call in executed_tool_calls {
+            for executed_tool_call in executed_group.executed {
             let ExecutedToolCall {
                 tool_call_id,
                 tool_name,
@@ -1771,6 +1863,10 @@ async fn run_genai_tool_loop_non_stream(
                 // 判定前不写临时账本。
             }
             }
+            if !round_aborted_call_ids.is_empty() {
+                // 用户已经打断：这批里没返回的调用不再补执行，后续批次也不再开跑。
+                break;
+            }
 
             if let Some((call, err_text)) = repeat_block {
                 send_stream_rebind_required_event(
@@ -1838,6 +1934,46 @@ async fn run_genai_tool_loop_non_stream(
             );
             // 与合法结果一致：纳入本轮持久化与压缩闸门统计，保证存储与展示一致。
             round_completed_tool_result_events.push(failure_event);
+        }
+
+        // 用户打断：已完成的调用结果照常落库，只给还没返回的调用补打断结果，然后中止本轮调度。
+        if !round_aborted_call_ids.is_empty() {
+            for tool_result_event in &round_completed_tool_result_events {
+                let tool_call_id = tool_result_event
+                    .get("tool_call_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if tool_call_id.is_empty() {
+                    continue;
+                }
+                persist_completed_tool_group_result(
+                    tool_abort_state,
+                    auto_compaction_context,
+                    selected_api,
+                    trusted_input_tokens,
+                    chat_session_key,
+                    assistant_tool_group_history_event.clone(),
+                    tool_result_event.clone(),
+                    ToolResultPersistKind::Completed,
+                )?;
+            }
+            for tool_call_id in &round_aborted_call_ids {
+                persist_user_aborted_tool_group_result(
+                    tool_abort_state,
+                    auto_compaction_context,
+                    selected_api,
+                    chat_session_key,
+                    &assistant_tool_group_history_event,
+                    tool_call_id,
+                )
+                .map_err(|err| {
+                    format!(
+                        "写入用户打断的工具结果失败，已终止本轮调度，tool_call_id={tool_call_id}，error={err}"
+                    )
+                })?;
+            }
+            return Err(CHAT_ABORTED_BY_USER_ERROR.to_string());
         }
 
         // 工具整轮执行完毕瞬间判定：判定前未写正式历史/临时账本。
@@ -1940,6 +2076,52 @@ async fn run_genai_tool_loop_non_stream(
 #[cfg(test)]
 mod tool_loop_tests {
     use super::*;
+
+    fn finished_call(tool_call_id: &str, tool_name: &str) -> ExecutedToolCall {
+        ExecutedToolCall {
+            tool_call_id: tool_call_id.to_string(),
+            tool_name: tool_name.to_string(),
+            tool_args: "{}".to_string(),
+            tool_result: ProviderToolResult {
+                output: "ok".to_string(),
+                metadata: ProviderToolMetadata::default(),
+                parts: vec![ProviderToolResultPart::Text {
+                    text: "ok".to_string(),
+                }],
+                is_error: false,
+            },
+        }
+    }
+
+    #[test]
+    fn aborting_group_keeps_finished_tool_results() {
+        let snapshot = vec![
+            ("read_file".to_string(), "call-a".to_string()),
+            ("write_file".to_string(), "call-b".to_string()),
+        ];
+        let outcomes = vec![
+            GroupCallOutcome::Finished(Ok(finished_call("call-a", "read_file"))),
+            GroupCallOutcome::Aborted,
+        ];
+
+        let group = collect_group_outcomes(outcomes, &snapshot).expect("打断不应丢弃已完成结果");
+        assert_eq!(group.executed.len(), 1);
+        assert_eq!(group.executed[0].tool_call_id, "call-a");
+        assert_eq!(group.aborted_call_ids, vec!["call-b".to_string()]);
+    }
+
+    #[test]
+    fn group_without_abort_reports_no_aborted_call() {
+        let snapshot = vec![("read_file".to_string(), "call-a".to_string())];
+        let outcomes = vec![GroupCallOutcome::Finished(Ok(finished_call(
+            "call-a",
+            "read_file",
+        )))];
+
+        let group = collect_group_outcomes(outcomes, &snapshot).expect("正常完成不应报错");
+        assert_eq!(group.executed.len(), 1);
+        assert!(group.aborted_call_ids.is_empty());
+    }
 
     struct TestRuntimeTool {
         name: &'static str,

@@ -75,19 +75,19 @@ impl ConversationServiceV2 {
                         .into_string(),
                     );
                 }
-                let tool_call_id = validate_tool_group_result_append_v2(
+                validate_tool_group_result_append_v2(
                     &input.assistant_tool_event,
                     &input.tool_result_event,
                 )?;
                 let group_call_ids =
                     tool_call_ids_from_assistant_tool_event_v2(&input.assistant_tool_event);
                 let events = target_message.tool_call.get_or_insert_with(Vec::new);
-                if !tool_history_contains_tool_result_id_v2(events, &tool_call_id) {
-                    if !tool_history_contains_assistant_tool_group_v2(events, &group_call_ids) {
-                        events.push(input.assistant_tool_event.clone());
-                    }
-                    events.push(input.tool_result_event.clone());
+                if !tool_history_contains_assistant_tool_group_v2(events, &group_call_ids) {
+                    events.push(input.assistant_tool_event.clone());
                 }
+                // 同一 tool_call_id 允许多条结果并存：执行前先写占位，完成后追加真实结果，
+                // 取哪一条由消费端决定，存储端只按发生顺序记录。
+                events.push(input.tool_result_event.clone());
                 // 此处不改 provider_meta：用量等 meta 由 final text 落盘统一写入，
                 // 工具追加时改 meta 会让 D14 组内追加回退整块重写。
                 let tool_event_count = target_message.tool_call.as_ref().map(Vec::len).unwrap_or(0);

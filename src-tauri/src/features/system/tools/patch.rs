@@ -818,7 +818,7 @@ fn apply_patch_apply_update(
     if !content.contains(old_string) {
         let similar = apply_patch_similar_line_ranges(content, old_string, 1);
         let similar_hint = if similar.is_empty() {
-            "最相似候选行范围：line 1，未找到可用候选。".to_string()
+            "最相似候选行范围：未找到可用候选。".to_string()
         } else {
             let rows = similar
                 .into_iter()
@@ -1044,6 +1044,11 @@ fn apply_patch_similarity_score(left: &str, right: &str) -> f64 {
 fn apply_patch_similar_line_ranges(content: &str, old_string: &str, limit: usize) -> Vec<(usize, usize, String)> {
     const MAX_FILE_LINES_FOR_SIMILARITY: usize = 5000;
     const MIN_LINE_OVERLAP_RATIO: f64 = 0.9;
+    // 整行不相等但字符级高度相似的窗口也要纳入候选：手抄原文差一两个字是最常见的失败原因，
+    // 只靠整行精确重叠，这类输入永远拿不到候选，只能落到兜底文案。
+    const MIN_CHAR_SIMILARITY: f64 = 0.6;
+    // 长度差一倍以上的窗口不必算编辑距离，先按长度挡掉，避免长文件里逐窗口全量比对。
+    const MIN_LENGTH_RATIO: f64 = 0.5;
 
     let lines = content.lines().collect::<Vec<_>>();
     if lines.is_empty() || lines.len() > MAX_FILE_LINES_FOR_SIMILARITY {
@@ -1052,6 +1057,7 @@ fn apply_patch_similar_line_ranges(content: &str, old_string: &str, limit: usize
     let old_line_count = old_string.lines().count().max(1);
     let old_lines_set: std::collections::HashSet<&str> = old_string.lines().collect();
     let min_overlap = ((old_line_count as f64) * MIN_LINE_OVERLAP_RATIO).ceil() as usize;
+    let old_char_len = old_string.trim().chars().count().max(1);
     let mut candidates = Vec::<(f64, usize, usize, String)>::new();
     for window_len in [
         old_line_count.saturating_sub(1).max(1),
@@ -1063,12 +1069,18 @@ fn apply_patch_similar_line_ranges(content: &str, old_string: &str, limit: usize
         }
         for start in 0..=lines.len() - window_len {
             let window = &lines[start..start + window_len];
-            let overlap = window.iter().filter(|l| old_lines_set.contains(*l)).count();
-            if overlap < min_overlap {
+            let preview = window.join("\n");
+            let preview_char_len = preview.trim().chars().count();
+            let length_ratio = preview_char_len.min(old_char_len) as f64
+                / preview_char_len.max(old_char_len).max(1) as f64;
+            if length_ratio < MIN_LENGTH_RATIO {
                 continue;
             }
-            let preview = window.join("\n");
+            let overlap = window.iter().filter(|line| old_lines_set.contains(*line)).count();
             let score = apply_patch_similarity_score(old_string, &preview);
+            if overlap < min_overlap && score < MIN_CHAR_SIMILARITY {
+                continue;
+            }
             candidates.push((score, start + 1, start + window_len, preview));
         }
     }
@@ -1597,10 +1609,30 @@ mod apply_patch_tool_tests {
         let err = apply_patch_apply_update("a\nb\nc\n", "b\nmissing", "x", false).expect_err("not found should fail");
         assert!(err.contains("old_string 在文件中未找到"));
         assert!(err.contains("最相似候选行范围"));
-        assert!(err.contains("line ") || err.contains("lines "));
+        // 文件里没有足够接近的窗口时明确说明没有候选，不再给一个伪造的 line 1。
+        assert!(err.contains("未找到可用候选"));
         assert!(err.contains("b"));
         assert!(err.contains("先重新读取目标文件"));
         assert!(err.contains("最小 update 示例"));
+    }
+
+    #[test]
+    fn apply_update_should_suggest_candidate_when_single_char_differs() {
+        let content = "第一行\nMULTI第一行\n第三行\n";
+        let err = apply_patch_apply_update(content, "MULTI第1行", "x", false)
+            .expect_err("差一个字的原文同样应判定为未找到");
+        assert!(err.contains("最相似候选行范围"));
+        assert!(!err.contains("未找到可用候选"), "差一个字时不应落到兜底文案：{err}");
+        assert!(err.contains("line 2"), "应给出真实候选行号：{err}");
+    }
+
+    #[test]
+    fn apply_update_should_not_invent_candidate_for_unrelated_text() {
+        let content = "alpha\nbeta\ngamma\n";
+        let err = apply_patch_apply_update(content, "完全无关的内容XYZ", "x", false)
+            .expect_err("无关内容应判定为未找到");
+        assert!(err.contains("未找到可用候选"));
+        assert!(!err.contains("line 1，未找到可用候选"), "兜底文案不应带假行号：{err}");
     }
 
     #[test]

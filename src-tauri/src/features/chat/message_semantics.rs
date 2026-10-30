@@ -213,7 +213,7 @@ fn build_prepared_history_messages_from_tool_history(
             continue;
         }
         if event.role == "tool" && (!event.text.trim().is_empty() || event.tool_call_id.is_some()) {
-            history_messages.push(PreparedHistoryMessage {
+            let tool_message = PreparedHistoryMessage {
                 role: "tool".to_string(),
                 text: event.text,
                 extra_text_blocks: Vec::new(),
@@ -223,7 +223,20 @@ fn build_prepared_history_messages_from_tool_history(
                 tool_calls: None,
                 tool_call_id: event.tool_call_id,
                 reasoning_content: None,
+            };
+            // 同一 tool_call_id 以最后写入的一条为准：执行前预写的占位结果在前，
+            // 工具完成后追加的真实结果在后，覆盖占位后不向后传两条同 id 结果。
+            let call_id = tool_message.tool_call_id.clone();
+            let replaced = call_id.as_deref().and_then(|call_id| {
+                history_messages.iter_mut().rev().find(|existing| {
+                    existing.role == "tool"
+                        && existing.tool_call_id.as_deref() == Some(call_id)
+                })
             });
+            match replaced {
+                Some(existing) => *existing = tool_message,
+                None => history_messages.push(tool_message),
+            }
         }
     }
     history_messages
@@ -633,6 +646,42 @@ mod message_semantics_tests {
         );
         assert_eq!(history[1].role, "tool");
         assert_eq!(history[1].tool_call_id.as_deref(), Some("fc_1"));
+    }
+
+    #[test]
+    fn build_prepared_history_messages_from_tool_history_should_keep_latest_result_for_same_tool_call_id() {
+        let now = now_iso();
+        let mut assistant = test_message("assistant", "", &now);
+        assistant.tool_call = Some(vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "fc_1",
+                    "type": "function",
+                    "function": { "name": "exec", "arguments": "{}" }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "fc_1",
+                "content": "工具 exec 已发起调用，尚未返回结果。"
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "fc_1",
+                "content": "真实结果"
+            }),
+        ]);
+
+        let history = build_prepared_history_messages_from_tool_history(
+            &assistant,
+            MessageToolHistoryView::PromptReplay,
+        );
+
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[1].role, "tool");
+        assert_eq!(history[1].text, "真实结果");
     }
 
     #[test]

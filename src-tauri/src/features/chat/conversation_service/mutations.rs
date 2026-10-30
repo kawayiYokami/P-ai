@@ -221,10 +221,23 @@ fn merge_stop_chat_tool_history(
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .unwrap_or_default();
-            if !tool_call_id.is_empty()
-                && tool_history_contains_tool_result_id_v2(&merged, tool_call_id)
-            {
-                continue;
+            // 同一调用可能已有预写占位：用停止时拿到的真实结果替换它，而不是跳过。
+            if !tool_call_id.is_empty() {
+                let existing = merged.iter_mut().rev().find(|existing| {
+                    existing
+                        .get("role")
+                        .and_then(Value::as_str)
+                        .is_some_and(|role| role.trim().eq_ignore_ascii_case("tool"))
+                        && existing
+                            .get("tool_call_id")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            == Some(tool_call_id)
+                });
+                if let Some(existing) = existing {
+                    *existing = event.clone();
+                    continue;
+                }
             }
         } else if role.eq_ignore_ascii_case("assistant") {
             let tool_call_ids = tool_call_ids_from_assistant_tool_event_v2(event);

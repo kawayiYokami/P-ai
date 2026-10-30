@@ -440,6 +440,105 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     return blocks;
   }
 
+  type ToolEntryWithCallId = { toolCallId?: string };
+
+  /** 同一消息内经手多次的工具记录（预写占位 → 真实结果）只保留最后一条。 */
+  function keepLastToolEntry<T extends ToolEntryWithCallId>(
+    items: T[],
+    isToolEntry: (item: T) => boolean,
+  ): T[] {
+    const lastIndexById = new Map<string, number>();
+    items.forEach((item, index) => {
+      if (!isToolEntry(item)) return;
+      const callId = String(item.toolCallId || "").trim();
+      if (!callId) return;
+      lastIndexById.set(callId, index);
+    });
+    if (lastIndexById.size === 0) return items;
+    return items.filter((item, index) => {
+      if (!isToolEntry(item)) return true;
+      const callId = String(item.toolCallId || "").trim();
+      if (!callId) return true;
+      return lastIndexById.get(callId) === index;
+    });
+  }
+
+  /**
+   * 跨消息消解同一次工具调用。
+   * 压缩后新建的 assistant 消息会继承上一轮的工具事件，同一条调用因此在时间线上出现两次：
+   * 一份在压缩前的旧消息里，一份在新消息里。事件本身就带同一个 tool_call_id，
+   * 这里按 id 只保留先出现的那份，后到的整条移除。
+   * 分段补载时先出现的可能是新消息那份，规则不变，仍是先到先留。
+   */
+  function dedupeInheritedToolCalls(blocks: ChatMessageBlock[]): ChatMessageBlock[] {
+    const seenToolCalls = new Set<string>();
+    const seenActivityTools = new Set<string>();
+    const result: ChatMessageBlock[] = [];
+    for (const block of blocks) {
+      const toolCalls = keepLastToolEntry(
+        Array.isArray(block.toolCalls) ? block.toolCalls : [],
+        () => true,
+      );
+      const activityItems = keepLastToolEntry(
+        Array.isArray(block.activityItems) ? block.activityItems : [],
+        (item) => item.kind === "tool",
+      );
+      const nextToolCalls = toolCalls.filter((call) => {
+        const callId = String(call.toolCallId || "").trim();
+        if (!callId) return true;
+        if (seenToolCalls.has(callId)) return false;
+        seenToolCalls.add(callId);
+        return true;
+      });
+      const nextActivityItems = activityItems.filter((item) => {
+        if (item.kind !== "tool") return true;
+        const callId = String(item.toolCallId || "").trim();
+        if (!callId) return true;
+        if (seenActivityTools.has(callId)) return false;
+        seenActivityTools.add(callId);
+        return true;
+      });
+      const untouched = nextToolCalls.length === (Array.isArray(block.toolCalls) ? block.toolCalls.length : 0)
+        && nextActivityItems.length === (Array.isArray(block.activityItems) ? block.activityItems.length : 0);
+      if (untouched) {
+        result.push(block);
+        continue;
+      }
+      const stillHasBody = !!String(block.text || "").trim()
+        || !!block.isStreaming
+        || (block.images || []).length > 0
+        || (block.audios || []).length > 0
+        || (block.attachmentFiles || []).length > 0
+        || (block.extraTextReferences || []).length > 0
+        || !!block.taskTrigger
+        || !!block.planCard
+        || nextActivityItems.length > 0;
+      if (!stillHasBody) continue;
+      const activityToolCountsByName: Record<string, number> = {};
+      let activityReasoningCharCount = 0;
+      for (const item of nextActivityItems) {
+        if (item.kind === "reasoning") {
+          activityReasoningCharCount += String(item.text || "").length;
+          continue;
+        }
+        if (item.kind !== "tool") continue;
+        const name = String(item.name || "").trim();
+        if (!name) continue;
+        activityToolCountsByName[name] = (activityToolCountsByName[name] || 0) + 1;
+      }
+      result.push({
+        ...block,
+        toolCalls: nextToolCalls,
+        toolCallCount: nextToolCalls.length,
+        lastToolName: nextToolCalls[nextToolCalls.length - 1]?.name || "",
+        activityItems: nextActivityItems,
+        activityReasoningCharCount,
+        activityToolCountsByName,
+      });
+    }
+    return result;
+  }
+
   const allMessageBlocks = computed<ChatMessageBlock[]>(() => {
     const messages = options.allMessages.value;
     const signature = messages.map((message) => messageSignature(message)).join("||");
@@ -448,9 +547,10 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     }
     const blocks = messages
       .flatMap((message) => buildMessageBlocks(message));
+    const dedupedBlocks = dedupeInheritedToolCalls(blocks);
     lastMessageBlockSignature = signature;
-    lastMessageBlocks = blocks;
-    return blocks;
+    lastMessageBlocks = dedupedBlocks;
+    return dedupedBlocks;
   });
 
   const visibleMessageBlocks = computed(() => allMessageBlocks.value);
