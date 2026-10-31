@@ -711,6 +711,9 @@ const props = defineProps<{
   currentChatConversationId: string;
   sideConversations?: ChildConversationSummary[];
   sideConversationId?: string;
+  sideConversationRuntimeMap?: Record<string, string>;
+  sideConversationUnreadMap?: Record<string, number>;
+  sideConversationBadgeMap?: Record<string, string>;
   createSideChatConversation?: (withContext?: boolean) => Promise<string> | string;
   openSideChatNewPage?: () => void;
   selectSideChatConversation?: (conversationId: string) => void;
@@ -968,29 +971,52 @@ const sideChatTabs = computed(() => (props.sideConversations || []).map((convers
   const teamName = String(conversation.teamName || "").trim();
   // 队员标签不挂胶囊；普通追问保持对话图标。
   const isTeamMember = teamNumber > 0 && teamName !== "";
-  // 队员用会话自己的人格头像；会话没带人格时退回队员图标。
+  // 所有追问都优先用会话自己的人格头像；没头像时队员退回队员图标、普通追问保持对话图标。
   const teamAgentId = String(conversation.agentId || "").trim();
-  const teamAgentAvatarUrl = teamAgentId
+  let teamAgentAvatarUrl = teamAgentId
     ? String(props.chatPersonaAvatarUrlMap?.[teamAgentId] || "").trim()
     : "";
+  // agentId缺失或头像尚未缓存时，按队员名反查人格头像兜底，避免磁贴长期挂默认图标。
+  if (!teamAgentAvatarUrl && teamName) {
+    const nameMap = props.chatPersonaNameMap || {};
+    const avatarMap = props.chatPersonaAvatarUrlMap || {};
+    for (const [pid, pname] of Object.entries(nameMap)) {
+      if (String(pname || "").trim() === teamName) {
+        const url = String(avatarMap[pid] || "").trim();
+        if (url) {
+          teamAgentAvatarUrl = url;
+          break;
+        }
+      }
+    }
+  }
   return {
     key: String(conversation.conversationId || "").trim(),
     label: String(conversation.title || "").trim() || props.t("chat.sideChat.title"),
     // 队员的卡片头标直接写队员名，不再统一叫「追问」；普通追问保持原样。
     cardLabel: teamName || props.t("chat.sideChat.title"),
-    icon: isTeamMember ? (teamAgentAvatarUrl ? undefined : UserRound) : MessageSquareMore,
-    iconSrc: isTeamMember && teamAgentAvatarUrl ? teamAgentAvatarUrl : undefined,
+    icon: teamAgentAvatarUrl ? undefined : (isTeamMember ? UserRound : MessageSquareMore),
+    iconSrc: teamAgentAvatarUrl || undefined,
     closeable: true,
   };
 }));
 
 /** 右侧主页「追问」卡片数据：当前打开的追问会话 */
 const sideChatItems = computed(() =>
-  sideChatTabs.value.map((tab) => ({
-    id: String(tab.key || "").trim(),
-    title: String(tab.label || "").trim(),
-    label: String(tab.cardLabel || "").trim(),
-  })),
+  sideChatTabs.value.map((tab) => {
+    const id = String(tab.key || "").trim();
+    const runtimeState = String(props.sideConversationRuntimeMap?.[id] || "").trim();
+    const badgeState = String(props.sideConversationBadgeMap?.[id] || "").trim();
+    return {
+      id,
+      title: String(tab.label || "").trim(),
+      label: String(tab.cardLabel || "").trim(),
+      avatarSrc: String((tab as { iconSrc?: string }).iconSrc || "").trim() || undefined,
+      busy: runtimeState === "assistant_streaming" || runtimeState === "organizing_context",
+      unreadCount: Math.max(0, Number(props.sideConversationUnreadMap?.[id] || 0)),
+      hasError: badgeState === "failed",
+    };
+  }),
 );
 
 /** 主页点某张追问小卡：切到追问面板并激活对应会话 */

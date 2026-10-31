@@ -1009,7 +1009,7 @@ const props = defineProps<{
   chatMonitorPanelMode: ChatMonitorPanelMode;
   sideChatPanelEnabled?: boolean;
   /** 右侧主页「追问」卡片数据；追问会话由宿主容器持有 */
-  sideChatItems?: Array<{ id: string; title: string; label?: string }>;
+  sideChatItems?: Array<{ id: string; title: string; label?: string; avatarSrc?: string; busy?: boolean; unreadCount?: number; hasError?: boolean }>;
   teamVisible?: boolean;
   teamMemberCount?: number;
   teamRecruitEnabled?: boolean;
@@ -3176,6 +3176,10 @@ const sideChatItems = computed(() =>
       id: String(item?.id || "").trim(),
       title: String(item?.title || "").trim(),
       label: String(item?.label || "").trim(),
+      avatarSrc: String((item as { avatarSrc?: string })?.avatarSrc || "").trim() || undefined,
+      busy: !!(item as { busy?: boolean })?.busy,
+      unreadCount: Math.max(0, Number((item as { unreadCount?: number })?.unreadCount || 0)),
+      hasError: !!(item as { hasError?: boolean })?.hasError,
     }))
     .filter((item) => item.id),
 );

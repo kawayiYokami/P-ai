@@ -1,32 +1,66 @@
 <template>
   <div
-    class="ecall-home-card flex min-w-0 flex-col gap-3 overflow-hidden rounded-box border border-base-content/10 bg-base-100 p-3.5 transition-all duration-150"
-    :class="[
-      variant === 'wide' ? 'ecall-home-card-wide' : 'ecall-home-card-small',
-      layout === 'tile' ? 'ecall-home-card-tile' : '',
-      interactive
-        ? 'cursor-pointer hover:bg-base-200/70 active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50'
-        : '',
-    ]"
-    :role="interactive ? 'button' : undefined"
-    :tabindex="interactive ? 0 : undefined"
-    @click="handleSelect"
-    @keydown.enter.prevent="handleSelect"
-    @keydown.space.prevent="handleSelect"
+    class="indicator w-full"
+    :class="[variant === 'wide' ? 'ecall-home-card-wide' : 'ecall-home-card-small']"
   >
+    <span
+      v-if="busy || unreadCount > 0 || hasError"
+      class="indicator-item indicator-top indicator-end z-10 border-0 bg-transparent p-0"
+    >
+      <span
+        v-if="busy"
+        class="loading loading-spinner loading-sm text-base-content"
+        aria-hidden="true"
+      />
+      <span
+        v-else-if="hasError"
+        class="badge badge-sm badge-error p-1 text-error-content shadow-xs ring-1 ring-base-100"
+        title="调度失败"
+      ><CircleAlert class="size-3" aria-hidden="true" /></span>
+      <span
+        v-else-if="unreadCount > 0"
+        class="badge badge-sm badge-success px-1.5 text-xs font-medium text-success-content shadow-xs ring-1 ring-base-100"
+      >{{ unreadCount > 99 ? "99+" : unreadCount }}</span>
+    </span>
+    <div
+      class="ecall-home-card flex h-full w-full min-w-0 flex-col gap-3 overflow-hidden rounded-box border border-base-content/10 bg-base-100 p-3.5 transition-all duration-150"
+      :class="[
+        layout === 'tile' ? 'ecall-home-card-tile' : '',
+        interactive
+          ? 'cursor-pointer hover:bg-base-200/70 active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50'
+          : '',
+      ]"
+      :role="interactive ? 'button' : undefined"
+      :tabindex="interactive ? 0 : undefined"
+      @click="handleSelect"
+      @keydown.enter.prevent="handleSelect"
+      @keydown.space.prevent="handleSelect"
+    >
     <template v-if="layout === 'tile'">
       <span class="ecall-home-card-icon ecall-home-card-icon-tile" :class="toneTileClass">
-        <component :is="icon" class="size-5" aria-hidden="true" />
+        <img
+          v-if="avatarSrc"
+          :src="avatarSrc"
+          alt=""
+          class="size-5 rounded-full object-cover"
+        />
+        <component v-else :is="icon" class="size-5" aria-hidden="true" />
       </span>
       <span class="line-clamp-2 min-w-0 max-w-full text-sm font-medium text-base-content/85">{{ label }}</span>
       <slot />
     </template>
     <template v-else>
       <div class="flex min-w-0 shrink-0 items-center gap-2">
-        <span class="ecall-home-card-icon" :class="toneRowClass">
-          <component :is="icon" class="size-3.5 shrink-0" aria-hidden="true" />
+        <span class="ecall-home-card-icon shrink-0" :class="toneRowClass">
+          <img
+            v-if="avatarSrc"
+            :src="avatarSrc"
+            alt=""
+            class="size-3.5 rounded-full object-cover"
+          />
+          <component v-else :is="icon" class="size-3.5 shrink-0" aria-hidden="true" />
         </span>
-        <span v-if="pulsing" class="relative flex h-2 w-2 shrink-0 items-center justify-center">
+        <span v-if="pulsing && !busy" class="relative flex h-2 w-2 shrink-0 items-center justify-center">
           <span class="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" :class="toneDot.ping"></span>
           <span class="relative inline-flex h-1.5 w-1.5 rounded-full" :class="toneDot.core"></span>
         </span>
@@ -37,11 +71,13 @@
         <slot />
       </div>
     </template>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, type Component } from "vue";
+import { CircleAlert } from "@lucide/vue";
 
 const props = withDefaults(defineProps<{
   label: string;
@@ -56,6 +92,14 @@ const props = withDefaults(defineProps<{
   pulsing?: boolean;
   /** 脉冲点颜色；不给则跟随卡片 tone */
   pulseTone?: "primary" | "secondary" | "info" | "success" | "warning" | "neutral";
+  /** 磁贴头像：给了就显示圆形头像代替纯图标 */
+  avatarSrc?: string;
+  /** 磁贴忙态：头像右下角挂转圈 */
+  busy?: boolean;
+  /** 磁贴未读数：绿色角标，0 不显示 */
+  unreadCount?: number;
+  /** 调度失败：红色角标；未读绿色、报错红色 */
+  hasError?: boolean;
 }>(), {
   tone: "neutral",
   variant: "small",
@@ -63,6 +107,10 @@ const props = withDefaults(defineProps<{
   interactive: false,
   pulsing: false,
   pulseTone: undefined,
+  avatarSrc: "",
+  busy: false,
+  unreadCount: 0,
+  hasError: false,
 });
 
 const emit = defineEmits<{

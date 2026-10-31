@@ -1108,6 +1108,10 @@ export type ChildConversationSummary = {
   /** 队员身份标记：在队时带编号与名字，普通追问为空。 */
   teamNumber?: number;
   teamName?: string;
+  /** 磁贴直显基线：后端持久化的未读、运行态、轮次错误 */
+  unreadCount?: number;
+  runtimeState?: string;
+  lastError?: string;
 };
 
 export type ConversationListItemState = {

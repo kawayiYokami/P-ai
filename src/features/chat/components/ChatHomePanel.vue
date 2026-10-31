@@ -48,6 +48,10 @@
           :key="`side-chat-${item.id}`"
           :title="item.title"
           :label="item.label"
+          :avatar-src="item.avatarSrc"
+          :busy="!!item.busy"
+          :unread-count="Number(item.unreadCount || 0)"
+          :has-error="!!(item as { hasError?: boolean }).hasError"
           @open="emit('openSideChat', item.id)"
         />
         <HomeShellCard
@@ -161,7 +165,7 @@ const props = withDefaults(defineProps<{
   openFiles?: Array<{ path: string; label: string }>;
   activePath?: string;
   /** 当前打开的追问会话 */
-  sideChats?: Array<{ id: string; title: string; label?: string }>;
+  sideChats?: Array<{ id: string; title: string; label?: string; avatarSrc?: string; busy?: boolean; unreadCount?: number; hasError?: boolean }>;
   /** 追问能力是否可用；不可用时首页不出现「新建追问」入口卡 */
   sideChatEnabled?: boolean;
   /** 队伍管理入口是否可见；主页磁贴那打开队伍管理页 */

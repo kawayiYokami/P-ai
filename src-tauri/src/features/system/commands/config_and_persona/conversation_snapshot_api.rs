@@ -111,6 +111,13 @@ struct ChildConversationSummary {
     team_number: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     team_name: Option<String>,
+    /// 磁贴直显基线：未读数、运行态、轮次错误，后端持久化，前端打开即清零。
+    #[serde(default)]
+    unread_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    runtime_state: Option<MainSessionState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -577,15 +584,18 @@ fn build_unarchived_conversation_summary_from_meta_view(
         .map(|child| {
             let membership = child.team.membership.as_ref();
             ChildConversationSummary {
-                conversation_id: child.id,
-                title: child.title,
-                status: child.status,
-                conversation_kind: child.conversation_kind,
-                parent_conversation_id: child.parent_conversation_id,
-                updated_at: child.updated_at,
-                agent_id: child.agent_id,
+                conversation_id: child.id.clone(),
+                title: child.title.clone(),
+                status: child.status.clone(),
+                conversation_kind: child.conversation_kind.clone(),
+                parent_conversation_id: child.parent_conversation_id.clone(),
+                updated_at: child.updated_at.clone(),
+                agent_id: child.agent_id.clone(),
                 team_number: membership.map(|entry| entry.number),
                 team_name: membership.map(|entry| entry.name.clone()),
+                unread_count: child.unread_count,
+                runtime_state: unarchived_conversation_runtime_state(state, &child.id),
+                last_error: child.last_error.clone(),
             }
         })
         .collect::<Vec<_>>();

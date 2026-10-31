@@ -104,6 +104,12 @@ export function useChatWindowApp() {
     conversationForegroundSyncing,
     lastOverviewSyncAt,
     backgroundConversationBadgeMap,
+    sideConversationRuntimeMap,
+    sideConversationUnreadMap,
+    setSideConversationRuntimeState,
+    clearSideConversationRuntimeState,
+    bumpSideConversationUnread,
+    clearSideConversationUnread,
     conversationMessageCache,
     latestUserText,
     latestUserImages,
@@ -726,11 +732,60 @@ export function useChatWindowApp() {
     },
     { immediate: true },
   );
+  // 后端基线播种：子会话摘要现带未读/运行态/错误，首见即记入前端自维护表；
+  // 打开清零后不再用旧基线回灌，等后端刷新到新值才跟进，避免 ghost 未读/红标反复出现。
+  const sideBaselineMap = new Map<string, { unread: number; hasError: boolean; busy: boolean }>();
+  watch(
+    sideConversations,
+    (children) => {
+      if (!Array.isArray(children)) return;
+      for (const item of children) {
+        const cid = String((item as { conversationId?: string })?.conversationId || "").trim();
+        if (!cid) continue;
+        const backendUnread = Math.max(0, Number((item as { unreadCount?: number })?.unreadCount || 0));
+        const backendHasError = !!String((item as { lastError?: string })?.lastError || "").trim();
+        const backendRuntime = String((item as { runtimeState?: string })?.runtimeState || "").trim();
+        const backendBusy = backendRuntime === "assistant_streaming" || backendRuntime === "organizing_context";
+        const last = sideBaselineMap.get(cid) || { unread: 0, hasError: false, busy: false };
+        const firstSeen = !sideBaselineMap.has(cid);
+        // 未读：首见有数即播种；之后仅当后端出现比上次更大的新数且前端缺口时补齐
+        const liveHasUnread = cid in sideConversationUnreadMap.value;
+        const liveUnread = Math.max(0, Number(sideConversationUnreadMap.value[cid] || 0));
+        if (!liveHasUnread && backendUnread > 0 && (firstSeen || backendUnread !== last.unread)) {
+          sideConversationUnreadMap.value = { ...sideConversationUnreadMap.value, [cid]: backendUnread };
+        } else if (liveHasUnread && backendUnread > liveUnread && backendUnread !== last.unread) {
+          sideConversationUnreadMap.value = { ...sideConversationUnreadMap.value, [cid]: backendUnread };
+        }
+        // 错误：首见有错即记红；之后仅新错才记，避免清错后被旧基线顶回去
+        const liveHasBadge = cid in backgroundConversationBadgeMap.value;
+        if (!liveHasBadge && backendHasError && (firstSeen || backendHasError !== last.hasError)) {
+          backgroundConversationBadgeMap.value = { ...backgroundConversationBadgeMap.value, [cid]: "failed" };
+        }
+        // 忙态：首见忙即记；之后仅新忙才记，闲置由事件驱动回落
+        const liveRuntime = String(sideConversationRuntimeMap.value[cid] || "").trim();
+        if (!liveRuntime && backendBusy && (firstSeen || backendBusy !== last.busy)) {
+          sideConversationRuntimeMap.value = { ...sideConversationRuntimeMap.value, [cid]: backendRuntime };
+        }
+        sideBaselineMap.set(cid, { unread: backendUnread, hasError: backendHasError, busy: backendBusy });
+      }
+      // 父切走或追问被删时，基线跟随收敛，避免旧 id 常驻
+      const alive = new Set(
+        (Array.isArray(children) ? children : [])
+          .map((item) => String((item as { conversationId?: string })?.conversationId || "").trim())
+          .filter(Boolean),
+      );
+      for (const key of Array.from(sideBaselineMap.keys())) {
+        if (!alive.has(key)) sideBaselineMap.delete(key);
+      }
+    },
+    { immediate: true },
+  );
   const selectSideChatConversation = (conversationId: string) => {
     const normalizedId = String(conversationId || "").trim();
     if (!sideConversations.value.some((item) => String(item.conversationId || "").trim() === normalizedId)) return;
     sideChatNewPageRequested.value = false;
     sideConversationId.value = normalizedId;
+    clearSideConversationUnread(normalizedId);
     const parentId = String(currentChatConversationId.value || "").trim();
     if (parentId) activeSideConversationByParent.set(parentId, normalizedId);
   };
@@ -740,6 +795,11 @@ export function useChatWindowApp() {
     sideConversationId.value = "";
     chatUiState.updateChatRightPanelMode("sideChat");
   };
+  // 打开侧会话即已读：切到哪张就清哪张的未读，避免磁贴残留绿标
+  watch(sideConversationId, (nextId) => {
+    const cid = String(nextId || "").trim();
+    if (cid) clearSideConversationUnread(cid);
+  });
   const createSideChatConversation = async (withContext = true) => {
     const conversationId = await conversationOrchestrator.createSideChatConversation(undefined, withContext);
     if (conversationId) {
@@ -830,6 +890,15 @@ export function useChatWindowApp() {
     } finally {
       closingSideConversationIds.value = closingSideConversationIds.value
         .filter((conversationId) => !closingSet.has(conversationId));
+      for (const conversationId of idsToClose) {
+        clearSideConversationUnread(conversationId);
+        clearSideConversationRuntimeState(conversationId);
+        if (conversationId in backgroundConversationBadgeMap.value) {
+          const next = { ...backgroundConversationBadgeMap.value };
+          delete next[conversationId];
+          backgroundConversationBadgeMap.value = next;
+        }
+      }
     }
   };
   refreshToolsStatus = configRuntime.refreshToolsStatus;
@@ -876,6 +945,14 @@ export function useChatWindowApp() {
     instructionPresets,
     allMessages,
     conversationMessageCache,
+    backgroundConversationBadgeMap,
+    sideConversationRuntimeMap,
+    sideConversationUnreadMap,
+    setSideConversationRuntimeState,
+    bumpSideConversationUnread,
+    clearSideConversationUnread,
+    clearSideConversationRuntimeState,
+    sideConversationId,
     ensureConversationMessageIds,
     CHAT_STREAM_DEBUG,
     getChatFlow: () => chatFlow,
@@ -1071,6 +1148,9 @@ export function useChatWindowApp() {
     ...conversationOrchestrator,
     sideConversations,
     sideConversationId,
+    sideConversationRuntimeMap,
+    sideConversationUnreadMap,
+    backgroundConversationBadgeMap,
     selectSideChatConversation,
     openSideChatNewPage,
     createSideChatConversation,

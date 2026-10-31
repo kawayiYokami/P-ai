@@ -43,6 +43,14 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
         conversationId,
         bindings.readMessagesFromPayload(payload),
       );
+      try {
+        const cid = String(conversationId || "").trim();
+        const openSideId = String(bindings.sideConversationId?.value || "").trim();
+        const msgs = bindings.readMessagesFromPayload(payload) || [];
+        if (cid && cid !== openSideId && msgs.length > 0 && typeof bindings.bumpSideConversationUnread === "function") {
+          bindings.bumpSideConversationUnread(cid);
+        }
+      } catch { /* 侧会话未读自维护失败不影响主链路 */ }
     });
 
     subscribe<any>("chatRoundCompleted", "chat.roundFinished", (payload) => {
@@ -50,10 +58,14 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
       const currentConversationId = String(bindings.currentChatConversationId.value || "").trim();
       const value = payload && typeof payload === "object" ? payload as Record<string, any> : null;
       const failed = String(value?.status || "").trim() === "failed" || !!String(value?.error || "").trim();
+      // 侧会话失败即记红标：不管它在不在前台、有没有注册 flow，磁贴都要能亮红；
+      // 前台主会话的失败走会话内报错卡，不记角标。
+      if (failed && conversationId && conversationId !== currentConversationId) {
+        try { bindings.setConversationBadge?.(conversationId, "failed"); } catch { /* 记红标失败不影响主链路 */ }
+      }
       const targetFlows = flowsForConversation(conversationId);
       if (targetFlows.length === 0 && conversationId && conversationId !== currentConversationId) {
         if (failed) {
-          bindings.setConversationBadge(conversationId, "failed");
           return;
         }
         const assistantMessage = value?.assistantMessage || null;
@@ -114,6 +126,13 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
         void flow.handleExternalRuntimeStateUpdated?.(payload);
       }
       bindings.applyConversationRuntimeStateUpdated(payload);
+      try {
+        const cid = String(conversationId || "").trim();
+        const runtimeState = String((payload as any)?.runtimeState || "").trim();
+        if (cid && runtimeState && typeof bindings.setSideConversationRuntimeState === "function") {
+          bindings.setSideConversationRuntimeState(cid, runtimeState);
+        }
+      } catch { /* 侧会话忙态自维护失败不影响主链路 */ }
     });
 
     subscribe<any>("chatConversationOverviewUpdated", "conversation.overviewUpdated", (payload) => {
@@ -138,6 +157,16 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
         void flow.handleExternalMessageAppended?.(payload);
       }
       bindings.applyConversationMessageAppended(payload);
+      try {
+        const cid = String(conversationId || "").trim();
+        const openSideId = String(bindings.sideConversationId?.value || "").trim();
+        const message = (payload as any)?.message || null;
+        const role = String(message?.role || "").trim().toLowerCase();
+        // 用户自己发的不算未读；打开正在看的也不算；其余后台侧会话来消息记一条未读
+        if (cid && cid !== openSideId && role !== "user" && typeof bindings.bumpSideConversationUnread === "function") {
+          bindings.bumpSideConversationUnread(cid);
+        }
+      } catch { /* 侧会话未读自维护失败不影响主链路 */ }
     });
 
     // 冷启动强制恢复：进程被杀后重载无边沿事件可依赖，不走普通 mounted 调度；

@@ -88,6 +88,37 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
   const conversationForegroundSyncing = ref(false);
   const lastOverviewSyncAt = ref("");
   const backgroundConversationBadgeMap = ref<Record<string, BackgroundConversationBadgeState>>({});
+  /** 侧会话（追问/队员）运行态：前端自维护，不等后端子会话摘要补字段 */
+  const sideConversationRuntimeMap = ref<Record<string, string>>({});
+  /** 侧会话未读数：前端自维护，打开即清零 */
+  const sideConversationUnreadMap = ref<Record<string, number>>({});
+  function setSideConversationRuntimeState(conversationId: string, runtimeState: string) {
+    const cid = String(conversationId || "").trim();
+    if (!cid) return;
+    const next = String(runtimeState || "").trim() || "idle";
+    if ((sideConversationRuntimeMap.value[cid] || "") === next) return;
+    sideConversationRuntimeMap.value = { ...sideConversationRuntimeMap.value, [cid]: next };
+  }
+  function clearSideConversationRuntimeState(conversationId: string) {
+    const cid = String(conversationId || "").trim();
+    if (!cid || !(cid in sideConversationRuntimeMap.value)) return;
+    const next = { ...sideConversationRuntimeMap.value };
+    delete next[cid];
+    sideConversationRuntimeMap.value = next;
+  }
+  function bumpSideConversationUnread(conversationId: string) {
+    const cid = String(conversationId || "").trim();
+    if (!cid) return;
+    const cur = Math.max(0, Number(sideConversationUnreadMap.value[cid] || 0));
+    sideConversationUnreadMap.value = { ...sideConversationUnreadMap.value, [cid]: cur + 1 };
+  }
+  function clearSideConversationUnread(conversationId: string) {
+    const cid = String(conversationId || "").trim();
+    if (!cid || !sideConversationUnreadMap.value[cid]) return;
+    const next = { ...sideConversationUnreadMap.value };
+    delete next[cid];
+    sideConversationUnreadMap.value = next;
+  }
   const conversationMessageCache = ref<Record<string, ChatMessage[]>>({});
   const latestUserText = ref("");
   const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
@@ -156,6 +187,12 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
     conversationForegroundSyncing,
     lastOverviewSyncAt,
     backgroundConversationBadgeMap,
+    sideConversationRuntimeMap,
+    sideConversationUnreadMap,
+    setSideConversationRuntimeState,
+    clearSideConversationRuntimeState,
+    bumpSideConversationUnread,
+    clearSideConversationUnread,
     conversationMessageCache,
     latestUserText,
     latestUserImages,
