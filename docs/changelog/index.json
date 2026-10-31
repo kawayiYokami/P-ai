@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-27T15:03:24.532Z",
-  "latestVersion": "v0.97.10",
+  "generatedAt": "2026-10-31T07:55:24.251Z",
+  "latestVersion": "v0.97.11",
   "releases": [
+    {
+      "version": "v0.97.11",
+      "path": "docs/changelog/releases/v0.97.11.md",
+      "summary": "**助理用到的 MCP 工具不再每轮全部塞进上下文，改成需要时按名字拿取，拿过之后下一轮才带上参数；名字写错会给几个相近的候选。**"
+    },
     {
       "version": "v0.97.10",
       "path": "docs/changelog/releases/v0.97.10.md",

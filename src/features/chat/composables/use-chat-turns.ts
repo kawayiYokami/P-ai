@@ -440,24 +440,20 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     return blocks;
   }
 
-  type ToolEntryWithCallId = { toolCallId?: string };
-
   /** 同一消息内经手多次的工具记录（预写占位 → 真实结果）只保留最后一条。 */
-  function keepLastToolEntry<T extends ToolEntryWithCallId>(
+  function keepLastToolEntry<T>(
     items: T[],
-    isToolEntry: (item: T) => boolean,
+    callIdOf: (item: T) => string,
   ): T[] {
     const lastIndexById = new Map<string, number>();
     items.forEach((item, index) => {
-      if (!isToolEntry(item)) return;
-      const callId = String(item.toolCallId || "").trim();
+      const callId = String(callIdOf(item) || "").trim();
       if (!callId) return;
       lastIndexById.set(callId, index);
     });
     if (lastIndexById.size === 0) return items;
     return items.filter((item, index) => {
-      if (!isToolEntry(item)) return true;
-      const callId = String(item.toolCallId || "").trim();
+      const callId = String(callIdOf(item) || "").trim();
       if (!callId) return true;
       return lastIndexById.get(callId) === index;
     });
@@ -477,11 +473,11 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     for (const block of blocks) {
       const toolCalls = keepLastToolEntry(
         Array.isArray(block.toolCalls) ? block.toolCalls : [],
-        () => true,
+        (call) => call.toolCallId || "",
       );
       const activityItems = keepLastToolEntry(
         Array.isArray(block.activityItems) ? block.activityItems : [],
-        (item) => item.kind === "tool",
+        (item) => (item.kind === "tool" ? item.toolCallId || "" : ""),
       );
       const nextToolCalls = toolCalls.filter((call) => {
         const callId = String(call.toolCallId || "").trim();
