@@ -215,25 +215,81 @@ const columns = computed<DemoColumn[]>(() => [
 .ecall-assistant-bubble[data-bubble-background="on"] .ecall-assistant-segment-text {
   border-radius: var(--radius-box, 1rem);
   background: var(--color-base-100);
+  overflow: hidden;
 }
 
-/* ==================== 目标：富块不再自成一块，底色与框线归零 ==================== */
+/* ==================== 目标：富块化为横向通栏楼层（Band Floor） ==================== */
 .ecall-rich-embed-demo-target .assistant-markdown {
-  --ecall-chat-rich-block-bg: transparent;
+  --ecall-bubble-floor-bg: color-mix(in srgb, var(--color-base-200) 60%, var(--color-base-100));
+  --ecall-bubble-floor-border: color-mix(in srgb, var(--color-base-content) 10%, transparent);
+}
+
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-code-block),
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-table-wrap),
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-mermaid-shell) {
+  margin-left: -1rem;
+  margin-right: -1rem;
+  width: calc(100% + 2rem);
+  max-width: calc(100% + 2rem);
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-top: 1px solid var(--ecall-bubble-floor-border);
+  border-bottom: 1px solid var(--ecall-bubble-floor-border);
+  background: var(--ecall-bubble-floor-bg);
 }
 
 .ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-code-block) {
-  --ecall-md-code-bg: transparent;
-  background: transparent;
+  --ecall-md-code-bg: var(--ecall-bubble-floor-bg);
+  margin-top: 0.6rem;
+  margin-bottom: 0.6rem;
 }
 
-/* 表格外框在 markdown-content.css 里是 !important 声明的，覆盖要跟上 !important */
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-code-title) {
+  padding: 0.35rem 1rem;
+  background: transparent;
+  border-bottom: 1px solid var(--ecall-bubble-floor-border);
+}
+
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-code-body) {
+  padding: 0.6rem 1rem 0.75rem 1rem;
+}
+
 .ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-table-wrap) {
-  border-radius: 0;
+  margin-top: 0.6rem;
+  margin-bottom: 0.6rem;
+  overflow-x: auto;
 }
 
 .ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-table) {
   border: 0 !important;
   border-radius: 0;
+  background: transparent;
+}
+
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-table th),
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-table td) {
+  background: transparent !important;
+  border-bottom: 1px solid var(--ecall-bubble-floor-border);
+}
+
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-table th:first-child),
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-table td:first-child) {
+  padding-left: 1rem;
+}
+
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-table th:last-child),
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-table td:last-child) {
+  padding-right: 1rem;
+}
+
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-table th) {
+  background: color-mix(in srgb, var(--color-base-content) 3%, transparent) !important;
+}
+
+.ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-mermaid-shell) {
+  margin-top: 0.6rem;
+  margin-bottom: 0.6rem;
+  padding: 0.75rem 1rem;
 }
 </style>

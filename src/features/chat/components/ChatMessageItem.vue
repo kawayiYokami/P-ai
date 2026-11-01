@@ -1323,6 +1323,9 @@ function showActivityPanel(block: ChatMessageBlock): boolean {
 
 function showActivitySummary(block: ChatMessageBlock): boolean {
   if (isOwnMessage(block) || block.remoteImOrigin) return false;
+  // 队伍消息（邮件与通知）都是服务端写死的站内信，没有思考也没有工具，
+  // 「即答」这一行只是噪声。按 teamMessage 一刀切，将来加第三种队伍消息也不会漏。
+  if (block.providerMeta?.teamMessage === true) return false;
   if (showActivityPanel(block)) return true;
   return !block.isStreaming;
 }
@@ -2646,32 +2649,8 @@ function openAttachmentPath(path: string) {
   --ecall-chat-rich-block-bg: var(--color-base-200);
 }
 
-/* 富块内嵌气泡：代码块底色与框线归零，只留语言名与操作按钮 */
-.assistant-markdown :deep(.ecall-md-code-block) {
-  --ecall-md-code-bg: transparent;
-  background: transparent;
-}
-
 .assistant-markdown :deep(.ecall-markdown-content :where(blockquote,.blockquote)) {
   background: var(--ecall-chat-rich-block-bg);
-}
-
-.assistant-markdown :deep(.ecall-markdown-content :where(th,.table-node th)) {
-  background: var(--ecall-chat-rich-block-bg) !important;
-}
-
-.assistant-markdown :deep(.ecall-markdown-content :where(td,.table-node td)) {
-  background: var(--ecall-chat-rich-block-bg) !important;
-}
-
-/* 富块内嵌气泡：表格去掉外框，只留表头分隔线与行线 */
-.assistant-markdown :deep(.ecall-markdown-content :where(table,.table-node)) {
-  border: 0 !important;
-  border-radius: 0;
-}
-
-.assistant-markdown :deep(.ecall-markdown-content .table-node-wrapper) {
-  border-radius: 0;
 }
 
 .assistant-markdown :deep(.ecall-markdown-content .ecall-md-details) {
@@ -2765,16 +2744,180 @@ function openAttachmentPath(path: string) {
   padding: 0.68rem 1rem;
 }
 
-/* 段里带富块（代码块 / 表格 / 图表）时回到整行宽度，否则 fit-content 会把代码块压窄成横向滚动 */
-.ecall-assistant-segment:has(.ecall-md-code-block, .ecall-md-table-wrap, .ecall-md-mermaid-shell) {
+/* 段里带富块（代码块 / 表格 / 图表 / 沙箱 / 公式）时回到整行宽度，否则 fit-content 会把内容压窄 */
+.ecall-assistant-segment:has(
+  .ecall-md-code-block,
+  .ecall-md-table-wrap,
+  .ecall-md-mermaid-shell,
+  .ecall-sandbox-card,
+  .ecall-md-sandbox-skeleton,
+  .ecall-agent-embed-shell,
+  .ecall-md-math-block
+) {
   display: block;
   width: 100%;
 }
 
-/* 背景开关：只决定气泡底色是否显示，布局与文字位置恒定不动 */
+/* ==================== 1. 气泡模式：富块化为横向通栏楼层（Band Floor） ==================== */
+.ecall-assistant-bubble[data-bubble-background="on"] {
+  --ecall-bubble-floor-bg: color-mix(in srgb, var(--color-base-200) 60%, var(--color-base-100));
+  --ecall-bubble-floor-border: color-mix(in srgb, var(--color-base-content) 10%, transparent);
+}
+
 .ecall-assistant-bubble[data-bubble-background="on"] .ecall-assistant-segment-text {
   border-radius: var(--radius-box, 1rem);
   background: var(--color-base-100);
+  overflow: hidden; /* 保证抵边楼层的负 margin 被气泡圆角自然裁切 */
+}
+
+/* 富块通栏抵边（左右 -1rem 负 margin 抵消 segment padding 1rem） */
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-code-block),
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-table-wrap),
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-mermaid-shell),
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-sandbox-card),
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-sandbox-skeleton),
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-agent-embed-shell),
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-math-block) {
+  margin-left: -1rem;
+  margin-right: -1rem;
+  width: calc(100% + 2rem);
+  max-width: calc(100% + 2rem);
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-top: 1px solid var(--ecall-bubble-floor-border);
+  border-bottom: 1px solid var(--ecall-bubble-floor-border);
+  background: var(--ecall-bubble-floor-bg);
+  box-shadow: none;
+}
+
+/* 代码块楼层细节：语言栏与代码区对齐气泡正文基准线 */
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-code-block) {
+  --ecall-md-code-bg: var(--ecall-bubble-floor-bg);
+  margin-top: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-code-title) {
+  padding: 0.35rem 1rem;
+  background: transparent;
+  border-bottom: 1px solid var(--ecall-bubble-floor-border);
+}
+
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-code-body) {
+  padding: 0.6rem 1rem 0.75rem 1rem;
+}
+
+/* 表格楼层细节：去外框，首尾列对齐气泡正文基准线 */
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-table-wrap) {
+  margin-top: 0.6rem;
+  margin-bottom: 0.6rem;
+  overflow-x: auto;
+}
+
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-table) {
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent;
+}
+
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-table th),
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-table td) {
+  background: transparent !important;
+  border-bottom: 1px solid var(--ecall-bubble-floor-border);
+}
+
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-table th:first-child),
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-table td:first-child) {
+  padding-left: 1rem;
+}
+
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-table th:last-child),
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-table td:last-child) {
+  padding-right: 1rem;
+}
+
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-table th) {
+  background: color-mix(in srgb, var(--color-base-content) 3%, transparent) !important;
+}
+
+/* 图表、沙箱与公式楼层细节 */
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-mermaid-shell) {
+  margin-top: 0.6rem;
+  margin-bottom: 0.6rem;
+  padding: 0.75rem 1rem;
+}
+
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-sandbox-card) {
+  margin-top: 0.6rem;
+  margin-bottom: 0.6rem;
+  border: 0;
+  border-top: 1px solid var(--ecall-bubble-floor-border);
+  border-bottom: 1px solid var(--ecall-bubble-floor-border);
+}
+
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-sandbox-toolbar),
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-sandbox-stage) {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-math-block) {
+  margin-top: 0.6rem;
+  margin-bottom: 0.6rem;
+  padding: 0.6rem 1rem;
+}
+
+/* 楼层位于段首或段尾时紧贴边缘，圆角由气泡容器裁切 */
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-markdown-content > :first-child:is(
+  .ecall-md-code-block,
+  .ecall-md-table-wrap,
+  .ecall-md-mermaid-shell,
+  .ecall-sandbox-card,
+  .ecall-md-sandbox-skeleton,
+  .ecall-agent-embed-shell,
+  .ecall-md-math-block
+)) {
+  margin-top: -0.68rem;
+  border-top: 0;
+}
+
+.ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-markdown-content > :last-child:is(
+  .ecall-md-code-block,
+  .ecall-md-table-wrap,
+  .ecall-md-mermaid-shell,
+  .ecall-sandbox-card,
+  .ecall-md-sandbox-skeleton,
+  .ecall-agent-embed-shell,
+  .ecall-md-math-block
+)) {
+  margin-bottom: -0.68rem;
+  border-bottom: 0;
+}
+
+/* ==================== 2. 非气泡模式：富块为独立卡片（Card） ==================== */
+.ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-md-code-block),
+.ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-md-table-wrap),
+.ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-md-mermaid-shell),
+.ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-sandbox-card),
+.ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-md-sandbox-skeleton),
+.ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-agent-embed-shell),
+.ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-md-math-block) {
+  margin: 0.75rem 0;
+  border-radius: var(--ecall-md-block-radius, 0.5rem);
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  background: color-mix(in srgb, var(--color-base-content) 4%, var(--color-base-100));
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-md-code-block) {
+  --ecall-md-code-bg: color-mix(in srgb, var(--color-base-content) 4%, var(--color-base-100));
+}
+
+.ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-md-table) {
+  border: 0 !important;
+  border-radius: inherit;
 }
 
 .ecall-assistant-bubble {

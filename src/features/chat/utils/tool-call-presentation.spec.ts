@@ -28,12 +28,11 @@ function createPresentation(agentNames: Record<string, string> = {}) {
     "status.toolTimeline.actionRemember": "记录记忆",
     "status.toolTimeline.actionSearch": "搜索文件",
     "status.toolTimeline.actionTask": "定时任务",
-    "status.toolTimeline.actionTeamDismiss": "请离队员",
     "status.toolTimeline.actionTeamInfo": "查看队伍",
+    "status.toolTimeline.actionTeamRead": "读队员消息",
     "status.toolTimeline.actionTeamRecruit": "招募队员",
     "status.toolTimeline.actionTeamReport": "汇报队长",
     "status.toolTimeline.actionTeamSend": "发送给队员",
-    "status.toolTimeline.teamMemberNumber": "{number} 号队员",
     "status.toolTimeline.teamScopeActive": "当前队员",
     "status.toolTimeline.teamScopeHistory": "历史队员",
     "status.toolTimeline.actionTodo": "待办清单",
@@ -354,25 +353,25 @@ describe("createToolCallPresentation", () => {
 
     const recruit = presentation.toolCallSemanticPresentation({
       name: "team_recruit",
-      argsText: JSON.stringify({ name: "李工", task: "跟进重构" }),
+      argsText: JSON.stringify({ role: "李工", duty: "跟进重构" }),
     });
     expect(recruit.action).toBe("招募队员");
     expect(recruit.target).toBe("李工");
     expect(recruit.text).toBe("招募队员 李工");
 
-    const dismiss = presentation.toolCallSemanticPresentation({
-      name: "team_dismiss",
-      argsText: JSON.stringify({ number: 2 }),
-    });
-    expect(dismiss.action).toBe("请离队员");
-    expect(dismiss.target).toBe("2 号队员");
-
     const send = presentation.toolCallSemanticPresentation({
       name: "team_send",
-      argsText: JSON.stringify({ number: 1, content: "把登录接口的测试补上" }),
+      argsText: JSON.stringify({ role: "莫娜", content: "把登录接口的测试补上" }),
     });
     expect(send.action).toBe("发送给队员");
-    expect(send.target).toBe("1 号队员 把登录接口的测试补上");
+    expect(send.target).toBe("莫娜 把登录接口的测试补上");
+
+    const read = presentation.toolCallSemanticPresentation({
+      name: "team_read",
+      argsText: JSON.stringify({ role: "莫娜", limit: 2 }),
+    });
+    expect(read.action).toBe("读队员消息");
+    expect(read.target).toBe("莫娜");
 
     const report = presentation.toolCallSemanticPresentation({
       name: "team_report",
@@ -383,8 +382,8 @@ describe("createToolCallPresentation", () => {
 
     expect(presentation.toolCallDisplayName("team_info")).toBe("查看队伍");
     expect(presentation.toolCallDisplayName("team_recruit")).toBe("招募队员");
-    expect(presentation.toolCallDisplayName("team_dismiss")).toBe("请离队员");
     expect(presentation.toolCallDisplayName("team_send")).toBe("发送给队员");
+    expect(presentation.toolCallDisplayName("team_read")).toBe("读队员消息");
     expect(presentation.toolCallDisplayName("team_report")).toBe("汇报队长");
   });
 

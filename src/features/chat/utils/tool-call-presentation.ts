@@ -43,6 +43,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     "find",
     "search",
     "todo",
+    "progress",
     "plan",
     "create_goal",
     "update_goal",
@@ -67,8 +68,9 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     "wait",
     "team_info",
     "team_recruit",
-    "team_dismiss",
     "team_send",
+    "team_read",
+    "team_share_model",
     "team_report",
     "config",
     "pai_config",
@@ -800,7 +802,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     }
 
 
-    // 25. 队伍工具 (team_info / team_recruit / team_dismiss / team_send / team_report)
+    // 25. 队伍工具 (team_info / team_recruit / team_send / team_read / team_report)
     if (toolName === "team_info") {
       const action = toolTimelineText("actionTeamInfo");
       const scope = safeStringValue(obj, "scope");
@@ -816,21 +818,8 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
 
     if (toolName === "team_recruit") {
       const action = toolTimelineText("actionTeamRecruit");
-      const name = safeStringValue(obj, "name");
-      const target = compactText(name || toCompactValue(args), 40);
-      return {
-        action,
-        target,
-        text: formatFullText(action, target),
-      };
-    }
-
-    if (toolName === "team_dismiss") {
-      const action = toolTimelineText("actionTeamDismiss");
-      const number = obj.number;
-      const target = number !== undefined && number !== null
-        ? toolTimelineText("teamMemberNumber", { number: String(number) })
-        : toCompactValue(args);
+      const role = safeStringValue(obj, "role");
+      const target = compactText(role || toCompactValue(args), 40);
       return {
         action,
         target,
@@ -840,12 +829,32 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
 
     if (toolName === "team_send") {
       const action = toolTimelineText("actionTeamSend");
-      const number = obj.number;
-      const numberText = number !== undefined && number !== null
-        ? toolTimelineText("teamMemberNumber", { number: String(number) })
-        : "";
+      const role = compactText(safeStringValue(obj, "role"), 40);
       const content = compactText(safeStringValue(obj, "content") || toCompactValue(args), 40);
-      const target = [numberText, content].filter(Boolean).join(" ");
+      const target = [role, content].filter(Boolean).join(" ");
+      return {
+        action,
+        target,
+        text: formatFullText(action, target),
+      };
+    }
+
+    if (toolName === "team_read") {
+      const action = toolTimelineText("actionTeamRead");
+      const role = compactText(safeStringValue(obj, "role"), 40);
+      const conversationId = compactText(safeStringValue(obj, "conversation_id"), 40);
+      const target = role || conversationId || toCompactValue(args);
+      return {
+        action,
+        target,
+        text: formatFullText(action, target),
+      };
+    }
+
+    if (toolName === "team_share_model") {
+      const action = toolTimelineText("actionTeamShareModel");
+      const role = compactText(safeStringValue(obj, "role"), 40);
+      const target = role || toCompactValue(args);
       return {
         action,
         target,
@@ -862,7 +871,6 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
         text: formatFullText(action, target),
       };
     }
-
 
     // 26. 外部 / MCP 工具：统一显示「链接到 {mcp工具名}」
     const action = toolTimelineText("actionConnectMcp");
@@ -912,8 +920,9 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     if (raw === "wait") return toolTimelineText("actionWait");
     if (raw === "team_info") return toolTimelineText("actionTeamInfo");
     if (raw === "team_recruit") return toolTimelineText("actionTeamRecruit");
-    if (raw === "team_dismiss") return toolTimelineText("actionTeamDismiss");
     if (raw === "team_send") return toolTimelineText("actionTeamSend");
+    if (raw === "team_read") return toolTimelineText("actionTeamRead");
+    if (raw === "team_share_model") return toolTimelineText("actionTeamShareModel");
     if (raw === "team_report") return toolTimelineText("actionTeamReport");
 
     // 外部 / MCP 工具：统一使用「链接到 {toolName}」
