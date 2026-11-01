@@ -128,6 +128,7 @@ impl ConversationServiceV2 {
             }
         }
         state_schedule_conversation_delete(state, normalized_conversation_id)?;
+        question_clear_conversation(state, normalized_conversation_id);
         for child_conversation_id in preparation.child_conversation_ids {
             if child_conversation_id.trim().is_empty() {
                 continue;
@@ -139,6 +140,7 @@ impl ConversationServiceV2 {
                 ));
             }
             clear_conversation_list_activity_mark(state, &child_conversation_id);
+            question_clear_conversation(state, &child_conversation_id);
         }
         if let Some(parent_conversation_id) = preparation.parent_conversation_id {
             if let Err(err) = state_update_conversation_metadata_cached(

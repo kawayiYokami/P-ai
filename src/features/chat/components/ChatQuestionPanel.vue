@@ -4,48 +4,46 @@ import { useI18n } from "vue-i18n";
 import DoubleDeckCard from "./input-panel/DoubleDeckCard.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
+import type {
+  QuestionAnswer,
+  QuestionItem,
+  QuestionOption,
+  QuestionOptionKind,
+} from "./chat-question-panel-types";
+import {
+  buildQuestionSubmitPayload,
+  buildSelectedQuestionSubmitPayload,
+  countAnsweredQuestions,
+  resolveQuestionOptions,
+  type QuestionSubmitPayloadItem,
+} from "../utils/question-panel-submit";
 
-export type QuestionOptionKind = "direct" | "withInput";
-
-export type QuestionOption = {
-  id: string;
-  label: string;
-  kind: QuestionOptionKind;
-  placeholder?: string;
-  inputRequired?: boolean;
-};
-
-export type QuestionItem = {
-  id: string;
-  title: string;
-  description?: string;
-  previewText?: string;
-  options?: QuestionOption[];
-  canRememberWorkspace?: boolean;
-  workspaceLabel?: string;
-};
-
-export type QuestionAnswer = {
-  optionId: string;
-  label: string;
-  comment: string;
-};
+// 组件对外继续导出这些类型，既有调用方（含 DemoTab）不受影响。
+export type { QuestionAnswer, QuestionItem, QuestionOption, QuestionOptionKind };
 
 const props = withDefaults(
   defineProps<{
     items: QuestionItem[];
     modelValue?: Record<string, QuestionAnswer>;
     submitting?: boolean;
+    /**
+     * 提交节奏。
+     * - `all`：全部答完再一起提交（终端审批），行为与历史一致。
+     * - `manual`：选项只记录为已选，点右下角「发送 N 题」才把这批已选题一起发出去；
+     *   未选的题跳过不拦截，发出的题从列表消失，剩下的可以接着选（会话提问工具）。
+     */
+    submitMode?: "all" | "manual";
   }>(),
   {
     modelValue: () => ({}),
     submitting: false,
+    submitMode: "all",
   },
 );
 
 const emit = defineEmits<{
   "update:modelValue": [value: Record<string, QuestionAnswer>];
-  submit: [answers: Array<{ id: string; optionId: string; label: string; comment: string }>];
+  submit: [answers: QuestionSubmitPayloadItem[]];
   cancel: [];
   approveForWorkspace: [requestId: string];
 }>();
@@ -60,6 +58,8 @@ const optionInputEls = ref<Record<string, HTMLInputElement | null>>({});
 const total = computed(() => props.items.length);
 const currentItem = computed(() => props.items[currentIndex.value] ?? null);
 const isSingle = computed(() => total.value <= 1);
+/** 手动发送（会话提问工具）：选项只记录为已选，点右下角发送才把这批已选题交出去。 */
+const isManualSubmit = computed(() => props.submitMode === "manual");
 /** 提问卡露头显隐：前提内容（patch/单行）与确认列表放底座露头，题干与选项收进面卡 */
 const hasPreviewText = computed(() => !!String(currentItem.value?.previewText ?? "").trim());
 const hasExtra = computed(() => {
@@ -68,6 +68,8 @@ const hasExtra = computed(() => {
   return hasPreviewText.value;
 });
 const answersMap = computed(() => props.modelValue ?? {});
+/** 已选且填好的题目条数：发送按钮的文案与可用态都看它。 */
+const selectedCount = computed(() => countAnsweredQuestions(props.items, answersMap.value));
 
 const allAnswered = computed(() =>
   total.value > 0 && props.items.every((item) => !!answersMap.value[item.id]),
@@ -76,11 +78,7 @@ const allAnswered = computed(() =>
 const currentOptions = computed<QuestionOption[]>(() => {
   const item = currentItem.value;
   if (!item) return [];
-  if (Array.isArray(item.options) && item.options.length > 0) return item.options;
-  return [
-    { id: "deny", label: "拒绝", kind: "withInput", placeholder: "补充说明（拒绝必填）", inputRequired: true },
-    { id: "approve", label: "同意", kind: "direct" },
-  ];
+  return resolveQuestionOptions(item);
 });
 
 const selectedOptionIdForCurrent = computed(() => {
@@ -127,6 +125,22 @@ function setInputEl(optionId: string, el: unknown) {
 watch(currentItem, () => {
   shakeOptionId.value = "";
 });
+
+/**
+ * 答完一题后题目被移出列表，停留位置取「原索引 clamp 到新长度内」：
+ * 同一位置现在是下一道题，答到最后一道时回落到新的最后一道，不会弹回第一题。
+ * 逐题提交依赖父级不重建面板（key 只跟会话走），这里才留得住用户挑的位置。
+ */
+watch(
+  () => props.items.length,
+  (length) => {
+    if (length === 0) {
+      currentIndex.value = 0;
+      return;
+    }
+    if (currentIndex.value > length - 1) currentIndex.value = length - 1;
+  },
+);
 
 watch(() => props.modelValue, () => {
   // keep drafts if user navigates back: prefill draft from saved answer comment for withInput
@@ -188,6 +202,9 @@ function handleOptionSelect(option: QuestionOption) {
   };
   emit("update:modelValue", next);
 
+  // 手动发送：只把这一题记为已选，留在原地等右下角发送；不自动提交、也不自动翻页。
+  if (isManualSubmit.value) return;
+
   if (isSingle.value) {
     handleSubmitAll(next);
     return;
@@ -200,26 +217,21 @@ function handleOptionSelect(option: QuestionOption) {
   goTo(currentIndex.value + 1);
 }
 
-function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
-  const map = overrideMap ?? answersMap.value;
+/** 手动发送：把这批已选题一次性交出去，未选的题不参与也不拦截。 */
+function handleSubmitSelected() {
   if (props.submitting) return;
-  if (!props.items.every((item) => !!map[item.id])) return;
-  for (const item of props.items) {
-    const ans = map[item.id];
-    if (!ans) return;
-    const opts = Array.isArray(item.options) && item.options.length > 0
-      ? item.options
-      : [
-          { id: "deny", label: "拒绝", kind: "withInput" as const, inputRequired: true },
-          { id: "approve", label: "同意", kind: "direct" as const },
-        ];
-    const opt = opts.find((o) => o.id === ans.optionId);
-    if (opt?.kind === "withInput" && opt.inputRequired && !String(ans.comment ?? "").trim()) return;
-  }
-  const payload = props.items.map((item) => {
-    const ans = map[item.id]!;
-    return { id: item.id, optionId: ans.optionId, label: ans.label, comment: ans.comment };
-  });
+  const payload = buildSelectedQuestionSubmitPayload(props.items, answersMap.value);
+  if (!payload) return;
+  // 发完停留剩下的第一题（全发完就是空态），不跨轮记忆位置。
+  currentIndex.value = 0;
+  confirmStep.value = false;
+  emit("submit", payload);
+}
+
+function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
+  if (props.submitting) return;
+  const payload = buildQuestionSubmitPayload(props.items, overrideMap ?? answersMap.value);
+  if (!payload) return;
   emit("submit", payload);
 }
 </script>
@@ -282,15 +294,15 @@ function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
         </div>
 
         <template v-else>
-          <!-- header: breadcrumb -->
+          <!-- header: 题号切换条。两种节奏都渲染：它的职责是挑题，不是走向导。 -->
           <nav v-if="!isSingle" class="flex flex-wrap items-center gap-1 px-2 pb-1 text-xs" aria-label="breadcrumb">
             <template v-for="(item, idx) in items" :key="item.id">
               <button
                 type="button"
                 class="rounded px-1.5 py-0.5 transition"
                 :class="[
-                  idx === currentIndex && !confirmStep ? 'bg-primary text-primary-content' : answersMap[item.id] ? 'bg-success/15 text-success' : 'text-base-content/45 hover:bg-base-200',
-                  confirmStep ? (answersMap[item.id] ? 'bg-success/15 text-success' : 'text-base-content/45') : '',
+                  idx === currentIndex && !confirmStep ? 'bg-primary text-primary-content' : answersMap[item.id] ? 'bg-success text-success-content font-medium' : 'text-base-content/45 hover:bg-base-200',
+                  confirmStep ? (answersMap[item.id] ? 'bg-success text-success-content font-medium' : 'text-base-content/45') : '',
                 ]"
                 @click="goTo(idx)"
               >
@@ -345,7 +357,7 @@ function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
             <button
               v-if="opt.kind === 'direct'"
               type="button"
-              class="btn btn-sm w-full justify-center"
+              class="btn btn-sm ecall-question-option w-full justify-center"
               :class="optionBtnClass(opt)"
               :disabled="submitting"
               @click="handleOptionSelect(opt)"
@@ -365,7 +377,7 @@ function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
               >
               <button
                 type="button"
-                class="btn btn-sm join-item shrink-0"
+                class="btn btn-sm ecall-question-option join-item shrink-0"
                 :class="optionBtnClass(opt)"
                 :disabled="submitting"
                 @click="handleOptionSelect(opt)"
@@ -376,6 +388,19 @@ function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
           </template>
           <div v-if="shakeOptionId" class="text-xs text-error">请填写必填的补充说明</div>
           </div>
+
+          <!-- 手动发送：按钮常驻右下角，未选时是灰态，位置不跳 -->
+          <div v-if="isManualSubmit" class="flex items-center justify-end gap-2 px-2 pb-1 pt-2">
+            <span v-if="selectedCount === 0" class="text-xs text-base-content/50">先点选项，再发送</span>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="submitting || selectedCount === 0"
+              @click="handleSubmitSelected"
+            >
+              {{ submitting ? "发送中..." : `发送 ${selectedCount} 题` }}
+            </button>
+          </div>
         </template>
       </template>
     </DoubleDeckCard>
@@ -383,6 +408,14 @@ function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
 </template>
 
 <style scoped>
+/* 选项文字沿项目既有混色口径（同 style.css 的 --ecall-md-link-color）：
+   主色掺入正文色——浅色主题把主色压深、深色主题把主色提亮。
+   内置深蓝主色 #1d5cc2 压在内置深色底 #2b2b2b 上读不清，这里只在本面板内纠正，
+   不动全局 btn 样式；只作用于 soft 态，选中后的实心 primary 仍用 primary-content。 */
+.ecall-question-option.btn-soft {
+  color: color-mix(in oklab, var(--color-primary) 70%, var(--color-base-content));
+}
+
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   20% { transform: translateX(-3px); }

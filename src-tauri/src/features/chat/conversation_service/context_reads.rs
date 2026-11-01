@@ -182,17 +182,23 @@ impl ConversationServiceV2 {
             .filter(|item| visible_ids.contains(item))
             .filter(|item| seen_pins.insert(item.clone()))
             .collect::<Vec<_>>();
+        let question_counts = question_counts_by_conversation(state);
         let summaries = visible_conversations
             .iter()
             .map(|conversation_meta| {
                 let hydrated_conversation_meta =
                     self.fill_summary_preview_messages_fallback(state, conversation_meta);
+                let question_count = question_counts
+                    .get(conversation_meta.id.trim())
+                    .copied()
+                    .unwrap_or(0);
                 build_unarchived_conversation_summary_from_meta_view(
                     state,
                     &main_conversation_id,
                     &pinned_conversation_ids,
                     &hydrated_conversation_meta,
                     Some(DESKTOP_CHAT_VIEWER_ID),
+                    question_count,
                 )
             })
             .collect::<Vec<_>>();

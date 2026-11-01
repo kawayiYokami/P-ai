@@ -1,5 +1,5 @@
-import { ref } from "vue";
-import { exportTransportArchive, invokeTauri } from "../../../services/tauri-api";
+import { onBeforeUnmount, onMounted, ref } from "vue";
+import { exportTransportArchive, invokeTauri, onTransportNotification } from "../../../services/tauri-api";
 import type {
   ArchiveBlockPage,
   ArchiveSummary,
@@ -684,6 +684,34 @@ export function useArchivesView(options: UseArchivesViewOptions) {
       options.setStatusError("status.importArchiveFailed", err);
     }
   }
+
+  // ==================== 待答问题计数 ====================
+  //
+  // 问题增删或答题后，后端只推「这个会话现在有哪些待答问题」，不像概览项那样整项下发。
+  // 会话行的计数就跟着这份列表走，不必为了一个数字重新拉一遍列表。
+  // 列表项在 ref 里是深层响应式对象，改字段即可触发会话行重算，不需要换数组引用。
+  function applyQuestionCount(conversationId: unknown, count: number) {
+    const id = String(conversationId || "").trim();
+    if (!id) return;
+    const target = unarchivedConversations.value.find((item) => item.conversationId === id);
+    if (!target) return;
+    target.questionCount = count;
+  }
+
+  let unlistenQuestionItemsUpdated: (() => void) | undefined;
+  onMounted(() => {
+    unlistenQuestionItemsUpdated = onTransportNotification<{
+      conversationId?: string;
+      items?: unknown[];
+    }>("question.itemsUpdated", (payload) => {
+      const items = payload?.items;
+      applyQuestionCount(payload?.conversationId, Array.isArray(items) ? items.length : 0);
+    });
+  });
+  onBeforeUnmount(() => {
+    unlistenQuestionItemsUpdated?.();
+    unlistenQuestionItemsUpdated = undefined;
+  });
 
   return {
     archives,
