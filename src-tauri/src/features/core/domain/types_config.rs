@@ -302,6 +302,9 @@ struct SaveConfigOutput {
     config: AppConfig,
 }
 
+/// 角色哨兵（role:expert / role:quick / role:session）。
+/// 哨兵只允许出现在「配置层的角色绑定」（人格委托模型等）里，
+/// 绝不允许落进会话模型字段：落进去就等于把会话钉死在一个角色上。
 fn is_model_role_api_config_id(api_config_id: &str) -> bool {
     matches!(
         api_config_id.trim(),
@@ -511,30 +514,29 @@ fn agent_effective_chat_api_config_ids(
 }
 
 /// 目标人格是否配置「跟随会话」委托模型：
-/// 显式 role:session 哨兵，或未配置任何委托模型（默认跟随会话）。
+/// 显式 role:session 哨兵、未配置任何委托模型（默认跟随会话），
+/// 以及存量的 role:expert —— 专家模型已改为隐形兜底，委托不再直接指向它，
+/// 按「跟随会话」解释才不会让委托落在一个用户已经看不见的模型上。
 fn agent_follows_session_delegate_model(agent: &AgentProfile) -> bool {
     let ids = merge_api_config_ids(&agent.api_config_ids, &agent.api_config_id);
     match ids.first().map(|value| value.trim()) {
         Some(MODEL_ROLE_SESSION_API_CONFIG_ID) => true,
+        Some(MODEL_ROLE_EXPERT_API_CONFIG_ID) => true,
         // 未配置委托模型时默认跟随会话
         None => true,
         _ => false,
     }
 }
 
-/// 解析「跟随会话」委托模型：优先用发起方会话首选模型，否则回退全局专家模型。
+/// 解析「跟随会话」委托模型：优先用发起方会话的当前生效模型，其次全局兜底。
+/// 兜底终点是「专家模型 → 第一个可用聊天文本模型」，不再只依赖专家模型。
 fn resolve_follow_session_delegate_api_config(
     app_config: &AppConfig,
     source_conversation_preferred_api_config_id: Option<&str>,
 ) -> Option<String> {
-    source_conversation_preferred_api_config_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            let expert_id = app_config.expert_api_config_id.trim();
-            (!expert_id.is_empty()).then(|| expert_id.to_string())
-        })
+    resolve_concrete_chat_model(app_config, source_conversation_preferred_api_config_id)
+        .or_else(|| expert_chat_model(app_config))
+        .or_else(|| first_available_chat_model(app_config))
 }
 
 // 请求失败自动切换下一个模型的机制已禁用：候选模型恒只取第一个，不再降级。

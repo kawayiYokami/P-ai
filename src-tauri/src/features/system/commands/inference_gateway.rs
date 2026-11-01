@@ -1064,12 +1064,15 @@ async fn invoke_expert_model_json_result(
     }
     let app_config =
         state_read_config_cached(state).map_err(QuickModelJsonCallError::from_message)?;
-    let expert_id = app_config.expert_api_config_id.trim().to_string();
-    if expert_id.is_empty() {
+    // 专家模型为空时不再直接报错：专家模型是隐形兜底，用户可能还没确立过。
+    // 退到第一个可用聊天文本模型；一个都没有才报错。
+    let Some(expert_id) = expert_chat_model(&app_config)
+        .or_else(|| first_available_chat_model(&app_config))
+    else {
         return Err(QuickModelJsonCallError::from_message(
-            "未配置专家模型（请在对话设置中配置专家模型）",
+            NO_USABLE_CHAT_MODEL_MESSAGE,
         ));
-    }
+    };
     invoke_model_json_result_with_api_config_id(
         state,
         &expert_id,

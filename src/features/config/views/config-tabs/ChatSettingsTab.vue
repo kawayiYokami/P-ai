@@ -31,21 +31,6 @@
       </ConfigRowField>
     </template>
 
-    <template #row-expert-chat-model>
-      <ConfigRowField
-        :label="t('config.chatSettings.expertChatModelTitle')"
-        :hint="t('config.chatSettings.expertChatModelHint')"
-      >
-        <ApiConfigPicker
-          class="w-auto max-w-[90vw]"
-          size="sm"
-          :model-value="config.expertApiConfigId || ''"
-          :api-configs="textCapableApiConfigs"
-          @update:model-value="onExpertSelect"
-        />
-      </ConfigRowField>
-    </template>
-
     <template #row-image-generation-model>
       <ConfigRowField
         :label="t('config.imageGeneration.defaultModel')"
@@ -656,7 +641,6 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => [
     rows: [
       { key: "vision-api", items: [] },
       { key: "tool-review-api", items: [] },
-      { key: "expert-chat-model", items: [] },
       { key: "image-generation-model", items: [] },
       { key: "image-to-video-model", items: [] },
       { key: "stt-api", items: [] },
@@ -730,13 +714,6 @@ function onToolReviewSelect(value: string) {
   props.config.toolReviewApiConfigId = value || undefined;
   emit("patchConversationApiSettings", {
     toolReviewApiConfigId: props.config.toolReviewApiConfigId ?? null,
-  });
-}
-
-function onExpertSelect(value: string) {
-  props.config.expertApiConfigId = value || "";
-  emit("patchConversationApiSettings", {
-    expertApiConfigId: props.config.expertApiConfigId,
   });
 }
 

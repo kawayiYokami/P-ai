@@ -20,15 +20,6 @@
         <span>{{ t("config.welcome.cards.quickModel.title") }}</span>
         <span class="opacity-80">{{ t("config.welcome.notSet") }}</span>
       </button>
-      <button
-        v-if="!expertModel"
-        class="btn btn-xs btn-outline btn-warning gap-1"
-        type="button"
-        @click="emit('jump', hasConfiguredProviders ? 'chatSettings' : 'api')"
-      >
-        <span>{{ t("config.welcome.cards.expertModel.title") }}</span>
-        <span class="opacity-80">{{ t("config.welcome.notSet") }}</span>
-      </button>
 
       <div class="flex-1" />
 
@@ -237,9 +228,9 @@ const runtimeDeps = computed<MissingDep[]>(() => {
 });
 
 const quickModel = computed(() => findModel(props.config.apiConfigs || [], props.config.toolReviewApiConfigId));
-const expertModel = computed(() => findModel(props.config.apiConfigs || [], props.config.expertApiConfigId));
 const hasConfiguredProviders = computed(() => (props.config.apiProviders || []).length > 0);
-const hasConfiguredModels = computed(() => Boolean(expertModel.value || quickModel.value));
+// 专家模型已改为隐形兜底，不再作为「能不能开始用」的判据：只要有一个可用的聊天文本模型就算配好了。
+const hasConfiguredModels = computed(() => Boolean(quickModel.value) || (props.config.apiConfigs || []).some((item) => Boolean(item.enableText)));
 
 async function installPrerequisite(kind: HostRuntimePrerequisiteKind) {
   if (installingPrerequisite.value) return;

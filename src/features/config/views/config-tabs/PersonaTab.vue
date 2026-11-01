@@ -791,16 +791,16 @@ const memoryRecallModeOptions = computed(() => [
 ]);
 
 // ==================== 委托模型配置 ====================
-// 存储映射：跟随会话 = ["role:session"]，专家 = ["role:expert"]，快速 = ["role:quick"]，自定义 = [具体 endpoint]
+// 存储映射：跟随会话 = ["role:session"]，快速 = ["role:quick"]，自定义 = [具体 endpoint]
+// 专家模型已改为隐形兜底，不再作为委托模型的可选项；存量 role:expert 按「跟随会话」解释。
 const DELEGATE_MODEL_ROLE_SESSION = "role:session";
 const DELEGATE_MODEL_ROLE_EXPERT = "role:expert";
 const DELEGATE_MODEL_ROLE_QUICK = "role:quick";
 
-type DelegateModelOption = "follow_session" | "expert" | "quick" | "custom";
+type DelegateModelOption = "follow_session" | "quick" | "custom";
 
 const delegateModelOptions = computed(() => [
   { value: "follow_session" as DelegateModelOption, label: t("config.persona.delegateModelFollowSession") },
-  { value: "expert" as DelegateModelOption, label: t("config.persona.delegateModelExpert") },
   { value: "quick" as DelegateModelOption, label: t("config.persona.delegateModelQuick") },
   { value: "custom" as DelegateModelOption, label: t("config.persona.delegateModelCustom") },
 ]);
@@ -815,7 +815,8 @@ function delegateModelOptionFromStorage(): DelegateModelOption {
   // 未配置时默认跟随会话
   if (!rawId) return "follow_session";
   if (rawId === DELEGATE_MODEL_ROLE_SESSION) return "follow_session";
-  if (rawId === DELEGATE_MODEL_ROLE_EXPERT) return "expert";
+  // 存量 role:expert 与后端语义一致地按跟随会话展示，下次保存即固化
+  if (rawId === DELEGATE_MODEL_ROLE_EXPERT) return "follow_session";
   if (rawId === DELEGATE_MODEL_ROLE_QUICK) return "quick";
   return "custom";
 }
@@ -852,9 +853,6 @@ function setDelegateModelOption(option: DelegateModelOption) {
     case "follow_session":
       // 跟随会话：显式写 role:session 哨兵，与存储映射注释保持一致
       writeDelegateModel(DELEGATE_MODEL_ROLE_SESSION);
-      break;
-    case "expert":
-      writeDelegateModel(DELEGATE_MODEL_ROLE_EXPERT);
       break;
     case "quick":
       writeDelegateModel(DELEGATE_MODEL_ROLE_QUICK);

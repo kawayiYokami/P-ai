@@ -2355,22 +2355,19 @@ type ContactConversationModel = {
 };
 
 /**
- * 解析有效文本模型：当模型为空或丢失（不在可用文本模型列表）时，默认切到专家模型。
+ * 解析有效文本模型：当模型为空或丢失（不在可用文本模型列表）时，退到第一个可用的聊天文本模型。
+ * 专家模型已改为隐形兜底，前端不再兜到它，避免与后端口径分叉。
  */
-function resolveAvailableOrExpertModelId(modelId?: string | null): string {
+function resolveAvailableModelId(modelId?: string | null): string {
   const raw = String(modelId || "").trim();
   const textConfigs = (props.config.apiConfigs || []).filter((item) => !!item.enableText);
   if (raw && textConfigs.some((item) => item.id === raw)) {
     return raw;
   }
-  const expertId = String(props.config.expertApiConfigId || "").trim();
-  if (expertId && textConfigs.some((item) => item.id === expertId)) {
-    return expertId;
-  }
   return textConfigs[0]?.id || "";
 }
 
-/** 只读解析联系人的会话模型；会话不存在时返回 conversationExists=false。模型为空或丢失时默认切到专家模型。 */
+/** 只读解析联系人的会话模型；会话不存在时返回 conversationExists=false。模型为空或丢失时退到第一个可用聊天文本模型。 */
 async function fetchContactConversationModel(contactId: string): Promise<ContactConversationModel> {
   try {
     const result = await invokeTauri<{
@@ -2379,7 +2376,7 @@ async function fetchContactConversationModel(contactId: string): Promise<Contact
       preferredApiConfigId?: string | null;
     }>("remoteIm.contact.conversationModel", { input: { contactId } });
     const rawModel = String(result.preferredApiConfigId || "").trim();
-    const resolvedModel = resolveAvailableOrExpertModelId(rawModel);
+    const resolvedModel = resolveAvailableModelId(rawModel);
     return {
       conversationId: String(result.conversationId || "").trim(),
       conversationExists: !!result.conversationExists,
@@ -4271,7 +4268,7 @@ function personaNameById(agentId: string): string {
 }
 
 function apiConfigLabelById(apiConfigId: string): string {
-  const resolvedId = resolveAvailableOrExpertModelId(apiConfigId);
+  const resolvedId = resolveAvailableModelId(apiConfigId);
   if (!resolvedId) return t("config.remoteIm.preferredModelUnset");
   const apiConfig = (props.config.apiConfigs || []).find((item) => String(item.id || "").trim() === resolvedId);
   return String(apiConfig?.name || "").trim() || resolvedId;
@@ -4544,7 +4541,7 @@ function openBatchSettingsWizard(defaultGroupKey: string) {
     },
     agentId: "support",
     setPreferredModel: false,
-    preferredApiConfigId: resolveAvailableOrExpertModelId(),
+    preferredApiConfigId: resolveAvailableModelId(),
     processingMode: "continuous",
     activationMode: "always",
     activationKeywordsText: "",
@@ -4576,7 +4573,7 @@ function batchWizardToggleField(key: BatchWizardFieldKey, enabled: boolean) {
     wizard.agentId = "support";
   }
   if (key === "model" && enabled && !wizard.preferredApiConfigId) {
-    wizard.preferredApiConfigId = resolveAvailableOrExpertModelId();
+    wizard.preferredApiConfigId = resolveAvailableModelId();
   }
   wizard.error = "";
 }

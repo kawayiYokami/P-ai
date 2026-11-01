@@ -319,13 +319,10 @@ async fn confirm_plan_and_continue_inner(
             .filter(|agent| !agent.is_built_in_user)
             .ok_or_else(|| format!("计划继续执行的人格不存在或不可用: agent_id={agent_id}"))?;
         // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
-        let api_config_id = conversation_meta
-            .preferred_api_config_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .and_then(|raw| resolve_chat_api_config_id(app_config, raw))
-            .ok_or_else(|| "未指定会话模型：请在输入面板选择模型后重试".to_string())?;
+        // 但会话首选失效时有兜底：两级分别是专家模型与第一个可用聊天文本模型，
+        // 所以这里取的是本轮真正会用的模型；取不到才算「一个可用聊天模型都没有」。
+        let api_config_id =
+            resolve_and_persist_dispatch_model(state, app_config, &conversation_meta)?;
         let selected_api = app_config
             .api_configs
             .iter()
@@ -1467,13 +1464,10 @@ async fn submit_chat_message_inner(
         // 队员会话以自己的身份运行：前台 agent 是主会话的人格
         let agent_id = resolve_dispatch_agent_id(&conversation_meta, &agent_id);
         // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
-        let api_config_id = conversation_meta
-            .preferred_api_config_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .and_then(|raw| resolve_chat_api_config_id(&app_config, raw))
-            .ok_or_else(|| "未指定会话模型：请在输入面板选择模型后重试".to_string())?;
+        // 但会话首选失效时有兜底：两级分别是专家模型与第一个可用聊天文本模型，
+        // 所以这里取的是本轮真正会用的模型；取不到才算「一个可用聊天模型都没有」。
+        let api_config_id =
+            resolve_and_persist_dispatch_model(state, &app_config, &conversation_meta)?;
         let mention_background = read_user_mention_context_snapshot(
             state,
             &conversation_meta,
@@ -1724,13 +1718,10 @@ async fn send_chat_message(
         // 队员会话以自己的身份运行：前台 agent 是主会话的人格
         let agent_id = resolve_dispatch_agent_id(&conversation_meta, &agent_id);
         // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
-        let api_config_id = conversation_meta
-            .preferred_api_config_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .and_then(|raw| resolve_chat_api_config_id(&app_config, raw))
-            .ok_or_else(|| "未指定会话模型：请在输入面板选择模型后重试".to_string())?;
+        // 但会话首选失效时有兜底：两级分别是专家模型与第一个可用聊天文本模型，
+        // 所以这里取的是本轮真正会用的模型；取不到才算「一个可用聊天模型都没有」。
+        let api_config_id =
+            resolve_and_persist_dispatch_model(&state, &app_config, &conversation_meta)?;
         let mention_background = read_user_mention_context_snapshot(
             &state,
             &conversation_meta,
@@ -1941,13 +1932,10 @@ async fn send_user_mention_message_inner(
         // 队员会话以自己的身份运行：前台 agent 是主会话的人格
         let agent_id = resolve_dispatch_agent_id(&conversation_meta, &agent_id);
         // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
-        let api_config_id = conversation_meta
-            .preferred_api_config_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .and_then(|raw| resolve_chat_api_config_id(&app_config, raw))
-            .ok_or_else(|| "未指定会话模型：请在输入面板选择模型后重试".to_string())?;
+        // 但会话首选失效时有兜底：两级分别是专家模型与第一个可用聊天文本模型，
+        // 所以这里取的是本轮真正会用的模型；取不到才算「一个可用聊天模型都没有」。
+        let api_config_id =
+            resolve_and_persist_dispatch_model(state, &app_config, &conversation_meta)?;
         let mention_background = read_user_mention_context_snapshot(
             state,
             &conversation_meta,
@@ -2498,6 +2486,71 @@ fn mark_chat_queue_event_guided_inner(
 struct InterruptConversationRuntimeResult {
     aborted: bool,
     cleared_queue_count: usize,
+    /// 分项结果：调用方要把「到底中断了什么」讲清楚。
+    #[serde(default)]
+    aborted_chat: bool,
+    #[serde(default)]
+    aborted_tool: bool,
+    #[serde(default)]
+    aborted_delegate_children: usize,
+}
+
+/// 中断一个会话的运行：中断在跑的轮次与工具、连带中断它的委托子任务、
+/// 清空待处理队列、释放处理占位、运行态回 Idle。
+/// 中断命令统一走这一条动作序列，避免各处语义漂移。
+fn interrupt_conversation_runtime_inner(
+    state: &AppState,
+    conversation_id: &str,
+    requested_agent_id: Option<&str>,
+) -> Result<InterruptConversationRuntimeResult, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("Missing session.conversationId".to_string());
+    }
+    let agent_id =
+        resolve_runtime_control_agent_id(state, requested_agent_id, Some(conversation_id))?;
+
+    let chat_key = inflight_chat_key(&agent_id, Some(conversation_id));
+    let aborted_chat = abort_running_inflight_chat(state, &chat_key)?;
+    // 会话运行已整体中断，残留的停止意图一并清理，避免误伤下一次发送。
+    clear_inflight_chat_stop_intent(state, &chat_key)?;
+    let aborted_tool = abort_inflight_tool_abort_handle(state, &chat_key)?;
+    let aborted_delegate_children = abort_delegate_runtime_descendants_by_parent_context(
+        state,
+        &chat_key,
+        Some(conversation_id),
+    )?;
+    let cleared_queue_count = clear_conversation_queue(
+        state,
+        conversation_id,
+        "消息已因会话撤回被清出队列",
+    )?;
+    let _ = release_conversation_processing_claim(state, conversation_id);
+    let _ = set_conversation_runtime_state_and_emit(state, conversation_id, MainSessionState::Idle);
+    let _ = set_conversation_remote_im_activation_sources(state, conversation_id, Vec::new());
+
+    let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
+    if aborted || cleared_queue_count > 0 {
+        mark_goal_continue_suppressed_by_user_interrupt(
+            state,
+            conversation_id,
+            "interrupt_conversation_runtime",
+        )?;
+    }
+    runtime_log_info(format!(
+        "[聊天调度] 会话运行已中断: conversation_id={}, aborted={}, cleared_queue_count={}, child_abort_count={}",
+        conversation_id,
+        aborted,
+        cleared_queue_count,
+        aborted_delegate_children
+    ));
+    Ok(InterruptConversationRuntimeResult {
+        aborted,
+        cleared_queue_count,
+        aborted_chat,
+        aborted_tool,
+        aborted_delegate_children,
+    })
 }
 
 #[tauri::command]
@@ -2512,55 +2565,11 @@ async fn interrupt_conversation_runtime(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .ok_or_else(|| "Missing session.conversationId".to_string())?;
-    let agent_id = resolve_runtime_control_agent_id(
+    interrupt_conversation_runtime_inner(
         state.inner(),
+        &conversation_id,
         Some(session.agent_id.as_str()),
-        Some(&conversation_id),
-    )?;
-
-    let chat_key = inflight_chat_key(&agent_id, Some(&conversation_id));
-    let aborted_chat = abort_running_inflight_chat(state.inner(), &chat_key)?;
-    // 会话运行已整体中断，残留的停止意图一并清理，避免误伤下一次发送。
-    clear_inflight_chat_stop_intent(state.inner(), &chat_key)?;
-    let aborted_tool = abort_inflight_tool_abort_handle(state.inner(), &chat_key)?;
-    let aborted_delegate_children =
-        abort_delegate_runtime_descendants_by_parent_context(
-            state.inner(),
-            &chat_key,
-            Some(&conversation_id),
-        )?;
-    let cleared_queue_count = clear_conversation_queue(
-        state.inner(),
-        &conversation_id,
-        "消息已因会话撤回被清出队列",
-    )?;
-    let _ = release_conversation_processing_claim(state.inner(), &conversation_id);
-    let _ = set_conversation_runtime_state_and_emit(
-        state.inner(),
-        &conversation_id,
-        MainSessionState::Idle,
-    );
-    let _ = set_conversation_remote_im_activation_sources(state.inner(), &conversation_id, Vec::new());
-
-    let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
-    if aborted || cleared_queue_count > 0 {
-        mark_goal_continue_suppressed_by_user_interrupt(
-            state.inner(),
-            &conversation_id,
-            "interrupt_conversation_runtime",
-        )?;
-    }
-    runtime_log_info(format!(
-        "[聊天调度] 会话运行已中断: conversation_id={}, aborted={}, cleared_queue_count={}, child_abort_count={}",
-        conversation_id,
-        aborted,
-        cleared_queue_count,
-        aborted_delegate_children
-    ));
-    Ok(InterruptConversationRuntimeResult {
-        aborted,
-        cleared_queue_count,
-    })
+    )
 }
 
 #[tauri::command]

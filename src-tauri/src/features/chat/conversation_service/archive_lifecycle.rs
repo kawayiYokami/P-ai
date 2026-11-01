@@ -233,27 +233,40 @@ impl ConversationServiceV2 {
         state: &AppState,
         conversation_id: &str,
     ) -> Result<(ApiConfig, ResolvedApiConfig, Conversation, String), String> {
+        self.resolve_request_conversation_by_id(
+            state,
+            conversation_id,
+            "resolve_archive_request_conversation_by_id",
+        )
+    }
+
+    fn resolve_request_conversation_by_id(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        trace_task: &str,
+    ) -> Result<(ApiConfig, ResolvedApiConfig, Conversation, String), String> {
         let normalized_conversation_id = conversation_id.trim();
         if normalized_conversation_id.is_empty() {
             return Err("conversationId is required".to_string());
         }
-        let guard = lock_conversation_with_metrics(state, "resolve_archive_request_conversation_by_id")?;
+        let unavailable_reason = "当前没有可归档的活动对话。";
+        let guard = lock_conversation_with_metrics(state, trace_task)?;
         let runtime_snapshot = load_runtime_organization_snapshot(state)?;
         let app_config = &runtime_snapshot.config;
         let source_meta = self
             .get_conversation_meta(state, normalized_conversation_id)
-            .map_err(|_| "当前没有可归档的活动对话。".to_string())?;
-        if !self.conversation_meta_is_local_normal_chat_meta_view(&source_meta)
-            && source_meta.status.trim() != "archived"
-        {
+            .map_err(|_| unavailable_reason.to_string())?;
+        let kind_allowed = self.conversation_meta_is_local_normal_chat_meta_view(&source_meta);
+        if !kind_allowed && source_meta.status.trim() != "archived" {
             drop(guard);
-            return Err("当前没有可归档的活动对话。".to_string());
+            return Err(unavailable_reason.to_string());
         }
         let effective_agent_id = source_meta.agent_id.trim();
         let effective_agent_id = if effective_agent_id.is_empty() {
             runtime_log_warn(format!(
-                "[归档] 跳过人格校验，任务=resolve_archive_request_conversation_by_id，conversation_id={}，原因=会话未绑定人格，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
-                source_meta.id
+                "[归档] 跳过人格校验，任务={}，conversation_id={}，原因=会话未绑定人格，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
+                trace_task, source_meta.id
             ));
             String::new()
         } else if runtime_snapshot
@@ -264,8 +277,8 @@ impl ConversationServiceV2 {
             effective_agent_id.to_string()
         } else {
             runtime_log_warn(format!(
-                "[归档] 跳过人格校验，任务=resolve_archive_request_conversation_by_id，conversation_id={}，agent_id={}，原因=会话绑定人格不存在或不可用，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
-                source_meta.id, effective_agent_id
+                "[归档] 跳过人格校验，任务={}，conversation_id={}，agent_id={}，原因=会话绑定人格不存在或不可用，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
+                trace_task, source_meta.id, effective_agent_id
             ));
             effective_agent_id.to_string()
         };

@@ -910,17 +910,14 @@ fn is_usable_text_llm_api(api: &ApiConfig) -> bool {
         && chat_api_has_required_auth(api)
 }
 
+/// 是否至少有一个可用的聊天文本模型。
+/// 判据不绑定专家模型：专家模型已改为被动跟随的隐形兜底，为空不代表用户没配模型，
+/// 用它做判据会在「专家模型尚未确立」时把用户踢回设置页。
 fn has_usable_text_llm(config: &AppConfig) -> bool {
-    let usable_api_ids = config
+    config
         .api_configs
         .iter()
-        .filter(|api| is_usable_text_llm_api(api))
-        .map(|api| api.id.trim().to_string())
-        .collect::<std::collections::HashSet<_>>();
-    if usable_api_ids.is_empty() {
-        return false;
-    }
-    usable_api_ids.contains(config.expert_api_config_id.trim())
+        .any(is_usable_text_llm_api)
 }
 
 fn startup_window_label_for_config(config: &AppConfig) -> &'static str {

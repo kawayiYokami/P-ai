@@ -970,6 +970,9 @@ async fn send_chat_message_inner(
             team: TeamState::default(),
             loaded_mcp_tools: Vec::new(),
             last_error: None,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         }
     };
     let requested_conversation_id_for_prepare = requested_conversation_id.clone();
@@ -1196,24 +1199,22 @@ async fn send_chat_message_inner(
             .ok_or_else(|| format!("执行人格已经消失：agent_id={effective_agent_id}"))?
             .clone();
         let agent_model_fallback_enabled = agent_model_failure_fallback_enabled(&effective_agent);
-        let conversation_meta_for_model_selection = requested_conversation_id_for_prepare
+        // 会话模型统一走生效链：自身 → 父链 → 专家模型 → 第一个可用聊天文本模型。
+        // 不接这条链的后果是：会话模型被删后候选队列为空，报「请在输入面板选择模型」——
+        // 而远程 IM 私聊用户根本没有输入面板。远程联系人同样尊重会话模型，只是在失效时要有兜底。
+        let target_conversation_id = requested_conversation_id_for_prepare
             .as_deref()
-            .or(runtime_main_conversation_id.as_deref())
-            .and_then(|conversation_id| {
-                conversation_service_v2().get_conversation_meta(&state, conversation_id).ok()
-            });
-        // 远程联系人会话同样尊重会话首选模型：联系人绑定的偏好模型（写入会话
-        // preferred_api_config_id）在私聊直答与群聊应答委托两条路上都应生效，
-        // 不能再按会话类型把它丢掉。
-        let conversation_preferred_api_config_id = conversation_meta_for_model_selection
-            .as_ref()
-            .and_then(|conversation| {
-                conversation
-                    .preferred_api_config_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                runtime_main_conversation_id
                     .as_deref()
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
-                    .map(ToOwned::to_owned)
+            });
+        let conversation_preferred_api_config_id = target_conversation_id
+            .and_then(|conversation_id| {
+                resolve_effective_conversation_model(&state, &app_config, conversation_id)
             });
         let requested_api_config_id_snapshot = requested_api_config_id
             .as_deref()
@@ -1231,13 +1232,13 @@ async fn send_chat_message_inner(
             .min(u128::from(u64::MAX)) as u64;
         prepare_detail_parts.push(format!("候选模型构建={}ms(count={})", candidate_models_ms, candidate_api_ids.len()));
         runtime_log_info(format!(
-            "[会话模型] 调度，任务=构建候选模型，会话ID={}，单次指定模型={}，会话首选模型={}，会话首选已应用={}，人格失败自动切换={}，候选队列={}",
+            "[会话模型] 调度，任务=构建候选模型，会话ID={}，单次指定模型={}，会话生效模型={}，会话生效模型已应用={}，人格失败自动切换={}，候选队列={}",
             requested_conversation_id_for_prepare
                 .as_deref()
                 .or(runtime_main_conversation_id.as_deref())
                 .unwrap_or("未知"),
             requested_api_config_id_snapshot.unwrap_or("未指定"),
-            conversation_preferred_api_config_id.as_deref().unwrap_or("人格模型"),
+            conversation_preferred_api_config_id.as_deref().unwrap_or("无可用模型"),
             preferred_model_applied,
             agent_model_fallback_enabled,
             candidate_api_ids.join(" -> ")
@@ -1246,7 +1247,7 @@ async fn send_chat_message_inner(
         let selected_api_id = candidate_api_ids
             .first()
             .cloned()
-            .ok_or_else(|| "未指定会话模型：请在输入面板选择模型后重试".to_string())?;
+            .ok_or_else(|| NO_USABLE_CHAT_MODEL_MESSAGE.to_string())?;
         let selected_api = app_config
             .api_configs
             .iter()
@@ -3510,6 +3511,9 @@ mod core_send_inner_tests {
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         }
     }
 
@@ -4264,6 +4268,9 @@ mod core_send_inner_tests {
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         };
         let final_message = build_assistant_message_from_request_sequence(
             "assistant-existing".to_string(),

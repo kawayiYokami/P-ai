@@ -32,6 +32,13 @@ impl ConversationServiceV2 {
                 None,
             );
             conversation.status = "inactive".to_string();
+            // 创建即落具体模型：根会话模型 → 主会话模型 → 第一个可用聊天文本模型。
+            // 之前这里恒为 None，只能在读取时临时兜到专家模型，会话自己从来没有模型。
+            conversation.preferred_api_config_id = resolve_new_remote_im_contact_model(
+                state,
+                &state_read_config_cached(state)?,
+                normalized_root_conversation_id,
+            );
             let summary_message =
                 build_initial_summary_context_message(Some(&conversation.current_todos), None);
             conversation.last_user_at = Some(summary_message.created_at.clone());
