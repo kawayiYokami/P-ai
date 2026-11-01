@@ -99,6 +99,18 @@ struct PreparedToolCallBatch {
     calls: Vec<PreparedToolCall>,
 }
 
+/// 成功执行后会改变「本会话该挂哪些工具」的判定输入，必须作废本轮装配。
+///
+/// 装配一轮只做一次。名册为空还是有在队队员，决定 team_send / team_read /
+/// team_share_model 是否挂载；招募之后不重建，模型在本次调度里就只能看到旧快照
+/// ——「刚招到人，却怎么也调不到 team_send」就是这个表现。
+fn tool_result_invalidates_tool_assembly(tool_name: &str) -> bool {
+    let name = tool_name.trim();
+    name.eq_ignore_ascii_case(GETTOOL_TOOL_NAME)
+        // 名册：招募让空名册变成有名册。
+        || name.eq_ignore_ascii_case("team_recruit")
+}
+
 fn tool_result_history_event(
     tool_call_id: &str,
     content: String,
@@ -1013,8 +1025,8 @@ async fn run_genai_tool_loop(
                 tool_args,
                 tool_result,
             } = executed_tool_call;
-            if tool_name == GETTOOL_TOOL_NAME && !tool_result.is_error {
-                // 新工具已写进会话名单：本轮装配作废，下一轮请求前重建。
+            if !tool_result.is_error && tool_result_invalidates_tool_assembly(&tool_name) {
+                // 工具名单或队伍名册变了：本轮装配作废，下一轮请求前重建。
                 tool_assembly_stale = true;
             }
             let projection = project_provider_tool_result(tool_abort_state, &tool_name, &tool_result);
@@ -1772,8 +1784,8 @@ async fn run_genai_tool_loop_non_stream(
                 tool_args,
                 tool_result,
             } = executed_tool_call;
-            if tool_name == GETTOOL_TOOL_NAME && !tool_result.is_error {
-                // 新工具已写进会话名单：本轮装配作废，下一轮请求前重建。
+            if !tool_result.is_error && tool_result_invalidates_tool_assembly(&tool_name) {
+                // 工具名单或队伍名册变了：本轮装配作废，下一轮请求前重建。
                 tool_assembly_stale = true;
             }
             let projection = project_provider_tool_result(tool_abort_state, &tool_name, &tool_result);
@@ -2372,6 +2384,34 @@ mod tool_loop_tests {
     }
 
     #[test]
+    fn roster_changing_tools_should_invalidate_tool_assembly() {
+        // 装配一轮只做一次：招募后名册从空变有，team_send / team_read /
+        // team_share_model 才该出现；不失效装配，模型在本次调度里就永远看不到它们。
+        for name in ["team_recruit", "TEAM_RECRUIT"] {
+            assert!(
+                tool_result_invalidates_tool_assembly(name),
+                "{name} 会改变名册，成功后必须重建装配"
+            );
+        }
+        assert!(tool_result_invalidates_tool_assembly(GETTOOL_TOOL_NAME));
+        // 只读工具与消息类工具不改判定输入，重建纯属浪费。
+        for name in [
+            "team_info",
+            "team_read",
+            "team_send",
+            "team_share_model",
+            "team_report",
+            "read",
+            "",
+        ] {
+            assert!(
+                !tool_result_invalidates_tool_assembly(name),
+                "{name} 不该触发装配重建"
+            );
+        }
+    }
+
+    #[test]
     fn stateful_builtin_tools_should_be_serial_tools() {
         let tools = vec![
             test_tool("exec", false),
@@ -2383,6 +2423,7 @@ mod tool_loop_tests {
             test_tool("move", false),
             test_tool("todo", false),
             test_tool("task", false),
+            test_tool("progress", false),
             test_tool("remember", false),
             test_tool("plan", false),
             test_tool("image_generate", false),
@@ -2405,6 +2446,7 @@ mod tool_loop_tests {
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "move"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "todo"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "task"));
+        assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "progress"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "remember"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "plan"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "image_generate"));

@@ -109,36 +109,67 @@ struct TeamInfoToolArgs {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct TeamRecruitToolArgs {
-    name: String,
+    /// 队员的人格：填人格名，也兼容人格 id。同一支队伍里一个角色只能有一名队员。
+    role: String,
     #[serde(default)]
     duty: Option<String>,
-    /// 指定后为这名队员新建一条独立工作树，并以该分支为起点；不指定则跟随队长工作区。
-    #[serde(default)]
-    work_branch: Option<String>,
-    /// 可选。队员使用的人格 id；不给默认用队长自身人格。
-    #[serde(default)]
-    agent_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct TeamDismissToolArgs {
-    number: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct TeamSendToolArgs {
-    number: u32,
+    /// 队员的角色（人格名，也兼容人格 id）。
+    role: String,
+    /// 邮件标题，必填。它就是正文第一行（`# 标题`），同时单列进 meta 供 `team_read` 回报。
+    title: String,
     content: String,
+    /// 这条线的状态（六态 key）。队长发件时设置，随邮件一起落进队员会话。
+    #[serde(default)]
+    status: Option<String>,
     /// guided = 引导（对方执行完一个工具就插入并重启）；queue = 排队等对方这一轮收尾。
     #[serde(default)]
     mode: Option<String>,
+    /// 可选。仅在同一角色有多名在队队员（历史数据）时用来精确定位。
+    #[serde(default)]
+    conversation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct TeamReportToolArgs {
+    /// 邮件标题，必填。它就是正文第一行（`# 标题`），同时单列进 meta 供 `team_read` 回报。
+    title: String,
     content: String,
+    /// 汇报时顺手更新这条线的状态（六态 key）。不填就只汇报、不动状态。
+    #[serde(default)]
+    status: Option<String>,
     #[serde(default)]
     mode: Option<String>,
+}
+
+/// 队长查队员最近的发言。`role` 与 `conversation_id` 二选一。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct TeamReadToolArgs {
+    /// 队员的角色（人格名，也兼容人格 id）。
+    #[serde(default)]
+    role: Option<String>,
+    /// 可选。仅在同一角色有多名在队队员（历史数据）时用来精确定位。
+    #[serde(default)]
+    conversation_id: Option<String>,
+    /// 想读几条有正文的消息，默认 1，上限 10；超上限按上限返回并说明。
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// 队长把自身模型推给队员。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct TeamShareModelToolArgs {
+    /// 队员的角色（人格名，也兼容人格 id）。
+    role: String,
+    /// 可选。要推给这名队员的模型；不给就用队长当前生效模型。
+    #[serde(default)]
+    model_api_config_id: Option<String>,
+    /// 可选。仅在同一角色有多名在队队员（历史数据）时用来精确定位。
+    #[serde(default)]
+    conversation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -434,17 +434,16 @@ fn create_unarchived_conversation_shared(
     {
         return Err(format!("新建会话的人格不存在或不可用: agent_id={agent_id}"));
     }
-    let api_config_id = input
-        .api_config_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| {
-            agent_by_id(&agents, &agent_id)
-                .map(agent_primary_api_config_id)
-                .unwrap_or_default()
-        });
+    // 创建那一刻就落一个具体模型：入参指定 → 人格显式模型 → 第一个可用聊天文本模型。
+    // 不再用 agent_primary_api_config_id 作缺省来源：人格没配模型时它会注入 role:expert 哨兵，
+    // 经解析后会话直接落到专家模型，这正是「队员新建即用专家模型」的根因。
+    let api_config_id = resolve_new_main_conversation_model(
+        &app_config,
+        &agents,
+        input.api_config_id.as_deref(),
+        &agent_id,
+    )
+    .unwrap_or_default();
     let conversation_title = input
         .title
         .as_deref()
@@ -472,15 +471,11 @@ fn create_unarchived_conversation_shared(
             conversation_title,
         )
     };
-    conversation.preferred_api_config_id = resolve_model_role_api_config_id(&app_config, &api_config_id)
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty() && !is_model_role_api_config_id(value))
-        .filter(|value| {
-            app_config
-                .api_configs
-                .iter()
-                .any(|api| api.id == *value && is_text_chat_api(api))
-        });
+    conversation.preferred_api_config_id = if api_config_id.trim().is_empty() {
+        None
+    } else {
+        Some(api_config_id.trim().to_string())
+    };
     conversation.shell_workspaces = normalize_conversation_shell_workspaces_or_assistant_default(
         state,
         &app_config,
@@ -519,6 +514,17 @@ fn create_unarchived_conversation_shared(
     let conversation_id = conversation.id.clone();
     drop(guard);
     let persist_seq = state_schedule_conversation_persist(state, &conversation)?;
+    // 专家模型还没有可用值时补齐；已有值就不动，避免新建第二个会话把兜底值改走。
+    if !conversation.is_draft {
+        if let Err(err) = sync_expert_model_when_unset(
+            state,
+            conversation.preferred_api_config_id.as_deref(),
+        ) {
+            runtime_log_warn(format!(
+                "[会话模型] 跳过，任务=补齐专家模型，conversation_id={conversation_id}，error={err}"
+            ));
+        }
+    }
     runtime_log_info(format!(
         "[会话] 完成，任务=新建未归档会话，阶段=调度持久化，conversation_id={}，persist_seq={}，agent_id={}，preferred_api_config_id={}，message_count={}，duration_ms={}",
         conversation_id,
@@ -633,6 +639,12 @@ fn build_branch_conversation_record_from_selection_runtime_meta_view(
     conversation.shell_autonomous_mode = source_meta.shell_autonomous_mode;
     conversation.shell_work_mode = normalize_shell_work_mode_text(&source_meta.shell_work_mode);
     conversation.current_todos = source_meta.current_todos.clone();
+    // 会话状态不从父会话继承：todo 是步骤清单（追问沿用同一任务的步骤合理），
+    // 会话状态是「这个目标走到哪了」的事实——追问是新的目标上下文，父会话的
+    // 完成/阻塞对它不成立，照抄会凭空造出一个事实。新追问保持「未设置」。
+    conversation.progress_state = String::new();
+    conversation.evidence = String::new();
+    conversation.evidence_updated_at = String::new();
     let user_profile_snapshot = agents
         .iter()
         .find(|item| item.id == agent_id)
@@ -915,5 +927,98 @@ fn read_conversation_for_backup_cleanup(
         team: conversation_meta.team,
         loaded_mcp_tools: Vec::new(),
         last_error: conversation_meta.last_error,
+        progress_state: conversation_meta.progress_state,
+        evidence: conversation_meta.evidence,
+        evidence_updated_at: conversation_meta.evidence_updated_at,
     })
+}
+
+#[cfg(test)]
+mod branch_progress_state_tests {
+    use super::*;
+
+    #[test]
+    fn branch_conversation_should_reset_progress_state_and_keep_todos() {
+        let source_meta = ConversationMetaView {
+            id: "conversation-branch-source".to_string(),
+            title: "源会话".to_string(),
+            latest_summary_title: None,
+            status: "active".to_string(),
+            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+            visible_in_foreground_lists: true,
+            is_remote_im_contact: false,
+            is_delegate: false,
+            agent_id: default_agent().id,
+            delegate_id: None,
+            root_conversation_id: None,
+            unread_count: 0,
+            updated_at: now_iso(),
+            created_at: now_iso(),
+            archived_at: None,
+            last_user_at: None,
+            last_assistant_at: None,
+            message_count: 1,
+            body_message_count: 1,
+            body_text_length: 0,
+            has_assistant_reply: true,
+            has_context_compaction_message: false,
+            last_message_at: Some(now_iso()),
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
+            user_profile_snapshot: String::new(),
+            preferred_api_config_id: None,
+            is_draft: false,
+            auto_push_remote_contact_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
+            plan_mode_enabled: false,
+            shell_workspace_path: None,
+            shell_workspaces: Vec::new(),
+            shell_autonomous_mode: false,
+            shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
+            shell_worktree_path: String::new(),
+            shell_recorded_branch: String::new(),
+            current_todos: vec![ConversationTodoItem {
+                content: "第一步".to_string(),
+                status: "completed".to_string(),
+            }],
+            active_goal: None,
+            team: TeamState::default(),
+            fast_request_turns: Vec::new(),
+            last_message_id: None,
+            last_error: None,
+            progress_state: "done".to_string(),
+            evidence: "用户确认".to_string(),
+            evidence_updated_at: "2026-11-01T00:00:00Z".to_string(),
+            preview_messages: Vec::new(),
+        };
+
+        let data_path = std::env::temp_dir().join(format!(
+            "eca-branch-progress-{}",
+            std::process::id()
+        ));
+        let agents = vec![default_agent()];
+        let branch = build_branch_conversation_record_from_selection_runtime_meta_view(
+            &data_path,
+            &agents,
+            &source_meta,
+            "分支会话",
+            None,
+            &[],
+        )
+        .expect("build branch conversation");
+
+        assert_eq!(
+            branch.parent_conversation_id.as_deref(),
+            Some("conversation-branch-source")
+        );
+        // 会话状态不继承：显式为空（源为 done/有证据，若继承断言会失败）
+        assert_eq!(branch.progress_state, "");
+        assert_eq!(branch.evidence, "");
+        assert_eq!(branch.evidence_updated_at, "");
+        // 对照：todo 拷贝先例保留——同一次调用里两字段行为不同是有意设计
+        assert_eq!(branch.current_todos.len(), 1);
+        assert_eq!(branch.current_todos[0].content, "第一步");
+    }
 }

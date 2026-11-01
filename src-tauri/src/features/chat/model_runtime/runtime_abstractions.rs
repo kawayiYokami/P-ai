@@ -257,6 +257,9 @@ fn remove_top_level_internal_tool_fields(value: &mut Value) {
     let Value::Object(map) = value else {
         return;
     };
+    // 这里列出的是会被从工具返回值顶层剥离的内部字段名。
+    // 新增工具的返回值若用到这些词（尤其 "done"——progress 工具的六态 key 之一），
+    // 改成 JSON 返回前必须先从本名单移除对应项，否则会被静默剥掉。
     const INTERNAL_FIELDS: &[&str] = &[
         "ok",
         "approved",

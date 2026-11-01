@@ -1259,21 +1259,6 @@ fn conversation_recorded_worktree_path(
     }
 }
 
-/// 会话工作树目录名：{本地日期 YYYYMMDD}-{会话 id 前 8 位}。
-/// 队员招募新建独立工作树时用。
-fn conversation_worktree_dir_name(conversation_id: &str) -> String {
-    let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
-    let local = time::OffsetDateTime::now_utc().to_offset(offset);
-    let short: String = conversation_id.trim().chars().take(8).collect();
-    format!(
-        "{:04}{:02}{:02}-{}",
-        local.year(),
-        local.month() as u8,
-        local.day(),
-        short
-    )
-}
-
 /// 目录是否为可用工作树：存在，且带 .git（目录或含 gitdir 的指针文件）。
 fn conversation_worktree_dir_is_valid(path: &Path) -> bool {
     path.is_dir()
@@ -1281,144 +1266,6 @@ fn conversation_worktree_dir_is_valid(path: &Path) -> bool {
             || std::fs::read_to_string(path.join(".git"))
                 .map(|content| content.contains("gitdir:"))
                 .unwrap_or(false))
-}
-
-/// 实际执行 git worktree add；队员招募需要独立工作树时使用。
-async fn ensure_conversation_worktree_internal(
-    git_root: &str,
-    worktree_path: &Path,
-    base_point: &str,
-) -> Result<(), String> {
-    if worktree_path.exists() {
-        let worktree_str = worktree_path.to_string_lossy().to_string();
-        let registered = git_executor()
-            .run_read(git_root, &["worktree", "list", "--porcelain"])
-            .await
-            .map(|stdout| {
-                stdout
-                    .lines()
-                    .any(|line| line.trim().starts_with("worktree ") && line.contains(&worktree_str))
-            })
-            .unwrap_or(false);
-        if registered || conversation_worktree_dir_is_valid(worktree_path) {
-            return Ok(());
-        }
-        return Err(format!(
-            "工作树路径已存在但未注册为当前仓库的工作树：{}，请手动清理后重试",
-            worktree_str
-        ));
-    }
-    if let Some(parent) = worktree_path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|err| format!("无法创建工作树父目录：{err}"))?;
-    }
-    let worktree_str = worktree_path.to_string_lossy().to_string();
-    // 工作树目录名即本会话的新分支名（同规则、同字符串）
-    let branch_name = git_panel_validate_branch_name(
-        &worktree_path
-            .file_name()
-            .map(|value| value.to_string_lossy().to_string())
-            .unwrap_or_default(),
-    )?;
-    let base_point_trimmed = base_point.trim();
-    let validated_base = if base_point_trimmed.is_empty() {
-        None
-    } else {
-        Some(git_panel_validate_reference(base_point_trimmed)?)
-    };
-    // 首选以新分支拉出工作树；分支已存在（本会话重建）时回退为直接检出该分支
-    let mut args_sets: Vec<Vec<String>> = Vec::new();
-    let mut create_with_new_branch = vec![
-        "worktree".to_string(),
-        "add".to_string(),
-        "-b".to_string(),
-        branch_name.clone(),
-        worktree_str.clone(),
-    ];
-    if let Some(base) = validated_base {
-        create_with_new_branch.push(base);
-    }
-    args_sets.push(create_with_new_branch);
-    args_sets.push(vec![
-        "worktree".to_string(),
-        "add".to_string(),
-        worktree_str.clone(),
-        branch_name.clone(),
-    ]);
-    let mut last_err = String::new();
-    for args in args_sets {
-        let args_ref: Vec<&str> = args.iter().map(|value| value.as_str()).collect();
-        let mut attempt = 0u8;
-        loop {
-            attempt += 1;
-            let run = git_executor().run_write(git_root, &args_ref);
-            let result = tokio::time::timeout(std::time::Duration::from_secs(30), run).await;
-            match result {
-                Ok(Ok(output)) if output.exit_code == 0 => {
-                    runtime_log_info(format!(
-                        "[工作树] 完成，任务=创建工作树，git_root={}，worktree={}，branch={}，base={}，args={:?}",
-                        git_root, worktree_str, branch_name, base_point_trimmed, args
-                    ));
-                    return Ok(());
-                }
-                Ok(Ok(output)) => {
-                    let stderr = output.stderr.trim().to_string();
-                    let stdout = output.stdout.trim().to_string();
-                    last_err = format!("git worktree add 失败：{stderr} {stdout}");
-                    runtime_log_warn(format!(
-                        "[工作树] 失败，任务=创建工作树，git_root={}，worktree={}，branch={}，args={:?}，stderr={}，stdout={}",
-                        git_root, worktree_str, branch_name, args, stderr, stdout
-                    ));
-                    // 目录已删但注册残留：prune 后重试一次同一条命令
-                    let combined = format!("{stderr} {stdout}").to_ascii_lowercase();
-                    if attempt == 1 && combined.contains("missing but already registered") {
-                        let prune = git_executor().run_write(git_root, &["worktree", "prune"]);
-                        let prune_result =
-                            tokio::time::timeout(std::time::Duration::from_secs(30), prune).await;
-                        match prune_result {
-                            Ok(Ok(output)) if output.exit_code == 0 => runtime_log_info(format!(
-                                "[工作树] 完成，任务=清理残留工作树注册，git_root={}，worktree={}",
-                                git_root, worktree_str
-                            )),
-                            Ok(Ok(output)) => runtime_log_warn(format!(
-                                "[工作树] 失败，任务=清理残留工作树注册，git_root={}，worktree={}，stderr={}",
-                                git_root,
-                                worktree_str,
-                                output.stderr.trim()
-                            )),
-                            Ok(Err(err)) => runtime_log_warn(format!(
-                                "[工作树] 失败，任务=清理残留工作树注册，git_root={}，worktree={}，error={}",
-                                git_root, worktree_str, err
-                            )),
-                            Err(_) => runtime_log_warn(format!(
-                                "[工作树] 失败，任务=清理残留工作树注册，git_root={}，worktree={}，原因=超时",
-                                git_root, worktree_str
-                            )),
-                        }
-                        continue;
-                    }
-                }
-                Ok(Err(err)) => {
-                    last_err = format!("git worktree add 执行失败：{err}");
-                    runtime_log_warn(format!(
-                        "[工作树] 失败，任务=创建工作树，git_root={}，worktree={}，branch={}，args={:?}，error={}",
-                        git_root, worktree_str, branch_name, args, err
-                    ));
-                }
-                Err(_) => {
-                    last_err = "git worktree add 超时（30s）".to_string();
-                    runtime_log_warn(format!(
-                        "[工作树] 超时，任务=创建工作树，git_root={}，worktree={}，branch={}",
-                        git_root, worktree_str, branch_name
-                    ));
-                    break;
-                }
-            }
-            break;
-        }
-    }
-    Err(last_err)
 }
 
 #[cfg(test)]
@@ -1898,6 +1745,9 @@ mod terminal_workspace_tests {
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -1983,6 +1833,9 @@ mod terminal_workspace_tests {
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -2438,25 +2291,6 @@ mod terminal_workspace_tests {
     }
 
     #[test]
-    fn conversation_worktree_dir_name_should_use_date_prefix_and_short_id() {
-        let name = conversation_worktree_dir_name("a1b2c3d4-5e6f-7890-abcd-ef0123456789");
-        let (date, short) = name.split_once('-').expect("目录名应含日期段与短 id 段");
-        assert_eq!(date.len(), 8, "日期段应为 8 位：{name}");
-        assert!(
-            date.chars().all(|value| value.is_ascii_digit()),
-            "日期段应全为数字：{name}"
-        );
-        assert_eq!(short, "a1b2c3d4", "短 id 段应为会话 id 前 8 位");
-        let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
-        let local = time::OffsetDateTime::now_utc().to_offset(offset);
-        assert_eq!(
-            date,
-            format!("{:04}{:02}{:02}", local.year(), local.month() as u8, local.day()),
-            "日期段应为本地当日日期"
-        );
-    }
-
-    #[test]
     fn conversation_recorded_worktree_path_should_require_current_repo() {
         let mut conversation = build_workspace_test_conversation("a1b2c3d4-recorded-path");
         assert!(
@@ -2560,79 +2394,6 @@ mod terminal_workspace_tests {
             .current_dir(cwd)
             .output()
             .expect("git 命令应能执行")
-    }
-
-    #[tokio::test]
-    async fn ensure_conversation_worktree_internal_should_create_branch_and_recreate_after_delete() {
-        let temp_root = std::env::temp_dir().join(format!(
-            "easy-call-ai-worktree-create-test-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let repo = temp_root.join("repo");
-        std::fs::create_dir_all(&repo).expect("创建仓库目录失败");
-        assert!(run_git(&repo, &["init", "--quiet"]).status.success(), "git init 应成功");
-        std::fs::write(repo.join("README.md"), "seed").expect("写入种子文件失败");
-        assert!(
-            run_git(&repo, &["add", "README.md"]).status.success(),
-            "git add 应成功"
-        );
-        assert!(
-            run_git(
-                &repo,
-                &[
-                    "-c",
-                    "user.email=test@example.com",
-                    "-c",
-                    "user.name=test",
-                    "commit",
-                    "--quiet",
-                    "-m",
-                    "seed",
-                ],
-            )
-            .status
-            .success(),
-            "git commit 应成功"
-        );
-        let base_branch = String::from_utf8_lossy(&run_git(&repo, &["symbolic-ref", "--short", "HEAD"]).stdout)
-            .trim()
-            .to_string();
-        assert!(!base_branch.is_empty(), "应能解析仓库当前分支");
-
-        let git_root = repo.to_string_lossy().to_string();
-        let conversation_id = "a1b2c3d4-5e6f-7890-abcd-ef0123456789";
-        let worktree_path = repo
-            .join(".pai")
-            .join(".worktree")
-            .join(conversation_worktree_dir_name(conversation_id));
-
-        ensure_conversation_worktree_internal(&git_root, &worktree_path, &base_branch)
-            .await
-            .expect("首次创建工作树应成功");
-        let created_branch =
-            String::from_utf8_lossy(&run_git(&worktree_path, &["symbolic-ref", "--short", "HEAD"]).stdout)
-                .trim()
-                .to_string();
-        assert_eq!(
-            created_branch,
-            worktree_path
-                .file_name()
-                .map(|value| value.to_string_lossy().to_string())
-                .unwrap_or_default(),
-            "工作树应检出与目录同名的独立分支"
-        );
-
-        // 目录被手动删除后重建：不带 --force 会命中残留注册，prune 后应能成功
-        std::fs::remove_dir_all(&worktree_path).expect("删除工作树目录失败");
-        ensure_conversation_worktree_internal(&git_root, &worktree_path, &base_branch)
-            .await
-            .expect("目录被删除后应能重建工作树");
-        assert!(
-            conversation_worktree_dir_is_valid(&worktree_path),
-            "重建后应是有效工作树"
-        );
-
-        let _ = std::fs::remove_dir_all(temp_root);
     }
 
     #[test]

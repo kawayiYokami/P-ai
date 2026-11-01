@@ -267,6 +267,18 @@ impl ConversationServiceV2 {
                     contact_display_name: remote_im_contact_display_name(&contact),
                     bound_agent_id: contact.bound_agent_id.clone(),
                     processing_mode: normalize_contact_processing_mode(&contact.processing_mode),
+                    remote_contact_type: contact.remote_contact_type.clone(),
+                    team_member_count: meta.team.active_member_count(),
+                    team_members: meta
+                        .team
+                        .members
+                        .iter()
+                        .filter(|member| member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
+                        .map(|member| RemoteImContactTeamMemberSummary {
+                            conversation_id: member.conversation_id.clone(),
+                            name: strip_legacy_member_number_prefix(&member.name),
+                        })
+                        .collect(),
                     preview_messages,
                 })
             } else {
@@ -291,6 +303,18 @@ impl ConversationServiceV2 {
                     contact_display_name: remote_im_contact_display_name(&contact),
                     bound_agent_id: contact.bound_agent_id.clone(),
                     processing_mode: normalize_contact_processing_mode(&contact.processing_mode),
+                    remote_contact_type: contact.remote_contact_type.clone(),
+                    team_member_count: conversation.team.active_member_count(),
+                    team_members: conversation
+                        .team
+                        .members
+                        .iter()
+                        .filter(|member| member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
+                        .map(|member| RemoteImContactTeamMemberSummary {
+                            conversation_id: member.conversation_id.clone(),
+                            name: strip_legacy_member_number_prefix(&member.name),
+                        })
+                        .collect(),
                     preview_messages: build_conversation_preview_messages(&conversation, 2),
                 })
             };

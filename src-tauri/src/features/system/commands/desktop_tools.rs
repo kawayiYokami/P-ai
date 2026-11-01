@@ -869,8 +869,6 @@ struct ChatShellWorkspaceOutput {
     root_path: String,
     workspaces: Vec<ShellWorkspaceConfig>,
     autonomous_mode: bool,
-    /// 招募开关：true = 允许招募队员，只决定 team_recruit 是否挂载。
-    team_enabled: bool,
     /// 新建会话里预选的队员人格：按顺序在首轮发言时建成队员。
     team_pending_member_agents: Vec<String>,
     /// 是否为会话草稿：草稿一律从单人模式开始
@@ -1123,9 +1121,6 @@ fn build_chat_shell_workspace_output(
         root_path: root.to_string_lossy().to_string(),
         workspaces: build_chat_shell_workspace_list(state, conversation),
         autonomous_mode: conversation.map(|value| value.shell_autonomous_mode).unwrap_or(false),
-        team_enabled: conversation
-            .map(|value| value.team.enabled)
-            .unwrap_or(false),
         team_pending_member_agents: conversation
             .map(|value| value.team.pending_member_agents.clone())
             .unwrap_or_default(),

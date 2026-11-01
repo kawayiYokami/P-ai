@@ -699,21 +699,10 @@ fn remote_im_get_contact_conversation_model_inner(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let config = state_read_config_cached(state)?;
-    let is_valid_text_api = |id: &str| {
-        config.api_configs.iter().any(|api| api.id == id && is_text_chat_api(api))
-    };
-    let preferred_api_config_id = match raw_model {
-        Some(ref id) if is_valid_text_api(id) => Some(id.clone()),
-        _ => {
-            let expert_id = config.expert_api_config_id.trim();
-            if !expert_id.is_empty() && is_valid_text_api(expert_id) {
-                Some(expert_id.to_string())
-            } else {
-                config.api_configs.iter().find(|api| is_text_chat_api(api)).map(|api| api.id.clone())
-            }
-        }
-    };
-    // 若会话尚未固化首选模型或原模型已丢失，自动将兜底专家模型回写给会话
+    // 会话模型丢失时按统一兜底链补齐：自身 → 父链 → 主会话 → 专家模型 → 第一个可用聊天文本模型。
+    // 写回的永远是具体模型 id，不再把专家模型当成会话自己的模型。
+    let preferred_api_config_id =
+        resolve_effective_conversation_model(state, &config, &conversation_id);
     if raw_model != preferred_api_config_id {
         let _ = conversation_service_v2().set_preferred_api_config_id(
             state,

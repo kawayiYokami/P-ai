@@ -248,20 +248,20 @@ fn resolve_delegate_target_api_config_ids(
             &preflight.target_agent,
         ));
     }
-    let source_conversation_preferred = session_id
+    // 源会话的当前生效模型（自身 → 父链 → 主会话 → 专家 → 第一个可用模型）优先；
+    // 解析不出来时再走全局兜底，终点是第一个可用聊天文本模型。
+    let source_effective_model = session_id
         .and_then(delegate_session_conversation_id)
-        .map(|conversation_id| {
-            conversation_service_v2()
-                .get_conversation_meta(app_state, &conversation_id)
-                .ok()
-                .and_then(|meta| meta.preferred_api_config_id)
-        })
-        .flatten()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+        .and_then(|conversation_id| {
+            resolve_effective_conversation_model(
+                app_state,
+                &preflight.config,
+                conversation_id.trim(),
+            )
+        });
     let resolved = resolve_follow_session_delegate_api_config(
         &preflight.config,
-        source_conversation_preferred.as_deref(),
+        source_effective_model.as_deref(),
     )
     .ok_or_else(|| "跟随会话模型解析失败：无可用模型".to_string())?;
     Ok(vec![resolved])

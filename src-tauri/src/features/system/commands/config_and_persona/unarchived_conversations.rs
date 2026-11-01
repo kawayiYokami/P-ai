@@ -3,38 +3,19 @@ mod git_ghost_snapshot;
 use git_ghost_snapshot::read_git_snapshot_record_from_provider_meta;
 use git_ghost_snapshot::restore_main_workspace_from_git_ghost_snapshot;
 
+/// 会话模型的修复候选：当前值有效就保留，否则依次退到人格显式模型、专家模型、第一个可用聊天文本模型。
+/// 刻意不用 agent_primary_api_config_id —— 它在人格无模型时返回 role:expert 哨兵，
+/// 会把「人格没配模型」误判成「人格指定了专家模型」。
 fn conversation_preferred_model_repair_candidate(
     config: &AppConfig,
     agents: &[AgentProfile],
     agent_id: &str,
     preferred_api_config_id: Option<&str>,
 ) -> Option<String> {
-    let current = preferred_api_config_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if let Some(resolved_current) = current
-        .and_then(|value| resolve_model_role_api_config_id(config, value))
-        .filter(|resolved_id| config.api_configs.iter().any(|api| api.id == *resolved_id && is_text_chat_api(api)))
-    {
-        return Some(resolved_current);
-    }
-
-    // 会话未固化模型时回退到负责人格的主模型。
-    let agent_id = agent_id.trim();
-    let primary_id = agents
-        .iter()
-        .find(|agent| agent.id.trim() == agent_id)
-        .map(agent_primary_api_config_id)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| config.expert_api_config_id.trim().to_string());
-    resolve_model_role_api_config_id(config, &primary_id)
-        .filter(|resolved_id| config.api_configs.iter().any(|api| api.id == *resolved_id && is_text_chat_api(api)))
-        .or_else(|| {
-            let expert_id = config.expert_api_config_id.trim();
-            (!expert_id.is_empty())
-                .then(|| expert_id.to_string())
-                .filter(|id| config.api_configs.iter().any(|api| api.id == *id && is_text_chat_api(api)))
-        })
+    resolve_concrete_chat_model(config, preferred_api_config_id)
+        .or_else(|| agent_explicit_chat_model(config, agents, agent_id))
+        .or_else(|| expert_chat_model(config))
+        .or_else(|| first_available_chat_model(config))
 }
 
 fn repair_conversation_preferred_model_for_snapshot(
@@ -44,7 +25,6 @@ fn repair_conversation_preferred_model_for_snapshot(
     repair_conversation_preferred_model_for_snapshot_meta(
         state,
         &conversation.id,
-        &conversation.agent_id,
         conversation.preferred_api_config_id.as_deref(),
     )
 }
@@ -52,32 +32,24 @@ fn repair_conversation_preferred_model_for_snapshot(
 fn repair_conversation_preferred_model_for_snapshot_meta(
     state: &AppState,
     conversation_id: &str,
-    agent_id: &str,
     preferred_api_config_id: Option<&str>,
 ) -> Result<Option<String>, String> {
     let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-    let repaired = conversation_preferred_model_repair_candidate(
+    // 修复走统一兜底链：会话自身 → 父链 → 主会话 → 专家模型 → 第一个可用聊天文本模型。
+    // 写回的永远是具体模型 id，不写 role:* 哨兵，也不触发专家模型同步。
+    let repaired = resolve_effective_conversation_model(
+        state,
         &runtime_snapshot.config,
-        &runtime_snapshot.agents,
-        agent_id,
-        preferred_api_config_id,
+        conversation_id,
     );
-    let current = preferred_api_config_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if repaired.as_deref() != current {
-        conversation_service_v2().set_preferred_api_config_id(
-            state,
-            conversation_id,
-            repaired.clone(),
-        )?;
-        runtime_log_debug(format!(
-            "[会话首选模型] 完成，任务=加载快照自动修复，conversation_id={}，旧值={}，新值={}",
-            conversation_id,
-            current.unwrap_or(""),
-            repaired.as_deref().unwrap_or("")
-        ));
-    }
+    // 「值不同就写回」的判据在 model_resolution 里只实现一处，发送前写回走同一份。
+    persist_conversation_model_when_changed(
+        state,
+        conversation_id,
+        preferred_api_config_id,
+        repaired.clone(),
+        "加载快照自动修复",
+    )?;
     Ok(repaired)
 }
 
@@ -99,7 +71,6 @@ async fn switch_active_conversation_snapshot(
                 repair_conversation_preferred_model_for_snapshot_meta(
                     &app_state,
                     &conversation_meta.id,
-                    &conversation_meta.agent_id,
                     conversation_meta.preferred_api_config_id.as_deref(),
                 )?;
         }
@@ -376,90 +347,24 @@ fn set_conversation_plan_mode_inner(
     })
 }
 
+/// 草稿回到单人：清掉上次留下的预选队员。
+/// 招募开关（team.enabled）已移除，这条命令只剩预选清理，不能带任何写入选项。
+/// 前端「进入另一个草稿」时调用：点击侧栏打开旧草稿不走 open_draft_conversation 的
+/// 复用分支，后端 reset_draft_team_state 兜不到那条路径，需要前端主动清后端残留。
 #[tauri::command]
-fn set_conversation_team_mode(
-    input: SetConversationTeamModeInput,
+fn reset_draft_team_members(
+    input: ResetDraftTeamMembersInput,
     state: State<'_, AppState>,
-) -> Result<SetConversationTeamModeOutput, String> {
-    set_conversation_team_mode_inner(input, state.inner())
-}
-
-fn set_conversation_team_mode_inner(
-    input: SetConversationTeamModeInput,
-    state: &AppState,
-) -> Result<SetConversationTeamModeOutput, String> {
+) -> Result<(), String> {
     let conversation_id = input.conversation_id.trim();
     if conversation_id.is_empty() {
         return Err("conversationId 不能为空".to_string());
     }
-
-    let meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
-    if meta.team.membership.is_some() {
-        return Err("这是队员会话，不能切换招募开关".to_string());
-    }
-    // 招募开关独立于名册：关闭时名册保留，dismiss/send 照常按名册可用。
-
-    // 预选队员只在新建会话（草稿）阶段有意义：首轮发言时据此一次性建出队员会话。
-    let member_agent_ids = input
-        .member_agent_ids
-        .iter()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>();
-    if !member_agent_ids.is_empty() {
-        if !meta.is_draft {
-            return Err("只有新建会话时可以选择队员人格".to_string());
-        }
-        let runtime_org = load_runtime_organization_snapshot(state)?;
-        for agent_id in &member_agent_ids {
-            let agent = runtime_org
-                .agents
-                .iter()
-                .find(|item| item.id.trim() == agent_id.as_str())
-                .ok_or_else(|| format!("队员人格不存在：{agent_id}"))?;
-            if agent.is_built_in_user || agent.is_built_in_system {
-                return Err("队员不能是用户或系统人格".to_string());
-            }
-        }
-    }
-
-    // 单人模式不保留预选队员：避免「开关关着却挂着待建队员」的僵尸状态
-    let persisted_member_agent_ids = if input.team_enabled {
-        member_agent_ids.clone()
-    } else {
-        Vec::new()
-    };
-
-    if meta.team.enabled != input.team_enabled
-        || meta.team.pending_member_agents != persisted_member_agent_ids
-    {
-        state_update_conversation_metadata_cached(state, conversation_id, |conversation| {
-            conversation.team.enabled = input.team_enabled;
-            if !input.team_enabled {
-                conversation.team.pending_member_agents.clear();
-            } else if conversation.is_draft {
-                conversation.team.pending_member_agents = persisted_member_agent_ids.clone();
-            }
-            Ok(())
-        })?;
-        runtime_log_info(format!(
-            "[队伍] 完成，任务=切换招募开关，会话ID={}，招募={}，待建队员数={}",
-            conversation_id,
-            if input.team_enabled { "开" } else { "关" },
-            persisted_member_agent_ids.len()
-        ));
-    }
-
-    Ok(SetConversationTeamModeOutput {
-        conversation_id: conversation_id.to_string(),
-        team_enabled: input.team_enabled,
-        member_agent_ids: persisted_member_agent_ids,
-    })
+    reset_draft_team_state(state.inner(), conversation_id)
 }
 
-/// 用户在队伍管理页主动招募：不受招募开关限制，随时可招。
-/// 招募开关只管 LLM 的 team_recruit 工具；LLM 入口另走 team_leader_meta_for_recruit 判定。
-/// 名字后端按「N 号 · 人格名」生成，不收 name/duty/workBranch。
+/// 用户在队伍管理页主动招募：随时可招，与 LLM 的 team_recruit 工具入口相互独立。
+/// 传的是人格 id，队员会话标题用该人格的名字；不收 name/duty/workBranch。
 #[tauri::command]
 async fn team_recruit_conversation(
     input: TeamRecruitConversationInput,
@@ -484,13 +389,10 @@ async fn team_recruit_conversation_inner(
     if leader.team.membership.is_some() {
         return Err("这是队员会话，不能招募队员".to_string());
     }
-    if leader.conversation_kind.trim() != CONVERSATION_KIND_CHAT
-        || leader.is_draft
-        || leader.status.trim() == "archived"
-    {
-        return Err("只有未归档的普通会话可以招募队员".to_string());
+    if !conversation_meta_can_own_team_roster(state, &leader) {
+        return Err("只有未归档的普通会话或远程私聊可以招募队员".to_string());
     }
-    // 用户招募不受招募开关限制：开关只决定 LLM 的 team_recruit 工具挂不挂。
+    // 手动招募与 LLM 工具入口独立：这里只管队长身份，不看名册状态。
     let runtime_org = load_runtime_organization_snapshot(state)
         .map_err(|err| format!("读取人格失败：{err}"))?;
     let agent = runtime_org
@@ -505,23 +407,17 @@ async fn team_recruit_conversation_inner(
     if agent_name.is_empty() {
         return Err("队员人格缺少名字".to_string());
     }
-    let name = format!(
-        "{number} 号 · {agent_name}",
-        number = leader.team.next_number_for_recruit()
-    );
-    if leader.team.has_active_member_named(&name) {
-        return Err(format!("队伍里已经有叫「{name}」的队员了"));
-    }
-    let member = team_create_member(state, &leader, &name, "", "", &agent_id).await?;
+    // 队伍里每个人必须是不同的人格：队长自己占一个角色，同一个人格也不能招两次。
+    team_ensure_role_available(state, &leader, &agent_id, &agent_name)?;
+    let member = team_create_member(state, &leader, &agent_name, "", &agent_id).await?;
     runtime_log_info(format!(
-        "[队伍] 完成，任务=用户招募队员，会话ID={conversation_id}，number={}，name={}",
-        member.number, member.name
+        "[队伍] 完成，任务=用户招募队员，会话ID={conversation_id}，role={}，conversation_id={}",
+        member.role, member.conversation_id
     ));
     Ok(TeamRecruitConversationOutput {
         conversation_id: member.conversation_id,
         parent_conversation_id: conversation_id,
-        number: member.number,
-        name: member.name,
+        role: member.role,
     })
 }
 
@@ -618,6 +514,38 @@ fn set_conversation_preferred_model(
     set_conversation_preferred_model_inner(input, state.inner())
 }
 
+/// 会话模型写入的共用校验：角色可解析、模型存在、非哨兵、是聊天文本模型。
+/// 用户手动切换与队长推送模型都必须走这里，避免把无效 id 写进会话。
+/// 哨兵在这里直接拒绝，不做展开：role:expert 展开后写进去，会话就被钉死在
+/// 「用户看不见的兜底模型」上，再也跟不上兜底值的变化。
+fn resolve_validated_conversation_model_id(
+    state: &AppState,
+    api_config_id: &str,
+) -> Result<String, String> {
+    if is_model_role_api_config_id(api_config_id) {
+        return Err(format!(
+            "会话模型不能是角色哨兵：api_config_id={api_config_id}，请指定具体模型"
+        ));
+    }
+    let config = state_read_config_cached(state)?;
+    let resolved_api_config_id = resolve_model_role_api_config_id(&config, api_config_id)
+        .ok_or_else(|| format!("会话首选模型角色未配置：api_config_id={api_config_id}"))?;
+    let Some(api_config) = config
+        .api_configs
+        .iter()
+        .find(|api| api.id == resolved_api_config_id)
+    else {
+        return Err(format!("会话首选模型不存在：api_config_id={api_config_id}"));
+    };
+    if !api_config.enable_text || !api_config.request_format.is_chat_text() {
+        return Err(format!(
+            "会话首选模型不是聊天文本模型：api_config_id={api_config_id}，request_format={:?}",
+            api_config.request_format
+        ));
+    }
+    Ok(resolved_api_config_id)
+}
+
 fn set_conversation_preferred_model_inner(
     input: SetConversationPreferredModelInput,
     state: &AppState,
@@ -640,24 +568,7 @@ fn set_conversation_preferred_model_inner(
     ));
 
     let resolved_preferred_api_config_id = if let Some(api_config_id) = preferred_api_config_id.as_deref() {
-        let config = state_read_config_cached(state)?;
-        let resolved_api_config_id = resolve_model_role_api_config_id(&config, api_config_id)
-            .ok_or_else(|| format!("会话首选模型角色未配置：api_config_id={api_config_id}"))?;
-        let Some(api_config) = config
-            .api_configs
-            .iter()
-            .find(|api| api.id == resolved_api_config_id)
-        else {
-            return Err(format!("会话首选模型不存在：api_config_id={api_config_id}"));
-        };
-        if !api_config.enable_text || !api_config.request_format.is_chat_text() {
-            return Err(format!(
-                "会话首选模型不是聊天文本模型：api_config_id={}，request_format={:?}",
-                api_config_id,
-                api_config.request_format
-            ));
-        }
-        Some(resolved_api_config_id)
+        Some(resolve_validated_conversation_model_id(state, api_config_id)?)
     } else {
         None
     };
@@ -667,6 +578,18 @@ fn set_conversation_preferred_model_inner(
         conversation_id,
         resolved_preferred_api_config_id.clone(),
     )?;
+
+    // 专家模型被动跟随：只有用户在普通对话会话里亲手换模型时才更新兜底值。
+    // 追问、队员、联系人、系统通知会话的模型变更都不改它。
+    if let Err(err) = sync_expert_model_from_user_conversation(
+        state,
+        conversation_id,
+        resolved_preferred_api_config_id.as_deref(),
+    ) {
+        runtime_log_warn(format!(
+            "[会话模型] 跳过，任务=专家模型跟随用户选择，会话ID={conversation_id}，error={err}"
+        ));
+    }
 
     runtime_log_info(format!(
         "[会话模型] 完成，任务=切换会话首选模型，会话ID={}，api_config_id={}",
@@ -871,11 +794,18 @@ pub(crate) fn side_chat_build_record(
     } else {
         Vec::new()
     };
-    let title = parent
-        .latest_summary_title
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| parent.title.clone());
+    // 带上下文的追问沿父会话标题起步；不带上下文的（空白追问、队员招募）
+    // 一律从空标题开始，交给自动标题按内容生成。
+    // 队员会话如果继承队长标题，`conversation_has_visible_title` 就永远为真，自动标题不会跑。
+    let title = if with_context {
+        parent
+            .latest_summary_title
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| parent.title.clone())
+    } else {
+        String::new()
+    };
     let mut side_chat = build_conversation_record(
         parent.preferred_api_config_id.as_deref().unwrap_or_default(),
         &parent.agent_id,
@@ -895,7 +825,13 @@ pub(crate) fn side_chat_build_record(
     side_chat.shell_recorded_branch = parent.shell_recorded_branch.clone();
     side_chat.current_todos = parent.current_todos.clone();
     side_chat.user_profile_snapshot = parent.user_profile_snapshot.clone();
-    side_chat.preferred_api_config_id = parent.preferred_api_config_id.clone();
+    // 追问会话继承父会话模型：父会话字段 → 沿父链向上 → 主会话 → 第一个可用聊天文本模型。
+    // 队员招募也走这条路，之后会按人格显式模型 / 队长模型覆写。
+    side_chat.preferred_api_config_id = resolve_new_side_chat_model(
+        state,
+        &state_read_config_cached(state)?,
+        parent_id,
+    );
     side_chat.messages = copied_messages;
     if let Some(last_message) = side_chat.messages.last() {
         side_chat.updated_at = last_message.created_at.clone();
@@ -1546,14 +1482,13 @@ async fn open_draft_conversation_inner(
     Ok(output)
 }
 
-/// 草稿一律从单人开始：清掉组队开关与预选队员，避免复用旧草稿时残留上次的选择。
+/// 草稿一律从单人开始：清掉残留的预选队员，避免复用旧草稿时带上上次的选择。
 fn reset_draft_team_state(state: &AppState, conversation_id: &str) -> Result<(), String> {
     let meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
-    if !meta.is_draft || (!meta.team.enabled && meta.team.pending_member_agents.is_empty()) {
+    if !meta.is_draft || meta.team.pending_member_agents.is_empty() {
         return Ok(());
     }
     state_update_conversation_metadata_cached(state, conversation_id, |conversation| {
-        conversation.team.enabled = false;
         conversation.team.pending_member_agents.clear();
         Ok(())
     })?;
@@ -4385,6 +4320,9 @@ mod unarchived_conversations_tests {
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         }
     }
 

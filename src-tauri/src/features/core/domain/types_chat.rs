@@ -484,11 +484,8 @@ fn conversation_goal_is_active(goal: &ConversationGoalState) -> bool {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TeamState {
-    /// 招募开关：只决定 team_recruit 是否挂载，与名册无关。
-    /// 开关关闭时模型看不到招募工具；其他队伍工具只看名册里有没有在队队员。
-    #[serde(default)]
-    enabled: bool,
     /// 新建会话时预选的队员人格：按点击顺序排，首轮发言时据此一次性创建队员。
+    /// 预选写入命令已移除（见 team_create_pending_members 的恢复指引注释），字段暂留兼容存量数据。
     #[serde(default)]
     pending_member_agents: Vec<String>,
     /// 队长会话的名字结果：下一个可用编号，单调递增、不回收。
@@ -545,19 +542,6 @@ impl TeamState {
             .iter()
             .filter(|member| member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
             .count()
-    }
-
-    fn find_active_member_by_number(&self, number: u32) -> Option<&TeamMemberEntry> {
-        self.members.iter().find(|member| {
-            member.number == number && member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE
-        })
-    }
-
-    fn has_active_member_named(&self, name: &str) -> bool {
-        let name = name.trim();
-        self.members.iter().any(|member| {
-            member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE && member.name.trim() == name
-        })
     }
 }
 

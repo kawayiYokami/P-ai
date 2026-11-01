@@ -15,19 +15,6 @@
         </button>
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <label class="flex cursor-pointer items-center justify-between gap-3">
-          <span class="text-xs font-medium text-base-content/80">{{ t("chat.teamManage.recruitSwitch") }}</span>
-          <input
-            type="checkbox"
-            class="toggle toggle-primary toggle-sm"
-            :checked="Boolean(teamEnabled)"
-            :disabled="saving"
-            @change="onSwitchChange"
-          />
-        </label>
-        <div class="mt-2 rounded-field bg-base-200/70 px-3 py-2 text-xs text-base-content/55">
-          {{ t("chat.teamManage.recruitOffHint") }}
-        </div>
         <div class="mt-4">
           <div class="mb-2 text-xs font-medium text-base-content/70">
             {{ t("chat.teamManage.memberList", { count: members.length }) }}
@@ -41,9 +28,8 @@
               :key="member.conversationId"
               class="flex items-center gap-2 rounded-field border border-base-content/10 bg-base-100 px-3 py-2"
             >
-              <span class="badge badge-sm badge-primary">{{ member.teamNumber }} 号</span>
+              <UserRound class="h-3.5 w-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
               <span class="min-w-0 flex-1 truncate text-xs font-medium text-base-content/85">{{ member.teamName || member.title }}</span>
-              <span v-if="member.agentName" class="max-w-40 truncate text-xs text-base-content/45">{{ member.agentName }}</span>
             </div>
           </div>
         </div>
@@ -114,12 +100,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { UserRound } from "@lucide/vue";
 import type { AgentPersonaOption } from "../../../shared/agent-persona-options";
 
 export type TeamManageMember = {
   conversationId: string;
   title: string;
-  teamNumber?: number;
   teamName?: string;
   agentId?: string;
   agentName?: string;
@@ -127,29 +113,24 @@ export type TeamManageMember = {
 
 const props = withDefaults(defineProps<{
   open: boolean;
-  teamEnabled?: boolean;
   members?: TeamManageMember[];
   agentOptions?: AgentPersonaOption[];
   /** 当前会话人格：招募列表里排除它，不能招自己 */
   currentAgentId?: string;
   avatarUrlMap?: Record<string, string>;
-  saving?: boolean;
   recruiting?: boolean;
   errorMessage?: string;
 }>(), {
-  teamEnabled: false,
   members: () => [],
   agentOptions: () => [],
   currentAgentId: "",
   avatarUrlMap: () => ({}),
-  saving: false,
   recruiting: false,
   errorMessage: "",
 });
 
 const emit = defineEmits<{
   (e: "close"): void;
-  (e: "setTeamEnabled", enabled: boolean): void;
   (e: "recruit", agentIds: string[]): void;
 }>();
 
@@ -160,10 +141,22 @@ const selectedAgentIds = ref<string[]>([]);
 
 const recruitableOptions = computed(() => {
   const current = String(props.currentAgentId || "").trim();
+  // 队伍里每个人必须是不同的人格：队长本人占一个角色，已在队的角色也不能再招。
+  const takenIds = new Set<string>();
+  const takenNames = new Set<string>();
+  for (const member of props.members || []) {
+    const agentId = String(member.agentId || "").trim();
+    if (agentId) takenIds.add(agentId);
+    const roleName = String(member.agentName || member.teamName || "").trim();
+    if (roleName) takenNames.add(roleName);
+  }
   return (props.agentOptions || []).filter((option) => {
     const id = String(option.agentId || "").trim();
     if (!id) return false;
-    return id !== current;
+    if (id === current || takenIds.has(id)) return false;
+    // 远程会话的队员摘要只带角色名、没有 agent_id，按名字再挡一层。
+    const name = String(option.agentName || "").trim();
+    return !(name && takenNames.has(name));
   });
 });
 
@@ -222,11 +215,6 @@ watch(
 
 function onDialogClose() {
   emit("close");
-}
-
-function onSwitchChange(event: Event) {
-  const target = event.target as HTMLInputElement | null;
-  emit("setTeamEnabled", Boolean(target?.checked));
 }
 
 function onRecruit() {

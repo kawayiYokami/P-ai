@@ -350,8 +350,25 @@ struct RemoteImContactConversationSummary {
     contact_display_name: String,
     bound_agent_id: Option<String>,
     processing_mode: String,
+    /// private / group：前端据此判断该联系人会话能否拥有队伍名册。
+    #[serde(default)]
+    remote_contact_type: String,
+    /// 该会话作为队长时的在队队员数（队伍磁贴直接显示）。
+    #[serde(default)]
+    team_member_count: usize,
+    /// 在队队员名单（队伍管理页展示）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    team_members: Vec<RemoteImContactTeamMemberSummary>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     preview_messages: Vec<ConversationPreviewMessage>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteImContactTeamMemberSummary {
+    conversation_id: String,
+    /// 角色名（人格名）。编号只在库里当主键，不随名册下发。
+    name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -185,6 +185,8 @@ fn runtime_tool_call_requires_serial_execution(
             | "move"
             | "todo"
             | "task"
+            | "progress"
+            | "question"
             | "remember"
             | "plan"
             | "image_generate"

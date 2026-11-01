@@ -1813,6 +1813,11 @@ async fn activate_main_assistant(
         ));
     }
 
+    // 队员这一轮出错，转给它的队长：只看出错与否，与用户是否正在观看无关。
+    if let Err(err) = &result {
+        team_notify_leader_member_failed(state, conversation_id, err.as_str());
+    }
+
     result.map(|result| {
         // 压缩重开会为新一轮重新生成 request_id，并用它发轮次开始事件；
         // 收尾事件必须沿用同一个标识，否则前端按「标识必须相等」判定时会丢弃终态。

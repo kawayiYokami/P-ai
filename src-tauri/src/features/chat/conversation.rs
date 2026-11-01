@@ -308,11 +308,33 @@ const SUMMARY_CONTEXT_MESSAGE_SCHEMA_VERSION: u64 = 2;
 const SUMMARY_CONTEXT_TITLE_MAX_CHARS: usize = 20;
 const SUMMARY_CONTEXT_TITLE_SOURCE_BRANCH: &str = "branch_source";
 
-fn conversation_is_local_normal_chat(conversation: &Conversation) -> bool {
+/// conversation_kind → 「本地普通会话（chat / side_chat）」白名单判据。
+/// 主链路（`runtime_tool_policy_from_session` 的 meta 命中分支）与 fallback 链路
+/// （`conversation_is_local_normal_chat`）必须共用本函数：两段独立的 `matches!`
+/// 会让「映射改错但测试全绿」成为盲区。
+fn conversation_kind_is_local_chat(kind: &str) -> bool {
     matches!(
-        conversation.conversation_kind.trim(),
+        kind.trim(),
         CONVERSATION_KIND_CHAT | CONVERSATION_KIND_SIDE_CHAT
     )
+}
+
+fn conversation_is_local_normal_chat(conversation: &Conversation) -> bool {
+    conversation_kind_is_local_chat(&conversation.conversation_kind)
+        && !conversation_is_system_notification(conversation)
+        && !conversation_is_delegate(conversation)
+        && !conversation_is_remote_im_contact(conversation)
+}
+
+/// 「本地主会话」：在本地普通会话之上再排除追问（side_chat）与队员会话。
+/// `conversation_is_local_normal_chat` 把 side_chat 一并放行，凡是要求「只有主会话能用」
+/// 的能力必须走本函数，否则追问会话与队员会话会一起被放进来。
+fn conversation_kind_is_local_main_chat(kind: &str) -> bool {
+    kind.trim() == CONVERSATION_KIND_CHAT
+}
+
+fn conversation_is_local_main_chat(conversation: &Conversation) -> bool {
+    conversation_kind_is_local_main_chat(&conversation.conversation_kind)
         && !conversation_is_system_notification(conversation)
         && !conversation_is_delegate(conversation)
         && !conversation_is_remote_im_contact(conversation)
@@ -652,6 +674,77 @@ fn conversation_real_user_message_texts(conversation: &Conversation) -> Vec<Stri
         .collect::<Vec<_>>()
 }
 
+/// 测试专用最小构造：只填状态注入块需要的字段。
+#[cfg(test)]
+fn test_conversation_with_kind(kind: &str) -> Conversation {
+    Conversation {
+        id: format!("conversation-kind-{kind}"),
+        title: String::new(),
+        agent_id: DEFAULT_AGENT_ID.to_string(),
+        bound_conversation_id: None,
+        parent_conversation_id: None,
+        child_conversation_ids: Vec::new(),
+        fork_message_cursor: None,
+        unread_count: 0,
+        conversation_kind: kind.to_string(),
+        root_conversation_id: None,
+        delegate_id: None,
+        created_at: now_iso(),
+        updated_at: now_iso(),
+        last_user_at: None,
+        last_assistant_at: None,
+        status: "active".to_string(),
+        user_profile_snapshot: String::new(),
+        shell_workspace_path: None,
+        shell_workspaces: Vec::new(),
+        shell_autonomous_mode: false,
+        shell_work_mode: default_shell_work_mode(),
+        shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
+        shell_recorded_branch: String::new(),
+        archived_at: None,
+        messages: Vec::new(),
+        fast_request_turns: Vec::new(),
+        current_todos: Vec::new(),
+        memory_recall_table: Vec::new(),
+        plan_mode_enabled: false,
+        preferred_api_config_id: None,
+        is_draft: false,
+        auto_push_remote_contact_id: None,
+        cumulative_usage: ConversationCumulativeUsage::default(),
+        active_goal: None,
+        team: TeamState::default(),
+        loaded_mcp_tools: Vec::new(),
+        last_error: None,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
+    }
+}
+
+#[cfg(test)]
+mod conversation_kind_tests {
+    use super::*;
+
+    #[test]
+    fn conversation_kind_is_local_chat_should_whitelist_chat_and_side_chat() {
+        assert!(conversation_kind_is_local_chat(CONVERSATION_KIND_CHAT));
+        assert!(conversation_kind_is_local_chat(CONVERSATION_KIND_SIDE_CHAT));
+        assert!(conversation_kind_is_local_chat("  chat  "), "判据自带 trim");
+        for kind in [
+            CONVERSATION_KIND_DELEGATE,
+            CONVERSATION_KIND_REMOTE_IM_CONTACT,
+            CONVERSATION_KIND_SYSTEM_NOTIFICATION,
+            "future_kind",
+        ] {
+            assert!(
+                !conversation_kind_is_local_chat(kind),
+                "白名单必须拒绝未列出的 kind：{kind}"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod summary_context_title_tests {
     use super::*;
@@ -738,6 +831,9 @@ mod summary_context_title_tests {
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
             team: TeamState::default(),
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         }
     }
 
@@ -1132,6 +1228,9 @@ fn build_conversation_record(
         team: TeamState::default(),
         loaded_mcp_tools: Vec::new(),
         last_error: None,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
     }
 }
 
@@ -3109,6 +3208,8 @@ const EXEC_TOOL_RULE_SHELL_MD: &str = include_str!("../../../resources/prompts/e
 const EXEC_TOOL_RULE_RG_MD: &str = include_str!("../../../resources/prompts/exec-tool-rule-rg.md");
 const DEEP_RECALL_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/deep-recall-tool-rule.md");
 const TODO_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/todo-tool-rule.md");
+const PROGRESS_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/progress-tool-rule.md");
+const KANBAN_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/kanban-tool-rule.md");
 const GOAL_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/goal-tool-rule.md");
 const DELEGATE_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/delegate-tool-rule.md");
 const TASK_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/task-tool-rule.md");
@@ -3128,6 +3229,8 @@ fn build_builtin_tool_rule_block(tool_id: &str, rg_installed: bool) -> Option<St
         }
         "deeprecall" => ("deep recall tool rule", DEEP_RECALL_TOOL_RULE_MD.trim()),
         "todo" => ("todo tool rule", TODO_TOOL_RULE_MD.trim()),
+        "progress" => ("progress tool rule", PROGRESS_TOOL_RULE_MD.trim()),
+        "kanban" => ("kanban tool rule", KANBAN_TOOL_RULE_MD.trim()),
         "goal" => ("goal tool rule", GOAL_TOOL_RULE_MD.trim()),
         "get_session" | "inform_session" => (
             "session tool rule",
@@ -3684,6 +3787,9 @@ fn build_prompt_with_mode(
         team: conversation.team.clone(),
         loaded_mcp_tools: conversation.loaded_mcp_tools.clone(),
         last_error: conversation.last_error.clone(),
+        progress_state: conversation.progress_state.clone(),
+        evidence: conversation.evidence.clone(),
+        evidence_updated_at: conversation.evidence_updated_at.clone(),
     };
     let recall_memory_ids = collect_prompt_retrieved_memory_ids(&enriched_conversation.messages);
     let recall_memories = if recall_memory_ids.is_empty() {

@@ -128,43 +128,60 @@ describe("useChatWorkspace 工作区刷新竞态", () => {
   });
 });
 
-describe("useChatWorkspace 组队模式", () => {
+describe("useChatWorkspace 进入带残留预选的草稿", () => {
   beforeEach(() => {
     invokeTauriMock.mockReset();
     gitPanelBranchMock.mockReset();
   });
 
-  it("切换组队时把预选队员人格一起提交，并用后端回显回填", async () => {
-    const { workspace } = createWorkspace("conv-draft");
+  it("本地清零预选并调用 resetDraftTeamMembers 清后端残留", async () => {
+    const { workspace, activeConversationId } = createWorkspace("conv-a");
+    invokeTauriMock.mockResolvedValueOnce(workspaceState("E:/repo-a"));
+    await workspace.refreshChatWorkspaceState();
+    await flush();
+
+    activeConversationId.value = "conv-b";
     invokeTauriMock.mockResolvedValueOnce({
-      conversationId: "conv-draft",
-      teamEnabled: true,
-      memberAgentIds: ["agent-b", "agent-c"],
+      ...workspaceState("E:/repo-b"),
+      isDraft: true,
+      teamPendingMemberAgents: ["agent-x"],
     });
+    await workspace.refreshChatWorkspaceState();
+    await flush();
 
-    await workspace.saveChatTeamMode(true, ["agent-b", "agent-c"]);
-
-    expect(invokeTauriMock).toHaveBeenCalledWith("conversation.teamMode.set", {
-      conversationId: "conv-draft",
-      teamEnabled: true,
-      memberAgentIds: ["agent-b", "agent-c"],
+    expect(workspace.chatWorkspaceTeamAgentIds.value).toEqual([]);
+    expect(invokeTauriMock).toHaveBeenCalledWith("conversation.resetDraftTeamMembers", {
+      conversationId: "conv-b",
     });
-    expect(workspace.chatWorkspaceTeamEnabled.value).toBe(true);
-    expect(workspace.chatWorkspaceTeamAgentIds.value).toEqual(["agent-b", "agent-c"]);
   });
 
-  it("切回单人时清空预选队员，失败则整体回滚", async () => {
-    const { workspace } = createWorkspace("conv-draft");
-    invokeTauriMock.mockResolvedValueOnce({
-      conversationId: "conv-draft",
-      teamEnabled: true,
-      memberAgentIds: ["agent-b"],
-    });
-    await workspace.saveChatTeamMode(true, ["agent-b"]);
+  it("同一草稿重复刷新不重复调复位命令", async () => {
+    const { workspace, activeConversationId } = createWorkspace("conv-a");
+    invokeTauriMock.mockResolvedValueOnce(workspaceState("E:/repo-a"));
+    await workspace.refreshChatWorkspaceState();
+    await flush();
 
-    invokeTauriMock.mockRejectedValueOnce(new Error("boom"));
-    await expect(workspace.saveChatTeamMode(false, [])).rejects.toThrow("boom");
-    expect(workspace.chatWorkspaceTeamEnabled.value).toBe(true);
-    expect(workspace.chatWorkspaceTeamAgentIds.value).toEqual(["agent-b"]);
+    activeConversationId.value = "conv-b";
+    invokeTauriMock.mockResolvedValueOnce({
+      ...workspaceState("E:/repo-b"),
+      isDraft: true,
+      teamPendingMemberAgents: ["agent-x"],
+    });
+    await workspace.refreshChatWorkspaceState();
+    await flush();
+    invokeTauriMock.mockClear();
+
+    invokeTauriMock.mockResolvedValueOnce({
+      ...workspaceState("E:/repo-b"),
+      isDraft: true,
+      teamPendingMemberAgents: ["agent-x"],
+    });
+    await workspace.refreshChatWorkspaceState();
+    await flush();
+
+    expect(invokeTauriMock).not.toHaveBeenCalledWith(
+      "conversation.resetDraftTeamMembers",
+      expect.anything(),
+    );
   });
 });

@@ -329,6 +329,26 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
             session_id: preview_session_id.clone(),
         }
         .provider_tool_definition(),
+        BuiltinProgressTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
+        BuiltinKanbanTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
+        BuiltinKanbanSetPlanTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
+        BuiltinQuestionTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
         BuiltinCreateGoalTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
@@ -364,12 +384,17 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
             session_id: preview_session_id.clone(),
         }
         .provider_tool_definition(),
-        BuiltinTeamDismissTool {
+        BuiltinTeamSendTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
         }
         .provider_tool_definition(),
-        BuiltinTeamSendTool {
+        BuiltinTeamReadTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
+        BuiltinTeamShareModelTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
         }
@@ -501,6 +526,10 @@ fn read_global_tool_schema_cache(_state: Option<&AppState>) -> Vec<CachedRuntime
 struct RuntimeToolPolicy {
     conversation_resolved: bool,
     local_conversation: bool,
+    /// 是否为本地主会话（`chat`）：比 `local_conversation` 更严，排除 side_chat。
+    main_chat_conversation: bool,
+    /// 追问会话（side_chat）：进度工具只在这一档挂载，队员会话也属于这一档。
+    side_chat_conversation: bool,
     delegate_conversation: bool,
     remote_reply_delegate: bool,
     contact_send_files_allowed: bool,
@@ -517,6 +546,8 @@ impl RuntimeToolPolicy {
         Self {
             conversation_resolved: true,
             local_conversation: conversation_is_local_normal_chat(conversation),
+            main_chat_conversation: conversation_is_local_main_chat(conversation),
+            side_chat_conversation: conversation_is_side_chat(conversation),
             delegate_conversation: conversation_is_delegate(conversation),
             remote_reply_delegate: false,
             contact_send_files_allowed: false,
@@ -532,16 +563,32 @@ impl RuntimeToolPolicy {
     }
 
     fn tool_unavailable_reason(&self, tool_name: &str) -> Option<String> {
-        builtin_tool_runtime_unavailable_reason(
+        let scope_reason = builtin_tool_runtime_unavailable_reason(
             tool_name,
             self.origin_scope,
             self.conversation_resolved,
             self.local_conversation,
+            self.side_chat_conversation,
             self.delegate_conversation,
             self.remote_reply_delegate,
             self.contact_send_files_allowed,
             self.deep_recall_delegate,
-        )
+        );
+        if scope_reason.is_some() {
+            return scope_reason;
+        }
+        // 严判档位：仅本地主会话。追问（side_chat）与队员会话在这里被挡下，
+        // 不能只靠 `local_conversation`，它把 side_chat 一并放行。
+        if builtin_tool_policy(tool_name).runtime_scope
+            == BuiltinToolRuntimeScope::LocalMainChatOnly
+            && !self.main_chat_conversation
+        {
+            return Some(format!(
+                "`{}` 仅在本地主会话中可用，追问会话、队员会话与远程会话不可用",
+                tool_name.trim()
+            ));
+        }
+        None
     }
 }
 
@@ -575,19 +622,15 @@ fn runtime_tool_policy_from_session(
         (
             RuntimeToolPolicy {
                 conversation_resolved: true,
-                local_conversation: matches!(
-                    conversation_kind,
-                    CONVERSATION_KIND_CHAT | CONVERSATION_KIND_SIDE_CHAT
-                ),
+                local_conversation: conversation_kind_is_local_chat(conversation_kind),
+                main_chat_conversation: conversation_kind_is_local_main_chat(conversation_kind),
+                side_chat_conversation: conversation_kind == CONVERSATION_KIND_SIDE_CHAT,
                 delegate_conversation: conversation_kind == CONVERSATION_KIND_DELEGATE,
                 remote_reply_delegate: delegate_session_is_remote_reply_delegate(tool_session_id)
                     && conversation_kind == CONVERSATION_KIND_REMOTE_IM_CONTACT,
                 contact_send_files_allowed: false,
                 deep_recall_delegate: false,
-                origin_scope: if matches!(
-                    conversation_kind,
-                    CONVERSATION_KIND_CHAT | CONVERSATION_KIND_SIDE_CHAT
-                ) {
+                origin_scope: if conversation_kind_is_local_chat(conversation_kind) {
                     RuntimeToolOriginScope::Local
                 } else if conversation_kind == CONVERSATION_KIND_REMOTE_IM_CONTACT {
                     RuntimeToolOriginScope::RemoteUnknown
@@ -989,24 +1032,32 @@ pub(crate) async fn assemble_runtime_tools(
         builtin_tools.extend(mcp_tools);
         discoverable_tools = builtin_tools;
     }
-    // 队伍工具按拆分门控挂载：队长会话 team_info 常驻、team_recruit 只看招募开关、
-    // team_dismiss/team_send 只看名册；队员会话只留 team_report；其余一律不挂。
+    // 队伍工具按拆分门控挂载：队长会话 team_info / team_recruit 只看队长身份、
+    // team_send / team_share_model 只看到名册里还有没有在队队员；
+    // 队员会话剔除队长工具与会话间通知工具，非队伍工具按各自策略保留。
     match team_role_for_session(state, tool_session_id) {
         TeamToolRole::Leader => {
+            // 看板与名册开关无关，只看会话本身是不是本地主会话。
+            let kanban_allowed = team_session_allows_kanban(state, tool_session_id);
             if let Some(flags) = team_leader_mount_flags(state, tool_session_id) {
                 discoverable_tools.retain(|tool| {
                     let name = tool.definition.name.trim();
+                    if name.eq_ignore_ascii_case(kanban::KANBAN_TOOL_NAME)
+                        || name.eq_ignore_ascii_case(kanban::KANBAN_SET_PLAN_TOOL_NAME)
+                    {
+                        return kanban_allowed;
+                    }
                     if name.eq_ignore_ascii_case(TEAM_MEMBER_TOOL_NAME) {
                         return false;
                     }
-                    if name.eq_ignore_ascii_case("team_recruit") {
-                        return flags.recruit_enabled;
-                    }
-                    if name.eq_ignore_ascii_case("team_info") {
+                    if name.eq_ignore_ascii_case("team_info")
+                        || name.eq_ignore_ascii_case("team_recruit")
+                    {
                         return true;
                     }
-                    if name.eq_ignore_ascii_case("team_dismiss")
-                        || name.eq_ignore_ascii_case("team_send")
+                    if name.eq_ignore_ascii_case("team_send")
+                        || name.eq_ignore_ascii_case("team_read")
+                        || name.eq_ignore_ascii_case("team_share_model")
                     {
                         return flags.has_active_member;
                     }
@@ -1021,7 +1072,13 @@ pub(crate) async fn assemble_runtime_tools(
             }
         }
         TeamToolRole::Member => {
-            discoverable_tools.retain(|tool| !team_tool_is_leader_tool(tool.definition.name.trim()));
+            // 队员内容不允许外发到远程渠道，所以会话间通知工具不给队员挂。
+            // 这里只是纵深防御，减少误触；硬保证在 inform_session 的来源校验里，
+            // 因为本分支依赖 team_role_for_session 的成功读取，读不到会退化到 None。
+            discoverable_tools.retain(|tool| {
+                let name = tool.definition.name.trim();
+                !team_tool_is_leader_tool(name) && !name.eq_ignore_ascii_case("inform_session")
+            });
         }
         TeamToolRole::None => {
             discoverable_tools.retain(|tool| {
@@ -1197,6 +1254,22 @@ fn build_builtin_runtime_tool_executor(
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
         }),
+        "progress" => Box::new(BuiltinProgressTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
+        "kanban" => Box::new(BuiltinKanbanTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
+        "kanban_set_plan" => Box::new(BuiltinKanbanSetPlanTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
+        "question" => Box::new(BuiltinQuestionTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
         "create_goal" => Box::new(BuiltinCreateGoalTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
@@ -1225,11 +1298,15 @@ fn build_builtin_runtime_tool_executor(
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
         }),
-        "team_dismiss" => Box::new(BuiltinTeamDismissTool {
+        "team_send" => Box::new(BuiltinTeamSendTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
         }),
-        "team_send" => Box::new(BuiltinTeamSendTool {
+        "team_read" => Box::new(BuiltinTeamReadTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
+        "team_share_model" => Box::new(BuiltinTeamShareModelTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
         }),
@@ -2083,15 +2160,194 @@ mod tool_assembly_permission_tests {
         for name in [
             "team_info",
             "team_recruit",
-            "team_dismiss",
             "team_send",
+            "team_read",
             "team_report",
+            "team_share_model",
         ] {
             assert!(
                 names.iter().any(|item| item == name),
                 "队伍工具未进入全局工具 Schema 缓存，装配阶段将永远挂不上：{name}"
             );
+            // 队伍工具靠会话身份（队长/队员）二次筛选，权限层不再单独控制。
+            // 漏进策略表会被静默落成 PermissionControlled，白名单人格下直接不可执行。
+            assert!(
+                builtin_tool_is_fixed_system_from_policy(name),
+                "队伍工具必须显式登记为 SystemExempt：{name}"
+            );
         }
+    }
+
+    #[test]
+    fn progress_tool_should_be_registered_in_global_schema_cache() {
+        // 全局 Schema 缓存是「定义层」注册表，不等同于挂载层：
+        // 作用域收窄只影响挂载，定义照旧留在这里。
+        let state = AppState::new().expect("create state for progress schema coverage");
+        let names = build_global_tool_schema_cache(&state)
+            .into_iter()
+            .map(|tool| tool.definition.name)
+            .collect::<Vec<_>>();
+        assert!(
+            names.iter().any(|item| item == "progress"),
+            "progress 定义不在全局 Schema 缓存里，装配阶段将永远挂不上"
+        );
+    }
+
+    #[test]
+    fn question_tool_should_be_registered_in_global_schema_cache() {
+        let state = AppState::new().expect("create state for question schema coverage");
+        let names = build_global_tool_schema_cache(&state)
+            .into_iter()
+            .map(|tool| tool.definition.name)
+            .collect::<Vec<_>>();
+        assert!(
+            names.iter().any(|item| item == "question"),
+            "question 未进入全局工具 Schema 缓存，装配阶段将永远挂不上"
+        );
+    }
+
+    #[test]
+    fn progress_tool_should_attach_only_in_side_chat() {
+        // 主会话管议题流转（看板），追问会话管自己这条线（进度）：只有 side_chat 挂载并注入规则。
+        let agent = whitelist_agent(&[]);
+        let config = AppConfig::default();
+        let tools = vec![CachedRuntimeToolSchema::builtin(test_definition(
+            "progress",
+        ))];
+        let memory = test_memory_context(true);
+        for (kind, should_attach) in [
+            (CONVERSATION_KIND_SIDE_CHAT, true),
+            (CONVERSATION_KIND_CHAT, false),
+            (CONVERSATION_KIND_DELEGATE, false),
+            (CONVERSATION_KIND_REMOTE_IM_CONTACT, false),
+            (CONVERSATION_KIND_SYSTEM_NOTIFICATION, false),
+        ] {
+            let conversation = test_conversation_with_kind(kind);
+            let policy = RuntimeToolPolicy::from_conversation(Some(&conversation));
+
+            let reason = policy.tool_unavailable_reason("progress");
+            assert_eq!(
+                reason.is_none(),
+                should_attach,
+                "kind={kind} 挂载结论错误，reason={reason:?}"
+            );
+
+            // 提示词规则注入与工具挂载必须同真同假（同 kind、同判据来源）
+            let rule_allowed = builtin_tool_prompt_rule_allowed_in_runtime(
+                "progress",
+                policy.origin_scope,
+                policy.conversation_resolved,
+                policy.local_conversation,
+                policy.side_chat_conversation,
+                policy.delegate_conversation,
+                policy.remote_reply_delegate,
+                policy.contact_send_files_allowed,
+                policy.deep_recall_delegate,
+            );
+            assert_eq!(
+                rule_allowed, should_attach,
+                "kind={kind} 规则注入结论应与挂载一致"
+            );
+
+            // resolver 层最终挂载与策略判定一致
+            let resolved = resolve_legal_runtime_tools(
+                &config,
+                &test_api(),
+                &agent,
+                &policy,
+                Some(&memory),
+                &tools,
+            );
+            let attached = resolved
+                .attached
+                .iter()
+                .any(|tool| tool.definition.name == "progress");
+            assert_eq!(
+                attached, should_attach,
+                "kind={kind} resolver 最终挂载结论错误"
+            );
+        }
+
+        // 队员会话也是 side_chat：队员靠它汇报自己做到哪一步，不能被身份判定挡在外面。
+        let mut member_conversation = test_conversation_with_kind(CONVERSATION_KIND_SIDE_CHAT);
+        member_conversation.team.membership = Some(TeamMembership {
+            leader_conversation_id: "conversation-leader".to_string(),
+            number: 1,
+            name: "李工".to_string(),
+            duty: "查资料".to_string(),
+        });
+        let member_policy = RuntimeToolPolicy::from_conversation(Some(&member_conversation));
+        assert!(
+            member_policy.tool_unavailable_reason("progress").is_none(),
+            "队员会话必须能用进度工具"
+        );
+    }
+
+    #[test]
+    fn question_tool_scope_should_follow_local_main_chat_only() {
+        // 严判档位：chat 主会话放行，追问（side_chat）与队员会话必须拒绝。
+        // 走真实判定链 conversation_kind → conversation_is_local_main_chat。
+        let agent = whitelist_agent(&[]);
+        let config = AppConfig::default();
+        let tools = vec![CachedRuntimeToolSchema::builtin(test_definition(
+            "question",
+        ))];
+        let memory = test_memory_context(true);
+        for (kind, should_attach) in [
+            (CONVERSATION_KIND_CHAT, true),
+            (CONVERSATION_KIND_SIDE_CHAT, false),
+            (CONVERSATION_KIND_DELEGATE, false),
+            (CONVERSATION_KIND_REMOTE_IM_CONTACT, false),
+            (CONVERSATION_KIND_SYSTEM_NOTIFICATION, false),
+        ] {
+            let conversation = test_conversation_with_kind(kind);
+            let policy = RuntimeToolPolicy::from_conversation(Some(&conversation));
+
+            let reason = policy.tool_unavailable_reason("question");
+            assert_eq!(
+                reason.is_none(),
+                should_attach,
+                "kind={kind} 挂载结论错误，reason={reason:?}"
+            );
+
+            let resolved = resolve_legal_runtime_tools(
+                &config,
+                &test_api(),
+                &agent,
+                &policy,
+                Some(&memory),
+                &tools,
+            );
+            let attached = resolved
+                .attached
+                .iter()
+                .any(|tool| tool.definition.name == "question");
+            assert_eq!(
+                attached, should_attach,
+                "kind={kind} resolver 挂载与策略判定不一致"
+            );
+        }
+
+        let policy = RuntimeToolPolicy::from_conversation(None);
+        assert!(policy.tool_unavailable_reason("question").is_some());
+    }
+
+    #[test]
+    fn side_chat_must_be_rejected_by_question_tool() {
+        // 最容易实现错的地方：拿 conversation_is_local_normal_chat 当判据会把 side_chat 一起放行。
+        // 这条测试钉住两者差异，防止日后有人把严判函数改回去。
+        let side_chat = test_conversation_with_kind(CONVERSATION_KIND_SIDE_CHAT);
+        assert!(
+            conversation_is_local_normal_chat(&side_chat),
+            "前提：本地普通会话判据包含 side_chat"
+        );
+        assert!(
+            !conversation_is_local_main_chat(&side_chat),
+            "追问会话不得算作本地主会话"
+        );
+        let policy = RuntimeToolPolicy::from_conversation(Some(&side_chat));
+        let reason = policy.tool_unavailable_reason("question");
+        assert!(reason.is_some(), "追问会话必须被 question 工具拒绝");
     }
 
     #[test]

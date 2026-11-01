@@ -64,12 +64,21 @@ fn neutralize_fold_markup(content: &str) -> String {
         .join("\n")
 }
 
-fn format_system_user_fold(title: &str, content: &str) -> String {
+/// 拼一段折叠 markdown：标题进 `<summary>`，正文在折叠体内，正文里自带的结构标签先被转义。
+///
+/// `open` 决定默认展开还是收起。两处调用方都用收起：系统提醒的正文是次要信息，
+/// 队伍邮件的形态是「标题在外面、内容折叠」，两面一致。
+fn format_fold_block(title: &str, content: &str, open: bool) -> String {
+    let attrs = if open { " open" } else { "" };
     format!(
-        "<details>\n<summary>{}</summary>\n{}\n</details>",
+        "<details{attrs}>\n<summary>{}</summary>\n{}\n</details>",
         sanitize_fold_title(title),
         neutralize_fold_markup(content.trim()),
     )
+}
+
+fn format_system_user_fold(title: &str, content: &str) -> String {
+    format_fold_block(title, content, false)
 }
 
 fn build_delegate_completion_notification_body(

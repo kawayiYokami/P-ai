@@ -1007,6 +1007,30 @@ struct BuiltinTodoTool {
 }
 
 #[derive(Debug, Clone)]
+struct BuiltinProgressTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinKanbanTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinKanbanSetPlanTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinQuestionTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
 struct BuiltinCreateGoalTool {
     app_state: AppState,
     session_id: String,
@@ -1049,13 +1073,19 @@ struct BuiltinTeamRecruitTool {
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinTeamDismissTool {
+struct BuiltinTeamSendTool {
     app_state: AppState,
     session_id: String,
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinTeamSendTool {
+struct BuiltinTeamReadTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinTeamShareModelTool {
     app_state: AppState,
     session_id: String,
 }
@@ -1069,6 +1099,146 @@ struct BuiltinTeamReportTool {
 impl RuntimeToolMetadata for BuiltinTodoTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         todo_provider_tool_definition()
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinProgressTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        progress_provider_tool_definition()
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinQuestionTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        question_provider_tool_definition()
+    }
+}
+
+impl RuntimeToolDyn for BuiltinQuestionTool {
+    fn name(&self) -> String {
+        QUESTION_TOOL_NAME.to_string()
+    }
+
+    fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
+        Box::pin(async move {
+            let args = parse_runtime_tool_args::<QuestionToolRequest>(&args_json)?;
+            let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
+            runtime_log_debug(format!(
+                "[工具调试] 内置工具执行开始 name=question args={}",
+                debug_value_snippet(&args_value, 240)
+            ));
+            let result = builtin_question(&self.app_state, &self.session_id, args)
+                .map(ProviderToolResult::text);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[工具调试] 内置工具执行完成 name=question result={}",
+                    debug_text_snippet(&v.output, 240)
+                )),
+                Err(err) => runtime_log_error(format!(
+                    "[工具执行] 内置工具 question 执行失败: 错误={err}"
+                )),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeToolDyn for BuiltinProgressTool {
+    fn name(&self) -> String {
+        PROGRESS_TOOL_NAME.to_string()
+    }
+
+    fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
+        Box::pin(async move {
+            let args = parse_runtime_tool_args::<ProgressWriteRequest>(&args_json)?;
+            let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
+            runtime_log_debug(format!(
+                "[工具调试] 内置工具执行开始 name=progress args={}",
+                debug_value_snippet(&args_value, 240)
+            ));
+            let result = builtin_progress(&self.app_state, &self.session_id, args)
+                .map(ProviderToolResult::text);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[工具调试] 内置工具执行完成 name=progress result={}",
+                    debug_text_snippet(&v.output, 240)
+                )),
+                Err(err) => runtime_log_error(format!(
+                    "[工具执行] 内置工具 progress 执行失败: 错误={err}"
+                )),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinKanbanTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        kanban::kanban_provider_tool_definition()
+    }
+}
+
+impl RuntimeToolDyn for BuiltinKanbanTool {
+    fn name(&self) -> String {
+        kanban::KANBAN_TOOL_NAME.to_string()
+    }
+
+    fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
+        Box::pin(async move {
+            let args = parse_runtime_tool_args::<kanban::KanbanToolRequest>(&args_json)?;
+            let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
+            runtime_log_debug(format!(
+                "[工具调试] 内置工具执行开始 name=kanban args={}",
+                debug_value_snippet(&args_value, 240)
+            ));
+            let result = kanban::builtin_kanban(&self.app_state, &self.session_id, args)
+                .map(ProviderToolResult::text);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[工具调试] 内置工具执行完成 name=kanban result={}",
+                    debug_text_snippet(&v.output, 240)
+                )),
+                Err(err) => runtime_log_error(format!(
+                    "[工具执行] 内置工具 kanban 执行失败: 错误={err}"
+                )),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinKanbanSetPlanTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        kanban::kanban_set_plan_provider_tool_definition()
+    }
+}
+
+impl RuntimeToolDyn for BuiltinKanbanSetPlanTool {
+    fn name(&self) -> String {
+        kanban::KANBAN_SET_PLAN_TOOL_NAME.to_string()
+    }
+
+    fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
+        Box::pin(async move {
+            let args = parse_runtime_tool_args::<kanban::KanbanSetPlanToolRequest>(&args_json)?;
+            let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
+            runtime_log_debug(format!(
+                "[工具调试] 内置工具执行开始 name=kanban_set_plan args={}",
+                debug_value_snippet(&args_value, 240)
+            ));
+            let result = kanban::builtin_kanban_set_plan(&self.app_state, &self.session_id, args)
+                .map(ProviderToolResult::text);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[工具调试] 内置工具执行完成 name=kanban_set_plan result={}",
+                    debug_text_snippet(&v.output, 240)
+                )),
+                Err(err) => runtime_log_error(format!(
+                    "[工具执行] 内置工具 kanban_set_plan 执行失败: 错误={err}"
+                )),
+            }
+            result
+        })
     }
 }
 
@@ -1400,7 +1570,7 @@ impl RuntimeToolMetadata for BuiltinTeamInfoTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "team_info",
-            "查看当前队伍名册：队员数量、编号、名字、职责，以及每个队员此刻的状态——state=busy 表示正在跑（stateDetail 写明在生成回复还是整理上下文），state=error 表示上一轮失败（stateDetail 是失败原因），state=idle 表示空着手。scope=active 只列在队队员，scope=history 连已请离的也列出来。招募前先查一次，确认没有重名、也看清编号对应谁；派活前先看状态，别把新活塞给正在跑的队员。",
+            "查看当前队伍名册：每个队员的角色（人格名）、职责，以及此刻的状态——state=busy 表示正在跑（stateDetail 写明在生成回复还是整理上下文），state=error 表示上一轮失败（stateDetail 是失败原因），state=idle 表示空着手。scope=active 只列在队队员，scope=history 连已请离的也列出来。派活前先看状态，别把新活塞给正在跑的队员。队伍里每个人都是不同的人格，一个角色只有一名队员。",
             serde_json::json!({
               "type": "object",
               "properties": {
@@ -1417,33 +1587,14 @@ impl RuntimeToolMetadata for BuiltinTeamRecruitTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "team_recruit",
-            "招募一名队员：新建一个属于本会话的追问会话，写清名字与职责。招募不会激活队员，之后要用 team_send 发指示。给了 work_branch 就为它新建一条独立工作树并从那分支起。适合把一整块需要持续跟进的活交给一个人；一次性、不需要看过程的活更适合用 delegate。",
+            "招募一名队员：新建一个属于本会话的追问会话，并指定它的人格，也就是它的角色。队伍里每个人必须是不同的人格，你自己已经占了一个角色，同一个人格不能重复招。招募不会激活队员，之后要用 team_send 发指示。适合把一整块需要持续跟进的活交给一个人；一次性、不需要看过程的活更适合用 delegate。",
             serde_json::json!({
               "type": "object",
               "properties": {
-                "name": { "type": "string", "description": "队员名字，同一支队伍内不能重名。" },
-                "duty": { "type": "string", "description": "这名队员的职责，写清它负责干什么。" },
-                "work_branch": { "type": "string", "description": "可选。给了就为它新建独立工作树并以该分支为起点；不给则与队长共用工作区。" },
-                "agent_id": { "type": "string", "description": "可选。队员使用的人格 id；不给默认用你自己的人格。想让队员换个专长时再指定。" }
+                "role": { "type": "string", "description": "队员的人格名，也兼容人格 id。它同时是队员的角色，队伍里不能重复。" },
+                "duty": { "type": "string", "description": "这名队员的职责，写清它负责干什么。" }
               },
-              "required": ["name"],
-              "additionalProperties": false
-            }),
-        )
-    }
-}
-
-impl RuntimeToolMetadata for BuiltinTeamDismissTool {
-    fn provider_tool_definition(&self) -> ProviderToolDefinition {
-        ProviderToolDefinition::new(
-            "team_dismiss",
-            "把一名队员请出队伍：只要给编号。它不是删除——那个会话转为普通追问，历史与工作树都保留，编号不再复用。适合队员的活已经收完、不再需要它的时候；还想用就重新招募一个新的。",
-            serde_json::json!({
-              "type": "object",
-              "properties": {
-                "number": { "type": "integer", "description": "队员编号。" }
-              },
-              "required": ["number"],
+              "required": ["role"],
               "additionalProperties": false
             }),
         )
@@ -1454,15 +1605,36 @@ impl RuntimeToolMetadata for BuiltinTeamSendTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "team_send",
-            "给指定编号的队员发消息。默认 mode=guided，会在对方执行完一个工具后立刻插入、当场改道；mode=queue 则等对方当前这一轮收尾再进。招募后第一件事通常就是用它把活交代清楚；队员中途需要改方向、补背景也靠它。",
+            "给指定角色（人格名）的队员发一封邮件：标题 + 正文。整封邮件写成 markdown：标题是折叠块的表头、始终露在外面，也是对方扫历史时最先看到的那句，要写清这封信要他做什么；正文在折叠块里、默认收起，点开读得到全文，细节放这里。可以顺带把这条线的状态设为六态之一（planning/todo/in_progress/in_review/blocked/done），队员收到时能看到「状态被更新为 X，队长设的」。默认 mode=guided，会在对方执行完一个工具后立刻插入、当场改道；mode=queue 则等对方当前这一轮收尾再进。招募后第一件事通常就是用它把活交代清楚；队员中途需要改方向、补背景也靠它。",
             serde_json::json!({
               "type": "object",
               "properties": {
-                "number": { "type": "integer", "description": "队员编号。" },
-                "content": { "type": "string", "description": "要交代给队员的内容。" },
-                "mode": { "type": "string", "enum": ["guided", "queue"], "description": "guided=立即插入改道（默认）；queue=排队等对方收尾。" }
+                "role": { "type": "string", "description": "队员的角色（人格名），也兼容人格 id。" },
+                "title": { "type": "string", "description": "邮件标题，必填。它在界面上是折叠块的那一行、始终露在外面，也是对方扫历史时最先看到的那句。要短到一行能读完，并写清这封信要他做什么。例如「把登录鉴权改成 session 表」。不要写成「关于 XX 的通知」这种没有信息量的标题。" },
+                "content": { "type": "string", "description": "邮件正文，可以长。界面上在折叠块里、默认收起，点开即全文；对方模型读得到全文，细节放这里，别靠标题承载。" },
+                "status": { "type": "string", "enum": ["planning", "todo", "in_progress", "in_review", "blocked", "done"], "description": "可选。把这名队员这条线的状态设为该值，随这封邮件一起生效。不确定进度时不要填，别猜。" },
+                "mode": { "type": "string", "enum": ["guided", "queue"], "description": "guided=立即插入改道（默认）；queue=排队等对方收尾。" },
+                "conversation_id": { "type": "string", "description": "可选。只有名册里存在同一角色的多名队员时才需要，用 team_info 给出的 conversationId 精确定位。" }
               },
-              "required": ["number", "content"],
+              "required": ["role", "title", "content"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinTeamReadTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "team_read",
+            "读队员最近的发言（按角色 / 人格名认人，也能用 team_info 给出的 conversationId 精确定位）。只能读你自己名册里的在队队员。默认只读最近 1 条，最多 10 条——它是摘要视图，不是把对方会话翻一遍的入口。队员会话尾部常是工具调用，没有正文的那些会标注「（工具调用，无正文）」，不会被当成空结果丢掉。想知道队员在干什么、为什么不吭声时用它。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "role": { "type": "string", "description": "队员的角色（人格名），也兼容人格 id。与 conversation_id 二选一。" },
+                "conversation_id": { "type": "string", "description": "可选。只有名册里存在同一角色的多名队员时才需要，用 team_info 给出的 conversationId 精确定位。" },
+                "limit": { "type": "integer", "minimum": 1, "maximum": 10, "description": "想读几条有正文的消息，默认 1，上限 10。超过上限按上限返回，返回值里会说明。" }
+              },
               "additionalProperties": false
             }),
         )
@@ -1473,17 +1645,58 @@ impl RuntimeToolMetadata for BuiltinTeamReportTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "team_report",
-            "队员向队长汇报：把进展、结论或需要拍板的事发给队长。默认 mode=guided，立刻插入队长当前轮次；mode=queue 排队等队长收尾。",
+            "队员向队长发一封邮件汇报：标题 + 正文。整封邮件写成 markdown：标题是折叠块的表头、始终露在外面，也是队长扫历史时最先看到的那句，要写清结论；正文在折叠块里、默认收起，点开读得到全文，背景与细节放这里。可以顺带更新这条线的状态，相当于汇报的同时把进度说清楚。默认 mode=guided，立刻插入队长当前轮次；mode=queue 排队等队长收尾。",
             serde_json::json!({
               "type": "object",
               "properties": {
-                "content": { "type": "string", "description": "要汇报给队长的内容。" },
+                "title": { "type": "string", "description": "邮件标题，必填。它在界面上是折叠块的那一行、始终露在外面，也是队长扫历史时最先看到的那句。要短到一行能读完，写清这条汇报的结论，例如「鉴权方案已定两份，等选」。不要写「汇报」两个字。" },
+                "content": { "type": "string", "description": "邮件正文，可以长：背景、现状、结论、接下来打算怎么走。界面上在折叠块里、默认收起，点开即全文；队长读得到全文，细节放这里。" },
+                "status": { "type": "string", "enum": ["planning", "todo", "in_progress", "in_review", "blocked", "done"], "description": "可选。汇报时顺手把这条线的状态改成该值。不填就只汇报、不动状态。" },
                 "mode": { "type": "string", "enum": ["guided", "queue"], "description": "guided=立即插入改道（默认）；queue=排队等队长收尾。" }
               },
-              "required": ["content"],
+              "required": ["title", "content"],
               "additionalProperties": false
             }),
         )
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinTeamShareModelTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "team_share_model",
+            "把你自己当前能用的模型推给指定队员（按角色 / 人格名认人）。队员因为模型调不通而失败时用它救场：改完必须告诉用户你换了谁的模型。不指定 model_api_config_id 就推你自己此刻在用的那个。返回值里的 effectiveTiming 说明生效时机——队员正在跑时，改的是下一轮，当前这一轮仍用旧模型。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "role": { "type": "string", "description": "队员的角色（人格名，也兼容人格 id）。" },
+                "model_api_config_id": { "type": "string", "description": "可选。要推给这名队员的模型 id；不给就用你自己当前生效的模型。" },
+                "conversation_id": { "type": "string", "description": "可选。仅在同一角色有多名在队队员（历史数据）时用来精确定位。" }
+              },
+              "required": ["role"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeValueTool for BuiltinTeamShareModelTool {
+    const NAME: &'static str = "team_share_model";
+    type Args = TeamShareModelToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            let result = builtin_team_share_model(&self.app_state, &self.session_id, args)
+                .await
+                .map_err(ToolInvokeError::from);
+            if let Err(err) = &result {
+                runtime_log_error(format!(
+                    "[工具执行] 内置工具 team_share_model 执行失败: 错误={err}"
+                ));
+            }
+            result
+        })
     }
 }
 
@@ -1522,24 +1735,6 @@ impl RuntimeValueTool for BuiltinTeamRecruitTool {
     }
 }
 
-impl RuntimeValueTool for BuiltinTeamDismissTool {
-    const NAME: &'static str = "team_dismiss";
-    type Args = TeamDismissToolArgs;
-    type Error = ToolInvokeError;
-
-    fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
-        Box::pin(async move {
-            let result = builtin_team_dismiss(&self.app_state, &self.session_id, args)
-                .await
-                .map_err(ToolInvokeError::from);
-            if let Err(err) = &result {
-                runtime_log_error(format!("[工具执行] 内置工具 team_dismiss 执行失败: 错误={err}"));
-            }
-            result
-        })
-    }
-}
-
 impl RuntimeValueTool for BuiltinTeamSendTool {
     const NAME: &'static str = "team_send";
     type Args = TeamSendToolArgs;
@@ -1551,6 +1746,23 @@ impl RuntimeValueTool for BuiltinTeamSendTool {
                 .map_err(ToolInvokeError::from);
             if let Err(err) = &result {
                 runtime_log_error(format!("[工具执行] 内置工具 team_send 执行失败: 错误={err}"));
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeValueTool for BuiltinTeamReadTool {
+    const NAME: &'static str = "team_read";
+    type Args = TeamReadToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            let result = builtin_team_read(&self.app_state, &self.session_id, args)
+                .map_err(ToolInvokeError::from);
+            if let Err(err) = &result {
+                runtime_log_error(format!("[工具执行] 内置工具 team_read 执行失败: 错误={err}"));
             }
             result
         })

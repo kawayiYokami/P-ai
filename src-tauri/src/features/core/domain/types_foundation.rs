@@ -486,13 +486,6 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "team_dismiss".to_string(),
-            command: "builtin".to_string(),
-            args: vec!["team_dismiss".to_string()],
-            enabled: true,
-            values: serde_json::json!({}),
-        },
-        ApiToolConfig {
             id: "team_send".to_string(),
             command: "builtin".to_string(),
             args: vec!["team_send".to_string()],

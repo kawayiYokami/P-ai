@@ -1,4 +1,5 @@
 include!("types.rs");
+include!("model_resolution.rs");
 include!("conversation_service_v2.rs");
 include!("remote_im_sessions.rs");
 include!("archive_lifecycle.rs");
