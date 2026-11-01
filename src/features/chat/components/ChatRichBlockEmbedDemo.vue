@@ -180,7 +180,9 @@ const columns = computed<DemoColumn[]>(() => [
 }
 
 .assistant-markdown :deep(.ecall-markdown-content .ecall-md-details) {
-  background: var(--ecall-chat-rich-block-bg);
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
 
 .ecall-assistant-segment-list {
