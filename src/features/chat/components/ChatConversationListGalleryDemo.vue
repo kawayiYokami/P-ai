@@ -87,7 +87,7 @@ type DemoSection = {
   entries: DemoEntry[];
 };
 
-type PresetKey = "normal" | "allStates" | "empty";
+type PresetKey = "normal" | "allStates" | "progressStates" | "empty";
 
 const ACTIVE_CONVERSATION_ID = "demo-active";
 const USER_ALIAS = "红豆";
@@ -99,6 +99,7 @@ const PERSONA_AVATAR_URL_MAP: Record<string, string> = {};
 const PIPELINE_STATUS_BY_ID: Record<string, ConversationPipelineStatus> = {
   "demo-streaming": "busy",
   "demo-error": "error",
+  "demo-done-busy": "busy",
 };
 
 const viewMode = ref<"composite" | "compact">("composite");
@@ -108,6 +109,7 @@ const isCompact = computed(() => viewMode.value === "compact");
 const presetOptions: Array<{ key: PresetKey; label: string }> = [
   { key: "normal", label: "常规" },
   { key: "allStates", label: "全状态" },
+  { key: "progressStates", label: "会话状态七态" },
   { key: "empty", label: "空" },
 ];
 
@@ -129,6 +131,7 @@ function makeItem(overrides: Partial<ChatConversationOverviewItem> & { conversat
   return {
     title: "未命名会话",
     kind: "local_unarchived",
+    conversationKind: "chat",
     messageCount: 4,
     unreadCount: 0,
     isPinned: false,
@@ -319,6 +322,7 @@ const allStateSections: DemoSection[] = [
           conversationId: "demo-remote",
           title: "远程联系人会话",
           kind: "remote_im_contact",
+          conversationKind: "remote_im_contact",
           channelId: "channel-demo",
           channelName: "研发频道",
           updatedAt: minutesAgo(15),
@@ -340,8 +344,145 @@ const allStateSections: DemoSection[] = [
   },
 ];
 
+// 会话状态七态：六态 + 未设置。最后一态演示「已交付但仍在执行」——
+// 状态与忙碌前缀是两层事实，必须能同屏出现。
+const progressStateSections: DemoSection[] = [
+  {
+    key: "recent",
+    title: "会话状态（progressState）七态",
+    entries: [
+      {
+        level: "full",
+        item: makeItem({
+          conversationId: "demo-ps-unset",
+          title: "重构会话列表滚动条",
+          updatedAt: minutesAgo(40),
+          lastMessageAt: minutesAgo(40),
+        }),
+      },
+      {
+        level: "full",
+        item: makeItem({
+          conversationId: "demo-ps-todo",
+          title: "接入新的向量模型供应商",
+          progressState: "todo",
+          updatedAt: minutesAgo(20),
+          lastMessageAt: minutesAgo(20),
+        }),
+      },
+      {
+        level: "full",
+        item: makeItem({
+          conversationId: "demo-ps-planning",
+          title: "会话状态功能设计",
+          progressState: "planning",
+          updatedAt: minutesAgo(18),
+          lastMessageAt: minutesAgo(18),
+        }),
+      },
+      {
+        level: "full",
+        item: makeItem({
+          conversationId: "demo-ps-doing",
+          title: "自动战斗延迟排查",
+          progressState: "in_progress",
+          evidence: "已开始改颜色映射与三处落点",
+          updatedAt: minutesAgo(3),
+          lastMessageAt: minutesAgo(3),
+        }),
+      },
+      {
+        level: "full",
+        item: makeItem({
+          conversationId: "demo-ps-review",
+          title: "统一设置页保存逻辑",
+          progressState: "in_review",
+          evidence: "改动已提交，等你过一遍",
+          updatedAt: minutesAgo(6),
+          lastMessageAt: minutesAgo(6),
+        }),
+      },
+      {
+        level: "full",
+        item: makeItem({
+          conversationId: "demo-ps-blocked",
+          title: "远程联系人状态方案",
+          progressState: "blocked",
+          evidence: "缺设计稿确认，接口字段也还没定",
+          updatedAt: minutesAgo(12),
+          lastMessageAt: minutesAgo(12),
+        }),
+      },
+      {
+        level: "full",
+        item: makeItem({
+          conversationId: "demo-ps-done",
+          title: "修复托盘图标闪烁",
+          progressState: "done",
+          evidence: "用户说「可以了，发吧」",
+          updatedAt: minutesAgo(30),
+          lastMessageAt: minutesAgo(30),
+        }),
+      },
+      {
+        level: "full",
+        item: makeItem({
+          conversationId: "demo-done-busy",
+          title: "发布 0.97.11",
+          progressState: "done",
+          evidence: "用户说「可以了，发吧」",
+          runtimeState: "assistant_streaming",
+          updatedAt: minutesAgo(1),
+          lastMessageAt: minutesAgo(1),
+          previewMessages: [preview("assistant", "正在补发变更说明，稍等。", "persona-nahida")],
+        }),
+      },
+      {
+        level: "full",
+        item: makeItem({
+          conversationId: "demo-remote-gated",
+          // 故意喂非空状态：验证收起判据是 kind，而不是「值恰好为空」
+          title: "远程联系人：整块状态元素不渲染",
+          kind: "remote_im_contact",
+          conversationKind: "remote_im_contact",
+          progressState: "done",
+          evidence: "这条证据没有机会出现在联系人行上",
+          channelId: "channel-demo",
+          channelName: "研发频道",
+          updatedAt: minutesAgo(8),
+          lastMessageAt: minutesAgo(8),
+        }),
+      },
+      {
+        level: "full",
+        item: makeItem({
+          conversationId: "demo-system-gated",
+          // 系统通知会话在老判据（kind !== remote）下会被当成本地会话出圆点；白名单判据下必须没有
+          title: "系统通知：整块状态元素同样不渲染",
+          conversationKind: "system_notification",
+          progressState: "blocked",
+          evidence: "这条证据也不该出现在系统通知行上",
+          updatedAt: minutesAgo(9),
+          lastMessageAt: minutesAgo(9),
+        }),
+      },
+      {
+        level: "mini",
+        item: makeItem({
+          conversationId: "demo-ps-unset-mini",
+          title: "三个月前的旧会话",
+          updatedAt: minutesAgo(60 * 24 * 30),
+          lastMessageAt: minutesAgo(60 * 24 * 30),
+          previewMessages: [],
+        }),
+      },
+    ],
+  },
+];
+
 const sections = computed<DemoSection[]>(() => {
   if (activePreset.value === "empty") return [];
+  if (activePreset.value === "progressStates") return progressStateSections;
   return activePreset.value === "allStates" ? allStateSections : normalSections;
 });
 

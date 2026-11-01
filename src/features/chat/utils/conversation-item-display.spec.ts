@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import {
+  conversationPendingQuestionBadge,
+  conversationProgressSortRank,
   conversationRuntimeBusy,
   conversationUnreadBadge,
   hasUnreadOrRecentActivity,
@@ -81,6 +83,34 @@ describe("conversationUnreadBadge", () => {
   });
 });
 
+describe("conversationPendingQuestionBadge", () => {
+  it("字段缺失（后端查询尚未接上）不显示", () => {
+    expect(conversationPendingQuestionBadge(item({}))).toBe("");
+  });
+
+  it("0 或负数不显示", () => {
+    expect(conversationPendingQuestionBadge(item({ questionCount: 0 }))).toBe("");
+    expect(conversationPendingQuestionBadge(item({ questionCount: -2 }))).toBe("");
+  });
+
+  it("非法值不显示，不渲染 NaN", () => {
+    expect(conversationPendingQuestionBadge(item({ questionCount: Number.NaN }))).toBe("");
+  });
+
+  it("1~99 显示数字", () => {
+    expect(conversationPendingQuestionBadge(item({ questionCount: 1 }))).toBe("1");
+    expect(conversationPendingQuestionBadge(item({ questionCount: 99 }))).toBe("99");
+  });
+
+  it("超过 99 显示 99+", () => {
+    expect(conversationPendingQuestionBadge(item({ questionCount: 100 }))).toBe("99+");
+  });
+
+  it("当前会话照样显示：正看着它不代表问题已经回答过", () => {
+    expect(conversationPendingQuestionBadge(item({ questionCount: 2 }))).toBe("2");
+  });
+});
+
 describe("conversationRuntimeBusy", () => {
   it("流式/整理上下文/归档/压缩均为忙碌", () => {
     expect(conversationRuntimeBusy("assistant_streaming")).toBe(true);
@@ -95,3 +125,22 @@ describe("conversationRuntimeBusy", () => {
   });
 });
 
+describe("conversationProgressSortRank", () => {
+  it("按推进顺序排名：规划中 → 待办 → 进行中 → 待审核 → 阻塞 → 完成", () => {
+    const ranks = ["planning", "todo", "in_progress", "in_review", "blocked", "done"]
+      .map((state) => conversationProgressSortRank(state));
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+    expect(new Set(ranks).size).toBe(ranks.length);
+  });
+
+  it("未设置与未知状态排在所有已知状态之后", () => {
+    const last = conversationProgressSortRank("done");
+    expect(conversationProgressSortRank("")).toBeGreaterThan(last);
+    expect(conversationProgressSortRank(undefined)).toBeGreaterThan(last);
+    expect(conversationProgressSortRank("unknown_state")).toBeGreaterThan(last);
+  });
+
+  it("未设置与未知状态同名次：它们都在同一档「还没记录」", () => {
+    expect(conversationProgressSortRank("")).toBe(conversationProgressSortRank("unknown_state"));
+  });
+});

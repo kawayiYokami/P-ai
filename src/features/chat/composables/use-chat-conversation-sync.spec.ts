@@ -117,7 +117,7 @@ describe("applyConversationOverviewItemUpdated", () => {
       conversation: {
         ...overviewItem("a", "2026-08-09T11:00:00"),
         childConversations: [
-          { conversationId: "m1", title: "测试队员甲", teamNumber: 1, teamName: "测试队员甲" },
+          { conversationId: "m1", title: "测试队员甲", teamName: "测试队员甲" },
         ],
       },
     });

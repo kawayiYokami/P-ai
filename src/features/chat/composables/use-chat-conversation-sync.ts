@@ -8,6 +8,10 @@ import {
 } from "./use-chat-conversation-message-utils";
 import { useChatConversationOverviewUtils } from "./use-chat-conversation-overview-utils";
 import { applyStreamingHistoryOverlay } from "./use-chat-flow-stream-overlay";
+import {
+  patchConversationProgressStateList,
+  readConversationProgressStatePayload,
+} from "../utils/conversation-progress-state";
 
 type ForegroundPaintTrace = {
   id: number;
@@ -690,6 +694,17 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     }
   }
 
+  function applyConversationProgressStateUpdated(payload?: Record<string, any> | null) {
+    const normalized = readConversationProgressStatePayload(payload);
+    if (!normalized) return;
+
+    // 只有本地会话（含追问）有状态；远程联系人会话不参与，后端也不下发该字段
+    const local = patchConversationProgressStateList(bindings.unarchivedConversations.value, normalized);
+    if (local.changed) {
+      bindings.unarchivedConversations.value = local.items;
+    }
+  }
+
   return {
     matchesForegroundConversation,
     formalizeConversationMessages,
@@ -731,6 +746,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     applyConversationOverviewItemUpdated,
     applyConversationPinUpdated,
     applyConversationRuntimeStateUpdated,
+    applyConversationProgressStateUpdated,
     unarchivedConversationActivityAt,
     sortUnarchivedConversationOverviewItems,
   };
