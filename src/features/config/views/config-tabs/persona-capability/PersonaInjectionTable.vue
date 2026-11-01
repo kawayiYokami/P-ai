@@ -229,6 +229,8 @@ const candidates = computed(() => {
   return props.skills.filter((skill) => {
     const name = String(skill.name || "").trim();
     if (!name || mounted.has(name)) return false;
+    // 托管技能由系统按会话角色注入，不参与人格勾选。
+    if (skill.managed) return false;
     if (!keyword) return true;
     return (
       name.toLowerCase().includes(keyword) ||

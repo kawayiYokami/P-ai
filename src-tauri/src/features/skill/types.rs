@@ -68,6 +68,10 @@ pub struct SkillSummaryItem {
     pub additional_files: Vec<SkillFileItem>,
     #[serde(default)]
     pub is_builtin: bool,
+    /// 系统托管：连开关权与勾选权都归代码，用户只能查看。
+    /// 托管技能不参与启用表——`enabled` 对它没有意义，面板上开关也呈禁用态。
+    #[serde(default)]
+    pub managed: bool,
     /// 全局启用状态；缺省为启用。
     #[serde(default = "default_skill_enabled")]
     pub enabled: bool,

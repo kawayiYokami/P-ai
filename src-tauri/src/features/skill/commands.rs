@@ -36,6 +36,12 @@ pub(crate) async fn skill_set_enabled_inner(
     if skill_name.is_empty() {
         return Err("Skill 名不能为空。".to_string());
     }
+    // 托管技能由系统按会话角色决定注入，没有开关权：直接拒，不写启用表、不静默忽略。
+    if is_managed_skill_name(skill_name) {
+        return Err(format!(
+            "「{skill_name}」是系统托管 Skill，由系统按会话角色注入，不能手动启用或停用。"
+        ));
+    }
     write_skill_enabled(state, skill_name, enabled)?;
     runtime_log_info(format!(
         "[技能启用] 完成：skill={skill_name}，enabled={enabled}"

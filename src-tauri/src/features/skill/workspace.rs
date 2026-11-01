@@ -8,8 +8,18 @@ pub(crate) fn hidden_skill_summaries_cache(
     CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// 助理空间技能清单缓存的键：非队长会话用这一个。
+///
+/// 键里必须能区分会话角色——托管技能按会话角色决定去留之后，
+/// 同一个人格在队长会话与队员会话下拿到的列表不同，共用一个键会两边同时错。
+/// 只有「队长」与「非队长」两种取值，不按会话 id 累积缓存。
 pub(crate) fn hidden_skill_cache_scope_key(state: &AppState) -> String {
     state.data_path.display().to_string()
+}
+
+/// 队长会话那份清单的键。与 [`hidden_skill_cache_scope_key`] 只差一个后缀。
+pub(crate) fn hidden_skill_leader_cache_key(state: &AppState) -> String {
+    format!("{}#leader", hidden_skill_cache_scope_key(state))
 }
 
 /// 按会话缓存的项目专用 Skill 清单。
@@ -72,6 +82,8 @@ fn load_project_skill_summaries_from_dir(
             path: skill_md.to_string_lossy().to_string(),
             additional_files,
             is_builtin: false,
+            // 项目 Skill 永远不是托管：托管只来自随应用释放的预设清单。
+            managed: false,
             enabled: true,
         });
     }
@@ -167,9 +179,16 @@ pub(crate) fn clear_all_conversation_project_skills(state: &AppState) {
     }
 }
 
-/// 全局（助理空间）已启用的 Skill 结构化清单；缓存缺失时返回 None。
-fn global_enabled_skills(state: &AppState) -> Option<Vec<SkillSummaryItem>> {
-    let cache_key = hidden_skill_cache_scope_key(state);
+/// 全局（助理空间）可注入的 Skill 结构化清单；缓存缺失时返回 None。
+///
+/// `team_leader = false` 取「非托管且已启用」那一份，人格常驻 / 可选技能也从这里取，
+/// 所以托管技能天然进不了人格配置；`true` 取队长会话那一份，额外带上托管技能。
+fn global_enabled_skills(state: &AppState, team_leader: bool) -> Option<Vec<SkillSummaryItem>> {
+    let cache_key = if team_leader {
+        hidden_skill_leader_cache_key(state)
+    } else {
+        hidden_skill_cache_scope_key(state)
+    };
     hidden_skill_summaries_cache()
         .lock()
         .ok()
@@ -330,6 +349,8 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
         let is_builtin = workspace_preset_skills()
             .iter()
             .any(|preset| preset.dir_name == dir_name_str);
+        // 托管只按目录名认：清单是代码写死的，目录名与技能名一一对应。
+        let managed = managed_injection_for_dir(dir_name_str).is_some();
         match parse_skill_file(&skill_md) {
             Ok((name, description, content)) => {
                 let enabled = enabled_map.get(&name).copied().unwrap_or(true);
@@ -340,6 +361,7 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
                     path: skill_md.to_string_lossy().to_string(),
                     additional_files,
                     is_builtin,
+                    managed,
                     enabled,
                 });
             }
@@ -538,6 +560,8 @@ pub(crate) fn save_workspace_skill_content(
         path: canonical_file.to_string_lossy().to_string(),
         additional_files,
         is_builtin,
+        // 走到这里的一定是自定义技能：内置（含托管）在上面的 is_builtin 处已被拒。
+        managed: false,
         enabled: true,
     };
 
@@ -771,10 +795,17 @@ pub(crate) fn update_hidden_skill_snapshot_cache(
     skills: &[SkillSummaryItem],
     scan_error: Option<&str>,
 ) -> Result<String, String> {
-    // 全局关闭的 Skill 不进入提示词注入链路，也不参与人格白名单过滤。
+    // 非队长会话那一份：全局关闭的不注入，托管技能一律不进——
+    // 人格常驻 / 可选技能也从这份清单取，托管技能因此天然不可勾选。
     let injectable = skills
         .iter()
-        .filter(|item| item.enabled)
+        .filter(|item| item.enabled && !item.managed)
+        .cloned()
+        .collect::<Vec<_>>();
+    // 队长会话那一份：托管技能不看启用表，其余照旧。
+    let leader_injectable = skills
+        .iter()
+        .filter(|item| item.managed || item.enabled)
         .cloned()
         .collect::<Vec<_>>();
     let snapshot = render_hidden_skill_snapshot_block(state, &injectable, scan_error);
@@ -789,6 +820,7 @@ pub(crate) fn update_hidden_skill_snapshot_cache(
         .lock()
         .map_err(|_| "Failed to lock hidden skill summaries cache".to_string())?;
     summaries_guard.insert(hidden_skill_cache_scope_key(state), injectable);
+    summaries_guard.insert(hidden_skill_leader_cache_key(state), leader_injectable);
     Ok(snapshot)
 }
 
@@ -804,6 +836,7 @@ pub(crate) fn clear_hidden_skill_snapshot_cache(state: &AppState) -> Result<(), 
         .lock()
         .map_err(|_| "Failed to lock hidden skill summaries cache".to_string())?;
     summaries_guard.remove(&hidden_skill_cache_scope_key(state));
+    summaries_guard.remove(&hidden_skill_leader_cache_key(state));
     drop(summaries_guard);
     // 手动 reload 时同步清空全部会话的项目 Skill 缓存，下次装配提示词时重新扫描。
     clear_all_conversation_project_skills(state);
@@ -827,7 +860,10 @@ pub(crate) fn build_hidden_skill_snapshot_block_for_agent(
         .unwrap_or(false);
     // 项目 Skill 不吃人格权限控制：当前项目是显式工作上下文，直接可用。
     let project = ensure_conversation_project_skills(state, conversation);
-    let global = match global_enabled_skills(state) {
+    // 托管技能（pai-guide / assistant-interaction-guide / persona-craft）只注入队长会话。
+    // 判据复用队伍侧的 conversation_is_team_leader，不在这里另写一套。
+    let team_leader = conversation_is_team_leader(state, &conversation.id);
+    let global = match global_enabled_skills(state, team_leader) {
         Some(list) => list,
         None => {
             if project.is_empty() {
@@ -850,12 +886,14 @@ pub(crate) fn build_hidden_skill_snapshot_block_for_agent(
 }
 
 /// 某人格当前可用的 skill：助理空间全局 Skill（吃权限控制）+ 当前会话项目 Skill（不吃权限控制，项目同名覆盖）。
+///
+/// 全局那半固定取非队长那份清单，托管技能不在其中——人格的常驻 / 可选技能因此天然勾不到托管技能。
 fn merged_available_skills(
     state: &AppState,
     conversation: &Conversation,
     agent: &AgentProfile,
 ) -> Vec<SkillSummaryItem> {
-    let global = match global_enabled_skills(state) {
+    let global = match global_enabled_skills(state, false) {
         Some(skills) => filter_skills_for_agent(Some(agent), &skills),
         None => {
             runtime_log_warn(
@@ -1304,6 +1342,7 @@ mod snapshot_index_tests {
             path: path.to_string(),
             additional_files: Vec::new(),
             is_builtin: false,
+            managed: false,
             enabled: true,
         }
     }

@@ -122,6 +122,9 @@
                 <Lock class="h-3 w-3" />
                 {{ t("config.skill.builtinReadonly") }}
               </span>
+              <span v-if="selectedSkill.managed" class="badge badge-sm badge-neutral opacity-70">
+                {{ t("config.skill.managedTag") }}
+              </span>
               <span v-else-if="isMetaDirty" class="badge badge-sm badge-warning">
                 {{ t("config.skill.modified") }}
               </span>
@@ -139,6 +142,10 @@
           </div>
 
           <div class="card-body p-4 gap-4">
+            <!-- 托管技能：开关落在面板列表里是禁用态，这里说明为什么关不掉 -->
+            <p v-if="selectedSkill.managed" class="text-caption opacity-60">
+              {{ t("config.skill.managedHint") }}
+            </p>
             <!-- 技能名称 -->
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
@@ -450,8 +457,8 @@
                       type="checkbox"
                       class="toggle toggle-xs toggle-primary"
                       :checked="item.enabled ?? true"
-                      :disabled="togglingSkillName === item.name"
-                      :title="(item.enabled ?? true) ? t('config.skill.toggleEnabledOn') : t('config.skill.toggleEnabledOff')"
+                      :disabled="togglingSkillName === item.name || !!item.managed"
+                      :title="item.managed ? t('config.skill.managedHint') : ((item.enabled ?? true) ? t('config.skill.toggleEnabledOn') : t('config.skill.toggleEnabledOff'))"
                       @click.stop
                       @keydown.enter.stop
                       @keydown.space.stop
@@ -510,7 +517,7 @@
                     <div class="card-title-bar card-title-bar--accent text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors flex-1 min-w-0">
                       {{ item.name }}
                     </div>
-                    <span class="badge badge-neutral badge-xs opacity-70 shrink-0">{{ t("config.skill.builtinTag") }}</span>
+                    <span class="badge badge-neutral badge-xs opacity-70 shrink-0">{{ item.managed ? t("config.skill.managedTag") : t("config.skill.builtinTag") }}</span>
                   </div>
 
                   <!-- 中部：描述预览（无描述时呈现优雅占位，高度固定 2.5rem 保持整齐） -->
@@ -531,8 +538,8 @@
                         type="checkbox"
                         class="toggle toggle-xs toggle-primary"
                         :checked="item.enabled ?? true"
-                        :disabled="togglingSkillName === item.name"
-                        :title="(item.enabled ?? true) ? t('config.skill.toggleEnabledOn') : t('config.skill.toggleEnabledOff')"
+                        :disabled="togglingSkillName === item.name || !!item.managed"
+                        :title="item.managed ? t('config.skill.managedHint') : ((item.enabled ?? true) ? t('config.skill.toggleEnabledOn') : t('config.skill.toggleEnabledOff'))"
                         @click.stop
                         @keydown.enter.stop
                         @keydown.space.stop
@@ -811,6 +818,8 @@ const togglingSkillName = ref<string | null>(null);
 
 async function toggleSkillEnabled(item: SkillSummaryItem) {
   if (togglingSkillName.value) return;
+  // 托管技能没有开关权：后端也会拒，这里先拦住，避免点一下弹一条报错。
+  if (item.managed) return;
   const target = !(item.enabled ?? true);
   togglingSkillName.value = item.name;
   try {
