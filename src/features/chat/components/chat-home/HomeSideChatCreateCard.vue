@@ -2,20 +2,20 @@
   <CardShell
     layout="tile"
     tone="secondary"
-    :icon="MessageSquarePlus"
-    :label="t('chat.sideChat.create')"
+    :icon="MessageSquareMore"
+    :label="t('chat.sideChat.title')"
     interactive
-    @select="emit('create')"
+    @select="emit('open')"
   />
 </template>
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import { MessageSquarePlus } from "@lucide/vue";
+import { MessageSquareMore } from "@lucide/vue";
 import CardShell from "./CardShell.vue";
 
 const emit = defineEmits<{
-  (e: "create"): void;
+  (e: "open"): void;
 }>();
 
 const { t } = useI18n();

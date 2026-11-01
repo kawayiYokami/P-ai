@@ -208,13 +208,12 @@
         :chat-right-panel-mode="chatRightPanelMode"
         :chat-monitor-panel-mode="chatMonitorPanelMode"
         :side-chat-panel-enabled="true"
-        :side-chat-items="sideChatItems"
         :team-visible="teamManageVisible"
-        :team-member-count="teamManageMembers.length"
-        :team-recruit-enabled="Boolean(currentChatWorkspaceTeamEnabled)"
-        @open-side-chat-conversation="openSideChatFromHome"
+        :team-members="teamMemberStatusItems"
+        :team-member-avatar-url-map="chatPersonaAvatarUrlMap"
+        @open-side-chat-panel="openSideChatPanel"
+        @open-team-member="openTeamMemberFromHome"
         @open-team-management="openTeamManagement"
-        @open-side-chat-new-page="openSideChatNewPage?.()"
         @update:chat-input="updateChatInput"
         @add-mention="addChatMention"
         @remove-mention="removeChatMention"
@@ -285,7 +284,7 @@
           <div class="flex h-full min-h-0 w-full flex-col">
             <PanelTabStrip
               :tabs="sideChatTabs"
-              :active-key="sideConversationId"
+              :active-key="sideChatPanelConversationId"
               :aria-label="t('chat.sideChat.title')"
               :close-title="t('chat.sideChat.close')"
               :close-left-title="t('fileReader.closeLeft')"
@@ -312,11 +311,11 @@
               </template>
             </PanelTabStrip>
             <ConversationView
-              v-if="sideConversationId"
-              :key="sideConversationId"
+              v-if="sideChatPanelConversationId"
+              :key="sideChatPanelConversationId"
               class="min-h-0 flex-1"
               :subscription-slot="sideChatSubscriptionSlot"
-              :conversation-id="sideConversationId"
+              :conversation-id="sideChatPanelConversationId"
               :api-config-id="conversationCallPrimaryApiConfigId"
               :agent-id="sideChatAgentId"
               :persona-name="sideChatPersonaName"
@@ -340,10 +339,13 @@
               :approve-terminal-approval-for-session="(requestId) => approveTerminalApprovalForSession(requestId)"
               :approve-terminal-approval-for-workspace="(requestId) => approveTerminalApprovalForWorkspace(requestId)"
               :request-recall-mode="requestRecallMode"
-              :create-conversation-branch-from-turn="(payload) => createSideConversationBranchFromTurn?.({ ...payload, sourceConversationId: sideConversationId })"
+              :create-conversation-branch-from-turn="(payload) => createSideConversationBranchFromTurn?.({ ...payload, sourceConversationId: sideChatPanelConversationId })"
             />
             <div v-else class="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-hidden px-6">
               <div class="relative flex w-full max-w-80 flex-col items-center gap-5">
+                <div v-if="!sideChatTabs.length" class="relative z-10 w-full text-center text-sm font-medium text-base-content/80">
+                  {{ t('chat.sideChat.emptyTitle') }}
+                </div>
                 <!-- 按钮身后的主题色辉光：替代原先三团散在四角的写死光斑 -->
                 <div
                   class="pointer-events-none absolute left-1/2 top-1/2 h-56 w-[420px] max-w-[85vw] -translate-x-1/2 -translate-y-1/2 rounded-[100%] bg-primary/10 blur-3xl"
@@ -367,19 +369,72 @@
             </div>
           </div>
         </template>
+        <template #team-member-panel>
+          <div class="flex h-full min-h-0 w-full flex-col">
+            <PanelTabStrip
+              :tabs="teamMemberTabs"
+              :active-key="teamMemberPanelConversationId"
+              :aria-label="t('chat.teamMember.title')"
+              :close-title="t('chat.teamMember.close')"
+              :close-left-title="t('fileReader.closeLeft')"
+              :close-right-title="t('fileReader.closeRight')"
+              :close-others-title="t('fileReader.closeOthers')"
+              @select-tab="selectSideChatConversation?.($event)"
+              @close-tab="closeSideChatTab"
+              @close-tabs-to-left="closeSideChatTabsToLeft"
+              @close-tabs-to-right="closeSideChatTabsToRight"
+              @close-other-tabs="closeOtherSideChatTabs"
+            >
+              <template #leading>
+                <ChatRightPanelSwitcher @select-home="updateChatRightPanelMode('home')" />
+              </template>
+            </PanelTabStrip>
+            <ConversationView
+              v-if="teamMemberPanelConversationId"
+              :key="teamMemberPanelConversationId"
+              class="min-h-0 flex-1"
+              :subscription-slot="teamMemberSubscriptionSlot"
+              :conversation-id="teamMemberPanelConversationId"
+              :api-config-id="conversationCallPrimaryApiConfigId"
+              :agent-id="sideChatAgentId"
+              :persona-name="sideChatPersonaName"
+              :user-alias="userAlias"
+              :user-avatar-url="userAvatarUrl"
+              :assistant-avatar-url="sideChatPersonaAvatarUrl"
+              :persona-name-map="chatPersonaNameMap"
+              :persona-avatar-url-map="chatPersonaAvatarUrlMap"
+              :chat-model-options="textCapableApiConfigs"
+              :instruction-presets="instructionPresets"
+              :config="config"
+              :workspace-name="currentChatWorkspaceDisplayName"
+              :workspace-root-path="currentChatWorkspaceRootPath"
+              :workspaces="currentChatWorkspaces"
+              :workspace-access="currentChatWorkspaces.find((item) => item.level === 'main')?.access || 'approval'"
+              :current-theme="currentTheme"
+              :terminal-approvals="terminalApprovals"
+              :terminal-approval-resolving="terminalApprovalResolving"
+              :approve-terminal-approval="(requestId: string, reason?: string) => approveTerminalApproval(requestId, reason)"
+              :deny-terminal-approval="(requestId: string, reason?: string) => denyTerminalApproval(requestId, reason)"
+              :approve-terminal-approval-for-session="(requestId) => approveTerminalApprovalForSession(requestId)"
+              :approve-terminal-approval-for-workspace="(requestId) => approveTerminalApprovalForWorkspace(requestId)"
+              :request-recall-mode="requestRecallMode"
+              :create-conversation-branch-from-turn="(payload) => createSideConversationBranchFromTurn?.({ ...payload, sourceConversationId: teamMemberPanelConversationId })"
+            />
+            <div v-else class="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
+              <div class="text-sm text-base-content/60">{{ t('chat.teamMember.empty') }}</div>
+            </div>
+          </div>
+        </template>
       </ChatView>
       <TeamManagementDialog
         :open="teamManageOpen"
-        :team-enabled="Boolean(currentChatWorkspaceTeamEnabled)"
         :members="teamManageMembers"
         :agent-options="createConversationAgentOptions"
         :current-agent-id="currentChatAgentId"
         :avatar-url-map="chatPersonaAvatarUrlMap"
-        :saving="teamManageSwitching"
         :recruiting="teamManageRecruiting"
         :error-message="teamManageError"
         @close="closeTeamManagement"
-        @set-team-enabled="handleTeamManageSwitch"
         @recruit="handleTeamManageRecruit"
       />
       <div
@@ -520,12 +575,15 @@ import ChatView from "../../chat/views/ChatView.vue";
 import ConversationView from "../../chat/views/ConversationView.vue";
 import ChatRightPanelSwitcher from "../../chat/components/ChatRightPanelSwitcher.vue";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
+import { conversationProgressDotClass, conversationProgressVisual, conversationShowsProgressState } from "../../chat/utils/conversation-item-display";
+import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import { MessageSquareMore, Plus, UserRound } from "@lucide/vue";
 import type { TerminalApprovalConversationItem } from "../composables/use-terminal-approval";
 import type { BranchGuardCheck } from "../../chat/composables/use-chat-branch-guard";
 import ArchivesView from "../../archive/views/ArchivesView.vue";
 import MemoryDialog from "../../memory/components/dialogs/MemoryDialog.vue";
-import TeamManagementDialog from "../../chat/components/dialogs/TeamManagementDialog.vue";
+import TeamManagementDialog, { type TeamManageMember } from "../../chat/components/dialogs/TeamManagementDialog.vue";
+import { resolveSideConversationPanel, resolveSideConversationTabsToClose } from "../../chat/composables/side-conversation-panel";
 import PromptPreviewDialog from "../../chat/components/dialogs/PromptPreviewDialog.vue";
 import SelectionShareDialog from "../../chat/components/dialogs/SelectionShareDialog.vue";
 import { computed, ref, type VNodeRef } from "vue";
@@ -693,8 +751,6 @@ const props = defineProps<{
   currentChatWorkspaceDisplayName: string;
   currentChatWorkspaceRootPath: string;
   currentChatWorkspaceAutonomousMode: boolean;
-  /** 招募开关：队伍管理页用 */
-  currentChatWorkspaceTeamEnabled: boolean;
   currentChatWorkspaces: ShellWorkspace[];
   currentChatWorkMode?: ShellWorkMode;
   currentChatWorkBranch?: string;
@@ -703,7 +759,6 @@ const props = defineProps<{
   checkBranchBeforeSend?: () => Promise<BranchGuardCheck>;
   acceptBranchGuardPrompt?: () => void;
   saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string, shellWorktreePath?: string) => Promise<void>;
-  saveDraftTeamMode?: (teamEnabled: boolean, memberAgentIds: string[]) => Promise<void>;
   /** 会话内自己切分支成功后按工作目录同步「本会话工作分支」记录 */
   syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
@@ -923,6 +978,8 @@ const props = defineProps<{
   openGithub: () => void;
 }>();
 const sideChatSubscriptionSlot = createExclusiveChatViewSubscriptionSlot();
+// 队员面板是独立面板，需要自己的独占订阅槽；与追问面板共用会互相顶掉
+const teamMemberSubscriptionSlot = createExclusiveChatViewSubscriptionSlot();
 const memoryDialogVNodeRef: VNodeRef = (el) => {
   props.setMemoryDialogRef((el as Element | null) ?? null);
 };
@@ -966,13 +1023,20 @@ const sideChatPersonaAvatarUrl = computed(() => {
   return ownAvatar || props.selectedPersonaAvatarUrl;
 });
 
-const sideChatTabs = computed(() => (props.sideConversations || []).map((conversation) => {
-  const teamNumber = typeof conversation.teamNumber === "number" ? conversation.teamNumber : 0;
+/** 一个侧会话该长什么标签：追问与队员共用同一套派生，只在最后按归属分给两个面板。 */
+function buildSideConversationTab(conversation: ChildConversationSummary) {
   const teamName = String(conversation.teamName || "").trim();
+  // 归属只看角色名有没有值：编号已经不下发，也不再拿它当判据。
   // 队员标签不挂胶囊；普通追问保持对话图标。
-  const isTeamMember = teamNumber > 0 && teamName !== "";
+  const panel = resolveSideConversationPanel(teamName);
+  const isTeamMember = panel === "teamMember";
   // 所有追问都优先用会话自己的人格头像；没头像时队员退回队员图标、普通追问保持对话图标。
   const teamAgentId = String(conversation.agentId || "").trim();
+  // 队员名从会话绑定的 agent 取：会话标题已改为自动生成的内容标题，不再承载名字。
+  const teamPersonaName = teamAgentId
+    ? String(props.chatPersonaNameMap?.[teamAgentId] || "").trim()
+    : "";
+  const teamDisplayName = teamPersonaName || teamName;
   let teamAgentAvatarUrl = teamAgentId
     ? String(props.chatPersonaAvatarUrlMap?.[teamAgentId] || "").trim()
     : "";
@@ -990,106 +1054,202 @@ const sideChatTabs = computed(() => (props.sideConversations || []).map((convers
       }
     }
   }
+  const progressVisual = conversationProgressVisual(conversation.progressState);
+  const progressLabel = props.t(progressVisual.labelKey);
+  const progressEvidence = String(conversation.evidence || "").trim();
+  const progressTitle = progressEvidence
+    ? props.t("chat.conversationStatus.tooltipWithEvidence", {
+        status: progressLabel,
+        evidence: progressEvidence,
+      })
+    : props.t("chat.conversationStatus.tooltip", { status: progressLabel });
   return {
     key: String(conversation.conversationId || "").trim(),
-    label: String(conversation.title || "").trim() || props.t("chat.sideChat.title"),
-    // 队员的卡片头标直接写队员名，不再统一叫「追问」；普通追问保持原样。
-    cardLabel: teamName || props.t("chat.sideChat.title"),
+    // 标题统一走降级链（标题 → 摘要标题 → 时间 → 人格名），不在调用侧自己拼。
+    // 队员会话例外：标签上写的是「这是谁的会话」，名字从 agent 取，
+    // 会话标题留给自动生成的内容标题，不拿来当队员名。
+    label: isTeamMember && teamDisplayName
+      ? teamDisplayName
+      : resolveConversationDisplayTitle(conversation, {
+          untitledLabel: props.t("chat.untitledConversation"),
+        }),
+    // 降级链要用的原始字段：磁贴那边还要再算一次，不能拿已兜底过的 label 当标题
+    rawTitle: String(conversation.title || "").trim(),
+    summaryTitle: String((conversation as { summaryTitle?: string }).summaryTitle || "").trim(),
+    updatedAt: String(conversation.updatedAt || "").trim(),
+    lastMessageAt: String((conversation as { lastMessageAt?: string }).lastMessageAt || "").trim(),
+    // 队员的卡片头标直接写队员名（从 agent 取），不再统一叫「追问」；普通追问保持原样。
+    cardLabel: teamName ? teamDisplayName || teamName : props.t("chat.sideChat.title"),
+    // 队员会话的归属人格与进度状态：首页队员磁贴按这两个字段取头像与徽章
+    agentId: teamAgentId,
+    progressState: String(conversation.progressState || "").trim(),
+    runtimeState: String(conversation.runtimeState || "").trim(),
+    // 队员手上在办的那条议题，以及他自己的运行时状态：磁贴有议题时显示议题状态，
+    // 没有时退回后者。两个都由后端算好，这里不做角色名匹配。
+    activeIssue: conversation.activeIssue,
+    memberState: String(conversation.memberState || "").trim(),
     icon: teamAgentAvatarUrl ? undefined : (isTeamMember ? UserRound : MessageSquareMore),
     iconSrc: teamAgentAvatarUrl || undefined,
     closeable: true,
+    // 会话状态：与 busy（运行态）并列显示，互不覆盖；只有主会话/追问会话有状态（白名单）
+    statusDotClass: conversationShowsProgressState(conversation.conversationKind)
+      ? conversationProgressDotClass(progressVisual)
+      : "",
+    statusTitle: conversationShowsProgressState(conversation.conversationKind) ? progressTitle : "",
+    // 归属判据只有一条：角色名有没有值。两个面板各自按它过滤，不再共用一个列表。
+    panel,
   };
-}));
+}
 
-/** 右侧主页「追问」卡片数据：当前打开的追问会话 */
-const sideChatItems = computed(() =>
-  sideChatTabs.value.map((tab) => {
-    const id = String(tab.key || "").trim();
-    const runtimeState = String(props.sideConversationRuntimeMap?.[id] || "").trim();
-    const badgeState = String(props.sideConversationBadgeMap?.[id] || "").trim();
-    return {
-      id,
-      title: String(tab.label || "").trim(),
-      label: String(tab.cardLabel || "").trim(),
-      avatarSrc: String((tab as { iconSrc?: string }).iconSrc || "").trim() || undefined,
-      busy: runtimeState === "assistant_streaming" || runtimeState === "organizing_context",
-      unreadCount: Math.max(0, Number(props.sideConversationUnreadMap?.[id] || 0)),
-      hasError: badgeState === "failed",
-    };
-  }),
+/** 追问与队员的完整标签集，仅供下面两个面板各自过滤，不直接喂任何面板 */
+const sideConversationTabs = computed(() => (props.sideConversations || []).map(buildSideConversationTab));
+
+/** 追问面板：只留普通追问。队员会话从这里移出去，避免两个面板共用一个列表。 */
+const sideChatTabs = computed(() => sideConversationTabs.value.filter((tab) => tab.panel === "sideChat"));
+
+/** 队员面板：只留队员会话 */
+const teamMemberTabs = computed(() => sideConversationTabs.value.filter((tab) => tab.panel === "teamMember"));
+
+/**
+ * 两个面板共用同一个激活会话 id，各有各的会话范围。
+ * 渲染前必须判断「激活会话是否属于本面板」，否则追问面板里会显示着某个队员的会话。
+ */
+const activeSideConversationPanel = computed(() =>
+  resolveSideConversationPanel(activeSideConversation.value?.teamName),
 );
 
-/** 主页点某张追问小卡：切到追问面板并激活对应会话 */
-function openSideChatFromHome(conversationId: string) {
+/** 追问面板该显示的会话：激活的是队员时本面板没有可显示会话，落到自己的空态 */
+const sideChatPanelConversationId = computed(() =>
+  activeSideConversationPanel.value === "sideChat" ? String(props.sideConversationId || "").trim() : "",
+);
+
+/** 队员面板该显示的会话：只有激活的是队员时才显示 */
+const teamMemberPanelConversationId = computed(() =>
+  activeSideConversationPanel.value === "teamMember" ? String(props.sideConversationId || "").trim() : "",
+);
+
+/**
+ * 首页队员状态表数据：按队员磁贴的字段形状映射。
+ * 头像不在这里查——磁贴自己按 agentId 去 avatarUrlMap 里取，无人格头像时用名字首字兜底。
+ */
+const teamMemberStatusItems = computed(() => {
+  const tabs = teamMemberTabs.value;
+  if (tabs.length > 0) {
+    return tabs.map((tab) => ({
+      conversationId: String(tab.key || "").trim(),
+      // 传原始标题与降级链需要的字段，标题由磁贴统一算，不在这里预先兜底成「追问」
+      title: String(tab.rawTitle || "").trim(),
+      summaryTitle: String(tab.summaryTitle || "").trim(),
+      updatedAt: String(tab.updatedAt || "").trim(),
+      lastMessageAt: String(tab.lastMessageAt || "").trim(),
+      teamName: String(tab.cardLabel || "").trim(),
+      agentId: String(tab.agentId || "").trim(),
+      agentName: tab.agentId ? String(props.chatPersonaNameMap?.[tab.agentId] || "").trim() : "",
+      progressState: String(tab.progressState || "").trim(),
+      runtimeState: String(tab.runtimeState || "").trim(),
+      // 在办议题与运行时三态：有议题时磁贴显示议题状态，没有才显示后者
+      activeIssue: tab.activeIssue,
+      memberState: String(tab.memberState || "").trim(),
+    }));
+  }
+  // 远程私聊队长：名册随联系人会话摘要下发，没有会话级进度，状态落到「未设置」
+  return teamManageMembers.value.map((member: TeamManageMember) => ({
+    conversationId: member.conversationId,
+    title: member.title,
+    teamName: member.teamName,
+    agentId: String(member.agentId || "").trim(),
+    agentName: String(member.agentName || "").trim(),
+    progressState: "",
+  }));
+});
+
+/** 首页「追问」入口磁贴：只切面板，新建入口留在追问面板里（右上角 ＋ 与空态两个按钮） */
+function openSideChatPanel() {
+  props.updateChatRightPanelMode("sideChat");
+}
+
+/** 首页队员状态表点某一格：切到队员面板并激活该队员会话（列会话、点会话、开会话） */
+function openTeamMemberFromHome(conversationId: string) {
   const id = String(conversationId || "").trim();
   if (!id) return;
-  props.updateChatRightPanelMode("sideChat");
+  props.updateChatRightPanelMode("teamMember");
   props.selectSideChatConversation?.(id);
 }
 
-/** 队伍管理：名册直接读追问列表里的队员标记（teamNumber>0），招募开关走工作区状态 */
+/** 队伍管理：名册直接读追问列表里的队员标记（teamName 非空），招募开关走工作区状态 */
 const currentOverviewItem = computed(() =>
   (props.chatUnarchivedConversationItems || []).find(
     (item) => String(item.conversationId || "").trim() === String(props.currentChatConversationId || "").trim(),
   ) || null,
 );
 
-const teamManageVisible = computed(() => {
-  const id = String(props.currentChatConversationId || "").trim();
-  if (!id) return false;
-  const item = currentOverviewItem.value as any;
+/** 与后端 conversation_meta_can_own_team_roster 同语义：chat 或远程私聊可拥有队伍名册；追问/delegate/群聊不。 */
+const conversationCanOwnTeamRoster = (item: any): boolean => {
   if (!item) return false;
   if (item.isDraft) return false;
   if (String(item.parentConversationId || "").trim()) return false;
-  if (String(item.conversationKind || "chat") !== "chat") return false;
-  return true;
+  if (String(item.kind || "") === "remote_im_contact") {
+    return String(item.remoteContactType || "").trim().toLowerCase() === "private";
+  }
+  return String(item.conversationKind || "chat").trim() === "chat";
+};
+
+const teamManageVisible = computed(() => {
+  const id = String(props.currentChatConversationId || "").trim();
+  if (!id) return false;
+  return conversationCanOwnTeamRoster(currentOverviewItem.value);
 });
 
-const teamManageMembers = computed(() =>
-  (props.sideConversations || [])
-    .filter((item) => Number(item.teamNumber || 0) > 0 && String(item.teamName || "").trim() !== "")
+const teamManageMembers = computed(() => {
+  const overviewItem = currentOverviewItem.value as any;
+  // 远程私聊队长：队员名单随联系人会话摘要下发。
+  if (overviewItem && String(overviewItem.kind || "") === "remote_im_contact") {
+    return (Array.isArray(overviewItem.teamMembers) ? overviewItem.teamMembers : [])
+      .map((member: any) => {
+        const name = String(member.name || "").trim();
+        return {
+          conversationId: String(member.conversationId || "").trim(),
+          title: name,
+          teamName: name,
+          agentId: "",
+          // 远程摘要没有 agent_id，角色名就是人格名，招募列表按它挡重复角色。
+          agentName: name,
+        };
+      })
+      .filter((member: { conversationId: string; teamName: string }) => member.conversationId && member.teamName !== "");
+  }
+  // 名册顺序就是招募顺序：后端的 childConversationIds 与成员数组都按建立次序排列，不再按编号排序。
+  return (props.sideConversations || [])
+    .filter((item) => String(item.teamName || "").trim() !== "")
     .map((item) => {
       const agentId = String(item.agentId || "").trim();
       return {
         conversationId: String(item.conversationId || "").trim(),
         title: String(item.title || "").trim(),
-        teamNumber: Number(item.teamNumber || 0),
         teamName: String(item.teamName || "").trim(),
         agentId,
         agentName: agentId ? String(props.chatPersonaNameMap?.[agentId] || "").trim() : "",
       };
-    })
-    .sort((a, b) => a.teamNumber - b.teamNumber),
-);
+    });
+});
 
 const teamManageOpen = ref(false);
 const teamManageRecruiting = ref(false);
-const teamManageSwitching = ref(false);
 const teamManageError = ref("");
 
+/**
+ * 队伍页入口。首页的「队伍」磁贴已按要求删除，界面现在没有任何地方调用它，
+ * 因此队伍管理弹窗在界面上打不开：招募与请离只剩 LLM 的 team_recruit 工具这一条路。
+ * 链路本身保留不删，将来要恢复入口时接回去就是一行调用。
+ */
 function openTeamManagement() {
   teamManageError.value = "";
   teamManageOpen.value = true;
 }
 
 function closeTeamManagement() {
-  if (teamManageRecruiting.value || teamManageSwitching.value) return;
+  if (teamManageRecruiting.value) return;
   teamManageOpen.value = false;
-}
-
-async function handleTeamManageSwitch(enabled: boolean) {
-  const conversationId = String(props.currentChatConversationId || "").trim();
-  if (!conversationId || !props.saveDraftTeamMode) return;
-  if (teamManageSwitching.value) return;
-  teamManageSwitching.value = true;
-  teamManageError.value = "";
-  try {
-    await props.saveDraftTeamMode(Boolean(enabled), []);
-  } catch (error) {
-    teamManageError.value = error instanceof Error ? error.message : String(error);
-  } finally {
-    teamManageSwitching.value = false;
-  }
 }
 
 async function handleTeamManageRecruit(agentIds: string[] | string) {
@@ -1117,22 +1277,26 @@ function closeSideChatTab(conversationId: string) {
   return props.closeSideChatConversations?.([conversationId]);
 }
 
+/**
+ * 关闭类操作（左侧全部、右侧全部、关闭其他）只在被点击标签所属的面板里生效。
+ * 拆分之后两个面板各有一组标签，若跨面板关闭，用户会在看不见的那一栏里丢东西。
+ */
+function closeScopedSideChatTabs(conversationId: string, scope: "left" | "right" | "others") {
+  const ids = resolveSideConversationTabsToClose(sideConversationTabs.value, conversationId, scope);
+  if (ids.length === 0) return;
+  return props.closeSideChatConversations?.(ids);
+}
+
 function closeSideChatTabsToLeft(conversationId: string) {
-  const index = sideChatTabs.value.findIndex((tab) => tab.key === conversationId);
-  if (index <= 0) return;
-  return props.closeSideChatConversations?.(sideChatTabs.value.slice(0, index).map((tab) => tab.key));
+  return closeScopedSideChatTabs(conversationId, "left");
 }
 
 function closeSideChatTabsToRight(conversationId: string) {
-  const index = sideChatTabs.value.findIndex((tab) => tab.key === conversationId);
-  if (index < 0 || index >= sideChatTabs.value.length - 1) return;
-  return props.closeSideChatConversations?.(sideChatTabs.value.slice(index + 1).map((tab) => tab.key));
+  return closeScopedSideChatTabs(conversationId, "right");
 }
 
 function closeOtherSideChatTabs(conversationId: string) {
-  return props.closeSideChatConversations?.(
-    sideChatTabs.value.filter((tab) => tab.key !== conversationId).map((tab) => tab.key),
-  );
+  return closeScopedSideChatTabs(conversationId, "others");
 }
 
 function showChatNotice(text: string, tone: "default" | "error" | "info" = "info") {

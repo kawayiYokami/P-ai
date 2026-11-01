@@ -51,20 +51,23 @@
     </template>
     <template v-else>
       <div class="flex min-w-0 shrink-0 items-center gap-2">
-        <span class="ecall-home-card-icon shrink-0" :class="toneRowClass">
-          <img
-            v-if="avatarSrc"
-            :src="avatarSrc"
-            alt=""
-            class="size-3.5 rounded-full object-cover"
-          />
-          <component v-else :is="icon" class="size-3.5 shrink-0" aria-hidden="true" />
-        </span>
-        <span v-if="pulsing && !busy" class="relative flex h-2 w-2 shrink-0 items-center justify-center">
-          <span class="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" :class="toneDot.ping"></span>
-          <span class="relative inline-flex h-1.5 w-1.5 rounded-full" :class="toneDot.core"></span>
-        </span>
-        <span class="min-w-0 flex-1 truncate text-xs font-semibold text-base-content/80">{{ label }}</span>
+        <!-- 标题行内容可由插槽整体替换：磁贴用它把「图标 + 标题」换成切换按钮 -->
+        <slot name="leading">
+          <span class="ecall-home-card-icon shrink-0" :class="toneRowClass">
+            <img
+              v-if="avatarSrc"
+              :src="avatarSrc"
+              alt=""
+              class="size-3.5 rounded-full object-cover"
+            />
+            <component v-else :is="icon" class="size-3.5 shrink-0" aria-hidden="true" />
+          </span>
+          <span v-if="pulsing && !busy" class="relative flex h-2 w-2 shrink-0 items-center justify-center">
+            <span class="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" :class="toneDot.ping"></span>
+            <span class="relative inline-flex h-1.5 w-1.5 rounded-full" :class="toneDot.core"></span>
+          </span>
+          <span class="min-w-0 flex-1 truncate text-xs font-semibold text-base-content/80">{{ label }}</span>
+        </slot>
         <slot name="trailing" />
       </div>
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">

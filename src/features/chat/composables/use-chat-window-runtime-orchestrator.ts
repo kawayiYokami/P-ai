@@ -195,6 +195,7 @@ export function useChatWindowRuntimeOrchestrator(bindings: Record<string, any>) 
     sendChatFromCurrentWindow: conversationOrchestrator.sendChatFromCurrentWindow,
     deleteUnarchivedConversationFromArchives: conversationOrchestrator.deleteUnarchivedConversationFromArchives,
     applyConversationRuntimeStateUpdated: conversationOrchestrator.applyConversationRuntimeStateUpdated,
+    applyConversationProgressStateUpdated: conversationOrchestrator.applyConversationProgressStateUpdated,
   });
 
   async function createConversationBranchFromMessage(payload: { turnId: string; targetUserMessageId: string }) {

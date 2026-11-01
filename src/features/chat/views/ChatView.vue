@@ -505,6 +505,16 @@
             </div>
           </Transition>
           <ChatQuestionPanel
+            v-if="conversationQuestionItems.length > 0"
+            :key="conversationQuestionKey"
+            :items="conversationQuestionItems"
+            v-model="conversationQuestionAnswers"
+            :submitting="conversationQuestionSubmitting"
+            submit-mode="manual"
+            class="px-4 pb-2 pt-1"
+            @submit="handleConversationQuestionSubmit"
+          />
+          <ChatQuestionPanel
             v-if="activeConversationTerminalApprovals.length > 0"
             :key="activeConversationTerminalApprovals.map((a) => a.requestId).join(',')"
             :items="approvalQuestionItems"
@@ -757,27 +767,32 @@
           :recent-commits="homeGitRecentCommits"
           :open-files="homeFilePreview.openFiles"
           :active-path="homeFilePreview.activePath"
-          :side-chats="sideChatItems"
           :side-chat-enabled="Boolean(sideChatPanelEnabled)"
           :team-visible="Boolean(props.teamVisible)"
-          :team-member-count="Number(props.teamMemberCount || 0)"
-          :team-recruit-enabled="Boolean(props.teamRecruitEnabled)"
+          :team-members="teamMembers"
+          :team-member-avatar-url-map="props.personaAvatarUrlMap"
+          :leader-name="personaName"
+          :leader-avatar-url="props.personaAvatarUrlMap?.[props.activeAgentId] || ''"
+          :persona-name-map="props.personaNameMap"
+          :persona-avatar-url-map="props.personaAvatarUrlMap"
           :delegates="delegateStatuses"
           :running-tasks="homePanelRunningTasks"
           :shells="backgroundShells"
           :tool-batches="toolReviewBatches"
+          :kanban-visible="kanbanVisible"
+          :kanban-issues="kanbanIssues"
+          @open-kanban="openKanbanBoard"
           @select-panel="selectChatRightPanelMode"
           @open-file="openHomeFile"
           @close-file="closeHomeFile"
-          @open-side-chat="openHomeSideChat"
-          @create-side-chat="openHomeSideChatNewPage"
+          @open-side-chat-panel="emit('openSideChatPanel')"
+          @open-team-member="emit('openTeamMember', $event)"
           @open-workspace="openHomeWorkspaceDirectory"
           @open-git-changes="openHomeGitChanges"
           @open-git-commits="openHomeGitCommits"
           @branch-switched="(path) => props.syncWorkspaceBranch?.(path)"
           @git-error="handleHomeGitError"
           @open-monitor-tab="openMonitorTabFromHome"
-          @open-team-management="emit('openTeamManagement')"
           @interrupt-shell="interruptShell"
         />
         <FileReaderPanel
@@ -812,6 +827,21 @@
         </FileReaderPanel>
         <div v-else-if="chatRightPanelMode === 'sideChat'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">
           <slot name="side-chat-panel" />
+        </div>
+        <div v-else-if="chatRightPanelMode === 'teamMember'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">
+          <slot name="team-member-panel" />
+        </div>
+        <div v-else-if="chatRightPanelMode === 'kanban'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">
+          <KanbanBoardPanel
+            :issues="kanbanIssues"
+            :loading="kanbanLoading"
+            :error-text="kanbanErrorText"
+            :approving-number="kanbanApprovingNumber"
+            :leader-name="personaName"
+            @back="selectChatRightPanelMode('home')"
+            @refresh="reloadKanbanBoard"
+            @approve="approveKanbanIssue"
+          />
         </div>
         <div v-else-if="chatRightPanelMode === 'monitor'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">
           <PanelTabStrip
@@ -938,6 +968,11 @@ import { computeSessionTopColumnOffset, isSessionTopColumnOffsetSettled } from "
 import { isSessionToolbarBehindElasticSpace } from "../utils/session-toolbar-visibility";
 import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import { clearFileReaderContextCandidates } from "../utils/file-reader-context-tags";
+import {
+  buildConversationQuestionAnswerPayload,
+  buildConversationQuestionItems,
+  type ConversationQuestionView,
+} from "../utils/conversation-question";
 import { useIdeContext } from "../composables/use-ide-context";
 import { useDelegateStatus } from "../composables/use-delegate-status";
 import { useBackgroundShell } from "../composables/use-background-shell";
@@ -956,6 +991,8 @@ import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { AgentPersonaOption } from "../../shared/agent-persona-options";
 import { clearNativeTextSelection } from "../../../utils/native-selection";
 import ConversationSearchPanel from "../components/ConversationSearchPanel.vue";
+import KanbanBoardPanel from "../components/kanban/KanbanBoardPanel.vue";
+import { useKanbanBoard } from "../composables/use-kanban-board";
 
 // ==================== props / emits ====================
 
@@ -1008,11 +1045,27 @@ const props = defineProps<{
   chatRightPanelMode: ChatRightPanelMode;
   chatMonitorPanelMode: ChatMonitorPanelMode;
   sideChatPanelEnabled?: boolean;
-  /** 右侧主页「追问」卡片数据；追问会话由宿主容器持有 */
-  sideChatItems?: Array<{ id: string; title: string; label?: string; avatarSrc?: string; busy?: boolean; unreadCount?: number; hasError?: boolean }>;
   teamVisible?: boolean;
-  teamMemberCount?: number;
-  teamRecruitEnabled?: boolean;
+  /** 首页队员状态表数据：字段形状对齐队员磁贴，头像由磁贴按 agentId 查下表 */
+  teamMembers?: Array<{
+    conversationId: string;
+    title: string;
+    /** 标题降级链用：会话标题 → 摘要标题 → 时间 → 人格名 */
+    summaryTitle?: string;
+    updatedAt?: string;
+    lastMessageAt?: string;
+    teamName?: string;
+    agentId?: string;
+    agentName?: string;
+    progressState?: string;
+    runtimeState?: string;
+    /** 他手上在办的那条议题；没有就退回 memberState */
+    activeIssue?: { number: number; title: string; status: string };
+    /** 运行时三态：busy / idle / error */
+    memberState?: string;
+  }>;
+  /** 队员磁贴的头像来源：按 agentId 查，不在这里按人格名反查 */
+  teamMemberAvatarUrlMap?: Record<string, string>;
   createConversationAgentOptions: AgentPersonaOption[];
   recipientOptionsReady?: boolean;
   defaultCreateConversationAgentId: string;
@@ -1034,8 +1087,8 @@ const emit = defineEmits<{
   (e: "toolReviewPanelOpenChange", value: boolean): void;
   (e: "openChatReaderFile", path: string, line?: number): void;
   (e: "openChatReaderDirectory", path: string, line?: number): void;
-  (e: "openSideChatConversation", conversationId: string): void;
-  (e: "openSideChatNewPage"): void;
+  (e: "openSideChatPanel"): void;
+  (e: "openTeamMember", conversationId: string): void;
   (e: "openTeamManagement"): void;
   (e: "sidePanelWidthsChange", value: { leftWidth: number; rightWidth: number }): void;
   (e: "sidePanelWidthsCommit", value: { leftWidth: number; rightWidth: number }): void;
@@ -1388,6 +1441,95 @@ function handleApprovalQuestionWorkspaceRemember(requestId: string) {
   if (!normalized) return;
   emit("approveTerminalApprovalForWorkspace", normalized);
 }
+
+// ==================== 会话问题队列（队长通过 question 工具写入） ====================
+const conversationQuestions = ref<ConversationQuestionView[]>([]);
+const conversationQuestionAnswers = ref<Record<string, { optionId: string; label: string; comment: string }>>({});
+const conversationQuestionSubmitting = ref(false);
+let unlistenConversationQuestions: (() => void) | undefined;
+
+/**
+ * 面板只按会话重建：同一会话里发掉一题后列表会变，但面板不能重建——
+ * 重建会丢掉用户的当前题位置与已选待发的勾选。
+ * 题目减少后的落点由面板自己处理（发送后停在剩下的第一题）。
+ * 选中态不会残留：每次加载与提交回执都会清空 `conversationQuestionAnswers`。
+ */
+const conversationQuestionKey = computed(() => String(props.activeConversationId ?? ""));
+
+const conversationQuestionItems = computed(() =>
+  buildConversationQuestionItems(conversationQuestions.value),
+);
+
+async function loadConversationQuestions(conversationId?: string) {
+  const cid = String(conversationId ?? props.activeConversationId ?? "").trim();
+  if (!cid) {
+    conversationQuestions.value = [];
+    return;
+  }
+  try {
+    const items = await invokeTauri<ConversationQuestionView[]>("question_list", {
+      conversationId: cid,
+    });
+    // 请求返回时用户可能已切走，丢弃过期结果。
+    if (String(props.activeConversationId || "").trim() !== cid) return;
+    conversationQuestions.value = Array.isArray(items) ? items : [];
+    conversationQuestionAnswers.value = {};
+  } catch {
+    conversationQuestions.value = [];
+  }
+}
+
+function handleConversationQuestionSubmit(
+  answers: Array<{ id: string; optionId: string; label: string; comment: string }>,
+) {
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (!conversationId || conversationQuestionSubmitting.value) return;
+  const payload = buildConversationQuestionAnswerPayload(answers);
+  if (payload.length === 0) return;
+  conversationQuestionSubmitting.value = true;
+  void invokeTauri<{ remaining: ConversationQuestionView[] }>("question_answer", {
+    conversationId,
+    answers: payload,
+  })
+    .then((result) => {
+      if (String(props.activeConversationId || "").trim() !== conversationId) return;
+      conversationQuestions.value = Array.isArray(result?.remaining) ? result.remaining : [];
+      conversationQuestionAnswers.value = {};
+    })
+    .catch((error) => {
+      console.error("[会话问题] 提交答复失败", error);
+      void loadConversationQuestions(conversationId);
+    })
+    .finally(() => {
+      conversationQuestionSubmitting.value = false;
+    });
+}
+
+watch(
+  () => String(props.activeConversationId || "").trim(),
+  (conversationId) => {
+    void loadConversationQuestions(conversationId);
+  },
+  { immediate: true },
+);
+
+onMounted(() => {
+  unlistenConversationQuestions = onTransportNotification<Record<string, unknown>>(
+    "question.itemsUpdated",
+    (payload) => {
+      const conversationId = String((payload as any)?.conversationId || "").trim();
+      if (!conversationId || conversationId !== String(props.activeConversationId || "").trim()) return;
+      const items = (payload as any)?.items;
+      conversationQuestions.value = Array.isArray(items) ? items : [];
+      conversationQuestionAnswers.value = {};
+    },
+  );
+});
+
+onBeforeUnmount(() => {
+  unlistenConversationQuestions?.();
+  unlistenConversationQuestions = undefined;
+});
 const chatStatusBanner = computed(() => {
   // 修复期间独占该库，所有会话调度必须让路，这里给一条常驻提示。
   if (chatStorageRepairing.value) {
@@ -3155,6 +3297,39 @@ function selectChatRightPanelMode(mode: ChatRightPanelMode) {
   }
 }
 
+// ==================== 议题看板 ====================
+// 磁贴与看板页读同一份数据：磁贴只截取需要用户参与的四类，
+// 不单独维护聚合值，也不为磁贴另开接口。
+const kanbanConversationId = computed(() => String(props.activeConversationId || "").trim());
+const {
+  issues: kanbanIssues,
+  loading: kanbanLoading,
+  loaded: kanbanLoaded,
+  errorText: kanbanErrorText,
+  approvingNumber: kanbanApprovingNumber,
+  reload: reloadKanbanBoard,
+  approve: approveKanbanIssue,
+} = useKanbanBoard(kanbanConversationId);
+
+/** 拉不到看板说明当前会话不是队长主会话：磁贴直接不出现，而不是显示一个空看板。 */
+const kanbanVisible = computed(() => Boolean(kanbanLoaded.value && kanbanConversationId.value));
+
+function openKanbanBoard() {
+  selectChatRightPanelMode("kanban");
+}
+
+watch(
+  () => [String(props.chatRightPanelMode || ""), kanbanConversationId.value] as const,
+  ([mode, conversationId]) => {
+    if (!conversationId) return;
+    // 主页要磁贴、看板页要全量，两处都是同一个读取入口
+    if (mode === "home" || mode === "kanban") {
+      void reloadKanbanBoard();
+    }
+  },
+  { immediate: true },
+);
+
 watch(
   () => [String(props.activeConversationId || "").trim(), String(props.currentWorkspaceRootPath || "").trim()] as const,
   ([conversationId, nextRoot], [prevConversationId, prevRoot]) => {
@@ -3170,33 +3345,25 @@ function selectMonitorPanelTab(key: string) {
   emit("update:chatMonitorPanelMode", key);
 }
 
-const sideChatItems = computed(() =>
-  (Array.isArray(props.sideChatItems) ? props.sideChatItems : [])
-    .map((item) => ({
-      id: String(item?.id || "").trim(),
-      title: String(item?.title || "").trim(),
-      label: String(item?.label || "").trim(),
-      avatarSrc: String((item as { avatarSrc?: string })?.avatarSrc || "").trim() || undefined,
-      busy: !!(item as { busy?: boolean })?.busy,
-      unreadCount: Math.max(0, Number((item as { unreadCount?: number })?.unreadCount || 0)),
-      hasError: !!(item as { hasError?: boolean })?.hasError,
+/** 首页队员状态表：字段由宿主容器从队员会话派生，这里只做空值与类型收敛 */
+const teamMembers = computed(() =>
+  (Array.isArray(props.teamMembers) ? props.teamMembers : [])
+    .map((member) => ({
+      conversationId: String(member?.conversationId || "").trim(),
+      title: String(member?.title || "").trim(),
+      summaryTitle: String(member?.summaryTitle || "").trim(),
+      updatedAt: String(member?.updatedAt || "").trim(),
+      lastMessageAt: String(member?.lastMessageAt || "").trim(),
+      teamName: String(member?.teamName || "").trim(),
+      agentId: String(member?.agentId || "").trim(),
+      agentName: String(member?.agentName || "").trim(),
+      progressState: String(member?.progressState || "").trim(),
+      runtimeState: String(member?.runtimeState || "").trim(),
+      activeIssue: member?.activeIssue,
+      memberState: String(member?.memberState || "").trim(),
     }))
-    .filter((item) => item.id),
+    .filter((member) => member.conversationId),
 );
-
-/** 主页「追问」小卡：切到该追问会话（追问面板与会话激活都由宿主持有） */
-function openHomeSideChat(conversationId: string) {
-  const id = String(conversationId || "").trim();
-  if (!id) return;
-  emit("update:chatRightPanelMode", "sideChat");
-  emit("openSideChatConversation", id);
-}
-
-/** 主页「新建追问」入口卡：与追问面板右上角 ＋ 同一行为，进新建选择页（追问会话由宿主创建） */
-function openHomeSideChatNewPage() {
-  emit("update:chatRightPanelMode", "sideChat");
-  emit("openSideChatNewPage");
-}
 
 /** 主页「工作目录」入口卡：切到阅读器面板并展开工作区目录树 */
 async function openHomeWorkspaceDirectory() {

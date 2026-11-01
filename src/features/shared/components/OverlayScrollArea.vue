@@ -17,12 +17,14 @@
       ref="verticalScrollbarRef"
       :target="scrollerRef"
       :variant="variant"
+      :persistent="persistent"
     />
     <FloatingScrollbar
       v-if="showHorizontalScrollbar"
       ref="horizontalScrollbarRef"
       :target="scrollerRef"
       :variant="variant"
+      :persistent="persistent"
       orientation="horizontal"
     />
   </div>
@@ -36,18 +38,24 @@ const props = withDefaults(defineProps<{
   orientation?: "vertical" | "horizontal" | "both";
   variant?: "theme" | "code-dark";
   scrollerClass?: string;
+  persistent?: boolean;
+  hideScrollbar?: boolean;
+  isolateScroll?: boolean;
 }>(), {
   orientation: "vertical",
   variant: "theme",
   scrollerClass: "",
+  persistent: false,
+  hideScrollbar: false,
+  isolateScroll: false,
 });
 
 const scrollerRef = ref<HTMLElement | null>(null);
 const verticalScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
 const horizontalScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
 
-const showVerticalScrollbar = computed(() => props.orientation === "vertical" || props.orientation === "both");
-const showHorizontalScrollbar = computed(() => props.orientation === "horizontal" || props.orientation === "both");
+const showVerticalScrollbar = computed(() => !props.hideScrollbar && (props.orientation === "vertical" || props.orientation === "both"));
+const showHorizontalScrollbar = computed(() => !props.hideScrollbar && (props.orientation === "horizontal" || props.orientation === "both"));
 
 const scrollerOverflowClass = computed(() => {
   if (props.orientation === "horizontal") return "overflow-x-auto overflow-y-hidden";
@@ -76,18 +84,48 @@ function wheelDeltaUnit(event: WheelEvent, scroller: HTMLElement) {
   return 1;
 }
 
+function isChildVerticallyScrollable(target: EventTarget | null, boundary: HTMLElement): boolean {
+  let curr = target as HTMLElement | null;
+  while (curr && curr !== boundary) {
+    if (curr.scrollHeight > curr.clientHeight) {
+      const style = window.getComputedStyle(curr);
+      if (style.overflowY === "auto" || style.overflowY === "scroll") {
+        return true;
+      }
+    }
+    curr = curr.parentElement;
+  }
+  return false;
+}
+
 function handleWheel(event: WheelEvent) {
-  if (props.orientation !== "horizontal") return;
   const scroller = scrollerRef.value;
   if (!scroller) return;
+
+  // 1. 若配置了独立隔离滚动，阻止事件冒泡到外层祖先容器
+  if (props.isolateScroll) {
+    event.stopPropagation();
+  }
+
+  // 2. 仅横向滚动区需要做普通滚轮到 scrollLeft 的映射
+  if (props.orientation !== "horizontal") return;
 
   const maxScrollLeft = Math.max(scroller.scrollWidth - scroller.clientWidth, 0);
   if (maxScrollLeft <= 0) return;
 
+  // 若事件来源于能够垂直滚动的子元素内部，且用户未按 Shift 或非主横向手势，
+  // 必须将垂直滚轮完整留给子容器，坚决不转化为当前横向容器的滚动
+  const isTargetInVerticalScroller = isChildVerticallyScrollable(event.target, scroller);
+  if (isTargetInVerticalScroller && !event.shiftKey && Math.abs(event.deltaY) >= Math.abs(event.deltaX)) {
+    return;
+  }
+
   const unit = wheelDeltaUnit(event, scroller);
   const deltaX = event.deltaX * unit;
   const deltaY = event.deltaY * unit;
-  const delta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+  const delta = Math.abs(deltaX) > Math.abs(deltaY)
+    ? deltaX
+    : (isTargetInVerticalScroller ? 0 : deltaY);
   if (!delta) return;
 
   const current = scroller.scrollLeft;
@@ -118,6 +156,7 @@ defineExpose({
 <style scoped>
 .overlay-scroll-area-scroller {
   scrollbar-width: none;
+  overscroll-behavior: contain;
 }
 
 .overlay-scroll-area-scroller::-webkit-scrollbar {

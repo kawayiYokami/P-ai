@@ -1,5 +1,5 @@
 export type ChatLeftPanelMode = "local" | "contact" | "task";
-export type ChatRightPanelMode = "home" | "reader" | "monitor" | "sideChat";
+export type ChatRightPanelMode = "home" | "reader" | "monitor" | "sideChat" | "teamMember" | "kanban";
 export type ChatMonitorPanelMode = "delegate" | "tasks" | "tools" | "fastRequests";
 export type ChatSidePanelSide = "left" | "right";
 export type ChatSidePanelWidths = { leftWidth: number; rightWidth: number };
@@ -35,7 +35,7 @@ export function normalizeChatLeftPanelMode(value: string): ChatLeftPanelMode {
 }
 
 export function normalizeChatRightPanelMode(value: string, fallback: ChatRightPanelMode = "home"): ChatRightPanelMode {
-  if (value === "home" || value === "reader" || value === "monitor" || value === "sideChat") return value;
+  if (value === "home" || value === "reader" || value === "monitor" || value === "sideChat" || value === "teamMember" || value === "kanban") return value;
   if (value === "delegate" || value === "tools" || value === "fastRequests" || value === "tasks" || value === "review") return "monitor";
   return fallback;
 }

@@ -30,6 +30,13 @@ import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 import { ensureConversationMessageIds } from "../utils/message-id";
 import { useChatWindowConfigOrchestrator } from "./use-chat-window-config-orchestrator";
 import { resolveSideChatSelectionAfterClose } from "./side-chat-tabs";
+import {
+  resolveSideConversationPanel,
+  resolveSideConversationToSelect,
+  sideConversationIdsOfPanel,
+  type SideConversationPanel,
+} from "./side-conversation-panel";
+import { loadStoredChatRightPanelMode } from "./chat-ui-layout-storage";
 import { useChatWindowPaneExpansion } from "./use-chat-window-pane-expansion";
 
 type ConversationActionsBridge = {
@@ -41,6 +48,7 @@ type ConversationActionsBridge = {
   sendChatFromCurrentWindow: (overrides?: { extraTextBlocks?: string[] }) => Promise<void>;
   deleteUnarchivedConversationFromArchives: (conversationId: string) => Promise<void>;
   applyConversationRuntimeStateUpdated: (payload: { conversationId: string; runtimeState: "idle" | "assistant_streaming" | "organizing_context" }) => void;
+  applyConversationProgressStateUpdated: (payload: { conversationId: string; progressState?: string; evidence?: string; evidenceUpdatedAt?: string }) => void;
 };
 
 export function useChatWindowApp() {
@@ -165,6 +173,7 @@ export function useChatWindowApp() {
     sendChatFromCurrentWindow: async () => {},
     deleteUnarchivedConversationFromArchives: async () => {},
     applyConversationRuntimeStateUpdated: () => {},
+    applyConversationProgressStateUpdated: () => {},
   };
   const refreshChatUnarchivedConversations = () => conversationActions.refreshChatUnarchivedConversations();
   const syncUnarchivedConversationOverviewChangedSinceWatermark = (reason?: string) =>
@@ -178,9 +187,12 @@ export function useChatWindowApp() {
   const deleteUnarchivedConversationFromArchives = (conversationId: string) => conversationActions.deleteUnarchivedConversationFromArchives(conversationId);
   const applyConversationRuntimeStateUpdated: ConversationActionsBridge["applyConversationRuntimeStateUpdated"] =
     (payload) => conversationActions.applyConversationRuntimeStateUpdated(payload);
+  const applyConversationProgressStateUpdated: ConversationActionsBridge["applyConversationProgressStateUpdated"] =
+    (payload) => conversationActions.applyConversationProgressStateUpdated(payload);
   const conversationApi = {
     bind: (actions: ConversationActionsBridge) => { conversationActions = actions; },
     applyConversationRuntimeStateUpdated,
+    applyConversationProgressStateUpdated,
   };
   let chatFlow: any = null;
   let pendingOwnMessageAlignConversationId = "";
@@ -726,7 +738,20 @@ export function useChatWindowApp() {
       const currentId = String(sideConversationId.value || "").trim();
       if (!parentChanged && childIds.includes(currentId)) return;
       const rememberedId = String(activeSideConversationByParent.get(parentId) || "").trim();
-      const nextId = childIds.includes(rememberedId) ? rememberedId : childIds[0] || "";
+      // 面板模式是按父会话记的：必须先读这个父会话自己的模式。
+      // 用当前（还是上一个会话的）模式去筛，父子切换那一次就会筛出空列表。
+      const parentPanelMode = loadStoredChatRightPanelMode("home", parentId);
+      const scopedPanel: SideConversationPanel | "" = parentPanelMode === "sideChat" || parentPanelMode === "teamMember"
+        ? parentPanelMode
+        : "";
+      const nextId = resolveSideConversationToSelect(
+        children.map((item) => ({
+          conversationId: String(item?.conversationId || "").trim(),
+          teamName: String(item?.teamName || "").trim(),
+        })),
+        rememberedId,
+        scopedPanel,
+      );
       sideConversationId.value = nextId;
       if (nextId) activeSideConversationByParent.set(parentId, nextId);
     },
@@ -851,7 +876,19 @@ export function useChatWindowApp() {
     const closingSet = new Set(idsToClose);
     const activeId = String(sideConversationId.value || "").trim();
     if (closingSet.has(activeId)) {
-      const nextId = resolveSideChatSelectionAfterClose(orderedIds, activeId, closingSet);
+      // 下一个选中只在「被关闭会话所属面板」里找：跨面板挑会把看不见那栏的会话静默激活，
+      // 顺手清掉它的未读。本面板关空了就留空，让该面板显示自己的空态。
+      const activeTeamName = sideConversations.value.find(
+        (item) => String(item.conversationId || "").trim() === activeId,
+      )?.teamName;
+      const scopedIds = sideConversationIdsOfPanel(
+        sideConversations.value.map((item) => ({
+          conversationId: String(item.conversationId || "").trim(),
+          teamName: String(item.teamName || "").trim(),
+        })),
+        resolveSideConversationPanel(activeTeamName),
+      );
+      const nextId = resolveSideChatSelectionAfterClose(scopedIds, activeId, closingSet);
       sideConversationId.value = nextId;
       const parentId = String(currentChatConversationId.value || "").trim();
       if (parentId) {

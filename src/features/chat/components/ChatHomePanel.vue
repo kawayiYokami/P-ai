@@ -1,7 +1,17 @@
 <template>
   <div class="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-base-200">
     <OverlayScrollArea class="relative min-h-0 flex-1" scroller-class="ecall-chat-scroll-container min-h-0 h-full p-4">
-      <div v-if="hasAnyCard" class="ecall-home-flow">
+      <HomeTileFlow v-if="hasAnyCard">
+        <HomeKanbanCard
+          v-if="kanbanVisible"
+          :issues="kanbanIssues"
+          :leader-name="leaderName"
+          :leader-avatar-url="leaderAvatarUrl"
+          :persona-name-map="personaNameMap"
+          :persona-avatar-url-map="personaAvatarUrlMap || teamMemberAvatarUrlMap"
+          :team-members="teamMembers"
+          @open="emit('openKanban')"
+        />
         <HomeEnvCard
           v-if="workspaceRootPath"
           :repo-root="gitRepoRoot || workspaceRootPath"
@@ -30,29 +40,20 @@
         />
         <HomeSideChatCreateCard
           v-if="sideChatEnabled"
-          @create="emit('createSideChat')"
+          @open="emit('openSideChatPanel')"
         />
-        <HomeTeamCard
+        <!-- 队员状态表：整块收在 HomeTeamMemberBlock 里，占格、行高、滚动高度都由它自己定
+             （demo 页渲染同一个组件，不再各抄一份样式）。点某一格打开该队员会话，走队员面板 -->
+        <HomeTeamMemberBlock
           v-if="teamVisible"
-          :member-count="teamMemberCount"
-          :recruit-enabled="teamRecruitEnabled"
-          @open="emit('openTeamManagement')"
+          :members="teamMembers"
+          :avatar-url-map="teamMemberAvatarUrlMap"
+          @select-member="emit('openTeamMember', $event)"
         />
         <HomeToolCard
           v-if="activeToolBatches.length"
           :batches="activeToolBatches"
           @open="emit('openMonitorTab', 'tools')"
-        />
-        <HomeSideChatCard
-          v-for="item in sideChats"
-          :key="`side-chat-${item.id}`"
-          :title="item.title"
-          :label="item.label"
-          :avatar-src="item.avatarSrc"
-          :busy="!!item.busy"
-          :unread-count="Number(item.unreadCount || 0)"
-          :has-error="!!(item as { hasError?: boolean }).hasError"
-          @open="emit('openSideChat', item.id)"
         />
         <HomeShellCard
           v-for="shell in runningShells"
@@ -99,7 +100,7 @@
           @open="emit('openFile', file.path)"
           @close="emit('closeFile', file.path)"
         />
-      </div>
+      </HomeTileFlow>
       <div v-else class="flex h-full flex-col items-center justify-center p-6 text-center">
         <div class="max-w-xs space-y-3">
           <div class="mx-auto flex size-12 items-center justify-center rounded-2xl bg-base-300/40 text-base-content/50">
@@ -135,14 +136,16 @@ import type { BackgroundShellTaskSummary, ConversationDelegateStatusSummary, She
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review";
 import type { ChatMonitorPanelMode } from "../composables/chat-ui-layout-storage";
+import type { KanbanIssue } from "../composables/use-kanban-board";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import HomeEnvCard from "./chat-home/HomeEnvCard.vue";
+import HomeKanbanCard from "./chat-home/HomeKanbanCard.vue";
 import HomeFileCard from "./chat-home/HomeFileCard.vue";
 import HomeWorkspaceCard from "./chat-home/HomeWorkspaceCard.vue";
 import HomeSideChatCreateCard from "./chat-home/HomeSideChatCreateCard.vue";
-import HomeTeamCard from "./chat-home/HomeTeamCard.vue";
+import HomeTileFlow from "./chat-home/HomeTileFlow.vue";
+import HomeTeamMemberBlock from "./chat-home/HomeTeamMemberBlock.vue";
 import HomeToolCard from "./chat-home/HomeToolCard.vue";
-import HomeSideChatCard from "./chat-home/HomeSideChatCard.vue";
 import HomeShellCard from "./chat-home/HomeShellCard.vue";
 import HomeDelegateCard from "./chat-home/HomeDelegateCard.vue";
 import HomeTaskCard from "./chat-home/HomeTaskCard.vue";
@@ -164,19 +167,38 @@ const props = withDefaults(defineProps<{
   /** 已打开文件，path 为绝对路径，label 仅用于展示 */
   openFiles?: Array<{ path: string; label: string }>;
   activePath?: string;
-  /** 当前打开的追问会话 */
-  sideChats?: Array<{ id: string; title: string; label?: string; avatarSrc?: string; busy?: boolean; unreadCount?: number; hasError?: boolean }>;
-  /** 追问能力是否可用；不可用时首页不出现「新建追问」入口卡 */
+  /** 追问能力是否可用；不可用时首页不出现「追问」入口磁贴 */
   sideChatEnabled?: boolean;
-  /** 队伍管理入口是否可见；主页磁贴那打开队伍管理页 */
+  /** 队伍状态表是否可见；只有能拥有名册的会话（chat / 远程私聊）才显示 */
   teamVisible?: boolean;
-  teamMemberCount?: number;
-  teamRecruitEnabled?: boolean;
+  /** 队员状态表数据：字段形状对齐队员磁贴 */
+  teamMembers?: Array<{
+    conversationId: string;
+    title: string;
+    teamName?: string;
+    agentId?: string;
+    agentName?: string;
+    progressState?: string;
+    /** 他手上在办的那条议题；没有就退回 memberState */
+    activeIssue?: { number: number; title: string; status: string };
+    /** 运行时三态：busy / idle / error */
+    memberState?: string;
+  }>;
+  /** 队员磁贴的头像来源：按 agentId 查 */
+  teamMemberAvatarUrlMap?: Record<string, string>;
+  leaderName?: string;
+  leaderAvatarUrl?: string;
+  personaNameMap?: Record<string, string>;
+  personaAvatarUrlMap?: Record<string, string>;
   delegates?: ConversationDelegateStatusSummary[];
   runningTasks?: TaskEntry[];
   shells?: BackgroundShellTaskSummary[];
   /** 工具评审批次；只传有工具调用的批次（由 ChatHomePanel 过滤） */
   toolBatches?: ToolReviewBatchSummary[];
+  /** 议题看板磁贴是否可见；只有本地主会话才有看板 */
+  kanbanVisible?: boolean;
+  /** 看板数据与看板页同源，磁贴只截取需要用户参与的四类 */
+  kanbanIssues?: KanbanIssue[];
 }>(), {
   conversationId: "",
   latestPlan: null,
@@ -190,24 +212,30 @@ const props = withDefaults(defineProps<{
   recentCommits: () => [],
   openFiles: () => [],
   activePath: "",
-  sideChats: () => [],
   sideChatEnabled: false,
   teamVisible: false,
-  teamMemberCount: 0,
-  teamRecruitEnabled: false,
+  teamMembers: () => [],
+  teamMemberAvatarUrlMap: () => ({}),
+  leaderName: "",
+  leaderAvatarUrl: "",
+  personaNameMap: () => ({}),
+  personaAvatarUrlMap: () => ({}),
   delegates: () => [],
   runningTasks: () => [],
   shells: () => [],
   toolBatches: () => [],
+  kanbanVisible: false,
+  kanbanIssues: () => [],
 });
 
 const emit = defineEmits<{
   (e: "selectPanel", value: "reader" | "monitor" | "sideChat"): void;
   (e: "openFile", path: string): void;
   (e: "closeFile", path: string): void;
-  (e: "openSideChat", conversationId: string): void;
-  (e: "createSideChat"): void;
-  (e: "openTeamManagement"): void;
+  /** 追问入口磁贴：只切面板，新建留在追问面板里 */
+  (e: "openSideChatPanel"): void;
+  /** 队员状态表点某一格：打开该队员会话（切队员面板 + 激活会话） */
+  (e: "openTeamMember", conversationId: string): void;
   (e: "openWorkspace", path?: string): void;
   (e: "openGitChanges"): void;
   (e: "openGitCommits"): void;
@@ -215,6 +243,7 @@ const emit = defineEmits<{
   (e: "gitError", message: string): void;
   (e: "openMonitorTab", value: ChatMonitorPanelMode): void;
   (e: "interruptShell", taskId: string): void;
+  (e: "openKanban"): void;
 }>();
 
 const { t } = useI18n();
@@ -262,8 +291,8 @@ const hasAnyCard = computed(
     || Boolean(props.latestPlan)
     || props.sideChatEnabled
     || Boolean(props.teamVisible)
+    || Boolean(props.kanbanVisible)
     || props.openFiles.length > 0
-    || props.sideChats.length > 0
     || runningShells.value.length > 0
     || runningDelegates.value.length > 0
     || props.runningTasks.length > 0
@@ -304,45 +333,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* 固定网格：列宽固定、宽卡跨两格，同一行的卡片自动等高 */
-.ecall-home-flow {
-  --ecall-home-tile: 8.75rem;
-  /* 卡片间距与圆角（--radius-box: 1rem）对齐 */
-  --ecall-home-gap: 1rem;
-  container-type: inline-size;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--ecall-home-tile), 1fr));
-  grid-auto-flow: dense;
-  gap: var(--ecall-home-gap);
-  align-content: start;
-}
-
-/* 窄容器下（如侧边栏单列时），宽卡自适应退化为单列，防止横向撑裂 */
-@container (max-width: 320px) {
-  :deep(.ecall-home-card-wide) {
-    grid-column: span 1 !important;
-  }
-}
-
-.ecall-home-flow > * {
-  animation: ecall-home-card-enter 220ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-@keyframes ecall-home-card-enter {
-  from {
-    opacity: 0;
-    transform: scale(0.94);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ecall-home-flow > * {
-    animation: none;
-  }
-}
-
+/* 磁贴墙的网格参数与队员状态表的占格/行高都收在 chat-home/HomeTileFlow.vue 与
+   chat-home/HomeTeamMemberBlock.vue 里：宿主只决定放哪些卡，不再持有这些布局常量，
+   否则 demo 页要复现同一套样式只能抄一份，一改就两边不一致。 */
 </style>
+
