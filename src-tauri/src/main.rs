@@ -108,7 +108,9 @@ include!("features/skill.rs");
 include!("features/catalog.rs");
 include!("features/goal.rs");
 include!("features/task.rs");
+include!("features/question.rs");
 include!("features/delegate.rs");
+include!("features/kanban.rs");
 include!("features/monitor_events.rs");
 
 include!("features/system/commands.rs");
@@ -1445,7 +1447,7 @@ fn main() {
             record_conversation_workspace_branch,
             mark_conversation_read,
             set_conversation_plan_mode,
-            set_conversation_team_mode,
+            reset_draft_team_members,
             team_recruit_conversation,
             set_conversation_wheelchair_mode,
             dismiss_conversation_wheelchair_suggestion,
@@ -1680,6 +1682,10 @@ fn main() {
             task_complete_task,
             task_delete_task,
             task_list_run_logs,
+            kanban::kanban_get_board,
+            kanban::kanban_approve_issue,
+            question_list,
+            question_answer,
             goal_get_current,
             goal_create_goal,
             goal_cancel_goal,

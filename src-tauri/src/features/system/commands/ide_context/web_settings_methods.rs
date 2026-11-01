@@ -248,6 +248,22 @@ fn ide_chat_task_list_tasks_for_web_settings(state: &AppState) -> Result<Value, 
     ide_chat_serialize(task_list_tasks_inner(state)?)
 }
 
+fn ide_chat_kanban_get_board_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<kanban::KanbanBoardRequest>(params, "input")?;
+    ide_chat_serialize(kanban::kanban_get_board_inner(input, state)?)
+}
+
+fn ide_chat_kanban_approve_issue_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<kanban::KanbanApproveIssueRequest>(params, "input")?;
+    ide_chat_serialize(kanban::kanban_approve_issue_inner(input, state)?)
+}
+
 fn ide_chat_task_get_task_for_web_settings(
     state: &AppState,
     params: Value,
@@ -294,6 +310,31 @@ fn ide_chat_task_list_run_logs_for_web_settings(
 ) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<TaskRunLogListInput>(params, "input")?;
     ide_chat_serialize(task_list_run_logs_inner(Some(input), state)?)
+}
+
+/// 会话问题列表：Web/IDE 与桌面端走同一个后端读取。
+fn ide_chat_question_list_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<QuestionListWebParams>(params, "input")?;
+    ide_chat_serialize(question_views_for_conversation(
+        state,
+        &input.conversation_id,
+    )?)
+}
+
+/// 会话问题作答：Web/IDE 与桌面端走同一条命令实现，删题与入队在同一事务内完成。
+fn ide_chat_question_answer_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<QuestionAnswerWebParams>(params, "input")?;
+    ide_chat_serialize(question_answer_inner(
+        state,
+        &input.conversation_id,
+        input.answers,
+    )?)
 }
 
 async fn ide_chat_task_optimize_draft_for_web_settings(

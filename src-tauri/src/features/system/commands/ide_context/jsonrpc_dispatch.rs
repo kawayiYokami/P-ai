@@ -145,6 +145,9 @@ async fn ide_chat_handle_jsonrpc_request(
         "conversation.streamProbe" => ide_chat_stream_probe(request.params, client_id, opened_conversation_id),
         "conversation.freshnessSnapshot" => ide_chat_conversation_freshness_snapshot(state, request.params).await,
         "conversation.markRead" => ide_chat_mark_conversation_read(state, request.params).await,
+        "conversation.resetDraftTeamMembers" => {
+            ide_chat_reset_draft_team_members_command(state, request.params)
+        }
         "conversation.messageById" => ide_chat_conversation_message_by_id_command(state, request.params).await,
         "conversation.toolResultContent" => ide_chat_tool_result_content_command(state, request.params).await,
         "conversation.messagesBefore" => ide_chat_conversation_messages_before_command(state, request.params).await,
@@ -349,7 +352,6 @@ async fn ide_chat_handle_jsonrpc_request(
         }
         "terminalApproval.list" => ide_chat_list_pending_terminal_approvals(state),
         "conversation.planMode.set" => ide_chat_set_conversation_plan_mode(state, request.params),
-        "conversation.teamMode.set" => ide_chat_set_conversation_team_mode(state, request.params),
         "conversation.teamRecruit" => ide_chat_team_recruit(state, request.params).await,
         "conversation.wheelchairMode.set" => {
             ide_chat_set_conversation_wheelchair_mode(state, request.params)
@@ -546,12 +548,16 @@ async fn ide_chat_handle_jsonrpc_request(
         "preview_import_angel_memories" => ide_chat_preview_import_angel_memories_for_web_settings(request.params),
         "import_angel_memories" => ide_chat_import_angel_memories_for_web_settings(state, request.params),
         "task_list_tasks" => ide_chat_task_list_tasks_for_web_settings(state),
+        "kanban_get_board" => ide_chat_kanban_get_board_for_web_settings(state, request.params),
+        "kanban_approve_issue" => ide_chat_kanban_approve_issue_for_web_settings(state, request.params),
         "task_get_task" => ide_chat_task_get_task_for_web_settings(state, request.params),
         "task_create_task" => ide_chat_task_create_task_for_web_settings(state, request.params),
         "task_update_task" => ide_chat_task_update_task_for_web_settings(state, request.params),
         "task_complete_task" => ide_chat_task_complete_task_for_web_settings(state, request.params),
         "task_delete_task" => ide_chat_task_delete_task_for_web_settings(state, request.params),
         "task_list_run_logs" => ide_chat_task_list_run_logs_for_web_settings(state, request.params),
+        "question_list" => ide_chat_question_list_for_web_settings(state, request.params),
+        "question_answer" => ide_chat_question_answer_for_web_settings(state, request.params),
         "task_optimize_draft" => ide_chat_task_optimize_draft_for_web_settings(state, request.params).await,
         "mcp_list_servers" => ide_chat_mcp_list_servers_for_web_settings(state),
         "mcp_validate_definition" => ide_chat_mcp_validate_definition_for_web_settings(request.params),

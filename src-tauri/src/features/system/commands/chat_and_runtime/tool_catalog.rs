@@ -113,6 +113,13 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
+            BuiltinProgressTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
             BuiltinCreateGoalTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
@@ -162,14 +169,21 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            BuiltinTeamDismissTool {
+            BuiltinTeamSendTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
             }
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            BuiltinTeamSendTool {
+            BuiltinTeamReadTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
+            BuiltinTeamShareModelTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
             }
@@ -505,7 +519,7 @@ mod tool_catalog_tests {
             .map(|item| item.name.as_str())
             .collect::<std::collections::HashSet<_>>();
 
-        for hidden_name in ["todo", "plan", "task", "create_goal", "update_goal", "get_session", "inform_session"] {
+        for hidden_name in ["todo", "progress", "plan", "task", "create_goal", "update_goal", "get_session", "inform_session"] {
             assert!(
                 !builtin_names.contains(hidden_name),
                 "permission catalog should hide fixed session tool {hidden_name}"

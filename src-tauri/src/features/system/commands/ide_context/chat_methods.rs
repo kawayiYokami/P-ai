@@ -216,6 +216,20 @@ async fn ide_chat_mark_conversation_read_command(
     ide_chat_mark_conversation_read(state, ide_chat_serialize(input)?).await
 }
 
+/// 清草稿会话里的队员预选元数据（纯本地状态，Web 端走同一后端转发）。
+fn ide_chat_reset_draft_team_members_command(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<ResetDraftTeamMembersInput>(params, "input")?;
+    let conversation_id = input.conversation_id.trim().to_string();
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空".to_string());
+    }
+    reset_draft_team_state(state, &conversation_id)?;
+    Ok(serde_json::json!({}))
+}
+
 async fn ide_chat_conversation_message_by_id_command(
     state: &AppState,
     params: Value,
@@ -1021,11 +1035,6 @@ fn ide_chat_approve_terminal_approval_for_workspace(
 fn ide_chat_set_conversation_plan_mode(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<SetConversationPlanModeInput>(params)?;
     ide_chat_serialize(set_conversation_plan_mode_inner(input, state)?)
-}
-
-fn ide_chat_set_conversation_team_mode(state: &AppState, params: Value) -> Result<Value, String> {
-    let input = ide_chat_parse_params::<SetConversationTeamModeInput>(params)?;
-    ide_chat_serialize(set_conversation_team_mode_inner(input, state)?)
 }
 
 async fn ide_chat_team_recruit(state: &AppState, params: Value) -> Result<Value, String> {
