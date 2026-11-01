@@ -544,6 +544,9 @@ fn chat_history_collect_slices_for_state(
             team: conversation_meta.team.clone(),
             loaded_mcp_tools: Vec::new(),
             last_error: conversation_meta.last_error.clone(),
+            progress_state: conversation_meta.progress_state.clone(),
+            evidence: conversation_meta.evidence.clone(),
+            evidence_updated_at: conversation_meta.evidence_updated_at.clone(),
         };
         let (segments, skipped_live_blocks) =
             chat_history_segments_from_message_store(&state.data_path, &conversation)?;

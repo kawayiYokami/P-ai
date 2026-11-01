@@ -942,6 +942,9 @@ fn preserve_field_level_conversation_metadata(
     target.status = source.status.clone();
     target.archived_at = source.archived_at.clone();
     target.current_todos = source.current_todos.clone();
+    target.progress_state = source.progress_state.clone();
+    target.evidence = source.evidence.clone();
+    target.evidence_updated_at = source.evidence_updated_at.clone();
     target.user_profile_snapshot = source.user_profile_snapshot.clone();
     target.memory_recall_table = source.memory_recall_table.clone();
     target.plan_mode_enabled = source.plan_mode_enabled;

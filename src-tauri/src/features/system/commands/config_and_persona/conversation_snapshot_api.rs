@@ -47,6 +47,9 @@ struct UnarchivedConversationSummary {
     body_text_length: usize,
     has_assistant_reply: bool,
     unread_count: usize,
+    /// 会话问题队列里待用户回答的条数；0 表示没有待定问题，界面不显示提醒。
+    #[serde(default)]
+    question_count: usize,
     agent_id: String,
     #[serde(default)]
     conversation_kind: String,
@@ -76,6 +79,13 @@ struct UnarchivedConversationSummary {
     current_todo: Option<String>,
     #[serde(default)]
     plan_mode_enabled: bool,
+    /// 会话状态（六态 key），空串=未设置；随 evidence 一起下发 UI 渲染状态圆点。
+    #[serde(default)]
+    progress_state: String,
+    #[serde(default)]
+    evidence: String,
+    #[serde(default)]
+    evidence_updated_at: String,
     #[serde(default)]
     wheelchair_mode_enabled: bool,
     /// 待用户处理的护航建议。只有用户点选项或直接发言才会清空，切换会话不清。
@@ -106,11 +116,18 @@ struct ChildConversationSummary {
     /// 该追问会话自己的执行人格；侧边面板据此显示人格名与头像，不再回落到主会话。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     agent_id: String,
-    /// 队员身份标记：在队时带上编号与名字，普通追问为空。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    team_number: Option<u32>,
+    /// 队员身份标记：在队时是它的角色（人格名），普通追问为空。
+    /// 编号只在库里当主键，不随会话下发。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     team_name: Option<String>,
+    /// 这名队员名下此刻在办的那条议题。没有议题、或只有已完成 / 已关闭时为空。
+    /// 按角色在该队看板里查，不用前端自己拿角色名去匹配议题。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    active_issue: Option<crate::kanban::KanbanActiveIssueSummary>,
+    /// 队员此刻在不在跑：busy / idle / error。与议题状态是两个维度，不合并。
+    /// 只在队员会话上有值；磁贴在名下没有在办议题时显示它。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    member_state: Option<String>,
     /// 磁贴直显基线：未读数、运行态、轮次错误，后端持久化，前端打开即清零。
     #[serde(default)]
     unread_count: usize,
@@ -118,6 +135,13 @@ struct ChildConversationSummary {
     runtime_state: Option<MainSessionState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_error: Option<String>,
+    /// 追问会话自己的会话状态：独立于父会话，不继承（见 mutations.rs 分支构建处注释）。
+    #[serde(default)]
+    progress_state: String,
+    #[serde(default)]
+    evidence: String,
+    #[serde(default)]
+    evidence_updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -545,6 +569,7 @@ fn build_unarchived_conversation_summary_from_meta_view(
     pinned_conversation_ids: &[String],
     conversation_meta: &ConversationMetaView,
     current_viewer_id: Option<&str>,
+    question_count: usize,
 ) -> UnarchivedConversationSummary {
     let conversation_id = conversation_meta.id.trim();
     let is_system_notification_conversation = conversation_id == main_conversation_id
@@ -573,6 +598,11 @@ fn build_unarchived_conversation_summary_from_meta_view(
     );
     let (workspace_label, workspace_root_path) =
         conversation_default_workspace_summary_from_meta_view(state, conversation_meta);
+    // 一块看板只查一次：同队多名队员共用这份结果，不在每个队员身上各开一次库。
+    let mut kanban_active_issue_cache: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, crate::kanban::KanbanActiveIssueSummary>,
+    > = std::collections::HashMap::new();
     let child_conversations = conversation_meta
         .child_conversation_ids
         .iter()
@@ -583,6 +613,23 @@ fn build_unarchived_conversation_summary_from_meta_view(
         })
         .map(|child| {
             let membership = child.team.membership.as_ref();
+            let team_name =
+                membership.map(|entry| strip_legacy_member_number_prefix(&entry.name));
+            let active_issue = membership.and_then(|entry| {
+                let leader = entry.leader_conversation_id.trim().to_string();
+                let role = team_name.as_deref().unwrap_or_default().trim().to_string();
+                if leader.is_empty() || role.is_empty() {
+                    return None;
+                }
+                kanban_active_issue_cache
+                    .entry(leader.clone())
+                    .or_insert_with(|| crate::kanban::kanban_active_issues_by_role(state, &leader))
+                    .get(&role)
+                    .cloned()
+            });
+            // 复用队伍工具那侧的判定（运行态 + 待处理队列 + 活动标记），
+            // 不在概览项里重写一套「忙不忙」的规则。
+            let member_state = membership.map(|_| team_member_state(state, &child.id).0);
             ChildConversationSummary {
                 conversation_id: child.id.clone(),
                 title: child.title.clone(),
@@ -591,11 +638,15 @@ fn build_unarchived_conversation_summary_from_meta_view(
                 parent_conversation_id: child.parent_conversation_id.clone(),
                 updated_at: child.updated_at.clone(),
                 agent_id: child.agent_id.clone(),
-                team_number: membership.map(|entry| entry.number),
-                team_name: membership.map(|entry| entry.name.clone()),
+                team_name,
+                active_issue,
+                member_state,
                 unread_count: child.unread_count,
                 runtime_state: unarchived_conversation_runtime_state(state, &child.id),
                 last_error: child.last_error.clone(),
+                progress_state: child.progress_state.clone(),
+                evidence: child.evidence.clone(),
+                evidence_updated_at: child.evidence_updated_at.clone(),
             }
         })
         .collect::<Vec<_>>();
@@ -610,6 +661,7 @@ fn build_unarchived_conversation_summary_from_meta_view(
         body_text_length: conversation_meta.body_text_length,
         has_assistant_reply: conversation_meta.has_assistant_reply,
         unread_count,
+        question_count,
         agent_id: conversation_meta.agent_id.clone(),
         conversation_kind: conversation_meta.conversation_kind.clone(),
         child_conversation_ids: conversation_meta.child_conversation_ids.clone(),
@@ -641,6 +693,9 @@ fn build_unarchived_conversation_summary_from_meta_view(
             .unwrap_or(None),
         auto_push_remote_contact_id: conversation_meta.auto_push_remote_contact_id.clone(),
         last_error: conversation_meta.last_error.clone(),
+        progress_state: conversation_meta.progress_state.clone(),
+        evidence: conversation_meta.evidence.clone(),
+        evidence_updated_at: conversation_meta.evidence_updated_at.clone(),
         detached_window_open: detached_window_label.is_some(),
         detached_window_label,
         state: item_state,
@@ -1296,20 +1351,8 @@ struct SetConversationPlanModeOutput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SetConversationTeamModeInput {
+struct ResetDraftTeamMembersInput {
     conversation_id: String,
-    team_enabled: bool,
-    /// 新建会话时预选的队员人格（不含队长），按顺序创建队员
-    #[serde(default)]
-    member_agent_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SetConversationTeamModeOutput {
-    conversation_id: String,
-    team_enabled: bool,
-    member_agent_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1324,8 +1367,8 @@ struct TeamRecruitConversationInput {
 struct TeamRecruitConversationOutput {
     conversation_id: String,
     parent_conversation_id: String,
-    number: u32,
-    name: String,
+    /// 队员的角色（人格名）。编号只在内部当主键，不对外。
+    role: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1413,6 +1456,20 @@ struct ConversationPinUpdatedPayload {
 struct ConversationRuntimeStateUpdatedPayload {
     conversation_id: String,
     runtime_state: MainSessionState,
+}
+
+/// 会话状态（六态）独立事件载荷：与 todo 的 todosUpdated 同级，
+/// 追问会话（side_chat）不走 overview 广播，依赖本事件独立下发。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationProgressStateUpdatedPayload {
+    conversation_id: String,
+    #[serde(default)]
+    progress_state: String,
+    #[serde(default)]
+    evidence: String,
+    #[serde(default)]
+    evidence_updated_at: String,
 }
 
 fn emit_unarchived_conversation_overview_updated_payload(
@@ -1512,6 +1569,91 @@ fn emit_conversation_todos_updated_payload(
     if let Err(err) = app_handle.emit("easy-call:conversation-todos-updated", payload) {
         runtime_log_error(format!("[Todo] 推送失败：错误={}", err));
     }
+}
+
+/// 会话状态事件双发：桌面端 emit + IDE/Web 广播。
+/// 不照 core_send_inner.rs 的 conversation_work_status 单发反例——单发会漏 Web 端。
+fn emit_conversation_progress_state_updated_payload(
+    state: &AppState,
+    payload: &ConversationProgressStateUpdatedPayload,
+) {
+    ide_chat_broadcast_notification(
+        "conversation.progressStateUpdated",
+        serde_json::json!(payload),
+    );
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(err) => {
+            runtime_log_error(format!(
+                "[会话状态] 获取 app_handle 失败：锁已损坏，error={:?}",
+                err
+            ));
+            None
+        }
+    };
+    let Some(app_handle) = app_handle else {
+        runtime_log_warn("[会话状态] 推送跳过：无法获取 app_handle".to_string());
+        return;
+    };
+    if let Err(err) = app_handle.emit(
+        "easy-call:conversation-progress-state-updated",
+        payload,
+    ) {
+        runtime_log_error(format!("[会话状态] 推送失败：错误={}", err));
+    }
+}
+
+/// 会话状态写入 + 双发事件，带 R3/R4 防抖：
+/// 状态与证据都没变 → 不落盘、不发事件（返回 changed=false）；
+/// evidence 变化视为变化，会落盘并发事件（evidence_updated_at 随之刷新）。
+/// 返回 Ok(true)=已落盘并发事件，Ok(false)=防抖跳过。
+fn update_conversation_progress_state_and_emit(
+    state: &AppState,
+    conversation_id: &str,
+    progress_state: &str,
+    evidence: &str,
+) -> Result<bool, String> {
+    let cid = conversation_id.trim();
+    if cid.is_empty() {
+        return Err("会话状态写入缺少 conversation_id".to_string());
+    }
+    let existing = conversation_service_v2()
+        .get_conversation_meta(state, cid)
+        .map_err(|err| format!("未找到会话，conversation_id={cid}：{err}"))?;
+    // 防抖比较口径：progress_state 与 evidence 二元组完全一致才算未变；
+    // evidence_updated_at 不参与比较（它只在变化时刷新）。
+    if existing.progress_state.trim() == progress_state.trim()
+        && existing.evidence.trim() == evidence.trim()
+    {
+        return Ok(false);
+    }
+    let evidence_updated_at = now_iso();
+    conversation_service_v2().set_progress_state(
+        state,
+        cid,
+        progress_state.to_string(),
+        evidence.to_string(),
+        evidence_updated_at.clone(),
+    )?;
+    emit_conversation_progress_state_updated_payload(
+        state,
+        &ConversationProgressStateUpdatedPayload {
+            conversation_id: cid.to_string(),
+            progress_state: progress_state.to_string(),
+            evidence: evidence.to_string(),
+            evidence_updated_at,
+        },
+    );
+    // chat 会话同步刷新概览列表项；side_chat 在该函数内部被识别后直接返回，
+    // 不会把追问会话 push 进前台列表（见 emit_..._from_state 内注释）。
+    // 刷新是附带动作：落盘与事件已是主路径，此处失败只记日志，
+    // 不得把错误抛回模型造成「报了错但其实成功」的反向不一致。
+    if let Err(err) = emit_unarchived_conversation_overview_item_updated_from_state(state, cid) {
+        runtime_log_warn(format!(
+            "[会话状态] 概览项刷新失败，已跳过，conversation_id={cid}，error={err}"
+        ));
+    }
+    Ok(true)
 }
 
 fn emit_conversation_pin_updated_payload(
@@ -1691,6 +1833,7 @@ mod conversation_snapshot_api_tests {
             body_text_length: 0,
             has_assistant_reply: true,
             unread_count: 0,
+            question_count: 0,
             auto_push_remote_contact_id: None,
             last_error: None,
             agent_id: "agent-a".to_string(),
@@ -1726,6 +1869,9 @@ mod conversation_snapshot_api_tests {
             },
             preview_messages: Vec::new(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         }
     }
 

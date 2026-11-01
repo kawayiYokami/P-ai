@@ -2341,6 +2341,9 @@ fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() 
         active_goal: None, team: TeamState::default(), last_error: None,
         cumulative_usage: ConversationCumulativeUsage::default(),
         is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
     };
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write fixture");
@@ -3350,6 +3353,9 @@ fn v3_chat_metadata_migration_should_import_v2_metadata_without_removing_v2_file
         shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
     };
     conversation.messages.push(ChatMessage {
         id: "migrate-message".to_string(),
@@ -3558,6 +3564,9 @@ fn v3_chat_metadata_migration_should_skip_building_conversation_without_writing_
         shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
     };
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
@@ -3606,6 +3615,9 @@ fn v3_chat_metadata_block_reader_should_stop_at_block_boundary() {
         messages: vec![message("old", "user"), compaction, message("current-1", "user"), message("current-2", "assistant")],
         fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, team: TeamState::default(), last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
         is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
     };
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
@@ -3651,6 +3663,9 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
         shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
     };
     conversation.messages.push(message("m1", "user"));
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
@@ -3728,6 +3743,9 @@ fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
         shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
     };
     conversation.messages.push(message("m1", "user"));
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
@@ -3784,6 +3802,9 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
         shell_worktree_path: String::new(),
         shell_recorded_branch: String::new(),
         is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
     };
     let message = |id: &str, role: &str| ChatMessage {
         id: id.to_string(), role: role.to_string(), created_at: now_iso(), speaker_agent_id: None,
@@ -4002,6 +4023,9 @@ fn v3_chat_metadata_snapshot_should_wait_for_same_conversation_writer() {
         active_goal: None, team: TeamState::default(), last_error: None,
         cumulative_usage: ConversationCumulativeUsage::default(),
         is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
     };
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     let (writer_entered_tx, writer_entered_rx) = std::sync::mpsc::channel();

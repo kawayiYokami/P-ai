@@ -400,6 +400,9 @@ mod migration_v4_tests {
             auto_push_remote_contact_id: None,
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         }
     }
 

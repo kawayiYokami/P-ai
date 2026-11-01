@@ -52,6 +52,12 @@ pub(super) struct ConversationPersistMeta {
     last_message_at: Option<String>,
     #[serde(default)]
     last_error: Option<String>,
+    #[serde(default)]
+    progress_state: String,
+    #[serde(default)]
+    evidence: String,
+    #[serde(default)]
+    evidence_updated_at: String,
     message_count: usize,
     body_message_count: usize,
     body_text_length: usize,
@@ -203,8 +209,9 @@ pub(super) struct ConversationShardMeta {
     cumulative_usage: ConversationCumulativeUsage,
     #[serde(default)]
     active_goal: Option<ConversationGoalState>,
+    /// 会话级队伍状态；联系人会话摘要需要读取名册，故对本 crate 开放。
     #[serde(default)]
-    team: TeamState,
+    pub(crate) team: TeamState,
     #[serde(default)]
     loaded_mcp_tools: Vec<String>,
     #[serde(default)]
@@ -215,6 +222,12 @@ pub(super) struct ConversationShardMeta {
     last_message_at: Option<String>,
     #[serde(default)]
     last_error: Option<String>,
+    #[serde(default)]
+    progress_state: String,
+    #[serde(default)]
+    evidence: String,
+    #[serde(default)]
+    evidence_updated_at: String,
     #[serde(default)]
     message_count: usize,
     #[serde(default)]
@@ -401,6 +414,18 @@ impl ConversationShardMeta {
         self.last_error.as_deref()
     }
 
+    pub(super) fn progress_state(&self) -> &str {
+        self.progress_state.as_str()
+    }
+
+    pub(super) fn evidence(&self) -> &str {
+        self.evidence.as_str()
+    }
+
+    pub(super) fn evidence_updated_at(&self) -> &str {
+        self.evidence_updated_at.as_str()
+    }
+
     pub(super) fn created_at(&self) -> &str {
         self.created_at.as_str()
     }
@@ -534,6 +559,9 @@ impl ConversationShardMeta {
         target.loaded_mcp_tools = self.loaded_mcp_tools.clone();
         target.fast_request_turns = self.fast_request_turns.clone();
         target.last_error = self.last_error.clone();
+        target.progress_state = self.progress_state.clone();
+        target.evidence = self.evidence.clone();
+        target.evidence_updated_at = self.evidence_updated_at.clone();
     }
 
     pub(super) fn apply_metadata_fields_from_conversation(&mut self, source: &Conversation) {
@@ -573,6 +601,9 @@ impl ConversationShardMeta {
         self.loaded_mcp_tools = source.loaded_mcp_tools.clone();
         self.fast_request_turns = source.fast_request_turns.clone();
         self.last_error = source.last_error.clone();
+        self.progress_state = source.progress_state.clone();
+        self.evidence = source.evidence.clone();
+        self.evidence_updated_at = source.evidence_updated_at.clone();
     }
 
     pub(super) fn apply_metadata_fields_from_meta(&mut self, source: &ConversationShardMeta) {
@@ -611,6 +642,9 @@ impl ConversationShardMeta {
         self.team = source.team.clone();
         self.loaded_mcp_tools = source.loaded_mcp_tools.clone();
         self.last_error = source.last_error.clone();
+        self.progress_state = source.progress_state.clone();
+        self.evidence = source.evidence.clone();
+        self.evidence_updated_at = source.evidence_updated_at.clone();
     }
 
     pub(super) fn apply_metadata_fields_from_meta_view(&mut self, source: &ConversationMetaView) {
@@ -646,6 +680,9 @@ impl ConversationShardMeta {
         self.active_goal = source.active_goal.clone();
         self.team = source.team.clone();
         self.last_error = source.last_error.clone();
+        self.progress_state = source.progress_state.clone();
+        self.evidence = source.evidence.clone();
+        self.evidence_updated_at = source.evidence_updated_at.clone();
     }
 
     pub(super) fn preserve_message_derived_fields_from(&mut self, source: &ConversationShardMeta) {
@@ -925,6 +962,9 @@ impl ConversationShardMeta {
             loaded_mcp_tools: conversation.loaded_mcp_tools.clone(),
             fast_request_turns: conversation.fast_request_turns.clone(),
             last_error: conversation.last_error.clone(),
+            progress_state: conversation.progress_state.clone(),
+            evidence: conversation.evidence.clone(),
+            evidence_updated_at: conversation.evidence_updated_at.clone(),
             last_message_id: conversation.messages.last().map(|message| message.id.clone()),
             last_message_at: conversation.messages.last().map(|message| message.created_at.clone()),
             message_count: conversation.messages.len(),
@@ -1028,6 +1068,9 @@ impl ConversationShardMeta {
             last_message_id: meta.last_message_id.clone(),
             last_message_at: meta.last_message_at.clone(),
             last_error: meta.last_error.clone(),
+            progress_state: meta.progress_state.clone(),
+            evidence: meta.evidence.clone(),
+            evidence_updated_at: meta.evidence_updated_at.clone(),
             message_count: meta.message_count,
             body_message_count: meta.body_message_count,
             body_text_length: meta.body_text_length,
@@ -1080,6 +1123,9 @@ impl ConversationShardMeta {
             last_message_id: self.last_message_id.clone(),
             last_message_at: self.last_message_at.clone(),
             last_error: self.last_error.clone(),
+            progress_state: self.progress_state.clone(),
+            evidence: self.evidence.clone(),
+            evidence_updated_at: self.evidence_updated_at.clone(),
             message_count: self.message_count,
             body_message_count: self.body_message_count,
             body_text_length: self.body_text_length,
@@ -1130,6 +1176,9 @@ impl ConversationShardMeta {
             team: self.team,
             loaded_mcp_tools: self.loaded_mcp_tools,
             last_error: self.last_error,
+            progress_state: self.progress_state,
+            evidence: self.evidence,
+            evidence_updated_at: self.evidence_updated_at,
         }
     }
 }
@@ -1250,6 +1299,9 @@ mod message_store_meta_tests {
             last_error: Some("测试轮次失败".to_string()),
             is_draft: false,
             team: TeamState::default(),
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         }
     }
 
@@ -1340,5 +1392,37 @@ mod message_store_meta_tests {
         assert!(!raw.contains("\"messages\""));
         assert_eq!(loaded, meta);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn conversation_shard_meta_should_default_progress_fields_when_json_omits_them() {
+        let mut conversation = test_conversation();
+        conversation.progress_state = "done".to_string();
+        conversation.evidence = "用户确认".to_string();
+        conversation.evidence_updated_at = "2026-11-01T00:00:00Z".to_string();
+        let meta = ConversationShardMeta::from_conversation(&conversation);
+        let mut json = serde_json::to_value(&meta).expect("shard meta 序列化");
+        let object = json.as_object_mut().expect("shard meta json 应为对象");
+        // 前置确认：当前序列化产物含三键（struct 为 camelCase），逐一移除模拟老版本 metadata
+        assert!(
+            object.remove("progressState").is_some(),
+            "前置失败：序列化产物缺 progressState"
+        );
+        assert!(object.remove("evidence").is_some());
+        assert!(object.remove("evidenceUpdatedAt").is_some());
+        let loaded: ConversationShardMeta = serde_json::from_value(json)
+            .expect("老 metadata JSON 缺三字段应反序列化成功而非报错");
+        assert_eq!(loaded.progress_state, "");
+        assert_eq!(loaded.evidence, "");
+        assert_eq!(loaded.evidence_updated_at, "");
+        // 读回目标会话后同样为未设置：apply 不会把旧值带过去
+        let mut target = test_conversation();
+        target.progress_state = "stale".to_string();
+        target.evidence = "stale".to_string();
+        target.evidence_updated_at = "stale".to_string();
+        loaded.apply_to_conversation(&mut target);
+        assert_eq!(target.progress_state, "");
+        assert_eq!(target.evidence, "");
+        assert_eq!(target.evidence_updated_at, "");
     }
 }

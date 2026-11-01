@@ -86,6 +86,14 @@
                 aria-hidden="true"
               />
             </template>
+            <!-- 会话状态圆点：与徽章/标签并列，不占标题的截断预算。类名由领域侧整套给出（几何+描边+填充），这里不猜 -->
+            <span
+              v-if="!fileVariant && tab.statusDotClass"
+              :class="tab.statusDotClass"
+              :title="tab.statusTitle"
+              :aria-label="tab.statusTitle"
+              role="img"
+            ></span>
             <span
               v-if="!fileVariant && tab.badge"
               class="badge badge-xs shrink-0 border-base-300 bg-base-100"
@@ -179,6 +187,10 @@ type PanelTabStripItem = {
   label: string;
   title?: string;
   badge?: string;
+  /** 会话状态圆点的填充类；不给则不渲染圆点 */
+  statusDotClass?: string;
+  /** 状态圆点的提示文案（含证据原文），悬停可见 */
+  statusTitle?: string;
   iconSrc?: string;
   icon?: Component;
   closeable?: boolean;

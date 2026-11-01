@@ -560,6 +560,9 @@ fn ide_chat_conversation_from_meta_view(conversation_meta: &ConversationMetaView
         team: conversation_meta.team.clone(),
         loaded_mcp_tools: Vec::new(),
         last_error: conversation_meta.last_error.clone(),
+        progress_state: conversation_meta.progress_state.clone(),
+        evidence: conversation_meta.evidence.clone(),
+        evidence_updated_at: conversation_meta.evidence_updated_at.clone(),
     }
 }
 
