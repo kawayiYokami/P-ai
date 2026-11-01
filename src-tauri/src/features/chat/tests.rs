@@ -8139,6 +8139,395 @@
         }
     }
 
+    /// 给任意测试 state 挂一个绑定联系人的远程联系人会话，返回该会话 id。
+    /// `mock_error` 非空时渠道被配置成「一被调用发送就报错」，用来证明发送没有被调用：
+    /// 若内容真的外发了，错误里必然带渠道错误文案，而不是来源校验的拒绝文案。
+    fn seed_remote_contact_target(state: &AppState, mock_error: Option<&str>) -> String {
+        let now = now_iso();
+        let credentials = match mock_error {
+            Some(message) => serde_json::json!({ "mockSendError": message }),
+            None => serde_json::json!({ "mockSend": true }),
+        };
+        let mut config = state_read_config_cached(state).unwrap_or_default();
+        config.remote_im_channels.push(RemoteImChannelConfig {
+            id: "remote-channel-a".to_string(),
+            name: "测试渠道".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            enabled: true,
+            credentials,
+            receive_files: true,
+            streaming_send: false,
+            show_tool_calls: false,
+            filter_markdown: false,
+            allow_send_files: false,
+            behavior_settings: RemoteImChannelBehaviorSettings::default(),
+        });
+        write_config(&state.config_path, &config).expect("write config");
+
+        let contact = RemoteImContact {
+            id: "contact-session-a".to_string(),
+            channel_id: "remote-channel-a".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            remote_contact_type: "private".to_string(),
+            remote_contact_id: "remote-user-a".to_string(),
+            remote_contact_name: "联系人乙".to_string(),
+            avatar_url: String::new(),
+            remark_name: String::new(),
+            allow_send: true,
+            allow_send_files: false,
+            allow_receive: true,
+            activation_mode: "never".to_string(),
+            activation_keywords: Vec::new(),
+            mute_keywords: default_remote_im_contact_mute_keywords(),
+            unmute_keywords: default_remote_im_contact_unmute_keywords(),
+            patience_seconds: default_remote_im_contact_patience_seconds(),
+            mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
+            activation_cooldown_seconds: 0,
+            route_mode: "dedicated_contact_conversation".to_string(),
+            bound_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            bound_conversation_id: Some("target-remote-session".to_string()),
+            processing_mode: "continuous".to_string(),
+            response_strategy: default_remote_im_contact_response_strategy(),
+            response_guidance: default_remote_im_contact_response_guidance(),
+            blocked_message_prefixes: default_remote_im_contact_blocked_message_prefixes(),
+            group_reply_pacing: RemoteImGroupReplyPacing::default(),
+            last_activated_at: None,
+            last_message_at: Some(now.clone()),
+            dingtalk_session_webhook: None,
+            dingtalk_session_webhook_expired_time: None,
+            onebot_group_members: Vec::new(),
+            shell_workspaces: Vec::new(),
+            group_id: None,
+        };
+        let mut target_remote = build_conversation_record(
+            "",
+            DEFAULT_AGENT_ID,
+            "联系人会话",
+            CONVERSATION_KIND_REMOTE_IM_CONTACT,
+            Some(remote_im_contact_conversation_key(&contact)),
+            None,
+        );
+        target_remote.id = "target-remote-session".to_string();
+        target_remote.updated_at = now;
+        state_schedule_conversation_persist(state, &target_remote).expect("persist remote target");
+        flush_pending_persists_blocking(state).expect("flush remote target");
+        state_service_upsert_remote_im_contact(state, &contact).expect("write contact");
+        target_remote.id
+    }
+
+    /// 造一个用户自己开的追问会话：side_chat，但没有队伍身份。
+    fn persist_user_side_chat(state: &AppState, parent_id: &str, conversation_id: &str) -> String {
+        let now = now_iso();
+        let mut conversation = test_chat_conversation(conversation_id, "active", &now);
+        conversation.conversation_kind = CONVERSATION_KIND_SIDE_CHAT.to_string();
+        conversation.parent_conversation_id = Some(parent_id.to_string());
+        state_schedule_conversation_persist(state, &conversation).expect("persist side chat");
+        flush_pending_persists_blocking(state).expect("flush side chat");
+        conversation_id.to_string()
+    }
+
+    fn mounted_all_tools(assembly: &RuntimeToolAssembly) -> Vec<String> {
+        assembly
+            .tool_definitions
+            .iter()
+            .map(|tool| tool.name.clone())
+            .collect()
+    }
+
+    fn session_notification_message_count(state: &AppState, conversation_id: &str) -> usize {
+        state_read_conversation_cached(state, conversation_id)
+            .map(|conversation| {
+                conversation
+                    .messages
+                    .iter()
+                    .filter(|message| {
+                        message
+                            .provider_meta
+                            .as_ref()
+                            .and_then(|meta| meta.get("messageKind"))
+                            .and_then(Value::as_str)
+                            == Some("session_notification")
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    /// 断言目标会话没有收到任何会话通知消息：投递被拒绝时不应该留下写入痕迹。
+    fn assert_no_session_notification(state: &AppState, conversation_id: &str) {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert_eq!(
+            session_notification_message_count(state, conversation_id),
+            0,
+            "目标会话不该收到通知消息，conversation_id={conversation_id}"
+        );
+    }
+
+    #[test]
+    fn team_member_session_should_not_mount_inform_session() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        // 对照面：队长会话确实挂得到这个工具，否则下面的负面断言没有意义。
+        let leader_tools = mounted_all_tools(&team_assembly(&state, &team_session_id(&leader.id)));
+        assert!(
+            leader_tools.iter().any(|name| name == "inform_session"),
+            "队长会话应挂载 inform_session：{leader_tools:?}"
+        );
+
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        let member_tools = mounted_all_tools(&team_assembly(&state, &team_session_id(&member_id)));
+        assert!(
+            member_tools.iter().any(|name| name == "team_report"),
+            "队员会话应保留 team_report：{member_tools:?}"
+        );
+        assert!(
+            !member_tools.iter().any(|name| name == "inform_session"),
+            "队员会话不该挂会话间通知工具：{member_tools:?}"
+        );
+    }
+
+    #[test]
+    fn team_member_session_should_not_push_to_remote_contact() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        let remote_id = seed_remote_contact_target(&state, Some("mock remote rejected before send"));
+
+        let err = match conversation_service_v2().inform_session(
+            &state,
+            &member_id,
+            &remote_id,
+            "队员要把内容发到微信",
+        ) {
+            Ok(_) => panic!("队员会话不该能把内容投递到远程渠道"),
+            Err(err) => err,
+        };
+
+        assert!(err.contains("远程渠道"), "拒绝文案应指向远程渠道：{err}");
+        assert!(
+            !err.contains("mock"),
+            "渠道发送不该被调用，错误里出现渠道错误说明内容已经发出：{err}"
+        );
+        assert_no_session_notification(&state, &remote_id);
+    }
+
+    #[test]
+    fn team_member_session_should_not_push_even_with_discovered_remote_id() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        let remote_id = seed_remote_contact_target(&state, Some("mock remote rejected before send"));
+
+        // 发现目标不等于获得权限：会话列表照旧能看到远程会话，边界落在投递点。
+        let targets = conversation_service_v2()
+            .list_tool_session_targets(&state, None)
+            .expect("list session targets");
+        assert!(
+            targets.iter().any(|item| item.session_id == remote_id),
+            "队员应仍能在会话列表里发现远程会话：{targets:?}"
+        );
+
+        let err = match conversation_service_v2().inform_session(
+            &state,
+            &member_id,
+            &remote_id,
+            "用刚查到的 id 再发一次",
+        ) {
+            Ok(_) => panic!("知道远程会话 id 也不该能投递"),
+            Err(err) => err,
+        };
+
+        assert!(err.contains("远程渠道"), "拒绝文案应指向远程渠道：{err}");
+        assert!(
+            !err.contains("mock"),
+            "渠道发送不该被调用，错误里出现渠道错误说明内容已经发出：{err}"
+        );
+        assert_no_session_notification(&state, &remote_id);
+    }
+
+    #[test]
+    fn local_chat_session_should_still_push_to_remote_contact() {
+        let (state, source_id, _target_local_id, remote_target_id) =
+            seed_session_forward_test_state();
+
+        conversation_service_v2()
+            .inform_session(&state, &source_id, &remote_target_id, "队长同步给远程联系人")
+            .expect("本地主对话应仍能投递到远程渠道");
+
+        wait_for_session_notification(&state, &remote_target_id);
+        assert_eq!(
+            session_notification_message_count(&state, &remote_target_id),
+            1,
+            "本地主对话向远程投递应照旧送达"
+        );
+    }
+
+    #[test]
+    fn local_chat_session_should_still_push_to_local_session() {
+        let (state, source_id, target_local_id, _remote_target_id) =
+            seed_session_forward_test_state();
+
+        conversation_service_v2()
+            .inform_session(&state, &source_id, &target_local_id, "本地会话之间的通知")
+            .expect("本地会话之间的通知应保持可用");
+
+        wait_for_session_notification(&state, &target_local_id);
+        assert_eq!(
+            session_notification_message_count(&state, &target_local_id),
+            1,
+            "本地会话通知不受本次收紧影响"
+        );
+    }
+
+    #[test]
+    fn auto_push_remote_contact_should_keep_working_for_local_chat_source() {
+        // 防误伤：权限层如果落到了 enqueue_session_notification_dispatch，这条会红。
+        let (state, source_id, _target_local_id, remote_target_id) =
+            seed_session_forward_test_state();
+
+        conversation_service_v2()
+            .enqueue_auto_push_remote_contact_message(
+                &state,
+                &source_id,
+                "contact-session-a",
+                "自动推送正文",
+            )
+            .expect("本地主对话的自动推送应保持可用");
+
+        wait_for_session_notification(&state, &remote_target_id);
+        assert_eq!(
+            session_notification_message_count(&state, &remote_target_id),
+            1,
+            "自动推送路径应保持原行为"
+        );
+    }
+
+    #[test]
+    fn auto_push_remote_contact_should_skip_side_chat_source() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let side_chat_id = persist_user_side_chat(&state, &leader.id, "side-chat-auto-push");
+        let remote_id = seed_remote_contact_target(&state, Some("mock remote rejected before send"));
+
+        conversation_service_v2()
+            .enqueue_auto_push_remote_contact_message(
+                &state,
+                &side_chat_id,
+                "contact-session-a",
+                "追问内容",
+            )
+            .expect("来源不合格时自动推送应静默跳过，不报错");
+
+        assert_no_session_notification(&state, &remote_id);
+    }
+
+    #[test]
+    fn side_chat_session_should_not_send_files_to_remote_contact() {
+        // 这条守的是「side_chat 走不到外发」，不是「side_chat 的外发被拦住」。
+        // 当前实现里它在「未绑定联系人」这一步就失败，压根到不了发送。
+        // 若将来有人给 side_chat 继承绑定来源，这条会变红——那说明边界被放宽了。
+        // 所以它不是冗余用例：现状与保证是两件事，别因为「它本来就没绑定」删掉。
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let side_chat_id = persist_user_side_chat(&state, &leader.id, "side-chat-send-files");
+        let remote_id = seed_remote_contact_target(&state, Some("mock remote rejected before send"));
+
+        let err = test_runtime()
+            .block_on(builtin_contact_send_files(
+                &state,
+                &team_session_id(&side_chat_id),
+                ContactSendFilesToolArgs {
+                    file_paths: vec!["report.png".to_string()],
+                },
+            ))
+            .expect_err("追问会话不该能用联系人文件工具外发");
+
+        assert!(err.contains("未绑定"), "应在绑定联系人这一步被拦住：{err}");
+        assert!(
+            !err.contains("mock"),
+            "渠道发送不该被调用，错误里出现渠道错误说明文件已经发出：{err}"
+        );
+        assert_no_session_notification(&state, &remote_id);
+    }
+
+    #[test]
+    fn user_side_chat_without_membership_should_also_be_denied() {
+        // 口径守卫：判据只看 conversation_kind，不看 team.membership。
+        // 谁要是把判据改回按 membership 判、给用户自建追问开例外，这条会立刻变红。
+        // 它不是冗余用例，删掉就等于放开了那个例外。
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-leader");
+        let side_chat_id = persist_user_side_chat(&state, &leader.id, "side-chat-user-followup");
+        let meta = conversation_service_v2()
+            .get_conversation_meta(&state, &side_chat_id)
+            .expect("side chat meta");
+        assert!(
+            meta.team.membership.is_none(),
+            "本用例要求追问会话没有队伍身份"
+        );
+        let remote_id = seed_remote_contact_target(&state, Some("mock remote rejected before send"));
+
+        let err = match conversation_service_v2().inform_session(
+            &state,
+            &side_chat_id,
+            &remote_id,
+            "追问里让助理发远程通知",
+        ) {
+            Ok(_) => panic!("追问会话同样不该能把内容投递到远程渠道"),
+            Err(err) => err,
+        };
+
+        assert!(err.contains("远程渠道"), "拒绝文案应指向远程渠道：{err}");
+        assert!(
+            !err.contains("mock"),
+            "渠道发送不该被调用，错误里出现渠道错误说明内容已经发出：{err}"
+        );
+        assert_no_session_notification(&state, &remote_id);
+    }
+
+    #[test]
+    fn system_notification_session_should_still_push_to_remote_contact() {
+        // 合法来源的另一支：系统会话放行，否则系统流程会被一起挡掉。
+        let state = team_test_state();
+        let remote_id = seed_remote_contact_target(&state, None);
+        let now = now_iso();
+        let mut system = build_system_notification_conversation_record();
+        system.status = "active".to_string();
+        system
+            .messages
+            .push(test_text_message("assistant", "系统流程记录", &now));
+        state_schedule_conversation_persist(&state, &system).expect("persist system session");
+        flush_pending_persists_blocking(&state).expect("flush system session");
+
+        conversation_service_v2()
+            .inform_session(
+                &state,
+                SYSTEM_NOTIFICATION_CONVERSATION_ID,
+                &remote_id,
+                "系统流程通知",
+            )
+            .expect("系统会话应仍能把内容送到远程渠道");
+
+        wait_for_session_notification(&state, &remote_id);
+        assert_eq!(
+            session_notification_message_count(&state, &remote_id),
+            1,
+            "系统会话的远程投递应保持可用"
+        );
+    }
+
     #[test]
     fn auto_push_remote_contact_should_not_depend_on_contact_list_snapshot() {
         let (state, source_id, _target_local_id, remote_target_id) = seed_session_forward_test_state();

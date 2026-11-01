@@ -594,6 +594,47 @@ impl ConversationServiceV2 {
         Ok(true)
     }
 
+    /// 会话间通知的来源边界：只有本地主对话与系统会话可以把内容送到远程渠道。
+    ///
+    /// 判据只看 `conversation_kind`，不看 `team.membership`：membership 是 meta 字段，
+    /// 读不到就漏，而这正是要消灭的失败模式本身。队员会话与用户自建追问同为
+    /// `side_chat`，一视同仁。目标不是远程联系人时保持原有行为，本地会话间通知不受影响。
+    fn ensure_session_notification_source_can_reach_remote(
+        &self,
+        state: &AppState,
+        source_conversation_id: &str,
+        target_conversation_id: &str,
+    ) -> Result<(), String> {
+        const DENIED: &str = "当前会话不能把内容发送到远程渠道，请在主对话里操作";
+        // 目标 meta 读不到时放行，交给后续投递按它自己的错误路径报出来，
+        // 这里不改变既有的失败语义；只有确认目标是远程联系人时才校验来源。
+        let Ok(target_meta) = self.get_conversation_meta(state, target_conversation_id) else {
+            return Ok(());
+        };
+        if !target_meta.is_remote_im_contact {
+            return Ok(());
+        }
+        // 来源读不到就拒绝（fail closed）：不知道来源是什么，放行等于把保证交还给会失败的那一步。
+        let Ok(source_meta) = self.get_conversation_meta(state, source_conversation_id) else {
+            runtime_log_warn(format!(
+                "[会话通知] 拒绝，任务=来源会话身份读取失败，source_conversation_id={source_conversation_id}，target_conversation_id={target_conversation_id}"
+            ));
+            return Err(DENIED.to_string());
+        };
+        let source_kind = source_meta.conversation_kind.trim();
+        let source_can_reach_remote = matches!(
+            source_kind,
+            CONVERSATION_KIND_CHAT | CONVERSATION_KIND_SYSTEM_NOTIFICATION
+        ) && self.conversation_meta_is_unarchived_meta_view(&source_meta);
+        if source_can_reach_remote {
+            return Ok(());
+        }
+        runtime_log_warn(format!(
+            "[会话通知] 拒绝，任务=来源会话不能向远程渠道投递，source_conversation_id={source_conversation_id}，source_kind={source_kind}，target_conversation_id={target_conversation_id}"
+        ));
+        Err(DENIED.to_string())
+    }
+
     fn inform_session(
         &self,
         state: &AppState,
@@ -605,6 +646,11 @@ impl ConversationServiceV2 {
         if normalized_target_session_id.is_empty() {
             return Err("session_id 不能为空".to_string());
         }
+        self.ensure_session_notification_source_can_reach_remote(
+            state,
+            source_conversation_id,
+            normalized_target_session_id,
+        )?;
         let body = build_session_notification_body(state, source_conversation_id, content)?;
         let message = build_session_notification_message(&body);
         enqueue_session_notification_dispatch(
