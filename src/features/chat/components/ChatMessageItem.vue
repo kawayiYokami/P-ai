@@ -2632,8 +2632,10 @@ function openAttachmentPath(path: string) {
   font-size: var(--app-text-xs-size);
 }
 
-.assistant-markdown :deep(.ecall-markdown-content :where(table,.table-node)) {
+.assistant-markdown :deep(.ecall-markdown-content :where(table,.table-node)),
+.assistant-markdown :deep(.ecall-md-table) {
   font-size: var(--app-text-sm-size);
+  margin: 0 !important;
 }
 
 .assistant-markdown :deep(.ecall-markdown-content ._mermaid) {
@@ -2821,6 +2823,7 @@ function openAttachmentPath(path: string) {
   border: 0 !important;
   border-radius: 0;
   background: transparent;
+  margin: 0 !important;
 }
 
 .ecall-assistant-bubble[data-bubble-background="on"] :deep(.ecall-md-table th),
@@ -2908,18 +2911,27 @@ function openAttachmentPath(path: string) {
   margin: 0.75rem 0;
   border-radius: var(--ecall-md-block-radius, 0.5rem);
   border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
-  background: color-mix(in srgb, var(--color-base-content) 4%, var(--color-base-100));
+  background: var(--color-base-100);
   overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  box-shadow: none;
 }
 
 .ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-md-code-block) {
-  --ecall-md-code-bg: color-mix(in srgb, var(--color-base-content) 4%, var(--color-base-100));
+  --ecall-md-code-bg: var(--color-base-100);
 }
 
 .ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-md-table) {
   border: 0 !important;
   border-radius: inherit;
+  margin: 0 !important;
+}
+
+.ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-md-table th:first-child) {
+  border-top-left-radius: inherit;
+}
+
+.ecall-assistant-bubble[data-bubble-background="off"] :deep(.ecall-md-table th:last-child) {
+  border-top-right-radius: inherit;
 }
 
 .ecall-assistant-bubble {

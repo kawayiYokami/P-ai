@@ -1555,6 +1555,7 @@ ul.ecall-md-list {
   font-size: var(--app-text-xs-size);
   line-height: 1.45;
   overflow: hidden;
+  margin: 0;
 }
 
 .ecall-md-table th,
