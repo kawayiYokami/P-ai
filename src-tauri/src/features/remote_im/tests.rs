@@ -407,6 +407,9 @@
             active_goal: None, team: TeamState::default(), last_error: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
                 is_draft: false,
+                progress_state: String::new(),
+                evidence: String::new(),
+                evidence_updated_at: String::new(),
             },
             Conversation {
                 loaded_mcp_tools: Vec::new(),
@@ -445,6 +448,9 @@
             active_goal: None, team: TeamState::default(), last_error: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
                 is_draft: false,
+                progress_state: String::new(),
+                evidence: String::new(),
+                evidence_updated_at: String::new(),
             },
         ];
         let input = RemoteImEnqueueInput {
@@ -571,6 +577,9 @@
             active_goal: None, team: TeamState::default(), last_error: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
                 is_draft: false,
+                progress_state: String::new(),
+                evidence: String::new(),
+                evidence_updated_at: String::new(),
             },
             Conversation {
                 loaded_mcp_tools: Vec::new(),
@@ -609,6 +618,9 @@
             active_goal: None, team: TeamState::default(), last_error: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
                 is_draft: false,
+                progress_state: String::new(),
+                evidence: String::new(),
+                evidence_updated_at: String::new(),
             },
         ];
         let input = RemoteImEnqueueInput {
@@ -766,6 +778,9 @@
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         };
 
         assert!(conversation.messages.iter().any(|message| {
@@ -837,6 +852,9 @@
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         };
 
         assert!(!conversation.messages.iter().any(|message| {
@@ -2058,6 +2076,9 @@
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         };
         let assistant = RemoteImConversationAssistantContext {
             agent_id: "agent-a".to_string(),

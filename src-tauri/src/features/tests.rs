@@ -79,12 +79,16 @@
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         }
     }
 
     include!("config/tests.rs");
     include!("chat/tests.rs");
     include!("task/tests.rs");
+    include!("question/tests.rs");
     include!("remote_im/tests.rs");
     include!("system/tests.rs");
     include!("memory/tests.rs");

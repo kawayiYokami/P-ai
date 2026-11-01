@@ -139,7 +139,9 @@
     }
 
     #[test]
-    fn startup_window_label_should_require_expert_model_binding() {
+    fn startup_window_label_should_not_require_expert_model_binding() {
+        // 专家模型已改为被动跟随的隐形兜底，为空不代表用户没配模型。
+        // 拿它做启动判据会在「专家模型尚未确立」时把人踢回设置页。
         let mut cfg = AppConfig::default();
         let api_id = cfg.expert_api_config_id.clone();
         let api = cfg
@@ -148,6 +150,16 @@
             .find(|item| item.id == api_id)
             .expect("default chat api exists");
         api.api_key = "sk-test".to_string();
+        cfg.expert_api_config_id.clear();
+        assert_eq!(startup_window_label_for_config(&cfg), "chat");
+    }
+
+    #[test]
+    fn startup_window_label_should_fall_back_when_no_text_model_is_usable() {
+        let mut cfg = AppConfig::default();
+        for api in cfg.api_configs.iter_mut() {
+            api.api_key.clear();
+        }
         cfg.expert_api_config_id.clear();
         assert_eq!(startup_window_label_for_config(&cfg), "main");
     }
@@ -1199,6 +1211,9 @@ enableTools = true
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         }
     }
 

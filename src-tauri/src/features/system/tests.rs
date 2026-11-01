@@ -348,6 +348,9 @@
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -620,6 +623,9 @@
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
+            progress_state: String::new(),
+            evidence: String::new(),
+            evidence_updated_at: String::new(),
         };
 
         let preserved = collect_block_preserved_dialogue(
