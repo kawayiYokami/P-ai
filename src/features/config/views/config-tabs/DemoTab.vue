@@ -9,12 +9,15 @@
         <div v-if="!bare" class="flex flex-wrap items-center gap-3">
           <select v-model="demoComponentKey" class="select select-bordered select-sm w-64">
             <option value="question">提问卡（ChatQuestionPanel）</option>
+            <option value="question-tool">会话提问（question 工具）</option>
             <option value="bubbles">自研气泡</option>
             <option value="delegates">DelegateProgressLine</option>
             <option value="templates">ConfigTemplate</option>
             <option value="overview">监控概览（MonitorOverview）</option>
             <option value="home-cards">预览卡画廊</option>
           <option value="conversation-list">列表卡画廊</option>
+            <option value="conversation-item">会话条目（状态×未读）</option>
+            <option value="chat-message">消息项（队伍消息气泡）</option>
             <option value="composer">输入面板新结构</option>
             <option value="double-deck">双层卡（DoubleDeck）</option>
             <option value="thinking-preview">思考预览 bar</option>
@@ -28,6 +31,11 @@
             <option value="persona-permission">人格权限页（黑白名单树）</option>
             <option value="persona-delegate">人格委托人（选下属）</option>
             <option value="settings-shell">设置页头部（面包屑 + 标签页）</option>
+            <option value="kanban-board">议题看板页（KanbanBoardPanel）</option>
+            <option value="kanban-card">议题看板磁贴（3×3）</option>
+            <option value="team-member-tiles">队员磁贴（自适应列数）</option>
+            <option value="chat-home">首页磁贴区（追问入口 + 队员状态表）</option>
+            <option value="skill-managed">技能面板（托管技能禁用态）</option>
           </select>
           <span class="text-xs text-base-content/50">当前：{{ demoComponentLabel }}</span>
         </div>
@@ -81,6 +89,37 @@
           </div>
           <div v-if="demoQuestionLastSubmit" class="mockup-code max-h-64 overflow-auto text-xs">
             <pre class="whitespace-pre-wrap break-all"><code>{{ JSON.stringify(demoQuestionLastSubmit, undefined, 2) }}</code></pre>
+          </div>
+        </div>
+
+        <div v-if="demoComponentKey === 'question-tool'" class="space-y-3 pt-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs text-base-content/60">预设：</span>
+            <button type="button" class="btn btn-xs" :class="demoQuestionToolItems.length > 0 ? 'btn-primary' : 'btn-ghost'" @click="setDemoQuestionToolPreset('pending')">3 题待答（#2/#5/#7）</button>
+            <button type="button" class="btn btn-xs" :class="demoQuestionToolItems.length === 0 ? 'btn-primary' : 'btn-ghost'" @click="setDemoQuestionToolPreset('empty')">全部发完（空态）</button>
+            <button type="button" class="btn btn-xs btn-ghost" @click="resetDemoQuestionTool">重置</button>
+            <span v-if="demoQuestionToolLastSubmit" class="text-xs text-success">已发送 {{ demoQuestionToolLastSubmitLabel }}<template v-if="demoQuestionToolItems.length > 0">，还剩 {{ demoQuestionToolItems.length }} 题</template></span>
+          </div>
+          <p class="text-xs text-base-content/60">
+            数据走真实映射 <code class="text-xs">buildConversationQuestionItems</code>，
+            节奏 <code class="text-xs">submit-mode="manual"</code>：编号原样显示，点选项只是勾选，
+            点右下角「发送 N 题」才把这批已选题一起发出去，发出的题从列表消失。
+          </p>
+          <div v-if="demoQuestionToolPanelItems.length > 0" class="flex justify-center">
+            <ChatQuestionPanel
+              key="demo-question-tool"
+              :items="demoQuestionToolPanelItems"
+              v-model="demoQuestionToolAnswers"
+              submit-mode="manual"
+              class="flex-1"
+              @submit="onDemoQuestionToolSubmit"
+            />
+          </div>
+          <div v-else class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60">
+            当前会话没有问题：面板不渲染，输入面板恢复原样
+          </div>
+          <div v-if="demoQuestionToolLastSubmit" class="mockup-code max-h-64 overflow-auto text-xs">
+            <pre class="whitespace-pre-wrap break-all"><code>{{ JSON.stringify(demoQuestionToolLastSubmit, undefined, 2) }}</code></pre>
           </div>
         </div>
       </div>
@@ -175,6 +214,42 @@
       </div>
     </div>
 
+    <div v-if="demoComponentKey === 'chat-home'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">首页磁贴区（追问入口 + 队员状态表）</h3>
+          <p class="text-sm text-base-content/70">
+            首页只留一个「追问」入口磁贴，追问会话本身不铺卡；队员用一块状态表占磁贴墙的 2×2 格，内部每行一个队员、可见两行，多的在里面滚动。点队员那一行打开该队员会话（demo 里原地丢弃）。
+          </p>
+        </div>
+        <ChatHomePanelDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'skill-managed'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">技能面板（托管技能禁用态）</h3>
+          <p class="text-sm text-base-content/70">
+            渲染真实 SkillTab，喂两个托管技能（persona-craft / pai-guide）与一个普通内置技能、一个自定义技能。托管技能标「系统托管」，开关是禁用态，详情页写着一句为什么关不掉；开关与保存在这张 demo 里不写库。
+          </p>
+        </div>
+        <SkillTabDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'team-member-tiles'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">队员磁贴（首页磁贴墙占两列）</h3>
+          <p class="text-sm text-base-content/70">
+            一格一个队员：头像、队员名、他手上那件事。有在办议题时写「正在处理 #3 标题」，最右边一圈转着表示正在跑；没有议题就不硬凑句子，只显示他自己的运行时状态（忙碌 / 空闲 / 出错）。队员名取自会话绑定的 agent，会话标题交给自动标题生成。
+          </p>
+        </div>
+        <TeamMemberTileGridDemo />
+      </div>
+    </div>
+
     <div v-if="demoComponentKey === 'config-cards'" class="card border border-base-300 bg-base-100">
       <div class="card-body gap-3 p-4">
         <div class="space-y-1">
@@ -212,6 +287,26 @@
           <p class="text-sm text-base-content/70">左侧会话列表条目（ChatConversationItem）的分组与状态样本，直接渲染真实组件；切换视图模式与预设查看不同层级、不同状态。</p>
         </div>
         <ChatConversationListGalleryDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'conversation-item'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">会话条目（状态 × 未读）</h3>
+          <p class="text-sm text-base-content/70">状态胶囊只讲状态，未读红圆只讲未读，两者并排不合并。含当前会话与 mini 行。</p>
+        </div>
+        <ChatConversationItemDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'chat-message'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">消息项（队伍邮件 = 普通气泡）</h3>
+          <p class="text-sm text-base-content/70">队伍消息就是一条普通 assistant 消息：头像、人格名、时间、正文按 markdown 渲染。邮件本身拼成一段 markdown，标题在 <code>&lt;summary&gt;</code> 里、正文与状态行在折叠体内，默认收起。与上一条普通消息对照看，气泡形态完全一致，多出来的只是标题那一行可点开。</p>
+        </div>
+        <ChatMessageItemDemo />
       </div>
     </div>
 
@@ -474,12 +569,83 @@
         </div>
       </div>
     </div>
+
+    <!-- 议题看板页：容器宽度模拟默认 618px 窗口下的右栏内容区 586px -->
+    <div v-if="demoComponentKey === 'kanban-board'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-2 p-3">
+        <p class="text-xs text-base-content/60">容器宽 586px，对应默认 618px 窗口下的右栏内容区。</p>
+        <div class="h-[660px] w-[586px] overflow-hidden rounded-box border border-base-300">
+          <KanbanBoardPanel
+            :issues="demoKanbanIssues"
+            :loading="false"
+            :error-text="''"
+            :approving-number="null"
+            leader-name="Claude"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- 议题看板磁贴：放进真实的 .ecall-home-flow 网格里看 3×3 效果 -->
+    <div v-if="demoComponentKey === 'kanban-card'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-3">
+        <p class="text-xs text-base-content/60">
+          网格宽 586px（默认窗口右栏内容区），auto-fill 出 3 列，磁贴占满整行跨三行。
+        </p>
+        <div class="ecall-kanban-demo-flow w-full max-w-[586px]">
+          <HomeKanbanCard
+            :issues="demoKanbanIssues"
+            :avatar-url-map="demoKanbanAvatarMap"
+            leader-name="Claude"
+            :leader-avatar-url="demoKanbanAvatarMap['leader']"
+          />
+          <div class="ecall-kanban-demo-filler">环境卡占位</div>
+          <div class="ecall-kanban-demo-filler">计划卡占位</div>
+          <div class="ecall-kanban-demo-filler">工作区卡占位</div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { Copy, FileText, RotateCcw, SquareTerminal, Undo2, Wrench } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import KanbanBoardPanel from "../../../chat/components/kanban/KanbanBoardPanel.vue";
+import HomeKanbanCard from "../../../chat/components/chat-home/HomeKanbanCard.vue";
+import type { KanbanIssue } from "../../../chat/composables/use-kanban-board";
+
+function svgDataUrl(svg: string): string {
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+const demoKanbanAvatarMap: Record<string, string> = {
+  leader: svgDataUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><rect width="40" height="40" rx="20" fill="#D97706"/><g fill="#FFFFFF" transform="translate(10, 10)"><path d="M10 2.5a1.5 1.5 0 0 0-1.5 1.5v3.2A7.5 7.5 0 0 0 4 10a7.5 7.5 0 0 0 7.5 7.5 7.5 7.5 0 0 0 6-3v1.5a1.5 1.5 0 0 0 3 0V4a1.5 1.5 0 0 0-1.5-1.5H10z" opacity="0.95"/><circle cx="10" cy="10" r="3" fill="#FDE68A"/></g></svg>`),
+  小吉祥草王: svgDataUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><rect width="40" height="40" rx="20" fill="#10B981"/><path d="M20 9c-4 5-3 10 0 14 3-4 4-9 0-14zM14 17c5-2 9 0 11 3-5 2-9 0-11-3zM26 17c-5-2-9 0-11 3 5 2 9 0 11-3z" fill="#ECFDF5"/><circle cx="20" cy="18" r="3" fill="#A7F3D0"/></svg>`),
+  莫娜: svgDataUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><rect width="40" height="40" rx="20" fill="#6366F1"/><path d="M20 8l2.5 8.5L31 19l-8.5 2.5L20 30l-2.5-8.5L9 19l8.5-2.5z" fill="#EEF2FF"/><circle cx="20" cy="19" r="2.5" fill="#C7D2FE"/></svg>`),
+  欧科塔维亚: svgDataUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><rect width="40" height="40" rx="20" fill="#06B6D4"/><circle cx="20" cy="20" r="9" fill="none" stroke="#E0F2FE" stroke-width="2.5"/><path d="M16 16v8l7-4z" fill="#E0F2FE"/></svg>`),
+  桑多涅: svgDataUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><rect width="40" height="40" rx="20" fill="#EC4899"/><circle cx="20" cy="20" r="6" fill="#FCE7F3"/><path d="M14 16c3 2 3 6 0 8 3-1 6-1 8-3-2-2-5-2-8-5zM26 16c-3 2-3 6 0 8-3-1-6-1-8-3 2-2 5-2 8-5z" fill="#FFF1F2"/></svg>`),
+  钟离: svgDataUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><rect width="40" height="40" rx="20" fill="#D97706"/><rect x="13" y="13" width="14" height="14" rx="2" fill="none" stroke="#FEF3C7" stroke-width="2.5"/><rect x="17" y="17" width="6" height="6" fill="#FEF3C7"/></svg>`),
+  小黑塔: svgDataUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40"><rect width="40" height="40" rx="20" fill="#8B5CF6"/><circle cx="20" cy="15" r="4.5" fill="#EDE9FE"/><path d="M13 27c0-4 3.5-6 7-6s7 2 7 6z" fill="#EDE9FE"/></svg>`),
+};
+
+/** 看板 demo 用的假议题：覆盖看板呈现的六个状态，且四类提醒各有内容，便于一眼看全。 */
+const demoKanbanIssues: KanbanIssue[] = [
+  { number: 3, title: "发布流程要不要加一步回归检查", status: "in_review", assignee: "小吉祥草王", note: "三条回归都跑过了，等确认口径", updatedAt: "2026-11-01T11:20:00+08:00" },
+  { number: 5, title: "看板磁贴尺寸定稿", status: "in_review", assignee: "莫娜", updatedAt: "2026-11-01T11:35:00+08:00", note: "" },
+  { number: 11, title: "提问工具的回答要不要带时间戳", status: "in_review", assignee: "欧科塔维亚", updatedAt: "2026-11-01T11:46:00+08:00", note: "" },
+  { number: 12, title: "队伍名册改角色后的文案", status: "in_review", assignee: "leader", updatedAt: "2026-11-01T11:47:00+08:00", note: "" },
+  { number: 7, title: "队员 3 号的 worktree 有未解决冲突", status: "blocked", assignee: "桑多涅", note: "两边都改了 ChatView.vue，需要你定谁先合", updatedAt: "2026-11-01T10:05:00+08:00" },
+  { number: 13, title: "摘要工具的回滚逻辑要重做", status: "blocked", assignee: "钟离", note: "等确认快照失败时回滚到哪一版", updatedAt: "2026-11-01T10:30:00+08:00" },
+  { number: 8, title: "提问工具要不要支持多选", status: "discussing", assignee: "欧科塔维亚", updatedAt: "2026-11-01T11:40:00+08:00", note: "" },
+  { number: 9, title: "会话行待定问题数的视觉样式", status: "discussing", assignee: "桑多涅", updatedAt: "2026-11-01T11:42:00+08:00", note: "" },
+  { number: 10, title: "议题编号不回收的边界测试", status: "discussing", assignee: "莫娜", updatedAt: "2026-11-01T11:44:00+08:00", note: "" },
+  { number: 14, title: "看板页要不要支持拖拽改状态", status: "discussing", assignee: "莫娜", updatedAt: "2026-11-01T11:48:00+08:00", note: "" },
+  { number: 1, title: "模型继承链改成父会话优先", status: "in_progress", assignee: "小黑塔", updatedAt: "2026-11-01T11:10:00+08:00", note: "" },
+  { number: 2, title: "专家模型改成被动跟随", status: "todo", assignee: "小黑塔", note: "" },
+  { number: 4, title: "重跑队长提示词行为测试", status: "todo", assignee: "观测员", note: "" },
+  { number: 6, title: "队伍名册改用角色标识", status: "done", assignee: "桑多涅", note: "已确认由界面通过" },
+];
 import { useI18n } from "vue-i18n";
 import {
   invokeTauri,
@@ -490,6 +656,10 @@ import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import ChatQuestionPanel from "../../../chat/components/ChatQuestionPanel.vue";
 import type { QuestionItem as ChatQuestionItem } from "../../../chat/components/ChatQuestionPanel.vue";
+import {
+  buildConversationQuestionItems,
+  type ConversationQuestionView,
+} from "../../../chat/utils/conversation-question";
 import ChatBubbleShell from "../../../chat/components/ChatBubbleShell.vue";
 import ExpandableText from "../../../shared/components/ExpandableText.vue";
 import ChatAttachmentList from "../../../chat/components/ChatAttachmentList.vue";
@@ -501,12 +671,17 @@ import ChatThinkingPreviewBarDemo from "../../../chat/components/ChatThinkingPre
 import ChatRichBlockEmbedDemo from "../../../chat/components/ChatRichBlockEmbedDemo.vue";
 import SessionFloatDockDemo from "../../../chat/components/SessionFloatDockDemo.vue";
 import SessionTimelineDemo from "../../../chat/components/SessionTimelineDemo.vue";
+import TeamMemberTileGridDemo from "../../../chat/components/TeamMemberTileGridDemo.vue";
+import ChatHomePanelDemo from "../../../chat/components/ChatHomePanelDemo.vue";
 import HomeCardGalleryDemo from "../../../chat/components/HomeCardGalleryDemo.vue";
 import ChatConversationListGalleryDemo from "../../../chat/components/ChatConversationListGalleryDemo.vue";
+import ChatConversationItemDemo from "../../../chat/components/ChatConversationItemDemo.vue";
+import ChatMessageItemDemo from "../../../chat/components/ChatMessageItemDemo.vue";
 import ConfigCardsGalleryDemo from "../../components/ConfigCardsGalleryDemo.vue";
 import SettingsShellGalleryDemo from "../../components/SettingsShellGalleryDemo.vue";
 import CatalogStoreDemo from "../../components/CatalogStoreDemo.vue";
 import PersonaTabDemo from "../../components/PersonaTabDemo.vue";
+import SkillTabDemo from "../../components/SkillTabDemo.vue";
 import SessionControlItems from "../../../chat/components/SessionControlItems.vue";
 import type { AppConfig, BackgroundShellTaskSummary, ConversationDelegateStatusSummary, PersonaProfile } from "../../../../types/app";
 import type { ToolReviewBatchSummary } from "../../../chat/composables/use-chat-tool-review";
@@ -581,7 +756,7 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed">((props.initialKey as any) || "question");
 
 // bare 模式下把内容高度写进标题，便于无头截图按内容高度精确裁剪。
 onMounted(() => {
@@ -597,6 +772,11 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "persona-delegate") return "人格委托人";
   if (demoComponentKey.value === "catalog-store") return "能力商店";
   if (demoComponentKey.value === "settings-shell") return "设置页头部";
+  if (demoComponentKey.value === "kanban-board") return "议题看板页";
+  if (demoComponentKey.value === "kanban-card") return "议题看板磁贴";
+  if (demoComponentKey.value === "team-member-tiles") return "队员磁贴";
+  if (demoComponentKey.value === "chat-home") return "首页磁贴区";
+  if (demoComponentKey.value === "skill-managed") return "技能面板（托管技能禁用态）";
   if (demoComponentKey.value === "config-cards") return "配置卡片画廊";
   if (demoComponentKey.value === "session-float-dock") return "会话悬浮操作区";
   if (demoComponentKey.value === "session-timeline") return "会话时间线（垂直）";
@@ -605,8 +785,11 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "double-deck") return "双层卡";
   if (demoComponentKey.value === "home-cards") return "预览卡画廊";
   if (demoComponentKey.value === "conversation-list") return "列表卡画廊";
+  if (demoComponentKey.value === "conversation-item") return "会话条目（状态×未读）";
+  if (demoComponentKey.value === "chat-message") return "消息项（队伍消息气泡）";
   if (demoComponentKey.value === "composer") return "输入面板新结构";
   if (demoComponentKey.value === "question") return "提问卡";
+  if (demoComponentKey.value === "question-tool") return "会话提问（question 工具）";
   if (demoComponentKey.value === "bubbles") return "自研气泡";
   if (demoComponentKey.value === "delegates") return "DelegateProgressLine";
   if (demoComponentKey.value === "overview") return "监控概览（MonitorOverview）";
@@ -909,6 +1092,59 @@ function onDemoQuestionSubmit(payload: Array<{ id: string; optionId: string; lab
 
 function onDemoQuestionApproveForWorkspace(requestId: string) {
   demoQuestionLastWorkspaceApproved.value = String(requestId || "").trim() || "unknown";
+}
+
+// ==================== 会话提问（question 工具）====================
+
+/** 模拟后端 `question_list` 返回：编号不连续（#2/#5/#7），验证面板按实际编号显示。 */
+const demoQuestionToolInitialItems: ConversationQuestionView[] = [
+  {
+    number: 2,
+    title: "要不要现在发布？",
+    background: "改动已经全绿，但 release tag 还没写。",
+    options: ["现在发布", "再等等"],
+  },
+  { number: 5, title: "用哪个分支？", options: ["main", "release"] },
+  { number: 7, title: "回滚由谁执行？", options: ["我自己来", "交给值班"] },
+];
+const demoQuestionToolItems = ref<ConversationQuestionView[]>([...demoQuestionToolInitialItems]);
+const demoQuestionToolAnswers = ref<Record<string, { optionId: string; label: string; comment: string }>>({});
+const demoQuestionToolLastSubmit = ref<Array<{ id: string; optionId: string; label: string; comment: string }> | null>(null);
+
+/** 走真实映射，和 ChatView 是同一份实现，不手写静态复现。 */
+const demoQuestionToolPanelItems = computed(() =>
+  buildConversationQuestionItems(demoQuestionToolItems.value),
+);
+
+/** 逐题提交时每次只有一题，展示编号比展示条数更有信息量。 */
+const demoQuestionToolLastSubmitLabel = computed(() =>
+  (demoQuestionToolLastSubmit.value ?? [])
+    .map((answer) => `#${answer.id} ${answer.label}`)
+    .join("、"),
+);
+
+function resetDemoQuestionTool() {
+  demoQuestionToolItems.value = [...demoQuestionToolInitialItems];
+  demoQuestionToolAnswers.value = {};
+  demoQuestionToolLastSubmit.value = null;
+}
+
+function setDemoQuestionToolPreset(preset: "pending" | "empty") {
+  demoQuestionToolAnswers.value = {};
+  demoQuestionToolLastSubmit.value = null;
+  demoQuestionToolItems.value = preset === "empty" ? [] : [...demoQuestionToolInitialItems];
+}
+
+/** 演示后端答题的效果：该编号从列表移除，答完全部就回到空态。 */
+function onDemoQuestionToolSubmit(
+  payload: Array<{ id: string; optionId: string; label: string; comment: string }>,
+) {
+  demoQuestionToolLastSubmit.value = payload;
+  const answered = new Set(payload.map((answer) => Number(answer.id)));
+  demoQuestionToolItems.value = demoQuestionToolItems.value.filter(
+    (item) => !answered.has(item.number),
+  );
+  demoQuestionToolAnswers.value = {};
 }
 
 watch(demoQuestionPreset, () => {
@@ -1320,3 +1556,25 @@ onBeforeUnmount(() => {
   delegateDemoTimer = 0;
 });
 </script>
+
+<style scoped>
+/* 复刻 ChatHomePanel 的 .ecall-home-flow：列宽 8.75rem、间距 1rem、
+   行高下限 6.5rem，磁贴靠 1 / -1 与 span 3 撑成 3×3。 */
+.ecall-kanban-demo-flow {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.75rem, 1fr));
+  grid-auto-rows: minmax(6.5rem, auto);
+  gap: 1rem;
+  grid-auto-flow: dense;
+}
+
+.ecall-kanban-demo-filler {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed color-mix(in oklab, var(--color-base-content) 20%, transparent);
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
+}
+</style>

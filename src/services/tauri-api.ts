@@ -1765,7 +1765,7 @@ const TAURI_COMMAND_ALIASES: Record<string, string> = {
   "conversation.foregroundLightSnapshot": "get_foreground_conversation_light_snapshot",
   "conversation.fastRequestTurns": "get_conversation_fast_request_turns",
   "conversation.planMode.set": "set_conversation_plan_mode",
-  "conversation.teamMode.set": "set_conversation_team_mode",
+  "conversation.resetDraftTeamMembers": "reset_draft_team_members",
   "conversation.teamRecruit": "team_recruit_conversation",
   "conversation.wheelchairMode.set": "set_conversation_wheelchair_mode",
   "conversation.wheelchairSuggestion.dismiss": "dismiss_conversation_wheelchair_suggestion",
@@ -1900,7 +1900,7 @@ const TAURI_INPUT_WRAPPED_COMMANDS = new Set([
   "conversation.foregroundLightSnapshot",
   "conversation.fastRequestTurns",
   "conversation.planMode.set",
-  "conversation.teamMode.set",
+  "conversation.resetDraftTeamMembers",
   "conversation.teamRecruit",
   "conversation.wheelchairMode.set",
   "conversation.wheelchairSuggestion.dismiss",
@@ -2161,6 +2161,13 @@ const TRANSPORT_NOTIFICATION_EVENT_ALIASES: Record<string, string | string[]> = 
   "conversation.pinUpdated": "easy-call:conversation-pin-updated",
   "conversation.goalUpdated": "easy-call:conversation-goal-updated",
   "conversation.runtimeStateUpdated": "easy-call:conversation-runtime-state-updated",
+  // 队伍议题看板：磁贴与看板页共用一条变更广播，不为磁贴另开通道
+  "kanban.updated": "easy-call:kanban-updated",
+  // 会话状态（progressState）走独立通道：概览项广播对追问会话短路不广播，靠它才能实时刷到界面
+  "conversation.progressStateUpdated": "easy-call:conversation-progress-state-updated",
+  // 会话问题队列：question 工具增删改或答题后推「这个会话有哪些待答问题」，
+  // 输入框上方的问题卡片与会话行的待答计数（items.length）都跟着它刷新
+  "question.itemsUpdated": "easy-call:conversation-question-updated",
   "conversation.messagesAfterSynced": "easy-call:conversation-messages-after-synced",
   "conversation.chatErrorCleared": "easy-call:chat-error-cleared",
   "conversation.wheelchairSuggestion": "easy-call:wheelchair-suggestion",

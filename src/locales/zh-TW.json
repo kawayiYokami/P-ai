@@ -710,6 +710,8 @@
       "builtin": "系統內建",
       "builtinTag": "內建",
       "builtinReadonly": "內建唯讀",
+      "managedTag": "系統託管",
+      "managedHint": "系統託管技能：由系統依會話角色注入（隊長會話會帶上），無法手動啟用或停用。",
       "readonly": "唯讀",
       "modified": "已修改",
       "unsaved": "未儲存",
@@ -918,7 +920,6 @@
       "delegateModelTitle": "收到委託時使用的模型",
       "delegateModelHint": "只影響該人格收到委託時的模型，不影響會話輸入面板的模型選擇",
       "delegateModelFollowSession": "跟隨會話",
-      "delegateModelExpert": "專家",
       "delegateModelQuick": "快速",
       "delegateModelCustom": "自訂",
       "delegateCustomModel": "選擇模型",
@@ -1000,8 +1001,6 @@
       "visionApiHint": "給 `read_media` 綁定專用的多模態分析模型，可用於圖片、音訊、影片理解；選擇不設定時不會向模型提供 read_media 工具。",
       "toolReviewApi": "快速模型",
       "toolReviewApiHint": "輕量任務未單獨指定時，優先用這裡。",
-      "expertChatModelTitle": "專家模型",
-      "expertChatModelHint": "主要對話預設用這裡，專家任務未單獨指定時也優先用這裡。",
       "sttTitle": "語音轉文字模型",
       "sttHint": "未單獨指定語音轉文字時，優先使用這裡。",
       "sttLocalWebSpeech": "本地（Web Speech）",
@@ -2092,8 +2091,40 @@
       "title": "追問",
       "create": "新增追問",
       "close": "關閉追問",
+      "emptyTitle": "尚無追問",
       "newPageInContext": "在原會話追問「{persona}」",
       "newPageBlank": "在空白會話追問「{persona}」"
+    },
+    "teamMember": {
+      "title": "隊員",
+      "close": "關閉隊員會話",
+      "empty": "隊伍裡尚無隊員",
+      "busy": "正在執行",
+      "workingOn": "正在處理 {issue}",
+      "state": {
+        "busy": "忙碌",
+        "idle": "空閒",
+        "error": "出錯"
+      }
+    },
+    "conversationStatus": {
+      "unset": "未設定",
+      "planning": "規劃中",
+      "todo": "待辦",
+      "in_progress": "進行中",
+      "in_review": "待審核",
+      "blocked": "阻塞",
+      "done": "完成",
+      "tooltip": "會話狀態：{status}",
+      "tooltipWithEvidence": "會話狀態：{status}｜證據：{evidence}",
+      "short": {
+        "planning": "規劃",
+        "todo": "待辦",
+        "inProgress": "進行",
+        "inReview": "待審",
+        "blocked": "阻塞",
+        "done": "完成"
+      }
     },
     "rightSidebarToggle": "右側欄",
     "conversationSearchPlaceholder": "搜尋會話標題或最近兩條訊息",
@@ -2147,6 +2178,7 @@
       "startArchive": "開始歸檔"
     },
     "conversationNoPreview": "暫無消息",
+    "pendingQuestionsTooltip": "還有 {count} 個問題待定",
     "defaultWorkspace": "預設會話目錄",
     "workspacePickerTitle": "允許 AI 存取的目錄",
     "workspacePickerHint": "在這裡，你可以設定希望 AI 看到的資料夾，以及工具執行的根目錄。",
@@ -2558,9 +2590,6 @@
     "teamInitialMembersTip": "選擇初始隊員。無論你是否指定了初始隊員，隊長後續仍會按需要繼續招募。初始隊員預設跟隨隊長的工作目錄。",
     "teamManage": {
       "title": "隊伍管理",
-      "recruitSwitch": "LLM 招募開關",
-      "recruitOff": "招募已關閉",
-      "recruitOffHint": "這個開關只管 LLM 能不能自己招人。你隨時可以在下面勾選招募，不受開關限制。",
       "memberList": "隊員（{count}）",
       "empty": "暫無隊員，從下方勾選人格招募吧。",
       "memberCount": "{count} 名隊員",
@@ -2583,7 +2612,37 @@
     "worktreeNewNamePlaceholderTarget": "將作為目錄名（位於 .pai/.worktree/）",
     "worktreeNewMissing": "請填寫基分支和工作樹名稱",
     "worktreeNewMissingTarget": "請選擇目標分支並填寫工作樹名稱",
-    "worktreeNewFailed": "建立工作樹失敗：{message}"
+    "worktreeNewFailed": "建立工作樹失敗：{message}",
+    "kanban": {
+      "cardTitle": "議題看板",
+      "cardEmptyAttention": "沒有需要你處理的事。",
+      "cardEmptyColumn": "無任務",
+      "updatedAtTime": "更新於 {time}",
+      "cardMore": "還有 {count} 條",
+      "cardMoreBtn": "更多",
+      "boardTitle": "議題看板",
+      "backToTiles": "回到磁貼",
+      "refresh": "重新整理",
+      "issueCount": "共 {count} 條",
+      "boardEmpty": "這塊看板還沒有議題。隊長會在處理過程中把議題記進來。",
+      "view": {
+        "decision": "討論",
+        "progress": "進展"
+      },
+      "groupEmpty": "暫無",
+      "approve": "通過",
+      "approveHint": "確認這條議題已完成",
+      "assigneeNone": "未分配",
+      "status": {
+        "discussing": "待議",
+        "todo": "待辦",
+        "in_progress": "解決中",
+        "in_review": "待審",
+        "blocked": "阻塞",
+        "done": "已完成",
+        "closed": "已關閉"
+      }
+    }
   },
   "memory": {
     "title": "记忆列表",
@@ -2701,12 +2760,12 @@
       "actionRemember": "記錄記憶",
       "actionSearch": "搜尋檔案",
       "actionTask": "排程任務",
-      "actionTeamDismiss": "請離隊員",
       "actionTeamInfo": "查看隊伍",
+      "actionTeamRead": "讀隊員訊息",
       "actionTeamRecruit": "招募隊員",
       "actionTeamReport": "彙報隊長",
+      "actionTeamShareModel": "推送模型給隊員",
       "actionTeamSend": "傳送給隊員",
-      "teamMemberNumber": "{number} 號隊員",
       "teamScopeActive": "當前隊員",
       "teamScopeHistory": "歷史隊員",
       "actionTodo": "待辦清單",
@@ -3383,7 +3442,7 @@
     "models": "模型",
     "modelQuick": "快速",
     "modelQuickHint": "廉價快速，用來處理簡單任務的模型",
-    "modelExpert": "專家",
+    "modelExpert": "預設",
     "modelExpertHint": "直接與你對話的模型",
     "modelVision": "多模態",
     "modelVisionHint": "多模態指可讀取圖片、音訊與視訊",

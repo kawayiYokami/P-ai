@@ -267,8 +267,6 @@ export type ChatShellWorkspaceState = {
   rootPath: string;
   workspaces?: ShellWorkspace[];
   autonomousMode?: boolean;
-  /** 组队模式：true = 这个会话挂了队长工具，可以招募队员 */
-  teamEnabled?: boolean;
   /** 新建会话预选的队员人格（不含队长），按选择顺序在首轮发言时建成队员 */
   teamPendingMemberAgents?: string[];
   /** 是否为会话草稿：草稿一律从单人模式开始 */
@@ -605,6 +603,8 @@ export type SkillSummaryItem = {
   path: string;
   additionalFiles?: SkillFileItem[];
   isBuiltin?: boolean;
+  /** 系统托管：开关与勾选权都归代码，只能查看。 */
+  managed?: boolean;
   enabled?: boolean;
 };
 
@@ -1066,6 +1066,8 @@ export type UnarchivedConversationSummary = {
   bodyTextLength?: number;
   hasAssistantReply?: boolean;
   unreadCount: number;
+  /** 待答问题数：提问工具按会话统计，0 表示没有待答问题（列表按 0 不渲染） */
+  questionCount?: number;
   agentId: string;
   conversationKind?: string;
   childConversationIds?: string[];
@@ -1094,6 +1096,12 @@ export type UnarchivedConversationSummary = {
   detachedWindowLabel?: string;
   previewMessages?: ConversationPreviewMessage[];
   state?: ConversationListItemState;
+  /** 会话状态（六态 key；空串＝未设置），由进度工具写入 */
+  progressState?: ConversationProgressState | "";
+  /** 状态证据：LLM 写入状态时给出的依据，随状态下发；归档窗口不渲染，但字段随会话保留 */
+  evidence?: string;
+  /** 证据更新时间（ISO）；仅供提示展示 */
+  evidenceUpdatedAt?: string;
 };
 
 export type ChildConversationSummary = {
@@ -1105,14 +1113,42 @@ export type ChildConversationSummary = {
   updatedAt: string;
   /** 该追问会话自己的执行人格；侧边面板据此显示人格名与头像。 */
   agentId?: string;
-  /** 队员身份标记：在队时带编号与名字，普通追问为空。 */
-  teamNumber?: number;
+  /** 队员身份标记：在队时是它的角色（人格名），普通追问为空。编号不再下发。 */
   teamName?: string;
+  /** 这名队员名下此刻在办的那条议题；没有议题、或只剩已完成 / 已关闭时为空。
+      一个队员最多一条在办，所以这里是单个对象，不是数组。 */
+  activeIssue?: {
+    number: number;
+    title: string;
+    status: string;
+  };
+  /** 他此刻在不在跑：busy / idle / error，只在队员会话上有值 */
+  memberState?: string;
   /** 磁贴直显基线：后端持久化的未读、运行态、轮次错误 */
   unreadCount?: number;
   runtimeState?: string;
   lastError?: string;
+  /** 会话状态（六态 key；空串＝未设置），由进度工具写入 */
+  progressState?: ConversationProgressState | "";
+  /** 状态证据：LLM 写入状态时给出的依据，与状态一起下发 */
+  evidence?: string;
+  /** 证据更新时间（ISO）；仅供提示展示 */
+  evidenceUpdatedAt?: string;
 };
+
+/**
+ * 会话状态（`progressState`，取值见 `ConversationProgressState`）的六态 key。
+ *
+ * 与运行生命周期（MainSessionState / runtimeState）、列表活动态（ConversationListItemState.activity）
+ * 是三层不同的东西，字段与取色都不得互相借用。
+ */
+export type ConversationProgressState =
+  | "planning"
+  | "todo"
+  | "in_progress"
+  | "in_review"
+  | "blocked"
+  | "done";
 
 export type ConversationListItemState = {
   activity: "idle" | "busy" | "completed" | "failed";
@@ -1148,6 +1184,12 @@ export type ChatConversationOverviewItem = {
   childConversationIds?: string[];
   remoteContactId?: string;
   remoteContactDisplayName?: string;
+  /** private / group：远程联系人会话的队伍入口判据用 */
+  remoteContactType?: string;
+  /** 队长会话的在队队员数（远程联系人会话随摘要下发） */
+  teamMemberCount?: number;
+  /** 队长会话的在队队员名单（远程联系人会话随摘要下发） */
+  teamMembers?: Array<{ conversationId: string; number: number; name: string }>;
   channelId?: string;
   channelName?: string;
   messageCount: number;
@@ -1155,6 +1197,8 @@ export type ChatConversationOverviewItem = {
   bodyTextLength?: number;
   hasAssistantReply?: boolean;
   unreadCount?: number;
+  /** 会话问题队列里待回答的条数；0/缺省表示没有待定问题，列表行不显示提醒 */
+  questionCount?: number;
   agentId?: string;
   parentConversationId?: string;
   forkMessageCursor?: string;
@@ -1183,6 +1227,12 @@ export type ChatConversationOverviewItem = {
   backgroundStatus?: "completed" | "failed";
   previewMessages?: ConversationPreviewMessage[];
   state?: ConversationListItemState;
+  /** 会话状态（六态 key；空串＝未设置），由进度工具写入 */
+  progressState?: ConversationProgressState | "";
+  /** 状态证据：LLM 写入状态时给出的依据，与状态一起下发，UI 必须在 tooltip 里露出原文 */
+  evidence?: string;
+  /** 证据更新时间（ISO）；仅供提示展示，不作为状态判断依据 */
+  evidenceUpdatedAt?: string;
 };
 
 export type ConversationForwardTarget = {
