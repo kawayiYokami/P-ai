@@ -5,7 +5,6 @@
     :label="t('chat.kanban.cardTitle')"
     class="ecall-home-kanban"
     :class="kanbanGridClass"
-    :style="kanbanGridStyle"
   >
     <template #leading>
       <div class="flex min-w-0 flex-1 items-center">
@@ -378,51 +377,40 @@ const maxVisibleItems = computed(() => {
   return Math.max(...activeGroups.value.map((g) => g.items.length));
 });
 
-/** 磁贴自适应高度（变动范围：6.5rem ~ 21.5rem） */
-const cardHeight = computed(() => {
-  if (visibleCount.value === 0) {
-    return "6.5rem";
-  }
-  const count = maxVisibleItems.value;
-  if (count <= 1) {
-    return "11.25rem";
-  }
-  if (count === 2) {
-    return "16.25rem";
-  }
-  return "21.5rem";
-});
-
-/** 磁贴跨列自适应：根据可见分类数决定横向跨格数 */
+/** 磁贴跨列与跨行自适应：严格契合 Bento Grid 标准单元 */
 const kanbanGridClass = computed(() => {
-  if (flowContainerWidth.value < 500) {
-    return "col-span-full";
-  }
-  if (visibleCount.value === 0) {
-    return "ecall-kanban-span-2 is-empty";
-  }
-  const categoryCount = activeGroups.value.length;
-  if (categoryCount <= 1) {
-    // 只有 1 个分类（如只有 1 项议题）：作为普通双格卡（跨 2 格、跨 2 行）与其它磁贴并排
-    return "ecall-kanban-span-2";
-  }
-  if (categoryCount === 2) {
-    // 2 个分类：跨 4 格（容纳 2 个泳道）
-    return "ecall-kanban-span-4";
-  }
-  // 3 个及以上分类：占满整行大看板
-  return "col-span-full";
-});
+  const classes: string[] = [];
 
-/** 磁贴自适应高度样式 */
-const kanbanGridStyle = computed(() => {
-  if (isNarrow.value || activeGroups.value.length >= 3) {
-    return { height: cardHeight.value };
+  // 1. 横向跨列（grid-column）
+  if (flowContainerWidth.value < 500) {
+    classes.push("col-span-full");
+  } else if (visibleCount.value === 0) {
+    classes.push("ecall-kanban-span-2", "is-empty");
+  } else {
+    const categoryCount = activeGroups.value.length;
+    if (categoryCount <= 1) {
+      classes.push("ecall-kanban-span-2");
+    } else if (categoryCount === 2) {
+      classes.push("ecall-kanban-span-4");
+    } else {
+      classes.push("col-span-full");
+    }
   }
-  if (visibleCount.value === 0) {
-    return { height: "6.5rem" };
+
+  // 2. 纵向跨行（grid-row）
+  const count = maxVisibleItems.value;
+  if (visibleCount.value === 0 || count <= 1) {
+    // 0 个或 1 个议题：标准单行卡（与环境卡片等高平齐，无缝对齐）
+    classes.push("ecall-kanban-row-1");
+  } else if (count === 2 || !classes.includes("col-span-full")) {
+    // 2 个议题或非全宽混排模式：标准双行卡（与两行卡片底部严密平齐）
+    classes.push("ecall-kanban-row-2");
+  } else {
+    // 全宽大看板且议题 >= 3：三行大看板
+    classes.push("ecall-kanban-row-3");
   }
-  return { height: "14rem" };
+
+  return classes.join(" ");
 });
 
 // ==================== 人格名称与头像反查 ====================
@@ -481,38 +469,53 @@ function formatTime(dateStr?: string): string {
 </script>
 
 <style scoped>
-/* 自适应磁贴：高度与宽度均根据内容弹性变动 */
+/* 自适应磁贴：完全依托 CSS Grid 网格单元，高度 100% 紧贴网格行，杜绝非标悬空 */
 .ecall-home-kanban {
-  min-height: 6.5rem;
-  max-height: 21.5rem;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   transition: all 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* 0 个任务（空态）：跨 2 格宽、跨 1 行高，与普通小磁贴无异 */
-.ecall-home-kanban.ecall-kanban-span-2.is-empty {
+/* 0 个任务（空态）或 仅 1 个议题：跨 2 格宽、跨 1 行高，与普通磁贴完全等高平齐 */
+.ecall-home-kanban.ecall-kanban-span-2.is-empty,
+.ecall-home-kanban.ecall-kanban-span-2.ecall-kanban-row-1 {
   grid-column: span 2;
   grid-row: span 1;
-  height: 6.5rem !important;
 }
 
-/* 1 个分类（如只有 1 项议题）：跨 2 格宽、跨 2 行高，与其他磁贴并排紧凑混排 */
-.ecall-home-kanban.ecall-kanban-span-2 {
+/* 1 个分类且有 2 项及以上议题：跨 2 格宽、跨 2 行高，填满网格两行且与同行底部严密平齐 */
+.ecall-home-kanban.ecall-kanban-span-2.ecall-kanban-row-2 {
   grid-column: span 2;
   grid-row: span 2;
-  height: 14rem !important;
 }
 
 /* 2 个分类：跨 4 格宽、跨 2 行高（容纳 2 列泳道） */
 .ecall-home-kanban.ecall-kanban-span-4 {
   grid-column: span 4;
   grid-row: span 2;
-  height: 14rem !important;
 }
 
 /* 3 个及以上分类或窄屏：占满整行 */
 .ecall-home-kanban.col-span-full {
   grid-column: 1 / -1;
   grid-row: auto;
+}
+
+/* 全宽整行模式下高度控制：根据内容项数平滑自适应，条目超出时泳道内滚动 */
+.ecall-home-kanban.col-span-full.ecall-kanban-row-1 {
+  min-height: 10.5rem;
+  max-height: 14rem;
+}
+
+.ecall-home-kanban.col-span-full.ecall-kanban-row-2 {
+  min-height: 14rem;
+  max-height: 18rem;
+}
+
+.ecall-home-kanban.col-span-full.ecall-kanban-row-3 {
+  min-height: 18rem;
+  height: 21.5rem;
 }
 
 /* 泳道纵向底部渐变淡出：自然羽化截断边缘 */
