@@ -107,7 +107,7 @@
                    形状与未读红圆明确不同，避免又一次「两个数字挨着被读成一个量词」。 -->
               <span
                 v-if="pendingQuestionBadge"
-                class="ecall-conv-pending inline-flex h-5 min-w-5 shrink-0 items-center justify-center gap-0.5 rounded-full bg-info px-1.5 text-xs font-medium text-info-content"
+                class="ecall-conv-pending inline-flex h-5 min-w-5 shrink-0 items-center justify-center gap-0.5 rounded-full bg-info px-1.5 text-xs font-semibold text-info-content"
                 :title="pendingQuestionTitle"
                 :aria-label="pendingQuestionTitle"
                 role="img"
