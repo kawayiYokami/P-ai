@@ -1,35 +1,25 @@
 <template>
   <div
-    class="group/card flex flex-col gap-2 rounded-field border border-base-content/10 bg-base-100 p-2.5 shadow-2xs transition-all hover:border-base-content/25 hover:shadow-xs focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50"
+    class="flex flex-col gap-1.5 rounded-field border border-base-content/10 bg-base-100 p-2.5 transition-colors hover:border-base-content/25 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50"
     :class="[
-      issue.status === 'in_review' ? 'border-warning/30 bg-warning/[0.02]' : '',
-      issue.status === 'blocked' ? 'border-error/25 bg-error/[0.02]' : '',
+      issue.status === 'in_review' ? 'border-warning/40' : '',
+      issue.status === 'blocked' ? 'border-error/40' : '',
     ]"
     role="article"
     tabindex="0"
     @click="emit('select', issue)"
     @keydown.enter.prevent="emit('select', issue)"
   >
-    <!-- 顶栏：编号 + 状态药丸（可选） + 计划文件外链 -->
-    <div class="flex items-center justify-between gap-1.5 font-mono text-micro">
-      <div class="flex min-w-0 items-center gap-1.5">
-        <span class="font-mono font-semibold tabular-nums text-base-content/60">
-          #{{ issue.number }}
-        </span>
-        <span
-          v-if="showStageBadge"
-          class="badge badge-xs shrink-0"
-          :class="stageMeta.badgeClass"
-        >
-          {{ t(stageMeta.labelKey) }}
-        </span>
-      </div>
+    <!-- 顶行：编号 + 计划文件外链 -->
+    <div class="flex items-center justify-between gap-1.5 text-caption">
+      <span class="font-mono font-medium text-xs tabular-nums text-base-content/50">
+        #{{ issue.number }}
+      </span>
 
-      <!-- 挂接计划文件：带图标与悬浮提示，可点击跳转/预览 -->
       <button
         v-if="issue.planPath"
         type="button"
-        class="flex max-w-[120px] shrink-0 items-center gap-1 truncate rounded px-1 py-0.5 text-micro text-base-content/50 transition-colors hover:bg-base-200 hover:text-primary"
+        class="flex max-w-[140px] items-center gap-1 truncate text-caption text-base-content/50 hover:text-primary transition-colors cursor-pointer"
         :title="issue.planPath"
         @click.stop="emit('openPlan', issue.planPath)"
       >
@@ -38,25 +28,25 @@
       </button>
     </div>
 
-    <!-- 中部：标题（最多 2 行，清晰易读） -->
+    <!-- 中行：标题（最多 2 行，清晰易读） -->
     <div
-      class="line-clamp-2 text-xs font-medium leading-snug text-base-content/90 transition-colors group-hover/card:text-base-content"
+      class="line-clamp-2 text-xs font-medium leading-snug text-base-content/90"
       :title="issue.title"
     >
       {{ issue.title }}
     </div>
 
-    <!-- 备注：如果有阻塞原因或当前说明，以浅色背景小气泡呈现 -->
+    <!-- 备注说明：微透明底色小条 -->
     <div
       v-if="issue.note"
-      class="line-clamp-2 rounded bg-base-200/60 px-2 py-1 text-micro leading-relaxed text-base-content/65"
+      class="line-clamp-2 rounded bg-base-200/70 px-2 py-1 text-micro leading-relaxed text-base-content/65"
       :title="issue.note"
     >
       {{ issue.note }}
     </div>
 
-    <!-- 底栏：执行人 + 相对时间 / 审核通过按钮 -->
-    <div class="flex items-center justify-between gap-1.5 pt-0.5 text-micro">
+    <!-- 底行：执行人 + 相对时间 / 审核通过按钮 -->
+    <div class="flex items-center justify-between gap-1.5 pt-0.5 text-caption">
       <!-- 执行人人格/角色名与头像 -->
       <div class="flex min-w-0 items-center gap-1.5">
         <div class="avatar size-4 shrink-0">
@@ -74,7 +64,7 @@
           </div>
         </div>
         <span
-          class="max-w-[90px] truncate text-micro text-base-content/75"
+          class="max-w-[100px] truncate text-caption text-base-content/75"
           :title="assigneeName"
         >
           {{ assigneeName }}
@@ -86,17 +76,17 @@
         <button
           v-if="issue.status === 'in_review'"
           type="button"
-          class="btn btn-warning btn-xs h-5 min-h-5 gap-1 px-1.5 text-micro font-medium shadow-2xs hover:brightness-105"
+          class="btn btn-warning btn-xs h-5 min-h-5 gap-1 px-1.5 text-caption font-medium"
           :disabled="approvingNumber === issue.number"
           :title="t('chat.kanban.approveHint')"
           @click.stop="emit('approve', issue.number)"
         >
-          <Check class="size-2.5" aria-hidden="true" />
+          <Check class="size-3" aria-hidden="true" />
           <span>{{ t("chat.kanban.approve") }}</span>
         </button>
         <span
           v-else-if="timeLabel"
-          class="shrink-0 text-micro tabular-nums text-base-content/40"
+          class="shrink-0 text-caption tabular-nums text-base-content/40"
         >
           {{ timeLabel }}
         </span>
@@ -112,20 +102,16 @@ import { Check, FileText } from "@lucide/vue";
 import {
   formatTimeRelative,
   getAvatarColorByName,
-  KANBAN_STAGE_CONFIGS,
   type KanbanIssue,
-  type KanbanStageStatus,
 } from "./kanban-types";
 
 const props = withDefaults(defineProps<{
   issue: KanbanIssue;
   assigneeName: string;
   avatarUrl?: string;
-  showStageBadge?: boolean;
   approvingNumber?: number | null;
 }>(), {
   avatarUrl: "",
-  showStageBadge: false,
   approvingNumber: null,
 });
 
@@ -136,11 +122,6 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-
-const stageMeta = computed(() => {
-  const status = String(props.issue.status || "").trim() as KanbanStageStatus;
-  return KANBAN_STAGE_CONFIGS[status] || KANBAN_STAGE_CONFIGS.todo;
-});
 
 const avatarContainerStyle = computed(() => {
   if (props.avatarUrl) return {};
