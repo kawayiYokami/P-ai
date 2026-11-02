@@ -98,16 +98,16 @@
               </span>
             </div>
             <!-- 第二行右端簇，两件事各说各的，谁也不吞谁：
-                 待定问题数（中性色，讲「还有几个问题等你回答」）→ 未读红圆（只讲「有几条没看」）。
+                 待定问题数（info 色，讲「还有几个问题等你回答」）→ 未读红圆（只讲「有几条没看」）。
                  两者语义无关，所以不合并、不为了省位置改写未读的既有形态。 -->
             <div class="ecall-conv-tail flex shrink-0 items-center gap-3">
               <span v-if="pipelineStatus === 'error'" class="badge badge-error badge-xs">{{ t("common.failed") }}</span>
               <span v-else-if="busyDetailText" class="text-xs text-base-content/60">{{ busyDetailText }}</span>
-              <!-- 待定问题数：提醒，不是警报。中性填充 + 问号图标，
+              <!-- 待定问题数：提醒，不是警报。info 色填充 + 问号图标，
                    形状与未读红圆明确不同，避免又一次「两个数字挨着被读成一个量词」。 -->
               <span
                 v-if="pendingQuestionBadge"
-                class="ecall-conv-pending inline-flex h-5 shrink-0 items-center justify-center gap-0.5 rounded-full bg-base-content/10 px-1.5 text-xs font-medium text-base-content/70"
+                class="ecall-conv-pending inline-flex h-5 min-w-5 shrink-0 items-center justify-center gap-0.5 rounded-full bg-info px-1.5 text-xs font-medium text-info-content"
                 :title="pendingQuestionTitle"
                 :aria-label="pendingQuestionTitle"
                 role="img"
