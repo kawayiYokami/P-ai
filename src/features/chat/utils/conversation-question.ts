@@ -37,6 +37,49 @@ export type ConversationQuestionAnswerMap = Record<
 >;
 
 /**
+ * 题目内容指纹：只比「这一题自己长什么样」，不含顺序与总数。
+ *
+ * 面板折叠着的时候靠它判断「题目到底有没有被更新」，所以选项的每个可见字段都要进指纹：
+ * 只比题干会漏掉「换了选项」这一类改动。
+ */
+export function conversationQuestionFingerprints(items: QuestionItem[]): Map<string, string> {
+  const fingerprints = new Map<string, string>();
+  for (const item of Array.isArray(items) ? items : []) {
+    const options = (item.options ?? [])
+      .map((option) => [
+        option.id,
+        option.label,
+        option.kind,
+        option.placeholder ?? "",
+        option.inputRequired ? "1" : "0",
+      ].join("\u0001"))
+      .join("\u0002");
+    fingerprints.set(
+      item.id,
+      [item.title, item.description ?? "", item.previewText ?? "", options].join("\u0003"),
+    );
+  }
+  return fingerprints;
+}
+
+/**
+ * 题目是否有更新：新题进来、或已有题目的内容被改，都算更新；只有题目减少或换了顺序不算。
+ *
+ * 面板据此决定折叠着的时候要不要自己展开。答掉/拒掉一题也是「列表变了」，
+ * 但那正是用户刚做完的动作，再把自己弹回来只是打扰。
+ */
+export function conversationQuestionsGotUpdates(
+  previous: Map<string, string>,
+  items: QuestionItem[],
+): boolean {
+  for (const [id, fingerprint] of conversationQuestionFingerprints(items)) {
+    const before = previous.get(id);
+    if (before === undefined || before !== fingerprint) return true;
+  }
+  return false;
+}
+
+/**
  * 题目列表变化后裁剪已选答复：只保留仍然存在的题目。
  *
  * 拒绝单题、以及工具自行增删题都走这里：用户拒掉一题不该把别的题已经选好的选项一起打回重选。

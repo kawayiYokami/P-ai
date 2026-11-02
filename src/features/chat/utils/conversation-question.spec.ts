@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildConversationQuestionAnswerPayload,
   buildConversationQuestionItems,
+  conversationQuestionFingerprints,
+  conversationQuestionsGotUpdates,
   pruneConversationQuestionAnswers,
   type ConversationQuestionView,
 } from "./conversation-question";
@@ -110,5 +112,54 @@ describe("pruneConversationQuestionAnswers", () => {
 
   it("题目全被清掉时返回空映射", () => {
     expect(pruneConversationQuestionAnswers([], answers)).toEqual({});
+  });
+});
+
+describe("conversationQuestionsGotUpdates", () => {
+  const base = [
+    question(2, "要不要现在发布？", ["现在发布", "再等等"]),
+    question(5, "用哪个分支？", ["main", "release"]),
+  ];
+  const fingerprintsOf = (views: ConversationQuestionView[]) =>
+    conversationQuestionFingerprints(buildConversationQuestionItems(views));
+
+  it("新题进来算更新", () => {
+    expect(
+      conversationQuestionsGotUpdates(
+        fingerprintsOf(base),
+        buildConversationQuestionItems([...base, question(7, "回滚由谁执行？", ["我", "你"])]),
+      ),
+    ).toBe(true);
+  });
+
+  it("已有题目的内容被改算更新", () => {
+    expect(
+      conversationQuestionsGotUpdates(
+        fingerprintsOf(base),
+        buildConversationQuestionItems([
+          question(2, "要不要现在发布？", ["现在发布", "再等等", "改灰度"]),
+          base[1]!,
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  it("只有题目减少时不算更新：答掉或拒掉一题不该把折叠面板弹回来", () => {
+    expect(
+      conversationQuestionsGotUpdates(
+        fingerprintsOf(base),
+        buildConversationQuestionItems([base[0]!]),
+      ),
+    ).toBe(false);
+    expect(conversationQuestionsGotUpdates(fingerprintsOf(base), [])).toBe(false);
+  });
+
+  it("题目集合没变、只是顺序不同时不算更新", () => {
+    expect(
+      conversationQuestionsGotUpdates(
+        fingerprintsOf(base),
+        buildConversationQuestionItems([base[1]!, base[0]!]),
+      ),
+    ).toBe(false);
   });
 });

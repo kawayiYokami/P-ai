@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { ChevronDown, ChevronUp, HelpCircle } from "@lucide/vue";
 import DoubleDeckCard from "./input-panel/DoubleDeckCard.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
@@ -10,6 +11,10 @@ import type {
   QuestionOption,
   QuestionOptionKind,
 } from "./chat-question-panel-types";
+import {
+  conversationQuestionFingerprints,
+  conversationQuestionsGotUpdates,
+} from "../utils/conversation-question";
 import {
   buildQuestionSubmitPayload,
   buildSelectedQuestionSubmitPayload,
@@ -60,6 +65,12 @@ const CUSTOM_ANSWER_OPTION_ID = "__custom__";
 const customAnswerEditing = ref(false);
 const customAnswerDrafts = ref<Record<string, string>>({});
 const customAnswerInputEl = ref<HTMLInputElement | null>(null);
+/**
+ * 搁置折叠：只活在组件内部，不落库、不进任何持久化结构。
+ * 切会话时父级用 `:key="conversationQuestionKey"` 重建面板，折叠态随之归零，正好回到展开。
+ */
+const panelCollapsed = ref(false);
+let previousQuestionFingerprints = conversationQuestionFingerprints(props.items);
 
 const total = computed(() => props.items.length);
 const currentItem = computed(() => props.items[currentIndex.value] ?? null);
@@ -201,6 +212,21 @@ watch(
   },
 );
 
+/**
+ * 折叠着的时候，题目有更新才自己展开：新题进来、或已有题被改。
+ * 只是减少（答掉一题、拒掉一题）不展开——那是用户刚做完的动作，再弹回来就是打扰。
+ * 父级每次刷新都会给一份新数组，所以比的是内容指纹，不是引用。
+ */
+watch(
+  () => props.items,
+  (next) => {
+    if (conversationQuestionsGotUpdates(previousQuestionFingerprints, next)) {
+      panelCollapsed.value = false;
+    }
+    previousQuestionFingerprints = conversationQuestionFingerprints(next);
+  },
+);
+
 watch(() => props.modelValue, () => {
   // keep drafts if user navigates back: prefill draft from saved answer comment for withInput
   const item = currentItem.value;
@@ -311,8 +337,31 @@ function handleReject() {
 
 <template>
   <div class="mx-auto w-full max-w-3xl">
+    <!-- 搁置窄条：收起后只剩这一条。数字取当前列表里的题数，答掉的题会从列表消失 -->
+    <button
+      v-if="panelCollapsed"
+      type="button"
+      class="flex w-full items-center gap-2 rounded-box border border-base-content/15 bg-base-200/60 px-3 py-1.5 text-xs text-base-content/70 transition-colors hover:border-base-content/25 hover:text-base-content"
+      @click="panelCollapsed = false"
+    >
+      <HelpCircle class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span class="min-w-0 truncate">{{ total }} 个问题待答</span>
+      <ChevronDown class="ml-auto h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+    </button>
+    <!-- 收起入口放在面板自己头上，只过渡颜色，不做高度动画，免得推着输入框走 -->
+    <div v-if="!panelCollapsed" class="flex justify-end px-2">
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs h-5 min-h-0 gap-1 px-1.5 text-xs font-normal text-base-content/50 hover:text-base-content"
+        title="收起问题面板；题目有更新时会自动展开"
+        @click="panelCollapsed = true"
+      >
+        收起
+        <ChevronUp class="h-3 w-3" aria-hidden="true" />
+      </button>
+    </div>
     <!-- 提问卡：双层卡，前提内容放底卡露头，题干加选项放面卡 -->
-    <DoubleDeckCard :extra-visible="hasExtra" :is-rounded="true" bg="base-200">
+    <DoubleDeckCard v-if="!panelCollapsed" :extra-visible="hasExtra" :is-rounded="true" bg="base-200">
       <template #extra>
         <div v-if="total > 0" class="space-y-3 px-4 pb-1 pt-4">
           <!-- confirm overview: N>1 all answered，列表放露头 -->
