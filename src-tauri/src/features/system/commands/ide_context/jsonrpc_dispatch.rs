@@ -417,6 +417,10 @@ async fn ide_chat_handle_jsonrpc_request(
             let input = ide_chat_parse_param_field::<AvatarDataPathInput>(request.params, "input")?;
             ide_chat_serialize(read_avatar_data_url_inner(input, state)?)
         })(),
+        "generate_agent_avatar" => (|| async {
+            let input = ide_chat_parse_param_field::<GenerateAgentAvatarInput>(request.params, "input")?;
+            ide_chat_serialize(generate_agent_avatar_inner(input, state).await?)
+        })().await,
         "save_agents" => ide_chat_save_agents_for_web_settings(state, request.params),
         "load_chat_settings" => ide_chat_load_chat_settings_for_web_settings(state),
         "save_chat_settings" => ide_chat_save_chat_settings_for_web_settings(state, app, request.params),

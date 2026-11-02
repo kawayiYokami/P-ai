@@ -24,3 +24,6 @@ include!("config_and_persona/storage_usage.rs");
 
 // ==================== 人格表情库管理 ====================
 include!("config_and_persona/meme_library.rs");
+
+// ==================== 人格头像生成 ====================
+include!("config_and_persona/avatar_generation.rs");
