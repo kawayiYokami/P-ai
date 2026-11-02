@@ -476,7 +476,8 @@
             },
         )
         .expect("主会话必须可用");
-        assert!(text.contains("#1 要不要现在发布？"), "{text}");
+        // 回执不再回放提交的标题与选项，只报条数
+        assert!(text.contains("已更新当前会话问题，共 1 条"), "{text}");
 
         let listed = builtin_question(
             &state,
@@ -495,7 +496,7 @@
     #[test]
     fn question_answer_message_should_carry_number_and_original_title() {
         let message = build_question_answer_message(
-            "【问题答复 #2】要不要现在发布？\n→ 现在发布",
+            "【要不要现在发布？】\n→ 现在发布",
             &[2],
         );
         assert_eq!(message.role, "user");
@@ -508,7 +509,7 @@
             })
             .collect::<Vec<_>>()
             .join("");
-        assert!(text.contains("【问题答复 #2】"), "{text}");
+        assert!(text.contains("【要不要现在发布？】"), "{text}");
         assert!(text.contains("要不要现在发布？"), "正文必须带问题原文：{text}");
         assert!(text.contains("→ 现在发布"), "{text}");
     }
@@ -596,7 +597,7 @@
         assert_eq!(result.answered_numbers, vec![1]);
         assert!(result.remaining.is_empty(), "答完必须从列表消失");
         assert!(
-            result.message_text.contains("【问题答复 #1】要不要现在发布？"),
+            result.message_text.contains("【要不要现在发布？】"),
             "{}",
             result.message_text
         );
@@ -706,11 +707,11 @@
 
         let first = result
             .message_text
-            .find("【问题答复 #1】")
+            .find("【题一】")
             .expect("block 1");
         let second = result
             .message_text
-            .find("【问题答复 #2】")
+            .find("【题二】")
             .expect("block 2");
         assert!(first < second, "正文顺序必须是 #1 在 #2 之前");
         assert!(result.message_text.contains("→ A1"), "{}", result.message_text);
@@ -838,8 +839,8 @@
                     .collect::<String>()
             })
             .collect::<Vec<_>>();
-        assert!(texts[0].contains("【问题答复 #1】题一"), "{:?}", texts[0]);
-        assert!(texts[1].contains("【问题答复 #2】题二"), "{:?}", texts[1]);
+        assert!(texts[0].contains("【题一】"), "{:?}", texts[0]);
+        assert!(texts[1].contains("【题二】"), "{:?}", texts[1]);
     }
 
     #[test]
@@ -871,7 +872,7 @@
             "没选的题不能被一起删掉"
         );
         assert!(
-            first.message_text.contains("【问题答复 #1】") && first.message_text.contains("【问题答复 #3】"),
+            first.message_text.contains("【题一】") && first.message_text.contains("【题三】"),
             "{}",
             first.message_text
         );
@@ -901,9 +902,9 @@
                     .collect::<String>()
             })
             .collect::<Vec<_>>();
-        assert!(texts[0].contains("【问题答复 #1】") && texts[0].contains("【问题答复 #3】"), "{:?}", texts[0]);
-        assert!(!texts[0].contains("【问题答复 #2】"), "第一轮不该带上没选的 #2");
-        assert!(texts[1].contains("【问题答复 #2】"), "{:?}", texts[1]);
+        assert!(texts[0].contains("【题一】") && texts[0].contains("【题三】"), "{:?}", texts[0]);
+        assert!(!texts[0].contains("【题二】"), "第一轮不该带上没选的 #2");
+        assert!(texts[1].contains("【题二】"), "{:?}", texts[1]);
     }
 
     #[test]
@@ -940,7 +941,7 @@
 
         assert_eq!(result.answered_numbers, vec![2]);
         assert!(
-            result.message_text.contains("【问题答复 #2】用哪个分支？"),
+            result.message_text.contains("【用哪个分支？】"),
             "{}",
             result.message_text
         );

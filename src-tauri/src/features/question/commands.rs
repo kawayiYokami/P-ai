@@ -165,11 +165,7 @@ fn question_answer_inner(
             }
             QuestionAnswerChoice::Custom(text) => text.clone(),
         };
-        blocks.push(format!(
-            "【问题答复 #{number}】{}\n→ {}",
-            question.title.trim(),
-            answer_text
-        ));
+        blocks.push(format!("【{}】\n→ {}", question.title.trim(), answer_text));
     }
     let message_text = blocks.join("\n\n");
     let answered_numbers = wanted.iter().map(|(number, _)| *number).collect::<Vec<_>>();
