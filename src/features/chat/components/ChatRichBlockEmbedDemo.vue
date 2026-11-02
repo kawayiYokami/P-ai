@@ -250,7 +250,6 @@ const columns = computed<DemoColumn[]>(() => [
 .ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-code-title) {
   padding: 0.35rem 1rem;
   background: transparent;
-  border-bottom: 1px solid var(--ecall-bubble-floor-border);
 }
 
 .ecall-rich-embed-demo-target .assistant-markdown :deep(.ecall-md-code-body) {
