@@ -95,6 +95,10 @@ export default defineConfig({
         "**/node_modules/**",
         "**/dist/**",
         "**/src-tauri/target/**",
+        // target-tests 是 AGENTS.md 约定的临时 Cargo 构建目录，同样属于构建产物。
+        // 不排除的话，cargo 在里面改写文件时 watcher 会 lstat 到瞬时消失的 .d 文件，
+        // Windows 上直接 UNKNOWN(-4094) 崩溃，整个 dev 实例退出。
+        "**/src-tauri/target-tests/**",
         "**/src-tauri/memory/**",
         "**/src-tauri/gen/**",
         "**/src-tauri/icons/**",
