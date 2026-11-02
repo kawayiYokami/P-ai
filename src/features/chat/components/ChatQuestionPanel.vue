@@ -507,7 +507,6 @@ function handleReject() {
 
           <!-- 手动发送：按钮常驻右下角，未选时是灰态，位置不跳 -->
           <div v-if="isManualSubmit" class="flex items-center justify-end gap-2 px-2 pb-1 pt-2">
-            <span v-if="selectedCount === 0" class="text-xs text-base-content/50">先点选项，再发送</span>
             <button
               type="button"
               class="btn btn-primary btn-sm"
