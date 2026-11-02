@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { directoryPathChain, fileKindFromPath, isUnsupportedFileExtension } from "./utils";
+import {
+  directoryPathChain,
+  fileKindFromPath,
+  isPreviewMediaKind,
+  isTextFileKind,
+  isUnsupportedFileExtension,
+} from "./utils";
 
 describe("fileKindFromPath", () => {
   it("treats TypeScript .ts as code, not unsupported media", () => {
@@ -10,6 +16,15 @@ describe("fileKindFromPath", () => {
   it("still rejects explicit mpeg-ts containers", () => {
     expect(fileKindFromPath("E:/video/sample.mts")).toBe("unsupported");
     expect(fileKindFromPath("E:/video/sample.m2ts")).toBe("unsupported");
+  });
+
+  it("单列 html kind，源码与沙箱渲染都按整段原文读", () => {
+    expect(fileKindFromPath("E:/repo/docs/demo.html")).toBe("html");
+    expect(fileKindFromPath("E:/repo/docs/demo.htm")).toBe("html");
+    expect(fileKindFromPath("E:/repo/docs/demo.HTML")).toBe("html");
+    expect(isTextFileKind("html")).toBe(true);
+    // html 不是媒体 kind，不能走进 image/audio/video 预览分支
+    expect(isPreviewMediaKind("html")).toBe(false);
   });
 });
 

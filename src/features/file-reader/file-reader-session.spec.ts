@@ -19,6 +19,14 @@ describe("listSessionFilePaths", () => {
     expect(listSessionFilePaths({ tabs: [A, A, "git-diff:E:/repo:worktree:src/a.ts", "", "  "] })).toEqual([A]);
   });
 
+  it("聊天图片伪路径不落盘：不进已打开文件列表", () => {
+    expect(listSessionFilePaths({ tabs: [A, "chat-image:1a2b3c4d", B] })).toEqual([A, B]);
+  });
+
+  it("聊天送进右栏的交互组件伪路径同样不落盘", () => {
+    expect(listSessionFilePaths({ tabs: [A, "chat-html:9f8e7d6c", B] })).toEqual([A, B]);
+  });
+
   it("没有 tabs 时为空数组", () => {
     expect(listSessionFilePaths({})).toEqual([]);
     expect(listSessionFilePaths(null)).toEqual([]);
@@ -32,6 +40,8 @@ describe("sessionActiveFilePath", () => {
 
   it("当前文件是伪路径或已不在列表内时，与面板恢复口径一致落到第一个文件", () => {
     expect(sessionActiveFilePath({ tabs: [A, B], activePath: "git-diff:E:/repo:staged:src/a.ts" })).toBe(A);
+    expect(sessionActiveFilePath({ tabs: [A, B], activePath: "chat-image:1a2b3c4d" })).toBe(A);
+    expect(sessionActiveFilePath({ tabs: [A, B], activePath: "chat-html:9f8e7d6c" })).toBe(A);
     expect(sessionActiveFilePath({ tabs: [A, B], activePath: "E:/repo/src/gone.ts" })).toBe(A);
     expect(sessionActiveFilePath({ tabs: [A, B] })).toBe(A);
   });

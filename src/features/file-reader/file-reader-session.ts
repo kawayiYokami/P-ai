@@ -8,9 +8,16 @@ import { normalizePath } from "./utils";
  * 阅读器面板与卡片墙（幕墙）共用：面板在场时由面板写，面板未挂载时（幕墙在场）由卡片墙写。
  */
 
-/** diff 标签是合成伪路径（git-diff:...），不对应磁盘文件，不进已打开文件列表也不落盘 */
-function isDiffPseudoPath(path: string) {
-  return String(path || "").trim().startsWith("git-diff:");
+/**
+ * 伪路径是合成标签，不对应磁盘文件：diff 标签是 `git-diff:...`，聊天图片是 `chat-image:...`，
+ * 聊天里送进右栏的交互组件是 `chat-html:...`。
+ * 它们不进已打开文件列表、不落盘、不读盘、不监听目录。
+ */
+function isPseudoSessionPath(path: string) {
+  const value = String(path || "").trim();
+  return value.startsWith("git-diff:")
+    || value.startsWith("chat-image:")
+    || value.startsWith("chat-html:");
 }
 
 export function readFileReaderSessionState(storageKey: string, legacyStorageKey?: string): FileReaderSessionState {
@@ -40,7 +47,7 @@ export function listSessionFilePaths(state: FileReaderSessionState | null | unde
   const tabs = Array.isArray(state?.tabs) ? state.tabs : [];
   const paths = tabs
     .map((path) => normalizePath(String(path || "")))
-    .filter((path) => path && !isDiffPseudoPath(path));
+    .filter((path) => path && !isPseudoSessionPath(path));
   return Array.from(new Set(paths));
 }
 
@@ -48,7 +55,7 @@ export function listSessionFilePaths(state: FileReaderSessionState | null | unde
 export function sessionActiveFilePath(state: FileReaderSessionState | null | undefined): string {
   const paths = listSessionFilePaths(state);
   const active = normalizePath(String(state?.activePath || ""));
-  if (active && !isDiffPseudoPath(active) && paths.includes(active)) return active;
+  if (active && !isPseudoSessionPath(active) && paths.includes(active)) return active;
   return paths[0] || "";
 }
 

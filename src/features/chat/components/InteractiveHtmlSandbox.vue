@@ -1,10 +1,29 @@
 <template>
   <div class="ecall-sandbox-card" :class="{ 'ecall-sandbox-card-dark': isDark }">
     <div class="ecall-sandbox-toolbar">
-      <span class="ecall-sandbox-title">
-        <AppWindow class="ecall-sandbox-title-icon" />
-        {{ titleText }}
-      </span>
+      <div class="ecall-sandbox-title-slot">
+        <input
+          v-if="editingUrl"
+          ref="urlInputRef"
+          v-model="urlDraft"
+          class="ecall-sandbox-url-input"
+          placeholder="http://127.0.0.1:1420"
+          spellcheck="false"
+          @keydown.enter.prevent="commitUrl"
+          @keydown.esc.prevent="cancelUrlEdit"
+          @blur="cancelUrlEdit"
+        />
+        <button
+          v-else
+          type="button"
+          class="ecall-sandbox-title"
+          :title="titleHint"
+          @click="startUrlEdit"
+        >
+          <AppWindow class="ecall-sandbox-title-icon" />
+          <span class="ecall-sandbox-title-text">{{ titleLabel }}</span>
+        </button>
+      </div>
       <div class="ecall-sandbox-actions">
         <button
           type="button"
@@ -14,54 +33,65 @@
         >
           <RotateCw class="ecall-sandbox-action-icon" />
         </button>
-        <button
-          type="button"
-          class="ecall-sandbox-action"
-          :class="{ 'ecall-sandbox-action-active': viewMode === 'code' }"
-          :title="viewMode === 'code' ? previewTitle : codeTitle"
-          @click="toggleViewMode"
-        >
-          <Code2 v-if="viewMode === 'preview'" class="ecall-sandbox-action-icon" />
-          <Eye v-else class="ecall-sandbox-action-icon" />
-        </button>
-        <button
-          type="button"
-          class="ecall-sandbox-action"
-          :title="popoutTitle"
-          @click="popout"
-        >
-          <ExternalLink class="ecall-sandbox-action-icon" />
-        </button>
-        <button
-          type="button"
-          class="ecall-sandbox-action"
-          :title="copied ? copiedText : copyTitle"
-          @click="copyCode"
-        >
-          <Check v-if="copied" class="ecall-sandbox-action-icon" />
-          <Copy v-else class="ecall-sandbox-action-icon" />
-        </button>
-        <button
-          type="button"
-          class="ecall-sandbox-action"
-          :title="exportTitle"
-          @click="exportHtml"
-        >
-          <Download class="ecall-sandbox-action-icon" />
-        </button>
-        <button
-          v-if="exitTitle"
-          type="button"
-          class="ecall-sandbox-action"
-          :title="exitTitle"
-          @click="emit('exit')"
-        >
-          <X class="ecall-sandbox-action-icon" />
-        </button>
+        <template v-if="mode === 'inline'">
+          <button
+            type="button"
+            class="ecall-sandbox-action"
+            :class="{ 'ecall-sandbox-action-active': viewMode === 'code' }"
+            :title="viewMode === 'code' ? previewTitle : codeTitle"
+            @click="toggleViewMode"
+          >
+            <Code2 v-if="viewMode === 'preview'" class="ecall-sandbox-action-icon" />
+            <Eye v-else class="ecall-sandbox-action-icon" />
+          </button>
+          <button
+            type="button"
+            class="ecall-sandbox-action"
+            :title="copied ? copiedText : copyTitle"
+            @click="copyCode"
+          >
+            <Check v-if="copied" class="ecall-sandbox-action-icon" />
+            <Copy v-else class="ecall-sandbox-action-icon" />
+          </button>
+          <button
+            type="button"
+            class="ecall-sandbox-action"
+            :title="exportTitle"
+            @click="exportHtml"
+          >
+            <Download class="ecall-sandbox-action-icon" />
+          </button>
+          <button
+            v-if="openInReaderTitle"
+            type="button"
+            class="ecall-sandbox-action ecall-sandbox-action-labeled"
+            :title="openInReaderTitle"
+            :aria-label="openInReaderTitle"
+            @click="emit('open-in-reader')"
+          >
+            <PanelRightOpen class="ecall-sandbox-action-icon" />
+            <span class="ecall-sandbox-action-text">{{ openInReaderTitle }}</span>
+          </button>
+          <button
+            v-if="exitTitle"
+            type="button"
+            class="ecall-sandbox-action"
+            :title="exitTitle"
+            @click="emit('exit')"
+          >
+            <X class="ecall-sandbox-action-icon" />
+          </button>
+        </template>
       </div>
     </div>
 
-    <div v-if="viewMode === 'preview'" class="ecall-sandbox-stage" :class="{ 'ecall-sandbox-stage-overflow': heightOverflow }">
+    <div v-if="urlNotice" class="ecall-sandbox-error">
+      <CircleAlert class="ecall-sandbox-error-icon" />
+      <span class="ecall-sandbox-error-text">{{ urlNotice }}</span>
+    </div>
+
+    <!-- 内联 html 模式：srcdoc + 注入 CSP。这一份 iframe 的沙箱属性不许动。 -->
+    <div v-if="viewMode === 'preview' && mode === 'inline'" class="ecall-sandbox-stage" :class="{ 'ecall-sandbox-stage-overflow': heightOverflow }">
       <iframe
         ref="frameRef"
         :key="reloadSeq"
@@ -77,6 +107,26 @@
         {{ loadingText }}
       </div>
     </div>
+    <!--
+      网址模式：单独一个 iframe，不注入 CSP，让目标页面用自己的策略。
+      这里同时给了 allow-scripts 与 allow-same-origin，等于对这个框架关掉了沙箱——
+      只要被嵌入页与宿主同源，它就能读写父文档。分两种情况：
+      · 生产环境：PAI 的 origin 是 http://tauri.localhost，嵌 127.0.0.1 是跨源，读不到父文档；
+      · dev 环境：PAI 自己就跑在 127.0.0.1:1420，这时是同源，隔离形同虚设。
+        这个风险我们接受（开发者自己嵌自己的 dev server），但硬边界不能松：
+        只允许 http + loopback，外网、file://、javascript: 一律拒绝，见 normalizeSandboxUrl。
+    -->
+    <div v-else-if="viewMode === 'preview'" class="ecall-sandbox-stage">
+      <iframe
+        ref="frameRef"
+        :key="`url:${reloadSeq}`"
+        class="ecall-sandbox-frame"
+        sandbox="allow-scripts allow-forms allow-modals allow-same-origin"
+        :src="activeUrl"
+        :style="urlFrameStyle"
+        title="interactive-url-sandbox"
+      />
+    </div>
     <pre v-else class="ecall-sandbox-source"><code>{{ code }}</code></pre>
 
     <div v-if="frameError" class="ecall-sandbox-error">
@@ -87,8 +137,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { AppWindow, Check, CircleAlert, Code2, Copy, Download, ExternalLink, Eye, RotateCw, X } from "@lucide/vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { AppWindow, Check, CircleAlert, Code2, Copy, Download, Eye, PanelRightOpen, RotateCw, X } from "@lucide/vue";
 import {
   SANDBOX_MAX_HEIGHT,
   SANDBOX_MESSAGE_TYPE_ERROR,
@@ -97,6 +147,7 @@ import {
   SANDBOX_MIN_HEIGHT,
   buildSandboxSrcdoc,
   collectThemeVariables,
+  normalizeSandboxUrl,
 } from "../utils/sandbox-html-builder";
 import { saveTransportTextFileAs } from "../../../services/tauri-api";
 
@@ -108,12 +159,16 @@ const props = withDefaults(defineProps<{
   reloadTitle?: string;
   codeTitle?: string;
   previewTitle?: string;
-  popoutTitle?: string;
   copyTitle?: string;
   copiedText?: string;
   exportTitle?: string;
   /** 非空时显示「退出预览、回到代码」按钮 */
   exitTitle?: string;
+  /**
+   * 非空时在工具栏右侧显示「在右栏打开」。
+   * 只由聊天侧显式给值——右栏自己渲染（FileReaderHtmlPreview）不传，因此那边不会出现这个按钮。
+   */
+  openInReaderTitle?: string;
 }>(), {
   isDark: false,
   titleText: "交互组件",
@@ -121,14 +176,15 @@ const props = withDefaults(defineProps<{
   reloadTitle: "重新加载",
   codeTitle: "查看源码",
   previewTitle: "返回预览",
-  popoutTitle: "新窗口打开",
   copyTitle: "复制代码",
   copiedText: "已复制",
   exportTitle: "导出为 HTML",
+  openInReaderTitle: "",
 });
 
 const emit = defineEmits<{
   (e: "exit"): void;
+  (e: "open-in-reader"): void;
 }>();
 
 const frameRef = ref<HTMLIFrameElement | null>(null);
@@ -139,6 +195,17 @@ const frameError = ref("");
 const heightOverflow = ref(false);
 const copied = ref(false);
 const reloadSeq = ref(0);
+// ==================== 网址模式 ====================
+// inline：渲染 props.code（srcdoc + 注入 CSP）；url：加载本机地址（src，目标页自己的策略）。
+// 两套来源不混用，各自一个 iframe，沙箱属性也各自写死在模板里。
+const mode = ref<"inline" | "url">("inline");
+const activeUrl = ref("");
+const editingUrl = ref(false);
+const urlDraft = ref("");
+const urlNotice = ref("");
+const urlInputRef = ref<HTMLInputElement | null>(null);
+/** 网址模式的目标页不会回报高度（没有我们的 Bridge），给固定视口高度 */
+const SANDBOX_URL_HEIGHT = 520;
 let copyTimer = 0;
 let themeObserver: MutationObserver | null = null;
 let loadingFallbackTimer = 0;
@@ -154,6 +221,13 @@ const frameStyle = computed(() => {
   const height = Math.max(frameHeight.value, SANDBOX_MIN_HEIGHT);
   return { height: `${height}px` };
 });
+
+const urlFrameStyle = computed(() => ({ height: `${SANDBOX_URL_HEIGHT}px` }));
+
+const titleLabel = computed(() => (mode.value === "url" ? activeUrl.value : props.titleText));
+const titleHint = computed(() => (mode.value === "url"
+  ? "点击修改地址；清空后回车回到内联 html"
+  : "点击输入本机地址，预览你起的前端"));
 
 function clampHeight(height: number): number {
   if (!Number.isFinite(height) || height <= 0) return 0;
@@ -207,6 +281,8 @@ function onMessage(event: MessageEvent) {
 function pushThemeToFrame() {
   const frame = frameRef.value;
   if (!frame || !frame.contentWindow) return;
+  // 网址模式嵌的是别人的页面，它不认我们的主题消息，不往那边发
+  if (mode.value === "url") return;
   try {
     frame.contentWindow.postMessage({
       type: "pai-sandbox:theme",
@@ -216,6 +292,61 @@ function pushThemeToFrame() {
   } catch {
     // iframe 尚未就绪时忽略
   }
+}
+
+// ==================== 网址模式 ====================
+
+function startUrlEdit() {
+  editingUrl.value = true;
+  urlDraft.value = mode.value === "url" ? activeUrl.value : "";
+  urlNotice.value = "";
+  void nextTick(() => {
+    urlInputRef.value?.focus();
+    urlInputRef.value?.select();
+  });
+}
+
+function cancelUrlEdit() {
+  // 回车提交后 input 会被移除，浏览器随后可能补一次 blur，这里必须只认「还在编辑」
+  if (!editingUrl.value) return;
+  editingUrl.value = false;
+  urlDraft.value = "";
+}
+
+function commitUrl() {
+  const raw = urlDraft.value.trim();
+  editingUrl.value = false;
+  urlDraft.value = "";
+  // 清空后回车 = 回到内联 html
+  if (!raw) {
+    exitUrlMode();
+    return;
+  }
+  const resolved = normalizeSandboxUrl(raw);
+  if (!resolved) {
+    // 不合法就保持现状，只提示；不要白屏，也不要悄悄把当前页面换掉
+    urlNotice.value = "只能打开本机地址（http://127.0.0.1 或 http://localhost），其他地址不加载";
+    return;
+  }
+  urlNotice.value = "";
+  activeUrl.value = resolved;
+  mode.value = "url";
+  viewMode.value = "preview";
+  frameError.value = "";
+  frameReady.value = false;
+  reloadSeq.value += 1;
+}
+
+function exitUrlMode() {
+  mode.value = "inline";
+  activeUrl.value = "";
+  urlNotice.value = "";
+  viewMode.value = "preview";
+  frameError.value = "";
+  frameReady.value = false;
+  frameHeight.value = 0;
+  heightOverflow.value = false;
+  reloadSeq.value += 1;
 }
 
 function reload() {
@@ -229,21 +360,6 @@ function reload() {
 
 function toggleViewMode() {
   viewMode.value = viewMode.value === "preview" ? "code" : "preview";
-}
-
-function popout() {
-  const doc = srcdoc.value;
-  if (!doc) return;
-  const blob = new Blob([doc], { type: "text/html;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const popup = window.open(url, "_blank", "noopener,noreferrer");
-  if (!popup) {
-    URL.revokeObjectURL(url);
-    frameError.value = "浏览器拦截了弹出窗口";
-    return;
-  }
-  // 延迟回收，保证弹窗完成加载
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 async function copyCode() {
@@ -335,13 +451,53 @@ onBeforeUnmount(() => {
   padding: 0 0.1rem 0.2rem;
 }
 
+.ecall-sandbox-title-slot {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .ecall-sandbox-title {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
   font-size: var(--app-text-caption-size, 0.72rem);
   color: color-mix(in srgb, currentColor 70%, transparent);
+  cursor: text;
+}
+
+.ecall-sandbox-title:hover {
+  color: currentColor;
+}
+
+.ecall-sandbox-title-text {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ecall-sandbox-url-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  font-size: var(--app-text-caption-size, 0.72rem);
+  line-height: 1.4;
+  color: currentColor;
+  outline: none;
+}
+
+.ecall-sandbox-url-input:focus {
+  border-color: var(--color-primary, currentColor);
 }
 
 .ecall-sandbox-title-icon {
@@ -376,6 +532,19 @@ onBeforeUnmount(() => {
 .ecall-sandbox-action-active {
   color: var(--color-primary, currentColor);
   background: color-mix(in srgb, var(--color-primary, currentColor) 14%, transparent);
+}
+
+/* 带文字的入口：与四个纯图标按钮同一行，但要让用户一眼看出它是干什么的 */
+.ecall-sandbox-action-labeled {
+  width: auto;
+  gap: 0.22rem;
+  padding: 0 0.4rem;
+  white-space: nowrap;
+}
+
+.ecall-sandbox-action-text {
+  font-size: var(--app-text-caption-size, 0.72rem);
+  line-height: 1;
 }
 
 .ecall-sandbox-action-icon {

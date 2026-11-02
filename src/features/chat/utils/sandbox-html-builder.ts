@@ -21,6 +21,37 @@ export const SANDBOX_MESSAGE_TYPE_READY = "pai-sandbox:ready";
 export const SANDBOX_MIN_HEIGHT = 120;
 export const SANDBOX_MAX_HEIGHT = 640;
 
+// ==================== 网址模式：只允许本机回环 ====================
+// 沙箱卡片除了渲染内联 html，还能直接加载本机起的前端（开发服务器预览）。
+// 这条路径放宽了 sandbox（见 InteractiveHtmlSandbox 的注释），所以入口必须收死：
+// 只认 http + loopback，外网地址、file://、javascript: 一律不加载。
+
+/** 网址模式允许的主机名；端口与路径不限 */
+const SANDBOX_URL_ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost"]);
+
+/**
+ * 归一化网址模式的输入。
+ *
+ * 没写协议时按 http 补全（`localhost:1420` 这种粘法很常见），
+ * 但只接受 `http://127.0.0.1[:port]` 与 `http://localhost[:port]`。
+ * 返回可直接交给 iframe src 的地址；不合法返回 null。
+ */
+export function normalizeSandboxUrl(raw: string): string | null {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+  // 只有显式写了 `://` 才当作自带协议，避免把 `localhost:1420` 里的 `localhost:` 误判成协议名
+  const candidate = value.includes("://") ? value : `http://${value}`;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:") return null;
+  if (!SANDBOX_URL_ALLOWED_HOSTS.has(url.hostname.toLowerCase())) return null;
+  return url.toString();
+}
+
 /** 需要从宿主提取并注入沙箱的 DaisyUI 语义色变量 */
 const THEME_VARIABLE_NAMES = [
   "--color-base-100",

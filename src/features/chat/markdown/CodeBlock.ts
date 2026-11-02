@@ -1,10 +1,11 @@
-import { computed, defineComponent, h, onBeforeUnmount, ref, watch } from "vue";
+import { computed, defineComponent, h, inject, onBeforeUnmount, ref, watch } from "vue";
 import { Check, Copy, Maximize2, Play } from "@lucide/vue";
 import CodeBlockPreviewDialog from "../components/dialogs/CodeBlockPreviewDialog.vue";
 import InteractiveHtmlSandbox from "../components/InteractiveHtmlSandbox.vue";
 import MermaidBlock from "./MermaidBlock";
 import { createHighlightStream } from "./streaming-highlight";
 import { isInteractiveHtmlLang, isPlainHtmlLang } from "../utils/sandbox-html-builder";
+import { CHAT_HTML_READER_KEY } from "../utils/chat-html-reader";
 
 const HIGHLIGHT_CACHE_MAX = 80;
 const highlightCache = new Map<string, string>();
@@ -44,6 +45,8 @@ const CodeBlock = defineComponent({
     const isInteractiveHtml = computed(() => isInteractiveHtmlLang(codeProps.lang));
     const isPlainHtml = computed(() => isPlainHtmlLang(codeProps.lang));
     const sandboxEnabled = ref(false);
+    // 「在右栏打开」由 ChatView 顶层提供；右栏自己渲染时拿不到（面板已 provide null）
+    const htmlReader = inject(CHAT_HTML_READER_KEY, null);
 
     async function highlightFull() {
       if (isMermaid.value || isInteractiveHtml.value) return;
@@ -268,6 +271,9 @@ const CodeBlock = defineComponent({
           isDark: codeProps.isDark,
           exitTitle: isInteractiveHtml.value ? "" : "返回代码",
           onExit: () => { sandboxEnabled.value = false; },
+          // 流式期间不给入口：此时卡片还没写完，送到右栏的会是一份残缺 html
+          openInReaderTitle: codeProps.streaming ? "" : (htmlReader?.label || ""),
+          onOpenInReader: () => { htmlReader?.open({ code: codeProps.code }); },
         });
       }
 

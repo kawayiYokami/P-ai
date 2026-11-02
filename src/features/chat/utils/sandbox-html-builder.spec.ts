@@ -3,6 +3,7 @@ import {
   buildSandboxSrcdoc,
   isInteractiveHtmlLang,
   isPlainHtmlLang,
+  normalizeSandboxUrl,
 } from "./sandbox-html-builder";
 
 describe("isInteractiveHtmlLang", () => {
@@ -76,5 +77,37 @@ describe("buildSandboxSrcdoc", () => {
 
   it("空输入返回空串", () => {
     expect(buildSandboxSrcdoc("   ", tokens, false)).toBe("");
+  });
+});
+
+describe("normalizeSandboxUrl", () => {
+  it("放行本机回环地址，端口与路径不限", () => {
+    expect(normalizeSandboxUrl("http://127.0.0.1:1420")).toBe("http://127.0.0.1:1420/");
+    expect(normalizeSandboxUrl("http://localhost:3000/app?x=1#y"))
+      .toBe("http://localhost:3000/app?x=1#y");
+    expect(normalizeSandboxUrl("  http://127.0.0.1:5173/  ")).toBe("http://127.0.0.1:5173/");
+  });
+
+  it("没写协议时按 http 补全，别把 localhost: 当成协议名", () => {
+    expect(normalizeSandboxUrl("127.0.0.1:1420")).toBe("http://127.0.0.1:1420/");
+    expect(normalizeSandboxUrl("localhost:8080")).toBe("http://localhost:8080/");
+  });
+
+  it("拒绝外网地址", () => {
+    expect(normalizeSandboxUrl("https://github.com")).toBeNull();
+    expect(normalizeSandboxUrl("http://github.com")).toBeNull();
+    expect(normalizeSandboxUrl("http://192.168.1.5:1420")).toBeNull();
+    // 长得像 loopback 的伪装域名不放行
+    expect(normalizeSandboxUrl("http://127.0.0.1.evil.com:1420")).toBeNull();
+    expect(normalizeSandboxUrl("http://localhost.evil.com")).toBeNull();
+  });
+
+  it("拒绝非 http 协议与无效输入", () => {
+    expect(normalizeSandboxUrl("file:///C:/Users/x/index.html")).toBeNull();
+    expect(normalizeSandboxUrl("javascript:alert(1)")).toBeNull();
+    expect(normalizeSandboxUrl("https://localhost:1420")).toBeNull();
+    expect(normalizeSandboxUrl("")).toBeNull();
+    expect(normalizeSandboxUrl("   ")).toBeNull();
+    expect(normalizeSandboxUrl("http://")).toBeNull();
   });
 });

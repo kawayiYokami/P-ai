@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createSSRApp, h } from "vue";
+import { createSSRApp, h, provide } from "vue";
 import { renderToString } from "vue/server-renderer";
 import AppMarkdownRenderer from "./AppMarkdownRenderer.vue";
-import { i18n } from "../../../i18n";
+import { LOCALE_MESSAGES, i18n } from "../../../i18n";
+import { CHAT_HTML_READER_KEY, type ChatHtmlReader } from "../utils/chat-html-reader";
 
 async function renderMarkdown(text: string): Promise<string> {
   const app = createSSRApp({
@@ -112,5 +113,71 @@ describe("AppMarkdownRenderer", () => {
     const html = await renderToString(app);
     expect(html).toContain("前文说明");
     expect(html).toContain("E = mc^2");
+  });
+});
+
+// ==================== 交互组件「在右栏打开」 ====================
+
+const INTERACTIVE_HTML = [
+  "```html:interactive",
+  "<!DOCTYPE html><html><body><button id=\"count\">点我</button></body></html>",
+  "```",
+].join("\n");
+
+const READER_LABEL = "在右栏打开";
+
+async function renderMarkdownWithHtmlReader(
+  text: string,
+  options: { streaming?: boolean; reader?: ChatHtmlReader | null } = {},
+): Promise<string> {
+  const app = createSSRApp({
+    setup() {
+      provide(CHAT_HTML_READER_KEY, options.reader ?? null);
+      return () => h(AppMarkdownRenderer, { text, streaming: !!options.streaming });
+    },
+  });
+  app.use(i18n);
+  return renderToString(app);
+}
+
+function readerButtonCount(html: string): number {
+  return (html.match(/aria-label="在右栏打开"/g) || []).length;
+}
+
+describe("交互组件卡片「在右栏打开」入口", () => {
+  it("聊天侧提供能力时，工具栏在原有按钮之外多出一个入口", async () => {
+    const html = await renderMarkdownWithHtmlReader(INTERACTIVE_HTML, {
+      reader: { label: READER_LABEL, open: () => {} },
+    });
+    // 原有按钮照旧
+    expect(html).toContain("title=\"导出为 HTML\"");
+    expect(html).toContain("title=\"复制代码\"");
+    // 新入口是追加，不是替换
+    expect(readerButtonCount(html)).toBe(1);
+  });
+
+  it("右栏自己渲染时拿不到能力，卡片上不出现这个按钮", async () => {
+    const html = await renderMarkdownWithHtmlReader(INTERACTIVE_HTML, { reader: null });
+    expect(html).toContain("ecall-sandbox-card");
+    expect(html).toContain("title=\"导出为 HTML\"");
+    expect(readerButtonCount(html)).toBe(0);
+  });
+
+  it("流式期间还是骨架卡，不给入口", async () => {
+    const html = await renderMarkdownWithHtmlReader(INTERACTIVE_HTML, {
+      streaming: true,
+      reader: { label: READER_LABEL, open: () => {} },
+    });
+    expect(html).toContain("正在编写交互组件");
+    expect(html).not.toContain("ecall-sandbox-card");
+    expect(readerButtonCount(html)).toBe(0);
+  });
+
+  it("三份 locale 都补了按钮文案与面板标签标题", () => {
+    for (const messages of Object.values(LOCALE_MESSAGES)) {
+      const chat = (messages as { chat: Record<string, unknown> }).chat;
+      expect(String(chat.openInRightPanel ?? "").trim()).not.toBe("");
+      expect(String(chat.interactiveHtmlTitle ?? "").trim()).not.toBe("");
+    }
   });
 });

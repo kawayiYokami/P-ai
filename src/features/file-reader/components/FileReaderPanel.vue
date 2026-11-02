@@ -327,44 +327,14 @@
             >
               {{ t('fileReader.localMediaUnavailable') }}
             </div>
-            <div
-              v-else-if="activeTab.kind === 'image'"
-              class="file-reader-media-stage h-full overflow-auto"
-              @contextmenu.prevent="openPathOnlyContextMenu(activeTab.path, $event)"
-            >
-              <img
-                class="file-reader-media-image"
-                :src="activeMediaSourceUrl"
-                :alt="activeTab.title"
-                @error="handleMediaLoadError(activeTab)"
-              />
-            </div>
-            <div
-              v-else-if="activeTab.kind === 'audio'"
-              class="flex h-full items-center justify-center px-6"
-              @contextmenu.prevent="openPathOnlyContextMenu(activeTab.path, $event)"
-            >
-              <audio
-                class="w-full max-w-3xl"
-                :src="activeMediaSourceUrl"
-                controls
-                preload="metadata"
-                @error="handleMediaLoadError(activeTab)"
-              ></audio>
-            </div>
-            <div
-              v-else-if="activeTab.kind === 'video'"
-              class="file-reader-media-stage h-full bg-base-200/35"
-              @contextmenu.prevent="openPathOnlyContextMenu(activeTab.path, $event)"
-            >
-              <video
-                class="file-reader-media-video"
-                :src="activeMediaSourceUrl"
-                controls
-                preload="metadata"
-                @error="handleMediaLoadError(activeTab)"
-              ></video>
-            </div>
+            <FileReaderMediaPreview
+              v-else-if="activeTab.kind === 'image' || activeTab.kind === 'audio' || activeTab.kind === 'video'"
+              :kind="activeMediaKind"
+              :src="activeMediaSourceUrl"
+              :title="activeTab.title"
+              @load-error="handleMediaLoadError(activeTab)"
+              @context-menu="openPathOnlyContextMenu(activeTab.path, $event)"
+            />
             <div
               v-else-if="activeTab.kind === 'unsupported'"
               class="flex h-full items-center justify-center px-6 text-center"
@@ -375,6 +345,20 @@
                 <div class="font-medium text-base-content">{{ t('fileReader.unsupportedPreviewTitle') }}</div>
                 <div class="mt-1">{{ t('fileReader.unsupportedPreviewDescription') }}</div>
               </div>
+            </div>
+            <div
+              v-else-if="activeTab.kind === 'html' && !isTabRawMode(activeTab)"
+              class="file-reader-content h-full w-full"
+              @contextmenu.prevent="openActiveFileContextMenu"
+            >
+              <FileReaderHtmlPreview
+                :key="activeTab.path"
+                :code="activeTab.content"
+                :is-dark="markdownIsDark"
+                :title-text="activeTab.title"
+                :loading-text="t('fileReader.loadingFile')"
+                :reload-title="t('fileReader.refresh')"
+              />
             </div>
             <div
               v-else-if="activeTab.kind === 'markdown' && !isTabRawMode(activeTab)"
@@ -497,7 +481,10 @@
               @keyup="captureCurrentTextSelection"
               @contextmenu.prevent="openActiveFileContextMenu"
             >
-              <pre :class="['file-reader-raw-pre', 'min-h-full', 'p-4', activeTab.kind === 'code' && fileReaderLineWrapEnabled ? 'file-reader-code-wrap' : '']">{{ activeTab.content }}</pre>
+              <FileReaderRawPreview
+                :content="activeTab.content"
+                :wrap="activeTab.kind === 'code' && fileReaderLineWrapEnabled"
+              />
             </div>
           </div>
         </div>
@@ -699,7 +686,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { ChevronDown, Check, ChevronsLeft, Code2, Copy, Eye, ExternalLink, FilePlus, Files, FileText, Folders, GitBranch, Home, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
@@ -724,6 +711,7 @@ import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
 import ChatImagePreviewDialog from "../../chat/components/dialogs/ChatImagePreviewDialog.vue";
 import { useChatImagePreview } from "../../chat/composables/use-chat-image-preview";
 import { isAbsoluteLocalPath, isAssistantSpacePath, normalizeLocalLinkHref, parseLocalFileReference } from "../../chat/utils/local-link";
+import { CHAT_HTML_READER_KEY } from "../../chat/utils/chat-html-reader";
 import { Virtualizer } from "virtua/vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
@@ -748,6 +736,9 @@ import {
 import { useFileReaderVirtualCode } from "../composables/use-file-reader-virtual-code";
 import { useDirectoryOpenTargets } from "../composables/use-directory-open-targets";
 import DirectoryOpenTargetMenu from "./DirectoryOpenTargetMenu.vue";
+import FileReaderHtmlPreview from "./FileReaderHtmlPreview.vue";
+import FileReaderMediaPreview from "./FileReaderMediaPreview.vue";
+import FileReaderRawPreview from "./FileReaderRawPreview.vue";
 import { resolveFileTreeIcon } from "../file-tree-icons";
 import type {
   DirectoryNode,
@@ -769,6 +760,7 @@ import {
   extensionFromPath,
   fileKindFromPath,
   formatLineSuffix,
+  hashText,
   isPreviewMediaKind,
   isTextFileKind,
   normalizeDirectoryEntries,
@@ -1118,9 +1110,17 @@ const isMultiFileDiff = computed(() => {
   return isMultiFileDiffText(String(tab.content || ""));
 });
 
+const activeMediaKind = computed<"image" | "audio" | "video">(() => {
+  const kind = activeTab.value?.kind;
+  return kind === "audio" || kind === "video" ? kind : "image";
+});
+
 const activeMediaSourceUrl = computed(() => {
   const tab = activeTab.value;
   if (!tab || !isPreviewMediaKind(tab.kind)) return "";
+  // 聊天里的远程图没有磁盘文件，只能带内联数据进来
+  const inline = String(tab.mediaDataUrl || "").trim();
+  if (inline) return inline;
   try {
     return resolveLocalFileUrl(tab.path);
   } catch {
@@ -1594,7 +1594,7 @@ function collectFileReaderWatchTargets(): FileReaderWatchTarget[] {
   const active = activeTab.value;
   if (active?.loaded && !active.loading && !active.error && active.path) {
     const normalizedActive = normalizePath(active.path);
-    if (normalizedActive && !isGitInternalPath(normalizedActive)) {
+    if (normalizedActive && !isGitInternalPath(normalizedActive) && !isPseudoTabPath(normalizedActive)) {
       targets.push({ path: normalizedActive, kind: "file" });
     }
   }
@@ -1675,6 +1675,30 @@ function scheduleAutoRefreshActiveTab() {
 function isGitInternalPath(path: string): boolean {
   const normalized = normalizePath(path).replace(/\\/g, "/").toLowerCase();
   return normalized.endsWith("/.git") || normalized.includes("/.git/");
+}
+
+// ==================== 伪路径标签 ====================
+// 有些标签不对应磁盘文件：git 补丁是合成内容，聊天图片只有内联数据。
+// 它们照常参与标签栏与渲染，但不能拿去读盘、监听文件、展开目录或写进会话。
+
+const CHAT_IMAGE_PSEUDO_PREFIX = "chat-image:";
+
+/** 聊天里的交互组件卡片送进右栏：只带内存里的 html 源码，不对应磁盘文件 */
+const CHAT_HTML_PSEUDO_PREFIX = "chat-html:";
+
+// 右栏自己渲染 html / markdown 时不该再出现「在右栏打开」（点了还是这一栏），
+// 这里把聊天顶层下发的入口挡在面板外；面板内所有卡片都拿不到这个能力。
+provide(CHAT_HTML_READER_KEY, null);
+
+function isPseudoTabPath(path: string): boolean {
+  const value = String(path || "").trim();
+  return value.startsWith("git-diff:")
+    || value.startsWith(CHAT_IMAGE_PSEUDO_PREFIX)
+    || value.startsWith(CHAT_HTML_PSEUDO_PREFIX);
+}
+
+function isChatImagePseudoPath(path: string): boolean {
+  return String(path || "").trim().startsWith(CHAT_IMAGE_PSEUDO_PREFIX);
 }
 
 function scheduleAutoRefreshDirectoryNode(path: string) {
@@ -1968,6 +1992,8 @@ function activeContentScroller() {
   if (!tab) return contentScroller.value;
   if (tab.virtualized) return virtualCodeScroller.value;
   if (tab.kind === "markdown" && !tab.rawMode) return markdownScroller.value;
+  // html 渲染视图由沙箱自己撑高，外层 contentScroller 才是可滚动的那个
+  if (tab.kind === "html" && !tab.rawMode) return contentScroller.value;
   if (isTextFileKind(tab.kind)) return plainTextScroller.value;
   return contentScroller.value;
 }
@@ -2002,12 +2028,12 @@ async function resetScrollAndCaptureFirstPage() {
 }
 
 function canToggleRawMode(tab: FileTab | null | undefined) {
-  return !!tab && tab.kind === "markdown";
+  return !!tab && (tab.kind === "markdown" || tab.kind === "html");
 }
 
 function isTabRawMode(tab: FileTab | null | undefined) {
   if (!tab) return false;
-  if (tab.kind === "markdown") return tab.rawMode;
+  if (tab.kind === "markdown" || tab.kind === "html") return tab.rawMode;
   return false;
 }
 
@@ -2031,13 +2057,13 @@ function persistFileReaderSession(key = props.sessionKey) {
   const storageKey = String(key || "").trim();
   if (!storageKey || typeof window === "undefined") return;
   const uniqueTabs = Array.from(new Set(tabs.value.map((tab) => tab.path).filter((path) => {
-    // diff 标签是伪路径（git-diff:...），不持久化；普通路径再做归一化
-    return !String(path || "").startsWith("git-diff:");
+    // 伪路径标签（git 补丁 git-diff:、聊天图片 chat-image:）不持久化；普通路径再做归一化
+    return !isPseudoTabPath(path);
   }))).map((path) => normalizePath(path));
   const state: FileReaderSessionState = {
     tabs: uniqueTabs,
-    // diff 标签不持久化，activePath 若指向 git-diff 伪路径则不保存
-    activePath: String(activePath.value || "").startsWith("git-diff:") ? "" : normalizePath(activePath.value),
+    // 伪路径不持久化，activePath 指向它们时不保存
+    activePath: isPseudoTabPath(activePath.value) ? "" : normalizePath(activePath.value),
     directoryRootPath: normalizePath(directoryRootPath.value),
     directoryTreeWidth: effectiveDirectoryTreeWidth.value,
     asideMode: asideMode.value,
@@ -2425,6 +2451,105 @@ async function openPath(path: string, options: { reuseActiveTab?: boolean; targe
     tab.error = error instanceof Error ? error.message : String(error);
     replaceTabState(tab);
   }
+}
+
+/**
+ * 在右栏打开一张聊天图片。
+ *
+ * 走的是 reader 现成的 image 预览通道：有磁盘文件就按文件打开；
+ * 远程图没有文件，用内联数据建一个运行时标签（伪路径 chat-image:，不落盘、不读盘）。
+ * 内联数据就是聊天预览已经在用的那一份，不重新下载。
+ */
+async function openImageInReader(payload: {
+  dataUrl?: string;
+  path?: string;
+  title?: string;
+  mime?: string;
+}): Promise<void> {
+  const dataUrl = String(payload?.dataUrl || "").trim();
+  const diskPath = normalizePath(String(payload?.path || ""));
+  if (!dataUrl) {
+    if (diskPath) await openPath(diskPath);
+    return;
+  }
+  collapseDirectoryTreeForOverlayOpen();
+  const pseudoPath = `${CHAT_IMAGE_PSEUDO_PREFIX}${hashText(dataUrl)}`;
+  const fallbackTitle = String(payload?.title || "").trim()
+    || (diskPath && !isChatImagePseudoPath(diskPath) ? titleFromPath(diskPath) : "");
+  const title = fallbackTitle || t("fileReader.imagePreviewTitle");
+  const existing = tabs.value.find((tab) => tab.path === pseudoPath);
+  if (existing) {
+    existing.mediaDataUrl = dataUrl;
+    existing.title = title;
+    activePath.value = pseudoPath;
+    replaceTabState(existing);
+    return;
+  }
+  const extension = (diskPath ? extensionFromPath(diskPath) : "") || "png";
+  const tab: FileTab = {
+    path: pseudoPath,
+    title,
+    extension,
+    kind: "image",
+    content: "",
+    rawMode: false,
+    forcePlain: false,
+    virtualized: false,
+    totalLines: 0,
+    blockLineCount: 0,
+    loaded: true,
+    loading: false,
+    error: "",
+    mediaDataUrl: dataUrl,
+  };
+  tabs.value = [...tabs.value, tab];
+  activePath.value = pseudoPath;
+  scheduleAddressScrollStateUpdate();
+}
+
+/**
+ * 在右栏打开聊天里的交互组件。
+ *
+ * 走 `chat-html:` 伪路径：html 源码从聊天消息里直接带过来（与卡片渲染的是同一份），
+ * 不落盘、不读盘、不进已打开文件列表；同一段源码重复打开会命中同一个标签。
+ * 渲染仍由 FileReaderHtmlPreview 走 InteractiveHtmlSandbox，源码/预览切换沿用 html kind 的既有逻辑。
+ */
+async function openHtmlInReader(payload: {
+  code?: string;
+  title?: string;
+}): Promise<void> {
+  const code = String(payload?.code ?? "");
+  if (!code.trim()) return;
+  collapseDirectoryTreeForOverlayOpen();
+  const pseudoPath = `${CHAT_HTML_PSEUDO_PREFIX}${hashText(code)}`;
+  const title = String(payload?.title || "").trim() || t("chat.interactiveHtmlTitle");
+  const existing = tabs.value.find((tab) => tab.path === pseudoPath);
+  if (existing) {
+    existing.content = code;
+    existing.title = title;
+    activePath.value = pseudoPath;
+    replaceTabState(existing);
+    scheduleAddressScrollStateUpdate();
+    return;
+  }
+  const tab: FileTab = {
+    path: pseudoPath,
+    title,
+    extension: "html",
+    kind: "html",
+    content: code,
+    rawMode: false,
+    forcePlain: false,
+    virtualized: false,
+    totalLines: code.split("\n").length,
+    blockLineCount: 0,
+    loaded: true,
+    loading: false,
+    error: "",
+  };
+  tabs.value = [...tabs.value, tab];
+  activePath.value = pseudoPath;
+  scheduleAddressScrollStateUpdate();
 }
 
 async function openMarkdownFileLink(event: MouseEvent) {
@@ -2889,8 +3014,8 @@ async function revealActivePathInDirectoryTree(path: string) {
   if (!directoryRootPath.value) return;
   // 过滤态是扁平展示，展开没有意义，清掉过滤反而会打断用户输入
   if (directoryTreeFilter.value.trim()) return;
-  // git-diff 伪路径只取反查真实文件，本身不参与目录定位
-  if (normalizedPath.startsWith("git-diff:")) return;
+  // 伪路径（git 补丁、聊天图片）不对应磁盘文件，只取反查真实文件的逻辑，本身不参与目录定位
+  if (isPseudoTabPath(normalizedPath)) return;
   await revealPathInDirectoryTree(normalizedPath);
 }
 
@@ -3395,6 +3520,8 @@ onBeforeUnmount(() => {
 
 defineExpose({
   openPath,
+  openImageInReader,
+  openHtmlInReader,
   setActiveTab,
   closeTab,
   closeTabsToLeftOf,
@@ -3495,44 +3622,12 @@ defineExpose({
   width: 100%;
   font-size: var(--app-text-sm-size);
 }
-.file-reader-media-stage {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100%;
-  padding: 1rem;
-}
-.file-reader-media-image {
-  display: block;
-  max-width: 100%;
-  max-height: calc(100vh - 6rem);
-  width: auto;
-  height: auto;
-  object-fit: contain;
-}
-.file-reader-media-video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  max-height: calc(100vh - 4rem);
-  object-fit: contain;
-  background: #000;
-}
 .file-reader-raw-main {
   min-height: 0;
 }
 .file-reader-raw-scroller {
   min-height: 100%;
   overflow: auto;
-  background: transparent;
-}
-.file-reader-raw-pre {
-  min-height: 100%;
-  margin: 0;
-  padding: 0.75rem 1rem;
-  white-space: pre;
-  font-family: var(--app-code-font-family);
-  color: inherit;
   background: transparent;
 }
 .file-reader-code-virtual-scroller {

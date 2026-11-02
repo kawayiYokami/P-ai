@@ -124,7 +124,10 @@ export function fileKindFromPath(path: string) {
   if (mediaKind) return mediaKind;
   const extension = fileExtensionKeyFromPath(path);
   if (isUnsupportedFileExtension(extension)) return "unsupported";
-  return ["md", "markdown", "mdx"].includes(extension) ? "markdown" : "code";
+  if (["md", "markdown", "mdx"].includes(extension)) return "markdown";
+  // HTML 单列一类：右栏按沙箱渲染，源码是它的备用视图。
+  if (["html", "htm"].includes(extension)) return "html";
+  return "code";
 }
 
 export function mediaFileKindFromPath(path: string): Exclude<FileReaderFileKind, "markdown" | "code" | "unsupported"> | "" {
@@ -140,7 +143,8 @@ export function isPreviewMediaKind(kind: string) {
 }
 
 export function isTextFileKind(kind: string) {
-  return kind === "markdown" || kind === "code";
+  // html 也要按文本读：源码视图与沙箱渲染都依赖整段原文。
+  return kind === "markdown" || kind === "code" || kind === "html";
 }
 
 export function isUnsupportedFileExtension(extension: string) {

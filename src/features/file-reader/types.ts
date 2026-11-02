@@ -1,4 +1,4 @@
-export type FileReaderFileKind = "markdown" | "code" | "image" | "audio" | "video" | "unsupported";
+export type FileReaderFileKind = "markdown" | "code" | "html" | "image" | "audio" | "video" | "unsupported";
 
 export type FileReaderFilePayload = {
   path: string;
@@ -74,6 +74,11 @@ export type FileTab = {
   loading: boolean;
   error: string;
   diffSource?: GitDiffTabSource;
+  /**
+   * 内联图片数据。聊天里的远程图没有磁盘文件，右栏要显示只能带 dataUrl；
+   * 有它时优先于按 path 解析，本地文件图片仍走磁盘路径。
+   */
+  mediaDataUrl?: string;
   /** 当前内容对应的磁盘签名；切入标签时据此判断是否需要重读 */
   signature?: FileReaderFileSignature | null;
   /** 离开该标签时的滚动位置（像素），仅运行时记忆 */

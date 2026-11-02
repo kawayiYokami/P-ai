@@ -17,6 +17,9 @@
         <button class="btn btn-sm btn-ghost border-0 text-white/85 shadow-none hover:bg-white/12 hover:text-white" @click="emit('rotate')">
           <RotateCw class="h-4 w-4" />
         </button>
+        <button class="btn btn-sm btn-ghost border-0 text-white/85 shadow-none hover:bg-white/12 hover:text-white" type="button" title="在右栏打开" aria-label="在右栏打开" @click="emit('openInRightPanel')">
+          <PanelRight class="h-4 w-4" />
+        </button>
         <template v-if="localPath && localFileSystemAvailable">
           <button class="btn btn-sm btn-ghost border-0 text-white/85 shadow-none hover:bg-white/12 hover:text-white" :disabled="copyStatus === 'doing'" @click="emit('copyImage', localPath)">
             <Copy class="h-4 w-4" />
@@ -54,7 +57,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { Copy, Download, Minus, Plus, RotateCw, X } from "@lucide/vue";
+import { PanelRight, Copy, Download, Minus, Plus, RotateCw, X } from "@lucide/vue";
 import { getTransportCapabilities } from "../../../../services/tauri-api";
 
 const localFileSystemAvailable = getTransportCapabilities().localFileSystem;
@@ -86,6 +89,7 @@ const emit = defineEmits<{
   (e: "pointerUp", event: PointerEvent): void;
   (e: "copyImage", path: string): void;
   (e: "saveImage", path: string): void;
+  (e: "openInRightPanel"): void;
 }>();
 
 const dialogRef = ref<HTMLDialogElement | null>(null);

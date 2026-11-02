@@ -48,13 +48,14 @@
     </div>
 
     <div class="border-t border-base-300 px-3 py-2 text-xs text-base-content/60">
-      前四条都是同一种 ChatMessageItem：普通 assistant 消息、队伍邮件（服务端默认形态，收起）、
-      同一封邮件点开后、队伍通知。队伍邮件喂的是服务端真实拼出来的 markdown——
-      标题进 `&lt;summary&gt;`，状态行与 `队长说：` 署名在折叠体内，渲染层不做任何特殊处理，
-      气泡形态与第一条完全一致。署名与头像靠 speakerAgentId 查 personaNameMap；
+      前五条都是同一种 ChatMessageItem：普通 assistant 消息、队伍邮件（服务端默认形态，收起）、
+      同一封邮件点开后、队伍通知、队员停下后自动投回来的单行产出。
+      队伍邮件喂的是服务端真实拼出来的 markdown——标题进 `&lt;summary&gt;`，状态行在折叠体内，
+      渲染层不做任何特殊处理，气泡形态与第一条完全一致；单行产出没有邮件头也不折叠，
+      正文就是那一行原文。署名与头像靠 speakerAgentId 查 personaNameMap；
       通知喂的是后端内置系统人格的默认名，查不到会退回裸 id，所以这个映射必须喂全。
-      后两条是工具状态专项：第五条在 executing_tool 阶段带一个 doing 工具，头部应报具体工具名；
-      第六条把三种工具并列——无参数有结果（get_session）、有参数有结果（read）、无参数无结果（wait），
+      后两条是工具状态专项：第六条在 executing_tool 阶段带一个 doing 工具，头部应报具体工具名；
+      第七条把三种工具并列——无参数有结果（get_session）、有参数有结果（read）、无参数无结果（wait），
       点开活动面板后：前两条各带结果，get_session 没有参数方块；wait 连箭头都没有。
     </div>
   </div>
@@ -122,7 +123,7 @@ const blocks = computed<ChatMessageBlock[]>(() => [
       teamMessage: true,
       teamMailTitle: MAIL_TITLE,
     },
-    text: `<details>\n<summary>${MAIL_TITLE}</summary>\n${MAIL_STATE_LINE}\n\n队长说：先看一遍现有中间件被哪些路由引用，再决定动哪几个。老的中间件先留着，等新链路跑通再删。\n</details>`,
+    text: `<details>\n<summary>${MAIL_TITLE}</summary>\n${MAIL_STATE_LINE}\n\n先看一遍现有中间件被哪些路由引用，再决定动哪几个。老的中间件先留着，等新链路跑通再删。\n</details>`,
   }),
   // 同一封邮件点开后的样子：正文在折叠体内照样按 markdown 渲染
   baseBlock({
@@ -132,7 +133,7 @@ const blocks = computed<ChatMessageBlock[]>(() => [
       teamMessage: true,
       teamMailTitle: MAIL_TITLE,
     },
-    text: `<details open>\n<summary>${MAIL_TITLE}</summary>\n${MAIL_STATE_LINE}\n\n队长说：先看一遍现有中间件被哪些路由引用，再决定动哪几个。\n\n1. 列出引用点\n2. 老的先留着，新链路跑通再删\n</details>`,
+    text: `<details open>\n<summary>${MAIL_TITLE}</summary>\n${MAIL_STATE_LINE}\n\n先看一遍现有中间件被哪些路由引用，再决定动哪几个。\n\n1. 列出引用点\n2. 老的先留着，新链路跑通再删\n</details>`,
   }),
   // 队伍通知：没有邮件头，只有一段正文
   baseBlock({
@@ -140,6 +141,13 @@ const blocks = computed<ChatMessageBlock[]>(() => [
     speakerAgentId: "system-persona",
     providerMeta: { messageKind: "team_notice", teamMessage: true },
     text: "你已经完成了你的职责，队长决定把你移出队伍。此后你是一个普通的追问会话，不用再等队长的指示。",
+  }),
+  // 队员停下后自动投给队长的单行产出：没有邮件头、不折叠，正文就是那一行原文。
+  // 折叠的意义是「标题在外、内容点开看」，一行字折起来只会把同一句话写两遍。
+  baseBlock({
+    id: "mail-single-line",
+    providerMeta: { messageKind: "team_message", teamMessage: true },
+    text: "收到，李工在线，直接发言通道正常。",
   }),
   // 卡片头：工具执行中。后端把 _schedulingState 留在 executing_tool，
   // 头部应报到具体工具名（这里应是「正在执行：阅读 playwright.spec.ts」），不是笼统的「正在执行工具」

@@ -14,7 +14,7 @@
     >
       <div
         v-if="showSideConversationList"
-        :class="leftPaneLayoutSnapshot ? 'relative flex h-full min-h-0 shrink-0 overflow-hidden' : 'absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 border-r border-base-300 bg-base-100 shadow-2xl overflow-hidden'"
+        :class="leftPaneLayoutSnapshot ? 'relative flex h-full min-h-0 shrink-0 overflow-hidden ecall-frost ecall-frost-base-100' : 'ecall-frost ecall-frost-base-100 absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 border-r border-base-300 shadow-2xl overflow-hidden'"
         :style="{ width: `${leftPaneVisibleWidth}px` }"
       >
         <ChatConversationSidebar
@@ -611,6 +611,7 @@
             :persona-name="personaName" :persona-name-map="personaNameMap"
             :default-create-conversation-agent-id="defaultCreateConversationAgentId"
             :ide-context-groups="mergedVisibleIdeContextGroups" :attached-ide-context-references="attachedIdeContextReferences"
+            :kanban-issues="kanbanIssues" :attached-issue-references="kanbanIssueReferences"
             :current-theme="currentTheme"
             :show-conversation-actions="showConversationActions"
             @update:chat-input="$emit('update:chatInput', $event)" @add-mention="$emit('addMention', $event)"
@@ -624,6 +625,8 @@
             @dismiss-wheelchair-suggestion="$emit('dismissWheelchairSuggestion')"
             @attach-ide-context-reference="handleAttachIdeContextReference"
             @remove-ide-context-reference="handleRemoveIdeContextReference"
+            @attach-kanban-issue-reference="attachKanbanIssueReference"
+            @remove-kanban-issue-reference="removeKanbanIssueReference"
             @send-chat="handleSendChat" @stop-chat="$emit('stopChat')"
             @open-delegate-selection="openDelegateSelectionMenu"
             @open-task-create="openTaskCreateDialog"
@@ -651,6 +654,7 @@
           @pointer-move="onPreviewPointerMove" @pointer-up="onPreviewPointerUp"
           @rotate="rotatePreviewClockwise"
           @copy-image="handleCopyLocalImage" @save-image="handleSaveLocalImage"
+          @open-in-right-panel="openPreviewImageInRightPanel"
         />
 
         <ChatGoalTaskDialog
@@ -782,7 +786,10 @@
           :tool-batches="toolReviewBatches"
           :kanban-visible="kanbanVisible"
           :kanban-issues="kanbanIssues"
+          :kanban-approving-number="kanbanApprovingNumber"
           @open-kanban="openKanbanBoard"
+          @approve-kanban="approveKanbanIssue"
+          @reference-kanban-issue="attachKanbanIssueReference"
           @select-panel="selectChatRightPanelMode"
           @open-file="openHomeFile"
           @close-file="closeHomeFile"
@@ -969,6 +976,7 @@ import { buildConversationSections, buildWorkspaceConversationSections, canonica
 import { defaultWorkspaceNameFromPath, normalizeWorkspacePathKey, stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
 import { recentWorkspacePaths } from "../../../utils/recent-workspaces";
 import { type ChatRenderItem, isRightAlignedMessage, isCompactionBlock, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
+import { CHAT_HTML_READER_KEY, type ChatHtmlReaderRequest } from "../utils/chat-html-reader";
 import { isSessionPersonaBlock as isSessionPersonaBlockShared, isUserBlock, TIMELINE_TOOL_BREAK, buildTimelineAnchors, type TimelineAnchor } from "../utils/timeline-anchors";
 import { computeTimelineSegmentStarts, resolveTimelineVisibleStartIndex } from "../utils/timeline-segments";
 import { computeSessionTopColumnOffset, isSessionTopColumnOffsetSettled } from "../utils/session-top-column-offset";
@@ -1002,6 +1010,7 @@ import { clearNativeTextSelection } from "../../../utils/native-selection";
 import ConversationSearchPanel from "../components/ConversationSearchPanel.vue";
 import KanbanBoardPanel from "../components/kanban/KanbanBoardPanel.vue";
 import { useKanbanBoard } from "../composables/use-kanban-board";
+import { useKanbanIssueReferences } from "../composables/use-kanban-issue-references";
 
 // ==================== props / emits ====================
 
@@ -3348,6 +3357,15 @@ function openKanbanBoard() {
   selectChatRightPanelMode("kanban");
 }
 
+// 议题引用：磁贴点编号与输入框 `#` 选中都落到这一份列表，只保留一个实现。
+const {
+  references: kanbanIssueReferences,
+  attachKanbanIssueReference,
+  removeKanbanIssueReference,
+  clearKanbanIssueReferences,
+  buildKanbanIssueReferenceBlocks,
+} = useKanbanIssueReferences();
+
 watch(
   () => [String(props.chatRightPanelMode || ""), kanbanConversationId.value] as const,
   ([mode, conversationId]) => {
@@ -3417,6 +3435,48 @@ async function openHomeFile(path: string) {
   await panel.openPath(target);
   panel.closeDirectoryTree();
 }
+
+/** 图片全屏弹层里的「在右栏打开」：把同一份内联数据交给文件阅读器，不重新下载一遍 */
+async function openPreviewImageInRightPanel() {
+  const dataUrl = String(imagePreviewDataUrl.value || "").trim();
+  if (!dataUrl) return;
+  const localPath = String(imagePreviewLocalPath.value || "").trim();
+  const title = localPath ? localPath.split(/[\\/]/).filter(Boolean).pop() || "" : "";
+  closeImagePreview();
+  selectChatRightPanelMode("reader");
+  await nextTick();
+  await nextTick();
+  const panel = chatReaderPanelRef.value;
+  if (!panel) return;
+  await panel.whenSessionRestored?.();
+  await panel.openImageInReader({ dataUrl, path: localPath, title });
+}
+
+/**
+ * 聊天里交互组件卡片的「在右栏打开」：把卡片渲染的同一份 html 源码交给阅读器。
+ *
+ * 走 chat-html: 伪路径建内存标签，不落盘、不读盘；右栏用同一份 InteractiveHtmlSandbox 渲染，
+ * 与 .html 文件在右栏打开是同一套预览。源码/预览切换沿用 html kind 的既有逻辑。
+ */
+async function openHtmlInRightPanel(request: ChatHtmlReaderRequest) {
+  const code = String(request?.code ?? "");
+  if (!code.trim()) return;
+  selectChatRightPanelMode("reader");
+  await nextTick();
+  await nextTick();
+  const panel = chatReaderPanelRef.value;
+  if (!panel) return;
+  await panel.whenSessionRestored?.();
+  await panel.openHtmlInReader({ code, title: request?.title });
+}
+
+// 顶层下发「把这段 html 送到右栏」：四层链路（ChatMessageItem → AppMarkdownRenderer → CodeBlock
+// → InteractiveHtmlSandbox）逐层传 props 会让后续每加一个入口都要再穿一遍，只走 provide/inject。
+// label 用 getter 读 i18n，切换语言时卡片上的按钮文案跟着变。
+provide(CHAT_HTML_READER_KEY, {
+  get label() { return t("chat.openInRightPanel"); },
+  open: (request) => { void openHtmlInRightPanel(request); },
+});
 
 /** 主页 Git 卡的「查看剩余 N 个文件」：切到阅读器面板并打开 Git 更改列表 */
 async function openHomeGitChanges() {
@@ -4386,11 +4446,15 @@ function performSendChat() {
   if (conversationId && activeConversationIsDraft.value) {
     locallyPromotedConversationId.value = conversationId;
   }
-  const extraTextBlocks = attachedIdeContextReferences.value.map((item) => String(item.textBlock || "").trim()).filter(Boolean);
+  const extraTextBlocks = [
+    ...attachedIdeContextReferences.value.map((item) => String(item.textBlock || "").trim()),
+    ...buildKanbanIssueReferenceBlocks(),
+  ].filter(Boolean);
   // 用户直接发言等于放弃护航建议：走到这一步才算真的发送，分支守卫拦下的那次不清。
   emit("dismissWheelchairSuggestion");
   emit("sendChat", extraTextBlocks.length > 0 ? { extraTextBlocks } : undefined);
   clearAttachedIdeContextReferences();
+  clearKanbanIssueReferences();
 }
 /** 会话搜索页：由侧栏底部搜索按钮打开，覆盖在中间栏之上，不卸载聊天区。 */
 const conversationSearchOpen = ref(false);
