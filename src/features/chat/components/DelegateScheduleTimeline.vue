@@ -1,102 +1,190 @@
 <template>
-  <div class="min-w-0 w-full">
-    <div v-if="errorText" class="rounded-lg border border-error/20 bg-error/5 px-3 py-2 text-xs text-error">
+  <div class="min-w-0 w-full space-y-4">
+    <!-- 错误提示 -->
+    <div v-if="errorText" class="rounded-box border border-error/20 bg-error/5 px-3.5 py-2.5 text-xs text-error">
       {{ errorText }}
     </div>
-    <div v-else-if="!loading && runs.length === 0" class="min-w-0 w-full">
-      <div v-if="finalLoading" class="flex items-center justify-center gap-2 py-8 text-xs text-base-content/40">
-        <span class="loading loading-spinner loading-xs"></span>加载中
-      </div>
-      <div v-else-if="finalText" class="min-w-0 w-full">
-        <div class="mb-2 text-xs font-medium text-base-content/45">最终正文</div>
-        <div class="assistant-markdown text-sm leading-6 text-base-content/80">
-          <AppMarkdownRenderer :text="finalText" :is-dark="markdownIsDark" />
-        </div>
-        <div v-if="finalErrorText" class="mt-2 text-xs text-error/70">{{ finalErrorText }}</div>
-      </div>
-      <div v-else class="py-8 text-center text-xs text-base-content/40">
-        <div>暂无调度记录</div>
-        <div v-if="finalErrorText" class="mt-2 text-error/60">{{ finalErrorText }}</div>
-        <div v-else class="mt-1 text-base-content/30">暂无正文</div>
-      </div>
-    </div>
-    <div v-else class="space-y-6 w-full min-w-0">
-      <section
-        v-for="run in runs"
-        :key="run.runId"
-        class="min-w-0 w-full"
-      >
-        <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
-          <span class="font-medium tabular-nums text-base-content/80">{{ formatFullTime(run.startedAt) }}</span>
-          <span v-if="run.status !== 'running'" class="tabular-nums text-base-content/50">— {{ formatFullTime(run.updatedAt) }}</span>
-          <span v-else class="text-base-content/30">— 进行中</span>
-          <span class="text-base-content/20">·</span>
-          <span class="tabular-nums text-base-content/50">{{ formatElapsed(run.elapsedMs) }}</span>
-          <span class="text-base-content/20">·</span>
-          <span class="tabular-nums text-base-content/50">{{ run.requestCount }}步</span>
-          <span v-if="run.status === 'running'" class="ml-1 inline-flex items-center gap-1 text-warning">
-            <span class="size-1.5 animate-pulse rounded-full bg-warning"></span>进行中
-          </span>
-          <span v-else-if="run.status === 'error'" class="text-error">失败</span>
-        </div>
 
-        <ul class="timeline timeline-vertical timeline-compact mt-3 w-full">
-          <li v-for="(event, index) in run.events" :key="event.id" class="min-w-0">
-            <hr v-if="index !== 0" />
-            <div class="timeline-middle">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                class="h-5 w-5 shrink-0"
-                :class="iconColorClass(event.success)"
-              >
-                <path
-                  fill-rule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
-                  clip-rule="evenodd"
-                />
-              </svg>
-            </div>
-            <div class="timeline-end timeline-box min-w-0 w-full">
+    <!-- 加载中 -->
+    <div v-else-if="loading && !currentRun && activityItems.length === 0" class="flex items-center justify-center gap-2 py-12 text-xs text-base-content/40">
+      <span class="loading loading-spinner loading-xs text-primary"></span>
+      <span>加载中...</span>
+    </div>
+
+    <!-- 空状态：无记录且无正文 -->
+    <div v-else-if="!currentRun && activityItems.length === 0 && !finalText" class="py-12 text-center text-xs text-base-content/40">
+      <div>暂无调度记录与内容</div>
+    </div>
+
+    <!-- 内容展示 -->
+    <div v-else class="space-y-4 min-w-0 w-full">
+      <!-- 1. 顶部概要信息 -->
+      <section v-if="currentRun" class="rounded-box border border-base-300/60 bg-base-200/40 p-3 text-xs">
+        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <!-- 状态与时间段 -->
+          <div class="flex flex-wrap items-center gap-2 min-w-0">
+            <span
+              v-if="isRunning"
+              class="inline-flex items-center gap-1.5 font-medium text-warning"
+            >
+              <span class="size-2 animate-pulse rounded-full bg-warning"></span>
+              <span>进行中</span>
+            </span>
+            <span
+              v-else-if="isError"
+              class="inline-flex items-center gap-1.5 font-medium text-error"
+            >
+              <AlertCircle class="h-3.5 w-3.5" />
+              <span>失败</span>
+            </span>
+            <span
+              v-else
+              class="inline-flex items-center gap-1.5 font-medium text-success"
+            >
+              <CheckCircle2 class="h-3.5 w-3.5" />
+              <span>已完成</span>
+            </span>
+
+            <span class="text-base-content/20">|</span>
+            <span class="tabular-nums text-base-content/75">{{ formatFullTime(currentRun.startedAt) }}</span>
+            <span v-if="!isRunning && currentRun.updatedAt" class="text-base-content/45 tabular-nums">— {{ formatFullTime(currentRun.updatedAt) }}</span>
+          </div>
+
+          <!-- 耗时、步数与模型 -->
+          <div class="flex flex-wrap items-center gap-2 text-base-content/60">
+            <span class="inline-flex items-center gap-1 tabular-nums">
+              <Clock class="h-3.5 w-3.5 opacity-60" />
+              <span>{{ formatElapsed(currentRun.elapsedMs) }}</span>
+            </span>
+            <span class="text-base-content/20">·</span>
+            <span class="tabular-nums">{{ currentRun.requestCount }} 步</span>
+            <template v-if="runModelName">
+              <span class="text-base-content/20">·</span>
+              <span class="inline-flex items-center gap-1 font-mono text-[11px] text-base-content/70 max-w-[200px] truncate" :title="runModelName">
+                <Cpu class="h-3.5 w-3.5 opacity-60 shrink-0" />
+                <span class="truncate">{{ runModelName }}</span>
+              </span>
+            </template>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. 思考与工具活动流 -->
+      <section v-if="activityItems.length > 0" class="space-y-2 min-w-0 w-full">
+        <div class="text-[11px] font-medium text-base-content/50 px-0.5">执行过程</div>
+        <div class="space-y-2">
+          <div
+            v-for="item in activityItems"
+            :key="item.id"
+            class="rounded-box border border-base-300/60 bg-base-100 overflow-hidden text-xs transition-colors"
+          >
+            <!-- 思考过程节点 -->
+            <template v-if="item.kind === 'reasoning'">
               <button
                 type="button"
-                class="flex w-full min-w-0 items-center gap-1.5 text-left"
-                @click="toggleCollapsed(event.id)"
+                class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-base-200/50 transition-colors select-none"
+                @click="toggleItemExpanded(item.id)"
               >
-                <span class="shrink-0 text-xs font-medium text-base-content/80">{{ phaseLabel(event.phase) }}</span>
-                <span v-if="titleInlineSummary(event)" class="min-w-0 flex-1 truncate text-xs text-base-content/55">{{ titleInlineSummary(event) }}</span>
-                <span v-else class="flex-1"></span>
-                <span class="shrink-0 text-caption tabular-nums text-base-content/40">+{{ formatElapsedShort(event.elapsedMs) }}</span>
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 shrink-0 text-base-content/25 transition-transform duration-200" :class="isCollapsed(event.id) ? '' : 'rotate-90'"><path fill-rule="evenodd" d="M7.21 14.78a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg>
+                <!-- AI 闪耀图标 -->
+                <Sparkles class="h-4 w-4 shrink-0 text-primary" />
+                <span class="min-w-0 flex-1 truncate font-medium text-base-content/85">
+                  <InlineMarkdownText :text="getReasoningSummary(item.text)" />
+                </span>
+                <span class="shrink-0 tabular-nums text-[11px] text-base-content/40">
+                  思考 {{ item.text.length }} 字
+                </span>
+                <ChevronDown
+                  class="h-3.5 w-3.5 shrink-0 text-base-content/40 transition-transform duration-200"
+                  :class="isItemExpanded(item.id) ? 'rotate-180' : ''"
+                />
               </button>
-              <Transition
-                :css="false"
-                @enter="animateEnter"
-                @leave="animateLeave"
-                @enter-cancelled="cleanupAnimation"
-                @leave-cancelled="cleanupAnimation"
+              <div
+                v-if="isItemExpanded(item.id)"
+                class="border-t border-base-300/40 bg-base-200/30 px-3.5 py-3"
               >
-                <div
-                  v-if="!isCollapsed(event.id)"
-                  class="mt-2 min-w-0 w-full space-y-1.5 border-t border-base-300 pt-2"
-                >
-                  <div v-if="eventSummaryLine(event)" class="whitespace-normal break-words text-xs leading-5 text-base-content/55">
-                    {{ eventSummaryLine(event) }}
-                  </div>
-                  <div v-if="eventBodyText(event)" class="whitespace-pre-wrap break-words break-all text-xs leading-5 text-base-content/70">
-                    {{ eventBodyText(event) }}
-                  </div>
-                  <div v-if="eventErrorText(event)" class="whitespace-pre-wrap break-words break-all text-caption leading-4 text-error/80">
-                    {{ eventErrorText(event) }}
-                  </div>
-                  <div v-if="!eventSummaryLine(event) && !eventBodyText(event) && !eventErrorText(event)" class="text-xs text-base-content/30">—</div>
+                <div class="border-l-2 border-primary/30 pl-3 leading-relaxed text-base-content/80 text-xs">
+                  <AppMarkdownRenderer :text="item.text" :is-dark="markdownIsDark" />
                 </div>
-              </Transition>
-            </div>
-            <hr v-if="index !== run.events.length - 1" />
-          </li>
-        </ul>
+              </div>
+            </template>
+
+            <!-- 工具调用节点 -->
+            <template v-else-if="item.kind === 'tool'">
+              <button
+                type="button"
+                class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-base-200/50 transition-colors select-none"
+                @click="toggleItemExpanded(item.id)"
+              >
+                <span v-if="item.status === 'doing'" class="loading loading-spinner loading-xs text-primary shrink-0"></span>
+                <AlertCircle v-else-if="isToolFailed(item)" class="h-4 w-4 shrink-0 text-error" />
+                <Wrench v-else class="h-4 w-4 shrink-0 text-base-content/60" />
+
+                <!-- 语义化标题 -->
+                <div class="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                  <span class="font-medium text-base-content shrink-0">{{ getToolSemantic(item).action }}</span>
+                  <span class="truncate font-mono text-[11px] text-base-content/70">{{ getToolSemantic(item).target }}</span>
+                  <span v-if="getToolSemantic(item).lineRange" class="font-mono text-[11px] opacity-60 shrink-0">{{ getToolSemantic(item).lineRange }}</span>
+                  <span v-if="getToolSemantic(item).extra" class="text-[11px] opacity-60 shrink-0 truncate">{{ getToolSemantic(item).extra }}</span>
+                  <span v-if="getToolSemantic(item).adds" class="font-mono text-[11px] text-success shrink-0">+{{ getToolSemantic(item).adds }}</span>
+                  <span v-if="getToolSemantic(item).removes" class="font-mono text-[11px] text-error shrink-0">-{{ getToolSemantic(item).removes }}</span>
+                </div>
+
+                <span v-if="isToolFailed(item)" class="shrink-0 text-[11px] text-error font-medium">失败</span>
+                <span v-else-if="item.status === 'done'" class="shrink-0 text-[11px] text-success/80">完成</span>
+
+                <ChevronDown
+                  class="h-3.5 w-3.5 shrink-0 text-base-content/40 transition-transform duration-200"
+                  :class="isItemExpanded(item.id) ? 'rotate-180' : ''"
+                />
+              </button>
+
+              <div
+                v-if="isItemExpanded(item.id)"
+                class="border-t border-base-300/40 bg-base-200/30 px-3.5 py-3 space-y-2.5"
+              >
+                <!-- 参数 -->
+                <div v-if="item.argsText?.trim()">
+                  <div class="mb-1 text-[11px] font-medium text-base-content/50">参数</div>
+                  <pre class="m-0 max-h-60 overflow-y-auto whitespace-pre-wrap break-all rounded bg-base-100 p-2.5 font-mono text-[11px] leading-relaxed text-base-content/80 border border-base-300/40">{{ formatToolArgs(item.argsText) }}</pre>
+                </div>
+
+                <!-- 结果 -->
+                <div v-if="item.resultText?.trim()">
+                  <div class="mb-1 text-[11px] font-medium text-base-content/50">返回结果</div>
+                  <pre
+                    class="m-0 max-h-60 overflow-y-auto whitespace-pre-wrap break-all rounded p-2.5 font-mono text-[11px] leading-relaxed border"
+                    :class="isToolFailed(item) ? 'bg-error/5 text-error border-error/20' : 'bg-base-100 text-base-content/80 border-base-300/40'"
+                  >{{ formatToolResult(item.resultText) }}</pre>
+                </div>
+                <div v-else-if="item.status === 'doing'" class="text-[11px] text-base-content/40 py-1">
+                  正在执行中...
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. 最终答复区域 -->
+      <section v-if="finalText" class="rounded-box border border-base-300/60 bg-base-100 p-4 min-w-0 w-full">
+        <div class="flex items-center justify-between mb-3 border-b border-base-300/40 pb-2">
+          <div class="flex items-center gap-1.5 text-xs font-semibold text-base-content/85">
+            <CheckCircle2 class="h-4 w-4 text-success" />
+            <span>最终答复</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs gap-1 text-base-content/60 hover:text-base-content"
+            @click="copyFinalText"
+          >
+            <Check v-if="copied" class="h-3 w-3 text-success" />
+            <Copy v-else class="h-3 w-3" />
+            <span>{{ copied ? '已复制' : '复制' }}</span>
+          </button>
+        </div>
+        <div class="assistant-markdown text-sm leading-6 text-base-content/90">
+          <AppMarkdownRenderer :text="finalText" :is-dark="markdownIsDark" />
+        </div>
       </section>
     </div>
   </div>
@@ -104,165 +192,117 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount } from "vue";
+import { useI18n } from "vue-i18n";
+import {
+  AlertCircle,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  Copy,
+  Cpu,
+  Sparkles,
+  Wrench,
+} from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
-import type { ArchiveBlockPage, ChatMessage, ScheduleRun } from "../../../types/app";
-import { useCollapseTransition } from "../composables/use-collapse-transition";
+import type { ArchiveBlockPage, ChatActivityItem, ScheduleEvent, ScheduleRun } from "../../../types/app";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
+import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
+import { createToolCallPresentation } from "../utils/tool-call-presentation";
+import { projectChatActivityForDisplay } from "../../../utils/chat-message-semantics";
+import { sliceNaturalSentencePrefix } from "../utils/text-slicing";
+import { parseToolCallResultStatus } from "../utils/toolcall-preview";
 
 initKatex();
 
 const props = defineProps<{
   conversationId: string;
   autoRefreshKey?: string;
+  initialRuns?: ScheduleRun[];
+  initialBlockPage?: ArchiveBlockPage;
 }>();
 
-const runs = ref<ScheduleRun[]>([]);
-const loading = ref(false);
-const errorText = ref("");
-const finalText = ref("");
-const finalLoading = ref(false);
-const finalErrorText = ref("");
-let finalFetchToken = 0;
-let fetchRunsToken = 0;
-const collapsedIds = ref<Set<string>>(new Set());
-let previousAllIds = new Set<string>();
-let previousLastIds = new Set<string>();
-let pollTimer: ReturnType<typeof window.setInterval> | null = null;
-
+const { t } = useI18n();
 const { currentTheme } = useAppTheme();
-const { animateEnter, animateLeave, cleanupAnimation } = useCollapseTransition();
 const markdownIsDark = computed(() => isDarkAppTheme(String(currentTheme.value || "")));
 
-function isCollapsed(id: string) {
-  return collapsedIds.value.has(id);
+const { toolCallSemanticPresentation } = createToolCallPresentation({
+  t: (key, params) => String(t(key, params ?? {})),
+  agentName: (agentId) => agentId,
+});
+
+const runs = ref<ScheduleRun[]>([]);
+const activityItems = ref<ChatActivityItem[]>([]);
+const finalText = ref("");
+const loading = ref(false);
+const errorText = ref("");
+const expandedIds = ref<Set<string>>(new Set());
+const copied = ref(false);
+
+let fetchToken = 0;
+let pollTimer: ReturnType<typeof window.setInterval> | null = null;
+let copyResetTimer: ReturnType<typeof window.setTimeout> | null = null;
+
+const currentRun = computed(() => runs.value[0] || null);
+
+const isRunning = computed(() => currentRun.value?.status === "running");
+const isError = computed(() => currentRun.value?.status === "error");
+const runModelName = computed(() => currentRun.value?.model || currentRun.value?.lastModelName || "");
+
+function isItemExpanded(id: string) {
+  return expandedIds.value.has(id);
 }
 
-function toggleCollapsed(id: string) {
-  const next = new Set(collapsedIds.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  collapsedIds.value = next;
-}
-
-function syncCollapsedState() {
-  const currentAll = new Set<string>();
-  const currentLast = new Set<string>();
-  for (const run of runs.value) {
-    for (const event of run.events) currentAll.add(event.id);
-    const lastId = run.events[run.events.length - 1]?.id;
-    if (lastId) currentLast.add(lastId);
-  }
-  if (currentAll.size === 0) {
-    collapsedIds.value = new Set();
-    previousAllIds = currentAll;
-    previousLastIds = currentLast;
-    return;
-  }
-  const next = new Set(collapsedIds.value);
-  const isFirstLoad = previousAllIds.size === 0 && collapsedIds.value.size === 0;
-  if (isFirstLoad) {
-    for (const id of currentAll) next.add(id);
-    collapsedIds.value = next;
-    previousAllIds = currentAll;
-    previousLastIds = currentLast;
-    return;
-  }
-  for (const id of currentAll) {
-    const isNew = !previousAllIds.has(id);
-    if (isNew) next.add(id);
-  }
-  for (const id of Array.from(next)) {
-    if (!currentAll.has(id)) next.delete(id);
-  }
-  collapsedIds.value = next;
-  previousAllIds = currentAll;
-  previousLastIds = currentLast;
-}
-
-async function fetchRuns(silent = false) {
-  const conversationId = props.conversationId.trim();
-  const token = ++fetchRunsToken;
-  // Invalidate any in-flight final text fetch when a newer run fetch starts
-  finalFetchToken++;
-  if (!conversationId) {
-    runs.value = [];
-    previousAllIds = new Set();
-    previousLastIds = new Set();
-    collapsedIds.value = new Set();
-    finalText.value = "";
-    finalErrorText.value = "";
-    finalLoading.value = false;
-    if (token === fetchRunsToken) {
-      loading.value = false;
-      errorText.value = "";
-    }
-    return;
-  }
-  if (!silent) loading.value = true;
-  if (token === fetchRunsToken) errorText.value = "";
-  let data: ScheduleRun[] | null = null;
-  let fetchError: unknown = null;
-  try {
-    const result = await invokeTauri<ScheduleRun[]>("list_schedule_runs", { conversationId });
-    data = Array.isArray(result) ? result : [];
-  } catch (error) {
-    fetchError = error;
-  }
-  if (token !== fetchRunsToken || conversationId !== props.conversationId.trim()) return;
-  if (fetchError) {
-    if (!silent) errorText.value = String(fetchError);
-    if (!silent) loading.value = false;
-    finalText.value = "";
-    finalErrorText.value = "";
-    finalLoading.value = false;
-    return;
-  }
-  runs.value = data ?? [];
-  syncCollapsedState();
-  if (!silent) loading.value = false;
-  if (!loading.value && runs.value.length === 0 && !errorText.value) {
-    void fetchFinalText(conversationId);
+function toggleItemExpanded(id: string) {
+  const next = new Set(expandedIds.value);
+  if (next.has(id)) {
+    next.delete(id);
   } else {
-    finalText.value = "";
-    finalErrorText.value = "";
-    finalLoading.value = false;
+    next.add(id);
   }
+  expandedIds.value = next;
 }
 
-async function fetchFinalText(conversationId: string) {
-  const capturedConversationId = conversationId.trim();
-  const token = ++finalFetchToken;
-  finalLoading.value = true;
-  finalErrorText.value = "";
-  finalText.value = "";
+function getReasoningSummary(text: string): string {
+  const parts = sliceNaturalSentencePrefix(text, { targetLength: 40 });
+  return parts.summary || "思考过程";
+}
+
+function getToolSemantic(item: ChatActivityItem) {
+  if (item.kind !== "tool") {
+    return { action: "工具", target: "", text: "" };
+  }
+  return toolCallSemanticPresentation(item);
+}
+
+function isToolFailed(item: ChatActivityItem): boolean {
+  if (item.kind !== "tool") return false;
+  if (!item.resultText) return false;
+  const status = parseToolCallResultStatus(item.resultText);
+  return status.isFailed || status.isDenied;
+}
+
+function formatToolArgs(raw: string): string {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
   try {
-    const page = await invokeTauri<ArchiveBlockPage>("delegate.blockPage", { conversationId: capturedConversationId }, 10000);
-    if (token !== finalFetchToken || capturedConversationId !== props.conversationId.trim()) return;
-    const messages = Array.isArray(page?.messages) ? page.messages : [];
-    const raw = findLastAssistantText(messages);
-    finalText.value = formatDelegateResultText(raw);
-    if (!finalText.value) finalErrorText.value = "";
-  } catch (error) {
-    if (token !== finalFetchToken || capturedConversationId !== props.conversationId.trim()) return;
-    finalErrorText.value = String(error);
-  } finally {
-    if (token === finalFetchToken && capturedConversationId === props.conversationId.trim()) finalLoading.value = false;
+    const parsed = JSON.parse(trimmed);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return trimmed;
   }
 }
 
-function findLastAssistantText(messages: ChatMessage[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== "assistant") continue;
-    const text = message.parts
-      ?.filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("\n")
-      .trim();
-    if (text) return text;
+function formatToolResult(raw: string): string {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return trimmed;
   }
-  return "";
 }
 
 function formatDelegateResultText(text: string) {
@@ -276,166 +316,6 @@ function formatDelegateResultText(text: string) {
   }
 }
 
-function hasRunning() {
-  return runs.value.some((run) => run.status === "running");
-}
-
-function syncPolling() {
-  if (pollTimer != null) {
-    window.clearInterval(pollTimer);
-    pollTimer = null;
-  }
-  if (hasRunning()) {
-    pollTimer = window.setInterval(() => { void fetchRuns(true); }, 1500);
-  }
-}
-
-watch(
-  () => [props.conversationId, props.autoRefreshKey] as const,
-  () => { void fetchRuns(false); },
-);
-
-watch(
-  () => runs.value.map((r) => `${r.runId}:${r.status}:${r.events.length}`).join("|"),
-  () => syncPolling(),
-);
-
-onMounted(() => { void fetchRuns(false); });
-onBeforeUnmount(() => {
-  if (pollTimer != null) window.clearInterval(pollTimer);
-});
-
-function phaseLabel(phase: string) {
-  if (phase === "dispatch_start") return "开始";
-  if (phase === "dispatch_end") return "结束";
-  if (phase === "model_round_start") return "请求";
-  if (phase === "model_round_end") return "响应";
-  if (phase === "tool_call") return "调用";
-  if (phase === "tool_result") return "结果";
-  if (phase === "compaction_start") return "整理";
-  if (phase === "compaction_end") return "整理完成";
-  return phase;
-}
-
-function iconColorClass(success?: boolean | null) {
-  if (success === false) return "text-error";
-  if (success === true) return "text-success";
-  return "text-primary";
-}
-
-function eventErrorText(event: { detail: any }) {
-  const raw = (event.detail as any)?.error;
-  if (!raw) return "";
-  return String(raw).trim();
-}
-
-function normalizeDetail(detail: any) {
-  return (detail ?? {}) as Record<string, any>;
-}
-
-function titleInlineSummary(event: { phase: string; detail: any }) {
-  const d = normalizeDetail(event.detail);
-  if (event.phase === "model_round_start") {
-    if (d.modelName) return String(d.modelName);
-    if (d.attempt) return `第${d.attempt}次`;
-    return "";
-  }
-  if (event.phase === "model_round_end") {
-    if (d.modelName) return String(d.modelName);
-    return "";
-  }
-  if (event.phase === "tool_call" || event.phase === "tool_result") {
-    if (d.toolName) return String(d.toolName);
-    return "";
-  }
-  if (event.phase === "dispatch_start") {
-    return d.traceId ? String(d.traceId).slice(0, 8) : "";
-  }
-  if (event.phase === "dispatch_end") {
-    if (d.assistantTextLength != null) return `正文${d.assistantTextLength}字`;
-    return "";
-  }
-  if (event.phase === "compaction_start" || event.phase === "compaction_end") {
-    if (d.reason) return String(d.reason);
-    return "";
-  }
-  return "";
-}
-
-function eventSummaryLine(event: { phase: string; detail: any }) {
-  const d = normalizeDetail(event.detail);
-  if (event.phase === "model_round_start") {
-    const parts: string[] = [];
-    if (d.modelName) parts.push(String(d.modelName));
-    if (d.attempt) parts.push(`第${d.attempt}次`);
-    if (d.providerName) parts.push(String(d.providerName));
-    return parts.join(" · ");
-  }
-  if (event.phase === "model_round_end") {
-    const parts: string[] = [];
-    if (d.modelName) parts.push(String(d.modelName));
-    if (d.elapsedMs != null) parts.push(`${d.elapsedMs}ms`);
-    if (d.assistantTextLength != null) parts.push(`正文${d.assistantTextLength}字`);
-    if (d.reasoningLength != null && Number(d.reasoningLength) > 0) parts.push(`思考${d.reasoningLength}字`);
-    if (d.toolCallCount != null) parts.push(d.toolCallCount > 0 ? `${d.toolCallCount}工具` : "无工具");
-    if (d.hasError) parts.push("异常");
-    return parts.join(" · ");
-  }
-  if (event.phase === "tool_call") {
-    const parts: string[] = [];
-    if (d.toolName) parts.push(String(d.toolName));
-    if (d.argLength != null) parts.push(`${d.argLength}字`);
-    return parts.join(" · ");
-  }
-  if (event.phase === "tool_result") {
-    const parts: string[] = [];
-    if (d.toolName) parts.push(String(d.toolName));
-    if (d.isError) parts.push("失败");
-    else if (d.isError === false) parts.push("成功");
-    if (d.textLength != null) parts.push(`${d.textLength}字`);
-    return parts.join(" · ");
-  }
-  if (event.phase === "compaction_start" || event.phase === "compaction_end") {
-    const parts: string[] = [];
-    if (d.reason) parts.push(String(d.reason));
-    if (d.elapsedMs != null) parts.push(`${d.elapsedMs}ms`);
-    return parts.join(" · ");
-  }
-  if (event.phase === "dispatch_start") return d.traceId ? String(d.traceId) : "";
-  if (event.phase === "dispatch_end") {
-    if (d.assistantTextLength != null) return `正文${d.assistantTextLength}字`;
-    return "";
-  }
-  return "";
-}
-
-function eventBodyText(event: { phase: string; detail: any }) {
-  const d = normalizeDetail(event.detail);
-  if (event.phase === "dispatch_start") {
-    if (d.textPreview) return String(d.textPreview);
-    return "";
-  }
-  if (event.phase === "model_round_end") {
-    const chunks: string[] = [];
-    if (d.reasoningPreview) chunks.push(String(d.reasoningPreview).trim());
-    if (d.textPreview) chunks.push(String(d.textPreview).trim());
-    return chunks.join("\n\n");
-  }
-  if (event.phase === "tool_call") {
-    if (d.argPreview) return String(d.argPreview);
-    return "";
-  }
-  if (event.phase === "tool_result") {
-    if (d.textPreview) return String(d.textPreview);
-    return "";
-  }
-  if (event.phase === "dispatch_end") {
-    if (d.textPreview) return String(d.textPreview);
-    return "";
-  }
-  return "";
-}
-
 function formatElapsed(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "0s";
   const totalSeconds = Math.floor(value / 1000);
@@ -447,13 +327,7 @@ function formatElapsed(value: number) {
   return `${seconds}s`;
 }
 
-function formatElapsedShort(value: number) {
-  if (!Number.isFinite(value) || value < 0) return "0s";
-  if (value < 1000) return `${value}ms`;
-  return `${(value / 1000).toFixed(1)}s`;
-}
-
-function formatFullTime(value: string) {
+function formatFullTime(value?: string | null) {
   const raw = String(value || "").trim();
   if (!raw) return "--";
   const d = new Date(raw);
@@ -462,5 +336,212 @@ function formatFullTime(value: string) {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-defineExpose({ refresh: () => fetchRuns(false) });
+async function copyFinalText() {
+  if (!finalText.value) return;
+  try {
+    await navigator.clipboard.writeText(finalText.value);
+    copied.value = true;
+    if (copyResetTimer) clearTimeout(copyResetTimer);
+    copyResetTimer = setTimeout(() => {
+      copied.value = false;
+    }, 2000);
+  } catch {
+    // 忽略写入剪贴板异常
+  }
+}
+
+/**
+ * 当委托会话尚在流式或刚派发、数据库消息未落盘时，从 ScheduleEvent[] 提取 fallback 活动项
+ */
+function buildActivityFromRunEvents(events: ScheduleEvent[]): ChatActivityItem[] {
+  const items: ChatActivityItem[] = [];
+  const toolCallPending = new Map<string, { id: string; name: string; argsText: string }>();
+
+  for (let idx = 0; idx < events.length; idx++) {
+    const ev = events[idx];
+    const detail = (ev.detail ?? {}) as Record<string, any>;
+
+    if (ev.phase === "model_round_end") {
+      const reasoning = String(detail.reasoningPreview || "").trim();
+      if (reasoning) {
+        items.push({
+          kind: "reasoning",
+          id: `run-reasoning-${ev.id || idx}`,
+          text: reasoning,
+        });
+      }
+    } else if (ev.phase === "tool_call") {
+      const name = String(detail.toolName || "tool");
+      const argsText = String(detail.argPreview || "");
+      toolCallPending.set(name, {
+        id: `run-tool-${ev.id || idx}`,
+        name,
+        argsText,
+      });
+    } else if (ev.phase === "tool_result") {
+      const name = String(detail.toolName || "tool");
+      const pending = toolCallPending.get(name);
+      const isError = detail.isError === true;
+      const rawText = String(detail.textPreview || "");
+      const resultText = isError ? (rawText.startsWith("失败") || rawText.startsWith("错误") ? rawText : `[失败] ${rawText}`) : rawText;
+      if (pending) {
+        items.push({
+          kind: "tool",
+          id: pending.id,
+          name: pending.name,
+          argsText: pending.argsText,
+          resultText,
+          status: "done",
+        });
+        toolCallPending.delete(name);
+      } else {
+        items.push({
+          kind: "tool",
+          id: `run-tool-res-${ev.id || idx}`,
+          name,
+          argsText: "",
+          resultText,
+          status: "done",
+        });
+      }
+    }
+  }
+
+  for (const pending of toolCallPending.values()) {
+    items.push({
+      kind: "tool",
+      id: pending.id,
+      name: pending.name,
+      argsText: pending.argsText,
+      status: "doing",
+    });
+  }
+
+  return items;
+}
+
+function applyData(runsResult: ScheduleRun[], blockPageResult: ArchiveBlockPage | null) {
+  runs.value = Array.isArray(runsResult) ? runsResult : [];
+
+  const messages = Array.isArray(blockPageResult?.messages) ? blockPageResult.messages : [];
+  const extractedActivities: ChatActivityItem[] = [];
+  let lastAssistantText = "";
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role !== "assistant") continue;
+
+    const text = (msg.parts || [])
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    if (text) {
+      lastAssistantText = text;
+    }
+
+    const proj = projectChatActivityForDisplay(msg);
+    for (let j = 0; j < proj.items.length; j++) {
+      const it = proj.items[j];
+      if (it.kind === "content" && it.text.trim() === lastAssistantText) {
+        continue;
+      }
+      extractedActivities.push({
+        ...it,
+        id: it.id || `msg-${i}-act-${j}`,
+      });
+    }
+  }
+
+  if (extractedActivities.length === 0 && runs.value.length > 0 && runs.value[0].events.length > 0) {
+    activityItems.value = buildActivityFromRunEvents(runs.value[0].events);
+  } else {
+    activityItems.value = extractedActivities;
+  }
+
+  finalText.value = formatDelegateResultText(lastAssistantText);
+}
+
+if (props.initialRuns || props.initialBlockPage) {
+  applyData(props.initialRuns || [], props.initialBlockPage || null);
+}
+
+async function fetchData(silent = false) {
+  const conversationId = props.conversationId.trim();
+  const token = ++fetchToken;
+  if (!conversationId) {
+    runs.value = [];
+    activityItems.value = [];
+    finalText.value = "";
+    errorText.value = "";
+    loading.value = false;
+    return;
+  }
+
+  if (!silent) loading.value = true;
+  if (token === fetchToken) errorText.value = "";
+
+  try {
+    const [runsResult, blockPageResult] = await Promise.all([
+      invokeTauri<ScheduleRun[]>("list_schedule_runs", { conversationId }).catch((err) => {
+        console.warn("[DelegateScheduleTimeline] list_schedule_runs 失败:", err);
+        return [] as ScheduleRun[];
+      }),
+      invokeTauri<ArchiveBlockPage>("delegate.blockPage", { input: { conversationId } }, 10000).catch((err) => {
+        console.warn("[DelegateScheduleTimeline] delegate.blockPage 失败:", err);
+        return null;
+      }),
+    ]);
+
+    if (token !== fetchToken || conversationId !== props.conversationId.trim()) return;
+
+    applyData(runsResult, blockPageResult);
+  } catch (err) {
+    if (token !== fetchToken || conversationId !== props.conversationId.trim()) return;
+    if (!silent) errorText.value = String(err);
+  } finally {
+    if (token === fetchToken && conversationId === props.conversationId.trim()) {
+      loading.value = false;
+    }
+  }
+}
+
+function syncPolling() {
+  if (pollTimer != null) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  if (isRunning.value) {
+    pollTimer = window.setInterval(() => {
+      void fetchData(true);
+    }, 1500);
+  }
+}
+
+watch(
+  () => [props.conversationId, props.autoRefreshKey] as const,
+  () => { void fetchData(false); },
+);
+
+watch(
+  () => isRunning.value,
+  () => syncPolling(),
+);
+
+onMounted(() => {
+  void fetchData(false);
+});
+
+onBeforeUnmount(() => {
+  if (pollTimer != null) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  if (copyResetTimer != null) {
+    window.clearTimeout(copyResetTimer);
+    copyResetTimer = null;
+  }
+});
+
+defineExpose({ refresh: () => fetchData(false) });
 </script>
