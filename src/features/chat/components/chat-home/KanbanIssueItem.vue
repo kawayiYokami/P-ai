@@ -1,6 +1,6 @@
 <template>
   <div
-    class="group/item flex flex-col gap-1.5 rounded-field border border-base-content/10 bg-base-100 p-2 shadow-2xs transition-all hover:border-base-content/25 hover:bg-base-200/30"
+    class="group/item flex flex-col gap-1.5 rounded-field border border-base-content/10 bg-base-200/50 p-2 shadow-2xs transition-all hover:border-base-content/25 hover:bg-base-200/80"
   >
     <!-- 顶行：编号 + （可选备注） -->
     <div class="flex items-center justify-between font-mono text-caption">
