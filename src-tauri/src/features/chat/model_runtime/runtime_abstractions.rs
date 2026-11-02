@@ -54,6 +54,40 @@ trait RuntimeValueTool: RuntimeToolMetadata + Send + Sync {
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error>;
 }
 
+// ==================== 工具执行计数（跨重试边界） ====================
+
+// 一次模型调度里，工具到底执行过多少次。
+//
+// 重试与切换候选模型都拿同一个 prompt 快照重跑整条工具循环，只要这一 attempt 已经
+// 执行过工具，再跑一遍就会把同一批副作用（写文件、跑 shell、发消息、起委托）重复执行一次。
+// 工具循环与重试循环之间隔着 inference_gateway / router，拿不到执行结果，因此由调用方
+// 用 scope 挂一份计数，工具执行收口处递增，收口后把计数带回来做重试决策。
+tokio::task_local! {
+    static RUNTIME_TOOL_EXECUTION_COUNT: std::sync::Arc<std::sync::atomic::AtomicUsize>;
+}
+
+/// 为一个 dispatch 建立工具执行计数作用域；返回值额外给出本次作用域内执行了几次工具。
+async fn scoped_runtime_tool_execution_count<F, T>(future: F) -> (T, usize)
+where
+    F: std::future::Future<Output = T>,
+{
+    let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let handle = std::sync::Arc::clone(&counter);
+    let output = RUNTIME_TOOL_EXECUTION_COUNT.scope(counter, future).await;
+    (
+        output,
+        handle.load(std::sync::atomic::Ordering::Relaxed),
+    )
+}
+
+/// 工具执行收口处调用：记录这一 attempt 已经产生过工具副作用。
+///
+/// 计数只对 scoped 作用域生效；不在作用域内的调用（单元测试、其它调用方）什么都不做。
+fn note_runtime_tool_executed() {
+    let _ = RUNTIME_TOOL_EXECUTION_COUNT
+        .try_with(|counter| counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+}
+
 fn tool_value_scalar_text(value: &Value) -> String {
     match value {
         Value::Null => "null".to_string(),
