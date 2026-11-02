@@ -1581,67 +1581,28 @@ fn chat_metadata_store_publish_blocks(
             let staged = operation_root.join("new").join(&block.block_file);
             write_jsonl_snapshot_block_v4_atomic(&staged, &block.content)?;
         }
-        for block in changed_blocks {
-            let staged = operation_root.join("new").join(&block.block_file);
-            let compressed = fs::read(&staged)
-                .map_err(|err| format!("读取 SQLite staged block 失败，path={}，error={err}", staged.display()))?;
-            write_message_store_bytes_atomic(
-                &paths.shard_dir.join(&block.block_file),
-                "jsonl.zstd.tmp",
-                &compressed,
-                "V4 压缩块",
-            )?;
+        // 线上块文件在开事务之前就被覆盖了：事务回滚只撤数据库，不会把文件写回去。
+        // 所以从第一次覆盖文件到事务提交，整段收口在一个出口里：任何一步失败都把文件恢复原样。
+        if let Err(err) = chat_metadata_store_apply_block_publication(
+            &mut conn,
+            paths,
+            meta,
+            changed_blocks,
+            retired_block_ids,
+            locator_rows,
+            before_revision,
+            &operation_id,
+            &operation_root,
+        ) {
+            return Err(chat_metadata_store_abort_block_publication(
+                &conn,
+                paths,
+                &err,
+                &replaced_files,
+                &operation_root,
+                &operation_id,
+            ));
         }
-
-        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|err| format!("开启 SQLite block 发布事务失败: {err}"))?;
-        let meta_json = serde_json::to_string(meta).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
-        let updated = transaction.execute(
-            "UPDATE conversation_metadata SET metadata_json=?1, storage_revision=?2, updated_at=?3
-             WHERE conversation_id=?4 AND storage_revision=?5",
-            rusqlite::params![meta_json, before_revision + 1, meta.updated_at(), paths.conversation_id, before_revision],
-        ).map_err(|err| format!("发布 SQLite metadata 失败: {err}"))?;
-        if updated != 1 {
-            return Err(format!("发布 SQLite metadata revision 冲突，conversation_id={}", paths.conversation_id));
-        }
-        let mut affected_ids = changed_blocks.iter().map(|block| block.block_id).collect::<Vec<_>>();
-        affected_ids.extend_from_slice(retired_block_ids);
-        affected_ids.sort();
-        affected_ids.dedup();
-        for block_id in affected_ids {
-            transaction.execute(
-                "DELETE FROM message_locator WHERE conversation_id=?1 AND block_id=?2",
-                rusqlite::params![paths.conversation_id, block_id as i64],
-            ).map_err(|err| format!("清理 SQLite 受影响 locator 失败: {err}"))?;
-            transaction.execute(
-                "DELETE FROM conversation_blocks WHERE conversation_id=?1 AND block_id=?2",
-                rusqlite::params![paths.conversation_id, block_id as i64],
-            ).map_err(|err| format!("清理 SQLite 受影响 block 失败: {err}"))?;
-        }
-        for block in changed_blocks {
-            let staged = operation_root.join("new").join(&block.block_file);
-            let compressed_len = fs::metadata(&staged)
-                .map_err(|err| format!("读取 SQLite staged block 元数据失败，path={}，error={err}", staged.display()))?
-                .len();
-            transaction.execute(
-                "INSERT INTO conversation_blocks(conversation_id, block_id, block_file, byte_len, message_count)
-                 VALUES(?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params![paths.conversation_id, block.block_id as i64, block.block_file, compressed_len as i64, block.index_items.len() as i64],
-            ).map_err(|err| format!("写入 SQLite block 失败: {err}"))?;
-        }
-        for (sequence, item) in locator_rows {
-            let block_id = item.block_id.ok_or_else(|| format!("SQLite locator 缺少 block id，message_id={}", item.message_id))?;
-            transaction.execute(
-                "INSERT INTO message_locator(conversation_id, sequence, message_id, block_id, byte_offset, byte_len, compaction_kind, role, created_at)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                rusqlite::params![paths.conversation_id, sequence, item.message_id, block_id as i64, item.offset as i64, item.byte_len as i64, item.compaction_kind, item.role, item.created_at],
-            ).map_err(|err| format!("写入 SQLite locator 失败: {err}"))?;
-        }
-        transaction.execute(
-            "UPDATE storage_operations SET state='committed', committed_at=?1 WHERE operation_id=?2",
-            rusqlite::params![now_iso(), operation_id],
-        ).map_err(|err| format!("标记 SQLite 存储操作已提交失败: {err}"))?;
-        transaction.commit().map_err(|err| format!("提交 SQLite block 发布事务失败: {err}"))?;
 
         let mut cleaned = true;
         for file in retired_files {
@@ -1655,6 +1616,180 @@ fn chat_metadata_store_publish_blocks(
             }
         }
     chat_metadata_store_write_result(&conn, paths)
+}
+
+/// 覆盖线上块文件并提交发布事务。
+///
+/// 刻意把「写文件」和「提交事务」放在同一个函数里：这两步必须同进退，
+/// 而它们之间原本散着十几个 `?`，调用方没有唯一的出口去决定要不要回滚文件。
+fn chat_metadata_store_apply_block_publication(
+    conn: &mut rusqlite::Connection,
+    paths: &MessageStorePaths,
+    meta: &ConversationShardMeta,
+    changed_blocks: &[JsonlSnapshotConversationBlock],
+    retired_block_ids: &[u32],
+    locator_rows: &[(i64, MessageStoreIndexItem)],
+    before_revision: i64,
+    operation_id: &str,
+    operation_root: &PathBuf,
+) -> Result<(), String> {
+    for block in changed_blocks {
+        let staged = operation_root.join("new").join(&block.block_file);
+        let compressed = fs::read(&staged)
+            .map_err(|err| format!("读取 SQLite staged block 失败，path={}，error={err}", staged.display()))?;
+        write_message_store_bytes_atomic(
+            &paths.shard_dir.join(&block.block_file),
+            "jsonl.zstd.tmp",
+            &compressed,
+            "V4 压缩块",
+        )?;
+    }
+
+    let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|err| format!("开启 SQLite block 发布事务失败: {err}"))?;
+    let meta_json = serde_json::to_string(meta).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
+    let updated = transaction.execute(
+        "UPDATE conversation_metadata SET metadata_json=?1, storage_revision=?2, updated_at=?3
+         WHERE conversation_id=?4 AND storage_revision=?5",
+        rusqlite::params![meta_json, before_revision + 1, meta.updated_at(), paths.conversation_id, before_revision],
+    ).map_err(|err| format!("发布 SQLite metadata 失败: {err}"))?;
+    if updated != 1 {
+        return Err(format!("发布 SQLite metadata revision 冲突，conversation_id={}", paths.conversation_id));
+    }
+    let mut affected_ids = changed_blocks.iter().map(|block| block.block_id).collect::<Vec<_>>();
+    affected_ids.extend_from_slice(retired_block_ids);
+    affected_ids.sort();
+    affected_ids.dedup();
+    for block_id in affected_ids {
+        transaction.execute(
+            "DELETE FROM message_locator WHERE conversation_id=?1 AND block_id=?2",
+            rusqlite::params![paths.conversation_id, block_id as i64],
+        ).map_err(|err| format!("清理 SQLite 受影响 locator 失败: {err}"))?;
+        transaction.execute(
+            "DELETE FROM conversation_blocks WHERE conversation_id=?1 AND block_id=?2",
+            rusqlite::params![paths.conversation_id, block_id as i64],
+        ).map_err(|err| format!("清理 SQLite 受影响 block 失败: {err}"))?;
+    }
+    for block in changed_blocks {
+        let staged = operation_root.join("new").join(&block.block_file);
+        let compressed_len = fs::metadata(&staged)
+            .map_err(|err| format!("读取 SQLite staged block 元数据失败，path={}，error={err}", staged.display()))?
+            .len();
+        transaction.execute(
+            "INSERT INTO conversation_blocks(conversation_id, block_id, block_file, byte_len, message_count)
+             VALUES(?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![paths.conversation_id, block.block_id as i64, block.block_file, compressed_len as i64, block.index_items.len() as i64],
+        ).map_err(|err| format!("写入 SQLite block 失败: {err}"))?;
+    }
+    for (sequence, item) in locator_rows {
+        let block_id = item.block_id.ok_or_else(|| format!("SQLite locator 缺少 block id，message_id={}", item.message_id))?;
+        transaction.execute(
+            "INSERT INTO message_locator(conversation_id, sequence, message_id, block_id, byte_offset, byte_len, compaction_kind, role, created_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![paths.conversation_id, sequence, item.message_id, block_id as i64, item.offset as i64, item.byte_len as i64, item.compaction_kind, item.role, item.created_at],
+        ).map_err(|err| format!("写入 SQLite locator 失败: {err}"))?;
+    }
+    transaction.execute(
+        "UPDATE storage_operations SET state='committed', committed_at=?1 WHERE operation_id=?2",
+        rusqlite::params![now_iso(), operation_id],
+    ).map_err(|err| format!("标记 SQLite 存储操作已提交失败: {err}"))?;
+    transaction.commit().map_err(|err| format!("提交 SQLite block 发布事务失败: {err}"))?;
+    Ok(())
+}
+
+/// 把本次发布已经覆盖的块文件恢复成发布前的样子。
+///
+/// 备份在覆盖之前就已经落在 `operation_root/old/`，这里只是把它用回去；
+/// 发布前不存在的块文件（本次新建）没有备份，回滚就是把它删掉。
+fn chat_metadata_store_restore_replaced_block_files(
+    paths: &MessageStorePaths,
+    replaced_files: &[String],
+    operation_root: &PathBuf,
+) -> Result<(), String> {
+    let mut failures: Vec<String> = Vec::new();
+    for file in replaced_files {
+        let online = paths.shard_dir.join(file);
+        let backup = operation_root.join("old").join(file);
+        let outcome = (|| -> Result<(), String> {
+            if backup.exists() {
+                if let Some(parent) = online.parent() {
+                    fs::create_dir_all(parent)
+                        .map_err(|err| format!("创建目录失败，path={}，error={err}", parent.display()))?;
+                }
+                fs::copy(&backup, &online).map_err(|err| {
+                    format!("从备份写回失败，backup={}，error={err}", backup.display())
+                })?;
+            } else if online.exists() {
+                fs::remove_file(&online).map_err(|err| {
+                    format!("删除本次新建块失败，path={}，error={err}", online.display())
+                })?;
+            }
+            Ok(())
+        })();
+        if let Err(err) = outcome {
+            failures.push(format!("{file}：{err}"));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("；"))
+    }
+}
+
+/// 发布失败时的收口：先恢复块文件，再决定报什么错。
+///
+/// 恢复成功就要把 pending 记录与备份目录一起收掉——文件已经回到发布前，
+/// 这次操作没有任何可恢复的东西，留着只会在盘上按失败次数攒垃圾。
+/// 恢复失败则反过来：备份目录是盘上仅存的可核对副本，必须留住并在错误里点明路径。
+fn chat_metadata_store_abort_block_publication(
+    conn: &rusqlite::Connection,
+    paths: &MessageStorePaths,
+    cause: &str,
+    replaced_files: &[String],
+    operation_root: &PathBuf,
+    operation_id: &str,
+) -> String {
+    match chat_metadata_store_restore_replaced_block_files(paths, replaced_files, operation_root) {
+        Ok(()) => {
+            if let Err(err) = conn.execute(
+                "DELETE FROM storage_operations WHERE operation_id=?1 AND state='pending'",
+                [operation_id],
+            ) {
+                runtime_log_warn(format!(
+                    "[消息存储] 跳过，任务=清理失败操作的 pending 记录，operation_id={operation_id}，error={err}"
+                ));
+            }
+            if operation_root.exists() {
+                if let Err(err) = fs::remove_dir_all(operation_root) {
+                    runtime_log_warn(format!(
+                        "[消息存储] 跳过，任务=清理失败操作的备份目录，operation_id={operation_id}，path={}，error={err}",
+                        operation_root.display()
+                    ));
+                }
+            }
+            runtime_log_warn(format!(
+                "[消息存储] 失败，任务=发布块文件，conversation_id={}，operation_id={operation_id}，原因=块文件已回滚到发布前，error={cause}",
+                paths.conversation_id
+            ));
+            format!(
+                "发布块文件失败，已把块文件回滚到发布前状态；conversation_id={}，error={cause}",
+                paths.conversation_id
+            )
+        }
+        Err(restore_err) => {
+            runtime_log_error(format!(
+                "[消息存储] 失败，任务=回滚已覆盖的块文件，conversation_id={}，operation_id={operation_id}，备份目录={}，error={restore_err}，原因={cause}",
+                paths.conversation_id,
+                operation_root.display()
+            ));
+            format!(
+                "发布块文件失败且回滚未完成，块文件可能与数据库不一致；conversation_id={}，备份目录={}，回滚错误={restore_err}，原始错误={cause}",
+                paths.conversation_id,
+                operation_root.display()
+            )
+        }
+    }
 }
 
 fn chat_metadata_store_append_messages(
@@ -3147,6 +3282,54 @@ fn chat_metadata_store_write_snapshot_unlocked(
          VALUES(?1, ?2, ?3, ?4, 'pending', ?5, ?6)",
         rusqlite::params![operation_id, paths.conversation_id, before_revision, before_revision + 1, detail_json, now_iso()],
     ).map_err(|err| format!("登记 v3 存储操作失败: {err}"))?;
+    // 与增量发布同一条规矩：块文件一旦被覆盖就必须和数据库同成败，失败时用 old/ 整目录写回。
+    if let Err(err) = chat_metadata_store_apply_v3_publication(
+        &mut conn,
+        paths,
+        &meta,
+        &blocks,
+        before_revision,
+        &operation_id,
+        &new_blocks_dir,
+    ) {
+        return Err(chat_metadata_store_abort_v3_publication(
+            &conn,
+            paths,
+            &err,
+            &operation_root,
+            &operation_id,
+        ));
+    }
+    cleanup_stale_conversation_block_files_by_names(
+        paths,
+        &expected_files,
+        Some(&existing_current_block_files),
+    )?;
+    fs::remove_dir_all(&operation_root).map_err(|err| format!("清理 v3 存储操作目录失败，path={}，error={err}", operation_root.display()))?;
+    conn.execute("DELETE FROM storage_operations WHERE operation_id=?1 AND state='committed'", [&operation_id])
+        .map_err(|err| format!("清理已完成 v3 存储操作失败: {err}"))?;
+    Ok(MessageStoreDirectorySnapshotWrite {
+        manifest: MessageStoreManifest::jsonl_snapshot_ready_for_messages(
+            blocks.message_count,
+            blocks.last_message_id.clone(),
+            blocks.total_bytes,
+            (before_revision + 1) as u64,
+        ),
+        message_count: blocks.message_count,
+        last_message_id: blocks.last_message_id,
+    })
+}
+
+/// v3 全量重写的「覆盖文件 + 提交事务」段：与增量发布一样收口，成败一起走。
+fn chat_metadata_store_apply_v3_publication(
+    conn: &mut rusqlite::Connection,
+    paths: &MessageStorePaths,
+    meta: &ConversationShardMeta,
+    blocks: &JsonlSnapshotConversationBlocks,
+    before_revision: i64,
+    operation_id: &str,
+    new_blocks_dir: &PathBuf,
+) -> Result<(), String> {
     for block in &blocks.blocks {
         let staged = fs::read(new_blocks_dir.join(&block.block_file))
             .map_err(|err| format!("读取 v3 staged block 失败，block={}，error={err}", block.block_file))?;
@@ -3159,7 +3342,7 @@ fn chat_metadata_store_write_snapshot_unlocked(
     }
     let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|err| format!("开启 v3 发布事务失败: {err}"))?;
-    let meta_json = serde_json::to_string(&meta).map_err(|err| format!("序列化 v3 metadata 失败: {err}"))?;
+    let meta_json = serde_json::to_string(meta).map_err(|err| format!("序列化 v3 metadata 失败: {err}"))?;
     transaction.execute(
         "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at) VALUES(?1, ?2, ?3, ?4)
          ON CONFLICT(conversation_id) DO UPDATE SET metadata_json=excluded.metadata_json, storage_revision=excluded.storage_revision, updated_at=excluded.updated_at",
@@ -3189,24 +3372,58 @@ fn chat_metadata_store_write_snapshot_unlocked(
         rusqlite::params![now_iso(), operation_id],
     ).map_err(|err| format!("完成 v3 存储操作失败: {err}"))?;
     transaction.commit().map_err(|err| format!("提交 v3 发布事务失败: {err}"))?;
-    cleanup_stale_conversation_block_files_by_names(
-        paths,
-        &expected_files,
-        Some(&existing_current_block_files),
-    )?;
-    fs::remove_dir_all(&operation_root).map_err(|err| format!("清理 v3 存储操作目录失败，path={}，error={err}", operation_root.display()))?;
-    conn.execute("DELETE FROM storage_operations WHERE operation_id=?1 AND state='committed'", [&operation_id])
-        .map_err(|err| format!("清理已完成 v3 存储操作失败: {err}"))?;
-    Ok(MessageStoreDirectorySnapshotWrite {
-        manifest: MessageStoreManifest::jsonl_snapshot_ready_for_messages(
-            blocks.message_count,
-            blocks.last_message_id.clone(),
-            blocks.total_bytes,
-            (before_revision + 1) as u64,
-        ),
-        message_count: blocks.message_count,
-        last_message_id: blocks.last_message_id,
-    })
+    Ok(())
+}
+
+/// v3 全量重写的失败收口：`old/` 是覆盖前整份块目录的副本，整目录写回即可。
+fn chat_metadata_store_abort_v3_publication(
+    conn: &rusqlite::Connection,
+    paths: &MessageStorePaths,
+    cause: &str,
+    operation_root: &PathBuf,
+    operation_id: &str,
+) -> String {
+    let old_blocks_dir = operation_root.join("old");
+    match chat_metadata_restore_blocks(paths, &old_blocks_dir) {
+        Ok(()) => {
+            if let Err(err) = conn.execute(
+                "DELETE FROM storage_operations WHERE operation_id=?1 AND state='pending'",
+                [operation_id],
+            ) {
+                runtime_log_warn(format!(
+                    "[消息存储] 跳过，任务=清理失败 v3 操作的 pending 记录，operation_id={operation_id}，error={err}"
+                ));
+            }
+            if operation_root.exists() {
+                if let Err(err) = fs::remove_dir_all(operation_root) {
+                    runtime_log_warn(format!(
+                        "[消息存储] 跳过，任务=清理失败 v3 操作的备份目录，operation_id={operation_id}，path={}，error={err}",
+                        operation_root.display()
+                    ));
+                }
+            }
+            runtime_log_warn(format!(
+                "[消息存储] 失败，任务=v3 全量发布，conversation_id={}，operation_id={operation_id}，原因=块目录已回滚到发布前，error={cause}",
+                paths.conversation_id
+            ));
+            format!(
+                "v3 全量发布失败，已把块目录回滚到发布前状态；conversation_id={}，error={cause}",
+                paths.conversation_id
+            )
+        }
+        Err(restore_err) => {
+            runtime_log_error(format!(
+                "[消息存储] 失败，任务=回滚 v3 已覆盖的块目录，conversation_id={}，operation_id={operation_id}，备份目录={}，error={restore_err}，原因={cause}",
+                paths.conversation_id,
+                operation_root.display()
+            ));
+            format!(
+                "v3 全量发布失败且回滚未完成，块目录可能与数据库不一致；conversation_id={}，备份目录={}，回滚错误={restore_err}，原始错误={cause}",
+                paths.conversation_id,
+                operation_root.display()
+            )
+        }
+    }
 }
 
 fn chat_metadata_store_drop_recover_operation(
@@ -4143,5 +4360,111 @@ fn v3_chat_metadata_publication_gate_should_wait_only_for_same_conversation() {
     drop(writer_guard);
     reader.join().expect("join reader").expect("same conversation waits then reads");
     assert!(completed.load(std::sync::atomic::Ordering::Acquire));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[cfg(test)]
+#[test]
+fn block_publication_failure_should_restore_replaced_block_file() {
+    let root = std::env::temp_dir().join(format!("eca-chat-publish-rollback-{}", Uuid::new_v4()));
+    let data_path = root.join("config_mark");
+    let message = |id: &str, role: &str| ChatMessage {
+        id: id.to_string(), role: role.to_string(), created_at: now_iso(), speaker_agent_id: None,
+        parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
+    };
+    let mut conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
+        id: "conv-publish-rollback".to_string(), title: "publish rollback".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, team: TeamState::default(), last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
+        shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
+        shell_recorded_branch: String::new(),
+        is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
+    };
+    conversation.messages.push(message("m1", "user"));
+    let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
+    write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
+    chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
+    migration_v3_to_v4(&data_path, None).expect("migrate v4");
+
+    // 真实生产形态：块文件是 .jsonl.zstd，不是明文 .jsonl
+    let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/000000.jsonl.zstd");
+    let block_path = paths.shard_dir.join(&block_file);
+    let before_bytes = fs::read(&block_path).expect("read block before publish");
+    let before_locator = chat_metadata_store_read_locator_by_id(&paths, "m1")
+        .expect("read locator before publish")
+        .expect("m1 locator exists");
+
+    let changed_blocks = vec![JsonlSnapshotConversationBlock {
+        block_id: 0,
+        block_file: block_file.clone(),
+        content: "{\"id\":\"m1\",\"role\":\"user\",\"createdAt\":\"2026-07-10T00:00:00Z\",\"parts\":[{\"type\":\"text\",\"text\":\"被覆盖的新内容\"}]}\n".to_string(),
+        index_items: Vec::new(),
+    }];
+    // 事务体内的失败出口：locator 缺少 block id 会在块文件已经被覆盖之后返回 Err。
+    // 这正好复现「事务只回滚数据库、不回滚文件」，不需要真的把盘写满。
+    let locator_rows = vec![(
+        0_i64,
+        MessageStoreIndexItem {
+            message_id: "m1".to_string(),
+            block_id: None,
+            offset: 0,
+            byte_len: 1,
+            compaction_kind: None,
+            role: "user".to_string(),
+            created_at: "2026-07-10T00:00:00Z".to_string(),
+        },
+    )];
+    let err = chat_metadata_store_publish_blocks(
+        &paths,
+        &ConversationShardMeta::from_conversation(&conversation),
+        &changed_blocks,
+        &[],
+        &locator_rows,
+    )
+    .expect_err("事务内失败必须让整次发布失败");
+
+    // 先把文件这条不变量钉死：失败后盘上必须还是旧字节。
+    // 放在错误文案之前，是为了让这个用例在「没回滚」时先在这里红，而不是靠文案匹配。
+    let after_bytes = fs::read(&block_path).expect("read block after failed publish");
+    assert_eq!(
+        after_bytes, before_bytes,
+        "事务失败后块文件必须原样写回，否则 locator 会指向新明文里的错误位置"
+    );
+    assert!(err.contains("回滚"), "错误应说明块文件已回滚：{err}");
+    let after_plain = zstd_decompress_block(&after_bytes).expect("decompress after failed publish");
+    assert!(!String::from_utf8_lossy(&after_plain).contains("被覆盖的新内容"));
+
+    // 2. 数据库与文件仍然自洽：locator 还是发布前坐标，会话能按旧坐标读出来
+    let after_locator = chat_metadata_store_read_locator_by_id(&paths, "m1")
+        .expect("read locator after failed publish")
+        .expect("m1 locator still exists");
+    assert_eq!(after_locator.item.offset, before_locator.item.offset);
+    assert_eq!(after_locator.item.byte_len, before_locator.item.byte_len);
+    let read_back = chat_metadata_store_read_conversation(&paths)
+        .expect("read conversation after failed publish")
+        .expect("conversation still exists");
+    assert_eq!(read_back.messages.len(), 1);
+    assert_eq!(read_back.messages[0].id, "m1");
+
+    // 3. 失败的操作不留 pending 记录，也不留备份目录
+    let conn = chat_metadata_store_open(&data_path).expect("open metadata");
+    let pending: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM storage_operations WHERE conversation_id=?1",
+            [&conversation.id],
+            |row| row.get(0),
+        )
+        .expect("count storage operations");
+    assert_eq!(pending, 0, "回滚完成后不该留下 pending 操作记录");
+    let operations_dir = paths.shard_dir.join(".v3-operations");
+    let leftovers = if operations_dir.exists() {
+        fs::read_dir(&operations_dir).expect("read operations dir").count()
+    } else {
+        0
+    };
+    assert_eq!(leftovers, 0, "回滚完成后不该留下备份目录");
     let _ = fs::remove_dir_all(root);
 }
