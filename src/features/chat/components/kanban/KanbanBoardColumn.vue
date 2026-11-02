@@ -1,6 +1,6 @@
 <template>
   <section
-    class="flex h-full min-w-[220px] max-w-[320px] flex-1 flex-col rounded-box bg-base-200 p-2.5 shadow-sm"
+    class="flex h-full min-w-[220px] max-w-[320px] flex-1 flex-col rounded-box border border-base-content/10 bg-base-200/50 p-2.5"
   >
     <!-- 列顶栏：小圆点 + 状态名 + 数量统计 -->
     <header class="flex shrink-0 items-center justify-between border-b border-base-content/10 px-0.5 pb-2">
@@ -21,7 +21,7 @@
       scroller-class="h-full flex flex-col gap-2 pr-0.5"
     >
       <template v-if="issues.length">
-        <KanbanBoardCard
+        <KanbanIssueCard
           v-for="issue in issues"
           :key="issue.number"
           :issue="issue"
@@ -47,7 +47,7 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
-import KanbanBoardCard from "./KanbanBoardCard.vue";
+import KanbanIssueCard from "./KanbanIssueCard.vue";
 import {
   KANBAN_STAGE_CONFIGS,
   type KanbanIssue,

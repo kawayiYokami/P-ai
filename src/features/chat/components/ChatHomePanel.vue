@@ -10,7 +10,13 @@
           :persona-name-map="personaNameMap"
           :persona-avatar-url-map="personaAvatarUrlMap || teamMemberAvatarUrlMap"
           :team-members="teamMembers"
+          :approving-number="kanbanApprovingNumber"
+          :col-span="kanbanTileSpan.colSpan"
+          :row-span="kanbanTileSpan.rowSpan"
           @open="emit('openKanban')"
+          @approve="(number) => emit('approveKanban', number)"
+          @open-plan="(path) => emit('openFile', path)"
+          @reference="(issue) => emit('referenceKanbanIssue', issue)"
         />
         <HomeEnvCard
           v-if="workspaceRootPath"
@@ -18,6 +24,8 @@
           :branch="branch"
           :change-count="changeCount"
           :commits="recentCommits"
+          :col-span="2"
+          :row-span="1"
           @open-changes="emit('openGitChanges')"
           @open-commits="emit('openGitCommits')"
           @branch-switched="emit('branchSwitched', gitRepoRoot || workspaceRootPath)"
@@ -27,6 +35,8 @@
           v-if="latestPlan"
           :plan="latestPlan"
           :conversation-id="conversationId"
+          :col-span="2"
+          :row-span="1"
           @open="(path) => emit('openFile', path)"
         />
         <HomeWorkspaceCard
@@ -42,18 +52,22 @@
           v-if="sideChatEnabled"
           @open="emit('openSideChatPanel')"
         />
-        <!-- 队员状态表：整块收在 HomeTeamMemberBlock 里，占格、行高、滚动高度都由它自己定
+        <!-- 队员状态表：整块收在 HomeTeamMemberBlock 里，占几行几列由这里算好下发
              （demo 页渲染同一个组件，不再各抄一份样式）。点某一格打开该队员会话，走队员面板 -->
         <HomeTeamMemberBlock
           v-if="teamVisible"
           :members="teamMembers"
           :avatar-url-map="teamMemberAvatarUrlMap"
+          :col-span="TEAM_TILE_COL_SPAN"
+          :row-span="TEAM_TILE_ROW_SPAN"
           @select-member="emit('openTeamMember', $event)"
           @open-team-management="emit('openTeamManagement')"
         />
         <HomeToolCard
           v-if="activeToolBatches.length"
           :batches="activeToolBatches"
+          :col-span="2"
+          :row-span="1"
           @open="emit('openMonitorTab', 'tools')"
         />
         <HomeShellCard
@@ -136,7 +150,7 @@ import type { BackgroundShellTaskSummary, ConversationDelegateStatusSummary, She
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review";
 import type { ChatMonitorPanelMode } from "../composables/chat-ui-layout-storage";
-import type { KanbanIssue } from "../composables/use-kanban-board";
+import { KANBAN_STAGE_ORDER, kanbanIssuesByStatus, type KanbanIssue } from "../composables/use-kanban-board";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import HomeEnvCard from "./chat-home/HomeEnvCard.vue";
 import HomeKanbanCard from "./chat-home/HomeKanbanCard.vue";
@@ -197,6 +211,8 @@ const props = withDefaults(defineProps<{
   kanbanVisible?: boolean;
   /** 看板数据与看板页同源，磁贴只截取需要用户参与的四类 */
   kanbanIssues?: KanbanIssue[];
+  /** 正在审批中的议题编号；与看板页共用同一份，磁贴里点通过时按钮进入加载态 */
+  kanbanApprovingNumber?: number | null;
 }>(), {
   conversationId: "",
   latestPlan: null,
@@ -223,6 +239,7 @@ const props = withDefaults(defineProps<{
   toolBatches: () => [],
   kanbanVisible: false,
   kanbanIssues: () => [],
+  kanbanApprovingNumber: null,
 });
 
 const emit = defineEmits<{
@@ -243,6 +260,10 @@ const emit = defineEmits<{
   (e: "openMonitorTab", value: ChatMonitorPanelMode): void;
   (e: "interruptShell", taskId: string): void;
   (e: "openKanban"): void;
+  /** 磁贴里点「通过」：与看板页同一个审批入口，只是换了个触发点 */
+  (e: "approveKanban", number: number): void;
+  /** 磁贴里点议题编号：挂到输入框当引用，走的是和 `#` 候选同一个上层入口 */
+  (e: "referenceKanbanIssue", issue: KanbanIssue): void;
 }>();
 
 const { t } = useI18n();
@@ -250,6 +271,25 @@ const { t } = useI18n();
 const runningShells = computed(() =>
   props.shells.filter((task) => String(task.status || "").trim() === "running"),
 );
+
+/** 看板磁贴尺寸由宿主算：分类数定宽（1 类占 2 列，多类整行），列内最多条数定高，最高 2 行。
+    磁贴自己不算尺寸，也不许被内容撑大。整行用 colSpan=0 表示，交给 grid 的 1 / -1，
+    不写死具体列数——写死会在窄容器里撑出隐式列，把整页列宽和别的卡一起搞乱。 */
+const KANBAN_TILE_MAX_ROWS = 2;
+const kanbanTileSpan = computed(() => {
+  const groups = KANBAN_STAGE_ORDER
+    .map((status) => kanbanIssuesByStatus(props.kanbanIssues, status))
+    .filter((items) => items.length > 0);
+  if (!groups.length) return { colSpan: 2, rowSpan: 1 };
+  const colSpan = groups.length <= 1 ? 2 : 0;
+  // 一行高度装不下「标题行 + 分类行 + 一张议题卡」，所以有议题就占满 2 行；
+  // 超过 2 行的部分在卡内滚动，磁贴绝不因此变高。
+  return { colSpan, rowSpan: KANBAN_TILE_MAX_ROWS };
+});
+
+/** 队员磁贴尺寸由宿主固定：恒为 2 列 1 行，不随人数变化——首页布局不因人数跳动，超出 3 人在卡内滚动。 */
+const TEAM_TILE_COL_SPAN = 2;
+const TEAM_TILE_ROW_SPAN = 1;
 
 const runningDelegates = computed(() =>
   props.delegates.filter((delegate) => {
@@ -332,8 +372,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* 磁贴墙的网格参数与队员状态表的占格/行高都收在 chat-home/HomeTileFlow.vue 与
-   chat-home/HomeTeamMemberBlock.vue 里：宿主只决定放哪些卡，不再持有这些布局常量，
-   否则 demo 页要复现同一套样式只能抄一份，一改就两边不一致。 */
+/* 磁贴墙的网格参数收在 chat-home/HomeTileFlow.vue 里；占几行几列由本组件算好后
+   通过 colSpan / rowSpan 下发给各磁贴，磁贴自己不算尺寸。
+   demo 页渲染同一套组件，不再各抄一份样式。 */
 </style>
 

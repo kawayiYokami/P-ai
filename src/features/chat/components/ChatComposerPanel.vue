@@ -115,6 +115,23 @@
           </div>
         </template>
         <template #attachments>
+          <div v-if="attachedIssueReferences.length > 0" class="mb-2 flex flex-wrap gap-1">
+            <span
+              v-for="item in attachedIssueReferences"
+              :key="`issue-ref-${item.number}`"
+              class="badge gap-1 bg-base-300 px-3 py-3 text-sm text-base-content border-transparent"
+            >
+              <span class="max-w-56 truncate leading-none">{{ buildKanbanIssueReferenceLabel(item) }}</span>
+              <button
+                type="button"
+                class="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-base-content transition hover:bg-error hover:text-error-content"
+                :title="t('chat.kanban.removeIssueReference')"
+                @click.stop="removeIssueReference(item.number)"
+              >
+                <X class="h-3 w-3" />
+              </button>
+            </span>
+          </div>
           <div v-if="selectedMentions.length > 0" class="mb-2 flex flex-wrap gap-1">
             <span
               v-for="item in selectedMentions"
@@ -265,6 +282,36 @@
                   <div v-if="filteredMentionOptions.length === 0" class="px-2.5 py-2 text-sm opacity-60">
                     {{ t("chat.noMentionCandidates") }}
                   </div>
+                </div>
+              </div>
+            </Transition>
+            <Transition name="ecall-dropdown-up">
+              <div
+                v-if="issuePanelOpen"
+                class="absolute bottom-full left-0 z-30 mb-1.5 w-max max-w-[min(80vw,20rem)] overflow-hidden rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
+              >
+                <div
+                  ref="issuePanelScrollRef"
+                  class="max-h-[min(56vh,24rem)] overflow-y-auto overscroll-contain p-1"
+                >
+                  <ul class="flex flex-col gap-1">
+                    <li
+                      v-for="(item, index) in filteredIssueOptions"
+                      :key="item.number"
+                    >
+                      <button
+                        type="button"
+                        :data-issue-option-index="index"
+                        class="flex min-h-0 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-base-content transition-colors"
+                        :class="issueFocusIndex === index ? 'bg-base-200' : 'hover:bg-base-200/80'"
+                        @click="applyIssueOption(item)"
+                      >
+                        <span class="shrink-0 font-mono text-xs tabular-nums text-base-content/55">#{{ item.number }}</span>
+                        <span class="min-w-0 flex-1 truncate text-sm leading-5">{{ item.title }}</span>
+                        <span class="shrink-0 text-caption text-base-content/50">{{ kanbanIssueStatusText(item.status) }}</span>
+                      </button>
+                    </li>
+                  </ul>
                 </div>
               </div>
             </Transition>
@@ -434,6 +481,14 @@ import { chatInputEnterConfirmsComposition } from "../composables/chat-composer-
 import { clearChatComposerFocus, registerChatComposerFocus } from "../composables/chat-composer-focus";
 import { ideContextReferenceDisplayParts } from "../utils/ide-context-reference-display";
 import { mergeComposerIdeContextGroups } from "../utils/ide-context-reference-groups";
+import {
+  buildKanbanIssueReferenceLabel,
+  filterKanbanIssueOptions,
+  findKanbanIssueTrigger,
+  kanbanIssueStatusText,
+  type KanbanIssueReference,
+} from "../composables/use-kanban-issue-references";
+import type { KanbanIssue } from "../composables/use-kanban-board";
 
 type BinaryAttachment = { mime: string; bytesBase64: string; previewDataUrl?: string };
 type QueuedAttachmentNotice = { id: string; fileName: string; path: string; mime: string; pending?: boolean };
@@ -485,6 +540,10 @@ const props = withDefaults(defineProps<{
   defaultCreateConversationAgentId: string;
   ideContextGroups: IdeContextWorkspaceGroup[];
   attachedIdeContextReferences: IdeContextReferenceItem[];
+  /** `#` 候选只列当前会话的议题，空数组时按 `#` 不弹面板。 */
+  kanbanIssues?: KanbanIssue[];
+  /** 已挂上的议题引用：磁贴点击与 `#` 选中都写进这一份。 */
+  attachedIssueReferences?: KanbanIssueReference[];
   currentTheme?: string;
   showConversationActions?: boolean;
   chatUsagePercent?: number;
@@ -515,6 +574,9 @@ const emit = defineEmits<{
   (e: "dismissWheelchairSuggestion"): void;
   (e: "attachIdeContextReference", value: IdeContextReferenceItem): void;
   (e: "removeIdeContextReference", value: string): void;
+  /** 磁贴 `#N` 与 `#` 候选选中走同一个入口：只上报议题，引用由上层那份列表收口。 */
+  (e: "attachKanbanIssueReference", issue: KanbanIssue): void;
+  (e: "removeKanbanIssueReference", number: number): void;
   (e: "sendChat"): void;
   (e: "stopChat"): void;
   (e: "openDelegateSelection"): void;
@@ -610,6 +672,10 @@ function onMenuOutsideClick(event: MouseEvent) {
     if (!insideMention && !insideInput && !insideComposer) {
       closeMentionPanel();
     }
+  }
+  if (issuePanelOpen.value) {
+    const root = composerRootRef.value;
+    if (!root || !root.contains(target)) closeIssuePanel();
   }
 }
 
@@ -709,6 +775,11 @@ const mentionQuery = ref("");
 const mentionFocusIndex = ref(0);
 const mentionRange = ref<{ start: number; end: number } | null>(null);
 const mentionPanelScrollRef = ref<HTMLDivElement | null>(null);
+const issuePanelOpen = ref(false);
+const issueQuery = ref("");
+const issueFocusIndex = ref(0);
+const issueRange = ref<{ start: number; end: number } | null>(null);
+const issuePanelScrollRef = ref<HTMLDivElement | null>(null);
 
 const normalizedInstructionPresets = computed(() =>
   (Array.isArray(props.instructionPresets) ? props.instructionPresets : [])
@@ -960,6 +1031,7 @@ function applyInstructionPreset(item: PromptCommandPreset | undefined) {
   localChatInput.value = nextValue;
   closeInstructionPanel();
   closeMentionPanel();
+  closeIssuePanel();
   nextTick(() => {
     scheduleResizeChatInput();
     const el = chatInputRef.value;
@@ -1078,6 +1150,90 @@ function updateMentionState() {
   mentionFocusIndex.value = firstMentionable >= 0 ? firstMentionable : 0;
 }
 
+const filteredIssueOptions = computed(() =>
+  filterKanbanIssueOptions(props.kanbanIssues || [], issueQuery.value),
+);
+const attachedIssueReferences = computed<KanbanIssueReference[]>(() =>
+  Array.isArray(props.attachedIssueReferences) ? props.attachedIssueReferences : [],
+);
+
+function closeIssuePanel() {
+  issuePanelOpen.value = false;
+  issueQuery.value = "";
+  issueFocusIndex.value = 0;
+  issueRange.value = null;
+}
+
+function removeIssueReference(number: number) {
+  emit("removeKanbanIssueReference", Number(number || 0));
+  closeIssuePanel();
+}
+
+/** `#` 候选选中：吃掉输入框里的 `#词元`，再把议题交给上层那份引用列表。 */
+function applyIssueOption(item: KanbanIssue | undefined) {
+  if (!item) return;
+  const range = issueRange.value;
+  const current = String(localChatInput.value || "");
+  const before = range ? current.slice(0, range.start) : current;
+  const after = range ? current.slice(range.end) : "";
+  if (range) localChatInput.value = `${before}${after}`;
+  emit("attachKanbanIssueReference", item);
+  closeIssuePanel();
+  nextTick(() => {
+    const el = chatInputRef.value;
+    if (!el) return;
+    const cursor = Math.min(before.length, `${before}${after}`.length);
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(cursor, cursor);
+    scheduleResizeChatInput();
+  });
+}
+
+function selectIssueOptionByIndex(index: number) {
+  const list = filteredIssueOptions.value;
+  if (list.length === 0) return;
+  const nextIndex = Math.max(0, Math.min(list.length - 1, index));
+  issueFocusIndex.value = nextIndex;
+  applyIssueOption(list[nextIndex]);
+}
+
+function moveIssueFocus(delta: number) {
+  const list = filteredIssueOptions.value;
+  if (list.length === 0) return;
+  const next = issueFocusIndex.value + delta;
+  issueFocusIndex.value = Math.max(0, Math.min(list.length - 1, next));
+  nextTick(() => {
+    const container = issuePanelScrollRef.value;
+    if (!container) return;
+    container
+      .querySelector<HTMLElement>(`[data-issue-option-index="${issueFocusIndex.value}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  });
+}
+
+/** `#` 与 `@` 各按自己的词元判定，谁不匹配谁关面板，两个面板不会同时开着。 */
+function updateIssueState() {
+  const el = chatInputRef.value;
+  const options = props.kanbanIssues || [];
+  if (!el || el.selectionStart !== el.selectionEnd || options.length === 0) {
+    closeIssuePanel();
+    return;
+  }
+  const value = String(localChatInput.value || "");
+  const cursor = el.selectionStart ?? value.length;
+  const trigger = findKanbanIssueTrigger(value, cursor);
+  if (!trigger) {
+    closeIssuePanel();
+    return;
+  }
+  issueRange.value = { start: trigger.start, end: trigger.end };
+  issueQuery.value = trigger.query;
+  issueFocusIndex.value = 0;
+  // 议题列表为空、或过滤后一条不剩时都不弹空面板。
+  issuePanelOpen.value = filteredIssueOptions.value.length > 0;
+  if (!issuePanelOpen.value) issueRange.value = null;
+}
+
 function selectConversationPreferredModel(id: string) {
   const nextId = String(id || "").trim();
   if (!nextId || nextId === activeModelDisplayId.value) return;
@@ -1118,6 +1274,7 @@ function resizeChatInput() {
 function handleChatInputInput() {
   scheduleResizeChatInput();
   updateMentionState();
+  updateIssueState();
 }
 
 function handleChatInputCompositionStart() {
@@ -1201,6 +1358,7 @@ function handleSendChat() {
   recordSentTextIfNeeded(plainText);
   closeInstructionPanel();
   closeMentionPanel();
+  closeIssuePanel();
   // 手机端回车/点发送后收起软键盘：桌面端保持聚焦，方便连着打字。
   if (isMobileTouchViewport()) {
     chatInputRef.value?.blur();
@@ -1244,14 +1402,33 @@ function handleChatInputKeydown(event: KeyboardEvent) {
   }
   if (event.key === "Escape") {
     const hadMention = mentionPanelOpen.value;
+    const hadIssue = issuePanelOpen.value;
     const hadInstruction = instructionPanelOpen.value;
     const hadSendMode = sendModeMenuOpen.value;
-    if (hadMention || hadInstruction || hadSendMode) {
+    if (hadMention || hadIssue || hadInstruction || hadSendMode) {
       event.preventDefault();
       if (hadMention) closeMentionPanel();
+      if (hadIssue) closeIssuePanel();
       if (hadInstruction) closeInstructionPanel();
       else instructionPanelOpen.value = false;
       if (hadSendMode) sendModeMenuOpen.value = false;
+      return;
+    }
+  }
+  if (issuePanelOpen.value) {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveIssueFocus(-1);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveIssueFocus(1);
+      return;
+    }
+    if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault();
+      selectIssueOptionByIndex(issueFocusIndex.value);
       return;
     }
   }

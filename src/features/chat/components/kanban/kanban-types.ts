@@ -70,15 +70,6 @@ export const KANBAN_STAGE_CONFIGS: Record<KanbanStageStatus, KanbanStageMeta> = 
     headerBorderClass: "border-success/40",
     columnBgClass: "bg-success/[0.03]",
   },
-  closed: {
-    status: "closed",
-    labelKey: "chat.kanban.status.closed",
-    tone: "muted",
-    dotClass: "bg-base-content/25",
-    badgeClass: "border-base-content/15 text-base-content/40",
-    headerBorderClass: "border-base-content/15",
-    columnBgClass: "bg-base-content/[0.02]",
-  },
 };
 
 export const ACTIVE_STAGE_STATUSES: readonly KanbanStageStatus[] = [
@@ -97,7 +88,6 @@ export const ATTENTION_STAGE_STATUSES: readonly KanbanStageStatus[] = [
 
 export const DONE_STAGE_STATUSES: readonly KanbanStageStatus[] = [
   "done",
-  "closed",
 ];
 
 export const AVATAR_PALETTE = [

@@ -4,15 +4,19 @@
     :icon="LayoutGrid"
     :label="t('chat.kanban.cardTitle')"
     class="ecall-home-kanban"
-    :class="kanbanGridClass"
+    :style="tileSpanStyle"
   >
     <template #leading>
       <div class="flex min-w-0 flex-1 items-center">
-        <!-- 切换按钮表当前态，点一下换到另一态。展示名是「讨论 / 进展」 -->
+        <!-- 切换按钮表当前态，点一下换到另一态。展示名是「讨论 / 进展」；
+             另一侧一条议题都没有时保留按钮但不可点，避免切到一屏空白 -->
         <button
           type="button"
           class="btn btn-ghost btn-xs h-6 min-w-0 gap-1 px-1.5 text-xs font-medium text-base-content/70 transition-colors hover:bg-base-content/10 hover:text-base-content"
+          :class="canToggleMode ? '' : 'cursor-default opacity-60 hover:bg-transparent hover:text-base-content/70'"
+          :disabled="!canToggleMode"
           :aria-label="t(`chat.kanban.view.${mode}`)"
+          :aria-disabled="!canToggleMode"
           @click.stop="toggleMode"
         >
           <ArrowLeftRight class="size-3.5 shrink-0" aria-hidden="true" />
@@ -50,7 +54,7 @@
         <!-- 模式 A：横向距离不够时（窄屏/手机端，容器宽度 < 500px）自动收缩为单列，纯手写动态下划线 Tab 切换 -->
         <div v-if="isNarrow" class="flex h-full min-h-0 w-full flex-1 flex-col">
           <!-- 纯手写极简下划线 Tab 栏：纯文本、无数量、空分类不显示 -->
-          <div ref="tabBarRef" class="ecall-kanban-tab-bar relative flex shrink-0 items-center gap-2 border-b border-base-content/10 pb-1">
+          <div ref="tabBarRef" class="ecall-kanban-tab-bar relative flex shrink-0 items-center gap-1.5 border-b border-base-content/10 pb-1">
             <div
               class="ecall-kanban-underline pointer-events-none absolute bottom-0 h-0.5 rounded-full bg-warning"
               :style="underlineStyle"
@@ -59,7 +63,7 @@
               v-for="group in activeGroups"
               :key="group.status"
               type="button"
-              class="ecall-kanban-tab-btn relative z-10 px-2 py-1 text-xs font-medium transition-colors"
+              class="ecall-kanban-tab-btn relative z-10 shrink-0 whitespace-nowrap px-1 py-1 text-xs font-medium transition-colors"
               :class="group.status === activeGroupStatus ? 'font-semibold text-warning' : 'text-base-content/60 hover:text-base-content/90'"
               @click="selectTab(group.status)"
             >
@@ -67,8 +71,9 @@
             </button>
           </div>
 
-          <!-- 单列内容视口：原地平滑呼吸升降淡入 + 独立滚轮隔离 + 底部羽化渐变 -->
-          <div class="relative min-h-0 w-full flex-1 pt-2">
+          <!-- 单列内容视口：原地平滑呼吸升降淡入 + 独立滚轮隔离 + 底部羽化渐变。
+               顶部留白给在页面上而不是父级 padding：页面是 absolute 定位，父级 padding 对它不生效 -->
+          <div class="relative min-h-0 w-full flex-1">
             <div
               v-for="group in activeGroups"
               :key="group.status"
@@ -80,16 +85,22 @@
                 hide-scrollbar
                 isolate-scroll
                 class="ecall-kanban-fade-mask min-h-0 size-full"
-                scroller-class="h-full flex flex-col gap-1.5 pb-8 pr-0.5"
+                scroller-class="h-full flex flex-col gap-1.5 pt-3 pb-8 pr-0.5"
                 @wheel.stop
               >
-                <KanbanIssueItem
+                <KanbanIssueCard
                   v-for="issue in group.items"
                   :key="issue.number"
                   :issue="issue"
                   :assignee-name="resolveAssigneeName(issue.assignee)"
                   :avatar-url="resolveAvatar(issue.assignee)"
-                  :relative-time="formatTime(issue.updatedAt || issue.createdAt)"
+                  :approving-number="approvingNumber"
+                  density="tile"
+                  referenceable
+                  @select="emit('open')"
+                  @approve="emit('approve', $event)"
+                  @open-plan="emit('openPlan', $event)"
+                  @reference="emit('reference', $event)"
                 />
               </OverlayScrollArea>
             </div>
@@ -133,13 +144,19 @@
               @wheel.stop
             >
               <!-- 议题条目卡片 -->
-              <KanbanIssueItem
+              <KanbanIssueCard
                 v-for="issue in group.items"
                 :key="issue.number"
                 :issue="issue"
                 :assignee-name="resolveAssigneeName(issue.assignee)"
                 :avatar-url="resolveAvatar(issue.assignee)"
-                :relative-time="formatTime(issue.updatedAt || issue.createdAt)"
+                :approving-number="approvingNumber"
+                density="tile"
+                referenceable
+                @select="emit('open')"
+                @approve="emit('approve', $event)"
+                @open-plan="emit('openPlan', $event)"
+                @reference="emit('reference', $event)"
               />
             </OverlayScrollArea>
           </section>
@@ -164,12 +181,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useI18n } from "vue-i18n";
 import { ArrowLeftRight, ArrowUpRight, LayoutGrid } from "@lucide/vue";
 import CardShell from "./CardShell.vue";
-import KanbanIssueItem from "./KanbanIssueItem.vue";
+import KanbanIssueCard from "../kanban/KanbanIssueCard.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
-import { formatRecentRelativeTime } from "../../../shared/utils/relative-time";
 import {
   KANBAN_ATTENTION_ORDER,
   KANBAN_PROGRESS_ORDER,
+  kanbanDefaultGroupStatus,
   kanbanIssuesInOrder,
   type KanbanIssue,
 } from "../../composables/use-kanban-board";
@@ -205,6 +222,11 @@ const props = withDefaults(defineProps<{
   personaAvatarUrlMap?: Record<string, string>;
   teamMembers?: Array<{ teamName?: string; agentId?: string; agentName?: string }>;
   avatarUrlMap?: Record<string, string>;
+  approvingNumber?: number | null;
+  /** 占几列；0 表示占满整行。由宿主决定，磁贴自己不算。 */
+  colSpan?: number;
+  /** 占几行。由宿主决定，磁贴自己不算。 */
+  rowSpan?: number;
 }>(), {
   issues: () => [],
   leaderName: "",
@@ -213,16 +235,20 @@ const props = withDefaults(defineProps<{
   personaAvatarUrlMap: () => ({}),
   teamMembers: () => [],
   avatarUrlMap: () => ({}),
+  approvingNumber: null,
+  colSpan: 2,
+  rowSpan: 1,
 });
 
 const emit = defineEmits<{
   (e: "open"): void;
+  (e: "approve", number: number): void;
+  (e: "openPlan", path: string): void;
+  /** 点议题编号：把这条议题挂到输入框当引用，不打开看板 */
+  (e: "reference", issue: KanbanIssue): void;
 }>();
 
 const { t } = useI18n();
-
-/** 当前时间戳，用于相对时间计算 */
-const nowTick = ref(Date.now());
 
 /** 决策态列需要用户参与的四类；进展态列推进中的两类。 */
 const KANBAN_MODES = ["decision", "progress"] as const;
@@ -233,7 +259,8 @@ const progressList = computed(() => kanbanIssuesInOrder(props.issues, KANBAN_PRO
 const decisionCount = computed(() => decisionList.value.length);
 const progressCount = computed(() => progressList.value.length);
 
-/** 默认按内容落位：决策类有东西就显示决策，没有就落到进展；两边都空留在决策显示空态。 */
+/** 默认按内容落位：待审属于决策态，所以有待审就一定落在决策态；退一步看其它决策类，
+    都空才落到进展态。 */
 const autoMode = computed<KanbanTileMode>(() => {
   if (decisionCount.value > 0) return "decision";
   if (progressCount.value > 0) return "progress";
@@ -242,12 +269,28 @@ const autoMode = computed<KanbanTileMode>(() => {
 
 /** 只在本次会话里记用户点过的选择；不落盘，重新打开首页时重新按内容落位。 */
 const manualMode = ref<KanbanTileMode | null>(null);
-const mode = computed<KanbanTileMode>(() => manualMode.value ?? autoMode.value);
+
+/** 两侧各自有没有内容：这是「能不能切过去」的唯一依据。 */
+const hasDecision = computed(() => decisionCount.value > 0);
+const hasProgress = computed(() => progressCount.value > 0);
+/** 两侧都有内容才允许切换；只有一侧有内容时按钮保留（它同时是当前态的名字），但不可点。 */
+const canToggleMode = computed(() => hasDecision.value && hasProgress.value);
+
+const mode = computed<KanbanTileMode>(() => {
+  const manual = manualMode.value;
+  if (!manual) return autoMode.value;
+  // 手动选的那一侧被清空、另一侧还有内容时自动退回，绝不把用户停在一屏空白上
+  const manualEmpty = manual === "decision" ? !hasDecision.value : !hasProgress.value;
+  const other = manual === "decision" ? "progress" : "decision";
+  const otherHas = other === "decision" ? hasDecision.value : hasProgress.value;
+  return manualEmpty && otherHas ? other : manual;
+});
 
 const visibleList = computed(() => (mode.value === "decision" ? decisionList.value : progressList.value));
 const visibleCount = computed(() => visibleList.value.length);
 
 function toggleMode(): void {
+  if (!canToggleMode.value) return;
   manualMode.value = mode.value === "decision" ? "progress" : "decision";
 }
 
@@ -258,11 +301,15 @@ const badgeClass = computed(() =>
     : "bg-base-content/10 text-base-content/60",
 );
 
+/** 同一分类内按编号排：讨论态（要你处理）升序，先来的先处理；进展态（已在推进或做完）倒序，最近的在上。 */
 const groups = computed(() => {
   const order = mode.value === "decision" ? KANBAN_ATTENTION_ORDER : KANBAN_PROGRESS_ORDER;
   const list = visibleList.value;
+  const direction = mode.value === "decision" ? 1 : -1;
   return order.map((status) => {
-    const items = list.filter((issue) => String(issue.status || "").trim() === status);
+    const items = list
+      .filter((issue) => String(issue.status || "").trim() === status)
+      .sort((a, b) => (a.number - b.number) * direction);
     const style = STATUS_STYLE[status] || { dotClass: "bg-base-content/40" };
     return {
       status,
@@ -316,102 +363,61 @@ onBeforeUnmount(() => {
 });
 
 // ==================== 单列 Tab 切换与手写下划线动画 ====================
-const activeGroupStatus = ref<string>("");
+/** 默认停在哪一列：有待审就停在待审，否则退回该模式第一个非空分类。
+    空分类不参与候选，所以待审被全部通过后不会留下一列空白，而是落到下一个有内容的分类。 */
+const defaultGroupStatus = computed(() => kanbanDefaultGroupStatus(activeGroups.value));
+
+/** 用户点过的 Tab 高于默认判定；他选的那个分类消失后（比如待审已清空）自动退回默认。 */
+const manualGroupStatus = ref<string>("");
+const activeGroupStatus = computed(() => {
+  const manual = manualGroupStatus.value;
+  if (manual && activeGroups.value.some((group) => group.status === manual)) return manual;
+  return defaultGroupStatus.value;
+});
+
 const tabBarRef = ref<HTMLElement | null>(null);
 const underlineStyle = ref<{ width: string; transform: string }>({
   width: "0px",
   transform: "translateX(0px)",
 });
 
-watch(
-  activeGroups,
-  (newGroups) => {
-    if (!newGroups.length) {
-      activeGroupStatus.value = "";
-      return;
-    }
-    const exists = newGroups.some((g) => g.status === activeGroupStatus.value);
-    if (!exists) {
-      activeGroupStatus.value = newGroups[0].status;
-    }
-    void nextTick(updateUnderline);
-  },
-  { immediate: true },
-);
-
 const activeIndex = computed(() => {
   const idx = activeGroups.value.findIndex((g) => g.status === activeGroupStatus.value);
   return idx >= 0 ? idx : 0;
 });
 
+/** 把下划线移到第 index 个 Tab。按钮已经渲染、它的位置不会因为点击而变，
+    所以当场算、当场设：等 nextTick 再设会比内容切换晚一帧，看起来就是「动画跟不上手指」。 */
+function applyUnderline(index: number) {
+  if (!tabBarRef.value) return;
+  const target = tabBarRef.value.querySelectorAll<HTMLElement>(".ecall-kanban-tab-btn")[index];
+  if (!target) return;
+  underlineStyle.value = {
+    width: `${target.offsetWidth}px`,
+    transform: `translateX(${target.offsetLeft}px)`,
+  };
+}
+
 function selectTab(status: string) {
-  activeGroupStatus.value = status;
-  void nextTick(updateUnderline);
+  manualGroupStatus.value = status;
+  const idx = activeGroups.value.findIndex((group) => group.status === status);
+  applyUnderline(idx >= 0 ? idx : 0);
 }
 
 function updateUnderline() {
-  if (!tabBarRef.value) return;
-  const btns = tabBarRef.value.querySelectorAll<HTMLElement>(".ecall-kanban-tab-btn");
-  const target = btns[activeIndex.value];
-  if (target) {
-    underlineStyle.value = {
-      width: `${target.offsetWidth}px`,
-      transform: `translateX(${target.offsetLeft}px)`,
-    };
-  }
+  applyUnderline(activeIndex.value);
 }
 
-watch([mode, isNarrow], () => {
+watch([mode, isNarrow, activeGroupStatus], () => {
   void nextTick(updateUnderline);
-});
+}, { immediate: true });
 
-// ==================== 自适应尺寸与跨列变动范围 ====================
-/** 当前视图下单列或多列中最大任务项数 */
-const maxVisibleItems = computed(() => {
-  if (visibleCount.value === 0) return 0;
-  if (isNarrow.value) {
-    const current = activeGroups.value.find((g) => g.status === activeGroupStatus.value);
-    return current ? current.items.length : 0;
-  }
-  if (!activeGroups.value.length) return 0;
-  return Math.max(...activeGroups.value.map((g) => g.items.length));
-});
-
-/** 磁贴跨列与跨行自适应：严格契合 Bento Grid 标准单元 */
-const kanbanGridClass = computed(() => {
-  const classes: string[] = [];
-
-  // 1. 横向跨列（grid-column）
-  if (flowContainerWidth.value < 500) {
-    classes.push("col-span-full");
-  } else if (visibleCount.value === 0) {
-    classes.push("ecall-kanban-span-2", "is-empty");
-  } else {
-    const categoryCount = activeGroups.value.length;
-    if (categoryCount <= 1) {
-      classes.push("ecall-kanban-span-2");
-    } else if (categoryCount === 2) {
-      classes.push("ecall-kanban-span-4");
-    } else {
-      classes.push("col-span-full");
-    }
-  }
-
-  // 2. 纵向跨行（grid-row）
-  const count = maxVisibleItems.value;
-  if (visibleCount.value === 0 || count <= 1) {
-    // 0 个或 1 个议题：标准单行卡（与环境卡片等高平齐，无缝对齐）
-    classes.push("ecall-kanban-row-1");
-  } else if (count === 2 || !classes.includes("col-span-full")) {
-    // 2 个议题或非全宽混排模式：标准双行卡（与两行卡片底部严密平齐）
-    classes.push("ecall-kanban-row-2");
-  } else {
-    // 全宽大看板且议题 >= 3：三行大看板
-    classes.push("ecall-kanban-row-3");
-  }
-
-  return classes.join(" ");
-});
+// ==================== 尺寸（由宿主给定） ====================
+/** 占几列几行由宿主算好传进来；磁贴只把它套到网格上，不参与尺寸决策，也不靠内容把格子撑大。 */
+const tileSpanStyle = computed(() => ({
+  gridColumn: props.colSpan > 0 ? `span ${props.colSpan}` : "1 / -1",
+  gridRow: `span ${props.rowSpan}`,
+}));
 
 // ==================== 人格名称与头像反查 ====================
 function resolveAssigneeName(raw: string): string {
@@ -461,61 +467,16 @@ function resolveAvatar(raw: string): string {
 
   return "";
 }
-
-function formatTime(dateStr?: string): string {
-  if (!dateStr) return "";
-  return formatRecentRelativeTime(dateStr, nowTick.value, t);
-}
 </script>
 
 <style scoped>
-/* 自适应磁贴：完全依托 CSS Grid 网格单元，高度 100% 紧贴网格行，杜绝非标悬空 */
+/* 高度 100% 贴住宿主给的格子；内容超出在卡片内部滚动 */
 .ecall-home-kanban {
   width: 100%;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
   transition: all 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-/* 0 个任务（空态）或 仅 1 个议题：跨 2 格宽、跨 1 行高，与普通磁贴完全等高平齐 */
-.ecall-home-kanban.ecall-kanban-span-2.is-empty,
-.ecall-home-kanban.ecall-kanban-span-2.ecall-kanban-row-1 {
-  grid-column: span 2;
-  grid-row: span 1;
-}
-
-/* 1 个分类且有 2 项及以上议题：跨 2 格宽、跨 2 行高，填满网格两行且与同行底部严密平齐 */
-.ecall-home-kanban.ecall-kanban-span-2.ecall-kanban-row-2 {
-  grid-column: span 2;
-  grid-row: span 2;
-}
-
-/* 2 个分类：跨 4 格宽、跨 2 行高（容纳 2 列泳道） */
-.ecall-home-kanban.ecall-kanban-span-4 {
-  grid-column: span 4;
-  grid-row: span 2;
-}
-
-/* 3 个及以上分类或窄屏：占满整行 */
-.ecall-home-kanban.col-span-full {
-  grid-column: 1 / -1;
-  grid-row: auto;
-}
-
-/* 全宽整行模式下高度控制：根据内容项数平滑自适应，条目超出时泳道内滚动 */
-.ecall-home-kanban.col-span-full.ecall-kanban-row-1 {
-  min-height: 10.5rem;
-  max-height: 14rem;
-}
-
-.ecall-home-kanban.col-span-full.ecall-kanban-row-2 {
-  min-height: 14rem;
-  max-height: 18rem;
-}
-
-.ecall-home-kanban.col-span-full.ecall-kanban-row-3 {
-  min-height: 18rem;
-  height: 21.5rem;
 }
 
 /* 泳道纵向底部渐变淡出：自然羽化截断边缘 */
@@ -537,7 +498,8 @@ function formatTime(dateStr?: string): string {
 
 /* 纯手写动态下划线位移动画（弹性曲线） */
 .ecall-kanban-underline {
-  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* 与内容页淡入时长一致：两段动画各走各的时长，看起来就是「对不上」 */
+  transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
   will-change: transform, width;
 }
 

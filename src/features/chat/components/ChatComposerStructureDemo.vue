@@ -27,6 +27,22 @@
         <button type="button" class="btn btn-xs" :class="demoWheelchairSuggestionKind !== 'off' ? 'btn-primary' : 'btn-ghost'" @click="cycleDemoWheelchairSuggestion">建议：{{ demoWheelchairSuggestionLabel }}</button>
       </div>
 
+      <div class="mb-3 rounded-box border border-base-300 bg-base-100 p-3">
+        <div class="mb-2 flex flex-wrap items-center gap-2 text-xs text-base-content/60">
+          <span>议题引用入口：点磁贴上的编号，或在输入框里打 <kbd class="kbd kbd-xs">#</kbd></span>
+          <span v-if="kanbanIssueReferences.length === 0" class="text-base-content/40">当前没有挂上的议题</span>
+          <span v-else class="text-primary">已挂上 {{ kanbanIssueReferences.length }} 条</span>
+        </div>
+        <div class="h-72 w-full max-w-sm">
+          <HomeKanbanCard
+            :issues="demoKanbanIssues"
+            leader-name="纳西妲"
+            :approving-number="null"
+            @reference="attachKanbanIssueReference"
+          />
+        </div>
+      </div>
+
       <InputPanelCanvas :bg="demoContainerBg" :is-rounded="false">
         <!-- 演示与生产共用同一块生产面板，只换假数据源 -->
         <ChatComposerPanel
@@ -68,6 +84,8 @@
           default-create-conversation-agent-id=""
           :ide-context-groups="demoIdeGroups"
           :attached-ide-context-references="demoAttachedRefs"
+          :kanban-issues="demoKanbanIssues"
+          :attached-issue-references="kanbanIssueReferences"
           :show-conversation-actions="true"
           :chat-usage-percent="0"
           active-agent-id="a1"
@@ -87,6 +105,8 @@
           @dismiss-wheelchair-suggestion="demoWheelchairSuggestionKind = 'off'"
           @attach-ide-context-reference="attachDemoBridge($event.id)"
           @remove-ide-context-reference="detachDemoBridge($event)"
+          @attach-kanban-issue-reference="attachKanbanIssueReference"
+          @remove-kanban-issue-reference="removeKanbanIssueReference"
           @send-chat="handleDemoSend"
           @stop-chat="demoBusy = false"
           @open-goal-task="goalActive = !goalActive"
@@ -102,7 +122,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import ChatComposerPanel from "./ChatComposerPanel.vue";
+import HomeKanbanCard from "./chat-home/HomeKanbanCard.vue";
 import InputPanelCanvas from "./input-panel/InputPanelCanvas.vue";
+import { useKanbanIssueReferences } from "../composables/use-kanban-issue-references";
+import type { KanbanIssue } from "../composables/use-kanban-board";
 import type {
   ApiConfigItem,
   ChatMentionEntry,
@@ -114,6 +137,35 @@ import type { ChatQueueEvent } from "../composables/use-chat-queue";
 
 const inputText = ref("");
 const isFilled = ref(true);
+/** 议题引用演示：磁贴与输入框共用这一份 store，和生产里一样只走一个入口。 */
+const demoKanbanIssues = ref<KanbanIssue[]>([
+  {
+    number: 3,
+    title: "看板磁贴尺寸定稿",
+    status: "in_review",
+    assignee: "纳西妲",
+    note: "红豆要看两种宽度",
+  },
+  {
+    number: 7,
+    title: "输入框 # 引用的过滤规则",
+    status: "todo",
+    assignee: "哥伦比娅",
+    note: "",
+  },
+  {
+    number: 12,
+    title: "引用块在消息里的展示",
+    status: "in_progress",
+    assignee: "桑多涅",
+    note: "",
+  },
+]);
+const {
+  references: kanbanIssueReferences,
+  attachKanbanIssueReference,
+  removeKanbanIssueReference,
+} = useKanbanIssueReferences();
 const DEMO_CONTAINER_BG_CYCLE = ["base-100", "base-200", "base-300"] as const;
 type DemoContainerBg = (typeof DEMO_CONTAINER_BG_CYCLE)[number];
 const demoContainerBg = ref<DemoContainerBg>("base-200");

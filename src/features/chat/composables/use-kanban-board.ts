@@ -19,16 +19,17 @@ export type KanbanBoardView = {
   issues: KanbanIssue[];
 };
 
-/** 需要用户参与的四类，顺序按产品口径定（待审 → 待办 → 阻塞 → 待议），不由紧迫度推导。
-    磁贴泳道与看板「决策」视图共用这一份，两边不再各写一套集合。 */
-export const KANBAN_ATTENTION_ORDER = ["in_review", "todo", "blocked", "discussing"] as const;
+/** 讨论态：还需要你拍板的三类，顺序按产品口径定（待审 → 待办 → 待议），不由紧迫度推导。
+    磁贴泳道与看板「决策」视图共用这一份，两边不再各写一套集合。
+    阻塞不在这一栏：它是已经卡住、要你出面解的推进状态，归进展态。 */
+export const KANBAN_ATTENTION_ORDER = ["in_review", "todo", "discussing"] as const;
 
-/** 磁贴的两个泳道与看板时间线共用同一份状态集合：参与栏（KANBAN_ATTENTION_ORDER）放
-    需要用户参与的四类，进展栏放解决中、已完成、已关闭这三类，两份合起来覆盖全部七态。
+/** 磁贴的两个泳道与看板时间线共用同一份状态集合：讨论栏（KANBAN_ATTENTION_ORDER）放
+    需要你拍板的三类，进展栏放阻塞、解决中、已完成三类，两份合起来覆盖全部六态。
     磁贴里的条目是滚动看的，某一类条数变多不影响其它栏。 */
-export const KANBAN_PROGRESS_ORDER = ["in_progress", "done", "closed"] as const;
+export const KANBAN_PROGRESS_ORDER = ["blocked", "in_progress", "done"] as const;
 
-/** 看板页时间线自上而下的阶段顺序：全部七态，主链走完再到已关闭。
+/** 看板页时间线自上而下的阶段顺序：全部六态，主链走完即到底。
     blocked 不占主链位置——它可以从任何阶段进入、也可以回到任何阶段，放进中间会被读成
     「流程中的一站」。放在线首，读作「偏离主链的汇总区」：先看清哪里卡住了，再往下看推进。
     这里展示全貌，与磁贴两个泳道不是同一份集合，不要互相推导。 */
@@ -39,7 +40,6 @@ export const KANBAN_STAGE_ORDER = [
   "in_progress",
   "in_review",
   "done",
-  "closed",
 ] as const;
 
 export type KanbanStageStatus = (typeof KANBAN_STAGE_ORDER)[number];
@@ -54,6 +54,18 @@ export function kanbanIssuesByStatus(
 /** 磁贴的参与栏：只取这四类，其余状态不上磁贴。 */
 export function kanbanAttentionIssues(issues: KanbanIssue[]): KanbanIssue[] {
   return kanbanIssuesInOrder(issues, KANBAN_ATTENTION_ORDER);
+}
+
+/** 磁贴默认停在哪个分类：有待审就一定停待审——那是唯一「等你动手」的分类，
+    其余分类再靠前也只是在推进中。没有待审才退回入参的第一个非空分类。
+    空分类不该进 candidates，返回 "" 表示这次没有可展示的分类。 */
+export function kanbanDefaultGroupStatus(
+  groups: ReadonlyArray<{ status: string }>,
+  pendingStatus = "in_review",
+): string {
+  const pending = groups.find((group) => group.status === pendingStatus);
+  if (pending) return pending.status;
+  return groups[0]?.status || "";
 }
 
 /** 按给定顺序取子集并排序：不在顺序里的状态直接丢弃，同状态按编号升序。
