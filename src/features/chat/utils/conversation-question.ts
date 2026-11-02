@@ -33,7 +33,7 @@ export function buildConversationQuestionItems(
 /** 会话问题的已选答复：键是题目编号字符串，与面板 `QuestionItem.id` 对齐。 */
 export type ConversationQuestionAnswerMap = Record<
   string,
-  { optionId: string; label: string; comment: string }
+  { optionId: string; label: string; comment: string; customText?: string }
 >;
 
 /**
@@ -54,26 +54,38 @@ export function pruneConversationQuestionAnswers(
   return kept;
 }
 
-/** 面板答复 → 答题命令参数：编号与选项下标都按字符串回传，这里只做数字转换与非法项过滤。 */
+/** 一条答题入参：自己写的内容与选项下标只能出现一个，后端也按同一口径校验。 */
+export type ConversationQuestionAnswerPayload = {
+  number: number;
+  optionIndex?: number;
+  customText?: string;
+};
+
+/**
+ * 面板答复 → 答题命令参数：编号与选项下标都按字符串回传，这里只做数字转换与非法项过滤。
+ * 自己写的答案优先：有内容就只带 `customText`，不带选项下标。
+ */
 export function buildConversationQuestionAnswerPayload(
-  answers: Array<{ id: string; optionId: string }>,
-): Array<{ number: number; optionIndex: number }> {
+  answers: Array<{ id: string; optionId: string; customText?: string }>,
+): ConversationQuestionAnswerPayload[] {
   const parseIndex = (raw: string): number => {
     const text = String(raw ?? "").trim();
     if (!text) return Number.NaN;
     const value = Number(text);
     return Number.isFinite(value) ? value : Number.NaN;
   };
-  return (Array.isArray(answers) ? answers : [])
-    .map((answer) => ({
-      number: parseIndex(answer.id),
-      optionIndex: parseIndex(answer.optionId),
-    }))
-    .filter(
-      (answer) =>
-        Number.isInteger(answer.number)
-        && answer.number >= 1
-        && Number.isInteger(answer.optionIndex)
-        && answer.optionIndex >= 0,
-    );
+  const payload: ConversationQuestionAnswerPayload[] = [];
+  for (const answer of Array.isArray(answers) ? answers : []) {
+    const number = parseIndex(answer.id);
+    if (!Number.isInteger(number) || number < 1) continue;
+    const customText = String(answer.customText ?? "").trim();
+    if (customText) {
+      payload.push({ number, customText });
+      continue;
+    }
+    const optionIndex = parseIndex(answer.optionId);
+    if (!Number.isInteger(optionIndex) || optionIndex < 0) continue;
+    payload.push({ number, optionIndex });
+  }
+  return payload;
 }

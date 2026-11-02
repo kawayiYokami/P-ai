@@ -975,6 +975,7 @@ import {
   buildConversationQuestionAnswerPayload,
   buildConversationQuestionItems,
   pruneConversationQuestionAnswers,
+  type ConversationQuestionAnswerMap,
   type ConversationQuestionView,
 } from "../utils/conversation-question";
 import { useIdeContext } from "../composables/use-ide-context";
@@ -1447,7 +1448,7 @@ function handleApprovalQuestionWorkspaceRemember(requestId: string) {
 
 // ==================== 会话问题队列（队长通过 question 工具写入） ====================
 const conversationQuestions = ref<ConversationQuestionView[]>([]);
-const conversationQuestionAnswers = ref<Record<string, { optionId: string; label: string; comment: string }>>({});
+const conversationQuestionAnswers = ref<ConversationQuestionAnswerMap>({});
 const conversationQuestionSubmitting = ref(false);
 let unlistenConversationQuestions: (() => void) | undefined;
 
@@ -1501,7 +1502,7 @@ async function loadConversationQuestions(conversationId?: string) {
 }
 
 function handleConversationQuestionSubmit(
-  answers: Array<{ id: string; optionId: string; label: string; comment: string }>,
+  answers: Array<{ id: string; optionId: string; label: string; comment: string; customText?: string }>,
 ) {
   const conversationId = String(props.activeConversationId || "").trim();
   if (!conversationId || conversationQuestionSubmitting.value) return;

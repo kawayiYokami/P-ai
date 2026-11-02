@@ -5,6 +5,7 @@ export type QuestionSubmitPayloadItem = {
   optionId: string;
   label: string;
   comment: string;
+  customText?: string;
 };
 
 /** 题目没有显式选项时，沿用面板的默认两选项（与终端审批一致）。 */
@@ -22,8 +23,9 @@ export function resolveQuestionOptions(item: QuestionItem): QuestionOption[] {
   ];
 }
 
-/** 必填补充说明没填时本题不算已选。 */
+/** 自己写的答案非空时它本身就是完整答案，不需要再对选项。 */
 export function questionAnswerIsComplete(item: QuestionItem, answer: QuestionAnswer): boolean {
+  if (String(answer.customText ?? "").trim().length > 0) return true;
   const option = resolveQuestionOptions(item).find((item) => item.id === answer.optionId);
   if (!option) return false;
   if (option.kind === "withInput" && option.inputRequired) {
@@ -56,6 +58,7 @@ function toPayloadItem(item: QuestionItem, answer: QuestionAnswer): QuestionSubm
     optionId: answer.optionId,
     label: answer.label,
     comment: answer.comment,
+    customText: answer.customText,
   };
 }
 

@@ -1,12 +1,17 @@
 // ==================== 会话提问：答题命令 ====================
 
 /// 单选答案：`optionIndex` 是 `ConversationQuestion.options` 的下标。
+///
+/// `optionIndex` 与 `customText` 二选一：前者是点给定选项，后者是用户自己写一段。
+/// 两个都给视为歧义直接报错，都不给视为空答案。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct QuestionAnswerInput {
     number: u32,
     #[serde(default)]
     option_index: Option<usize>,
+    #[serde(default)]
+    custom_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -58,6 +63,41 @@ fn build_question_answer_message(text: &str, numbers: &[u32]) -> ChatMessage {
     }
 }
 
+/// 一道题的答案来源：点给定选项换成下标，自己写就是一段文本。
+enum QuestionAnswerChoice {
+    Option(usize),
+    Custom(String),
+}
+
+/// 把一条入参解释成答案来源。判定写死：给了选项 + 给了文本 → 歧义报错；
+/// 只给选项 → 选项；只给文本 → 自定义（空文本与超长都算无效）；都不给 → 空答案。
+fn question_answer_choice_from_input(
+    answer: &QuestionAnswerInput,
+) -> Result<QuestionAnswerChoice, String> {
+    let custom = answer.custom_text.as_deref().map(str::trim).unwrap_or("");
+    let has_custom = !custom.is_empty();
+    match (answer.option_index, has_custom) {
+        (Some(_), true) => Err(format!(
+            "#{} 同时提供了选项和自己写的答案：只能二选一",
+            answer.number
+        )),
+        (Some(index), false) => Ok(QuestionAnswerChoice::Option(index)),
+        (None, false) => Err(format!(
+            "#{} 缺少答案：请选择一个选项或自己写一个",
+            answer.number
+        )),
+        (None, true) => {
+            if question_char_count(custom) > QUESTION_CUSTOM_ANSWER_MAX_CHARS {
+                return Err(format!(
+                    "#{} 自己写的答案超过 {} 字上限，请精简后重试",
+                    answer.number, QUESTION_CUSTOM_ANSWER_MAX_CHARS
+                ));
+            }
+            Ok(QuestionAnswerChoice::Custom(custom.to_string()))
+        }
+    }
+}
+
 /// 答题作答：题目校验通过后删除题目并入队一条普通用户消息。
 ///
 /// 删题与入队放在同一个 SQLite 事务里：入队失败时事务回滚，题目不会被吃掉；
@@ -81,18 +121,16 @@ fn question_answer_inner(
         return Err("只有本地主会话可以回答问题".to_string());
     }
 
-    let mut wanted: Vec<(u32, usize)> = Vec::new();
+    let mut wanted: Vec<(u32, QuestionAnswerChoice)> = Vec::new();
     for answer in &answers {
         if answer.number == 0 {
             return Err("问题编号从 1 开始，0 不是合法编号".to_string());
         }
-        let option_index = answer
-            .option_index
-            .ok_or_else(|| format!("#{} 缺少选项：请选择一个选项后再提交", answer.number))?;
+        let choice = question_answer_choice_from_input(answer)?;
         if wanted.iter().any(|(number, _)| *number == answer.number) {
             return Err(format!("#{} 在同一次提交里出现了多次", answer.number));
         }
-        wanted.push((answer.number, option_index));
+        wanted.push((answer.number, choice));
     }
     wanted.sort_by_key(|(number, _)| *number);
 
@@ -102,20 +140,26 @@ fn question_answer_inner(
         .map_err(|err| format!("开启答题事务失败：{err}"))?;
 
     let mut blocks = Vec::with_capacity(wanted.len());
-    for (number, option_index) in &wanted {
+    for (number, choice) in &wanted {
         let question = question_store_get_by_number(&tx, &conversation_id, *number)?
             .ok_or_else(|| format!("#{number} 不存在（可能已被回答或清理）"))?;
-        let label = question.options.get(*option_index).ok_or_else(|| {
-            format!(
-                "#{number} 没有第 {} 个选项（共 {} 个）",
-                option_index + 1,
-                question.options.len()
-            )
-        })?;
+        let answer_text = match choice {
+            QuestionAnswerChoice::Option(option_index) => {
+                let label = question.options.get(*option_index).ok_or_else(|| {
+                    format!(
+                        "#{number} 没有第 {} 个选项（共 {} 个）",
+                        option_index + 1,
+                        question.options.len()
+                    )
+                })?;
+                label.trim().to_string()
+            }
+            QuestionAnswerChoice::Custom(text) => text.clone(),
+        };
         blocks.push(format!(
             "【问题答复 #{number}】{}\n→ {}",
             question.title.trim(),
-            label.trim()
+            answer_text
         ));
     }
     let message_text = blocks.join("\n\n");

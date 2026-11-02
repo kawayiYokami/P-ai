@@ -540,6 +540,15 @@
         QuestionAnswerInput {
             number,
             option_index: Some(option_index),
+            custom_text: None,
+        }
+    }
+
+    fn question_test_custom_answer(number: u32, text: &str) -> QuestionAnswerInput {
+        QuestionAnswerInput {
+            number,
+            option_index: None,
+            custom_text: Some(text.to_string()),
         }
     }
 
@@ -732,7 +741,7 @@
     }
 
     #[test]
-    fn question_answer_should_reject_missing_option_index() {
+    fn question_answer_should_reject_answer_without_option_and_text() {
         let state = question_test_state();
         question_test_answerable_conversation(&state, "conv-main");
         question_apply_tool_mutations(
@@ -748,9 +757,10 @@
             vec![QuestionAnswerInput {
                 number: 1,
                 option_index: None,
+                custom_text: None,
             }],
         )
-        .expect_err("缺选项必须报错");
+        .expect_err("既没选项也没自己写的答案必须报错");
         assert!(err.contains("#1"), "{err}");
     }
 
@@ -903,6 +913,136 @@
         let err = question_answer_inner(&state, "conv-main", Vec::new())
             .expect_err("空答案必须报错");
         assert!(err.contains("答案"), "{err}");
+    }
+
+    // ==================== 自定义答案：走同一条答题链路 ====================
+
+    #[test]
+    fn question_answer_should_carry_custom_text_into_message() {
+        let state = question_test_state();
+        question_test_answerable_conversation(&state, "conv-main");
+        question_apply_tool_mutations(
+            &state,
+            "conv-main",
+            &[
+                question_test_create_item("要不要现在发布？", &["现在发布", "再等等"]),
+                question_test_create_item("用哪个分支？", &["main", "release"]),
+            ],
+        )
+        .expect("create questions");
+
+        let result = question_answer_inner(
+            &state,
+            "conv-main",
+            vec![question_test_custom_answer(2, "  两个都不对，改成灰度发布  ")],
+        )
+        .expect("answer with custom text");
+
+        assert_eq!(result.answered_numbers, vec![2]);
+        assert!(
+            result.message_text.contains("【问题答复 #2】用哪个分支？"),
+            "{}",
+            result.message_text
+        );
+        assert!(
+            result.message_text.contains("→ 两个都不对，改成灰度发布"),
+            "正文必须带用户自己写的那段，且去掉首尾空白：{}",
+            result.message_text
+        );
+        assert!(
+            !result.message_text.contains("→ main"),
+            "自己写答案不能混进给定选项：{}",
+            result.message_text
+        );
+
+        assert_eq!(
+            question_test_numbers(&result.remaining),
+            vec![1],
+            "答掉 #2 之后只剩 #1"
+        );
+        let views = question_views_for_conversation(&state, "conv-main").expect("list");
+        assert_eq!(question_test_numbers(&views), vec![1], "被答的题必须从库里删掉");
+
+        let event = question_test_last_queued_event(&state, "conv-main");
+        assert!(matches!(event.source, ChatEventSource::User));
+        assert_eq!(event.queue_mode, ChatQueueMode::Normal);
+        assert_eq!(event.messages.len(), 1);
+        let message = &event.messages[0];
+        assert_eq!(
+            message
+                .provider_meta
+                .as_ref()
+                .and_then(|meta| meta.get("message_meta"))
+                .and_then(|meta| meta.get("kind"))
+                .and_then(|value| value.as_str()),
+            Some("question_answer"),
+            "自定义答案与点选项必须是同一条消息通道、同一个 kind"
+        );
+    }
+
+    #[test]
+    fn question_answer_should_reject_blank_custom_text() {
+        let state = question_test_state();
+        question_test_answerable_conversation(&state, "conv-main");
+        question_apply_tool_mutations(
+            &state,
+            "conv-main",
+            &[question_test_create_item("题一", &["A"])],
+        )
+        .expect("create question");
+
+        let err = question_answer_inner(&state, "conv-main", vec![question_test_custom_answer(1, "   ")])
+            .expect_err("空内容不许提交");
+        assert!(err.contains("#1"), "{err}");
+        let views = question_views_for_conversation(&state, "conv-main").expect("list");
+        assert_eq!(views.len(), 1, "被挡住时题目不能被删掉");
+    }
+
+    #[test]
+    fn question_answer_should_reject_option_and_custom_text_together() {
+        let state = question_test_state();
+        question_test_answerable_conversation(&state, "conv-main");
+        question_apply_tool_mutations(
+            &state,
+            "conv-main",
+            &[question_test_create_item("题一", &["A"])],
+        )
+        .expect("create question");
+
+        let err = question_answer_inner(
+            &state,
+            "conv-main",
+            vec![QuestionAnswerInput {
+                number: 1,
+                option_index: Some(0),
+                custom_text: Some("我自己写".to_string()),
+            }],
+        )
+        .expect_err("选项与自己写同时给必须报错");
+        assert!(err.contains("#1"), "{err}");
+        let views = question_views_for_conversation(&state, "conv-main").expect("list");
+        assert_eq!(views.len(), 1, "歧义输入不能被当成答案吃掉题目");
+    }
+
+    #[test]
+    fn question_answer_should_reject_too_long_custom_text() {
+        let state = question_test_state();
+        question_test_answerable_conversation(&state, "conv-main");
+        question_apply_tool_mutations(
+            &state,
+            "conv-main",
+            &[question_test_create_item("题一", &["A"])],
+        )
+        .expect("create question");
+
+        let long_text = "答".repeat(QUESTION_CUSTOM_ANSWER_MAX_CHARS + 1);
+        let err = question_answer_inner(
+            &state,
+            "conv-main",
+            vec![question_test_custom_answer(1, &long_text)],
+        )
+        .expect_err("超长自定义答案必须报错");
+        assert!(err.contains("上限"), "{err}");
     }
 
     // ==================== 拒绝回答：只删题，不产生消息 ====================

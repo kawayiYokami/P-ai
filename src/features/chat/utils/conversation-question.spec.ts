@@ -73,6 +73,24 @@ describe("buildConversationQuestionAnswerPayload", () => {
       ]),
     ).toEqual([{ number: 4, optionIndex: 2 }]);
   });
+
+  it("自己写的答案只带 customText，不带选项下标", () => {
+    expect(
+      buildConversationQuestionAnswerPayload([
+        { id: "3", optionId: "", customText: "  改成灰度发布  " },
+        { id: "4", optionId: "1" },
+      ]),
+    ).toEqual([
+      { number: 3, customText: "改成灰度发布" },
+      { number: 4, optionIndex: 1 },
+    ]);
+  });
+
+  it("自己写的内容是空白时回落到选项下标", () => {
+    expect(
+      buildConversationQuestionAnswerPayload([{ id: "2", optionId: "0", customText: "   " }]),
+    ).toEqual([{ number: 2, optionIndex: 0 }]);
+  });
 });
 
 describe("pruneConversationQuestionAnswers", () => {

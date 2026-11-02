@@ -55,6 +55,11 @@ const confirmStep = ref(false);
 const shakeOptionId = ref("");
 const optionDrafts = ref<Record<string, string>>({});
 const optionInputEls = ref<Record<string, HTMLInputElement | null>>({});
+/** 「其他（自己写）」的虚拟 option id：只用于错误高亮，不参与任何选项匹配。 */
+const CUSTOM_ANSWER_OPTION_ID = "__custom__";
+const customAnswerEditing = ref(false);
+const customAnswerDrafts = ref<Record<string, string>>({});
+const customAnswerInputEl = ref<HTMLInputElement | null>(null);
 
 const total = computed(() => props.items.length);
 const currentItem = computed(() => props.items[currentIndex.value] ?? null);
@@ -123,8 +128,61 @@ function setInputEl(optionId: string, el: unknown) {
   optionInputEls.value[optionId] = el as HTMLInputElement | null;
 }
 
+function getCustomAnswerDraft(questionId: string): string {
+  return customAnswerDrafts.value[questionId] ?? "";
+}
+
+function setCustomAnswerDraft(questionId: string, value: string) {
+  customAnswerDrafts.value[questionId] = value;
+}
+
+function setCustomAnswerInputEl(el: unknown) {
+  customAnswerInputEl.value = el as HTMLInputElement | null;
+}
+
+/** 展开「其他（自己写）」：这一题已经写过答案时预填进来，改着方便。 */
+function handleStartCustomAnswer() {
+  const item = currentItem.value;
+  if (!item || props.submitting) return;
+  if (!getCustomAnswerDraft(item.id)) {
+    customAnswerDrafts.value[item.id] = String(answersMap.value[item.id]?.customText ?? "");
+  }
+  customAnswerEditing.value = true;
+  nextTick(() => customAnswerInputEl.value?.focus());
+}
+
+/**
+ * 把自己写的内容记为这一题的答案。与点选项一致：这里只勾选，
+ * 真正提交要等右下角「发送 N 题」；空内容不记，只抖一下提示。
+ */
+function handleCustomAnswerConfirm() {
+  const item = currentItem.value;
+  if (!item || props.submitting) return;
+  const text = getCustomAnswerDraft(item.id).trim();
+  if (!text) {
+    shakeOptionId.value = CUSTOM_ANSWER_OPTION_ID;
+    window.setTimeout(() => {
+      if (shakeOptionId.value === CUSTOM_ANSWER_OPTION_ID) shakeOptionId.value = "";
+    }, 420);
+    customAnswerInputEl.value?.focus();
+    return;
+  }
+  shakeOptionId.value = "";
+  emit("update:modelValue", {
+    ...answersMap.value,
+    [item.id]: { optionId: "", label: text, comment: "", customText: text },
+  });
+}
+
 watch(currentItem, () => {
   shakeOptionId.value = "";
+  // 切到一题时，已经自己写过答案的直接展开并预填，省得再点一次入口。
+  const item = currentItem.value;
+  const existing = item ? String(answersMap.value[item.id]?.customText ?? "").trim() : "";
+  customAnswerEditing.value = existing.length > 0;
+  if (item && existing && !getCustomAnswerDraft(item.id)) {
+    customAnswerDrafts.value[item.id] = existing;
+  }
 });
 
 /**
@@ -197,6 +255,8 @@ function handleOptionSelect(option: QuestionOption) {
     }
   }
   shakeOptionId.value = "";
+  // 改选给定选项就等于放弃自己写的那份答案：收起输入行，草稿留着可再展开。
+  customAnswerEditing.value = false;
   const next = {
     ...answersMap.value,
     [item.id]: { optionId: option.id, label: option.label, comment },
@@ -408,7 +468,41 @@ function handleReject() {
               </button>
             </div>
           </template>
-          <div v-if="shakeOptionId" class="text-xs text-error">请填写必填的补充说明</div>
+          <!-- 其他：自己写答案。只在会话提问出现，终端审批那套的选项是批准/拒绝执行，不改 -->
+          <div v-if="isManualSubmit" class="w-full">
+            <button
+              v-if="!customAnswerEditing"
+              type="button"
+              class="btn btn-sm ecall-question-option w-full justify-center btn-primary btn-soft"
+              :disabled="submitting"
+              @click="handleStartCustomAnswer"
+            >
+              其他（自己写）
+            </button>
+            <div v-else class="join w-full">
+              <input
+                :ref="setCustomAnswerInputEl"
+                :value="getCustomAnswerDraft(currentItem!.id)"
+                type="text"
+                placeholder="自己写答案"
+                class="input input-bordered input-sm join-item min-w-0 flex-1 text-sm"
+                :class="shakeOptionId === CUSTOM_ANSWER_OPTION_ID ? 'input-error animate-[shake_0.42s_ease]' : ''"
+                @input="setCustomAnswerDraft(currentItem!.id, ($event.target as HTMLInputElement).value)"
+                @keydown.enter.prevent="handleCustomAnswerConfirm"
+              >
+              <button
+                type="button"
+                class="btn btn-sm ecall-question-option join-item shrink-0 btn-primary"
+                :disabled="submitting"
+                @click="handleCustomAnswerConfirm"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+          <div v-if="shakeOptionId" class="text-xs text-error">
+            {{ shakeOptionId === CUSTOM_ANSWER_OPTION_ID ? "自己写的答案不能为空" : "请填写必填的补充说明" }}
+          </div>
           </div>
 
           <!-- 手动发送：按钮常驻右下角，未选时是灰态，位置不跳 -->

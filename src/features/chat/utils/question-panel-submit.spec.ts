@@ -46,6 +46,16 @@ describe("questionAnswerIsComplete", () => {
   it("选项不存在时视为不完整", () => {
     expect(questionAnswerIsComplete(item("q1"), answer("missing", "x"))).toBe(false);
   });
+
+  it("自己写的答案有内容就算完整，空白不算", () => {
+    const q = item("q1", directOptions("发布", "等待"));
+    expect(
+      questionAnswerIsComplete(q, { optionId: "", label: "灰度发布", comment: "", customText: "灰度发布" }),
+    ).toBe(true);
+    expect(
+      questionAnswerIsComplete(q, { optionId: "", label: "", comment: "", customText: "   " }),
+    ).toBe(false);
+  });
 });
 
 describe("questionItemIsAnswered / countAnsweredQuestions", () => {

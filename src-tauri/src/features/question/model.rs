@@ -6,6 +6,8 @@ const QUESTION_MAX_PER_CONVERSATION: usize = 8;
 const QUESTION_TITLE_MAX_CHARS: usize = 120;
 const QUESTION_BACKGROUND_MAX_CHARS: usize = 1000;
 const QUESTION_OPTION_MAX_CHARS: usize = 60;
+/// 用户自己写的答案上限：比选项宽得多，但必须有一道闸，避免把整段上下文塞进答复消息。
+const QUESTION_CUSTOM_ANSWER_MAX_CHARS: usize = 1000;
 const QUESTION_OPTIONS_MAX: usize = 6;
 
 /// 存储实体：`id` 仅作主键，不进工具参数、不上界面；对外一律按 `number` 引用。

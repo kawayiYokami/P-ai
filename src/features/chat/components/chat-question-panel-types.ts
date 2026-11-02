@@ -29,4 +29,6 @@ export type QuestionAnswer = {
   optionId: string;
   label: string;
   comment: string;
+  /** 用户自己写的答案：非空时它就是这道题的答案，不对应任何给定选项。 */
+  customText?: string;
 };
