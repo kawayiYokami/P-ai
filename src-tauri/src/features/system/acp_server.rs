@@ -9,12 +9,17 @@
 // 协议面：
 //   - `initialize`        → 声明 agent 能力（loadSession=true）
 //   - `session/new`       → 以 params.cwd 建一个 P-ai 会话（conversation），
-//                           sessionId 即 conversation_id，返回模型目录
-//   - `session/resume`    → 校验会话仍存在后原样返回
-//   - `session/set_model` → 把模型切换到指定 api_config
+//                           sessionId 即 conversation_id，返回模型目录与
+//                           当前生效模型（models.currentModelId）
+//   - `session/load` 与   → ACP 规范方法名与 Multica 使用的别名，二者等价：
+//   `session/resume`        校验会话仍存在后返回会话与模型信息。
+//                           历史消息回放未实现（v1 已知限制）
+//   - `session/set_model` → 把模型切换到指定文本聊天 api_config
 //   - `session/prompt`    → 注入一条用户消息并驱动一轮完整对话，
 //                           过程中以 session/update 通知流式回传
 //                           文本/思考/工具事件，结束时返回 end_turn
+//   - `session/cancel`    → 中止正在进行的 prompt（prompt 独立成任务，
+//                           期间主循环继续读帧），以 stopReason=cancelled 收尾
 //
 // 模型目录来自 P-ai 自身配置的 api_configs（模型供应商在 P-ai 内管理，
 // Multica 只选模型、不碰凭据）。工作区 = session/new 的 cwd，P-ai 的
@@ -85,9 +90,50 @@ fn acp_server_fail(message: &str) -> i32 {
     1
 }
 
+/// 解析会话当前生效的模型：优先取已落库的会话首选模型；缺失时回退目录里
+/// 第一个文本聊天模型并落库。响应里的 models.currentModelId 与 session/prompt
+/// 实际使用的模型由此保证一致。
+fn acp_resolve_current_model_id(state: &AppState, session_id: &str) -> Result<String, String> {
+    if let Ok(meta) = conversation_service_v2().get_conversation_meta(state, session_id) {
+        if let Some(model_id) = meta.preferred_api_config_id {
+            let model_id = model_id.trim().to_string();
+            if !model_id.is_empty() {
+                return Ok(model_id);
+            }
+        }
+    }
+    let fallback = state_read_config_cached(state)
+        .ok()
+        .and_then(|config| {
+            config
+                .api_configs
+                .iter()
+                .find(|api| is_text_chat_api(api))
+                .map(|api| api.id.clone())
+        })
+        .ok_or_else(|| "P-ai 配置中没有可用的文本聊天模型".to_string())?;
+    runtime_log_info(format!(
+        "[ACP] 会话无首选模型，回退目录首个可用文本聊天模型: {fallback}"
+    ));
+    conversation_service_v2()
+        .set_preferred_api_config_id(state, session_id, Some(fallback.clone()))
+        .map_err(|err| format!("设置会话默认模型失败: {err}"))?;
+    Ok(fallback)
+}
+
 struct AcpSessionState {
     conversation_id: String,
     model_config_id: Option<String>,
+}
+
+/// 进行中的一轮 session/prompt：独立任务执行，主循环在读帧的同时监听其
+/// 完成；cancelled 标记由 session/cancel 落下，任务收尾时按 ACP 规范以
+/// stopReason=cancelled 回应。
+struct AcpPromptTask {
+    session_id: String,
+    request_id: serde_json::Value,
+    cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    join: tokio::task::JoinHandle<Result<serde_json::Value, (i64, String)>>,
 }
 
 struct AcpServer {
@@ -140,6 +186,56 @@ impl AcpServer {
             .ok_or_else(|| "ACP server 尚未初始化".to_string())
     }
 
+    /// 会话中断入口（与 interrupt_conversation_runtime 命令同一条路径）：
+    /// abort 进行中的 inflight chat / 工具 / 委托子会话，并清空会话队列。
+    fn interrupt_conversation(&self, conversation_id: &str) -> Result<bool, String> {
+        let state = self.state()?;
+        let agent_id = resolve_runtime_control_agent_id(
+            state,
+            self.assistant_agent_id.as_deref(),
+            Some(conversation_id),
+        )?;
+        let chat_key = inflight_chat_key(&agent_id, Some(conversation_id));
+        let aborted_chat = abort_running_inflight_chat(state, &chat_key)?;
+        // 会话运行已整体中断，残留的停止意图一并清理，避免误伤下一次发送。
+        clear_inflight_chat_stop_intent(state, &chat_key)?;
+        let aborted_tool = abort_inflight_tool_abort_handle(state, &chat_key)?;
+        let aborted_delegate_children = abort_delegate_runtime_descendants_by_parent_context(
+            state,
+            &chat_key,
+            Some(conversation_id),
+        )?;
+        let cleared_queue_count = clear_conversation_queue(
+            state,
+            conversation_id,
+            "消息已因 ACP session/cancel 被清出队列",
+        )?;
+        let _ = release_conversation_processing_claim(state, conversation_id);
+        let _ = set_conversation_runtime_state_and_emit(
+            state,
+            conversation_id,
+            MainSessionState::Idle,
+        );
+        let _ = set_conversation_remote_im_activation_sources(
+            state,
+            conversation_id,
+            Vec::new(),
+        );
+        let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
+        if aborted || cleared_queue_count > 0 {
+            let _ = mark_goal_continue_suppressed_by_user_interrupt(
+                state,
+                conversation_id,
+                "acp_session_cancel",
+            );
+        }
+        runtime_log_info(format!(
+            "[ACP] 会话运行已中断: conversation_id={}, aborted={}, cleared_queue_count={}, child_abort_count={}",
+            conversation_id, aborted, cleared_queue_count, aborted_delegate_children
+        ));
+        Ok(aborted || cleared_queue_count > 0)
+    }
+
     /// P-ai 配置里的模型目录：每个 api_config 是一个可选模型端点。
     fn model_catalog(&self) -> Vec<serde_json::Value> {
         let Ok(state) = self.state() else {
@@ -151,6 +247,9 @@ impl AcpServer {
         config
             .api_configs
             .iter()
+            // 目录只暴露文本聊天模型：embedding/rerank/STT 等端点选上去
+            // 也会在 session/prompt 时才失败，对客户端是误导。
+            .filter(|api| is_text_chat_api(api))
             .map(|api| {
                 serde_json::json!({
                     "modelId": api.id,
@@ -249,59 +348,27 @@ impl AcpServer {
         // P-ai 主会话的发送路径只看「单次指定 + 会话首选模型」（见
         // core_send_inner.build_chat_candidate_api_ids），无头会话没有输入
         // 面板可选模型；会话创建时默认取人格主模型，人格未配置主模型时
-        // 首选为空，session/prompt 会以「未指定会话模型」失败。这里兜底：
-        // 若会话没有首选模型，取目录里第一个可用的文本聊天模型补上；
-        // 客户端随后仍可用 session/set_model 覆盖。
-        // （放在 sessions.insert 之前：state 借用自 self，insert 的可变
-        // 借用必须等 state 用完。）
-        let needs_model_fallback = match conversation_service_v2()
-            .get_conversation_meta(state, &session_id)
-        {
-            Ok(meta) => meta.preferred_api_config_id.is_none(),
-            Err(_) => true,
-        };
-        if needs_model_fallback {
-            let fallback_model_id = state_read_config_cached(state)
-                .ok()
-                .and_then(|config| {
-                    config
-                        .api_configs
-                        .iter()
-                        .find(|api| is_text_chat_api(api))
-                        .map(|api| api.id.clone())
-                });
-            match fallback_model_id {
-                Some(model_id) => {
-                    runtime_log_info(format!(
-                        "[ACP] session/new 会话无首选模型，回退目录首个可用文本聊天模型: {model_id}"
-                    ));
-                    conversation_service_v2()
-                        .set_preferred_api_config_id(state, &session_id, Some(model_id))
-                        .map_err(|err| {
-                            (-32000i64, format!("设置会话默认模型失败: {err}"))
-                        })?;
-                }
-                None => {
-                    return Err((
-                        -32000i64,
-                        "P-ai 配置中没有可用的文本聊天模型，无法创建 ACP 会话".to_string(),
-                    ));
-                }
-            }
-        }
+        // 首选为空，session/prompt 会以「未指定会话模型」失败。这里统一走
+        // acp_resolve_current_model_id：缺首选模型时回退目录第一个文本聊天
+        // 模型并落库；客户端随后仍可用 session/set_model 覆盖。
+        let current_model_id = acp_resolve_current_model_id(state, &session_id)
+            .map_err(|err| (-32000i64, format!("初始化会话模型失败: {err}")))?;
 
         self.sessions.insert(
             session_id.clone(),
             AcpSessionState {
                 conversation_id: session_id.clone(),
-                model_config_id: None,
+                model_config_id: Some(current_model_id.clone()),
             },
         );
 
         let models = self.model_catalog();
         Ok(serde_json::json!({
             "sessionId": session_id,
-            "models": { "availableModels": models }
+            "models": {
+                "currentModelId": current_model_id,
+                "availableModels": models
+            }
         }))
     }
 
@@ -325,14 +392,22 @@ impl AcpServer {
         conversation_service_v2()
             .get_conversation_meta(state, &session_id)
             .map_err(|err| (-32602i64, format!("Session not found: {session_id} ({err})")))?;
-        self.sessions.entry(session_id.clone()).or_insert(AcpSessionState {
+        // 与 session/new 一致：补齐会话首选模型（缺则回退并落库），并在
+        // 响应里声明 currentModelId，让对端知道恢复后的会话跑在哪个模型上。
+        let current_model_id = acp_resolve_current_model_id(state, &session_id)
+            .map_err(|err| (-32000i64, format!("恢复会话模型失败: {err}")))?;
+        let entry = self.sessions.entry(session_id.clone()).or_insert(AcpSessionState {
             conversation_id: session_id.clone(),
             model_config_id: None,
         });
+        entry.model_config_id = Some(current_model_id.clone());
         let models = self.model_catalog();
         Ok(serde_json::json!({
             "sessionId": session_id,
-            "models": { "availableModels": models }
+            "models": {
+                "currentModelId": current_model_id,
+                "availableModels": models
+            }
         }))
     }
 
@@ -358,10 +433,16 @@ impl AcpServer {
             .ok_or_else(|| (-32602i64, "session/set_model 缺少 modelId".to_string()))?
             .to_string();
 
-        // 模型必须是 P-ai 配置里真实存在的 api_config：静默回退默认模型
-        // 会让用户以为选择生效了，实际跑在别的模型上。
+        // 模型必须是 P-ai 配置里真实存在且可用于文本聊天的 api_config：
+        // 静默回退默认模型会让用户以为选择生效了，实际跑在别的模型上；
+        // embedding/rerank/STT 等非聊天端点同样不能作为会话模型。
         let exists = state_read_config_cached(&state)
-            .map(|config| config.api_configs.iter().any(|api| api.id == model_id))
+            .map(|config| {
+                config
+                    .api_configs
+                    .iter()
+                    .any(|api| api.id == model_id && is_text_chat_api(api))
+            })
             .unwrap_or(false);
         if !exists {
             return Err((-32602i64, format!("model not available: {model_id}")));
@@ -370,19 +451,20 @@ impl AcpServer {
         let Some(session) = self.sessions.get_mut(&session_id) else {
             return Err((-32602i64, format!("Session not found: {session_id}")));
         };
-        session.model_config_id = Some(model_id.clone());
-        // 会话已存在时同步落库；会话尚未创建时（不可能——session/new 即建会话）
-        // 仅内存记录即可。
+        // 先落库再更新内存：若先改内存后落库，落库失败时客户端收到错误、
+        // 以为切换没生效，下一次 session/prompt 却会用到新模型。
         conversation_service_v2()
-            .set_preferred_api_config_id(&state, &session_id, Some(model_id))
+            .set_preferred_api_config_id(&state, &session_id, Some(model_id.clone()))
             .map_err(|err| (-32000i64, format!("切换模型失败: {err}")))?;
+        session.model_config_id = Some(model_id);
         Ok(serde_json::json!({}))
     }
 
-    async fn handle_session_prompt(
+    async fn handle_session_prompt_start(
         &mut self,
         params: &serde_json::Value,
-    ) -> Result<serde_json::Value, (i64, String)> {
+        request_id_frame: serde_json::Value,
+    ) -> Result<AcpPromptTask, (i64, String)> {
         self.ensure_ready()
             .await
             .map_err(|err| (-32000i64, err))?;
@@ -512,19 +594,238 @@ impl AcpServer {
             Ok(())
         });
 
-        let result = send_chat_message_inner(request, &state, &channel)
-            .await
-            .map_err(|err| (-32000i64, err))?;
-        let _ = result; // 最终文本已通过 delta 流回对端；此处仅确认本轮成功
-        Ok(serde_json::json!({ "stopReason": "end_turn" }))
+        // prompt 投递为独立任务：主循环在读帧的同时监听其完成，这样
+        // prompt 执行期间到达的 session/cancel 能被及时处理，而不是
+        // 像同步串行那样直到 prompt 结束才被读到（到时已无意义）。
+        let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancel_flag = cancelled.clone();
+        let join = tokio::spawn(async move {
+            let outcome = send_chat_message_inner(request, &state, &channel).await;
+            if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                // 对端已取消：无论底层以何种方式收尾，都按 ACP 规范以
+                // stopReason=cancelled 结束本轮。
+                Ok(serde_json::json!({ "stopReason": "cancelled" }))
+            } else {
+                // 最终文本已通过 delta 流回对端；此处仅确认本轮成功/失败。
+                outcome
+                    .map(|_| serde_json::json!({ "stopReason": "end_turn" }))
+                    .map_err(|err| (-32000i64, err))
+            }
+        });
+        Ok(AcpPromptTask {
+            session_id,
+            request_id: request_id_frame,
+            cancelled,
+            join,
+        })
     }
 }
 
-/// 从 stdin 读一行（阻塞）。锁在本函数内获取与释放，绝不跨 await。
-fn acp_read_line_into(line: &mut String) -> std::io::Result<usize> {
-    use std::io::BufRead as _;
-    let mut lock = std::io::stdin().lock();
-    lock.read_line(line)
+/// ACP 主循环。
+///
+/// stdin 由独立任务异步读取（tokio::io::stdin，不阻塞工作线程），经 mpsc
+/// 交给主循环；session/prompt 投递为独立任务，主循环用 select! 同时监听
+/// 新帧与进行中的 prompt：
+///   - prompt 运行期间收到 session/cancel → 落取消标记并走会话中断入口
+///     （abort inflight chat / 清队列），prompt 以 stopReason=cancelled 收尾；
+///   - 其余请求在 prompt 运行期间照常处理（各 handler 均持有状态克隆，
+///     不与进行中的 prompt 争抢可变状态）。
+/// 帧解析失败/方法未知仍按 JSON-RPC 语义回错误帧；stdout 写失败即退出。
+async fn acp_server_main() -> i32 {
+    use std::sync::atomic::AtomicBool;
+
+    let (frame_tx, mut frame_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let reader = tokio::spawn(async move {
+        use tokio::io::AsyncBufReadExt as _;
+        let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+        loop {
+            match lines.next_line().await {
+                Ok(Some(line)) => {
+                    if frame_tx.send(line).is_err() {
+                        break; // 主循环已退出
+                    }
+                }
+                Ok(None) => break, // stdin 关闭：对端结束
+                Err(err) => {
+                    runtime_log_error(format!("[ACP] 读取 stdin 失败: {err}"));
+                    break;
+                }
+            }
+        }
+    });
+
+    let mut server = AcpServer::new();
+    let mut running_prompts: std::collections::HashMap<String, std::sync::Arc<AtomicBool>> =
+        std::collections::HashMap::new();
+    let mut prompt_futures: futures_util::stream::FuturesUnordered<
+        std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                    Output = (
+                        String,
+                        serde_json::Value,
+                        Result<serde_json::Value, (i64, String)>,
+                    ),
+                > + Send,
+            >,
+        >,
+    > = futures_util::stream::FuturesUnordered::new();
+    let mut stdin_open = true;
+    let mut exit_code = 0;
+
+    loop {
+        tokio::select! {
+            frame = frame_rx.recv(), if stdin_open => match frame {
+                Some(line) => {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    let Ok(frame) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+                        if acp_write_frame(&acp_rpc_error(
+                            serde_json::Value::Null,
+                            -32700,
+                            "parse error: 请求不是合法 JSON",
+                        ))
+                        .is_err()
+                        {
+                            exit_code = 1;
+                            break;
+                        }
+                        continue;
+                    };
+                    let method = frame
+                        .get("method")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let params = frame.get("params").cloned().unwrap_or(serde_json::json!({}));
+
+                    // 通知（无 id）：唯一消费的是 session/cancel，其余忽略。
+                    let Some(id) = frame.get("id").cloned() else {
+                        if method == "session/cancel" {
+                            acp_handle_cancel(&mut server, &params, &mut running_prompts);
+                        }
+                        continue;
+                    };
+
+                    let immediate = match method.as_str() {
+                        "initialize" => Some(serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "protocolVersion": ACP_PROTOCOL_VERSION,
+                                "agentInfo": {
+                                    "name": "p-ai",
+                                    "version": env!("CARGO_PKG_VERSION")
+                                },
+                                "agentCapabilities": { "loadSession": true }
+                            }
+                        })),
+                        "session/new" => Some(match server.handle_session_new(&params).await {
+                            Ok(result) => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+                            Err((code, message)) => acp_rpc_error(id, code, &message),
+                        }),
+                        // session/load 是 ACP 规范方法名，session/resume 是
+                        // Multica/hermes 使用的别名，二者等价路由。
+                        "session/load" | "session/resume" => Some(match server.handle_session_resume(&params).await {
+                            Ok(result) => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+                            Err((code, message)) => acp_rpc_error(id, code, &message),
+                        }),
+                        "session/set_model" => Some(match server.handle_session_set_model(&params).await {
+                            Ok(result) => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+                            Err((code, message)) => acp_rpc_error(id, code, &message),
+                        }),
+                        "session/prompt" => match server.handle_session_prompt_start(&params, id.clone()).await {
+                            Ok(task) => {
+                                running_prompts.insert(task.session_id.clone(), task.cancelled.clone());
+                                prompt_futures.push(Box::pin(async move {
+                                    let result = task.join.await.unwrap_or_else(|err| {
+                                        Err((-32000i64, format!("ACP prompt 任务异常: {err}")))
+                                    });
+                                    (task.session_id, task.request_id, result)
+                                }));
+                                None // 响应由 prompt 任务收尾时回写
+                            }
+                            Err((code, message)) => Some(acp_rpc_error(id, code, &message)),
+                        },
+                        "session/cancel" => {
+                            acp_handle_cancel(&mut server, &params, &mut running_prompts);
+                            Some(serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": {} }))
+                        }
+                        other => Some(acp_rpc_error(
+                            id,
+                            -32601,
+                            &format!("method not found: {other}"),
+                        )),
+                    };
+                    if let Some(response) = immediate {
+                        if acp_write_frame(&response).is_err() {
+                            runtime_log_error("[ACP] 写回响应失败".to_string());
+                            exit_code = 1;
+                            break;
+                        }
+                    }
+                }
+                None => {
+                    // stdin 关闭：对端结束。等在途 prompt 收尾后再退出，
+                    // 让最后一轮的响应（含 cancelled）有机会写回。
+                    stdin_open = false;
+                }
+            },
+            completed = prompt_futures.next(), if !prompt_futures.is_empty() => {
+                if let Some((session_id, request_id, result)) = completed {
+                    running_prompts.remove(&session_id);
+                    let response = match result {
+                        Ok(result) => serde_json::json!({ "jsonrpc": "2.0", "id": request_id, "result": result }),
+                        Err((code, message)) => acp_rpc_error(request_id, code, &message),
+                    };
+                    if acp_write_frame(&response).is_err() {
+                        runtime_log_error("[ACP] 写回 prompt 响应失败".to_string());
+                        exit_code = 1;
+                        break;
+                    }
+                }
+            },
+            else => break,
+        }
+    }
+
+    reader.abort();
+    exit_code
+}
+
+/// 处理 session/cancel：给该会话所有进行中的 prompt 落取消标记（prompt
+/// 收尾时以 stopReason=cancelled 回应），并走会话中断入口真正中止底层
+/// 对话（abort inflight chat、清空队列）。
+fn acp_handle_cancel(
+    server: &mut AcpServer,
+    params: &serde_json::Value,
+    running_prompts: &mut std::collections::HashMap<
+        String,
+        std::sync::Arc<std::sync::atomic::AtomicBool>,
+    >,
+) {
+    use std::sync::atomic::Ordering;
+    let session_id = params
+        .get("sessionId")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    if session_id.is_empty() {
+        return;
+    }
+    if let Some(flag) = running_prompts.get(session_id) {
+        flag.store(true, Ordering::Relaxed);
+    }
+    let conversation_id = server
+        .sessions
+        .get(session_id)
+        .map(|session| session.conversation_id.clone())
+        .unwrap_or_else(|| session_id.to_string());
+    if let Err(err) = server.interrupt_conversation(&conversation_id) {
+        runtime_log_error(format!("[ACP] session/cancel 中断会话失败: {err}"));
+    }
 }
 
 /// 把一条 AssistantDeltaEvent 投影成 ACP session/update 通知。
@@ -608,89 +909,6 @@ fn acp_forward_delta_event(session_id: &str, event: &AssistantDeltaEvent) {
     }));
 }
 
-/// ACP 主循环：逐行读 JSON-RPC 请求、分发、写回响应。
-/// 串行处理——Multica 的 ACP 客户端（hermesClient）对请求也是逐个等待
-/// 响应的，流式更新经 delta 回调异步写出，不占用本循环。
-async fn acp_server_main() -> i32 {
-    let mut server = AcpServer::new();
-    let mut line = String::new();
-
-    loop {
-        line.clear();
-        // stdin 锁不能跨 await 持有（StdinLock 非 Send）：每次读行临时
-        // 加锁、读完即放。Stdin 内部自带全局缓冲，逐行读取不会丢数据。
-        match acp_read_line_into(&mut line) {
-            Ok(0) => return 0, // stdin 关闭：对端结束，干净退出
-            Ok(_) => {}
-            Err(err) => {
-                runtime_log_error(format!("[ACP] 读取 stdin 失败: {err}"));
-                return 1;
-            }
-        }
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let Ok(frame) = serde_json::from_str::<serde_json::Value>(trimmed) else {
-            let _ = acp_write_frame(&acp_rpc_error(
-                serde_json::Value::Null,
-                -32700,
-                "parse error: 请求不是合法 JSON",
-            ));
-            continue;
-        };
-        // 通知（无 id）一律忽略：本实现不发起也不消费对端通知。
-        let Some(id) = frame.get("id").cloned() else {
-            continue;
-        };
-        let method = frame
-            .get("method")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let params = frame.get("params").cloned().unwrap_or(serde_json::json!({}));
-
-        let response = match method.as_str() {
-            "initialize" => serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {
-                    "protocolVersion": ACP_PROTOCOL_VERSION,
-                    "agentInfo": {
-                        "name": "p-ai",
-                        "version": env!("CARGO_PKG_VERSION")
-                    },
-                    "agentCapabilities": { "loadSession": true }
-                }
-            }),
-            "session/new" => match server.handle_session_new(&params).await {
-                Ok(result) => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-                Err((code, message)) => acp_rpc_error(id, code, &message),
-            },
-            "session/resume" => match server.handle_session_resume(&params).await {
-                Ok(result) => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-                Err((code, message)) => acp_rpc_error(id, code, &message),
-            },
-            "session/set_model" => match server.handle_session_set_model(&params).await {
-                Ok(result) => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-                Err((code, message)) => acp_rpc_error(id, code, &message),
-            },
-            "session/prompt" => match server.handle_session_prompt(&params).await {
-                Ok(result) => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-                Err((code, message)) => acp_rpc_error(id, code, &message),
-            },
-            other => acp_rpc_error(
-                id,
-                -32601,
-                &format!("method not found: {other}"),
-            ),
-        };
-        if let Err(err) = acp_write_frame(&response) {
-            runtime_log_error(format!("[ACP] 写回响应失败: {err}"));
-            return 1;
-        }
-    }
-}
 
 #[cfg(test)]
 mod acp_server_tests {

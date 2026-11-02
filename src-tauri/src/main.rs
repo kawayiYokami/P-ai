@@ -1143,9 +1143,12 @@ fn main() {
     // `p-ai --version` / `p-ai -V`：版本探测接口（Multica 等 agent 编排平台
     // 通过 `<binary> --version` 探测 runtime CLI 是否可用）。必须在任何 GUI /
     // 托盘启动路径之前处理，否则探测会被当成正常启动拉起完整桌面应用。
+    // 只检查 argv[1]：GUI 自启动参数、便携版更新 helper 参数或用户传入的
+    // 文件路径里若碰巧含 "version" 字样，全参数匹配会让正常启动静默退出。
     if argv
-        .iter()
-        .any(|arg| matches!(arg.as_str(), "--version" | "-V" | "version"))
+        .get(1)
+        .map(|arg| matches!(arg.as_str(), "--version" | "-V"))
+        .unwrap_or(false)
     {
         println!("p-ai {}", env!("CARGO_PKG_VERSION"));
         std::process::exit(0);
