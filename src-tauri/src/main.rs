@@ -113,6 +113,7 @@ include!("features/monitor_events.rs");
 
 include!("features/system/commands.rs");
 include!("features/system/headless_cli.rs");
+include!("features/system/acp_server.rs");
 
 #[cfg(target_os = "windows")]
 fn windows_set_process_app_user_model_id() {
@@ -1137,6 +1138,24 @@ fn main() {
         };
         headless_cli_enter_mode(parsed.minimal_tools);
         std::process::exit(run_headless_cli(parsed));
+    }
+
+    // `p-ai --version` / `p-ai -V`：版本探测接口（Multica 等 agent 编排平台
+    // 通过 `<binary> --version` 探测 runtime CLI 是否可用）。必须在任何 GUI /
+    // 托盘启动路径之前处理，否则探测会被当成正常启动拉起完整桌面应用。
+    if argv
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "--version" | "-V" | "version"))
+    {
+        println!("p-ai {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+
+    // ACP agent server（`p-ai acp`）：供 Multica 等外部编排平台驱动。
+    // 复用 CLI 模式开关：stderr 日志静音 + 工具策略（拒绝 delegate）。
+    if acp_server_invocation(&argv) {
+        headless_cli_enter_mode(false);
+        std::process::exit(acp_server_enter());
     }
 
     #[cfg(target_os = "windows")]
