@@ -587,7 +587,7 @@ pub(super) fn chat_store_read_current_compaction_segment(
     if !chat_store_exists(paths)? {
         return Ok(None);
     }
-    chat_metadata_store_compaction_segment(paths, None).map(Some)
+    chat_metadata_store_compaction_segment(paths, CompactionSegmentRange::Current).map(Some)
 }
 
 pub(super) fn chat_store_read_compaction_segment_before(
@@ -599,7 +599,7 @@ pub(super) fn chat_store_read_compaction_segment_before(
     }
     Ok(Some(chat_metadata_store_compaction_segment(
         paths,
-        Some(boundary_message_id),
+        CompactionSegmentRange::Through(boundary_message_id),
     )?))
 }
 

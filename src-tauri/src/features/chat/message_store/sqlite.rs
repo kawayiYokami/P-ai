@@ -147,7 +147,39 @@ pub(super) fn chat_metadata_store_db_path(data_path: &PathBuf) -> PathBuf {
     app_layout_chat_dir(data_path).join(CHAT_METADATA_DB_FILE_NAME)
 }
 
+/// 测试观测点：按数据目录统计聊天索引库打开次数。
+/// 每次打开都要跑一遍建表语句与列迁移检查，是追加路径的主要固定开销；
+/// 用于验证「单条消息追加不随消息条数增长开连接次数」，不参与运行时逻辑。
+#[cfg(test)]
+fn chat_metadata_store_open_counters(
+) -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, usize>> {
+    static COUNTERS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<PathBuf, usize>>,
+    > = std::sync::OnceLock::new();
+    COUNTERS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(test)]
+fn chat_metadata_store_reset_open_count(data_path: &PathBuf) {
+    if let Ok(mut counters) = chat_metadata_store_open_counters().lock() {
+        counters.insert(data_path.clone(), 0);
+    }
+}
+
+#[cfg(test)]
+fn chat_metadata_store_open_count(data_path: &PathBuf) -> usize {
+    chat_metadata_store_open_counters()
+        .lock()
+        .ok()
+        .and_then(|counters| counters.get(data_path).copied())
+        .unwrap_or(0)
+}
+
 fn chat_metadata_store_open(data_path: &PathBuf) -> Result<rusqlite::Connection, String> {
+    #[cfg(test)]
+    if let Ok(mut counters) = chat_metadata_store_open_counters().lock() {
+        *counters.entry(data_path.clone()).or_insert(0) += 1;
+    }
     let db_path = chat_metadata_store_db_path(data_path);
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent).map_err(|err| {
@@ -786,8 +818,16 @@ fn chat_metadata_store_read_locator_by_id(
     message_id: &str,
 ) -> Result<Option<ChatMetadataLocator>, String> {
     let conn = chat_metadata_store_open(&paths.data_path)?;
+    chat_metadata_store_read_locator_by_id_with_conn(&conn, paths, message_id)
+}
+
+fn chat_metadata_store_read_locator_by_id_with_conn(
+    conn: &rusqlite::Connection,
+    paths: &MessageStorePaths,
+    message_id: &str,
+) -> Result<Option<ChatMetadataLocator>, String> {
     let mut rows = chat_metadata_store_query_locators(
-        &conn,
+        conn,
         &paths.conversation_id,
         "AND message_id=?2",
         &[&message_id],
@@ -850,11 +890,26 @@ fn chat_metadata_store_read_locators_for_block(
     block_id: u32,
 ) -> Result<Vec<ChatMetadataLocator>, String> {
     let conn = chat_metadata_store_open(&paths.data_path)?;
-    chat_metadata_store_query_locators(&conn, &paths.conversation_id, "AND block_id=?2", &[&(block_id as i64)])
+    chat_metadata_store_read_locators_for_block_with_conn(&conn, paths, block_id)
+}
+
+fn chat_metadata_store_read_locators_for_block_with_conn(
+    conn: &rusqlite::Connection,
+    paths: &MessageStorePaths,
+    block_id: u32,
+) -> Result<Vec<ChatMetadataLocator>, String> {
+    chat_metadata_store_query_locators(conn, &paths.conversation_id, "AND block_id=?2", &[&(block_id as i64)])
 }
 
 fn chat_metadata_store_read_last_block_id(paths: &MessageStorePaths) -> Result<Option<u32>, String> {
     let conn = chat_metadata_store_open(&paths.data_path)?;
+    chat_metadata_store_read_last_block_id_with_conn(&conn, paths)
+}
+
+fn chat_metadata_store_read_last_block_id_with_conn(
+    conn: &rusqlite::Connection,
+    paths: &MessageStorePaths,
+) -> Result<Option<u32>, String> {
     conn.query_row(
         "SELECT block_id FROM conversation_blocks WHERE conversation_id=?1 ORDER BY block_id DESC LIMIT 1",
         [&paths.conversation_id],
@@ -865,6 +920,13 @@ fn chat_metadata_store_read_last_block_id(paths: &MessageStorePaths) -> Result<O
 
 fn chat_metadata_store_message_count(paths: &MessageStorePaths) -> Result<usize, String> {
     let conn = chat_metadata_store_open(&paths.data_path)?;
+    chat_metadata_store_message_count_with_conn(&conn, paths)
+}
+
+fn chat_metadata_store_message_count_with_conn(
+    conn: &rusqlite::Connection,
+    paths: &MessageStorePaths,
+) -> Result<usize, String> {
     conn.query_row(
         "SELECT COUNT(*) FROM message_locator WHERE conversation_id=?1",
         [&paths.conversation_id],
@@ -1792,6 +1854,94 @@ fn chat_metadata_store_abort_block_publication(
     }
 }
 
+/// 追加前要读的索引信息。
+///
+/// 这些读操作彼此无关，过去各开一次连接（每条待追加消息还要再开一次做 id 查重）。
+/// 每次开连接都要跑一遍建表语句与列迁移检查，所以固定开销与消息条数无关但与调用次数成正比，
+/// 这里一次读完，追加路径的读侧就只剩一次开连接。
+struct ChatAppendIndexSnapshot {
+    message_count: usize,
+    last_block_id: Option<u32>,
+    tail_rows: Vec<ChatMetadataLocator>,
+    existing_block_count: usize,
+}
+
+fn chat_metadata_store_read_append_index(
+    conn: &rusqlite::Connection,
+    paths: &MessageStorePaths,
+) -> Result<ChatAppendIndexSnapshot, String> {
+    let message_count = chat_metadata_store_message_count_with_conn(conn, paths)?;
+    let last_block_id = chat_metadata_store_read_last_block_id_with_conn(conn, paths)?;
+    let tail_rows = match last_block_id {
+        Some(block_id) => chat_metadata_store_read_locators_for_block_with_conn(conn, paths, block_id)?,
+        None => Vec::new(),
+    };
+    let existing_block_count = match last_block_id {
+        Some(_) => chat_metadata_store_read_block_count_with_conn(conn, paths)?,
+        None => 0,
+    };
+    Ok(ChatAppendIndexSnapshot { message_count, last_block_id, tail_rows, existing_block_count })
+}
+
+/// 一次 IN 查询拿回全部已存在的 message id。
+/// 查重原先按消息条数逐条开连接，是追加路径里唯一随条数增长的那块开销。
+fn chat_metadata_store_read_existing_message_ids(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+    message_ids: &[String],
+) -> Result<std::collections::HashSet<String>, String> {
+    // 分批查：SQLite 绑定变量上限是 32766，超了在 prepare 阶段就失败，而这条路径的条数
+    // 不由这里决定（空会话首次写入会把整段历史一次交给 append）。批大小与本文件
+    // chat_metadata_store_list_locators_by_conversation_inner 保持一致。
+    const IDS_PER_QUERY: usize = 400;
+    let mut existing_ids = std::collections::HashSet::<String>::new();
+    for chunk in message_ids.chunks(IDS_PER_QUERY) {
+        let placeholders = (2..=chunk.len() + 1)
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT message_id FROM message_locator WHERE conversation_id=?1 AND message_id IN ({placeholders})"
+        );
+        let mut statement = conn.prepare(&sql)
+            .map_err(|err| format!("准备读取 SQLite 消息查重结果失败: {err}"))?;
+        let mut params = Vec::<&dyn rusqlite::ToSql>::with_capacity(chunk.len() + 1);
+        params.push(&conversation_id);
+        for message_id in chunk {
+            params.push(message_id);
+        }
+        let rows = statement.query_map(rusqlite::params_from_iter(params), |row| row.get::<_, String>(0))
+            .map_err(|err| format!("读取 SQLite 消息查重结果失败: {err}"))?;
+        for row in rows {
+            existing_ids.insert(row.map_err(|err| format!("解析 SQLite 消息查重结果失败: {err}"))?);
+        }
+    }
+    Ok(existing_ids)
+}
+
+/// 待追加消息的 id 校验与查重：批内自重复 + 库内已存在，都按原有错误文案拒绝。
+/// 错误里的 message_id 保留 `message.id` 原值（含首尾空白），便于对照调用方传入的内容。
+fn chat_metadata_store_ensure_appended_messages_are_new(
+    conn: &rusqlite::Connection,
+    paths: &MessageStorePaths,
+    messages: &[ChatMessage],
+) -> Result<(), String> {
+    let mut known_ids = std::collections::HashSet::<String>::new();
+    let mut candidate_ids = Vec::<String>::with_capacity(messages.len());
+    for message in messages {
+        let id = message.id.trim();
+        if id.is_empty() || !known_ids.insert(id.to_string()) {
+            return Err(format!("追加 SQLite 消息失败：消息 ID 无效或重复，conversation_id={}，message_id={}", paths.conversation_id, message.id));
+        }
+        candidate_ids.push(id.to_string());
+    }
+    let existing_ids = chat_metadata_store_read_existing_message_ids(conn, &paths.conversation_id, &candidate_ids)?;
+    if let Some(message) = messages.iter().find(|message| existing_ids.contains(message.id.trim())) {
+        return Err(format!("追加 SQLite 消息失败：消息 ID 无效或重复，conversation_id={}，message_id={}", paths.conversation_id, message.id));
+    }
+    Ok(())
+}
+
 fn chat_metadata_store_append_messages(
     paths: &MessageStorePaths,
     meta: &ConversationPersistMeta,
@@ -1802,19 +1952,14 @@ fn chat_metadata_store_append_messages(
     }
     let shard_meta = ConversationShardMeta::from_persist_meta(meta);
     chat_metadata_store_with_writer_gate(paths, || {
-        let count = chat_metadata_store_message_count(paths)?;
-        let last_block_id = chat_metadata_store_read_last_block_id(paths)?;
-        let tail_rows = match last_block_id {
-            Some(block_id) => chat_metadata_store_read_locators_for_block(paths, block_id)?,
-            None => Vec::new(),
-        };
-        let mut known_ids = std::collections::HashSet::<String>::new();
-        for message in messages {
-            let id = message.id.trim();
-            if id.is_empty() || !known_ids.insert(id.to_string()) || chat_metadata_store_read_locator_by_id(paths, id)?.is_some() {
-                return Err(format!("追加 SQLite 消息失败：消息 ID 无效或重复，conversation_id={}，message_id={}", paths.conversation_id, message.id));
-            }
-        }
+        // 读侧一次连接读完，随后立即释放：写路径（物理追加 / publish）各自要拿写事务与 publication gate，不复用读连接。
+        let conn = chat_metadata_store_open(&paths.data_path)?;
+        let index = chat_metadata_store_read_append_index(&conn, paths)?;
+        chat_metadata_store_ensure_appended_messages_are_new(&conn, paths, messages)?;
+        drop(conn);
+        let count = index.message_count;
+        let last_block_id = index.last_block_id;
+        let tail_rows = index.tail_rows;
         let entries = messages.iter().map(|message| (meta, message)).collect::<Vec<_>>();
         // 追加前先对账尾块（torn/孤儿截断），否则整块解压读取会失败
         if let Some(tail_row) = tail_rows.last() {
@@ -1838,7 +1983,7 @@ fn chat_metadata_store_append_messages(
             None => None,
         };
         let plan = plan_appended_message_blocks(tail_last_message.as_ref(), &entries);
-        let existing_block_count = if last_block_id.is_some() { chat_metadata_store_read_block_count(paths)? } else { 0 };
+        let existing_block_count = index.existing_block_count;
         let total_block_count = existing_block_count + plan.groups.len() - usize::from(plan.continue_last_block && last_block_id.is_some());
         // 物理追加快速路径：延续尾块 + 单组新消息 + 非 slim（活跃会话普通追加）
         if plan.continue_last_block && plan.groups.len() == 1 {
@@ -2249,6 +2394,13 @@ fn chat_metadata_store_append_line_to_group_physical(
 
 fn chat_metadata_store_read_block_count(paths: &MessageStorePaths) -> Result<usize, String> {
     let conn = chat_metadata_store_open(&paths.data_path)?;
+    chat_metadata_store_read_block_count_with_conn(&conn, paths)
+}
+
+fn chat_metadata_store_read_block_count_with_conn(
+    conn: &rusqlite::Connection,
+    paths: &MessageStorePaths,
+) -> Result<usize, String> {
     conn.query_row(
         "SELECT COUNT(*) FROM conversation_blocks WHERE conversation_id=?1",
         [&paths.conversation_id],
@@ -2518,7 +2670,7 @@ fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() 
         .expect("read following message");
     assert_eq!(following_after.id, "following");
     assert_eq!(
-        chat_metadata_store_compaction_segment(&paths, None)
+        chat_metadata_store_compaction_segment(&paths, CompactionSegmentRange::Current)
             .expect("current block")
             .messages
             .iter()
@@ -2537,20 +2689,18 @@ fn chat_metadata_store_append_messages_unlocked(
     if messages.is_empty() {
         return Err(format!("追加 SQLite 消息失败：消息为空，conversation_id={}", paths.conversation_id));
     }
-    let count = chat_metadata_store_message_count(paths)?;
-    let last_block_id = chat_metadata_store_read_last_block_id(paths)?;
-    let tail_rows = match last_block_id { Some(block_id) => chat_metadata_store_read_locators_for_block(paths, block_id)?, None => Vec::new() };
+    // 读侧一次连接读完，随后释放：publish 自己开连接拿写事务与 publication gate。
+    let conn = chat_metadata_store_open(&paths.data_path)?;
+    let index = chat_metadata_store_read_append_index(&conn, paths)?;
+    chat_metadata_store_ensure_appended_messages_are_new(&conn, paths, messages)?;
+    drop(conn);
+    let count = index.message_count;
+    let last_block_id = index.last_block_id;
+    let tail_rows = index.tail_rows;
     let tail_messages = chat_metadata_store_read_messages_for_locators(paths, &tail_rows, false)?;
-    let mut known_ids = std::collections::HashSet::<String>::new();
-    for message in messages {
-        let id = message.id.trim();
-        if id.is_empty() || !known_ids.insert(id.to_string()) || chat_metadata_store_read_locator_by_id(paths, id)?.is_some() {
-            return Err(format!("追加 SQLite 消息失败：消息 ID 无效或重复，conversation_id={}，message_id={}", paths.conversation_id, message.id));
-        }
-    }
     let entries = messages.iter().map(|message| (meta, message)).collect::<Vec<_>>();
     let plan = plan_appended_message_blocks(tail_messages.last(), &entries);
-    let existing_block_count = if last_block_id.is_some() { chat_metadata_store_read_block_count(paths)? } else { 0 };
+    let existing_block_count = index.existing_block_count;
     let total_block_count = existing_block_count + plan.groups.len() - usize::from(plan.continue_last_block && last_block_id.is_some());
     let mut changed_blocks = Vec::<JsonlSnapshotConversationBlock>::new();
     let mut rows = Vec::<(i64, MessageStoreIndexItem)>::new();
@@ -2781,14 +2931,29 @@ pub(super) fn chat_metadata_store_run_v3_migration(data_path: &PathBuf) -> Resul
     migration_v2_to_v3(data_path, None)
 }
 
+/// 压缩段读取范围。
+///
+/// 原来是 `boundary_message_id: Option<&str>`，`None` 只是个约定俗成的暗号，
+/// 读调用点看不出「不传边界」到底是要空段、要整段，还是要最近边界之后。
+enum CompactionSegmentRange<'a> {
+    /// 从最近一个压缩边界读到最新一条。从未压缩过的会话等于整段，这是构造上下文的需要。
+    Current,
+    /// 读到指定压缩边界之前（不含边界自身），边界必须已经存在且标记为压缩边界。
+    Through(&'a str),
+}
+
+/// 读取一段压缩上下文。
+///
+/// 注意：这里不加 LIMIT。压缩段的长度由边界到末尾的消息数决定，加了等于把上下文截断，
+/// 模型会凭空丢掉一段历史，且不会再有任何地方把它补回来。
 fn chat_metadata_store_compaction_segment(
     paths: &MessageStorePaths,
-    boundary_message_id: Option<&str>,
+    range: CompactionSegmentRange<'_>,
 ) -> Result<MessageStoreCompactionSegment, String> {
     chat_metadata_store_with_read_snapshot(paths, || {
     let conn = chat_metadata_store_open(&paths.data_path)?;
-    let (start_locator, end_sequence) = match boundary_message_id {
-        Some(message_id) => {
+    let (start_locator, end_sequence) = match range {
+        CompactionSegmentRange::Through(message_id) => {
             let locator = chat_metadata_store_read_locator_by_id(paths, message_id)?
                 .ok_or_else(|| format!("Compaction boundary not found: {}", message_id.trim()))?;
             if locator.item.compaction_kind.is_none() {
@@ -2805,7 +2970,7 @@ fn chat_metadata_store_compaction_segment(
             ).optional().map_err(|err| format!("读取 SQLite 前一压缩边界失败: {err}"))?;
             (previous, Some(locator.sequence))
         }
-        None => {
+        CompactionSegmentRange::Current => {
             let latest = conn.query_row(
             "SELECT sequence, message_id, block_id, byte_offset, byte_len, compaction_kind, role, created_at
              FROM message_locator WHERE conversation_id=?1 AND compaction_kind IS NOT NULL ORDER BY sequence DESC LIMIT 1",
@@ -2905,17 +3070,33 @@ fn chat_metadata_store_block_page(
         return Ok(MessageStoreBlockPage { blocks: Vec::new(), selected_block_id: requested_block_id.unwrap_or(0), messages: Vec::new(), has_prev_block: false, has_next_block: false });
     }
     let latest_id = block_rows.last().map(|(block_id, _)| *block_id).unwrap_or(0);
+    // 每块只需要首末两条。原来是对每个块单独全读一次该块 locator 再取 first/last，
+    // 块越多重复扫的行数越接近全表；这里用一条窗口函数查询一次取回每块最多两行。
+    let mut boundary_statement = conn.prepare(
+        "SELECT block_id, message_id, created_at, sequence FROM (
+             SELECT block_id, message_id, created_at, sequence,
+                    ROW_NUMBER() OVER (PARTITION BY block_id ORDER BY sequence ASC) AS row_first,
+                    ROW_NUMBER() OVER (PARTITION BY block_id ORDER BY sequence DESC) AS row_last
+             FROM message_locator WHERE conversation_id=?1
+         ) WHERE row_first=1 OR row_last=1 ORDER BY block_id ASC, sequence ASC",
+    ).map_err(|err| format!("准备读取 SQLite block 边界失败: {err}"))?;
+    let boundary_rows = boundary_statement.query_map([&paths.conversation_id], |row| {
+        Ok((row.get::<_, i64>(0)? as u32, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+    }).map_err(|err| format!("读取 SQLite block 边界失败: {err}"))?
+        .collect::<Result<Vec<_>, _>>().map_err(|err| format!("解析 SQLite block 边界失败: {err}"))?;
+    // 结果按 block_id、sequence 升序：块内第一行是首条，之后覆盖到的那行是末条。
+    // 单条消息的块只返回一行，首末天然是同一条。
+    let mut boundaries = std::collections::HashMap::<u32, ((String, String), (String, String))>::new();
+    for (block_id, message_id, created_at) in boundary_rows {
+        let entry = boundaries.entry(block_id).or_insert_with(|| {
+            let edge = (message_id.clone(), created_at.clone());
+            (edge.clone(), edge)
+        });
+        entry.1 = (message_id, created_at);
+    }
     let mut blocks = Vec::with_capacity(block_rows.len());
     for (block_id, message_count) in &block_rows {
-        let mut locator_statement = conn.prepare(
-            "SELECT message_id, created_at FROM message_locator WHERE conversation_id=?1 AND block_id=?2 ORDER BY sequence ASC",
-        ).map_err(|err| format!("准备读取 SQLite block 边界失败: {err}"))?;
-        let locators = locator_statement.query_map(rusqlite::params![paths.conversation_id, *block_id as i64], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }).map_err(|err| format!("读取 SQLite block 边界失败: {err}"))?
-            .collect::<Result<Vec<_>, _>>().map_err(|err| format!("解析 SQLite block 边界失败: {err}"))?;
-        let first = locators.first().cloned().unwrap_or_default();
-        let last = locators.last().cloned().unwrap_or_default();
+        let (first, last) = boundaries.get(block_id).cloned().unwrap_or_default();
         blocks.push(MessageStoreBlockSummary {
             block_id: *block_id, message_count: *message_count, first_message_id: first.0, last_message_id: last.0,
             first_created_at: Some(first.1).filter(|value| !value.trim().is_empty()),
@@ -3944,6 +4125,116 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
     let _ = fs::remove_dir_all(root);
 }
 
+/// 追加路径的开连接数必须与消息条数无关。
+///
+/// 旧实现每次追加都顺序开 4 次连接读索引、每条消息再各开 1 次查重，最后写路径再开 1 次；
+/// 一次追加 3 条就是 8 次。现在读侧合成 1 次、查重合成 1 条 IN 查询，只剩「读 1 次 + 写 1 次」。
+#[cfg(test)]
+#[test]
+fn v3_chat_metadata_append_should_open_store_constant_times() {
+    let root = std::env::temp_dir().join(format!("eca-chat-v3-append-open-count-{}", Uuid::new_v4()));
+    let data_path = root.join("config_mark");
+    let message = |id: &str, role: &str| ChatMessage {
+        id: id.to_string(), role: role.to_string(), created_at: now_iso(), speaker_agent_id: None,
+        parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
+    };
+    let conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
+        id: "conv-v3-append-open-count".to_string(), title: "append open count".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: vec![message("m0", "user")], fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, team: TeamState::default(), last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
+        shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
+        shell_recorded_branch: String::new(),
+        is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
+    };
+    let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
+    write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
+    chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
+    migration_v3_to_v4(&data_path, None).expect("migrate v4");
+
+    // 1. 追加 3 条：读侧 1 次 + 写入 1 次
+    let mut appended = conversation.clone();
+    appended.messages.push(message("m1", "assistant"));
+    appended.messages.push(message("m2", "user"));
+    appended.messages.push(message("m3", "assistant"));
+    chat_metadata_store_reset_open_count(&data_path);
+    chat_metadata_store_append_messages(
+        &paths,
+        &ConversationPersistMeta::from_conversation(&appended),
+        &appended.messages[1..],
+    )
+    .expect("append three messages");
+    assert_eq!(
+        chat_metadata_store_open_count(&data_path),
+        2,
+        "追加 3 条消息应只开 2 次连接（读侧 1 次 + 写入 1 次），开连接次数不能随条数增长"
+    );
+
+    // 2. 追加后的消息序与 locator 序都要连续
+    let read_back = chat_metadata_store_read_conversation(&paths)
+        .expect("read conversation")
+        .expect("conversation exists");
+    assert_eq!(
+        read_back.messages.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+        vec!["m0", "m1", "m2", "m3"]
+    );
+    let locator_sequences = ["m0", "m1", "m2", "m3"]
+        .iter()
+        .map(|id| {
+            chat_metadata_store_read_locator_by_id(&paths, id)
+                .expect("read locator")
+                .unwrap_or_else(|| panic!("locator missing: {id}"))
+                .sequence
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        locator_sequences.windows(2).all(|pair| pair[1] == pair[0] + 1),
+        "locator sequence 必须连续顺延，实际={locator_sequences:?}"
+    );
+
+    // 3. 只追加 1 条也是 2 次：证明开连接数与消息条数无关
+    let mut appended_one = appended.clone();
+    appended_one.messages.push(message("m4", "user"));
+    chat_metadata_store_reset_open_count(&data_path);
+    chat_metadata_store_append_messages(
+        &paths,
+        &ConversationPersistMeta::from_conversation(&appended_one),
+        &appended_one.messages[4..],
+    )
+    .expect("append one message");
+    assert_eq!(
+        chat_metadata_store_open_count(&data_path),
+        2,
+        "追加 1 条消息同样应只开 2 次连接"
+    );
+
+    // 4. 查重仍然生效：库内已存在的 id 拒绝，批内自重复也拒绝
+    let duplicate_with_existing = chat_metadata_store_append_messages(
+        &paths,
+        &ConversationPersistMeta::from_conversation(&appended_one),
+        &[message("m2", "user")],
+    )
+    .expect_err("已存在的 message id 必须拒绝");
+    assert!(
+        duplicate_with_existing.contains("消息 ID 无效或重复") && duplicate_with_existing.contains("m2"),
+        "查重错误文案应保留原样，实际={duplicate_with_existing}"
+    );
+    let duplicate_in_batch = chat_metadata_store_append_messages(
+        &paths,
+        &ConversationPersistMeta::from_conversation(&appended_one),
+        &[message("batch-dup", "user"), message("batch-dup", "assistant")],
+    )
+    .expect_err("批内重复 message id 必须拒绝");
+    assert!(
+        duplicate_in_batch.contains("消息 ID 无效或重复"),
+        "批内查重错误文案应保留原样，实际={duplicate_in_batch}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
 #[cfg(test)]
 #[test]
 fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
@@ -4169,7 +4460,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
     )
     .expect("append compaction and current user");
 
-    let current_context = chat_metadata_store_compaction_segment(&paths, None)
+    let current_context = chat_metadata_store_compaction_segment(&paths, CompactionSegmentRange::Current)
         .expect("read current context");
     assert_eq!(
         current_context
@@ -4466,5 +4757,139 @@ fn block_publication_failure_should_restore_replaced_block_file() {
         0
     };
     assert_eq!(leftovers, 0, "回滚完成后不该留下备份目录");
+    let _ = fs::remove_dir_all(root);
+}
+
+/// 块分页对照基准：逐块全读 locator 再取首末，与改造前的实现同一条 SQL。
+/// 仅测试使用，用来证明窗口函数版的结果逐字段一致。
+#[cfg(test)]
+fn block_page_reference_boundaries(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+) -> Vec<(u32, usize, (String, String), (String, String))> {
+    let mut statement = conn
+        .prepare("SELECT block_id, message_count FROM conversation_blocks WHERE conversation_id=?1 ORDER BY block_id ASC")
+        .expect("prepare reference block rows");
+    let mut expected = Vec::new();
+    let block_rows = statement
+        .query_map([conversation_id], |row| {
+            Ok((row.get::<_, i64>(0)? as u32, row.get::<_, i64>(1)? as usize))
+        })
+        .expect("query reference block rows")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect reference block rows");
+    for (block_id, message_count) in block_rows {
+        let mut locator_statement = conn
+            .prepare("SELECT message_id, created_at FROM message_locator WHERE conversation_id=?1 AND block_id=?2 ORDER BY sequence ASC")
+            .expect("prepare reference locator");
+        let locators = locator_statement
+            .query_map(rusqlite::params![conversation_id, block_id as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .expect("query reference locators")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect reference locators");
+        let first = locators.first().cloned().unwrap_or_default();
+        let last = locators.last().cloned().unwrap_or_default();
+        expected.push((block_id, message_count, first, last));
+    }
+    expected
+}
+
+#[cfg(test)]
+#[test]
+fn block_page_boundaries_should_match_per_block_full_read() {
+    let root = std::env::temp_dir().join(format!("eca-chat-block-page-boundaries-{}", Uuid::new_v4()));
+    let data_path = root.join("config_mark");
+    // 压缩种子起新块：m1 | c1,m2 | c2,m3,m4 | c3 | c4,m5，其中 c3 单独成块
+    let message = |id: &str, role: &str, compaction_kind: Option<&str>| ChatMessage {
+        id: id.to_string(), role: role.to_string(), created_at: now_iso(), speaker_agent_id: None,
+        parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(),
+        provider_meta: compaction_kind.map(|kind| serde_json::json!({ "message_meta": { "kind": kind } })),
+        tool_call: None, mcp_call: None, meme_annotations: None,
+    };
+    let mut conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
+        id: "conv-block-page-boundaries".to_string(), title: "block page boundaries".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, team: TeamState::default(), last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
+        shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
+        shell_recorded_branch: String::new(),
+        is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
+    };
+    conversation.messages = vec![
+        message("m1", "user", None),
+        message("c1", "user", Some("context_compaction")),
+        message("m2", "assistant", None),
+        message("c2", "user", Some("summary_context_seed")),
+        message("m3", "user", None),
+        message("m4", "assistant", None),
+        message("c3", "user", Some("context_compaction")),
+        message("c4", "user", Some("context_compaction")),
+        message("m5", "assistant", None),
+    ];
+    let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
+    write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
+    chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
+    migration_v3_to_v4(&data_path, None).expect("migrate v4");
+
+    let page = chat_metadata_store_block_page(&paths, None).expect("read block page");
+    assert_eq!(page.blocks.len(), 5, "压缩种子应切出 5 个块");
+    assert_eq!(
+        page.blocks.iter().map(|block| block.message_count).collect::<Vec<_>>(),
+        vec![1, 2, 3, 1, 2],
+    );
+    assert_eq!(
+        page.blocks.iter().map(|block| (block.block_id, block.first_message_id.as_str(), block.last_message_id.as_str())).collect::<Vec<_>>(),
+        vec![(0, "m1", "m1"), (1, "c1", "m2"), (2, "c2", "m4"), (3, "c3", "c3"), (4, "c4", "m5")],
+        "每块首末条必须与块内 sequence 顺序一致，单条消息块首末同一条",
+    );
+    assert!(page.blocks[4].is_latest, "最新块只应标在最后一块");
+    assert!(page.blocks[..4].iter().all(|block| !block.is_latest));
+    assert_eq!(page.selected_block_id, 4, "未指定块时默认选最新块");
+
+    // 与逐块全读的旧实现逐字段比对
+    let conn = chat_metadata_store_open(&data_path).expect("open store for reference");
+    let expected = block_page_reference_boundaries(&conn, &paths.conversation_id);
+    assert_eq!(page.blocks.len(), expected.len());
+    for (actual, (block_id, message_count, first, last)) in page.blocks.iter().zip(expected) {
+        assert_eq!(actual.block_id, block_id);
+        assert_eq!(actual.message_count, message_count);
+        assert_eq!(actual.first_message_id, first.0);
+        assert_eq!(actual.last_message_id, last.0);
+        assert_eq!(actual.first_created_at, Some(first.1).filter(|value| !value.trim().is_empty()));
+        assert_eq!(actual.last_created_at, Some(last.1).filter(|value| !value.trim().is_empty()));
+    }
+    let _ = fs::remove_dir_all(root);
+}
+
+#[cfg(test)]
+#[test]
+fn block_page_should_stay_empty_for_conversation_without_blocks() {
+    let root = std::env::temp_dir().join(format!("eca-chat-block-page-empty-{}", Uuid::new_v4()));
+    let data_path = root.join("config_mark");
+    let conversation = Conversation {
+        loaded_mcp_tools: Vec::new(),
+        id: "conv-block-page-empty".to_string(), title: "block page empty".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, team: TeamState::default(), last_error: None, cumulative_usage: ConversationCumulativeUsage::default(),
+        shell_work_branch: String::new(),
+        shell_worktree_path: String::new(),
+        shell_recorded_branch: String::new(),
+        is_draft: false,
+        progress_state: String::new(),
+        evidence: String::new(),
+        evidence_updated_at: String::new(),
+    };
+    let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
+    write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
+    chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
+    migration_v3_to_v4(&data_path, None).expect("migrate v4");
+
+    let page = chat_metadata_store_block_page(&paths, None).expect("read empty block page");
+    assert!(page.blocks.is_empty(), "空会话不该凭空产生块边界");
+    assert!(page.messages.is_empty());
+    assert_eq!(page.selected_block_id, 0);
+    assert!(!page.has_prev_block && !page.has_next_block);
     let _ = fs::remove_dir_all(root);
 }
