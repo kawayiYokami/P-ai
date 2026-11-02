@@ -27,6 +27,9 @@
         side-chat-enabled
         :team-visible="withTeam"
         :team-members="members"
+        :kanban-visible="true"
+        :kanban-issues="visibleKanbanIssues"
+        :open-files="demoOpenFiles"
         @open-side-chat-panel="noop('openSideChatPanel')"
         @open-team-member="(id: string) => noop(`openTeamMember:${id}`)"
         @open-team-management="noop('openTeamManagement')"
@@ -43,11 +46,49 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import ChatHomePanel from "./ChatHomePanel.vue";
+import type { KanbanIssue } from "../composables/use-kanban-board";
 import type { TeamMemberTileItem } from "./team-member-tile";
+
+/**
+ * 议题看板磁贴的 mock：分类数与「最长分类条数」都超过上限，用来验证磁贴高度封顶在 2 行、
+ * 多出来的议题在卡内滚动，而不是把网格撑高。
+ */
+const demoKanbanIssues: KanbanIssue[] = [
+  { number: 3, title: "发布流程要不要加一步回归检查", status: "in_review", assignee: "小吉祥草王", note: "三条回归都跑过了", updatedAt: "2026-11-01T11:20:00+08:00" },
+  { number: 5, title: "看板磁贴尺寸定稿", status: "in_review", assignee: "莫娜", updatedAt: "2026-11-01T11:35:00+08:00", note: "" },
+  { number: 11, title: "提问工具的回答要不要带时间戳", status: "in_review", assignee: "欧科塔维亚", updatedAt: "2026-11-01T11:46:00+08:00", note: "" },
+  { number: 12, title: "队伍名册改角色后的文案", status: "in_review", assignee: "leader", updatedAt: "2026-11-01T11:47:00+08:00", note: "" },
+  { number: 7, title: "队员 3 号的 worktree 有未解决冲突", status: "blocked", assignee: "桑多涅", note: "需要你定谁先合", updatedAt: "2026-11-01T10:05:00+08:00" },
+  { number: 13, title: "摘要工具的回滚逻辑要重做", status: "blocked", assignee: "钟离", note: "等确认快照失败时回滚到哪一版", updatedAt: "2026-11-01T10:30:00+08:00" },
+  { number: 8, title: "提问工具要不要支持多选", status: "discussing", assignee: "欧科塔维亚", updatedAt: "2026-11-01T11:40:00+08:00", note: "" },
+  { number: 1, title: "模型继承链改成父会话优先", status: "in_progress", assignee: "小黑塔", updatedAt: "2026-11-01T11:10:00+08:00", note: "" },
+  { number: 2, title: "专家模型改成被动跟随", status: "todo", assignee: "小黑塔", note: "" },
+  { number: 6, title: "队伍名册改用角色标识", status: "done", assignee: "桑多涅", note: "已确认由界面通过" },
+  { number: 14, title: "看板页要不要支持拖拽改状态", status: "done", assignee: "莫娜", updatedAt: "2026-11-01T12:10:00+08:00", note: "" },
+];
+
+/** 文件磁贴 mock：覆盖按扩展名取图标的几类（markdown / vue / json / rust）加一条未知扩展名，验证兜底回落到通用文件图标。 */
+const demoOpenFiles = [
+  { path: "E:/demo/workspace/docs/team-leader-rule.md", label: "team-leader-rule.md" },
+  { path: "E:/demo/workspace/src/views/ChatView.vue", label: "ChatView.vue" },
+  { path: "E:/demo/workspace/src/locales/zh-CN.json", label: "zh-CN.json" },
+  { path: "E:/demo/workspace/src-tauri/src/main.rs", label: "main.rs" },
+  { path: "E:/demo/workspace/data/unknown.foo", label: "unknown.foo" },
+];
 
 const widthParam = Number(new URLSearchParams(window.location.search).get("w") || 0);
 const demoWidth = ref(widthParam > 0 ? widthParam : 586);
 const withTeam = ref(true);
+
+/** `?k=progress` 只喂进展态议题（决策态一条没有），用来验证「另一侧空时切换按钮不可点」。 */
+const kanbanPreset = new URLSearchParams(window.location.search).get("k") || "both";
+const PROGRESS_STATUSES = ["in_progress", "done"];
+
+const visibleKanbanIssues = computed(() =>
+  kanbanPreset === "progress"
+    ? demoKanbanIssues.filter((issue) => PROGRESS_STATUSES.includes(issue.status))
+    : demoKanbanIssues,
+);
 
 /** 队员磁贴的实际高度与列数：用来核对「两行固定高度」是否算对，别靠猜 */
 const measureText = ref("量测中…");

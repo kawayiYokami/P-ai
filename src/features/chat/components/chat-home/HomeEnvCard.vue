@@ -1,6 +1,7 @@
 <template>
   <CardShell
-    variant="wide"
+    :col-span="colSpan"
+    :row-span="rowSpan"
     tone="warning"
     :icon="GitBranch"
     :label="t('chat.homePanel.envLabel')"
@@ -95,11 +96,17 @@ const props = withDefaults(defineProps<{
   changeCount?: number;
   /** 最近提交；只取第一条作为「最新提交」 */
   commits?: Array<{ hash: string; message: string }>;
+  /** 占几列：宿主 ChatHomePanel 算好下发 */
+  colSpan?: number;
+  /** 占几行：宿主 ChatHomePanel 算好下发 */
+  rowSpan?: number;
 }>(), {
   repoRoot: "",
   branch: "",
   changeCount: 0,
   commits: () => [],
+  colSpan: 2,
+  rowSpan: 1,
 });
 
 const emit = defineEmits<{

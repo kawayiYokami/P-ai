@@ -2,6 +2,8 @@
   <CardShell
     layout="tile"
     class="group relative"
+    :col-span="colSpan"
+    :row-span="rowSpan"
     :tone="currentTone"
     :icon="currentIcon"
     :label="currentLabel"
@@ -118,11 +120,17 @@ const props = withDefaults(defineProps<{
   worktreePath?: string;
   worktreeBranch?: string;
   workMode?: ShellWorkMode;
+  /** 占几列：宿主 ChatHomePanel 算好下发 */
+  colSpan?: number;
+  /** 占几行：宿主 ChatHomePanel 算好下发 */
+  rowSpan?: number;
 }>(), {
   workspaceRootPath: "",
   worktreePath: "",
   worktreeBranch: "",
   workMode: "directory",
+  colSpan: 1,
+  rowSpan: 1,
 });
 
 const emit = defineEmits<{

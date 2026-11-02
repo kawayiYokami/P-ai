@@ -1,6 +1,7 @@
 <template>
   <CardShell
-    variant="wide"
+    :col-span="colSpan"
+    :row-span="rowSpan"
     tone="primary"
     :icon="ClipboardList"
     :label="t('chat.homePanel.planLabel')"
@@ -110,9 +111,15 @@ const props = withDefaults(defineProps<{
   conversationId?: string;
   /** 可选：直接传入 markdown（例如在测试/演示画廊中） */
   markdownContent?: string;
+  /** 占几列：宿主 ChatHomePanel 算好下发 */
+  colSpan?: number;
+  /** 占几行：宿主 ChatHomePanel 算好下发 */
+  rowSpan?: number;
 }>(), {
   conversationId: "",
   markdownContent: "",
+  colSpan: 2,
+  rowSpan: 1,
 });
 
 const emit = defineEmits<{

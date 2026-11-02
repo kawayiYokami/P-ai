@@ -1,6 +1,7 @@
 <template>
   <CardShell
-    variant="wide"
+    :col-span="colSpan"
+    :row-span="rowSpan"
     tone="info"
     :icon="Wrench"
     :label="t('chat.homePanel.toolLabel')"
@@ -36,8 +37,14 @@ const MAX_VISIBLE_FILES = 4;
 const props = withDefaults(defineProps<{
   /** 只含出现过工具调用的批次，按会话推进顺序（末尾最新），由 ChatHomePanel 过滤 */
   batches?: ToolReviewBatchSummary[];
+  /** 占几列：宿主 ChatHomePanel 算好下发 */
+  colSpan?: number;
+  /** 占几行：宿主 ChatHomePanel 算好下发 */
+  rowSpan?: number;
 }>(), {
   batches: () => [],
+  colSpan: 2,
+  rowSpan: 1,
 });
 
 const emit = defineEmits<{

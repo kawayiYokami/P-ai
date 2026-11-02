@@ -1,5 +1,7 @@
 <template>
   <CardShell
+    :col-span="colSpan"
+    :row-span="rowSpan"
     tone="success"
     :icon="ListTodo"
     :label="t('chat.homePanel.taskLabel')"
@@ -27,10 +29,16 @@ const props = withDefaults(defineProps<{
   nextRunAt?: string;
   /** 由容器统一驱动的时钟，避免每张卡片各起一个定时器 */
   nowMs?: number;
+  /** 占几列：宿主 ChatHomePanel 算好下发 */
+  colSpan?: number;
+  /** 占几行：宿主 ChatHomePanel 算好下发 */
+  rowSpan?: number;
 }>(), {
   goal: "",
   nextRunAt: "",
   nowMs: 0,
+  colSpan: 1,
+  rowSpan: 1,
 });
 
 const emit = defineEmits<{

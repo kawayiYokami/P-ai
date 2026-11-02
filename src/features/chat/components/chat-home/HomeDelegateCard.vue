@@ -1,5 +1,7 @@
 <template>
   <CardShell
+    :col-span="colSpan"
+    :row-span="rowSpan"
     tone="primary"
     :icon="Network"
     :label="t('chat.homePanel.delegateLabel')"
@@ -31,6 +33,10 @@ const props = withDefaults(defineProps<{
   metaLabel?: string;
   /** 运行中的委托卡显示脉冲点；已结束的委托卡不显示 */
   pulsing?: boolean;
+  /** 占几列：宿主 ChatHomePanel 算好下发 */
+  colSpan?: number;
+  /** 占几行：宿主 ChatHomePanel 算好下发 */
+  rowSpan?: number;
 }>(), {
   elapsedMs: 0,
   requestCount: 0,
@@ -38,6 +44,8 @@ const props = withDefaults(defineProps<{
   lastToolName: "",
   metaLabel: "",
   pulsing: false,
+  colSpan: 1,
+  rowSpan: 1,
 });
 
 const emit = defineEmits<{

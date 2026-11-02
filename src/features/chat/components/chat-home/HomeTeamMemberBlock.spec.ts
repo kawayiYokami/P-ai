@@ -5,9 +5,12 @@ import HomeTeamMemberBlock from "./HomeTeamMemberBlock.vue";
 import type { TeamMemberTileItem } from "../team-member-tile";
 import { i18n } from "../../../../i18n";
 
-async function renderBlock(members: TeamMemberTileItem[] = []): Promise<string> {
+async function renderBlock(
+  members: TeamMemberTileItem[] = [],
+  span: { colSpan?: number; rowSpan?: number } = {},
+): Promise<string> {
   const app = createSSRApp({
-    render: () => h(HomeTeamMemberBlock, { members }),
+    render: () => h(HomeTeamMemberBlock, { members, ...span }),
   });
   app.use(i18n);
   return renderToString(app);
@@ -83,14 +86,21 @@ describe("HomeTeamMemberBlock", () => {
     expect(html).not.toContain("队伍里还没有队员");
   });
 
-  it("工作中的数量决定占几行：0~2 人 1 行，3 人及以上 2 行", async () => {
-    const html2 = await renderBlock([busy("m1", "甲"), withIssue("m2", "乙")]);
-    expect(html2).toContain("ecall-home-team-row-1");
-    expect(html2).not.toContain("ecall-home-team-row-2");
+  it("占几行几列只认宿主下发的 colSpan / rowSpan，不按人数自己涨", async () => {
+    // 两个人（宿主此时会给 1 行）与三个人（宿主会给 2 行）用同一组 props 时结果必须一致，
+    // 说明组件内部不再按工作人数决定高度
+    const html2 = await renderBlock([busy("m1", "甲"), withIssue("m2", "乙")], { colSpan: 2, rowSpan: 1 });
+    expect(html2).toContain("grid-column:span 2");
+    expect(html2).toContain("grid-row:span 1");
 
-    const html3 = await renderBlock([busy("m1", "甲"), withIssue("m2", "乙"), busy("m3", "丙")]);
-    expect(html3).toContain("ecall-home-team-row-2");
-    expect(html3).not.toContain("ecall-home-team-row-1");
+    const html3 = await renderBlock(
+      [busy("m1", "甲"), withIssue("m2", "乙"), busy("m3", "丙")],
+      { colSpan: 2, rowSpan: 1 },
+    );
+    expect(html3).toContain("grid-row:span 1");
+
+    const html2Rows = await renderBlock([busy("m1", "甲"), withIssue("m2", "乙")], { colSpan: 2, rowSpan: 2 });
+    expect(html2Rows).toContain("grid-row:span 2");
   });
 
   it("按 teamMemberWorkRank 排序：仅忙碌排在仅有议题之前", async () => {

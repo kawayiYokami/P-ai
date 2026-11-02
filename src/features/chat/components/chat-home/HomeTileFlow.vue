@@ -18,25 +18,27 @@
 /* 固定网格：列宽固定、宽卡跨两格，同一行的卡片自动等高 */
 .ecall-home-flow {
   --ecall-home-tile: 8.75rem;
-  /* 行高与非看板卡片的内容高度对齐：小卡图标行 + 两行文字大约 6.5rem */
-  --ecall-home-row: 6.5rem;
+  /* 行高由宿主统一决定：环境卡四行（标题 + 变更/分支/最新提交）与队员状态表一行 3 人都在这一档内不裁切。
+     10.25rem = 内容卡所需高度；磁贴内容再多也在卡内滚动，不许撑高这一行。 */
+  --ecall-home-row: 10.25rem;
   /* 卡片间距与圆角（--radius-box: 1rem）对齐 */
   --ecall-home-gap: 1rem;
   container-type: inline-size;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--ecall-home-tile), 1fr));
-  /* 行高必须显式给：看板磁贴用 grid-row: span 3，行高为 auto 时
-     它的高度取决于内容，会反过来改行高，和 dense 一起把网格排乱。
-     下限而非固定值：内容多的卡自己撑高，不会被裁。 */
-  grid-auto-rows: minmax(var(--ecall-home-row), auto);
+  /* 行高是硬的：单元多高只由这里决定，内容撑不开它。
+     卡片占几行几列由宿主算好传进磁贴，磁贴自己改不了尺寸；
+     内容超出就在卡片内部滚动。 */
+  grid-auto-rows: var(--ecall-home-row);
   grid-auto-flow: dense;
   gap: var(--ecall-home-gap);
   align-content: start;
 }
 
-/* 窄容器下（如侧边栏单列时），宽卡自适应退化为单列，防止横向撑裂 */
+/* 窄容器下（如侧边栏单列时），所有卡统一压成单列，防止横向撑裂。
+   网格容器是尺寸语言的宿主，磁贴自己压不算。 */
 @container (max-width: 320px) {
-  :deep(.ecall-home-card-wide) {
+  :deep(.ecall-home-flow > *) {
     grid-column: span 1 !important;
   }
 }

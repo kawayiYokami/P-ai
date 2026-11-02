@@ -1,7 +1,7 @@
 <template>
   <div
     class="indicator w-full"
-    :class="[variant === 'wide' ? 'ecall-home-card-wide' : 'ecall-home-card-small']"
+    :style="{ gridColumn: `span ${colSpan}`, gridRow: `span ${rowSpan}` }"
   >
     <span
       v-if="busy || unreadCount > 0 || hasError"
@@ -44,6 +44,7 @@
           alt=""
           class="size-5 rounded-full object-cover"
         />
+        <img v-else-if="iconSrc" :src="iconSrc" alt="" class="size-5 object-contain" />
         <component v-else :is="icon" class="size-5" aria-hidden="true" />
       </span>
       <span class="line-clamp-2 min-w-0 max-w-full text-sm font-medium text-base-content/85">{{ label }}</span>
@@ -60,6 +61,7 @@
               alt=""
               class="size-3.5 rounded-full object-cover"
             />
+            <img v-else-if="iconSrc" :src="iconSrc" alt="" class="size-3.5 shrink-0 object-contain" />
             <component v-else :is="icon" class="size-3.5 shrink-0" aria-hidden="true" />
           </span>
           <span v-if="pulsing && !busy" class="relative flex h-2 w-2 shrink-0 items-center justify-center">
@@ -86,8 +88,10 @@ const props = withDefaults(defineProps<{
   label: string;
   icon: Component;
   tone?: "primary" | "secondary" | "info" | "success" | "warning" | "neutral";
-  /** wide 为大卡（横跨 2 列、占 1 行），small 为小卡（方形，占 1 行 1 列） */
-  variant?: "small" | "wide";
+  /** 占几列：由宿主 ChatHomePanel 算好下发，磁贴自己不改尺寸 */
+  colSpan?: number;
+  /** 占几行：由宿主 ChatHomePanel 算好下发，磁贴自己不改尺寸 */
+  rowSpan?: number;
   /** row 为带标题行的内容卡；tile 为入口磁贴（图标与标题居中，不出现标题行） */
   layout?: "row" | "tile";
   interactive?: boolean;
@@ -97,6 +101,8 @@ const props = withDefaults(defineProps<{
   pulseTone?: "primary" | "secondary" | "info" | "success" | "warning" | "neutral";
   /** 磁贴头像：给了就显示圆形头像代替纯图标 */
   avatarSrc?: string;
+  /** 图标图片地址：给了就用图片代替组件图标（按文件类型取 VS Code 同款图标时用） */
+  iconSrc?: string;
   /** 磁贴忙态：头像右下角挂转圈 */
   busy?: boolean;
   /** 磁贴未读数：绿色角标，0 不显示 */
@@ -105,12 +111,14 @@ const props = withDefaults(defineProps<{
   hasError?: boolean;
 }>(), {
   tone: "neutral",
-  variant: "small",
+  colSpan: 1,
+  rowSpan: 1,
   layout: "row",
   interactive: false,
   pulsing: false,
   pulseTone: undefined,
   avatarSrc: "",
+  iconSrc: "",
   busy: false,
   unreadCount: 0,
   hasError: false,
@@ -168,15 +176,7 @@ function handleSelect() {
 </script>
 
 <style scoped>
-/* 宽度由所在网格列决定；宽卡跨两格 */
-.ecall-home-card-small {
-  width: 100%;
-}
-
-.ecall-home-card-wide {
-  grid-column: span 2;
-  width: 100%;
-}
+/* 宽度由所在网格列决定；占几行几列由宿主通过 colSpan / rowSpan 写入行内样式 */
 
 .ecall-home-card-icon {
   display: grid;
