@@ -944,6 +944,8 @@ async fn run_genai_tool_loop(
         let mut round_completed_tool_result_events = Vec::<Value>::new();
         // 本轮被用户打断、还没返回结果的调用；已完成的结果仍然照常交付并落库。
         let mut round_aborted_call_ids = Vec::<String>::new();
+        // 组内错误：先把已完成结果交付并落库，再把它原样上抛。
+        let mut round_group_error = None::<String>;
         for batch in split_prepared_tool_calls_into_execution_batches(
             &tool_assembly.tools,
             &tool_assembly.tool_definitions,
@@ -1003,7 +1005,7 @@ async fn run_genai_tool_loop(
                     tool_name,
                 )?;
             }
-            let executed_group = match execute_prepared_tool_call_group(
+            let executed_group = execute_prepared_tool_call_group(
                 tool_abort_state,
                 chat_session_key,
                 &tool_assembly.tools,
@@ -1011,12 +1013,10 @@ async fn run_genai_tool_loop(
                 auto_compaction_context.and_then(|ctx| ctx.request_id.as_deref()),
                 executable_calls,
             )
-            .await
-            {
-                Ok(group) => group,
-                Err(err) => return Err(err),
-            };
+            .await;
             round_aborted_call_ids = executed_group.aborted_call_ids.clone();
+            // 组内出现错误不等于整组作废：已完成的结果照常交付，错误等这批处理完再原样上抛。
+            round_group_error = executed_group.error.clone();
 
             for executed_tool_call in executed_group.executed {
             let ExecutedToolCall {
@@ -1116,55 +1116,30 @@ async fn run_genai_tool_loop(
                 // 判定前不写临时账本。
             }
             }
-            if !round_aborted_call_ids.is_empty() {
-                // 用户已经打断：这批里没返回的调用不再补执行，后续批次也不再开跑。
+            if !round_aborted_call_ids.is_empty() || round_group_error.is_some() {
+                // 用户已经打断、或组内调用没有结果返回：这批里剩下的调用不再补执行，
+                // 后续批次也不再开跑，已完成结果交给收尾统一落库。
                 break;
             }
 
             if let Some((call, err_text)) = repeat_block {
-                send_stream_rebind_required_event(
+                // 熔断是本轮终点，但已跑完的结果必须先进历史再返回。
+                return finish_tool_loop_on_repeat_block(
+                    tool_abort_state,
+                    auto_compaction_context,
+                    selected_api,
+                    trusted_input_tokens,
+                    chat_session_key,
+                    &assistant_tool_group_history_event,
                     on_delta,
                     auto_compaction_context.and_then(|ctx| ctx.request_id.as_deref()),
-                    "tool_start",
-                );
-                send_tool_status_event(
-                    on_delta,
-                    &call.tool_name,
-                    "running",
-                    Some(call.tool_args.as_str()),
-                    Some(call.tool_call_id.as_str()),
-                    &format!("正在调用工具：{}", call.tool_name),
-                );
-                send_tool_status_event(
-                    on_delta,
-                    &call.tool_name,
-                    "failed",
-                    Some(call.tool_args.as_str()),
-                    Some(call.tool_call_id.as_str()),
-                    &err_text,
-                );
-                let history_content = err_text.clone();
-                let tool_result_event = serde_json::json!({
-                    "role": "tool",
-                    "tool_call_id": call.tool_call_id,
-                    "content": history_content
-                });
-                send_assistant_tool_result_event(on_delta, &tool_result_event);
-                insert_before_trailing_user_history_events(
-                    &mut tool_history_events,
-                    tool_result_event.clone(),
-                );
-                sync_completed_tool_history_cache(
-                    tool_abort_state,
-                    chat_session_key,
-                    &tool_history_events,
-                );
-                return Ok(repeated_tool_call_block_reply(
+                    &round_completed_tool_result_events,
+                    &invalid_tool_calls,
+                    &call,
+                    err_text,
                     full_activity_reasoning_text,
                     tool_history_events,
-                    trusted_input_tokens,
-                    err_text,
-                ));
+                );
             }
         }
 
@@ -1189,28 +1164,17 @@ async fn run_genai_tool_loop(
             round_completed_tool_result_events.push(failure_event);
         }
 
-        // 用户打断：已完成的调用结果照常落库，只给还没返回的调用补打断结果，然后中止本轮调度。
-        if !round_aborted_call_ids.is_empty() {
-            for tool_result_event in &round_completed_tool_result_events {
-                let tool_call_id = tool_result_event
-                    .get("tool_call_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                if tool_call_id.is_empty() {
-                    continue;
-                }
-                persist_completed_tool_group_result(
-                    tool_abort_state,
-                    auto_compaction_context,
-                    selected_api,
-                    trusted_input_tokens,
-                    chat_session_key,
-                    assistant_tool_group_history_event.clone(),
-                    tool_result_event.clone(),
-                    ToolResultPersistKind::Completed,
-                )?;
-            }
+        // 打断或组内错误：已完成的调用结果照常落库，只给没返回的调用补结束事实，然后中止本轮调度。
+        if !round_aborted_call_ids.is_empty() || round_group_error.is_some() {
+            persist_completed_tool_result_events(
+                tool_abort_state,
+                auto_compaction_context,
+                selected_api,
+                trusted_input_tokens,
+                chat_session_key,
+                &assistant_tool_group_history_event,
+                &round_completed_tool_result_events,
+            )?;
             for tool_call_id in &round_aborted_call_ids {
                 persist_user_aborted_tool_group_result(
                     tool_abort_state,
@@ -1226,7 +1190,21 @@ async fn run_genai_tool_loop(
                     )
                 })?;
             }
-            return Err(CHAT_ABORTED_BY_USER_ERROR.to_string());
+            // 后面还没轮到的批次一条结果都没有，补一条未执行状态：
+            // 组事件已经把它们的 call id 写进历史，不补就是没有 result 的孤儿调用。
+            persist_unexecuted_tool_group_results(
+                tool_abort_state,
+                auto_compaction_context,
+                selected_api,
+                trusted_input_tokens,
+                chat_session_key,
+                &assistant_tool_group_history_event,
+                &round_completed_tool_result_events,
+                &round_aborted_call_ids,
+            )?;
+            // 组内错误原样上抛：它可能不是中止，改写成中止串会让用户以为是自己按了停止。
+            return Err(round_group_error
+                .unwrap_or_else(|| CHAT_ABORTED_BY_USER_ERROR.to_string()));
         }
 
         // 工具整轮执行完毕瞬间判定：判定前未写正式历史/临时账本。
@@ -1703,6 +1681,8 @@ async fn run_genai_tool_loop_non_stream(
         let mut round_completed_tool_result_events = Vec::<Value>::new();
         // 本轮被用户打断、还没返回结果的调用；已完成的结果仍然照常交付并落库。
         let mut round_aborted_call_ids = Vec::<String>::new();
+        // 组内错误：先把已完成结果交付并落库，再把它原样上抛。
+        let mut round_group_error = None::<String>;
         for batch in split_prepared_tool_calls_into_execution_batches(
             &tool_assembly.tools,
             &tool_assembly.tool_definitions,
@@ -1762,7 +1742,7 @@ async fn run_genai_tool_loop_non_stream(
                     tool_name,
                 )?;
             }
-            let executed_group = match execute_prepared_tool_call_group(
+            let executed_group = execute_prepared_tool_call_group(
                 tool_abort_state,
                 chat_session_key,
                 &tool_assembly.tools,
@@ -1770,12 +1750,10 @@ async fn run_genai_tool_loop_non_stream(
                 auto_compaction_context.and_then(|ctx| ctx.request_id.as_deref()),
                 executable_calls,
             )
-            .await
-            {
-                Ok(group) => group,
-                Err(err) => return Err(err),
-            };
+            .await;
             round_aborted_call_ids = executed_group.aborted_call_ids.clone();
+            // 组内出现错误不等于整组作废：已完成的结果照常交付，错误等这批处理完再原样上抛。
+            round_group_error = executed_group.error.clone();
 
             for executed_tool_call in executed_group.executed {
             let ExecutedToolCall {
@@ -1875,55 +1853,30 @@ async fn run_genai_tool_loop_non_stream(
                 // 判定前不写临时账本。
             }
             }
-            if !round_aborted_call_ids.is_empty() {
-                // 用户已经打断：这批里没返回的调用不再补执行，后续批次也不再开跑。
+            if !round_aborted_call_ids.is_empty() || round_group_error.is_some() {
+                // 用户已经打断、或组内调用没有结果返回：这批里剩下的调用不再补执行，
+                // 后续批次也不再开跑，已完成结果交给收尾统一落库。
                 break;
             }
 
             if let Some((call, err_text)) = repeat_block {
-                send_stream_rebind_required_event(
+                // 熔断是本轮终点，但已跑完的结果必须先进历史再返回。
+                return finish_tool_loop_on_repeat_block(
+                    tool_abort_state,
+                    auto_compaction_context,
+                    selected_api,
+                    trusted_input_tokens,
+                    chat_session_key,
+                    &assistant_tool_group_history_event,
                     on_delta,
                     auto_compaction_context.and_then(|ctx| ctx.request_id.as_deref()),
-                    "tool_start",
-                );
-                send_tool_status_event(
-                    on_delta,
-                    &call.tool_name,
-                    "running",
-                    Some(call.tool_args.as_str()),
-                    Some(call.tool_call_id.as_str()),
-                    &format!("正在调用工具：{}", call.tool_name),
-                );
-                send_tool_status_event(
-                    on_delta,
-                    &call.tool_name,
-                    "failed",
-                    Some(call.tool_args.as_str()),
-                    Some(call.tool_call_id.as_str()),
-                    &err_text,
-                );
-                let history_content = err_text.clone();
-                let tool_result_event = serde_json::json!({
-                    "role": "tool",
-                    "tool_call_id": call.tool_call_id,
-                    "content": history_content
-                });
-                send_assistant_tool_result_event(on_delta, &tool_result_event);
-                insert_before_trailing_user_history_events(
-                    &mut tool_history_events,
-                    tool_result_event.clone(),
-                );
-                sync_completed_tool_history_cache(
-                    tool_abort_state,
-                    chat_session_key,
-                    &tool_history_events,
-                );
-                return Ok(repeated_tool_call_block_reply(
+                    &round_completed_tool_result_events,
+                    &invalid_tool_calls,
+                    &call,
+                    err_text,
                     full_activity_reasoning_text,
                     tool_history_events,
-                    trusted_input_tokens,
-                    err_text,
-                ));
+                );
             }
         }
 
@@ -1948,28 +1901,17 @@ async fn run_genai_tool_loop_non_stream(
             round_completed_tool_result_events.push(failure_event);
         }
 
-        // 用户打断：已完成的调用结果照常落库，只给还没返回的调用补打断结果，然后中止本轮调度。
-        if !round_aborted_call_ids.is_empty() {
-            for tool_result_event in &round_completed_tool_result_events {
-                let tool_call_id = tool_result_event
-                    .get("tool_call_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                if tool_call_id.is_empty() {
-                    continue;
-                }
-                persist_completed_tool_group_result(
-                    tool_abort_state,
-                    auto_compaction_context,
-                    selected_api,
-                    trusted_input_tokens,
-                    chat_session_key,
-                    assistant_tool_group_history_event.clone(),
-                    tool_result_event.clone(),
-                    ToolResultPersistKind::Completed,
-                )?;
-            }
+        // 打断或组内错误：已完成的调用结果照常落库，只给没返回的调用补结束事实，然后中止本轮调度。
+        if !round_aborted_call_ids.is_empty() || round_group_error.is_some() {
+            persist_completed_tool_result_events(
+                tool_abort_state,
+                auto_compaction_context,
+                selected_api,
+                trusted_input_tokens,
+                chat_session_key,
+                &assistant_tool_group_history_event,
+                &round_completed_tool_result_events,
+            )?;
             for tool_call_id in &round_aborted_call_ids {
                 persist_user_aborted_tool_group_result(
                     tool_abort_state,
@@ -1985,7 +1927,21 @@ async fn run_genai_tool_loop_non_stream(
                     )
                 })?;
             }
-            return Err(CHAT_ABORTED_BY_USER_ERROR.to_string());
+            // 后面还没轮到的批次一条结果都没有，补一条未执行状态：
+            // 组事件已经把它们的 call id 写进历史，不补就是没有 result 的孤儿调用。
+            persist_unexecuted_tool_group_results(
+                tool_abort_state,
+                auto_compaction_context,
+                selected_api,
+                trusted_input_tokens,
+                chat_session_key,
+                &assistant_tool_group_history_event,
+                &round_completed_tool_result_events,
+                &round_aborted_call_ids,
+            )?;
+            // 组内错误原样上抛：它可能不是中止，改写成中止串会让用户以为是自己按了停止。
+            return Err(round_group_error
+                .unwrap_or_else(|| CHAT_ABORTED_BY_USER_ERROR.to_string()));
         }
 
         // 工具整轮执行完毕瞬间判定：判定前未写正式历史/临时账本。
@@ -2116,10 +2072,11 @@ mod tool_loop_tests {
             GroupCallOutcome::Aborted,
         ];
 
-        let group = collect_group_outcomes(outcomes, &snapshot).expect("打断不应丢弃已完成结果");
+        let group = collect_group_outcomes(outcomes, &snapshot);
         assert_eq!(group.executed.len(), 1);
         assert_eq!(group.executed[0].tool_call_id, "call-a");
         assert_eq!(group.aborted_call_ids, vec!["call-b".to_string()]);
+        assert!(group.error.is_none());
     }
 
     #[test]
@@ -2130,9 +2087,248 @@ mod tool_loop_tests {
             "read_file",
         )))];
 
-        let group = collect_group_outcomes(outcomes, &snapshot).expect("正常完成不应报错");
+        let group = collect_group_outcomes(outcomes, &snapshot);
         assert_eq!(group.executed.len(), 1);
         assert!(group.aborted_call_ids.is_empty());
+        assert!(group.error.is_none());
+    }
+
+    /// 组内一条失败、另一条成功：成功那条的结果必须仍然交付，错误只作为字段带出去。
+    #[test]
+    fn failing_group_keeps_finished_tool_results_and_carries_error() {
+        let snapshot = vec![
+            ("read_file".to_string(), "call-a".to_string()),
+            ("team_send".to_string(), "call-b".to_string()),
+        ];
+        let outcomes = vec![
+            GroupCallOutcome::Finished(Ok(finished_call("call-a", "read_file"))),
+            GroupCallOutcome::Finished(Err(CHAT_ABORTED_BY_USER_ERROR.to_string())),
+        ];
+
+        let group = collect_group_outcomes(outcomes, &snapshot);
+        assert_eq!(group.executed.len(), 1, "已完成的结果不能被整组错误吃掉");
+        assert_eq!(group.executed[0].tool_call_id, "call-a");
+        assert_eq!(
+            group.error.as_deref(),
+            Some(CHAT_ABORTED_BY_USER_ERROR),
+            "错误要原样带出去，不能改写成别的文案"
+        );
+        assert_eq!(
+            group.aborted_call_ids,
+            vec!["call-b".to_string()],
+            "以错误结束的调用也要记下来，否则它的占位永远停在「尚未返回结果」"
+        );
+    }
+
+    /// 组事件带的是整轮调用：有结果的、被打断的都不进差集，只有没轮到的才补。
+    #[test]
+    fn unexecuted_tool_call_ids_only_keeps_calls_without_any_result() {
+        let group_event = serde_json::json!({
+            "role": "assistant",
+            "tool_calls": [
+                {"id": "call-a", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+                {"call_id": "call-b", "type": "function", "function": {"name": "team_send", "arguments": "{}"}},
+                {"id": "call-c", "type": "function", "function": {"name": "shell", "arguments": "{}"}},
+            ],
+        });
+        let completed = vec![serde_json::json!({
+            "role": "tool",
+            "tool_call_id": "call-a",
+            "content": "ok"
+        })];
+        let aborted = vec!["call-b".to_string()];
+
+        assert_eq!(
+            unexecuted_tool_call_ids(&group_event, &completed, &aborted),
+            vec!["call-c".to_string()],
+            "已完成的与已打断的都不该被补成未执行"
+        );
+        assert_eq!(
+            unexecuted_tool_call_ids(&group_event, &completed, &[]),
+            vec!["call-b".to_string(), "call-c".to_string()],
+            "没有打断记录时，除已完成外的调用都算未执行"
+        );
+    }
+
+    /// 组内一条被中止、另一条跑完：执行器本身也要把跑完那条的结果交出来。
+    struct AbortRuntimeTool;
+
+    impl RuntimeToolDyn for AbortRuntimeTool {
+        fn name(&self) -> String {
+            "team_send".to_string()
+        }
+
+        fn is_mcp_tool(&self) -> bool {
+            false
+        }
+
+        fn call_json(&self, _args_json: String) -> RuntimeToolCallFuture<'_> {
+            Box::pin(async { Err(CHAT_ABORTED_BY_USER_ERROR.to_string()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn executor_keeps_finished_results_when_a_sibling_call_aborts() {
+        let tools: Vec<Box<dyn RuntimeToolDyn>> = vec![
+            Box::new(TestRuntimeTool {
+                name: "read_file",
+                mcp: false,
+            }),
+            Box::new(AbortRuntimeTool),
+        ];
+        let on_delta = tauri::ipc::Channel::new(|_| Ok(()));
+        let calls = vec![
+            PreparedToolCall {
+                tool_call_id: "call-a".to_string(),
+                tool_name: "read_file".to_string(),
+                tool_args: "{}".to_string(),
+            },
+            PreparedToolCall {
+                tool_call_id: "call-b".to_string(),
+                tool_name: "team_send".to_string(),
+                tool_args: "{}".to_string(),
+            },
+        ];
+
+        let group =
+            execute_prepared_tool_call_group(None, "test-session", &tools, &on_delta, None, calls)
+                .await;
+
+        assert_eq!(
+            group.executed.len(),
+            1,
+            "同批里跑完的调用结果必须随组结果交付"
+        );
+        assert_eq!(group.executed[0].tool_call_id, "call-a");
+        assert_eq!(group.error.as_deref(), Some(CHAT_ABORTED_BY_USER_ERROR));
+        assert_eq!(group.aborted_call_ids, vec!["call-b".to_string()]);
+    }
+
+    /// 熔断出口：先落库、再返回。这条只守「没有持久化载体时不阻断返回」与返回内容本身，
+    /// 真正的写库断言需要真实会话与调度上下文。
+    #[test]
+    fn repeat_block_exit_returns_block_reply_and_survives_missing_state() {
+        let selected_api = ApiConfig::default();
+        let on_delta = tauri::ipc::Channel::new(|_| Ok(()));
+        let call = PreparedToolCall {
+            tool_call_id: "call-repeat".to_string(),
+            tool_name: "read_file".to_string(),
+            tool_args: "{}".to_string(),
+        };
+        let completed = vec![serde_json::json!({
+            "role": "tool",
+            "tool_call_id": "call-early",
+            "content": "第一批的真实结果"
+        })];
+
+        let reply = finish_tool_loop_on_repeat_block(
+            None,
+            None,
+            &selected_api,
+            Some(128),
+            "test-session",
+            &serde_json::json!({}),
+            &on_delta,
+            None,
+            &completed,
+            &[],
+            &call,
+            "重复调用熔断".to_string(),
+            "推理过程".to_string(),
+            Vec::new(),
+        )
+        .expect("缺少持久化载体不应阻断熔断收束");
+
+        assert_eq!(reply.assistant_text, "重复调用熔断");
+        let block_event = reply
+            .tool_history_events
+            .iter()
+            .find(|event| event.get("tool_call_id").and_then(Value::as_str) == Some("call-repeat"))
+            .expect("熔断这条结果要进本轮历史");
+        assert_eq!(
+            block_event.get("content").and_then(Value::as_str),
+            Some("重复调用熔断")
+        );
+    }
+
+    /// 熔断出口是整轮的出口：已完成、非法参数、熔断之后没轮到的三类调用都要有结果。
+    /// 观察点在返回的历史上——落库在无 state 时早退，这里锁的是「不漏结果」。
+    #[test]
+    fn repeat_block_exit_writes_result_for_every_call_in_the_group() {
+        let assistant_tool_group_history_event = serde_json::json!({
+            "role": "assistant",
+            "tool_calls": [
+                {"id": "call-done", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+                {"id": "call-invalid", "type": "function", "function": {"name": "shell", "arguments": "not-json"}},
+                {"id": "call-blocked", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+                {"id": "call-later", "type": "function", "function": {"name": "shell", "arguments": "{}"}}
+            ]
+        });
+        let completed = vec![serde_json::json!({
+            "role": "tool",
+            "tool_call_id": "call-done",
+            "content": "第一批的真实结果"
+        })];
+        let invalid_tool_calls = vec![genai::chat::ToolCall {
+            call_id: "call-invalid".to_string(),
+            fn_name: "shell".to_string(),
+            fn_arguments: serde_json::json!("not-json"),
+            thought_signatures: None,
+        }];
+        let call = PreparedToolCall {
+            tool_call_id: "call-blocked".to_string(),
+            tool_name: "read_file".to_string(),
+            tool_args: "{}".to_string(),
+        };
+        let selected_api = ApiConfig::default();
+        let on_delta = tauri::ipc::Channel::new(|_| Ok(()));
+        // 真实调用点进来时，之前批次的结果已经在 history 里了。
+        let history = completed.clone();
+
+        let reply = finish_tool_loop_on_repeat_block(
+            None,
+            None,
+            &selected_api,
+            Some(128),
+            "test-session",
+            &assistant_tool_group_history_event,
+            &on_delta,
+            None,
+            &completed,
+            &invalid_tool_calls,
+            &call,
+            "重复调用熔断".to_string(),
+            "推理过程".to_string(),
+            history,
+        )
+        .expect("缺少持久化载体不应阻断熔断收束");
+
+        let content_of = |tool_call_id: &str| {
+            reply
+                .tool_history_events
+                .iter()
+                .filter(|event| {
+                    event.get("role").and_then(Value::as_str) == Some("tool")
+                        && event.get("tool_call_id").and_then(Value::as_str)
+                            == Some(tool_call_id)
+                })
+                .filter_map(|event| event.get("content").and_then(Value::as_str))
+                .map(ToOwned::to_owned)
+                .collect::<Vec<String>>()
+        };
+
+        assert_eq!(content_of("call-done"), vec!["第一批的真实结果".to_string()]);
+        assert_eq!(
+            content_of("call-invalid"),
+            vec!["工具结果: 工具 shell 因参数非法未执行，未产生结果。".to_string()],
+            "非法参数用现成文案"
+        );
+        assert_eq!(content_of("call-blocked"), vec!["重复调用熔断".to_string()]);
+        assert_eq!(
+            content_of("call-later"),
+            vec![DISPATCH_ENDED_TOOL_NOT_EXECUTED_TEXT.to_string()],
+            "没轮到的调用也要有条结果，且只补一条"
+        );
     }
 
     struct TestRuntimeTool {

@@ -84,6 +84,35 @@ fn decide_context_exhausted_round(turn_text: &str) -> ContextExhaustedRoundActio
     }
 }
 
+/// 把本轮已完成的工具结果逐条写进当前消息。
+///
+/// 占位先写、真实结果后追加、消费端取最新一条。工具轮的每条出口都必须走这里：
+/// 少走一次，历史里就留下一条「已发起调用，尚未返回结果」，下次构造 prompt 时
+/// 模型会据此继续瞎猜。
+fn persist_completed_tool_result_events(
+    state: Option<&AppState>,
+    context: Option<&ToolLoopAutoCompactionContext>,
+    selected_api: &ApiConfig,
+    trusted_input_tokens: Option<u64>,
+    chat_session_key: &str,
+    assistant_tool_group_history_event: &Value,
+    completed_tool_result_events: &[Value],
+) -> Result<(), String> {
+    for tool_result_event in completed_tool_result_events {
+        persist_completed_tool_group_result(
+            state,
+            context,
+            selected_api,
+            trusted_input_tokens,
+            chat_session_key,
+            assistant_tool_group_history_event.clone(),
+            tool_result_event.clone(),
+            ToolResultPersistKind::Completed,
+        )?;
+    }
+    Ok(())
+}
+
 /// 工具整轮执行完立刻判定。本轮结果无条件先写进当前消息，压缩只决定要不要重启。
 async fn apply_compaction_preserved_gate_after_tool_round(
     state: Option<&AppState>,
@@ -125,18 +154,15 @@ async fn apply_compaction_preserved_gate_after_tool_round(
 
     // 压缩前后是两个独立会话：压缩前把结果写进当前消息，压缩后新消息再从
     // CompactionPreservedMessages 继承同一轮工具事件，两边的工具链各自完整。
-    for tool_result_event in completed_tool_result_events {
-        persist_completed_tool_group_result(
-            state,
-            context,
-            selected_api,
-            trusted_input_tokens,
-            chat_session_key,
-            assistant_tool_group_history_event.clone(),
-            tool_result_event.clone(),
-            ToolResultPersistKind::Completed,
-        )?;
-    }
+    persist_completed_tool_result_events(
+        state,
+        context,
+        selected_api,
+        trusted_input_tokens,
+        chat_session_key,
+        assistant_tool_group_history_event,
+        completed_tool_result_events,
+    )?;
 
     match classify_tool_round_gate(should_compact, context.is_some()) {
         ToolRoundGateIntent::WriteThrough => {
@@ -305,6 +331,136 @@ fn sync_completed_tool_history_cache(
     }
 }
 
+/// 重复调用熔断：本轮就此收束，但收束不等于结果作废。
+///
+/// 出口处的落库顺序即时间顺序：已完成批次（真实产出，维持外发语义）→ 熔断这条
+/// → 非法参数调用 → 还没轮到的批次。后两类走 `CompletedWithoutAutoSend`，
+/// 它们只是状态说明，外发给联系人就是垃圾消息。
+///
+/// 已经跑完的批次结果必须先写进历史再返回。少这一次，历史里就只剩预写的
+/// 「已发起调用，尚未返回结果」，下次构造 prompt 时模型会把它们当成仍在执行的调用继续瞎猜。
+/// 非法参数与后续批次的调用本来就没有占位：它们的 call id 随组事件一起进了历史，
+/// 结果不补就是没有 result 的孤儿调用。
+///
+/// 这里只落库、不做压缩判定：压缩会重启调度并重置本轮重复调用计数，与「熔断即收束」冲突。
+fn finish_tool_loop_on_repeat_block(
+    state: Option<&AppState>,
+    context: Option<&ToolLoopAutoCompactionContext>,
+    selected_api: &ApiConfig,
+    trusted_input_tokens: Option<u64>,
+    chat_session_key: &str,
+    assistant_tool_group_history_event: &Value,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    request_id: Option<&str>,
+    completed_tool_result_events: &[Value],
+    invalid_tool_calls: &[genai::chat::ToolCall],
+    call: &PreparedToolCall,
+    err_text: String,
+    full_activity_reasoning_text: String,
+    mut tool_history_events: Vec<Value>,
+) -> Result<ModelReply, String> {
+    send_stream_rebind_required_event(on_delta, request_id, "tool_start");
+    send_tool_status_event(
+        on_delta,
+        &call.tool_name,
+        "running",
+        Some(call.tool_args.as_str()),
+        Some(call.tool_call_id.as_str()),
+        &format!("正在调用工具：{}", call.tool_name),
+    );
+    send_tool_status_event(
+        on_delta,
+        &call.tool_name,
+        "failed",
+        Some(call.tool_args.as_str()),
+        Some(call.tool_call_id.as_str()),
+        &err_text,
+    );
+    let tool_result_event = serde_json::json!({
+        "role": "tool",
+        "tool_call_id": call.tool_call_id,
+        "content": err_text,
+    });
+    send_assistant_tool_result_event(on_delta, &tool_result_event);
+    insert_before_trailing_user_history_events(&mut tool_history_events, tool_result_event.clone());
+    // 顺序即时间顺序：先写已经跑完的批次结果，再写熔断这条。
+    // 批次结果是真实产出，维持原有外发语义；熔断这条只是状态说明，不能外发——
+    // 远程 IM 自动应答会话里若本轮第一批就熔断，它就是组内第一条结果，会直接发给联系人。
+    persist_completed_tool_result_events(
+        state,
+        context,
+        selected_api,
+        trusted_input_tokens,
+        chat_session_key,
+        assistant_tool_group_history_event,
+        completed_tool_result_events,
+    )?;
+    // 熔断这条调用走在 executable_calls 之前，没有预写占位；但它属于本轮的 assistant
+    // 工具组：只要之前任一批次落过库，它的 call id 已经随整组写进 DB，结果不补就是孤儿。
+    persist_completed_tool_group_result(
+        state,
+        context,
+        selected_api,
+        trusted_input_tokens,
+        chat_session_key,
+        assistant_tool_group_history_event.clone(),
+        tool_result_event,
+        ToolResultPersistKind::CompletedWithoutAutoSend,
+    )?;
+    // 熔断出口也是整轮的出口：非法参数调用和还没轮到的批次都没有结果，
+    // 而它们的 call id 已经随组事件进了历史，不补就是没有 result 的孤儿调用。
+    let mut covered_call_ids = invalid_tool_calls
+        .iter()
+        .map(|invalid| invalid.call_id.clone())
+        .collect::<Vec<String>>();
+    covered_call_ids.push(call.tool_call_id.clone());
+    let unexecuted_call_ids = unexecuted_tool_call_ids(
+        assistant_tool_group_history_event,
+        completed_tool_result_events,
+        &covered_call_ids,
+    );
+    let mut tail_tool_result_events = Vec::<Value>::new();
+    for invalid in invalid_tool_calls {
+        tail_tool_result_events.push(tool_result_history_event(
+            &invalid.call_id,
+            invalid_tool_result_text(invalid),
+            &ProviderToolMetadata::default(),
+        ));
+    }
+    for tool_call_id in &unexecuted_call_ids {
+        tail_tool_result_events.push(tool_result_history_event(
+            tool_call_id,
+            DISPATCH_ENDED_TOOL_NOT_EXECUTED_TEXT.to_string(),
+            &ProviderToolMetadata::default(),
+        ));
+    }
+    for tool_result_event in tail_tool_result_events {
+        send_assistant_tool_result_event(on_delta, &tool_result_event);
+        insert_before_trailing_user_history_events(
+            &mut tool_history_events,
+            tool_result_event.clone(),
+        );
+        // 状态说明，不是工具产出：不能触发远程自动外发。
+        persist_completed_tool_group_result(
+            state,
+            context,
+            selected_api,
+            trusted_input_tokens,
+            chat_session_key,
+            assistant_tool_group_history_event.clone(),
+            tool_result_event,
+            ToolResultPersistKind::CompletedWithoutAutoSend,
+        )?;
+    }
+    sync_completed_tool_history_cache(state, chat_session_key, &tool_history_events);
+    Ok(repeated_tool_call_block_reply(
+        full_activity_reasoning_text,
+        tool_history_events,
+        trusted_input_tokens,
+        err_text,
+    ))
+}
+
 /// 执行前预写占位结果。历史里先出现这次调用与「尚未返回」，进程中断后仍能看出调过什么；
 /// 工具完成后追加真实结果，消费端取最新一条，占位本身保留不动。
 fn persist_pending_tool_group_result(
@@ -359,11 +515,119 @@ fn persist_user_aborted_tool_group_result(
     )
 }
 
+/// 本轮调度收尾后，没有执行的调用补的说明。
+///
+/// 打断、组内错误、熔断三种收尾共用这一句：它们对模型和用户表达的是同一件事
+/// ——这轮已经结束，这个调用没有跑。不按原因分叉，免得以后各写各的。
+const DISPATCH_ENDED_TOOL_NOT_EXECUTED_TEXT: &str = "本轮调度已结束，这个调用没有执行。";
+
+/// assistant 工具组事件里所有调用的 id。组事件一次携带整轮调用，不只是当前批次。
+fn assistant_tool_group_call_ids(event: &Value) -> Vec<String> {
+    event
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    ["id", "call_id"].into_iter().find_map(|key| {
+                        item.get(key)
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(ToOwned::to_owned)
+                    })
+                })
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default()
+}
+
+/// 组里有 call、但一条结果都没有的调用 id。差集口径：
+/// 组事件里的全部 call id 减去已经有结果的（完成事件 + 其它已写过的结束记录）。
+fn unexecuted_tool_call_ids(
+    assistant_tool_group_history_event: &Value,
+    completed_tool_result_events: &[Value],
+    covered_call_ids: &[String],
+) -> Vec<String> {
+    let mut covered = completed_tool_result_events
+        .iter()
+        .filter_map(|event| {
+            event
+                .get("tool_call_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+        .collect::<Vec<String>>();
+    covered.extend(covered_call_ids.iter().cloned());
+    assistant_tool_group_call_ids(assistant_tool_group_history_event)
+        .into_iter()
+        .filter(|tool_call_id| !covered.iter().any(|id| id == tool_call_id))
+        .collect()
+}
+
+/// 收口时给「组里有 call、但一条结果都没有」的调用补一条状态结果。
+///
+/// 中断发生在批次循环里时，后面还没轮到的批次一条结果都没有；而组事件已经把它们的
+/// call id 随整组写进了历史，不补就是没有 result 的孤儿调用。
+/// 用中性的一句覆盖「打断 / 组内错误 / 熔断」三种收尾，不按原因分叉文案。
+fn persist_unexecuted_tool_group_results(
+    state: Option<&AppState>,
+    context: Option<&ToolLoopAutoCompactionContext>,
+    selected_api: &ApiConfig,
+    trusted_input_tokens: Option<u64>,
+    chat_session_key: &str,
+    assistant_tool_group_history_event: &Value,
+    completed_tool_result_events: &[Value],
+    aborted_call_ids: &[String],
+) -> Result<(), String> {
+    let unexecuted = unexecuted_tool_call_ids(
+        assistant_tool_group_history_event,
+        completed_tool_result_events,
+        aborted_call_ids,
+    );
+    if unexecuted.is_empty() {
+        return Ok(());
+    }
+    runtime_log_info(format!(
+        "[聊天] 补写未执行工具结果，任务=append_unexecuted_tool_result，session={}，count={}，tool_call_ids={}",
+        chat_session_key,
+        unexecuted.len(),
+        unexecuted.join(",")
+    ));
+    for tool_call_id in unexecuted {
+        let tool_result_event = tool_result_history_event(
+            &tool_call_id,
+            DISPATCH_ENDED_TOOL_NOT_EXECUTED_TEXT.to_string(),
+            &ProviderToolMetadata::default(),
+        );
+        // 这是给模型和界面看的状态，不是工具产出，不能触发远程自动外发。
+        persist_completed_tool_group_result(
+            state,
+            context,
+            selected_api,
+            trusted_input_tokens,
+            chat_session_key,
+            assistant_tool_group_history_event.clone(),
+            tool_result_event,
+            ToolResultPersistKind::CompletedWithoutAutoSend,
+        )?;
+    }
+    Ok(())
+}
+
 /// 这次落盘写的是什么结果。预写占位和打断结果都只落历史，不触发对外发送。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ToolResultPersistKind {
     Pending,
     Completed,
+    /// 完成态，但不触发远程自动外发。
+    ///
+    /// 用于工具没有真实产出、只是补一条状态说明的情形（熔断、本轮未执行）：
+    /// 这类文案是给模型和界面看的状态，不是对联系人说的话，外发出去就是垃圾消息。
+    CompletedWithoutAutoSend,
     Aborted,
 }
 

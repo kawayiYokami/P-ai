@@ -362,6 +362,22 @@ fn spawn_delegate_task(
     });
 }
 
+/// 同步委托的等待上限：这条路径此前没有任何超时，子任务不返回就无限等。
+/// 刻意小于通用的 900 秒工具兜底（runtime_execution），因为这里能在超时后主动中止
+/// 子任务并带上委托 id 记日志，比被外层统一掐断更有据可查。
+const SYNC_DELEGATE_JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// 等待同步委托子任务；None 表示已到点，中止子任务是调用方的事。
+async fn await_sync_delegate_child<T>(
+    join: tokio::task::JoinHandle<T>,
+    timeout: std::time::Duration,
+) -> Option<Result<T, tokio::task::JoinError>> {
+    match tokio::time::timeout(timeout, join).await {
+        Ok(join_result) => Some(join_result),
+        Err(_) => None,
+    }
+}
+
 async fn run_sync_delegate_on_child_task(
     app_state: AppState,
     delegate: DelegateEntry,
@@ -388,8 +404,31 @@ async fn run_sync_delegate_on_child_task(
         child_abort_registration,
     );
     let join = tokio::spawn(run_child);
-    let join_result = join.await;
-    child_abort_guard.complete();
+    // 子任务永不 resolve 时，以前的裸 await 会把整轮调度挂在这里直到用户手点停止。
+    // 超时后不 complete guard：Drop 里的 abort_handle 会掐掉子任务，避免它在报错之后
+    // 继续跑完并把一份「成功」结果投递进根会话，与这里回报的失败互相矛盾。
+    let join_result = match await_sync_delegate_child(join, SYNC_DELEGATE_JOIN_TIMEOUT).await {
+        Some(join_result) => {
+            child_abort_guard.complete();
+            join_result
+        }
+        None => {
+            let _ = abort_delegate_runtime_thread(
+                &abort_state,
+                &abort_delegate_id,
+                "同步委托等待超时",
+            );
+            runtime_log_warn(format!(
+                "[委托线程] 同步委托等待超时，已中止子任务: delegate_id={}, timeout_ms={}",
+                abort_delegate_id,
+                SYNC_DELEGATE_JOIN_TIMEOUT.as_millis()
+            ));
+            return Err(format!(
+                "同步委托等待超时（{} 秒），已中止本次委托；委托可能未完成，请缩小任务范围或改用后台委托后重试。",
+                SYNC_DELEGATE_JOIN_TIMEOUT.as_secs()
+            ));
+        }
+    };
     match join_result {
         Ok(Ok(result)) => result,
         Ok(Err(_)) => {

@@ -47,10 +47,54 @@ pub async fn runtime_tool_definitions_for_genai(
     Ok(out)
 }
 
+/// 没有 timeout_override 的工具也必须有一个上限。
+///
+/// `RuntimeToolDyn::timeout_override` 默认返回 None，只给少数内置工具实现，于是委托、MCP、
+/// 以及其它第三方工具一直是裸 await：上游挂住就无限等，只能等用户手点停止。这条兜底不负责
+/// 精细控制，只负责让「无限等」变成「有限等一次」；需要更紧的超时仍由各工具的 override 决定。
+const DEFAULT_RUNTIME_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(900);
+
+/// 调用方自己在参数里声明了 timeout_ms 时，兜底只作为「收尾余量」加在后面。
+/// 终端类工具本来就允许模型显式传大值跑长构建，兜底若比它短，会把合法任务砍在半路。
+const RUNTIME_TOOL_TIMEOUT_REQUESTED_SLACK_MS: u64 = 60_000;
+
+/// 本次工具调用的兜底超时。
+fn runtime_tool_fallback_timeout(tool_args: &str) -> std::time::Duration {
+    let requested_ms = serde_json::from_str::<Value>(tool_args)
+        .ok()
+        .and_then(|args| args.get("timeout_ms").and_then(Value::as_u64))
+        .filter(|ms| *ms > 0);
+    match requested_ms.map(std::time::Duration::from_millis) {
+        // 只在模型显式要的时间比兜底更长时才让路，并留出余量让工具自己的超时先报错。
+        Some(requested) if requested > DEFAULT_RUNTIME_TOOL_TIMEOUT => requested
+            .saturating_add(std::time::Duration::from_millis(
+                RUNTIME_TOOL_TIMEOUT_REQUESTED_SLACK_MS,
+            )),
+        _ => DEFAULT_RUNTIME_TOOL_TIMEOUT,
+    }
+}
+
 async fn call_runtime_tool_by_name(
     tools: &[Box<dyn RuntimeToolDyn>],
     tool_name: &str,
     tool_args: &str,
+) -> Result<ProviderToolResult, String> {
+    call_runtime_tool_by_name_with_default_timeout(
+        tools,
+        tool_name,
+        tool_args,
+        runtime_tool_fallback_timeout(tool_args),
+    )
+    .await
+}
+
+/// 兜底超时可注入的版本：生产路径用 DEFAULT_RUNTIME_TOOL_TIMEOUT，
+/// 测试需要一个能立刻到点的值才能证明「没有 override 的工具同样会被掐断」。
+async fn call_runtime_tool_by_name_with_default_timeout(
+    tools: &[Box<dyn RuntimeToolDyn>],
+    tool_name: &str,
+    tool_args: &str,
+    default_timeout: std::time::Duration,
 ) -> Result<ProviderToolResult, String> {
     let Some(tool) = tools.iter().find(|tool| {
         let name = tool.name();
@@ -73,30 +117,35 @@ async fn call_runtime_tool_by_name(
         message.push_str("；请按目录中的精确工具名调 get_tool 拿取，下轮再用。");
         return Err(message);
     };
-    if let Some(timeout) = tool.timeout_override(tool_args) {
-        match tokio::time::timeout(timeout, tool.call_json(tool_args.to_string())).await {
-            Ok(Err(err)) if tool_name == READ_MEDIA_TOOL_NAME && err.trim() == "解析超时" => {
-                Ok(ProviderToolResult::text("解析超时"))
-            }
-            Ok(result) => result,
-            Err(_) => {
-                runtime_log_warn(format!(
-                    "[工具执行] 工具执行超时: tool={}, kind={}, timeout_ms={}",
-                    tool_name,
-                    if tool.is_mcp_tool() { "mcp" } else { "builtin" },
-                    timeout.as_millis()
-                ));
-                if tool_name == READ_MEDIA_TOOL_NAME {
-                    return Ok(ProviderToolResult::text("解析超时"));
-                }
-                Ok(ProviderToolResult::error(tool_failure_result_text(
-                    tool_name,
-                    &format!("工具执行超时，timeout_ms={}", timeout.as_millis()),
-                )))
-            }
+    // 走到这里代表工具确实要被调用：缺名工具的早退不算执行，不能污染重试决策。
+    note_runtime_tool_executed();
+    let timeout_override = tool.timeout_override(tool_args);
+    let timeout = timeout_override.unwrap_or(default_timeout);
+    match tokio::time::timeout(timeout, tool.call_json(tool_args.to_string())).await {
+        Ok(Err(err)) if tool_name == READ_MEDIA_TOOL_NAME && err.trim() == "解析超时" => {
+            Ok(ProviderToolResult::text("解析超时"))
         }
-    } else {
-        tool.call_json(tool_args.to_string()).await
+        Ok(result) => result,
+        Err(_) => {
+            runtime_log_warn(format!(
+                "[工具执行] 工具执行超时: tool={}, kind={}, timeout_ms={}, timeout_source={}",
+                tool_name,
+                if tool.is_mcp_tool() { "mcp" } else { "builtin" },
+                timeout.as_millis(),
+                if timeout_override.is_some() {
+                    "override"
+                } else {
+                    "default"
+                }
+            ));
+            if tool_name == READ_MEDIA_TOOL_NAME {
+                return Ok(ProviderToolResult::text("解析超时"));
+            }
+            Ok(ProviderToolResult::error(tool_failure_result_text(
+                tool_name,
+                &format!("工具执行超时，timeout_ms={}", timeout.as_millis()),
+            )))
+        }
     }
 }
 
@@ -298,10 +347,16 @@ async fn execute_prepared_tool_call(
     })
 }
 
-/// 一组工具的执行结果：跑完的照常交付，被用户打断的单独列出。
+/// 一组工具的执行结果：跑完的照常交付，被打断的只记 id。
+///
+/// 结果与错误是两件事，必须同时交付：组内出现错误时 `executed` 里已经跑完的调用
+/// 仍然是真的执行结果，调用方要先落库、再把这个错误原样上抛。
 struct ExecutedToolGroup {
     executed: Vec<ExecutedToolCall>,
+    /// 没有结果可交付的调用：被打断的，或调用自身以错误结束的。
     aborted_call_ids: Vec<String>,
+    /// 让整组无法继续的原始错误；已完成的调用结果不受影响。
+    error: Option<String>,
 }
 
 /// 组内单个调用的结局。打断只作用于还没返回的调用，已完成的调用仍然交付结果。
@@ -315,16 +370,21 @@ enum GroupCallOutcome {
 fn collect_group_outcomes(
     outcomes: Vec<GroupCallOutcome>,
     calls_snapshot: &[(String, String)],
-) -> Result<ExecutedToolGroup, String> {
+) -> ExecutedToolGroup {
     let mut executed = Vec::<ExecutedToolCall>::new();
     let mut aborted_call_ids = Vec::<String>::new();
-    let mut first_error: Option<String> = None;
+    let mut error: Option<String> = None;
     for (index, outcome) in outcomes.into_iter().enumerate() {
         match outcome {
             GroupCallOutcome::Finished(Ok(call)) => executed.push(call),
             GroupCallOutcome::Finished(Err(err)) => {
-                if first_error.is_none() {
-                    first_error = Some(err);
+                // 这个调用没有结果可交付，但它的占位必须补上结束事实，
+                // 否则历史里会一直停在「已发起调用，尚未返回结果」。
+                if let Some((_, tool_call_id)) = calls_snapshot.get(index) {
+                    aborted_call_ids.push(tool_call_id.clone());
+                }
+                if error.is_none() {
+                    error = Some(err);
                 }
             }
             GroupCallOutcome::Aborted => {
@@ -334,15 +394,14 @@ fn collect_group_outcomes(
             }
         }
     }
-    match first_error {
-        Some(err) => Err(err),
-        None => Ok(ExecutedToolGroup {
-            executed,
-            aborted_call_ids,
-        }),
+    ExecutedToolGroup {
+        executed,
+        aborted_call_ids,
+        error,
     }
 }
 
+/// 执行一组工具。返回结构里始终带着已经跑完的结果，错误只是其中一个字段。
 async fn execute_prepared_tool_call_group(
     tool_abort_state: Option<&AppState>,
     chat_session_key: &str,
@@ -350,12 +409,13 @@ async fn execute_prepared_tool_call_group(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     request_id: Option<&str>,
     calls: Vec<PreparedToolCall>,
-) -> Result<ExecutedToolGroup, String> {
+) -> ExecutedToolGroup {
     if calls.is_empty() {
-        return Ok(ExecutedToolGroup {
+        return ExecutedToolGroup {
             executed: Vec::new(),
             aborted_call_ids: Vec::new(),
-        });
+            error: None,
+        };
     }
     for call in &calls {
         send_stream_rebind_required_event(on_delta, request_id, "tool_start");
@@ -398,7 +458,20 @@ async fn execute_prepared_tool_call_group(
     // 只有还没返回的调用被标记为打断，避免同一批里已完成工具的结果被整批丢掉。
     let abort_signal = if let Some(state) = tool_abort_state {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        register_inflight_tool_abort_handle(state, chat_session_key, abort_handle)?;
+        // 注册不上等于停止按钮对这组工具失效：不跑这组，把错误交给调用方按原样上抛。
+        if let Err(err) =
+            register_inflight_tool_abort_handle(state, chat_session_key, abort_handle)
+        {
+            runtime_log_error(format!(
+                "[聊天] 登记工具组中断句柄失败，跳过本组执行 (session={}): {}",
+                chat_session_key, err
+            ));
+            return ExecutedToolGroup {
+                executed: Vec::new(),
+                aborted_call_ids: Vec::new(),
+                error: Some(format!("登记工具组中断句柄失败：{err}")),
+            };
+        }
         Some(futures_util::future::FutureExt::shared(
             futures_util::future::FutureExt::map(
                 futures_util::future::Abortable::new(
@@ -446,115 +519,76 @@ async fn execute_prepared_tool_call_group(
         }
     }
 
-    let executed_result = collect_group_outcomes(group_outcomes, &calls_snapshot);
-    if let Ok(group) = executed_result.as_ref() {
-        if !group.aborted_call_ids.is_empty() {
-            runtime_log_info(format!(
-                "[聊天] 用户中止工具组调用 (session={}，已完成={}，被打断={})",
-                chat_session_key,
-                group.executed.len(),
-                group.aborted_call_ids.len()
-            ));
-        }
+    let group = collect_group_outcomes(group_outcomes, &calls_snapshot);
+    if !group.aborted_call_ids.is_empty() {
+        runtime_log_info(format!(
+            "[聊天] 工具组未全部返回 (session={}，已完成={}，被打断={}，error={})",
+            chat_session_key,
+            group.executed.len(),
+            group.aborted_call_ids.len(),
+            group.error.as_deref().unwrap_or("(none)")
+        ));
     }
     if let Some(state) = tool_abort_state {
-        match executed_result.as_ref() {
-            Ok(group) => {
-                for exec in &group.executed {
-                    let is_error = exec.tool_result.is_error;
-                    let text_len = match exec.tool_result.parts.iter().find_map(|part| match part {
-                        ProviderToolResultPart::Text { text } => Some(text.chars().count()),
-                        _ => None,
-                    }) {
-                        Some(len) => len,
-                        None => 0,
-                    };
-                    let text_preview: String = exec.tool_result.parts.iter().find_map(|part| match part {
-                        ProviderToolResultPart::Text { text } => Some(text.clone()),
-                        _ => None,
-                    }).unwrap_or_default();
-                    let mut detail = serde_json::json!({
-                        "toolName": exec.tool_name,
-                        "toolCallId": exec.tool_call_id,
-                        "isError": is_error,
-                        "textLength": text_len,
-                    });
-                    if !text_preview.trim().is_empty() {
-                        if let Some(obj) = detail.as_object_mut() {
-                            obj.insert("textPreview".to_string(), serde_json::json!(text_preview));
-                        }
-                    }
-                    let _ = schedule_event_push_to_latest_run(
-                        state,
-                        chat_session_key,
-                        "tool_result",
-                        0,
-                        Some(!is_error),
-                        detail,
-                    );
-                }
-                for aborted_call_id in &group.aborted_call_ids {
-                    let tool_name = calls_snapshot
-                        .iter()
-                        .find(|(_, tool_call_id)| tool_call_id == aborted_call_id)
-                        .map(|(tool_name, _)| tool_name.clone())
-                        .unwrap_or_default();
-                    let detail = serde_json::json!({
-                        "toolName": tool_name,
-                        "toolCallId": aborted_call_id,
-                        "isError": true,
-                        "isAborted": true,
-                        "error": CHAT_ABORTED_BY_USER_ERROR,
-                    });
-                    let _ = schedule_event_push_to_latest_run(
-                        state,
-                        chat_session_key,
-                        "tool_result",
-                        0,
-                        Some(false),
-                        detail,
-                    );
+        for exec in &group.executed {
+            let is_error = exec.tool_result.is_error;
+            let text_len = match exec.tool_result.parts.iter().find_map(|part| match part {
+                ProviderToolResultPart::Text { text } => Some(text.chars().count()),
+                _ => None,
+            }) {
+                Some(len) => len,
+                None => 0,
+            };
+            let text_preview: String = exec.tool_result.parts.iter().find_map(|part| match part {
+                ProviderToolResultPart::Text { text } => Some(text.clone()),
+                _ => None,
+            }).unwrap_or_default();
+            let mut detail = serde_json::json!({
+                "toolName": exec.tool_name,
+                "toolCallId": exec.tool_call_id,
+                "isError": is_error,
+                "textLength": text_len,
+            });
+            if !text_preview.trim().is_empty() {
+                if let Some(obj) = detail.as_object_mut() {
+                    obj.insert("textPreview".to_string(), serde_json::json!(text_preview));
                 }
             }
-            Err(err) => {
-                let is_aborted = err == CHAT_ABORTED_BY_USER_ERROR;
-                if calls_snapshot.is_empty() {
-                    let detail = serde_json::json!({
-                        "isError": true,
-                        "isAborted": is_aborted,
-                        "error": err,
-                    });
-                    let _ = schedule_event_push_to_latest_run(
-                        state,
-                        chat_session_key,
-                        "tool_result",
-                        0,
-                        Some(false),
-                        detail,
-                    );
-                } else {
-                    for (tool_name, tool_call_id) in &calls_snapshot {
-                        let detail = serde_json::json!({
-                            "toolName": tool_name,
-                            "toolCallId": tool_call_id,
-                            "isError": true,
-                            "isAborted": is_aborted,
-                            "error": err,
-                        });
-                        let _ = schedule_event_push_to_latest_run(
-                            state,
-                            chat_session_key,
-                            "tool_result",
-                            0,
-                            Some(false),
-                            detail,
-                        );
-                    }
-                }
-            }
+            let _ = schedule_event_push_to_latest_run(
+                state,
+                chat_session_key,
+                "tool_result",
+                0,
+                Some(!is_error),
+                detail,
+            );
+        }
+        // 没有结果可交付的调用只可能是被中止：单调用里其余失败都已转成工具错误结果，
+        // 不会以 Err 结束整组。
+        for aborted_call_id in &group.aborted_call_ids {
+            let tool_name = calls_snapshot
+                .iter()
+                .find(|(_, tool_call_id)| tool_call_id == aborted_call_id)
+                .map(|(tool_name, _)| tool_name.clone())
+                .unwrap_or_default();
+            let detail = serde_json::json!({
+                "toolName": tool_name,
+                "toolCallId": aborted_call_id,
+                "isError": true,
+                "isAborted": true,
+                "error": CHAT_ABORTED_BY_USER_ERROR,
+            });
+            let _ = schedule_event_push_to_latest_run(
+                state,
+                chat_session_key,
+                "tool_result",
+                0,
+                Some(false),
+                detail,
+            );
         }
     }
-    executed_result
+    group
 }
 
 fn runtime_tool_result_followup_message(
@@ -615,4 +649,140 @@ fn runtime_tool_result_followup_message(
     Some(genai::chat::ChatMessage::user(
         genai::chat::MessageContent::from_parts(parts),
     ))
+}
+
+#[cfg(test)]
+mod runtime_execution_tool_timeout_tests {
+    use super::*;
+
+    /// 永不返回的工具：timeout_override 完全由用例指定，用来区分「有 override」与「靠兜底」。
+    struct PendingTool {
+        name: &'static str,
+        timeout_override: Option<std::time::Duration>,
+    }
+
+    impl RuntimeToolDyn for PendingTool {
+        fn name(&self) -> String {
+            self.name.to_string()
+        }
+
+        fn timeout_override(&self, _args_json: &str) -> Option<std::time::Duration> {
+            self.timeout_override
+        }
+
+        fn call_json(&self, _args_json: String) -> RuntimeToolCallFuture<'_> {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    fn pending_tool(
+        name: &'static str,
+        timeout_override: Option<std::time::Duration>,
+    ) -> Vec<Box<dyn RuntimeToolDyn>> {
+        vec![Box::new(PendingTool {
+            name,
+            timeout_override,
+        })]
+    }
+
+    fn result_text(result: &ProviderToolResult) -> String {
+        result
+            .parts
+            .iter()
+            .find_map(|part| match part {
+                ProviderToolResultPart::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    #[tokio::test]
+    async fn tool_without_timeout_override_still_times_out() {
+        // A5：没有 override 的工具以前是裸 await，上游挂住就无限等。
+        // 这里给一个永不返回的工具 + 立刻到点的兜底，断言拿到的是模型可见的失败结果。
+        let tools = pending_tool("delegate", None);
+        let result = call_runtime_tool_by_name_with_default_timeout(
+            &tools,
+            "delegate",
+            "{}",
+            std::time::Duration::from_millis(1),
+        )
+        .await
+        .expect("超时必须变成工具失败结果，而不是把整轮调度打挂");
+        assert!(result.is_error);
+        let text = result_text(&result);
+        assert!(text.contains("工具执行超时"), "实际文案: {text}");
+    }
+
+    #[tokio::test]
+    async fn tool_timeout_override_wins_over_default() {
+        // 兜底不能盖掉更紧的 override：override 1ms + 兜底 30s，必须在 override 处到点。
+        let tools = pending_tool("windows", Some(std::time::Duration::from_millis(1)));
+        let started = std::time::Instant::now();
+        let result = call_runtime_tool_by_name_with_default_timeout(
+            &tools,
+            "windows",
+            "{}",
+            std::time::Duration::from_secs(30),
+        )
+        .await
+        .expect("超时必须变成工具失败结果");
+        assert!(result.is_error);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "override 未生效，用时 {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn executed_tool_is_counted_through_the_scope() {
+        // 重试决策完全依赖这个计数：作用域之外调工具（单元测试、其它调用方）不该报错，
+        // 作用域内的真实执行必须带得回来。
+        let tools = pending_tool("delegate", Some(std::time::Duration::from_millis(1)));
+        let (result, executed) = scoped_runtime_tool_execution_count(call_runtime_tool_by_name(
+            &tools, "delegate", "{}",
+        ))
+        .await;
+        assert!(result.is_ok(), "工具应返回超时失败结果");
+        assert_eq!(executed, 1);
+        note_runtime_tool_executed();
+    }
+
+    #[test]
+    fn fallback_timeout_respects_explicit_timeout_ms() {
+        // 没有任何 timeout_ms：直接吃兜底。
+        assert_eq!(
+            runtime_tool_fallback_timeout("{}"),
+            DEFAULT_RUNTIME_TOOL_TIMEOUT
+        );
+        assert_eq!(
+            runtime_tool_fallback_timeout("not a json"),
+            DEFAULT_RUNTIME_TOOL_TIMEOUT
+        );
+        // 终端工具允许模型传大值跑长构建：兜底绝不能比它短，否则会把合法任务砍在半路。
+        assert_eq!(
+            runtime_tool_fallback_timeout("{\"timeout_ms\": 1800000}"),
+            std::time::Duration::from_millis(1_860_000)
+        );
+        // 小于兜底的声明不缩水兜底本身。
+        assert_eq!(
+            runtime_tool_fallback_timeout("{\"timeout_ms\": 1000}"),
+            DEFAULT_RUNTIME_TOOL_TIMEOUT
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_tool_is_not_counted_as_executed() {
+        // 找不到工具是早退，没有副作用可重复，不能污染「本轮执行过工具」的判定。
+        let tools = pending_tool("delegate", None);
+        let (result, executed) = scoped_runtime_tool_execution_count(call_runtime_tool_by_name(
+            &tools,
+            "no_such_tool",
+            "{}",
+        ))
+        .await;
+        assert!(result.is_err());
+        assert_eq!(executed, 0);
+    }
 }
