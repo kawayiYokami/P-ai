@@ -1686,6 +1686,7 @@ fn main() {
             kanban::kanban_approve_issue,
             question_list,
             question_answer,
+            question_reject,
             goal_get_current,
             goal_create_goal,
             goal_cancel_goal,

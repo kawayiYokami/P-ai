@@ -905,3 +905,132 @@
         assert!(err.contains("答案"), "{err}");
     }
 
+    // ==================== 拒绝回答：只删题，不产生消息 ====================
+
+    fn question_test_pending_queue_is_empty(state: &AppState, conversation_id: &str) -> bool {
+        let slots = state
+            .conversation_runtime_slots
+            .lock()
+            .expect("lock conversation slots");
+        match slots.get(conversation_id) {
+            Some(slot) => slot.pending_queue.is_empty(),
+            None => true,
+        }
+    }
+
+    #[test]
+    fn question_reject_should_remove_only_that_question() {
+        let state = question_test_state();
+        question_test_answerable_conversation(&state, "conv-main");
+        question_apply_tool_mutations(
+            &state,
+            "conv-main",
+            &[
+                question_test_create_item("题一", &["A"]),
+                question_test_create_item("题二", &["B"]),
+                question_test_create_item("题三", &["C"]),
+            ],
+        )
+        .expect("create questions");
+
+        let remaining = question_reject_inner(&state, "conv-main", 2).expect("reject question");
+        assert_eq!(
+            question_test_numbers(&remaining),
+            vec![1, 3],
+            "只删被拒的那一题，其余原样返回"
+        );
+        let views = question_views_for_conversation(&state, "conv-main").expect("list");
+        assert_eq!(
+            question_test_numbers(&views),
+            vec![1, 3],
+            "库里的题必须同步减少"
+        );
+    }
+
+    #[test]
+    fn question_reject_should_not_write_any_message() {
+        let state = question_test_state();
+        question_test_answerable_conversation(&state, "conv-main");
+        question_apply_tool_mutations(
+            &state,
+            "conv-main",
+            &[question_test_create_item("题一", &["A"])],
+        )
+        .expect("create question");
+
+        let before = state_read_conversation_cached(&state, "conv-main")
+            .expect("read conversation")
+            .messages
+            .len();
+        question_reject_inner(&state, "conv-main", 1).expect("reject question");
+        let after = state_read_conversation_cached(&state, "conv-main")
+            .expect("read conversation")
+            .messages
+            .len();
+
+        assert_eq!(before, after, "拒绝不许往会话历史里写任何消息");
+        assert!(
+            question_test_pending_queue_is_empty(&state, "conv-main"),
+            "拒绝不许入队任何事件"
+        );
+    }
+
+    #[test]
+    fn question_reject_should_return_empty_when_every_question_rejected() {
+        let state = question_test_state();
+        question_test_answerable_conversation(&state, "conv-main");
+        question_apply_tool_mutations(
+            &state,
+            "conv-main",
+            &[
+                question_test_create_item("题一", &["A"]),
+                question_test_create_item("题二", &["B"]),
+            ],
+        )
+        .expect("create questions");
+
+        let first = question_reject_inner(&state, "conv-main", 1).expect("reject #1");
+        assert_eq!(question_test_numbers(&first), vec![2]);
+        let second = question_reject_inner(&state, "conv-main", 2).expect("reject #2");
+        assert!(second.is_empty(), "全部拒绝后剩余必须为空，面板自行消失");
+    }
+
+    #[test]
+    fn question_reject_should_reject_unknown_number_and_keep_question() {
+        let state = question_test_state();
+        question_test_answerable_conversation(&state, "conv-main");
+        question_apply_tool_mutations(
+            &state,
+            "conv-main",
+            &[question_test_create_item("题一", &["A"])],
+        )
+        .expect("create question");
+
+        let err = question_reject_inner(&state, "conv-main", 5).expect_err("未知编号必须报错");
+        assert!(err.contains("#5 不存在"), "{err}");
+        let views = question_views_for_conversation(&state, "conv-main").expect("list");
+        assert_eq!(
+            question_test_numbers(&views),
+            vec![1],
+            "拒绝失败不许吃掉既有题目"
+        );
+    }
+
+    #[test]
+    fn question_reject_should_reject_zero_number() {
+        let state = question_test_state();
+        question_test_answerable_conversation(&state, "conv-main");
+        let err = question_reject_inner(&state, "conv-main", 0).expect_err("0 不是合法编号");
+        assert!(err.contains("0 不是合法编号"), "{err}");
+    }
+
+    #[test]
+    fn question_reject_should_reject_side_chat_conversation() {
+        let state = question_test_state();
+        let conversation = question_test_conversation("conv-side", CONVERSATION_KIND_SIDE_CHAT);
+        state_write_conversation_cached(&state, &conversation).expect("write conversation");
+
+        let err = question_reject_inner(&state, "conv-side", 1).expect_err("追问会话不能拒绝");
+        assert!(err.contains("本地主会话"), "{err}");
+    }
+

@@ -105,6 +105,7 @@
             数据走真实映射 <code class="text-xs">buildConversationQuestionItems</code>，
             节奏 <code class="text-xs">submit-mode="manual"</code>：编号原样显示，点选项只是勾选，
             点右下角「发送 N 题」才把这批已选题一起发出去，发出的题从列表消失。
+            点题干右侧「拒绝回答」只把这一题移除，不发送任何内容、不产生消息，其余题的勾选保留。
           </p>
           <div v-if="demoQuestionToolPanelItems.length > 0" class="flex justify-center">
             <ChatQuestionPanel
@@ -114,6 +115,7 @@
               submit-mode="manual"
               class="flex-1"
               @submit="onDemoQuestionToolSubmit"
+              @reject="onDemoQuestionToolReject"
             />
           </div>
           <div v-else class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60">
@@ -754,6 +756,7 @@ import ChatQuestionPanel from "../../../chat/components/ChatQuestionPanel.vue";
 import type { QuestionItem as ChatQuestionItem } from "../../../chat/components/ChatQuestionPanel.vue";
 import {
   buildConversationQuestionItems,
+  pruneConversationQuestionAnswers,
   type ConversationQuestionView,
 } from "../../../chat/utils/conversation-question";
 import ChatBubbleShell from "../../../chat/components/ChatBubbleShell.vue";
@@ -1244,6 +1247,17 @@ function onDemoQuestionToolSubmit(
     (item) => !answered.has(item.number),
   );
   demoQuestionToolAnswers.value = {};
+}
+
+/** 演示拒绝回答：只把被拒的题移除，不产生任何"已发送"记录，其余题的勾选保留。 */
+function onDemoQuestionToolReject(number: number) {
+  demoQuestionToolItems.value = demoQuestionToolItems.value.filter(
+    (item) => item.number !== number,
+  );
+  demoQuestionToolAnswers.value = pruneConversationQuestionAnswers(
+    demoQuestionToolItems.value,
+    demoQuestionToolAnswers.value,
+  );
 }
 
 watch(demoQuestionPreset, () => {

@@ -514,6 +514,7 @@
             submit-mode="manual"
             class="px-4 pb-2 pt-1"
             @submit="handleConversationQuestionSubmit"
+            @reject="handleConversationQuestionReject"
           />
           <ChatQuestionPanel
             v-if="activeConversationTerminalApprovals.length > 0"
@@ -973,6 +974,7 @@ import { clearFileReaderContextCandidates } from "../utils/file-reader-context-t
 import {
   buildConversationQuestionAnswerPayload,
   buildConversationQuestionItems,
+  pruneConversationQuestionAnswers,
   type ConversationQuestionView,
 } from "../utils/conversation-question";
 import { useIdeContext } from "../composables/use-ide-context";
@@ -1461,6 +1463,25 @@ const conversationQuestionItems = computed(() =>
   buildConversationQuestionItems(conversationQuestions.value),
 );
 
+/**
+ * 用后端返回的题目列表刷新面板。
+ *
+ * `resetAnswers` 只给「切会话」与「发送成功」用：前者已选内容全部失效，后者已经发出去了。
+ * 拒绝单题、以及工具自行增删题走的是保留分支——只丢已经不在列表里的题目勾选，
+ * 其余题的选中态留着，否则用户拒一题就得把别的题重选一遍。
+ * 编号不回收也不复用（后端有测试盯着），所以按编号对齐是安全的。
+ */
+function applyConversationQuestionItems(
+  items: ConversationQuestionView[] | undefined,
+  resetAnswers: boolean,
+) {
+  const next = Array.isArray(items) ? items : [];
+  conversationQuestions.value = next;
+  conversationQuestionAnswers.value = resetAnswers
+    ? {}
+    : pruneConversationQuestionAnswers(next, conversationQuestionAnswers.value);
+}
+
 async function loadConversationQuestions(conversationId?: string) {
   const cid = String(conversationId ?? props.activeConversationId ?? "").trim();
   if (!cid) {
@@ -1473,8 +1494,7 @@ async function loadConversationQuestions(conversationId?: string) {
     });
     // 请求返回时用户可能已切走，丢弃过期结果。
     if (String(props.activeConversationId || "").trim() !== cid) return;
-    conversationQuestions.value = Array.isArray(items) ? items : [];
-    conversationQuestionAnswers.value = {};
+    applyConversationQuestionItems(items, true);
   } catch {
     conversationQuestions.value = [];
   }
@@ -1494,11 +1514,36 @@ function handleConversationQuestionSubmit(
   })
     .then((result) => {
       if (String(props.activeConversationId || "").trim() !== conversationId) return;
-      conversationQuestions.value = Array.isArray(result?.remaining) ? result.remaining : [];
-      conversationQuestionAnswers.value = {};
+      applyConversationQuestionItems(result?.remaining, true);
     })
     .catch((error) => {
       console.error("[会话问题] 提交答复失败", error);
+      void loadConversationQuestions(conversationId);
+    })
+    .finally(() => {
+      conversationQuestionSubmitting.value = false;
+    });
+}
+
+/**
+ * 拒绝回答某一题：只把这一题从问题列表里删掉，不产生任何会话消息、不触发调度。
+ * 与答复共用 `conversationQuestionSubmitting`，同一时刻只允许一个问卷操作在飞。
+ */
+function handleConversationQuestionReject(number: number) {
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (!conversationId || conversationQuestionSubmitting.value) return;
+  if (!Number.isInteger(number) || number < 1) return;
+  conversationQuestionSubmitting.value = true;
+  void invokeTauri<ConversationQuestionView[]>("question_reject", {
+    conversationId,
+    number,
+  })
+    .then((remaining) => {
+      if (String(props.activeConversationId || "").trim() !== conversationId) return;
+      applyConversationQuestionItems(remaining, false);
+    })
+    .catch((error) => {
+      console.error("[会话问题] 拒绝回答失败", error);
       void loadConversationQuestions(conversationId);
     })
     .finally(() => {
@@ -1520,9 +1565,7 @@ onMounted(() => {
     (payload) => {
       const conversationId = String((payload as any)?.conversationId || "").trim();
       if (!conversationId || conversationId !== String(props.activeConversationId || "").trim()) return;
-      const items = (payload as any)?.items;
-      conversationQuestions.value = Array.isArray(items) ? items : [];
-      conversationQuestionAnswers.value = {};
+      applyConversationQuestionItems((payload as any)?.items, false);
     },
   );
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildConversationQuestionAnswerPayload,
   buildConversationQuestionItems,
+  pruneConversationQuestionAnswers,
   type ConversationQuestionView,
 } from "./conversation-question";
 
@@ -71,5 +72,25 @@ describe("buildConversationQuestionAnswerPayload", () => {
         { id: "4", optionId: "2" },
       ]),
     ).toEqual([{ number: 4, optionIndex: 2 }]);
+  });
+});
+
+describe("pruneConversationQuestionAnswers", () => {
+  const answers = {
+    "2": { optionId: "0", label: "现在发布", comment: "" },
+    "5": { optionId: "1", label: "release", comment: "走发布分支" },
+  };
+
+  it("拒绝了其中一题，别的题已经选好的内容必须留着", () => {
+    expect(
+      pruneConversationQuestionAnswers(
+        [question(5, "用哪个分支？", ["main", "release"])],
+        answers,
+      ),
+    ).toEqual({ "5": { optionId: "1", label: "release", comment: "走发布分支" } });
+  });
+
+  it("题目全被清掉时返回空映射", () => {
+    expect(pruneConversationQuestionAnswers([], answers)).toEqual({});
   });
 });

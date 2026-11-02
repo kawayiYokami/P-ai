@@ -170,6 +170,53 @@ fn question_answer(
     question_answer_inner(state.inner(), &conversation_id, answers)
 }
 
+/// 拒绝回答问题：只删题，不产生任何会话消息。
+///
+/// 与答题的边界在这里：答题要构造一条用户消息入队并触发调度，所以删题必须与入队同事务；
+/// 拒绝不碰入队链路，单条删除本身就是原子的，不需要事务，也不需要会话人格。
+fn question_reject_inner(
+    state: &AppState,
+    conversation_id: &str,
+    number: u32,
+) -> Result<Vec<ConversationQuestionView>, String> {
+    let conversation_id = conversation_id.trim().to_string();
+    if conversation_id.is_empty() {
+        return Err("会话 ID 不能为空".to_string());
+    }
+    if number == 0 {
+        return Err("问题编号从 1 开始，0 不是合法编号".to_string());
+    }
+    let meta = conversation_service_v2()
+        .get_conversation_meta(state, &conversation_id)
+        .map_err(|_| format!("会话不存在：{conversation_id}"))?;
+    if !conversation_kind_is_local_main_chat(&meta.conversation_kind) {
+        return Err("只有本地主会话可以拒绝回答问题".to_string());
+    }
+
+    let conn = question_store_open(&state.data_path)?;
+    let deleted = question_store_delete(&conn, &conversation_id, number)?;
+    if deleted == 0 {
+        return Err(format!("#{number} 不存在（可能已被回答或清理）"));
+    }
+
+    let items = question_store_list(&conn, &conversation_id)?;
+    let remaining = items
+        .iter()
+        .map(ConversationQuestion::to_view)
+        .collect::<Vec<_>>();
+    question_emit_items_updated(state, &conversation_id, &remaining);
+    Ok(remaining)
+}
+
+#[tauri::command]
+fn question_reject(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    number: u32,
+) -> Result<Vec<ConversationQuestionView>, String> {
+    question_reject_inner(state.inner(), &conversation_id, number)
+}
+
 #[tauri::command]
 fn question_list(
     state: State<'_, AppState>,

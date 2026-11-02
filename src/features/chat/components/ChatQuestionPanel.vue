@@ -44,6 +44,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   "update:modelValue": [value: Record<string, QuestionAnswer>];
   submit: [answers: QuestionSubmitPayloadItem[]];
+  reject: [number: number];
   cancel: [];
   approveForWorkspace: [requestId: string];
 }>();
@@ -234,6 +235,18 @@ function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
   if (!payload) return;
   emit("submit", payload);
 }
+
+/**
+ * 拒绝回答：单题即时生效，不需要先选选项，也不参与批量发送。
+ * 只允许手动提交模式（会话提问）出现——终端审批那套的选项是批准/拒绝执行，题目本身不能拒。
+ */
+function handleReject() {
+  const item = currentItem.value;
+  if (!item || props.submitting || !isManualSubmit.value) return;
+  const number = Number(item.id);
+  if (!Number.isInteger(number) || number < 1) return;
+  emit("reject", number);
+}
 </script>
 
 <template>
@@ -331,6 +344,15 @@ function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
                   {{ currentItem.description }}
                 </div>
               </div>
+              <button
+                v-if="isManualSubmit"
+                type="button"
+                class="btn btn-ghost btn-sm shrink-0 text-error"
+                :disabled="submitting"
+                @click="handleReject"
+              >
+                拒绝回答
+              </button>
               <label
                 v-if="canRememberWorkspaceForCurrent"
                 class="flex shrink-0 cursor-pointer items-center gap-2 btn btn-ghost font-normal"

@@ -30,6 +30,30 @@ export function buildConversationQuestionItems(
   }));
 }
 
+/** 会话问题的已选答复：键是题目编号字符串，与面板 `QuestionItem.id` 对齐。 */
+export type ConversationQuestionAnswerMap = Record<
+  string,
+  { optionId: string; label: string; comment: string }
+>;
+
+/**
+ * 题目列表变化后裁剪已选答复：只保留仍然存在的题目。
+ *
+ * 拒绝单题、以及工具自行增删题都走这里：用户拒掉一题不该把别的题已经选好的选项一起打回重选。
+ * 按编号对齐是安全的，因为编号不回收也不复用（后端有测试盯着）。
+ */
+export function pruneConversationQuestionAnswers(
+  items: ConversationQuestionView[],
+  answers: ConversationQuestionAnswerMap,
+): ConversationQuestionAnswerMap {
+  const alive = new Set((Array.isArray(items) ? items : []).map((item) => String(item.number)));
+  const kept: ConversationQuestionAnswerMap = {};
+  for (const [key, value] of Object.entries(answers ?? {})) {
+    if (alive.has(key)) kept[key] = value;
+  }
+  return kept;
+}
+
 /** 面板答复 → 答题命令参数：编号与选项下标都按字符串回传，这里只做数字转换与非法项过滤。 */
 export function buildConversationQuestionAnswerPayload(
   answers: Array<{ id: string; optionId: string }>,
