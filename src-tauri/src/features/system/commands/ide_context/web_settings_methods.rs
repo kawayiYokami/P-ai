@@ -337,8 +337,19 @@ fn ide_chat_question_answer_for_web_settings(
     )?)
 }
 
-async fn ide_chat_task_optimize_draft_for_web_settings(
+fn ide_chat_question_reject_for_web_settings(
     state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<QuestionRejectWebParams>(params, "input")?;
+    ide_chat_serialize(question_reject_inner(
+        state,
+        &input.conversation_id,
+        input.number,
+    )?)
+}
+
+async fn ide_chat_task_optimize_draft_for_web_settings(    state: &AppState,
     params: Value,
 ) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<TaskOptimizeDraftInput>(params, "input")?;

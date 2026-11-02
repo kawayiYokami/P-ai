@@ -558,6 +558,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "task_list_run_logs" => ide_chat_task_list_run_logs_for_web_settings(state, request.params),
         "question_list" => ide_chat_question_list_for_web_settings(state, request.params),
         "question_answer" => ide_chat_question_answer_for_web_settings(state, request.params),
+        "question_reject" => ide_chat_question_reject_for_web_settings(state, request.params),
         "task_optimize_draft" => ide_chat_task_optimize_draft_for_web_settings(state, request.params).await,
         "mcp_list_servers" => ide_chat_mcp_list_servers_for_web_settings(state),
         "mcp_validate_definition" => ide_chat_mcp_validate_definition_for_web_settings(request.params),

@@ -39,6 +39,15 @@ struct QuestionAnswerWebParams {
     answers: Vec<QuestionAnswerInput>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QuestionRejectWebParams {
+    #[serde(default)]
+    conversation_id: String,
+    #[serde(default)]
+    number: u32,
+}
+
 fn build_question_answer_message(text: &str, numbers: &[u32]) -> ChatMessage {
     ChatMessage {
         id: Uuid::new_v4().to_string(),
