@@ -224,6 +224,7 @@ import { stripPreviewMarkdown, stripToolcallMarkers } from "../../../utils/chat-
 import { formatConversationListTime } from "../utils/conversation-time";
 import { workspaceNameFromPath } from "../utils/conversation-sections";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
+import { SYSTEM_PERSONA_ID, USER_PERSONA_ID } from "../../shared/builtin-persona-ids";
 import {
   conversationPendingQuestionBadge,
   conversationProgressVisual,
@@ -393,12 +394,10 @@ const latestPreviewLine = computed(() => {
 
 // ==================== 完整项：头像与状态指示 ====================
 
-const SYSTEM_PERSONA_ID = "system-persona";
-
 function speakerLabel(preview: ConversationPreviewMessage): string {
   if (preview.role === "tool") return t("archives.roleTool");
   const speakerId = String(preview.speakerAgentId || "").trim();
-  if (!speakerId || speakerId === "user-persona") {
+  if (!speakerId || speakerId === USER_PERSONA_ID) {
     return props.userAlias || t("archives.roleUser");
   }
   return props.personaNameMap?.[speakerId] || speakerId;
@@ -435,7 +434,7 @@ function lastSpeakerAvatarUrl(): string {
   const previews = normalizedPreviewMessages.value;
   if (previews.length === 0) return "";
   const speakerId = String(previews[previews.length - 1].speakerAgentId || "").trim();
-  if (!speakerId || speakerId === "user-persona") {
+  if (!speakerId || speakerId === USER_PERSONA_ID) {
     return props.userAvatarUrl || "";
   }
   return props.personaAvatarUrlMap?.[speakerId] || "";

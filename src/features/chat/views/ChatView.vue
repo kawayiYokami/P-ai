@@ -295,6 +295,7 @@
                  离底那排悬停即在原位向上展开蛇形时间线；贴底时它就是操作条里的那个按钮，点一下直接开概览 -->
             <div ref="sessionTopTimelineBoxRef" class="relative flex h-10 shrink-0 items-center">
               <TimelineSnakeBoard
+                ref="timelineSnakeBoardRef"
                 :visible="timelineFloatPanelVisible"
                 :anchors="timelineAnchors"
                 :active-index="activeTimelineIndex"
@@ -963,6 +964,7 @@ import { buildConversationSections, buildWorkspaceConversationSections, canonica
 import { defaultWorkspaceNameFromPath, normalizeWorkspacePathKey, stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
 import { recentWorkspacePaths } from "../../../utils/recent-workspaces";
 import { type ChatRenderItem, isRightAlignedMessage, isCompactionBlock, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
+import { isSessionPersonaBlock as isSessionPersonaBlockShared, isUserBlock, TIMELINE_TOOL_BREAK, buildTimelineAnchors, type TimelineAnchor } from "../utils/timeline-anchors";
 import { computeTimelineSegmentStarts, resolveTimelineVisibleStartIndex } from "../utils/timeline-segments";
 import { computeSessionTopColumnOffset, isSessionTopColumnOffsetSettled } from "../utils/session-top-column-offset";
 import { isSessionToolbarBehindElasticSpace } from "../utils/session-toolbar-visibility";
@@ -2451,7 +2453,6 @@ type TimelineEntry = {
   isCompaction: boolean;
 };
 
-const TIMELINE_TOOL_BREAK = "\uE000TOOLBREAK\uE000";
 // 每句只留 150 字：前 30% + 后 70%
 const TIMELINE_TEXT_LIMIT = 150;
 const TIMELINE_TEXT_HEAD_RATIO = 0.3;
@@ -2464,21 +2465,28 @@ function cleanTimelineText(raw: string): string {
     .trim();
 }
 
-function isOwnTimelineBlock(block: ChatMessageBlock): boolean {
-  const speakerId = String(block.speakerAgentId || "").trim();
-  const role = String(block.role || "").trim();
-  return !speakerId || speakerId === "user-persona" || role === "user";
-}
+/** 当前会话人格 id：先按 activeConversationId 在会话列表里精确取，回退会话摘要，再回退宿主传入的 activeAgentId。 */
+const currentSessionAgentId = computed(() => {
+  const convId = String(props.activeConversationId || "").trim();
+  const conv = (props.conversationItems || props.unarchivedConversationItems || []).find(
+    (item) => String(item.conversationId || "").trim() === convId,
+  ) || activeConversationSummary.value;
+  return String(conv?.agentId || props.activeAgentId || "").trim();
+});
+
+// 锚点与节点归属的判定收在 utils/timeline-anchors，主会话与追问面板共用同一套语义
+const isSessionPersonaBlock = (block: ChatMessageBlock): boolean =>
+  isSessionPersonaBlockShared(block, currentSessionAgentId.value);
 
 function timelineSpeakerName(block: ChatMessageBlock): string {
-  if (isOwnTimelineBlock(block)) return String(props.userAlias || "").trim() || "我";
+  if (isUserBlock(block)) return String(props.userAlias || "").trim() || "我";
   const speakerId = String(block.speakerAgentId || "").trim();
   if (speakerId && props.personaNameMap?.[speakerId]) return props.personaNameMap[speakerId];
   return String(props.personaName || "").trim() || "助理";
 }
 
 function timelineSpeakerAvatar(block: ChatMessageBlock): string {
-  if (isOwnTimelineBlock(block)) return String(props.userAvatarUrl || "").trim();
+  if (isUserBlock(block)) return String(props.userAvatarUrl || "").trim();
   const speakerId = String(block.speakerAgentId || "").trim();
   const personaAvatar = speakerId ? String(props.personaAvatarUrlMap?.[speakerId] || "").trim() : "";
   return personaAvatar || String(props.assistantAvatarUrl || "").trim();
@@ -2492,18 +2500,9 @@ function formatTimelineTime(value?: string): string {
   return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-// 蛇形时间线锚点：每条完成态用户消息一个点，附上紧随其后的助理回复尾段，供悬停预览卡显示。
+// 蛇形时间线锚点：每条「当前会话人格之外的发言」一个点，附上紧随其后的人格回复尾段，供悬停预览卡显示。
 // 与上面按「每条消息一个节点」的垂直时间线各管一摊：蛇板负责定位与挪动，垂直面板负责逐条浏览。
-function timelineAssistantTail(raw: string): string {
-  const parts = String(raw || "")
-    .split(TIMELINE_TOOL_BREAK)
-    .map((part) => part.replace(/\[toolcall:[^\]\n]+\]/g, "").replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1]! : "";
-}
-
-const timelineAnchors = computed<Array<{ id: string; userText: string; assistantTail: string; index: number }>>(() => {
-  const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
+const timelineAnchors = computed<TimelineAnchor[]>(() => {
   const idToVirtual = new Map<string, number>();
   virtualRenderItems.value.forEach((item, idx) => {
     if (item.kind === "message" && item.block) {
@@ -2511,29 +2510,7 @@ const timelineAnchors = computed<Array<{ id: string; userText: string; assistant
       if (bid) idToVirtual.set(bid, idx);
     }
   });
-  const anchors: Array<{ id: string; userText: string; assistantTail: string; index: number }> = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i]!;
-    if (block.isStreaming || block.isExtraTextBlock || block.remoteImOrigin) continue;
-    if (!isOwnTimelineBlock(block)) continue;
-    const text = String(block.text || "");
-    if (!text.trim() && block.images.length === 0 && block.audios.length === 0) continue;
-    const index = idToVirtual.get(String(block.id || ""));
-    if (index === undefined) continue;
-    let assistantTail = "";
-    for (let j = i + 1; j < blocks.length; j++) {
-      const next = blocks[j]!;
-      if (next.isStreaming) continue;
-      if (isOwnTimelineBlock(next)) break;
-      const tail = timelineAssistantTail(String(next.text || ""));
-      if (tail) {
-        assistantTail = tail;
-        break;
-      }
-    }
-    anchors.push({ id: String(block.id || `timeline-${i}`), userText: text, assistantTail, index });
-  }
-  return anchors;
+  return buildTimelineAnchors((props.messageBlocks || []) as ChatMessageBlock[], idToVirtual, currentSessionAgentId.value);
 });
 
 const timelineEntries = computed<TimelineEntry[]>(() => {
@@ -2566,7 +2543,8 @@ const timelineEntries = computed<TimelineEntry[]>(() => {
       avatarUrl: timelineSpeakerAvatar(block),
       time: formatTimelineTime(block.createdAt),
       text,
-      isOwn: isOwnTimelineBlock(block),
+      // 左右对齐跟消息气泡一致（共享气泡的 isRightAlignedMessage）；名字与头像另按 isUserBlock 判真实说话人
+      isOwn: isRightAlignedMessage(block),
       isCompaction: compaction || pendingCompactionBoundary,
     });
     pendingCompactionBoundary = false;
@@ -2574,7 +2552,9 @@ const timelineEntries = computed<TimelineEntry[]>(() => {
   return entries;
 });
 
-const canShowTimeline = computed(() => timelineEntries.value.length >= 2);
+// 按钮显隐必须与蛇形时间线浮层同源：浮层渲染靠 timelineAnchors，按钮就不能只看逐条时间线的条目数，
+// 否则会出现「按钮在、浮层算不出节点」，悬停瞬间按钮即被置为不可见而消失。
+const canShowTimeline = computed(() => timelineAnchors.value.length >= 2);
 
 const prefersReducedMotionTimeline = ref(false);
 onMounted(() => {
@@ -2620,6 +2600,8 @@ function handleTimelineJump(virtualIndex: number) {
 // 蛇形时间线：按钮悬停即在原位向上展开；展开期间按钮位置换成「预览」按钮，点它才打开垂直面板。
 const hoveredTimelineIndex = ref<number | null>(null);
 const timelineFloatButtonRef = ref<HTMLElement | null>(null);
+// 蛇板实例：外点关闭按它判归属，避免主会话与追问面板的蛇板互相关闭
+const timelineSnakeBoardRef = ref<{ containsNode: (node: Node | null) => boolean } | null>(null);
 const timelineFloatOpen = ref(false);
 // 悬停展开的微防抖：避免光标扫过按钮误触弹开
 const TIMELINE_FLOAT_OPEN_DELAY_MS = 120;
@@ -2710,7 +2692,8 @@ function handleTimelineEntryButtonClick() {
 function handleTimelineFloatDocumentPointerDown(event: MouseEvent | TouchEvent) {
   if (!timelineFloatPanelVisible.value) return;
   const target = event.target as Node | null;
-  if (target instanceof Element && target.closest(".ecall-snake-board-card")) return;
+  // 按本实例的蛇板判定归属：同一页面可能同时有主会话与追问面板两块蛇板
+  if (timelineSnakeBoardRef.value?.containsNode(target)) return;
   const anchorEl = timelineFloatButtonRef.value;
   if (anchorEl && target && anchorEl.contains(target)) return;
   closeTimelineFloat();
@@ -4721,9 +4704,13 @@ onMounted(() => {
   void nextTick(() => chatScrollbarRef.value?.updateThumb());
   document.addEventListener("pointerdown", closeCompactionSummaryContextMenu);
   document.addEventListener("keydown", handleCompactionSummaryContextMenuKeydown);
-  unlistenFileReaderAddToChat = onTransportNotification<IdeContextReferenceItem>("fileReader.addToChat", (payload) => {
-    handleAddFileReaderContextReference(payload);
-  });
+  // 文件阅读器只向主 chat 窗口广播引用；侧面板（追问/队员）是同一份组件的第二实例，
+  // 若也订阅就会各挂一份引用并各自抢焦点，导致引用同时进入两个会话。
+  if (props.composerScope !== "side") {
+    unlistenFileReaderAddToChat = onTransportNotification<IdeContextReferenceItem>("fileReader.addToChat", (payload) => {
+      handleAddFileReaderContextReference(payload);
+    });
+  }
 });
 
 onBeforeUnmount(() => {

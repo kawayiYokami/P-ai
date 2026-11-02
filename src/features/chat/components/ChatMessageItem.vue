@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="messageRootRef"
     :data-message-id="String(block.id || '')"
     :data-message-role="isOwnMessage(block) ? 'user' : block.role"
     :data-active-turn-user="activeTurnUser ? 'true' : undefined"
@@ -982,6 +983,8 @@ let disposed = false;
 
 const contextMenuOpen = ref(false);
 const contextMenuRef = ref<HTMLElement | null>(null);
+// 本条消息的根节点：选区归属与右键抑制都要按它判定，不能只看全局选区
+const messageRootRef = ref<HTMLElement | null>(null);
 const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const mathContextCopyText = ref("");
@@ -1603,7 +1606,7 @@ function toggleReasoningItemExpanded(item: ChatActivityItem): void {
 
 function onReasoningHeaderClick(item: ChatActivityItem, event: MouseEvent): void {
   if (props.selectionModeEnabled || !activityItemCanExpand(item)) return;
-  if (window.getSelection()?.toString().trim()) return;
+  if (hasNativeTextSelection()) return;
   const target = event.target as HTMLElement | null;
   if (target?.closest('button, a, input, textarea, select, [data-selection-ignore="true"]')) {
     return;
@@ -1613,7 +1616,7 @@ function onReasoningHeaderClick(item: ChatActivityItem, event: MouseEvent): void
 
 function onReasoningClampedBodyClick(item: ChatActivityItem): void {
   if (props.selectionModeEnabled || activityItemExpanded(item)) return;
-  if (window.getSelection()?.toString().trim()) return;
+  if (hasNativeTextSelection()) return;
   toggleReasoningItemExpanded(item);
 }
 
@@ -1971,7 +1974,15 @@ function handleSelectionRowClick(event: MouseEvent): void {
 function hasNativeTextSelection(): boolean {
   try {
     const selection = window.getSelection?.();
-    return !!selection && selection.rangeCount > 0 && !selection.isCollapsed && !!String(selection.toString() || "").trim();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
+    if (!String(selection.toString() || "").trim()) return false;
+    // 选区必须落在本条消息内：主会话与追问面板同时存在两份 ChatView，
+    // 只看全局有没有选区会让别处的选区压住这里的右键菜单和推理块展开。
+    const root = messageRootRef.value;
+    if (!root) return false;
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+    return (!!anchorNode && root.contains(anchorNode)) || (!!focusNode && root.contains(focusNode));
   } catch {
     return false;
   }

@@ -48,6 +48,15 @@ const PREVIEW_H = 152;
 const PREVIEW_OFFSET = 14;
 
 const hostRef = ref<HTMLElement | null>(null);
+
+/**
+ * 供宿主判断一次指针事件是否落在本实例的蛇板内。
+ * 主页面上可能同时存在多块蛇板（主会话 + 追问面板各一块），按 class 判会互相干扰。
+ */
+function containsNode(node: Node | null): boolean {
+  if (!node) return false;
+  return !!hostRef.value && hostRef.value.contains(node);
+}
 const winSize = ref({
   w: typeof window !== "undefined" ? window.innerWidth : 1920,
   h: typeof window !== "undefined" ? window.innerHeight : 1080,
@@ -533,6 +542,8 @@ const tooltipStyle = computed(() => {
   }
   return style;
 });
+
+defineExpose({ containsNode });
 </script>
 
 <template>

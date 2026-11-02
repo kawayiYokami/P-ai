@@ -355,8 +355,11 @@ function handleDocumentPointerDown(event: PointerEvent) {
     closeToolcallPreview();
     return;
   }
-  if (target instanceof HTMLElement && target.closest('[data-toolcall-pill="true"]')) return;
-  if (target instanceof HTMLElement && target.closest(".ecall-md-toolcall-popup")) return;
+  // 判定归属必须按本实例：同一份渲染器可能同时存在多份（主会话 + 追问面板），
+  // 用文档级 class 判会把别的实例的气泡/浮层当成自己的，导致点别处关不掉、点这里被误豁免。
+  if (target instanceof HTMLElement
+    && target.closest('[data-toolcall-pill="true"]')
+    && rendererRootRef.value?.contains(target)) return;
   if (toolcallPopupRef.value?.contains(target)) return;
   closeToolcallPreview();
 }
