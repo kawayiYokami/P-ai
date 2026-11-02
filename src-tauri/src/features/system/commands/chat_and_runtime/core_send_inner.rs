@@ -2355,9 +2355,18 @@ async fn send_chat_message_inner(
             }
 
             let retry_kind = classify_retry_kind_for_result(&chat_round_execution.result);
-            // 工具历史写不进库属于数据层致命错误：换模型重跑只会让同一批工具再执行一次，
-            // 所以既不重试也不切换候选模型，直接把错误交给收尾层回报前端。
+            // 用户中止不是模型失败：若按失败处理，收尾层会走失败落盘，把本轮已产生的流式正文
+            // 与工具行整段丢掉，还会回报成「所有候选模型均失败」。所以中止和数据层致命错误同路：
+            // 立刻收束、原样上抛、不重试、不切换候选模型。
             if let Err(error) = &chat_round_execution.result {
+                if is_user_abort_error(error) {
+                    runtime_log_info(format!(
+                        "[聊天] 用户中止，收束本轮调度，任务=dispatch_stopped_by_user，conversation_id={}，api_config_id={}，attempt={}",
+                        conversation_id, candidate_selected_api.id, attempt
+                    ));
+                    fatal_error = Some(error.clone());
+                    break;
+                }
                 if is_fatal_dispatch_error(error) {
                     runtime_log_error(format!(
                         "[聊天] 终止调度，任务=dispatch_aborted_on_tool_history_persist_failure，conversation_id={}，api_config_id={}，error={}",
@@ -2517,17 +2526,8 @@ async fn send_chat_message_inner(
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
     }
-    let model_reply =
-        model_reply.ok_or_else(|| {
-            if let Some(fatal) = fatal_error.clone() {
-                return fatal;
-            }
-            if fallback_errors.is_empty() {
-                "模型回复无效：未收到可用内容。".to_string()
-            } else {
-                format!("所有候选模型均失败：{}", fallback_errors.join(" | "))
-            }
-        })?;
+    let model_reply = model_reply
+        .ok_or_else(|| resolve_dispatch_terminal_error(fatal_error.clone(), &fallback_errors))?;
     let assistant_text = model_reply.assistant_text;
     let final_response_text = model_reply.final_response_text;
     let activity_reasoning_text = model_reply.activity_reasoning_text;
@@ -3053,10 +3053,7 @@ async fn send_chat_message_inner(
     } else {
         futures_util::future::Abortable::new(run, abort_registration).await
     };
-    emit_conversation_work_status(match &result {
-        Ok(Ok(_)) | Err(_) => "completed",
-        Ok(Err(_)) => "error",
-    });
+    emit_conversation_work_status(conversation_work_status_for(&result));
     flush_chat_timeline("send_chat_message_inner.finish");
     {
         let mut inflight = state
@@ -3083,7 +3080,7 @@ async fn send_chat_message_inner(
     };
     let should_clear_completed_tool_history = true;
     if let Err(err) = final_result.as_ref() {
-        if err == CHAT_ABORTED_BY_USER_ERROR {
+        if is_user_abort_error(err) {
             let failure_persist_target = failure_persist_target
                 .lock()
                 .ok()
@@ -3306,6 +3303,47 @@ fn is_fatal_dispatch_error(message: &str) -> bool {
     message.contains(TOOL_HISTORY_PERSIST_FAILED_PREFIX)
 }
 
+/// 用户是否主动中止了本轮。
+///
+/// 中止不是模型失败：它同样不该重试、不该切换候选模型，收尾也必须走 partial 落盘。
+/// 判据只能看整串是否全等——一旦被包进任何文案，识别就会失效。
+fn is_user_abort_error(message: &str) -> bool {
+    message == CHAT_ABORTED_BY_USER_ERROR
+}
+
+/// 一轮结束后的工作状态。
+///
+/// 中止不算出错：硬打断走外层 `Err(Aborted)`，工具执行中返回的中止走 `Ok(Err(中止))`，
+/// 两条路径必须给同一个反馈——同一个停止按钮不该有两种结果。
+fn conversation_work_status_for(
+    result: &Result<Result<SendChatResult, String>, futures_util::future::Aborted>,
+) -> &'static str {
+    match result {
+        Err(_) => "completed",
+        Ok(Ok(_)) => "completed",
+        Ok(Err(error)) if is_user_abort_error(error) => "completed",
+        Ok(Err(_)) => "error",
+    }
+}
+
+/// 候选全部走完时的终态文案。
+///
+/// 命中 `fatal_error` 时原样上抛、不再二次包裹：中止靠这一点才能被收尾层认出来，
+/// 否则会被写成「所有候选模型均失败：…」，连带把本轮内容按失败处理。
+fn resolve_dispatch_terminal_error(
+    fatal_error: Option<String>,
+    fallback_errors: &[String],
+) -> String {
+    if let Some(fatal) = fatal_error {
+        return fatal;
+    }
+    if fallback_errors.is_empty() {
+        "模型回复无效：未收到可用内容。".to_string()
+    } else {
+        format!("所有候选模型均失败：{}", fallback_errors.join(" | "))
+    }
+}
+
 fn should_create_assistant_provider_meta(
     request_format: &RequestFormat,
     assistant_provider_meta_override: Option<&Value>,
@@ -3331,6 +3369,76 @@ mod core_send_inner_tests {
         ));
         assert!(!is_fatal_dispatch_error("网络连接异常：connection reset"));
         assert!(!is_fatal_dispatch_error("所有候选模型均失败：模型请求失败"));
+    }
+
+    #[test]
+    fn user_abort_error_is_not_retryable() {
+        // 中止一旦被当成可重试，用户点了停止还会再打一轮请求。
+        let kind = classify_retry_kind_for_error_text(CHAT_ABORTED_BY_USER_ERROR);
+        assert!(matches!(kind, RetryKind::NonRetryable));
+        assert!(!retry_kind_is_retryable(kind));
+
+        let aborted: Result<ModelReply, String> = Err(CHAT_ABORTED_BY_USER_ERROR.to_string());
+        let result_kind = classify_retry_kind_for_result(&aborted);
+        assert!(matches!(result_kind, RetryKind::NonRetryable));
+        assert!(!retry_kind_is_retryable(result_kind));
+    }
+
+    #[test]
+    fn user_abort_error_survives_terminal_resolution_unwrapped() {
+        // 收尾层靠字符串全等识别中止。这里刻意混入候选失败文案：有 fatal 时不得拼接，
+        // 否则会被当成「所有候选模型均失败」走失败落盘，本轮流式正文与工具行全丢。
+        let fallback_errors = vec![
+            "模型 A: 模型请求失败，已停止重试：CHAT_ABORTED_BY_USER (attempted 1 times)".to_string(),
+        ];
+        let terminal = resolve_dispatch_terminal_error(
+            Some(CHAT_ABORTED_BY_USER_ERROR.to_string()),
+            &fallback_errors,
+        );
+        assert_eq!(terminal, CHAT_ABORTED_BY_USER_ERROR);
+        assert!(is_user_abort_error(&terminal));
+        assert!(!terminal.contains("所有候选模型均失败"));
+        assert!(!terminal.contains("模型请求失败"));
+    }
+
+    #[test]
+    fn terminal_resolution_keeps_fallback_wording_without_fatal_error() {
+        // 没有 fatal 时沿用原口径，避免修中止时把普通失败文案改掉。
+        assert_eq!(
+            resolve_dispatch_terminal_error(None, &[]),
+            "模型回复无效：未收到可用内容。"
+        );
+        assert_eq!(
+            resolve_dispatch_terminal_error(None, &["a: x".to_string(), "b: y".to_string()]),
+            "所有候选模型均失败：a: x | b: y"
+        );
+        assert!(!is_user_abort_error("所有候选模型均失败：a: x | b: y"));
+    }
+
+    #[test]
+    fn aborted_dispatch_should_not_report_error_work_status() {
+        // 同一次「停止」不能有两种反馈：硬打断走外层取消，工具执行中停止走内层中止，
+        // 两者都必须映射成非 error 的工作状态。
+        let cancelled: Result<Result<SendChatResult, String>, futures_util::future::Aborted> =
+            Err(futures_util::future::Aborted);
+        let aborted_in_tool_loop: Result<
+            Result<SendChatResult, String>,
+            futures_util::future::Aborted,
+        > = Ok(Err(CHAT_ABORTED_BY_USER_ERROR.to_string()));
+        assert_eq!(conversation_work_status_for(&cancelled), "completed");
+        assert_eq!(
+            conversation_work_status_for(&aborted_in_tool_loop),
+            "completed"
+        );
+        assert_ne!(
+            conversation_work_status_for(&aborted_in_tool_loop),
+            "error"
+        );
+
+        // 真正的模型失败仍要报 error，中止豁免不能糊到全部错误上。
+        let failed: Result<Result<SendChatResult, String>, futures_util::future::Aborted> =
+            Ok(Err("所有候选模型均失败：a: x".to_string()));
+        assert_eq!(conversation_work_status_for(&failed), "error");
     }
 
     #[test]
