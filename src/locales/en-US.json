@@ -1923,6 +1923,7 @@
     "taskConversationTab": "Tasks",
     "filePanelTab": "Files",
     "monitorPanelTab": "Monitor",
+    "moreTabs": "More Tabs",
     "homePanel": {
       "title": "Preview",
       "gitChanges": "Git changes",

@@ -36,6 +36,7 @@
             <option value="team-member-tiles">队员磁贴（自适应列数）</option>
             <option value="chat-home">首页磁贴区（追问入口 + 队员状态表）</option>
             <option value="skill-managed">技能面板（托管技能禁用态）</option>
+            <option value="panel-tabs">标签栏组件（PanelTabStrip）</option>
           </select>
           <span class="text-xs text-base-content/50">当前：{{ demoComponentLabel }}</span>
         </div>
@@ -605,6 +606,101 @@
         </div>
       </div>
     </div>
+
+    <div v-if="demoComponentKey === 'panel-tabs'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-4 p-4">
+        <div>
+          <h4 class="card-title text-base">自适应标签栏 (PanelTabStrip)</h4>
+          <p class="text-xs text-base-content/60">
+            当宽度不足时自动折叠多余标签至“...”更多菜单（每张卡片保留最小保护宽度，默认 104px / 文件 92px），当前激活标签优先保留在可见区。
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="text-xs text-base-content/70">容器宽度调节：</span>
+          <input
+            v-model.number="demoPanelTabsContainerWidth"
+            type="range"
+            min="200"
+            max="700"
+            step="10"
+            class="range range-xs range-primary w-64"
+          />
+          <span class="font-mono text-xs">{{ demoPanelTabsContainerWidth }}px</span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            @click="demoPanelTabsContainerWidth = 360"
+          >
+            默认 (360px)
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            @click="demoPanelTabsContainerWidth = 240"
+          >
+            窄视口 (240px)
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            @click="demoPanelTabsContainerWidth = 560"
+          >
+            宽视口 (560px)
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs text-primary"
+            @click="resetDemoPanelTabs"
+          >
+            重置标签列表
+          </button>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <div class="mb-1.5 flex items-center justify-between text-xs font-medium text-base-content/70">
+              <span>会话风格 (variant="default")</span>
+              <span class="text-micro text-base-content/50">当前激活：{{ demoPanelActiveKey }}</span>
+            </div>
+            <div
+              class="overflow-hidden rounded-box border border-base-300 bg-base-200"
+              :style="{ width: `${demoPanelTabsContainerWidth}px`, maxWidth: '100%' }"
+            >
+              <PanelTabStrip
+                :tabs="demoPanelTabs"
+                :active-key="demoPanelActiveKey"
+                aria-label="Demo Tabs"
+                close-title="关闭"
+                @select-tab="(k) => (demoPanelActiveKey = k)"
+                @close-tab="onDemoClosePanelTab"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div class="mb-1.5 flex items-center justify-between text-xs font-medium text-base-content/70">
+              <span>文件风格 (variant="file")</span>
+              <span class="text-micro text-base-content/50">当前激活：{{ demoPanelFileActiveKey }}</span>
+            </div>
+            <div
+              class="overflow-hidden rounded-box border border-base-300 bg-base-200"
+              :style="{ width: `${demoPanelTabsContainerWidth}px`, maxWidth: '100%' }"
+            >
+              <PanelTabStrip
+                variant="file"
+                :tabs="demoPanelFileTabs"
+                :active-key="demoPanelFileActiveKey"
+                aria-label="Demo File Tabs"
+                close-title="关闭"
+                @select-tab="(k) => (demoPanelFileActiveKey = k)"
+                @close-tab="onDemoCloseFileTab"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -682,6 +778,8 @@ import SettingsShellGalleryDemo from "../../components/SettingsShellGalleryDemo.
 import CatalogStoreDemo from "../../components/CatalogStoreDemo.vue";
 import PersonaTabDemo from "../../components/PersonaTabDemo.vue";
 import SkillTabDemo from "../../components/SkillTabDemo.vue";
+import PanelTabStrip from "../../../shared/components/PanelTabStrip.vue";
+import type { PanelTabStripItem } from "../../../shared/components/panel-tab-strip.types";
 import SessionControlItems from "../../../chat/components/SessionControlItems.vue";
 import type { AppConfig, BackgroundShellTaskSummary, ConversationDelegateStatusSummary, PersonaProfile } from "../../../../types/app";
 import type { ToolReviewBatchSummary } from "../../../chat/composables/use-chat-tool-review";
@@ -756,7 +854,7 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs">((props.initialKey as any) || "question");
 
 // bare 模式下把内容高度写进标题，便于无头截图按内容高度精确裁剪。
 onMounted(() => {
@@ -793,6 +891,7 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "bubbles") return "自研气泡";
   if (demoComponentKey.value === "delegates") return "DelegateProgressLine";
   if (demoComponentKey.value === "overview") return "监控概览（MonitorOverview）";
+  if (demoComponentKey.value === "panel-tabs") return "标签栏组件（PanelTabStrip）";
   return "ConfigTemplate";
 });
 
@@ -1555,6 +1654,68 @@ onBeforeUnmount(() => {
   window.clearInterval(delegateDemoTimer);
   delegateDemoTimer = 0;
 });
+
+// ==================== 自适应标签栏 (PanelTabStrip) Demo ====================
+const demoPanelTabsContainerWidth = ref(360);
+const demoPanelActiveKey = ref("herta");
+const demoPanelFileActiveKey = ref("readme");
+
+const initialDemoPanelTabs: PanelTabStripItem[] = [
+  {
+    key: "herta",
+    label: "小黑塔",
+    iconSrc: demoKanbanAvatarMap["小黑塔"],
+    statusDotClass: "size-2 shrink-0 rounded-full bg-success border border-base-100",
+    statusTitle: "在线执行中",
+    closeable: true,
+  },
+  {
+    key: "alhaitham",
+    label: "书记官",
+    iconSrc: demoKanbanAvatarMap["leader"],
+    statusDotClass: "size-2 shrink-0 rounded-full bg-base-content/30 border border-base-100",
+    statusTitle: "空闲就绪",
+    closeable: true,
+  },
+  { key: "yae", label: "八重神子", iconSrc: demoKanbanAvatarMap["莫娜"], closeable: true },
+  { key: "nahida", label: "小吉祥草王", iconSrc: demoKanbanAvatarMap["小吉祥草王"], closeable: true },
+  { key: "sandrone", label: "桑多涅", iconSrc: demoKanbanAvatarMap["桑多涅"], closeable: true },
+  { key: "zhongli", label: "钟离", iconSrc: demoKanbanAvatarMap["钟离"], closeable: true },
+];
+
+const demoPanelTabs = ref<PanelTabStripItem[]>([...initialDemoPanelTabs]);
+
+const initialDemoPanelFileTabs: PanelTabStripItem[] = [
+  { key: "readme", label: "README.md", icon: FileText, closeable: true },
+  { key: "tabstrip", label: "PanelTabStrip.vue", icon: FileText, closeable: true },
+  { key: "overflow", label: "use-panel-tab-overflow.ts", icon: FileText, closeable: true },
+  { key: "package", label: "package.json", icon: FileText, closeable: true },
+  { key: "cargo", label: "Cargo.toml", icon: FileText, closeable: true },
+  { key: "vite", label: "vite.config.ts", icon: FileText, closeable: true },
+];
+
+const demoPanelFileTabs = ref<PanelTabStripItem[]>([...initialDemoPanelFileTabs]);
+
+function resetDemoPanelTabs() {
+  demoPanelTabs.value = [...initialDemoPanelTabs];
+  demoPanelActiveKey.value = "herta";
+  demoPanelFileTabs.value = [...initialDemoPanelFileTabs];
+  demoPanelFileActiveKey.value = "readme";
+}
+
+function onDemoClosePanelTab(key: string) {
+  demoPanelTabs.value = demoPanelTabs.value.filter((t) => t.key !== key);
+  if (demoPanelActiveKey.value === key && demoPanelTabs.value.length > 0) {
+    demoPanelActiveKey.value = demoPanelTabs.value[0].key;
+  }
+}
+
+function onDemoCloseFileTab(key: string) {
+  demoPanelFileTabs.value = demoPanelFileTabs.value.filter((t) => t.key !== key);
+  if (demoPanelFileActiveKey.value === key && demoPanelFileTabs.value.length > 0) {
+    demoPanelFileActiveKey.value = demoPanelFileTabs.value[0].key;
+  }
+}
 </script>
 
 <style scoped>
