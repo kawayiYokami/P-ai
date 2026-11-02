@@ -37,6 +37,7 @@
             <option value="chat-home">首页磁贴区（追问入口 + 队员状态表）</option>
             <option value="skill-managed">技能面板（托管技能禁用态）</option>
             <option value="panel-tabs">标签栏组件（PanelTabStrip）</option>
+            <option value="file-reader-preview">右栏内容视图（HTML 沙箱 / 源码 / 图片）</option>
           </select>
           <span class="text-xs text-base-content/50">当前：{{ demoComponentLabel }}</span>
         </div>
@@ -706,6 +707,18 @@
         </div>
       </div>
     </div>
+
+    <div v-if="demoComponentKey === 'file-reader-preview'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-4 p-4">
+        <div>
+          <h4 class="file-reader-preview-demo-caption card-title text-base">右栏 reader 内容视图（HTML 沙箱 / 源码 / 图片）</h4>
+          <p class="file-reader-preview-demo-caption text-xs text-base-content/60">
+            面板里用的同一批组件：html 走 InteractiveHtmlSandbox 沙箱渲染，切源码复用同一段原文，图片走 image 预览通道（聊天图片就是靠这条通道进右栏）。
+          </p>
+        </div>
+        <FileReaderPreviewDemo />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -785,6 +798,7 @@ import CatalogStoreDemo from "../../components/CatalogStoreDemo.vue";
 import PersonaTabDemo from "../../components/PersonaTabDemo.vue";
 import SkillTabDemo from "../../components/SkillTabDemo.vue";
 import PanelTabStrip from "../../../shared/components/PanelTabStrip.vue";
+import FileReaderPreviewDemo from "../../../file-reader/components/FileReaderPreviewDemo.vue";
 import type { PanelTabStripItem } from "../../../shared/components/panel-tab-strip.types";
 import SessionControlItems from "../../../chat/components/SessionControlItems.vue";
 import type { AppConfig, BackgroundShellTaskSummary, ConversationDelegateStatusSummary, PersonaProfile } from "../../../../types/app";
@@ -860,7 +874,7 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
 
 // bare 模式下把内容高度写进标题，便于无头截图按内容高度精确裁剪。
 onMounted(() => {
@@ -898,6 +912,7 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "delegates") return "DelegateProgressLine";
   if (demoComponentKey.value === "overview") return "监控概览（MonitorOverview）";
   if (demoComponentKey.value === "panel-tabs") return "标签栏组件（PanelTabStrip）";
+  if (demoComponentKey.value === "file-reader-preview") return "右栏内容视图（HTML 沙箱 / 源码 / 图片）";
   return "ConfigTemplate";
 });
 
