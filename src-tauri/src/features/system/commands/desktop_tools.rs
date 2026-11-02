@@ -2306,6 +2306,9 @@ static FILE_READER_READ_TRACES: OnceLock<Mutex<Vec<FileReaderReadTrace>>> = Once
 fn file_reader_file_kind(extension: &str) -> &'static str {
     match extension {
         "md" | "markdown" | "mdx" => "markdown",
+        // HTML 单列一类：前端要按沙箱渲染，不能当普通 code 走虚拟化分块
+        // （分块后正文为空，沙箱拿不到整段文档）。
+        "html" | "htm" => "html",
         _ => "code",
     }
 }
@@ -2720,7 +2723,7 @@ fn read_file_reader_file_inner(path: String, window_label: Option<&str>) -> Resu
     let rope = file_reader_decode_text_rope(&file_path)?;
     let total_lines = file_reader_rope_line_count(&rope);
     let virtualized = kind == "code";
-    let content = if kind == "markdown" {
+    let content = if kind == "markdown" || kind == "html" {
         rope.to_string()
     } else if virtualized {
         String::new()
