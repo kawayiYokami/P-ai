@@ -6,26 +6,25 @@
 const KANBAN_DB_FILE_NAME: &str = "kanban_store.db";
 
 // ========== 状态枚举 ==========
-// 状态之间没有先后约束：任何一格都能切到任何一格（包括从已完成改回解决中、
-// 从已关闭重新打开）。顺序只用来决定看板里的展示次序，不代表流转规则。
+// 状态之间没有先后约束：任何一格都能切到任何一格（包括从已完成改回解决中）。
+// 顺序只用来决定看板里的展示次序，不代表流转规则。
+// 没有「放弃」态：不做了就是阻塞，不必为它单开一格。
 const KANBAN_STATUS_DISCUSSING: &str = "discussing";
 const KANBAN_STATUS_TODO: &str = "todo";
 const KANBAN_STATUS_IN_PROGRESS: &str = "in_progress";
 const KANBAN_STATUS_IN_REVIEW: &str = "in_review";
 const KANBAN_STATUS_BLOCKED: &str = "blocked";
 const KANBAN_STATUS_DONE: &str = "done";
-const KANBAN_STATUS_CLOSED: &str = "closed";
 
-/// 合法状态全集。顺序即看板里的展示次序（待议 → 待办 → 解决中 → 待审 → 已完成 → 已关闭），
+/// 合法状态全集。顺序即看板里的展示次序（待议 → 待办 → 解决中 → 待审 → 已完成），
 /// `blocked` 是侧枝，不参加这条展示线。
-const KANBAN_STATUSES: [&str; 7] = [
+const KANBAN_STATUSES: [&str; 6] = [
     KANBAN_STATUS_DISCUSSING,
     KANBAN_STATUS_TODO,
     KANBAN_STATUS_IN_PROGRESS,
     KANBAN_STATUS_IN_REVIEW,
     KANBAN_STATUS_BLOCKED,
     KANBAN_STATUS_DONE,
-    KANBAN_STATUS_CLOSED,
 ];
 
 /// 需要用户介入的四类，决定磁贴是否出现、磁贴四段的顺序，以及看板「决策」视图的成员。
@@ -132,26 +131,25 @@ fn kanban_status_label(status: &str) -> &'static str {
         KANBAN_STATUS_IN_REVIEW => "待审",
         KANBAN_STATUS_BLOCKED => "阻塞",
         KANBAN_STATUS_DONE => "已完成",
-        KANBAN_STATUS_CLOSED => "已关闭",
         _ => "未知",
     }
 }
 
 /// 这个状态算不算「在办」，也就是占不占着负责人。
-/// 只有已完成与已关闭不占人：处理完的议题留着负责人名字，只表示「谁做的」，不妨碍他接新活。
+/// 只有已完成不占人：处理完的议题留着负责人名字，只表示「谁做的」，不妨碍他接新活。
 /// 待议也算在办——方向没定不等于没派给人。
 fn kanban_status_occupies_member(status: &str) -> bool {
     let trimmed = status.trim();
-    trimmed != KANBAN_STATUS_DONE && trimmed != KANBAN_STATUS_CLOSED
+    trimmed != KANBAN_STATUS_DONE
 }
 
-/// 这个状态允不允许挂负责人。待议、已完成、已关闭三态不归任何人办。
+/// 这个状态允不允许挂负责人。待议、已完成两态不归任何人办。
 /// 待审与阻塞刻意保留：待审是等用户点头、人还在名下，审出问题还找得到人；
 /// 阻塞是卡住了，责任人更该留在上面。
 fn kanban_status_allows_assignee(status: &str) -> bool {
     !matches!(
         status.trim(),
-        KANBAN_STATUS_DISCUSSING | KANBAN_STATUS_DONE | KANBAN_STATUS_CLOSED
+        KANBAN_STATUS_DISCUSSING | KANBAN_STATUS_DONE
     )
 }
 

@@ -23,12 +23,12 @@ pub(crate) fn kanban_provider_tool_definition() -> ProviderToolDefinition {
         KANBAN_TOOL_NAME,
         "队伍议题看板工具（队长专属）。用编号维护队伍级议题：list 查、upsert 增改。\
          议题只增不删：没有删除动作，一条议题被记下来就永久留在板上。\
-         状态七态：discussing（待议）/ todo（待办）/ in_progress（解决中）/ in_review（待审）/ \
-         blocked（阻塞）/ done（已完成）/ closed（已关闭，不做了或作废，可重新打开）。\
-         任何状态都可以切到任何状态，没有顺序限制：已完成能改回解决中，已关闭能重新打开。\
+         状态六态：discussing（待议）/ todo（待办）/ in_progress（解决中）/ in_review（待审）/ \
+         blocked（阻塞）/ done（已完成）。不做了、作废了就是 blocked，没有单独的放弃态。\
+         任何状态都可以切到任何状态，没有顺序限制：已完成能改回解决中。\
          每次改状态都必须在 note 里写清这次为什么改；note 任何时候都不能为空。\
-         一个人同时只能有一条在办议题（未完成、未关闭的都算在办），已经有就得先让旧的收口。\
-         待议、已完成、已关闭这三态不挂负责人，改成它们前先把 assignee 写成 none。\
+         一个人同时只能有一条在办议题（未完成的都算在办），已经有就得先让旧的收口。\
+         待议、已完成这两态不挂负责人，改成它们前先把 assignee 写成 none。\
          新建的议题一律从 discussing（待议）开始，不接受指定状态，也不能顺手挂负责人。\
          编号单调递增且不回收，编号不存在会报错、不会自动新建。",
         serde_json::json!({

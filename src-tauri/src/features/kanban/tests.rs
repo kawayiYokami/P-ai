@@ -98,8 +98,8 @@ mod kanban_tests {
     }
 
     #[test]
-    fn kanban_done_and_closed_should_both_be_reopenable() {
-        // 红豆点名的两种重开：已完成改回解决中、已关闭重新打开。
+    fn kanban_done_should_be_reopenable() {
+        // 已完成不是终态：用户说还没做完，就得能改回解决中。
         kanban_next_state_checked(
             1,
             KANBAN_STATUS_DONE,
@@ -109,18 +109,11 @@ mod kanban_tests {
         .expect("done → in_progress 必须放行");
         kanban_next_state_checked(
             1,
-            KANBAN_STATUS_CLOSED,
+            KANBAN_STATUS_DONE,
             KANBAN_STATUS_TODO,
             Some("用户说这件事还要做"),
         )
-        .expect("closed → todo 必须放行");
-        kanban_next_state_checked(
-            1,
-            KANBAN_STATUS_DONE,
-            KANBAN_STATUS_CLOSED,
-            Some("确认作废"),
-        )
-        .expect("done → closed 必须放行");
+        .expect("done → todo 必须放行");
     }
 
     #[test]
@@ -157,19 +150,19 @@ mod kanban_tests {
 
     #[test]
     fn kanban_planning_should_no_longer_be_a_valid_status() {
-        assert_eq!(KANBAN_STATUSES.len(), 7);
+        assert_eq!(KANBAN_STATUSES.len(), 6);
         assert!(!KANBAN_STATUSES.contains(&"planning"));
         assert_eq!(kanban_status_normalized("planning"), None);
         assert_eq!(kanban_status_normalized(" planners"), None);
     }
 
     #[test]
-    fn kanban_closed_should_be_a_valid_status() {
-        assert_eq!(
-            kanban_status_normalized(" closed "),
-            Some(KANBAN_STATUS_CLOSED)
-        );
-        assert!(KANBAN_STATUSES.contains(&KANBAN_STATUS_CLOSED));
+    fn kanban_closed_should_no_longer_be_a_valid_status() {
+        // 放弃态已删：阻塞就是不做了，closed 既读不进来也改不进去。
+        assert_eq!(kanban_status_normalized(" closed "), None);
+        assert!(!KANBAN_STATUSES.contains(&"closed"));
+        // 目标状态走同一份白名单：工具拿 closed 写进来会被拒，不是悄悄落库。
+        assert!(kanban_status_normalized("closed").is_none());
     }
 
     #[test]
@@ -483,10 +476,9 @@ mod kanban_tests {
     // ---------- 状态与磁贴 ----------
 
     #[test]
-    fn kanban_statuses_should_cover_seven_states() {
-        assert_eq!(KANBAN_STATUSES.len(), 7);
+    fn kanban_statuses_should_cover_six_states() {
+        assert_eq!(KANBAN_STATUSES.len(), 6);
         assert!(KANBAN_STATUSES.contains(&KANBAN_STATUS_DISCUSSING));
-        assert!(KANBAN_STATUSES.contains(&KANBAN_STATUS_CLOSED));
         for key in [
             KANBAN_STATUS_TODO,
             KANBAN_STATUS_IN_PROGRESS,
@@ -515,7 +507,6 @@ mod kanban_tests {
         for key in [
             KANBAN_STATUS_IN_PROGRESS,
             KANBAN_STATUS_DONE,
-            KANBAN_STATUS_CLOSED,
         ] {
             assert!(
                 !KANBAN_ATTENTION_STATUSES.contains(&key),
@@ -683,7 +674,7 @@ mod kanban_tests {
 
     #[test]
     fn kanban_unknown_status_should_be_rejected_on_update() {
-        // 状态值必须在七态里：旧状态 planning 已经不在集合内，报错要列出可选值。
+        // 状态值必须在六态里：旧状态 planning 已经不在集合内，报错要列出可选值。
         let conn = test_conn();
         let leader = "conv-leader";
         kanban_store_insert(&conn, &test_issue(leader, 1, "议题", KANBAN_STATUS_TODO))
@@ -700,7 +691,7 @@ mod kanban_tests {
         )
         .expect_err("planning 已不是合法状态");
         assert!(err.contains("状态非法"), "要指明是状态值的问题：{err}");
-        assert!(err.contains(KANBAN_STATUS_CLOSED), "报错要列出七态：{err}");
+        assert!(err.contains(KANBAN_STATUS_DONE), "报错要列出六态：{err}");
         assert_eq!(
             stored_status(&conn, leader, 1),
             KANBAN_STATUS_TODO,
@@ -811,23 +802,30 @@ mod kanban_tests {
     }
 
     #[test]
-    fn kanban_closed_issue_should_not_occupy_its_member() {
+    fn kanban_closed_rows_should_be_migrated_to_done() {
+        // 放弃态取消后，老库里 status='closed' 的行必须落到已完成：
+        // 留着既不在任何一格里显示，也没法通过工具改回来。
         let conn = test_conn();
         let leader = "conv-leader";
-        insert_issue_with_role(&conn, leader, 1, "不做了", KANBAN_STATUS_CLOSED, Some("李工"));
-        insert_issue_with_role(&conn, leader, 2, "新活", KANBAN_STATUS_TODO, None);
-        kanban_apply_upsert_in(
-            &conn,
-            leader,
-            &[upsert_item_with_assignee(
-                Some(2),
-                None,
-                None,
-                Some("member:李工"),
-                None,
-            )],
-        )
-        .expect("已关闭不占人，可以接新活");
+        insert_issue_with_role(&conn, leader, 1, "不做了", "closed", Some("李工"));
+        assert_eq!(stored_status(&conn, leader, 1), "closed");
+
+        kanban_store_retire_closed_status(&conn).expect("迁移必须成功");
+        assert_eq!(stored_status(&conn, leader, 1), KANBAN_STATUS_DONE);
+        assert_eq!(
+            stored_assignee(&conn, leader, 1),
+            "member:李工",
+            "迁移只改状态，不顺手摘人"
+        );
+
+        // 幂等：第二遍一条都不命中。
+        let again = conn
+            .execute(
+                "UPDATE kanban_issue SET status = 'done' WHERE status = 'closed'",
+                [],
+            )
+            .expect("count");
+        assert_eq!(again, 0, "迁移完不该再有 closed 行");
     }
 
     #[test]
@@ -954,11 +952,10 @@ mod kanban_tests {
     }
 
     #[test]
-    fn kanban_assignee_blacklist_should_reject_discussing_done_closed() {
+    fn kanban_assignee_blacklist_should_reject_discussing_done() {
         for status in [
             KANBAN_STATUS_DISCUSSING,
             KANBAN_STATUS_DONE,
-            KANBAN_STATUS_CLOSED,
         ] {
             let conn = test_conn();
             let leader = "conv-leader";
@@ -968,7 +965,7 @@ mod kanban_tests {
                 leader,
                 &[upsert_item(Some(1), None, Some(status), Some("改状态"))],
             )
-            .expect_err("这三态不允许挂负责人");
+            .expect_err("这两态不允许挂负责人");
             assert!(err.contains("不归任何人办"), "{status} 的报错要说清原因：{err}");
             assert!(err.contains("李工"), "{status} 的报错要点出还挂着谁：{err}");
             assert_eq!(

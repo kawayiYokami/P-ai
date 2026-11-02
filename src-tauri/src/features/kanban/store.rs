@@ -35,6 +35,19 @@ pub(crate) fn kanban_store_open_count(data_path: &PathBuf) -> usize {    kanban_
         .unwrap_or(0)
 }
 
+/// 议题是否存在。
+///
+/// 只回布尔：给队伍派活那条硬约束用，不把看板内部的议题结构暴露到模块外。
+/// 连接口径与看板工具一致，都在这里开一次，调用方不要自己另开连接。
+pub(crate) fn kanban_store_issue_exists(
+    data_path: &PathBuf,
+    leader_conversation_id: &str,
+    number: u32,
+) -> Result<bool, String> {
+    let conn = kanban_store_open(data_path)?;
+    Ok(kanban_store_find(&conn, leader_conversation_id, number)?.is_some())
+}
+
 fn kanban_store_open(data_path: &PathBuf) -> Result<Connection, String> {
     #[cfg(test)]
     {
@@ -95,7 +108,27 @@ fn kanban_store_init(conn: &Connection) -> Result<(), String> {
         conn,
         "plan_path",
         "ALTER TABLE kanban_issue ADD COLUMN plan_path TEXT NOT NULL DEFAULT ''",
-    )
+    )?;
+    // 「放弃」态已取消，历史 closed 归到 done：留着它既不在任何一格里显示，
+    // 也没法通过工具改回来，只能算一条读不出也改不掉的行。
+    kanban_store_retire_closed_status(conn)
+}
+
+/// 关闭态退场：老库里的 closed 一律按已完成收口，幂等（跑第二遍命中 0 行）。
+/// 不动 updated_at：这是状态口径收敛，不是用户改动，不该让老议题的「最近动过」跳到今天。
+fn kanban_store_retire_closed_status(conn: &Connection) -> Result<(), String> {
+    let affected = conn
+        .execute(
+            "UPDATE kanban_issue SET status = 'done', version = version + 1 WHERE status = 'closed'",
+            [],
+        )
+        .map_err(|err| format!("迁移看板已关闭状态失败：{err}"))?;
+    if affected > 0 {
+        runtime_log_info(format!(
+            "[看板] 完成，任务=历史已关闭状态归到已完成，migrated={affected}"
+        ));
+    }
+    Ok(())
 }
 
 /// 补一列：列已存在就跳过，幂等。
@@ -315,7 +348,7 @@ fn kanban_store_update(
 /// 条件更新：只在当前状态等于 from_status 时推进到 to_status。
 /// 用户点通过与队长工具调用撞车时，靠它保证「先到先得」，后到的一侧拿到 0 行。
 /// 条件更新状态。`clear_assignee` 为真时把负责人一并清成 none：
-/// 已完成与已关闭不归任何人办，把这件事放在存储层做，调用方就没机会漏掉。
+/// 已完成不归任何人办，把这件事放在存储层做，调用方就没机会漏掉。
 fn kanban_store_transition(
     conn: &Connection,
     leader_conversation_id: &str,

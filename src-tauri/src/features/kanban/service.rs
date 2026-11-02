@@ -583,7 +583,7 @@ fn kanban_other_active_issues_for_role(
     Ok(occupied)
 }
 
-/// 两条绑定约束：待议 / 已完成 / 已关闭不挂人；一个人同时只能有一条在办议题。
+/// 两条绑定约束：待议 / 已完成不挂人；一个人同时只能有一条在办议题。
 /// 必须整批算完最终态再判——逐条判会漏掉同批内的互相冲突，也会误伤「先解绑再绑新的」。
 fn kanban_validate_assignee_constraints(
     conn: &Connection,
@@ -644,7 +644,7 @@ fn kanban_validate_assignee_constraints(
             .unwrap_or_else(|| "那条新议题".to_string());
         return Err(format!(
             "{} 不能指派给「{role}」：他名下已经挂着议题 {listing}。\
-             一个人同时只能有一条在办议题，先让 {first} 收口（改成已完成或已关闭），再派这条。",
+             一个人同时只能有一条在办议题，先让 {first} 收口（改成已完成），再派这条。",
             final_state.display(),
         ));
     }
