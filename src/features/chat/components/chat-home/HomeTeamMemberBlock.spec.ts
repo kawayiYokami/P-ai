@@ -13,6 +13,32 @@ async function renderBlock(members: TeamMemberTileItem[] = []): Promise<string> 
   return renderToString(app);
 }
 
+/** 忙碌：rank 1 */
+function busy(id: string, name: string): TeamMemberTileItem {
+  return { conversationId: id, title: name, agentName: name, memberState: "busy" };
+}
+
+/** 有在办议题但没在跑：rank 2 */
+function withIssue(id: string, name: string): TeamMemberTileItem {
+  return {
+    conversationId: id,
+    title: name,
+    agentName: name,
+    memberState: "idle",
+    activeIssue: { number: 1, title: "在办的那条", status: "in_progress" },
+  };
+}
+
+/** 空闲：rank 4，不该上磁贴 */
+function idle(id: string, name: string): TeamMemberTileItem {
+  return { conversationId: id, title: name, agentName: name, memberState: "idle" };
+}
+
+/** 出错：rank 3，也不该上磁贴 */
+function errored(id: string, name: string): TeamMemberTileItem {
+  return { conversationId: id, title: name, agentName: name, memberState: "error" };
+}
+
 describe("HomeTeamMemberBlock", () => {
   it("根元素包含 h-full 与 flex flex-col，确保吃满网格拉伸高度", async () => {
     const html = await renderBlock([]);
@@ -21,54 +47,58 @@ describe("HomeTeamMemberBlock", () => {
     expect(html).toContain("flex");
   });
 
-  it("当有队员时，滚动区带有 flex-1 min-h-0 w-full，避免死高度留白", async () => {
-    const html = await renderBlock([
-      { conversationId: "m1", title: "欧科塔维亚", agentName: "欧科塔维亚", memberState: "idle" },
-      { conversationId: "m2", title: "reviewer", agentName: "reviewer", memberState: "idle" },
-    ]);
+  it("标题行左边是区块标题，右上是「更多」", async () => {
+    const html = await renderBlock([busy("m1", "李工")]);
+    expect(html).toContain("队员状态");
+    expect(html).toContain("更多");
+  });
+
+  it("顶部有标题行时，工作中有队员则渲染滚动区", async () => {
+    const html = await renderBlock([busy("m1", "李工"), withIssue("m2", "王工")]);
     expect(html).toContain("ecall-home-team-scroller");
     expect(html).toContain("flex-1 min-h-0 w-full");
-    expect(html).toContain("欧科塔维亚");
-    expect(html).toContain("reviewer");
+    expect(html).toContain("李工");
+    expect(html).toContain("王工");
   });
 
-  it("0~2 名队员时为标准 1 格高（ecall-home-team-row-1）", async () => {
-    const html0 = await renderBlock([]);
-    expect(html0).toContain("ecall-home-team-row-1");
-    expect(html0).not.toContain("ecall-home-team-row-2");
-
-    const html2 = await renderBlock([
-      { conversationId: "m1", title: "队员1", agentName: "队员1", memberState: "idle" },
-      { conversationId: "m2", title: "队员2", agentName: "队员2", memberState: "idle" },
+  it("只显示工作中的队员：空闲与出错都不进磁贴", async () => {
+    const html = await renderBlock([
+      busy("m1", "忙碌的"),
+      withIssue("m2", "有议题的"),
+      idle("m3", "空闲的"),
+      errored("m4", "出错的"),
     ]);
+    expect(html).toContain("忙碌的");
+    expect(html).toContain("有议题的");
+    expect(html).not.toContain("空闲的");
+    expect(html).not.toContain("出错的");
+  });
+
+  it("全部空闲时不隐藏卡片，留在原地显示工作态空文案", async () => {
+    const html = await renderBlock([idle("m1", "空闲甲"), idle("m2", "空闲乙")]);
+    expect(html).toContain("ecall-home-team-block");
+    expect(html).toContain("暂无队员在工作中");
+    expect(html).not.toContain("空闲甲");
+    // 队伍本身还有队员，不该退化成「队伍里还没有队员」
+    expect(html).not.toContain("队伍里还没有队员");
+  });
+
+  it("工作中的数量决定占几行：0~2 人 1 行，3 人及以上 2 行", async () => {
+    const html2 = await renderBlock([busy("m1", "甲"), withIssue("m2", "乙")]);
     expect(html2).toContain("ecall-home-team-row-1");
     expect(html2).not.toContain("ecall-home-team-row-2");
-  });
 
-  it("3 名及以上队员时自适应变为 2 格高（ecall-home-team-row-2）", async () => {
-    const html3 = await renderBlock([
-      { conversationId: "m1", title: "队员1", agentName: "队员1", memberState: "idle" },
-      { conversationId: "m2", title: "队员2", agentName: "队员2", memberState: "idle" },
-      { conversationId: "m3", title: "队员3", agentName: "队员3", memberState: "idle" },
-    ]);
+    const html3 = await renderBlock([busy("m1", "甲"), withIssue("m2", "乙"), busy("m3", "丙")]);
     expect(html3).toContain("ecall-home-team-row-2");
     expect(html3).not.toContain("ecall-home-team-row-1");
   });
 
-  it("工作中的队员（在办议题/忙碌）排在空闲队员前面", async () => {
-    const html = await renderBlock([
-      { conversationId: "m1", title: "空闲先招募", agentName: "空闲先招募", memberState: "idle" },
-      {
-        conversationId: "m2",
-        title: "工作中后招募",
-        agentName: "工作中后招募",
-        activeIssue: { number: 1, title: "重要任务", status: "in_progress" },
-      },
-    ]);
-    const posWork = html.indexOf("工作中后招募");
-    const posIdle = html.indexOf("空闲先招募");
-    expect(posWork).toBeGreaterThan(-1);
-    expect(posIdle).toBeGreaterThan(-1);
-    expect(posWork).toBeLessThan(posIdle);
+  it("按 teamMemberWorkRank 排序：仅忙碌排在仅有议题之前", async () => {
+    const html = await renderBlock([withIssue("m1", "只有议题"), busy("m2", "只在忙")]);
+    const posBusy = html.indexOf("只在忙");
+    const posIssue = html.indexOf("只有议题");
+    expect(posBusy).toBeGreaterThan(-1);
+    expect(posIssue).toBeGreaterThan(-1);
+    expect(posBusy).toBeLessThan(posIssue);
   });
 });

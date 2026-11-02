@@ -1,7 +1,7 @@
 <template>
   <div class="flex h-full min-h-0 w-full flex-col bg-base-100 text-base-content select-none">
     <!-- 顶栏：极简标题 + 统计 + 刷新，无多余嵌套边框与方框套按钮 -->
-    <header class="flex shrink-0 items-center justify-between border-b border-base-content/10 bg-base-100 px-3 py-1.5">
+    <header class="flex shrink-0 items-center justify-between bg-base-200 px-3 py-1.5">
       <div class="flex items-center gap-2">
         <button
           v-if="showBack"

@@ -1,6 +1,6 @@
 <template>
   <section
-    class="flex h-full min-w-[220px] max-w-[320px] flex-1 flex-col rounded-box border border-base-content/10 bg-base-200/50 p-2.5"
+    class="flex h-full min-w-[220px] max-w-[320px] flex-1 flex-col rounded-box bg-base-200 p-2.5 shadow-sm"
   >
     <!-- 列顶栏：小圆点 + 状态名 + 数量统计 -->
     <header class="flex shrink-0 items-center justify-between border-b border-base-content/10 px-0.5 pb-2">

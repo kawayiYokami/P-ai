@@ -58,7 +58,6 @@ const MOCK_FILES = {
     { path: `${MOCK_WORKSPACE}/src/locales/zh-CN.json`, label: "zh-CN.json" },
     { path: `${MOCK_WORKSPACE}/src/features/chat/composables/chat-ui-layout-storage.ts`, label: "chat-ui-layout-storage.ts" },
   ],
-  activePath: `${MOCK_WORKSPACE}/src/features/chat/components/ChatHomePanel.vue`,
 };
 
 const MOCK_PLAN = {

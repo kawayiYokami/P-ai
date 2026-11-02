@@ -3,37 +3,56 @@
     class="ecall-home-team-block flex h-full min-w-0 flex-col rounded-box border border-base-content/10 bg-base-100 p-3"
     :class="[isMultiRow ? 'ecall-home-team-row-2' : 'ecall-home-team-row-1']"
   >
-    <OverlayScrollArea v-if="orderedMembers.length" class="flex-1 min-h-0 w-full" scroller-class="ecall-home-team-scroller">
+    <header class="mb-2 flex shrink-0 items-center gap-2">
+      <span class="min-w-0 flex-1 truncate text-xs font-semibold text-base-content/80">
+        {{ t("chat.teamMember.blockTitle") }}
+      </span>
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs h-6 shrink-0 gap-1 px-1.5 text-xs text-base-content/50 transition-colors hover:bg-base-content/10 hover:text-base-content"
+        @click="emit('openTeamManagement')"
+      >
+        <span>{{ t("chat.teamMember.more") }}</span>
+        <ArrowUpRight class="size-3" aria-hidden="true" />
+      </button>
+    </header>
+
+    <OverlayScrollArea v-if="workingMembers.length" class="flex-1 min-h-0 w-full" scroller-class="ecall-home-team-scroller">
       <TeamMemberTileGrid
-        :members="orderedMembers"
+        :members="workingMembers"
         :avatar-url-map="avatarUrlMap"
         @select-member="emit('selectMember', $event)"
       />
     </OverlayScrollArea>
-    <div v-else class="flex flex-1 items-center justify-center text-xs text-base-content/50">{{ t("chat.teamMember.empty") }}</div>
+    <div v-else class="flex flex-1 items-center justify-center px-2 text-center text-xs text-base-content/50">
+      {{ t("chat.teamMember.emptyWorking") }}
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
+import { ArrowUpRight } from "@lucide/vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 import TeamMemberTileGrid from "../TeamMemberTileGrid.vue";
 import { teamMemberWorkRank, type TeamMemberTileItem } from "../team-member-tile";
 
 /**
- * 首页「队员状态表」整块：标题 + 队员列表 + 自适应高度与超出滚动。
+ * 首页「队员状态表」整块：标题行 + 工作中的队员 + 自适应高度与超出滚动。
+ *
+ * 只放正在干活的人：判定直接用 teamMemberWorkRank，0/1/2
+ * （忙碌且有在办议题、仅忙碌、有在办议题）算工作中；
+ * 3（运行出错）与 4（空闲）不进磁贴——这里回答的是「现在谁在替我干活」，
+ * 空闲与出错在队员页里看。判定不另写一套，免得两处口径分叉。
  *
  * 高度自适应：
- * - 0~2 名队员时保持标准 1 格高（span 1）；
- * - 3 名及以上队员自适应扩展为 2 格高（最多 2 格高），容纳更多队员；
+ * - 工作中 0~2 人时保持标准 1 格高（span 1）；
+ * - 3 人及以上自适应扩展为 2 格高（最多 2 格高）；
  * - 超过 2 格可容纳高度后在内部平滑滚动，不无休止占高破坏网格。
+ * - 全部空闲时卡片不隐藏，留在原地显示一句空态，避免首页网格跳动。
  *
- * 排序：
- * - 工作中（调度忙碌、有在办议题）排在最前；
- * - 运行出错排中间；
- * - 空闲排在最后；
- * - 同状态内保持稳定招募顺序。
+ * 排序：仍按 teamMemberWorkRank 分级，同状态内保持稳定招募顺序。
  */
 const props = withDefaults(defineProps<{
   members?: TeamMemberTileItem[];
@@ -43,8 +62,13 @@ const props = withDefaults(defineProps<{
   avatarUrlMap: () => ({}),
 });
 
-const orderedMembers = computed(() => {
-  const indexed = props.members.map((member, index) => ({ member, index }));
+/** rank 小于它就上磁贴：0 忙碌且有议题、1 仅忙碌、2 仅有在办议题。 */
+const WORKING_RANK_LIMIT = 3;
+
+const workingMembers = computed(() => {
+  const indexed = props.members
+    .map((member, index) => ({ member, index }))
+    .filter((entry) => teamMemberWorkRank(entry.member) < WORKING_RANK_LIMIT);
   indexed.sort((a, b) =>
     teamMemberWorkRank(a.member) - teamMemberWorkRank(b.member)
     || a.index - b.index,
@@ -53,13 +77,15 @@ const orderedMembers = computed(() => {
 });
 
 /**
- * 队员少于 3 个（0、1、2 个）时保持标准单行高（1格高）；
- * 队员达到 3 个及以上时自适应展开为 2 格高（最多 2 格高），容纳更多队员。
+ * 工作中的队员少于 3 个（0、1、2 个）时保持标准单行高（1格高）；
+ * 达到 3 个及以上时自适应展开为 2 格高（最多 2 格高），容纳更多队员。
  */
-const isMultiRow = computed(() => orderedMembers.value.length >= 3);
+const isMultiRow = computed(() => workingMembers.value.length >= 3);
 
 const emit = defineEmits<{
   (e: "selectMember", conversationId: string): void;
+  /** 右上角「更多」：打开队员页，由上层接到队伍管理入口。 */
+  (e: "openTeamManagement"): void;
 }>();
 
 const { t } = useI18n();

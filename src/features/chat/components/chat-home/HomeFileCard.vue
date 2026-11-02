@@ -2,8 +2,6 @@
   <CardShell
     layout="tile"
     class="relative"
-    :class="active ? 'ring-2 ring-primary/50' : ''"
-    :tone="active ? 'primary' : 'info'"
     :icon="Files"
     :label="label"
     :title="path"
@@ -33,11 +31,8 @@ withDefaults(defineProps<{
   label: string;
   /** 完整路径，仅用于悬停提示 */
   path?: string;
-  /** 是否当前打开的文件：主色描边 + 图标换成主色 */
-  active?: boolean;
 }>(), {
   path: "",
-  active: false,
 });
 
 const emit = defineEmits<{

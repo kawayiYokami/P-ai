@@ -31,6 +31,7 @@ const KANBAN_STATUSES: [&str; 7] = [
 /// 需要用户介入的四类，决定磁贴是否出现、磁贴四段的顺序，以及看板「决策」视图的成员。
 /// 顺序（待审 → 待办 → 阻塞 → 待议）按产品口径定，不由紧迫度推导。
 /// 看板页时间线走的是主链的流程顺序，两者不同是有意的，不要对齐。
+#[allow(dead_code)]
 const KANBAN_ATTENTION_STATUSES: [&str; 4] = [
     KANBAN_STATUS_IN_REVIEW,
     KANBAN_STATUS_TODO,
@@ -73,17 +74,17 @@ struct KanbanIssue {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct KanbanIssueView {
-    number: u32,
-    title: String,
-    status: String,
+    pub(crate) number: u32,
+    pub(crate) title: String,
+    pub(crate) status: String,
     /// 扁平原字符串：`leader` / `member:李工` / `none`。比嵌套对象省 token。
-    assignee: String,
-    note: String,
+    pub(crate) assignee: String,
+    pub(crate) note: String,
     /// 挂在这条议题上的计划文件路径，空串表示没挂。
-    plan_path: String,
-    created_at: String,
-    updated_at: String,
-    version: u64,
+    pub(crate) plan_path: String,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+    pub(crate) version: u64,
 }
 
 /// 队员此刻挂着的在办议题，随队员会话概览项下发给前端磁贴。

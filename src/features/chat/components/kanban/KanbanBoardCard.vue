@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex flex-col gap-1.5 rounded-field border border-base-content/10 bg-base-100 p-2.5 transition-colors hover:border-base-content/25 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50"
+    class="flex flex-col gap-1.5 rounded-field border border-base-content/10 bg-base-100 p-2.5 shadow-sm transition-colors hover:border-base-content/25 dark:bg-[color-mix(in_oklab,var(--color-base-100)_90%,white)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50"
     :class="[
       issue.status === 'in_review' ? 'border-warning/40' : '',
       issue.status === 'blocked' ? 'border-error/40' : '',

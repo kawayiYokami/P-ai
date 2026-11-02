@@ -2101,6 +2101,9 @@
       "title": "隊員",
       "close": "關閉隊員會話",
       "empty": "隊伍裡尚無隊員",
+      "emptyWorking": "暫無隊員在工作中",
+      "blockTitle": "隊員狀態",
+      "more": "更多",
       "busy": "正在執行",
       "workingOn": "正在處理 {issue}",
       "state": {

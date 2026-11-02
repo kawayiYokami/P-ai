@@ -11,6 +11,10 @@
         <input v-model="withTeam" type="checkbox" class="checkbox checkbox-xs" />
         有名册
       </label>
+      <select v-model="statePreset" class="select select-bordered select-xs">
+        <option value="working">有队员在工作</option>
+        <option value="idle">全部空闲</option>
+      </select>
       <span class="text-xs text-base-content/60">{{ members.length }} 名队员</span>
     </div>
     <div
@@ -25,6 +29,7 @@
         :team-members="members"
         @open-side-chat-panel="noop('openSideChatPanel')"
         @open-team-member="(id: string) => noop(`openTeamMember:${id}`)"
+        @open-team-management="noop('openTeamManagement')"
         @open-workspace="() => noop('openWorkspace')"
       />
     </div>
@@ -36,8 +41,9 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import ChatHomePanel from "./ChatHomePanel.vue";
+import type { TeamMemberTileItem } from "./team-member-tile";
 
 const widthParam = Number(new URLSearchParams(window.location.search).get("w") || 0);
 const demoWidth = ref(widthParam > 0 ? widthParam : 586);
@@ -58,7 +64,26 @@ const baseMembers = [
 ];
 
 const countParam = Number(new URLSearchParams(window.location.search).get("n") || 0);
-const members = countParam > 0 ? baseMembers.slice(0, countParam) : baseMembers;
+
+/**
+ * 两种状态都备好，用来截「有队员在工作」与「全部空闲」：
+ * 工作中那一档三种情形各放一个（忙碌且有议题、仅忙碌、仅有议题），
+ * 空闲与出错的两条故意留在数据里——它们正是要被筛掉的那两类。
+ */
+const workingPreset: TeamMemberTileItem[] = [
+  { ...baseMembers[0], memberState: "busy", activeIssue: { number: 3, title: "重构登录流程", status: "in_progress" } },
+  { ...baseMembers[1], memberState: "busy", runtimeState: "streaming" },
+  { ...baseMembers[2], memberState: "idle", activeIssue: { number: 8, title: "补齐结算页用例", status: "in_progress" } },
+  { ...baseMembers[3], memberState: "idle" },
+  { ...baseMembers[4], memberState: "error" },
+];
+
+const idlePreset: TeamMemberTileItem[] = (
+  countParam > 0 ? baseMembers.slice(0, countParam) : baseMembers
+).map((member) => ({ ...member, memberState: "idle" }));
+
+const statePreset = ref<"working" | "idle">("working");
+const members = computed(() => (statePreset.value === "working" ? workingPreset : idlePreset));
 
 async function measure() {
   try {

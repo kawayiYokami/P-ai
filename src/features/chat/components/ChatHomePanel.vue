@@ -49,6 +49,7 @@
           :members="teamMembers"
           :avatar-url-map="teamMemberAvatarUrlMap"
           @select-member="emit('openTeamMember', $event)"
+          @open-team-management="emit('openTeamManagement')"
         />
         <HomeToolCard
           v-if="activeToolBatches.length"
@@ -96,7 +97,6 @@
           :key="`open-file-${file.path}`"
           :label="file.label"
           :path="file.path"
-          :active="file.path === activePath"
           @open="emit('openFile', file.path)"
           @close="emit('closeFile', file.path)"
         />
@@ -166,7 +166,6 @@ const props = withDefaults(defineProps<{
   recentCommits?: Array<{ hash: string; message: string }>;
   /** 已打开文件，path 为绝对路径，label 仅用于展示 */
   openFiles?: Array<{ path: string; label: string }>;
-  activePath?: string;
   /** 追问能力是否可用；不可用时首页不出现「追问」入口磁贴 */
   sideChatEnabled?: boolean;
   /** 队伍状态表是否可见；只有能拥有名册的会话（chat / 远程私聊）才显示 */
@@ -210,7 +209,6 @@ const props = withDefaults(defineProps<{
   changeCount: 0,
   recentCommits: () => [],
   openFiles: () => [],
-  activePath: "",
   sideChatEnabled: false,
   teamVisible: false,
   teamMembers: () => [],
@@ -235,6 +233,8 @@ const emit = defineEmits<{
   (e: "openSideChatPanel"): void;
   /** 队员状态表点某一格：打开该队员会话（切队员面板 + 激活会话） */
   (e: "openTeamMember", conversationId: string): void;
+  /** 队员状态表右上角「更多」：打开队员页 */
+  (e: "openTeamManagement"): void;
   (e: "openWorkspace", path?: string): void;
   (e: "openGitChanges"): void;
   (e: "openGitCommits"): void;

@@ -768,7 +768,6 @@
           :change-count="homeGitChangeCount"
           :recent-commits="homeGitRecentCommits"
           :open-files="homeFilePreview.openFiles"
-          :active-path="homeFilePreview.activePath"
           :side-chat-enabled="Boolean(sideChatPanelEnabled)"
           :team-visible="Boolean(props.teamVisible)"
           :team-members="teamMembers"
@@ -789,6 +788,7 @@
           @close-file="closeHomeFile"
           @open-side-chat-panel="emit('openSideChatPanel')"
           @open-team-member="emit('openTeamMember', $event)"
+          @open-team-management="emit('openTeamManagement')"
           @open-workspace="openHomeWorkspaceDirectory"
           @open-git-changes="openHomeGitChanges"
           @open-git-commits="openHomeGitCommits"
@@ -949,7 +949,6 @@ import {
   listSessionFilePaths,
   readFileReaderSessionState,
   removeFilePathFromSessionState,
-  sessionActiveFilePath,
   writeFileReaderSessionState,
 } from "../../file-reader/file-reader-session";
 import { normalizePath } from "../../file-reader/utils";
@@ -3460,7 +3459,6 @@ type HomeFileItem = { path: string; label: string };
 
 const EMPTY_HOME_FILE_PREVIEW = {
   openFiles: [] as HomeFileItem[],
-  activePath: "",
 };
 
 /** 文件项：path 保留完整路径用于打开与关闭，label 只用于展示 */
@@ -3471,13 +3469,12 @@ function toHomeFileItem(path: string): HomeFileItem {
 }
 
 /** 已打开文件与会话级持久化同步，主页不常驻阅读器面板，直接读它的会话状态 */
-function readHomeOpenFiles(): { openFiles: HomeFileItem[]; activePath: string } {
+function readHomeOpenFiles(): { openFiles: HomeFileItem[] } {
   const sessionKey = String(chatFileReaderSessionKey.value || "").trim();
   if (!sessionKey) return { ...EMPTY_HOME_FILE_PREVIEW };
   const state = readFileReaderSessionState(sessionKey, legacyChatFileReaderSessionKey.value);
   return {
     openFiles: listSessionFilePaths(state).map(toHomeFileItem),
-    activePath: sessionActiveFilePath(state),
   };
 }
 
@@ -3492,7 +3489,6 @@ function closeHomeFile(path: string) {
 
 const homeFilePreview = ref({
   openFiles: [] as HomeFileItem[],
-  activePath: "",
 });
 
 /** 主页预览计划卡：列出当前会话最后呈现过的计划 */
