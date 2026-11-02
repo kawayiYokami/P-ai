@@ -1,7 +1,7 @@
 <template>
-  <section class="ecall-home-team-block flex min-w-0 flex-col gap-2 rounded-box border border-base-content/10 bg-base-100 p-3.5">
+  <section class="ecall-home-team-block flex h-full min-w-0 flex-col gap-2 rounded-box border border-base-content/10 bg-base-100 p-3.5">
     <div class="text-sm font-medium text-base-content/85">{{ t("chat.teamMember.title") }}</div>
-    <OverlayScrollArea v-if="orderedMembers.length" scroller-class="ecall-home-team-scroller">
+    <OverlayScrollArea v-if="orderedMembers.length" class="flex-1 min-h-0 w-full" scroller-class="ecall-home-team-scroller">
       <TeamMemberTileGrid
         :members="orderedMembers"
         :avatar-url-map="avatarUrlMap"
@@ -67,10 +67,11 @@ const { t } = useI18n();
   grid-column: span 2;
 }
 
-/* 滚动区固定在两行的高度，超出的队员在里面滚，不把首页撑长。
+/* 滚动区自适应吃满卡片剩余高度；在卡片未被同行拉伸时至少保两行高度；超出的队员在里面滚。
    右侧留一点内边距，浮动滚动条不出现在内容正上方 */
 :deep(.ecall-home-team-scroller) {
-  height: calc(var(--ecall-team-member-row) * 2 + var(--ecall-team-member-gap));
+  height: 100%;
+  min-height: calc(var(--ecall-team-member-row) * 2 + var(--ecall-team-member-gap));
   padding-right: 0.25rem;
 }
 
