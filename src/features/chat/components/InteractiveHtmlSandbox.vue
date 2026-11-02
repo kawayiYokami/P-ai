@@ -534,17 +534,40 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--color-primary, currentColor) 14%, transparent);
 }
 
-/* 带文字的入口：与四个纯图标按钮同一行，但要让用户一眼看出它是干什么的 */
+/* 「在右栏打开」：默认只有图标，悬停才浮出胶囊文字。
+   文字绝对定位在按钮外层，不参与横排布局，所以展开前后左边几个图标的横坐标一动不动。 */
 .ecall-sandbox-action-labeled {
-  width: auto;
-  gap: 0.22rem;
-  padding: 0 0.4rem;
-  white-space: nowrap;
+  position: relative;
 }
 
 .ecall-sandbox-action-text {
+  position: absolute;
+  top: calc(100% + 0.1rem);
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 1.4rem;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  background: var(--color-base-100, #ffffff);
+  box-shadow: 0 2px 10px color-mix(in srgb, #000 16%, transparent);
   font-size: var(--app-text-caption-size, 0.72rem);
   line-height: 1;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-0.18rem) scale(0.94);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s ease;
+  z-index: 4;
+}
+
+.ecall-sandbox-action-labeled:hover .ecall-sandbox-action-text,
+.ecall-sandbox-action-labeled:focus-visible .ecall-sandbox-action-text {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
 }
 
 .ecall-sandbox-action-icon {
