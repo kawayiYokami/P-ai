@@ -755,6 +755,7 @@ const {
 } = useChatMessageAppearance();
 const {
   joinNonEmpty,
+  compactText,
   normalizeToolCallArgs,
   toolCallDisplayName,
   toolCallSemanticPresentation,
@@ -1182,6 +1183,17 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
   if (retryLabel) {
     return retryLabel;
   }
+  // 工具真在跑时报具体工具名：后端刻意把 _schedulingState 留在 executing_tool，
+  // 只看阶段只能得到笼统的「正在执行工具」。streaming_tool 例外——那时参数还在生成，
+  // 说「正在执行」不准确，仍按原分支报「正在生成工具调用」。
+  if (schedulingState !== "streaming_tool") {
+    const doingToolCall = toolCallsForBlock(block).find((call) => call.status === "doing");
+    if (doingToolCall) {
+      const semanticText = String(toolCallSemanticPresentation(doingToolCall).text || "").trim();
+      const namedTool = compactText(semanticText || toolCallDisplayName(doingToolCall.name), 32);
+      return withWater(t("chat.statusExecutingNamedTool", { name: namedTool }));
+    }
+  }
   if (schedulingState) {
     switch (schedulingState) {
       case "preparing_context":
@@ -1205,7 +1217,6 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
   // Fallback：旧后端无 schedulingState 时，仅读 tool_status，不再以 hasReasoning -> 已阅读消息 推断
   const preStreamingStatusText = String(providerMeta._preStreamingStatusText || "").trim();
   const toolStatusState = String(providerMeta._toolStatusState || "").trim();
-  const doingTool = toolCallsForBlock(block).some((call) => call.status === "doing");
   const hasSpeechContent = hasStreamingSpeechContent(block);
 
   const normalizeRequestPhaseText = (text: string): string => {
@@ -1231,7 +1242,7 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
     return "";
   };
 
-  if (doingTool || block.activityStatus === "running_tool") {
+  if (block.activityStatus === "running_tool") {
     return t("chat.statusExecutingTools");
   }
   if (hasSpeechContent) {
@@ -1725,7 +1736,11 @@ function activityItemRemainingText(item: ChatActivityItem): string {
 }
 
 function activityItemCanExpand(item: ChatActivityItem): boolean {
-  if (item.kind === "tool") return !!activityToolArgsText(item);
+  if (item.kind === "tool") {
+    // 无参数工具不显示参数区；但「无参数 + 有结果」的工具仍要能展开，否则结果本身也读不到。
+    if (activityToolArgsText(item).trim()) return true;
+    return !!String(item.resultText || "").trim() || item.contentOmitted === true;
+  }
   if (item.kind === "reasoning") return !!activityItemRemainingText(item).trim();
   return false;
 }
@@ -1843,6 +1858,15 @@ async function loadToolResult(item: ChatActivityItem): Promise<void> {
   }
 }
 
+// 参数与结果拼接：无参数时不要留下裸露的分隔线，直接把结果顶到开头。
+function joinToolArgsAndResult(args: string, result: string): string {
+  const hasArgs = !!args.trim();
+  const hasResult = !!result.trim();
+  if (!hasArgs) return hasResult ? result : args;
+  if (!hasResult) return args;
+  return `${args}\n\n---\n\n${result}`;
+}
+
 function activityToolDetailsText(item: ChatActivityItem): string {
   if (item.kind !== "tool") return "";
   const args = activityToolArgsText(item);
@@ -1852,7 +1876,7 @@ function activityToolDetailsText(item: ChatActivityItem): string {
   if (item.contentOmitted) {
     const loaded = toolResultOverrides.value[key];
     if (loaded === undefined) return args;
-    return `${args}\n\n---\n\n${loaded}`;
+    return joinToolArgsAndResult(args, loaded);
   }
   const result = String(item.resultText || "").trim();
   const status = result ? parseToolCallResultStatus(item.resultText) : null;
@@ -1861,17 +1885,17 @@ function activityToolDetailsText(item: ChatActivityItem): string {
     const label = reason
       ? `\n\n[${t("chat.toolReview.denied") || "已拒绝"}]: ${reason}`
       : `\n\n[${t("chat.toolReview.denied") || "已拒绝"}]`;
-    return result ? `${args}\n\n---\n\n${result}${label}` : `${args}${label}`;
+    return `${joinToolArgsAndResult(args, result)}${label}`;
   }
   if (status?.isFailed) {
     const reason = status.message || status.blockedReason;
     const label = reason
       ? `\n\n[${t("chat.toolReview.failed") || "执行失败"}]: ${reason}`
       : `\n\n[${t("chat.toolReview.failed") || "执行失败"}]`;
-    return result ? `${args}\n\n---\n\n${result}${label}` : `${args}${label}`;
+    return `${joinToolArgsAndResult(args, result)}${label}`;
   }
   if (result) {
-    return `${args}\n\n---\n\n${result}`;
+    return joinToolArgsAndResult(args, result);
   }
   return args;
 }

@@ -209,22 +209,35 @@ function sanitizeStoredToolHistoryEvents(
   return sanitized;
 }
 
+// 空参数判定：无参数的调用在协议里既可能缺字段，也可能是 "{}" / {} / []，
+// 三种形态对用户都是「没有参数」，归一成空串，避免界面吐出裸的 {}。
+function isEmptyToolCallArgsValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length === 0;
+  return false;
+}
+
 function normalizeToolCallArguments(raw: unknown): { argumentsText: string; argumentsValue: unknown } {
   if (typeof raw === "string") {
     const text = raw.trim();
     if (!text) return { argumentsText: "", argumentsValue: {} };
     try {
-      return { argumentsText: text, argumentsValue: JSON.parse(text) as unknown };
+      const parsed = JSON.parse(text) as unknown;
+      return {
+        argumentsText: isEmptyToolCallArgsValue(parsed) ? "" : text,
+        argumentsValue: parsed,
+      };
     } catch {
       return { argumentsText: text, argumentsValue: text };
     }
   }
   if (raw === null || raw === undefined) {
-    return { argumentsText: "{}", argumentsValue: {} };
+    return { argumentsText: "", argumentsValue: {} };
   }
   try {
     return {
-      argumentsText: JSON.stringify(raw),
+      argumentsText: isEmptyToolCallArgsValue(raw) ? "" : JSON.stringify(raw),
       argumentsValue: raw,
     };
   } catch {
@@ -297,7 +310,7 @@ export function summarizeToolActivityForDisplay(
   return {
     count: calls.length,
     lastToolName: calls.length > 0 ? calls[calls.length - 1].toolName : "",
-    calls: calls.map((call) => ({ name: call.toolName, argsText: call.argumentsText || "{}" })),
+    calls: calls.map((call) => ({ name: call.toolName, argsText: call.argumentsText })),
   };
 }
 
@@ -555,7 +568,7 @@ export function projectChatActivityForDisplay(message: ChatMessage): {
         id: call.invocationId || call.providerCallId || `tool-${eventIndex}-${items.length}`,
         toolCallId: call.invocationId || undefined,
         name: call.toolName,
-        argsText: call.argumentsText || "{}",
+        argsText: call.argumentsText,
         resultText: result ? result.text : undefined,
         contentOmitted: result?.contentOmitted,
         status: "done",
@@ -714,7 +727,7 @@ export function assistantStreamBlocksFromMessageForDisplay(
       return {
         toolCallId: call.invocationId || call.providerCallId || "",
         name: call.toolName,
-        argsText: call.argumentsText || "{}",
+        argsText: call.argumentsText,
         resultText: result ? result.text : undefined,
         resultMetadata: result?.metadata,
         status: "done" as const,
@@ -1054,7 +1067,7 @@ export function applyAssistantToolEventToStreamBlocks(
       return {
         toolCallId,
         name,
-        argsText: argumentsText || "{}",
+        argsText: argumentsText,
         status: "doing" as const,
       };
     })

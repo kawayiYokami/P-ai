@@ -48,11 +48,14 @@
     </div>
 
     <div class="border-t border-base-300 px-3 py-2 text-xs text-base-content/60">
-      四条都是同一种 ChatMessageItem：普通 assistant 消息、队伍邮件（服务端默认形态，收起）、
+      前四条都是同一种 ChatMessageItem：普通 assistant 消息、队伍邮件（服务端默认形态，收起）、
       同一封邮件点开后、队伍通知。队伍邮件喂的是服务端真实拼出来的 markdown——
       标题进 `&lt;summary&gt;`，状态行与 `队长说：` 署名在折叠体内，渲染层不做任何特殊处理，
       气泡形态与第一条完全一致。署名与头像靠 speakerAgentId 查 personaNameMap；
       通知喂的是后端内置系统人格的默认名，查不到会退回裸 id，所以这个映射必须喂全。
+      后两条是工具状态专项：第五条在 executing_tool 阶段带一个 doing 工具，头部应报具体工具名；
+      第六条把三种工具并列——无参数有结果（get_session）、有参数有结果（read）、无参数无结果（wait），
+      点开活动面板后：前两条各带结果，get_session 没有参数方块；wait 连箭头都没有。
     </div>
   </div>
 </template>
@@ -137,6 +140,67 @@ const blocks = computed<ChatMessageBlock[]>(() => [
     speakerAgentId: "system-persona",
     providerMeta: { messageKind: "team_notice", teamMessage: true },
     text: "你已经完成了你的职责，队长决定把你移出队伍。此后你是一个普通的追问会话，不用再等队长的指示。",
+  }),
+  // 卡片头：工具执行中。后端把 _schedulingState 留在 executing_tool，
+  // 头部应报到具体工具名（这里应是「正在执行：阅读 playwright.spec.ts」），不是笼统的「正在执行工具」
+  baseBlock({
+    id: "tool-doing",
+    isStreaming: true,
+    providerMeta: { _schedulingState: "executing_tool" },
+    toolCallCount: 1,
+    lastToolName: "read",
+    toolCalls: [{
+      name: "read",
+      argsText: JSON.stringify({ absolute_path: "/repo/src/playwright.spec.ts" }),
+      status: "doing",
+    }],
+    activityItems: [{
+      kind: "tool",
+      id: "tool-doing-1",
+      toolCallId: "call_doing",
+      name: "read",
+      argsText: JSON.stringify({ absolute_path: "/repo/src/playwright.spec.ts" }),
+      status: "doing",
+    }],
+    // 展开态不读 activityItems，改从 contentBlocks 重新派生，喂同一份数据保证两态一致
+    contentBlocks: [{
+      reasoning: "",
+      text: "",
+      tools: [{
+        toolCallId: "call_doing",
+        name: "read",
+        argsText: JSON.stringify({ absolute_path: "/repo/src/playwright.spec.ts" }),
+        status: "doing",
+      }],
+    }],
+    activityRunning: true,
+    activityStatus: "running_tool",
+  }),
+  // 参数区对照：无参数工具不显示参数区（也不给箭头），有参数工具照旧。
+  // 这里同时点开两条，确认无参数的只露结果、有参数的照旧是「参数 --- 结果」
+  baseBlock({
+    id: "tool-args-compare",
+    text: "先查会话，再读文件。",
+    toolCallCount: 2,
+    lastToolName: "read",
+    toolCalls: [
+      { name: "get_session", argsText: "", status: "done" },
+      { name: "read", argsText: JSON.stringify({ absolute_path: "/repo/src/a.ts" }), status: "done" },
+    ],
+    activityItems: [
+      { kind: "tool", id: "compare-1", toolCallId: "call_noargs", name: "get_session", argsText: "", resultText: "共 3 个会话", status: "done" },
+      { kind: "tool", id: "compare-2", toolCallId: "call_args", name: "read", argsText: JSON.stringify({ absolute_path: "/repo/src/a.ts" }), resultText: "文件内容", status: "done" },
+      { kind: "tool", id: "compare-3", toolCallId: "call_empty", name: "wait", argsText: "", status: "done" },
+    ],
+    contentBlocks: [{
+      reasoning: "",
+      text: "",
+      tools: [
+        { toolCallId: "call_noargs", name: "get_session", argsText: "", resultText: "共 3 个会话", status: "done" },
+        { toolCallId: "call_args", name: "read", argsText: JSON.stringify({ absolute_path: "/repo/src/a.ts" }), resultText: "文件内容", status: "done" },
+        { toolCallId: "call_empty", name: "wait", argsText: "", status: "done" },
+      ],
+    }],
   }),
 ]);
 </script>

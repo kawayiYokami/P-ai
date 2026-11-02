@@ -222,7 +222,7 @@ describe("appendTextDeltaToStreamBlocks 工具标记后切新块", () => {
         tools: [{
           toolCallId: CALL_A,
           name: "toolA",
-          argsText: "{}",
+          argsText: "",
           resultText: undefined,
           status: "doing",
         }],
@@ -285,5 +285,74 @@ describe("appendTextDeltaToStreamBlocks 工具标记后切新块", () => {
       pendingTextBreak: false,
     }]);
     expect(text).toBe(`正文1。 [toolcall:${CALL_A}]`);
+  });
+});
+
+describe("工具调用空参数不落成裸的 {}", () => {
+  const emptyArgShapes: Array<[string, string | Record<string, unknown> | unknown[]]> = [
+    ["字符串 \"{}\"", "{}"],
+    ["空对象", {}],
+    ["空数组", []],
+  ];
+
+  for (const [label, argsValue] of emptyArgShapes) {
+    it(`arguments 为${label}时 argsText 归一为空串`, () => {
+      const blocks = applyAssistantToolEventToStreamBlocks([], JSON.stringify({
+        role: "assistant",
+        content: null,
+        tool_calls: [{
+          id: CALL_A,
+          type: "function",
+          function: { name: "get_session", arguments: argsValue },
+        }],
+      }));
+      expect(blocks[0]?.tools?.[0]?.argsText).toBe("");
+    });
+  }
+
+  it("arguments 缺失时 argsText 归一为空串", () => {
+    const blocks = applyAssistantToolEventToStreamBlocks([], JSON.stringify({
+      role: "assistant",
+      content: null,
+      tool_calls: [{
+        id: CALL_A,
+        type: "function",
+        function: { name: "get_session" },
+      }],
+    }));
+    expect(blocks[0]?.tools?.[0]?.argsText).toBe("");
+  });
+
+  it("有参数的工具 argsText 原样保留", () => {
+    const argsText = JSON.stringify({ path: "src/a.ts" });
+    const blocks = applyAssistantToolEventToStreamBlocks([], JSON.stringify({
+      role: "assistant",
+      content: null,
+      tool_calls: [{
+        id: CALL_A,
+        type: "function",
+        function: { name: "read", arguments: argsText },
+      }],
+    }));
+    expect(blocks[0]?.tools?.[0]?.argsText).toBe(argsText);
+  });
+
+  it("空参数工具活动项不带参数文本，仍保留工具名", () => {
+    const items = streamBlocksToActivityItems([{
+      reasoning: "",
+      reasoningCharCount: 0,
+      text: "",
+      tools: [{
+        toolCallId: CALL_A,
+        name: "get_session",
+        argsText: "",
+        resultText: "会话列表",
+        status: "done",
+      }],
+      pendingTextBreak: false,
+    }]);
+    const tool = items.find((item) => item.kind === "tool");
+    expect(tool?.name).toBe("get_session");
+    expect(tool?.argsText).toBe("");
   });
 });
