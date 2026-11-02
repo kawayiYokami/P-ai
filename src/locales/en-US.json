@@ -2601,6 +2601,8 @@
     "worktreeNewMissing": "Please fill in the base branch and worktree name",
     "worktreeNewMissingTarget": "Please pick a target branch and fill in the worktree name",
     "worktreeNewFailed": "Failed to create worktree: {message}",
+    "openInRightPanel": "Open in side panel",
+    "interactiveHtmlTitle": "Interactive widget",
     "kanban": {
       "cardTitle": "Issue board",
       "cardEmptyAttention": "Nothing needs your attention.",
@@ -2624,6 +2626,8 @@
       "groupEmpty": "Empty",
       "approve": "Approve",
       "approveHint": "Mark this issue as done",
+      "referenceHint": "Attach this issue to the input as a reference",
+      "removeIssueReference": "Remove this issue reference",
       "assigneeNone": "Unassigned",
       "status": {
         "discussing": "To discuss",
@@ -2631,8 +2635,7 @@
         "in_progress": "Resolving",
         "in_review": "Review",
         "blocked": "Blocked",
-        "done": "Done",
-        "closed": "Closed"
+        "done": "Done"
       }
     }
   },
@@ -2745,6 +2748,22 @@
       "actionMeme": "Save meme",
       "actionMove": "Move",
       "actionOperate": "Desktop",
+      "actionWindows": "Window task",
+      "windowsList": "List windows",
+      "windowsActivate": "Activate window {id}",
+      "windowsMoreSteps": "{count} more steps",
+      "actionGetTool": "Fetch tool",
+      "actionKanban": "Maintain issue board",
+      "actionKanbanList": "View issue board",
+      "actionKanbanCreate": "Create issue",
+      "actionKanbanUpdate": "Update issue",
+      "actionKanbanSetPlan": "Set issue plan",
+      "kanbanAllStatuses": "All",
+      "kanbanNewIssue": "New issue",
+      "kanbanIssueCount": "{count} issues",
+      "actionContactReply": "Reply contact",
+      "actionContactNoReply": "Skip reply this turn",
+      "contactCurrent": "current contact",
       "actionPatch": "Patch",
       "actionPlan": "Plan",
       "actionRead": "Read",
@@ -2964,9 +2983,14 @@
     "fileReaderLineWrap": "Line wrap",
     "fileReaderLineWrapHint": "Wrap long lines in code previews. Press Alt + Z to toggle.",
     "themeTabs": {
-      "auto": "Auto",
       "preset": "Preset",
       "generated": "Custom"
+    },
+    "displayMode": {
+      "label": "Display mode",
+      "light": "Light",
+      "dark": "Dark",
+      "auto": "Auto"
     },
     "autoThemeLight": "Light",
     "autoThemeDark": "Dark",
@@ -3325,6 +3349,7 @@
     "loadingFile": "Loading file",
     "localMediaUnavailable": "Local media preview is unavailable in this environment.",
     "mediaLoadFailed": "Media failed to load. The format, codec, or local file access may be unsupported.",
+    "imagePreviewTitle": "Chat image",
     "unsupportedPreviewTitle": "This file cannot be previewed",
     "unsupportedPreviewDescription": "This file type is not suitable to open directly in the file reader.",
     "noWorkspace": "This conversation has no browsable workspace yet.",

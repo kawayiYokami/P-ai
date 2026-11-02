@@ -48,14 +48,23 @@ export type AppThemeState =
   | { kind: "preset"; name: string }
   | { kind: "generated"; controls: GeneratedThemeControls };
 
-export type ThemeModeKind = "manual" | "auto";
+/** 显示模式：明 / 暗 / 自动（跟随系统）。 */
+export type ThemeModeKind = "light" | "dark" | "auto";
 
+/** 外观来源：预设（内置主题）/ 自定义（参数生成的）。 */
+export type ThemeSourceKind = "preset" | "generated";
+
+/**
+ * 外观偏好：来源与显示模式是两个独立维度。
+ *
+ * 明暗各有一套主题——预设来源看 presetLightTheme / presetDarkTheme，
+ * 自定义来源看 generatedControlsByMode 的两份参数。没有「当前单个主题」这个概念。
+ */
 export type PersistedThemePreferences = {
-  version: 3;
+  version: 4;
   mode: ThemeModeKind;
-  activeState: AppThemeState;
-  autoLightTheme: string;
-  autoDarkTheme: string;
-  generatedControls: GeneratedThemeControls;
+  source: ThemeSourceKind;
+  presetLightTheme: string;
+  presetDarkTheme: string;
   generatedControlsByMode: GeneratedThemeControlsByMode;
 };

@@ -171,51 +171,46 @@
 
     <template #row-theme>
       <div class="grid min-w-0 gap-4">
+        <!-- 显示模式：明 / 暗 / 自动。与下面的来源 tab 是两个独立维度 -->
+        <div class="grid gap-2">
+          <span class="text-xs text-base-content/60">{{ t("appearance.displayMode.label") }}</span>
+          <SegmentedControl
+            :model-value="props.themeMode"
+            :options="displayModeOptions"
+            @change="onDisplayModeChange"
+          />
+        </div>
+
         <div class="tabs tabs-box bg-base-200 p-1">
           <button
             type="button"
             class="tab flex-1 rounded-btn"
-            :class="activeTab === 'auto' ? 'tab-active' : ''"
-            @click="switchToAutoTab"
-          >
-            {{ t("appearance.themeTabs.auto") }}
-          </button>
-          <button
-            type="button"
-            class="tab flex-1 rounded-btn"
-            :class="activeTab === 'preset' ? 'tab-active' : ''"
-            @click="switchToPresetTab"
+            :class="themeSource === 'preset' ? 'tab-active' : ''"
+            @click="selectThemeSource('preset')"
           >
             {{ t("appearance.themeTabs.preset") }}
           </button>
           <button
             type="button"
             class="tab flex-1 rounded-btn"
-            :class="activeTab === 'generated' ? 'tab-active' : ''"
-            @click="switchToGeneratedTab"
+            :class="themeSource === 'generated' ? 'tab-active' : ''"
+            @click="selectThemeSource('generated')"
           >
             {{ t("appearance.themeTabs.generated") }}
           </button>
         </div>
 
+        <!-- 预设这一栏原样沿用自动页那块：明暗各挑一个内置主题 -->
         <AutoThemeGrid
-          v-if="activeTab === 'auto'"
+          v-if="themeSource === 'preset'"
           :light-themes="lightThemes"
           :dark-themes="darkThemes"
-          :auto-light-theme="props.autoLightTheme"
-          :auto-dark-theme="props.autoDarkTheme"
+          :auto-light-theme="props.presetLightTheme"
+          :auto-dark-theme="props.presetDarkTheme"
           :light-custom-tokens="props.generatedLightTokens"
           :dark-custom-tokens="props.generatedDarkTokens"
-          @select-light="$emit('setAutoTheme', 'light', $event)"
-          @select-dark="$emit('setAutoTheme', 'dark', $event)"
-        />
-
-        <ThemePreviewGrid
-          v-else-if="activeTab === 'preset'"
-          :light-themes="lightThemes"
-          :dark-themes="darkThemes"
-          :current-theme="props.currentTheme"
-          @select="$emit('setTheme', $event)"
+          @select-light="$emit('setPresetTheme', 'light', $event)"
+          @select-dark="$emit('setPresetTheme', 'dark', $event)"
         />
 
         <GeneratedThemeEditor
@@ -231,25 +226,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { canUseTransportSystemFonts, listTransportSystemFonts } from "../../../../services/tauri-api";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import FontFamilySelect from "../../components/FontFamilySelect.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
-import ThemePreviewGrid from "../../components/ThemePreviewGrid.vue";
 import AutoThemeGrid from "../../components/AutoThemeGrid.vue";
 import GeneratedThemeEditor from "../../components/GeneratedThemeEditor.vue";
 import {
   APP_THEMES,
   DARK_APP_THEMES,
 } from "../../../shell/composables/use-app-theme";
-import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind } from "../../../shell/theme/theme-types";
-import {
-  GENERATED_THEME_DARK_ID,
-  GENERATED_THEME_LIGHT_ID,
-} from "../../../shell/theme/theme-generator";
+import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind, ThemeSourceKind } from "../../../shell/theme/theme-types";
 import {
   useMarkdownAppearance,
 } from "../../../shell/composables/use-markdown-appearance";
@@ -264,8 +254,9 @@ const props = defineProps<{
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   themeMode: ThemeModeKind;
-  autoLightTheme: string;
-  autoDarkTheme: string;
+  themeSource: ThemeSourceKind;
+  presetLightTheme: string;
+  presetDarkTheme: string;
   generatedThemeControls: GeneratedThemeControls;
   generatedThemeTokens: GeneratedThemeTokens;
   generatedLightTokens: GeneratedThemeTokens;
@@ -278,10 +269,9 @@ const emit = defineEmits<{
   (e: "update:uiFont", value: string): void;
   (e: "update:codeFont", value: string): void;
   (e: "update:uiSizeScale", value: number): void;
-  (e: "setTheme", value: string): void;
   (e: "setThemeMode", value: ThemeModeKind): void;
-  (e: "setAutoTheme", side: ThemeMode, value: string): void;
-  (e: "activateGeneratedTheme"): void;
+  (e: "setThemeSource", value: ThemeSourceKind): void;
+  (e: "setPresetTheme", side: ThemeMode, value: string): void;
   (e: "updateGeneratedThemeControls", value: Partial<GeneratedThemeControls>): void;
   (e: "resetGeneratedTheme"): void;
 }>();
@@ -338,10 +328,23 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => [
   },
 ]);
 const uiSizeScaleMarks = [75, 100, 125, 150] as const;
-type ThemeTab = "auto" | "preset" | "generated";
-const activeTab = ref<ThemeTab>(
-  props.themeMode === "auto" ? "auto" : isGeneratedTheme(props.currentTheme) ? "generated" : "preset",
-);
+const displayModeOptions = computed<Array<{ value: ThemeModeKind; label: string }>>(() => [
+  { value: "light", label: t("appearance.displayMode.light") },
+  { value: "dark", label: t("appearance.displayMode.dark") },
+  { value: "auto", label: t("appearance.displayMode.auto") },
+]);
+/** 来源直接读 props，不做本地副本：tab 只在点击时上报，状态永远以后端那份为准。 */
+const themeSource = computed<ThemeSourceKind>(() => props.themeSource);
+
+function onDisplayModeChange(mode: ThemeModeKind) {
+  if (mode === props.themeMode) return;
+  emit("setThemeMode", mode);
+}
+
+function selectThemeSource(source: ThemeSourceKind) {
+  if (source === props.themeSource) return;
+  emit("setThemeSource", source);
+}
 const markdownFontScaleOptions = computed(() => [
   { value: 0, label: t("appearance.markdownFontScaleLight") },
   { value: 1, label: t("appearance.markdownFontScaleHeavy") },
@@ -429,51 +432,4 @@ onMounted(async () => {
   }
 });
 
-function isGeneratedTheme(theme: string) {
-  return theme === GENERATED_THEME_LIGHT_ID || theme === GENERATED_THEME_DARK_ID;
-}
-
-// 本地点击 tab 会主动设置 activeTab，且可能触发 themeMode 变化；用标志位跳过同步逻辑，避免覆盖本地意图
-let localTabIntent = false;
-function markLocalTabIntent() {
-  localTabIntent = true;
-  void nextTick(() => {
-    localTabIntent = false;
-  });
-}
-
-function switchToAutoTab() {
-  activeTab.value = "auto";
-  markLocalTabIntent();
-  emit("setThemeMode", "auto");
-}
-
-function switchToPresetTab() {
-  activeTab.value = "preset";
-  markLocalTabIntent();
-  emit("setThemeMode", "manual");
-}
-
-function switchToGeneratedTab() {
-  activeTab.value = "generated";
-  markLocalTabIntent();
-  emit("activateGeneratedTheme");
-}
-
-watch(
-  () => props.themeMode,
-  (mode) => {
-    if (localTabIntent) {
-      localTabIntent = false;
-      return;
-    }
-    // tab 即模式：自动模式激活时高亮自动 tab；外部同步为手动模式时，按当前生效主题对应到预设/自定义
-    if (mode === "auto") {
-      activeTab.value = "auto";
-    } else {
-      activeTab.value = isGeneratedTheme(props.currentTheme) ? "generated" : "preset";
-    }
-  },
-  { immediate: true },
-);
 </script>

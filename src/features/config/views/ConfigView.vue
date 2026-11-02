@@ -352,8 +352,9 @@
             :locale-options="localeOptions"
             :current-theme="currentTheme"
             :theme-mode="themeMode"
-            :auto-light-theme="autoLightTheme"
-            :auto-dark-theme="autoDarkTheme"
+            :theme-source="themeSource"
+            :preset-light-theme="presetLightTheme"
+            :preset-dark-theme="presetDarkTheme"
             :generated-theme-controls="generatedThemeControls"
             :generated-theme-tokens="generatedThemeTokens"
             :generated-light-tokens="generatedLightTokens"
@@ -363,10 +364,9 @@
             @update:ui-font="$emit('update:uiFont', $event)"
             @update:code-font="$emit('update:codeFont', $event)"
             @update:ui-size-scale="$emit('update:uiSizeScale', $event)"
-            @set-theme="$emit('setTheme', $event)"
             @set-theme-mode="$emit('setThemeMode', $event)"
-            @set-auto-theme="(side, value) => $emit('setAutoTheme', side, value)"
-            @activate-generated-theme="$emit('activateGeneratedTheme')"
+            @set-theme-source="$emit('setThemeSource', $event)"
+            @set-preset-theme="(side, value) => $emit('setPresetTheme', side, value)"
             @update-generated-theme-controls="$emit('updateGeneratedThemeControls', $event)"
             @reset-generated-theme="$emit('resetGeneratedTheme')"
           />
@@ -442,7 +442,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, ApiProviderConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
-import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind } from "../../shell/theme/theme-types";
+import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind, ThemeSourceKind } from "../../shell/theme/theme-types";
 import type { StatusTone } from "../../shell/composables/use-app-core";
 import SettingsStickyLayout from "../components/SettingsStickyLayout.vue";
 import AvatarCropDialog from "../components/AvatarCropDialog.vue";
@@ -565,8 +565,9 @@ const props = defineProps<{
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   themeMode: ThemeModeKind;
-  autoLightTheme: string;
-  autoDarkTheme: string;
+  themeSource: ThemeSourceKind;
+  presetLightTheme: string;
+  presetDarkTheme: string;
   generatedThemeControls: GeneratedThemeControls;
   generatedThemeTokens: GeneratedThemeTokens;
   generatedLightTokens: GeneratedThemeTokens;
@@ -637,10 +638,9 @@ const emit = defineEmits<{
   (e: "update:instructionPresets", value: PromptCommandPreset[]): void;
   (e: "patchConversationApiSettings", value: ConversationApiSettingsPatch): void;
   (e: "patchChatSettings", value: ChatSettingsPatch): void;
-  (e: "setTheme", value: string): void;
   (e: "setThemeMode", value: ThemeModeKind): void;
-  (e: "setAutoTheme", side: ThemeMode, value: string): void;
-  (e: "activateGeneratedTheme"): void;
+  (e: "setThemeSource", value: ThemeSourceKind): void;
+  (e: "setPresetTheme", side: ThemeMode, value: string): void;
   (e: "updateGeneratedThemeControls", value: Partial<GeneratedThemeControls>): void;
   (e: "resetGeneratedTheme"): void;
   (e: "refreshModels", provider: ApiProviderConfigItem | null): void;

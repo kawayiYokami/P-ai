@@ -2599,6 +2599,8 @@
     "worktreeNewMissing": "請填寫基分支和工作樹名稱",
     "worktreeNewMissingTarget": "請選擇目標分支並填寫工作樹名稱",
     "worktreeNewFailed": "建立工作樹失敗：{message}",
+    "openInRightPanel": "在右欄開啟",
+    "interactiveHtmlTitle": "互動元件",
     "kanban": {
       "cardTitle": "議題看板",
       "cardEmptyAttention": "沒有需要你處理的事。",
@@ -2618,6 +2620,8 @@
       "groupEmpty": "暫無",
       "approve": "通過",
       "approveHint": "確認這條議題已完成",
+      "referenceHint": "把這條議題作為引用掛到輸入框",
+      "removeIssueReference": "移除這條議題引用",
       "assigneeNone": "未分配",
       "status": {
         "discussing": "待議",
@@ -2625,8 +2629,7 @@
         "in_progress": "解決中",
         "in_review": "待審",
         "blocked": "阻塞",
-        "done": "已完成",
-        "closed": "已關閉"
+        "done": "已完成"
       }
     }
   },
@@ -2739,6 +2742,22 @@
       "actionMeme": "儲存貼圖",
       "actionMove": "移動檔案",
       "actionOperate": "桌面操作",
+      "actionWindows": "視窗操作",
+      "windowsList": "列舉視窗",
+      "windowsActivate": "啟用視窗 {id}",
+      "windowsMoreSteps": "另 {count} 步",
+      "actionGetTool": "取用工具",
+      "actionKanban": "維護議題看板",
+      "actionKanbanList": "檢視議題看板",
+      "actionKanbanCreate": "建立議題",
+      "actionKanbanUpdate": "更新議題",
+      "actionKanbanSetPlan": "設定議題計畫",
+      "kanbanAllStatuses": "全部",
+      "kanbanNewIssue": "新議題",
+      "kanbanIssueCount": "共 {count} 條",
+      "actionContactReply": "回覆聯絡人",
+      "actionContactNoReply": "本輪不回覆",
+      "contactCurrent": "目前聯絡人",
       "actionPatch": "套用補丁",
       "actionPlan": "計畫",
       "actionRead": "閱讀",
@@ -2958,9 +2977,14 @@
     "fileReaderLineWrap": "換行顯示",
     "fileReaderLineWrapHint": "程式碼檔案預覽自動換行；可按 Alt + Z 切換。",
     "themeTabs": {
-      "auto": "自動",
       "preset": "預設",
       "generated": "自訂"
+    },
+    "displayMode": {
+      "label": "顯示模式",
+      "light": "明",
+      "dark": "暗",
+      "auto": "自動"
     },
     "autoThemeLight": "淺色時",
     "autoThemeDark": "深色時",
@@ -3319,6 +3343,7 @@
     "loadingFile": "正在讀取檔案",
     "localMediaUnavailable": "目前環境無法預覽本機媒體檔案。",
     "mediaLoadFailed": "媒體載入失敗，可能是格式、編碼或本機存取權限不受支援。",
+    "imagePreviewTitle": "聊天圖片",
     "unsupportedPreviewTitle": "無法預覽此檔案",
     "unsupportedPreviewDescription": "此類型不適合在檔案閱讀器中直接開啟。",
     "noWorkspace": "目前會話還沒有可瀏覽的工作目錄。",

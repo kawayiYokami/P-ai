@@ -2601,6 +2601,8 @@
     "worktreeNewMissing": "请填写基分支和工作树名称",
     "worktreeNewMissingTarget": "请选择目标分支并填写工作树名称",
     "worktreeNewFailed": "创建工作树失败：{message}",
+    "openInRightPanel": "在右栏打开",
+    "interactiveHtmlTitle": "交互组件",
     "kanban": {
       "cardTitle": "议题看板",
       "cardEmptyAttention": "没有需要你处理的事。",
@@ -2624,6 +2626,8 @@
       "groupEmpty": "暂无",
       "approve": "通过",
       "approveHint": "确认这条议题已完成",
+      "referenceHint": "把这条议题作为引用挂到输入框",
+      "removeIssueReference": "移除这条议题引用",
       "assigneeNone": "未分配",
       "status": {
         "discussing": "待议",
@@ -2631,8 +2635,7 @@
         "in_progress": "解决中",
         "in_review": "待审",
         "blocked": "阻塞",
-        "done": "已完成",
-        "closed": "已关闭"
+        "done": "已完成"
       }
     }
   },
@@ -2745,6 +2748,22 @@
       "actionMeme": "保存表情",
       "actionMove": "移动文件",
       "actionOperate": "桌面操作",
+      "actionWindows": "窗口操作",
+      "windowsList": "列举窗口",
+      "windowsActivate": "激活窗口 {id}",
+      "windowsMoreSteps": "另 {count} 步",
+      "actionGetTool": "取用工具",
+      "actionKanban": "维护议题看板",
+      "actionKanbanList": "查看议题看板",
+      "actionKanbanCreate": "创建议题",
+      "actionKanbanUpdate": "更新议题",
+      "actionKanbanSetPlan": "设置议题计划",
+      "kanbanAllStatuses": "全部",
+      "kanbanNewIssue": "新议题",
+      "kanbanIssueCount": "共 {count} 条",
+      "actionContactReply": "回复联系人",
+      "actionContactNoReply": "本轮不回复",
+      "contactCurrent": "当前联系人",
       "actionPatch": "应用补丁",
       "actionPlan": "计划",
       "actionRead": "阅读",
@@ -2964,9 +2983,14 @@
     "fileReaderLineWrap": "换行显示",
     "fileReaderLineWrapHint": "代码文件预览自动换行；可按 Alt + Z 切换。",
     "themeTabs": {
-      "auto": "自动",
       "preset": "预设",
       "generated": "自定义"
+    },
+    "displayMode": {
+      "label": "显示模式",
+      "light": "明",
+      "dark": "暗",
+      "auto": "自动"
     },
     "autoThemeLight": "浅色时",
     "autoThemeDark": "深色时",
@@ -3325,6 +3349,7 @@
     "loadingFile": "正在读取文件",
     "localMediaUnavailable": "当前环境无法预览本地媒体文件。",
     "mediaLoadFailed": "媒体加载失败，可能是格式、编码或本地访问权限不受支持。",
+    "imagePreviewTitle": "聊天图片",
     "unsupportedPreviewTitle": "无法预览此文件",
     "unsupportedPreviewDescription": "此类型不适合在文件阅读器中直接打开。",
     "noWorkspace": "当前会话还没有可浏览的工作目录。",

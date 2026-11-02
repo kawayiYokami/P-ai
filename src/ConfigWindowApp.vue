@@ -56,8 +56,9 @@
         :locale-options="localeOptions"
         :current-theme="currentTheme"
         :theme-mode="themeMode"
-        :auto-light-theme="autoLightTheme"
-        :auto-dark-theme="autoDarkTheme"
+        :theme-source="themeSource"
+        :preset-light-theme="presetLightTheme"
+        :preset-dark-theme="presetDarkTheme"
         :generated-theme-controls="generatedThemeControls"
         :generated-theme-tokens="generatedThemeTokens"
         :generated-light-tokens="generatedLightTokens"
@@ -125,10 +126,9 @@
         @update:ui-font="setUiFont($event)"
         @update:code-font="setCodeFont($event)"
         @update:github-update-method="updateGithubUpdateMethod"
-        @set-theme="setTheme"
         @set-theme-mode="setThemeMode"
-        @set-auto-theme="setAutoTheme"
-        @activate-generated-theme="activateGeneratedTheme"
+        @set-theme-source="setThemeSource"
+        @set-preset-theme="setPresetTheme"
         @update-generated-theme-controls="updateGeneratedThemeControls"
         @reset-generated-theme="resetGeneratedTheme"
         @refresh-models="refreshModels"
@@ -483,13 +483,13 @@ const {
   generatedThemeTokens,
   generatedThemeTokensByMode,
   themeMode,
-  autoLightTheme,
-  autoDarkTheme,
+  themeSource,
+  presetLightTheme,
+  presetDarkTheme,
   applyTheme,
-  setTheme,
   setThemeMode,
-  setAutoTheme,
-  activateGeneratedTheme,
+  setThemeSource,
+  setPresetTheme,
   updateGeneratedThemeControls,
   resetGeneratedTheme,
   restoreThemeFromStorage,

@@ -19,6 +19,7 @@ import type {
   PersistedThemePreferences,
   ThemeMode,
   ThemeModeKind,
+  ThemeSourceKind,
 } from "../theme/theme-types";
 
 const THEME_STORAGE_KEY = "easy-call.theme-state.v1";
@@ -84,13 +85,15 @@ const currentThemeState = ref<AppThemeState>({
   controls: cloneGeneratedThemeControls(DEFAULT_GENERATED_THEME_CONTROLS),
 });
 const currentTheme = ref<string>(themeStateToThemeId(currentThemeState.value));
+/** 自定义编辑器的当前编辑侧；显示模式切到明/暗时跟着走，由编辑器里的明暗分段控件改写。 */
 const activeGeneratedMode = ref<ThemeMode>(DEFAULT_GENERATED_THEME_CONTROLS.mode);
 const generatedThemeControlsByMode = ref<GeneratedThemeControlsByMode>(createGeneratedThemeControlsByMode());
 const generatedThemeControls = computed(() => generatedThemeControlsByMode.value[activeGeneratedMode.value]);
-// 自动主题模式：跟随系统深浅切换；autoLight/autoDark 为主题 id（预设名或 generated-light/dark）
-const themeMode = ref<ThemeModeKind>("manual");
-const autoLightTheme = ref<string>(GENERATED_THEME_LIGHT_ID);
-const autoDarkTheme = ref<string>(GENERATED_THEME_DARK_ID);
+// 两个维度各自独立：显示模式（明/暗/自动）+ 外观来源（预设/自定义）
+const themeMode = ref<ThemeModeKind>("auto");
+const themeSource = ref<ThemeSourceKind>("generated");
+const presetLightTheme = ref<string>(GENERATED_THEME_LIGHT_ID);
+const presetDarkTheme = ref<string>(GENERATED_THEME_DARK_ID);
 const systemPrefersDark = ref(false);
 let systemThemeListenerRegistered = false;
 
@@ -104,10 +107,12 @@ function resolveSystemPrefersDark(): boolean {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
-function applyAutoModeTheme(): boolean {
-  if (isVscodeHost()) return false; // VS Code 侧边栏只跟随 VS Code 主题，不参与自动模式
-  const targetId = systemPrefersDark.value ? autoDarkTheme.value : autoLightTheme.value;
-  return applyThemeState(targetId);
+/** 当前实际生效的明暗：自动档看系统，明/暗档就是自己。 */
+function resolveActiveMode(): ThemeMode {
+  if (themeMode.value === "auto") {
+    return systemPrefersDark.value ? "dark" : "light";
+  }
+  return themeMode.value;
 }
 
 function registerSystemThemeListener() {
@@ -119,7 +124,7 @@ function registerSystemThemeListener() {
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
     systemPrefersDark.value = event.matches;
     if (themeMode.value === "auto") {
-      applyAutoModeTheme();
+      applyCurrentTheme();
     }
   });
 }
@@ -128,19 +133,6 @@ function isGeneratedThemeState(value: unknown): value is Extract<AppThemeState, 
   if (!value || typeof value !== "object") return false;
   const state = value as { kind?: unknown; controls?: unknown };
   return state.kind === "generated" && !!state.controls && typeof state.controls === "object";
-}
-
-function cloneThemeState(state: AppThemeState): AppThemeState {
-  if (state.kind === "preset") {
-    return {
-      kind: "preset",
-      name: state.name,
-    };
-  }
-  return {
-    kind: "generated",
-    controls: cloneGeneratedThemeControls(state.controls),
-  };
 }
 
 function isValidTheme(value: unknown): value is AppTheme {
@@ -173,19 +165,20 @@ function clearGeneratedThemeStyle() {
   }
 }
 
-function persistThemePreferences() {
-  if (typeof window === "undefined") return;
-  const activeState = cloneThemeState(currentThemeState.value);
-  const payload: PersistedThemePreferences = {
-    version: 3,
+function buildPersistedPreferences(): PersistedThemePreferences {
+  return {
+    version: 4,
     mode: themeMode.value,
-    activeState,
-    autoLightTheme: autoLightTheme.value,
-    autoDarkTheme: autoDarkTheme.value,
-    generatedControls: cloneGeneratedThemeControls(generatedThemeControls.value),
+    source: themeSource.value,
+    presetLightTheme: presetLightTheme.value,
+    presetDarkTheme: presetDarkTheme.value,
     generatedControlsByMode: createGeneratedThemeControlsByMode(generatedThemeControlsByMode.value),
   };
-  window.localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(payload));
+}
+
+function persistThemePreferences() {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(buildPersistedPreferences()));
   window.localStorage.setItem(LEGACY_THEME_STORAGE_KEY, currentTheme.value);
 }
 
@@ -218,29 +211,122 @@ function applyPresetTheme(theme: AppTheme): boolean {
   return true;
 }
 
+/** 按「来源 × 当前生效明暗」落一次主题：这是唯一的施加入口。 */
+function applyCurrentTheme(): boolean {
+  const mode = resolveActiveMode();
+  if (themeSource.value === "generated") {
+    return applyGeneratedTheme(generatedThemeControlsByMode.value[mode]);
+  }
+  const preset = normalizePresetTheme(mode === "dark" ? presetDarkTheme.value : presetLightTheme.value);
+  return preset ? applyPresetTheme(preset) : false;
+}
+
 function resolveLegacyThemeMode(value: unknown): ThemeMode {
   const themeName = String(value || "").trim().toLowerCase();
   return LEGACY_DARK_THEME_NAMES.has(themeName) ? "dark" : "light";
 }
 
-function applyThemeState(nextState: AppThemeState | string | null | undefined): boolean {
-  if (typeof nextState === "string") {
-    const presetTheme = normalizePresetTheme(nextState);
-    if (presetTheme) {
-      return applyPresetTheme(presetTheme);
-    }
-    if (nextState === GENERATED_THEME_LIGHT_ID || nextState === GENERATED_THEME_DARK_ID) {
-      const targetMode = nextState === GENERATED_THEME_LIGHT_ID ? "light" : "dark";
-      return applyGeneratedTheme(generatedThemeControlsByMode.value[targetMode]);
-    }
-    return applyGeneratedTheme(generatedThemeControlsByMode.value[resolveLegacyThemeMode(nextState)]);
+/**
+ * 把存档归一成 v4。
+ *
+ * 迁移只做单向升级，不写降级分支。四条老状态各自的落点：
+ * - manual + preset(浅) → mode=light、source=preset，主题名填 presetLightTheme
+ * - manual + preset(深) → mode=dark、source=preset，填 presetDarkTheme
+ * - manual + generated → source=generated，mode 按当时生效那一侧
+ * - auto + 任意 → mode=auto
+ */
+export function migratePersistedThemePreferences(raw: unknown): PersistedThemePreferences | null {
+  if (!raw || typeof raw !== "object") return null;
+  const parsed = raw as Record<string, unknown>;
+
+  // 已是 v4：只做兜底归一，不动用户选择
+  if ("source" in parsed && "presetLightTheme" in parsed) {
+    const storedMode = parsed.mode;
+    const storedSource = parsed.source;
+    return {
+      version: 4,
+      mode: storedMode === "light" || storedMode === "dark" || storedMode === "auto" ? storedMode : "auto",
+      source: storedSource === "generated" ? "generated" : "preset",
+      presetLightTheme:
+        normalizePresetTheme(parsed.presetLightTheme) || GENERATED_THEME_LIGHT_ID,
+      presetDarkTheme:
+        normalizePresetTheme(parsed.presetDarkTheme) || GENERATED_THEME_DARK_ID,
+      generatedControlsByMode: createGeneratedThemeControlsByMode(
+        parsed.generatedControlsByMode && typeof parsed.generatedControlsByMode === "object"
+          ? (parsed.generatedControlsByMode as Partial<GeneratedThemeControlsByMode>)
+          : null,
+      ),
+    };
   }
-  if (!nextState) return false;
-  if (nextState.kind === "preset") {
-    const presetTheme = normalizePresetTheme(nextState.name);
-    return presetTheme ? applyPresetTheme(presetTheme) : false;
+
+  const storedControls = cloneGeneratedThemeControls(
+    (parsed.generatedControls as Partial<GeneratedThemeControls> | undefined) || DEFAULT_GENERATED_THEME_CONTROLS,
+  );
+  const storedControlsByMode = createGeneratedThemeControlsByMode(
+    parsed.generatedControlsByMode && typeof parsed.generatedControlsByMode === "object"
+      ? (parsed.generatedControlsByMode as Partial<GeneratedThemeControlsByMode>)
+      : null,
+    storedControls,
+  );
+  // 预设槽位：v3 的 autoLightTheme / autoDarkTheme 直接搬过来
+  let presetLight =
+    normalizePresetTheme(parsed.autoLightTheme) || (GENERATED_THEME_LIGHT_ID as string);
+  let presetDark = normalizePresetTheme(parsed.autoDarkTheme) || (GENERATED_THEME_DARK_ID as string);
+  const legacyAuto = parsed.mode === "auto";
+  const activeState = parsed.activeState && typeof parsed.activeState === "object" ? parsed.activeState : null;
+
+  if (isGeneratedThemeState(activeState)) {
+    const activeControls = cloneGeneratedThemeControls(activeState.controls);
+    storedControlsByMode[activeControls.mode] = activeControls;
+    return {
+      version: 4,
+      mode: legacyAuto ? "auto" : activeControls.mode,
+      source: "generated",
+      presetLightTheme: presetLight,
+      presetDarkTheme: presetDark,
+      generatedControlsByMode: storedControlsByMode,
+    };
   }
-  return applyGeneratedTheme(nextState.controls);
+
+  const legacyThemeName = (activeState as { name?: unknown } | null)?.name;
+  const presetTheme = normalizePresetTheme(legacyThemeName);
+  if (presetTheme) {
+    // 老的手动预设只有一个名字，按它自己的明暗属性落进对应槽位，另一槽保留原值
+    const presetMode: ThemeMode = isDarkAppTheme(presetTheme) ? "dark" : "light";
+    if (presetMode === "dark") {
+      presetDark = presetTheme;
+    } else {
+      presetLight = presetTheme;
+    }
+    return {
+      version: 4,
+      mode: legacyAuto ? "auto" : presetMode,
+      source: "preset",
+      presetLightTheme: presetLight,
+      presetDarkTheme: presetDark,
+      generatedControlsByMode: storedControlsByMode,
+    };
+  }
+
+  // 更老的存档：没有 activeState，或只有一个认不出的主题名
+  const migratedMode =
+    legacyThemeName === undefined || legacyThemeName === null || String(legacyThemeName).trim() === ""
+      ? storedControls.mode
+      : resolveLegacyThemeMode(legacyThemeName);
+  const migratedControls = cloneGeneratedThemeControls({
+    ...storedControlsByMode[migratedMode],
+    ...storedControls,
+    mode: migratedMode,
+  });
+  storedControlsByMode[migratedMode] = migratedControls;
+  return {
+    version: 4,
+    mode: legacyAuto ? "auto" : migratedMode,
+    source: "generated",
+    presetLightTheme: presetLight,
+    presetDarkTheme: presetDark,
+    generatedControlsByMode: storedControlsByMode,
+  };
 }
 
 function readStoredThemePreferences(): PersistedThemePreferences | null {
@@ -248,77 +334,7 @@ function readStoredThemePreferences(): PersistedThemePreferences | null {
   const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<PersistedThemePreferences> | null;
-    if (!parsed || typeof parsed !== "object") return null;
-    const storedControls = cloneGeneratedThemeControls(parsed.generatedControls || DEFAULT_GENERATED_THEME_CONTROLS);
-    const storedControlsByMode = createGeneratedThemeControlsByMode(
-      parsed.generatedControlsByMode && typeof parsed.generatedControlsByMode === "object"
-        ? parsed.generatedControlsByMode
-        : null,
-      storedControls,
-    );
-    // 自动模式主题：老数据（v2 无此字段）读取时给默认值，不写回、不改动老数据
-    const autoLight = typeof parsed.autoLightTheme === "string" && parsed.autoLightTheme.trim()
-      ? parsed.autoLightTheme.trim()
-      : GENERATED_THEME_LIGHT_ID;
-    const autoDark = typeof parsed.autoDarkTheme === "string" && parsed.autoDarkTheme.trim()
-      ? parsed.autoDarkTheme.trim()
-      : GENERATED_THEME_DARK_ID;
-    const activeState = parsed.activeState && typeof parsed.activeState === "object" ? parsed.activeState : null;
-    if (isGeneratedThemeState(activeState)) {
-      const activeControls = cloneGeneratedThemeControls(activeState.controls);
-      storedControlsByMode[activeControls.mode] = activeControls;
-      return {
-        version: 3,
-        mode: parsed.mode === "auto" ? "auto" : "manual",
-        activeState: {
-          kind: "generated",
-          controls: activeControls,
-        },
-        autoLightTheme: autoLight,
-        autoDarkTheme: autoDark,
-        generatedControls: storedControls,
-        generatedControlsByMode: storedControlsByMode,
-      };
-    }
-    const legacyThemeName = (activeState as { name?: unknown } | null)?.name;
-    const presetTheme = normalizePresetTheme(legacyThemeName);
-    if (presetTheme) {
-      return {
-        version: 3,
-        mode: parsed.mode === "auto" ? "auto" : "manual",
-        activeState: {
-          kind: "preset",
-          name: presetTheme,
-        },
-        autoLightTheme: autoLight,
-        autoDarkTheme: autoDark,
-        generatedControls: storedControls,
-        generatedControlsByMode: storedControlsByMode,
-      };
-    }
-    const migratedMode =
-      legacyThemeName === undefined || legacyThemeName === null || String(legacyThemeName).trim() === ""
-        ? storedControls.mode
-        : resolveLegacyThemeMode(legacyThemeName);
-    const migratedControls = cloneGeneratedThemeControls({
-      ...storedControlsByMode[migratedMode],
-      ...storedControls,
-      mode: migratedMode,
-    });
-    storedControlsByMode[migratedMode] = migratedControls;
-    return {
-      version: 3,
-      mode: parsed.mode === "auto" ? "auto" : "manual",
-      activeState: {
-        kind: "generated",
-        controls: migratedControls,
-      },
-      autoLightTheme: autoLight,
-      autoDarkTheme: autoDark,
-      generatedControls: storedControls,
-      generatedControlsByMode: storedControlsByMode,
-    };
+    return migratePersistedThemePreferences(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -337,29 +353,48 @@ export function useAppTheme() {
   }));
 
   function isPersistedPreferences(value: unknown): value is PersistedThemePreferences {
-    return !!value && typeof value === "object" && "mode" in value && "activeState" in value;
+    if (!value || typeof value !== "object") return false;
+    // v3 的 payload 也认：跨窗口同步时偶尔会收到旧结构，交给同一个迁移函数归一
+    return "source" in value || "activeState" in value;
+  }
+
+  function adoptPreferences(preferences: PersistedThemePreferences) {
+    generatedThemeControlsByMode.value = createGeneratedThemeControlsByMode(
+      preferences.generatedControlsByMode,
+    );
+    presetLightTheme.value = preferences.presetLightTheme || GENERATED_THEME_LIGHT_ID;
+    presetDarkTheme.value = preferences.presetDarkTheme || GENERATED_THEME_DARK_ID;
+    themeMode.value = preferences.mode;
+    themeSource.value = preferences.source;
+  }
+
+  function applyThemeState(nextState: AppThemeState | string | null | undefined): boolean {
+    if (typeof nextState === "string") {
+      const presetTheme = normalizePresetTheme(nextState);
+      if (presetTheme) {
+        return applyPresetTheme(presetTheme);
+      }
+      if (nextState === GENERATED_THEME_LIGHT_ID || nextState === GENERATED_THEME_DARK_ID) {
+        const targetMode: ThemeMode = nextState === GENERATED_THEME_LIGHT_ID ? "light" : "dark";
+        return applyGeneratedTheme(generatedThemeControlsByMode.value[targetMode]);
+      }
+      return applyGeneratedTheme(generatedThemeControlsByMode.value[resolveLegacyThemeMode(nextState)]);
+    }
+    if (!nextState) return false;
+    if (nextState.kind === "preset") {
+      const presetTheme = normalizePresetTheme(nextState.name);
+      return presetTheme ? applyPresetTheme(presetTheme) : false;
+    }
+    return applyGeneratedTheme(nextState.controls);
   }
 
   function applyTheme(theme: PersistedThemePreferences | AppThemeState | string): boolean {
-    // 跨窗口同步：配置窗口广播完整 v3 状态（含 mode/autoLight/autoDark），各窗口按模式应用
+    // 跨窗口同步：配置窗口广播完整状态，各窗口按「来源 × 模式」自行落主题
     if (isPersistedPreferences(theme)) {
-      generatedThemeControlsByMode.value = createGeneratedThemeControlsByMode(
-        theme.generatedControlsByMode,
-        theme.generatedControls,
-      );
-      autoLightTheme.value = theme.autoLightTheme || GENERATED_THEME_LIGHT_ID;
-      autoDarkTheme.value = theme.autoDarkTheme || GENERATED_THEME_DARK_ID;
-      themeMode.value = theme.mode === "auto" ? "auto" : "manual";
-      if (theme.mode === "auto") {
-        return applyAutoModeTheme();
-      }
-      if (theme.activeState.kind === "preset") {
-        if (isValidTheme(theme.activeState.name)) {
-          return applyPresetTheme(theme.activeState.name);
-        }
-        return false;
-      }
-      return applyGeneratedTheme(theme.activeState.controls);
+      const preferences = migratePersistedThemePreferences(theme);
+      if (!preferences) return false;
+      adoptPreferences(preferences);
+      return applyCurrentTheme();
     }
     return applyThemeState(theme);
   }
@@ -368,92 +403,60 @@ export function useAppTheme() {
     registerSystemThemeListener();
     const storedPreferences = readStoredThemePreferences();
     if (storedPreferences) {
-      generatedThemeControlsByMode.value = createGeneratedThemeControlsByMode(
-        storedPreferences.generatedControlsByMode,
-        storedPreferences.generatedControls,
-      );
-      autoLightTheme.value = storedPreferences.autoLightTheme || GENERATED_THEME_LIGHT_ID;
-      autoDarkTheme.value = storedPreferences.autoDarkTheme || GENERATED_THEME_DARK_ID;
-      themeMode.value = storedPreferences.mode === "auto" ? "auto" : "manual";
-      if (storedPreferences.mode === "auto") {
-        applyAutoModeTheme();
-        return;
-      }
-      if (storedPreferences.activeState.kind === "preset") {
-        if (isValidTheme(storedPreferences.activeState.name)) {
-          applyPresetTheme(storedPreferences.activeState.name);
-        }
-      } else {
-        applyGeneratedTheme(storedPreferences.activeState.controls);
-      }
+      adoptPreferences(storedPreferences);
+      applyCurrentTheme();
       return;
     }
 
     if (typeof window === "undefined") return;
     const savedTheme = window.localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
     if (isValidTheme(savedTheme)) {
+      themeSource.value = "preset";
+      themeMode.value = DARK_APP_THEMES.has(savedTheme) ? "dark" : "light";
       applyPresetTheme(savedTheme);
       return;
     }
-    // 全新安装无任何主题记录：默认自动模式，浅色/深色都用自定义主题。
+    // 全新安装无任何主题记录：默认自动档 + 自定义来源，浅色/深色都用自定义主题。
     themeMode.value = "auto";
-    autoLightTheme.value = GENERATED_THEME_LIGHT_ID;
-    autoDarkTheme.value = GENERATED_THEME_DARK_ID;
-    applyAutoModeTheme();
+    themeSource.value = "generated";
+    presetLightTheme.value = GENERATED_THEME_LIGHT_ID;
+    presetDarkTheme.value = GENERATED_THEME_DARK_ID;
+    applyCurrentTheme();
   }
 
   function emitThemeChanged() {
-    const payload: PersistedThemePreferences = {
-      version: 3,
-      mode: themeMode.value,
-      activeState: cloneThemeState(currentThemeState.value),
-      autoLightTheme: autoLightTheme.value,
-      autoDarkTheme: autoDarkTheme.value,
-      generatedControls: cloneGeneratedThemeControls(generatedThemeControls.value),
-      generatedControlsByMode: createGeneratedThemeControlsByMode(generatedThemeControlsByMode.value),
-    };
+    const payload = buildPersistedPreferences();
     return emitTransportEvent("theme.changed", payload).catch((error) => {
       console.warn("[主题] 同步主题变化失败", error);
     });
   }
 
-  function setTheme(theme: string) {
-    if (!isValidTheme(theme)) return;
-    themeMode.value = "manual"; // 手动选预设主题即退出自动模式
-    if (!applyPresetTheme(theme)) return;
-    void emitThemeChanged();
-  }
-
+  /** 切显示模式：明 / 暗 / 自动。不影响来源。 */
   function setThemeMode(mode: ThemeModeKind) {
-    if (mode === "auto") {
-      themeMode.value = "auto";
-      applyAutoModeTheme();
-    } else {
-      themeMode.value = "manual";
-    }
+    const next: ThemeModeKind = mode === "light" || mode === "dark" ? mode : "auto";
+    themeMode.value = next;
+    applyCurrentTheme();
     void emitThemeChanged();
   }
 
-  function setAutoTheme(side: ThemeMode, themeId: string) {
+  /** 切来源：预设 / 自定义。不影响显示模式，改了立刻按当前明暗重落一次。 */
+  function setThemeSource(source: ThemeSourceKind) {
+    themeSource.value = source === "generated" ? "generated" : "preset";
+    applyCurrentTheme();
+    void emitThemeChanged();
+  }
+
+  /** 预设页里给「明」或「暗」挑一个内置主题；挑了就等于把来源定在预设。 */
+  function setPresetTheme(side: ThemeMode, themeId: string) {
+    const preset = normalizePresetTheme(themeId);
+    if (!preset) return;
     if (side === "light") {
-      autoLightTheme.value = themeId;
+      presetLightTheme.value = preset;
     } else {
-      autoDarkTheme.value = themeId;
+      presetDarkTheme.value = preset;
     }
-    themeMode.value = "auto";
-    applyAutoModeTheme();
-    void emitThemeChanged();
-  }
-
-  function activateGeneratedTheme() {
-    const targetMode =
-      currentThemeState.value.kind === "preset" ? resolveLegacyThemeMode(currentTheme.value) : activeGeneratedMode.value;
-    const nextState: AppThemeState = {
-      kind: "generated",
-      controls: cloneGeneratedThemeControls(generatedThemeControlsByMode.value[targetMode]),
-    };
-    themeMode.value = "manual"; // 手动激活自定义主题即退出自动模式
-    if (!applyGeneratedTheme(nextState.controls)) return;
+    themeSource.value = "preset";
+    applyCurrentTheme();
     void emitThemeChanged();
   }
 
@@ -465,7 +468,17 @@ export function useAppTheme() {
       ...patch,
       mode: targetMode,
     });
-    if (!applyGeneratedTheme(nextControls)) return;
+    generatedThemeControlsByMode.value = {
+      ...generatedThemeControlsByMode.value,
+      [targetMode]: nextControls,
+    };
+    activeGeneratedMode.value = targetMode;
+    // 只在「正在看这一侧」时重落主题：编辑另一侧的参数不该把页面跳走
+    if (themeSource.value === "generated" && resolveActiveMode() === targetMode) {
+      if (!applyGeneratedTheme(nextControls)) return;
+    } else {
+      persistThemePreferences();
+    }
     void emitThemeChanged();
   }
 
@@ -475,16 +488,11 @@ export function useAppTheme() {
 
   function toggleTheme() {
     if (themeMode.value === "auto") {
-      // 自动模式下忽略手动明暗切换（跟随系统）
+      // 自动档跟随系统，忽略手动明暗切换
       return;
     }
-    if (currentThemeState.value.kind === "preset") {
-      setTheme(currentTheme.value === "light" ? "dark" : "light");
-      return;
-    }
-    const nextMode = currentThemeState.value.controls.mode === "light" ? "dark" : "light";
-    const nextControls = cloneGeneratedThemeControls(generatedThemeControlsByMode.value[nextMode]);
-    if (!applyGeneratedTheme(nextControls)) return;
+    themeMode.value = resolveActiveMode() === "dark" ? "light" : "dark";
+    applyCurrentTheme();
     void emitThemeChanged();
   }
 
@@ -495,14 +503,14 @@ export function useAppTheme() {
     generatedThemeTokens,
     generatedThemeTokensByMode,
     themeMode,
-    autoLightTheme,
-    autoDarkTheme,
+    themeSource,
+    presetLightTheme,
+    presetDarkTheme,
     systemPrefersDark,
     applyTheme,
-    setTheme,
     setThemeMode,
-    setAutoTheme,
-    activateGeneratedTheme,
+    setThemeSource,
+    setPresetTheme,
     updateGeneratedThemeControls,
     resetGeneratedTheme,
     restoreThemeFromStorage,

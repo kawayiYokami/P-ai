@@ -15,8 +15,9 @@
       :locale-options="localeOptions"
       :current-theme="currentTheme"
       :theme-mode="themeMode"
-      :auto-light-theme="autoLightTheme"
-      :auto-dark-theme="autoDarkTheme"
+      :theme-source="themeSource"
+      :preset-light-theme="presetLightTheme"
+      :preset-dark-theme="presetDarkTheme"
       :generated-theme-controls="generatedThemeControls"
       :generated-theme-tokens="generatedThemeTokens"
       :generated-light-tokens="generatedLightTokens"
@@ -80,10 +81,9 @@
       @patch-chat-settings="patchChatSettings"
       @update:ui-size-scale="updateUiSizeScale"
       @update:github-update-method="updateGithubUpdateMethod"
-      @set-theme="setTheme"
       @set-theme-mode="setThemeMode"
-      @set-auto-theme="setAutoTheme"
-      @activate-generated-theme="activateGeneratedTheme"
+      @set-theme-source="setThemeSource"
+      @set-preset-theme="setPresetTheme"
       @update-generated-theme-controls="updateGeneratedThemeControls"
       @reset-generated-theme="resetGeneratedTheme"
       @refresh-models="refreshModels"
@@ -608,7 +608,7 @@ import type {
   ToolLoadStatus,
   UnarchivedConversationSummary,
 } from "../../../types/app";
-import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind } from "../../shell/theme/theme-types";
+import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind, ThemeSourceKind } from "../../shell/theme/theme-types";
 import type { AgentPersonaOption } from "../../shared/agent-persona-options";
 import type { ChatMonitorPanelMode, ChatRightPanelMode } from "../../chat/composables/chat-ui-layout-storage";
 import { createExclusiveChatViewSubscriptionSlot } from "../../chat/composables/exclusive-chat-view-subscription-slot";
@@ -655,8 +655,9 @@ const props = defineProps<{
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   themeMode: ThemeModeKind;
-  autoLightTheme: string;
-  autoDarkTheme: string;
+  themeSource: ThemeSourceKind;
+  presetLightTheme: string;
+  presetDarkTheme: string;
   generatedThemeControls: GeneratedThemeControls;
   generatedThemeTokens: GeneratedThemeTokens;
   generatedLightTokens: GeneratedThemeTokens;
@@ -860,10 +861,9 @@ const props = defineProps<{
   patchChatSettings: (value: import("../../../types/app").ChatSettingsPatch) => void;
   updateUiSizeScale: (value: number) => void;
   updateGithubUpdateMethod: (value: import("../../../types/app").GithubUpdateMethod) => void;
-  setTheme: (value: string) => void;
   setThemeMode: (value: ThemeModeKind) => void;
-  setAutoTheme: (side: ThemeMode, value: string) => void;
-  activateGeneratedTheme: () => void;
+  setThemeSource: (value: ThemeSourceKind) => void;
+  setPresetTheme: (side: ThemeMode, value: string) => void;
   updateGeneratedThemeControls: (patch: Partial<GeneratedThemeControls>) => void;
   resetGeneratedTheme: () => void;
   refreshModels: (provider?: ApiProviderConfigItem | null) => void;
@@ -1224,9 +1224,19 @@ const teamManageError = ref("");
  * 因此队伍管理弹窗在界面上打不开：招募与请离只剩 LLM 的 team_recruit 工具这一条路。
  * 链路本身保留不删，将来要恢复入口时接回去就是一行调用。
  */
+/**
+ * 首页队员状态表右上角「更多」：进右栏的队员面板，看队员会话。
+ * 队伍管理弹窗已废弃，界面不再从任何入口打开它；队员会话在右栏直接读。
+ */
 function openTeamManagement() {
-  teamManageError.value = "";
-  teamManageOpen.value = true;
+  props.updateChatRightPanelMode("teamMember");
+  // 面板按「激活会话属于本面板」决定显示哪个会话：还没激活时就落第一个队员会话，
+  // 否则切过去只会看到一排空 tab。
+  if (!teamMemberPanelConversationId.value) {
+    const firstTab = teamMemberTabs.value[0];
+    const firstKey = String(firstTab?.key || "").trim();
+    if (firstKey) props.selectSideChatConversation?.(firstKey);
+  }
 }
 
 function closeTeamManagement() {
