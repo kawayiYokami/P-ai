@@ -1,5 +1,5 @@
 <template>
-  <aside class="conversation-time-container flex h-full w-full shrink-0 flex-col border-r border-base-300 bg-base-200">
+  <aside class="conversation-time-container ecall-frost flex h-full w-full shrink-0 flex-col border-r border-base-300">
     <div class="flex items-center p-2 pb-0">
       <SegmentedControl
         v-model="activeConversationTab"
