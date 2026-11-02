@@ -710,3 +710,270 @@
         let truncated = native_notification_text_excerpt("123456", 4);
         assert_eq!(truncated, "1234...");
     }
+
+    #[test]
+    fn read_avatar_data_url_should_return_svg_bytes_without_decoding() {
+        let state = config_test_state();
+        let avatars_dir = avatar_storage_dir(&state).expect("avatar dir");
+        std::fs::create_dir_all(&avatars_dir).expect("create avatars dir");
+        let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"36\" fill=\"#3355ff\"/></svg>";
+        std::fs::write(avatars_dir.join("agent-svg.svg"), svg.as_bytes()).expect("write svg avatar");
+
+        let output = read_avatar_data_url_inner(
+            AvatarDataPathInput {
+                path: "avatars/agent-svg.svg".to_string(),
+            },
+            &state,
+        )
+        .expect("read svg avatar");
+
+        let encoded = output
+            .data_url
+            .strip_prefix("data:image/svg+xml;base64,")
+            .expect("svg avatar should keep svg mime");
+        let decoded = B64.decode(encoded).expect("decode avatar base64");
+        assert_eq!(decoded, svg.as_bytes(), "SVG 头像必须按原始字节返回");
+    }
+
+    #[test]
+    fn read_avatar_data_url_should_reject_unknown_extension() {
+        let state = config_test_state();
+        let avatars_dir = avatar_storage_dir(&state).expect("avatar dir");
+        std::fs::create_dir_all(&avatars_dir).expect("create avatars dir");
+        std::fs::write(avatars_dir.join("agent-photo.jpg"), b"not an avatar").expect("write jpg avatar");
+
+        let error = read_avatar_data_url_inner(
+            AvatarDataPathInput {
+                path: "avatars/agent-photo.jpg".to_string(),
+            },
+            &state,
+        )
+        .expect_err("jpg avatar should be rejected");
+        assert!(
+            error.contains("only .webp/.png/.svg"),
+            "报错文案应带新的合法类型：{error}"
+        );
+    }
+
+    #[test]
+    fn config_tool_agent_save_should_enqueue_avatar_generation_for_agent_without_avatar() {
+        let state = config_test_state();
+        let agent_id = format!("agent-avatar-hook-{}", Uuid::new_v4());
+        let command = format!("agent new {agent_id} 我是设定");
+        let agent_payload = serde_json::json!({ "id": agent_id, "avatarPath": null });
+
+        config_tool_agent_avatar_schedule(&state, &command, &agent_payload);
+        assert!(
+            agent_avatar_generation_attempted()
+                .lock()
+                .expect("lock attempted")
+                .contains(&agent_id),
+            "config 工具写出的无人像人格应该入队"
+        );
+        assert!(
+            !agent_avatar_generation_reserve(&agent_id),
+            "同一人格本次运行只排一次"
+        );
+
+        let with_avatar_id = format!("agent-avatar-existing-{}", Uuid::new_v4());
+        config_tool_agent_avatar_schedule(
+            &state,
+            "agent update whatever agent.json",
+            &serde_json::json!({ "id": with_avatar_id, "avatarPath": "avatars/agent-x.webp" }),
+        );
+        assert!(
+            !agent_avatar_generation_attempted()
+                .lock()
+                .expect("lock attempted")
+                .contains(&with_avatar_id),
+            "已有头像的人格不入队"
+        );
+
+        let readonly_id = format!("agent-avatar-readonly-{}", Uuid::new_v4());
+        config_tool_agent_avatar_schedule(
+            &state,
+            "agent get whoever",
+            &serde_json::json!({ "id": readonly_id }),
+        );
+        assert!(
+            !agent_avatar_generation_attempted()
+                .lock()
+                .expect("lock attempted")
+                .contains(&readonly_id),
+            "只读命令不入队"
+        );
+    }
+
+    #[test]
+    fn save_agents_should_enqueue_avatar_generation_only_for_agents_without_avatar() {
+        let state = config_test_state();
+        let with_avatar_id = format!("agent-save-existing-{}", Uuid::new_v4());
+        let without_avatar_id = format!("agent-save-missing-{}", Uuid::new_v4());
+        let make_agent = |id: &str, avatar: Option<String>, is_built_in_user: bool| AgentProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            system_prompt: "我是设定".to_string(),
+            tools: default_agent_tools(),
+            created_at: "2026-04-15T00:00:00Z".to_string(),
+            updated_at: "2026-04-15T00:00:00Z".to_string(),
+            avatar_path: avatar,
+            avatar_updated_at: None,
+            is_built_in_user,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
+            source: default_main_source(),
+            scope: default_global_scope(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            include_system_rules: true,
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
+        };
+
+        save_agents_inner(
+            SaveAgentsInput {
+                agents: vec![
+                    make_agent(&with_avatar_id, Some("avatars/agent-x.webp".to_string()), false),
+                    make_agent(&without_avatar_id, None, false),
+                    make_agent(USER_PERSONA_ID, None, true),
+                ],
+            },
+            &state,
+        )
+        .expect("save agents");
+
+        let attempted = agent_avatar_generation_attempted()
+            .lock()
+            .expect("lock attempted");
+        assert!(
+            attempted.contains(&without_avatar_id),
+            "保存后没人像的人格应该入队"
+        );
+        assert!(
+            !attempted.contains(&with_avatar_id),
+            "已有头像的人格不入队"
+        );
+        assert!(
+            !attempted.contains(USER_PERSONA_ID),
+            "内置用户人格永不入队"
+        );
+    }
+
+    #[test]
+    fn agent_avatar_prompt_should_use_the_approved_wording() {
+        // 三段定稿文案逐字锁定：改写或漏字单测就红。
+        assert_eq!(
+            AGENT_AVATAR_SVG_CONTENT_PROMPT,
+            "请为自己画一张头像，用它来代表你。不用画人脸——一片叶子、一团光、一个符号都行，挑一个你觉得最像自己的东西，画到让人一眼能感到你的性情。"
+        );
+        assert_eq!(
+            AGENT_AVATAR_SVG_FORMAT_PROMPT,
+            "输出格式（严格遵守）：\n1. 只输出一个 <svg> 元素，不要 markdown 代码围栏，不要任何解释文字。\n2. viewBox=\"0 0 120 120\"；这是圆形头像，所有图形必须完整落在以 (60,60) 为圆心、半径 56 的圆内，圆外不得有内容。\n3. 这张头像在界面上以 40 像素显示，请按 40 像素的观感来决定形状与笔画粗细，缩小后仍要一眼认得出主体。\n4. 图形必须实心填充，不得只用描边线条。\n5. 不使用文字、不引用外部资源、不包含 script。\n6. 总长度不超过 8KB。"
+        );
+
+        // 人格必须进 system 且全文不截断：超出旧版 600 字摘录的长度也要一字不少。
+        let persona = format!("我是设定。{}收尾句", "长".repeat(900));
+        let prompt = agent_avatar_svg_prepared_prompt(&AgentProfile {
+            id: "agent-avatar-prompt".to_string(),
+            name: "被折叠的名字".to_string(),
+            system_prompt: persona.clone(),
+            tools: default_agent_tools(),
+            created_at: "2026-04-15T00:00:00Z".to_string(),
+            updated_at: "2026-04-15T00:00:00Z".to_string(),
+            avatar_path: None,
+            avatar_updated_at: None,
+            is_built_in_user: false,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
+            source: default_main_source(),
+            scope: default_global_scope(),
+            summary: "被折叠的简介".to_string(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            include_system_rules: true,
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
+        });
+        assert_eq!(prompt.preamble, persona, "system 段应等于人格 systemPrompt 全文");
+        assert!(
+            !prompt.latest_user_text.contains("被折叠的名字")
+                && !prompt.latest_user_text.contains("被折叠的简介"),
+            "身份已在 system 里，user 段不该重复拼人格名称与简介：{}",
+            prompt.latest_user_text
+        );
+        assert!(
+            prompt.latest_user_text.starts_with(AGENT_AVATAR_SVG_CONTENT_PROMPT),
+            "user 段应以引导段开头：{}",
+            prompt.latest_user_text
+        );
+        assert!(
+            prompt.latest_user_text.ends_with(AGENT_AVATAR_SVG_FORMAT_PROMPT),
+            "user 段应以格式段结尾：{}",
+            prompt.latest_user_text
+        );
+        assert_eq!(
+            prompt.latest_user_text,
+            format!("{AGENT_AVATAR_SVG_CONTENT_PROMPT}\n\n{AGENT_AVATAR_SVG_FORMAT_PROMPT}"),
+            "引导在前、格式在后，中间只留一个空行"
+        );
+    }
+
+    #[test]
+    fn sanitize_agent_avatar_svg_should_strip_dangerous_markup() {
+        let raw = "好的，这是头像：\n```svg\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 96 96\">\n<defs><linearGradient id=\"g\"><stop offset=\"0\" stop-color=\"#ffffff\"/></linearGradient></defs>\n<rect width=\"96\" height=\"96\" fill=\"url(#g)\"/>\n<circle cx=\"48\" cy=\"40\" r=\"18\" fill=\"#3355ff\" onload=\"alert('boom')\"/>\n<script>alert('boom')</script>\n<foreignObject width=\"96\" height=\"96\"><div xmlns=\"http://www.w3.org/1999/xhtml\">x</div></foreignObject>\n<a href=\"https://evil.example/x\"><rect x=\"0\" y=\"0\" width=\"8\" height=\"8\"/></a>\n<image xlink:href=\"http://evil.example/p.png\"/>\n</svg>\n```";
+        let sanitized = sanitize_agent_avatar_svg(raw).expect("sanitize svg avatar");
+
+        assert!(sanitized.starts_with("<svg"), "结果必须以 <svg 开头：{sanitized}");
+        assert!(sanitized.ends_with("</svg>"), "结果必须以 </svg> 结尾：{sanitized}");
+        assert!(!sanitized.contains("script"), "script 应被剥掉：{sanitized}");
+        assert!(!sanitized.contains("alert"), "脚本内容应被剥掉：{sanitized}");
+        assert!(!sanitized.contains("onload"), "事件属性应被剥掉：{sanitized}");
+        assert!(
+            !sanitized.to_ascii_lowercase().contains("foreignobject"),
+            "foreignObject 应被剥掉：{sanitized}"
+        );
+        assert!(!sanitized.contains("evil.example"), "外部引用应被剥掉：{sanitized}");
+        assert!(sanitized.contains("url(#g)"), "页内渐变引用要保留：{sanitized}");
+        assert!(sanitized.contains("id=\"g\""), "渐变定义要保留：{sanitized}");
+    }
+
+    #[test]
+    fn sanitize_agent_avatar_svg_should_fill_missing_namespace() {
+        let sanitized = sanitize_agent_avatar_svg(
+            "<svg viewBox=\"0 0 96 96\"><rect width=\"96\" height=\"96\" fill=\"#3355ff\"/></svg>",
+        )
+        .expect("sanitize svg avatar without xmlns");
+        assert!(
+            sanitized.contains("xmlns=\"http://www.w3.org/2000/svg\""),
+            "缺 xmlns 的 SVG 在 <img> 里渲染不出来，必须补齐：{sanitized}"
+        );
+
+        let kept = sanitize_agent_avatar_svg(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 96 96\"><rect width=\"96\" height=\"96\"/></svg>",
+        )
+        .expect("sanitize svg avatar with xmlns");
+        assert_eq!(kept.matches("xmlns=").count(), 1, "已有 xmlns 不应重复添加：{kept}");
+    }
+
+    #[test]
+    fn sanitize_agent_avatar_svg_should_reject_broken_input() {
+        assert!(sanitize_agent_avatar_svg("这是一个人格头像，但我忘了画。").is_err());
+        assert!(sanitize_agent_avatar_svg("<html><body>x</body></html>").is_err());
+        assert!(sanitize_agent_avatar_svg("<svg><g></svg>").is_err());
+
+        let oversized = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\">{}</svg>",
+            "<rect x=\"0\" y=\"0\" width=\"1\" height=\"1\"/>".repeat(1000)
+        );
+        assert!(oversized.len() > AGENT_AVATAR_SVG_MAX_BYTES);
+        assert!(sanitize_agent_avatar_svg(&oversized).is_err());
+    }

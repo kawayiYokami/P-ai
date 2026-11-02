@@ -1421,6 +1421,7 @@ fn main() {
             save_agent_avatar,
             clear_agent_avatar,
             read_avatar_data_url,
+            generate_agent_avatar,
             list_agent_memes,
             add_agent_meme,
             delete_agent_meme,

@@ -527,6 +527,14 @@ struct TeamMembership {
     name: String,
     #[serde(default)]
     duty: String,
+    /// 待汇报标记：队长发来指示后置位，队员已汇报 / 队长再次发话 / 自动转发完成后清除。
+    /// 存元数据而不是进程内存，中途重启不会把这件「还欠队长一封信」丢掉。
+    #[serde(default)]
+    pending_report: bool,
+    /// 待汇报起点：队长那次指示的消息 id。只把这条之后新增的消息当作本次产出，
+    /// 不拿整段历史去扫，否则上一轮的旧话会被当成本次汇报。
+    #[serde(default)]
+    pending_report_anchor: Option<String>,
 }
 
 const TEAM_MEMBER_STATUS_ACTIVE: &str = "active";

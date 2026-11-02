@@ -200,6 +200,62 @@ fn trigger_wheelchair_after_idle(
     }
 }
 
+/// 会话真的停下来了：没有在跑的轮次（含正在进行的上下文整理）、没有待处理队列、
+/// 没有待消费引导。
+///
+/// 三条必须同时成立。这是全仓唯一的「停下」判定点——任何需要知道「它是不是已经不干活了」
+/// 的新逻辑都从这里读，不要在别处各判一次，否则同一件事会被重复触发。
+fn conversation_is_stopped(state: &AppState, conversation_id: &str) -> bool {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return false;
+    }
+    match lock_conversation_runtime_slots(state) {
+        Ok(slots) => {
+            if let Some(slot) = slots.get(conversation_id) {
+                // 非 Idle 包含 AssistantStreaming 与 OrganizingContext（正在整理上下文）。
+                if slot.state != MainSessionState::Idle {
+                    return false;
+                }
+                if !slot.pending_queue.is_empty() {
+                    return false;
+                }
+            }
+        }
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[聊天调度] 跳过，任务=判定会话是否停下，conversation_id={conversation_id}，原因=运行态读取失败，error={err}"
+            ));
+            return false;
+        }
+    }
+    if conversation_has_guided_queue_events(state, conversation_id).unwrap_or(true) {
+        return false;
+    }
+    if conversation_has_pending_queue_events(state, conversation_id).unwrap_or(true) {
+        return false;
+    }
+    true
+}
+
+/// 一轮调度收口并停下之后的统一出口。
+///
+/// 队伍兜底汇报也挂在这里：只有真的停下才检查「这次队长指示有没有得到回应」，
+/// 中间还有队列或引导时不算停，等下一轮跑完再看。
+fn handle_conversation_stopped(
+    state: &AppState,
+    conversation_id: &str,
+    round_completed: bool,
+    round_ok: bool,
+    agent_id: Option<String>,
+) {
+    if conversation_is_stopped(state, conversation_id) {
+        team_forward_member_stop_report(state, conversation_id, round_ok);
+    }
+    trigger_wheelchair_after_idle(state, conversation_id, round_completed, agent_id);
+    trigger_chat_queue_processing(state);
+}
+
 async fn process_claimed_conversation_batch(
     state: &AppState,
     conversation_id: &str,
@@ -246,13 +302,13 @@ async fn process_claimed_conversation_batch(
     {
         trigger_chat_queue_processing(state);
     } else {
-        trigger_wheelchair_after_idle(
+        handle_conversation_stopped(
             state,
             conversation_id,
             round_completed,
+            result_ok,
             batch_agent_id.clone(),
         );
-        trigger_chat_queue_processing(state);
     }
     batch_outcome.map(|_| ())
 }
@@ -350,13 +406,13 @@ async fn process_guided_queue_when_idle(
     {
         trigger_chat_queue_processing(state);
     } else {
-        trigger_wheelchair_after_idle(
+        handle_conversation_stopped(
             state,
             conversation_id,
             guided_round_completed,
+            guided_result_ok,
             guided_agent_id.clone(),
         );
-        trigger_chat_queue_processing(state);
     }
     guided_round_outcome.map(|_| ())
 }

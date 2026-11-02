@@ -674,6 +674,8 @@ mod unarchived_summary_batch_tests {
                 number: 1,
                 name: "1 号 · 性能测试队员".to_string(),
                 duty: String::new(),
+                pending_report: false,
+                pending_report_anchor: None,
             });
             data.conversations.push(leader);
             data.conversations.push(member);

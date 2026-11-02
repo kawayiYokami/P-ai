@@ -223,6 +223,10 @@ fn save_agents_inner(
     if !affected_agent_ids.is_empty() {
         mark_prompt_cache_rebuild_for_system_sources_by_agents(&state, &affected_agent_ids);
     }
+    // 保存成功后给还没有头像的人格排队生成一张；只入队，不等生成。
+    for agent_id in agent_avatar_generation_pending_ids(desired_agents.iter()) {
+        enqueue_agent_avatar_generation(state, &agent_id);
+    }
     let config = state_read_config_cached(&state)?;
     broadcast_sidebar_persona_changed();
     let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
@@ -1019,10 +1023,12 @@ fn read_avatar_data_url_inner(
         .and_then(|v| v.to_str())
         .map(|v| v.to_ascii_lowercase())
         .unwrap_or_default();
+    // SVG 只按原始字节转 data URL：image crate 不解 SVG，不需要也不允许走解码缩放。
     let mime = match ext.as_str() {
         "webp" => "image/webp",
         "png" => "image/png",
-        _ => return Err("Avatar file type is not allowed (only .webp/.png).".to_string()),
+        "svg" => "image/svg+xml",
+        _ => return Err("Avatar file type is not allowed (only .webp/.png/.svg).".to_string()),
     };
     let bytes = fs::read(&target)
         .map_err(|err| format!("Read avatar file failed: {err}"))?;

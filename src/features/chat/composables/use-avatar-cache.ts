@@ -8,6 +8,8 @@ type UseAvatarCacheOptions = {
 
 export function useAvatarCache(options: UseAvatarCacheOptions) {
   const avatarDataUrlCache = ref<Record<string, string>>({});
+  // 缓存里可能是 SVG 头像的 data URL：只允许作为 <img src> 使用，
+  // 不许内联进 DOM、不许交给 v-html（脚本能从内联 SVG 里跑，从 <img> 里跑不了）。
   const BRAND_AVATAR_KEY = "__pai_brand_avatar__";
 
   function avatarCacheKey(path?: string, updatedAt?: string): string {
@@ -67,6 +69,7 @@ export function useAvatarCache(options: UseAvatarCacheOptions) {
       if (p.avatarPath) {
         tasks.push(ensureAvatarCached(p.avatarPath, p.avatarUpdatedAt));
       } else {
+        // 没有人像就退回品牌图标。头像生成由后端在「新建/更新/保存人格」时发起，这里不催。
         tasks.push(ensureBrandAvatarCached());
       }
     }
