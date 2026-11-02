@@ -21,6 +21,28 @@ function createPresentation(agentNames: Record<string, string> = {}) {
     "status.toolTimeline.actionMeme": "保存表情",
     "status.toolTimeline.actionMove": "移动文件",
     "status.toolTimeline.actionOperate": "桌面操作",
+    "status.toolTimeline.actionWindows": "窗口操作",
+    "status.toolTimeline.windowsList": "列举窗口",
+    "status.toolTimeline.windowsActivate": "激活窗口 {id}",
+    "status.toolTimeline.windowsMoreSteps": "另 {count} 步",
+    "status.toolTimeline.actionGetTool": "取用工具",
+    "status.toolTimeline.actionKanban": "维护议题看板",
+    "status.toolTimeline.actionKanbanList": "查看议题看板",
+    "status.toolTimeline.actionKanbanCreate": "创建议题",
+    "status.toolTimeline.actionKanbanUpdate": "更新议题",
+    "status.toolTimeline.actionKanbanSetPlan": "设置议题计划",
+    "status.toolTimeline.kanbanAllStatuses": "全部",
+    "status.toolTimeline.kanbanNewIssue": "新议题",
+    "status.toolTimeline.kanbanIssueCount": "共 {count} 条",
+    "status.toolTimeline.actionContactReply": "回复联系人",
+    "status.toolTimeline.actionContactNoReply": "本轮不回复",
+    "status.toolTimeline.contactCurrent": "当前联系人",
+    "chat.kanban.status.discussing": "待议",
+    "chat.kanban.status.todo": "待办",
+    "chat.kanban.status.in_progress": "解决中",
+    "chat.kanban.status.in_review": "待审",
+    "chat.kanban.status.blocked": "阻塞",
+    "chat.kanban.status.done": "已完成",
     "status.toolTimeline.actionPatch": "应用补丁",
     "status.toolTimeline.actionPlan": "计划",
     "status.toolTimeline.actionRead": "阅读",
@@ -385,6 +407,107 @@ describe("createToolCallPresentation", () => {
     expect(presentation.toolCallDisplayName("team_send")).toBe("发送给队员");
     expect(presentation.toolCallDisplayName("team_read")).toBe("读队员消息");
     expect(presentation.toolCallDisplayName("team_report")).toBe("汇报队长");
+  });
+
+  it("看板 / 取工具 / 联系人回应 / 窗口：各有语义呈现，不再落到「链接到」兜底", () => {
+    const presentation = createPresentation();
+
+    const listFiltered = presentation.toolCallSemanticPresentation({
+      name: "kanban",
+      argsText: JSON.stringify({ action: "list", status: "in_review" }),
+    });
+    expect(listFiltered.action).toBe("查看议题看板");
+    expect(listFiltered.target).toBe("待审");
+    expect(listFiltered.text).toBe("查看议题看板 待审");
+
+    const listAll = presentation.toolCallSemanticPresentation({
+      name: "kanban",
+      argsText: JSON.stringify({ action: "list" }),
+    });
+    expect(listAll.target).toBe("全部");
+
+    const updateIssue = presentation.toolCallSemanticPresentation({
+      name: "kanban",
+      argsText: JSON.stringify({ action: "upsert", issues: [{ number: 3, status: "in_progress" }] }),
+    });
+    expect(updateIssue.action).toBe("更新议题");
+    expect(updateIssue.target).toBe("#3 → 解决中");
+    expect(updateIssue.text).toBe("更新议题 #3 → 解决中");
+
+    const createIssue = presentation.toolCallSemanticPresentation({
+      name: "kanban",
+      argsText: JSON.stringify({ action: "upsert", issues: [{ title: "补齐工具文案" }] }),
+    });
+    expect(createIssue.action).toBe("创建议题");
+    expect(createIssue.target).toBe("「补齐工具文案」");
+
+    const batchIssues = presentation.toolCallSemanticPresentation({
+      name: "kanban",
+      argsText: JSON.stringify({
+        action: "upsert",
+        issues: [{ number: 3, status: "done" }, { title: "新的一条" }],
+      }),
+    });
+    expect(batchIssues.action).toBe("维护议题看板");
+    expect(batchIssues.target).toContain("共 2 条");
+    expect(batchIssues.target).toContain("#3 → 已完成");
+
+    const setPlan = presentation.toolCallSemanticPresentation({
+      name: "kanban_set_plan",
+      argsText: JSON.stringify({ number: 6, planPath: "E:/repo/.pai/plan/chat/20260101_样例计划.md" }),
+    });
+    expect(setPlan.action).toBe("设置议题计划");
+    expect(setPlan.target).toBe("#6");
+    expect(setPlan.extra).toBe("20260101_样例计划.md");
+    expect(setPlan.text).toBe("设置议题计划 #6 20260101_样例计划.md");
+
+    const getTool = presentation.toolCallSemanticPresentation({
+      name: "get_tool",
+      argsText: JSON.stringify({ tool_names: ["deepwiki__ask_wiki_question", "akasha_search"] }),
+    });
+    expect(getTool.action).toBe("取用工具");
+    expect(getTool.target).toBe("deepwiki__ask_wiki_question、akasha_search");
+
+    const replyContact = presentation.toolCallSemanticPresentation({
+      name: "contact_reply",
+      argsText: JSON.stringify({ contact_name: "老王", text: "已经改好了" }),
+    });
+    expect(replyContact.action).toBe("回复联系人");
+    expect(replyContact.target).toBe("老王");
+    expect(replyContact.text).toBe("回复联系人 老王 已经改好了");
+
+    const noReply = presentation.toolCallSemanticPresentation({
+      name: "contact_no_reply",
+      argsText: JSON.stringify({ reason: "这轮只是通知" }),
+    });
+    expect(noReply.action).toBe("本轮不回复");
+    expect(noReply.target).toBe("当前联系人");
+    expect(noReply.text).toBe("本轮不回复 当前联系人 这轮只是通知");
+
+    const listWindows = presentation.toolCallSemanticPresentation({
+      name: "windows",
+      argsText: JSON.stringify({ script: "list windows" }),
+    });
+    expect(listWindows.action).toBe("窗口操作");
+    expect(listWindows.target).toBe("列举窗口");
+
+    const activateWindow = presentation.toolCallSemanticPresentation({
+      name: "windows",
+      argsText: JSON.stringify({ script: "activate window id=0x1A2B" }),
+    });
+    expect(activateWindow.target).toBe("激活窗口 0x1A2B");
+
+    const multiWindows = presentation.toolCallSemanticPresentation({
+      name: "windows",
+      argsText: JSON.stringify({ script: "list windows\nactivate window id=42\nactivate window id=43" }),
+    });
+    expect(multiWindows.target).toBe("列举窗口 · 激活窗口 42 · 另 1 步");
+
+    // 六个工具都不该再落到 MCP 兜底
+    for (const toolName of ["kanban", "kanban_set_plan", "get_tool", "contact_reply", "contact_no_reply", "windows"]) {
+      expect(presentation.toolCallSemanticPresentation({ name: toolName, argsText: "{}" }).action).not.toBe("链接到");
+      expect(presentation.toolCallDisplayName(toolName)).not.toContain("链接到");
+    }
   });
 
   it("外部 / MCP 工具：统一显示「链接到 {mcp工具名}」", () => {

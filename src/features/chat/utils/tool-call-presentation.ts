@@ -56,6 +56,8 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     "deeprecall_context",
     "delegate",
     "contact_send_files",
+    "contact_reply",
+    "contact_no_reply",
     "meme",
     "image_generate",
     "image_edit",
@@ -65,7 +67,11 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     "fetch",
     "websearch",
     "operate",
+    "windows",
     "wait",
+    "get_tool",
+    "kanban",
+    "kanban_set_plan",
     "team_info",
     "team_recruit",
     "team_send",
@@ -302,6 +308,15 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
   function formatFullText(action: string, target: string, lineRange?: string, extra?: string): string {
     const parts = [action, target, lineRange, extra].filter(Boolean);
     return parts.join(" ");
+  }
+
+  // 看板六态沿用看板界面的用词（chat.kanban.status.*），避免两处各叫一套
+  function kanbanStatusText(raw: string): string {
+    const status = String(raw || "").trim().toLowerCase();
+    if (!status) return "";
+    const key = `chat.kanban.status.${status}`;
+    const text = String(t(key, {}));
+    return text && text !== key ? text : status;
   }
 
   // ==================== 语义化解析入口 ====================
@@ -696,6 +711,30 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       };
     }
 
+    // 19b. 窗口管理 (windows)
+    if (toolName === "windows") {
+      const action = toolTimelineText("actionWindows");
+      const script = safeStringValue(obj, "script");
+      const steps = script ? script.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) : [];
+      const describeStep = (line: string): string => {
+        if (/^list\s+windows$/i.test(line)) return toolTimelineText("windowsList");
+        const activateMatch = line.match(/^activate\s+window\s+id\s*=\s*(\S+)$/i);
+        if (activateMatch) return toolTimelineText("windowsActivate", { id: activateMatch[1] });
+        return compactText(line, 30);
+      };
+      const target = steps.length > 0
+        ? joinNonEmpty([
+            ...steps.slice(0, 2).map(describeStep),
+            steps.length > 2 ? toolTimelineText("windowsMoreSteps", { count: steps.length - 2 }) : "",
+          ])
+        : (toCompactValue(args) || toolTimelineText("missingArgs"));
+      return {
+        action,
+        target,
+        text: formatFullText(action, target),
+      };
+    }
+
     // 20. 联系人发送附件 (contact_send_files)
     if (toolName === "contact_send_files") {
       const action = toolTimelineText("actionContactSendFiles");
@@ -707,6 +746,24 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
         fileExt: fileNames[0] ? extractFileExt(fileNames[0]) : undefined,
         target,
         text: formatFullText(action, target),
+      };
+    }
+
+    // 20b. 联系人回应 (contact_reply / contact_no_reply)
+    if (toolName === "contact_reply" || toolName === "contact_no_reply") {
+      const isReply = toolName === "contact_reply";
+      const action = toolTimelineText(isReply ? "actionContactReply" : "actionContactNoReply");
+      const contact = safeTextFromRecord(obj, ["contact_name", "contact", "contact_id", "session_id", "conversation_id"]);
+      const detail = isReply
+        ? safeTextFromRecord(obj, ["text", "content", "message"])
+        : safeTextFromRecord(obj, ["reason", "note", "text"]);
+      const target = compactText(contact, 30) || toolTimelineText("contactCurrent");
+      const extra = detail ? compactText(detail, 40) : undefined;
+      return {
+        action,
+        target,
+        extra,
+        text: formatFullText(action, target, undefined, extra),
       };
     }
 
@@ -872,6 +929,82 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       };
     }
 
+    // 25b. 队伍议题看板 (kanban / kanban_set_plan)
+    if (toolName === "kanban") {
+      const act = safeStringValue(obj, "action").toLowerCase();
+      const issues = Array.isArray(obj.issues) ? obj.issues : [];
+
+      if (act === "upsert" && issues.length > 0) {
+        const entries = issues.map((raw) => {
+          const issue = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
+          const number = issue.number;
+          const hasNumber = typeof number === "number" || (typeof number === "string" && number.trim() !== "");
+          const title = compactText(safeStringValue(issue, "title"), 24);
+          const status = kanbanStatusText(safeStringValue(issue, "status"));
+          if (!hasNumber) {
+            return { hasNumber, text: title ? `「${title}」` : toolTimelineText("kanbanNewIssue") };
+          }
+          if (status) return { hasNumber, text: `#${number} → ${status}` };
+          return { hasNumber, text: title ? `#${number} ${title}` : `#${number}` };
+        });
+        const creatingOnly = entries.every((entry) => !entry.hasNumber);
+        const action = entries.length > 1
+          ? toolTimelineText("actionKanban")
+          : toolTimelineText(creatingOnly ? "actionKanbanCreate" : "actionKanbanUpdate");
+        const target = entries.length > 1
+          ? `${toolTimelineText("kanbanIssueCount", { count: entries.length })} · ${entries[0].text}`
+          : entries[0].text;
+        return {
+          action,
+          target,
+          text: formatFullText(action, target),
+        };
+      }
+
+      const action = toolTimelineText("actionKanbanList");
+      const status = kanbanStatusText(safeStringValue(obj, "status"));
+      const assignee = compactText(safeStringValue(obj, "assignee"), 24);
+      const target = status || toolTimelineText("kanbanAllStatuses");
+      return {
+        action,
+        target,
+        extra: assignee || undefined,
+        text: formatFullText(action, target, undefined, assignee || undefined),
+      };
+    }
+
+    if (toolName === "kanban_set_plan") {
+      const action = toolTimelineText("actionKanbanSetPlan");
+      const number = obj.number;
+      const planPath = safeStringValue(obj, "planPath") || safeStringValue(obj, "plan_path");
+      const target = typeof number === "number" || (typeof number === "string" && String(number).trim() !== "")
+        ? `#${number}`
+        : toolTimelineText("missingArgs");
+      const extra = fileNameFromPath(planPath) || undefined;
+      return {
+        action,
+        target,
+        extra,
+        text: formatFullText(action, target, undefined, extra),
+      };
+    }
+
+    // 25c. 取用折叠的 MCP 工具 (get_tool)
+    if (toolName === "get_tool") {
+      const action = toolTimelineText("actionGetTool");
+      const names = Array.isArray(obj.tool_names)
+        ? obj.tool_names.map((item) => String(item ?? "").trim()).filter(Boolean)
+        : [];
+      const target = names.length > 0
+        ? compactText(names.join("、"), 50)
+        : (toCompactValue(args) || toolTimelineText("missingArgs"));
+      return {
+        action,
+        target,
+        text: formatFullText(action, target),
+      };
+    }
+
     // 26. 外部 / MCP 工具：统一显示「链接到 {mcp工具名}」
     const action = toolTimelineText("actionConnectMcp");
     const target = toolName;
@@ -917,6 +1050,12 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     if (raw === "fetch") return toolTimelineText("actionFetch");
     if (raw === "websearch") return toolTimelineText("actionWebSearch");
     if (raw === "operate") return toolTimelineText("actionOperate");
+    if (raw === "windows") return toolTimelineText("actionWindows");
+    if (raw === "get_tool") return toolTimelineText("actionGetTool");
+    if (raw === "kanban") return toolTimelineText("actionKanban");
+    if (raw === "kanban_set_plan") return toolTimelineText("actionKanbanSetPlan");
+    if (raw === "contact_reply") return toolTimelineText("actionContactReply");
+    if (raw === "contact_no_reply") return toolTimelineText("actionContactNoReply");
     if (raw === "wait") return toolTimelineText("actionWait");
     if (raw === "team_info") return toolTimelineText("actionTeamInfo");
     if (raw === "team_recruit") return toolTimelineText("actionTeamRecruit");
