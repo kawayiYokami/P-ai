@@ -119,6 +119,7 @@
         <div v-if="hasOverflow" class="flex shrink-0 items-center pl-0.5">
           <EcallDropdown
             v-model="overflowDropdownOpen"
+            :open-on-hover="openMoreOnHover"
             teleport
             :match-trigger-width="false"
             panel-class="min-w-[190px] max-w-[280px] p-1 shadow-2xl border border-base-300 bg-base-100"
@@ -289,6 +290,8 @@ const props = withDefaults(defineProps<{
   variant?: PanelTabStripVariant;
   /** 单个卡片最小宽度保护（防止过分挤压），默认 default: 104px, file: 92px */
   minTabWidth?: number;
+  /** 更多按钮下拉菜单是否悬停触发，默认 true */
+  openMoreOnHover?: boolean;
 }>(), {
   activeKey: "",
   ariaLabel: "",
@@ -300,6 +303,7 @@ const props = withDefaults(defineProps<{
   showTabBorders: true,
   variant: "default",
   minTabWidth: undefined,
+  openMoreOnHover: true,
 });
 
 const emit = defineEmits<{

@@ -1,5 +1,11 @@
 <template>
-  <div ref="rootRef" class="relative" :class="rootClass">
+  <div
+    ref="rootRef"
+    class="relative"
+    :class="rootClass"
+    @mouseenter="handleRootMouseEnter"
+    @mouseleave="handleRootMouseLeave"
+  >
     <slot name="trigger" :open="isOpen" :toggle="toggle" :close="close" :openDropdown="openDropdown" />
     <!-- 非 Teleport：absolute 跟随 trigger，完全在文档流内 -->
     <Transition :name="transitionName">
@@ -9,6 +15,8 @@
         class="absolute z-30 overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
         :class="[panelClass, direction === 'up' ? 'bottom-full mb-2' : 'top-full mt-2']"
         :style="inlinePanelStyle"
+        @mouseenter="handlePanelMouseEnter"
+        @mouseleave="handlePanelMouseLeave"
       >
         <slot :close="close" :open="isOpen" />
       </div>
@@ -24,6 +32,8 @@
           :class="panelClass"
           :style="teleportedStyle"
           :data-theme="teleportTheme"
+          @mouseenter="handlePanelMouseEnter"
+          @mouseleave="handlePanelMouseLeave"
           @click.stop
         >
           <slot :close="close" :open="isOpen" />
@@ -46,6 +56,12 @@ const props = withDefaults(defineProps<{
   rootClass?: string;
   maxHeight?: number;
   placement?: "auto" | "top" | "bottom";
+  /** 是否在悬停时自动展开 */
+  openOnHover?: boolean;
+  /** 悬停展开延迟毫秒数，默认 50ms */
+  hoverOpenDelay?: number;
+  /** 鼠标移出后关闭延迟毫秒数，默认 200ms */
+  hoverCloseDelay?: number;
 }>(), {
   disabled: false,
   teleport: false,
@@ -55,6 +71,9 @@ const props = withDefaults(defineProps<{
   rootClass: "",
   maxHeight: undefined,
   placement: "auto",
+  openOnHover: false,
+  hoverOpenDelay: 50,
+  hoverCloseDelay: 200,
 });
 
 const emit = defineEmits<{
@@ -79,6 +98,67 @@ const teleportTheme = computed(() => {
   return document.documentElement.getAttribute("data-theme") || "light";
 });
 
+let hoverOpenTimer: ReturnType<typeof setTimeout> | null = null;
+let hoverCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearHoverTimers() {
+  if (hoverOpenTimer) {
+    clearTimeout(hoverOpenTimer);
+    hoverOpenTimer = null;
+  }
+  if (hoverCloseTimer) {
+    clearTimeout(hoverCloseTimer);
+    hoverCloseTimer = null;
+  }
+}
+
+function handleRootMouseEnter() {
+  if (!props.openOnHover || props.disabled) return;
+  if (hoverCloseTimer) {
+    clearTimeout(hoverCloseTimer);
+    hoverCloseTimer = null;
+  }
+  if (isOpen.value) return;
+  if (props.hoverOpenDelay <= 0) {
+    openDropdown();
+  } else {
+    hoverOpenTimer = setTimeout(() => {
+      openDropdown();
+      hoverOpenTimer = null;
+    }, props.hoverOpenDelay);
+  }
+}
+
+function handleRootMouseLeave() {
+  if (!props.openOnHover || props.disabled) return;
+  if (hoverOpenTimer) {
+    clearTimeout(hoverOpenTimer);
+    hoverOpenTimer = null;
+  }
+  if (!isOpen.value) return;
+  hoverCloseTimer = setTimeout(() => {
+    close();
+    hoverCloseTimer = null;
+  }, props.hoverCloseDelay);
+}
+
+function handlePanelMouseEnter() {
+  if (!props.openOnHover || props.disabled) return;
+  if (hoverCloseTimer) {
+    clearTimeout(hoverCloseTimer);
+    hoverCloseTimer = null;
+  }
+}
+
+function handlePanelMouseLeave() {
+  if (!props.openOnHover || props.disabled) return;
+  if (!isOpen.value) return;
+  hoverCloseTimer = setTimeout(() => {
+    close();
+    hoverCloseTimer = null;
+  }, props.hoverCloseDelay);
+}
+
 function openDropdown() {
   if (props.disabled) return;
   if (isOpen.value) return;
@@ -87,6 +167,7 @@ function openDropdown() {
 }
 
 function close() {
+  clearHoverTimers();
   if (!isOpen.value) return;
   emit("update:modelValue", false);
   emit("close");
@@ -198,6 +279,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  clearHoverTimers();
   document.removeEventListener("pointerdown", handleDocumentPointerDown);
   document.removeEventListener("keydown", handleKeydown);
   window.removeEventListener("resize", refreshPosition);
