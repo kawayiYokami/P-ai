@@ -135,12 +135,6 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
       } catch { /* 侧会话忙态自维护失败不影响主链路 */ }
     });
 
-    // 会话状态：独立事件通道。概览项广播对追问会话短路不广播，
-    // 只靠广播的话追问磁贴永远刷不到状态且不会报错。
-    subscribe<any>("chatConversationProgressStateUpdated", "conversation.progressStateUpdated", (payload) => {
-      bindings.applyConversationProgressStateUpdated(payload);
-    });
-
     subscribe<any>("chatConversationOverviewUpdated", "conversation.overviewUpdated", (payload) => {
       bindings.applyConversationOverviewUpdated(payload);
     });

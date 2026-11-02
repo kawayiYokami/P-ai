@@ -575,7 +575,6 @@ import ChatView from "../../chat/views/ChatView.vue";
 import ConversationView from "../../chat/views/ConversationView.vue";
 import ChatRightPanelSwitcher from "../../chat/components/ChatRightPanelSwitcher.vue";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
-import { conversationProgressDotClass, conversationProgressVisual, conversationShowsProgressState } from "../../chat/utils/conversation-item-display";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import { MessageSquareMore, Plus, UserRound } from "@lucide/vue";
 import type { TerminalApprovalConversationItem } from "../composables/use-terminal-approval";
@@ -1054,15 +1053,6 @@ function buildSideConversationTab(conversation: ChildConversationSummary) {
       }
     }
   }
-  const progressVisual = conversationProgressVisual(conversation.progressState);
-  const progressLabel = props.t(progressVisual.labelKey);
-  const progressEvidence = String(conversation.evidence || "").trim();
-  const progressTitle = progressEvidence
-    ? props.t("chat.conversationStatus.tooltipWithEvidence", {
-        status: progressLabel,
-        evidence: progressEvidence,
-      })
-    : props.t("chat.conversationStatus.tooltip", { status: progressLabel });
   return {
     key: String(conversation.conversationId || "").trim(),
     // 标题统一走降级链（标题 → 摘要标题 → 时间 → 人格名），不在调用侧自己拼。
@@ -1080,9 +1070,8 @@ function buildSideConversationTab(conversation: ChildConversationSummary) {
     lastMessageAt: String((conversation as { lastMessageAt?: string }).lastMessageAt || "").trim(),
     // 队员的卡片头标直接写队员名（从 agent 取），不再统一叫「追问」；普通追问保持原样。
     cardLabel: teamName ? teamDisplayName || teamName : props.t("chat.sideChat.title"),
-    // 队员会话的归属人格与进度状态：首页队员磁贴按这两个字段取头像与徽章
+    // 队员会话的归属人格：首页队员磁贴按它取头像
     agentId: teamAgentId,
-    progressState: String(conversation.progressState || "").trim(),
     runtimeState: String(conversation.runtimeState || "").trim(),
     // 队员手上在办的那条议题，以及他自己的运行时状态：磁贴有议题时显示议题状态，
     // 没有时退回后者。两个都由后端算好，这里不做角色名匹配。
@@ -1091,11 +1080,6 @@ function buildSideConversationTab(conversation: ChildConversationSummary) {
     icon: teamAgentAvatarUrl ? undefined : (isTeamMember ? UserRound : MessageSquareMore),
     iconSrc: teamAgentAvatarUrl || undefined,
     closeable: true,
-    // 会话状态：与 busy（运行态）并列显示，互不覆盖；只有主会话/追问会话有状态（白名单）
-    statusDotClass: conversationShowsProgressState(conversation.conversationKind)
-      ? conversationProgressDotClass(progressVisual)
-      : "",
-    statusTitle: conversationShowsProgressState(conversation.conversationKind) ? progressTitle : "",
     // 归属判据只有一条：角色名有没有值。两个面板各自按它过滤，不再共用一个列表。
     panel,
   };
@@ -1145,21 +1129,19 @@ const teamMemberStatusItems = computed(() => {
       teamName: String(tab.cardLabel || "").trim(),
       agentId: String(tab.agentId || "").trim(),
       agentName: tab.agentId ? String(props.chatPersonaNameMap?.[tab.agentId] || "").trim() : "",
-      progressState: String(tab.progressState || "").trim(),
       runtimeState: String(tab.runtimeState || "").trim(),
       // 在办议题与运行时三态：有议题时磁贴显示议题状态，没有才显示后者
       activeIssue: tab.activeIssue,
       memberState: String(tab.memberState || "").trim(),
     }));
   }
-  // 远程私聊队长：名册随联系人会话摘要下发，没有会话级进度，状态落到「未设置」
+  // 远程私聊队长：名册随联系人会话摘要下发，没有会话级状态字段
   return teamManageMembers.value.map((member: TeamManageMember) => ({
     conversationId: member.conversationId,
     title: member.title,
     teamName: member.teamName,
     agentId: String(member.agentId || "").trim(),
     agentName: String(member.agentName || "").trim(),
-    progressState: "",
   }));
 });
 

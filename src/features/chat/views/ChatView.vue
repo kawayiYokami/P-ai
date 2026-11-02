@@ -1059,7 +1059,6 @@ const props = defineProps<{
     teamName?: string;
     agentId?: string;
     agentName?: string;
-    progressState?: string;
     runtimeState?: string;
     /** 他手上在办的那条议题；没有就退回 memberState */
     activeIssue?: { number: number; title: string; status: string };
@@ -3340,7 +3339,6 @@ const teamMembers = computed(() =>
       teamName: String(member?.teamName || "").trim(),
       agentId: String(member?.agentId || "").trim(),
       agentName: String(member?.agentName || "").trim(),
-      progressState: String(member?.progressState || "").trim(),
       runtimeState: String(member?.runtimeState || "").trim(),
       activeIssue: member?.activeIssue,
       memberState: String(member?.memberState || "").trim(),

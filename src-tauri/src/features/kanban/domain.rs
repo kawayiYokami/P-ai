@@ -1,6 +1,6 @@
 // ==================== 队伍议题看板：领域模型 ====================
 // 议题是队伍级工作项，独立于会话元数据：
-// 不进 Conversation、不复用 current_todos、不碰 progress_state 的现有语义。
+// 不进 Conversation、不复用 current_todos，自带状态枚举与存储。
 // 对外一律用 number 定位；id 只是存储主键，不进工具参数、不上界面。
 
 const KANBAN_DB_FILE_NAME: &str = "kanban_store.db";

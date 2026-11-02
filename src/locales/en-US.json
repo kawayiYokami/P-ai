@@ -1976,25 +1976,6 @@
         "error": "Error"
       }
     },
-    "conversationStatus": {
-      "unset": "Not set",
-      "planning": "Planning",
-      "todo": "To do",
-      "in_progress": "In progress",
-      "in_review": "In review",
-      "blocked": "Blocked",
-      "done": "Done",
-      "tooltip": "Conversation status: {status}",
-      "tooltipWithEvidence": "Conversation status: {status} | Evidence: {evidence}",
-      "short": {
-        "planning": "Plan",
-        "todo": "Todo",
-        "inProgress": "Active",
-        "inReview": "Review",
-        "blocked": "Block",
-        "done": "Done"
-      }
-    },
     "rightSidebarToggle": "Right Sidebar",
     "conversationSearchPlaceholder": "Search title or last two messages",
     "unknownPersona": "Unknown persona",

@@ -2111,25 +2111,6 @@
         "error": "出错"
       }
     },
-    "conversationStatus": {
-      "unset": "未设置",
-      "planning": "规划中",
-      "todo": "待办",
-      "in_progress": "进行中",
-      "in_review": "待审核",
-      "blocked": "阻塞",
-      "done": "完成",
-      "tooltip": "会话状态：{status}",
-      "tooltipWithEvidence": "会话状态：{status}｜证据：{evidence}",
-      "short": {
-        "planning": "规划",
-        "todo": "待办",
-        "inProgress": "进行",
-        "inReview": "待审",
-        "blocked": "阻塞",
-        "done": "完成"
-      }
-    },
     "rightSidebarToggle": "右侧栏",
     "conversationSearchPlaceholder": "搜索会话标题或最近两条消息",
     "unknownPersona": "未指定人格",

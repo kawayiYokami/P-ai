@@ -81,19 +81,18 @@ const avatarUrlMap: Record<string, string> = {
 };
 
 const fullMembers: TeamMemberTileItem[] = [
-  // 有头像 + 六个状态各来一个，验证徽章取色与文案
-  // 刻晴这条带运行态：徽章后面应当挂一个转圈，用来看调度中的样子
-  { conversationId: "c1", title: "刻晴的会话", teamName: "刻晴", agentId: "keqing", agentName: "刻晴", progressState: "in_progress", runtimeState: "assistant_streaming" },
-  { conversationId: "c2", title: "胡桃的会话", teamName: "胡桃", agentId: "hutao", agentName: "胡桃", progressState: "in_review" },
-  { conversationId: "c3", title: "甘雨的会话", teamName: "甘雨", agentId: "ganyu", agentName: "甘雨", progressState: "done" },
+  // 第一条带运行态：行尾应当挂一个转圈，用来看调度中的样子
+  { conversationId: "c1", title: "刻晴的会话", teamName: "刻晴", agentId: "keqing", agentName: "刻晴", runtimeState: "assistant_streaming" },
+  { conversationId: "c2", title: "胡桃的会话", teamName: "胡桃", agentId: "hutao", agentName: "胡桃" },
+  { conversationId: "c3", title: "甘雨的会话", teamName: "甘雨", agentId: "ganyu", agentName: "甘雨" },
   // 无头像但有 agentId：验证首字兜底（中文取首字）
-  { conversationId: "c4", title: "钟离的会话", teamName: "钟离", agentId: "zhongli", agentName: "钟离", progressState: "blocked" },
+  { conversationId: "c4", title: "钟离的会话", teamName: "钟离", agentId: "zhongli", agentName: "钟离" },
   // 无 agentId：验证首字兜底（走 teamName）
-  { conversationId: "c5", title: "温迪的会话", teamName: "温迪", progressState: "todo" },
-  { conversationId: "c6", title: "可莉的会话", teamName: "可莉", agentId: "klee", agentName: "可莉", progressState: "planning" },
-  // 有 agentId 但头像未缓存、状态也未设置：验证「未设置」有徽章而不是空白
-  { conversationId: "c7", title: "阿贝多的会话", teamName: "阿贝多", agentId: "albedo", agentName: "阿贝多", progressState: "" },
-  // 超长名字：验证单行截断不会把同排磁贴撑成不同高度
+  { conversationId: "c5", title: "温迪的会话", teamName: "温迪" },
+  { conversationId: "c6", title: "可莉的会话", teamName: "可莉", agentId: "klee", agentName: "可莉" },
+  // 有 agentId 但头像未缓存：验证首字兜底而不是空圆
+  { conversationId: "c7", title: "阿贝多的会话", teamName: "阿贝多", agentId: "albedo", agentName: "阿贝多" },
+  // 超长名字：验证单行截断不会撑破行
   { conversationId: "c8", title: "一斗的会话", teamName: "荒泷一斗和他的帮派全名", agentId: "itto", agentName: "荒泷一斗" },
 ];
 
@@ -117,7 +116,6 @@ const withIssueMembers: TeamMemberTileItem[] = [
     teamName: "刻晴",
     agentId: "keqing",
     agentName: "刻晴",
-    progressState: "in_progress",
     memberState: "busy",
     runtimeState: "assistant_streaming",
     activeIssue: { number: 3, title: "磁贴徽章口径重做", status: "in_progress" },
@@ -128,15 +126,14 @@ const withIssueMembers: TeamMemberTileItem[] = [
     teamName: "钟离",
     agentId: "zhongli",
     agentName: "钟离",
-    progressState: "todo",
     memberState: "idle",
   },
 ];
 
 /** 没有议题：徽章退回运行时三态，忙碌与出错各一条（空闲那条在有议题档位里） */
 const noIssueMembers: TeamMemberTileItem[] = [
-  { conversationId: "n1", title: "刻晴的会话", teamName: "刻晴", agentId: "keqing", agentName: "刻晴", progressState: "in_progress", memberState: "busy" },
-  { conversationId: "n2", title: "钟离的会话", teamName: "钟离", agentId: "zhongli", agentName: "钟离", progressState: "blocked", memberState: "error" },
+  { conversationId: "n1", title: "刻晴的会话", teamName: "刻晴", agentId: "keqing", agentName: "刻晴", memberState: "busy" },
+  { conversationId: "n2", title: "钟离的会话", teamName: "钟离", agentId: "zhongli", agentName: "钟离", memberState: "error" },
 ];
 
 const members = computed(() => {

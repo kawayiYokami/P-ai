@@ -169,7 +169,6 @@ const props = withDefaults(defineProps<{
     teamName?: string;
     agentId?: string;
     agentName?: string;
-    progressState?: string;
     /** 他手上在办的那条议题；没有就退回 memberState */
     activeIssue?: { number: number; title: string; status: string };
     /** 运行时三态：busy / idle / error */

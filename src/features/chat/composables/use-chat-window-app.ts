@@ -48,7 +48,6 @@ type ConversationActionsBridge = {
   sendChatFromCurrentWindow: (overrides?: { extraTextBlocks?: string[] }) => Promise<void>;
   deleteUnarchivedConversationFromArchives: (conversationId: string) => Promise<void>;
   applyConversationRuntimeStateUpdated: (payload: { conversationId: string; runtimeState: "idle" | "assistant_streaming" | "organizing_context" }) => void;
-  applyConversationProgressStateUpdated: (payload: { conversationId: string; progressState?: string; evidence?: string; evidenceUpdatedAt?: string }) => void;
 };
 
 export function useChatWindowApp() {
@@ -173,7 +172,6 @@ export function useChatWindowApp() {
     sendChatFromCurrentWindow: async () => {},
     deleteUnarchivedConversationFromArchives: async () => {},
     applyConversationRuntimeStateUpdated: () => {},
-    applyConversationProgressStateUpdated: () => {},
   };
   const refreshChatUnarchivedConversations = () => conversationActions.refreshChatUnarchivedConversations();
   const syncUnarchivedConversationOverviewChangedSinceWatermark = (reason?: string) =>
@@ -187,12 +185,9 @@ export function useChatWindowApp() {
   const deleteUnarchivedConversationFromArchives = (conversationId: string) => conversationActions.deleteUnarchivedConversationFromArchives(conversationId);
   const applyConversationRuntimeStateUpdated: ConversationActionsBridge["applyConversationRuntimeStateUpdated"] =
     (payload) => conversationActions.applyConversationRuntimeStateUpdated(payload);
-  const applyConversationProgressStateUpdated: ConversationActionsBridge["applyConversationProgressStateUpdated"] =
-    (payload) => conversationActions.applyConversationProgressStateUpdated(payload);
   const conversationApi = {
     bind: (actions: ConversationActionsBridge) => { conversationActions = actions; },
     applyConversationRuntimeStateUpdated,
-    applyConversationProgressStateUpdated,
   };
   let chatFlow: any = null;
   let pendingOwnMessageAlignConversationId = "";

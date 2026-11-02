@@ -113,13 +113,6 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            BuiltinProgressTool {
-                app_state: state.clone(),
-                session_id: preview_session_id.clone(),
-            }
-            .provider_tool_definition(),
-        ),
-        frontend_tool_definition(
             BuiltinCreateGoalTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),

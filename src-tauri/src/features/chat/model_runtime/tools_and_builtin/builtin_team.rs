@@ -527,14 +527,10 @@ struct TeamMessageSender {
     agent_id: Option<String>,
 }
 
-/// 队伍邮件的头：标题与随信携带的那条线状态。
+/// 队伍邮件的头：标题。
 /// 邮件与通知的分别就在这个结构有没有值——没有它的是通知，有它的是邮件。
 struct TeamMailHeader {
     title: String,
-    /// 六态 key。空表示这封邮件没有改状态。
-    state: Option<String>,
-    /// 状态是谁设的：leader / member。
-    state_by: Option<&'static str>,
 }
 
 /// 标题超长不报错，截到上限。截断处补省略号，
@@ -550,33 +546,6 @@ fn team_mail_title(raw: &str) -> String {
     }
 }
 
-/// 邮件随信携带的状态写入。
-///
-/// `progress_state` 是唯一状态源。邮件正文里那行「谁把这条线设成了什么」与它是同一次
-/// 操作的产物，所以写入只在这里发生一次：落库成功才允许入队，非法状态在落库前就被拒绝。
-fn team_mail_apply_status(
-    state: &AppState,
-    conversation_id: &str,
-    raw_status: Option<&str>,
-    by: &str,
-    title: &str,
-) -> Result<Option<&'static str>, String> {
-    let Some(raw) = raw_status.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-    let key = progress_state_normalized(raw).ok_or_else(|| {
-        format!(
-            "status 非法：{raw}，必须是六态 key 之一（{}）",
-            PROGRESS_STATES.join(" / ")
-        )
-    })?;
-    let who = if by == "member" { "队员" } else { "队长" };
-    // 证据要能核对：写清是谁、在哪封邮件里设的，别让后来的人只能靠状态值猜。
-    let evidence = format!("{who}在邮件「{}」里设置", title.trim());
-    update_conversation_progress_state_and_emit(state, conversation_id, key, &evidence)?;
-    Ok(Some(key))
-}
-
 fn team_system_message(
     text: String,
     message_kind: &str,
@@ -590,31 +559,14 @@ fn team_system_message(
     if !sender.name.trim().is_empty() {
         provider_meta["teamName"] = serde_json::json!(sender.name.trim());
     }
-    // 邮件正文由服务端拼成一整段 markdown：标题进 <summary>，正文（含状态行）在折叠体内。
+    // 邮件正文由服务端拼成一整段 markdown：标题进 <summary>，正文在折叠体内。
     // 默认收起：标题在外面、内容点开看，收起态也要能一眼读到标题说清了什么。
     // 写法与系统提醒共用同一份，正文里自带的结构标签会先被中和，队员写的正文撑不破外层。
     // 标题同时单列进 meta，供 team_read 回报时不重复搬运正文。
     let text = match mail {
         Some(mail) => {
             provider_meta["teamMailTitle"] = serde_json::json!(mail.title.trim());
-            // 状态行由服务端写死：收件人与模型都直接读到「谁把这条线设成了什么」，
-            // 不靠模型自己转述。状态只有 progress_state 一个源，这里只是把它写进正文；
-            // meta 里不再存第二份，界面上也没有第二个投影要读。
-            let status_line = match mail.state.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-                Some(state) => {
-                    let who = if mail.state_by == Some("member") { "队员" } else { "队长" };
-                    Some(format!(
-                        "（{who}把这条线的状态设为：{}）",
-                        progress_state_label_zh(state)
-                    ))
-                }
-                None => None,
-            };
-            let body = match status_line {
-                Some(line) => format!("{line}\n\n{text}"),
-                None => text,
-            };
-            format_fold_block(mail.title.trim(), &body, false)
+            format_fold_block(mail.title.trim(), &text, false)
         }
         None => text,
     };
@@ -751,8 +703,6 @@ fn team_notify_leader_member_failed(state: &AppState, conversation_id: &str, err
         },
         Some(TeamMailHeader {
             title,
-            state: None,
-            state_by: None,
         }),
     );
     match team_enqueue_message(state, &leader_conversation_id, message, "queue") {
@@ -984,14 +934,6 @@ fn builtin_team_report(
         .name_of(&meta.agent_id)
         .map(str::to_string)
         .unwrap_or_else(|| strip_legacy_member_number_prefix(&membership.name));
-    // 队员自己推进时也能改自己这条线的状态：同样先落库，再入队。
-    let state_key = team_mail_apply_status(
-        state,
-        &meta.id,
-        args.status.as_deref(),
-        "member",
-        &title,
-    )?;
     let body = format!("队员「{role}」说：{content}");
     let message = team_system_message(
         body.clone(),
@@ -1002,8 +944,6 @@ fn builtin_team_report(
         },
         Some(TeamMailHeader {
             title: title.clone(),
-            state: state_key.map(str::to_string),
-            state_by: state_key.map(|_| "member"),
         }),
     );
     let message_id = message.id.clone();
@@ -1155,14 +1095,6 @@ fn builtin_team_send(
         return Err(format!("「{role}」还没有可用的会话"));
     }
     let mode = args.mode.as_deref().unwrap_or("guided");
-    // 状态先落库再入队：正文状态行出现，就一定有一份对应的 progress_state。
-    let state_key = team_mail_apply_status(
-        state,
-        &member_conversation_id,
-        args.status.as_deref(),
-        "leader",
-        &title,
-    )?;
     let body = format!("队长说：{content}");
     let message = team_system_message(
         body.clone(),
@@ -1173,8 +1105,6 @@ fn builtin_team_send(
         },
         Some(TeamMailHeader {
             title: title.clone(),
-            state: state_key.map(str::to_string),
-            state_by: state_key.map(|_| "leader"),
         }),
     );
     let message_id = message.id.clone();

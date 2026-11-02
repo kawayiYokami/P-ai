@@ -1096,12 +1096,6 @@ export type UnarchivedConversationSummary = {
   detachedWindowLabel?: string;
   previewMessages?: ConversationPreviewMessage[];
   state?: ConversationListItemState;
-  /** 会话状态（六态 key；空串＝未设置），由进度工具写入 */
-  progressState?: ConversationProgressState | "";
-  /** 状态证据：LLM 写入状态时给出的依据，随状态下发；归档窗口不渲染，但字段随会话保留 */
-  evidence?: string;
-  /** 证据更新时间（ISO）；仅供提示展示 */
-  evidenceUpdatedAt?: string;
 };
 
 export type ChildConversationSummary = {
@@ -1128,27 +1122,7 @@ export type ChildConversationSummary = {
   unreadCount?: number;
   runtimeState?: string;
   lastError?: string;
-  /** 会话状态（六态 key；空串＝未设置），由进度工具写入 */
-  progressState?: ConversationProgressState | "";
-  /** 状态证据：LLM 写入状态时给出的依据，与状态一起下发 */
-  evidence?: string;
-  /** 证据更新时间（ISO）；仅供提示展示 */
-  evidenceUpdatedAt?: string;
 };
-
-/**
- * 会话状态（`progressState`，取值见 `ConversationProgressState`）的六态 key。
- *
- * 与运行生命周期（MainSessionState / runtimeState）、列表活动态（ConversationListItemState.activity）
- * 是三层不同的东西，字段与取色都不得互相借用。
- */
-export type ConversationProgressState =
-  | "planning"
-  | "todo"
-  | "in_progress"
-  | "in_review"
-  | "blocked"
-  | "done";
 
 export type ConversationListItemState = {
   activity: "idle" | "busy" | "completed" | "failed";
@@ -1227,12 +1201,6 @@ export type ChatConversationOverviewItem = {
   backgroundStatus?: "completed" | "failed";
   previewMessages?: ConversationPreviewMessage[];
   state?: ConversationListItemState;
-  /** 会话状态（六态 key；空串＝未设置），由进度工具写入 */
-  progressState?: ConversationProgressState | "";
-  /** 状态证据：LLM 写入状态时给出的依据，与状态一起下发，UI 必须在 tooltip 里露出原文 */
-  evidence?: string;
-  /** 证据更新时间（ISO）；仅供提示展示，不作为状态判断依据 */
-  evidenceUpdatedAt?: string;
 };
 
 export type ConversationForwardTarget = {

@@ -127,9 +127,6 @@ fn delegate_parent_shell_workspace(
             team: conversation_meta.team,
             loaded_mcp_tools: Vec::new(),
             last_error: conversation_meta.last_error,
-            progress_state: conversation_meta.progress_state,
-            evidence: conversation_meta.evidence,
-            evidence_updated_at: conversation_meta.evidence_updated_at,
         })
         .filter(|conversation| delegate_workspace_snapshot_from_conversation(conversation).is_some())
 }

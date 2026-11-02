@@ -687,7 +687,6 @@ impl ConversationPromptService {
             prompt_runtime_policy.origin_scope,
             prompt_runtime_policy.conversation_resolved,
             prompt_runtime_policy.local_conversation,
-            prompt_runtime_policy.side_chat_conversation,
             prompt_runtime_policy.delegate_conversation,
             prompt_runtime_policy.remote_reply_delegate,
             prompt_runtime_policy.contact_send_files_allowed,
@@ -702,7 +701,6 @@ impl ConversationPromptService {
             prompt_runtime_policy.origin_scope,
             prompt_runtime_policy.conversation_resolved,
             prompt_runtime_policy.local_conversation,
-            prompt_runtime_policy.side_chat_conversation,
             prompt_runtime_policy.delegate_conversation,
             prompt_runtime_policy.remote_reply_delegate,
             prompt_runtime_policy.contact_send_files_allowed,
@@ -722,7 +720,6 @@ impl ConversationPromptService {
             prompt_runtime_policy.origin_scope,
             prompt_runtime_policy.conversation_resolved,
             prompt_runtime_policy.local_conversation,
-            prompt_runtime_policy.side_chat_conversation,
             prompt_runtime_policy.delegate_conversation,
             prompt_runtime_policy.remote_reply_delegate,
             prompt_runtime_policy.contact_send_files_allowed,
@@ -736,21 +733,6 @@ impl ConversationPromptService {
         if builtin_tool_prompt_rule_allowed_in_origin("todo", prompt_origin_scope) {
             if let Some(todo_block) = build_builtin_tool_rule_block("todo", true) {
                 tool_rule_blocks.push(todo_block);
-            }
-        }
-        if builtin_tool_prompt_rule_allowed_in_runtime(
-            "progress",
-            prompt_runtime_policy.origin_scope,
-            prompt_runtime_policy.conversation_resolved,
-            prompt_runtime_policy.local_conversation,
-            prompt_runtime_policy.side_chat_conversation,
-            prompt_runtime_policy.delegate_conversation,
-            prompt_runtime_policy.remote_reply_delegate,
-            prompt_runtime_policy.contact_send_files_allowed,
-            prompt_runtime_policy.deep_recall_delegate,
-        ) {
-            if let Some(progress_block) = build_builtin_tool_rule_block("progress", true) {
-                tool_rule_blocks.push(progress_block);
             }
         }
         // 看板只在本地主会话挂载，规则块跟着同一判据走：
@@ -954,11 +936,6 @@ impl ConversationPromptService {
             }
             if let Some(log_stage) = stage_logger {
                 log_stage("prepare_context.todo_guide_ready");
-            }
-            // 会话状态注入：与 todo 引导块同处注入（六态 + 最近证据）。
-            // 系统提示在工具循环内只构建一次，本轮写入的状态到下一次轮次才生效。
-            if let Some(progress_state_block) = build_progress_state_block(conversation) {
-                blocks.push(progress_state_block);
             }
             if let Some(runtime_block) = build_remote_im_activation_runtime_block(
                 &overrides.remote_im_activation_sources,

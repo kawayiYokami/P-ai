@@ -637,15 +637,6 @@ struct Conversation {
     loaded_mcp_tools: Vec<String>,
     #[serde(default)]
     last_error: Option<String>,
-    /// 会话状态（六态 key 之一），空串=未设置。LLM 通过 progress 工具写入，与运行生命周期分层。
-    #[serde(default)]
-    progress_state: String,
-    /// 最近一次写入状态的证据：done 时是用户表态原话或依据，blocked 时是阻塞原因。
-    #[serde(default)]
-    evidence: String,
-    /// 最近一次状态写入时间（ISO），随 evidence 一起下发 UI。
-    #[serde(default)]
-    evidence_updated_at: String,
 }
 
 #[derive(Debug, Clone)]

@@ -48,13 +48,13 @@ const measureText = ref("量测中…");
 
 const baseMembers = [
   // 第一条专门验证标题降级：没有标题时应当落到人格名，而不是显示裸 id 或空行
-  { conversationId: "m0", title: "", teamName: "郑工", agentId: "a0", agentName: "郑工", progressState: "planning" },
-  { conversationId: "m1", title: "重构登录流程", teamName: "李工", agentId: "a1", agentName: "李工", progressState: "in_progress" },
-  { conversationId: "m2", title: "补齐结算页用例", teamName: "王工", agentId: "a2", agentName: "王工", progressState: "in_review" },
-  { conversationId: "m3", title: "一个特别特别长的会话标题用来验证单行截断是否生效", teamName: "赵工", agentId: "a3", agentName: "赵工", progressState: "blocked" },
-  { conversationId: "m4", title: "远程队长名册", teamName: "钱工", agentId: "", agentName: "钱工", progressState: "" },
-  { conversationId: "m5", title: "第五个人验证滚动", teamName: "孙工", agentId: "a5", agentName: "孙工", progressState: "todo" },
-  { conversationId: "m6", title: "第六个人验证滚动", teamName: "周工", agentId: "a6", agentName: "周工", progressState: "done" },
+  { conversationId: "m0", title: "", teamName: "郑工", agentId: "a0", agentName: "郑工" },
+  { conversationId: "m1", title: "重构登录流程", teamName: "李工", agentId: "a1", agentName: "李工" },
+  { conversationId: "m2", title: "补齐结算页用例", teamName: "王工", agentId: "a2", agentName: "王工" },
+  { conversationId: "m3", title: "一个特别特别长的会话标题用来验证单行截断是否生效", teamName: "赵工", agentId: "a3", agentName: "赵工" },
+  { conversationId: "m4", title: "远程队长名册", teamName: "钱工", agentId: "", agentName: "钱工" },
+  { conversationId: "m5", title: "第五个人验证滚动", teamName: "孙工", agentId: "a5", agentName: "孙工" },
+  { conversationId: "m6", title: "第六个人验证滚动", teamName: "周工", agentId: "a6", agentName: "周工" },
 ];
 
 const countParam = Number(new URLSearchParams(window.location.search).get("n") || 0);

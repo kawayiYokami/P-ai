@@ -12,13 +12,6 @@ enum BuiltinToolPermissionClass {
 enum BuiltinToolRuntimeScope {
     Any,
     LocalConversation,
-    /// 仅追问会话（side_chat）挂载，主会话（chat）不挂。
-    ///
-    /// 分工：主会话同时盯多条线，管的是议题怎么流转（看板）；追问会话单线程单任务，
-    /// 管的是这条线做到哪一步（进度）。两套各管一层，互不重叠。
-    /// 追问会话与队员会话都属于这一档——队员就是靠它汇报自己做到哪一步。
-    /// delegate 有独立的状态源，remote_im_contact 与 system_notification 也不该有会话状态。
-    SideChatOnly,
     /// 目前没有任何条目使用它，但分支逻辑与语义都保留：
     /// 恢复旧的「主会话 + 追问会话都挂」口径时，把条目改回 LocalChatOnly 即可。
     #[allow(dead_code)]
@@ -196,15 +189,6 @@ const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::Any,
         prompt_rule_id: Some("todo"),
-        visible_in_permission_lists: false,
-    },
-    // progress 状态工具：SystemExempt 强制挂载（人格不可关），作用域限定为追问会话。
-    // 主会话用议题看板管流转，追问会话用进度管自己这条线做到哪一步；两套各管一层，不重叠。
-    BuiltinToolPolicy {
-        id: "progress",
-        permission_class: BuiltinToolPermissionClass::SystemExempt,
-        runtime_scope: BuiltinToolRuntimeScope::SideChatOnly,
-        prompt_rule_id: Some("progress"),
         visible_in_permission_lists: false,
     },
     // 队伍议题看板：队长专属，编译期不可关；挂载与否由装配期的队伍角色二次筛选
@@ -414,7 +398,6 @@ fn builtin_tool_runtime_unavailable_reason(
     origin_scope: RuntimeToolOriginScope,
     conversation_resolved: bool,
     local_conversation: bool,
-    side_chat_conversation: bool,
     delegate_conversation: bool,
     remote_reply_delegate: bool,
     contact_send_files_allowed: bool,
@@ -427,22 +410,13 @@ fn builtin_tool_runtime_unavailable_reason(
         BuiltinToolRuntimeScope::LocalConversation => {
             Some("plan 仅在本地会话中可用".to_string())
         }
-        // 判定顺序：先拒 resolved 为假（无法确认会话类型，安全跳过），
-        // 再只放行追问会话。主会话改用议题看板，不再写会话状态。
-        BuiltinToolRuntimeScope::SideChatOnly if !conversation_resolved => {
-            Some("无法确认当前会话类型，进度工具已安全跳过".to_string())
-        }
-        BuiltinToolRuntimeScope::SideChatOnly if side_chat_conversation => None,
-        BuiltinToolRuntimeScope::SideChatOnly => {
-            Some("进度工具仅在追问会话（含队员会话）中可用".to_string())
-        }
         // 目前没有条目使用这一档，判定链保留：恢复旧的「主会话 + 追问会话都挂」口径时直接可用。
         BuiltinToolRuntimeScope::LocalChatOnly if !conversation_resolved => {
-            Some("无法确认当前会话类型，进度工具已安全跳过".to_string())
+            Some("无法确认当前会话类型，该工具已安全跳过".to_string())
         }
         BuiltinToolRuntimeScope::LocalChatOnly if local_conversation => None,
         BuiltinToolRuntimeScope::LocalChatOnly => {
-            Some("进度工具仅在主会话与追问会话中可用".to_string())
+            Some("该工具仅在主会话与追问会话中可用".to_string())
         }
         // 本档位在这里一律放行：更严的「仅 chat 主会话」判定由
         // `RuntimeToolPolicy::tool_unavailable_reason` 补齐（那里拿得到会话 kind）。
@@ -489,7 +463,6 @@ fn builtin_tool_prompt_rule_allowed_in_origin(
         origin_scope,
         true,
         true,
-        true,
         false,
         false,
         true,
@@ -502,7 +475,6 @@ fn builtin_tool_prompt_rule_allowed_in_runtime(
     origin_scope: RuntimeToolOriginScope,
     conversation_resolved: bool,
     local_conversation: bool,
-    side_chat_conversation: bool,
     delegate_conversation: bool,
     remote_reply_delegate: bool,
     contact_send_files_allowed: bool,
@@ -515,7 +487,6 @@ fn builtin_tool_prompt_rule_allowed_in_runtime(
                 origin_scope,
                 conversation_resolved,
                 local_conversation,
-                side_chat_conversation,
                 delegate_conversation,
                 remote_reply_delegate,
                 contact_send_files_allowed,
@@ -571,91 +542,5 @@ mod builtin_tool_policy_tests {
             "goal",
             RuntimeToolOriginScope::RemoteUnknown
         ));
-    }
-
-    #[test]
-    fn progress_policy_should_be_system_exempt_and_hidden() {
-        let policy = builtin_tool_policy("progress");
-        assert_eq!(
-            policy.permission_class,
-            BuiltinToolPermissionClass::SystemExempt
-        );
-        // 作用域收在主会话之外：主会话管议题流转（看板），追问会话管自己这条线（进度）。
-        assert_eq!(policy.runtime_scope, BuiltinToolRuntimeScope::SideChatOnly);
-        assert_eq!(policy.prompt_rule_id, Some("progress"));
-        assert!(!policy.visible_in_permission_lists);
-    }
-
-    #[test]
-    fn progress_tool_should_only_attach_in_side_chat() {
-        // (origin, resolved, local, side_chat, 是否可用)
-        for (origin_scope, resolved, local_conversation, side_chat_conversation, available) in [
-            // 追问会话是唯一放行的一档；队员会话也是 side_chat，走同一档。
-            (RuntimeToolOriginScope::Local, true, false, true, true),
-            // 主会话改用议题看板，不再挂进度工具。
-            (RuntimeToolOriginScope::Local, true, true, false, false),
-            // 会话类型无法确认时安全跳过，不猜。
-            (RuntimeToolOriginScope::Local, false, false, false, false),
-            // delegate 有独立状态源，远程会话也没有会话状态。
-            (RuntimeToolOriginScope::Unknown, true, false, false, false),
-            (RuntimeToolOriginScope::RemotePrivate, true, false, false, false),
-        ] {
-            let reason = builtin_tool_runtime_unavailable_reason(
-                "progress",
-                origin_scope,
-                resolved,
-                local_conversation,
-                side_chat_conversation,
-                false,
-                false,
-                false,
-                false,
-            );
-            assert_eq!(
-                reason.is_none(),
-                available,
-                "origin={origin_scope:?} resolved={resolved} local={local_conversation} side_chat={side_chat_conversation} 结论错误，reason={reason:?}"
-            );
-        }
-        // 规则注入与工具挂载同源：追问会话注入，主会话不注入。
-        assert!(builtin_tool_prompt_rule_allowed_in_runtime(
-            "progress",
-            RuntimeToolOriginScope::Local,
-            true,
-            false,
-            true,
-            false,
-            false,
-            false,
-            false,
-        ));
-        assert!(!builtin_tool_prompt_rule_allowed_in_runtime(
-            "progress",
-            RuntimeToolOriginScope::Local,
-            true,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-        ));
-        // 规则正文映射与规则 id 都在，恢复或调整作用域都不需要重建资源。
-        assert_eq!(
-            builtin_tool_ids_for_prompt_rule("progress"),
-            vec!["progress"]
-        );
-    }
-
-    #[test]
-    fn side_chat_only_scope_should_only_cover_progress() {
-        // 收窄作用域是 progress 的单点决定，其余内置工具一律不走这一档
-        for tool_id in ["todo", "fetch", "task", "delegate", "get_tool", "plan"] {
-            assert_ne!(
-                builtin_tool_policy(tool_id).runtime_scope,
-                BuiltinToolRuntimeScope::SideChatOnly,
-                "{tool_id} 不应被收窄到追问会话"
-            );
-        }
     }
 }

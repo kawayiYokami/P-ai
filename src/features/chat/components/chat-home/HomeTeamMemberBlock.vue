@@ -44,10 +44,6 @@ const props = withDefaults(defineProps<{
   avatarUrlMap: () => ({}),
 });
 
-/**
- * 按工作状态排序：工作中（忙碌/在办议题）优先排前，空闲排最后。
- * 同状态内保持招募顺序。
- */
 const orderedMembers = computed(() => {
   const indexed = props.members.map((member, index) => ({ member, index }));
   indexed.sort((a, b) =>

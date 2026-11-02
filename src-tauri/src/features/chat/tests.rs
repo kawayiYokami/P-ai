@@ -4043,9 +4043,6 @@
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
         }
     }
 
@@ -10462,9 +10459,6 @@
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -11835,9 +11829,6 @@
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
         };
         let conversation_id = conversation.id.clone();
         data.conversations.push(conversation.clone());
@@ -11854,248 +11845,6 @@
             ..meta
         };
         assert!(!conversation_service_v2().conversation_meta_is_unarchived_meta_view(&archived_meta));
-    }
-
-    #[test]
-    fn progress_tool_should_write_read_and_debounce() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let now = now_utc_rfc3339();
-        let mut data = AppData::default();
-        data.conversations.push(Conversation {
-            id: "conversation-progress-main".to_string(),
-            title: "状态测试会话".to_string(),
-            agent_id: DEFAULT_AGENT_ID.to_string(),
-            bound_conversation_id: None,
-            parent_conversation_id: None,
-            child_conversation_ids: Vec::new(),
-            fork_message_cursor: None,
-            unread_count: 0,
-            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
-            root_conversation_id: None,
-            delegate_id: None,
-            created_at: now.clone(),
-            updated_at: now.clone(),
-            last_user_at: None,
-            last_assistant_at: None,
-            status: "active".to_string(),
-            user_profile_snapshot: String::new(),
-            shell_workspace_path: None,
-            shell_workspaces: Vec::new(),
-            shell_autonomous_mode: false,
-            shell_work_mode: default_shell_work_mode(),
-            shell_work_branch: String::new(),
-            shell_worktree_path: String::new(),
-            shell_recorded_branch: String::new(),
-            archived_at: None,
-            messages: Vec::new(),
-            fast_request_turns: Vec::new(),
-            current_todos: Vec::new(),
-            memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
-            preferred_api_config_id: None,
-            is_draft: false,
-            auto_push_remote_contact_id: None,
-            cumulative_usage: ConversationCumulativeUsage::default(),
-            active_goal: None,
-            team: TeamState::default(),
-            loaded_mcp_tools: Vec::new(),
-            last_error: None,
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
-        });
-        state_write_app_data_cached(&state, &data).expect("write app data");
-        let session_id = "agent-a::conversation-progress-main".to_string();
-
-        // 1) 写入 + 读取往返：首次写入返回阶段提示词
-        let first = builtin_progress(
-            &state,
-            &session_id,
-            ProgressWriteRequest {
-                progress_state: "in_progress".to_string(),
-                evidence: String::new(),
-                reason: String::new(),
-            },
-        )
-        .expect("first progress write");
-        assert!(first.contains("已记录"), "首次写入应返回确认：{first}");
-        assert!(first.contains("in_progress"));
-        let (state_after, evidence_after) =
-            progress_state_of_conversation(&state, "conversation-progress-main")
-                .expect("read back after write");
-        assert_eq!(state_after, "in_progress");
-        assert_eq!(evidence_after, "");
-
-        // 2) 防抖：状态未变时仍返回提示词，但不产生第二次落盘（evidence_updated_at 不变）
-        let (_, _, first_updated_at) = {
-            let meta = conversation_service_v2()
-                .get_conversation_meta(&state, "conversation-progress-main")
-                .expect("meta before debounce");
-            (meta.progress_state, meta.evidence, meta.evidence_updated_at)
-        };
-        let debounced = builtin_progress(
-            &state,
-            &session_id,
-            ProgressWriteRequest {
-                progress_state: "in_progress".to_string(),
-                evidence: String::new(),
-                reason: String::new(),
-            },
-        )
-        .expect("debounced progress call");
-        assert!(
-            debounced.contains("状态未变化"),
-            "防抖时应返回未变化确认 + 阶段提示词：{debounced}"
-        );
-        assert!(debounced.contains("in_progress"));
-        let meta = conversation_service_v2()
-            .get_conversation_meta(&state, "conversation-progress-main")
-            .expect("meta after debounce");
-        assert_eq!(meta.evidence_updated_at, first_updated_at, "防抖不应刷新时间戳");
-
-        // 3) 证据强制：done 无 evidence 报错且不落库
-        let done_err = builtin_progress(
-            &state,
-            &session_id,
-            ProgressWriteRequest {
-                progress_state: "done".to_string(),
-                evidence: String::new(),
-                reason: String::new(),
-            },
-        )
-        .expect_err("done without evidence should fail");
-        assert!(done_err.contains("evidence"), "错误信息应点名 evidence：{done_err}");
-        let (state_after_err, _) = progress_state_of_conversation(&state, "conversation-progress-main")
-            .expect("read back after rejected done");
-        assert_eq!(state_after_err, "in_progress", "格式校验失败不得落库");
-
-        // 4) 证据强制：blocked 无 reason 报错且不落库
-        let blocked_err = builtin_progress(
-            &state,
-            &session_id,
-            ProgressWriteRequest {
-                progress_state: "blocked".to_string(),
-                evidence: String::new(),
-                reason: String::new(),
-            },
-        )
-        .expect_err("blocked without reason should fail");
-        assert!(blocked_err.contains("reason"), "错误信息应点名 reason：{blocked_err}");
-        let (state_after_err, _) = progress_state_of_conversation(&state, "conversation-progress-main")
-            .expect("read back after rejected blocked");
-        assert_eq!(state_after_err, "in_progress");
-
-        // 5) 非法 key 拒绝
-        builtin_progress(
-            &state,
-            &session_id,
-            ProgressWriteRequest {
-                progress_state: "finished".to_string(),
-                evidence: String::new(),
-                reason: String::new(),
-            },
-        )
-        .expect_err("illegal progress_state key should fail");
-
-        // 6) done 带 evidence 落库；evidence 变化视为变化（防抖不吞）
-        let done = builtin_progress(
-            &state,
-            &session_id,
-            ProgressWriteRequest {
-                progress_state: "done".to_string(),
-                evidence: "用户原话：可以交付了".to_string(),
-                reason: String::new(),
-            },
-        )
-        .expect("done with evidence");
-        assert!(done.contains("已记录"));
-        let (state_done, evidence_done) =
-            progress_state_of_conversation(&state, "conversation-progress-main")
-                .expect("read back after done");
-        assert_eq!(state_done, "done");
-        assert_eq!(evidence_done, "用户原话：可以交付了");
-    }
-
-    #[test]
-    fn progress_summaries_should_expose_progress_state() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let now = now_utc_rfc3339();
-        let mut data = AppData::default();
-        let base = |id: &str, kind: &str| Conversation {
-            id: id.to_string(),
-            title: id.to_string(),
-            agent_id: DEFAULT_AGENT_ID.to_string(),
-            bound_conversation_id: None,
-            parent_conversation_id: None,
-            child_conversation_ids: Vec::new(),
-            fork_message_cursor: None,
-            unread_count: 0,
-            conversation_kind: kind.to_string(),
-            root_conversation_id: None,
-            delegate_id: None,
-            created_at: now.clone(),
-            updated_at: now.clone(),
-            last_user_at: None,
-            last_assistant_at: None,
-            status: "active".to_string(),
-            user_profile_snapshot: String::new(),
-            shell_workspace_path: None,
-            shell_workspaces: Vec::new(),
-            shell_autonomous_mode: false,
-            shell_work_mode: default_shell_work_mode(),
-            shell_work_branch: String::new(),
-            shell_worktree_path: String::new(),
-            shell_recorded_branch: String::new(),
-            archived_at: None,
-            messages: Vec::new(),
-            fast_request_turns: Vec::new(),
-            current_todos: Vec::new(),
-            memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
-            preferred_api_config_id: None,
-            is_draft: false,
-            auto_push_remote_contact_id: None,
-            cumulative_usage: ConversationCumulativeUsage::default(),
-            active_goal: None,
-            team: TeamState::default(),
-            loaded_mcp_tools: Vec::new(),
-            last_error: None,
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
-        };
-        let mut main = base("conversation-summary-main", CONVERSATION_KIND_CHAT);
-        main.progress_state = "in_review".to_string();
-        main.evidence = "用户原话：先看看效果".to_string();
-        main.evidence_updated_at = now.clone();
-        main.child_conversation_ids.push("conversation-summary-child".to_string());
-        let mut child = base("conversation-summary-child", CONVERSATION_KIND_SIDE_CHAT);
-        child.parent_conversation_id = Some("conversation-summary-main".to_string());
-        child.progress_state = "blocked".to_string();
-        child.evidence = "缺少 API Key".to_string();
-        child.evidence_updated_at = now.clone();
-        data.conversations.push(main);
-        data.conversations.push(child);
-        state_write_app_data_cached(&state, &data).expect("write app data");
-
-        // 出口 1：UnarchivedConversationSummary 带三字段
-        let summary = conversation_service_v2()
-            .read_unarchived_conversation_summary(&state, "conversation-summary-main")
-            .expect("read main summary")
-            .expect("main summary should exist");
-        assert_eq!(summary.progress_state, "in_review");
-        assert_eq!(summary.evidence, "用户原话：先看看效果");
-        assert_eq!(summary.evidence_updated_at, now);
-
-        // 出口 2：ChildConversationSummary 带三字段（追问会话独立状态）
-        assert_eq!(summary.child_conversations.len(), 1);
-        let child_summary = &summary.child_conversations[0];
-        assert_eq!(child_summary.conversation_id, "conversation-summary-child");
-        assert_eq!(child_summary.progress_state, "blocked");
-        assert_eq!(child_summary.evidence, "缺少 API Key");
-        assert_eq!(child_summary.evidence_updated_at, now);
     }
 
     #[test]
@@ -12141,9 +11890,6 @@
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -12221,9 +11967,6 @@
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -15233,7 +14976,6 @@
                 role: "李工".to_string(),
                 title: "去查 A".to_string(),
                 content: "去查 A".to_string(),
-                status: None,
                 mode: Some("guided".to_string()),
                 conversation_id: None,
             },
@@ -15274,7 +15016,6 @@
             TeamReportToolArgs {
                 title: "查完了".to_string(),
                 content: "查完了".to_string(),
-                status: None,
                 mode: None,
             },
         )
@@ -15294,7 +15035,7 @@
     }
 
     #[test]
-    fn team_send_mail_should_carry_title_and_state() {
+    fn team_send_mail_should_carry_title() {
         let state = team_test_state();
         let leader = persist_team_leader(&state, "conversation-team-mail-leader");
         let output = recruit_member(&state, &leader.id, "李工");
@@ -15309,7 +15050,6 @@
                 role: "李工".to_string(),
                 title: " 改鉴权 ".to_string(),
                 content: "改成 session 表".to_string(),
-                status: Some("in_progress".to_string()),
                 mode: None,
                 conversation_id: None,
             },
@@ -15322,26 +15062,16 @@
             let message = &slot.pending_queue.back().expect("queued event").messages[0];
             let meta = message.provider_meta.as_ref().expect("provider meta");
             assert_eq!(meta.get("teamMailTitle").and_then(Value::as_str), Some("改鉴权"));
-            // 状态不再进 meta：界面读正文状态行，状态唯一落点是会话的 progress_state。
-            assert!(meta.get("teamMailState").is_none(), "meta 不再存第二份状态");
             let text = message_text_content(message);
             assert!(
                 text.starts_with("<details>\n<summary>改鉴权</summary>"),
                 "标题要进折叠块的 summary，模型侧也读得到：{text}"
             );
-            assert!(
-                text.contains("（队长把这条线的状态设为：进行中）"),
-                "状态行由服务端写死，不靠模型转述：{text}"
-            );
         }
-        let member_meta = conversation_service_v2()
-            .get_conversation_meta(&state, &member_id)
-            .expect("member meta");
-        assert_eq!(member_meta.progress_state, "in_progress", "状态要真的落库");
     }
 
     #[test]
-    fn team_report_mail_should_carry_title_and_skip_absent_state() {
+    fn team_report_mail_should_carry_title() {
         let state = team_test_state();
         let leader = persist_team_leader(&state, "conversation-team-report-persona");
         let output = recruit_member(&state, &leader.id, "李工");
@@ -15355,7 +15085,6 @@
             TeamReportToolArgs {
                 title: "查完了".to_string(),
                 content: "结论 A".to_string(),
-                status: None,
                 mode: None,
             },
         )
@@ -15369,14 +15098,10 @@
             assert_eq!(meta.get("teamMailTitle").and_then(Value::as_str), Some("查完了"));
             let text = message_text_content(message);
             assert!(
-                !text.contains("把这条线的状态设为"),
-                "没填 status 就不该出现状态行，别把空值当成一种状态：{text}"
+                text.starts_with("<details>\n<summary>查完了</summary>"),
+                "标题要进折叠块的 summary，模型侧也读得到：{text}"
             );
         }
-        let member_meta = conversation_service_v2()
-            .get_conversation_meta(&state, &member_id)
-            .expect("member meta");
-        assert_eq!(member_meta.progress_state, "", "没填 status 就不该动状态");
     }
 
     #[test]
@@ -15392,7 +15117,6 @@
                 role: "李工".to_string(),
                 title: "   ".to_string(),
                 content: "随便".to_string(),
-                status: None,
                 mode: None,
                 conversation_id: None,
             },
@@ -15417,7 +15141,6 @@
                 role: "李工".to_string(),
                 title: "改鉴权".to_string(),
                 content: "改成 session 表".to_string(),
-                status: None,
                 mode: None,
                 conversation_id: None,
             },
@@ -15449,7 +15172,6 @@
             TeamReportToolArgs {
                 title: "查完了".to_string(),
                 content: "结论 A".to_string(),
-                status: None,
                 mode: None,
             },
         )
@@ -15551,7 +15273,6 @@
                 role: "李工".to_string(),
                 title: "改".repeat(60),
                 content: "改成 session 表".to_string(),
-                status: None,
                 mode: None,
                 conversation_id: None,
             },
@@ -15574,171 +15295,6 @@
             text.starts_with(&format!("<details>\n<summary>{title}</summary>")),
             "正文标题要与 meta 一致：{text}"
         );
-    }
-
-    #[test]
-    fn team_send_mail_should_write_member_progress_state() {
-        let state = team_test_state();
-        let leader = persist_team_leader(&state, "conversation-team-mail-state-leader");
-        let output = recruit_member(&state, &leader.id, "李工");
-        let member_id = output["conversationId"].as_str().expect("member id").to_string();
-        set_conversation_runtime_state_and_emit(&state, &member_id, MainSessionState::AssistantStreaming)
-            .expect("mark member busy");
-
-        builtin_team_send(
-            &state,
-            &team_session_id(&leader.id),
-            TeamSendToolArgs {
-                role: "李工".to_string(),
-                title: "改鉴权".to_string(),
-                content: "改成 session 表".to_string(),
-                status: Some("in_progress".to_string()),
-                mode: None,
-                conversation_id: None,
-            },
-        )
-        .expect("team send");
-
-        // 真状态只有 progress_state 一个：界面上读的就是它，正文状态行只是同一次写入的投影
-        let meta = conversation_service_v2()
-            .get_conversation_meta(&state, &member_id)
-            .expect("member meta");
-        assert_eq!(meta.progress_state, "in_progress");
-        assert!(
-            meta.evidence.contains("队长") && meta.evidence.contains("改鉴权"),
-            "证据要写清是谁在哪封邮件里设的：{}",
-            meta.evidence
-        );
-
-        let slots = lock_conversation_runtime_slots(&state).expect("slots");
-        let slot = slots.get(&member_id).expect("member slot");
-        let message = &slot.pending_queue.back().expect("queued event").messages[0];
-        let message_meta = message.provider_meta.as_ref().expect("provider meta");
-        assert!(
-            message_meta.get("teamMailState").is_none(),
-            "meta 不再存第二份状态，状态只认 progress_state"
-        );
-        // 状态行由服务端写死，不靠模型转述
-        let text = message_text_content(message);
-        assert!(
-            text.contains("（队长把这条线的状态设为：进行中）"),
-            "正文头部要有写死的状态行：{text}"
-        );
-    }
-
-    #[test]
-    fn team_report_mail_should_write_own_progress_state() {
-        let state = team_test_state();
-        let leader = persist_team_leader(&state, "conversation-team-report-state-leader");
-        let output = recruit_member(&state, &leader.id, "李工");
-        let member_id = output["conversationId"].as_str().expect("member id").to_string();
-        set_conversation_runtime_state_and_emit(&state, &leader.id, MainSessionState::AssistantStreaming)
-            .expect("mark leader busy");
-
-        builtin_team_report(
-            &state,
-            &team_session_id(&member_id),
-            TeamReportToolArgs {
-                title: "鉴权改完了".to_string(),
-                content: "等你看".to_string(),
-                status: Some("in_review".to_string()),
-                mode: None,
-            },
-        )
-        .expect("team report");
-
-        let meta = conversation_service_v2()
-            .get_conversation_meta(&state, &member_id)
-            .expect("member meta");
-        assert_eq!(meta.progress_state, "in_review", "队员自己推进时改自己这条线");
-        assert!(
-            meta.evidence.contains("队员") && meta.evidence.contains("鉴权改完了"),
-            "证据要写清是谁在哪封邮件里设的：{}",
-            meta.evidence
-        );
-
-        let slots = lock_conversation_runtime_slots(&state).expect("slots");
-        let slot = slots.get(&leader.id).expect("leader slot");
-        let message = &slot.pending_queue.back().expect("queued event").messages[0];
-        let message_meta = message.provider_meta.as_ref().expect("provider meta");
-        assert!(
-            message_meta.get("teamMailState").is_none(),
-            "meta 不再存第二份状态，状态只认 progress_state"
-        );
-        let text = message_text_content(message);
-        assert!(
-            text.contains("（队员把这条线的状态设为：待审核）"),
-            "汇报同样要带状态行：{text}"
-        );
-    }
-
-    #[test]
-    fn team_mail_should_reject_invalid_status_and_leave_state_untouched() {
-        let state = team_test_state();
-        let leader = persist_team_leader(&state, "conversation-team-mail-bad-status");
-        let output = recruit_member(&state, &leader.id, "李工");
-        let member_id = output["conversationId"].as_str().expect("member id").to_string();
-
-        let err = builtin_team_send(
-            &state,
-            &team_session_id(&leader.id),
-            TeamSendToolArgs {
-                role: "李工".to_string(),
-                title: "改鉴权".to_string(),
-                content: "改成 session 表".to_string(),
-                status: Some("waiting".to_string()),
-                mode: None,
-                conversation_id: None,
-            },
-        )
-        .expect_err("非法状态要拒绝");
-        assert!(err.contains("六态"), "报错要指出合法取值范围：{err}");
-
-        // 拒绝了就不该写状态，也不该入队——否则邮件说改了、状态没改
-        let meta = conversation_service_v2()
-            .get_conversation_meta(&state, &member_id)
-            .expect("member meta");
-        assert!(meta.progress_state.trim().is_empty(), "非法状态不得落库");
-        let slots = lock_conversation_runtime_slots(&state).expect("slots");
-        assert!(
-            slots.get(&member_id).map(|slot| slot.pending_queue.is_empty()).unwrap_or(true),
-            "拒绝后不得入队"
-        );
-    }
-
-    #[test]
-    fn team_mail_without_status_should_not_touch_progress_state() {
-        let state = team_test_state();
-        let leader = persist_team_leader(&state, "conversation-team-mail-no-status");
-        let output = recruit_member(&state, &leader.id, "李工");
-        let member_id = output["conversationId"].as_str().expect("member id").to_string();
-        set_conversation_runtime_state_and_emit(&state, &member_id, MainSessionState::AssistantStreaming)
-            .expect("mark member busy");
-
-        builtin_team_send(
-            &state,
-            &team_session_id(&leader.id),
-            TeamSendToolArgs {
-                role: "李工".to_string(),
-                title: "补充一句".to_string(),
-                content: "别动老的中间件".to_string(),
-                status: None,
-                mode: None,
-                conversation_id: None,
-            },
-        )
-        .expect("team send");
-
-        let meta = conversation_service_v2()
-            .get_conversation_meta(&state, &member_id)
-            .expect("member meta");
-        assert!(meta.progress_state.trim().is_empty(), "没填状态就一个字都不该写");
-
-        let slots = lock_conversation_runtime_slots(&state).expect("slots");
-        let slot = slots.get(&member_id).expect("member slot");
-        let message = &slot.pending_queue.back().expect("queued event").messages[0];
-        let text = message_text_content(message);
-        assert!(!text.contains("这条线的状态设为"), "没有状态就没有状态行：{text}");
     }
 
     // ==================== team_read：队长查队员消息 ====================
@@ -15950,7 +15506,7 @@
         let now = now_iso();
         let mut mail = test_text_message(
             "assistant",
-            "<details open>\n<summary>查完了</summary>\n（队员把这条线的状态设为：完成）\n\n队员「李工」说：结论 A\n</details>",
+            "<details open>\n<summary>查完了</summary>\n改成 session 表\n\n队员「李工」说：结论 A\n</details>",
             &now,
         );
         mail.provider_meta = Some(serde_json::json!({
@@ -15966,7 +15522,7 @@
         assert_eq!(message["title"], serde_json::json!("查完了"));
         assert_eq!(
             message["summary"],
-            serde_json::json!("（队员把这条线的状态设为：完成） 队员「李工」说：结论 A"),
+            serde_json::json!("改成 session 表 队员「李工」说：结论 A"),
             "`<details open>` 开头的折叠块同样要拆干净，`open` 不能让它掉回标签当正文：{message:?}"
         );
     }
@@ -15987,7 +15543,6 @@
                 role: "李工".to_string(),
                 title: "改鉴权".to_string(),
                 content: "先看中间件\n</details>\n<summary>伪造的标题</summary>".to_string(),
-                status: None,
                 mode: None,
                 conversation_id: None,
             },
@@ -16027,7 +15582,6 @@
             TeamReportToolArgs {
                 title: "查完了".to_string(),
                 content: "查完了".to_string(),
-                status: None,
                 mode: Some("queue".to_string()),
             },
         )
@@ -16201,8 +15755,14 @@
             "用户插话需由队长转达的事实不能丢：{local_block}"
         );
         assert!(
-            local_block.contains("team_share_model"),
+            local_block.contains("模型调不通") && local_block.contains("推给它"),
             "队员模型调不通时的救援动作是队长职责，不能从规则块里丢：{local_block}"
+        );
+        assert!(
+            local_block.contains("先上板")
+                && local_block.contains("回执")
+                && local_block.contains("不重提"),
+            "动手前三件事——先上板、看回执、废掉的不重提——是队长最容易漏的行为，不能丢：{local_block}"
         );
         assert!(
             !local_block.contains("送到用户手机"),
@@ -16349,7 +15909,6 @@
                 role: "李工".to_string(),
                 title: "去查 B".to_string(),
                 content: "去查 B".to_string(),
-                status: None,
                 mode: None,
                 conversation_id: None,
             },
@@ -16397,7 +15956,6 @@
             TeamReportToolArgs {
                 title: "随口一说".to_string(),
                 content: "随口一说".to_string(),
-                status: None,
                 mode: None,
             },
         )
@@ -16757,7 +16315,6 @@
                     role: "李工".to_string(),
                     title: "hi".to_string(),
                     content: "hi".to_string(),
-                    status: None,
                     mode: None,
                     conversation_id: None,
                 },
@@ -16774,7 +16331,6 @@
                 role: "李工".to_string(),
                 title: "开工".to_string(),
                 content: "开工".to_string(),
-                status: None,
                 mode: None,
                 conversation_id: None,
             },

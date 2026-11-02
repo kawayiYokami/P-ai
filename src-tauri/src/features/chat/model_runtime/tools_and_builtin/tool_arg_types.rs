@@ -122,9 +122,6 @@ struct TeamSendToolArgs {
     /// 邮件标题，必填。它就是正文第一行（`# 标题`），同时单列进 meta 供 `team_read` 回报。
     title: String,
     content: String,
-    /// 这条线的状态（六态 key）。队长发件时设置，随邮件一起落进队员会话。
-    #[serde(default)]
-    status: Option<String>,
     /// guided = 引导（对方执行完一个工具就插入并重启）；queue = 排队等对方这一轮收尾。
     #[serde(default)]
     mode: Option<String>,
@@ -138,9 +135,6 @@ struct TeamReportToolArgs {
     /// 邮件标题，必填。它就是正文第一行（`# 标题`），同时单列进 meta 供 `team_read` 回报。
     title: String,
     content: String,
-    /// 汇报时顺手更新这条线的状态（六态 key）。不填就只汇报、不动状态。
-    #[serde(default)]
-    status: Option<String>,
     #[serde(default)]
     mode: Option<String>,
 }

@@ -115,17 +115,6 @@
       </div>
 
       <div class="relative z-40 flex min-w-0 items-center justify-end gap-1" @mousedown.stop @dblclick.stop>
-        <!-- 会话状态：常驻标题右侧。徽章自带 *-content 前景色，比裸写 text-* 在浅色主题下可读 -->
-        <span
-          v-if="currentConversationShowsProgress"
-          class="badge badge-sm gap-1.5 font-normal"
-          :class="currentConversationProgress.chipClass"
-          :title="currentConversationProgressTitle"
-          :aria-label="currentConversationProgressTitle"
-        >
-          <span :class="conversationProgressDotClass(currentConversationProgress)"></span>
-          {{ currentConversationProgressLabel }}
-        </span>
       </div>
     </div>
 
@@ -309,7 +298,6 @@ import { getTransportCapabilities } from "../../../services/tauri-api";
 import { Download, FoldVertical, History, Minus, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Search, Settings, Square, SquarePen, X } from "@lucide/vue";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
-import { conversationProgressDotClass, conversationProgressVisual, conversationShowsProgressState } from "../../chat/utils/conversation-item-display";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
 import { usePipelineStatus } from "../composables/use-pipeline-status";
 
@@ -523,25 +511,6 @@ const currentConversationTitle = computed(() => {
     untitledLabel: t("chat.untitledConversation"),
     systemNotificationLabel: t("chat.systemPersona"),
   });
-});
-
-// 会话状态：与标题同源读同一个概览项，不额外加 prop
-const currentConversationProgress = computed(() =>
-  conversationProgressVisual(currentConversationItem.value?.progressState),
-);
-/** 只有主会话与追问会话有状态（白名单）；远程联系人、系统通知、委托、尚未进入列表的新建草稿都不渲染徽章 */
-const currentConversationShowsProgress = computed(() =>
-  conversationShowsProgressState(currentConversationItem.value?.conversationKind),
-);
-const currentConversationProgressLabel = computed(() => t(currentConversationProgress.value.labelKey));
-const currentConversationProgressTitle = computed(() => {
-  const evidence = String(currentConversationItem.value?.evidence || "").trim();
-  return evidence
-    ? t("chat.conversationStatus.tooltipWithEvidence", {
-        status: currentConversationProgressLabel.value,
-        evidence,
-      })
-    : t("chat.conversationStatus.tooltip", { status: currentConversationProgressLabel.value });
 });
 
 const conversationUnreadTotal = computed(() =>

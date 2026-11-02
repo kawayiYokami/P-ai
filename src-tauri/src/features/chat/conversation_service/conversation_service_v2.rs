@@ -136,12 +136,6 @@ struct ConversationMetaView {
     fast_request_turns: Vec<FastRequestTurn>,
     last_message_id: Option<String>,
     last_error: Option<String>,
-    #[serde(default)]
-    progress_state: String,
-    #[serde(default)]
-    evidence: String,
-    #[serde(default)]
-    evidence_updated_at: String,
     preview_messages: Vec<ConversationMetaPreviewMessage>,
 }
 
@@ -333,9 +327,6 @@ impl ConversationMetaView {
             fast_request_turns: meta.fast_request_turns().to_vec(),
             last_message_id,
             last_error: meta.last_error().map(ToOwned::to_owned),
-            progress_state: meta.progress_state().to_string(),
-            evidence: meta.evidence().to_string(),
-            evidence_updated_at: meta.evidence_updated_at().to_string(),
             preview_messages,
         }
     }
@@ -667,9 +658,6 @@ struct ConversationExternalMetadataPatch {
     routing_conversation_kind: Option<String>,
     is_draft: Option<bool>,
     loaded_mcp_tools: Option<Vec<String>>,
-    progress_state: Option<String>,
-    evidence: Option<String>,
-    evidence_updated_at: Option<String>,
 }
 
 fn conversation_service_v2() -> &'static ConversationServiceV2 {
@@ -1312,15 +1300,6 @@ impl ConversationServiceV2 {
                         if let Some(value) = patch.loaded_mcp_tools {
                             conversation.loaded_mcp_tools = value;
                         }
-                        if let Some(value) = patch.progress_state {
-                            conversation.progress_state = value;
-                        }
-                        if let Some(value) = patch.evidence {
-                            conversation.evidence = value;
-                        }
-                        if let Some(value) = patch.evidence_updated_at {
-                            conversation.evidence_updated_at = value;
-                        }
                         if conversation
                             .shell_workspace_path
                             .as_deref()
@@ -1515,9 +1494,6 @@ impl ConversationServiceV2 {
         conversation.shell_recorded_branch = conversation_meta.shell_recorded_branch.clone();
         conversation.archived_at = conversation_meta.archived_at.clone();
         conversation.current_todos = conversation_meta.current_todos.clone();
-        conversation.progress_state = conversation_meta.progress_state.clone();
-        conversation.evidence = conversation_meta.evidence.clone();
-        conversation.evidence_updated_at = conversation_meta.evidence_updated_at.clone();
         conversation.plan_mode_enabled = conversation_meta.plan_mode_enabled;
         conversation.preferred_api_config_id =
             conversation_meta.preferred_api_config_id.clone();

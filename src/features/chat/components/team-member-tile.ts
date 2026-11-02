@@ -15,8 +15,6 @@ export type TeamMemberTileItem = {
   teamName?: string;
   agentId?: string;
   agentName?: string;
-  /** 会话状态六态 key；空串与缺失都归到「未设置」 */
-  progressState?: string;
   /** 运行态：调度中/整理上下文等在跑，磁贴末尾挂一个转圈 */
   runtimeState?: string;
   /**

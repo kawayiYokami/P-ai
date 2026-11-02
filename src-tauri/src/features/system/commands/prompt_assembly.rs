@@ -670,9 +670,6 @@ mod prompt_assembly_tests {
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
         }
     }
 

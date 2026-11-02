@@ -1002,9 +1002,6 @@ async fn send_chat_message_inner(
             team: TeamState::default(),
             loaded_mcp_tools: Vec::new(),
             last_error: None,
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
         }
     };
     let requested_conversation_id_for_prepare = requested_conversation_id.clone();
@@ -3679,9 +3676,6 @@ mod core_send_inner_tests {
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
         }
     }
 
@@ -4436,9 +4430,6 @@ mod core_send_inner_tests {
             active_goal: None, team: TeamState::default(), last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
         };
         let final_message = build_assistant_message_from_request_sequence(
             "assistant-existing".to_string(),

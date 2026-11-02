@@ -126,9 +126,6 @@ fn active_plan_records_in_progress_should_return_newest_first() {
         active_goal: None, team: TeamState::default(), last_error: None,
         cumulative_usage: ConversationCumulativeUsage::default(),
         is_draft: false,
-        progress_state: String::new(),
-        evidence: String::new(),
-        evidence_updated_at: String::new(),
     };
     chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
     let append_record = |plan_id: &str, status: &str, path: &str, created_at: &str| {

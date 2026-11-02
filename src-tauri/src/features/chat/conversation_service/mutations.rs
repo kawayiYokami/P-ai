@@ -639,12 +639,6 @@ fn build_branch_conversation_record_from_selection_runtime_meta_view(
     conversation.shell_autonomous_mode = source_meta.shell_autonomous_mode;
     conversation.shell_work_mode = normalize_shell_work_mode_text(&source_meta.shell_work_mode);
     conversation.current_todos = source_meta.current_todos.clone();
-    // 会话状态不从父会话继承：todo 是步骤清单（追问沿用同一任务的步骤合理），
-    // 会话状态是「这个目标走到哪了」的事实——追问是新的目标上下文，父会话的
-    // 完成/阻塞对它不成立，照抄会凭空造出一个事实。新追问保持「未设置」。
-    conversation.progress_state = String::new();
-    conversation.evidence = String::new();
-    conversation.evidence_updated_at = String::new();
     let user_profile_snapshot = agents
         .iter()
         .find(|item| item.id == agent_id)
@@ -927,18 +921,15 @@ fn read_conversation_for_backup_cleanup(
         team: conversation_meta.team,
         loaded_mcp_tools: Vec::new(),
         last_error: conversation_meta.last_error,
-        progress_state: conversation_meta.progress_state,
-        evidence: conversation_meta.evidence,
-        evidence_updated_at: conversation_meta.evidence_updated_at,
     })
 }
 
 #[cfg(test)]
-mod branch_progress_state_tests {
+mod branch_todos_tests {
     use super::*;
 
     #[test]
-    fn branch_conversation_should_reset_progress_state_and_keep_todos() {
+    fn branch_conversation_should_copy_todos() {
         let source_meta = ConversationMetaView {
             id: "conversation-branch-source".to_string(),
             title: "源会话".to_string(),
@@ -988,9 +979,6 @@ mod branch_progress_state_tests {
             fast_request_turns: Vec::new(),
             last_message_id: None,
             last_error: None,
-            progress_state: "done".to_string(),
-            evidence: "用户确认".to_string(),
-            evidence_updated_at: "2026-11-01T00:00:00Z".to_string(),
             preview_messages: Vec::new(),
         };
 
@@ -1013,11 +1001,7 @@ mod branch_progress_state_tests {
             branch.parent_conversation_id.as_deref(),
             Some("conversation-branch-source")
         );
-        // 会话状态不继承：显式为空（源为 done/有证据，若继承断言会失败）
-        assert_eq!(branch.progress_state, "");
-        assert_eq!(branch.evidence, "");
-        assert_eq!(branch.evidence_updated_at, "");
-        // 对照：todo 拷贝先例保留——同一次调用里两字段行为不同是有意设计
+        // 对照：todo 会从源会话拷贝过来
         assert_eq!(branch.current_todos.len(), 1);
         assert_eq!(branch.current_todos[0].content, "第一步");
     }

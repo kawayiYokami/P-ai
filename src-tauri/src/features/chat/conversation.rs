@@ -716,9 +716,6 @@ fn test_conversation_with_kind(kind: &str) -> Conversation {
         team: TeamState::default(),
         loaded_mcp_tools: Vec::new(),
         last_error: None,
-        progress_state: String::new(),
-        evidence: String::new(),
-        evidence_updated_at: String::new(),
     }
 }
 
@@ -831,9 +828,6 @@ mod summary_context_title_tests {
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
             team: TeamState::default(),
-            progress_state: String::new(),
-            evidence: String::new(),
-            evidence_updated_at: String::new(),
         }
     }
 
@@ -1228,9 +1222,6 @@ fn build_conversation_record(
         team: TeamState::default(),
         loaded_mcp_tools: Vec::new(),
         last_error: None,
-        progress_state: String::new(),
-        evidence: String::new(),
-        evidence_updated_at: String::new(),
     }
 }
 
@@ -3208,7 +3199,6 @@ const EXEC_TOOL_RULE_SHELL_MD: &str = include_str!("../../../resources/prompts/e
 const EXEC_TOOL_RULE_RG_MD: &str = include_str!("../../../resources/prompts/exec-tool-rule-rg.md");
 const DEEP_RECALL_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/deep-recall-tool-rule.md");
 const TODO_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/todo-tool-rule.md");
-const PROGRESS_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/progress-tool-rule.md");
 const KANBAN_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/kanban-tool-rule.md");
 const GOAL_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/goal-tool-rule.md");
 const DELEGATE_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/delegate-tool-rule.md");
@@ -3229,7 +3219,6 @@ fn build_builtin_tool_rule_block(tool_id: &str, rg_installed: bool) -> Option<St
         }
         "deeprecall" => ("deep recall tool rule", DEEP_RECALL_TOOL_RULE_MD.trim()),
         "todo" => ("todo tool rule", TODO_TOOL_RULE_MD.trim()),
-        "progress" => ("progress tool rule", PROGRESS_TOOL_RULE_MD.trim()),
         "kanban" => ("kanban tool rule", KANBAN_TOOL_RULE_MD.trim()),
         "goal" => ("goal tool rule", GOAL_TOOL_RULE_MD.trim()),
         "get_session" | "inform_session" => (
@@ -3787,9 +3776,6 @@ fn build_prompt_with_mode(
         team: conversation.team.clone(),
         loaded_mcp_tools: conversation.loaded_mcp_tools.clone(),
         last_error: conversation.last_error.clone(),
-        progress_state: conversation.progress_state.clone(),
-        evidence: conversation.evidence.clone(),
-        evidence_updated_at: conversation.evidence_updated_at.clone(),
     };
     let recall_memory_ids = collect_prompt_retrieved_memory_ids(&enriched_conversation.messages);
     let recall_memories = if recall_memory_ids.is_empty() {

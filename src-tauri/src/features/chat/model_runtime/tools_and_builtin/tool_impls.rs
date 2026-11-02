@@ -1007,12 +1007,6 @@ struct BuiltinTodoTool {
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinProgressTool {
-    app_state: AppState,
-    session_id: String,
-}
-
-#[derive(Debug, Clone)]
 struct BuiltinKanbanTool {
     app_state: AppState,
     session_id: String,
@@ -1102,12 +1096,6 @@ impl RuntimeToolMetadata for BuiltinTodoTool {
     }
 }
 
-impl RuntimeToolMetadata for BuiltinProgressTool {
-    fn provider_tool_definition(&self) -> ProviderToolDefinition {
-        progress_provider_tool_definition()
-    }
-}
-
 impl RuntimeToolMetadata for BuiltinQuestionTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         question_provider_tool_definition()
@@ -1136,35 +1124,6 @@ impl RuntimeToolDyn for BuiltinQuestionTool {
                 )),
                 Err(err) => runtime_log_error(format!(
                     "[工具执行] 内置工具 question 执行失败: 错误={err}"
-                )),
-            }
-            result
-        })
-    }
-}
-
-impl RuntimeToolDyn for BuiltinProgressTool {
-    fn name(&self) -> String {
-        PROGRESS_TOOL_NAME.to_string()
-    }
-
-    fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
-        Box::pin(async move {
-            let args = parse_runtime_tool_args::<ProgressWriteRequest>(&args_json)?;
-            let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
-            runtime_log_debug(format!(
-                "[工具调试] 内置工具执行开始 name=progress args={}",
-                debug_value_snippet(&args_value, 240)
-            ));
-            let result = builtin_progress(&self.app_state, &self.session_id, args)
-                .map(ProviderToolResult::text);
-            match &result {
-                Ok(v) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行完成 name=progress result={}",
-                    debug_text_snippet(&v.output, 240)
-                )),
-                Err(err) => runtime_log_error(format!(
-                    "[工具执行] 内置工具 progress 执行失败: 错误={err}"
                 )),
             }
             result
@@ -1605,14 +1564,13 @@ impl RuntimeToolMetadata for BuiltinTeamSendTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "team_send",
-            "给指定角色（人格名）的队员发一封邮件：标题 + 正文。整封邮件写成 markdown：标题是折叠块的表头、始终露在外面，也是对方扫历史时最先看到的那句，要写清这封信要他做什么；正文在折叠块里、默认收起，点开读得到全文，细节放这里。可以顺带把这条线的状态设为六态之一（planning/todo/in_progress/in_review/blocked/done），队员收到时能看到「状态被更新为 X，队长设的」。默认 mode=guided，会在对方执行完一个工具后立刻插入、当场改道；mode=queue 则等对方当前这一轮收尾再进。招募后第一件事通常就是用它把活交代清楚；队员中途需要改方向、补背景也靠它。",
+            "给指定角色（人格名）的队员发一封邮件：标题 + 正文。整封邮件写成 markdown：标题是折叠块的表头、始终露在外面，也是对方扫历史时最先看到的那句，要写清这封信要他做什么；正文在折叠块里、默认收起，点开读得到全文，细节放这里。默认 mode=guided，会在对方执行完一个工具后立刻插入、当场改道；mode=queue 则等对方当前这一轮收尾再进。招募后第一件事通常就是用它把活交代清楚；队员中途需要改方向、补背景也靠它。",
             serde_json::json!({
               "type": "object",
               "properties": {
                 "role": { "type": "string", "description": "队员的角色（人格名），也兼容人格 id。" },
                 "title": { "type": "string", "description": "邮件标题，必填。它在界面上是折叠块的那一行、始终露在外面，也是对方扫历史时最先看到的那句。要短到一行能读完，并写清这封信要他做什么。例如「把登录鉴权改成 session 表」。不要写成「关于 XX 的通知」这种没有信息量的标题。" },
                 "content": { "type": "string", "description": "邮件正文，可以长。界面上在折叠块里、默认收起，点开即全文；对方模型读得到全文，细节放这里，别靠标题承载。" },
-                "status": { "type": "string", "enum": ["planning", "todo", "in_progress", "in_review", "blocked", "done"], "description": "可选。把这名队员这条线的状态设为该值，随这封邮件一起生效。不确定进度时不要填，别猜。" },
                 "mode": { "type": "string", "enum": ["guided", "queue"], "description": "guided=立即插入改道（默认）；queue=排队等对方收尾。" },
                 "conversation_id": { "type": "string", "description": "可选。只有名册里存在同一角色的多名队员时才需要，用 team_info 给出的 conversationId 精确定位。" }
               },
@@ -1645,13 +1603,12 @@ impl RuntimeToolMetadata for BuiltinTeamReportTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "team_report",
-            "队员向队长发一封邮件汇报：标题 + 正文。整封邮件写成 markdown：标题是折叠块的表头、始终露在外面，也是队长扫历史时最先看到的那句，要写清结论；正文在折叠块里、默认收起，点开读得到全文，背景与细节放这里。可以顺带更新这条线的状态，相当于汇报的同时把进度说清楚。默认 mode=guided，立刻插入队长当前轮次；mode=queue 排队等队长收尾。",
+            "队员向队长发一封邮件汇报：标题 + 正文。整封邮件写成 markdown：标题是折叠块的表头、始终露在外面，也是队长扫历史时最先看到的那句，要写清结论；正文在折叠块里、默认收起，点开读得到全文，背景与细节放这里。默认 mode=guided，立刻插入队长当前轮次；mode=queue 排队等队长收尾。",
             serde_json::json!({
               "type": "object",
               "properties": {
                 "title": { "type": "string", "description": "邮件标题，必填。它在界面上是折叠块的那一行、始终露在外面，也是队长扫历史时最先看到的那句。要短到一行能读完，写清这条汇报的结论，例如「鉴权方案已定两份，等选」。不要写「汇报」两个字。" },
                 "content": { "type": "string", "description": "邮件正文，可以长：背景、现状、结论、接下来打算怎么走。界面上在折叠块里、默认收起，点开即全文；队长读得到全文，细节放这里。" },
-                "status": { "type": "string", "enum": ["planning", "todo", "in_progress", "in_review", "blocked", "done"], "description": "可选。汇报时顺手把这条线的状态改成该值。不填就只汇报、不动状态。" },
                 "mode": { "type": "string", "enum": ["guided", "queue"], "description": "guided=立即插入改道（默认）；queue=排队等队长收尾。" }
               },
               "required": ["title", "content"],

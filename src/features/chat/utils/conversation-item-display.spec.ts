@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import {
   conversationPendingQuestionBadge,
-  conversationProgressSortRank,
   conversationRuntimeBusy,
   conversationUnreadBadge,
   hasUnreadOrRecentActivity,
@@ -122,25 +121,5 @@ describe("conversationRuntimeBusy", () => {
   it("idle 与空值不忙碌", () => {
     expect(conversationRuntimeBusy("idle")).toBe(false);
     expect(conversationRuntimeBusy(undefined)).toBe(false);
-  });
-});
-
-describe("conversationProgressSortRank", () => {
-  it("按推进顺序排名：规划中 → 待办 → 进行中 → 待审核 → 阻塞 → 完成", () => {
-    const ranks = ["planning", "todo", "in_progress", "in_review", "blocked", "done"]
-      .map((state) => conversationProgressSortRank(state));
-    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
-    expect(new Set(ranks).size).toBe(ranks.length);
-  });
-
-  it("未设置与未知状态排在所有已知状态之后", () => {
-    const last = conversationProgressSortRank("done");
-    expect(conversationProgressSortRank("")).toBeGreaterThan(last);
-    expect(conversationProgressSortRank(undefined)).toBeGreaterThan(last);
-    expect(conversationProgressSortRank("unknown_state")).toBeGreaterThan(last);
-  });
-
-  it("未设置与未知状态同名次：它们都在同一档「还没记录」", () => {
-    expect(conversationProgressSortRank("")).toBe(conversationProgressSortRank("unknown_state"));
   });
 });

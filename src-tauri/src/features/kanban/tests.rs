@@ -487,7 +487,6 @@ mod kanban_tests {
         assert_eq!(KANBAN_STATUSES.len(), 7);
         assert!(KANBAN_STATUSES.contains(&KANBAN_STATUS_DISCUSSING));
         assert!(KANBAN_STATUSES.contains(&KANBAN_STATUS_CLOSED));
-        // 看板态 = 会话进度态去掉 planning，再补一个 discussing 与 closed。
         for key in [
             KANBAN_STATUS_TODO,
             KANBAN_STATUS_IN_PROGRESS,
@@ -495,7 +494,7 @@ mod kanban_tests {
             KANBAN_STATUS_BLOCKED,
             KANBAN_STATUS_DONE,
         ] {
-            assert!(PROGRESS_STATES.contains(&key), "{key} 应与 PROGRESS_STATES 对齐");
+            assert!(KANBAN_STATUSES.contains(&key), "{key} 应在 KANBAN_STATUSES 里");
         }
         for key in KANBAN_STATUSES {
             assert_eq!(kanban_status_normalized(key), Some(key));

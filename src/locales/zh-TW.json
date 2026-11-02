@@ -2108,25 +2108,6 @@
         "error": "出錯"
       }
     },
-    "conversationStatus": {
-      "unset": "未設定",
-      "planning": "規劃中",
-      "todo": "待辦",
-      "in_progress": "進行中",
-      "in_review": "待審核",
-      "blocked": "阻塞",
-      "done": "完成",
-      "tooltip": "會話狀態：{status}",
-      "tooltipWithEvidence": "會話狀態：{status}｜證據：{evidence}",
-      "short": {
-        "planning": "規劃",
-        "todo": "待辦",
-        "inProgress": "進行",
-        "inReview": "待審",
-        "blocked": "阻塞",
-        "done": "完成"
-      }
-    },
     "rightSidebarToggle": "右側欄",
     "conversationSearchPlaceholder": "搜尋會話標題或最近兩條訊息",
     "unknownPersona": "未指定人格",

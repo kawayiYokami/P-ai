@@ -97,26 +97,12 @@
                 {{ latestPreviewLine }}
               </span>
             </div>
-            <!-- 第二行右端簇，三件事各说各的，谁也不吞谁：
-                 状态胶囊（颜色 + 短标签，只讲「这个会话在干什么」）→ 待定问题数（中性色，讲「还有几个问题等你回答」）→ 未读红圆（只讲「有几条没看」）。
-                 三者语义无关，所以不合并、不加数字到胶囊里，也不为了省位置改写未读的既有形态。
-                 但状态和未读会撞色：阻塞的红和未读的红只隔一个 gap 时，扫一眼读成「阻塞 99」。
-                 所以同框时给未读加一圈行底色的缝（ring-2 ring-base-200），物理切开两个色块；
-                 状态不在时红圆不加这圈环，保持它原来的样子。
-                 未设置且无未读 → 状态位什么都不渲染：没有状态就是没有状态，不拿一个灰点占位。 -->
+            <!-- 第二行右端簇，两件事各说各的，谁也不吞谁：
+                 待定问题数（中性色，讲「还有几个问题等你回答」）→ 未读红圆（只讲「有几条没看」）。
+                 两者语义无关，所以不合并、不为了省位置改写未读的既有形态。 -->
             <div class="ecall-conv-tail flex shrink-0 items-center gap-3">
               <span v-if="pipelineStatus === 'error'" class="badge badge-error badge-xs">{{ t("common.failed") }}</span>
               <span v-else-if="busyDetailText" class="text-xs text-base-content/60">{{ busyDetailText }}</span>
-              <span
-                v-if="progressBadgeVisible"
-                class="ecall-progress-badge badge h-5 shrink-0 px-1.5 text-xs font-medium"
-                :class="progressVisual.chipClass"
-                :title="progressTitle"
-                :aria-label="progressTitle"
-                role="img"
-              >
-                <span class="whitespace-nowrap leading-none">{{ progressShortLabel }}</span>
-              </span>
               <!-- 待定问题数：提醒，不是警报。中性填充 + 问号图标，
                    形状与未读红圆明确不同，避免又一次「两个数字挨着被读成一个量词」。 -->
               <span
@@ -132,7 +118,6 @@
               <span
                 v-if="unreadBadge"
                 class="ecall-conv-unread inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-error px-1.5 text-xs font-medium text-error-content"
-                :class="progressBadgeVisible ? 'ring-2 ring-base-200' : ''"
               >
                 {{ unreadBadge }}
               </span>
@@ -227,9 +212,7 @@ import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 import { SYSTEM_PERSONA_ID, USER_PERSONA_ID } from "../../shared/builtin-persona-ids";
 import {
   conversationPendingQuestionBadge,
-  conversationProgressVisual,
   conversationRuntimeBusy,
-  conversationShowsProgressState,
   conversationUnreadBadge,
   type ConversationItemLevel,
 } from "../utils/conversation-item-display";
@@ -358,31 +341,6 @@ const pendingQuestionBadge = computed(() => conversationPendingQuestionBadge(pro
 const pendingQuestionTitle = computed(() =>
   t("chat.pendingQuestionsTooltip", { count: pendingQuestionBadge.value }),
 );
-
-// 会话状态：独立于 busy / pipelineStatus / unread，只读 progressState 与 evidence（契约是 camelCase）
-// 有没有状态这件事由会话类型白名单决定，复用本地会话判定会把它和改名/归档能力绑死
-const showsProgressState = computed(() => conversationShowsProgressState(props.item.conversationKind));
-const progressVisual = computed(() => conversationProgressVisual(props.item.progressState));
-const progressStatusLabel = computed(() => t(progressVisual.value.labelKey));
-/** 未设置没有短标签：空状态不占文字位置，只留灰点 */
-const progressShortLabel = computed(() =>
-  progressVisual.value.shortLabelKey ? t(progressVisual.value.shortLabelKey) : "",
-);
-/**
- * 状态胶囊是否渲染：会话类型落在白名单内，且确实有状态。
- * 未设置不渲染任何东西——「没有状态」用一个空位讲不清，只会变成噪声；
- * 而且大多数会话都没有状态，给它们各加一个空壳等于把整个列表改版。
- */
-const progressBadgeVisible = computed(() => showsProgressState.value && progressVisual.value.key !== "");
-const progressTitle = computed(() => {
-  const evidence = String(props.item.evidence || "").trim();
-  return evidence
-    ? t("chat.conversationStatus.tooltipWithEvidence", {
-        status: progressStatusLabel.value,
-        evidence,
-      })
-    : t("chat.conversationStatus.tooltip", { status: progressStatusLabel.value });
-});
 
 const latestPreviewLine = computed(() => {
   if (busy.value) return t("chat.runtimeTyping");

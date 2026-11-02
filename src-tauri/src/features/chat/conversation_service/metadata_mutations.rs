@@ -501,30 +501,6 @@ impl ConversationServiceV2 {
         )
     }
 
-    /// 写入会话状态（六态 key）与配套证据字段。
-    /// 防抖与事件推送不在这一层：调用方（update_conversation_progress_state_and_emit）
-    /// 负责先比较旧值再决定是否调用本方法。
-    fn set_progress_state(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        progress_state: String,
-        evidence: String,
-        evidence_updated_at: String,
-    ) -> Result<Conversation, String> {
-        self.apply_external_metadata_patch(
-            state,
-            conversation_id,
-            "conversation_v2_set_progress_state",
-            ConversationExternalMetadataPatch {
-                progress_state: Some(progress_state),
-                evidence: Some(evidence),
-                evidence_updated_at: Some(evidence_updated_at),
-                ..Default::default()
-            },
-        )
-    }
-
     fn set_shell_workspace(
         &self,
         state: &AppState,

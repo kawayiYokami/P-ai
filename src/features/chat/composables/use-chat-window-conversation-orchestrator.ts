@@ -48,7 +48,6 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     applyConversationOverviewItemUpdated,
     applyConversationPinUpdated,
     applyConversationRuntimeStateUpdated,
-    applyConversationProgressStateUpdated,
     unarchivedConversationActivityAt,
     sortUnarchivedConversationOverviewItems,
   } = useChatConversationSync(bindings.sync);
@@ -268,7 +267,6 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     applyConversationOverviewItemUpdated,
     applyConversationPinUpdated,
     applyConversationRuntimeStateUpdated,
-    applyConversationProgressStateUpdated,
     unarchivedConversationActivityAt,
     sortUnarchivedConversationOverviewItems,
     pickForegroundConversationId: chatForeground.pickForegroundConversationId,
