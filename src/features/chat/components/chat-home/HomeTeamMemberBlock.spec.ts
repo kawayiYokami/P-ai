@@ -32,8 +32,43 @@ describe("HomeTeamMemberBlock", () => {
     expect(html).toContain("reviewer");
   });
 
-  it("当无队员时，展示空提示", async () => {
-    const html = await renderBlock([]);
-    expect(html).toContain("队伍里还没有队员");
+  it("0~2 名队员时为标准 1 格高（ecall-home-team-row-1）", async () => {
+    const html0 = await renderBlock([]);
+    expect(html0).toContain("ecall-home-team-row-1");
+    expect(html0).not.toContain("ecall-home-team-row-2");
+
+    const html2 = await renderBlock([
+      { conversationId: "m1", title: "队员1", agentName: "队员1", memberState: "idle" },
+      { conversationId: "m2", title: "队员2", agentName: "队员2", memberState: "idle" },
+    ]);
+    expect(html2).toContain("ecall-home-team-row-1");
+    expect(html2).not.toContain("ecall-home-team-row-2");
+  });
+
+  it("3 名及以上队员时自适应变为 2 格高（ecall-home-team-row-2）", async () => {
+    const html3 = await renderBlock([
+      { conversationId: "m1", title: "队员1", agentName: "队员1", memberState: "idle" },
+      { conversationId: "m2", title: "队员2", agentName: "队员2", memberState: "idle" },
+      { conversationId: "m3", title: "队员3", agentName: "队员3", memberState: "idle" },
+    ]);
+    expect(html3).toContain("ecall-home-team-row-2");
+    expect(html3).not.toContain("ecall-home-team-row-1");
+  });
+
+  it("工作中的队员（在办议题/忙碌）排在空闲队员前面", async () => {
+    const html = await renderBlock([
+      { conversationId: "m1", title: "空闲先招募", agentName: "空闲先招募", memberState: "idle" },
+      {
+        conversationId: "m2",
+        title: "工作中后招募",
+        agentName: "工作中后招募",
+        activeIssue: { number: 1, title: "重要任务", status: "in_progress" },
+      },
+    ]);
+    const posWork = html.indexOf("工作中后招募");
+    const posIdle = html.indexOf("空闲先招募");
+    expect(posWork).toBeGreaterThan(-1);
+    expect(posIdle).toBeGreaterThan(-1);
+    expect(posWork).toBeLessThan(posIdle);
   });
 });

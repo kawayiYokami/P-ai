@@ -1,3 +1,5 @@
+import { conversationRuntimeBusy } from "../utils/conversation-item-display";
+
 /**
  * 队员磁贴的数据形状。
  *
@@ -39,3 +41,23 @@ export type TeamMemberActiveIssue = {
   title: string;
   status: string;
 };
+
+/**
+ * 队员工作状态排序优先级（数值越小越靠前）：
+ * 0: 正在跑调度且有在办议题（双重活跃）
+ * 1: 正在跑调度（流式输出、整理上下文等）
+ * 2: 手上有在办议题（正在处理 #xx）
+ * 3: 运行出错（error）
+ * 4: 空闲（idle）
+ */
+export function teamMemberWorkRank(member: TeamMemberTileItem): number {
+  const isBusy = conversationRuntimeBusy(member.runtimeState as Parameters<typeof conversationRuntimeBusy>[0])
+    || member.memberState === "busy";
+  const hasIssue = Boolean(member.activeIssue && String(member.activeIssue.status || "").trim());
+
+  if (isBusy && hasIssue) return 0;
+  if (isBusy) return 1;
+  if (hasIssue) return 2;
+  if (member.memberState === "error") return 3;
+  return 4;
+}

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createSSRApp, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 import TeamMemberTileGrid from "./TeamMemberTileGrid.vue";
-import type { TeamMemberTileItem } from "./team-member-tile";
+import { teamMemberWorkRank, type TeamMemberTileItem } from "./team-member-tile";
 import { i18n } from "../../../i18n";
 
 /**
@@ -113,5 +113,22 @@ describe("TeamMemberTileGrid 状态口径", () => {
     );
     expect(html).toContain("王工");
     expect(html).not.toContain("补文档");
+  });
+
+  it("teamMemberWorkRank 工作状态权重：有议题或忙碌靠前，空闲靠后", () => {
+    const busyAndIssue = member({
+      runtimeState: "assistant_streaming",
+      activeIssue: { number: 1, title: "任务", status: "in_progress" },
+    });
+    const busyOnly = member({ runtimeState: "assistant_streaming" });
+    const issueOnly = member({ activeIssue: { number: 2, title: "任务", status: "in_progress" } });
+    const errorOnly = member({ memberState: "error" });
+    const idle = member({ memberState: "idle" });
+
+    expect(teamMemberWorkRank(busyAndIssue)).toBe(0);
+    expect(teamMemberWorkRank(busyOnly)).toBe(1);
+    expect(teamMemberWorkRank(issueOnly)).toBe(2);
+    expect(teamMemberWorkRank(errorOnly)).toBe(3);
+    expect(teamMemberWorkRank(idle)).toBe(4);
   });
 });
