@@ -63,58 +63,87 @@ fn kanban_migrate_legacy_member_assignees(
     Ok(())
 }
 
-/// 一块看板里「每个角色名下那条在办议题」。没有在办议题的角色不出现在结果里。
-/// 队员磁贴靠它显示议题状态：一个角色最多一条在办，所以值是单个对象。
-/// 读不到看板时返回空并把原因记进日志——概览项是首页高频路径，
-/// 不能因为看板读不出来就让整份会话快照失败，磁贴退回运行时状态即可。
-pub(crate) fn kanban_active_issues_by_role(
-    state: &AppState,
-    leader_conversation_id: &str,
-) -> std::collections::HashMap<String, KanbanActiveIssueSummary> {
-    let leader = leader_conversation_id.trim();
-    if leader.is_empty() {
-        return std::collections::HashMap::new();
+/// 一段批量读取里复用的看板连接：整批只开一次库，历史归属迁移扫描也只跑一次。
+///
+/// 单个概览项一次只查一块看板，复用与否等价；差量概览按条构建 k 个概览时，
+/// 复用能把 k 次「开库 + 建表批次 + 迁移扫描」压成 1 次。
+pub(crate) struct KanbanSession {
+    conn: Option<Connection>,
+}
+
+impl KanbanSession {
+    pub(crate) fn new() -> Self {
+        Self { conn: None }
     }
-    let issues = match kanban_conn(state)
-        .and_then(|conn| kanban_store_list(&conn, leader, None, None, None))
-    {
-        Ok(issues) => issues,
-        Err(err) => {
-            runtime_log_warn(format!(
-                "[看板] 跳过，任务=读取队员在办议题，leader_conversation_id={leader}，error={err}"
-            ));
+
+    fn with_conn<T>(
+        &mut self,
+        state: &AppState,
+        run: impl FnOnce(&Connection) -> Result<T, String>,
+    ) -> Result<T, String> {
+        if self.conn.is_none() {
+            self.conn = Some(kanban_conn(state)?);
+        }
+        match self.conn.as_ref() {
+            Some(conn) => run(conn),
+            None => Err("看板连接不可用".to_string()),
+        }
+    }
+
+    /// 一块看板里「每个角色名下那条在办议题」。没有在办议题的角色不出现在结果里。
+    /// 队员磁贴靠它显示议题状态：一个角色最多一条在办，所以值是单个对象。
+    /// 读不到看板时返回空并把原因记进日志——概览项是首页高频路径，
+    /// 不能因为看板读不出来就让整份会话快照失败，磁贴退回运行时状态即可。
+    pub(crate) fn active_issues_by_role(
+        &mut self,
+        state: &AppState,
+        leader_conversation_id: &str,
+    ) -> std::collections::HashMap<String, KanbanActiveIssueSummary> {
+        let leader = leader_conversation_id.trim();
+        if leader.is_empty() {
             return std::collections::HashMap::new();
         }
-    };
-    let mut by_role: std::collections::HashMap<String, KanbanActiveIssueSummary> =
-        std::collections::HashMap::new();
-    // 一人一条是本次新加的写入约束，库里可能还留着同一个人挂多条的历史数据。
-    // 这里保留编号最小的那条：读完不报错，也不擅自改库。
-    for issue in issues {
-        if issue.assignee_kind.trim() != KANBAN_ASSIGNEE_MEMBER {
-            continue;
-        }
-        if !kanban_status_occupies_member(&issue.status) {
-            continue;
-        }
-        let Some(role) = issue
-            .assignee_member_role
-            .as_deref()
-            .map(str::trim)
-            .filter(|role| !role.is_empty())
-            .map(str::to_string)
-        else {
-            continue;
+        let issues = match self
+            .with_conn(state, |conn| kanban_store_list(conn, leader, None, None, None))
+        {
+            Ok(issues) => issues,
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[看板] 跳过，任务=读取队员在办议题，leader_conversation_id={leader}，error={err}"
+                ));
+                return std::collections::HashMap::new();
+            }
         };
+        let mut by_role: std::collections::HashMap<String, KanbanActiveIssueSummary> =
+            std::collections::HashMap::new();
+        // 一人一条是本次新加的写入约束，库里可能还留着同一个人挂多条的历史数据。
+        // 这里保留编号最小的那条：读完不报错，也不擅自改库。
+        for issue in issues {
+            if issue.assignee_kind.trim() != KANBAN_ASSIGNEE_MEMBER {
+                continue;
+            }
+            if !kanban_status_occupies_member(&issue.status) {
+                continue;
+            }
+            let Some(role) = issue
+                .assignee_member_role
+                .as_deref()
+                .map(str::trim)
+                .filter(|role| !role.is_empty())
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            by_role
+                .entry(role)
+                .or_insert(KanbanActiveIssueSummary {
+                    number: issue.number,
+                    title: issue.title,
+                    status: issue.status,
+                });
+        }
         by_role
-            .entry(role)
-            .or_insert(KanbanActiveIssueSummary {
-                number: issue.number,
-                title: issue.title,
-                status: issue.status,
-            });
     }
-    by_role
 }
 
 /// 按名册反查历史编号对应的角色。

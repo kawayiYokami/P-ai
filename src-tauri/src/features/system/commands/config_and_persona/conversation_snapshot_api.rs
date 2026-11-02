@@ -571,6 +571,29 @@ fn build_unarchived_conversation_summary_from_meta_view(
     current_viewer_id: Option<&str>,
     question_count: usize,
 ) -> UnarchivedConversationSummary {
+    // 单条路径：本次只构建一个概览，复用会话与现开等价，直接给一个临时会话即可。
+    let mut kanban = crate::kanban::KanbanSession::new();
+    build_unarchived_conversation_summary_with_kanban(
+        state,
+        main_conversation_id,
+        pinned_conversation_ids,
+        conversation_meta,
+        current_viewer_id,
+        question_count,
+        &mut kanban,
+    )
+}
+
+/// 构建概览项。看板读取走调用方传进来的会话，批量路径据此在整批里只开一次看板库。
+fn build_unarchived_conversation_summary_with_kanban(
+    state: &AppState,
+    main_conversation_id: &str,
+    pinned_conversation_ids: &[String],
+    conversation_meta: &ConversationMetaView,
+    current_viewer_id: Option<&str>,
+    question_count: usize,
+    kanban: &mut crate::kanban::KanbanSession,
+) -> UnarchivedConversationSummary {
     let conversation_id = conversation_meta.id.trim();
     let is_system_notification_conversation = conversation_id == main_conversation_id
         || conversation_meta.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID
@@ -621,10 +644,13 @@ fn build_unarchived_conversation_summary_from_meta_view(
                 if leader.is_empty() || role.is_empty() {
                     return None;
                 }
+                if !kanban_active_issue_cache.contains_key(&leader) {
+                    let issues = kanban.active_issues_by_role(state, &leader);
+                    kanban_active_issue_cache.insert(leader.clone(), issues);
+                }
                 kanban_active_issue_cache
-                    .entry(leader.clone())
-                    .or_insert_with(|| crate::kanban::kanban_active_issues_by_role(state, &leader))
-                    .get(&role)
+                    .get(&leader)
+                    .and_then(|by_role| by_role.get(&role))
                     .cloned()
             });
             // 复用队伍工具那侧的判定（运行态 + 待处理队列 + 活动标记），
@@ -1150,28 +1176,45 @@ fn list_unarchived_conversations_changed_since_blocking(
 
     let (changed_ids, mut deleted_ids, server_time) = overview_watermark_changes_since(since);
     // 差量查询不再全量枚举全部会话：按 changed_ids 直读单条 summary（O(k)，k=实际变更数）。
+    // 整批一次读：k 条变更只取一次会话锁，问题库与看板库各开一次，不再按条重复开库。
     // 直读不到说明该会话已消失（可能未走 register_missing_item 的路径），追加进 deleted_ids 兜底。
+    let batch_ids = changed_ids
+        .iter()
+        .map(|conversation_id| conversation_id.trim().to_string())
+        .filter(|conversation_id| !conversation_id.is_empty())
+        .collect::<Vec<_>>();
     let mut changed = Vec::new();
-    for conversation_id in changed_ids {
-        let conversation_id = conversation_id.trim();
-        if conversation_id.is_empty() {
-            continue;
-        }
-        match conversation_service_v2().read_unarchived_conversation_summary(state, conversation_id) {
-            Ok(Some(summary)) => changed.push(summary),
-            Ok(None) => {
-                if !deleted_ids.iter().any(|deleted_id| deleted_id == conversation_id) {
-                    deleted_ids.push(conversation_id.to_string());
+    if batch_ids.is_empty() {
+        // 没有任何变更时不去会话锁上白排一次队。
+        deleted_ids.sort();
+        deleted_ids.dedup();
+        return Ok(ListUnarchivedConversationsChangedSinceOutput {
+            changed,
+            deleted_ids,
+            server_time,
+        });
+    }
+    match conversation_service_v2().read_unarchived_conversation_summaries(state, &batch_ids) {
+        Ok(summaries) => {
+            for (conversation_id, summary) in batch_ids.iter().zip(summaries) {
+                match summary {
+                    Some(summary) => changed.push(summary),
+                    None => {
+                        if !deleted_ids.iter().any(|deleted_id| deleted_id == conversation_id) {
+                            deleted_ids.push(conversation_id.to_string());
+                        }
+                    }
                 }
             }
-            Err(err) => {
-                // 读取失败不等于删除：保留 watermark 中的该 id，下次差量查询自然重试；
-                // 误判为删除会污染前端列表，把仍存在的会话从客户端移除。
-                runtime_log_warn(format!(
-                    "[会话概览] 跳过，任务=按 id 直读差量概览，conversation_id={}，error={}",
-                    conversation_id, err
-                ));
-            }
+        }
+        Err(err) => {
+            // 读取失败不等于删除：保留 watermark 中的这些 id，下次差量查询自然重试；
+            // 误判为删除会污染前端列表，把仍存在的会话从客户端移除。
+            runtime_log_warn(format!(
+                "[会话概览] 跳过，任务=按 id 直读差量概览，count={}，error={}",
+                batch_ids.len(),
+                err
+            ));
         }
     }
     deleted_ids.sort();

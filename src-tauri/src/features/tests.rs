@@ -37,7 +37,7 @@
         }
     }
 
-    fn test_active_conversation_with_messages(
+    pub(crate) fn test_active_conversation_with_messages(
         messages: Vec<ChatMessage>,
         last_user_at: Option<String>,
     ) -> Conversation {

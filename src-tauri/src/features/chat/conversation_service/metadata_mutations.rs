@@ -364,60 +364,124 @@ impl ConversationServiceV2 {
         state: &AppState,
         conversation_id: &str,
     ) -> Result<Option<UnarchivedConversationSummary>, String> {
-        let normalized_conversation_id = conversation_id.trim();
+        let normalized_conversation_id = conversation_id.trim().to_string();
         if normalized_conversation_id.is_empty() {
             return Ok(None);
         }
-        let guard = lock_conversation_with_metrics(state, "read_unarchived_conversation_summary")?;
-        let main_conversation_id = state_service_get_main_conversation_id(state)?
-            .map(|id| id.trim().to_string())
-            .unwrap_or_default();
-        let chat_index = state_read_chat_index_cached(state)?;
-        let visible_ids = chat_index
-            .conversations
-            .iter()
-            .filter(|item| !chat_index_item_is_archived(item))
-            .map(|item| item.id.trim().to_string())
-            .filter(|item| !item.is_empty())
-            .collect::<std::collections::HashSet<_>>();
-        let conversation_meta = match self.get_conversation_meta(state, normalized_conversation_id) {
-                Ok(conversation_meta) => conversation_meta,
-                Err(err) => {
-                    drop(guard);
-                    runtime_log_error(format!(
-                        "[会话索引读取] 状态=失败，任务=read_unarchived_conversation_summary，conversation_id={}，error={}",
-                        normalized_conversation_id, err
-                    ));
-                    return Ok(None);
-                }
-            };
-        let is_side_chat = conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_SIDE_CHAT;
-        if (!visible_ids.contains(normalized_conversation_id) && !is_side_chat)
-            || !self.conversation_meta_is_unarchived_meta_view(&conversation_meta)
-            || (!conversation_meta.visible_in_foreground_lists && !is_side_chat)
-        {
-            drop(guard);
-            return Ok(None);
-        }
-        let mut seen_pins = std::collections::HashSet::<String>::new();
-        let pinned_conversation_ids = pinned_conversation_ids_downgraded(state)
-            .iter()
-            .map(|item| item.trim().to_string())
-            .filter(|item| !item.is_empty())
-            .filter(|item| *item != main_conversation_id)
-            .filter(|item| visible_ids.contains(item))
-            .filter(|item| seen_pins.insert(item.clone()))
-            .collect::<Vec<_>>();
-        let summary = build_unarchived_conversation_summary_from_meta_view(
+        let mut summaries = self.read_unarchived_conversation_summaries_for_ids(
             state,
-            &main_conversation_id,
-            &pinned_conversation_ids,
-            &conversation_meta,
-            Some(DESKTOP_CHAT_VIEWER_ID),
-            question_count_for_conversation(state, conversation_meta.id.trim()),
-        );
-        drop(guard);
-        Ok(Some(summary))
+            &[normalized_conversation_id],
+            false,
+        )?;
+        Ok(summaries.pop().flatten())
+    }
+
+    /// 差量概览的批量入口：一次处理 k 条变更，只取一次会话锁，问题库与看板库整批各开一次。
+    fn read_unarchived_conversation_summaries(
+        &self,
+        state: &AppState,
+        conversation_ids: &[String],
+    ) -> Result<Vec<Option<UnarchivedConversationSummary>>, String> {
+        self.read_unarchived_conversation_summaries_for_ids(state, conversation_ids, true)
+    }
+
+    fn read_unarchived_conversation_summaries_for_ids(
+        &self,
+        state: &AppState,
+        conversation_ids: &[String],
+        batch_derived_reads: bool,
+    ) -> Result<Vec<Option<UnarchivedConversationSummary>>, String> {
+        let mut summaries: Vec<Option<UnarchivedConversationSummary>> =
+            vec![None; conversation_ids.len()];
+        // ① 持锁只做「读元数据 + 过滤」：这一段跑的是内存与已缓存快照，不开问题库、不开看板库。
+        let (main_conversation_id, pinned_conversation_ids, metas) = {
+            let guard =
+                lock_conversation_with_metrics(state, "read_unarchived_conversation_summary")?;
+            let main_conversation_id = state_service_get_main_conversation_id(state)?
+                .map(|id| id.trim().to_string())
+                .unwrap_or_default();
+            let chat_index = state_read_chat_index_cached(state)?;
+            let visible_ids = chat_index
+                .conversations
+                .iter()
+                .filter(|item| !chat_index_item_is_archived(item))
+                .map(|item| item.id.trim().to_string())
+                .filter(|item| !item.is_empty())
+                .collect::<std::collections::HashSet<_>>();
+            let mut seen_pins = std::collections::HashSet::<String>::new();
+            let pinned_conversation_ids = pinned_conversation_ids_downgraded(state)
+                .iter()
+                .map(|item| item.trim().to_string())
+                .filter(|item| !item.is_empty())
+                .filter(|item| *item != main_conversation_id)
+                .filter(|item| visible_ids.contains(item))
+                .filter(|item| seen_pins.insert(item.clone()))
+                .collect::<Vec<_>>();
+            let mut metas: Vec<Option<ConversationMetaView>> =
+                Vec::with_capacity(conversation_ids.len());
+            for conversation_id in conversation_ids {
+                let normalized_conversation_id = conversation_id.trim();
+                if normalized_conversation_id.is_empty() {
+                    metas.push(None);
+                    continue;
+                }
+                let conversation_meta =
+                    match self.get_conversation_meta(state, normalized_conversation_id) {
+                        Ok(conversation_meta) => conversation_meta,
+                        Err(err) => {
+                            runtime_log_error(format!(
+                                "[会话索引读取] 状态=失败，任务=read_unarchived_conversation_summary，conversation_id={}，error={}",
+                                normalized_conversation_id, err
+                            ));
+                            metas.push(None);
+                            continue;
+                        }
+                    };
+                let is_side_chat =
+                    conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_SIDE_CHAT;
+                if (!visible_ids.contains(normalized_conversation_id) && !is_side_chat)
+                    || !self.conversation_meta_is_unarchived_meta_view(&conversation_meta)
+                    || (!conversation_meta.visible_in_foreground_lists && !is_side_chat)
+                {
+                    metas.push(None);
+                    continue;
+                }
+                metas.push(Some(conversation_meta));
+            }
+            drop(guard);
+            (main_conversation_id, pinned_conversation_ids, metas)
+        };
+
+        // ② 放锁后再取派生数据：问题库、看板库都在锁外打开。
+        // 批量路径整批只取一次问题计数、只开一次看板连接；单条路径保持「按会话现取」的原口径。
+        let question_counts = if batch_derived_reads {
+            Some(question_counts_by_conversation(state))
+        } else {
+            None
+        };
+        let mut kanban = crate::kanban::KanbanSession::new();
+        for (index, conversation_meta) in metas.into_iter().enumerate() {
+            let Some(conversation_meta) = conversation_meta else {
+                continue;
+            };
+            let question_count = match question_counts.as_ref() {
+                Some(counts) => counts
+                    .get(conversation_meta.id.trim())
+                    .copied()
+                    .unwrap_or(0),
+                None => question_count_for_conversation(state, conversation_meta.id.trim()),
+            };
+            summaries[index] = Some(build_unarchived_conversation_summary_with_kanban(
+                state,
+                &main_conversation_id,
+                &pinned_conversation_ids,
+                &conversation_meta,
+                Some(DESKTOP_CHAT_VIEWER_ID),
+                question_count,
+                &mut kanban,
+            ));
+        }
+        Ok(summaries)
     }
 
     fn set_current_todos(
@@ -606,4 +670,151 @@ impl ConversationServiceV2 {
         Ok(changed)
     }
 
+}
+
+#[cfg(test)]
+mod unarchived_summary_batch_tests {
+    use super::*;
+    use crate::tests::{test_active_conversation_with_messages, test_chat_runtime_state};
+
+    /// 造 3 个带队长的会话：每个都挂一个 side_chat 队员，
+    /// 让概览构建一定要走一次看板读取（队员身份 → 队长看板）。
+    fn seed_team_conversations(state: &AppState) -> Vec<String> {
+        let mut data = AppData::default();
+        let mut leader_ids = Vec::new();
+        for index in 0..3 {
+            let leader_id = format!("perf-leader-{index}");
+            let member_id = format!("perf-member-{index}");
+            let mut leader = test_active_conversation_with_messages(Vec::new(), None);
+            leader.id = leader_id.clone();
+            leader.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
+            leader.child_conversation_ids.push(member_id.clone());
+            let mut member = test_active_conversation_with_messages(Vec::new(), None);
+            member.id = member_id;
+            member.conversation_kind = CONVERSATION_KIND_SIDE_CHAT.to_string();
+            member.parent_conversation_id = Some(leader_id.clone());
+            member.team.membership = Some(TeamMembership {
+                leader_conversation_id: leader_id.clone(),
+                number: 1,
+                name: "1 号 · 性能测试队员".to_string(),
+                duty: String::new(),
+            });
+            data.conversations.push(leader);
+            data.conversations.push(member);
+            leader_ids.push(leader_id);
+        }
+        state_write_app_data_cached(state, &data).expect("写入会话数据");
+        leader_ids
+    }
+
+    fn seed_questions(state: &AppState, counts: &[usize]) {
+        let mut conn = question_store_open(&state.data_path).expect("打开问题库");
+        for (index, count) in counts.iter().enumerate() {
+            for number in 0..*count {
+                question_store_insert(
+                    &mut conn,
+                    &format!("perf-leader-{index}"),
+                    &format!("问题 {number}"),
+                    "",
+                    &["是".to_string()],
+                )
+                .expect("写入问题记录");
+            }
+        }
+    }
+
+    /// 一次差量概览读取处理 k 条变更时，问题库与看板库各只打开一次。
+    #[test]
+    fn batch_summary_read_should_open_each_store_once() {
+        let state = test_chat_runtime_state();
+        let ids = seed_team_conversations(&state);
+        seed_questions(&state, &[2, 1, 0]);
+
+        question_store_reset_open_count(&state.data_path);
+        crate::kanban::kanban_store_reset_open_count(&state.data_path);
+
+        let summaries = conversation_service_v2()
+            .read_unarchived_conversation_summaries(&state, &ids)
+            .expect("批量读取概览");
+
+        assert_eq!(summaries.len(), ids.len());
+        assert!(
+            summaries.iter().all(|item| item.is_some()),
+            "三个会话都应读到概览"
+        );
+        assert_eq!(
+            question_store_open_count(&state.data_path),
+            1,
+            "问题库在一次批量读取里只应打开一次"
+        );
+        assert_eq!(
+            crate::kanban::kanban_store_open_count(&state.data_path),
+            1,
+            "看板库在一次批量读取里只应打开一次"
+        );
+        assert_eq!(
+            summaries[0]
+                .as_ref()
+                .map(|item| item.question_count)
+                .unwrap_or(0),
+            2
+        );
+    }
+
+    /// 批量路径与逐条路径产出的概览字段完全一致（口径、排序、过滤都不变）。
+    #[test]
+    fn batch_summary_read_should_match_per_conversation_read() {
+        let state = test_chat_runtime_state();
+        let ids = seed_team_conversations(&state);
+        seed_questions(&state, &[2, 1, 0]);
+
+        let batch = conversation_service_v2()
+            .read_unarchived_conversation_summaries(&state, &ids)
+            .expect("批量读取概览");
+        let mut single = Vec::new();
+        for conversation_id in &ids {
+            single.push(
+                conversation_service_v2()
+                    .read_unarchived_conversation_summary(&state, conversation_id)
+                    .expect("逐条读取概览"),
+            );
+        }
+
+        assert_eq!(
+            serde_json::to_value(&batch).expect("序列化批量概览"),
+            serde_json::to_value(&single).expect("序列化逐条概览"),
+            "批量与逐条读取的概览字段必须逐项一致"
+        );
+        assert_eq!(
+            batch
+                .iter()
+                .map(|item| item.as_ref().map(|item| item.question_count))
+                .collect::<Vec<_>>(),
+            vec![Some(2), Some(1), Some(0)]
+        );
+        assert_eq!(
+            batch[0]
+                .as_ref()
+                .map(|item| item.child_conversations.len())
+                .unwrap_or(0),
+            1
+        );
+    }
+
+    /// 会话不存在时批量路径返回 None，调用方据此把它当删除处理。
+    #[test]
+    fn batch_summary_read_should_return_none_for_missing_conversation() {
+        let state = test_chat_runtime_state();
+        let ids = seed_team_conversations(&state);
+        let missing_id = "perf-missing-conversation".to_string();
+        let mut read_ids = ids.clone();
+        read_ids.push(missing_id);
+
+        let summaries = conversation_service_v2()
+            .read_unarchived_conversation_summaries(&state, &read_ids)
+            .expect("批量读取概览");
+
+        assert_eq!(summaries.len(), read_ids.len());
+        assert!(summaries[ids.len()].is_none());
+    }
 }

@@ -3852,7 +3852,7 @@
         assert_eq!(decision.reason, "force_context_usage_82");
     }
 
-    fn test_chat_runtime_state() -> AppState {
+    pub(crate) fn test_chat_runtime_state() -> AppState {
         let root = std::env::temp_dir().join(format!("eca-chat-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp test root");
         std::fs::create_dir_all(root.join("llm-workspace")).expect("create temp llm workspace");

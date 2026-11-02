@@ -1,5 +1,32 @@
 // ==================== 会话提问：SQLite 存储 ====================
 
+/// 测试观测点：按数据目录统计问题库打开次数。
+/// 用于验证「一次批量概览读取只在整批上开一次库」，不参与运行时逻辑。
+#[cfg(test)]
+fn question_store_open_counters(
+) -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, usize>> {
+    static COUNTERS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<PathBuf, usize>>,
+    > = std::sync::OnceLock::new();
+    COUNTERS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(test)]
+fn question_store_reset_open_count(data_path: &PathBuf) {
+    if let Ok(mut counters) = question_store_open_counters().lock() {
+        counters.insert(data_path.clone(), 0);
+    }
+}
+
+#[cfg(test)]
+fn question_store_open_count(data_path: &PathBuf) -> usize {
+    question_store_open_counters()
+        .lock()
+        .ok()
+        .and_then(|counters| counters.get(data_path).copied())
+        .unwrap_or(0)
+}
+
 fn question_store_db_path(data_path: &PathBuf) -> PathBuf {
     app_root_from_data_path(data_path)
         .join("question")
@@ -7,6 +34,12 @@ fn question_store_db_path(data_path: &PathBuf) -> PathBuf {
 }
 
 fn question_store_open(data_path: &PathBuf) -> Result<rusqlite::Connection, String> {
+    #[cfg(test)]
+    {
+        if let Ok(mut counters) = question_store_open_counters().lock() {
+            *counters.entry(data_path.clone()).or_insert(0) += 1;
+        }
+    }
     let path = question_store_db_path(data_path);
     let parent = path
         .parent()
