@@ -1152,4 +1152,36 @@ mod kanban_tests {
         let stored = kanban_store_find(&conn, leader, 1).expect("find").expect("exists");
         assert!(stored.plan_path.is_empty(), "新建议题不带计划");
     }
+
+    #[test]
+    fn kanban_active_issues_by_role_should_include_leader_and_members() {
+        let mut leader_issue = test_issue("conv-leader", 1, "重构会话状态", KANBAN_STATUS_IN_PROGRESS);
+        leader_issue.assignee_kind = KANBAN_ASSIGNEE_LEADER.to_string();
+
+        let mut member_issue = test_issue("conv-leader", 2, "前端样式适配", KANBAN_STATUS_IN_PROGRESS);
+        member_issue.assignee_kind = KANBAN_ASSIGNEE_MEMBER.to_string();
+        member_issue.assignee_member_role = Some("哥伦比娅".to_string());
+
+        let mut done_issue = test_issue("conv-leader", 3, "已完成任务", KANBAN_STATUS_DONE);
+        done_issue.assignee_kind = KANBAN_ASSIGNEE_LEADER.to_string();
+
+        let issues = vec![leader_issue, member_issue, done_issue];
+        let by_role = active_issues_by_role_from_issues(
+            &issues,
+            Some("纳西妲"),
+            Some("agent-nahida"),
+        );
+
+        // 队长承接的议题：同时挂在 leader、队长、队长人格名、队长 agent_id 下
+        assert_eq!(by_role.get("leader").map(|s| s.number), Some(1));
+        assert_eq!(by_role.get("队长").map(|s| s.number), Some(1));
+        assert_eq!(by_role.get("纳西妲").map(|s| s.number), Some(1));
+        assert_eq!(by_role.get("agent-nahida").map(|s| s.number), Some(1));
+
+        // 队员承接的议题：正常挂在队员角色下
+        assert_eq!(by_role.get("哥伦比娅").map(|s| s.number), Some(2));
+
+        // 已完成的议题不占人
+        assert!(!by_role.values().any(|s| s.number == 3));
+    }
 }

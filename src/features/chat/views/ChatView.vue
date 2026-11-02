@@ -833,16 +833,21 @@
         <div v-else-if="chatRightPanelMode === 'teamMember'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">
           <slot name="team-member-panel" />
         </div>
-        <div v-else-if="chatRightPanelMode === 'kanban'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">
+        <div v-else-if="chatRightPanelMode === 'kanban'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-100">
           <KanbanBoardPanel
             :issues="kanbanIssues"
             :loading="kanbanLoading"
             :error-text="kanbanErrorText"
             :approving-number="kanbanApprovingNumber"
             :leader-name="personaName"
+            :leader-avatar-url="assistantAvatarUrl"
+            :persona-avatar-url-map="personaAvatarUrlMap"
+            :persona-name-map="personaNameMap"
+            :team-members="teamMembers"
             @back="selectChatRightPanelMode('home')"
             @refresh="reloadKanbanBoard"
             @approve="approveKanbanIssue"
+            @open-plan="openHomeFile"
           />
         </div>
         <div v-else-if="chatRightPanelMode === 'monitor'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">

@@ -636,7 +636,26 @@ fn build_unarchived_conversation_summary_with_kanban(
                 }
                 kanban_active_issue_cache
                     .get(&leader)
-                    .and_then(|by_role| by_role.get(&role))
+                    .and_then(|by_role| {
+                        by_role
+                            .get(&role)
+                            .or_else(|| by_role.get(entry.name.trim()))
+                            .or_else(|| {
+                                let aid = child.agent_id.trim();
+                                if !aid.is_empty() {
+                                    by_role.get(aid)
+                                } else {
+                                    None
+                                }
+                            })
+                            .or_else(|| {
+                                if role.eq_ignore_ascii_case("leader") || role == "队长" {
+                                    by_role.get("leader").or_else(|| by_role.get("队长"))
+                                } else {
+                                    None
+                                }
+                            })
+                    })
                     .cloned()
             });
             // 复用队伍工具那侧的判定（运行态 + 待处理队列 + 活动标记），

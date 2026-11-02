@@ -585,6 +585,8 @@
             :error-text="''"
             :approving-number="null"
             leader-name="Claude"
+            :leader-avatar-url="demoKanbanAvatarMap['leader']"
+            :avatar-url-map="demoKanbanAvatarMap"
           />
         </div>
       </div>

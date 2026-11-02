@@ -42,6 +42,14 @@
           v-if="sideChatEnabled"
           @open="emit('openSideChatPanel')"
         />
+        <!-- 队员状态表：整块收在 HomeTeamMemberBlock 里，占格、行高、滚动高度都由它自己定
+             （demo 页渲染同一个组件，不再各抄一份样式）。点某一格打开该队员会话，走队员面板 -->
+        <HomeTeamMemberBlock
+          v-if="teamVisible"
+          :members="teamMembers"
+          :avatar-url-map="teamMemberAvatarUrlMap"
+          @select-member="emit('openTeamMember', $event)"
+        />
         <HomeToolCard
           v-if="activeToolBatches.length"
           :batches="activeToolBatches"
@@ -136,6 +144,7 @@ import HomeFileCard from "./chat-home/HomeFileCard.vue";
 import HomeWorkspaceCard from "./chat-home/HomeWorkspaceCard.vue";
 import HomeSideChatCreateCard from "./chat-home/HomeSideChatCreateCard.vue";
 import HomeTileFlow from "./chat-home/HomeTileFlow.vue";
+import HomeTeamMemberBlock from "./chat-home/HomeTeamMemberBlock.vue";
 import HomeToolCard from "./chat-home/HomeToolCard.vue";
 import HomeShellCard from "./chat-home/HomeShellCard.vue";
 import HomeDelegateCard from "./chat-home/HomeDelegateCard.vue";
@@ -280,6 +289,7 @@ const hasAnyCard = computed(
     Boolean(String(props.workspaceRootPath || "").trim())
     || Boolean(props.latestPlan)
     || props.sideChatEnabled
+    || Boolean(props.teamVisible)
     || Boolean(props.kanbanVisible)
     || props.openFiles.length > 0
     || runningShells.value.length > 0

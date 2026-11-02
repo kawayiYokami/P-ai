@@ -114,36 +114,90 @@ impl KanbanSession {
                 return std::collections::HashMap::new();
             }
         };
-        let mut by_role: std::collections::HashMap<String, KanbanActiveIssueSummary> =
-            std::collections::HashMap::new();
-        // 一人一条是本次新加的写入约束，库里可能还留着同一个人挂多条的历史数据。
-        // 这里保留编号最小的那条：读完不报错，也不擅自改库。
-        for issue in issues {
-            if issue.assignee_kind.trim() != KANBAN_ASSIGNEE_MEMBER {
-                continue;
-            }
-            if !kanban_status_occupies_member(&issue.status) {
-                continue;
-            }
-            let Some(role) = issue
-                .assignee_member_role
-                .as_deref()
-                .map(str::trim)
-                .filter(|role| !role.is_empty())
-                .map(str::to_string)
-            else {
-                continue;
+
+        // 查找队长人格名与 agent_id：议题指派给「队长」(leader) 时，
+        // 队长自己承接的在办议题也要在名下（以及队长名字、角色、leader key）正确显示。
+        let leader_meta = conversation_service_v2().get_conversation_meta(state, leader).ok();
+        let leader_agent_id = leader_meta
+            .as_ref()
+            .map(|m| m.agent_id.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let leader_persona_name = leader_agent_id.as_deref().and_then(|aid| {
+            load_runtime_organization_snapshot(state).ok().and_then(|snapshot| {
+                snapshot.agents_by_id.get(aid).map(|a| a.name.clone())
+            })
+        });
+
+        active_issues_by_role_from_issues(
+            &issues,
+            leader_persona_name.as_deref(),
+            leader_agent_id.as_deref(),
+        )
+    }
+}
+
+/// 将看板议题映射为「角色 -> 在办议题摘要」：
+/// - 包含队员承接的议题（按 assignee_member_role）
+/// - 包含队长承接的议题（按 "leader"、"队长"、队长人格名、队长 agent_id 映射，
+///   确保队长自身承接时在队员状态表中正确显示为在办，而不是误判为空闲）。
+fn active_issues_by_role_from_issues(
+    issues: &[KanbanIssue],
+    leader_persona_name: Option<&str>,
+    leader_agent_id: Option<&str>,
+) -> std::collections::HashMap<String, KanbanActiveIssueSummary> {
+    let mut by_role: std::collections::HashMap<String, KanbanActiveIssueSummary> =
+        std::collections::HashMap::new();
+    // 一人一条是写入约束，库里可能还留着同一个人挂多条的历史数据。
+    // 这里保留编号最小的那条：读完不报错，也不擅自改库。
+    for issue in issues {
+        if !kanban_status_occupies_member(&issue.status) {
+            continue;
+        }
+        if issue.assignee_kind.trim() == KANBAN_ASSIGNEE_LEADER {
+            let summary = KanbanActiveIssueSummary {
+                number: issue.number,
+                title: issue.title.clone(),
+                status: issue.status.clone(),
             };
             by_role
-                .entry(role)
-                .or_insert(KanbanActiveIssueSummary {
-                    number: issue.number,
-                    title: issue.title,
-                    status: issue.status,
-                });
+                .entry(KANBAN_ASSIGNEE_LEADER.to_string())
+                .or_insert_with(|| summary.clone());
+            by_role
+                .entry("队长".to_string())
+                .or_insert_with(|| summary.clone());
+            if let Some(name) = leader_persona_name.map(str::trim).filter(|s| !s.is_empty()) {
+                by_role
+                    .entry(name.to_string())
+                    .or_insert_with(|| summary.clone());
+            }
+            if let Some(aid) = leader_agent_id.map(str::trim).filter(|s| !s.is_empty()) {
+                by_role
+                    .entry(aid.to_string())
+                    .or_insert_with(|| summary.clone());
+            }
+            continue;
         }
+        if issue.assignee_kind.trim() != KANBAN_ASSIGNEE_MEMBER {
+            continue;
+        }
+        let Some(role) = issue
+            .assignee_member_role
+            .as_deref()
+            .map(str::trim)
+            .filter(|role| !role.is_empty())
+            .map(str::to_string)
+        else {
+            continue;
+        };
         by_role
+            .entry(role)
+            .or_insert(KanbanActiveIssueSummary {
+                number: issue.number,
+                title: issue.title.clone(),
+                status: issue.status.clone(),
+            });
     }
+    by_role
 }
 
 /// 按名册反查历史编号对应的角色。

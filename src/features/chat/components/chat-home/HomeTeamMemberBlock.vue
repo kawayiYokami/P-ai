@@ -1,9 +1,8 @@
 <template>
   <section
-    class="ecall-home-team-block flex h-full min-w-0 flex-col gap-2 rounded-box border border-base-content/10 bg-base-100 p-3.5"
+    class="ecall-home-team-block flex h-full min-w-0 flex-col rounded-box border border-base-content/10 bg-base-100 p-3"
     :class="[isMultiRow ? 'ecall-home-team-row-2' : 'ecall-home-team-row-1']"
   >
-    <div class="text-sm font-medium text-base-content/85">{{ t("chat.teamMember.title") }}</div>
     <OverlayScrollArea v-if="orderedMembers.length" class="flex-1 min-h-0 w-full" scroller-class="ecall-home-team-scroller">
       <TeamMemberTileGrid
         :members="orderedMembers"
@@ -11,7 +10,7 @@
         @select-member="emit('selectMember', $event)"
       />
     </OverlayScrollArea>
-    <div v-else class="text-xs text-base-content/50">{{ t("chat.teamMember.empty") }}</div>
+    <div v-else class="flex flex-1 items-center justify-center text-xs text-base-content/50">{{ t("chat.teamMember.empty") }}</div>
   </section>
 </template>
 
