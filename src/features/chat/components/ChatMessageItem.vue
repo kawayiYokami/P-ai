@@ -2764,7 +2764,7 @@ function openAttachmentPath(path: string) {
 
 /* ==================== 1. 气泡模式：富块化为横向通栏楼层（Band Floor） ==================== */
 .ecall-assistant-bubble[data-bubble-background="on"] {
-  --ecall-bubble-floor-bg: color-mix(in srgb, var(--color-base-200) 60%, var(--color-base-100));
+  --ecall-bubble-floor-bg: color-mix(in srgb, var(--color-base-200) 50%, var(--color-base-100));
   --ecall-bubble-floor-border: color-mix(in srgb, var(--color-base-content) 10%, transparent);
 }
 

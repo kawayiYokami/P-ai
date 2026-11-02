@@ -222,7 +222,7 @@ const columns = computed<DemoColumn[]>(() => [
 
 /* ==================== 目标：富块化为横向通栏楼层（Band Floor） ==================== */
 .ecall-rich-embed-demo-target .assistant-markdown {
-  --ecall-bubble-floor-bg: color-mix(in srgb, var(--color-base-200) 60%, var(--color-base-100));
+  --ecall-bubble-floor-bg: color-mix(in srgb, var(--color-base-200) 50%, var(--color-base-100));
   --ecall-bubble-floor-border: color-mix(in srgb, var(--color-base-content) 10%, transparent);
 }
 
