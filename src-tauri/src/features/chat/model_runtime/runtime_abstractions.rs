@@ -206,7 +206,8 @@ fn provider_tool_output_from_value(tool_name: &str, value: &Value) -> String {
     match tool_name {
         "exec" => {
             if value.get("background").and_then(Value::as_bool) == Some(true) {
-                return serde_json::to_string(value).unwrap_or_else(|_| tool_value_readable_text(value));
+                // 后台态是一份结构，正文只给拍平后的可读行，不再整体序列化成 JSON。
+                return tool_value_readable_text(value);
             }
             if let Some(aggregated_output) = value
                 .get("aggregatedOutput")
@@ -637,7 +638,7 @@ mod runtime_tool_result_tests {
     }
 
     #[test]
-    fn exec_background_result_keeps_full_json_for_projection() {
+    fn exec_background_result_should_flatten_fields_instead_of_dumping_json() {
         let value = serde_json::json!({
             "ok": true,
             "background": true,
@@ -652,9 +653,14 @@ mod runtime_tool_result_tests {
         });
         let result = provider_tool_result_from_value("exec", value);
 
-        assert!(result.output.contains("\"backgroundId\":\"bg-shell-1\""));
-        assert!(result.output.contains("\"logPath\""));
-        assert!(result.output.contains("\"status\":\"running\""));
+        assert!(result.output.contains("backgroundId: bg-shell-1"));
+        assert!(result.output.contains("logPath: C:/workspace/logs/bg-shell-1.log"));
+        assert!(result.output.contains("status: running"));
+        assert!(
+            !result.output.contains("{\"ok\":true"),
+            "后台态正文不得是返回值的 JSON 序列化体：{}",
+            result.output
+        );
     }
 
     #[test]

@@ -377,6 +377,35 @@ fn config_tool_runtime_effect_for_command(
     }
 }
 
+/// config 工具写完人格后：`agent new` / `agent update` 的回执里没有头像，就给该人格排队生成。
+/// `pai_config_tool` 是独立 lib 模块（只有路径、没有运行态），所以排队落在持有 AppState 的包装层。
+fn config_tool_agent_avatar_schedule(state: &AppState, command: &str, result: &Value) {
+    let parts = config_tool_split_command(command);
+    if parts.first().map(String::as_str) != Some("agent") {
+        return;
+    }
+    if !matches!(parts.get(1).map(String::as_str), Some("new") | Some("update")) {
+        return;
+    }
+    let agent_id = result
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    if agent_id.is_empty() {
+        return;
+    }
+    let has_avatar = result
+        .get("avatarPath")
+        .and_then(Value::as_str)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    if has_avatar {
+        return;
+    }
+    enqueue_agent_avatar_generation(state, agent_id);
+}
+
 fn config_tool_mcp_start_server(
     state: &AppState,
     server_id: &str,
@@ -579,13 +608,18 @@ impl RuntimeValueTool for BuiltinConfigTool {
             let runtime_effect = apply_config_tool_runtime_effect(&self.app_state, runtime_effect)
                 .await
                 .map_err(ToolInvokeError::from)?;
-            let mut result = match serde_json::from_str::<Value>(output.trim()) {
-                Ok(parsed) => serde_json::json!({
+            let parsed_output = serde_json::from_str::<Value>(output.trim()).ok();
+            // 缓存已经失效，这里读到的是刚写完的人格；只入队，不阻塞工具返回。
+            if let Some(parsed) = parsed_output.as_ref() {
+                config_tool_agent_avatar_schedule(&self.app_state, &args.command, parsed);
+            }
+            let mut result = match parsed_output {
+                Some(parsed) => serde_json::json!({
                     "ok": true,
                     "command": args.command,
                     "result": parsed
                 }),
-                Err(_) => serde_json::json!({
+                None => serde_json::json!({
                     "ok": true,
                     "command": args.command,
                     "result": output
@@ -1571,10 +1605,11 @@ impl RuntimeToolMetadata for BuiltinTeamSendTool {
                 "role": { "type": "string", "description": "队员的角色（人格名），也兼容人格 id。" },
                 "title": { "type": "string", "description": "邮件标题，必填。它在界面上是折叠块的那一行、始终露在外面，也是对方扫历史时最先看到的那句。要短到一行能读完，并写清这封信要他做什么。例如「把登录鉴权改成 session 表」。不要写成「关于 XX 的通知」这种没有信息量的标题。" },
                 "content": { "type": "string", "description": "邮件正文，可以长。界面上在折叠块里、默认收起，点开即全文；对方模型读得到全文，细节放这里，别靠标题承载。" },
+                "issue": { "type": "integer", "minimum": 0, "description": "这封信对应的议题编号（议题看板上的 #N）。派活必须在看板上挂议题：还没有对应议题就先调 kanban 新建一条，拿到编号再发这封信。本会话没有议题看板的场景（例如远程私聊）填 0。" },
                 "mode": { "type": "string", "enum": ["guided", "queue"], "description": "guided=立即插入改道（默认）；queue=排队等对方收尾。" },
                 "conversation_id": { "type": "string", "description": "可选。只有名册里存在同一角色的多名队员时才需要，用 team_info 给出的 conversationId 精确定位。" }
               },
-              "required": ["role", "title", "content"],
+              "required": ["role", "title", "content", "issue"],
               "additionalProperties": false
             }),
         )

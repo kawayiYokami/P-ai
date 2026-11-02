@@ -28,12 +28,34 @@ struct GoalUsageDelta {
     cache_write_tokens: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 struct GoalMutationOutput {
     conversation_id: String,
     goal: ConversationGoalState,
     usage_delta: GoalUsageDelta,
+}
+
+/// 手写序列化：回执里的 `goal.objective` 是目标原文，属于调用方自己写下的内容，
+/// 不再搬回模型上下文；其余字段照旧输出 camelCase。
+///
+/// 只影响本结构。`emit_goal_updated` 广播的是 `ConversationGoalState` 本身，
+/// 前端仍能拿到 objective。
+impl Serialize for GoalMutationOutput {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut goal = serde_json::to_value(&self.goal).map_err(serde::ser::Error::custom)?;
+        if let Value::Object(map) = &mut goal {
+            map.remove("objective");
+        }
+        let mut state = serializer.serialize_struct("GoalMutationOutput", 3)?;
+        state.serialize_field("conversationId", &self.conversation_id)?;
+        state.serialize_field("goal", &goal)?;
+        state.serialize_field("usageDelta", &self.usage_delta)?;
+        state.end()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

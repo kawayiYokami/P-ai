@@ -17,6 +17,8 @@ const TEAM_LEADER_TOOL_NAMES: [&str; 7] = [
 ];
 const TEAM_MEMBER_TOOL_NAME: &str = "team_report";
 const TEAM_MESSAGE_KIND: &str = "team_message";
+/// 兜底汇报扫锚点之后新增消息的条数上限：一次队长指示之后的产出不会比这更长。
+const TEAM_STOP_REPORT_SCAN_LIMIT: usize = 100;
 const TEAM_NOTICE_KIND: &str = "team_notice";
 /// 邮件标题的字符上限：超长不报错，截到上限。
 /// 标题现在同时是正文第一行（`# 标题`）与 `team_read` 单列返回的标题字段，两处都不该太长。
@@ -518,8 +520,8 @@ fn team_identity_summary_message(role: &str, duty: &str) -> ChatMessage {
     }
 }
 
-/// 队伍消息的发信方：署名与发件人本人格。谁发的已由正文的「队长说：」「某某说：」写明，
-/// 这里只补人格名与发件人本人格，不另存角色标记。
+/// 队伍消息的发信方：署名与发件人本人格。谁发的由 speaker_agent_id 与 provider_meta.teamName
+/// 承载，正文不重复署名；这里只补人格名与发件人本人格，不另存角色标记。
 struct TeamMessageSender {
     /// 发信方角色名（人格名）；系统口径的通知为空。
     name: String,
@@ -713,6 +715,233 @@ fn team_notify_leader_member_failed(state: &AppState, conversation_id: &str, err
             "[队伍] 失败，任务=队员出错通知，role={role}，conversation_id={conversation_id}，leader_conversation_id={leader_conversation_id}，error={err}"
         )),
     }
+}
+
+// ==================== 待汇报标记与停止兜底汇报 ====================
+
+/// 队长向队员发话：给这次指示打上「待汇报」标记，起点锚定在这封信上。
+///
+/// 标记落会话元数据，不落进程内存——中途重启也不能把「还欠队长一封信」丢掉。
+/// 队长再次发话即重新置位并换锚点，等于把上一次的账一笔勾销。
+fn team_mark_member_pending_report(
+    state: &AppState,
+    member_conversation_id: &str,
+    anchor_message_id: &str,
+) {
+    let member_conversation_id = member_conversation_id.trim();
+    if member_conversation_id.is_empty() {
+        return;
+    }
+    let anchor = anchor_message_id.trim().to_string();
+    let result = state_update_conversation_metadata_cached(state, member_conversation_id, |conversation| {
+        if let Some(membership) = conversation.team.membership.as_mut() {
+            membership.pending_report = true;
+            membership.pending_report_anchor = if anchor.is_empty() {
+                None
+            } else {
+                Some(anchor.clone())
+            };
+        }
+        Ok(())
+    });
+    match result {
+        Ok(_) => runtime_log_info(format!(
+            "[队伍] 完成，任务=标记待汇报，conversation_id={member_conversation_id}，anchor={anchor}"
+        )),
+        Err(err) => runtime_log_warn(format!(
+            "[队伍] 失败，任务=标记待汇报，conversation_id={member_conversation_id}，error={err}"
+        )),
+    }
+}
+
+/// 清「待汇报」标记。三个时机共用这一个入口：队员已汇报、队长再次发话、自动转发完成。
+fn team_clear_member_pending_report(state: &AppState, member_conversation_id: &str) {
+    let member_conversation_id = member_conversation_id.trim();
+    if member_conversation_id.is_empty() {
+        return;
+    }
+    let result = state_update_conversation_metadata_cached(state, member_conversation_id, |conversation| {
+        if let Some(membership) = conversation.team.membership.as_mut() {
+            membership.pending_report = false;
+            membership.pending_report_anchor = None;
+        }
+        Ok(())
+    });
+    if let Err(err) = result {
+        runtime_log_warn(format!(
+            "[队伍] 失败，任务=清除待汇报标记，conversation_id={member_conversation_id}，error={err}"
+        ));
+    }
+}
+
+/// 一条消息算不算队员本轮的产出：必须是它自己的 assistant 正文。
+///
+/// 队伍消息（邮件/通知）本身也是 assistant 角色，但那是别人发给它的，
+/// 不能拿来回投给队长，否则等于把队长自己的话原样退回去。
+fn team_member_output_text(message: &ChatMessage) -> Option<String> {
+    if message.role.trim() != "assistant" {
+        return None;
+    }
+    let is_team_message = message
+        .provider_meta
+        .as_ref()
+        .and_then(|meta| meta.get("teamMessage"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if is_team_message {
+        return None;
+    }
+    if message
+        .speaker_agent_id
+        .as_deref()
+        .map(str::trim)
+        == Some(SYSTEM_PERSONA_ID)
+    {
+        return None;
+    }
+    let text = message_text_content(message);
+    if text.trim().is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+/// 队员停下调度时的兜底汇报。
+///
+/// 「停下」这个判定不在这里：队列为空、无待消费引导、无正在进行的上下文整理三条
+/// 由调度收口那处统一判一次（`handle_conversation_stopped`），这里只认标记与失败态。
+///
+/// 失败态直接清标记不转发：出错已经有独立通知（`team_notify_leader_member_failed`），
+/// 再转发一次会让队长一次失败收到两封信。
+fn team_forward_member_stop_report(state: &AppState, conversation_id: &str, round_ok: bool) {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return;
+    }
+    let meta = match conversation_service_v2().get_conversation_meta(state, conversation_id) {
+        Ok(meta) => meta,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[队伍] 跳过，任务=停止兜底汇报，conversation_id={conversation_id}，原因=会话元数据读取失败，error={err}"
+            ));
+            return;
+        }
+    };
+    let Some(membership) = meta.team.membership.as_ref() else {
+        return;
+    };
+    if !membership.pending_report {
+        return;
+    }
+    if !round_ok {
+        team_clear_member_pending_report(state, conversation_id);
+        runtime_log_info(format!(
+            "[队伍] 跳过，任务=停止兜底汇报，conversation_id={conversation_id}，原因=本轮失败，已有失败通知"
+        ));
+        return;
+    }
+    let leader_conversation_id = membership.leader_conversation_id.trim().to_string();
+    if leader_conversation_id.is_empty() {
+        return;
+    }
+    let anchor = membership
+        .pending_report_anchor
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    // 只扫锚点之后新增的消息：不拿整段历史去扫，否则上一轮的旧话会被当成本次汇报。
+    let read_after_anchor = |anchor: Option<&str>| {
+        conversation_service_v2().get_messages_after_with_fallback(
+            state,
+            conversation_id,
+            anchor,
+            TEAM_STOP_REPORT_SCAN_LIMIT,
+        )
+    };
+    let messages = match read_after_anchor(anchor.as_deref()) {
+        Ok((messages, _)) => messages,
+        Err(err) => {
+            // 锚点那封信还没落进历史（这一轮根本没跑起来）时退回最近一页，
+            // 仍然只读有界的一小段，不整读会话。
+            runtime_log_warn(format!(
+                "[队伍] 降级，任务=停止兜底汇报，conversation_id={conversation_id}，原因=锚点消息未落历史，改读最近一页，error={err}"
+            ));
+            match read_after_anchor(None) {
+                Ok((messages, _)) => messages,
+                Err(err) => {
+                    runtime_log_warn(format!(
+                        "[队伍] 跳过，任务=停止兜底汇报，conversation_id={conversation_id}，原因=消息读取失败，error={err}"
+                    ));
+                    return;
+                }
+            }
+        }
+    };
+    let output = messages.iter().rev().find_map(team_member_output_text);
+    let role = TeamPersonaNames::load(state)
+        .name_of(&meta.agent_id)
+        .map(str::to_string)
+        .unwrap_or_else(|| strip_legacy_member_number_prefix(&membership.name));
+    let role = if role.trim().is_empty() {
+        "队员".to_string()
+    } else {
+        role
+    };
+    // 邮件头与正文的分工：一行字不折叠（折叠的意义是「标题在外面、内容点开看」），
+    // 多行才把首行提到标题，正文只留首行之后的部分——同一句话不写两遍。
+    // 没有正文也要投：静默等于让队长以为活丢了，占位说明只留能定位的两个会话 id。
+    let (mail, body) = match output {
+        Some(text) => {
+            let trimmed = text.trim();
+            let first_line = trimmed.lines().next().unwrap_or("").trim();
+            let rest = trimmed
+                .lines()
+                .skip(1)
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string();
+            if rest.is_empty() {
+                // 只有一行：不折叠，正文就是这一行。
+                (None, trimmed.to_string())
+            } else {
+                let title = if first_line.is_empty() {
+                    format!("队员「{role}」本轮结束")
+                } else {
+                    team_mail_title(first_line)
+                };
+                (Some(TeamMailHeader { title }), rest)
+            }
+        }
+        None => (
+            Some(TeamMailHeader {
+                title: format!("队员「{role}」本轮没有产出正文"),
+            }),
+            format!("- 会话：`{conversation_id}`\n- 队长会话：`{leader_conversation_id}`"),
+        ),
+    };
+    let message = team_system_message(
+        body,
+        TEAM_MESSAGE_KIND,
+        TeamMessageSender {
+            name: role.clone(),
+            agent_id: Some(meta.agent_id.clone()),
+        },
+        mail,
+    );
+    let outcome = team_enqueue_message(state, &leader_conversation_id, message, "queue");
+    match outcome {
+        Ok(()) => runtime_log_info(format!(
+            "[队伍] 完成，任务=停止兜底汇报，role={role}，conversation_id={conversation_id}，leader_conversation_id={leader_conversation_id}"
+        )),
+        Err(err) => runtime_log_warn(format!(
+            "[队伍] 失败，任务=停止兜底汇报，role={role}，conversation_id={conversation_id}，leader_conversation_id={leader_conversation_id}，error={err}"
+        )),
+    }
+    // 转发一旦落定就清标记：同一件事不重复投，也不给下一次停下留残账。
+    team_clear_member_pending_report(state, conversation_id);
 }
 
 /// 队员当前状态：正在跑（忙碌）/ 最近一轮失败（报错）/ 空闲。
@@ -934,7 +1163,7 @@ fn builtin_team_report(
         .name_of(&meta.agent_id)
         .map(str::to_string)
         .unwrap_or_else(|| strip_legacy_member_number_prefix(&membership.name));
-    let body = format!("队员「{role}」说：{content}");
+    let body = content.to_string();
     let message = team_system_message(
         body.clone(),
         TEAM_MESSAGE_KIND,
@@ -948,17 +1177,16 @@ fn builtin_team_report(
     );
     let message_id = message.id.clone();
     team_enqueue_message(state, &membership.leader_conversation_id, message, mode)?;
+    // 队员已经自己汇报过：清掉待汇报标记，同一件事不再由兜底再投一遍。
+    team_clear_member_pending_report(state, &meta.id);
     runtime_log_info(format!(
         "[队伍] 完成，任务=队员汇报，conversation_id={}，role={role}，mode={mode}",
         membership.leader_conversation_id
     ));
     Ok(serde_json::json!({
-        "ok": true,
-        "accepted": true,
         "mode": if mode.trim().eq_ignore_ascii_case("guided") { "guided" } else { "queue" },
         "leaderConversationId": membership.leader_conversation_id,
         "messageId": message_id,
-        "content": body,
     }))
 }
 
@@ -1094,8 +1322,21 @@ fn builtin_team_send(
     if member_conversation_id.trim().is_empty() {
         return Err(format!("「{role}」还没有可用的会话"));
     }
+    // 派活必须挂议题：有看板的会话里，编号为 0 或议题不存在都直接拒，不让活落在看板之外。
+    // 没有看板的会话（远程私聊也能当队长）不校验——这条分支要是报错，远程派活整条就废了。
+    let issue_number = args.issue;
+    if team_session_allows_kanban(state, session_id) {
+        if issue_number == 0 {
+            return Err(
+                "派活必须挂议题：先在 kanban 新建一条，把编号填进 issue".to_string(),
+            );
+        }
+        if !kanban::kanban_store_issue_exists(&state.data_path, &leader.id, issue_number)? {
+            return Err(format!("议题 #{issue_number} 不存在，先建议题再派活"));
+        }
+    }
     let mode = args.mode.as_deref().unwrap_or("guided");
-    let body = format!("队长说：{content}");
+    let body = content.to_string();
     let message = team_system_message(
         body.clone(),
         TEAM_MESSAGE_KIND,
@@ -1109,17 +1350,17 @@ fn builtin_team_send(
     );
     let message_id = message.id.clone();
     team_enqueue_message(state, &member_conversation_id, message, mode)?;
+    // 这次指示之后队员若安静停下，产出要自动投回来：标记与锚点都落在这封信上。
+    team_mark_member_pending_report(state, &member_conversation_id, &message_id);
     runtime_log_info(format!(
-        "[队伍] 完成，任务=队长派话，conversation_id={member_conversation_id}，role={role}，mode={mode}"
+        "[队伍] 完成，任务=队长派话，conversation_id={member_conversation_id}，role={role}，mode={mode}，issue={issue_number}"
     ));
     Ok(serde_json::json!({
-        "ok": true,
-        "accepted": true,
         "role": role,
+        "issueNumber": issue_number,
         "mode": if mode.trim().eq_ignore_ascii_case("guided") { "guided" } else { "queue" },
         "conversationId": member_conversation_id,
         "messageId": message_id,
-        "content": body,
     }))
 }
 
@@ -1262,7 +1503,8 @@ fn team_read_body_count(messages: &[ChatMessage]) -> usize {
 ///
 /// 标题单列，正文剥掉服务端拼在外层的折叠结构——两处用途不同，标题已经在 `title` 字段里，
 /// 摘要不该把 `<details>` 这些结构标签搬运给模型。老消息首行是 `# 标题`，两种形态都认。
-/// 不剥「队长说：」/「队员「X」说：」：那是模型读上下文时判断谁在说话的依据，与界面渲染不同。
+/// 正文不再带角色署名前缀：发信人身份由 speaker_agent_id 与 teamName 承载，
+/// 模型读上下文时也靠它们判断谁在说话。
 /// 摘要压成一行并截断，返回值不搬运正文。
 fn team_read_message_entry(message: &ChatMessage) -> Value {
     let meta_title = message
@@ -1427,6 +1669,8 @@ async fn team_create_member(
         number,
         name: role.clone(),
         duty: duty.clone(),
+        pending_report: false,
+        pending_report_anchor: None,
     });
     member
         .messages

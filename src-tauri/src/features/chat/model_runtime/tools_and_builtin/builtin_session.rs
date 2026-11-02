@@ -28,15 +28,10 @@ fn builtin_inform_session(
         &args.content,
     )?;
     Ok(serde_json::json!({
-        "ok": true,
-        "accepted": true,
-        "status": "queued",
         "session_id": result.target_conversation_id,
-        "kind": result.target_kind,
         "remote_contact_id": result.remote_contact_id,
         "pushed_to_remote": result.pushed_to_remote,
         "message_id": result.message.id,
-        "content": message_text_content(&result.message),
     }))
 }
 

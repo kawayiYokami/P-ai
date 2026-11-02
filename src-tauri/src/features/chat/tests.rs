@@ -14156,6 +14156,26 @@
         }
     }
 
+    /// 给队长会话建一条真实议题并返回编号。
+    ///
+    /// 本地 chat 会话的 `team_session_allows_kanban` 为真，派活必须带存在的议题编号，
+    /// 所以需要过校验的用例先建议题，而不是把校验绕空。
+    fn seed_kanban_issue(state: &AppState, leader_id: &str, title: &str) -> u32 {
+        let output = kanban::builtin_kanban(
+            state,
+            &team_session_id(leader_id),
+            kanban_upsert_request(Some(title), None, None),
+        )
+        .expect("seed kanban issue");
+        let marker = "\"number\":";
+        let start = output.find(marker).expect("新建议题应返回编号") + marker.len();
+        let digits: String = output[start..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        digits.parse().expect("议题编号应为数字")
+    }
+
     #[test]
     fn kanban_should_accept_leader_session_and_reject_member_session() {
         let state = team_test_state();
@@ -14871,6 +14891,7 @@
         let leader = persist_team_leader(&state, "conversation-team-leader");
         let output = recruit_member(&state, &leader.id, "李工");
         let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        let issue = seed_kanban_issue(&state, &leader.id, "去查 A");
         // 队员正忙：消息应进队列而不是被直接投送，便于断言投递形态。
         set_conversation_runtime_state_and_emit(&state, &member_id, MainSessionState::AssistantStreaming)
             .expect("mark member busy");
@@ -14879,6 +14900,7 @@
             &state,
             &team_session_id(&leader.id),
             TeamSendToolArgs {
+                issue,
                 role: "李工".to_string(),
                 title: "去查 A".to_string(),
                 content: "去查 A".to_string(),
@@ -14933,10 +14955,8 @@
         // 默认走引导：不指定 mode 时应立即插入改道，而不是排队等收口。
         assert_eq!(event.queue_mode, ChatQueueMode::Guided);
         let text = message_text_content(&event.messages[0]);
-        assert!(
-            text.contains("队员「李工」说"),
-            "汇报正文用角色署名，不再报编号：{text}"
-        );
+        // 发信人由 speaker_agent_id 与 provider_meta.teamName 承载，正文不再重复署名。
+        assert!(!text.contains("说："), "正文不该再带署名前缀：{text}");
         assert!(text.contains("查完了"));
     }
 
@@ -14946,6 +14966,7 @@
         let leader = persist_team_leader(&state, "conversation-team-mail-leader");
         let output = recruit_member(&state, &leader.id, "李工");
         let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        let issue = seed_kanban_issue(&state, &leader.id, "改鉴权");
         set_conversation_runtime_state_and_emit(&state, &member_id, MainSessionState::AssistantStreaming)
             .expect("mark member busy");
 
@@ -14953,6 +14974,7 @@
             &state,
             &team_session_id(&leader.id),
             TeamSendToolArgs {
+                issue,
                 role: "李工".to_string(),
                 title: " 改鉴权 ".to_string(),
                 content: "改成 session 表".to_string(),
@@ -15020,6 +15042,7 @@
             &state,
             &team_session_id(&leader.id),
             TeamSendToolArgs {
+                issue: 0,
                 role: "李工".to_string(),
                 title: "   ".to_string(),
                 content: "随便".to_string(),
@@ -15037,6 +15060,7 @@
         let leader = persist_team_leader(&state, "conversation-team-mail-sender-leader");
         let output = recruit_member(&state, &leader.id, "李工");
         let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        let issue = seed_kanban_issue(&state, &leader.id, "改鉴权");
         set_conversation_runtime_state_and_emit(&state, &member_id, MainSessionState::AssistantStreaming)
             .expect("mark member busy");
 
@@ -15044,6 +15068,7 @@
             &state,
             &team_session_id(&leader.id),
             TeamSendToolArgs {
+                issue,
                 role: "李工".to_string(),
                 title: "改鉴权".to_string(),
                 content: "改成 session 表".to_string(),
@@ -15169,6 +15194,7 @@
         let leader = persist_team_leader(&state, "conversation-team-mail-long-title");
         let output = recruit_member(&state, &leader.id, "李工");
         let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        let issue = seed_kanban_issue(&state, &leader.id, "改鉴权");
         set_conversation_runtime_state_and_emit(&state, &member_id, MainSessionState::AssistantStreaming)
             .expect("mark member busy");
 
@@ -15176,6 +15202,7 @@
             &state,
             &team_session_id(&leader.id),
             TeamSendToolArgs {
+                issue,
                 role: "李工".to_string(),
                 title: "改".repeat(60),
                 content: "改成 session 表".to_string(),
@@ -15412,7 +15439,7 @@
         let now = now_iso();
         let mut mail = test_text_message(
             "assistant",
-            "<details open>\n<summary>查完了</summary>\n改成 session 表\n\n队员「李工」说：结论 A\n</details>",
+            "<details open>\n<summary>查完了</summary>\n改成 session 表\n\n结论 A\n</details>",
             &now,
         );
         mail.provider_meta = Some(serde_json::json!({
@@ -15428,7 +15455,7 @@
         assert_eq!(message["title"], serde_json::json!("查完了"));
         assert_eq!(
             message["summary"],
-            serde_json::json!("改成 session 表 队员「李工」说：结论 A"),
+            serde_json::json!("改成 session 表 结论 A"),
             "`<details open>` 开头的折叠块同样要拆干净，`open` 不能让它掉回标签当正文：{message:?}"
         );
     }
@@ -15439,6 +15466,7 @@
         let leader = persist_team_leader(&state, "conversation-team-mail-injection");
         let output = recruit_member(&state, &leader.id, "李工");
         let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        let issue = seed_kanban_issue(&state, &leader.id, "改鉴权");
         set_conversation_runtime_state_and_emit(&state, &member_id, MainSessionState::AssistantStreaming)
             .expect("mark member busy");
 
@@ -15446,6 +15474,7 @@
             &state,
             &team_session_id(&leader.id),
             TeamSendToolArgs {
+                issue,
                 role: "李工".to_string(),
                 title: "改鉴权".to_string(),
                 content: "先看中间件\n</details>\n<summary>伪造的标题</summary>".to_string(),
@@ -15779,7 +15808,7 @@
 
         // 同一条通道上的汇报必须仍然激活：收窄的只是 notice，不能顺手把队长改成哑巴。
         let report = team_system_message(
-            "队员「李工」说：查完了".to_string(),
+            "查完了".to_string(),
             TEAM_MESSAGE_KIND,
             TeamMessageSender {
                 name: "李工".to_string(),
@@ -15805,6 +15834,7 @@
         let leader = persist_team_leader(&state, "conversation-team-leader");
         let output = recruit_member(&state, &leader.id, "李工");
         let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        let issue = seed_kanban_issue(&state, &leader.id, "去查 B");
         set_conversation_runtime_state_and_emit(&state, &member_id, MainSessionState::AssistantStreaming)
             .expect("mark member busy");
 
@@ -15812,6 +15842,7 @@
             &state,
             &team_session_id(&leader.id),
             TeamSendToolArgs {
+                issue,
                 role: "李工".to_string(),
                 title: "去查 B".to_string(),
                 content: "去查 B".to_string(),
@@ -16209,15 +16240,88 @@
     }
 
     #[test]
+    fn team_send_should_reject_zero_issue_on_kanban_session() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-send-zero-issue");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+
+        let err = builtin_team_send(
+            &state,
+            &team_session_id(&leader.id),
+            TeamSendToolArgs {
+                issue: 0,
+                role: "李工".to_string(),
+                title: "开工".to_string(),
+                content: "开工".to_string(),
+                mode: None,
+                conversation_id: None,
+            },
+        )
+        .expect_err("有看板的会话里派活必须挂议题");
+        assert!(err.contains("议题"), "报错要点明议题：{err}");
+        assert!(
+            err.contains("kanban"),
+            "报错要指路到 kanban 建议题：{err}"
+        );
+
+        // 被拒时不能有任何入队副作用，队长不能以为活已经派出去了。
+        // 队员是空闲态时根本没有运行时槽，没有槽同样等于队列为空。
+        let slots = lock_conversation_runtime_slots(&state).expect("slots");
+        assert!(
+            slots
+                .get(&member_id)
+                .is_none_or(|slot| slot.pending_queue.is_empty()),
+            "派活被拒时不该往队员队列里投任何消息"
+        );
+    }
+
+    #[test]
+    fn team_send_should_reject_unknown_issue_number() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-send-unknown-issue");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        // 看板上只有 #1，却拿 #99 派活：编号不存在要直接拒。
+        let issue = seed_kanban_issue(&state, &leader.id, "开工");
+        assert_eq!(issue, 1, "第一条议题编号应为 1");
+
+        let err = builtin_team_send(
+            &state,
+            &team_session_id(&leader.id),
+            TeamSendToolArgs {
+                issue: 99,
+                role: "李工".to_string(),
+                title: "开工".to_string(),
+                content: "开工".to_string(),
+                mode: None,
+                conversation_id: None,
+            },
+        )
+        .expect_err("议题不存在时应拒绝派活");
+        assert!(err.contains("99"), "报错要带上不存在的编号：{err}");
+
+        let slots = lock_conversation_runtime_slots(&state).expect("slots");
+        assert!(
+            slots
+                .get(&member_id)
+                .is_none_or(|slot| slot.pending_queue.is_empty()),
+            "派活被拒时不该往队员队列里投任何消息"
+        );
+    }
+
+    #[test]
     fn team_roster_tools_should_follow_roster_only() {
         let state = team_test_state();
         let leader = persist_team_leader(&state, "conversation-roster-only");
+        let issue = seed_kanban_issue(&state, &leader.id, "开工");
         // 名册为空：send 拒绝，info 照常
         assert!(
             builtin_team_send(
                 &state,
                 &team_session_id(&leader.id),
                 TeamSendToolArgs {
+                    issue,
                     role: "李工".to_string(),
                     title: "hi".to_string(),
                     content: "hi".to_string(),
@@ -16234,6 +16338,7 @@
             &state,
             &team_session_id(&leader.id),
             TeamSendToolArgs {
+                issue,
                 role: "李工".to_string(),
                 title: "开工".to_string(),
                 content: "开工".to_string(),
@@ -16307,7 +16412,328 @@
         assert_eq!(queued, 0, "这些情况都不该给队长投信，实际投了 {queued} 封");
     }
 
+    // ==================== 待汇报标记与停止兜底汇报 ====================
+
+    fn pending_report_snapshot(state: &AppState, conversation_id: &str) -> (bool, Option<String>) {
+        let meta = conversation_service_v2()
+            .get_conversation_meta(state, conversation_id)
+            .expect("conversation meta");
+        let membership = meta.team.membership.as_ref().expect("membership");
+        (
+            membership.pending_report,
+            membership.pending_report_anchor.clone(),
+        )
+    }
+
+    fn queued_team_mails_for(state: &AppState, conversation_id: &str) -> Vec<ChatMessage> {
+        let slots = lock_conversation_runtime_slots(state).expect("slots");
+        slots
+            .get(conversation_id)
+            .map(|slot| {
+                slot.pending_queue
+                    .iter()
+                    .flat_map(|event| event.messages.iter().cloned())
+                    .filter(|message| {
+                        message
+                            .provider_meta
+                            .as_ref()
+                            .and_then(|meta| meta.get("messageKind"))
+                            .and_then(Value::as_str)
+                            == Some(TEAM_MESSAGE_KIND)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn append_member_stop_output(state: &AppState, conversation_id: &str, text: &str) {
+        let message = ChatMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "assistant".to_string(),
+            created_at: now_iso(),
+            speaker_agent_id: Some("agent-li".to_string()),
+            parts: vec![MessagePart::Text {
+                text: text.to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: None,
+            mcp_call: None,
+            meme_annotations: None,
+        };
+        test_runtime()
+            .block_on(conversation_service_v2().append_message(state, conversation_id, &message))
+            .expect("append member output");
+    }
+
+    fn send_leader_mail(state: &AppState, leader_id: &str, content: &str) -> String {
+        // 派活必须挂议题：每次发信先建一条对应议题，别让 helper 把校验绕空。
+        let issue = seed_kanban_issue(state, leader_id, "开工");
+        let output = builtin_team_send(
+            state,
+            &team_session_id(leader_id),
+            TeamSendToolArgs {
+                issue,
+                role: "李工".to_string(),
+                title: "开工".to_string(),
+                content: content.to_string(),
+                mode: None,
+                conversation_id: None,
+            },
+        )
+        .expect("leader send");
+        output["messageId"]
+            .as_str()
+            .expect("message id")
+            .to_string()
+    }
+
+    #[test]
+    fn leader_send_should_mark_member_pending_report() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-pending-report-mark");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        // 招募本身不该让人欠队长一封信。
+        assert!(!pending_report_snapshot(&state, &member_id).0);
+
+        let message_id = send_leader_mail(&state, &leader.id, "把三条回归跑一遍");
+
+        let (pending, anchor) = pending_report_snapshot(&state, &member_id);
+        assert!(pending, "队长发话后必须置待汇报标记");
+        assert_eq!(
+            anchor.as_deref(),
+            Some(message_id.as_str()),
+            "锚点必须是这次队长指示那封信"
+        );
+    }
+
+    #[test]
+    fn member_report_should_clear_marker_without_duplicate_forward() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-pending-report-reported");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        send_leader_mail(&state, &leader.id, "把三条回归跑一遍");
+        // 队长标记忙：汇报那封才会停在待处理队列里，便于数清楚投了几封。
+        set_conversation_runtime_state_and_emit(
+            &state,
+            &leader.id,
+            MainSessionState::AssistantStreaming,
+        )
+        .expect("mark leader busy");
+
+        builtin_team_report(
+            &state,
+            &team_session_id(&member_id),
+            TeamReportToolArgs {
+                title: "回归跑完".to_string(),
+                content: "三条都过了".to_string(),
+                mode: Some("queue".to_string()),
+            },
+        )
+        .expect("member report");
+        assert!(
+            !pending_report_snapshot(&state, &member_id).0,
+            "队员自己汇报过就该清标记"
+        );
+
+        team_forward_member_stop_report(&state, &member_id, true);
+
+        // 只有队员自己那封汇报，兜底不能再投一遍。
+        assert_eq!(
+            queued_team_mails_for(&state, &leader.id).len(),
+            1,
+            "汇报过就不该重复转发"
+        );
+    }
+
+    #[test]
+    fn member_stop_without_report_should_forward_last_message_body() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-pending-report-forward");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        send_leader_mail(&state, &leader.id, "把三条回归跑一遍");
+        append_member_stop_output(&state, &member_id, "上一轮的旧话：还在看");
+        append_member_stop_output(
+            &state,
+            &member_id,
+            "三条回归都跑完了，结论是没问题。\n- 单元测试 12 条全过\n- 没有新增失败",
+        );
+        set_conversation_runtime_state_and_emit(
+            &state,
+            &leader.id,
+            MainSessionState::AssistantStreaming,
+        )
+        .expect("mark leader busy");
+
+        team_forward_member_stop_report(&state, &member_id, true);
+
+        let mails = queued_team_mails_for(&state, &leader.id);
+        assert_eq!(mails.len(), 1, "没汇报过就要自动投一封");
+        let text = message_text_content(&mails[0]);
+        assert!(text.contains("<details>"), "多行正文照旧折叠：{text}");
+        // 折叠块里标题在 <summary>，正文是它之后的部分：只看正文有没有重复首行。
+        let fold_body = text.split("</summary>").nth(1).unwrap_or("").trim().to_string();
+        assert!(
+            fold_body.contains("单元测试 12 条全过"),
+            "正文要有首行之外的内容：{fold_body}"
+        );
+        assert!(
+            !fold_body.contains("三条回归都跑完了，结论是没问题。"),
+            "首行已经提到标题里，正文不能再写一遍：{fold_body}"
+        );
+        assert!(
+            !text.contains("还在看"),
+            "不能把上一轮的旧话当成本次汇报：{text}"
+        );
+        let title = mails[0]
+            .provider_meta
+            .as_ref()
+            .and_then(|meta| meta.get("teamMailTitle"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        assert_eq!(
+            title, "三条回归都跑完了，结论是没问题。",
+            "标题就是产出首行，不加「自动」之类的前缀"
+        );
+        assert!(!pending_report_snapshot(&state, &member_id).0, "转发完要清标记");
+    }
+
+    #[test]
+    fn member_stop_single_line_should_not_fold() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-pending-report-single-line");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        send_leader_mail(&state, &leader.id, "报一下在线状态");
+        append_member_stop_output(&state, &member_id, "收到，李工在线，直接发言通道正常。");
+        set_conversation_runtime_state_and_emit(
+            &state,
+            &leader.id,
+            MainSessionState::AssistantStreaming,
+        )
+        .expect("mark leader busy");
+
+        team_forward_member_stop_report(&state, &member_id, true);
+
+        let mails = queued_team_mails_for(&state, &leader.id);
+        assert_eq!(mails.len(), 1);
+        let text = message_text_content(&mails[0]);
+        assert!(
+            !text.contains("<details>"),
+            "一行正文不该折成「标题 + 同一句话」：{text}"
+        );
+        assert_eq!(
+            text, "收到，李工在线，直接发言通道正常。",
+            "正文就是那一行原文，不写两遍"
+        );
+        assert!(
+            mails[0]
+                .provider_meta
+                .as_ref()
+                .and_then(|meta| meta.get("teamMailTitle"))
+                .is_none(),
+            "一行正文不设标题，也就没有可重复的那一句"
+        );
+    }
+
+    #[test]
+    fn member_stop_without_body_should_forward_placeholder() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-pending-report-empty");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        send_leader_mail(&state, &leader.id, "把三条回归跑一遍");
+        set_conversation_runtime_state_and_emit(
+            &state,
+            &leader.id,
+            MainSessionState::AssistantStreaming,
+        )
+        .expect("mark leader busy");
+
+        team_forward_member_stop_report(&state, &member_id, true);
+
+        let mails = queued_team_mails_for(&state, &leader.id);
+        assert_eq!(mails.len(), 1, "没有正文也必须投，不能静默");
+        let text = message_text_content(&mails[0]);
+        let fold_body = text.split("</summary>").nth(1).unwrap_or("").trim().to_string();
+        assert!(
+            fold_body.contains(&format!("- 会话：`{member_id}`")),
+            "占位正文明细里要有队员会话 id：{fold_body}"
+        );
+        assert!(
+            fold_body.contains(&format!("- 队长会话：`{}`", leader.id)),
+            "占位正文明细里要有队长会话 id：{fold_body}"
+        );
+        assert!(
+            !fold_body.contains("已停止调度") && !fold_body.contains("没有产出正文"),
+            "这句话已经在标题里了，正文不能再写一遍：{fold_body}"
+        );
+        let title = mails[0]
+            .provider_meta
+            .as_ref()
+            .and_then(|meta| meta.get("teamMailTitle"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        assert!(title.contains("没有产出正文"), "标题要说清这轮没产出：{title}");
+    }
+
+    #[test]
+    fn member_stop_after_failure_should_not_forward_twice() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-pending-report-failed");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        send_leader_mail(&state, &leader.id, "把三条回归跑一遍");
+        append_member_stop_output(&state, &member_id, "跑了一半");
+        set_conversation_runtime_state_and_emit(
+            &state,
+            &leader.id,
+            MainSessionState::AssistantStreaming,
+        )
+        .expect("mark leader busy");
+
+        // 失败已有独立通知，收口这一路只清标记。
+        team_notify_leader_member_failed(&state, &member_id, "模型请求失败：429 rate limit exceeded");
+        let before = queued_team_mails_for(&state, &leader.id).len();
+        team_forward_member_stop_report(&state, &member_id, false);
+
+        assert_eq!(
+            queued_team_mails_for(&state, &leader.id).len(),
+            before,
+            "失败收口不该再投一封，否则一次失败队长收两封信"
+        );
+        assert!(
+            !pending_report_snapshot(&state, &member_id).0,
+            "失败态也要清标记"
+        );
+    }
+
     // ==================== 会话模型继承与专家模型降级 ====================
+
 
     fn test_model_api_config(id: &str) -> ApiConfig {
         ApiConfig {
@@ -17313,3 +17739,280 @@
             "压缩后名单必须清空：{loaded_after:?}"
         );
     }
+
+    // ==================== 工具回执正文：禁止 JSON 序列化体 ====================
+
+    /// 策略表里已明确无实现的条目：没有执行器，也就没有回执可产出。
+    ///
+    /// 这张豁免表是一道门——新加一条会被 `unimplemented_builtin_tool_ids_should_all_be_never_attach`
+    /// 拦住，除非它在策略表里确实是 `NeverAttach`，否则说明工具在跑却没有回执样例。
+    const UNIMPLEMENTED_BUILTIN_TOOL_IDS: &[&str] = &["contact_reply", "contact_no_reply"];
+
+    /// 回执正文里不该出现的 JSON 序列化特征片段。
+    ///
+    /// 样例值已保证全是纯文本，正文里再冒出这些片段，只可能来自某处把结构体序列化了一遍。
+    const JSON_BODY_FRAGMENTS: &[&str] = &["{\"", "[{", "\":", "\":["];
+
+    /// 正文整段是 JSON 容器（object / array）时返回 true。
+    fn output_is_json_body(text: &str) -> bool {
+        let trimmed = text.trim();
+        let container_shaped = (trimmed.starts_with('{') && trimmed.ends_with('}'))
+            || (trimmed.starts_with('[') && trimmed.ends_with(']'));
+        if !container_shaped {
+            return false;
+        }
+        matches!(
+            serde_json::from_str::<serde_json::Value>(trimmed),
+            Ok(serde_json::Value::Object(_)) | Ok(serde_json::Value::Array(_))
+        )
+    }
+
+    /// 正文里命中的第一个 JSON 序列化特征片段。
+    fn find_json_body_fragment(text: &str) -> Option<&'static str> {
+        JSON_BODY_FRAGMENTS
+            .iter()
+            .copied()
+            .find(|fragment| text.contains(fragment))
+    }
+
+    /// 每个内置工具的样例返回值，同一工具可给多条覆盖多分支（如 exec 的前台与后台）。
+    ///
+    /// 「缺样例即失败」是第二道钉子：新增工具不补这一项，契约用例直接红。
+    fn builtin_tool_output_samples() -> Vec<(&'static str, serde_json::Value)> {
+        use serde_json::json;
+        vec![
+            ("fetch", json!({"ok": true, "url": "https://example.com", "status": 200, "content": "正文", "provider": "builtin"})),
+            ("websearch", json!({"query": "q", "engine": "bing", "provider": "builtin", "results": [{"title": "t", "url": "u", "snippet": "s"}]})),
+            ("operate", json!({"ok": true, "executedCount": 1, "elapsedMs": 8, "steps": [{"line": 1, "kind": "click", "summary": "clicked", "ok": true}], "warnings": []})),
+            ("windows", json!({"ok": true, "executedCount": 1, "steps": [{"kind": "list", "summary": "windows listed, count=1", "ok": true, "windows": [{"windowId": 1, "title": "t", "processName": "p.exe", "focused": true, "minimized": false}]}]})),
+            ("read", json!({"ok": true, "path": "a.txt", "detectedType": "text", "readerKind": "text", "truncated": false, "nextOffset": null, "content": "第一行", "metadata": {"kind": "text", "offset": 0, "limit": 0, "returnedCount": 1, "totalCount": 1, "returnedCharCount": 3, "charLimit": 30000, "sourceLineEnding": "lf", "contentLineEnding": "lf", "lineEndingNote": "", "fileName": "a.txt", "extra": {}}})),
+            ("read_file", json!({"ok": true, "path": "a.txt", "detectedType": "text", "readerKind": "text", "truncated": false, "nextOffset": null, "content": "第一行", "metadata": {"kind": "text", "offset": 0, "limit": 0, "returnedCount": 1, "totalCount": 1, "returnedCharCount": 3, "charLimit": 30000, "sourceLineEnding": "lf", "contentLineEnding": "lf", "lineEndingNote": "", "fileName": "a.txt", "extra": {}}})),
+            ("read_media", json!({"ok": true, "mediaType": "image", "modelId": "m", "path": "a.png", "description": "看什么", "text": "一只猫", "cached": false})),
+            ("exec", json!({"ok": true, "exitCode": 0, "stdout": "ok", "stderr": "", "aggregatedOutput": "ok", "durationMs": 5, "timedOut": false, "truncated": false, "stdoutTruncated": false, "stderrTruncated": false, "permissionHint": null})),
+            ("exec", json!({"ok": true, "background": true, "backgroundId": "bg-1", "id": "bg-1", "status": "running", "command": "pnpm dev", "description": "起服务", "cwd": "/w", "mode": "background", "logPath": "/tmp/a.log"})),
+            ("background", json!({"ok": true, "action": "list", "conversationId": "c1", "count": 1, "items": [{"id": "bg-1", "kind": "shell", "status": "running", "description": "起服务", "command": "pnpm dev", "cwd": "/w", "startedAt": "t", "timeoutMs": 1000, "log": "/tmp/a.log"}]})),
+            ("config", json!({"ok": true, "command": "get", "result": {"model": "m"}, "runtimeEffect": "无"})),
+            ("write", json!({"ok": true, "approved": true, "cwd": "/w", "changed": [{"op": "add", "path": "a.txt", "bytes": 3}], "changedCount": 1, "elapsedMs": 2, "backupRecordId": "r1", "backupFingerprint": "f", "backupRecordPath": "/b"})),
+            ("delete", json!({"ok": true, "approved": true, "cwd": "/w", "changed": [{"op": "delete", "path": "a.txt"}], "changedCount": 1, "elapsedMs": 2, "backupRecordId": "r1", "backupFingerprint": "f", "backupRecordPath": "/b"})),
+            ("update", json!({"ok": true, "approved": true, "cwd": "/w", "changed": [{"op": "update", "path": "a.txt", "matchCount": 1, "lineStart": 1, "lineEnd": 1, "lineRanges": [{"start": 1, "end": 1}]}], "changedCount": 1, "elapsedMs": 2, "backupRecordId": "r1", "backupFingerprint": "f", "backupRecordPath": "/b"})),
+            ("move", json!({"ok": true, "approved": true, "cwd": "/w", "changed": [{"op": "move", "from": "a.txt", "to": "b.txt"}], "changedCount": 1, "elapsedMs": 2, "backupRecordId": "r1", "backupFingerprint": "f", "backupRecordPath": "/b"})),
+            ("delegate", json!({"ok": true, "status": "委托完成", "delegate": {"delegateId": "d1", "kind": "delegate", "conversationId": "c2", "parentDelegateId": null, "sourceAgentId": "a0", "targetAgentId": "a1", "title": "t", "notifyAssistantWhenDone": true, "callStack": ["a0"], "status": "completed", "createdAt": "t", "updatedAt": "t", "deliveredAt": null, "completedAt": null}, "conversationId": "c2", "assistantText": "结论", "targetAgentId": "a1"})),
+            ("deeprecall", json!({"ok": true, "status": "委托完成", "delegate": {"delegateId": "d1", "kind": "deep_recall", "conversationId": "c2", "parentDelegateId": null, "sourceAgentId": "a0", "targetAgentId": "a1", "title": "t", "notifyAssistantWhenDone": true, "callStack": ["a0"], "status": "completed", "createdAt": "t", "updatedAt": "t", "deliveredAt": null, "completedAt": null}, "conversationId": "c2", "assistantText": "回忆报告", "targetAgentId": "a1"})),
+            ("deeprecall_search", json!({"hits": [{"conversationIndex": 1, "messageIndex": 2, "conversationTitle": "t", "sourceKind": "local", "time": "t", "speaker": "我", "snippet": "片段", "score": 0.9}], "totalConversations": 1, "elapsedMs": 12})),
+            ("deeprecall_context", json!({"conversationIndex": 1, "conversationTitle": "t", "startIndex": 1, "endIndex": 1, "totalMessages": 1, "truncated": false, "messages": [{"index": 1, "speaker": "我", "time": "t", "text": "正文"}]})),
+            ("meme", json!({"ok": true, "action": "list", "count": 1, "memes": [{"name": "笑", "emotion": "笑", "mime": "image/png", "path": "/a.png", "relativePath": "a.png", "bytes": 10}]})),
+            ("image_generate", json!({"ok": true, "message": "图片已生成并保存到 Assistant Space", "provider": "p", "providerType": "openai", "modelId": "m", "model": "m", "images": [{"relativePath": "a.png", "remoteUrl": null, "markdown": "![x](a.png)", "mime": "image/png", "width": 512, "height": 512, "revisedPrompt": null}]})),
+            ("image_edit", json!({"ok": true, "message": "图片已编辑并保存到 Assistant Space", "provider": "p", "providerType": "openai", "modelId": "m", "model": "m", "images": [{"relativePath": "a.png", "remoteUrl": null, "markdown": "![x](a.png)", "mime": "image/png", "width": 512, "height": 512, "revisedPrompt": null}]})),
+            ("image_to_video", json!({"ok": true, "message": "视频已生成并保存到 Assistant Space", "path": "a.mp4", "model": "grok"})),
+            ("remember", json!({"ok": true, "action": "create", "saved": true, "id": "m1", "tags": ["t"], "updatedAt": "t", "reason": null, "sourceMemoryIds": [], "deletedSourceIds": [], "failedDeleteIds": [], "totalMemories": 1})),
+            ("recall", json!({"ok": true, "memoryBoard": "记忆板", "count": 1, "total": 1, "offset": 0, "limit": 7, "time": null, "query": "q"})),
+            ("todo", json!("## Current Todo List\n\n✓ 已完成")),
+            ("kanban", json!({"issues": [{"number": 1, "title": "t", "status": "todo", "assignee": "leader", "note": "", "planPath": null}]})),
+            ("kanban_set_plan", json!({"number": 1, "planPath": ".pai/plan/x.md"})),
+            ("question", json!("当前会话问题（共 1 条）：\n\n#1 t")),
+            ("get_tool", json!("已记录：read，下轮可用")),
+            ("task", json!({"taskId": "t1", "conversationId": "c", "agentId": null, "orderIndex": 0, "completionState": "active", "completionConclusion": "", "progressNotes": [], "trigger": {"runAt": null, "cronExpression": null, "everyMinutes": 0.0, "endAt": null, "nextRunAt": null}, "createdAtLocal": "t", "updatedAtLocal": "t", "lastTriggeredAtLocal": null, "completedAtLocal": null})),
+            ("create_goal", json!({"conversationId": "c", "goal": {"goalId": "goal-1", "status": "active", "startedAt": "t", "endedAt": null, "usageStart": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0, "byProviderModel": {}}, "usageEnd": null}, "usageDelta": {"inputTokens": 0, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0}})),
+            ("update_goal", json!({"conversationId": "c", "goal": {"goalId": "goal-1", "status": "complete", "startedAt": "t", "endedAt": "t2", "usageStart": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0, "byProviderModel": {}}, "usageEnd": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0, "byProviderModel": {}}}, "usageDelta": {"inputTokens": 0, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0}})),
+            ("get_session", json!([{"sessionId": "s1", "kind": "local_unarchived", "title": "t", "personaName": "我", "remoteContactId": null, "remoteContactName": null, "channelName": null, "updatedAt": "t"}])),
+            ("inform_session", json!({"session_id": "s1", "remote_contact_id": null, "pushed_to_remote": false, "message_id": "m1"})),
+            ("team_info", json!({"ok": true, "scope": "active", "activeMemberCount": 1, "members": [{"role": "r", "duty": "d", "status": "active", "conversationId": "c", "recruitedAt": "t", "dismissedAt": null, "worktreePath": "", "workBranch": "", "state": "idle"}], "hasActiveMember": true})),
+            ("team_recruit", json!({"ok": true, "role": "r", "duty": "d", "conversationId": "c", "note": "n"})),
+            ("team_send", json!({"role": "r", "issueNumber": null, "mode": "guided", "conversationId": "c", "messageId": "m"})),
+            ("team_report", json!({"mode": "guided", "leaderConversationId": "c", "messageId": "m"})),
+            ("team_share_model", json!({"ok": true, "role": "r", "conversationId": "c", "previousModelApiConfigId": null, "modelApiConfigId": "m", "effectiveTiming": "next_dispatch", "notified": true})),
+            ("team_read", json!({"ok": true, "role": "r", "conversationId": "c", "limit": 3, "returnedCount": 1, "bodyMessageCount": 1, "hasMore": false, "messages": [{"id": "m", "role": "assistant", "createdAt": "t", "hasBody": true, "summary": "摘要"}], "notes": []})),
+            ("plan", json!({"action": "present", "path": ".pai/plan/x.md", "should_stop_tool_loop": true, "auto_approved": false, "active_plan_recorded": true, "active_plan_completed": false, "plan_mode_closed": false})),
+            ("contact_send_files", json!({"ok": true, "action": "send_files", "done": false, "continue": true, "stop_tool_loop": false, "channel_id": "ch", "contact_id": "ct", "contact_name": "n", "contact_type": "private", "platform_message_id": "p", "file_count": 1})),
+        ]
+    }
+
+    #[test]
+    fn builtin_tool_policy_table_should_all_have_output_samples() {
+        let samples = builtin_tool_output_samples();
+        let mut missing = vec![];
+        for policy in BUILTIN_TOOL_POLICY_TABLE {
+            if UNIMPLEMENTED_BUILTIN_TOOL_IDS.contains(&policy.id) {
+                continue;
+            }
+            if !samples.iter().any(|(name, _)| *name == policy.id) {
+                missing.push(policy.id);
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "以下内置工具没有回执样例，新增工具必须补进 builtin_tool_output_samples：{missing:?}"
+        );
+
+        let known_ids: Vec<&str> = BUILTIN_TOOL_POLICY_TABLE.iter().map(|policy| policy.id).collect();
+        let unknown: Vec<&str> = samples
+            .iter()
+            .map(|(name, _)| *name)
+            .filter(|name| !known_ids.contains(name))
+            .collect();
+        assert!(
+            unknown.is_empty(),
+            "以下样例名不在策略表里，可能是工具改名后没同步：{unknown:?}"
+        );
+    }
+
+    #[test]
+    fn builtin_tool_output_should_not_contain_json_structure() {
+        for (name, value) in builtin_tool_output_samples() {
+            let serialized = serde_json::to_string(&value).expect("样例序列化");
+            let result = provider_tool_result_from_value(name, value);
+            assert_ne!(
+                result.output, serialized,
+                "工具 {name} 的正文就是整个返回值的 JSON 序列化体：{}",
+                result.output
+            );
+            assert!(
+                !output_is_json_body(&result.output),
+                "工具 {name} 的正文整段是 JSON 容器：{}",
+                result.output
+            );
+            if let Some(fragment) = find_json_body_fragment(&result.output) {
+                panic!(
+                    "工具 {name} 的正文里出现 JSON 序列化片段 `{fragment}`：{}",
+                    result.output
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unimplemented_builtin_tool_ids_should_all_be_never_attach() {
+        for id in UNIMPLEMENTED_BUILTIN_TOOL_IDS {
+            let policy = BUILTIN_TOOL_POLICY_TABLE
+                .iter()
+                .find(|policy| policy.id == *id)
+                .unwrap_or_else(|| panic!("豁免条目 {id} 不在策略表里"));
+            assert_eq!(
+                policy.runtime_scope,
+                BuiltinToolRuntimeScope::NeverAttach,
+                "豁免条目 {id} 的 runtime_scope 必须是 NeverAttach，否则它是在跑的工具却没有回执样例"
+            );
+        }
+    }
+
+    /// 回执不得出现调用方刚提交的那段正文。
+    ///
+    /// 逐项钉住九处入参回显的修复：task / delegate / create_goal / update_goal 走纯函数，
+    /// team_send / team_report / inform_session / question 的 json! 与模板里已无该字段，
+    /// 由样例形状（`builtin_tool_output_samples`）固定。
+    #[test]
+    fn tool_receipt_should_not_echo_submitted_text() {
+        const MARKER: &str = "回显标记-7f3a";
+
+        // task：goal / why / todo 不回执；completionConclusion 是控制流依赖，必须留。
+        let task_receipt = task_tool_receipt(serde_json::json!({
+            "taskId": "t1",
+            "goal": MARKER,
+            "why": MARKER,
+            "todo": MARKER,
+            "completionState": "complete",
+            "completionConclusion": "结论原文",
+        }));
+        let task_text = task_receipt.to_string();
+        assert!(
+            !task_text.contains(MARKER),
+            "task 回执回显了调用方提交的正文：{task_text}"
+        );
+        assert_eq!(
+            task_receipt.get("completionConclusion").and_then(Value::as_str),
+            Some("结论原文"),
+            "completionConclusion 是任务控制流依赖，不能一起删掉"
+        );
+
+        // delegate：why / goal / todo 不回执；标识与调用栈保留。
+        let entry: DelegateEntry = serde_json::from_value(serde_json::json!({
+            "delegateId": "d1",
+            "kind": "delegate",
+            "conversationId": "c2",
+            "sourceAgentId": "a0",
+            "targetAgentId": "a1",
+            "title": "t",
+            "status": "completed",
+            "createdAt": "t",
+            "updatedAt": "t",
+            "callStack": ["a0"],
+            "notifyAssistantWhenDone": false,
+            "why": MARKER,
+            "goal": MARKER,
+            "todo": MARKER,
+        }))
+        .expect("构造委托条目");
+        let entry_value = delegate_tool_entry(entry);
+        let entry_text = entry_value.to_string();
+        assert!(
+            !entry_text.contains(MARKER),
+            "delegate 回执回显了委托正文：{entry_text}"
+        );
+        assert_eq!(
+            entry_value.get("delegateId").and_then(Value::as_str),
+            Some("d1"),
+            "delegateId 是回执该留的标识"
+        );
+
+        // create_goal / update_goal：goal.objective 不再外发，goalId 与状态保留。
+        let goal_state: ConversationGoalState = serde_json::from_value(serde_json::json!({
+            "goalId": "goal-1",
+            "status": "active",
+            "objective": MARKER,
+            "startedAt": "t",
+            "endedAt": null,
+            "usageStart": {
+                "inputTokens": 0, "outputTokens": 0, "totalTokens": 0,
+                "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0,
+                "byProviderModel": {}
+            },
+            "usageEnd": null
+        }))
+        .expect("构造目标状态");
+        let goal_text =
+            serde_json::to_string(&goal_output("c", goal_state)).expect("序列化目标回执");
+        assert!(
+            !goal_text.contains(MARKER),
+            "goal 回执回显了 objective：{goal_text}"
+        );
+        assert!(goal_text.contains("goal-1"), "goalId 应保留：{goal_text}");
+    }
+
+    /// 钉住三处直接 `json!` 构造的回执字段集合：`team_send` / `team_report` / `inform_session`。
+    ///
+    /// 这三个工具的回执在 async 执行链里现拼，没有可单独调用的纯函数，因此以样例的键集合为准。
+    /// 样例是工具真实回执形状的登记处：想把这些入参回显键（`content` / `body` / `ok` /
+    /// `accepted` / `status` / `kind`）加回来，就必须同步改样例，改动会在这里当场红。
+    #[test]
+    fn tool_receipt_should_not_carry_text_echo_keys() {
+        let samples = builtin_tool_output_samples();
+        let expected: [(&str, &[&str]); 3] = [
+            (
+                "team_send",
+                &["role", "issueNumber", "mode", "conversationId", "messageId"],
+            ),
+            ("team_report", &["mode", "leaderConversationId", "messageId"]),
+            (
+                "inform_session",
+                &["session_id", "remote_contact_id", "pushed_to_remote", "message_id"],
+            ),
+        ];
+        for (tool, want_keys) in expected {
+            let (_, value) = samples
+                .iter()
+                .find(|(name, _)| *name == tool)
+                .unwrap_or_else(|| panic!("样例表缺少工具 {tool}"));
+            let map = value
+                .as_object()
+                .unwrap_or_else(|| panic!("工具 {tool} 的回执样例应为对象"));
+            let mut actual: Vec<&str> = map.keys().map(String::as_str).collect();
+            let mut want: Vec<&str> = want_keys.to_vec();
+            actual.sort_unstable();
+            want.sort_unstable();
+            assert_eq!(
+                actual, want,
+                "工具 {tool} 的回执字段集合发生变化：调用方提交的正文（content / body）与恒定布尔（ok / accepted）不允许加回来"
+            );
+        }
+    }
+

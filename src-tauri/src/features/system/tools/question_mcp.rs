@@ -83,9 +83,9 @@ fn builtin_question(
     let conversation_id = question_main_chat_conversation(app_state, session_id)?;
     let is_update = request.action.trim().eq_ignore_ascii_case("update");
     let views = question_run_tool(app_state, &conversation_id, request)?;
-    let body = question_list_text(&views);
     if is_update {
-        return Ok(format!("已更新当前会话问题。\n\n{body}"));
+        // 回执不复述刚提交的 title / background / options：那是入参原文，模型自己刚写过。
+        return Ok(format!("已更新当前会话问题，共 {} 条。", views.len()));
     }
-    Ok(body)
+    Ok(question_list_text(&views))
 }

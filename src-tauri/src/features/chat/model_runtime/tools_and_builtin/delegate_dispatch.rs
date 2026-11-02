@@ -621,9 +621,23 @@ async fn builtin_delegate(
     Ok(serde_json::json!({
         "ok": true,
         "status": "委托已送达",
-        "delegate": delegate,
+        "delegate": delegate_tool_entry(delegate),
         "targetName": target_name
     }))
+}
+
+/// 委托回执里的 `delegate` 结构：剔掉委托请求正文。
+///
+/// `why` / `goal` / `todo` 是调用方刚写下的内容，原样搬回只是重复计费；
+/// `assistantText` 是子代理产出，不属于入参回显，保持不动。
+fn delegate_tool_entry(entry: DelegateEntry) -> Value {
+    let mut value = serde_json::to_value(entry).unwrap_or(Value::Null);
+    if let Value::Object(map) = &mut value {
+        for key in ["why", "goal", "todo"] {
+            map.remove(key);
+        }
+    }
+    value
 }
 
 async fn delegate_execute_sync(
@@ -700,7 +714,7 @@ async fn delegate_execute_sync(
         Ok(run) => Ok(serde_json::json!({
             "ok": true,
             "status": "委托完成",
-            "delegate": delegate,
+            "delegate": delegate_tool_entry(delegate),
             "conversationId": preflight.root_conversation_id,
             "assistantText": if run.final_response_text.trim().is_empty() { run.assistant_text } else { run.final_response_text },
             "targetAgentId": preflight.target_agent.id,
@@ -708,7 +722,7 @@ async fn delegate_execute_sync(
         Err(err) => Ok(serde_json::json!({
             "ok": false,
             "status": "委托无法送达",
-            "delegate": delegate,
+            "delegate": delegate_tool_entry(delegate),
             "reason": err,
             "message": "委托工具执行失败"
         })),

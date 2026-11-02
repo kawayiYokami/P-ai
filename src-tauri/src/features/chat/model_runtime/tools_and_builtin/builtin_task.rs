@@ -202,7 +202,9 @@ async fn builtin_task(
         "list" => {
             let data_path = app_state.data_path.clone();
             let tasks = run_task_store_io(move || task_store_list_tasks(&data_path)).await?;
-            serde_json::to_value(tasks).map_err(|err| format!("Serialize task list failed: {err}"))
+            serde_json::to_value(tasks)
+                .map(task_tool_receipt)
+                .map_err(|err| format!("Serialize task list failed: {err}"))
         }
         "get" => {
             let task_id = args.task_id.as_deref().map(str::trim).unwrap_or("");
@@ -212,7 +214,9 @@ async fn builtin_task(
             let task_id = task_id.to_string();
             let data_path = app_state.data_path.clone();
             let task = run_task_store_io(move || task_store_get_task(&data_path, &task_id)).await?;
-            serde_json::to_value(task).map_err(|err| format!("Serialize task get failed: {err}"))
+            serde_json::to_value(task)
+                .map(task_tool_receipt)
+                .map_err(|err| format!("Serialize task get failed: {err}"))
         }
         "create" => {
             let mut runtime_context = runtime_context_new("task_tool", "task_create");
@@ -260,7 +264,9 @@ async fn builtin_task(
             .await?;
             task_scheduler_notify_changed(app_state);
             task_publish_changed_event(app_state, "created", &task.task_id, Some(&task));
-            serde_json::to_value(task).map_err(|err| format!("Serialize task create failed: {err}"))
+            serde_json::to_value(task)
+                .map(task_tool_receipt)
+                .map_err(|err| format!("Serialize task create failed: {err}"))
         }
         "complete" => {
             let task_id = args
@@ -288,8 +294,34 @@ async fn builtin_task(
             task_scheduler_notify_changed(app_state);
             task_publish_changed_event(app_state, "completed", &task.task_id, Some(&task));
             serde_json::to_value(task)
+                .map(task_tool_receipt)
                 .map_err(|err| format!("Serialize task complete failed: {err}"))
         }
         _ => Err("task.action must be one of: list, get, create, complete".to_string()),
     }
+}
+
+/// 任务回执不再搬运 goal / why / todo 正文：这三项是调用方提交的任务描述，
+/// 原样回显只是把同一段文字再塞回上下文。
+///
+/// `completionState` 与 `completionConclusion` 必须保留——`provider_tool_metadata_from_value`
+/// 依赖它们驱动任务控制流，删了会把任务收口打断。
+fn task_tool_receipt(mut value: Value) -> Value {
+    fn strip(map: &mut serde_json::Map<String, Value>) {
+        for key in ["goal", "why", "todo"] {
+            map.remove(key);
+        }
+    }
+    match &mut value {
+        Value::Object(map) => strip(map),
+        Value::Array(items) => {
+            for item in items.iter_mut() {
+                if let Value::Object(map) = item {
+                    strip(map);
+                }
+            }
+        }
+        _ => {}
+    }
+    value
 }
