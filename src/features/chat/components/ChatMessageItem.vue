@@ -1381,7 +1381,6 @@ const presentedActivityItems = computed(() => {
 
 const collapsedActivityPreviewCache = new WeakMap<object, { source: string; preview: string }>();
 const COLLAPSED_ACTIVITY_PREVIEW_CHARS = 240;
-const LIVE_REASONING_BODY_CHARS = 4000;
 /** 思维链富文本最大渲染字数，超过此长度自动降级为原生纯文本，避免数十万字在正则解析和 VNode 树构建时阻塞主线程 */
 const MAX_MARKDOWN_REASONING_CHARS = 8000;
 
@@ -1411,9 +1410,6 @@ function activityItemBodyText(item: ChatActivityItem): string {
   const text = item.kind === "reasoning" ? activityItemRemainingText(item) : activityItemText(item);
   if (item.kind !== "reasoning") return text;
   if (!activityItemExpanded(item)) return collapsedActivityPreview(text, item);
-  if (item.running && text.length > LIVE_REASONING_BODY_CHARS) {
-    return `…\n${text.slice(text.length - LIVE_REASONING_BODY_CHARS)}`;
-  }
   return text;
 }
 
