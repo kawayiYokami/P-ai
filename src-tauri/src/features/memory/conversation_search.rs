@@ -230,10 +230,11 @@ fn conversation_search_collect_candidates(
             // 归档会话不在搜索范围内。
             continue;
         }
-        let source_kind = if conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT {
-            "contact"
-        } else {
-            "localConversation"
+        // 来源分类决定搜索结果落在哪一个筛选下。ACP 会话在侧栏归远程段，
+        // 搜索里同样归「联系人」分类，避免它出现在「本地会话」筛选下。
+        let source_kind = match conversation_meta.conversation_kind.trim() {
+            CONVERSATION_KIND_REMOTE_IM_CONTACT | CONVERSATION_KIND_ACP => "contact",
+            _ => "localConversation",
         };
         let owner_agent_id = conversation_meta.agent_id.trim().to_string();
         if owner_agent_id.is_empty() {

@@ -157,7 +157,10 @@ fn chat_history_source_kind(conversation: &Conversation) -> Option<&'static str>
     if conversation_is_archived(conversation) {
         return Some("archive");
     }
-    if conversation_is_remote_im_contact(conversation) {
+    // ACP 会话在侧栏归远程段，搜索里同归「联系人」分类，避免落到「本地会话」筛选下。
+    if conversation_is_remote_im_contact(conversation)
+        || conversation.conversation_kind.trim() == CONVERSATION_KIND_ACP
+    {
         return Some("contact");
     }
     Some("localConversation")
@@ -180,7 +183,7 @@ fn chat_history_source_kind_from_meta(
     {
         return Some("archive");
     }
-    if kind == CONVERSATION_KIND_REMOTE_IM_CONTACT {
+    if kind == CONVERSATION_KIND_REMOTE_IM_CONTACT || kind == CONVERSATION_KIND_ACP {
         return Some("contact");
     }
     Some("localConversation")

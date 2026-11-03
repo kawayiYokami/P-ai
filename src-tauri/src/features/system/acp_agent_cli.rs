@@ -522,6 +522,14 @@ async fn acp_handle_new_session(
     // 客户端带来的 MCP 服务器在这里挂上：只进内存，不写 llm-workspace/mcp/servers/。
     // 先挂再回响应，客户端拿到 session_id 时工具已经可发现。
     acp_mount_session_mcp(&state, &conversation_id, &req.mcp_servers).await;
+    // ACP 建会话不经过前端命令层，前端拿不到这次创建的返回值。主动推一次概览刷新，
+    // 否则这条会话只有在应用重启后才会出现在列表里——搜索能命中、列表里却点不开。
+    let state_for_overview = state.clone();
+    tokio::task::spawn_blocking(move || {
+        if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(&state_for_overview) {
+            runtime_log_warn(format!("[ACP] 概览刷新失败，任务=新建会话：{err}"));
+        }
+    });
     let mut response = agent_client_protocol::schema::v1::NewSessionResponse::new(
         agent_client_protocol::schema::v1::SessionId::new(conversation_id),
     );
