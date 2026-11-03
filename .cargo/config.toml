@@ -1,5 +1,11 @@
 [target.x86_64-pc-windows-msvc]
+# 用 rustup 自带的 rust-lld 替代 MSVC 的 link.exe：链接阶段快一个档次，
+# 且 rustc 会直接在 sysroot 的 rustlib/<target>/bin 里找到它，不需要额外配 PATH。
+# `-flavor=link` 是让 rust-lld 按 link.exe 的参数语法工作（否则按 GNU ld 解析，MSVC 目标链接失败）。
+linker = "rust-lld.exe"
 rustflags = [
+  "-C",
+  "link-arg=-flavor=link",
   "-C",
   "link-arg=/OPT:REF",
   "-C",
