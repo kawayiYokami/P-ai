@@ -63,6 +63,8 @@ type AppBootstrapOptions = {
     error?: string;
     origin?: string;
   }) => void;
+  /** 人格表被写入后由后端推来（设置页保存、config 工具新增/改名）：各窗口就地重拉，不轮询。 */
+  onPersonasUpdated?: (payload: { reason?: string }) => void;
   onAgentWorkStarted?: (payload: AgentWorkSignalPayload) => void;
   onAgentWorkStopped?: (payload: AgentWorkSignalPayload) => void;
   onRecordHotkeyProbe?: (payload: { state: "pressed" | "released"; seq: number }) => void;
@@ -127,6 +129,9 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
         origin?: string;
       }>("persona.avatarGenerated", (payload) => {
         options.onAvatarGenerated?.(payload || {});
+      });
+      subscribe<{ reason?: string }>("persona.listUpdated", (payload) => {
+        options.onPersonasUpdated?.(payload || {});
       });
       subscribe<AgentWorkSignalPayload>("agentWork.started", (payload) => {
         options.onAgentWorkStarted?.(payload);

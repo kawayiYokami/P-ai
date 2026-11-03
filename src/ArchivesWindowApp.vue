@@ -411,7 +411,21 @@ const appBootstrap = useAppBootstrap({
       userAlias.value = String(payload.userAlias ?? "").trim() || t("archives.roleUser");
     }
   },
+  onPersonasUpdated: () => {
+    // 归档页只在列表里显示人格名，重拉这一份就够，不用整页刷新。
+    void refreshArchivesPersonaNames();
+  },
 });
+
+/** 人格表在别处被改后就地更新名字映射；失败不打扰用户，下次打开窗口会自愈。 */
+async function refreshArchivesPersonaNames() {
+  try {
+    const list = await invokeTauri<import("./types/app").PersonaProfile[]>("load_agents");
+    if (Array.isArray(list)) personas.value = list;
+  } catch {
+    // 静默：归档窗口只是展示，读不到名字时下一轮加载会补上
+  }
+}
 
 useAppLifecycle({
   appBootstrapMount: appBootstrap.mount,

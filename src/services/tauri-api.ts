@@ -2183,6 +2183,8 @@ const TRANSPORT_NOTIFICATION_EVENT_ALIASES: Record<string, string | string[]> = 
   "config.updated": "easy-call:config-updated",
   // 人格头像生成结果：配置窗口与聊天窗口据此当场换图，或显示失败原因
   "persona.avatarGenerated": "easy-call:persona-avatar-generated",
+  // 人格表写盘后的变更广播：前端据此就地重拉列表，新人格的名字不必等到重开窗口
+  "persona.listUpdated": "easy-call:personas-updated",
   "agentWork.started": "easy-call:agent-work-start",
   "agentWork.stopped": "easy-call:agent-work-stop",
   "recordHotkey.probe": "easy-call:record-hotkey-probe",

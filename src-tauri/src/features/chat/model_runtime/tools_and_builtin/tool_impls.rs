@@ -379,8 +379,24 @@ fn config_tool_runtime_effect_for_command(
 
 /// config 工具写完人格后：`agent new` / `agent update` 的回执里没有头像，就给该人格排队生成。
 /// `pai_config_tool` 是独立 lib 模块（只有路径、没有运行态），所以排队落在持有 AppState 的包装层。
-fn config_tool_agent_avatar_schedule(state: &AppState, command: &str, result: &Value) {
+/// config 工具改了人格表之后广播一次，让前端就地重拉列表。
+/// 只读子命令（查、导出、校验、对比）不动人格表，直接跳过。
+fn config_tool_personas_updated_notice(state: &AppState, command: &str) {
     let parts = config_tool_split_command(command);
+    if parts.first().map(String::as_str) != Some("agent") {
+        return;
+    }
+    let sub = parts.get(1).map(String::as_str).unwrap_or("help");
+    if matches!(
+        sub,
+        "help" | "ls" | "get" | "tree" | "example" | "export" | "check" | "diff"
+    ) {
+        return;
+    }
+    broadcast_personas_updated(state, "config-tool");
+}
+
+fn config_tool_agent_avatar_schedule(state: &AppState, command: &str, result: &Value) {    let parts = config_tool_split_command(command);
     if parts.first().map(String::as_str) != Some("agent") {
         return;
     }
@@ -604,6 +620,8 @@ impl RuntimeValueTool for BuiltinConfigTool {
             };
             if !config_tool_command_is_readonly(&args.command) {
                 invalidate_config_tool_runtime_caches(&self.app_state).map_err(ToolInvokeError::from)?;
+                // 人格表已经被这条命令改写，广播出去让各窗口就地重拉。
+                config_tool_personas_updated_notice(&self.app_state, &args.command);
             }
             let runtime_effect = apply_config_tool_runtime_effect(&self.app_state, runtime_effect)
                 .await

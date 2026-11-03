@@ -78,6 +78,10 @@ export function useChatWindowBootstrap(bindings: Record<string, any>) {
         },
       }, payload);
     },
+    onPersonasUpdated: () => {
+      // 别处改了人格表：就地重拉，气泡署名才不会停在旧名字或 agent-id。
+      void bindings.refreshPersonasAfterExternalChange?.();
+    },
     onToolReviewReportsUpdated: (payload) => {
       const payloadConversationId = String(payload?.conversationId || "").trim();
       const currentConversationId = String(bindings.currentChatConversationId.value || "").trim();

@@ -230,6 +230,8 @@ fn save_agents_inner(
     }
     let config = state_read_config_cached(&state)?;
     broadcast_sidebar_persona_changed();
+    // 人格表已经写盘，通知应用内各窗口就地重拉，气泡署名才不会停在旧名字或 agent-id。
+    broadcast_personas_updated(&state, "settings");
     let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
     Ok(runtime_agents)
 }

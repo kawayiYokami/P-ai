@@ -66,6 +66,7 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
     recordHotkey: bindings.recordHotkey,
     startRecording: bindings.startRecording,
     stopRecording: bindings.stopRecording,
+    refreshPersonasAfterExternalChange: bindings.refreshPersonasAfterExternalChange,
   });
 
   useChatWindowEvents({

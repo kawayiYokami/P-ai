@@ -59,5 +59,9 @@ export function useConfigWindowBootstrap(bindings: Record<string, any>) {
         },
       }, payload);
     },
+    onPersonasUpdated: () => {
+      // config 工具或另一个窗口改了人格表：有未保存草稿时只补名字，不覆盖正在编辑的内容。
+      void bindings.refreshPersonasAfterExternalChange?.();
+    },
   });
 }

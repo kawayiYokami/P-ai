@@ -718,6 +718,57 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     }
   }
 
+  /**
+   * 只同步「名字映射」需要的那部分：已有条目更新名字，服务端新增的 id 追加进来。
+   * 不动 lastSavedPersonasJson、不动 assistantAgentId / personaEditorId，
+   * 所以正在编辑的草稿不会被打断——下次保存提交的仍是用户手上那份。
+   */
+  function applyPersonaNamesPreservingDraft(list: PersonaProfile[]) {
+    const remoteById = new Map<string, PersonaProfile>();
+    for (const item of list) {
+      const id = String(item.id || "").trim();
+      if (id) remoteById.set(id, item);
+    }
+    const next = options.personas.value.map((persona) => {
+      const remote = remoteById.get(String(persona.id || "").trim());
+      if (!remote) return persona;
+      const remoteName = String(remote.name || "").trim();
+      if (!remoteName || remoteName === String(persona.name || "").trim()) return persona;
+      return { ...persona, name: remoteName };
+    });
+    const knownIds = new Set(next.map((item) => String(item.id || "").trim()));
+    for (const [id, remote] of remoteById) {
+      // 新人格必须进列表，否则名字映射里查不到它，署名仍然显示 agent-id。
+      if (knownIds.has(id)) continue;
+      next.push(snapshotPersonas([remote])[0] as PersonaProfile);
+    }
+    options.personas.value = next;
+  }
+
+  /**
+   * 人格表在别处被改（设置页保存、config 工具新增/改名）后的就地刷新。
+   *
+   * 不能无脑 loadPersonas()：它会重写 lastSavedPersonasJson 与快照列表，把当前窗口里
+   * 未保存的人格编辑冲掉，人格被删时还会重选 assistantAgentId / personaEditorId。
+   * 有草稿时只补名字映射那部分，其余一律不碰。
+   */
+  async function refreshPersonasAfterExternalChange() {
+    if (options.buildPersonasSnapshotJson() !== options.lastSavedPersonasJson.value) {
+      // 同步名字也是一次 personas 写入，压掉 autosave，别把草稿顺手存盘。
+      options.suppressAutosave.value = true;
+      try {
+        const list = await invokeTauri<PersonaProfile[]>("load_agents");
+        applyPersonaNamesPreservingDraft(list);
+      } catch (e) {
+        options.setStatusError("status.loadPersonasFailed", e);
+      } finally {
+        options.suppressAutosave.value = false;
+      }
+      return;
+    }
+    await loadPersonas();
+  }
+
   async function loadChatSettings() {
     options.suppressAutosave.value = true;
     try {
@@ -1077,6 +1128,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     updateRecordBackgroundWakeEnabled,
     loadPersonas,
     loadChatSettings,
+    refreshPersonasAfterExternalChange,
     savePersonas,
     convertPrivatePersonaToPublic,
     patchChatSettings,

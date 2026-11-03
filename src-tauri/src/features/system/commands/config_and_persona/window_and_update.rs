@@ -126,6 +126,30 @@ fn broadcast_sidebar_persona_changed() {
     ide_chat_broadcast_simple_notification("persona.changed");
 }
 
+const PERSONAS_UPDATED_EVENT: &str = "easy-call:personas-updated";
+
+/// 人格表写盘成功后广播一次，让应用内各窗口就地重拉人格列表。
+///
+/// payload 只带原因、不带整张表：前端本来就只需要知道「变了」然后自己重拉，
+/// 塞一份快照过去反而要在前端做合并，还会和服务端下一次写盘打架。
+/// 双通道：tauri 窗口事件给应用内，persona.listUpdated 给 IDE/WS 客户端。
+fn broadcast_personas_updated(state: &AppState, reason: &str) {
+    let payload = serde_json::json!({ "reason": reason });
+    ide_chat_broadcast_notification("persona.listUpdated", payload.clone());
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.clone(),
+        Err(_) => None,
+    };
+    let Some(app_handle) = app_handle else {
+        return;
+    };
+    if let Err(err) = app_handle.emit(PERSONAS_UPDATED_EVENT, &payload) {
+        runtime_log_warn(format!(
+            "[人格] 失败，任务=广播人格列表变更，reason={reason}，error={err}"
+        ));
+    }
+}
+
 fn broadcast_sidebar_provider_changed() {
     ide_chat_broadcast_simple_notification("provider.changed");
 }

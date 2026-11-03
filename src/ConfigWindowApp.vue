@@ -760,6 +760,7 @@ const {
   updateRecordHotkey,
   updateRecordBackgroundWakeEnabled,
   loadPersonas,
+  refreshPersonasAfterExternalChange,
   savePersonas,
   saveChatPreferences,
   convertPrivatePersonaToPublic,
@@ -1043,6 +1044,7 @@ const appBootstrap = useConfigWindowBootstrap({
   updateGithubUpdateMethod,
   normalizeRuntimeConfigNumbers,
   quickModelUnavailable,
+  refreshPersonasAfterExternalChange,
 });
 
 useAppLifecycle({
