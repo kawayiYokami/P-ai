@@ -13,13 +13,12 @@
       >
         <!-- 可见标签页列表（自适应防压缩） -->
         <div
-          v-for="(tab, tabIndex) in visibleTabs"
+          v-for="tab in visibleTabs"
           :key="tab.key"
           class="group relative flex min-w-0 flex-1 basis-0"
           :class="[
             fileVariant ? 'max-w-44 rounded-lg' : 'max-w-40 overflow-hidden',
             tab.disabled ? 'pointer-events-none opacity-45' : 'cursor-pointer',
-            tabBorderClass(tab.key, tabIndex),
             fileVariant && tab.key === activeKey ? 'bg-base-100 shadow-sm' : '',
             fileVariant && tab.key !== activeKey ? 'hover:bg-base-300/60' : '',
           ]"
@@ -286,7 +285,6 @@ const props = withDefaults(defineProps<{
   closeRightTitle?: string;
   closeOthersTitle?: string;
   contextMenuItems?: PanelTabStripContextMenuItem[];
-  showTabBorders?: boolean;
   variant?: PanelTabStripVariant;
   /** 单个卡片最小宽度保护（防止过分挤压），默认 default: 104px, file: 92px */
   minTabWidth?: number;
@@ -300,7 +298,6 @@ const props = withDefaults(defineProps<{
   closeRightTitle: "",
   closeOthersTitle: "",
   contextMenuItems: () => [],
-  showTabBorders: true,
   variant: "default",
   minTabWidth: undefined,
   openMoreOnHover: true,
@@ -365,15 +362,6 @@ function shouldShowCloseButton(tab: PanelTabStripItem) {
 
 function shouldReserveCloseSpace(tab: PanelTabStripItem) {
   return shouldShowCloseButton(tab);
-}
-
-function tabBorderClass(tabKey: string, tabIndex: number) {
-  if (fileVariant.value) return "";
-  if (!props.showTabBorders || tabIndex <= 0) return "";
-  const prevTab = visibleTabs.value[tabIndex - 1];
-  if (!prevTab) return "";
-  if (tabKey === props.activeKey || prevTab.key === props.activeKey) return "";
-  return "border-l border-base-100";
 }
 
 function selectTab(tab: PanelTabStripItem) {

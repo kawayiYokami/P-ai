@@ -857,7 +857,6 @@
           <PanelTabStrip
             :tabs="monitorPanelTabs"
             :active-key="chatMonitorPanelMode"
-            :show-tab-borders="false"
             :aria-label="t('chat.monitorPanelTab')"
             @select-tab="selectMonitorPanelTab"
           >
