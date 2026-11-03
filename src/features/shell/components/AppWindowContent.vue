@@ -1079,7 +1079,9 @@ function buildSideConversationTab(conversation: ChildConversationSummary) {
     memberState: String(conversation.memberState || "").trim(),
     icon: teamAgentAvatarUrl ? undefined : (isTeamMember ? UserRound : MessageSquareMore),
     iconSrc: teamAgentAvatarUrl || undefined,
-    closeable: true,
+    // 队员标签不给关闭入口：关标签走的就是「整条会话不要了」，删掉后队长名册里那条
+    // conversationId 会指向不存在的会话。追问标签保持可关闭。
+    closeable: !isTeamMember,
     // 归属判据只有一条：角色名有没有值。两个面板各自按它过滤，不再共用一个列表。
     panel,
   };
