@@ -99,6 +99,31 @@ fn agent_avatar_generation_inflight() -> &'static Mutex<std::collections::HashSe
     KEYS.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
 }
 
+/// 入队判重表：已经在排队或正在生成的人格。
+///
+/// 只解决「同一时刻重复入队」——招募时工具排一次、随后的保存又排一次，第二次必须丢掉，
+/// 否则它会在生成入口撞上在途凭证，被当成一次「生成失败」推给界面。
+/// 生成结束（成功、失败、跳过）立刻释放：这不是拉黑，失败之后用户再保存仍然照常重跑。
+fn agent_avatar_generation_queue() -> &'static Mutex<std::collections::HashSet<String>> {
+    static KEYS: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    KEYS.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+/// 占一个入队名额；同一个人格已经在场时返回 false，调用方直接丢弃这次入队。
+fn reserve_avatar_generation_queue(key: &str) -> bool {
+    match agent_avatar_generation_queue().lock() {
+        Ok(mut keys) => keys.insert(key.to_string()),
+        // 表坏了就别丢任务：宁可多跑一张，也不要连头像都生成不出来。
+        Err(_) => true,
+    }
+}
+
+fn release_avatar_generation_queue(key: &str) {
+    if let Ok(mut keys) = agent_avatar_generation_queue().lock() {
+        keys.remove(key);
+    }
+}
+
 /// 全局串行闸门：一次只发一张，前一张结束（无论成败）才轮到下一张。
 /// 供应商会返 503，同时打五六个必然有几个失败，所以不并发。
 #[cfg(not(test))]
@@ -107,24 +132,53 @@ fn agent_avatar_generation_gate() -> &'static tokio::sync::Mutex<()> {
     GATE.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
-/// 保存人格后该排队的头像生成：排除内置用户人格与已有头像的。
+/// 这次保存该排队生成头像的人格：头像为空，且要么是新增人格、要么是头像被清空的老人格。
+///
+/// 前端提交的是全量人格列表，不能按「谁没头像」排——否则保存任意一个人格，
+/// 库里所有缺图的老人格都会被拉起来逐个生成，卡片一张盖一张。
 fn agent_avatar_generation_pending_ids<'a>(
     agents: impl IntoIterator<Item = &'a AgentProfile>,
+    previous_by_id: &std::collections::HashMap<String, &AgentProfile>,
 ) -> Vec<String> {
     agents
         .into_iter()
         .filter(|agent| !agent.is_built_in_user && agent.id != USER_PERSONA_ID)
         .filter(|agent| {
-            agent
-                .avatar_path
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .is_none()
+            if agent_has_avatar(agent) {
+                return false;
+            }
+            match previous_by_id.get(agent.id.as_str()) {
+                // 新增人格：这次才第一次有机会拿到头像。
+                None => true,
+                // 老人格：只有头像被清空过才重新生成，原本就没头像的不该被他这一次保存拉起来。
+                Some(previous) => agent_has_avatar(previous),
+            }
         })
         .map(|agent| agent.id.trim().to_string())
         .filter(|id| !id.is_empty())
         .collect()
+}
+
+fn agent_has_avatar(agent: &AgentProfile) -> bool {
+    agent
+        .avatar_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+}
+
+/// 入队名额的持有者：任务结束（成功、失败、提前返回、panic）都自动归还。
+#[cfg(not(test))]
+struct AgentAvatarGenerationQueueSlot {
+    key: String,
+}
+
+#[cfg(not(test))]
+impl Drop for AgentAvatarGenerationQueueSlot {
+    fn drop(&mut self) {
+        release_avatar_generation_queue(&self.key);
+    }
 }
 
 #[cfg(not(test))]
@@ -134,6 +188,11 @@ fn spawn_agent_avatar_generation(
     origin: AgentAvatarGenerationOrigin,
 ) {
     tauri::async_runtime::spawn(async move {
+        // 名额跟着任务走：任务一结束就还回去，失败不是终点，下次保存还得能重跑。
+        // 任务若根本没被调度（应用正在退出），名额会留在内存里——重启即清空，不影响下次运行。
+        let _slot = AgentAvatarGenerationQueueSlot {
+            key: agent_id.clone(),
+        };
         // 等到前一张结束再发；锁在任务里取，enqueue 调用方立刻返回。
         let _permit = agent_avatar_generation_gate().lock().await;
         let input = GenerateAgentAvatarInput {
@@ -185,6 +244,13 @@ fn spawn_agent_avatar_generation(
     if let Ok(mut queued) = agent_avatar_generation_test_queued().lock() {
         queued.push(agent_id);
     }
+    // 测试里不自动归还在队名额：那张「图」永远不会跑完，由用例显式调 finish 模拟结束。
+}
+
+/// 测试钩子：模拟「这一张已经跑完（成功/失败/跳过都算）」，把入队名额还回去。
+#[cfg(test)]
+fn agent_avatar_generation_test_finish(agent_id: &str) {
+    release_avatar_generation_queue(agent_id);
 }
 
 /// 给一个人格排队生成头像：只入队，不等生成，调用方（工具执行、人格保存）立刻返回。
@@ -198,6 +264,13 @@ fn enqueue_agent_avatar_generation(
 ) {
     let agent_id = agent_id.trim();
     if agent_id.is_empty() {
+        return;
+    }
+    // 同一时刻只排一张：招募时工具排一次、随后的保存又排一次，第二次丢掉。
+    if !reserve_avatar_generation_queue(agent_id) {
+        runtime_log_info(format!(
+            "[头像生成] 跳过，agentId={agent_id}，stage=已在队列或生成中"
+        ));
         return;
     }
     spawn_agent_avatar_generation(state.clone(), agent_id.to_string(), origin);

@@ -864,8 +864,115 @@
     }
 
     #[test]
+    fn save_agents_should_only_enqueue_avatars_touched_by_this_save() {
+        // 前端提交的是全量人格列表。保存一个人格，不能顺带把库里所有缺头像的老人格拉起来，
+        // 否则它们逐个串行失败，卡片一张盖一张。
+        let state = config_test_state();
+        let with_avatar_id = format!("agent-touched-has-avatar-{}", Uuid::new_v4());
+        let stale_missing_id = format!("agent-touched-stale-missing-{}", Uuid::new_v4());
+        let new_missing_id = format!("agent-touched-new-missing-{}", Uuid::new_v4());
+        let make_agent = |id: &str, avatar: Option<String>| AgentProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            system_prompt: "我是设定".to_string(),
+            tools: default_agent_tools(),
+            created_at: "2026-04-15T00:00:00Z".to_string(),
+            updated_at: "2026-04-15T00:00:00Z".to_string(),
+            avatar_path: avatar,
+            avatar_updated_at: None,
+            is_built_in_user: false,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
+            source: default_main_source(),
+            scope: default_global_scope(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            include_system_rules: true,
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
+        };
+
+        // 先造一版旧库：一个已带头像，一个本来就缺头像。
+        save_agents_inner(
+            SaveAgentsInput {
+                agents: vec![
+                    make_agent(&with_avatar_id, Some("avatars/agent-x.webp".to_string())),
+                    make_agent(&stale_missing_id, None),
+                ],
+            },
+            &state,
+        )
+        .expect("seed agents");
+
+        // 第一次保存排出来的那一张，当作已经跑完了。
+        agent_avatar_generation_test_finish(&stale_missing_id);
+
+        // 第二次只新增一个人格：那个老缺头像的人格不该被这次保存带起来。
+        save_agents_inner(
+            SaveAgentsInput {
+                agents: vec![
+                    make_agent(&with_avatar_id, Some("avatars/agent-x.webp".to_string())),
+                    make_agent(&stale_missing_id, None),
+                    make_agent(&new_missing_id, None),
+                ],
+            },
+            &state,
+        )
+        .expect("save agents");
+
+        let queued = agent_avatar_generation_test_queued()
+            .lock()
+            .expect("lock queued");
+        // 按次数断言：队列是进程级共享的，其他用例也在往里写，不能拿全局长度切片。
+        let count_of = |id: &str| queued.iter().filter(|entry| **entry == *id).count();
+        assert_eq!(
+            count_of(&new_missing_id),
+            1,
+            "这次新增的人格要排队"
+        );
+        assert_eq!(
+            count_of(&stale_missing_id),
+            1,
+            "老缺头像的人格只在第一次保存时排过一次，这次保存不该再把它拉起来"
+        );
+        assert_eq!(
+            count_of(&with_avatar_id),
+            0,
+            "已有头像的人格任何时候都不排"
+        );
+    }
+
+    #[test]
+    fn enqueue_should_drop_duplicate_while_still_running() {
+        // 招募时工具排一次、随后的保存又排一次：第二次必须丢掉，
+        // 否则它会在生成入口撞上在途凭证，被当成一次「生成失败」推给界面。
+        let state = config_test_state();
+        let agent_id = format!("agent-avatar-dedup-{}", Uuid::new_v4());
+        let count_queued = || {
+            agent_avatar_generation_test_queued()
+                .lock()
+                .expect("lock queued")
+                .iter()
+                .filter(|id| *id == &agent_id)
+                .count()
+        };
+        enqueue_agent_avatar_generation(&state, &agent_id, AgentAvatarGenerationOrigin::Chat);
+        enqueue_agent_avatar_generation(&state, &agent_id, AgentAvatarGenerationOrigin::Config);
+        assert_eq!(
+            count_queued(),
+            1,
+            "同一人格在队列或生成中时，后到的入队应该被丢掉"
+        );
+    }
+
+    #[test]
     fn avatar_generation_should_enqueue_again_after_previous_failures() {
-        // 拉黑已拆：同一个人格失败过多少次，下一次保存仍然照常入队。
+        // 判重只挡「同一时刻」，不作用于「失败之后」：拉黑不许以任何形式回来。
         let state = config_test_state();
         let agent_id = format!("agent-avatar-retry-{}", Uuid::new_v4());
         let count_queued = || {
@@ -877,13 +984,14 @@
                 .count()
         };
         let before = count_queued();
-        for _ in 0..3 {
-            enqueue_agent_avatar_generation(&state, &agent_id, AgentAvatarGenerationOrigin::Chat);
-        }
+        enqueue_agent_avatar_generation(&state, &agent_id, AgentAvatarGenerationOrigin::Chat);
+        // 这一张跑完了，结果是一次失败：名额还回去，下一次必须还能真的重跑。
+        agent_avatar_generation_test_finish(&agent_id);
+        enqueue_agent_avatar_generation(&state, &agent_id, AgentAvatarGenerationOrigin::Config);
         assert_eq!(
             count_queued() - before,
-            3,
-            "连续三次入队都应真的排进队列，不能被上一次失败挡掉"
+            2,
+            "失败结束之后再次入队仍然要真的 spawn，不能变成拉黑"
         );
     }
 

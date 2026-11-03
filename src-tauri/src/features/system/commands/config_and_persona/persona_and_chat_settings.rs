@@ -223,8 +223,9 @@ fn save_agents_inner(
     if !affected_agent_ids.is_empty() {
         mark_prompt_cache_rebuild_for_system_sources_by_agents(&state, &affected_agent_ids);
     }
-    // 保存成功后给还没有头像的人格排队生成一张；只入队，不等生成。
-    for agent_id in agent_avatar_generation_pending_ids(desired_agents.iter()) {
+    // 保存成功后只给这次真正涉及的人格排队：新增的、或头像被清空的。
+    // 不能按「谁没头像」排——前端提交的是全量列表，那样会把库里所有缺图老人格一起拉起来。
+    for agent_id in agent_avatar_generation_pending_ids(desired_agents.iter(), &previous_by_id) {
         enqueue_agent_avatar_generation(state, &agent_id, AgentAvatarGenerationOrigin::Config);
     }
     let config = state_read_config_cached(&state)?;
