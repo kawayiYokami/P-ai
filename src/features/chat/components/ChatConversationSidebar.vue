@@ -105,10 +105,7 @@
           <template v-else>
             <button
               type="button"
-              class="mx-1 mb-1 flex min-h-9 w-[calc(100%-0.5rem)] items-center gap-2 rounded-lg px-2.5 py-1 text-left text-sm transition-colors"
-              :class="activeConversationIsDraft
-                ? 'bg-base-300 text-base-content'
-                : 'text-base-content hover:bg-base-300/70 active:bg-base-300'"
+              class="mx-1 mb-1 flex min-h-9 w-[calc(100%-0.5rem)] items-center gap-2 rounded-lg bg-base-100 px-2.5 py-1 text-left text-sm text-base-content transition-colors"
               :title="t('chat.newConversation')"
               @click="createConversationFromSidebar"
             >
@@ -1219,13 +1216,6 @@ const systemNotificationItems = computed(() => {
     if (!item.isSystemNotificationConversation) return false;
     return query ? conversationMatchesSearch(item, query) : true;
   });
-});
-
-/** 当前打开的是会话草稿时，高亮「新建会话」按钮 */
-const activeConversationIsDraft = computed(() => {
-  const activeId = String(props.activeConversationId || "").trim();
-  if (!activeId) return false;
-  return props.items.some((item) => String(item.conversationId || "").trim() === activeId && !!item.isDraft);
 });
 
 function isActiveSystemNotificationConversation(item: ChatConversationOverviewItem): boolean {
