@@ -42,6 +42,13 @@ fn headless_cli_console_logging_suppressed() -> bool {
 /// 进入 CLI 模式：在初始化日志与运行时之前调用，确保启动期日志也不落到 stderr。
 fn headless_cli_enter_mode(minimal_tools: bool) {
     HEADLESS_CLI_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
+    headless_cli_enter_tool_preset(minimal_tools);
+}
+
+/// 只设定工具预设，不抑制 stderr。
+///
+/// ACP 入口要的是「日志走 stderr、stdout 只有协议帧」，所以它只用这一半。
+fn headless_cli_enter_tool_preset(minimal_tools: bool) {
     let _ = HEADLESS_CLI_TOOL_PRESET.set(HeadlessCliToolPreset { minimal: minimal_tools });
 }
 
@@ -160,6 +167,94 @@ fn headless_cli_shell_workspaces() -> Result<Vec<ShellWorkspaceConfig>, String> 
     }])
 }
 
+/// 单轮调度装配：追加用户消息 → 构造 SendChatRequest → 跑完整轮 → 返回最终文本。
+///
+/// `p-ai run` 与 `p-ai acp` 共用这一段，避免两个入口各维护一份请求装配。
+/// 差异只有三处：`request_id` 前缀、运行时上下文来源标签、流式通道。
+#[allow(clippy::too_many_arguments)]
+async fn headless_cli_run_turn(
+    state: &AppState,
+    conversation_id: &str,
+    agent_id: &str,
+    model_config_id: &str,
+    text: &str,
+    request_prefix: &str,
+    dispatch_source: &str,
+    dispatch_action: &str,
+    channel: &tauri::ipc::Channel<AssistantDeltaEvent>,
+) -> Result<String, String> {
+    let conversation_id = conversation_id.trim().to_string();
+    let request_id = format!("{request_prefix}-{}", Uuid::new_v4());
+    let user_message = ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "user".to_string(),
+        created_at: now_iso(),
+        speaker_agent_id: None,
+        parts: vec![MessagePart::Text {
+            text: text.to_string(),
+            reasoning_content: None,
+        }],
+        extra_text_blocks: Vec::new(),
+        provider_meta: None,
+        tool_call: None,
+        mcp_call: None,
+        meme_annotations: None,
+    };
+    conversation_service_v2()
+        .append_user_message(
+            state,
+            &UserMessageAppendInput {
+                conversation_id: conversation_id.clone(),
+                message: user_message,
+                memory_recall_ids: Vec::new(),
+            },
+        )
+        .await?;
+
+    let mut runtime_context = runtime_context_new(dispatch_source, dispatch_action);
+    runtime_context.request_id = Some(request_id.clone());
+    runtime_context.dispatch_id = Some(request_id.clone());
+    runtime_context.origin_conversation_id = Some(conversation_id.clone());
+    runtime_context.target_conversation_id = Some(conversation_id.clone());
+    runtime_context.root_conversation_id = Some(conversation_id.clone());
+    runtime_context.executor_agent_id = Some(agent_id.to_string());
+    runtime_context.model_config_id = Some(model_config_id.to_string());
+
+    let request = SendChatRequest {
+        trigger_only: true,
+        session: Some(SessionSelector {
+            api_config_id: Some(model_config_id.to_string()),
+            agent_id: agent_id.to_string(),
+            conversation_id: Some(conversation_id),
+        }),
+        payload: ChatInputPayload {
+            text: None,
+            display_text: None,
+            parts: None,
+            images: None,
+            audios: None,
+            attachments: None,
+            model: None,
+            extra_text_blocks: None,
+            mentions: None,
+            provider_meta: None,
+        },
+        speaker_agent_id: None,
+        trace_id: Some(request_id),
+        assistant_message_id: None,
+        oldest_queue_created_at: None,
+        remote_im_activation_sources: Vec::new(),
+        runtime_context: Some(runtime_context),
+    };
+
+    let result = send_chat_message_inner(request, state, channel).await?;
+    Ok(if result.final_response_text.trim().is_empty() {
+        result.assistant_text
+    } else {
+        result.final_response_text
+    })
+}
+
 async fn headless_cli_run_once(args: HeadlessCliArgs) -> Result<(), String> {
     let locked_model_id = args.model_config_id.trim().to_string();
     let state = AppState::new()?;
@@ -209,76 +304,19 @@ async fn headless_cli_run_once(args: HeadlessCliArgs) -> Result<(), String> {
     .await?;
     let conversation_id = conversation.conversation_id;
 
-    let request_id = format!("cli-{}", Uuid::new_v4());
-    let user_message = ChatMessage {
-        id: Uuid::new_v4().to_string(),
-        role: "user".to_string(),
-        created_at: now_iso(),
-        speaker_agent_id: None,
-        parts: vec![MessagePart::Text {
-            text: args.task.clone(),
-            reasoning_content: None,
-        }],
-        extra_text_blocks: Vec::new(),
-        provider_meta: None,
-        tool_call: None,
-        mcp_call: None,
-        meme_annotations: None,
-    };
-    conversation_service_v2()
-        .append_user_message(
-            &state,
-            &UserMessageAppendInput {
-                conversation_id: conversation_id.clone(),
-                message: user_message,
-                memory_recall_ids: Vec::new(),
-            },
-        )
-        .await?;
-
-    let mut runtime_context = runtime_context_new("cli_headless", "cli_run");
-    runtime_context.request_id = Some(request_id.clone());
-    runtime_context.dispatch_id = Some(request_id.clone());
-    runtime_context.origin_conversation_id = Some(conversation_id.clone());
-    runtime_context.target_conversation_id = Some(conversation_id.clone());
-    runtime_context.root_conversation_id = Some(conversation_id.clone());
-    runtime_context.executor_agent_id = Some(agent_id.clone());
-    runtime_context.model_config_id = Some(locked_model_id.clone());
-
-    let request = SendChatRequest {
-        trigger_only: true,
-        session: Some(SessionSelector {
-            api_config_id: Some(locked_model_id),
-            agent_id,
-            conversation_id: Some(conversation_id.clone()),
-        }),
-        payload: ChatInputPayload {
-            text: None,
-            display_text: None,
-            parts: None,
-            images: None,
-            audios: None,
-            attachments: None,
-            model: None,
-            extra_text_blocks: None,
-            mentions: None,
-            provider_meta: None,
-        },
-        speaker_agent_id: None,
-        trace_id: Some(request_id),
-        assistant_message_id: None,
-        oldest_queue_created_at: None,
-        remote_im_activation_sources: Vec::new(),
-        runtime_context: Some(runtime_context),
-    };
-
     let channel = tauri::ipc::Channel::<AssistantDeltaEvent>::new(|_| Ok(()));
-    let result = send_chat_message_inner(request, &state, &channel).await?;
-    let final_text = if result.final_response_text.trim().is_empty() {
-        result.assistant_text
-    } else {
-        result.final_response_text
-    };
+    let final_text = headless_cli_run_turn(
+        &state,
+        &conversation_id,
+        &agent_id,
+        &locked_model_id,
+        &args.task,
+        "cli",
+        "cli_headless",
+        "cli_run",
+        &channel,
+    )
+    .await?;
     // 先落 stdout 再等后台：调用方稍后用 timeout 收尾时，回答已经交付出去。
     println!("{}", final_text.trim());
     headless_cli_wait_background_tasks(&state, &conversation_id).await;

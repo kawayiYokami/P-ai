@@ -115,6 +115,7 @@ include!("features/monitor_events.rs");
 
 include!("features/system/commands.rs");
 include!("features/system/headless_cli.rs");
+include!("features/system/acp_agent_cli.rs");
 
 #[cfg(target_os = "windows")]
 fn windows_set_process_app_user_model_id() {
@@ -1139,6 +1140,11 @@ fn main() {
         };
         headless_cli_enter_mode(parsed.minimal_tools);
         std::process::exit(run_headless_cli(parsed));
+    }
+    // ACP agent 入口：被编辑器以子进程拉起，走 stdio JSON-RPC。
+    // 与无头 CLI 同层，不影响不带参数启动的桌面路径。
+    if acp_cli_invocation(&argv) {
+        std::process::exit(run_acp_agent_cli());
     }
 
     #[cfg(target_os = "windows")]

@@ -83,6 +83,7 @@ notify-debouncer-mini = "0.5"
 gix-ignore = "0.22"
 bstr = "1"
 trash = "5.2.8"
+agent-client-protocol = { version = "3.6.0", features = ["stdio"] }
 
 [features]
 default = ["custom-protocol"]
