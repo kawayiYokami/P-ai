@@ -87,9 +87,7 @@
               >
                 <!-- AI 闪耀图标 -->
                 <Sparkles class="h-4 w-4 shrink-0 text-primary" />
-                <span class="min-w-0 flex-1 truncate font-medium text-base-content/85">
-                  <InlineMarkdownText :text="getReasoningSummary(item.text)" />
-                </span>
+                <span class="min-w-0 flex-1 truncate font-medium text-base-content/85">{{ t("chat.messageItem.reasoningTitle") }}</span>
                 <span class="shrink-0 tabular-nums text-[11px] text-base-content/40">
                   思考 {{ item.text.length }} 字
                 </span>
@@ -208,10 +206,8 @@ import { invokeTauri } from "../../../services/tauri-api";
 import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
 import type { ArchiveBlockPage, ChatActivityItem, ScheduleEvent, ScheduleRun } from "../../../types/app";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
-import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import { createToolCallPresentation } from "../utils/tool-call-presentation";
 import { projectChatActivityForDisplay } from "../../../utils/chat-message-semantics";
-import { sliceNaturalSentencePrefix } from "../utils/text-slicing";
 import { parseToolCallResultStatus } from "../utils/toolcall-preview";
 
 initKatex();
@@ -262,11 +258,6 @@ function toggleItemExpanded(id: string) {
     next.add(id);
   }
   expandedIds.value = next;
-}
-
-function getReasoningSummary(text: string): string {
-  const parts = sliceNaturalSentencePrefix(text, { targetLength: 40 });
-  return parts.summary || "思考过程";
 }
 
 function getToolSemantic(item: ChatActivityItem) {

@@ -168,7 +168,7 @@
                           <span class="w-px bg-current opacity-30" />
                         </div>
 
-                        <!-- 右侧正文外壳：折叠态限高约 4 行预览并加底部 base-200 淡出；展开态全量平铺 -->
+                        <!-- 右侧正文外壳：折叠态限高约 4 行预览并加底部 base-200 淡出；展开态限高滚动 -->
                         <div
                           class="ecall-reasoning-body-shell relative min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
                           :class="[
@@ -177,8 +177,14 @@
                           ]"
                           @click="onReasoningClampedBodyClick(item)"
                         >
-                          <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
-                          <template v-else>{{ activityItemBodyText(item) }}</template>
+                          <OverlayScrollArea v-if="activityItemExpanded(item)" scroller-class="max-h-[30rem] pr-3">
+                            <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
+                            <template v-else>{{ activityItemBodyText(item) }}</template>
+                          </OverlayScrollArea>
+                          <template v-else>
+                            <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
+                            <template v-else>{{ activityItemBodyText(item) }}</template>
+                          </template>
 
                           <!-- 折叠态底部 base-200 淡出遮罩 -->
                           <div
@@ -268,10 +274,12 @@
                             />
                           </summary>
                           <div class="collapse-content pb-2 pr-1 pt-1">
-                            <pre
-                              class="m-0 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-base-200/60 p-2 text-xs leading-relaxed"
-                              :class="activityItemDetailClass(item)"
-                            ><code>{{ activityToolDetailsText(item) }}</code></pre>
+                            <OverlayScrollArea scroller-class="max-h-72 rounded bg-base-200/60 p-2">
+                              <pre
+                                class="m-0 whitespace-pre-wrap break-all text-xs leading-relaxed"
+                                :class="activityItemDetailClass(item)"
+                              ><code>{{ activityToolDetailsText(item) }}</code></pre>
+                            </OverlayScrollArea>
                             <div
                               v-if="item.kind === 'tool' && item.contentOmitted && toolResultOverrides[activityItemKey(item)] === undefined"
                               class="mt-1 flex items-center gap-2"
@@ -661,7 +669,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect, watchPostEffect, type Ref, type StyleValue } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect, watchPostEffect, type StyleValue } from "vue";
 import { useI18n } from "vue-i18n";
 import { Braces, ChevronDown, ChevronRight, Copy, FileText, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
 import { invokeTauri, openTransportWorkspaceFile, readTransportChatImage } from "../../../services/tauri-api";
@@ -680,7 +688,6 @@ import { normalizeLocalLinkHref } from "../utils/local-link";
 import { textContentSignature } from "../utils/text-signature";
 import { createStreamingSizeLock, observeStreamingSize, streamingSizeLockStyle } from "../utils/streaming-size-lock";
 import { shouldFoldProcessSegments, type ProcessSegmentFoldIntent } from "../utils/process-segment-fold";
-import { sliceNaturalSentencePrefix } from "../utils/text-slicing";
 import { createToolCallPresentation } from "../utils/tool-call-presentation";
 import { buildToolcallPreviewMap, parseToolCallResultStatus, type ToolcallPreviewEntry } from "../utils/toolcall-preview";
 import { generateShareFromMessageIds } from "../utils/share-generator";
@@ -692,6 +699,7 @@ import ChatBubbleShell from "./ChatBubbleShell.vue";
 import ChatAttachmentItem from "./ChatAttachmentItem.vue";
 import PlainMarkdownRenderer from "./PlainMarkdownRenderer.vue";
 import AnimatedCountText from "./AnimatedCountText.vue";
+import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 
 initKatex();
 
@@ -1403,11 +1411,11 @@ function liveActivityTextSignature(text: string): string {
 function activityItemPlainBody(item: ChatActivityItem): boolean {
   if (item.kind !== "reasoning") return false;
   if (item.running && activityItemExpanded(item)) return true;
-  return activityItemRemainingText(item).length > MAX_MARKDOWN_REASONING_CHARS;
+  return activityItemText(item).length > MAX_MARKDOWN_REASONING_CHARS;
 }
 
 function activityItemBodyText(item: ChatActivityItem): string {
-  const text = item.kind === "reasoning" ? activityItemRemainingText(item) : activityItemText(item);
+  const text = activityItemText(item);
   if (item.kind !== "reasoning") return text;
   if (!activityItemExpanded(item)) return collapsedActivityPreview(text, item);
   return text;
@@ -1705,39 +1713,13 @@ function activityItemText(item: ChatActivityItem): string {
   return "";
 }
 
-const reasoningSummaryAvailableWidth = inject<Ref<number>>(
-  "reasoningSummaryAvailableWidth",
-  ref(480)
-);
-
-const activityTextPartsCache = new WeakMap<
-  ChatActivityItem,
-  { text: string; availableWidth: number; parts: { summary: string; remaining: string } }
->();
-
-function activityItemTextParts(item: ChatActivityItem): { summary: string; remaining: string } {
-  const text = activityItemText(item);
-  const availableWidth = reasoningSummaryAvailableWidth.value;
-  const cached = activityTextPartsCache.get(item);
-  if (cached && cached.text === text && cached.availableWidth === availableWidth) {
-    return cached.parts;
-  }
-  const parts = sliceNaturalSentencePrefix(text, { availableWidth });
-  activityTextPartsCache.set(item, { text, availableWidth, parts });
-  return parts;
-}
-
-function activityItemRemainingText(item: ChatActivityItem): string {
-  return activityItemTextParts(item).remaining;
-}
-
 function activityItemCanExpand(item: ChatActivityItem): boolean {
   if (item.kind === "tool") {
     // 无参数工具不显示参数区；但「无参数 + 有结果」的工具仍要能展开，否则结果本身也读不到。
     if (activityToolArgsText(item).trim()) return true;
     return !!String(item.resultText || "").trim() || item.contentOmitted === true;
   }
-  if (item.kind === "reasoning") return !!activityItemRemainingText(item).trim();
+  if (item.kind === "reasoning") return !!activityItemText(item).trim();
   return false;
 }
 
@@ -1809,9 +1791,9 @@ function activityItemSemantic(item: ChatActivityItem) {
 
 
 function activityItemTitle(item: ChatActivityItem): string {
-  if (item.kind === "reasoning" || item.kind === "content") {
-    return activityItemTextParts(item).summary;
-  }
+  // 思考块标题固定成文案：首行切分那套像素估算已经去掉，标题不再跟着正文首句变
+  if (item.kind === "reasoning") return t("chat.messageItem.reasoningTitle");
+  if (item.kind === "content") return activityItemText(item);
   const baseTitle = toolCallSummaryText(item);
   const suffix = activityItemStatusSuffix(item);
   return suffix ? `${baseTitle} ${suffix}` : baseTitle;

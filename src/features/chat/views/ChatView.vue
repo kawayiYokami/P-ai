@@ -2141,55 +2141,6 @@ const {
   focusComposerInput: (options) => composerPanelRef.value?.focusInput(options),
 });
 
-// ==================== 智能首行容器物理宽度自适应（单例 ResizeObserver + 100ms 防抖） ====================
-const reasoningSummaryAvailableWidth = ref(480);
-let scrollContainerWidthResizeObserver: ResizeObserver | null = null;
-let scrollContainerWidthResizeTimer: ReturnType<typeof setTimeout> | null = null;
-
-function updateReasoningSummaryAvailableWidth(width: number) {
-  if (width <= 0) return;
-  // 气泡内边距、时间线节点及吸顶栏左右留白与展开按钮约 60px
-  const usableWidth = Math.max(160, Math.round(width - 60));
-  if (reasoningSummaryAvailableWidth.value !== usableWidth) {
-    reasoningSummaryAvailableWidth.value = usableWidth;
-  }
-}
-
-watch(scrollContainer, (el, _prev, onCleanup) => {
-  scrollContainerWidthResizeObserver?.disconnect();
-  scrollContainerWidthResizeObserver = null;
-  if (scrollContainerWidthResizeTimer) {
-    clearTimeout(scrollContainerWidthResizeTimer);
-    scrollContainerWidthResizeTimer = null;
-  }
-  if (!el || typeof ResizeObserver === "undefined") return;
-
-  updateReasoningSummaryAvailableWidth(el.clientWidth);
-
-  scrollContainerWidthResizeObserver = new ResizeObserver((entries) => {
-    const entry = entries[0];
-    const width = entry?.contentRect?.width || el.clientWidth;
-    if (scrollContainerWidthResizeTimer) clearTimeout(scrollContainerWidthResizeTimer);
-    scrollContainerWidthResizeTimer = setTimeout(() => {
-      scrollContainerWidthResizeTimer = null;
-      updateReasoningSummaryAvailableWidth(width);
-    }, 100);
-  });
-
-  scrollContainerWidthResizeObserver.observe(el);
-
-  onCleanup(() => {
-    if (scrollContainerWidthResizeTimer) {
-      clearTimeout(scrollContainerWidthResizeTimer);
-      scrollContainerWidthResizeTimer = null;
-    }
-    scrollContainerWidthResizeObserver?.disconnect();
-    scrollContainerWidthResizeObserver = null;
-  });
-});
-
-provide("reasoningSummaryAvailableWidth", reasoningSummaryAvailableWidth);
-
 // ==================== virtual scroll (virtua) ====================
 
 // 远近分界：与当前首项索引差超过10项算远（约3屏），走瞬移保性能；以内走平滑
