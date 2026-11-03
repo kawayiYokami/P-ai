@@ -19,6 +19,7 @@ import {
   buildQuestionSubmitPayload,
   buildSelectedQuestionSubmitPayload,
   countAnsweredQuestions,
+  nextUnansweredIndex,
   resolveQuestionOptions,
   type QuestionSubmitPayloadItem,
 } from "../utils/question-panel-submit";
@@ -179,10 +180,13 @@ function handleCustomAnswerConfirm() {
     return;
   }
   shakeOptionId.value = "";
-  emit("update:modelValue", {
+  const next = {
     ...answersMap.value,
     [item.id]: { optionId: "", label: text, comment: "", customText: text },
-  });
+  };
+  emit("update:modelValue", next);
+  // 自己写也是答完一题：多题时同样跳到下一道未答（单题没有去处，保持只记录）。
+  if (!isSingle.value) advanceAfterAnswer(next);
 }
 
 watch(currentItem, () => {
@@ -265,6 +269,19 @@ function goTo(index: number) {
   nextTick(() => {});
 }
 
+/**
+ * 答完一题后跳到下一道**未答**的题，不是机械的下一格：用户会跳着答，中间留空很正常。
+ * 全部答完时终端审批进全量确认视图；会话提问停在原地等右下角发送，不替用户按下发送。
+ */
+function advanceAfterAnswer(nextAnswers: Record<string, QuestionAnswer>) {
+  const nextIndex = nextUnansweredIndex(props.items, nextAnswers, currentIndex.value);
+  if (nextIndex >= 0) {
+    goTo(nextIndex);
+    return;
+  }
+  if (!isManualSubmit.value) confirmStep.value = true;
+}
+
 function handleOptionSelect(option: QuestionOption) {
   const item = currentItem.value;
   if (!item || props.submitting) return;
@@ -289,19 +306,13 @@ function handleOptionSelect(option: QuestionOption) {
   };
   emit("update:modelValue", next);
 
-  // 手动发送：只把这一题记为已选，留在原地等右下角发送；不自动提交、也不自动翻页。
-  if (isManualSubmit.value) return;
-
+  // 单题没有下一道可跳：终端审批直接提交，会话提问只记录、等右下角发送。两条都是原行为。
   if (isSingle.value) {
-    handleSubmitAll(next);
+    if (!isManualSubmit.value) handleSubmitAll(next);
     return;
   }
-  const isLast = currentIndex.value === total.value - 1;
-  if (isLast) {
-    confirmStep.value = true;
-    return;
-  }
-  goTo(currentIndex.value + 1);
+
+  advanceAfterAnswer(next);
 }
 
 /** 手动发送：把这批已选题一次性交出去，未选的题不参与也不拦截。 */

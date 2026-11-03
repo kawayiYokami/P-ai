@@ -4,6 +4,7 @@ import {
   buildQuestionSubmitPayload,
   buildSelectedQuestionSubmitPayload,
   countAnsweredQuestions,
+  nextUnansweredIndex,
   questionAnswerIsComplete,
   questionItemIsAnswered,
   resolveQuestionOptions,
@@ -191,5 +192,57 @@ describe("buildQuestionSubmitPayload（all：终端审批不变）", () => {
     expect(buildQuestionSubmitPayload(single, { q1: answer("approve", "同意") })).toEqual([
       { id: "q1", optionId: "approve", label: "同意", comment: "" },
     ]);
+  });
+});
+
+describe("nextUnansweredIndex", () => {
+  const fourItems = () => [
+    item("q1", directOptions("甲", "乙")),
+    item("q2", directOptions("甲", "乙")),
+    item("q3", directOptions("甲", "乙")),
+    item("q4", directOptions("甲", "乙")),
+  ];
+
+  it("中间有空洞时跳过已答，落到第一个未答的题", () => {
+    const items = fourItems();
+    // 从 1 号题答完往后走：2 号已答，落 3 号（索引 2）。
+    const answers = { q1: answer("0", "甲"), q2: answer("0", "甲") };
+    expect(nextUnansweredIndex(items, answers, 0)).toBe(2);
+  });
+
+  it("后面全答完时绕回开头找未答的题", () => {
+    const items = fourItems();
+    // 1 号、3 号、4 号已答，从 3 号（索引 2）答完往后：4 号已答 → 绕回 1 号已答 → 落 2 号（索引 1）。
+    const answers = {
+      q1: answer("0", "甲"),
+      q3: answer("0", "甲"),
+      q4: answer("0", "甲"),
+    };
+    expect(nextUnansweredIndex(items, answers, 2)).toBe(1);
+  });
+
+  it("全部答完时返回 -1", () => {
+    const items = fourItems();
+    const answers = {
+      q1: answer("0", "甲"),
+      q2: answer("0", "甲"),
+      q3: answer("0", "甲"),
+      q4: answer("0", "甲"),
+    };
+    expect(nextUnansweredIndex(items, answers, 0)).toBe(-1);
+  });
+
+  it("只剩当前这题未答时返回 -1，不返回自己造成原地打转", () => {
+    const items = fourItems();
+    const answers = {
+      q2: answer("0", "甲"),
+      q3: answer("0", "甲"),
+      q4: answer("0", "甲"),
+    };
+    expect(nextUnansweredIndex(items, answers, 0)).toBe(-1);
+  });
+
+  it("没有题目时返回 -1", () => {
+    expect(nextUnansweredIndex([], {}, 0)).toBe(-1);
   });
 });

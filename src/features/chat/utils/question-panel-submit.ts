@@ -97,3 +97,22 @@ export function buildSelectedQuestionSubmitPayload(
   }
   return payload.length > 0 ? payload : null;
 }
+
+/**
+ * 答完一题后该落到哪一题：从 `from` 的下一题开始往后找第一个未答的题，找到末尾绕回开头。
+ * 刚答完的 `from` 自己不参与查找，否则只剩它未答时会原地打转。返回 `-1` 表示没有未答的题。
+ */
+export function nextUnansweredIndex(
+  items: QuestionItem[],
+  answers: Record<string, QuestionAnswer>,
+  from: number,
+): number {
+  const total = items.length;
+  if (total === 0) return -1;
+  const start = Math.max(0, Math.min(from, total - 1));
+  for (let step = 1; step < total; step += 1) {
+    const index = (start + step) % total;
+    if (!answers[items[index].id]) return index;
+  }
+  return -1;
+}
