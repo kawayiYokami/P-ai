@@ -433,10 +433,28 @@ fn read_plan_file_content_inner(
     if normalized_conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
     }
+    let normalized_path = path.trim();
+    // 计划文件本来就会被清理，丢了就是「没有计划」：文件确实不存在时返回空内容，
+    // 让卡片落到「已加载完但没有条目」的灰色路径，不弹红字。路径非法、扩展名不对、
+    // 文件为空这些照旧报错。只有绝对路径能在解析前判存在，相对路径要靠会话工作区解析，保持原样。
+    if !normalized_path.is_empty() {
+        let candidate = std::path::Path::new(normalized_path);
+        if candidate.is_absolute() {
+            if let Err(err) = std::fs::metadata(candidate) {
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    runtime_log_info(format!(
+                        "[计划] 读取计划文件跳过，任务=读取计划文件内容，conversation_id={}，path={}，reason=文件不存在",
+                        normalized_conversation_id, normalized_path
+                    ));
+                    return Ok(String::new());
+                }
+            }
+        }
+    }
     let resolved = resolve_plan_file_for_conversation_id(
         state,
         normalized_conversation_id,
-        path.trim(),
+        normalized_path,
     )?;
     read_plan_markdown_file(&resolved.canonical_path)
 }

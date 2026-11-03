@@ -1116,3 +1116,56 @@
         assert!(oversized.len() > AGENT_AVATAR_SVG_MAX_BYTES);
         assert!(sanitize_agent_avatar_svg(&oversized).is_err());
     }
+
+    /// 计划读取通道只给前端卡片用：计划文件被清理掉之后算「没有计划」，
+    /// 返回空内容让卡片落到灰色路径，不要把「文件没了」当失败报出去。
+    fn plan_read_test_state_with_conversation() -> (AppState, String) {
+        let state = test_chat_runtime_state();
+        let conversation_id = format!("plan-read-{}", Uuid::new_v4());
+        let mut conversation = test_active_conversation_with_messages(Vec::new(), None);
+        conversation.id = conversation_id.clone();
+        conversation.conversation_kind = CONVERSATION_KIND_CHAT.to_string();
+        state_write_conversation_cached(&state, &conversation).expect("write conversation");
+        (state, conversation_id)
+    }
+
+    #[test]
+    fn read_plan_file_content_should_return_empty_when_plan_file_missing() {
+        let (state, conversation_id) = plan_read_test_state_with_conversation();
+        let missing_path = std::env::temp_dir()
+            .join(format!("eca-missing-plan-{}.md", Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+
+        let result = read_plan_file_content_inner(&conversation_id, &missing_path, &state);
+
+        assert_eq!(result, Ok(String::new()), "计划文件不存在应返回空内容");
+    }
+
+    #[test]
+    fn read_plan_file_content_should_still_error_on_invalid_plan_path() {
+        let (state, conversation_id) = plan_read_test_state_with_conversation();
+
+        // 相对路径不可判存在，维持原来的「plan.path 无效」报错
+        let relative = read_plan_file_content_inner(&conversation_id, "plans/missing.md", &state);
+        let relative_error = relative.expect_err("相对路径不该被当成文件不存在吞掉");
+        assert!(
+            relative_error.contains("plan.path"),
+            "相对路径应在路径层报错：{relative_error}"
+        );
+
+        // 文件存在但不是 .md：扩展名校验照旧报错
+        let text_path = std::env::temp_dir().join(format!("eca-plan-{}.txt", Uuid::new_v4()));
+        std::fs::write(&text_path, "不是计划文件").expect("write temp file");
+        let wrong_extension = read_plan_file_content_inner(
+            &conversation_id,
+            &text_path.to_string_lossy(),
+            &state,
+        );
+        let _ = std::fs::remove_file(&text_path);
+        let extension_error = wrong_extension.expect_err("非 Markdown 扩展名不该被吞掉");
+        assert!(
+            extension_error.contains(".md"),
+            "扩展名错误应在扩展名层报出：{extension_error}"
+        );
+    }
