@@ -10,6 +10,8 @@ export interface KanbanStageMeta {
   labelKey: string;
   tone: "error" | "info" | "neutral" | "primary" | "warning" | "success" | "muted";
   dotClass: string;
+  /** 纯文字状态下用色，字面量写成，避免拼接被 Tailwind 裁掉 */
+  textClass: string;
   badgeClass: string;
   headerBorderClass: string;
   columnBgClass: string;
@@ -21,6 +23,7 @@ export const KANBAN_STAGE_CONFIGS: Record<KanbanStageStatus, KanbanStageMeta> = 
     labelKey: "chat.kanban.status.blocked",
     tone: "error",
     dotClass: "bg-error",
+    textClass: "text-error",
     badgeClass: "badge-error badge-outline text-error",
     headerBorderClass: "border-error/40",
     columnBgClass: "bg-error/[0.03]",
@@ -30,6 +33,7 @@ export const KANBAN_STAGE_CONFIGS: Record<KanbanStageStatus, KanbanStageMeta> = 
     labelKey: "chat.kanban.status.discussing",
     tone: "info",
     dotClass: "bg-info",
+    textClass: "text-info",
     badgeClass: "badge-info badge-outline text-info",
     headerBorderClass: "border-info/40",
     columnBgClass: "bg-info/[0.03]",
@@ -39,6 +43,7 @@ export const KANBAN_STAGE_CONFIGS: Record<KanbanStageStatus, KanbanStageMeta> = 
     labelKey: "chat.kanban.status.todo",
     tone: "neutral",
     dotClass: "bg-base-content/40",
+    textClass: "text-base-content/60",
     badgeClass: "border-base-content/20 text-base-content/70",
     headerBorderClass: "border-base-content/20",
     columnBgClass: "bg-base-200/30",
@@ -48,6 +53,7 @@ export const KANBAN_STAGE_CONFIGS: Record<KanbanStageStatus, KanbanStageMeta> = 
     labelKey: "chat.kanban.status.in_progress",
     tone: "primary",
     dotClass: "bg-primary",
+    textClass: "text-primary",
     badgeClass: "badge-primary badge-outline text-primary",
     headerBorderClass: "border-primary/40",
     columnBgClass: "bg-primary/[0.04]",
@@ -57,6 +63,7 @@ export const KANBAN_STAGE_CONFIGS: Record<KanbanStageStatus, KanbanStageMeta> = 
     labelKey: "chat.kanban.status.in_review",
     tone: "warning",
     dotClass: "bg-warning",
+    textClass: "text-warning",
     badgeClass: "badge-warning badge-outline text-warning",
     headerBorderClass: "border-warning/50",
     columnBgClass: "bg-warning/[0.04]",
@@ -66,6 +73,7 @@ export const KANBAN_STAGE_CONFIGS: Record<KanbanStageStatus, KanbanStageMeta> = 
     labelKey: "chat.kanban.status.done",
     tone: "success",
     dotClass: "bg-success",
+    textClass: "text-success",
     badgeClass: "badge-success badge-outline text-success",
     headerBorderClass: "border-success/40",
     columnBgClass: "bg-success/[0.03]",

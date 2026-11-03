@@ -88,7 +88,6 @@
                   :avatar-url="resolveAvatar(issue.assignee)"
                   :approving-number="approvingNumber"
                   density="tile"
-                  referenceable
                   @select="emit('open')"
                   @approve="emit('approve', $event)"
                   @open-plan="emit('openPlan', $event)"
@@ -144,7 +143,6 @@
                 :avatar-url="resolveAvatar(issue.assignee)"
                 :approving-number="approvingNumber"
                 density="tile"
-                referenceable
                 @select="emit('open')"
                 @approve="emit('approve', $event)"
                 @open-plan="emit('openPlan', $event)"

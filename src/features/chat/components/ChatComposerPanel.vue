@@ -308,7 +308,7 @@
                       >
                         <span class="shrink-0 font-mono text-xs tabular-nums text-base-content/55">#{{ item.number }}</span>
                         <span class="min-w-0 flex-1 truncate text-sm leading-5">{{ item.title }}</span>
-                        <span class="shrink-0 text-caption text-base-content/50">{{ kanbanIssueStatusText(item.status) }}</span>
+                        <span class="shrink-0 text-caption" :class="kanbanIssueStatusClass(item.status)">{{ kanbanIssueStatusText(item.status) }}</span>
                       </button>
                     </li>
                   </ul>
@@ -486,6 +486,7 @@ import {
   filterKanbanIssueOptions,
   findKanbanIssueTrigger,
   kanbanIssueStatusText,
+  kanbanIssueStatusClass,
   type KanbanIssueReference,
 } from "../composables/use-kanban-issue-references";
 import type { KanbanIssue } from "../composables/use-kanban-board";

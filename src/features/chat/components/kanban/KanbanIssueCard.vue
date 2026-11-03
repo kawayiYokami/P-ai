@@ -14,17 +14,8 @@
   >
     <!-- 顶行：编号 + 计划文件外链 -->
     <div class="flex items-center justify-between gap-1.5 text-caption">
-      <!-- 编号在磁贴里可点：一点就把这条议题挂到输入框当引用，卡片其余部分仍是打开看板 -->
-      <button
-        v-if="referenceable"
-        type="button"
-        class="cursor-pointer font-mono text-xs font-medium tabular-nums text-base-content/50 underline decoration-dotted underline-offset-2 transition-colors hover:text-primary"
-        :title="t('chat.kanban.referenceHint')"
-        @click.stop="handleReference"
-      >
-        #{{ issue.number }}
-      </button>
-      <span v-else class="font-mono text-xs font-medium tabular-nums text-base-content/50">
+      <!-- 编号：纯展示。引用入口在底行左下角，只有磁贴形态才出现 -->
+      <span class="font-mono text-xs font-medium tabular-nums text-base-content/50">
         #{{ issue.number }}
       </span>
 
@@ -53,6 +44,16 @@
     <!-- 底行：执行人 + 相对时间 / 审核通过按钮 -->
     <div class="flex items-center justify-between gap-1.5 pt-0.5 text-caption">
       <div class="flex min-w-0 items-center gap-1.5">
+        <!-- 引用入口固定在卡片左下角：磁贴里才出现，点击把编号挂进输入框 -->
+        <button
+          v-if="canReference"
+          type="button"
+          class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full text-base-content/40 transition-colors hover:bg-base-300/60 hover:text-primary"
+          :title="t('chat.kanban.referenceHint')"
+          @click.stop="handleReference"
+        >
+          <CornerDownRight class="size-3" aria-hidden="true" />
+        </button>
         <div class="avatar size-4 shrink-0">
           <div
             class="flex size-4 items-center justify-center overflow-hidden rounded-full font-bold text-[9px] text-white"
@@ -102,7 +103,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, FileText } from "@lucide/vue";
+import { Check, CornerDownRight, FileText } from "@lucide/vue";
 import {
   formatTimeRelative,
   getAvatarColorByName,
@@ -125,15 +126,12 @@ const props = withDefaults(defineProps<{
   /** 能否点选：磁贴里点卡片等同打开看板。 */
   selectable?: boolean;
   showPlanLink?: boolean;
-  /** 编号能否作为引用挂进输入框：只有首页磁贴打开，看板页保持纯展示。 */
-  referenceable?: boolean;
 }>(), {
   avatarUrl: "",
   approvingNumber: null,
   density: "board",
   selectable: true,
   showPlanLink: true,
-  referenceable: false,
 });
 
 const emit = defineEmits<{
@@ -150,6 +148,10 @@ const densityClass = computed(() =>
     ? "gap-1.5 p-2 bg-base-200/50 hover:bg-base-200/80"
     : "gap-1.5 p-2.5 bg-base-100",
 );
+
+/** 磁贴里编号可点，挂进输入框当引用；看板页保持纯展示。
+ *  条件由卡片按自身形态判断，不必再让调用方额外传一个开关。 */
+const canReference = computed(() => props.density === "tile");
 
 const avatarContainerStyle = computed(() => {
   if (props.avatarUrl) return {};

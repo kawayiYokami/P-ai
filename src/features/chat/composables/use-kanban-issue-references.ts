@@ -1,5 +1,6 @@
 import { ref } from "vue";
 import type { KanbanIssue } from "./use-kanban-board";
+import { KANBAN_STAGE_CONFIGS, type KanbanStageStatus } from "../components/kanban/kanban-types";
 
 /**
  * 挂进输入框的议题引用。
@@ -23,6 +24,7 @@ export type KanbanIssueTrigger = {
 
 /** 状态文案与 `chat.kanban.status.*` 同义：这段是发给模型读的正文，不跟界面语言走。 */
 const KANBAN_STATUS_TEXT: Record<string, string> = {
+  planning: "规划中",
   discussing: "待议",
   todo: "待办",
   in_progress: "解决中",
@@ -34,6 +36,13 @@ const KANBAN_STATUS_TEXT: Record<string, string> = {
 export function kanbanIssueStatusText(status: string): string {
   const key = String(status || "").trim();
   return KANBAN_STATUS_TEXT[key] || key;
+}
+
+/** 状态文字色：与看板泳道同源取色，未知状态回落中性灰。
+ *  类名必须是字面量，拼接出来的 Tailwind 扫不到。 */
+export function kanbanIssueStatusClass(status: string): string {
+  const key = String(status || "").trim() as KanbanStageStatus;
+  return KANBAN_STAGE_CONFIGS[key]?.textClass || "text-base-content/60";
 }
 
 export function toKanbanIssueReference(issue: KanbanIssue): KanbanIssueReference {
