@@ -359,6 +359,21 @@ fn load_workspace_mcp_servers(state: &AppState) -> Result<Vec<McpServerConfig>, 
         server.has_oauth_token = mcp_oauth_has_credentials(state, &server.id);
         server.tool_policies = policy.tools;
     }
+    // 会话级 MCP（ACP 客户端在 session/new 里带入的）只活在内存里，从不写这份目录。
+    // 追加在这里而不是另开一条装配路径：schema 缓存、目录块、get_tool、执行器
+    // 全部照旧读同一个入口，ACP 不需要自己的分支。
+    let session_servers = session_mcp_servers_snapshot();
+    if !session_servers.is_empty() {
+        let existing = servers
+            .iter()
+            .map(|item| item.id.clone())
+            .collect::<std::collections::HashSet<String>>();
+        servers.extend(
+            session_servers
+                .into_iter()
+                .filter(|server| !existing.contains(&server.id)),
+        );
+    }
     Ok(servers)
 }
 

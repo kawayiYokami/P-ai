@@ -14,6 +14,25 @@ use agent_client_protocol::schema::v1::{
     SessionConfigValueId,
 };
 
+/// 一轮的取消控制。
+///
+/// `turn_id` 是这一轮的身份：`session/cancel` 只作用于**持有该身份**的那一轮，
+/// 不按会话或时间推断归属，避免上一轮的取消信号落到下一轮头上。
+#[derive(Debug)]
+struct AcpTurnControl {
+    turn_id: String,
+    token: tokio_util::sync::CancellationToken,
+}
+
+impl AcpTurnControl {
+    fn new() -> Self {
+        Self {
+            turn_id: format!("acp-turn-{}", Uuid::new_v4()),
+            token: tokio_util::sync::CancellationToken::new(),
+        }
+    }
+}
+
 /// 一个 ACP session 在 PAI 这边的落地信息。
 #[derive(Clone, Debug)]
 struct AcpSessionState {
@@ -23,6 +42,8 @@ struct AcpSessionState {
     /// 本会话是否有轮次正在跑。同一会话同一时刻只允许一轮：无头轮次绕过桌面端的
     /// `conversation_scheduler` 直接写会话历史，两轮并行会同时往同一份记录里写。
     prompt_in_flight: bool,
+    /// 正在跑的那一轮的取消控制。轮次结束后清空，不留到下一轮。
+    turn: Option<std::sync::Arc<AcpTurnControl>>,
 }
 
 type AcpSessionRegistry =
@@ -54,6 +75,7 @@ fn acp_claim_prompt_slot(sessions: &AcpSessionRegistry, session_id: &str) -> Acp
         return AcpPromptClaim::Busy;
     }
     session.prompt_in_flight = true;
+    session.turn = Some(std::sync::Arc::new(AcpTurnControl::new()));
     AcpPromptClaim::Ready(session.clone())
 }
 
@@ -71,8 +93,98 @@ impl Drop for AcpPromptSlot {
         if let Ok(mut registry) = self.sessions.lock() {
             if let Some(session) = registry.get_mut(&self.conversation_id) {
                 session.prompt_in_flight = false;
+                // 取消控制是这一轮的身份，轮次结束必须一起丢掉。留着它，
+                // 一个迟到的 `session/cancel` 就会打中下一轮。
+                session.turn = None;
             }
         }
+    }
+}
+
+/// 取本会话当前在途轮次的取消控制；会话不存在或没有在途轮次时给 `None`。
+fn acp_current_turn(
+    sessions: &AcpSessionRegistry,
+    session_id: &str,
+) -> Result<Option<std::sync::Arc<AcpTurnControl>>, String> {
+    let registry = sessions
+        .lock()
+        .map_err(|_| "会话表不可用".to_string())?;
+    Ok(registry.get(session_id).and_then(|session| session.turn.clone()))
+}
+
+/// `session/cancel`：中止指定会话当前正在跑的那一轮。
+///
+/// 这是通知，没有响应帧可回——任何失败都只能记日志。会话不存在、轮次已经结束
+/// 都属于正常竞态（编辑器发 cancel 时那一轮可能刚好收尾），安静丢弃，
+/// 绝不能在会话上留下任何会影响下一轮的东西。
+///
+/// 真正的中止动作不在这里做，而是由那一轮自己做的：通知只按轮次身份去拍
+/// `CancellationToken`，轮次收到才去调停止链路。这样「谁被取消」由身份决定，
+/// 不由会话或时间推断。
+fn acp_handle_cancel_notification(
+    sessions: &AcpSessionRegistry,
+    notif: agent_client_protocol::schema::v1::CancelNotification,
+) -> Result<(), agent_client_protocol::Error> {
+    let session_id = notif.session_id.0.to_string();
+    let turn = match acp_current_turn(sessions, &session_id) {
+        Ok(Some(turn)) => turn,
+        Ok(None) => {
+            runtime_log_info(format!(
+                "[ACP] 跳过，任务=取消轮次，session_id={session_id}，原因=该会话没有在途轮次"
+            ));
+            return Ok(());
+        }
+        Err(err) => {
+            runtime_log_error(format!(
+                "[ACP] 失败，任务=取消轮次，session_id={session_id}，error={err}"
+            ));
+            return Ok(());
+        }
+    };
+    turn.token.cancel();
+    runtime_log_info(format!(
+        "[ACP] 受理，任务=取消轮次，session_id={session_id}，turn_id={}",
+        turn.turn_id
+    ));
+    Ok(())
+}
+
+/// 让 PAI 真正停下这一轮：复用桌面端的停止链路。
+///
+/// 自己伪造一个中止结果比这省事，但会把已经流出去的内容留在内存里不落盘、
+/// 也不中止正在跑的工具句柄。停止链路已经处理了这些，直接调它。
+async fn acp_request_stop(state: &AppState, session: &AcpSessionState) -> Result<(), String> {
+    let input = StopChatRequest {
+        session: SessionSelector {
+            api_config_id: Some(session.model_config_id.clone()),
+            agent_id: session.agent_id.clone(),
+            conversation_id: Some(session.conversation_id.clone()),
+        },
+        partial_assistant_text: String::new(),
+        partial_stream_blocks: Vec::new(),
+    };
+    let result = stop_chat_message_inner(input, state).await?;
+    runtime_log_info(format!(
+        "[ACP] 完成，任务=停止轮次，session_id={}，aborted={}，persisted={}",
+        session.conversation_id, result.aborted, result.persisted
+    ));
+    Ok(())
+}
+
+/// 轮次收尾时清掉本会话可能残留的停止意图。
+///
+/// 停止意图没有过期语义，会被该会话接下来的轮次消费。取消恰好和本轮收尾撞在
+/// 同一瞬间时，停止可能落到一个已经结束的轮次上并留下意图，必须在收尾处清掉，
+/// 否则下一轮刚开始就会被它打断。
+fn acp_clear_stop_intent(state: &AppState, conversation_id: &str) {
+    match clear_conversation_stop_intents(state, conversation_id) {
+        Ok(0) => {}
+        Ok(count) => runtime_log_info(format!(
+            "[ACP] 完成，任务=清理残留停止意图，session_id={conversation_id}，count={count}"
+        )),
+        Err(err) => runtime_log_error(format!(
+            "[ACP] 失败，任务=清理残留停止意图，session_id={conversation_id}，error={err}"
+        )),
     }
 }
 
@@ -125,8 +237,11 @@ async fn acp_serve() -> Result<(), String> {
     let sessions_for_new = sessions.clone();
     let state_for_config = state.clone();
     let sessions_for_config = sessions.clone();
+    let state_for_load = state.clone();
+    let sessions_for_load = sessions.clone();
     let state_for_prompt = state.clone();
     let sessions_for_prompt = sessions.clone();
+    let sessions_for_cancel = sessions.clone();
 
     agent_client_protocol::Agent
         .builder()
@@ -144,6 +259,21 @@ async fn acp_serve() -> Result<(), String> {
                     sessions_for_new.clone(),
                     req,
                     responder,
+                )
+                .await
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |req: agent_client_protocol::schema::v1::LoadSessionRequest,
+                        responder,
+                        cx| {
+                acp_handle_load_session(
+                    state_for_load.clone(),
+                    sessions_for_load.clone(),
+                    req,
+                    responder,
+                    cx,
                 )
                 .await
             },
@@ -176,18 +306,27 @@ async fn acp_serve() -> Result<(), String> {
             },
             agent_client_protocol::on_receive_request!(),
         )
+        .on_receive_notification(
+            async move |notif: agent_client_protocol::schema::v1::CancelNotification, _cx| {
+                acp_handle_cancel_notification(&sessions_for_cancel, notif)
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
         .connect_to(agent_client_protocol::Stdio::new())
         .await
         .map_err(|err| format!("ACP 连接结束: {err}"))?;
+    // 连接收掉：客户端带来的会话级 MCP 服务器也要一起收，别留孤儿进程。
+    session_mcp_dispose_all(&state).await;
     Ok(())
 }
 
-/// 能力只报真做到的那部分：`loadSession` / 图片 / MCP over ACP 一律不声明。
+/// 能力只报真做到的那部分：`loadSession` 已实现，图片与 MCP over ACP 尚未实现。
 fn acp_initialize_response(
     req: agent_client_protocol::schema::v1::InitializeRequest,
 ) -> agent_client_protocol::schema::v1::InitializeResponse {
     use agent_client_protocol::schema::v1::{AgentCapabilities, InitializeResponse};
-    InitializeResponse::new(req.protocol_version).agent_capabilities(AgentCapabilities::new())
+    InitializeResponse::new(req.protocol_version)
+        .agent_capabilities(AgentCapabilities::new().load_session(true))
 }
 
 fn acp_internal_error(message: impl Into<String>) -> agent_client_protocol::Error {
@@ -378,14 +517,357 @@ async fn acp_handle_new_session(
                 agent_id,
                 model_config_id,
                 prompt_in_flight: false,
+                turn: None,
             },
         );
     }
+    // 客户端带来的 MCP 服务器在这里挂上：只进内存，不写 llm-workspace/mcp/servers/。
+    // 先挂再回响应，客户端拿到 session_id 时工具已经可发现。
+    acp_mount_session_mcp(&state, &conversation_id, &req.mcp_servers).await;
     let mut response = agent_client_protocol::schema::v1::NewSessionResponse::new(
         agent_client_protocol::schema::v1::SessionId::new(conversation_id),
     );
     response.config_options = Some(config_options);
     responder.respond(response)
+}
+
+/// 把 ACP 的 `mcpServers` 翻成 PAI 的服务器配置。
+///
+/// 三种传输与 PAI 定义 JSON 一一对应，这里只搬字段，不补猜：
+/// - stdio → `command` / `args` / `env`
+/// - http / sse → `type` / `url` / `headers`
+///
+/// 返回 `(可用配置, 无法转换的原因)`：一条坏定义不该让整场会话开不起来，
+/// 但原因必须原样带回给调用方记日志，不能静默丢掉。
+fn acp_session_mcp_servers(
+    session_id: &str,
+    servers: &[agent_client_protocol::schema::v1::McpServer],
+) -> (Vec<McpServerConfig>, Vec<String>) {
+    use agent_client_protocol::schema::v1::McpServer;
+
+    let headers_map = |items: &[agent_client_protocol::schema::v1::HttpHeader]| {
+        items
+            .iter()
+            .map(|item| (item.name.clone(), item.value.clone()))
+            .collect::<std::collections::BTreeMap<String, String>>()
+    };
+
+    let mut configs = Vec::<McpServerConfig>::new();
+    let mut errors = Vec::<String>::new();
+    for (index, server) in servers.iter().enumerate() {
+        let (raw_name, entry) = match server {
+            McpServer::Stdio(stdio) => {
+                let env = stdio
+                    .env
+                    .iter()
+                    .map(|item| (item.name.clone(), item.value.clone()))
+                    .collect::<std::collections::BTreeMap<String, String>>();
+                (
+                    stdio.name.clone(),
+                    serde_json::json!({
+                        "command": stdio.command.to_string_lossy().into_owned(),
+                        "args": stdio.args,
+                        "env": env,
+                    }),
+                )
+            }
+            McpServer::Http(http) => (
+                http.name.clone(),
+                serde_json::json!({
+                    "type": "http",
+                    "url": http.url,
+                    "headers": headers_map(&http.headers),
+                }),
+            ),
+            McpServer::Sse(sse) => (
+                sse.name.clone(),
+                serde_json::json!({
+                    "type": "sse",
+                    "url": sse.url,
+                    "headers": headers_map(&sse.headers),
+                }),
+            ),
+            other => {
+                errors.push(format!("不支持的 MCP 传输类型：{other:?}"));
+                continue;
+            }
+        };
+        let label = {
+            let trimmed = raw_name.trim();
+            if trimmed.is_empty() {
+                format!("acp-server-{index}")
+            } else {
+                trimmed.to_string()
+            }
+        };
+        let mut members = serde_json::Map::new();
+        members.insert(label.clone(), entry);
+        let definition_json = serde_json::json!({
+            "mcpServers": serde_json::Value::Object(members)
+        })
+        .to_string();
+        configs.push(McpServerConfig {
+            id: format!("acp-{}-{index}", acp_mcp_id_slug(session_id)),
+            name: label,
+            enabled: true,
+            definition_json,
+            oauth_capable: false,
+            has_oauth_token: false,
+            tool_policies: Vec::new(),
+            cached_tools: Vec::new(),
+            last_status: String::new(),
+            last_error: String::new(),
+            updated_at: String::new(),
+        });
+    }
+    (configs, errors)
+}
+
+/// 服务器 id 里只留安全字符：它会进客户端缓存的键，也进日志。
+fn acp_mcp_id_slug(text: &str) -> String {
+    text.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .take(12)
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+/// 把客户端带来的 MCP 服务器挂到本进程，并把失败原因写进日志。
+async fn acp_mount_session_mcp(
+    state: &AppState,
+    session_id: &str,
+    servers: &[agent_client_protocol::schema::v1::McpServer],
+) {
+    if servers.is_empty() {
+        return;
+    }
+    let (configs, translate_errors) = acp_session_mcp_servers(session_id, servers);
+    for err in translate_errors {
+        runtime_log_warn(format!(
+            "[ACP] 跳过，任务=解析 MCP 服务器，session_id={session_id}，原因={err}"
+        ));
+    }
+    let mount_errors = session_mcp_attach(state, configs).await;
+    for err in mount_errors {
+        runtime_log_warn(format!(
+            "[ACP] 跳过，任务=挂载 MCP 服务器，session_id={session_id}，原因={err}"
+        ));
+    }
+}
+
+/// `session/load`：把已有会话接回来，并把历史回放给客户端。
+///
+/// 回放只走分页读取，不整读会话消息：先取最近一页，再按 oldest 锚点往回翻，
+/// 拼成时间正序。回放的是用户与助理的正文；工具调用消息、压缩摘要这类没有
+/// 对应历史呈现位的类型不在此还原，数量会写进日志，不静默吞掉。
+async fn acp_handle_load_session(
+    state: AppState,
+    sessions: AcpSessionRegistry,
+    req: agent_client_protocol::schema::v1::LoadSessionRequest,
+    responder: agent_client_protocol::Responder<
+        agent_client_protocol::schema::v1::LoadSessionResponse,
+    >,
+    cx: agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
+) -> Result<(), agent_client_protocol::Error> {
+    use agent_client_protocol::schema::v1::LoadSessionResponse;
+
+    let session_id_text = req.session_id.0.to_string();
+    // cwd 的校验口径与 `session/new` 完全一致：不是目录就是调用方的参数问题。
+    // 载入不改变已有会话的工作区——会话属于它原本那个目录，工具仍落在那里。
+    if let Err(err) = acp_new_session_workspaces(&req.cwd) {
+        runtime_log_error(format!(
+            "[ACP] 载入会话失败，任务=解析会话工作目录，session_id={session_id_text}，原因={}",
+            err.message
+        ));
+        return responder.respond_with_error(err);
+    }
+    let config = match state_read_config_cached(&state) {
+        Ok(value) => value,
+        Err(err) => {
+            runtime_log_error(format!(
+                "[ACP] 载入会话失败，任务=读取配置，session_id={session_id_text}，error={err}"
+            ));
+            return responder.respond_with_error(acp_internal_error(err));
+        }
+    };
+    // 会话不存在是参数问题：客户端传了一个本进程没见过的 id。
+    let meta = match conversation_service_v2().get_conversation_meta(&state, &session_id_text) {
+        Ok(meta) => meta,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[ACP] 拒绝，任务=载入会话，session_id={session_id_text}，原因=会话不存在（{err}）"
+            ));
+            return responder.respond_with_error(acp_invalid_params(format!(
+                "会话不存在: {session_id_text}"
+            )));
+        }
+    };
+    // 会话自己记住的模型优先，但必须仍是文本聊天模型；不成立才退到全局选择。
+    let stored_model = meta
+        .preferred_api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .filter(|id| {
+            config
+                .api_configs
+                .iter()
+                .any(|api| api.id.trim() == *id && is_text_chat_api(api))
+        })
+        .map(ToOwned::to_owned);
+    let model_config_id = match stored_model {
+        Some(id) => id,
+        None => match acp_pick_session_model_config_id(&config) {
+            Ok(id) => id,
+            Err(err) => {
+                runtime_log_error(format!(
+                    "[ACP] 载入会话失败，任务=选择模型，session_id={session_id_text}，原因={err}"
+                ));
+                return responder.respond_with_error(acp_internal_error(err));
+            }
+        },
+    };
+    let config_options = match acp_model_config_options(&config, &model_config_id) {
+        Ok(value) => value,
+        Err(err) => {
+            runtime_log_error(format!(
+                "[ACP] 载入会话失败，任务=列举模型选项，session_id={session_id_text}，原因={err}"
+            ));
+            return responder.respond_with_error(acp_internal_error(err));
+        }
+    };
+    let agent_id = meta.agent_id.clone();
+    if !meta.shell_workspaces.iter().any(|item| {
+        item.path.trim() == terminal_path_for_user(&req.cwd)
+    }) {
+        // 不静默：让运维日志能看出「客户端要的目录」与「会话记录的目录」不同。
+        runtime_log_info(format!(
+            "[ACP] 提示，任务=载入会话，session_id={session_id_text}，cwd={}，会话工作区={:?}",
+            req.cwd.display(),
+            meta.shell_workspaces
+                .iter()
+                .map(|item| item.path.clone())
+                .collect::<Vec<_>>()
+        ));
+    }
+
+    let messages = match acp_replay_messages(&state, &session_id_text) {
+        Ok(value) => value,
+        Err(err) => {
+            runtime_log_error(format!(
+                "[ACP] 载入会话失败，任务=读取历史，session_id={session_id_text}，error={err}"
+            ));
+            return responder.respond_with_error(acp_internal_error(err));
+        }
+    };
+    let mut replayed = 0usize;
+    let mut skipped = 0usize;
+    for message in &messages {
+        let Some(notification) =
+            acp_replay_update(&message.role, &message.parts, &req.session_id)
+        else {
+            skipped += 1;
+            continue;
+        };
+        if let Err(err) = cx.send_notification(notification) {
+            runtime_log_warn(format!(
+                "[ACP] 发送回放帧失败，session_id={session_id_text}，error={err}"
+            ));
+        }
+        replayed += 1;
+    }
+    runtime_log_info(format!(
+        "[ACP] 完成，任务=回放历史，session_id={session_id_text}，回放={replayed}，未回放={skipped}"
+    ));
+
+    // 载入的会话此后要能直接接 prompt：登记进会话表，轮次状态一律从零开始。
+    if let Ok(mut registry) = sessions.lock() {
+        registry.insert(
+            session_id_text.clone(),
+            AcpSessionState {
+                conversation_id: session_id_text.clone(),
+                agent_id,
+                model_config_id: model_config_id.clone(),
+                prompt_in_flight: false,
+                turn: None,
+            },
+        );
+    }
+    acp_mount_session_mcp(&state, &session_id_text, &req.mcp_servers).await;
+    runtime_log_info(format!(
+        "[ACP] 完成，任务=载入会话，session_id={session_id_text}，model={model_config_id}"
+    ));
+    responder.respond(LoadSessionResponse::new().config_options(config_options))
+}
+
+/// 读一场会话的全部历史，时间正序。返回的是分页拼起来的消息，不是整读。
+///
+/// 上限存在的意义只是防止把会话读成一次大 IO：回放本来就是个长动作。
+fn acp_replay_messages(state: &AppState, conversation_id: &str) -> Result<Vec<ChatMessage>, String> {
+    const PAGE: usize = 100;
+    const MAX_MESSAGES: usize = 2000;
+
+    let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
+    let Some(page) = message_store::chat_store_read_recent_messages_page_cached(&paths, PAGE)? else {
+        return Ok(Vec::new());
+    };
+    let mut collected = page.messages;
+    let mut has_more = page.has_more;
+    while has_more && collected.len() < MAX_MESSAGES {
+        let Some(oldest_id) = collected.first().map(|message| message.id.clone()) else {
+            break;
+        };
+        let Some(page) =
+            message_store::chat_store_read_messages_before(&paths, &oldest_id, PAGE)?
+        else {
+            break;
+        };
+        if page.messages.is_empty() {
+            break;
+        }
+        has_more = page.has_more;
+        let mut merged = page.messages;
+        merged.extend(collected);
+        collected = merged;
+    }
+    if has_more {
+        runtime_log_warn(format!(
+            "[ACP] 截断，任务=回放历史，session_id={conversation_id}，已回放={}，原因=超过回放上限 {MAX_MESSAGES}",
+            collected.len()
+        ));
+    }
+    Ok(collected)
+}
+
+/// 把一条历史消息转成回放帧。没有正文、或类型不适合回放的返回 `None`。
+fn acp_replay_update(
+    role: &str,
+    parts: &[MessagePart],
+    session_id: &agent_client_protocol::schema::v1::SessionId,
+) -> Option<agent_client_protocol::schema::v1::SessionNotification> {
+    use agent_client_protocol::schema::v1::{
+        ContentBlock, ContentChunk, SessionNotification, SessionUpdate, TextContent,
+    };
+
+    let text = parts
+        .iter()
+        .filter_map(|part| match part {
+            MessagePart::Text { text, .. } => Some(text.trim()),
+            _ => None,
+        })
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if text.is_empty() {
+        return None;
+    }
+    let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)));
+    let update = match role.trim().to_ascii_lowercase().as_str() {
+        "user" => SessionUpdate::UserMessageChunk(chunk),
+        "assistant" => SessionUpdate::AgentMessageChunk(chunk),
+        _ => return None,
+    };
+    Some(SessionNotification::new(session_id.clone(), update))
 }
 
 /// `session/set_config_option`：切换本会话使用的模型。
@@ -479,6 +961,16 @@ async fn acp_handle_prompt(
     cx: agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
 ) -> Result<(), agent_client_protocol::Error> {
     let session_id_text = req.session_id.0.to_string();
+    // 内容块校验先于占位：不支持的类型要立刻回错误，连轮次都不该开。
+    let prompt_text = match acp_prompt_text(&req.prompt) {
+        Ok(text) => text,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[ACP] 拒绝，任务=解析提示词，session_id={session_id_text}，原因={err}"
+            ));
+            return responder.respond_with_error(acp_invalid_params(err));
+        }
+    };
     let session = match acp_claim_prompt_slot(&sessions, &session_id_text) {
         AcpPromptClaim::Ready(session) => session,
         AcpPromptClaim::Unavailable => {
@@ -511,8 +1003,19 @@ async fn acp_handle_prompt(
         sessions: sessions.clone(),
         conversation_id: session.conversation_id.clone(),
     };
+    // 占位成功必然带上了本轮的身份；缺了说明会话表状态不一致，
+    // 不能开一个「取消不了」的轮次。
+    let turn = match session.turn.clone() {
+        Some(turn) => turn,
+        None => {
+            drop(slot);
+            runtime_log_error(format!(
+                "[ACP] 轮次失败，任务=读取取消控制，session_id={session_id_text}，原因=占位未带轮次身份"
+            ));
+            return responder.respond_with_error(acp_internal_error("轮次取消控制缺失"));
+        }
+    };
 
-    let prompt_text = acp_prompt_text(&req.prompt);
     if prompt_text.trim().is_empty() {
         drop(slot);
         runtime_log_warn(format!(
@@ -530,7 +1033,8 @@ async fn acp_handle_prompt(
         // 轮次内的错误已经通过 responder 回给客户端，这里只记日志：
         // 让任务返回 Err 会把整个连接拆掉，代价远大于一次失败的轮次。
         if let Err(err) =
-            acp_run_prompt_turn(state, session, session_id, prompt_text, responder, cx_for_turn).await
+            acp_run_prompt_turn(state, session, session_id, prompt_text, turn, responder, cx_for_turn)
+                .await
         {
             runtime_log_error(format!("[ACP] 失败，任务=派发轮次：{err}"));
         }
@@ -549,6 +1053,7 @@ async fn acp_run_prompt_turn(
     session: AcpSessionState,
     session_id: agent_client_protocol::schema::v1::SessionId,
     prompt_text: String,
+    turn: std::sync::Arc<AcpTurnControl>,
     responder: agent_client_protocol::Responder<agent_client_protocol::schema::v1::PromptResponse>,
     cx: agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
 ) -> Result<(), agent_client_protocol::Error> {
@@ -597,7 +1102,7 @@ async fn acp_run_prompt_turn(
         Ok(())
     });
 
-    let result = headless_cli_run_turn(
+    let turn_result = headless_cli_run_turn(
         &state,
         &session.conversation_id,
         &session.agent_id,
@@ -607,8 +1112,50 @@ async fn acp_run_prompt_turn(
         "acp_agent",
         "acp_prompt",
         &channel,
-    )
-    .await;
+    );
+    tokio::pin!(turn_result);
+
+    // 监听取消：只在轮次还活着的时候拍一次停止，然后照旧等轮次自然收尾。
+    // 不能在这里直接 drop 掉轮次 future —— 那会把 responder 一起扔掉，
+    // 客户端等不到任何响应帧。
+    let mut stop_requested = false;
+    let result = loop {
+        tokio::select! {
+            biased;
+            _ = turn.token.cancelled(), if !stop_requested => {
+                stop_requested = true;
+                runtime_log_info(format!(
+                    "[ACP] 受理，任务=停止轮次，session_id={session_id_text}，turn_id={}",
+                    turn.turn_id
+                ));
+                if let Err(err) = acp_request_stop(&state, &session).await {
+                    runtime_log_error(format!(
+                        "[ACP] 失败，任务=停止轮次，session_id={session_id_text}，error={err}"
+                    ));
+                }
+            }
+            outcome = &mut turn_result => break outcome,
+        }
+    };
+
+    if stop_requested {
+        // 被打断的一轮一律回 cancelled：协议对 `session/cancel` 的回应就是它。
+        // 顺带把本会话可能残留的停止意图清掉，别让下一轮刚起步就挨一刀。
+        acp_clear_stop_intent(&state, &session.conversation_id);
+        match &result {
+            Ok(_) => runtime_log_info(format!(
+                "[ACP] 完成，任务=取消轮次，session_id={session_id_text}，turn_id={}，结果=已中止",
+                turn.turn_id
+            )),
+            Err(err) => runtime_log_info(format!(
+                "[ACP] 完成，任务=取消轮次，session_id={session_id_text}，turn_id={}，结果=已中止（轮次返回错误：{err}）",
+                turn.turn_id
+            )),
+        }
+        return responder.respond(agent_client_protocol::schema::v1::PromptResponse::new(
+            agent_client_protocol::schema::v1::StopReason::Cancelled,
+        ));
+    }
 
     match result {
         Ok(final_text) => {
@@ -717,21 +1264,52 @@ fn acp_shell_workspaces(cwd: &std::path::Path) -> Result<Vec<ShellWorkspaceConfi
     }])
 }
 
-/// 只取文本块。其它块类型（图片、资源链接）本轮不支持，跳过并记一条日志。
-fn acp_prompt_text(blocks: &[agent_client_protocol::schema::v1::ContentBlock]) -> String {
+/// 把提示词内容块转成文本。不支持的类型必须明确报错，不能静默丢。
+///
+/// - 文本块：拼接；
+/// - 资源链接：协议要求所有 agent 必须支持，转成一行引用交给模型；
+/// - 图片、音频、内嵌资源：本轮没有声明对应能力（`promptCapabilities` 全为 false），
+///   回错误。静默丢掉会让模型答非所问，客户端还以为什么都送到了。
+fn acp_prompt_text(
+    blocks: &[agent_client_protocol::schema::v1::ContentBlock],
+) -> Result<String, String> {
     use agent_client_protocol::schema::v1::ContentBlock;
     let mut parts: Vec<String> = Vec::new();
     for block in blocks {
         match block {
             ContentBlock::Text(text) => parts.push(text.text.clone()),
+            ContentBlock::ResourceLink(link) => {
+                let name = link.name.trim();
+                let uri = link.uri.trim();
+                parts.push(if name.is_empty() {
+                    format!("[资源链接] {uri}")
+                } else {
+                    format!("[资源链接] {name}: {uri}")
+                });
+            }
+            ContentBlock::Image(_) => {
+                return Err(
+                    "本轮不支持图片内容块：promptCapabilities.image 未声明，请改写成本地文件路径"
+                        .to_string(),
+                );
+            }
+            ContentBlock::Audio(_) => {
+                return Err(
+                    "本轮不支持音频内容块：promptCapabilities.audio 未声明".to_string(),
+                );
+            }
+            ContentBlock::Resource(_) => {
+                return Err(
+                    "本轮不支持内嵌资源内容块：promptCapabilities.embeddedContext 未声明"
+                        .to_string(),
+                );
+            }
             other => {
-                runtime_log_warn(format!(
-                    "[ACP] 跳过，任务=解析提示词，原因=本轮不支持非文本内容块：{other:?}"
-                ));
+                return Err(format!("本轮不支持的提示词内容块类型：{other:?}"));
             }
         }
     }
-    parts.join("\n\n")
+    Ok(parts.join("\n\n"))
 }
 
 /// 一个工具调用在 ACP 侧已经上报过什么。
@@ -1182,13 +1760,43 @@ mod acp_agent_cli_tests {
     }
 
     #[test]
-    fn prompt_text_should_join_text_blocks_only() {
-        use agent_client_protocol::schema::v1::{ContentBlock, TextContent};
+    fn prompt_text_should_join_text_blocks() {
+        use agent_client_protocol::schema::v1::{ContentBlock, ResourceLink, TextContent};
         let blocks = vec![
             ContentBlock::Text(TextContent::new("第一段")),
             ContentBlock::Text(TextContent::new("第二段")),
         ];
-        assert_eq!(acp_prompt_text(&blocks), "第一段\n\n第二段");
+        assert_eq!(
+            acp_prompt_text(&blocks).expect("纯文本应能解析"),
+            "第一段\n\n第二段"
+        );
+
+        // 资源链接是协议要求所有 agent 必须支持的类型：转成引用行，不能丢掉。
+        let with_link = vec![
+            ContentBlock::Text(TextContent::new("看这个文件")),
+            ContentBlock::ResourceLink(ResourceLink::new("main.rs", "file:///src/main.rs")),
+        ];
+        let text = acp_prompt_text(&with_link).expect("资源链接应能解析");
+        assert!(
+            text.contains("main.rs") && text.contains("file:///src/main.rs"),
+            "链接信息要进提示词，实际 {text}"
+        );
+    }
+
+    /// 不支持的内容块必须明确报错，不许静默丢。
+    #[test]
+    fn prompt_with_unsupported_block_should_fail_loudly() {
+        use agent_client_protocol::schema::v1::{ContentBlock, ImageContent, TextContent};
+        let blocks = vec![
+            ContentBlock::Text(TextContent::new("这张图是什么")),
+            ContentBlock::Image(ImageContent::new("AAAA", "image/png")),
+        ];
+        let err = acp_prompt_text(&blocks).expect_err("图片块必须被拒");
+        assert!(err.contains("图片"), "错误要说明是哪类内容，实际 {err}");
+        assert!(
+            err.contains("promptCapabilities.image"),
+            "错误要说明原因，实际 {err}"
+        );
     }
 
     #[test]
@@ -1672,6 +2280,7 @@ mod acp_agent_cli_tests {
                     agent_id: "agent-1".to_string(),
                     model_config_id: "m-a".to_string(),
                     prompt_in_flight: *in_flight,
+                    turn: None,
                 },
             );
         }
@@ -1871,5 +2480,172 @@ mod acp_agent_cli_tests {
             AcpPromptClaim::Ready(_) => {}
             other => panic!("上一轮结束后应能再次占位，实际 {other:?}"),
         }
+    }
+
+    /// 没有在途轮次时收到 cancel：安静丢弃，不报错、不留下任何标记。
+    #[test]
+    fn cancel_without_running_turn_should_be_dropped_silently() {
+        let registry = acp_test_registry(&[("s-1", false)]);
+
+        let result = acp_handle_cancel_notification(
+            &registry,
+            agent_client_protocol::schema::v1::CancelNotification::new(
+                agent_client_protocol::schema::v1::SessionId::new("s-1"),
+            ),
+        );
+        assert!(result.is_ok(), "通知没有响应帧，必须安静收下");
+        let turn = acp_current_turn(&registry, "s-1").expect("读取会话表");
+        assert!(turn.is_none(), "没有轮次时不应凭空造出取消控制");
+
+        // 会话根本不存在也一样：属于编辑器的正常竞态，不能回任何东西。
+        let unknown = acp_handle_cancel_notification(
+            &registry,
+            agent_client_protocol::schema::v1::CancelNotification::new(
+                agent_client_protocol::schema::v1::SessionId::new("nope"),
+            ),
+        );
+        assert!(unknown.is_ok(), "未知会话的 cancel 也要安静丢弃");
+    }
+
+    /// 有在途轮次时收到 cancel：只拍中那一轮的身份，信号落到它的 token 上。
+    #[test]
+    fn cancel_should_hit_the_running_turn_token() {
+        let registry = acp_test_registry(&[("s-1", false)]);
+        let session = match acp_claim_prompt_slot(&registry, "s-1") {
+            AcpPromptClaim::Ready(session) => session,
+            other => panic!("第一帧应拿到占位，实际 {other:?}"),
+        };
+        let turn = acp_current_turn(&registry, "s-1")
+            .expect("读取会话表")
+            .expect("占位应登记本轮的取消控制");
+        assert!(!turn.token.is_cancelled(), "占位时不应已经带取消信号");
+
+        acp_handle_cancel_notification(
+            &registry,
+            agent_client_protocol::schema::v1::CancelNotification::new(
+                agent_client_protocol::schema::v1::SessionId::new("s-1"),
+            ),
+        )
+        .expect("cancel 应被受理");
+        assert!(turn.token.is_cancelled(), "在途轮次必须收到取消信号");
+
+        // 会话本身还在，占位仍由这一轮持有，直到它自己结束。
+        assert!(
+            matches!(
+                acp_claim_prompt_slot(&registry, "s-1"),
+                AcpPromptClaim::Busy
+            ),
+            "取消不等于结束，本轮收尾前仍是占位状态"
+        );
+        let _ = session;
+    }
+
+    /// 轮次结束后取消控制必须被清走：迟到的 cancel 不能落进下一轮。
+    #[test]
+    fn cancel_after_turn_end_should_not_leak_into_next_turn() {
+        let registry = acp_test_registry(&[("s-1", false)]);
+        let session = match acp_claim_prompt_slot(&registry, "s-1") {
+            AcpPromptClaim::Ready(session) => session,
+            other => panic!("第一帧应拿到占位，实际 {other:?}"),
+        };
+        let first_turn = acp_current_turn(&registry, "s-1")
+            .expect("读取会话表")
+            .expect("占位应登记本轮的取消控制");
+        let first_id = first_turn.turn_id.clone();
+
+        let slot = AcpPromptSlot {
+            sessions: registry.clone(),
+            conversation_id: session.conversation_id.clone(),
+        };
+        drop(slot);
+
+        assert!(
+            acp_current_turn(&registry, "s-1").expect("读取会话表").is_none(),
+            "轮次结束要清掉取消控制，否则迟到的 cancel 会打到下一轮"
+        );
+        acp_handle_cancel_notification(
+            &registry,
+            agent_client_protocol::schema::v1::CancelNotification::new(
+                agent_client_protocol::schema::v1::SessionId::new("s-1"),
+            ),
+        )
+        .expect("轮次已结束的 cancel 也该安静收下");
+        assert!(
+            !first_turn.token.is_cancelled(),
+            "已经结束的那一轮不应被迟到的 cancel 影响"
+        );
+
+        let next_turn = match acp_claim_prompt_slot(&registry, "s-1") {
+            AcpPromptClaim::Ready(session) => acp_current_turn(&registry, &session.conversation_id)
+                .expect("读取会话表")
+                .expect("新一轮应登记自己的取消控制"),
+            other => panic!("上一轮结束后应能再次占位，实际 {other:?}"),
+        };
+        assert_ne!(next_turn.turn_id, first_id, "每一轮的身份必须不同");
+        assert!(!next_turn.token.is_cancelled(), "新一轮不应继承上一轮的取消信号");
+    }
+
+    /// 回放只还原正文：用户与助理各归各的块，工具消息与空正文不产生帧。
+    #[test]
+    fn replay_update_should_render_body_text_by_role() {
+        use agent_client_protocol::schema::v1::{SessionId, SessionUpdate};
+
+        let session_id = SessionId::new("s-1");
+        let text = |value: &str| MessagePart::Text {
+            text: value.to_string(),
+            reasoning_content: None,
+        };
+
+        let user = acp_replay_update("user", &[text("第一问"), text("补充")], &session_id)
+            .expect("用户正文要回放");
+        assert!(
+            matches!(user.update, SessionUpdate::UserMessageChunk(ref chunk)
+                if matches!(&chunk.content,
+                    agent_client_protocol::schema::v1::ContentBlock::Text(item)
+                        if item.text == "第一问\n\n补充")),
+            "多段正文要按顺序拼起来"
+        );
+
+        let assistant = acp_replay_update("assistant", &[text("回答")], &session_id)
+            .expect("助理正文要回放");
+        assert!(
+            matches!(
+                assistant.update,
+                SessionUpdate::AgentMessageChunk(ref chunk)
+                    if matches!(&chunk.content,
+                        agent_client_protocol::schema::v1::ContentBlock::Text(item)
+                            if item.text == "回答")
+            ),
+            "助理正文必须走 AgentMessageChunk"
+        );
+
+        // 工具消息与空正文没有可回放的正文，不能凭空造帧。
+        assert!(acp_replay_update("tool", &[text("工具输出")], &session_id).is_none());
+        assert!(acp_replay_update("assistant", &[text("   ")], &session_id).is_none());
+        assert!(acp_replay_update("user", &[], &session_id).is_none());
+    }
+
+    /// 编辑器带来的 stdio MCP 定义要原样翻成 PAI 的 definition JSON。
+    #[test]
+    fn session_mcp_servers_should_translate_stdio_definition() {
+        use agent_client_protocol::schema::v1::{McpServer, McpServerStdio};
+
+        let servers = vec![McpServer::Stdio(
+            McpServerStdio::new("probe", "node").args(vec!["server.js".to_string()]),
+        )];
+        let (configs, errors) = acp_session_mcp_servers("a6c82ebd-1b69", &servers);
+        assert!(errors.is_empty(), "stdio 定义不该有转换错误：{errors:?}");
+        assert_eq!(configs.len(), 1, "一条 server 定义对应一条配置");
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&configs[0].definition_json).expect("definition 必须是合法 JSON");
+        let member = &parsed["mcpServers"]["probe"];
+        assert_eq!(member["command"], "node", "command 要原样带上");
+        assert_eq!(member["args"][0], "server.js", "args 要原样带上");
+        assert!(configs[0].enabled, "会话级服务器默认可用");
+        assert!(
+            configs[0].id.starts_with("acp-"),
+            "会话级服务器 id 要有独立前缀，避免撞上磁盘上的服务器"
+        );
     }
 }
