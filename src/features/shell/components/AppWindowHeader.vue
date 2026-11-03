@@ -1,7 +1,7 @@
 <template>
   <div
     class="min-h-10 h-10 shrink-0 relative z-40 overflow-visible select-none"
-    :class="viewMode === 'chat' ? 'grid items-center bg-base-200' : 'grid grid-cols-[1fr_auto_1fr] items-center bg-base-200 px-2'"
+    :class="viewMode === 'chat' ? 'grid items-center' : 'grid grid-cols-[1fr_auto_1fr] items-center px-2'"
     :style="viewMode === 'chat' ? chatHeaderGridStyle : undefined"
     data-tauri-drag-region
     @pointerdown="handleTitlebarPointerDown"

@@ -1,6 +1,6 @@
 
 <template>
-  <div class="window-shell text-sm bg-base-200">
+  <div class="window-shell text-sm ecall-frost">
     <AppWindowHeader
       v-if="!hideWindowHeader"
       :view-mode="viewMode"

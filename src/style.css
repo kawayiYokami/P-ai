@@ -713,53 +713,23 @@ body {
   --card-accent-color: var(--color-accent);
 }
 
-
-/* ==================== 侧栏淡雾质感 ==================== */
+/* ==================== 窗口底透色 ==================== */
 /*
- * 会话侧栏的「淡雾」：底色掺一丁点主题色 + 一层细噪点。
- * 底色是 color-mix 出来的实色，不是半透明，所以不靠 backdrop-filter 透出背景。
- * 一处定义，所有侧栏挂 .ecall-frost 即可；要换底色只改 --ecall-frost-base。
- * 噪点层挂在 ::after 上（不新增元素、不吃指针事件），所以要求容器是定位元素。
- */
-/*
- * 明暗两套数值。暗色降一档不是配色偏好，是数学要求的：
- * 同一浓度下噪点在亮底上是「压暗」（242→236，变化 2%），在暗底上是「提亮」（32→41，变化 29%），
- * 冲击差十几倍，所以按「颗粒极差相当」来对齐，而不是按浓度数字对齐。
+ * 窗口底是唯一的颜色源：base-300 掺一点主题色（--ecall-frost-mix）。
+ * 标题栏、侧栏、以及中栏圆角外侧都不另上色，全部透出这一层，
+ * 所以它们之间不可能出现色差；要调深浅只改 --ecall-frost-mix。
  */
 :root {
   --ecall-frost-mix: 2%;
-  --ecall-frost-grain: 0.2;
 }
 
 .ecall-frost {
-  --ecall-frost-base: var(--color-base-200);
-  position: relative;
+  --ecall-frost-base: var(--color-base-300);
   background-color: color-mix(
     in oklab,
     var(--ecall-frost-base) calc(100% - var(--ecall-frost-mix)),
     var(--color-primary)
   );
-}
-
-.ecall-frost::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'110'%20height%3D'110'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.9'%20numOctaves%3D'3'%20stitchTiles%3D'stitch'%2F%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D'110'%20height%3D'110'%20filter%3D'url(%23n)'%2F%3E%3C%2Fsvg%3E");
-  background-size: 110px 110px;
-  opacity: var(--ecall-frost-grain);
-  /*
-   * 用 normal 而不是 overlay：overlay 在亮部走 1 - 2(1-b)(1-s)，底色接近白时 (1-b) 把差值压到
-   * 0.7 灰阶以内，回落到 8 位就是 0——实测逐像素标准差为 0，等于这层没画。
-   * normal 让噪点直接盖在实色上，亮底压暗、暗底提亮，颗粒才真的出现。
-   */
-  mix-blend-mode: normal;
-}
-
-/* 容器自己的底色是 base-100 时用它，掺色要基于那一层的真实底色 */
-.ecall-frost.ecall-frost-base-100 {
-  --ecall-frost-base: var(--color-base-100);
 }
 
 /*
@@ -775,5 +745,4 @@ body {
 [data-theme="dim"],
 [data-theme="generated-dark"] {
   --ecall-frost-mix: 2%;
-  --ecall-frost-grain: 0.1;
 }

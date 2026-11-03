@@ -1,5 +1,5 @@
 <template>
-  <aside class="conversation-time-container ecall-frost flex h-full w-full shrink-0 flex-col border-r border-base-300">
+  <aside class="conversation-time-container flex h-full w-full shrink-0 flex-col">
     <div class="flex items-center p-2 pb-0">
       <SegmentedControl
         v-model="activeConversationTab"
@@ -22,6 +22,7 @@
           <template v-else-if="activeConversationTab === 'contact'">
             <template v-for="section in displayedContactSections" :key="section.key">
               <CollapsibleGroup
+                head-opaque
                 :ref="(el) => setConversationSectionElement(section.key, el)"
                 :title="section.title"
                 :model-value="isConversationSectionCollapsed(section.key)"
@@ -160,7 +161,8 @@
                 <div class="super-section-inner">
                   <template v-for="section in displayedRecentSections" :key="section.key">
                     <CollapsibleGroup
-                      :ref="(el) => setConversationSectionElement(section.key, el)"
+                      head-opaque
+                    :ref="(el) => setConversationSectionElement(section.key, el)"
                       :title="section.title"
                       :model-value="isConversationSectionCollapsed(section.key)"
                       :icon="conversationSectionIcon(section)"
@@ -312,7 +314,8 @@
                 <div class="super-section-inner">
                   <template v-for="section in displayedCategorySections" :key="section.key">
                     <CollapsibleGroup
-                      :ref="(el) => setConversationSectionElement(section.key, el)"
+                      head-opaque
+                    :ref="(el) => setConversationSectionElement(section.key, el)"
                       :title="section.title"
                       :model-value="isConversationSectionCollapsed(section.key)"
                       :icon="conversationSectionIcon(section)"

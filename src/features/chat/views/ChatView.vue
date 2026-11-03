@@ -14,7 +14,7 @@
     >
       <div
         v-if="showSideConversationList"
-        :class="leftPaneLayoutSnapshot ? 'relative flex h-full min-h-0 shrink-0 overflow-hidden ecall-frost ecall-frost-base-100' : 'ecall-frost ecall-frost-base-100 absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 border-r border-base-300 shadow-2xl overflow-hidden'"
+        :class="leftPaneLayoutSnapshot ? 'relative flex h-full min-h-0 shrink-0 overflow-hidden' : 'absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 shadow-2xl overflow-hidden'"
         :style="{ width: `${leftPaneVisibleWidth}px` }"
       >
         <ChatConversationSidebar
@@ -58,7 +58,7 @@
     </Transition>
 
     <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-      <div data-chat-center-pane="true" class="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      <div data-chat-center-pane="true" class="relative flex min-h-0 min-w-0 flex-1 flex-col rounded-tl-2xl bg-base-200">
         <div
           v-if="mediaDragActive && !chatting && !frozen && !conversationInteractionBusy"
           class="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-base-100/70 backdrop-blur-[1px]"

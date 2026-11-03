@@ -8,6 +8,7 @@
     </div>
     <template v-else>
       <CollapsibleGroup
+        head-opaque
         v-for="section in groupedTaskSections"
         :key="section.key"
         :title="section.title"
