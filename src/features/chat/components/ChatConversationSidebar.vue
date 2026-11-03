@@ -6,7 +6,7 @@
         :options="conversationTabOptions"
         size="sm"
         full-width
-        surface-class="bg-base-200"
+        surface-class="bg-base-300"
         slider-class="bg-base-100"
       />
     </div>
