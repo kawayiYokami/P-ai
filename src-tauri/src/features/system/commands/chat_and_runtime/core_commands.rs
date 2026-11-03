@@ -2391,6 +2391,10 @@ async fn stop_chat_message_inner(
                 conversation_id,
                 "stop_chat_message",
             )?;
+            // 用户打断这一轮之后，队员欠队长的那封信也一并销账。
+            // 不挂在调度收口上：用户停下后紧接着发新消息时那一批会转去处理队列，
+            // 收口不会执行，标记就带着旧锚点留给了下一轮。
+            team_clear_member_pending_report_on_user_interrupt(state, conversation_id);
         }
     }
     if aborted_delegate_children > 0 {
