@@ -9,6 +9,11 @@
 
 const ACP_CLI_SUBCOMMAND: &str = "acp";
 
+use agent_client_protocol::schema::v1::{
+    SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption,
+    SessionConfigValueId,
+};
+
 /// 一个 ACP session 在 PAI 这边的落地信息。
 #[derive(Clone)]
 struct AcpSessionState {
@@ -67,6 +72,8 @@ async fn acp_serve() -> Result<(), String> {
         std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     let state_for_new = state.clone();
     let sessions_for_new = sessions.clone();
+    let state_for_config = state.clone();
+    let sessions_for_config = sessions.clone();
     let state_for_prompt = state.clone();
     let sessions_for_prompt = sessions.clone();
 
@@ -84,6 +91,20 @@ async fn acp_serve() -> Result<(), String> {
                 acp_handle_new_session(
                     state_for_new.clone(),
                     sessions_for_new.clone(),
+                    req,
+                    responder,
+                )
+                .await
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |req: agent_client_protocol::schema::v1::SetSessionConfigOptionRequest,
+                        responder,
+                        _cx| {
+                acp_handle_set_config_option(
+                    state_for_config.clone(),
+                    sessions_for_config.clone(),
                     req,
                     responder,
                 )
@@ -123,6 +144,97 @@ fn acp_internal_error(message: impl Into<String>) -> agent_client_protocol::Erro
     agent_client_protocol::Error::new(ErrorCode::InternalError.into(), message)
 }
 
+/// 参数不合法：会话不存在、配置项不认识、模型 id 不在配置里。
+fn acp_invalid_params(message: impl Into<String>) -> agent_client_protocol::Error {
+    use agent_client_protocol::schema::v1::ErrorCode;
+    agent_client_protocol::Error::new(ErrorCode::InvalidParams.into(), message)
+}
+
+/// ACP 里模型选项的固定 id，客户端按这个 id 提交切换请求。
+const ACP_MODEL_CONFIG_ID: &str = "model";
+
+/// 选项显示名：优先配置名，为空退到模型标识，再退到配置 id。
+fn acp_model_option_label(api: &ApiConfig) -> String {
+    let name = api.name.trim();
+    if !name.is_empty() {
+        return name.to_string();
+    }
+    let model = api.model.trim();
+    if !model.is_empty() {
+        return model.to_string();
+    }
+    api.id.trim().to_string()
+}
+
+/// 把配置里可用的聊天模型列成 ACP 的 `Model` 分类下拉。
+///
+/// 选项值就是 `api_config_id`，`current_model_config_id` 指本会话当前所用的模型。
+/// 过滤用 `is_text_chat_api`（与 IDE 侧模型下拉同一判据）：语音、嵌入、重排这些
+/// 配置不是聊天模型，选中它们调度会直接失败，不能出现在下拉里。
+fn acp_model_config_options(
+    config: &AppConfig,
+    current_model_config_id: &str,
+) -> Result<Vec<SessionConfigOption>, String> {
+    let options: Vec<SessionConfigSelectOption> = config
+        .api_configs
+        .iter()
+        .filter(|api| !api.id.trim().is_empty() && is_text_chat_api(api))
+        .map(|api| {
+            SessionConfigSelectOption::new(
+                SessionConfigValueId::new(api.id.trim().to_string()),
+                acp_model_option_label(api),
+            )
+        })
+        .collect();
+    if options.is_empty() {
+        return Err("配置里没有可用的模型".to_string());
+    }
+    let current = current_model_config_id.trim();
+    if current.is_empty() {
+        return Err("会话没有正在使用的模型".to_string());
+    }
+    let mut option = SessionConfigOption::select(
+        ACP_MODEL_CONFIG_ID,
+        "模型",
+        SessionConfigValueId::new(current.to_string()),
+        options,
+    );
+    option.category = Some(SessionConfigOptionCategory::Model);
+    Ok(vec![option])
+}
+
+/// 校验切换请求：只接受配置里真实存在、且是文本聊天模型的 `api_config_id`。
+fn acp_resolve_model_switch(config: &AppConfig, requested: &str) -> Result<String, String> {
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Err("模型 id 不能为空".to_string());
+    }
+    let Some(api) = config
+        .api_configs
+        .iter()
+        .find(|api| api.id.trim() == requested)
+    else {
+        return Err(format!("模型配置不存在: {requested}"));
+    };
+    if !is_text_chat_api(api) {
+        return Err(format!("不是文本聊天模型，不能用于会话: {requested}"));
+    }
+    Ok(api.id.trim().to_string())
+}
+
+/// 纯决策：算出切换后的模型与新选项集。
+///
+/// 换不动就返回错误，调用方据此拒绝请求、既不落盘也不改内存，
+/// 会话会停在原模型上。
+fn acp_apply_model_switch(
+    config: &AppConfig,
+    requested: &str,
+) -> Result<(String, Vec<SessionConfigOption>), String> {
+    let next = acp_resolve_model_switch(config, requested)?;
+    let options = acp_model_config_options(config, &next)?;
+    Ok((next, options))
+}
+
 async fn acp_handle_new_session(
     state: AppState,
     sessions: AcpSessionRegistry,
@@ -147,6 +259,17 @@ async fn acp_handle_new_session(
         Ok(value) => value,
         Err(err) => {
             runtime_log_error(format!("[ACP] 新建会话失败，任务=解析会话工作目录：{err}"));
+            return responder.respond_with_error(acp_internal_error(err));
+        }
+    };
+    // 选项要在建会话之前算好：列不出模型就不该建出一个没有模型可用的会话。
+    let config_options = match state_read_config_cached(&state)
+        .map_err(|err| format!("读取配置失败: {err}"))
+        .and_then(|config| acp_model_config_options(&config, &model_config_id))
+    {
+        Ok(value) => value,
+        Err(err) => {
+            runtime_log_error(format!("[ACP] 新建会话失败，任务=列举模型选项：{err}"));
             return responder.respond_with_error(acp_internal_error(err));
         }
     };
@@ -179,6 +302,11 @@ async fn acp_handle_new_session(
         }
     };
     let conversation_id = conversation.conversation_id;
+    runtime_log_info(format!(
+        "[ACP] 完成，任务=新建会话，session_id={conversation_id}，cwd={}，model={}",
+        req.cwd.display(),
+        model_config_id
+    ));
     if let Ok(mut registry) = sessions.lock() {
         registry.insert(
             conversation_id.clone(),
@@ -189,13 +317,89 @@ async fn acp_handle_new_session(
             },
         );
     }
-    runtime_log_info(format!(
-        "[ACP] 完成，任务=新建会话，session_id={conversation_id}，cwd={}",
-        req.cwd.display()
-    ));
-    responder.respond(agent_client_protocol::schema::v1::NewSessionResponse::new(
+    let mut response = agent_client_protocol::schema::v1::NewSessionResponse::new(
         agent_client_protocol::schema::v1::SessionId::new(conversation_id),
-    ))
+    );
+    response.config_options = Some(config_options);
+    responder.respond(response)
+}
+
+/// `session/set_config_option`：切换本会话使用的模型。
+///
+/// 模型是会话属性，落到 `conversation.api_config_id`；全局 `selected_api_config_id`
+/// 是桌面端默认值，这里不动。
+async fn acp_handle_set_config_option(
+    state: AppState,
+    sessions: AcpSessionRegistry,
+    req: agent_client_protocol::schema::v1::SetSessionConfigOptionRequest,
+    responder: agent_client_protocol::Responder<
+        agent_client_protocol::schema::v1::SetSessionConfigOptionResponse,
+    >,
+) -> Result<(), agent_client_protocol::Error> {
+    use agent_client_protocol::schema::v1::SetSessionConfigOptionResponse;
+
+    let session_id = req.session_id.0.to_string();
+    let session = match sessions.lock() {
+        Ok(registry) => registry.get(&session_id).cloned(),
+        Err(err) => {
+            runtime_log_error(format!("[ACP] 切换模型失败，任务=读取会话表：{err}"));
+            return responder.respond_with_error(acp_internal_error("会话表不可用"));
+        }
+    };
+    let Some(session) = session else {
+        return responder.respond_with_error(acp_invalid_params(format!(
+            "会话不存在: {session_id}"
+        )));
+    };
+
+    let config_id = req.config_id.0.to_string();
+    if config_id != ACP_MODEL_CONFIG_ID {
+        return responder.respond_with_error(acp_invalid_params(format!(
+            "不支持的配置项: {config_id}，当前只有 {ACP_MODEL_CONFIG_ID}"
+        )));
+    }
+    let Some(requested) = req.value.as_value_id().map(|value| value.0.to_string()) else {
+        return responder.respond_with_error(acp_invalid_params("模型选项需要一个字符串值"));
+    };
+
+    let config = match state_read_config_cached(&state) {
+        Ok(value) => value,
+        Err(err) => {
+            runtime_log_error(format!("[ACP] 切换模型失败，任务=读取配置：{err}"));
+            return responder.respond_with_error(acp_internal_error(err));
+        }
+    };
+    // 校验不过就到此为止：既不落盘也不改内存，会话停在原模型上。
+    let (next_model_config_id, config_options) = match acp_apply_model_switch(&config, &requested) {
+        Ok(value) => value,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[ACP] 拒绝，任务=切换模型，session_id={session_id}，原因={err}"
+            ));
+            return responder.respond_with_error(acp_invalid_params(err));
+        }
+    };
+
+    if let Err(err) = conversation_service_v2().set_preferred_api_config_id(
+        &state,
+        &session.conversation_id,
+        Some(next_model_config_id.clone()),
+    ) {
+        runtime_log_error(format!(
+            "[ACP] 失败，任务=保存会话模型，session_id={session_id}，error={err}"
+        ));
+        return responder.respond_with_error(acp_internal_error(err));
+    }
+    if let Ok(mut registry) = sessions.lock() {
+        if let Some(entry) = registry.get_mut(&session_id) {
+            entry.model_config_id = next_model_config_id.clone();
+        }
+    }
+    runtime_log_info(format!(
+        "[ACP] 完成，任务=切换模型，session_id={session_id}，from={}，to={next_model_config_id}",
+        session.model_config_id
+    ));
+    responder.respond(SetSessionConfigOptionResponse::new(config_options))
 }
 
 async fn acp_handle_prompt(
@@ -788,6 +992,7 @@ fn acp_tool_status(status: &str) -> agent_client_protocol::schema::v1::ToolCallS
 #[cfg(test)]
 mod acp_agent_cli_tests {
     use super::*;
+    use agent_client_protocol::schema::v1::{SessionConfigKind, SessionConfigSelectOptions};
 
     fn argv(items: &[&str]) -> Vec<String> {
         items.iter().map(|item| item.to_string()).collect()
@@ -1096,5 +1301,120 @@ mod acp_agent_cli_tests {
             "tool_status": "running"
         });
         assert!(acp_updates_from_event(&placeholder, &mut states).is_empty());
+    }
+
+    // ==================== 模型选项与切换 ====================
+
+    /// 构造一份测试配置。聊天格式传 `RequestFormat::OpenAI`；
+    /// 语音、嵌入这类非聊天格式用来验证过滤。
+    fn acp_test_config(entries: &[(&str, &str, &str, RequestFormat)]) -> AppConfig {
+        let mut config = AppConfig::default();
+        config.api_configs = entries
+            .iter()
+            .map(|(id, name, model, format)| ApiConfig {
+                id: (*id).to_string(),
+                name: (*name).to_string(),
+                model: (*model).to_string(),
+                request_format: *format,
+                ..Default::default()
+            })
+            .collect();
+        config
+    }
+
+    fn acp_test_selected_value(option: &SessionConfigOption) -> String {
+        match &option.kind {
+            SessionConfigKind::Select(select) => select.current_value.0.to_string(),
+            other => panic!("模型选项应是下拉，实际 {other:?}"),
+        }
+    }
+
+    fn acp_test_select_values(option: &SessionConfigOption) -> Vec<String> {
+        match &option.kind {
+            SessionConfigKind::Select(select) => match &select.options {
+                SessionConfigSelectOptions::Ungrouped(items) => {
+                    items.iter().map(|item| item.value.0.to_string()).collect()
+                }
+                other => panic!("模型选项应是不分组列表，实际 {other:?}"),
+            },
+            other => panic!("模型选项应是下拉，实际 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn model_options_should_list_every_config_with_current_value() {
+        let config = acp_test_config(&[
+            ("a", "配置甲", "m-a", RequestFormat::OpenAI),
+            ("b", "配置乙", "m-b", RequestFormat::OpenAI),
+            ("c", "", "m-c", RequestFormat::OpenAI),
+        ]);
+        let options = acp_model_config_options(&config, "b").expect("应能列举选项");
+        assert_eq!(options.len(), 1, "当前只报模型这一项");
+        let option = &options[0];
+        assert_eq!(option.id.0.to_string(), ACP_MODEL_CONFIG_ID);
+        assert_eq!(option.category, Some(SessionConfigOptionCategory::Model));
+        assert_eq!(
+            acp_test_select_values(option),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            "全部配置都要在选项里，且保持配置顺序"
+        );
+        assert_eq!(acp_test_selected_value(option), "b", "当前值应指向会话所用模型");
+
+        // 配置名为空时退到模型标识，不留空显示名。
+        match &option.kind {
+            SessionConfigKind::Select(select) => match &select.options {
+                SessionConfigSelectOptions::Ungrouped(items) => {
+                    assert_eq!(items[0].name, "配置甲");
+                    assert_eq!(items[2].name, "m-c");
+                }
+                other => panic!("模型选项应是不分组列表，实际 {other:?}"),
+            },
+            other => panic!("模型选项应是下拉，实际 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn model_switch_should_move_conversation_to_requested_model() {
+        let config = acp_test_config(&[
+            ("a", "配置甲", "m-a", RequestFormat::OpenAI),
+            ("b", "配置乙", "m-b", RequestFormat::OpenAI),
+        ]);
+        let (next, options) = acp_apply_model_switch(&config, "b").expect("合法 id 应被接受");
+        assert_eq!(next, "b");
+        assert_eq!(
+            acp_test_selected_value(&options[0]),
+            "b",
+            "回给客户端的当前值要指向新模型"
+        );
+    }
+
+    #[test]
+    fn model_switch_should_reject_unknown_config_and_keep_session_model() {
+        let config = acp_test_config(&[("a", "配置甲", "m-a", RequestFormat::OpenAI)]);
+        let err = acp_apply_model_switch(&config, "nope").expect_err("不存在的 id 必须被拒");
+        assert!(err.contains("nope"), "错误里要能看出是哪个 id，实际 {err}");
+
+        // 拒绝路径不产出新模型；会话继续停在原模型上。
+        let options = acp_model_config_options(&config, "a").expect("仍能列举选项");
+        assert_eq!(acp_test_selected_value(&options[0]), "a");
+    }
+
+    /// 语音、嵌入、重排不是聊天模型：既不进下拉，也不许切过去。
+    #[test]
+    fn model_options_should_skip_non_chat_configs() {
+        let config = acp_test_config(&[
+            ("chat-1", "聊天", "m-chat", RequestFormat::OpenAI),
+            ("stt-1", "语音识别", "m-stt", RequestFormat::OpenAIStt),
+            ("emb-1", "嵌入", "m-emb", RequestFormat::OpenAIEmbedding),
+        ]);
+        let options = acp_model_config_options(&config, "chat-1").expect("应能列举选项");
+        assert_eq!(
+            acp_test_select_values(&options[0]),
+            vec!["chat-1".to_string()],
+            "只有聊天模型能进下拉"
+        );
+
+        let err = acp_apply_model_switch(&config, "stt-1").expect_err("语音配置不能当聊天模型");
+        assert!(err.contains("文本聊天"), "错误要说明原因，实际 {err}");
     }
 }
