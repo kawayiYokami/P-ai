@@ -16827,6 +16827,69 @@
         );
     }
 
+    #[test]
+    fn user_interrupt_should_clear_member_pending_report() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-pending-report-interrupt");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        send_leader_mail(&state, &leader.id, "把三条回归跑一遍");
+        let (pending, anchor) = pending_report_snapshot(&state, &member_id);
+        assert!(pending, "先确认这次派活确实让人欠了一封信");
+        assert!(anchor.is_some(), "先确认锚点落在派活那封信上");
+
+        // 用户点了停止：标记与锚点一起销账。
+        team_clear_member_pending_report_on_user_interrupt(&state, &member_id);
+
+        let (pending, anchor) = pending_report_snapshot(&state, &member_id);
+        assert!(!pending, "用户打断后不该继续欠着汇报");
+        assert!(anchor.is_none(), "锚点也必须一起清掉，不能留给下一轮");
+
+        // 清干净之后，下一轮收口不能再拿旧锚点补投一封错误的汇报。
+        set_conversation_runtime_state_and_emit(
+            &state,
+            &leader.id,
+            MainSessionState::AssistantStreaming,
+        )
+        .expect("mark leader busy");
+        team_forward_member_stop_report(&state, &member_id, true);
+        assert_eq!(
+            queued_team_mails_for(&state, &leader.id).len(),
+            0,
+            "用户已经打断这一轮，收口不该再补一封给队长"
+        );
+    }
+
+    #[test]
+    fn user_interrupt_should_leave_non_member_conversation_alone() {
+        // 停止命令对任何会话都可能被点到：不是队员会话时一个字节都不改。
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-pending-report-interrupt-skip");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+
+        team_clear_member_pending_report_on_user_interrupt(&state, &leader.id);
+        let leader_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &leader.id)
+            .expect("leader meta");
+        assert!(
+            leader_meta.team.membership.is_none(),
+            "队长会话不该被当成队员写进队伍状态"
+        );
+
+        // 队员本来不欠汇报：清一次也不该凭空造出锚点。
+        team_clear_member_pending_report_on_user_interrupt(&state, &member_id);
+        let (pending, anchor) = pending_report_snapshot(&state, &member_id);
+        assert!(!pending);
+        assert!(anchor.is_none(), "没有待汇报时不该留下锚点");
+    }
+
     // ==================== 会话模型继承与专家模型降级 ====================
 
 

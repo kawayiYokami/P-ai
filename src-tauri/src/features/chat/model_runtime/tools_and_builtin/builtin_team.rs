@@ -748,7 +748,8 @@ fn team_mark_member_pending_report(
     }
 }
 
-/// 清「待汇报」标记。三个时机共用这一个入口：队员已汇报、队长再次发话、自动转发完成。
+/// 清「待汇报」标记。四个时机共用这一个入口：队员已汇报、队长再次发话、自动转发完成、
+/// 用户打断（见 `team_clear_member_pending_report_on_user_interrupt`）。
 fn team_clear_member_pending_report(state: &AppState, member_conversation_id: &str) {
     let member_conversation_id = member_conversation_id.trim();
     if member_conversation_id.is_empty() {
@@ -766,6 +767,41 @@ fn team_clear_member_pending_report(state: &AppState, member_conversation_id: &s
             "[队伍] 失败，任务=清除待汇报标记，conversation_id={member_conversation_id}，error={err}"
         ));
     }
+}
+
+/// 用户打断某一轮之后清「待汇报」标记。
+///
+/// 这一条不挂在调度收口上：收口那条路要先过 `conversation_is_stopped` 的三条判定，
+/// 用户点停止后紧接着发新消息时，这一批会直接转去处理队列，收口这处根本不会执行，
+/// 标记就带着上一次的旧锚点留到了下一轮。前台点停止是唯一能确定「这一轮是用户自己不要了」
+/// 的时机，所以由停止命令在真的打断到东西之后调用这里。
+///
+/// 只清这一次停止对应的那个会话：不是队员会话、或者本来就不欠汇报时一个字节都不写，
+/// 免得用户每点一次停止就白改一次别的会话的元数据。
+fn team_clear_member_pending_report_on_user_interrupt(state: &AppState, conversation_id: &str) {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return;
+    }
+    let meta = match conversation_service_v2().get_conversation_meta(state, conversation_id) {
+        Ok(meta) => meta,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[队伍] 跳过，任务=用户打断后清待汇报标记，conversation_id={conversation_id}，原因=会话元数据读取失败，error={err}"
+            ));
+            return;
+        }
+    };
+    let Some(membership) = meta.team.membership.as_ref() else {
+        return;
+    };
+    if !membership.pending_report {
+        return;
+    }
+    team_clear_member_pending_report(state, conversation_id);
+    runtime_log_info(format!(
+        "[队伍] 完成，任务=用户打断后清待汇报标记，conversation_id={conversation_id}"
+    ));
 }
 
 /// 一条消息算不算队员本轮的产出：必须是它自己的 assistant 正文。
