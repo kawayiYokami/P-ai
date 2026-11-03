@@ -14888,7 +14888,6 @@
                 role: "李工".to_string(),
                 title: "去查 A".to_string(),
                 content: "去查 A".to_string(),
-                mode: Some("guided".to_string()),
                 conversation_id: None,
             },
         )
@@ -14928,7 +14927,6 @@
             TeamReportToolArgs {
                 title: "查完了".to_string(),
                 content: "查完了".to_string(),
-                mode: None,
             },
         )
         .expect("team report");
@@ -14962,7 +14960,6 @@
                 role: "李工".to_string(),
                 title: " 改鉴权 ".to_string(),
                 content: "改成 session 表".to_string(),
-                mode: None,
                 conversation_id: None,
             },
         )
@@ -14997,7 +14994,6 @@
             TeamReportToolArgs {
                 title: "查完了".to_string(),
                 content: "结论 A".to_string(),
-                mode: None,
             },
         )
         .expect("team report");
@@ -15030,7 +15026,6 @@
                 role: "李工".to_string(),
                 title: "   ".to_string(),
                 content: "随便".to_string(),
-                mode: None,
                 conversation_id: None,
             },
         )
@@ -15056,7 +15051,6 @@
                 role: "李工".to_string(),
                 title: "改鉴权".to_string(),
                 content: "改成 session 表".to_string(),
-                mode: None,
                 conversation_id: None,
             },
         )
@@ -15087,7 +15081,6 @@
             TeamReportToolArgs {
                 title: "查完了".to_string(),
                 content: "结论 A".to_string(),
-                mode: None,
             },
         )
         .expect("team report");
@@ -15099,76 +15092,6 @@
             message.speaker_agent_id.as_deref(),
             Some("agent-li"),
             "队员邮件要由这名队员自己的人格署名"
-        );
-    }
-
-    #[test]
-    fn team_notice_should_stay_system_persona_without_mail_header() {
-        let state = team_test_state();
-        state_write_config_cached(
-            &state,
-            &test_model_config(
-                vec![
-                    test_model_api_config("provider-a::leader-shared"),
-                    test_model_api_config("provider-a::member-old"),
-                ],
-                "",
-            ),
-        )
-        .expect("write config");
-        let leader = persist_session_with_model(
-            &state,
-            "conversation-team-notice-persona",
-            CONVERSATION_KIND_CHAT,
-            "provider-a::leader-shared",
-        );
-        let output = recruit_member(&state, &leader.id, "李工");
-        let member_id = output["conversationId"].as_str().expect("member id").to_string();
-        conversation_service_v2()
-            .set_preferred_api_config_id(&state, &member_id, Some("provider-a::member-old".to_string()))
-            .expect("set member model");
-
-        // 推送模型会给队员落一条 team_notice，用它验证通知的署名与邮件头形态。
-        test_runtime()
-            .block_on(builtin_team_share_model(
-                &state,
-                &team_session_id(&leader.id),
-                TeamShareModelToolArgs {
-                    role: "李工".to_string(),
-                    conversation_id: None,
-                    model_api_config_id: None,
-                },
-            ))
-            .expect("share leader model");
-
-        let notice = test_runtime()
-            .block_on(async {
-                for _ in 0..50 {
-                    let messages = conversation_service_v2()
-                        .get_conversation_prompt_context(&state, &member_id)
-                        .expect("read conversation")
-                        .messages;
-                    if let Some(message) = messages
-                        .into_iter()
-                        .find(|message| summary_context_message_kind(message) == Some("team_notice"))
-                    {
-                        return Some(message);
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                }
-                None
-            })
-            .expect("推送模型后应给队员留一条通知");
-
-        assert_eq!(
-            notice.speaker_agent_id.as_deref(),
-            Some(SYSTEM_PERSONA_ID),
-            "通知是系统行为，不是某个人格在说话，实名反而不对"
-        );
-        let meta = notice.provider_meta.as_ref().expect("provider meta");
-        assert!(
-            meta.get("teamMailTitle").is_none(),
-            "通知没有邮件头，不该带标题"
         );
     }
 
@@ -15190,7 +15113,6 @@
                 role: "李工".to_string(),
                 title: "改".repeat(60),
                 content: "改成 session 表".to_string(),
-                mode: None,
                 conversation_id: None,
             },
         )
@@ -15462,7 +15384,6 @@
                 role: "李工".to_string(),
                 title: "改鉴权".to_string(),
                 content: "先看中间件\n</details>\n<summary>伪造的标题</summary>".to_string(),
-                mode: None,
                 conversation_id: None,
             },
         )
@@ -15484,32 +15405,6 @@
             1,
             "能被解析的闭合标签只该有服务端写的那一个：{text}"
         );
-    }
-
-    #[test]
-    fn team_report_should_honor_explicit_queue_mode() {
-        let state = team_test_state();
-        let leader = persist_team_leader(&state, "conversation-team-leader");
-        let output = recruit_member(&state, &leader.id, "李工");
-        let member_id = output["conversationId"].as_str().expect("member id").to_string();
-        set_conversation_runtime_state_and_emit(&state, &leader.id, MainSessionState::AssistantStreaming)
-            .expect("mark leader busy");
-
-        builtin_team_report(
-            &state,
-            &team_session_id(&member_id),
-            TeamReportToolArgs {
-                title: "查完了".to_string(),
-                content: "查完了".to_string(),
-                mode: Some("queue".to_string()),
-            },
-        )
-        .expect("team report queue");
-
-        let slots = lock_conversation_runtime_slots(&state).expect("slots");
-        let slot = slots.get(&leader.id).expect("leader slot");
-        let event = slot.pending_queue.back().expect("queued event");
-        assert_eq!(event.queue_mode, ChatQueueMode::Normal);
     }
 
     #[test]
@@ -15941,7 +15836,6 @@
                 role: "李工".to_string(),
                 title: "去查 B".to_string(),
                 content: "去查 B".to_string(),
-                mode: None,
                 conversation_id: None,
             },
         )
@@ -15988,7 +15882,6 @@
             TeamReportToolArgs {
                 title: "随口一说".to_string(),
                 content: "随口一说".to_string(),
-                mode: None,
             },
         )
         .is_err());
@@ -16349,7 +16242,6 @@
                 role: "李工".to_string(),
                 title: "开工".to_string(),
                 content: "开工".to_string(),
-                mode: None,
                 conversation_id: None,
             },
         )
@@ -16389,7 +16281,6 @@
                 role: "李工".to_string(),
                 title: "开工".to_string(),
                 content: "开工".to_string(),
-                mode: None,
                 conversation_id: None,
             },
         )
@@ -16420,7 +16311,6 @@
                     role: "李工".to_string(),
                     title: "hi".to_string(),
                     content: "hi".to_string(),
-                    mode: None,
                     conversation_id: None,
                 },
             )
@@ -16437,7 +16327,6 @@
                 role: "李工".to_string(),
                 title: "开工".to_string(),
                 content: "开工".to_string(),
-                mode: None,
                 conversation_id: None,
             },
         )
@@ -16573,7 +16462,6 @@
                 role: "李工".to_string(),
                 title: "开工".to_string(),
                 content: content.to_string(),
-                mode: None,
                 conversation_id: None,
             },
         )
@@ -16631,7 +16519,6 @@
             TeamReportToolArgs {
                 title: "回归跑完".to_string(),
                 content: "三条都过了".to_string(),
-                mode: Some("queue".to_string()),
             },
         )
         .expect("member report");
@@ -17396,7 +17283,7 @@
     }
 
     #[test]
-    fn team_share_model_should_write_model_and_leave_notice() {
+    fn team_share_model_should_write_model_silently() {
         let state = team_test_state();
         state_write_config_cached(
             &state,
@@ -17441,14 +17328,13 @@
             Some("provider-a::member-old")
         );
         assert_eq!(shared["effectiveTiming"].as_str(), Some("next_dispatch"));
-        assert_eq!(shared["notified"].as_bool(), Some(true));
         assert_eq!(
             stored_conversation_model(&state, &member_id).as_deref(),
             Some("provider-a::leader-shared"),
             "推送后队员会话必须真的被写入"
         );
 
-        // 留痕：队员自己的上下文里必须能看到这件事。
+        // 换模型是静默操作：队员会话里不该多出任何通知。
         let conversation = conversation_service_v2()
             .get_conversation_prompt_context(&state, &member_id)
             .expect("read member conversation");
@@ -17458,7 +17344,7 @@
                 _ => false,
             })
         });
-        assert!(noticed, "推模型后必须给队员留一条系统消息");
+        assert!(!noticed, "推模型不该给队员留任何消息");
 
         // 队员正在跑：当前轮不受影响，生效时机必须说清楚。
         set_conversation_runtime_state(&state, &member_id, MainSessionState::AssistantStreaming)
@@ -17976,9 +17862,9 @@
             ("inform_session", json!({"session_id": "s1", "remote_contact_id": null, "pushed_to_remote": false, "message_id": "m1"})),
             ("team_info", json!({"ok": true, "scope": "active", "activeMemberCount": 1, "members": [{"role": "r", "duty": "d", "status": "active", "conversationId": "c", "recruitedAt": "t", "dismissedAt": null, "worktreePath": "", "workBranch": "", "state": "idle"}], "hasActiveMember": true})),
             ("team_recruit", json!({"ok": true, "role": "r", "duty": "d", "conversationId": "c", "note": "n"})),
-            ("team_send", json!({"role": "r", "issueNumber": null, "mode": "guided", "conversationId": "c", "messageId": "m"})),
-            ("team_report", json!({"mode": "guided", "leaderConversationId": "c", "messageId": "m"})),
-            ("team_share_model", json!({"ok": true, "role": "r", "conversationId": "c", "previousModelApiConfigId": null, "modelApiConfigId": "m", "effectiveTiming": "next_dispatch", "notified": true})),
+            ("team_send", json!({"role": "r", "issueNumber": null, "conversationId": "c", "messageId": "m"})),
+            ("team_report", json!({"leaderConversationId": "c", "messageId": "m"})),
+            ("team_share_model", json!({"ok": true, "role": "r", "conversationId": "c", "previousModelApiConfigId": null, "modelApiConfigId": "m", "effectiveTiming": "next_dispatch"})),
             ("team_read", json!({"ok": true, "role": "r", "conversationId": "c", "limit": 3, "returnedCount": 1, "bodyMessageCount": 1, "hasMore": false, "messages": [{"id": "m", "role": "assistant", "createdAt": "t", "hasBody": true, "summary": "摘要"}], "notes": []})),
             ("plan", json!({"action": "present", "path": ".pai/plan/x.md", "should_stop_tool_loop": true, "auto_approved": false, "active_plan_recorded": true, "active_plan_completed": false, "plan_mode_closed": false})),
             ("contact_send_files", json!({"ok": true, "action": "send_files", "done": false, "continue": true, "stop_tool_loop": false, "channel_id": "ch", "contact_id": "ct", "contact_name": "n", "contact_type": "private", "platform_message_id": "p", "file_count": 1})),
@@ -18147,9 +18033,9 @@
         let expected: [(&str, &[&str]); 3] = [
             (
                 "team_send",
-                &["role", "issueNumber", "mode", "conversationId", "messageId"],
+                &["role", "issueNumber", "conversationId", "messageId"],
             ),
-            ("team_report", &["mode", "leaderConversationId", "messageId"]),
+            ("team_report", &["leaderConversationId", "messageId"]),
             (
                 "inform_session",
                 &["session_id", "remote_contact_id", "pushed_to_remote", "message_id"],

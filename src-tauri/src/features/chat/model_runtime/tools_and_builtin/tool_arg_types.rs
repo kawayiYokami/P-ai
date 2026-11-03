@@ -124,9 +124,6 @@ struct TeamSendToolArgs {
     content: String,
     /// 这封信对应的议题编号。有看板的会话里必须挂议题；没有看板（远程私聊）填 0。
     issue: u32,
-    /// guided = 引导（对方执行完一个工具就插入并重启）；queue = 排队等对方这一轮收尾。
-    #[serde(default)]
-    mode: Option<String>,
     /// 可选。仅在同一角色有多名在队队员（历史数据）时用来精确定位。
     #[serde(default)]
     conversation_id: Option<String>,
@@ -137,8 +134,6 @@ struct TeamReportToolArgs {
     /// 邮件标题，必填。它就是正文第一行（`# 标题`），同时单列进 meta 供 `team_read` 回报。
     title: String,
     content: String,
-    #[serde(default)]
-    mode: Option<String>,
 }
 
 /// 队长查队员最近的发言。`role` 与 `conversation_id` 二选一。

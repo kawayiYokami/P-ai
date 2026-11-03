@@ -1182,7 +1182,6 @@ fn builtin_team_report(
     if title.is_empty() {
         return Err("title 不能为空：汇报要有个标题，它是界面上始终露出的那一行".to_string());
     }
-    let mode = args.mode.as_deref().unwrap_or("guided");
     // 署名用角色（人格名），不用名册里的历史名字：老数据把编号写进了名字。
     let persona_names = TeamPersonaNames::load(state);
     let role = persona_names
@@ -1202,15 +1201,14 @@ fn builtin_team_report(
         }),
     );
     let message_id = message.id.clone();
-    team_enqueue_message(state, &membership.leader_conversation_id, message, mode)?;
+    team_enqueue_message(state, &membership.leader_conversation_id, message, "guided")?;
     // 队员已经自己汇报过：清掉待汇报标记，同一件事不再由兜底再投一遍。
     team_clear_member_pending_report(state, &meta.id);
     runtime_log_info(format!(
-        "[队伍] 完成，任务=队员汇报，conversation_id={}，role={role}，mode={mode}",
+        "[队伍] 完成，任务=队员汇报，conversation_id={}，role={role}",
         membership.leader_conversation_id
     ));
     Ok(serde_json::json!({
-        "mode": if mode.trim().eq_ignore_ascii_case("guided") { "guided" } else { "queue" },
         "leaderConversationId": membership.leader_conversation_id,
         "messageId": message_id,
     }))
@@ -1274,51 +1272,18 @@ async fn builtin_team_share_model(
     } else {
         "next_dispatch"
     };
-    // 队员自己的上下文里必须有这件事，否则下一轮它会困惑于行为突变。
-    let notice = format!(
-        "队长把你使用的模型换成了 {target_model}。原模型无法调用，你的职责和工作内容不变，接着手上的事继续。"
-    );
-    let message = team_system_message(
-        notice,
-        TEAM_NOTICE_KIND,
-        TeamMessageSender {
-            name: String::new(),
-            agent_id: None,
-        },
-        None,
-    );
-    let mut notice_warning: Option<String> = None;
-    if let Err(err) = conversation_service_v2()
-        .append_message(state, &member_conversation_id, &message)
-        .await
-    {
-        runtime_log_warn(format!(
-            "[队伍] 失败，任务=推送模型通知写入，conversation_id={member_conversation_id}，error={err}"
-        ));
-        notice_warning = Some(err);
-    } else {
-        let _ = emit_unarchived_conversation_overview_item_updated_from_state(
-            state,
-            &member_conversation_id,
-        );
-    }
     runtime_log_info(format!(
         "[队伍] 完成，任务=队长推送模型，role={role}，conversation_id={member_conversation_id}，previous={}，model={target_model}，timing={effective_timing}",
         previous_model.as_deref().unwrap_or("")
     ));
-    let mut output = serde_json::json!({
+    Ok(serde_json::json!({
         "ok": true,
         "role": role,
         "conversationId": member_conversation_id,
         "previousModelApiConfigId": previous_model,
         "modelApiConfigId": target_model,
         "effectiveTiming": effective_timing,
-        "notified": notice_warning.is_none(),
-    });
-    if let Some(warning) = notice_warning {
-        output["noticeWarning"] = serde_json::json!(warning);
-    }
-    Ok(output)
+    }))
 }
 
 fn builtin_team_send(
@@ -1361,7 +1326,6 @@ fn builtin_team_send(
             return Err(format!("议题 #{issue_number} 不存在，先建议题再派活"));
         }
     }
-    let mode = args.mode.as_deref().unwrap_or("guided");
     let body = content.to_string();
     let message = team_system_message(
         body.clone(),
@@ -1375,16 +1339,15 @@ fn builtin_team_send(
         }),
     );
     let message_id = message.id.clone();
-    team_enqueue_message(state, &member_conversation_id, message, mode)?;
+    team_enqueue_message(state, &member_conversation_id, message, "guided")?;
     // 这次指示之后队员若安静停下，产出要自动投回来：标记与锚点都落在这封信上。
     team_mark_member_pending_report(state, &member_conversation_id, &message_id);
     runtime_log_info(format!(
-        "[队伍] 完成，任务=队长派话，conversation_id={member_conversation_id}，role={role}，mode={mode}，issue={issue_number}"
+        "[队伍] 完成，任务=队长派话，conversation_id={member_conversation_id}，role={role}，issue={issue_number}"
     ));
     Ok(serde_json::json!({
         "role": role,
         "issueNumber": issue_number,
-        "mode": if mode.trim().eq_ignore_ascii_case("guided") { "guided" } else { "queue" },
         "conversationId": member_conversation_id,
         "messageId": message_id,
     }))

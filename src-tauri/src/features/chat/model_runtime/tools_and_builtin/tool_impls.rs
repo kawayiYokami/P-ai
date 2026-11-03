@@ -1598,7 +1598,7 @@ impl RuntimeToolMetadata for BuiltinTeamSendTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "team_send",
-            "给指定角色（人格名）的队员发一封邮件：标题 + 正文。整封邮件写成 markdown：标题是折叠块的表头、始终露在外面，也是对方扫历史时最先看到的那句，要写清这封信要他做什么；正文在折叠块里、默认收起，点开读得到全文，细节放这里。默认 mode=guided，会在对方执行完一个工具后立刻插入、当场改道；mode=queue 则等对方当前这一轮收尾再进。招募后第一件事通常就是用它把活交代清楚；队员中途需要改方向、补背景也靠它。",
+            "给指定角色（人格名）的队员发一封邮件：标题 + 正文。整封邮件写成 markdown：标题是折叠块的表头、始终露在外面，也是对方扫历史时最先看到的那句，要写清这封信要他做什么；正文在折叠块里、默认收起，点开读得到全文，细节放这里。这封信会在对方执行完一个工具后立刻插入、当场改道。招募后第一件事通常就是用它把活交代清楚；队员中途需要改方向、补背景也靠它。",
             serde_json::json!({
               "type": "object",
               "properties": {
@@ -1606,7 +1606,6 @@ impl RuntimeToolMetadata for BuiltinTeamSendTool {
                 "title": { "type": "string", "description": "邮件标题，必填。它在界面上是折叠块的那一行、始终露在外面，也是对方扫历史时最先看到的那句。要短到一行能读完，并写清这封信要他做什么。例如「把登录鉴权改成 session 表」。不要写成「关于 XX 的通知」这种没有信息量的标题。" },
                 "content": { "type": "string", "description": "邮件正文，可以长。界面上在折叠块里、默认收起，点开即全文；对方模型读得到全文，细节放这里，别靠标题承载。" },
                 "issue": { "type": "integer", "minimum": 0, "description": "这封信对应的议题编号（议题看板上的 #N）。派活必须在看板上挂议题：还没有对应议题就先调 kanban 新建一条，拿到编号再发这封信。本会话没有议题看板的场景（例如远程私聊）填 0。" },
-                "mode": { "type": "string", "enum": ["guided", "queue"], "description": "guided=立即插入改道（默认）；queue=排队等对方收尾。" },
                 "conversation_id": { "type": "string", "description": "可选。只有名册里存在同一角色的多名队员时才需要，用 team_info 给出的 conversationId 精确定位。" }
               },
               "required": ["role", "title", "content", "issue"],
@@ -1638,13 +1637,12 @@ impl RuntimeToolMetadata for BuiltinTeamReportTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "team_report",
-            "队员向队长发一封邮件汇报：标题 + 正文。整封邮件写成 markdown：标题是折叠块的表头、始终露在外面，也是队长扫历史时最先看到的那句，要写清结论；正文在折叠块里、默认收起，点开读得到全文，背景与细节放这里。默认 mode=guided，立刻插入队长当前轮次；mode=queue 排队等队长收尾。",
+            "队员向队长发一封邮件汇报：标题 + 正文。整封邮件写成 markdown：标题是折叠块的表头、始终露在外面，也是队长扫历史时最先看到的那句，要写清结论；正文在折叠块里、默认收起，点开读得到全文，背景与细节放这里。这条汇报会立刻插入队长当前轮次。",
             serde_json::json!({
               "type": "object",
               "properties": {
                 "title": { "type": "string", "description": "邮件标题，必填。它在界面上是折叠块的那一行、始终露在外面，也是队长扫历史时最先看到的那句。要短到一行能读完，写清这条汇报的结论，例如「鉴权方案已定两份，等选」。不要写「汇报」两个字。" },
-                "content": { "type": "string", "description": "邮件正文，可以长：背景、现状、结论、接下来打算怎么走。界面上在折叠块里、默认收起，点开即全文；队长读得到全文，细节放这里。" },
-                "mode": { "type": "string", "enum": ["guided", "queue"], "description": "guided=立即插入改道（默认）；queue=排队等队长收尾。" }
+                "content": { "type": "string", "description": "邮件正文，可以长：背景、现状、结论、接下来打算怎么走。界面上在折叠块里、默认收起，点开即全文；队长读得到全文，细节放这里。" }
               },
               "required": ["title", "content"],
               "additionalProperties": false
