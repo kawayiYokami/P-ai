@@ -622,6 +622,15 @@ impl RuntimeValueTool for BuiltinConfigTool {
                 invalidate_config_tool_runtime_caches(&self.app_state).map_err(ToolInvokeError::from)?;
                 // 人格表已经被这条命令改写，广播出去让各窗口就地重拉。
                 config_tool_personas_updated_notice(&self.app_state, &args.command);
+                // 失效只清不建：清完之后必须有人重新加载，否则工作区这份技能清单会一直空到下次 reload。
+                // `config reload` 自己会整块重载工作区（含技能），这一支不必重复扫。
+                if !matches!(runtime_effect, ConfigToolRuntimeEffect::WorkspaceReload { .. }) {
+                    if let Err(err) = refresh_hidden_skill_snapshot(&self.app_state) {
+                        runtime_log_warn(format!(
+                            "[config工具] 写命令后重扫技能工作区失败，技能清单可能暂缺全局部分：{err}"
+                        ));
+                    }
+                }
             }
             let runtime_effect = apply_config_tool_runtime_effect(&self.app_state, runtime_effect)
                 .await

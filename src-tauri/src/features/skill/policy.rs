@@ -18,8 +18,14 @@ fn default_skill_policy_enabled() -> bool {
     true
 }
 
+pub(crate) fn llm_workspace_skill_policies_dir_at(workspace_root: &Path) -> PathBuf {
+    workspace_root.join("skill-policies")
+}
+
 pub(crate) fn llm_workspace_skill_policies_dir(state: &AppState) -> Result<PathBuf, String> {
-    Ok(configured_workspace_root_path(state)?.join("skill-policies"))
+    Ok(llm_workspace_skill_policies_dir_at(
+        &configured_workspace_root_path(state)?,
+    ))
 }
 
 fn skill_policy_file_path(state: &AppState, skill_name: &str) -> Result<PathBuf, String> {
@@ -76,10 +82,12 @@ pub(crate) fn remove_skill_policy(state: &AppState, skill_name: &str) -> Result<
 }
 
 /// 载入全部已显式落盘的启用状态，键为 Skill 名。
-pub(crate) fn load_skill_enabled_map(
-    state: &AppState,
+///
+/// 工作区根由调用方给定：这是纯读，不碰 `AppState`，好让不持有 state 的加载路径复用。
+pub(crate) fn load_skill_enabled_map_at_root(
+    workspace_root: &Path,
 ) -> Result<std::collections::HashMap<String, bool>, String> {
-    let dir = llm_workspace_skill_policies_dir(state)?;
+    let dir = llm_workspace_skill_policies_dir_at(workspace_root);
     let mut map = std::collections::HashMap::new();
     if !dir.exists() {
         return Ok(map);

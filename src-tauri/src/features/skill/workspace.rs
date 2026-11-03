@@ -195,6 +195,17 @@ fn global_enabled_skills(state: &AppState, team_leader: bool) -> Option<Vec<Skil
         .and_then(|guard| guard.get(&cache_key).cloned())
 }
 
+/// 重扫助理空间 Skill 并回填两份清单缓存（`hidden_skill_summaries_cache` 与字符串快照）。
+///
+/// 这是「清空」的唯一配对动作：`clear_hidden_skill_snapshot_cache` 只清不建，
+/// 清完之后必须有人重新扫盘，否则本次进程余下的装配只能拿到空全局清单，助理空间技能会静默消失。
+/// 只重扫技能这一块，不碰 MCP 运行时客户端——写命令的代价不该等同于一次 `reload_workspace`。
+/// 扫盘是同步 fs：先扫完，再由 [`update_hidden_skill_snapshot_cache`] 回填，不持锁扫盘。
+pub(crate) fn refresh_hidden_skill_snapshot(state: &AppState) -> Result<(), String> {
+    let (skills, _errors) = load_workspace_skill_summaries_with_errors(state)?;
+    update_hidden_skill_snapshot_cache(state, &skills, None).map(|_| ())
+}
+
 /// 项目 Skill 覆盖同名助理空间 Skill，其余合并。
 fn merge_skill_lists(
     mut base: Vec<SkillSummaryItem>,
@@ -324,10 +335,20 @@ pub(crate) fn load_workspace_skill_summaries_with_errors(
     state: &AppState,
 ) -> Result<(Vec<SkillSummaryItem>, Vec<WorkspaceLoadError>), String> {
     ensure_workspace_skills_layout(state)?;
+    load_skill_summaries_from_root(&configured_workspace_root_path(state)?)
+}
+
+/// 纯读：按给定工作区根解析 Skill 清单，不建目录、不铺预设、不写任何缓存。
+///
+/// `workspace_root` 必须与渲染侧（`llm_workspace_skills_root`）同一形态，不在这里自行规范化：
+/// 渲染用路径前缀判断「系统技能 / 项目技能」，两边形态不一致会让 `[system]` / `[project]` 分组错位。
+pub(crate) fn load_skill_summaries_from_root(
+    workspace_root: &Path,
+) -> Result<(Vec<SkillSummaryItem>, Vec<WorkspaceLoadError>), String> {
     let mut skills = Vec::<SkillSummaryItem>::new();
     let mut errors = Vec::<WorkspaceLoadError>::new();
-    let enabled_map = load_skill_enabled_map(state)?;
-    let skills_dir = llm_workspace_skills_root(state)?;
+    let enabled_map = load_skill_enabled_map_at_root(workspace_root)?;
+    let skills_dir = llm_workspace_skills_root_at(workspace_root);
     let mut dirs = fs::read_dir(&skills_dir)
         .map_err(|err| format!("Read skills dir failed ({}): {err}", skills_dir.display()))?
         .filter_map(|entry| entry.ok().map(|v| v.path()))
@@ -565,8 +586,10 @@ pub(crate) fn save_workspace_skill_content(
         enabled: true,
     };
 
-    if let Ok((skills, _)) = load_workspace_skill_summaries_with_errors(state) {
-        let _ = update_hidden_skill_snapshot_cache(state, &skills, None);
+    if let Err(err) = refresh_hidden_skill_snapshot(state) {
+        runtime_log_warn(format!(
+            "[技能工作区] 保存技能后刷新技能快照失败：{err}"
+        ));
     }
 
     Ok(summary_item)
@@ -843,6 +866,12 @@ pub(crate) fn clear_hidden_skill_snapshot_cache(state: &AppState) -> Result<(), 
     Ok(())
 }
 
+/// 读取旧的整块字符串快照。
+///
+/// 生产代码已无调用：提示词装配改为按结构化清单重新渲染，字符串快照只由
+/// `update_hidden_skill_snapshot_cache` 写入。保留它是因为废弃要连
+/// `AppState::hidden_skill_snapshot_cache` 字段一起收，属于另一件事。
+#[allow(dead_code)]
 pub(crate) fn build_hidden_skill_snapshot_block(state: &AppState) -> String {
     match state.hidden_skill_snapshot_cache.lock() {
         Ok(guard) if !guard.trim().is_empty() => guard.clone(),
@@ -863,17 +892,37 @@ pub(crate) fn build_hidden_skill_snapshot_block_for_agent(
     // 托管技能（pai-guide / assistant-interaction-guide / persona-craft）只注入队长会话。
     // 判据复用队伍侧的 conversation_is_team_leader，不在这里另写一套。
     let team_leader = conversation_is_team_leader(state, &conversation.id);
+    let mut scan_error: Option<String> = None;
     let global = match global_enabled_skills(state, team_leader) {
         Some(list) => list,
         None => {
-            if project.is_empty() {
-                runtime_log_warn(
-                    "[技能工作区] 隐藏技能快照未命中结构化缓存，返回现有快照文本；如需更新请显式刷新技能工作区。"
-                        .to_string(),
-                );
-                return build_hidden_skill_snapshot_block(state);
+            // 缓存被清空但没人重建时不能把全局技能当成空：现场重扫一次并回填，再照常取用。
+            match refresh_hidden_skill_snapshot(state) {
+                Ok(()) => {
+                    runtime_log_debug(
+                        "[技能工作区] 结构化缓存未命中，已重扫助理空间 skill 并回填缓存。"
+                            .to_string(),
+                    );
+                }
+                Err(err) => {
+                    runtime_log_warn(format!(
+                        "[技能工作区] 结构化缓存未命中，重扫助理空间 skill 失败：{err}"
+                    ));
+                    scan_error = Some(err);
+                }
             }
-            Vec::new()
+            match global_enabled_skills(state, team_leader) {
+                Some(list) => list,
+                None => {
+                    if scan_error.is_none() {
+                        let err =
+                            "隐藏技能快照缓存回填后仍未命中结构化缓存".to_string();
+                        runtime_log_warn(format!("[技能工作区] {err}"));
+                        scan_error = Some(err);
+                    }
+                    Vec::new()
+                }
+            }
         }
     };
     let global = if permission_enabled {
@@ -882,7 +931,7 @@ pub(crate) fn build_hidden_skill_snapshot_block_for_agent(
         global
     };
     let merged = merge_skill_lists(global, project);
-    render_hidden_skill_snapshot_block(state, &merged, None)
+    render_hidden_skill_snapshot_block(state, &merged, scan_error.as_deref())
 }
 
 /// 某人格当前可用的 skill：助理空间全局 Skill（吃权限控制）+ 当前会话项目 Skill（不吃权限控制，项目同名覆盖）。
@@ -894,15 +943,27 @@ fn merged_available_skills(
     agent: &AgentProfile,
 ) -> Vec<SkillSummaryItem> {
     let global = match global_enabled_skills(state, false) {
-        Some(skills) => filter_skills_for_agent(Some(agent), &skills),
+        Some(skills) => skills,
         None => {
-            runtime_log_warn(
-                "[技能工作区] 人格 skill 注入未命中结构化缓存，本次跳过全局 skill；如需更新请显式刷新技能工作区。"
-                    .to_string(),
-            );
-            Vec::new()
+            // 与提示词装配同一条兜底：缓存未命中就重扫回填，不能让人格的常驻 / 可选技能静默失效。
+            match refresh_hidden_skill_snapshot(state) {
+                Ok(()) => {
+                    runtime_log_debug(
+                        "[技能工作区] 结构化缓存未命中，已重扫助理空间 skill 并回填缓存。"
+                            .to_string(),
+                    );
+                    global_enabled_skills(state, false).unwrap_or_default()
+                }
+                Err(err) => {
+                    runtime_log_warn(format!(
+                        "[技能工作区] 结构化缓存未命中，重扫助理空间 skill 失败，本次跳过全局 skill：{err}"
+                    ));
+                    Vec::new()
+                }
+            }
         }
     };
+    let global = filter_skills_for_agent(Some(agent), &global);
     let project = ensure_conversation_project_skills(state, conversation);
     merge_skill_lists(global, project)
 }
@@ -1181,32 +1242,100 @@ fn finalize_workspace_load_result(
     result
 }
 
+/// 构建一次工作区快照所需的输入：加载哪个工作区，配置与运行数据从哪里来。
+pub(crate) struct WorkspaceSnapshotInput {
+    pub workspace_root: PathBuf,
+    pub config_path: PathBuf,
+    pub data_path: PathBuf,
+}
+
+/// 一次纯加载的全部产物；写缓存、启动 MCP、发事件都由调用方自己决定。
+pub(crate) struct WorkspaceSnapshot {
+    pub skills: Vec<SkillSummaryItem>,
+    pub skill_errors: Vec<WorkspaceLoadError>,
+    pub mcp_servers: Vec<McpServerConfig>,
+    pub mcp_errors: Vec<WorkspaceLoadError>,
+    pub agents: Vec<AgentProfile>,
+    pub private_agents_loaded: Vec<String>,
+    pub private_agents_failed: Vec<WorkspaceLoadError>,
+}
+
+/// 唯一的「建」：给定工作区根、配置与数据路径，把工作区里的技能、MCP、人格读出来。
+///
+/// 纯加载：不写缓存、不建目录、不设全局状态、不启动 MCP 运行时、不发事件，只读磁盘并返回值。
+/// 代价是调用方必须先铺好目录与预设技能（`ensure_workspace_*_layout*`），
+/// 并且只有「铺过 layout」的路径才能保证 MCP OAuth 全局目录已设置。
+/// `workspace_root` 保持调用方给的原样：渲染侧用未规范化的根做路径前缀比对，
+/// 这里若自作主张 `canonicalize`（Windows 会带 `\\?\`）反而会让技能路径与渲染根对不上。
+/// 配置与 agents 读失败仍走 `Err`（调用方按既有语义中断整次加载）；
+/// 单个技能 / MCP 文件的问题收进 `*_errors`，不影响其余条目。
+pub(crate) fn build_workspace_snapshot(
+    input: &WorkspaceSnapshotInput,
+) -> Result<WorkspaceSnapshot, String> {
+    let workspace_root = &input.workspace_root;
+    let (mcp_servers, mcp_errors) =
+        load_mcp_servers_from_dir(&llm_workspace_mcp_root_at(workspace_root).join("servers"))?;
+    let (skills, skill_errors) = load_skill_summaries_from_root(workspace_root)?;
+    let config = read_config(&input.config_path)?;
+    let mut agents = read_agents_shard(&input.data_path)?;
+    let private_org =
+        merge_private_organization_into_runtime(&input.data_path, &config, &mut agents)?;
+    Ok(WorkspaceSnapshot {
+        skills,
+        skill_errors,
+        mcp_servers,
+        mcp_errors: mcp_errors
+            .into_iter()
+            .map(|v| {
+                WorkspaceLoadError::with_hint(
+                    v.item,
+                    v.error,
+                    "检查该 MCP JSON 配置的格式、command/args/env 与启用状态；修复后重新调用 reload。",
+                )
+            })
+            .collect(),
+        agents,
+        private_agents_loaded: private_org.private_agents_loaded,
+        private_agents_failed: private_org.private_agents_failed,
+    })
+}
+
+/// 薄壳：铺目录 → 纯建快照 → 写缓存 → 组装返回结果。
 fn collect_workspace_load_snapshot(
     state: &AppState,
 ) -> Result<(RefreshMcpAndSkillsResult, Vec<McpServerConfig>, Vec<AgentProfile>), String> {
-    ensure_workspace_mcp_layout(state)?;
-    ensure_workspace_skills_layout(state)?;
-    ensure_workspace_private_organization_layout(state)?;
-    let (servers, mcp_errors) = load_workspace_mcp_servers_with_errors(state)?;
-    let (skills, skill_errors) = load_workspace_skill_summaries_with_errors(state)?;
-    if let Err(err) = update_hidden_skill_snapshot_cache(state, &skills, None) {
+    // 写盘与全局副作用只允许出现在这一层。
+    // 根保持未规范化的形态，与渲染侧 `llm_workspace_skills_root(state)` 一致。
+    let workspace_root = configured_workspace_root_path(state)?;
+    ensure_workspace_mcp_layout_at_root(&workspace_root)?;
+    ensure_workspace_skills_layout_at_root(&workspace_root)?;
+    ensure_workspace_private_organization_layout_at_root(&workspace_root)?;
+    let snapshot = build_workspace_snapshot(&WorkspaceSnapshotInput {
+        workspace_root,
+        config_path: state.config_path.clone(),
+        data_path: state.data_path.clone(),
+    })?;
+    if let Err(err) = update_hidden_skill_snapshot_cache(state, &snapshot.skills, None) {
         runtime_log_error(format!(
             "[技能工作区] 更新隐藏技能快照缓存失败: skills={}, error={}",
-            skills.len(),
+            snapshot.skills.len(),
             err
         ));
     }
-    let config = read_config(&state.config_path)?;
-    let mut agents = state_read_agents_cached(state)?;
-    let private_org = merge_private_organization_into_runtime(&state.data_path, &config, &mut agents)?;
-    let mcp_loaded = servers.iter().map(|s| s.id.clone()).collect::<Vec<_>>();
-    let skills_loaded = skills
+    let mcp_loaded = snapshot
+        .mcp_servers
+        .iter()
+        .map(|s| s.id.clone())
+        .collect::<Vec<_>>();
+    let skills_loaded = snapshot
+        .skills
         .iter()
         .filter(|s| s.enabled)
         .map(|s| s.name.clone())
         .collect::<Vec<_>>();
     // 摘要反映实际参与运行的 Skill，与注入内容保持一致。
-    let enabled_skills = skills
+    let enabled_skills = snapshot
+        .skills
         .iter()
         .filter(|s| s.enabled)
         .cloned()
@@ -1216,20 +1345,13 @@ fn collect_workspace_load_snapshot(
         mcp_loaded,
         ok: false,
         status: String::new(),
-        mcp_failed: mcp_errors
-            .into_iter()
-            .map(|v| WorkspaceLoadError::with_hint(
-                v.item,
-                v.error,
-                "检查该 MCP JSON 配置的格式、command/args/env 与启用状态；修复后重新调用 reload。",
-            ))
-            .collect(),
+        mcp_failed: snapshot.mcp_errors,
         skills_loaded,
-        skills_failed: skill_errors,
-        skills: skills.clone(),
+        skills_failed: snapshot.skill_errors,
+        skills: snapshot.skills.clone(),
         skill_summary,
-        private_agents_loaded: private_org.private_agents_loaded,
-        private_agents_failed: private_org.private_agents_failed,
+        private_agents_loaded: snapshot.private_agents_loaded,
+        private_agents_failed: snapshot.private_agents_failed,
         loaded_groups: Vec::new(),
         failed_groups: Vec::new(),
         total_loaded: 0,
@@ -1240,7 +1362,7 @@ fn collect_workspace_load_snapshot(
         repair_items: Vec::new(),
         needs_repair: false,
     };
-    Ok((result, servers, agents))
+    Ok((result, snapshot.mcp_servers, snapshot.agents))
 }
 
 async fn disconnect_workspace_mcp_runtime_clients(state: &AppState) {
@@ -1334,6 +1456,41 @@ pub(crate) fn open_skill_item_dir(state: &AppState, skill_path: &str) -> Result<
 mod snapshot_index_tests {
     use super::*;
 
+    fn drop_global_summaries_cache(state: &AppState) {
+        let mut guard = hidden_skill_summaries_cache()
+            .lock()
+            .expect("lock skill summaries cache");
+        guard.remove(&hidden_skill_cache_scope_key(state));
+        guard.remove(&hidden_skill_leader_cache_key(state));
+    }
+
+    fn write_project_skill(project_root: &std::path::Path, dir: &str, name: &str, desc: &str) {
+        let skill_dir = project_root.join(".pai").join("skills").join(dir);
+        std::fs::create_dir_all(&skill_dir).expect("create project skill dir");
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: {desc}\n---\n\n正文\n"),
+        )
+        .expect("write project skill");
+    }
+
+    fn test_conversation_with_project(
+        conversation_id: &str,
+        project_root: &std::path::Path,
+    ) -> Conversation {
+        let mut conversation =
+            crate::tests::test_chat_conversation(conversation_id, "active", "2026-01-01T00:00:00Z");
+        conversation.shell_workspaces = vec![ShellWorkspaceConfig {
+            id: "project".to_string(),
+            name: "project".to_string(),
+            path: project_root.to_string_lossy().to_string(),
+            level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+            built_in: false,
+        }];
+        conversation
+    }
+
     fn summary_item(name: &str, description: &str, path: &str) -> SkillSummaryItem {
         SkillSummaryItem {
             name: name.to_string(),
@@ -1389,5 +1546,320 @@ mod snapshot_index_tests {
             out.contains("E:/proj/.pai/skills/"),
             "missing project root in:\n{out}"
         );
+    }
+
+    // ==================== 缓存清空后的重扫回填 ====================
+
+    #[test]
+    fn empty_cache_should_rescan_global_skills_alongside_project_skills() {
+        let state = crate::tests::test_chat_runtime_state();
+        drop_global_summaries_cache(&state);
+        let project_root = state
+            .llm_workspace_path
+            .parent()
+            .expect("workspace parent")
+            .join("project-rescan-with-project");
+        write_project_skill(&project_root, "demo", "demo", "项目专用能力");
+        let conversation =
+            test_conversation_with_project("conversation-rescan-with-project", &project_root);
+
+        let block = build_hidden_skill_snapshot_block_for_agent(&state, &conversation, None);
+
+        assert!(
+            block.contains("[system]"),
+            "缓存被清空后重扫应补回全局技能，got:\n{block}"
+        );
+        // 助理空间那批技能（测试环境里来自随应用释放的预设清单）必须回到索引里。
+        assert!(
+            block.contains("code-review"),
+            "全局技能缺失，got:\n{block}"
+        );
+        assert!(block.contains("[project]"), "项目段缺失，got:\n{block}");
+        assert!(block.contains("demo"), "项目技能缺失，got:\n{block}");
+
+        let _ = std::fs::remove_dir_all(&project_root);
+    }
+
+    #[test]
+    fn empty_cache_without_project_skills_should_still_rescan_global_skills() {
+        let state = crate::tests::test_chat_runtime_state();
+        drop_global_summaries_cache(&state);
+        let conversation = crate::tests::test_chat_conversation(
+            "conversation-rescan-without-project",
+            "active",
+            "2026-01-01T00:00:00Z",
+        );
+
+        let block = build_hidden_skill_snapshot_block_for_agent(&state, &conversation, None);
+
+        assert!(!block.trim().is_empty(), "装配结果不应为空");
+        // 只有全局技能时按既有格式走扁平列表（`[system]` 段只在存在项目技能、需要区分两个根时出现），
+        // 这里钉的是「重扫后全局技能确实回来了」，不是渲染格式。
+        assert!(
+            block.contains("code-review"),
+            "全局技能缺失，got:\n{block}"
+        );
+        assert!(
+            block.contains("p-ai-config-guide"),
+            "全局技能缺失，got:\n{block}"
+        );
+        assert!(!block.contains("scan failed:"), "正常重扫不应报错：\n{block}");
+    }
+
+    #[test]
+    fn rescan_failure_should_render_scan_failed() {
+        let root = std::env::temp_dir().join(format!(
+            "eca-skill-rescan-fail-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create temp root");
+        // 把工作区根指成一个普通文件，扫描前的布局准备必然失败。
+        let blocked_root = root.join("blocked-workspace");
+        std::fs::write(&blocked_root, b"not a dir").expect("write blocked workspace file");
+        let mut state = crate::tests::test_chat_runtime_state();
+        state.llm_workspace_path = blocked_root.clone();
+        drop_global_summaries_cache(&state);
+        let conversation = crate::tests::test_chat_conversation(
+            "conversation-rescan-failure",
+            "active",
+            "2026-01-01T00:00:00Z",
+        );
+
+        let block = build_hidden_skill_snapshot_block_for_agent(&state, &conversation, None);
+
+        assert!(
+            block.contains("scan failed:"),
+            "重扫失败必须显式报出来，got:\n{block}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn backfilled_cache_should_skip_rescan_on_second_build() {
+        let state = crate::tests::test_chat_runtime_state();
+        drop_global_summaries_cache(&state);
+        // 非预设目录：重扫时才会出现，删掉后只有走缓存命中分支才还在。
+        let probe_dir = state.llm_workspace_path.join("skills").join("cache-probe-skill");
+        std::fs::create_dir_all(&probe_dir).expect("create probe skill dir");
+        std::fs::write(
+            probe_dir.join("SKILL.md"),
+            "---\nname: cache-probe-skill\ndescription: 探针\n---\n\n正文\n",
+        )
+        .expect("write probe skill");
+        let conversation = crate::tests::test_chat_conversation(
+            "conversation-rescan-cache-hit",
+            "active",
+            "2026-01-01T00:00:00Z",
+        );
+
+        let first = build_hidden_skill_snapshot_block_for_agent(&state, &conversation, None);
+        assert!(
+            first.contains("cache-probe-skill"),
+            "首次装配应扫描到探针技能，got:\n{first}"
+        );
+        assert!(
+            hidden_skill_summaries_cache()
+                .lock()
+                .expect("lock skill summaries cache")
+                .contains_key(&hidden_skill_cache_scope_key(&state)),
+            "重扫后应回填结构化缓存"
+        );
+
+        std::fs::remove_dir_all(&probe_dir).expect("remove probe skill dir");
+        let second = build_hidden_skill_snapshot_block_for_agent(&state, &conversation, None);
+        assert!(
+            second.contains("cache-probe-skill"),
+            "第二次装配应命中缓存、不再扫盘，got:\n{second}"
+        );
+    }
+
+    // ==================== 纯构建 build_workspace_snapshot ====================
+
+    /// 造一个可独立加载的临时工作区：workspace/ 下铺好 skills 与 mcp/servers，data/ 空目录。
+    fn make_workspace_root(label: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "eca-workspace-snapshot-{}-{label}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("workspace").join("skills")).expect("create skills root");
+        std::fs::create_dir_all(root.join("workspace").join("mcp").join("servers"))
+            .expect("create mcp servers root");
+        std::fs::create_dir_all(root.join("data")).expect("create data root");
+        root
+    }
+
+    fn write_workspace_skill(
+        workspace_root: &std::path::Path,
+        dir: &str,
+        content: &str,
+    ) {
+        let skill_dir = workspace_root.join("skills").join(dir);
+        std::fs::create_dir_all(&skill_dir).expect("create skill dir");
+        std::fs::write(skill_dir.join("SKILL.md"), content).expect("write SKILL.md");
+    }
+
+    fn build_from(root: &std::path::Path) -> Result<WorkspaceSnapshot, String> {
+        build_workspace_snapshot(&WorkspaceSnapshotInput {
+            workspace_root: root.join("workspace"),
+            config_path: root.join("app_config.toml"),
+            data_path: root.join("data"),
+        })
+    }
+
+    /// 全局清单缓存的可比较指纹：纯构建不该改动它。
+    fn summaries_cache_fingerprint() -> Vec<(String, Vec<String>)> {
+        let guard = hidden_skill_summaries_cache()
+            .lock()
+            .expect("lock skill summaries cache");
+        let mut out = guard
+            .iter()
+            .map(|(key, skills)| {
+                (
+                    key.clone(),
+                    skills.iter().map(|item| item.name.clone()).collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn build_snapshot_should_read_skills_in_stable_order() {
+        let root = make_workspace_root("order");
+        let workspace = root.join("workspace");
+        write_workspace_skill(&workspace, "beta", "---\nname: beta\ndescription: 第二个\n---\n\n正文\n");
+        write_workspace_skill(&workspace, "alpha", "---\nname: alpha\ndescription: 第一个\n---\n\n正文\n");
+
+        let snapshot = build_from(&root).expect("build snapshot");
+
+        let names = snapshot
+            .skills
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["alpha", "beta"], "技能应按目录名排序");
+        assert!(snapshot.skill_errors.is_empty(), "不该有错误：{:?}", snapshot.skill_errors);
+        assert!(
+            snapshot.skills.iter().all(|item| item.enabled),
+            "无启用表记录时缺省启用"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn build_snapshot_should_collect_bad_skill_without_dropping_rest() {
+        let root = make_workspace_root("bad-skill");
+        let workspace = root.join("workspace");
+        write_workspace_skill(&workspace, "good", "---\nname: good\ndescription: 正常\n---\n\n正文\n");
+        // 缺 frontmatter
+        write_workspace_skill(&workspace, "broken", "这段没有 YAML frontmatter\n");
+        // 缺 SKILL.md
+        std::fs::create_dir_all(workspace.join("skills").join("empty")).expect("create empty dir");
+
+        let snapshot = build_from(&root).expect("build snapshot");
+
+        assert_eq!(
+            snapshot
+                .skills
+                .iter()
+                .map(|item| item.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["good"],
+            "坏条目不该影响其余技能"
+        );
+        let error_items = snapshot
+            .skill_errors
+            .iter()
+            .map(|item| item.item.replace('\\', "/"))
+            .collect::<Vec<_>>();
+        assert!(
+            error_items.iter().any(|item| item.ends_with("broken/SKILL.md")),
+            "frontmatter 解析失败应进 skill_errors，got: {error_items:?}"
+        );
+        assert!(
+            error_items.iter().any(|item| item.ends_with("/empty")),
+            "缺 SKILL.md 应进 skill_errors，got: {error_items:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn build_snapshot_should_follow_workspace_root_argument() {
+        let root_a = make_workspace_root("root-a");
+        write_workspace_skill(
+            &root_a.join("workspace"),
+            "only-in-a",
+            "---\nname: only-in-a\ndescription: a 独有\n---\n\n正文\n",
+        );
+        let root_b = make_workspace_root("root-b");
+        write_workspace_skill(
+            &root_b.join("workspace"),
+            "only-in-b",
+            "---\nname: only-in-b\ndescription: b 独有\n---\n\n正文\n",
+        );
+
+        let names_a = build_from(&root_a)
+            .expect("build a")
+            .skills
+            .iter()
+            .map(|item| item.name.clone())
+            .collect::<Vec<_>>();
+        let names_b = build_from(&root_b)
+            .expect("build b")
+            .skills
+            .iter()
+            .map(|item| item.name.clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names_a, vec!["only-in-a"], "结果必须跟着入参工作区走");
+        assert_eq!(names_b, vec!["only-in-b"], "结果必须跟着入参工作区走");
+
+        let _ = std::fs::remove_dir_all(&root_a);
+        let _ = std::fs::remove_dir_all(&root_b);
+    }
+
+    #[test]
+    fn build_snapshot_should_be_repeatable_and_leave_global_cache_alone() {
+        let root = make_workspace_root("repeatable");
+        write_workspace_skill(
+            &root.join("workspace"),
+            "stable",
+            "---\nname: stable\ndescription: 稳定\n---\n\n正文\n",
+        );
+        let before = summaries_cache_fingerprint();
+        let probe_state = crate::tests::test_chat_runtime_state();
+
+        let first = build_from(&root).expect("first build");
+        let second = build_from(&root).expect("second build");
+
+        let fingerprint = |snapshot: &WorkspaceSnapshot| {
+            snapshot
+                .skills
+                .iter()
+                .map(|item| (item.name.clone(), item.path.clone(), item.enabled))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            fingerprint(&first),
+            fingerprint(&second),
+            "同一工作区两次构建结果必须一致"
+        );
+        assert_eq!(
+            before,
+            summaries_cache_fingerprint(),
+            "纯构建不得写 hidden_skill_summaries_cache"
+        );
+        assert!(
+            build_hidden_skill_snapshot_block(&probe_state).is_empty(),
+            "纯构建不得写字符串快照缓存"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

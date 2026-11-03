@@ -175,14 +175,17 @@ fn parse_workspace_mcp_server_from_file(path: &PathBuf) -> Result<McpServerConfi
     })
 }
 
-fn load_workspace_mcp_servers_with_errors(
-    state: &AppState,
+/// 纯读：按给定目录解析 MCP 服务器文件，不建目录、不碰全局状态。
+///
+/// 目录不存在时会读失败——目录由调用方先通过 `ensure_workspace_mcp_layout*` 铺好。
+/// 反过来，任何「只调本函数、不调 layout」的新路径都得自己负责目录与 OAuth 全局目录，
+/// 否则 [`mcp_oauth_credential_path_for_server`] 拿不到目录。
+pub(crate) fn load_mcp_servers_from_dir(
+    servers_dir: &Path,
 ) -> Result<(Vec<McpServerConfig>, Vec<McpWorkspaceLoadError>), String> {
-    ensure_workspace_mcp_layout(state)?;
     let mut servers = Vec::<McpServerConfig>::new();
     let mut errors = Vec::<McpWorkspaceLoadError>::new();
-    let servers_dir = llm_workspace_mcp_servers_dir(state)?;
-    let mut files = fs::read_dir(&servers_dir)
+    let mut files = fs::read_dir(servers_dir)
         .map_err(|err| format!("Read MCP servers dir failed ({}): {err}", servers_dir.display()))?
         .filter_map(|entry| entry.ok().map(|v| v.path()))
         .filter(|path| path.is_file())
@@ -199,6 +202,13 @@ fn load_workspace_mcp_servers_with_errors(
         }
     }
     Ok((servers, errors))
+}
+
+fn load_workspace_mcp_servers_with_errors(
+    state: &AppState,
+) -> Result<(Vec<McpServerConfig>, Vec<McpWorkspaceLoadError>), String> {
+    ensure_workspace_mcp_layout(state)?;
+    load_mcp_servers_from_dir(&llm_workspace_mcp_servers_dir(state)?)
 }
 
 fn normalize_mcp_tool_policies(raw: Vec<McpToolPolicy>) -> Vec<McpToolPolicy> {
