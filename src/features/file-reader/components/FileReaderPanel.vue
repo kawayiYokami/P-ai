@@ -1,7 +1,7 @@
 <template>
   <div class="relative flex h-full min-h-0 flex-col bg-base-100 text-base-content">
     <PanelTabStrip
-      v-if="showTabs && !(bareHtmlPreview && activeTab?.kind === 'html')"
+      v-if="showTabs"
       variant="file"
       :tabs="fileReaderPanelTabs"
       :active-key="activePath"
