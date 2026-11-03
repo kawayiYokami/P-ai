@@ -1153,7 +1153,7 @@ export type ChatConversationOverviewItem = {
   conversationId: string;
   title: string;
   summaryTitle?: string;
-  kind?: "local_unarchived" | "remote_im_contact";
+  kind?: "local_unarchived" | "remote_im_contact" | "acp_session";
   conversationKind?: "chat" | "side_chat" | string;
   childConversationIds?: string[];
   remoteContactId?: string;

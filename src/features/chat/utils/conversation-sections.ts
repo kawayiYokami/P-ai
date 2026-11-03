@@ -8,6 +8,8 @@ export type ConversationSection = {
   workspaceRootPath?: string;
   /** 人格分组的 agentId，用于取人格头像；非人格分组为空 */
   personaId?: string;
+  /** 联系人页的顶层层级：IM 渠道段或 ACP 工作目录段；本地与任务页为空 */
+  group?: "remote_im" | "acp";
 };
 
 export type ConversationSectionOrderState = {
@@ -49,9 +51,9 @@ export function buildConversationSections(
   const normalizedActiveId = String(options.activeConversationId || "").trim();
   const visibleItems = items.filter((item) => {
     const kind = String(item.kind || "local_unarchived").trim();
-    const kindMatched = tab === "contact"
-      ? kind === "remote_im_contact"
-      : kind !== "remote_im_contact";
+    // 联系人页承载两类会话：IM 渠道会话与 ACP 会话；本地列表两者都不进。
+    const isContactKind = kind === "remote_im_contact" || kind === "acp_session";
+    const kindMatched = tab === "contact" ? isContactKind : !isContactKind;
     if (!kindMatched) return false;
     // 会话草稿默认隐藏：仅当它正是当前打开的会话时进入「最近会话」，
     // 且不参与置顶、当前项目与工作区分组。
@@ -149,7 +151,8 @@ export function buildRecentConversationSections(
   const normalizedActiveId = String(options.activeConversationId || "").trim();
 
   const candidates = items.filter((item) => {
-    if (String(item.kind || "local_unarchived").trim() === "remote_im_contact") return false;
+    const itemKind = String(item.kind || "local_unarchived").trim();
+    if (itemKind === "remote_im_contact" || itemKind === "acp_session") return false;
     if (item.isSystemNotificationConversation) return false;
     if (item.isDraft && String(item.conversationId || "").trim() !== normalizedActiveId) return false;
     return true;
@@ -256,7 +259,8 @@ export function buildCategoryConversationSections(
   const isPersonaGrouping = options.grouping === "persona";
 
   const regularItems = items.filter((item) => {
-    if (String(item.kind || "local_unarchived").trim() === "remote_im_contact") return false;
+    const itemKind = String(item.kind || "local_unarchived").trim();
+    if (itemKind === "remote_im_contact" || itemKind === "acp_session") return false;
     if (item.isSystemNotificationConversation || item.isDraft) return false;
     return true;
   });
@@ -543,6 +547,7 @@ export function buildRemoteConversationSections(
         key,
         title,
         items: [item],
+        group: "remote_im",
       },
       hasChannel,
       sortTitle: title,
@@ -557,6 +562,45 @@ export function buildRemoteConversationSections(
       return compareWorkspaceSectionText(left.sortTitle, right.sortTitle, options.locale)
         || compareWorkspaceSectionText(left.sortKey, right.sortKey, options.locale);
     })
+    .map((entry) => entry.section)
+    .map((section) => (options.pinnedFirst ? { ...section, items: sortConversationItemsPinnedFirst(section.items) } : section));
+}
+
+type BuildAcpConversationSectionsOptions = {
+  fallbackTitle: string;
+  locale?: string | string[];
+  pinnedFirst?: boolean;
+};
+
+/** ACP 分组：以会话 cwd（workspaceRootPath）为父节点，标题取目录名；cwd 缺失时统一回退到 fallbackTitle。 */
+export function buildAcpConversationSections(
+  items: ChatConversationOverviewItem[],
+  options: BuildAcpConversationSectionsOptions,
+): ConversationSection[] {
+  const byWorkspace = new Map<string, { section: ConversationSection; sortTitle: string }>();
+  for (const item of items) {
+    const rawPath = String(item.workspaceRootPath || "").trim();
+    const normalizedPath = normalizeWorkspaceSectionPath(rawPath);
+    const title = (rawPath ? defaultWorkspaceNameFromPath(rawPath) : "") || options.fallbackTitle;
+    const key = `acp:${normalizedPath || "__unknown__"}`;
+    const existing = byWorkspace.get(key);
+    if (existing) {
+      existing.section.items.push(item);
+      continue;
+    }
+    byWorkspace.set(key, {
+      section: {
+        key,
+        title,
+        items: [item],
+        workspaceRootPath: rawPath || undefined,
+        group: "acp",
+      },
+      sortTitle: title,
+    });
+  }
+  return Array.from(byWorkspace.values())
+    .sort((left, right) => compareWorkspaceSectionText(left.sortTitle, right.sortTitle, options.locale))
     .map((entry) => entry.section)
     .map((section) => (options.pinnedFirst ? { ...section, items: sortConversationItemsPinnedFirst(section.items) } : section));
 }

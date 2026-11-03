@@ -354,7 +354,7 @@ const emit = defineEmits<{
   (e: "toggle-tool-review-panel"): void;
   (e: "minimize-window"): void;
   (e: "toggle-maximize-window"): void;
-  (e: "switch-conversation", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }): void;
+  (e: "switch-conversation", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact" | "acp_session"; remoteContactId?: string }): void;
   (e: "rename-conversation", payload: { conversationId: string; title: string }): void;
   (e: "toggle-pin-conversation", conversationId: string): void;
   (e: "archive-conversation", conversationId: string): void;

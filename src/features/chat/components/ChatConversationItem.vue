@@ -241,7 +241,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-  (e: "select", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }): void;
+  (e: "select", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact" | "acp_session"; remoteContactId?: string }): void;
   (e: "rename", payload: { conversationId: string; title: string }): void;
   (e: "togglePinConversation", conversationId: string): void;
   (e: "archiveConversation", conversationId: string): void;

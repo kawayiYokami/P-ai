@@ -24,7 +24,13 @@
             @layout-change="scheduleConversationListScrollbarUpdate"
           />
           <template v-else-if="activeConversationTab === 'contact'">
-            <template v-for="section in displayedContactSections" :key="section.key">
+            <template v-for="(section, sectionIndex) in displayedContactSections" :key="section.key">
+              <div
+                v-if="contactSectionGroupLabel(section, sectionIndex)"
+                class="px-3 pt-3 pb-1 text-xs font-medium opacity-60"
+              >
+                {{ contactSectionGroupLabel(section, sectionIndex) }}
+              </div>
               <CollapsibleGroup
                 head-opaque
                 :ref="(el) => setConversationSectionElement(section.key, el)"
@@ -661,6 +667,7 @@ import {
 } from "../utils/conversation-aggregation";
 import {
   applyConversationSectionOrder,
+  buildAcpConversationSections,
   buildCategoryConversationSections,
   buildRecentConversationSections,
   buildRemoteConversationSections,
@@ -730,7 +737,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "select", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }): void;
+  (e: "select", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact" | "acp_session"; remoteContactId?: string }): void;
   (e: "rename", payload: { conversationId: string; title: string }): void;
   (e: "togglePinConversation", conversationId: string): void;
   (e: "archiveConversation", conversationId: string): void;
@@ -950,7 +957,8 @@ const allRecentCandidateItems = computed<ChatConversationOverviewItem[]>(() => {
   const seenIds = new Set<string>();
   return props.items
     .filter((item) => {
-      if (String(item.kind || "local_unarchived").trim() === "remote_im_contact") return false;
+      const itemKind = String(item.kind || "local_unarchived").trim();
+      if (itemKind === "remote_im_contact" || itemKind === "acp_session") return false;
       if (item.isSystemNotificationConversation) return false;
       if (item.isDraft && String(item.conversationId || "").trim() !== normalizedActiveId) return false;
       return true;
@@ -1041,13 +1049,27 @@ const rawCategorySections = computed<ConversationSection[]>(() => {
 
 const rawContactSections = computed<ConversationSection[]>(() => {
   if (activeConversationTab.value !== "contact") return [];
-  const visibleItems = props.items.filter((item) => String(item.kind || "").trim() === "remote_im_contact");
-  const sections = buildRemoteConversationSections(visibleItems, {
-    fallbackTitle: t("chat.otherConversations"),
-    locale: locale.value,
-    pinnedFirst: true,
-  });
-  return applyConversationSectionOrder(sections, conversationSectionOrders.value.contact).sections;
+  const savedOrder = conversationSectionOrders.value.contact;
+  const imItems = props.items.filter((item) => String(item.kind || "").trim() === "remote_im_contact");
+  const acpItems = props.items.filter((item) => String(item.kind || "").trim() === "acp_session");
+  const imSections = applyConversationSectionOrder(
+    buildRemoteConversationSections(imItems, {
+      fallbackTitle: t("chat.otherConversations"),
+      locale: locale.value,
+      pinnedFirst: true,
+    }),
+    savedOrder,
+  ).sections;
+  const acpSections = applyConversationSectionOrder(
+    buildAcpConversationSections(acpItems, {
+      fallbackTitle: t("chat.acpUnknownWorkspace"),
+      locale: locale.value,
+      pinnedFirst: true,
+    }),
+    savedOrder,
+  ).sections;
+  // 顶层固定两段：IM 渠道在前、ACP 工作目录在后；段内顺序各自沿用用户拖动结果。
+  return [...imSections, ...acpSections];
 });
 
 const normalizedConversationSearchQuery = computed(() =>
@@ -1174,6 +1196,15 @@ const displayedContactSections = computed<DisplayConversationSection[]>(() => {
     .filter((s): s is ConversationSection => s !== null)
     .map((s) => buildDisplayedConversationSection(s));
 });
+
+/** 联系人页顶层层级标题：IM 渠道段 / ACP 工作目录段。同一组只在首行输出一次。 */
+function contactSectionGroupLabel(section: DisplayConversationSection, index: number): string {
+  const group = section.group;
+  if (!group) return "";
+  const previousGroup = index > 0 ? displayedContactSections.value[index - 1]?.group : undefined;
+  if (previousGroup === group) return "";
+  return group === "acp" ? t("chat.acpConversations") : t("chat.imConversations");
+}
 
 const allConversationSections = computed<ConversationSection[]>(() => {
   if (activeConversationTab.value === "contact") return rawContactSections.value;
@@ -1648,7 +1679,7 @@ function conversationMatchesSearch(item: ChatConversationOverviewItem, query: st
 }
 
 function isLocalConversation(item: ChatConversationOverviewItem): boolean {
-  return item.kind !== "remote_im_contact";
+  return item.kind !== "remote_im_contact" && item.kind !== "acp_session";
 }
 
 function conversationDisplayTitle(item: ChatConversationOverviewItem): string {

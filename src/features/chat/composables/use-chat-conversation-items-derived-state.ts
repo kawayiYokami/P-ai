@@ -21,6 +21,8 @@ export function useChatConversationItemsDerivedState(bindings: Record<string, an
         const conversationId = String(item.conversationId || "").trim();
         const isSystemNotificationConversation =
           !!item.isSystemNotificationConversation || !!item.isMainConversation;
+        // 来源判定跟后端 conversation_kind 走：ACP 会话的 kind 落成 acp，与 IM 私聊同级。
+        const isAcpConversation = String(item.conversationKind || "").trim() === "acp";
         const localRuntimeState = conversationId && conversationId === trimmingConversationId
           ? "archiving"
           : conversationId && conversationId === compactingConversationId
@@ -30,9 +32,9 @@ export function useChatConversationItemsDerivedState(bindings: Record<string, an
         conversationId: item.conversationId,
         title: item.title,
         summaryTitle: item.summaryTitle,
-        kind: "local_unarchived" as const,
-        // 会话语义类型（chat / side_chat / system_notification / delegate），不是上面的列表来源 kind。
-        // 状态标记按它做白名单判定；投影是逐字段重建，不在这里列出就等于丢。
+        kind: isAcpConversation ? ("acp_session" as const) : ("local_unarchived" as const),
+        // 会话语义类型（chat / side_chat / system_notification / delegate / remote_im_contact / acp），
+        // 不是上面的列表来源 kind。状态标记按它做白名单判定；投影是逐字段重建，不在这里列出就等于丢。
         conversationKind: String(item.conversationKind || "").trim() || undefined,
         messageCount: Number(item.messageCount || 0),
         bodyMessageCount: Number(item.bodyMessageCount ?? item.messageCount ?? 0),

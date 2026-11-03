@@ -1132,7 +1132,7 @@ const emit = defineEmits<{
   (e: "stopGoalTask"): void;
   (e: "taskCreated", task: TaskEntry): void;
   (e: "taskUpdated", task: TaskEntry): void;
-  (e: "switchConversation", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }): void;
+  (e: "switchConversation", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact" | "acp_session"; remoteContactId?: string }): void;
   (e: "renameConversation", payload: { conversationId: string; title: string }): void;
   (e: "togglePinConversation", conversationId: string): void;
   (e: "archiveConversation", conversationId: string): void;
@@ -4509,7 +4509,7 @@ function handleConversationSearchSelect(conversationId: string) {
   });
 }
 
-function handleConversationListSelect(payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }) {
+function handleConversationListSelect(payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact" | "acp_session"; remoteContactId?: string }) {
   const id = String(payload?.conversationId || "").trim();
   if (!id || id === String(props.activeConversationId || "").trim()) return;
   const target = (props.conversationItems || props.unarchivedConversationItems).find((item) => String(item.conversationId || "").trim() === id);
