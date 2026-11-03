@@ -368,14 +368,14 @@ mod catalog_tests {
         let dir = llm_workspace_skill_policies_dir(&state).expect("skill policies dir");
         // 目录不存在时，没有任何显式状态，调用方按缺省启用处理。
         assert!(!dir.exists());
-        assert!(load_skill_enabled_map(&state).expect("load empty map").is_empty());
+        assert!(load_skill_enabled_map_at_root(&configured_workspace_root_path(&state).expect("workspace root")).expect("load empty map").is_empty());
 
         write_skill_enabled(&state, "demo-skill", false).expect("write disabled");
-        let map = load_skill_enabled_map(&state).expect("load map");
+        let map = load_skill_enabled_map_at_root(&configured_workspace_root_path(&state).expect("workspace root")).expect("load map");
         assert_eq!(map.get("demo-skill"), Some(&false));
 
         write_skill_enabled(&state, "demo-skill", true).expect("write enabled");
-        let map = load_skill_enabled_map(&state).expect("reload map");
+        let map = load_skill_enabled_map_at_root(&configured_workspace_root_path(&state).expect("workspace root")).expect("reload map");
         assert_eq!(map.get("demo-skill"), Some(&true));
 
         let _ = fs::remove_dir_all(state.llm_workspace_path.parent().unwrap_or(&state.llm_workspace_path));

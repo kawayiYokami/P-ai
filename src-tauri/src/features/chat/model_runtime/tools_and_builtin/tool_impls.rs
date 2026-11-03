@@ -604,6 +604,15 @@ impl RuntimeValueTool for BuiltinConfigTool {
             };
             if !config_tool_command_is_readonly(&args.command) {
                 invalidate_config_tool_runtime_caches(&self.app_state).map_err(ToolInvokeError::from)?;
+                // 失效只清不建：清完之后必须有人重新加载，否则工作区这份技能清单会一直空到下次 reload。
+                // `config reload` 自己会整块重载工作区（含技能），这一支不必重复扫。
+                if !matches!(runtime_effect, ConfigToolRuntimeEffect::WorkspaceReload { .. }) {
+                    if let Err(err) = refresh_hidden_skill_snapshot(&self.app_state) {
+                        runtime_log_warn(format!(
+                            "[config工具] 写命令后重扫技能工作区失败，技能清单可能暂缺全局部分：{err}"
+                        ));
+                    }
+                }
             }
             let runtime_effect = apply_config_tool_runtime_effect(&self.app_state, runtime_effect)
                 .await

@@ -13832,7 +13832,7 @@
             .expect_err("托管技能必须拒绝启停");
         assert!(err.contains("托管"), "报错要说清是托管技能，got: {err}");
         // 拒绝落在写启用表之前：状态目录里不该留下这条记录。
-        let map = load_skill_enabled_map(&state).expect("读取启用表");
+        let map = load_skill_enabled_map_at_root(&configured_workspace_root_path(&state).expect("workspace root")).expect("读取启用表");
         assert!(
             !map.contains_key("pai-guide"),
             "托管技能不应写入启用表，got: {map:?}"

@@ -64,11 +64,6 @@ fn private_personas_root_from_config(data_path: &PathBuf, config: &AppConfig) ->
     private_organization_root_from_config(data_path, config).join("personas")
 }
 
-pub(crate) fn ensure_workspace_private_organization_layout(state: &AppState) -> Result<(), String> {
-    let workspace_root = ensure_workspace_root_ready(&configured_workspace_root_path(state)?)?;
-    ensure_workspace_private_organization_layout_at_root(&workspace_root)
-}
-
 pub(crate) fn ensure_workspace_private_organization_layout_at_root(workspace_root: &Path) -> Result<(), String> {
     let root = workspace_root.join("private-organization");
     let personas = root.join("personas");
