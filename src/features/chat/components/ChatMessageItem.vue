@@ -281,10 +281,21 @@
                           </summary>
                           <div class="collapse-content pb-2 pr-1 pt-1">
                             <OverlayScrollArea scroller-class="max-h-72 rounded bg-base-200/60 p-2" overscroll="auto">
-                              <pre
-                                class="m-0 whitespace-pre-wrap break-all text-xs leading-relaxed"
-                                :class="activityItemDetailClass(item)"
-                              ><code>{{ activityToolDetailsText(item) }}</code></pre>
+                              <div class="flex flex-col gap-1.5">
+                                <!-- 参数区：整块走工具绿，其中的键名单独跳到行内代码红 -->
+                                <ToolArgsView
+                                  v-if="toolDetailParts(item).args"
+                                  :text="toolDetailParts(item).args"
+                                  :dark="markdownIsDark"
+                                  class="font-mono text-xs leading-relaxed"
+                                />
+                                <!-- 结果区：沿用条目那一档 context 灰 -->
+                                <pre
+                                  v-if="toolDetailParts(item).result"
+                                  class="m-0 whitespace-pre-wrap break-all text-xs leading-relaxed"
+                                  :class="activityItemDetailClass(item)"
+                                ><code>{{ toolDetailParts(item).result }}</code></pre>
+                              </div>
                             </OverlayScrollArea>
                             <div
                               v-if="item.kind === 'tool' && item.contentOmitted && toolResultOverrides[activityItemKey(item)] === undefined"
@@ -705,6 +716,7 @@ import ChatBubbleShell from "./ChatBubbleShell.vue";
 import ChatAttachmentItem from "./ChatAttachmentItem.vue";
 import PlainMarkdownRenderer from "./PlainMarkdownRenderer.vue";
 import AnimatedCountText from "./AnimatedCountText.vue";
+import ToolArgsView from "./ToolArgsView.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 
 initKatex();
@@ -1203,8 +1215,8 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
   if (schedulingState !== "streaming_tool") {
     const doingToolCall = toolCallsForBlock(block).find((call) => call.status === "doing");
     if (doingToolCall) {
-      const semanticText = String(toolCallSemanticPresentation(doingToolCall).text || "").trim();
-      const namedTool = compactText(semanticText || toolCallDisplayName(doingToolCall.name), 32);
+      // 只报工具名，不带目标：语义句会把整条命令塞进头部，长命令直接把这一行撑满。
+      const namedTool = compactText(toolCallDisplayName(doingToolCall.name), 32);
       return withWater(t("chat.statusExecutingNamedTool", { name: namedTool }));
     }
   }
@@ -1395,6 +1407,10 @@ const presentedActivityItems = computed(() => {
 
 const collapsedActivityPreviewCache = new WeakMap<object, { source: string; preview: string }>();
 const COLLAPSED_ACTIVITY_PREVIEW_CHARS = 240;
+
+type ToolDetailParts = { args: string; result: string };
+const EMPTY_TOOL_DETAIL_PARTS: ToolDetailParts = { args: "", result: "" };
+const toolDetailPartsCache = new WeakMap<ChatActivityItem, { stamp: string; parts: ToolDetailParts }>();
 /** 思维链富文本最大渲染字数，超过此长度自动降级为原生纯文本，避免数十万字在正则解析和 VNode 树构建时阻塞主线程 */
 const MAX_MARKDOWN_REASONING_CHARS = 8000;
 
@@ -1861,46 +1877,51 @@ async function loadToolResult(item: ChatActivityItem): Promise<void> {
   }
 }
 
-// 参数与结果拼接：无参数时不要留下裸露的分隔线，直接把结果顶到开头。
-function joinToolArgsAndResult(args: string, result: string): string {
-  const hasArgs = !!args.trim();
-  const hasResult = !!result.trim();
-  if (!hasArgs) return hasResult ? result : args;
-  if (!hasResult) return args;
-  return `${args}\n\n---\n\n${result}`;
-}
-
-function activityToolDetailsText(item: ChatActivityItem): string {
-  if (item.kind !== "tool") return "";
+// 参数与结果拆成两块：参数整块走工具绿、其中键名单独标红；结果保持原来的灰。
+// 原来的 '\n\n---\n\n' 分隔线随之取消。
+function buildToolDetailParts(item: ChatActivityItem, override: string | undefined): ToolDetailParts {
+  if (item.kind !== "tool") return { args: "", result: "" };
   const args = activityToolArgsText(item);
-  const key = activityItemKey(item);
   // 占位结果已被省略时，优先展示按需加载回来的真实结果；
   // 未加载时结果区由模板渲染「查看结果」按钮，这里只返回参数部分。
   if (item.contentOmitted) {
-    const loaded = toolResultOverrides.value[key];
-    if (loaded === undefined) return args;
-    return joinToolArgsAndResult(args, loaded);
+    return { args, result: override === undefined ? "" : String(override) };
   }
   const result = String(item.resultText || "").trim();
-  const status = result ? parseToolCallResultStatus(item.resultText) : null;
+  if (!result) return { args, result: "" };
+  const status = parseToolCallResultStatus(item.resultText);
   if (status?.isDenied) {
     const reason = status.blockedReason || status.message;
     const label = reason
-      ? `\n\n[${t("chat.toolReview.denied") || "已拒绝"}]: ${reason}`
-      : `\n\n[${t("chat.toolReview.denied") || "已拒绝"}]`;
-    return `${joinToolArgsAndResult(args, result)}${label}`;
+      ? `[${t("chat.toolReview.denied") || "已拒绝"}]: ${reason}`
+      : `[${t("chat.toolReview.denied") || "已拒绝"}]`;
+    return { args, result: `${result}\n\n${label}` };
   }
   if (status?.isFailed) {
     const reason = status.message || status.blockedReason;
     const label = reason
-      ? `\n\n[${t("chat.toolReview.failed") || "执行失败"}]: ${reason}`
-      : `\n\n[${t("chat.toolReview.failed") || "执行失败"}]`;
-    return `${joinToolArgsAndResult(args, result)}${label}`;
+      ? `[${t("chat.toolReview.failed") || "执行失败"}]: ${reason}`
+      : `[${t("chat.toolReview.failed") || "执行失败"}]`;
+    return { args, result: `${result}\n\n${label}` };
   }
-  if (result) {
-    return joinToolArgsAndResult(args, result);
-  }
-  return args;
+  return { args, result };
+}
+
+/** 参数与结果都含长文本拼接和 JSON 解析，按 item 缓存；流式期间靠 stamp 比对失效。 */
+function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
+  if (item.kind !== "tool") return EMPTY_TOOL_DETAIL_PARTS;
+  const override = toolResultOverrides.value[activityItemKey(item)];
+  const stamp = [
+    String(item.argsText || ""),
+    String(item.resultText || ""),
+    item.contentOmitted ? "1" : "0",
+    override ?? "\u0000",
+  ].join("\u0001");
+  const cached = toolDetailPartsCache.get(item);
+  if (cached && cached.stamp === stamp) return cached.parts;
+  const parts = buildToolDetailParts(item, override);
+  toolDetailPartsCache.set(item, { stamp, parts });
+  return parts;
 }
 
 function activityItemDisplay(item: ChatActivityItem): { text: string; adds: number; removes: number } {
