@@ -72,6 +72,9 @@ describe("useChatFlowStop", () => {
           resultText: "配置已读取",
         })],
       })],
+      // 停止必须指认正在收流的那一个调度，不能只给会话。
+      activationId: "activation-1",
+      assistantMessageId: "assistant-1",
     }));
   });
 
@@ -108,11 +111,18 @@ describe("useChatFlowStop", () => {
       flushStreamTextBuffer: vi.fn(),
       getSendChatActiveGen: () => 7,
       markSendStopped,
+      getSendRequestId: (gen: number) => (gen === 7 ? "req-7" : ""),
     });
 
     await stopChat();
 
     expect(markSendStopped).toHaveBeenCalledWith(7);
     expect(invokeStopChatMessage).toHaveBeenCalledOnce();
+    // 提交期没有激活号，只能用手上这次提交的请求号指认；不能只给会话让后端去猜。
+    expect(invokeStopChatMessage).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "req-7",
+      activationId: undefined,
+      assistantMessageId: undefined,
+    }));
   });
 });

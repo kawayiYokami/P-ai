@@ -1694,6 +1694,7 @@ const WEB_BRIDGE_NATIVE_ONLY_COMMANDS = new Set([
 const TAURI_COMMAND_ALIASES: Record<string, string> = {
   "chat.send": "submit_chat_message",
   "chat.stop": "stop_chat_message",
+  "chat.interrupt": "interrupt_conversation_runtime",
   "chat.queueSnapshot": "get_chat_queue_snapshot",
   "chat.sessionStateSnapshot": "get_main_session_state_snapshot",
   "chat.queueRecall": "recall_chat_queue_event",

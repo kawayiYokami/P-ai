@@ -10,98 +10,164 @@ fn inflight_chat_key(
     }
 }
 
+/// 停止请求要终止的那个调度的身份。
+///
+/// 三者都是「这一次调度」的标识，任一带上就能精确命中；全空说明前端也不知道在停谁，
+/// 此时停止什么都不做——绝不按会话去猜。
+#[derive(Debug, Default, Clone)]
+struct StopDispatchIdentity {
+    request_id: String,
+    activation_id: String,
+    assistant_message_id: String,
+}
+
+impl StopDispatchIdentity {
+    /// 条目是否就是这次停止要终止的调度。
+    ///
+    /// 主流程里 `activation_id` 与 `request_id` 同值（调度器宣布轮次时直接用请求号做激活号），
+    /// 所以命中比对只看请求号与助理消息 id：请求号可以来自 `request_id`，也可以来自前端
+    /// 手上那个激活号，两者对同一个调度是同一个值。
+    fn matches_running(&self, request_id: &str, assistant_message_id: &str) -> bool {
+        let running_request = request_id.trim();
+        let wanted_request = self.request_id.trim();
+        let wanted_activation = self.activation_id.trim();
+        let wanted_message = self.assistant_message_id.trim();
+        let is_request = !wanted_request.is_empty() && wanted_request == running_request;
+        let is_activation = !wanted_activation.is_empty() && wanted_activation == running_request;
+        let is_message = !wanted_message.is_empty() && wanted_message == assistant_message_id.trim();
+        is_request || is_activation || is_message
+    }
+}
+
 /// 登记一个会话轮次的打断句柄。
 ///
-/// 若该会话上已有「停止意图」（停止命令早于本句柄登记到达），则消费该意图并返回 `true`，
-/// 表示这个轮次应当立即中止、不要开始。停止意图不会过期，必须被消费。
+/// 若同一请求号上留着「提交期取消」的标记，消费它并返回 `true`，表示这一轮不要开始生成。
+/// 标记按请求号命中：别的调度、别的轮次的标记不会影响这一次。
 fn register_inflight_chat_abort_handle(
     state: &AppState,
     chat_key: &str,
     handle: AbortHandle,
+    request_id: &str,
+    assistant_message_id: &str,
 ) -> Result<bool, String> {
     let mut inflight = state
         .inflight_chat_abort_handles
         .lock()
         .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
-    if matches!(
-        inflight.get(chat_key),
-        Some(InflightChatAbortEntry::StopRequested)
-    ) {
+    if let Some(InflightChatAbortEntry::CancelRequested {
+        request_id: cancelled_request_id,
+    }) = inflight.get(chat_key)
+    {
+        let cancelled = !request_id.trim().is_empty()
+            && cancelled_request_id.trim() == request_id.trim();
         inflight.remove(chat_key);
-        return Ok(true);
+        if cancelled {
+            return Ok(true);
+        }
     }
     if let Some(previous) = inflight.insert(
         chat_key.to_string(),
-        InflightChatAbortEntry::Running(handle),
+        InflightChatAbortEntry::Running {
+            handle,
+            request_id: request_id.trim().to_string(),
+            assistant_message_id: assistant_message_id.trim().to_string(),
+        },
     ) {
-        if let InflightChatAbortEntry::Running(previous) = previous {
-            previous.abort();
+        if let InflightChatAbortEntry::Running { handle, .. } = previous {
+            handle.abort();
         }
     }
     Ok(false)
 }
 
-/// 对指定会话发起停止。
+/// 对指定会话发起停止：只终止身份对得上的那个调度。
 ///
-/// 已有运行中句柄则中止并移除；尚无句柄（轮次还没登记）或已有停止意图，则留下/刷新停止意图。
-/// 两种情况都算「停止已受理」。
-fn request_stop_inflight_chat(state: &AppState, chat_key: &str) -> Result<bool, String> {
+/// - 该 key 上正跑着的调度与身份匹配 → 当场 abort 并移除，返回 `true`；
+/// - 该 key 上是别的调度 → 不动它，返回 `false`（含「另一个调度正在跑」的情况）；
+/// - 该 key 上什么都没有、但这次停止带了请求号 → 记下「取消这一次提交」，
+///   由这一次提交自己登记句柄时消费，返回 `true`；
+/// - 连请求号都没有 → 空操作，什么都不写。
+fn request_stop_inflight_chat(
+    state: &AppState,
+    chat_key: &str,
+    identity: &StopDispatchIdentity,
+) -> Result<bool, String> {
     let mut inflight = state
         .inflight_chat_abort_handles
         .lock()
         .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
     match inflight.remove(chat_key) {
-        Some(InflightChatAbortEntry::Running(handle)) => {
-            handle.abort();
-            Ok(true)
+        Some(InflightChatAbortEntry::Running {
+            handle,
+            request_id,
+            assistant_message_id,
+        }) => {
+            if identity.matches_running(&request_id, &assistant_message_id) {
+                handle.abort();
+                Ok(true)
+            } else {
+                // 不是这一次的调度：原样放回，绝不误伤。
+                inflight.insert(
+                    chat_key.to_string(),
+                    InflightChatAbortEntry::Running {
+                        handle,
+                        request_id,
+                        assistant_message_id,
+                    },
+                );
+                Ok(false)
+            }
         }
-        _ => {
+        Some(InflightChatAbortEntry::CancelRequested {
+            request_id: pending,
+        }) => {
+            let same_request = !identity.request_id.trim().is_empty()
+                && pending.trim() == identity.request_id.trim();
+            if !same_request {
+                inflight.insert(
+                    chat_key.to_string(),
+                    InflightChatAbortEntry::CancelRequested { request_id: pending },
+                );
+            }
+            Ok(same_request)
+        }
+        None => {
+            let request_id = identity.request_id.trim();
+            if request_id.is_empty() {
+                // 没有可指认的对象，也没有请求号：停止就是空操作。
+                return Ok(false);
+            }
             inflight.insert(
                 chat_key.to_string(),
-                InflightChatAbortEntry::StopRequested,
+                InflightChatAbortEntry::CancelRequested {
+                    request_id: request_id.to_string(),
+                },
             );
             Ok(true)
         }
     }
 }
 
-/// 消费并清除指定会话的停止意图；返回是否命中。
-///
-/// 用于「轮次已经确定被打断」的收尾点，避免意图残留并误伤后续轮次。
-fn take_inflight_chat_stop_intent(state: &AppState, chat_key: &str) -> Result<bool, String> {
-    let mut inflight = state
-        .inflight_chat_abort_handles
-        .lock()
-        .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
-    match inflight.get(chat_key) {
-        Some(InflightChatAbortEntry::StopRequested) => {
-            inflight.remove(chat_key);
-            Ok(true)
-        }
-        _ => Ok(false),
-    }
-}
-
-/// 清除指定会话的停止意图（陈旧意图清理）；已登记的运行句柄不受影响。
-fn clear_inflight_chat_stop_intent(state: &AppState, chat_key: &str) -> Result<(), String> {
+/// 清除指定会话的提交期取消标记；已登记的运行句柄不受影响。
+fn clear_inflight_chat_cancel_request(state: &AppState, chat_key: &str) -> Result<(), String> {
     let mut inflight = state
         .inflight_chat_abort_handles
         .lock()
         .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
     if matches!(
         inflight.get(chat_key),
-        Some(InflightChatAbortEntry::StopRequested)
+        Some(InflightChatAbortEntry::CancelRequested { .. })
     ) {
         inflight.remove(chat_key);
     }
     Ok(())
 }
 
-/// 清除某个会话上所有残留的停止意图（按会话 id 匹配 key 后缀）。
+/// 清除某个会话上所有残留的提交期取消标记（按会话 id 匹配 key 后缀）。
 ///
-/// 会话的批次已经收尾后，任何仍挂着的停止意图都失去了作用对象：它想打断的那一轮
-/// 已经结束或根本没开始。此时必须清掉，否则会误伤该会话后面真正的新轮次。
-fn clear_conversation_stop_intents(
+/// 会话这一批已经收尾：还挂着的取消标记说明它要取消的那次提交没有等到自己的轮次。
+/// 必须清掉，否则它会一直躺在共享表里，成为没人认领的残留。
+fn clear_conversation_cancel_requests(
     state: &AppState,
     conversation_id: &str,
 ) -> Result<usize, String> {
@@ -116,7 +182,7 @@ fn clear_conversation_stop_intents(
     let suffix = format!("::{conversation_id}");
     let mut stale_keys: Vec<String> = Vec::new();
     for (key, entry) in inflight.iter() {
-        if !matches!(entry, InflightChatAbortEntry::StopRequested) {
+        if !matches!(entry, InflightChatAbortEntry::CancelRequested { .. }) {
             continue;
         }
         if key.as_str() == conversation_id || key.ends_with(&suffix) {
@@ -130,8 +196,9 @@ fn clear_conversation_stop_intents(
     Ok(cleared)
 }
 
-/// 移除并中止指定会话正在运行的轮次句柄；命中返回 `true`。
-/// 该 key 上若只有停止意图，则保留意图（它针对的是尚未登记的轮次），返回 `false`。
+/// 移除并中止指定调度键上正在运行的轮次句柄；命中返回 `true`。
+/// 该键上若只有提交期取消标记，则原样保留（它针对的是尚未登记句柄的那次提交），返回 `false`。
+/// 这是「按会话键」的粗粒度打断，供委托/子调度等内部收尾使用；用户停止走 [`request_stop_inflight_chat`]。
 fn abort_running_inflight_chat(state: &AppState, chat_key: &str) -> Result<bool, String> {
     let mut inflight = state
         .inflight_chat_abort_handles
@@ -139,9 +206,9 @@ fn abort_running_inflight_chat(state: &AppState, chat_key: &str) -> Result<bool,
         .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
     if matches!(
         inflight.get(chat_key),
-        Some(InflightChatAbortEntry::Running(_))
+        Some(InflightChatAbortEntry::Running { .. })
     ) {
-        if let Some(InflightChatAbortEntry::Running(handle)) = inflight.remove(chat_key) {
+        if let Some(InflightChatAbortEntry::Running { handle, .. }) = inflight.remove(chat_key) {
             handle.abort();
         }
         return Ok(true);

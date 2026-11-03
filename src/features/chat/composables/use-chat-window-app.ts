@@ -899,15 +899,13 @@ export function useChatWindowApp() {
     await nextTick();
     try {
       for (const conversationId of idsToClose) {
-        await invokeTauri("chat.stop", {
-          input: {
-            session: {
-              apiConfigId: String(currentForegroundApiConfigId.value || "").trim(),
-              agentId: String(currentForegroundAgentId.value || "").trim(),
-              conversationId,
-            },
-            partialAssistantText: "",
-            partialStreamBlocks: [],
+        // 关闭追问是「整条会话不要了」：走中断命令让后台轮次真的停下，
+        // 而不是按身份停止某一次调度——这里拿不到在跑那一轮的身份。
+        await invokeTauri("chat.interrupt", {
+          session: {
+            apiConfigId: String(currentForegroundApiConfigId.value || "").trim(),
+            agentId: String(currentForegroundAgentId.value || "").trim(),
+            conversationId,
           },
         }).catch(() => {});
         await invokeTauri("conversation.delete", {

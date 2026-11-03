@@ -91,15 +91,7 @@
     include!("memory/tests.rs");
     include!("mcp/tests.rs");
 
-    // ==================== 打断入口：登记 / 停止意图互斥 ====================
-
-    fn insert_inflight_stop_intent(state: &AppState, chat_key: &str) {
-        let mut inflight = state
-            .inflight_chat_abort_handles
-            .lock()
-            .expect("lock inflight chat abort handles");
-        inflight.insert(chat_key.to_string(), InflightChatAbortEntry::StopRequested);
-    }
+    // ==================== 停止：按调度身份中止，不留跨轮次残留 ====================
 
     fn new_inflight_abort_handle() -> futures_util::future::AbortHandle {
         let (abortable, handle) = futures_util::future::abortable(async {});
@@ -107,40 +99,75 @@
         handle
     }
 
-    #[test]
-    fn register_inflight_chat_abort_handle_consumes_fresh_stop_intent() {
-        let state = test_chat_runtime_state();
-        let chat_key = "agent-1::conversation-1";
-        insert_inflight_stop_intent(&state, chat_key);
+    /// 构造一次停止请求要终止的调度身份。
+    fn stop_identity(request_id: &str, assistant_message_id: &str) -> StopDispatchIdentity {
+        StopDispatchIdentity {
+            request_id: request_id.to_string(),
+            activation_id: request_id.to_string(),
+            assistant_message_id: assistant_message_id.to_string(),
+        }
+    }
 
-        let stopped_before_start =
-            register_inflight_chat_abort_handle(&state, chat_key, new_inflight_abort_handle())
-                .expect("register inflight chat abort handle");
-        assert!(stopped_before_start, "停止意图必须让这一轮在开始前就中止");
-
+    fn inflight_has_running(state: &AppState, chat_key: &str) -> bool {
         let inflight = state
             .inflight_chat_abort_handles
             .lock()
             .expect("lock inflight chat abort handles");
-        assert!(
-            inflight.get(chat_key).is_none(),
-            "被消费的停止意图不应留下槽位"
-        );
+        matches!(
+            inflight.get(chat_key),
+            Some(InflightChatAbortEntry::Running { .. })
+        )
     }
 
     #[test]
-    fn register_inflight_chat_abort_handle_consumes_stop_intent_regardless_of_age() {
+    fn register_inflight_chat_abort_handle_consumes_matching_cancel_request() {
+        // 提交窗口：消息已发出、句柄还没登记，用户此刻按下停止。
+        // 停止只能落在「这一次提交」的请求号上，由这次提交登记时消费一次。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
-        insert_inflight_stop_intent(&state, chat_key);
 
-        // 停止意图没有过期语义：只要已经落下，就必须被接下来的这一轮消费。
-        let stopped_before_start =
-            register_inflight_chat_abort_handle(&state, chat_key, new_inflight_abort_handle())
-                .expect("register inflight chat abort handle");
+        assert!(
+            request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", ""))
+                .expect("request stop"),
+            "提交期停止要给这次提交留下取消标记"
+        );
+        let stopped_before_start = register_inflight_chat_abort_handle(
+            &state,
+            chat_key,
+            new_inflight_abort_handle(),
+            "req-1",
+            "assistant-1",
+        )
+        .expect("register inflight chat abort handle");
         assert!(
             stopped_before_start,
-            "停止意图不允许因为「时间久了」而失效"
+            "同请求号的提交必须被自己那次停止中止"
+        );
+        assert!(!inflight_has_running(&state, chat_key), "被中止的提交不应留下槽位");
+    }
+
+    #[test]
+    fn register_inflight_chat_abort_handle_ignores_cancel_request_of_other_request() {
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+
+        request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", ""))
+            .expect("request stop");
+        let stopped_before_start = register_inflight_chat_abort_handle(
+            &state,
+            chat_key,
+            new_inflight_abort_handle(),
+            "req-2",
+            "assistant-2",
+        )
+        .expect("register inflight chat abort handle");
+        assert!(
+            !stopped_before_start,
+            "别人的提交不能被这次提交的停止牵连"
+        );
+        assert!(
+            inflight_has_running(&state, chat_key),
+            "req-2 应当正常登记为运行中"
         );
     }
 
@@ -149,11 +176,12 @@
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
         let first = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, first.clone()).expect("register first");
+        register_inflight_chat_abort_handle(&state, chat_key, first.clone(), "req-1", "assistant-1")
+            .expect("register first");
 
         let second = new_inflight_abort_handle();
         let stopped_before_start =
-            register_inflight_chat_abort_handle(&state, chat_key, second.clone())
+            register_inflight_chat_abort_handle(&state, chat_key, second.clone(), "req-2", "assistant-2")
                 .expect("register second");
         assert!(!stopped_before_start);
         assert!(first.is_aborted(), "后登记的句柄必须中止前一个");
@@ -161,20 +189,28 @@
     }
 
     #[test]
-    fn clear_conversation_stop_intents_removes_stale_intents_only() {
+    fn clear_conversation_cancel_requests_removes_stale_requests_only() {
         let state = test_chat_runtime_state();
         let target_key = "agent-1::conversation-1";
         let other_key = "agent-1::conversation-2";
         let running_key = "agent-1::conversation-1::delegate";
-        insert_inflight_stop_intent(&state, target_key);
-        insert_inflight_stop_intent(&state, other_key);
+        request_stop_inflight_chat(&state, target_key, &stop_identity("req-1", ""))
+            .expect("request stop target");
+        request_stop_inflight_chat(&state, other_key, &stop_identity("req-2", ""))
+            .expect("request stop other");
         let running_handle = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, running_key, running_handle.clone())
-            .expect("register running");
+        register_inflight_chat_abort_handle(
+            &state,
+            running_key,
+            running_handle.clone(),
+            "req-3",
+            "assistant-3",
+        )
+        .expect("register running");
 
-        let cleared =
-            clear_conversation_stop_intents(&state, "conversation-1").expect("clear stop intents");
-        assert_eq!(cleared, 1, "只应清掉目标会话上残留的停止意图");
+        let cleared = clear_conversation_cancel_requests(&state, "conversation-1")
+            .expect("clear cancel requests");
+        assert_eq!(cleared, 1, "只应清掉目标会话上残留的提交期取消标记");
 
         let inflight = state
             .inflight_chat_abort_handles
@@ -183,24 +219,157 @@
         assert!(inflight.get(target_key).is_none());
         assert!(matches!(
             inflight.get(other_key),
-            Some(InflightChatAbortEntry::StopRequested)
+            Some(InflightChatAbortEntry::CancelRequested { .. })
         ));
         assert!(matches!(
             inflight.get(running_key),
-            Some(InflightChatAbortEntry::Running(_))
+            Some(InflightChatAbortEntry::Running { .. })
         ));
-        assert!(!running_handle.is_aborted(), "清理意图不应动运行中的句柄");
+        assert!(!running_handle.is_aborted(), "清理取消标记不应动运行中的句柄");
     }
 
     #[test]
     fn request_stop_inflight_chat_aborts_registered_round() {
+        // 停止一个正在跑的轮次：当场 abort，事后共享状态里不留任何残留。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
         let handle = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, handle.clone()).expect("register");
+        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+            .expect("register");
 
-        assert!(request_stop_inflight_chat(&state, chat_key).expect("request stop"));
+        assert!(
+            request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", "assistant-1"))
+                .expect("request stop")
+        );
         assert!(handle.is_aborted(), "已登记的轮次必须被立即中止");
+        let inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .expect("lock inflight chat abort handles");
+        assert!(inflight.get(chat_key).is_none(), "停止之后不得留下任何残留");
+    }
+
+    #[test]
+    fn request_stop_inflight_chat_matches_by_assistant_message_id() {
+        // 前端手上未必有请求号，但一定有本轮助理消息 id：只给消息 id 也要能精确命中。
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+        let handle = new_inflight_abort_handle();
+        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+            .expect("register");
+
+        let mut identity = stop_identity("", "");
+        identity.assistant_message_id = "assistant-1".to_string();
+        assert!(request_stop_inflight_chat(&state, chat_key, &identity).expect("request stop"));
+        assert!(handle.is_aborted());
+    }
+
+    #[test]
+    fn request_stop_inflight_chat_leaves_other_dispatch_untouched() {
+        // 不猜：带 A 身份停止，只中止 A；表里 B 那一份必须原样留着。
+        let state = test_chat_runtime_state();
+        let chat_key_b = "agent-1::conversation-1";
+        let handle_b = new_inflight_abort_handle();
+        register_inflight_chat_abort_handle(
+            &state,
+            chat_key_b,
+            handle_b.clone(),
+            "req-b",
+            "assistant-b",
+        )
+        .expect("register b");
+
+        assert!(
+            !request_stop_inflight_chat(&state, chat_key_b, &stop_identity("req-a", "assistant-a"))
+                .expect("request stop a"),
+            "身份对不上时停止必须落空"
+        );
+        assert!(!handle_b.is_aborted(), "另一个调度不得被误伤");
+        assert!(inflight_has_running(&state, chat_key_b), "B 必须仍在表里");
+    }
+
+    #[test]
+    fn request_stop_inflight_chat_records_cancel_for_pending_commit() {
+        // 提交窗口：句柄还没登记，停止按请求号记下取消；这一条只能被消费一次。
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+
+        assert!(
+            request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", ""))
+                .expect("request stop"),
+            "带请求号的停止要给这次提交留下取消标记"
+        );
+        assert!(
+            register_inflight_chat_abort_handle(
+                &state,
+                chat_key,
+                new_inflight_abort_handle(),
+                "req-1",
+                "assistant-1",
+            )
+            .expect("register"),
+            "同请求号的提交必须被中止"
+        );
+        assert!(
+            !inflight_has_running(&state, chat_key),
+            "取消标记只能被消费一次，且消费后不留槽位"
+        );
+    }
+
+    #[test]
+    fn request_stop_inflight_chat_after_round_finished_does_not_affect_next_round() {
+        // 现场：点停止时上一轮刚好收尾，句柄已经撤掉；用户紧接着发新消息，
+        // 新一轮必须照常登记、照常进入激活，不能被上一轮的停止残留吞掉。
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+
+        let finished = new_inflight_abort_handle();
+        register_inflight_chat_abort_handle(&state, chat_key, finished.clone(), "req-1", "assistant-1")
+            .expect("register previous round");
+        // 上一轮收尾：句柄被摘掉，之后停止才姗姗来迟。
+        state
+            .inflight_chat_abort_handles
+            .lock()
+            .expect("lock inflight chat abort handles")
+            .remove(chat_key);
+        // 表里已经没有可中止的对象，此刻它与「提交窗口里句柄尚未登记」在形态上完全一致，
+        // 后端无法也不该去猜。停止最多在 req-1 这个请求号上留一枚只能被同一个请求号
+        // 消费一次的取消标记——它指不到任何别的调度，也不会中止任何轮次。
+        request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", "assistant-1"))
+            .expect("late stop");
+
+        // 新一轮：请求号不同，必须照常登记、照常进入激活。
+        let next = new_inflight_abort_handle();
+        let stopped_before_start =
+            register_inflight_chat_abort_handle(&state, chat_key, next.clone(), "req-2", "assistant-2")
+                .expect("register next round");
+        assert!(!stopped_before_start, "新一轮不得被上一轮的停止中止");
+        assert!(!next.is_aborted(), "新一轮必须真正进入激活");
+        assert!(inflight_has_running(&state, chat_key), "新一轮必须正常登记");
+        let inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .expect("lock inflight chat abort handles");
+        assert!(
+            matches!(
+                inflight.get(chat_key),
+                Some(InflightChatAbortEntry::Running { request_id, .. }) if request_id == "req-2"
+            ),
+            "表里该键只能是新一轮自己，req-1 的标记不得残留"
+        );
+    }
+
+    #[test]
+    fn request_stop_inflight_chat_without_any_identity_touches_nothing() {
+        // 身份全空：前端都不知道在停谁，后端不许按会话猜，一个字节都不许写。
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+
+        assert!(
+            !request_stop_inflight_chat(&state, chat_key, &StopDispatchIdentity::default())
+                .expect("request stop"),
+            "没有身份的停止必须落空"
+        );
         let inflight = state
             .inflight_chat_abort_handles
             .lock()
@@ -209,52 +378,97 @@
     }
 
     #[test]
-    fn request_stop_inflight_chat_leaves_and_consumes_stop_intent() {
-        let state = test_chat_runtime_state();
-        let chat_key = "agent-1::conversation-1";
-
-        assert!(request_stop_inflight_chat(&state, chat_key).expect("request stop"));
-        assert!(
-            take_inflight_chat_stop_intent(&state, chat_key).expect("take stop intent"),
-            "尚无句柄时停止应留下意图"
-        );
-        assert!(
-            !take_inflight_chat_stop_intent(&state, chat_key).expect("take stop intent again"),
-            "停止意图只能被消费一次"
-        );
-    }
-
-    #[test]
-    fn clear_inflight_chat_stop_intent_keeps_running_handle() {
+    fn clear_inflight_chat_cancel_request_keeps_running_handle() {
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
         let handle = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, handle.clone()).expect("register");
+        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+            .expect("register");
 
-        clear_inflight_chat_stop_intent(&state, chat_key).expect("clear stop intent");
-        assert!(!handle.is_aborted(), "清理停止意图不应影响运行中的句柄");
+        clear_inflight_chat_cancel_request(&state, chat_key).expect("clear cancel request");
+        assert!(!handle.is_aborted(), "清理取消标记不应影响运行中的句柄");
+        assert!(inflight_has_running(&state, chat_key));
+    }
+
+    #[test]
+    fn abort_running_inflight_chat_preserves_cancel_request() {
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+        request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", ""))
+            .expect("request stop");
+
+        assert!(
+            !abort_running_inflight_chat(&state, chat_key).expect("abort running"),
+            "只有提交期取消标记时不应视为中止到运行中的轮次"
+        );
         let inflight = state
             .inflight_chat_abort_handles
             .lock()
             .expect("lock inflight chat abort handles");
-        assert!(matches!(
-            inflight.get(chat_key),
-            Some(InflightChatAbortEntry::Running(_))
-        ));
+        assert!(
+            matches!(
+                inflight.get(chat_key),
+                Some(InflightChatAbortEntry::CancelRequested { .. })
+            ),
+            "针对尚未登记句柄的那次提交的取消标记必须保留"
+        );
     }
 
     #[test]
-    fn abort_running_inflight_chat_preserves_stop_intent() {
+    fn sending_after_previous_round_stopped_must_activate_new_round() {
+        // 红豆报的原始时序：正在回复时点停止，紧接着发一条新消息。
+        // 断言的不是「某个函数被调用」，而是新消息真的走进了激活：本批跑完之后，
+        // 会话里出现了助理轮次（激活会先 bootstrap 助理消息），且结果不是「用户中止」。
         let state = test_chat_runtime_state();
-        let chat_key = "agent-1::conversation-1";
-        request_stop_inflight_chat(&state, chat_key).expect("request stop");
+        let conversation_id = "conversation-stop-then-send";
+        let now = now_iso();
+        let conversation = test_chat_conversation(conversation_id, "active", &now);
+        write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
+        let chat_key = inflight_chat_key(DEFAULT_AGENT_ID, Some(conversation_id));
 
+        // 上一轮：登记过句柄、已经收尾，停止姗姗来迟（就发生在同一秒内）。
+        let previous = new_inflight_abort_handle();
+        register_inflight_chat_abort_handle(
+            &state,
+            &chat_key,
+            previous.clone(),
+            "req-1",
+            "assistant-1",
+        )
+        .expect("register previous round");
+        state
+            .inflight_chat_abort_handles
+            .lock()
+            .expect("lock inflight chat abort handles")
+            .remove(&chat_key);
+        let _ = request_stop_inflight_chat(&state, &chat_key, &stop_identity("req-1", "assistant-1"))
+            .expect("late stop");
+
+        // 紧接着发出的新消息：它有自己的请求号，必须真的被激活。
+        let mut event = test_pending_event(conversation_id);
+        let mut runtime_context = runtime_context_new("user_message", "user_send");
+        runtime_context.request_id = Some("req-2".to_string());
+        event.runtime_context = Some(runtime_context);
+
+        let outcome = test_runtime().block_on(process_conversation_batch(
+            &state,
+            conversation_id,
+            vec![event],
+        ));
+        if let Err(err) = &outcome {
+            assert_ne!(
+                err, CHAT_ABORTED_BY_USER_ERROR,
+                "已经发出的用户消息不得被上一轮的停止吞掉"
+            );
+        }
+
+        let updated =
+            state_read_conversation_cached(&state, conversation_id).expect("read conversation");
         assert!(
-            !abort_running_inflight_chat(&state, chat_key).expect("abort running"),
-            "只有停止意图时不应视为中止到运行中的轮次"
-        );
-        assert!(
-            take_inflight_chat_stop_intent(&state, chat_key).expect("take stop intent"),
-            "针对尚未登记轮次的停止意图必须保留"
+            updated
+                .messages
+                .iter()
+                .any(|message| message.role.trim() == "assistant"),
+            "新消息必须真的激活出助理轮次；库里只有用户消息说明整轮没被激活"
         );
     }

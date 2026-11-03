@@ -268,16 +268,16 @@ async fn process_claimed_conversation_batch(
     // 只有这一批真的跑完了一轮助理回复，才算到了可审的最终态；失败、中止、未激活都不算。
     let round_completed = matches!(&batch_outcome, Ok(true));
     let result_ok = batch_outcome.is_ok();
-    // 该会话这一批已经收尾：还挂着的停止意图说明它想打断的那一轮没有出现
-    // （例如事件在登记轮次前就失败了）。清掉，避免误伤后面真正的新轮次。
-    match clear_conversation_stop_intents(state, conversation_id) {
+    // 该会话这一批已经收尾：还挂着的提交期取消说明它想打断的那次提交没有真正落地。
+    // 清掉，避免它在随后同请求号复用时把无关的调度打断。
+    match clear_conversation_cancel_requests(state, conversation_id) {
         Ok(cleared) if cleared > 0 => runtime_log_info(format!(
-            "[聊天调度] 清理残留停止意图，任务=clear_conversation_stop_intents，conversation_id={}，count={}",
+            "[聊天调度] 清理残留提交期取消，任务=clear_conversation_cancel_requests，conversation_id={}，count={}",
             conversation_id, cleared
         )),
         Ok(_) => {}
         Err(err) => runtime_log_warn(format!(
-            "[聊天调度] 清理残留停止意图失败，conversation_id={}，error={}",
+            "[聊天调度] 清理残留提交期取消失败，conversation_id={}，error={}",
             conversation_id, err
         )),
     }

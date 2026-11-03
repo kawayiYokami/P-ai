@@ -263,7 +263,15 @@ fn spawn_remote_im_departure_reflection_delegate(
         .inflight_chat_abort_handles
         .lock()
         .map_err(|_| "无法获取离场反思取消句柄锁".to_string())?
-        .insert(chat_key.clone(), InflightChatAbortEntry::Running(abort_handle));
+        .insert(
+            chat_key.clone(),
+            InflightChatAbortEntry::Running {
+                handle: abort_handle,
+                // 离场反思委托不是用户能停止的对象：不带身份，只供内部按 key 打断。
+                request_id: String::new(),
+                assistant_message_id: String::new(),
+            },
+        );
     tauri::async_runtime::spawn(async move {
         let delegate_id = delegate_for_task.delegate_id.clone();
         let result = futures_util::future::Abortable::new(

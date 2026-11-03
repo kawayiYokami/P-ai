@@ -89,6 +89,8 @@ type UseChatFlowSendControllerOptions = {
   isSendStopped?: (gen: number) => boolean;
   /** 清掉已消费的停止标记，避免集合随发送次数增长。 */
   clearSendStopped?: (gen: number) => void;
+  /** 记下这次发送使用的请求号，供提交期停止指认它。 */
+  recordSendRequestId?: (gen: number, requestId: string) => void;
   setActiveActivationId: (value: string) => void;
   setActiveRoundAgentId: (value: string) => void;
   setPendingTerminalEventNull: () => void;
@@ -167,6 +169,8 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
     const traceId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // 提交期停止要用这个请求号指认「这一次提交」，先记下来。
+    options.recordSendRequestId?.(gen, traceId);
     let queuedAssistantMessageId = "";
 
     if (!hasForegroundRoundInFlight) {

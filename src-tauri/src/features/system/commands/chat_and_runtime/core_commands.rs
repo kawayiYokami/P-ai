@@ -2261,6 +2261,19 @@ async fn stop_chat_message_inner(
         requested_conversation_id.as_deref(),
     );
 
+    // 停止请求要终止的对象身份：前端在收这条流，它知道自己在停谁。
+    // 三者任一即可精确命中；全空表示前端没给出对象，此时停止不做任何事（不按会话猜）。
+    let stop_identity = StopDispatchIdentity {
+        request_id: input.request_id.as_deref().unwrap_or("").trim().to_string(),
+        activation_id: input.activation_id.as_deref().unwrap_or("").trim().to_string(),
+        assistant_message_id: input
+            .assistant_message_id
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+    };
+
     // 收集所有与当前会话关联的 Inflight chat 句柄 key
     let matching_keys = {
         let inflight = state
@@ -2340,28 +2353,23 @@ async fn stop_chat_message_inner(
             // 会导致「停止指令到了却什么都没停下」。
             let mut any_aborted = false;
             for k in &matching_keys {
-                if abort_running_inflight_chat(state, k)? {
+                if request_stop_inflight_chat(state, k, &stop_identity)? {
                     any_aborted = true;
                 }
             }
             any_aborted
         }
     } else {
-        // 无流式内容，无需等待，直接硬打断；没有运行中句柄的 key 则留下停止意图。
-        // 只有该会话确实还有未完成的工作（处理中的声明或尚未开始的排队）时才留意图：
-        // 否则这条停止没有任何作用对象，留下的意图只会在之后误伤新发送。
-        let has_pending_work = requested_conversation_id
-            .as_deref()
-            .and_then(|cid| read_conversation_runtime_snapshot(state, cid).ok())
-            .map(|snapshot| snapshot.is_processing || snapshot.has_pending_queue)
-            .unwrap_or(true);
+        // 无流式内容，无需等待，直接按身份打断。
+        // 表里没有对得上的调度时，若这次停止带了请求号，就记下「取消这一次提交」，
+        // 由这一次提交登记句柄时消费一次；没带请求号则什么都不写——找不到对象就是空操作。
         let mut stop_keys = matching_keys.clone();
-        if has_pending_work && !stop_keys.iter().any(|k| k == &chat_key) {
+        if !stop_keys.iter().any(|k| k == &chat_key) {
             stop_keys.push(chat_key.clone());
         }
         let mut any_aborted = false;
         for k in &stop_keys {
-            if request_stop_inflight_chat(state, k)? {
+            if request_stop_inflight_chat(state, k, &stop_identity)? {
                 any_aborted = true;
             }
         }
@@ -2512,8 +2520,8 @@ fn interrupt_conversation_runtime_inner(
 
     let chat_key = inflight_chat_key(&agent_id, Some(conversation_id));
     let aborted_chat = abort_running_inflight_chat(state, &chat_key)?;
-    // 会话运行已整体中断，残留的停止意图一并清理，避免误伤下一次发送。
-    clear_inflight_chat_stop_intent(state, &chat_key)?;
+    // 会话运行已整体中断，残留的提交期取消一并清理，避免误伤下一次发送。
+    clear_inflight_chat_cancel_request(state, &chat_key)?;
     let aborted_tool = abort_inflight_tool_abort_handle(state, &chat_key)?;
     let aborted_delegate_children = abort_delegate_runtime_descendants_by_parent_context(
         state,

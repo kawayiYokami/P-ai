@@ -649,7 +649,7 @@ fn abort_remote_im_reply_delegate(
                 poisoned.into_inner()
             }
         };
-        if let Some(InflightChatAbortEntry::Running(handle)) = inflight.remove(&chat_key) {
+        if let Some(InflightChatAbortEntry::Running { handle, .. }) = inflight.remove(&chat_key) {
             handle.abort();
             true
         } else {

@@ -39,6 +39,10 @@ export type InvokeStopChatMessageInput = {
   session: ChatSendSession;
   partialAssistantText: string;
   partialStreamBlocks: AssistantStreamBlock[];
+  /** 要终止的那一次调度：三者任一即可指认；全空表示前端也不知道在停谁。 */
+  requestId?: string;
+  activationId?: string;
+  assistantMessageId?: string;
 };
 
 export type StopChatMessageResult = {
@@ -93,6 +97,9 @@ export function invokeStopChatMessage({
   session,
   partialAssistantText,
   partialStreamBlocks,
+  requestId,
+  activationId,
+  assistantMessageId,
 }: InvokeStopChatMessageInput): Promise<StopChatMessageResult> {
   return invokeTauri<StopChatMessageResult>("chat.stop", {
     input: {
@@ -103,6 +110,9 @@ export function invokeStopChatMessage({
       },
       partialAssistantText,
       partialStreamBlocks,
+      requestId,
+      activationId,
+      assistantMessageId,
     },
   });
 }

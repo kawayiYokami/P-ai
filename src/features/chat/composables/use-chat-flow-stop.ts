@@ -15,6 +15,9 @@ type UseChatFlowStopOptions = {
     session: { apiConfigId: string; agentId: string; conversationId?: string };
     partialAssistantText: string;
     partialStreamBlocks: AssistantStreamBlock[];
+    requestId?: string;
+    activationId?: string;
+    assistantMessageId?: string;
   }) => Promise<{
     aborted: boolean;
     persisted: boolean;
@@ -48,6 +51,8 @@ type UseChatFlowStopOptions = {
   // 提交期停止时该轮次还没有任何终态事件，需标记这次发送，避免 sendChat 返回后复活轮次。
   getSendChatActiveGen?: () => number;
   markSendStopped?: (gen: number) => void;
+  // 提交期停止要指认「那一次提交」：用它发送时生成的请求号（traceId）。
+  getSendRequestId?: (gen: number) => string;
   // 停止前冲刷流式文本缓冲，避免最后 100ms 的正文/思维链内容丢失。
   flushStreamTextBuffer: () => void;
 };
@@ -150,11 +155,15 @@ export function useChatFlowStop(options: UseChatFlowStopOptions) {
     // 先冲刷流式文本缓冲，让最后一段正文进入消息状态，再冻结轮次。
     options.flushStreamTextBuffer();
     const round = options.getRound();
-    // 提交期（发送请求尚未返回）也要能打断：这段时间轮次还没建立，
-    // 但后端会给该会话留下停止意图，由随后开始的这一轮消费。
-    // 这里不设任何前置门槛：前端无法可靠判断后端此刻在不在跑，
-    // 只要用户按了停止就把指令交出去，由后端决定中止哪一轮。
+    // 提交期（发送请求尚未返回）也要能打断：这段时间轮次还没建立，没有激活号可指认，
+    // 用这次发送自己的请求号（traceId）指认它。停止不带任何「留给下一轮」的东西。
+    // 这里不设前置门槛：前端无法可靠判断后端此刻在不在跑，
+    // 但前端知道自己正在收哪条流，所以停止必须带身份交给后端精确命中。
     const submitPending = !!options.submitPending?.value;
+    const pendingGen = options.getSendChatActiveGen ? options.getSendChatActiveGen() : 0;
+    const pendingRequestId = submitPending && pendingGen && options.getSendRequestId
+      ? String(options.getSendRequestId(pendingGen) || "").trim()
+      : "";
 
     const stopSession = options.getSession();
     const cid = options.getConversationId ? options.getConversationId() : "";
@@ -182,6 +191,11 @@ export function useChatFlowStop(options: UseChatFlowStopOptions) {
           session: cid ? { ...stopSession, conversationId: cid } : stopSession,
           partialAssistantText,
           partialStreamBlocks,
+          // 停止 = 终止我正在收流的那一个调度：提交期用请求号指认，
+          // 已经起流之后用激活号 + 本轮助理消息 id 指认。
+          requestId: pendingRequestId || undefined,
+          activationId: submitPending ? undefined : (stoppedRound.activationId || undefined),
+          assistantMessageId: submitPending ? undefined : (stoppedRound.messageId || undefined),
         });
         const finalMessage = resultMessageForStoppedRound(stoppedRound.messageId, result);
         if (finalMessage) {

@@ -98,6 +98,17 @@ struct StopChatRequest {
     partial_assistant_text: String,
     #[serde(default)]
     partial_stream_blocks: Vec<AssistantStreamBlock>,
+    /// 要终止的那个调度实例的标识。停止不是「按会话广播」的信号，必须指认具体对象：
+    /// - `request_id`：这一次提交/调度的请求号（提交期还没宣布轮次时也能指认）；
+    /// - `activation_id`：轮次宣布后广播的激活号；
+    /// - `assistant_message_id`：本轮正在写的那条助理消息。
+    /// 三者任一带上即可精确命中，全都不带则停止是空操作（找不到对象就什么都不做）。
+    #[serde(default)]
+    request_id: Option<String>,
+    #[serde(default)]
+    activation_id: Option<String>,
+    #[serde(default)]
+    assistant_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

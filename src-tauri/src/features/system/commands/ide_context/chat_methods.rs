@@ -890,6 +890,29 @@ async fn ide_chat_stop_message_command(state: &AppState, params: Value) -> Resul
     ide_chat_serialize(stop_chat_message_inner(input, state).await?)
 }
 
+/// 中断整个会话的运行（中止在跑的轮次与工具、清队列、运行态回 Idle）。
+///
+/// 这是「整条会话不要了」的动作，与按身份停止单个调度不同：关闭追问这类场景
+/// 拿不到某一次调度的身份，但确实要让它整条停下，走这里。
+async fn ide_chat_interrupt_conversation_runtime(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let session = ide_chat_parse_param_field::<SessionSelector>(params, "session")?;
+    let conversation_id = session
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Missing session.conversationId".to_string())?
+        .to_string();
+    ide_chat_serialize(interrupt_conversation_runtime_inner(
+        state,
+        &conversation_id,
+        Some(session.agent_id.as_str()),
+    )?)
+}
+
 async fn ide_chat_send_message(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<SendChatRequest>(params)?;
     let output = submit_chat_message_inner(input, state, None).await?;

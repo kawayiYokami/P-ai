@@ -78,6 +78,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
   const sendStartedAtMsByGen = new Map<number, number>();
   // 提交窗口内被停止的发送轮次；sendChat 返回后据此跳过轮次复活。
   const stoppedSendGens = new Set<number>();
+  // 每次发送使用的请求号，按 generation 记下；提交期停止靠它指认那一次提交。
+  const sendRequestIdByGen = new Map<number, string>();
   let activeHistoryMessageCount = 0;
   const {
     buildQueuedAttachmentPayload,
@@ -436,6 +438,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     markSendStopped: (gen) => {
       stoppedSendGens.add(gen);
     },
+    getSendRequestId: (gen) => sendRequestIdByGen.get(gen) || "",
   });
   const sendRecovery = useChatFlowSendRecovery({
     chatting: options.chatting,
@@ -533,6 +536,15 @@ export function useChatFlow(options: UseChatFlowOptions) {
     isSendStopped: (gen) => stoppedSendGens.has(gen),
     clearSendStopped: (gen) => {
       stoppedSendGens.delete(gen);
+    },
+    recordSendRequestId: (gen, requestId) => {
+      const normalized = String(requestId || "").trim();
+      if (!normalized) return;
+      // 只保留当下这次提交的请求号：更早的提交早已收口，不必再留着。
+      for (const key of Array.from(sendRequestIdByGen.keys())) {
+        if (key < gen) sendRequestIdByGen.delete(key);
+      }
+      sendRequestIdByGen.set(gen, normalized);
     },
     setActiveActivationId: (value) => {
       activeActivationId = value;

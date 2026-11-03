@@ -1406,8 +1406,14 @@ async fn send_chat_message_inner(
         .map(|delegate_id| format!("remote-im-reply-delegate::{delegate_id}"))
         .unwrap_or_else(|| default_chat_key.clone());
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
-    let stopped_before_start =
-        register_inflight_chat_abort_handle(state, &chat_key, abort_handle)?;
+    // 登记时带上本次调度的身份，停止请求按身份命中，不按会话猜。
+    let stopped_before_start = register_inflight_chat_abort_handle(
+        state,
+        &chat_key,
+        abort_handle,
+        trace_id.as_str(),
+        dispatch_assistant_message_id.as_str(),
+    )?;
     reset_inflight_completed_tool_history(state, &chat_key)?;
     let _ = abort_inflight_tool_abort_handle(state, &chat_key);
 
@@ -3117,7 +3123,16 @@ async fn send_chat_message_inner(
             .inflight_chat_abort_handles
             .lock()
             .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
-        inflight.remove(&chat_key);
+        // 只摘掉属于自己的那一条：同一 key 上可能已经被更晚的一次调度接手，
+        // 按 key 无脑删除会把别人的句柄一起摘掉，后面就再也停不掉那一轮了。
+        let is_ours = matches!(
+            inflight.get(&chat_key),
+            Some(InflightChatAbortEntry::Running { request_id, .. })
+                if request_id.trim() == trace_id.trim()
+        );
+        if is_ours {
+            inflight.remove(&chat_key);
+        }
     }
     if let Err(err) = clear_inflight_tool_abort_handle(state, &chat_key) {
         runtime_log_error(format!(
