@@ -1,7 +1,7 @@
 <template>
   <div class="relative flex h-full min-h-0 flex-col bg-base-100 text-base-content">
     <PanelTabStrip
-      v-if="showTabs"
+      v-if="showTabs && !(bareHtmlPreview && activeTab?.kind === 'html')"
       variant="file"
       :tabs="fileReaderPanelTabs"
       :active-key="activePath"
@@ -358,6 +358,7 @@
                 :title-text="activeTab.title"
                 :loading-text="t('fileReader.loadingFile')"
                 :reload-title="t('fileReader.refresh')"
+                :bare="bareHtmlPreview"
               />
             </div>
             <div
@@ -802,6 +803,8 @@ const props = withDefaults(defineProps<{
   sessionRootPath?: string;
   /** 透传给 Git 面板：面板内切换分支成功后按仓库目录同步会话的工作分支记录 */
   syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
+  /** 右栏预览 html 时铺满：隐藏标签栏与沙箱工具栏，让内容占满整个面板 */
+  bareHtmlPreview?: boolean;
 }>(), {
   showTabs: true,
   showPickFileButton: true,
@@ -814,6 +817,7 @@ const props = withDefaults(defineProps<{
   legacySessionKey: "",
   sessionRootPath: "",
   narrowOverlay: false,
+  bareHtmlPreview: false,
 });
 
 const emit = defineEmits<{

@@ -1,5 +1,8 @@
 <template>
-  <div class="flex h-full min-h-0 w-full flex-col overflow-auto px-4 py-4">
+  <div
+    class="flex h-full min-h-0 w-full flex-col"
+    :class="bare ? 'overflow-hidden' : 'overflow-auto px-4 py-4'"
+  >
     <!-- 复用聊天里的同一份沙箱：CSP、iframe sandbox、主题注入都由 buildSandboxSrcdoc 负责 -->
     <InteractiveHtmlSandbox
       :code="code"
@@ -7,6 +10,7 @@
       :title-text="titleText"
       :loading-text="loadingText"
       :reload-title="reloadTitle"
+      :bare="bare"
       class="min-w-0"
     />
   </div>
@@ -27,10 +31,13 @@ withDefaults(defineProps<{
   titleText?: string;
   loadingText?: string;
   reloadTitle?: string;
+  /** 铺满模式：右栏预览用，去掉内边距与工具栏，让内容占满整个面板 */
+  bare?: boolean;
 }>(), {
   isDark: false,
   titleText: "",
   loadingText: "",
   reloadTitle: "",
+  bare: false,
 });
 </script>

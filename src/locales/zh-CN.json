@@ -2637,6 +2637,26 @@
         "blocked": "阻塞",
         "done": "已完成"
       }
+    },
+    "questionPanel": {
+      "collapse": "收起",
+      "collapseHint": "收起问题面板；题目有更新时会自动展开",
+      "pendingCount": "{count} 个问题待答",
+      "empty": "暂无问题",
+      "confirmSuffix": "确认",
+      "backToEdit": "返回修改",
+      "submitting": "提交中...",
+      "confirmSubmit": "确认提交 {count} 题",
+      "reject": "放弃此问题",
+      "optionPlaceholderRequired": "补充说明（必填）",
+      "optionPlaceholderOptional": "补充说明（可选）",
+      "customAnswer": "其他",
+      "customAnswerPlaceholder": "自己写答案",
+      "confirm": "确定",
+      "customAnswerEmpty": "自己写的答案不能为空",
+      "optionRequiredEmpty": "请填写必填的补充说明",
+      "sending": "发送中...",
+      "sendSelected": "发送 {count} 题"
     }
   },
   "memory": {

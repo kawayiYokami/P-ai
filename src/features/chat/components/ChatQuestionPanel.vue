@@ -345,23 +345,19 @@ function handleReject() {
       @click="panelCollapsed = false"
     >
       <HelpCircle class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      <span class="min-w-0 truncate">{{ total }} 个问题待答</span>
-      <ChevronDown class="ml-auto h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span class="min-w-0 truncate">{{ t("chat.questionPanel.pendingCount", { count: total }) }}</span>
+      <ChevronUp class="ml-auto h-3.5 w-3.5 shrink-0" aria-hidden="true" />
     </button>
-    <!-- 收起入口放在面板自己头上，只过渡颜色，不做高度动画，免得推着输入框走 -->
-    <div v-if="!panelCollapsed" class="flex justify-end px-2">
-      <button
-        type="button"
-        class="btn btn-ghost btn-xs h-5 min-h-0 gap-1 px-1.5 text-xs font-normal text-base-content/50 hover:text-base-content"
-        title="收起问题面板；题目有更新时会自动展开"
-        @click="panelCollapsed = true"
-      >
-        收起
-        <ChevronUp class="h-3 w-3" aria-hidden="true" />
-      </button>
-    </div>
-    <!-- 提问卡：双层卡，前提内容放底卡露头，题干加选项放面卡 -->
-    <DoubleDeckCard v-if="!panelCollapsed" :extra-visible="hasExtra" :is-rounded="true" bg="base-200">
+    <!-- 提问卡：双层卡，前提内容放底卡露头，题干加选项放面卡。
+         收起不卸载卡片，走最大高度与透明度过渡，展开回来草稿与选中态都还在。 -->
+    <DoubleDeckCard
+      class="ecall-question-fold"
+      :class="panelCollapsed ? 'is-collapsed' : ''"
+      :extra-visible="hasExtra"
+      is-rounded
+      frameless
+      bg="base-200"
+    >
       <template #extra>
         <div v-if="total > 0" class="space-y-3 px-4 pb-1 pt-4">
           <!-- confirm overview: N>1 all answered，列表放露头 -->
@@ -412,7 +408,7 @@ function handleReject() {
       </template>
       <template #main>
         <div v-if="total === 0" class="px-2 py-8 text-center text-sm text-base-content/50">
-          暂无问题
+          {{ t("chat.questionPanel.empty") }}
         </div>
 
         <template v-else>
@@ -432,15 +428,15 @@ function handleReject() {
               </button>
               <span v-if="idx < items.length - 1" class="text-base-content/25">/</span>
             </template>
-            <span v-if="confirmStep" class="ml-1 text-base-content/35">· 确认</span>
+            <span v-if="confirmStep" class="ml-1 text-base-content/35">· {{ t("chat.questionPanel.confirmSuffix") }}</span>
           </nav>
 
           <div v-if="confirmStep" class="flex justify-end gap-2 px-2 py-1">
             <button type="button" class="btn btn-ghost btn-sm" :disabled="submitting" @click="confirmStep = false">
-              返回修改
+              {{ t("chat.questionPanel.backToEdit") }}
             </button>
             <button type="button" class="btn btn-primary btn-sm" :disabled="submitting || !allAnswered" @click="handleSubmitAll()">
-              {{ submitting ? "提交中..." : `确认提交 ${total} 题` }}
+              {{ submitting ? t("chat.questionPanel.submitting") : t("chat.questionPanel.confirmSubmit", { count: total }) }}
             </button>
           </div>
 
@@ -453,15 +449,6 @@ function handleReject() {
                   {{ currentItem.description }}
                 </div>
               </div>
-              <button
-                v-if="isManualSubmit"
-                type="button"
-                class="btn btn-ghost btn-sm shrink-0 text-error"
-                :disabled="submitting"
-                @click="handleReject"
-              >
-                拒绝回答
-              </button>
               <label
                 v-if="canRememberWorkspaceForCurrent"
                 class="flex shrink-0 cursor-pointer items-center gap-2 btn btn-ghost font-normal"
@@ -476,6 +463,15 @@ function handleReject() {
                 >
                 <span>{{ t("terminalApproval.rememberWorkspace") }}</span>
               </label>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs h-5 min-h-0 shrink-0 gap-1 px-1.5 text-xs font-normal text-base-content/50 hover:text-base-content"
+                :title="t('chat.questionPanel.collapseHint')"
+                @click="panelCollapsed = true"
+              >
+                {{ t("chat.questionPanel.collapse") }}
+                <ChevronDown class="h-3 w-3" aria-hidden="true" />
+              </button>
             </div>
           <template
             v-for="opt in [...currentOptions].sort((a, b) => {
@@ -500,7 +496,7 @@ function handleReject() {
                 :ref="(el) => setInputEl(opt.id, el)"
                 :value="getDraft(currentItem!.id, opt.id)"
                 type="text"
-                :placeholder="opt.placeholder ?? (opt.inputRequired ? '补充说明（必填）' : '补充说明（可选）')"
+                :placeholder="opt.placeholder ?? (opt.inputRequired ? t('chat.questionPanel.optionPlaceholderRequired') : t('chat.questionPanel.optionPlaceholderOptional'))"
                 class="input input-bordered input-sm join-item min-w-0 flex-1 text-sm"
                 :class="shakeOptionId === opt.id ? 'input-error animate-[shake_0.42s_ease]' : ''"
                 @input="setDraft(currentItem!.id, opt.id, ($event.target as HTMLInputElement).value)"
@@ -526,14 +522,14 @@ function handleReject() {
               :disabled="submitting"
               @click="handleStartCustomAnswer"
             >
-              其他（自己写）
+              {{ t("chat.questionPanel.customAnswer") }}
             </button>
             <div v-else class="join w-full">
               <input
                 :ref="setCustomAnswerInputEl"
                 :value="getCustomAnswerDraft(currentItem!.id)"
                 type="text"
-                placeholder="自己写答案"
+                :placeholder="t('chat.questionPanel.customAnswerPlaceholder')"
                 class="input input-bordered input-sm join-item min-w-0 flex-1 text-sm"
                 :class="shakeOptionId === CUSTOM_ANSWER_OPTION_ID ? 'input-error animate-[shake_0.42s_ease]' : ''"
                 @input="setCustomAnswerDraft(currentItem!.id, ($event.target as HTMLInputElement).value)"
@@ -545,24 +541,32 @@ function handleReject() {
                 :disabled="submitting"
                 @click="handleCustomAnswerConfirm"
               >
-                确定
+                {{ t("chat.questionPanel.confirm") }}
               </button>
             </div>
           </div>
           <div v-if="shakeOptionId" class="text-xs text-error">
-            {{ shakeOptionId === CUSTOM_ANSWER_OPTION_ID ? "自己写的答案不能为空" : "请填写必填的补充说明" }}
+            {{ shakeOptionId === CUSTOM_ANSWER_OPTION_ID ? t("chat.questionPanel.customAnswerEmpty") : t("chat.questionPanel.optionRequiredEmpty") }}
           </div>
           </div>
 
-          <!-- 手动发送：按钮常驻右下角，未选时是灰态，位置不跳 -->
-          <div v-if="isManualSubmit" class="flex items-center justify-end gap-2 px-2 pb-1 pt-2">
+          <!-- 手动发送：放弃此问题在左下角、发送在右下角，未选时发送是灰态，位置不跳 -->
+          <div v-if="isManualSubmit" class="flex items-center justify-between gap-2 px-2 pb-1 pt-2">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm font-normal text-base-content/60 hover:text-base-content"
+              :disabled="submitting"
+              @click="handleReject"
+            >
+              {{ t("chat.questionPanel.reject") }}
+            </button>
             <button
               type="button"
               class="btn btn-primary btn-sm"
               :disabled="submitting || selectedCount === 0"
               @click="handleSubmitSelected"
             >
-              {{ submitting ? "发送中..." : `发送 ${selectedCount} 题` }}
+              {{ submitting ? t("chat.questionPanel.sending") : t("chat.questionPanel.sendSelected", { count: selectedCount }) }}
             </button>
           </div>
         </template>
@@ -572,6 +576,19 @@ function handleReject() {
 </template>
 
 <style scoped>
+/* 收起/展开：卡片不卸载，靠最大高度与透明度过渡（时长由卡片根的 transition-all 提供） */
+.ecall-question-fold {
+  overflow: hidden;
+  max-height: 2000px;
+  opacity: 1;
+}
+
+.ecall-question-fold.is-collapsed {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* 选项文字沿项目既有混色口径（同 style.css 的 --ecall-md-link-color）：
    主色掺入正文色——浅色主题把主色压深、深色主题把主色提亮。
    内置深蓝主色 #1d5cc2 压在内置深色底 #2b2b2b 上读不清，这里只在本面板内纠正，

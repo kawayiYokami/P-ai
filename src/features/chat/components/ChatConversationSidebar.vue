@@ -480,9 +480,10 @@
             type="button"
             class="btn btn-ghost btn-xs h-7 min-h-7 w-7 min-w-7 p-0"
             :title="themeToggleTitle"
-            @click="toggleTheme"
+            @click="cycleThemeMode"
           >
-            <Sun v-if="!darkMode" class="h-4 w-4" />
+            <SunMoon v-if="themeMode === 'auto'" class="h-4 w-4" />
+            <Sun v-else-if="themeMode === 'light'" class="h-4 w-4" />
             <Moon v-else class="h-4 w-4" />
           </button>
           <button
@@ -643,7 +644,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
-import { Archive, Bell, Check, ChevronDown, ChevronRight, Clock, Folder, LayoutList, ListFilter, Moon, Search, Settings, SquarePen, Sun, UserRound } from "@lucide/vue";
+import { Archive, Bell, Check, ChevronDown, ChevronRight, Clock, Folder, LayoutList, ListFilter, Moon, Search, Settings, SquarePen, Sun, SunMoon, UserRound } from "@lucide/vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import ChatConversationItem from "./ChatConversationItem.vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
@@ -651,7 +652,7 @@ import { stripPreviewMarkdown, stripToolcallMarkers } from "../../../utils/chat-
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import { invokeTauri } from "../../../services/tauri-api";
 import { usePipelineStatus } from "../../shell/composables/use-pipeline-status";
-import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
+import { useAppTheme } from "../../shell/composables/use-app-theme";
 import ApiConfigPicker from "../../config/components/ApiConfigPicker.vue";
 import { formatConversationListTime } from "../utils/conversation-time";
 import {
@@ -743,11 +744,23 @@ const emit = defineEmits<{
 }>();
 
 const { t, locale } = useI18n();
-const { currentTheme, toggleTheme } = useAppTheme();
-const darkMode = computed(() => isDarkAppTheme(currentTheme.value));
-const themeToggleTitle = computed(() =>
-  darkMode.value ? t("appearance.switchToLight") : t("appearance.switchToDark"),
-);
+const { themeMode, setThemeMode } = useAppTheme();
+
+/**
+ * 侧栏底部的主题按钮：三态循环，自动 → 明 → 暗 → 自动。
+ * 只在明暗之间翻的话，自动档永远没有入口，等于白做。
+ */
+const THEME_MODE_CYCLE = ["auto", "light", "dark"] as const;
+const themeToggleTitle = computed(() => {
+  if (themeMode.value === "auto") return t("appearance.displayMode.auto");
+  return themeMode.value === "dark" ? t("appearance.displayMode.dark") : t("appearance.displayMode.light");
+});
+
+function cycleThemeMode() {
+  const index = THEME_MODE_CYCLE.indexOf(themeMode.value as (typeof THEME_MODE_CYCLE)[number]);
+  const next = THEME_MODE_CYCLE[(index + 1) % THEME_MODE_CYCLE.length];
+  setThemeMode(next);
+}
 /** 头像上拉菜单：DaisyUI dropdown 依赖焦点开合，选中菜单项后主动失焦收起 */
 function closeUserMenu(event: MouseEvent) {
   (event.currentTarget as HTMLElement | null)?.closest(".dropdown")

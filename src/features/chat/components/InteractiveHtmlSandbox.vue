@@ -1,6 +1,6 @@
 <template>
-  <div class="ecall-sandbox-card" :class="{ 'ecall-sandbox-card-dark': isDark }">
-    <div class="ecall-sandbox-toolbar">
+  <div class="ecall-sandbox-card" :class="{ 'ecall-sandbox-card-dark': isDark, 'ecall-sandbox-bare': bare }">
+    <div v-if="!bare" class="ecall-sandbox-toolbar">
       <div class="ecall-sandbox-title-slot">
         <input
           v-if="editingUrl"
@@ -169,6 +169,11 @@ const props = withDefaults(defineProps<{
    * 只由聊天侧显式给值——右栏自己渲染（FileReaderHtmlPreview）不传，因此那边不会出现这个按钮。
    */
   openInReaderTitle?: string;
+  /**
+   * 铺满模式：不渲染工具栏，舞台与 iframe 撑满父容器。
+   * 由右栏预览打开——那里不需要标题栏与按钮，内容本身就该占满整个面板。
+   */
+  bare?: boolean;
 }>(), {
   isDark: false,
   titleText: "交互组件",
@@ -180,6 +185,7 @@ const props = withDefaults(defineProps<{
   copiedText: "已复制",
   exportTitle: "导出为 HTML",
   openInReaderTitle: "",
+  bare: false,
 });
 
 const emit = defineEmits<{
@@ -217,6 +223,7 @@ const srcdoc = computed(() =>
 );
 
 const frameStyle = computed(() => {
+  if (props.bare) return { height: "100%" };
   if (heightOverflow.value) return { height: `${SANDBOX_MAX_HEIGHT}px` };
   const height = Math.max(frameHeight.value, SANDBOX_MIN_HEIGHT);
   return { height: `${height}px` };
@@ -441,6 +448,27 @@ onBeforeUnmount(() => {
   position: relative;
   margin: 0.25rem 0;
   max-width: 100%;
+}
+
+/* 铺满模式（右栏预览）：去掉外边距与工具栏，舞台与 iframe 一起撑满容器 */
+.ecall-sandbox-bare {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+}
+
+.ecall-sandbox-bare .ecall-sandbox-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.ecall-sandbox-bare .ecall-sandbox-frame {
+  height: 100%;
+  min-height: 0;
 }
 
 .ecall-sandbox-toolbar {

@@ -2637,6 +2637,26 @@
         "blocked": "Blocked",
         "done": "Done"
       }
+    },
+    "questionPanel": {
+      "collapse": "Collapse",
+      "collapseHint": "Collapse the question panel; it expands again when questions update",
+      "pendingCount": "{count} questions pending",
+      "empty": "No questions",
+      "confirmSuffix": "Confirm",
+      "backToEdit": "Back to edit",
+      "submitting": "Submitting...",
+      "confirmSubmit": "Submit {count} questions",
+      "reject": "Give up this question",
+      "optionPlaceholderRequired": "Additional note (required)",
+      "optionPlaceholderOptional": "Additional note (optional)",
+      "customAnswer": "Other",
+      "customAnswerPlaceholder": "Write your own answer",
+      "confirm": "OK",
+      "customAnswerEmpty": "Your own answer cannot be empty",
+      "optionRequiredEmpty": "Fill in the required note",
+      "sending": "Sending...",
+      "sendSelected": "Send {count} questions"
     }
   },
   "memory": {

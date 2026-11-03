@@ -2631,6 +2631,26 @@
         "blocked": "阻塞",
         "done": "已完成"
       }
+    },
+    "questionPanel": {
+      "collapse": "收合",
+      "collapseHint": "收合問題面板；題目有更新時會自動展開",
+      "pendingCount": "{count} 個問題待答",
+      "empty": "暫無問題",
+      "confirmSuffix": "確認",
+      "backToEdit": "返回修改",
+      "submitting": "提交中...",
+      "confirmSubmit": "確認提交 {count} 題",
+      "reject": "放棄此問題",
+      "optionPlaceholderRequired": "補充說明（必填）",
+      "optionPlaceholderOptional": "補充說明（選填）",
+      "customAnswer": "其他",
+      "customAnswerPlaceholder": "自行輸入答案",
+      "confirm": "確定",
+      "customAnswerEmpty": "自行輸入的答案不能為空",
+      "optionRequiredEmpty": "請填寫必填的補充說明",
+      "sending": "傳送中...",
+      "sendSelected": "傳送 {count} 題"
     }
   },
   "memory": {

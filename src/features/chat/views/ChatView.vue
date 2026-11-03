@@ -90,7 +90,7 @@
           </Transition>
           <div
             ref="scrollContainer"
-            class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0 py-3"
+            class="ecall-chat-scroll-container ecall-fade-bottom relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0 py-3"
             :class="chatting || frozen || conversationInteractionBusy ? 'pointer-events-auto' : ''"
             :data-chat-interaction-locked="chatting || frozen || conversationInteractionBusy ? 'true' : undefined"
             @scroll="handleConversationScroll"
@@ -815,6 +815,7 @@
           :legacy-session-key="legacyChatFileReaderSessionKey"
           :enable-global-drop="false"
           :show-pick-file-button="false"
+          bare-html-preview
           :show-tab-local-file-actions="true"
           :markdown-is-dark="markdownIsDark"
           custom-markstream-id="chat-file-reader-markstream"

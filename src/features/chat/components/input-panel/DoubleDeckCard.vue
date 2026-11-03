@@ -42,10 +42,13 @@ const props = withDefaults(defineProps<{
   extraVisible?: boolean;
   isRounded?: boolean;
   bg?: "base-100" | "base-200" | "base-300";
+  /** 圆角卡但不画描边与投影：问题卡本身就在底卡区域内，不需要再围一圈线 */
+  frameless?: boolean;
 }>(), {
   extraVisible: false,
   isRounded: false,
   bg: "base-200",
+  frameless: false,
 });
 
 const bgClass = computed(() => {
@@ -54,11 +57,12 @@ const bgClass = computed(() => {
   return "double-deck-bg-base-200";
 });
 
-const roundedClass = computed(() =>
-  props.isRounded
-    ? "rounded-[20px] border border-base-300 shadow-xl"
-    : "rounded-none border-0 border-t border-base-300 shadow-none",
-);
+const roundedClass = computed(() => {
+  if (!props.isRounded) return "rounded-none border-0 border-t border-base-300 shadow-none";
+  return props.frameless
+    ? "rounded-[20px] shadow-none"
+    : "rounded-[20px] border border-base-300 shadow-xl";
+});
 
 const mainClass = computed(() => {
   const classes: string[] = [];
