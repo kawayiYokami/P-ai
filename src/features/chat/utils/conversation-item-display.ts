@@ -2,7 +2,14 @@ import type { ChatConversationOverviewItem, ConversationPreviewMessage } from ".
 
 // ==================== 会话项展示判定（纯函数，供 ChatConversationItem 与 Sidebar 共用） ====================
 
-export type ConversationItemLevel = "full" | "sim" | "mini";
+/**
+ * 会话项档位：
+ *   full   完整项——头像 + 标题 + 摘要两行，本地列表默认形态
+ *   sim    简单两行——无头像，标题 + 摘要
+ *   mini   简单一行——无头像，只有标题
+ *   remote 远程视图——负责人头像 + 标题，单行，不带摘要
+ */
+export type ConversationItemLevel = "full" | "sim" | "mini" | "remote";
 
 /**
  * 天起点：凌晨 4 点。当前时刻未到 4 点时，天起点回退到前一天 4 点。

@@ -52,7 +52,7 @@
                 <template v-for="item in section.visibleItems" :key="item.conversationId">
                   <ChatConversationItem
                     :item="item"
-                    :level="isSimpleConversationRows ? simpleConversationItemLevel(item) : 'full'"
+                    level="remote"
                     :active-conversation-id="props.activeConversationId"
                     :user-alias="props.userAlias"
                     :user-avatar-url="props.userAvatarUrl"

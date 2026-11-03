@@ -6,7 +6,8 @@
     @pointerup="handleCardPointerUp"
     @pointerleave="handleCardPointerLeave"
   >
-    <!-- 会话项统一模板：level 决定差异（full 头像 / sim+mini 无左指示，full+sim 两行 / mini 一行） -->
+    <!-- 会话项统一模板：level 决定差异（full 发言者头像、sim/mini 无左指示、remote 负责人头像；
+         full/sim 两行带摘要，mini/remote 单行只有标题） -->
     <div
       class="group/item flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-1 text-left transition-[background-color,box-shadow,transform] duration-200 ease-out"
       :class="[
@@ -49,8 +50,26 @@
           </div>
         </div>
       </template>
+      <!-- 远程视图：左侧只放负责人头像，不带来源徽章。
+           列宽沿用分组前导宽度以保证各层级标题左缘对齐（那一档是按 40px 头像算的），
+           头像是 24px，所以靠右放、让多出来的空白留在头像左侧，而不是夹在头像与标题之间 -->
+      <template v-else-if="level === 'remote'">
+        <div class="flex shrink-0 items-center justify-end" :style="leadColumnStyle">
+          <div class="avatar">
+            <div class="flex h-6 w-6 items-center justify-center rounded-full bg-neutral text-neutral-content">
+              <img
+                v-if="ownerAvatarUrl"
+                :src="ownerAvatarUrl"
+                :alt="ownerLabel"
+                class="h-6 w-6 rounded-full object-cover"
+              />
+              <span v-else class="text-micro font-bold">{{ ownerInitial }}</span>
+            </div>
+          </div>
+        </div>
+      </template>
       <span v-else class="relative shrink-0 self-stretch" :style="leadColumnStyle" aria-hidden="true"></span>
-      <!-- 右侧：第一行标题 + 时间，第二行摘要 + 状态区（full/sim 有，mini 无） -->
+      <!-- 右侧：第一行标题 + 时间，第二行摘要 + 状态区（只有 full/sim 有第二行） -->
       <div class="min-w-0 flex-1">
           <div class="flex items-baseline justify-between gap-1.5">
             <div class="flex min-w-0 items-center gap-1.5">
@@ -86,7 +105,7 @@
             </div>
           </div>
 
-          <div v-if="level !== 'mini'" class="mt-1 flex items-center justify-between gap-2 text-xs">
+          <div v-if="level === 'full' || level === 'sim'" class="mt-1 flex items-center justify-between gap-2 text-xs">
             <div class="flex min-w-0 items-center gap-1.5">
               <span
                 v-if="busy"
@@ -425,6 +444,23 @@ const displaySpeakerAvatarUrl = computed(() => {
 });
 
 const isConversationVisuallyOccupied = computed(() => false);
+
+// ==================== 远程视图：负责人头像 ====================
+
+/** 远程会话的负责人＝这条会话归属的人格，与「最后发言者」不是一回事 */
+const ownerLabel = computed(() => {
+  const agentId = String(props.item.agentId || "").trim();
+  if (!agentId) return t("chat.untitledConversation");
+  return props.personaNameMap?.[agentId] || agentId;
+});
+
+const ownerInitial = computed(() => ownerLabel.value.charAt(0).toUpperCase() || "?");
+
+const ownerAvatarUrl = computed(() => {
+  const agentId = String(props.item.agentId || "").trim();
+  if (!agentId) return "";
+  return props.personaAvatarUrlMap?.[agentId] || "";
+});
 
 const sourceBadgeLabel = computed(() => {
   if (props.item.kind === "remote_im_contact") {
