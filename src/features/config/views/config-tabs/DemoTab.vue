@@ -18,6 +18,7 @@
           <option value="conversation-list">列表卡画廊</option>
             <option value="conversation-item">会话条目（状态×未读）</option>
             <option value="chat-message">消息项（队伍消息气泡）</option>
+            <option value="thinking-and-tools">思考与工具（折叠块 + 300TPS 流式压测）</option>
             <option value="composer">输入面板新结构</option>
             <option value="double-deck">双层卡（DoubleDeck）</option>
             <option value="thinking-preview">思考预览 bar</option>
@@ -325,6 +326,20 @@
           <p class="text-sm text-base-content/70">队伍消息就是一条普通 assistant 消息：头像、人格名、时间、正文按 markdown 渲染。邮件本身拼成一段 markdown，标题在 <code>&lt;summary&gt;</code> 里、正文与状态行在折叠体内，默认收起。与上一条普通消息对照看，气泡形态完全一致，多出来的只是标题那一行可点开。</p>
         </div>
         <ChatMessageItemDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'thinking-and-tools'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">思考与工具（折叠块样本 + 流式压测）</h3>
+          <p class="text-sm text-base-content/70">
+            直接渲染真实 <code>ChatMessageItem</code>，展示块由 <code>useChatMessageBlocks</code> 从模拟消息派生——派生与渲染两段都是产品代码，这里只换数据。
+            上面是形态样本：长思维链、三种工具形态、正文代码块与表格，以及跑完 / 正在跑 / 失败中断三种状态；
+            下面是流式压测，按时间表往真实消息的正文里逐帧追加字符，默认 300 TPS / 200K，可暂停与重置。
+          </p>
+        </div>
+        <ChatThinkingAndToolsDemo />
       </div>
     </div>
 
@@ -805,6 +820,7 @@ import HomeCardGalleryDemo from "../../../chat/components/HomeCardGalleryDemo.vu
 import ChatConversationListGalleryDemo from "../../../chat/components/ChatConversationListGalleryDemo.vue";
 import ChatConversationItemDemo from "../../../chat/components/ChatConversationItemDemo.vue";
 import ChatMessageItemDemo from "../../../chat/components/ChatMessageItemDemo.vue";
+import ChatThinkingAndToolsDemo from "../../../chat/components/ChatThinkingAndToolsDemo.vue";
 import ConfigCardsGalleryDemo from "../../components/ConfigCardsGalleryDemo.vue";
 import QuickModelUnavailableCardDemo from "../../components/QuickModelUnavailableCardDemo.vue";
 import SettingsShellGalleryDemo from "../../components/SettingsShellGalleryDemo.vue";
@@ -888,7 +904,7 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
 
 // bare 模式下把内容高度写进标题，便于无头截图按内容高度精确裁剪。
 onMounted(() => {
@@ -920,6 +936,7 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "conversation-list") return "列表卡画廊";
   if (demoComponentKey.value === "conversation-item") return "会话条目（状态×未读）";
   if (demoComponentKey.value === "chat-message") return "消息项（队伍消息气泡）";
+  if (demoComponentKey.value === "thinking-and-tools") return "思考与工具（折叠块 + 流式压测）";
   if (demoComponentKey.value === "composer") return "输入面板新结构";
   if (demoComponentKey.value === "question") return "提问卡";
   if (demoComponentKey.value === "question-tool") return "会话提问（question 工具）";
