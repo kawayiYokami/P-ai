@@ -49,6 +49,8 @@ const CONVERSATION_KIND_SIDE_CHAT: &str = "side_chat";
 const CONVERSATION_KIND_SYSTEM_NOTIFICATION: &str = "system_notification";
 const CONVERSATION_KIND_DELEGATE: &str = "delegate";
 const CONVERSATION_KIND_REMOTE_IM_CONTACT: &str = "remote_im_contact";
+/// 由 ACP 协议创建并驱动的会话。能力判定与 IM 私聊同级：不属于本地主会话，不进本地对话列表。
+const CONVERSATION_KIND_ACP: &str = "acp";
 const DEFAULT_RESPONSE_STYLE_ID: &str = "concise";
 const DEFAULT_PDF_READ_MODE: &str = "image";
 const DEFAULT_BACKGROUND_VOICE_SCREENSHOT_MODE: &str = "focused_window";

@@ -5466,6 +5466,57 @@
         assert_eq!(after.last_message_id.as_deref(), Some("msg-3"));
     }
 
+    /// 新建入口只接受 acp 一个会话类型；其他取值一律忽略，落回普通会话。
+    #[tokio::test]
+    async fn create_conversation_should_whitelist_acp_conversation_kind() {
+        let state = test_chat_runtime_state();
+        let create_with_kind = |kind: Option<&str>, title: &str| -> String {
+            let created = conversation_service_v2()
+                .create_conversation(
+                    &state,
+                    &CreateUnarchivedConversationInput {
+                        api_config_id: None,
+                        agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+                        title: Some(title.to_string()),
+                        copy_source_conversation_id: None,
+                        shell_workspaces: None,
+                        shell_work_mode: None,
+                        shell_work_branch: None,
+                        shell_autonomous_mode: None,
+                        conversation_kind: kind.map(str::to_string),
+                        is_draft: Some(false),
+                    },
+                )
+                .expect("create conversation");
+            state_read_conversation_cached(&state, &created.conversation_id)
+                .expect("created conversation should exist")
+                .conversation_kind
+        };
+
+        assert_eq!(
+            create_with_kind(Some(CONVERSATION_KIND_ACP), "ACP 会话").as_str(),
+            CONVERSATION_KIND_ACP
+        );
+        // 传 chat、其他真实类型或伪造串，都不能改写会话类型。
+        for forged in [
+            CONVERSATION_KIND_CHAT,
+            CONVERSATION_KIND_DELEGATE,
+            CONVERSATION_KIND_REMOTE_IM_CONTACT,
+            "random-kind",
+            "  ACP  ",
+        ] {
+            assert_eq!(
+                create_with_kind(Some(forged), "伪造类型").as_str(),
+                CONVERSATION_KIND_CHAT,
+                "传入 {forged:?} 应被忽略"
+            );
+        }
+        assert_eq!(
+            create_with_kind(None, "未指定").as_str(),
+            CONVERSATION_KIND_CHAT
+        );
+    }
+
     #[tokio::test]
     async fn conversation_service_v2_should_create_and_delete_conversation() {
         let state = test_chat_runtime_state();
@@ -5487,7 +5538,7 @@
                     shell_work_mode: Some("isolated_worktree".to_string()),
                     shell_work_branch: None,
                     shell_autonomous_mode: None,
-                    is_draft: Some(false),
+                    is_draft: Some(false), conversation_kind: None,
                 },
             )
             .expect("create conversation through v2");
@@ -5631,7 +5682,7 @@
                     shell_work_mode: None,
                     shell_work_branch: None,
                     shell_autonomous_mode: None,
-                    is_draft: Some(true),
+                    is_draft: Some(true), conversation_kind: None,
                 },
             )
             .expect("create draft with fallback defaults");
@@ -5687,7 +5738,7 @@
                     shell_work_mode: None,
                     shell_work_branch: None,
                     shell_autonomous_mode: None,
-                    is_draft: Some(true),
+                    is_draft: Some(true), conversation_kind: None,
                 },
             )
             .expect("draft creation must not fail on a dangling assistant agent id");
@@ -5733,7 +5784,7 @@
                     shell_work_mode: None,
                     shell_work_branch: None,
                     shell_autonomous_mode: None,
-                    is_draft: Some(true),
+                    is_draft: Some(true), conversation_kind: None,
                 },
             )
             .expect("create draft with explicit inherited agent");
@@ -5768,7 +5819,7 @@
                     shell_work_mode: None,
                     shell_work_branch: None,
                     shell_autonomous_mode: None,
-                    is_draft: None,
+                    is_draft: None, conversation_kind: None,
                 },
             )
             .expect("create normal conversation");
@@ -5804,7 +5855,7 @@
                     shell_work_mode: None,
                     shell_work_branch: None,
                     shell_autonomous_mode: None,
-                    is_draft: Some(true),
+                    is_draft: Some(true), conversation_kind: None,
                 },
             )
             .expect("create draft with fallback defaults");
@@ -5869,7 +5920,7 @@
                     shell_work_mode: None,
                     shell_work_branch: None,
                     shell_autonomous_mode: None,
-                    is_draft: Some(true),
+                    is_draft: Some(true), conversation_kind: None,
                 },
             )
             .expect("create draft conversation");
@@ -5929,7 +5980,7 @@
                     shell_work_mode: Some(SHELL_WORK_MODE_INDEPENDENT_WORKTREE.to_string()),
                     shell_work_branch: None,
                     shell_autonomous_mode: None,
-                    is_draft: Some(false),
+                    is_draft: Some(false), conversation_kind: None,
                 },
             )
             .expect("create independent worktree conversation");
@@ -5970,7 +6021,7 @@
                 shell_work_mode: Some(SHELL_WORK_MODE_ISOLATED_WORKTREE.to_string()),
                 shell_work_branch: None,
                 shell_autonomous_mode: None,
-                is_draft: Some(false),
+                is_draft: Some(false), conversation_kind: None,
             },
         );
 
@@ -6008,7 +6059,7 @@
                 shell_work_mode: Some(SHELL_WORK_MODE_INDEPENDENT_WORKTREE.to_string()),
                 shell_work_branch: None,
                 shell_autonomous_mode: None,
-                is_draft: Some(false),
+                is_draft: Some(false), conversation_kind: None,
             },
         );
 

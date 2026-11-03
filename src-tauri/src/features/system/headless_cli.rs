@@ -298,7 +298,7 @@ async fn headless_cli_run_once(args: HeadlessCliArgs) -> Result<(), String> {
             shell_work_mode: None,
             shell_work_branch: None,
             shell_autonomous_mode: None,
-            is_draft: None,
+            is_draft: None, conversation_kind: None,
         },
         &state,
     )

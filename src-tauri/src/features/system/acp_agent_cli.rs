@@ -488,6 +488,7 @@ async fn acp_handle_new_session(
             shell_work_mode: None,
             shell_work_branch: None,
             shell_autonomous_mode: None,
+            conversation_kind: Some(CONVERSATION_KIND_ACP.to_string()),
             is_draft: None,
         },
         &state,

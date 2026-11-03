@@ -1212,7 +1212,7 @@ fn list_unarchived_conversations_blocking(
         shell_workspaces: None,
         shell_work_mode: None,        shell_work_branch: None,
         shell_autonomous_mode: None,
-        is_draft: None,
+        is_draft: None, conversation_kind: None,
     };
     let result = conversation_service_v2().create_conversation(state, &create_input)?;
     let _ = emit_unarchived_conversation_overview_item_updated_from_state(

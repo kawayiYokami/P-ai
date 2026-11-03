@@ -693,6 +693,9 @@ struct CreateUnarchivedConversationInput {
     shell_work_branch: Option<String>,
     #[serde(default)]
     shell_autonomous_mode: Option<bool>,
+    /// 新建会话的类型；当前只接受 acp，用于把 ACP 协议创建的会话与本地会话区分开
+    #[serde(default)]
+    conversation_kind: Option<String>,
     /// true 时创建会话草稿：允许缺省人格，走系统默认；草稿不进入常规新建流程
     #[serde(default)]
     is_draft: Option<bool>,
@@ -1460,7 +1463,7 @@ async fn open_draft_conversation_inner(
                 shell_work_mode,
                 shell_work_branch: None,
                 shell_autonomous_mode,
-                is_draft: Some(true),
+                is_draft: Some(true), conversation_kind: None,
             };
             let result = conversation_service_v2().create_conversation(&app_state, &input)?;
             runtime_log_info(format!(
@@ -1828,7 +1831,7 @@ fn import_conversation_share_from_file(
         shell_work_mode: input.shell_work_mode.clone(),
         shell_work_branch: None,
         shell_autonomous_mode: input.shell_autonomous_mode,
-        is_draft: None,
+        is_draft: None, conversation_kind: None,
     };
     let result = conversation_service_v2().create_conversation(state.inner(), &create_input)?;
     let conversation_id = result.conversation_id.clone();
@@ -1946,7 +1949,7 @@ async fn branch_unarchived_conversation_from_current_internal(
         shell_work_mode: None,
         shell_work_branch: None,
         shell_autonomous_mode: None,
-        is_draft: None,
+        is_draft: None, conversation_kind: None,
     };
     let create_result = conversation_service_v2().create_conversation(state, &create_input)?;
     let conversation_id = create_result.conversation_id.clone();
@@ -2023,7 +2026,7 @@ async fn create_conversation_branch_from_message_internal(
         shell_work_mode: None,
         shell_work_branch: None,
         shell_autonomous_mode: None,
-        is_draft: None,
+        is_draft: None, conversation_kind: None,
     };
     let create_result = conversation_service_v2().create_conversation(state, &create_input)?;
     let conversation_id = create_result.conversation_id.clone();

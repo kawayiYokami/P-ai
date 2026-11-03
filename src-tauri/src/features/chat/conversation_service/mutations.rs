@@ -386,7 +386,7 @@ fn create_next_draft_conversation_inherited(
         shell_work_mode: Some(promoted.shell_work_mode.clone()),
         shell_work_branch: Some(promoted.shell_work_branch.clone()),
         shell_autonomous_mode: Some(promoted.shell_autonomous_mode),
-        is_draft: Some(true),
+        is_draft: Some(true), conversation_kind: None,
     };
     let result = conversation_service_v2().create_conversation(state, &input)?;
     Ok(result.conversation_id)
@@ -506,6 +506,13 @@ fn create_unarchived_conversation_shared(
     }
     if let Some(shell_autonomous_mode) = input.shell_autonomous_mode {
         conversation.shell_autonomous_mode = shell_autonomous_mode;
+    }
+    // ACP 协议建会话：类型直接落成 acp，后续列表分组与能力判定都按它走。
+    // 只接受 acp 一个值，避免通过新建入口随意伪造会话类型。
+    if let Some(kind) = input.conversation_kind.as_deref() {
+        if kind.trim() == CONVERSATION_KIND_ACP {
+            conversation.conversation_kind = CONVERSATION_KIND_ACP.to_string();
+        }
     }
     if is_draft {
         conversation.is_draft = true;

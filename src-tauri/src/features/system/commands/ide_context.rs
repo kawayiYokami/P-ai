@@ -1086,7 +1086,7 @@ mod ide_context_tests {
                     shell_work_mode: None,
                     shell_work_branch: None,
                     shell_autonomous_mode: None,
-                    is_draft: Some(false),
+                    is_draft: Some(false), conversation_kind: None,
                 },
             )
             .expect("create conversation");
