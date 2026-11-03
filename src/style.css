@@ -733,34 +733,13 @@ body {
 
 /* ==================== 窗口底透色 ==================== */
 /*
- * 窗口底是唯一的颜色源：base-300 掺一点主题色（--ecall-frost-mix）。
+ * 窗口底是唯一的颜色源：base-300 半透明，透出 body 上的 base-200。
  * 标题栏、侧栏、以及中栏圆角外侧都不另上色，全部透出这一层，
- * 所以它们之间不可能出现色差；要调深浅只改 --ecall-frost-mix。
+ * 所以它们之间不可能出现色差；要调深浅只改这里的比例。
+ *
+ * 不再掺主题色：深色主题的 primary 彩度接近浅色的两倍，同样的比例
+ * 在深色下会把底色彩度从 0.012 拉到 0.016，整块底板泛紫。
  */
-:root {
-  --ecall-frost-mix: 2%;
-}
-
 .ecall-frost {
-  --ecall-frost-base: var(--color-base-300);
-  background-color: color-mix(
-    in oklab,
-    var(--ecall-frost-base) calc(100% - var(--ecall-frost-mix)),
-    var(--color-primary)
-  );
-}
-
-/*
- * 暗色主题清单。前六个与 use-app-theme.ts 的 DARK_APP_THEMES 一致；
- * 用户自定义生成的主题在 DOM 上有两个 id（generated-light / generated-dark），
- * 暗的那个必须一起列进来，否则它会落到 :root 的浅色值上。
- */
-[data-theme="dark"],
-[data-theme="halloween"],
-[data-theme="forest"],
-[data-theme="dracula"],
-[data-theme="business"],
-[data-theme="dim"],
-[data-theme="generated-dark"] {
-  --ecall-frost-mix: 2%;
+  background-color: color-mix(in oklab, var(--color-base-300) 50%, transparent);
 }

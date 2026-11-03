@@ -11,7 +11,7 @@
     <div
       class="group/item flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-1 text-left transition-[background-color,box-shadow,transform] duration-200 ease-out"
       :class="[
-        isActiveConversation ? 'bg-base-300' : 'bg-transparent hover:bg-base-300/60',
+        isActiveConversation ? 'bg-base-100' : 'bg-transparent hover:bg-base-300/60',
         isConversationVisuallyOccupied ? 'opacity-60' : '',
         isActiveConversation ? 'cursor-default' : 'cursor-pointer',
       ]"
