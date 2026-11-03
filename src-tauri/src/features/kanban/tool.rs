@@ -109,6 +109,35 @@ fn kanban_tool_action_normalized(raw: &str) -> Option<&'static str> {
     }
 }
 
+// ==================== 待审反思提示 ====================
+// 议题推进到待审时，模型正好停在「活干完了、还没收口」这个断点上。
+// 这里是提炼经验唯一自然的时机：再往后用户点了头，注意力就散了；再往前活还没成形。
+// 判据取本次入参的 status，而不是改完之后的库内状态——把一条本来就停在待审的议题
+// 再设一次待审，同样算「把议题设置为待审」这个动作，提示照给。
+
+fn kanban_pending_review_numbers(items: &[KanbanIssueUpsertItem]) -> Vec<u32> {
+    items
+        .iter()
+        .filter(|item| {
+            item.status.as_deref().and_then(kanban_status_normalized) == Some(KANBAN_STATUS_IN_REVIEW)
+        })
+        .filter_map(|item| item.issue_number)
+        .collect()
+}
+
+fn kanban_review_reflection_hint(numbers: &[u32]) -> String {
+    let target = numbers
+        .iter()
+        .map(|number| format!("{number} 号议题"))
+        .collect::<Vec<_>>()
+        .join("、");
+    format!(
+        "{target}已进入待审。趁收口之前回看一遍这次执行：流程是怎么走的、哪里卡住过、最后靠什么验明的。\
+         有值得沉淀成 skill 的，就趁现在整理出来——多数议题至少能挖出一小条，哪怕很小。\
+         空手而归不算中性结果，是一次被漏掉的学习机会。"
+    )
+}
+
 pub(crate) fn builtin_kanban(
     app_state: &AppState,
     session_id: &str,
@@ -155,14 +184,19 @@ pub(crate) fn builtin_kanban(
             serde_json::json!({ "issues": kanban_tool_issue_values(&issues) })
         }
         "upsert" => {
+            let review_numbers = kanban_pending_review_numbers(&args.issues);
             let result = kanban_apply_upsert(app_state, &leader_conversation_id, &args.issues)?;
             kanban_emit_updated(app_state, &leader_conversation_id);
             let issues = kanban_board_list(app_state, &leader_conversation_id, None, None, None)?;
-            serde_json::json!({
+            let mut payload = serde_json::json!({
                 "created": kanban_tool_issue_values(&result.created),
                 "updated": kanban_tool_issue_values(&result.updated),
                 "issues": kanban_tool_issue_values(&issues),
-            })
+            });
+            if !review_numbers.is_empty() {
+                payload["hint"] = Value::String(kanban_review_reflection_hint(&review_numbers));
+            }
+            payload
         }
         _ => return Err(format!("kanban.action 不支持：{action}")),
     };
