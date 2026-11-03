@@ -158,6 +158,17 @@
       />
     </div>
 
+    <!-- 头像生成失败（快速模型不可用）时弹出；两个宿主共用同一个卡片组件。 -->
+    <QuickModelUnavailableCard
+      v-if="quickModelUnavailableState"
+      :open="true"
+      :error="quickModelUnavailableState.error"
+      :api-configs="textCapableApiConfigs"
+      :model-value="quickModelUnavailableModelId"
+      @select="selectQuickModelUnavailable"
+      @close="closeQuickModelUnavailable"
+    />
+
     <dialog ref="memoryDialog" class="modal">
       <MemoryDialog
         :title="t('memory.title')"
@@ -355,6 +366,8 @@ import { useChatConfigActionsGlue } from "./features/chat/composables/use-chat-c
 import { useChatConfigDerivedState } from "./features/chat/composables/use-chat-config-derived-state";
 import { useChatConfigUiDerivedState } from "./features/chat/composables/use-chat-config-ui-derived-state";
 import { useConfigWindowBootstrap } from "./features/config/composables/use-config-window-bootstrap";
+import { useQuickModelUnavailableCard } from "./features/config/composables/use-quick-model-unavailable-card";
+import QuickModelUnavailableCard from "./features/config/components/QuickModelUnavailableCard.vue";
 import { useMessageStoreMigrationGate } from "./features/shell/composables/use-message-store-migration-gate";
 import { formatI18nError } from "./utils/error";
 
@@ -751,6 +764,18 @@ const {
   restoreLastSavedPersonasSnapshot,
 } = configPersistence;
 
+// 头像生成失败时弹「快速模型不可用」卡片：招募/保存两个宿主共用同一份实现。
+const quickModelUnavailable = useQuickModelUnavailableCard({
+  patchConversationApiSettings,
+  currentModelId: () => String(config.toolReviewApiConfigId ?? ""),
+});
+const {
+  state: quickModelUnavailableState,
+  currentModelId: quickModelUnavailableModelId,
+  selectModel: selectQuickModelUnavailable,
+  close: closeQuickModelUnavailable,
+} = quickModelUnavailable;
+
 const {
   addApiConfig,
   removeSelectedApiConfig,
@@ -995,6 +1020,9 @@ const appBootstrap = useConfigWindowBootstrap({
   normalizeLocale,
   config,
   locale,
+  personas,
+  avatarError,
+  ensureAvatarCached,
   assistantAgentId,
   personaEditorId,
   userAlias,
@@ -1009,6 +1037,7 @@ const appBootstrap = useConfigWindowBootstrap({
   normalizeUiSizeScale,
   updateGithubUpdateMethod,
   normalizeRuntimeConfigNumbers,
+  quickModelUnavailable,
 });
 
 useAppLifecycle({

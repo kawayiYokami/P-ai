@@ -403,7 +403,7 @@ fn config_tool_agent_avatar_schedule(state: &AppState, command: &str, result: &V
     if has_avatar {
         return;
     }
-    enqueue_agent_avatar_generation(state, agent_id);
+    enqueue_agent_avatar_generation(state, agent_id, AgentAvatarGenerationOrigin::Chat);
 }
 
 fn config_tool_mcp_start_server(

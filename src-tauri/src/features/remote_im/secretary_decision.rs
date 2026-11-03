@@ -427,8 +427,21 @@ async fn run_remote_im_secretary_decision(
         });
     }
 
-    let review_api_config_id = current_tool_review_api_config_id(state)?
-        .ok_or_else(|| "未配置快速模型".to_string())?;
+    // 未配置快速模型＝用户主动禁用智能判断：按每条都回复处理，不能变成永不回复。
+    // 「配置了但调用失败」仍走下面的错误路径——那是另一件事，不跟着一起改。
+    let Some(review_api_config_id) = current_tool_review_api_config_id(state)? else {
+        runtime_log_info(
+            "[远程联系人秘书] 跳过，任务=智能判断，reason=未配置快速模型，fallback=每条都回复"
+                .to_string(),
+        );
+        return Ok(RemoteImSecretaryDecision {
+            should_reply: true,
+            target_delegate_id: None,
+            reason: "未配置快速模型，已跳过智能判断，按每条都回复处理".to_string(),
+            model_name: String::new(),
+            emit_log: false,
+        });
+    };
     let app_config = state_read_config_cached(state)?;
     let selected_api = resolve_selected_api_config(&app_config, Some(&review_api_config_id))
         .ok_or_else(|| format!("快速模型配置不存在：{}", review_api_config_id))?;

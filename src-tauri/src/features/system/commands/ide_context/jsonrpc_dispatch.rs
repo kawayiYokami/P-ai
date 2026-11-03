@@ -419,7 +419,10 @@ async fn ide_chat_handle_jsonrpc_request(
         })(),
         "generate_agent_avatar" => (|| async {
             let input = ide_chat_parse_param_field::<GenerateAgentAvatarInput>(request.params, "input")?;
-            ide_chat_serialize(generate_agent_avatar_inner(input, state).await?)
+            match generate_agent_avatar_inner(input, state).await? {
+                Some(output) => ide_chat_serialize(output),
+                None => Err("未配置快速模型，无法生成人格头像".to_string()),
+            }
         })().await,
         "save_agents" => ide_chat_save_agents_for_web_settings(state, request.params),
         "load_chat_settings" => ide_chat_load_chat_settings_for_web_settings(state),

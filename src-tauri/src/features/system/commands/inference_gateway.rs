@@ -916,7 +916,7 @@ async fn invoke_quick_model_json_result_with_prepared_prompt(
 ) -> Result<QuickModelJsonCallOutput, QuickModelJsonCallError> {
     let quick_api_config_id = current_tool_review_api_config_id(state)
         .map_err(QuickModelJsonCallError::from_message)?
-        .ok_or_else(|| QuickModelJsonCallError::from_message("未配置快速模型"))?;
+        .ok_or_else(|| QuickModelJsonCallError::from_message("未配置快速模型（快速请求已禁用）"))?;
     invoke_model_json_result_with_api_config_id(
         state,
         &quick_api_config_id,

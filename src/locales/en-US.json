@@ -1000,7 +1000,8 @@
       "visionApi": "Multimodal Analysis Model (Optional)",
       "visionApiHint": "Bind a dedicated multimodal model for `read_media` to analyze images, audio, and video. When set to none, the read_media tool is not offered to the model.",
       "toolReviewApi": "Fast Model",
-      "toolReviewApiHint": "Preferred for lightweight tasks when no specific fast model is set.",
+      "toolReviewNoModel": "Not set",
+      "toolReviewApiHint": "Preferred for lightweight tasks when no specific fast model is set. When set to \"Not set\", no fast requests will run.",
       "sttTitle": "Speech-to-Text Model",
       "sttHint": "Used first when no STT model is set elsewhere.",
       "sttLocalWebSpeech": "Local (Web Speech)",
@@ -3059,6 +3060,22 @@
       "generated-light": "Custom Light",
       "generated-dark": "Custom Dark"
     }
+  },
+  "quickModelUnavailable": {
+    "title": "Fast model unavailable",
+    "pickLabel": "Switch to another fast model",
+    "notConfigured": "Not set",
+    "disableHint": "To disable fast requests, set the fast model to \"Not set\" in settings.",
+    "reason": {
+      "serverWithCode": "The model service returned {code}. Try again later or switch models.",
+      "server": "The model service is unavailable. Try again later or switch models.",
+      "auth": "The API key is invalid or expired. Check this model's configuration.",
+      "timeout": "The request timed out before the model responded.",
+      "notFound": "The model does not exist or is offline. Pick another one.",
+      "unknown": "The request failed for an unrecognized reason.",
+      "unknownWithDetail": "The request failed: {detail}"
+    },
+    "close": "Not now"
   },
   "quickSetup": {
     "title": "Quick Setup",

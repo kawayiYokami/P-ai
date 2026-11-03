@@ -1000,7 +1000,8 @@
       "visionApi": "多模態分析模型（可選）",
       "visionApiHint": "給 `read_media` 綁定專用的多模態分析模型，可用於圖片、音訊、影片理解；選擇不設定時不會向模型提供 read_media 工具。",
       "toolReviewApi": "快速模型",
-      "toolReviewApiHint": "輕量任務未單獨指定時，優先用這裡。",
+      "toolReviewNoModel": "不設定",
+      "toolReviewApiHint": "輕量任務未單獨指定時，優先用這裡。選擇「不設定」時不會執行快速請求。",
       "sttTitle": "語音轉文字模型",
       "sttHint": "未單獨指定語音轉文字時，優先使用這裡。",
       "sttLocalWebSpeech": "本地（Web Speech）",
@@ -3053,6 +3054,22 @@
       "generated-light": "自訂淺色",
       "generated-dark": "自訂深色"
     }
+  },
+  "quickModelUnavailable": {
+    "title": "快速請求模型不可用",
+    "pickLabel": "換一個快速模型",
+    "notConfigured": "不設定",
+    "disableHint": "如果希望停用快速請求，可以在設定裡把快速模型設為「不設定」。",
+    "reason": {
+      "serverWithCode": "模型服務回傳 {code}，請稍後重試或換一個模型。",
+      "server": "模型服務暫時不可用，請稍後重試或換一個模型。",
+      "auth": "API Key 無效或已過期，請檢查這個模型的設定。",
+      "timeout": "請求逾時，模型沒有在限定時間內回傳。",
+      "notFound": "模型不存在或已下線，請換一個。",
+      "unknown": "請求失敗，沒能辨識出具體原因。",
+      "unknownWithDetail": "請求失敗：{detail}"
+    },
+    "close": "暫時不處理"
   },
   "quickSetup": {
     "title": "快速設定",

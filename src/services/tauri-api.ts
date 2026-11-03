@@ -2180,6 +2180,8 @@ const TRANSPORT_NOTIFICATION_EVENT_ALIASES: Record<string, string | string[]> = 
   "conversation.apiUpdated": "easy-call:conversation-api-updated",
   "chat.settingsUpdated": "easy-call:chat-settings-updated",
   "config.updated": "easy-call:config-updated",
+  // 人格头像生成结果：配置窗口与聊天窗口据此当场换图，或显示失败原因
+  "persona.avatarGenerated": "easy-call:persona-avatar-generated",
   "agentWork.started": "easy-call:agent-work-start",
   "agentWork.stopped": "easy-call:agent-work-stop",
   "recordHotkey.probe": "easy-call:record-hotkey-probe",

@@ -1,6 +1,6 @@
 import type { Ref } from "vue";
 import { applyUiSizeScale } from "../../shell/composables/use-ui-size-appearance";
-import type { AppConfig, PromptCommandPreset } from "../../../types/app";
+import type { AppConfig, PersonaProfile, PromptCommandPreset } from "../../../types/app";
 import {
   normalizeImageGenerationModelId,
   normalizeImageGenerationProviders,
@@ -169,4 +169,68 @@ export function applyConfigBootstrapUpdate(bindings: {
       : [bindings.createApiConfig("default")]),
   );
   bindings.lastSavedConfigJson.value = bindings.buildConfigSnapshotJson();
+}
+
+export type AgentAvatarGeneratedPayload = {
+  agentId?: string;
+  ok?: boolean;
+  path?: string;
+  updatedAt?: string;
+  error?: string;
+  /** 失败事件才带：chat 表示招募时触发，config 表示保存人格时触发。成功事件不带，两个窗口都要换图。 */
+  origin?: string;
+};
+
+/**
+ * 这次头像事件该不该由当前窗口处理。
+ *
+ * 失败只该弹在触发它的那个窗口（招募人格在 chat、保存人格在 config），
+ * 成功则两个窗口都要处理，好让图当场换掉。
+ * 后端没带 origin 时按兼容处理——宁可多处理一次，也不要漏掉状态更新。
+ */
+export function shouldApplyAvatarGenerated(
+  payload: AgentAvatarGeneratedPayload | null | undefined,
+  host: "chat" | "config",
+): boolean {
+  if (payload?.ok !== false) return true;
+  const origin = String(payload?.origin || "").trim();
+  if (!origin) return true;
+  return origin === host;
+}
+
+/**
+ * 应用一次头像生成结果（后端 `persona.avatarGenerated` 事件）。
+ * 成功：把人像路径写回人格列表并预热缓存，窗口里的图当场换掉，不用等下次 loadPersonas。
+ * 失败：只写 avatarError 状态。
+ *
+ * TODO 等「切换快速模型」弹窗组件定稿后接到 onFailed 上（招募人格从 chatview 弹、
+ * 保存人格从 configview 弹）。在组件定稿前不要在这里写 toast 或 setStatus。
+ */
+export function applyAgentAvatarGeneratedUpdate(
+  bindings: {
+    personas: Ref<PersonaProfile[]>;
+    avatarError: Ref<string>;
+    ensureAvatarCached: (path?: string, updatedAt?: string) => Promise<void>;
+    onFailed?: (info: { agentId: string; error: string }) => void;
+  },
+  payload: AgentAvatarGeneratedPayload | null | undefined,
+): void {
+  const agentId = String(payload?.agentId || "").trim();
+  if (!agentId) return;
+  if (payload?.ok === false) {
+    const error = String(payload?.error || "").trim() || "unknown";
+    // 原始错误不再写进 avatarError：那段会印在人格编辑页头像下面，改成卡片承载。
+    bindings.onFailed?.({ agentId, error });
+    return;
+  }
+  const path = String(payload?.path || "").trim();
+  if (!path) return;
+  const updatedAt = String(payload?.updatedAt || "").trim();
+  bindings.avatarError.value = "";
+  const index = bindings.personas.value.findIndex((item) => item.id === agentId);
+  if (index >= 0) {
+    bindings.personas.value[index].avatarPath = path;
+    bindings.personas.value[index].avatarUpdatedAt = updatedAt || new Date().toISOString();
+  }
+  void bindings.ensureAvatarCached(path, updatedAt || undefined).catch(() => {});
 }

@@ -225,7 +225,7 @@ fn save_agents_inner(
     }
     // 保存成功后给还没有头像的人格排队生成一张；只入队，不等生成。
     for agent_id in agent_avatar_generation_pending_ids(desired_agents.iter()) {
-        enqueue_agent_avatar_generation(state, &agent_id);
+        enqueue_agent_avatar_generation(state, &agent_id, AgentAvatarGenerationOrigin::Config);
     }
     let config = state_read_config_cached(&state)?;
     broadcast_sidebar_persona_changed();

@@ -464,6 +464,16 @@
     />
     <StartupOverlay v-if="startupOverlayVisible" />
     <ConfigStatusToast :text="statusToastText" :tone="statusToastTone" />
+    <!-- 招募人格时头像生成失败（快速模型不可用）弹在这里；保存人格的那一张在配置窗口。 -->
+    <QuickModelUnavailableCard
+      v-if="quickModelUnavailableState"
+      :open="true"
+      :error="quickModelUnavailableState.error"
+      :api-configs="textCapableApiConfigs"
+      :model-value="quickModelUnavailableModelId"
+      @select="selectQuickModelUnavailable"
+      @close="closeQuickModelUnavailable"
+    />
     <div
       v-if="messageStoreMigration.visible"
       class="fixed inset-0 z-9999 flex items-center justify-center bg-base-300/90 p-6 backdrop-blur"
@@ -502,6 +512,7 @@
 <script lang="ts">
 import { defineComponent, onBeforeUnmount } from "vue";
 import ConfigStatusToast from "./features/config/components/ConfigStatusToast.vue";
+import QuickModelUnavailableCard from "./features/config/components/QuickModelUnavailableCard.vue";
 import Win10ResizeHandles from "./features/shell/components/Win10ResizeHandles.vue";
 import ChatWorkspacePickerDialog from "./features/chat/components/dialogs/ChatWorkspacePickerDialog.vue";
 import AppWindowContent from "./features/shell/components/AppWindowContent.vue";
@@ -532,6 +543,7 @@ export default defineComponent({
     ShellDialogsHost,
     StartupOverlay,
     ConfigStatusToast,
+    QuickModelUnavailableCard,
   },
   setup() {
     const app = useChatWindowApp();
@@ -626,8 +638,20 @@ export default defineComponent({
       void app.switchChatConversation({ conversationId });
     }
 
+    // 头像生成失败卡片：拆出顶层 ref，模板里才能直接解包。
+    const {
+      state: quickModelUnavailableState,
+      currentModelId: quickModelUnavailableModelId,
+      selectModel: selectQuickModelUnavailable,
+      close: closeQuickModelUnavailable,
+    } = app.quickModelUnavailable;
+
     return {
       ...app,
+      quickModelUnavailableState,
+      quickModelUnavailableModelId,
+      selectQuickModelUnavailable,
+      closeQuickModelUnavailable,
       hideWindowHeader: embedded,
       openDraftConversationFromEntry,
       refreshConversationAfterStorageRepair,

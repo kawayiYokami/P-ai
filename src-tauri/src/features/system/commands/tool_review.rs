@@ -1488,7 +1488,7 @@ async fn tool_review_run_for_call_internal(
     call_id: &str,
 ) -> Result<ToolReviewItemDetail, String> {
     let review_api_config_id = current_tool_review_api_config_id(state)?
-        .ok_or_else(|| "未配置工具评估模型。".to_string())?;
+        .ok_or_else(|| "未配置快速模型，无法执行工具审查。".to_string())?;
     let conversation =
         with_tool_review_conversation(state, conversation_id, |conversation| Ok(conversation.clone()))?;
 

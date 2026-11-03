@@ -25,6 +25,7 @@
             <option value="session-float-dock">会话悬浮操作区</option>
             <option value="session-timeline">会话时间线（垂直）</option>
             <option value="config-cards">配置卡片画廊（六大卡片第一性原理）</option>
+            <option value="quick-model-card">快速模型不可用卡片</option>
             <option value="catalog-store">能力商店</option>
             <option value="persona-capability">人格主页（移动端极简版）</option>
             <option value="persona-injection">人格随身技能与顺序（加载顺序表）</option>
@@ -204,6 +205,18 @@
           <p class="text-sm text-base-content/70">下排改成一个个彼此独立的磨砂元素，左对齐、放不下换行；元素之间不互斥，有就显示、没有就隐藏。开关可逐项试「有／没有」，勾「窄容器」看换行。</p>
         </div>
         <SessionFloatDockDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'quick-model-card'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">快速模型不可用卡片</h3>
+          <p class="text-sm text-base-content/70">
+            头像生成失败时弹出：一句可读的原因、快速模型下拉框、以及「想禁用就设为不配置」的说明。招募人格在聊天窗口弹、保存人格在配置窗口弹，同一份组件。
+          </p>
+        </div>
+        <QuickModelUnavailableCardDemo />
       </div>
     </div>
 
@@ -793,6 +806,7 @@ import ChatConversationListGalleryDemo from "../../../chat/components/ChatConver
 import ChatConversationItemDemo from "../../../chat/components/ChatConversationItemDemo.vue";
 import ChatMessageItemDemo from "../../../chat/components/ChatMessageItemDemo.vue";
 import ConfigCardsGalleryDemo from "../../components/ConfigCardsGalleryDemo.vue";
+import QuickModelUnavailableCardDemo from "../../components/QuickModelUnavailableCardDemo.vue";
 import SettingsShellGalleryDemo from "../../components/SettingsShellGalleryDemo.vue";
 import CatalogStoreDemo from "../../components/CatalogStoreDemo.vue";
 import PersonaTabDemo from "../../components/PersonaTabDemo.vue";
@@ -874,7 +888,7 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
 
 // bare 模式下把内容高度写进标题，便于无头截图按内容高度精确裁剪。
 onMounted(() => {
@@ -896,6 +910,7 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "chat-home") return "首页磁贴区";
   if (demoComponentKey.value === "skill-managed") return "技能面板（托管技能禁用态）";
   if (demoComponentKey.value === "config-cards") return "配置卡片画廊";
+  if (demoComponentKey.value === "quick-model-card") return "快速模型不可用卡片";
   if (demoComponentKey.value === "session-float-dock") return "会话悬浮操作区";
   if (demoComponentKey.value === "session-timeline") return "会话时间线（垂直）";
   if (demoComponentKey.value === "thinking-preview") return "思考预览 bar";

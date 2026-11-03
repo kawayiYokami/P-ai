@@ -54,6 +54,15 @@ type AppBootstrapOptions = {
   onConversationApiUpdated?: (payload: ConversationApiSettingsPayload) => void;
   onChatSettingsUpdated?: (payload: ChatSettingsPayload) => void;
   onConfigUpdated?: (payload: AppConfig) => void;
+  /** 后台生成完人格头像后由后端推来；成功带图路径，失败带原因与触发宿主。 */
+  onAvatarGenerated?: (payload: {
+    agentId?: string;
+    ok?: boolean;
+    path?: string;
+    updatedAt?: string;
+    error?: string;
+    origin?: string;
+  }) => void;
   onAgentWorkStarted?: (payload: AgentWorkSignalPayload) => void;
   onAgentWorkStopped?: (payload: AgentWorkSignalPayload) => void;
   onRecordHotkeyProbe?: (payload: { state: "pressed" | "released"; seq: number }) => void;
@@ -108,6 +117,16 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
       });
       subscribe<AppConfig>("config.updated", (payload) => {
         options.onConfigUpdated?.(payload);
+      });
+      subscribe<{
+        agentId?: string;
+        ok?: boolean;
+        path?: string;
+        updatedAt?: string;
+        error?: string;
+        origin?: string;
+      }>("persona.avatarGenerated", (payload) => {
+        options.onAvatarGenerated?.(payload || {});
       });
       subscribe<AgentWorkSignalPayload>("agentWork.started", (payload) => {
         options.onAgentWorkStarted?.(payload);

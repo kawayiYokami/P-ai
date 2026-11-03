@@ -397,6 +397,14 @@ async fn task_optimize_draft_internal(
         task_optimize_repeat_unit(&input.repeat_unit),
         input.end_at.trim()
     ));
+    // 未配置快速模型＝禁用快速请求：不调模型，只回一句明确原因（这是用户主动点的动作）。
+    if current_tool_review_api_config_id(state)?.is_none() {
+        runtime_log_info(format!(
+            "[任务草稿优化] 跳过，任务=结构化任务草稿，reason=未配置快速模型，耗时毫秒={}",
+            started_at.elapsed().as_millis()
+        ));
+        return Err("未配置快速模型，无法优化任务草稿".to_string());
+    }
     let result = async {
         let prompt = task_optimize_draft_prompt(&input)?;
         let conversation_id = input

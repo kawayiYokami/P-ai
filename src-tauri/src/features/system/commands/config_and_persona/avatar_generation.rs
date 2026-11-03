@@ -3,6 +3,9 @@
 // 安全前提：头像 SVG 只通过 <img src="data:image/svg+xml;base64,…"> 显示，
 // 任何地方都不许把它内联进 DOM 或交给 v-html；落盘前的清洗是第二道防线，两者都不能省。
 
+/// 头像生成结果广播：配置窗口与聊天窗口都靠它当场换图，或让用户看见失败。
+const AGENT_AVATAR_GENERATED_EVENT: &str = "easy-call:persona-avatar-generated";
+
 const AGENT_AVATAR_SVG_MAX_BYTES: usize = 32 * 1024;
 /// 队列是串行的，超时太长会把后面排队的头像一起卡死；实测最慢一次 51s。
 const AGENT_AVATAR_SVG_TIMEOUT_SECS: u64 = 60;
@@ -37,12 +40,61 @@ struct GenerateAgentAvatarOutput {
     updated_at: String,
 }
 
-fn agent_avatar_generation_inflight() -> &'static Mutex<std::collections::HashSet<String>> {
-    static KEYS: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
-    KEYS.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+/// 这次生成是谁触发的：决定失败卡片弹在哪个窗口。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentAvatarGenerationOrigin {
+    /// 聊天里招募/新建人格（config 工具）。
+    Chat,
+    /// 配置窗口保存人格。
+    Config,
 }
 
-fn agent_avatar_generation_attempted() -> &'static Mutex<std::collections::HashSet<String>> {
+impl AgentAvatarGenerationOrigin {
+    /// 只在后台任务里序列化进失败事件；test 编译单元的 spawn 是空实现，用不到它。
+    #[cfg(not(test))]
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Chat => "chat",
+            Self::Config => "config",
+        }
+    }
+}
+
+/// 一次头像生成的结果：成功带图路径，失败带原因。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentAvatarGeneratedPayload {
+    agent_id: String,
+    /// 仅失败事件带：决定失败卡片弹在哪个窗口；成功事件两个窗口都该更新，无需区分。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    origin: Option<String>,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// 广播一次生成结果。取不到 AppHandle 时静默跳过：生成本身已经完成，窗口下次加载会自愈。
+fn emit_agent_avatar_generated(state: &AppState, payload: AgentAvatarGeneratedPayload) {
+    let agent_id = payload.agent_id.clone();
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.clone(),
+        Err(_) => None,
+    };
+    let Some(app_handle) = app_handle else {
+        return;
+    };
+    if let Err(err) = app_handle.emit(AGENT_AVATAR_GENERATED_EVENT, &payload) {
+        runtime_log_warn(format!(
+            "[头像生成] 失败，agentId={agent_id}，stage=广播，error={err}"
+        ));
+    }
+}
+
+fn agent_avatar_generation_inflight() -> &'static Mutex<std::collections::HashSet<String>> {
     static KEYS: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
     KEYS.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
 }
@@ -53,15 +105,6 @@ fn agent_avatar_generation_attempted() -> &'static Mutex<std::collections::HashS
 fn agent_avatar_generation_gate() -> &'static tokio::sync::Mutex<()> {
     static GATE: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
     GATE.get_or_init(|| tokio::sync::Mutex::new(()))
-}
-
-/// 本次运行是否已经给这个 agent 排过队；返回 true 表示这次占到了坑，可以排。
-/// 失败也占坑：同一人格本次运行不再重排，避免反复消耗额度。
-fn agent_avatar_generation_reserve(agent_id: &str) -> bool {
-    match agent_avatar_generation_attempted().lock() {
-        Ok(mut attempted) => attempted.insert(agent_id.to_string()),
-        Err(_) => false,
-    }
 }
 
 /// 保存人格后该排队的头像生成：排除内置用户人格与已有头像的。
@@ -85,32 +128,79 @@ fn agent_avatar_generation_pending_ids<'a>(
 }
 
 #[cfg(not(test))]
-fn spawn_agent_avatar_generation(state: AppState, agent_id: String) {
+fn spawn_agent_avatar_generation(
+    state: AppState,
+    agent_id: String,
+    origin: AgentAvatarGenerationOrigin,
+) {
     tauri::async_runtime::spawn(async move {
         // 等到前一张结束再发；锁在任务里取，enqueue 调用方立刻返回。
         let _permit = agent_avatar_generation_gate().lock().await;
         let input = GenerateAgentAvatarInput {
             agent_id: agent_id.clone(),
         };
-        if let Err(err) = generate_agent_avatar_inner(input, &state).await {
-            runtime_log_warn(format!("[头像生成] 失败，agentId={agent_id}，error={err}"));
+        match generate_agent_avatar_inner(input, &state).await {
+            // 未配置快速模型＝用户主动禁用：静默跳过，不弹卡、不记失败、不消耗额度。
+            Ok(None) => {
+                runtime_log_info(format!(
+                    "[头像生成] 跳过，agentId={agent_id}，stage=未配置快速模型"
+                ));
+            }
+            Ok(Some(_)) => {}
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[头像生成] 失败，agentId={agent_id}，stage=生成，error={err}"
+                ));
+                // 失败必须让界面看得见：用户据此去换一个可用的快速模型。
+                emit_agent_avatar_generated(
+                    &state,
+                    AgentAvatarGeneratedPayload {
+                        agent_id: agent_id.clone(),
+                        origin: Some(origin.as_str().to_string()),
+                        ok: false,
+                        path: None,
+                        updated_at: None,
+                        error: Some(err),
+                    },
+                );
+            }
         }
     });
 }
 
+/// 测试探针：记录本次测试进程内经 enqueue 排队的 agent id。
+/// 只在 test 编译单元存在，生产路径不读它，也不参与任何「要不要重试」的判断。
 #[cfg(test)]
-fn spawn_agent_avatar_generation(_state: AppState, _agent_id: String) {}
+fn agent_avatar_generation_test_queued() -> &'static Mutex<Vec<String>> {
+    static QUEUED: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    QUEUED.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[cfg(test)]
+fn spawn_agent_avatar_generation(
+    _state: AppState,
+    agent_id: String,
+    _origin: AgentAvatarGenerationOrigin,
+) {
+    if let Ok(mut queued) = agent_avatar_generation_test_queued().lock() {
+        queued.push(agent_id);
+    }
+}
 
 /// 给一个人格排队生成头像：只入队，不等生成，调用方（工具执行、人格保存）立刻返回。
-fn enqueue_agent_avatar_generation(state: &AppState, agent_id: &str) {
+/// 不做「本次运行只试一次」的拉黑：失败原因是模型不可用这类外部状态，
+/// 该由调用方下次保存人格时重试，而不是永久放弃这个人的头像。
+/// 未配置快速模型时会照常入队，但在生成入口判空并静默跳过：那是禁用，不是失败。
+fn enqueue_agent_avatar_generation(
+    state: &AppState,
+    agent_id: &str,
+    origin: AgentAvatarGenerationOrigin,
+) {
     let agent_id = agent_id.trim();
     if agent_id.is_empty() {
         return;
     }
-    if !agent_avatar_generation_reserve(agent_id) {
-        return;
-    }
-    spawn_agent_avatar_generation(state.clone(), agent_id.to_string());
+    spawn_agent_avatar_generation(state.clone(), agent_id.to_string(), origin);
 }
 
 /// 在途去重凭证：持有期间代表该人格正在生成，Drop 时自动释放。
@@ -491,17 +581,22 @@ async fn generate_agent_avatar(
     state: State<'_, AppState>,
 ) -> Result<GenerateAgentAvatarOutput, String> {
     let agent_id = input.agent_id.trim().to_string();
-    let result = generate_agent_avatar_inner(input, state.inner()).await;
-    if let Err(err) = result.as_ref() {
-        runtime_log_warn(format!("[头像生成] 失败，agentId={agent_id}，error={err}"));
+    match generate_agent_avatar_inner(input, state.inner()).await {
+        Ok(Some(output)) => Ok(output),
+        // 用户主动点生成时要明说；后台那条路把 None 当静默跳过。
+        Ok(None) => Err("未配置快速模型，无法生成人格头像".to_string()),
+        Err(err) => {
+            runtime_log_warn(format!("[头像生成] 失败，agentId={agent_id}，error={err}"));
+            Err(err)
+        }
     }
-    result
 }
 
+/// 返回 `Ok(None)` 表示未配置快速模型、按禁用跳过，区别于「已有头像」的回读。
 async fn generate_agent_avatar_inner(
     input: GenerateAgentAvatarInput,
     state: &AppState,
-) -> Result<GenerateAgentAvatarOutput, String> {
+) -> Result<Option<GenerateAgentAvatarOutput>, String> {
     let agent_id = input.agent_id.trim().to_string();
     if agent_id.is_empty() {
         return Err("agentId is required".to_string());
@@ -532,21 +627,28 @@ async fn generate_agent_avatar_inner(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
     if let Some(path) = existing_path {
+        // 不覆盖用户自己设的图，但要留一条痕：否则「点了没反应」永远查不清是跳过了还是没跑。
+        runtime_log_info(format!(
+            "[头像生成] 跳过，agentId={agent_id}，stage=已有头像，path={path}"
+        ));
         let existing =
             read_avatar_data_url_inner(AvatarDataPathInput { path: path.clone() }, state)?;
-        return Ok(GenerateAgentAvatarOutput {
+        return Ok(Some(GenerateAgentAvatarOutput {
             data_url: existing.data_url,
             path,
             updated_at: target.avatar_updated_at.clone().unwrap_or_default(),
-        });
+        }));
     }
 
     // 同一人格同时只跑一次生成，避免前端重复触发时重复消耗额度。
     let _ticket = AgentAvatarGenerationTicket::acquire(&agent_id)?;
     let app_config = state_read_config_cached(state)?;
-    let api_config_id =
+    let Some(api_config_id) =
         resolve_model_role_api_config_id(&app_config, MODEL_ROLE_QUICK_API_CONFIG_ID)
-            .ok_or_else(|| "未配置快速模型，无法生成人格头像".to_string())?;
+    else {
+        // 未配置＝用户禁用快速请求，不是错误：交给调用方决定静默跳过还是明说。
+        return Ok(None);
+    };
     let started_at = std::time::Instant::now();
     let prepared = agent_avatar_svg_prepared_prompt(&target);
     let reply = invoke_quick_model_reply_with_prepared_prompt(
@@ -596,12 +698,25 @@ async fn generate_agent_avatar_inner(
         svg.len(),
         started_at.elapsed().as_millis()
     ));
-    Ok(GenerateAgentAvatarOutput {
+    // 侧边栏走 IDE 通知；桌面窗口与 Web 端靠下面这条事件当场换图。
+    broadcast_sidebar_persona_changed();
+    emit_agent_avatar_generated(
+        state,
+        AgentAvatarGeneratedPayload {
+            agent_id: agent_id.clone(),
+            origin: None,
+            ok: true,
+            path: Some(avatar_path.clone()),
+            updated_at: Some(now.clone()),
+            error: None,
+        },
+    );
+    Ok(Some(GenerateAgentAvatarOutput {
         data_url: format!(
             "data:image/svg+xml;base64,{}",
             B64.encode(svg.as_bytes())
         ),
         path: avatar_path,
         updated_at: now,
-    })
+    }))
 }

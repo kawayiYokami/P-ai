@@ -1,8 +1,10 @@
 import { useAppBootstrap } from "../../shell/composables/use-app-bootstrap";
 import {
+  applyAgentAvatarGeneratedUpdate,
   applyChatSettingsBootstrapUpdate,
   applyConfigBootstrapUpdate,
   applyConversationApiBootstrapUpdate,
+  shouldApplyAvatarGenerated,
 } from "../../config/composables/use-config-bootstrap-sync";
 
 export function useChatWindowBootstrap(bindings: Record<string, any>) {
@@ -62,6 +64,18 @@ export function useChatWindowBootstrap(bindings: Record<string, any>) {
         normalizeUiSizeScale: bindings.normalizeUiSizeScale,
         updateGithubUpdateMethod: bindings.updateGithubUpdateMethod,
         normalizeRuntimeConfigNumbers: bindings.normalizeRuntimeConfigNumbers,
+      }, payload);
+    },
+    onAvatarGenerated: (payload) => {
+      // 失败事件带 origin：只有触发它的那个窗口弹卡；成功事件两个窗口都要当场换图。
+      if (!shouldApplyAvatarGenerated(payload, "chat")) return;
+      applyAgentAvatarGeneratedUpdate({
+        personas: bindings.personas,
+        avatarError: bindings.avatarError,
+        ensureAvatarCached: bindings.ensureAvatarCached,
+        onFailed: (info) => {
+          bindings.quickModelUnavailable?.show?.(info);
+        },
       }, payload);
     },
     onToolReviewReportsUpdated: (payload) => {

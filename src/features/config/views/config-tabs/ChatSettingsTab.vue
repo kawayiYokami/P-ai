@@ -26,6 +26,7 @@
           size="sm"
           :model-value="config.toolReviewApiConfigId ?? ''"
           :api-configs="textCapableApiConfigs"
+          :placeholder="t('config.chatSettings.toolReviewNoModel')"
           @update:model-value="onToolReviewSelect"
         />
       </ConfigRowField>

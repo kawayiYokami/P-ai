@@ -764,15 +764,12 @@
 
         config_tool_agent_avatar_schedule(&state, &command, &agent_payload);
         assert!(
-            agent_avatar_generation_attempted()
+            agent_avatar_generation_test_queued()
                 .lock()
-                .expect("lock attempted")
-                .contains(&agent_id),
+                .expect("lock queued")
+                .iter()
+                .any(|id| id == &agent_id),
             "config 工具写出的无人像人格应该入队"
-        );
-        assert!(
-            !agent_avatar_generation_reserve(&agent_id),
-            "同一人格本次运行只排一次"
         );
 
         let with_avatar_id = format!("agent-avatar-existing-{}", Uuid::new_v4());
@@ -782,10 +779,11 @@
             &serde_json::json!({ "id": with_avatar_id, "avatarPath": "avatars/agent-x.webp" }),
         );
         assert!(
-            !agent_avatar_generation_attempted()
+            !agent_avatar_generation_test_queued()
                 .lock()
-                .expect("lock attempted")
-                .contains(&with_avatar_id),
+                .expect("lock queued")
+                .iter()
+                .any(|id| id == &with_avatar_id),
             "已有头像的人格不入队"
         );
 
@@ -796,10 +794,11 @@
             &serde_json::json!({ "id": readonly_id }),
         );
         assert!(
-            !agent_avatar_generation_attempted()
+            !agent_avatar_generation_test_queued()
                 .lock()
-                .expect("lock attempted")
-                .contains(&readonly_id),
+                .expect("lock queued")
+                .iter()
+                .any(|id| id == &readonly_id),
             "只读命令不入队"
         );
     }
@@ -847,20 +846,44 @@
         )
         .expect("save agents");
 
-        let attempted = agent_avatar_generation_attempted()
+        let queued = agent_avatar_generation_test_queued()
             .lock()
-            .expect("lock attempted");
+            .expect("lock queued");
         assert!(
-            attempted.contains(&without_avatar_id),
+            queued.contains(&without_avatar_id),
             "保存后没人像的人格应该入队"
         );
         assert!(
-            !attempted.contains(&with_avatar_id),
+            !queued.contains(&with_avatar_id),
             "已有头像的人格不入队"
         );
         assert!(
-            !attempted.contains(USER_PERSONA_ID),
+            !queued.iter().any(|id| id.as_str() == USER_PERSONA_ID),
             "内置用户人格永不入队"
+        );
+    }
+
+    #[test]
+    fn avatar_generation_should_enqueue_again_after_previous_failures() {
+        // 拉黑已拆：同一个人格失败过多少次，下一次保存仍然照常入队。
+        let state = config_test_state();
+        let agent_id = format!("agent-avatar-retry-{}", Uuid::new_v4());
+        let count_queued = || {
+            agent_avatar_generation_test_queued()
+                .lock()
+                .expect("lock queued")
+                .iter()
+                .filter(|id| *id == &agent_id)
+                .count()
+        };
+        let before = count_queued();
+        for _ in 0..3 {
+            enqueue_agent_avatar_generation(&state, &agent_id, AgentAvatarGenerationOrigin::Chat);
+        }
+        assert_eq!(
+            count_queued() - before,
+            3,
+            "连续三次入队都应真的排进队列，不能被上一次失败挡掉"
         );
     }
 

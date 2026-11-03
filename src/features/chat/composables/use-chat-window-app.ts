@@ -11,6 +11,7 @@ import { useMessageStoreMigrationGate } from "../../shell/composables/use-messag
 import { useWindowActions } from "../../shell/composables/use-window-actions";
 import { useWindowShell } from "../../shell/composables/use-window-shell";
 import { searchConfigTabs } from "../../config/search/config-search";
+import { useQuickModelUnavailableCard } from "../../config/composables/use-quick-model-unavailable-card";
 import { useChatDialogRefs } from "./use-chat-dialog-refs";
 import { useChatScrollCoordinator } from "./use-chat-scroll-coordinator";
 import { useChatWindowShellDataOrchestrator } from "./use-chat-window-shell-data-orchestrator";
@@ -942,6 +943,12 @@ export function useChatWindowApp() {
     promptPreviewDialog: promptPreviewActions.promptPreviewDialog,
   });
 
+  // 招募人格时头像生成失败，就在聊天窗口弹「快速模型不可用」卡片，与配置窗口共用同一份实现。
+  const quickModelUnavailable = useQuickModelUnavailableCard({
+    patchConversationApiSettings: configPersistence.patchConversationApiSettings,
+    currentModelId: () => String(config.toolReviewApiConfigId ?? ""),
+  });
+
   useChatWindowLifecycleOrchestrator({
     viewMode,
     config,
@@ -1015,6 +1022,9 @@ export function useChatWindowApp() {
     ...workspaceOrchestrator,
     ...conversationOrchestrator,
     personas,
+    avatarError,
+    ensureAvatarCached,
+    quickModelUnavailable,
     userPersona: contentOrchestrator.personaConversation.userPersona,
     assistantPersonas: contentOrchestrator.personaConversation.assistantPersonas,
     assistantAgentId,
@@ -1141,6 +1151,7 @@ export function useChatWindowApp() {
     toolStatuses,
     avatarSaving,
     avatarError,
+    quickModelUnavailable,
     personaSaving,
     lastSavedConfigJson,
     setStatus,

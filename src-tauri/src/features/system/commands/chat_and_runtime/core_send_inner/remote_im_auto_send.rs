@@ -441,21 +441,11 @@ async fn remote_im_reply_delegate_finalize_group_reply_draft(
     let request_text = prepared_prompt_to_fast_request_text(&prepared);
     let api_config_id = match current_tool_review_api_config_id(state) {
         Ok(Some(value)) => value,
+        // 未配置＝禁用快速请求：直接用原草稿，不记失败、不消耗额度。
         Ok(None) => {
-            let error = "未配置快速模型".to_string();
-            remote_im_record_reply_rewrite_fast_request(
-                state,
-                delegate_id,
-                &request_text,
-                "",
-                false,
-                Some(error.clone()),
-                None,
-                None,
-            );
-            runtime_log_warn(format!(
-                "[群聊长度门] 失败，任务=应答委托杂务改写，delegate_id={}，original_units={}，max_units={}，error={}",
-                delegate_id, original_units, max_units, error
+            runtime_log_info(format!(
+                "[群聊长度门] 跳过，任务=应答委托杂务改写，delegate_id={}，original_units={}，max_units={}，reason=未配置快速模型",
+                delegate_id, original_units, max_units
             ));
             return draft;
         }

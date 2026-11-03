@@ -196,6 +196,13 @@ fn spawn_conversation_auto_title_generation(
             {
                 return Ok::<(), String>(());
             }
+            // 未配置快速模型＝禁用快速请求：静默跳过，不打 warn、不写失败记录。
+            if current_tool_review_api_config_id(&state)?.is_none() {
+                runtime_log_info(format!(
+                    "[会话标题] 跳过，任务=自动生成标题，conversation_id={conversation_id}，reason=未配置快速模型"
+                ));
+                return Ok(());
+            }
             match run_auto_conversation_title_generation(&state, &conversation_id, &user_message).await {
                 Ok(title) => {
                     if conversation_has_visible_title_from_store_async(
