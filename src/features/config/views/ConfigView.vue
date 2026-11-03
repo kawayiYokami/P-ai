@@ -5,7 +5,7 @@
     <SimpleSetupPanel class="h-full" @switch-to-advanced="emit('update:simpleSetupMode', false)" />
   </div>
   <div v-else key="advanced" class="config-shell flex h-full min-h-0 overflow-hidden">
-    <aside class="hidden md:flex relative h-full min-h-0 w-44 shrink-0 flex-col bg-base-200 px-2">
+    <aside class="hidden md:flex relative h-full min-h-0 w-44 shrink-0 flex-col px-2">
       <OverlayScrollArea class="min-h-0 flex-1" scroller-class="pr-1 h-full">
         <ul class="menu w-full gap-0.5 p-0 pt-2 pb-6 [&>li>a]:w-full">
           <template v-for="(group, groupIndex) in visibleConfigNavGroups" :key="group.id">
