@@ -774,7 +774,7 @@ fn create_side_chat_conversation_blocking(
 }
 
 /// 追问会话的记录构造：校验父会话、按需复制父会话最新一块消息、继承工作区与模型配置。
-/// 队员招募复用这条路，只是传入 `with_context = false` 并另写身份摘要消息。
+/// 队员招募复用这条路，只是传入 `with_context = false`，不带任何开局消息。
 pub(crate) fn side_chat_build_record(
     state: &AppState,
     parent_id: &str,

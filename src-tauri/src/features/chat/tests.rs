@@ -14537,7 +14537,7 @@
             .expect("member meta");
         assert_eq!(member_meta.conversation_kind.trim(), CONVERSATION_KIND_SIDE_CHAT);
         // 队员会话的标题留给自动标题生成，和主会话同一套：
-        // 预填角色名（或让身份摘要带摘要标题）会让可见标题永远非空，自动标题一次都不会跑。
+        // 预填角色名会让可见标题永远非空，自动标题一次都不会跑。
         assert!(
             member_meta.title.trim().is_empty(),
             "队员会话标题应留空交给自动标题：{}",
@@ -14545,7 +14545,7 @@
         );
         assert!(
             member_meta.latest_summary_title.is_none(),
-            "身份摘要消息不该贡献摘要标题：{:?}",
+            "招募不写任何消息，不该有摘要标题：{:?}",
             member_meta.latest_summary_title
         );
         let membership = member_meta.team.membership.as_ref().expect("membership");
@@ -14558,10 +14558,11 @@
             !conversation_has_pending_queue_events(&state, &member_id).expect("member queue"),
             "招募不应给队员排队任何事件"
         );
-        assert_eq!(
-            member_message_kinds(&state, &member_id),
-            vec!["summary_context_seed".to_string()],
-            "队员会话开局只有一条身份摘要消息"
+        // 招募不再往会话里写身份消息：队员身份改为每轮注入的系统提示块。
+        assert!(
+            member_message_kinds(&state, &member_id).is_empty(),
+            "队员会话开局不应有任何摘要 seed 消息：{:?}",
+            member_message_kinds(&state, &member_id)
         );
         // 队长行事指引改为每轮注入的规则块，招募回执不再附带第二份文案。
         let leader_rule = team_leader_prompt_rule_block(&state, &leader)
@@ -14569,23 +14570,6 @@
         assert!(
             leader_rule.contains("正文队员是读得到的"),
             "队长规则块应点明 team_send 正文队员读得到全文，界面上正文默认收起、点开可读：{leader_rule}"
-        );
-        // 队员的身份摘要要带一份队员行事指引给队员：同样点明身份，且不含行内代码。
-        let seed_text = conversation_service_v2()
-            .get_conversation_prompt_context(&state, &member_id)
-            .expect("member context")
-            .messages
-            .iter()
-            .find(|message| summary_context_message_kind(message).is_some())
-            .map(message_text_content)
-            .unwrap_or_default();
-        assert!(
-            seed_text.contains("你是这支队伍里的一名队员"),
-            "队员身份摘要应带队员行事指引：{seed_text}"
-        );
-        assert!(
-            !seed_text.contains('`'),
-            "队员行事指引不应出现行内代码：{seed_text}"
         );
     }
 
@@ -15764,6 +15748,117 @@
 
         // 打印两段真实拼装产出，供队长审阅（--nocapture）。
         println!("===== LOCAL =====\n{local_block}\n===== REMOTE =====\n{remote_block}");
+    }
+
+    #[test]
+    fn team_member_rule_block_should_render_member_only() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-member-rule");
+
+        // 招募之前：队长自己拿的是队长块，不拿队员块。
+        assert!(
+            team_member_prompt_rule_block(&state, &leader).is_none(),
+            "队长会话不该拿到队员规则块"
+        );
+        let leader_block = team_leader_prompt_rule_block(&state, &leader).expect("leader block");
+        assert!(leader_block.contains("<team leader rule>"));
+        assert!(!leader_block.contains("<team member rule>"));
+
+        // 招募之后：队员会话拿自己的块，角色与职责来自会话自己的 membership。
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"]
+            .as_str()
+            .expect("member id")
+            .to_string();
+        let member =
+            state_read_conversation_cached(&state, &member_id).expect("member conversation");
+        let member_block = team_member_prompt_rule_block(&state, &member)
+            .expect("member should get member rule block");
+        assert!(member_block.contains("<team member rule>"));
+        assert!(
+            member_block.contains("角色：李工") && member_block.contains("职责：查资料"),
+            "队员块要带这份会话自己的角色与职责：{member_block}"
+        );
+        // 关键行为：汇报工具名与「汇报没发出去等于没做完」这两句必须在，压缩后仍要靠它们。
+        assert!(
+            member_block.contains("team_report") && member_block.contains("活干完了、汇报还没发出去"),
+            "队员块必须点明汇报工具与未汇报等于没做完：{member_block}"
+        );
+        assert!(
+            !member_block.contains('`'),
+            "队员规则块不应出现行内代码：{member_block}"
+        );
+
+        // 两块互斥：队员不拿队长块，队长不拿队员块。
+        assert!(
+            team_leader_prompt_rule_block(&state, &member).is_none(),
+            "队员会话不该同时拿到队长规则块"
+        );
+        assert!(!member_block.contains("<team leader rule>"));
+        assert!(!member_block.contains("你是这个会话的项目负责人"));
+
+        // 招募不再把身份写成会话消息：初始 messages 为空。
+        assert!(
+            member.messages.is_empty(),
+            "招募后队员会话不该带任何消息，实际 {} 条：{:?}",
+            member.messages.len(),
+            member_message_kinds(&state, &member_id)
+        );
+
+        // 拼装链路：两边的系统提示里各只出现自己那一块，不会混着来。
+        let agent = default_agent();
+        let agents = vec![agent.clone()];
+        let member_prompt = conversation_prompt_service()
+            .build_prompt_snapshot(
+                Some(&state),
+                "chat",
+                &member,
+                &agent,
+                &agents,
+                "zh-CN",
+                None,
+                "固定系统提示词",
+                None,
+                None,
+                &[],
+                None,
+            )
+            .core_prompt;
+        assert!(
+            member_prompt.contains("<team member rule>"),
+            "队员会话的系统提示应带队员规则块：{member_prompt}"
+        );
+        assert!(
+            !member_prompt.contains("<team leader rule>"),
+            "队员会话的系统提示不该带队长规则块：{member_prompt}"
+        );
+
+        let leader_prompt = conversation_prompt_service()
+            .build_prompt_snapshot(
+                Some(&state),
+                "chat",
+                &leader,
+                &agent,
+                &agents,
+                "zh-CN",
+                None,
+                "固定系统提示词",
+                None,
+                None,
+                &[],
+                None,
+            )
+            .core_prompt;
+        assert!(
+            leader_prompt.contains("<team leader rule>"),
+            "队长会话的系统提示应带队长规则块：{leader_prompt}"
+        );
+        assert!(
+            !leader_prompt.contains("<team member rule>"),
+            "队长会话的系统提示不该带队员规则块：{leader_prompt}"
+        );
+
+        println!("===== MEMBER =====\n{member_block}");
     }
 
     #[test]

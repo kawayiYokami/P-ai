@@ -33,8 +33,8 @@ const TEAM_READ_SUMMARY_MAX_CHARS: usize = 200;
 /// 那就等于把这条轻量路径变成整读。
 const TEAM_READ_SCAN_MAX_MESSAGES: usize = 60;
 
-// 队伍三份指引，各写各的：队长通用段每轮注入所有队长会话，远程私聊队长追加一节，
-// 队员的随身份摘要交给队员。前两份不进系统提示外的其它位置，队员那份只作为会话消息出现。
+// 队伍三份指引，各写各的：队长通用段与远程私聊补充段，都在每轮拼系统提示时注入；
+// 队员那份同样走系统提示注入块。三份都不进会话消息历史——写成消息会被压缩摘要顶掉。
 const TEAM_LEADER_RULE_MD: &str =
     include_str!("../../../../../resources/prompts/team-leader-rule.md");
 const TEAM_LEADER_RULE_REMOTE_MD: &str =
@@ -91,6 +91,30 @@ pub(crate) fn team_leader_prompt_rule_block(
         TEAM_LEADER_RULE_MD.trim().to_string()
     };
     Some(prompt_xml_block("team leader rule", body))
+}
+
+/// 队员指导注入块：带队员身份的会话每轮注入，与队长块互斥。
+/// 角色与职责只从会话自己的 membership 取——身份只有一处来源，不另传参数。
+/// 走系统提示而不是会话消息：写成消息会进压缩摘要，摘要一滚规则就丢了。
+pub(crate) fn team_member_prompt_rule_block(
+    state: &AppState,
+    conversation: &Conversation,
+) -> Option<String> {
+    let meta = conversation_service_v2()
+        .get_conversation_meta(state, conversation.id.trim())
+        .ok()?;
+    let membership = meta.team.membership.as_ref()?;
+    let role = membership.name.trim();
+    if role.is_empty() {
+        return None;
+    }
+    let duty = membership.duty.trim();
+    let mut head = format!("## 你在队伍里的身份\n\n- 角色：{role}");
+    if !duty.is_empty() {
+        head.push_str(&format!("\n- 职责：{duty}"));
+    }
+    let body = format!("{head}\n\n---\n\n{}", TEAM_MEMBER_GUIDE_MD.trim());
+    Some(prompt_xml_block("team member rule", body))
 }
 
 /// 能不能拥有队伍名册：前台普通会话、非草稿、未归档；远程联系人仅私聊。
@@ -482,42 +506,6 @@ pub(crate) fn team_session_allows_kanban(state: &AppState, session_id: &str) -> 
         && !meta.is_delegate
         && !meta.is_draft
         && meta.archived_at.is_none()
-}
-
-fn team_identity_summary_message(role: &str, duty: &str) -> ChatMessage {
-    let duty_line = if duty.trim().is_empty() {
-        String::new()
-    } else {
-        format!("\n- 你的职责：{}", duty.trim())
-    };
-    let text = format!(
-        "## 摘要说明\n\n- 你是这支队伍里的一名队员，角色是「{}」。{duty_line}\n\n---\n\n{guide}",
-        role.trim(),
-        guide = TEAM_MEMBER_GUIDE_MD.trim()
-    );
-    ChatMessage {
-        id: Uuid::new_v4().to_string(),
-        role: "user".to_string(),
-        created_at: now_iso(),
-        speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
-        parts: vec![MessagePart::Text {
-            text,
-            reasoning_content: None,
-        }],
-        extra_text_blocks: Vec::new(),
-        provider_meta: Some(serde_json::json!({
-            "message_meta": {
-                "kind": "summary_context_seed",
-                "scene": "team_member_seed",
-                "schemaVersion": SUMMARY_CONTEXT_MESSAGE_SCHEMA_VERSION,
-                // 这里不能写角色名：这块摘要的 title 会被当成会话的最新摘要标题，
-                // 队员会话就再也不会生成内容标题了。名字由界面从 agent 取，不靠标题。
-            }
-        })),
-        tool_call: None,
-        mcp_call: None,
-        meme_annotations: None,
-    }
 }
 
 /// 队伍消息的发信方：署名与发件人本人格。谁发的由 speaker_agent_id 与 provider_meta.teamName
@@ -1586,7 +1574,7 @@ fn team_read_summary(text: &str) -> String {
     }
 }
 
-/// 建一名队员：占编号 → 建追问会话（带该角色的人格）→ 写成员身份与身份摘要 → 回填名册会话 id。
+/// 建一名队员：占编号 → 建追问会话（带该角色的人格）→ 写成员身份 → 回填名册会话 id。
 /// 编号只当内部主键，对外一律用角色（人格名）。招募三条入口（工具、界面、预创建）共用这一条路径。
 /// 工作树不归招募管：队长自己用 git 建好，再把路径发给队员。
 async fn team_create_member(
@@ -1628,7 +1616,7 @@ async fn team_create_member(
         return Err("招募失败：编号未能分配".to_string());
     };
 
-    // 建队员会话：不带上下文，只写一条身份摘要消息；招募本身不激活队员。
+    // 建队员会话：不带上下文、也不带消息；队员身份由每轮注入的系统提示块承载，招募本身不激活队员。
     let mut member = match side_chat_build_record(state, &leader_conversation_id, leader, false) {
         Ok(record) => record,
         Err(err) => {
@@ -1672,9 +1660,6 @@ async fn team_create_member(
         pending_report: false,
         pending_report_anchor: None,
     });
-    member
-        .messages
-        .push(team_identity_summary_message(&role, &duty));
     member.updated_at = now_iso();
     member.last_user_at = Some(member.updated_at.clone());
     if let Err(err) = side_chat_persist_record(state, &leader_conversation_id, &member) {

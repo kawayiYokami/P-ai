@@ -758,9 +758,12 @@ impl ConversationPromptService {
                 tool_rule_blocks.push(meme_block.trim().to_string());
             }
         }
-        if let Some(team_block) = state
-            .and_then(|app_state| team_leader_prompt_rule_block(app_state, conversation))
-        {
+        // 队伍身份只注入一份：队员拿自己的规则块，其余会话才拿队长块，两者互斥。
+        let team_block = state.and_then(|app_state| {
+            team_member_prompt_rule_block(app_state, conversation)
+                .or_else(|| team_leader_prompt_rule_block(app_state, conversation))
+        });
+        if let Some(team_block) = team_block {
             tool_rule_blocks.push(team_block);
         }
         let contact_prompt_rule_enabled = (conversation_is_remote_im_contact(conversation)
