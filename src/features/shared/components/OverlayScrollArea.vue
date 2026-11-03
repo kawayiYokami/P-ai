@@ -8,6 +8,7 @@
       ref="scrollerRef"
       class="overlay-scroll-area-scroller"
       :class="[props.scrollerClass, scrollerOverflowClass]"
+      :data-overscroll="props.overscroll"
       @wheel="handleWheel"
     >
       <slot />
@@ -41,6 +42,8 @@ const props = withDefaults(defineProps<{
   persistent?: boolean;
   hideScrollbar?: boolean;
   isolateScroll?: boolean;
+  /** 滚到边界后是否继续带动外层滚动。contain=不带动（浮层默认），auto=带动（聊天内容区）。 */
+  overscroll?: "contain" | "auto";
 }>(), {
   orientation: "vertical",
   variant: "theme",
@@ -48,6 +51,7 @@ const props = withDefaults(defineProps<{
   persistent: false,
   hideScrollbar: false,
   isolateScroll: false,
+  overscroll: "contain",
 });
 
 const scrollerRef = ref<HTMLElement | null>(null);
@@ -157,6 +161,11 @@ defineExpose({
 .overlay-scroll-area-scroller {
   scrollbar-width: none;
   overscroll-behavior: contain;
+}
+
+/* 属性选择器比基底规则多一段，能压过它；从 scroller-class 传 Tailwind 的 .overscroll-auto 压不动 */
+.overlay-scroll-area-scroller[data-overscroll="auto"] {
+  overscroll-behavior: auto;
 }
 
 .overlay-scroll-area-scroller::-webkit-scrollbar {

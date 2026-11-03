@@ -62,7 +62,7 @@
             >
               <span class="flex min-w-0 flex-1 items-center gap-1.5">
                 <span v-if="hasActivityReasoning(block)" class="shrink-0">
-                  {{ t("chat.messageItem.thought") }} <AnimatedCountText :target="block.activityReasoningCharCount || 0" />
+                  {{ t("chat.messageItem.thought") }} <AnimatedCountText v-if="!activityReasoningRunning()" :target="block.activityReasoningCharCount || 0" />
                 </span>
                 <span v-else-if="!activityToolCountsLabel(block)" class="shrink-0">
                   {{ t("chat.messageItem.notThought") }}
@@ -94,7 +94,7 @@
               class="px-0 pb-1 pt-2 text-xs text-base-content"
             >
               <div class="flex flex-col">
-                <TransitionGroup name="ecall-activity-item" tag="ul" class="ecall-activity-timeline" :appear="false">
+                <TransitionGroup name="ecall-activity-item" tag="ul" class="ecall-activity-timeline space-y-1.5" :appear="false">
                   <li
                     v-for="(item, itemIndex) in presentedActivityItems"
                     :key="`${block.id}-activity-${activityItemKey(item)}`"
@@ -115,7 +115,7 @@
 
                       <!-- 标题行：展开时才吸顶（sticky -top-3 z-10 抵消容器 py-3，紧贴视口最顶端），未展开时不吸顶随文档滚动 -->
                       <div
-                        class="ecall-reasoning-sticky-header flex min-h-6 items-center gap-1.5 bg-base-200 py-1"
+                        class="ecall-reasoning-sticky-header group flex min-h-6 items-center gap-1.5 bg-base-200 py-1"
                         :class="[
                           activityItemExpanded(item) ? 'sticky -top-3 z-10' : '',
                           props.selectionModeEnabled || !activityItemCanExpand(item) ? '' : 'cursor-pointer select-none',
@@ -131,16 +131,17 @@
                           </svg>
                         </div>
 
-                        <!-- 中间：首行标题摘要 -->
-                        <span class="ecall-activity-item-summary min-w-0 flex-1" :class="activityItemTitleClass(item)">
+                        <!-- 中间：首行标题摘要（宽度按内容，箭头紧跟在右肩） -->
+                        <span class="ecall-activity-item-summary min-w-0" :class="activityItemTitleClass(item)">
                           <InlineMarkdownText :text="activityItemTitle(item)" />
                         </span>
 
-                        <!-- 右侧：折叠箭头（有可展开内容时显示） -->
+                        <!-- 折叠箭头：平时不显示，悬停条目才出现；展开后常显，否则没有收起入口 -->
                         <button
                           v-if="activityItemCanExpand(item)"
                           type="button"
-                          class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-base-content/45 hover:bg-base-300/50 hover:text-base-content/80 transition-colors"
+                          class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-base-content/45 hover:bg-base-300/50 hover:text-base-content/80 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                          :class="{ 'opacity-100': activityItemExpanded(item) }"
                           :title="activityItemExpanded(item) ? t('common.collapse') : t('common.expand')"
                           data-selection-ignore="true"
                           @click.stop="toggleReasoningItemExpanded(item)"
@@ -177,7 +178,7 @@
                           ]"
                           @click="onReasoningClampedBodyClick(item)"
                         >
-                          <OverlayScrollArea v-if="activityItemExpanded(item)" scroller-class="max-h-[30rem] pr-3">
+                          <OverlayScrollArea v-if="activityItemExpanded(item)" scroller-class="max-h-80 pr-3" overscroll="auto">
                             <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
                             <template v-else>{{ activityItemBodyText(item) }}</template>
                           </OverlayScrollArea>
@@ -236,9 +237,9 @@
                           :open="activityItemExpanded(item)"
                           @toggle="onToolDetailsToggle(item, $event)"
                         >
-                          <summary class="collapse-title flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
+                          <summary class="collapse-title group flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
                             <span
-                              class="ecall-activity-item-summary min-w-0 flex-1 inline-flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap"
+                              class="ecall-activity-item-summary min-w-0 inline-flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap"
                               :class="activityItemTitleClass(item)"
                             >
                               <template v-if="activityItemSemantic(item)">
@@ -270,11 +271,12 @@
                               >-{{ activityItemDisplay(item).removes }}</span>
                             </span>
                             <ChevronDown
-                              class="ecall-activity-chevron mt-0.5 h-3.5 w-3.5 shrink-0 text-base-content/45 transition-transform duration-150"
+                              class="ecall-activity-chevron mt-0.5 h-3.5 w-3.5 shrink-0 text-base-content/45 transition-transform duration-150 opacity-0 group-hover:opacity-100"
+                              :class="{ 'opacity-100': activityItemExpanded(item) }"
                             />
                           </summary>
                           <div class="collapse-content pb-2 pr-1 pt-1">
-                            <OverlayScrollArea scroller-class="max-h-72 rounded bg-base-200/60 p-2">
+                            <OverlayScrollArea scroller-class="max-h-72 rounded bg-base-200/60 p-2" overscroll="auto">
                               <pre
                                 class="m-0 whitespace-pre-wrap break-all text-xs leading-relaxed"
                                 :class="activityItemDetailClass(item)"
@@ -343,7 +345,7 @@
                         </div>
                         <div v-else-if="item.kind === 'content'" class="flex px-1 py-1">
                           <PlainMarkdownRenderer
-                            class="min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-base-content"
+                            class="min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
                             :text="activityItemText(item)"
                           />
                         </div>
@@ -1479,9 +1481,20 @@ function hasActivityReasoning(block: ChatMessageBlock): boolean {
   return Number(block.activityReasoningCharCount || 0) > 0;
 }
 
+/**
+ * 思考是否还在跑：只要还有一条 reasoning 条目 running，就认为思考没结束。
+ * 折叠态读 activityItems、展开态读 contentBlocks 派生结果，两者都经由 presentedActivityItems 收敛。
+ */
+function activityReasoningRunning(): boolean {
+  return presentedActivityItems.value.some(
+    (item) => item.kind === "reasoning" && item.running,
+  );
+}
+
 function activityReasoningCountLabel(block: ChatMessageBlock): string {
   const count = Number(block.activityReasoningCharCount || 0);
-  return count > 0 ? `（${count.toLocaleString("zh-CN")}）` : "";
+  if (count <= 0 || activityReasoningRunning()) return "";
+  return `（${count.toLocaleString("zh-CN")}）`;
 }
 
 function activityStatusText(block: ChatMessageBlock): string {
@@ -1742,11 +1755,19 @@ function activityToolArgsText(item: ChatActivityItem): string {
   return raw;
 }
 
+/**
+ * 折叠块里的正文发言：浅色下比常规正文淡一档（50%），深色保持原来的 base-content 不变。
+ * 三档透明度只做浅色，深色各走自己的 -dark 类。
+ */
+function activityContentColorClass(): string {
+  return props.markdownIsDark ? "text-base-content" : "ecall-activity-content";
+}
+
 function activityItemNodeClass(item: ChatActivityItem): string {
   if (item.kind === "reasoning") {
     return props.markdownIsDark ? "ecall-activity-reasoning-dark" : "ecall-activity-reasoning";
   }
-  if (item.kind === "content") return "text-base-content";
+  if (item.kind === "content") return activityContentColorClass();
   if (item.kind === "tool" && item.resultText) {
     const status = parseToolCallResultStatus(item.resultText);
     if (status.isDenied) return "text-warning";
@@ -1757,9 +1778,9 @@ function activityItemNodeClass(item: ChatActivityItem): string {
 
 function activityItemTitleClass(item: ChatActivityItem): string {
   if (item.kind === "reasoning") {
-    return props.markdownIsDark ? "italic ecall-activity-reasoning-dark" : "italic ecall-activity-reasoning";
+    return props.markdownIsDark ? "ecall-activity-reasoning-dark" : "ecall-activity-reasoning";
   }
-  if (item.kind === "content") return "text-base-content";
+  if (item.kind === "content") return activityContentColorClass();
   if (item.kind === "tool" && item.resultText) {
     const status = parseToolCallResultStatus(item.resultText);
     if (status.isDenied) return "text-warning";
@@ -1772,7 +1793,7 @@ function activityItemDetailClass(item: ChatActivityItem): string {
   if (item.kind === "reasoning") {
     return props.markdownIsDark ? "ecall-activity-reasoning-dark" : "ecall-activity-reasoning";
   }
-  if (item.kind === "content") return "text-base-content";
+  if (item.kind === "content") return activityContentColorClass();
   return props.markdownIsDark ? "ecall-activity-tool-dark" : "ecall-activity-tool";
 }
 
@@ -2334,14 +2355,19 @@ function openAttachmentPath(path: string) {
 </script>
 
 <style scoped>
-/* 浅色主题：思维链橙色、工具绿色（加深保证白底可读） */
+/* 浅色主题：折叠块内三档统一取 base-content（即 context 色），只靠透明度分层——思考 80%、工具 60%、正文 50% */
 /* :deep 穿透：颜色类经 textClass 传入 ExpandableText 内部文本元素，scoped 规则需跨组件生效 */
 :deep(.ecall-activity-reasoning) {
-  color: #c2410c;
+  color: color-mix(in srgb, var(--color-base-content) 80%, transparent);
 }
 
 :deep(.ecall-activity-tool) {
-  color: #15803d;
+  color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+}
+
+/* 正文这一档同时要压过下面那条把折叠块 markdown 钉成 100% base-content 的 !important 规则 */
+:deep(.ecall-activity-content) {
+  color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
 }
 
 /* 深色主题：思维链橙色、工具绿色（提亮保证深底可读） */
@@ -2401,6 +2427,12 @@ function openAttachmentPath(path: string) {
 :deep(.ecall-activity-timeline .ecall-plain-markdown-markdown),
 :deep(.ecall-activity-timeline .ecall-plain-markdown-markdown p) {
   color: var(--color-base-content) !important;
+}
+
+/* 上面那条把折叠块内 markdown 统一钉成 base-content；正文发言这一档要压过它才淡得下来 */
+:deep(.ecall-activity-timeline .ecall-activity-content .ecall-plain-markdown-markdown),
+:deep(.ecall-activity-timeline .ecall-activity-content .ecall-plain-markdown-markdown p) {
+  color: color-mix(in srgb, var(--color-base-content) 50%, transparent) !important;
 }
 
 .ecall-chat-message-row {
