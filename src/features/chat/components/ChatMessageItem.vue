@@ -94,7 +94,7 @@
               class="px-0 pb-1 pt-2 text-xs text-base-content"
             >
               <div class="flex flex-col">
-                <TransitionGroup name="ecall-activity-item" tag="ul" class="ecall-activity-timeline space-y-1.5" :appear="false">
+                <TransitionGroup name="ecall-activity-item" tag="ul" class="ecall-activity-timeline" :appear="false">
                   <li
                     v-for="(item, itemIndex) in presentedActivityItems"
                     :key="`${block.id}-activity-${activityItemKey(item)}`"
@@ -162,7 +162,7 @@
                       <!-- 正文区：左侧引导坚线 + 右侧内容（折叠态展示 4 行预览 + 底部 base-200 淡出；展开态完整展示且由 Header 吸顶） -->
                       <div
                         v-if="activityItemCanExpand(item)"
-                        class="flex gap-1.5 min-w-0 flex-1 pl-0 pb-1.5"
+                        class="flex gap-1.5 min-w-0 flex-1 pl-0"
                       >
                         <!-- 左侧引导坚线 -->
                         <div class="flex w-4 shrink-0 justify-center">
@@ -171,7 +171,7 @@
 
                         <!-- 右侧正文外壳：折叠态限高约 4 行预览并加底部 base-200 淡出；展开态限高滚动 -->
                         <div
-                          class="ecall-reasoning-body-shell relative min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
+                          class="ecall-reasoning-body-shell relative my-3 min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
                           :class="[
                             activityItemDetailClass(item),
                             activityItemExpanded(item) ? 'ecall-reasoning-body--expanded' : 'ecall-reasoning-body--clamped cursor-pointer',
@@ -198,7 +198,12 @@
 
                     <!-- ========== 工具与正文节点：原有双列时间线结构 ========== -->
                     <template v-else>
-                      <div class="flex w-4 shrink-0 flex-col items-center pt-1">
+                      <div class="relative flex w-4 shrink-0 flex-col items-center pt-1">
+                        <!-- 时间轴竖线：绝对定位撑满整条 li（含条目间距），相邻条目的线才能首尾相接 -->
+                        <span
+                          v-if="itemIndex !== presentedActivityItems.length - 1"
+                          class="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-current"
+                        />
                         <span
                           v-if="item.kind === 'tool' && item.status === 'doing'"
                           class="loading loading-spinner loading-xs text-primary"
@@ -228,9 +233,8 @@
                             transform="translate(3.84 3.84) scale(0.68)"
                           />
                         </svg>
-                        <span v-if="itemIndex !== presentedActivityItems.length - 1" class="mt-1 w-px flex-1 bg-current" />
                       </div>
-                      <div class="min-w-0 flex-1">
+                      <div class="my-3 min-w-0 flex-1">
                         <details
                           v-if="item.kind === 'tool' && activityItemCanExpand(item)"
                           class="collapse rounded-none"
