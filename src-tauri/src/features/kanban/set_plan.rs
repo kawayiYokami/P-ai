@@ -5,7 +5,7 @@
 // 只有「设置」一件事：已挂的直接覆盖成新路径，既不能卸载、也没有独立的读动作。
 // 设置时不校验文件是否存在（计划可能还没落盘）。
 //
-// 拆成「要 AppState 的入口 + 只吃连接的内核」：后者让行为可测，
+// 拆成「要 AppState 的入口 + 只吃议题列表的内核」：后者让行为可测，
 // 与 kanban_apply_upsert / _in 同一套做法。
 
 /// 设置结果：这条议题现在挂的是哪个文件。
@@ -41,25 +41,31 @@ fn kanban_set_plan(
     number: u32,
     plan_path: &str,
 ) -> Result<KanbanSetPlanResult, String> {
-    let conn = kanban_conn(state)?;
-    kanban_set_plan_in(&conn, leader_conversation_id, number, plan_path)
+    let mut outcome: Option<KanbanSetPlanResult> = None;
+    state_update_conversation_metadata_cached(state, leader_conversation_id, |conversation| {
+        let mut issues = conversation.issues.clone();
+        let result = kanban_set_plan_in(&mut issues, number, plan_path)?;
+        conversation.issues = issues;
+        outcome = Some(result);
+        Ok(())
+    })?;
+    outcome.ok_or_else(|| format!("议题 #{number} 在设置计划后读不回来了"))
 }
 
 /// 已挂的直接覆盖：没有卸载动作，所以重复设置是常态，不是错误。
 fn kanban_set_plan_in(
-    conn: &Connection,
-    leader_conversation_id: &str,
+    issues: &mut [KanbanIssueEntry],
     number: u32,
     plan_path: &str,
 ) -> Result<KanbanSetPlanResult, String> {
     let plan_path = kanban_set_plan_path_checked(plan_path)?;
-    let mut issue = kanban_store_find(conn, leader_conversation_id, number)?
+    let issue = issues
+        .iter_mut()
+        .find(|issue| issue.number == number)
         .ok_or_else(|| format!("议题 #{number} 不存在"))?;
     issue.plan_path = plan_path;
     issue.updated_at = now_utc_rfc3339();
-    if !kanban_store_update(conn, &issue, None)? {
-        return Err(format!("议题 #{number} 已不存在"));
-    }
+    issue.version += 1;
     Ok(KanbanSetPlanResult {
         number: issue.number,
         plan_path: issue.plan_path.trim().to_string(),

@@ -4284,6 +4284,10 @@ mod unarchived_conversations_tests {
 
     fn build_test_conversation() -> Conversation {
         Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: "source-conversation".to_string(),
             title: "原会话".to_string(),

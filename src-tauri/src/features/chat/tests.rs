@@ -4005,7 +4005,7 @@
             .expect("read group queue"));
     }
 
-    fn test_chat_conversation(conversation_id: &str, status: &str, updated_at: &str) -> Conversation {
+    pub(crate) fn test_chat_conversation(conversation_id: &str, status: &str, updated_at: &str) -> Conversation {
         Conversation {
             loaded_mcp_tools: Vec::new(),
             id: conversation_id.to_string(),
@@ -4041,6 +4041,10 @@
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
             active_goal: None, team: TeamState::default(), last_error: None,
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         }
@@ -10416,6 +10420,10 @@
         let now = now_iso();
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: "conversation-root".to_string(),
             title: "主会话".to_string(),
@@ -11793,6 +11801,10 @@
         let now = now_utc_rfc3339();
         let mut data = AppData::default();
         let mut conversation = Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: "conversation-summary-only".to_string(),
             title: "摘要会话".to_string(),
@@ -11854,6 +11866,10 @@
         let now = now_utc_rfc3339();
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: "conversation-main".to_string(),
             title: "主会话".to_string(),
@@ -11928,6 +11944,10 @@
         let now = now_iso();
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: "conversation-main".to_string(),
             title: "主会话".to_string(),
@@ -14297,77 +14317,6 @@
         assert!(
             !overwritten.contains("kanban-set-plan-tool-first.md"),
             "不能还回显旧路径：{overwritten}"
-        );
-    }
-
-    /// 归属按角色认人：新写入写角色，编号写法直接拒绝；存量编号归属在打开库时一次性迁移。
-    #[test]
-    fn kanban_assignee_should_use_role_and_migrate_legacy_numbers_once() {
-        let state = team_test_state();
-        let leader = persist_team_leader(&state, "conversation-kanban-assignee");
-        recruit_member(&state, &leader.id, "李工");
-
-        // 新写入：按角色（新建不收 assignee，先建再带编号派出去）
-        let created = kanban::builtin_kanban(
-            &state,
-            &team_session_id(&leader.id),
-            kanban_upsert_request(Some("派给李工"), None, None),
-        )
-        .expect("create issue");
-        assert!(created.contains("\"number\":1"), "{created}");
-        let mut request = kanban_upsert_request(Some("派给李工"), Some(1), Some("in_progress"));
-        request.issues[0].assignee = Some("member:李工".to_string());
-        let output = kanban::builtin_kanban(&state, &team_session_id(&leader.id), request)
-            .expect("assign by role");
-        assert!(
-            output.contains("\"assignee\":\"member:李工\""),
-            "归属要按角色返回：{output}"
-        );
-
-        // 编号写法必须报错，不能当角色名「1」收下
-        let mut numeric = kanban_upsert_request(Some("派给李工"), Some(1), Some("in_progress"));
-        numeric.issues[0].assignee = Some("member:1".to_string());
-        let err = kanban::builtin_kanban(&state, &team_session_id(&leader.id), numeric)
-            .expect_err("编号写法必须被拒绝");
-        assert!(err.contains("角色"), "报错要指向角色名：{err}");
-
-        // 存量：编号时代的 member:1（名册里就是李工）与 member:99（早就没这个人）
-        kanban::kanban_test_seed_legacy_assignee(&state, &leader.id, 2, 1, "存量派给李工")
-            .expect("seed legacy assignee");
-        kanban::kanban_test_seed_legacy_assignee(&state, &leader.id, 3, 99, "存量指向已离队的人")
-            .expect("seed legacy assignee");
-
-        let listed = kanban::builtin_kanban(
-            &state,
-            &team_session_id(&leader.id),
-            kanban_list_request(),
-        )
-        .expect("list after migration");
-        assert!(
-            listed.contains("\"assignee\":\"member:李工\""),
-            "能反查到角色的存量归属要迁成角色：{listed}"
-        );
-        assert!(
-            !listed.contains("\"assignee\":\"member:99\""),
-            "反查不到的编号不能原样漏出来：{listed}"
-        );
-        assert!(
-            listed.contains("\"assignee\":\"none\""),
-            "反查不到的存量归属要显式落 none，不能留空：{listed}"
-        );
-
-        // 幂等：再跑一遍库，结果一个字都不该变
-        let first = kanban::builtin_kanban(
-            &state,
-            &team_session_id(&leader.id),
-            kanban_list_request(),
-        )
-        .expect("list again");
-        assert_eq!(first, listed, "迁移必须幂等");
-        assert_eq!(
-            kanban::kanban_test_pending_legacy_assignees(&state).expect("scan legacy"),
-            0,
-            "迁移跑完不该还有待迁移行"
         );
     }
 

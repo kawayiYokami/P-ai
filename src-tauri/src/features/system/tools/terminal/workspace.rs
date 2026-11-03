@@ -1702,6 +1702,10 @@ mod terminal_workspace_tests {
         state_write_config_cached(&state, &config).expect("write config");
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: "conv-1".to_string(),
             title: "Conversation".to_string(),
@@ -1787,6 +1791,10 @@ mod terminal_workspace_tests {
         state_write_config_cached(&state, &config).expect("write config");
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: "conv-1".to_string(),
             title: "Conversation".to_string(),

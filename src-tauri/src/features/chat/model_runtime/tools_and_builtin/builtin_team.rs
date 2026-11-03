@@ -1064,28 +1064,24 @@ fn team_close_missing_member_entries(
     missing.into_iter().map(|(_, role)| role).collect()
 }
 
-/// 名册里在队队员的角色（人格名优先），与 `team_info` 的 `role` 字段同一口径。
+/// 名册编号 -> 角色名。给议题归属用：议题只存编号，收发边界上才翻成名字。
 ///
-/// 队伍以外的调用方（看板这类）要判断「某个角色在不在队」，统一走这里。
-/// 两点刻意对齐 `team_info`，不要在外面自己读 `meta.team`：
-/// - 先做一次失效队员收口：会话已删的队员必须先从名册里消失，否则「名册里查无此人」
-///   这个判断会在别处永远成立失败，脏引用只是换个入口继续产；
-/// - 角色取人格名而不是名册里存的历史名字，模型在 `team_info` 里看到的是哪个字符串，
-///   这里就必须认哪个字符串，否则会出现「team_info 说有人、别处不认」的错位。
-fn team_active_member_roles(
+/// `include_dismissed` 为真时连已请离的一起返回：历史议题还挂着当年的人，
+/// 显示上要能说出那是谁，不能因为人走了就变成无主。
+/// 这里只读不写——渲染路径也会调，不该顺手改名册。
+fn team_member_number_roles(
     state: &AppState,
     leader_conversation_id: &str,
-) -> Result<Vec<String>, String> {
-    let mut leader = conversation_service_v2().get_conversation_meta(state, leader_conversation_id)?;
+    include_dismissed: bool,
+) -> Result<Vec<(u32, String)>, String> {
+    let leader = conversation_service_v2().get_conversation_meta(state, leader_conversation_id)?;
     let persona_names = TeamPersonaNames::load(state);
-    team_close_missing_member_entries(state, &mut leader);
     Ok(leader
         .team
         .members
         .iter()
-        .filter(|member| member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
-        .map(|member| team_member_role(state, &persona_names, member))
-        .filter(|role| !role.trim().is_empty())
+        .filter(|member| include_dismissed || member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
+        .map(|member| (member.number, team_member_role(state, &persona_names, member)))
         .collect())
 }
 
@@ -1319,7 +1315,7 @@ fn builtin_team_send(
                 "派活必须挂议题：先在 kanban 新建一条，把编号填进 issue".to_string(),
             );
         }
-        if !kanban::kanban_store_issue_exists(&state.data_path, &leader.id, issue_number)? {
+        if !kanban::kanban_issue_exists(state, &leader.id, issue_number)? {
             return Err(format!("议题 #{issue_number} 不存在，先建议题再派活"));
         }
     }

@@ -714,6 +714,10 @@ fn test_conversation_with_kind(kind: &str) -> Conversation {
         cumulative_usage: ConversationCumulativeUsage::default(),
         active_goal: None,
         team: TeamState::default(),
+        questions: Vec::new(),
+        question_next_number: 0,
+        issues: Vec::new(),
+        issue_next_number: 0,
         loaded_mcp_tools: Vec::new(),
         last_error: None,
     }
@@ -791,6 +795,10 @@ mod summary_context_title_tests {
 
     fn test_conversation(messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: "conversation-a".to_string(),
             title: String::new(),
@@ -1220,6 +1228,10 @@ fn build_conversation_record(
         cumulative_usage: ConversationCumulativeUsage::default(),
         active_goal: None,
         team: TeamState::default(),
+        questions: Vec::new(),
+        question_next_number: 0,
+        issues: Vec::new(),
+        issue_next_number: 0,
         loaded_mcp_tools: Vec::new(),
         last_error: None,
     }
@@ -3774,6 +3786,10 @@ fn build_prompt_with_mode(
         cumulative_usage: conversation.cumulative_usage.clone(),
         active_goal: conversation.active_goal.clone(),
         team: conversation.team.clone(),
+        questions: conversation.questions.clone(),
+        question_next_number: conversation.question_next_number,
+        issues: conversation.issues.clone(),
+        issue_next_number: conversation.issue_next_number,
         loaded_mcp_tools: conversation.loaded_mcp_tools.clone(),
         last_error: conversation.last_error.clone(),
     };

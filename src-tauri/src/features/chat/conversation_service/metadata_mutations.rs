@@ -368,28 +368,16 @@ impl ConversationServiceV2 {
         if normalized_conversation_id.is_empty() {
             return Ok(None);
         }
-        let mut summaries = self.read_unarchived_conversation_summaries_for_ids(
-            state,
-            &[normalized_conversation_id],
-            false,
-        )?;
+        let mut summaries =
+            self.read_unarchived_conversation_summaries(state, &[normalized_conversation_id])?;
         Ok(summaries.pop().flatten())
     }
 
-    /// 差量概览的批量入口：一次处理 k 条变更，只取一次会话锁，问题库与看板库整批各开一次。
+    /// 差量概览的批量入口：一次处理 k 条变更，只取一次会话锁，同一块板整批只读一次。
     fn read_unarchived_conversation_summaries(
         &self,
         state: &AppState,
         conversation_ids: &[String],
-    ) -> Result<Vec<Option<UnarchivedConversationSummary>>, String> {
-        self.read_unarchived_conversation_summaries_for_ids(state, conversation_ids, true)
-    }
-
-    fn read_unarchived_conversation_summaries_for_ids(
-        &self,
-        state: &AppState,
-        conversation_ids: &[String],
-        batch_derived_reads: bool,
     ) -> Result<Vec<Option<UnarchivedConversationSummary>>, String> {
         let mut summaries: Vec<Option<UnarchivedConversationSummary>> =
             vec![None; conversation_ids.len()];
@@ -452,24 +440,12 @@ impl ConversationServiceV2 {
             (main_conversation_id, pinned_conversation_ids, metas)
         };
 
-        // ② 放锁后再取派生数据：问题库、看板库都在锁外打开。
-        // 批量路径整批只取一次问题计数、只开一次看板连接；单条路径保持「按会话现取」的原口径。
-        let question_counts = if batch_derived_reads {
-            Some(question_counts_by_conversation(state))
-        } else {
-            None
-        };
+        // ② 放锁后再取派生数据：在办议题从会话自己的元数据里读。
+        // 批量路径整批共用一个读取缓存，同队队员不会各自把板读一遍。
         let mut kanban = crate::kanban::KanbanSession::new();
         for (index, conversation_meta) in metas.into_iter().enumerate() {
             let Some(conversation_meta) = conversation_meta else {
                 continue;
-            };
-            let question_count = match question_counts.as_ref() {
-                Some(counts) => counts
-                    .get(conversation_meta.id.trim())
-                    .copied()
-                    .unwrap_or(0),
-                None => question_count_for_conversation(state, conversation_meta.id.trim()),
             };
             summaries[index] = Some(build_unarchived_conversation_summary_with_kanban(
                 state,
@@ -477,7 +453,6 @@ impl ConversationServiceV2 {
                 &pinned_conversation_ids,
                 &conversation_meta,
                 Some(DESKTOP_CHAT_VIEWER_ID),
-                question_count,
                 &mut kanban,
             ));
         }
@@ -686,30 +661,49 @@ mod unarchived_summary_batch_tests {
     }
 
     fn seed_questions(state: &AppState, counts: &[usize]) {
-        let mut conn = question_store_open(&state.data_path).expect("打开问题库");
         for (index, count) in counts.iter().enumerate() {
-            for number in 0..*count {
-                question_store_insert(
-                    &mut conn,
-                    &format!("perf-leader-{index}"),
-                    &format!("问题 {number}"),
-                    "",
-                    &["是".to_string()],
-                )
-                .expect("写入问题记录");
+            let conversation_id = format!("perf-leader-{index}");
+            let copy = *count as u32;
+            state_update_conversation_metadata_cached(state, &conversation_id, |conversation| {
+                let now = now_utc_rfc3339();
+                for number in 1..=copy {
+                    conversation.questions.push(ConversationQuestionEntry {
+                        number,
+                        title: format!("问题 {number}"),
+                        background: String::new(),
+                        options: vec!["是".to_string()],
+                        created_at: now.clone(),
+                        updated_at: now.clone(),
+                    });
+                }
+                conversation.question_next_number = copy + 1;
+                Ok(())
+            })
+            .expect("写入问题记录");
+        }
+    }
+
+    /// 递归收集数据目录下的文件名，用来断言概览读取没有再碰任何附属库文件。
+    fn collect_data_file_names(root: &std::path::Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_data_file_names(&path, out);
+            } else if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
+                out.push(name.to_string());
             }
         }
     }
 
-    /// 一次差量概览读取处理 k 条变更时，问题库与看板库各只打开一次。
+    /// 概览的问题条数直接取自会话元数据，并且一次批量读取不碰任何附属库文件。
     #[test]
-    fn batch_summary_read_should_open_each_store_once() {
+    fn batch_summary_read_should_take_question_count_from_metadata() {
         let state = test_chat_runtime_state();
         let ids = seed_team_conversations(&state);
         seed_questions(&state, &[2, 1, 0]);
-
-        question_store_reset_open_count(&state.data_path);
-        crate::kanban::kanban_store_reset_open_count(&state.data_path);
 
         let summaries = conversation_service_v2()
             .read_unarchived_conversation_summaries(&state, &ids)
@@ -721,21 +715,26 @@ mod unarchived_summary_batch_tests {
             "三个会话都应读到概览"
         );
         assert_eq!(
-            question_store_open_count(&state.data_path),
-            1,
-            "问题库在一次批量读取里只应打开一次"
-        );
-        assert_eq!(
-            crate::kanban::kanban_store_open_count(&state.data_path),
-            1,
-            "看板库在一次批量读取里只应打开一次"
-        );
-        assert_eq!(
             summaries[0]
                 .as_ref()
                 .map(|item| item.question_count)
                 .unwrap_or(0),
             2
+        );
+        assert_eq!(
+            summaries[1]
+                .as_ref()
+                .map(|item| item.question_count)
+                .unwrap_or(0),
+            1
+        );
+
+        let mut file_names = Vec::new();
+        collect_data_file_names(&state.data_path, &mut file_names);
+        assert!(
+            !file_names.iter().any(|name| name == "question_store.db"
+                || name == "kanban_store.db"),
+            "概览读取不该再打开任何附属库：{file_names:?}"
         );
     }
 

@@ -555,7 +555,6 @@ fn build_unarchived_conversation_summary_from_meta_view(
     pinned_conversation_ids: &[String],
     conversation_meta: &ConversationMetaView,
     current_viewer_id: Option<&str>,
-    question_count: usize,
 ) -> UnarchivedConversationSummary {
     // 单条路径：本次只构建一个概览，复用会话与现开等价，直接给一个临时会话即可。
     let mut kanban = crate::kanban::KanbanSession::new();
@@ -565,22 +564,21 @@ fn build_unarchived_conversation_summary_from_meta_view(
         pinned_conversation_ids,
         conversation_meta,
         current_viewer_id,
-        question_count,
         &mut kanban,
     )
 }
 
-/// 构建概览项。看板读取走调用方传进来的会话，批量路径据此在整批里只开一次看板库。
+/// 构建概览项。看板读取走调用方传进来的会话，批量路径据此在整批里同一块板只读一次。
 fn build_unarchived_conversation_summary_with_kanban(
     state: &AppState,
     main_conversation_id: &str,
     pinned_conversation_ids: &[String],
     conversation_meta: &ConversationMetaView,
     current_viewer_id: Option<&str>,
-    question_count: usize,
     kanban: &mut crate::kanban::KanbanSession,
 ) -> UnarchivedConversationSummary {
     let conversation_id = conversation_meta.id.trim();
+    let question_count = conversation_meta.questions.len();
     let is_system_notification_conversation = conversation_id == main_conversation_id
         || conversation_meta.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID
         || conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION;
@@ -607,11 +605,6 @@ fn build_unarchived_conversation_summary_with_kanban(
     );
     let (workspace_label, workspace_root_path) =
         conversation_default_workspace_summary_from_meta_view(state, conversation_meta);
-    // 一块看板只查一次：同队多名队员共用这份结果，不在每个队员身上各开一次库。
-    let mut kanban_active_issue_cache: std::collections::HashMap<
-        String,
-        std::collections::HashMap<String, crate::kanban::KanbanActiveIssueSummary>,
-    > = std::collections::HashMap::new();
     let child_conversations = conversation_meta
         .child_conversation_ids
         .iter()
@@ -624,39 +617,14 @@ fn build_unarchived_conversation_summary_with_kanban(
             let membership = child.team.membership.as_ref();
             let team_name =
                 membership.map(|entry| strip_legacy_member_number_prefix(&entry.name));
+            // 队员身上本来就带着名册编号，按编号直接比对即可，
+            // 不必为每名队员各读一次队长会话去把名字换成编号。
             let active_issue = membership.and_then(|entry| {
-                let leader = entry.leader_conversation_id.trim().to_string();
-                let role = team_name.as_deref().unwrap_or_default().trim().to_string();
-                if leader.is_empty() || role.is_empty() {
+                let leader = entry.leader_conversation_id.trim();
+                if leader.is_empty() {
                     return None;
                 }
-                if !kanban_active_issue_cache.contains_key(&leader) {
-                    let issues = kanban.active_issues_by_role(state, &leader);
-                    kanban_active_issue_cache.insert(leader.clone(), issues);
-                }
-                kanban_active_issue_cache
-                    .get(&leader)
-                    .and_then(|by_role| {
-                        by_role
-                            .get(&role)
-                            .or_else(|| by_role.get(entry.name.trim()))
-                            .or_else(|| {
-                                let aid = child.agent_id.trim();
-                                if !aid.is_empty() {
-                                    by_role.get(aid)
-                                } else {
-                                    None
-                                }
-                            })
-                            .or_else(|| {
-                                if role.eq_ignore_ascii_case("leader") || role == "队长" {
-                                    by_role.get("leader").or_else(|| by_role.get("队长"))
-                                } else {
-                                    None
-                                }
-                            })
-                    })
-                    .cloned()
+                kanban.active_issue_for_member(state, leader, entry.number)
             });
             // 复用队伍工具那侧的判定（运行态 + 待处理队列 + 活动标记），
             // 不在概览项里重写一套「忙不忙」的规则。

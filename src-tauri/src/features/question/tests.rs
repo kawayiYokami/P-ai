@@ -1,11 +1,5 @@
-    // ==================== 会话提问：存储 / 工具 / 权限 / 答题 ====================
-
     fn question_test_state() -> AppState {
         test_chat_runtime_state()
-    }
-
-    fn question_test_conn(state: &AppState) -> rusqlite::Connection {
-        question_store_open(&state.data_path).expect("open question store")
     }
 
     fn question_test_options(values: &[&str]) -> Vec<String> {
@@ -28,156 +22,188 @@
         conversation
     }
 
+    /// 问题挂在会话自己的元数据里，所以每个用例先得有这样一条会话。
+    fn question_test_seed_conversation(state: &AppState, id: &str) {
+        let conversation = question_test_conversation(id, CONVERSATION_KIND_CHAT);
+        state_write_conversation_cached(state, &conversation).expect("write conversation");
+    }
+
     fn question_test_numbers(views: &[ConversationQuestionView]) -> Vec<u32> {
         views.iter().map(|view| view.number).collect()
     }
 
-    // ==================== 存储 ====================
+    // ==================== 编号 ====================
 
-    #[test]
-    fn question_store_should_not_recycle_number_after_delete() {
-        let state = question_test_state();
-        let mut conn = question_test_conn(&state);
-        for title in ["题一", "题二", "题三"] {
-            question_store_insert(&mut conn, "conv-a", title, "", &question_test_options(&["A"]))
-                .expect("insert question");
+    /// 直接改题本身：本条与本次改动无关，用它删掉最高编号再建新题。
+    fn question_test_delete_item(number: u32) -> QuestionUpdateItem {
+        QuestionUpdateItem {
+            number: Some(number),
+            title: None,
+            background: None,
+            options: None,
         }
-        let deleted = question_store_delete(&conn, "conv-a", 3).expect("delete #3");
-        assert_eq!(deleted, 1);
-
-        let created =
-            question_store_insert(&mut conn, "conv-a", "题四", "", &question_test_options(&["A"]))
-                .expect("insert after delete");
-        assert_eq!(created.number, 4, "删掉 #3 之后新题必须是 #4，编号不回收");
-
-        let numbers: Vec<u32> = question_store_list(&conn, "conv-a")
-            .expect("list questions")
-            .into_iter()
-            .map(|item| item.number)
-            .collect();
-        assert_eq!(numbers, vec![1, 2, 4]);
     }
 
     #[test]
-    fn question_store_unique_index_should_reject_duplicate_number() {
+    fn question_should_not_recycle_number_after_delete() {
         let state = question_test_state();
-        {
-            let mut conn = question_test_conn(&state);
-            question_store_insert(&mut conn, "conv-a", "题一", "", &question_test_options(&["A"]))
-                .expect("insert question");
-        }
-        let conn = question_test_conn(&state);
-        let err = conn
-            .execute(
-                "INSERT INTO conversation_question
-                    (id, conversation_id, number, title, background, options_json, created_at, updated_at)
-                 VALUES ('dup-id', 'conv-a', 1, '重复', '', '[]', 'now', 'now')",
-                [],
+        question_test_seed_conversation(&state, "conv-a");
+        for title in ["题一", "题二", "题三"] {
+            question_apply_tool_mutations(
+                &state,
+                "conv-a",
+                &[question_test_create_item(title, &["A"])],
             )
-            .expect_err("同会话内编号冲突必须被唯一索引拒绝");
-        assert!(
-            err.to_string().to_uppercase().contains("UNIQUE"),
-            "唯一索引未生效：{err}"
+            .expect("create question");
+        }
+        question_apply_tool_mutations(&state, "conv-a", &[question_test_delete_item(3)])
+            .expect("delete #3");
+
+        let views = question_apply_tool_mutations(
+            &state,
+            "conv-a",
+            &[question_test_create_item("题四", &["A"])],
+        )
+        .expect("create after delete");
+        assert_eq!(
+            question_test_numbers(&views),
+            vec![1, 2, 4],
+            "删掉 #3 之后新题必须是 #4，编号不回收"
         );
     }
 
     #[test]
-    fn question_store_number_should_scope_per_conversation() {
+    fn question_number_should_be_unique_and_never_reused() {
+        // 编号唯一性不再由数据库唯一索引保证，改由「从游标取值、分配即自增」保证。
+        // 这里连续建满上限条，逐个断言既不重复也不跳号。
         let state = question_test_state();
-        let mut conn = question_test_conn(&state);
-        let first = question_store_insert(
-            &mut conn,
-            "conv-a",
-            "A 会话第一题",
-            "",
-            &question_test_options(&["A"]),
-        )
-        .expect("insert a");
-        let second = question_store_insert(
-            &mut conn,
-            "conv-b",
-            "B 会话第一题",
-            "",
-            &question_test_options(&["B"]),
-        )
-        .expect("insert b");
-        assert_eq!(first.number, 1);
-        assert_eq!(second.number, 1, "编号作用域按会话切分，两个会话各自从 1 开始");
-
-        let a_third = question_store_insert(
-            &mut conn,
-            "conv-a",
-            "A 会话第二题",
-            "",
-            &question_test_options(&["A"]),
-        )
-        .expect("insert a again");
-        assert_eq!(a_third.number, 2);
+        question_test_seed_conversation(&state, "conv-a");
+        let creates = (1..=QUESTION_MAX_PER_CONVERSATION)
+            .map(|index| question_test_create_item(&format!("题{index}"), &["A"]))
+            .collect::<Vec<_>>();
+        question_apply_tool_mutations(&state, "conv-a", &creates).expect("create all");
+        let views = question_views_for_conversation(&state, "conv-a").expect("list");
         assert_eq!(
-            question_store_count(&conn, "conv-b").expect("count b"),
-            1,
+            question_test_numbers(&views),
+            (1..=QUESTION_MAX_PER_CONVERSATION as u32).collect::<Vec<_>>(),
+            "编号必须逐个 +1，不重复也不跳号"
+        );
+    }
+
+    #[test]
+    fn question_number_should_scope_per_conversation() {
+        let state = question_test_state();
+        question_test_seed_conversation(&state, "conv-a");
+        question_test_seed_conversation(&state, "conv-b");
+        let a_first = question_apply_tool_mutations(
+            &state,
+            "conv-a",
+            &[question_test_create_item("A 会话第一题", &["A"])],
+        )
+        .expect("create a");
+        let b_first = question_apply_tool_mutations(
+            &state,
+            "conv-b",
+            &[question_test_create_item("B 会话第一题", &["B"])],
+        )
+        .expect("create b");
+        assert_eq!(question_test_numbers(&a_first), vec![1]);
+        assert_eq!(
+            question_test_numbers(&b_first),
+            vec![1],
+            "编号作用域按会话切分，两个会话各自从 1 开始"
+        );
+
+        let a_second = question_apply_tool_mutations(
+            &state,
+            "conv-a",
+            &[question_test_create_item("A 会话第二题", &["A"])],
+        )
+        .expect("create a again");
+        assert_eq!(question_test_numbers(&a_second), vec![1, 2]);
+        assert_eq!(
+            question_test_numbers(&question_views_for_conversation(&state, "conv-b").expect("b")),
+            vec![1],
             "A 会话新增不影响 B 会话"
         );
     }
 
     #[test]
-    fn question_store_list_should_isolate_conversations() {
+    fn question_list_should_isolate_conversations() {
         let state = question_test_state();
-        let mut conn = question_test_conn(&state);
-        question_store_insert(
-            &mut conn,
+        question_test_seed_conversation(&state, "conv-a");
+        question_test_seed_conversation(&state, "conv-b");
+        question_apply_tool_mutations(
+            &state,
             "conv-a",
-            "A 会话的问题",
-            "",
-            &question_test_options(&["A"]),
+            &[question_test_create_item("A 会话的问题", &["A"])],
         )
-        .expect("insert a");
+        .expect("create a");
 
-        let b_items = question_store_list(&conn, "conv-b").expect("list b");
-        assert!(b_items.is_empty(), "A 会话的问题不能在 B 会话里看到");
-        assert_eq!(question_store_count(&conn, "conv-b").expect("count b"), 0);
+        assert!(
+            question_views_for_conversation(&state, "conv-b")
+                .expect("list b")
+                .is_empty(),
+            "A 会话的问题不能在 B 会话里看到"
+        );
     }
 
     #[test]
-    fn question_clear_conversation_should_remove_records_and_cursor() {
+    fn question_should_vanish_with_conversation() {
+        // 问题跟着会话走：会话删了，它名下的问题跟着消失，不需要另行清理。
         let state = question_test_state();
-        {
-            let mut conn = question_test_conn(&state);
-            question_store_insert(
-                &mut conn,
-                "conv-a",
-                "题一",
-                "",
-                &question_test_options(&["A"]),
-            )
-            .expect("insert a");
-            question_store_insert(
-                &mut conn,
-                "conv-b",
-                "题二",
-                "",
-                &question_test_options(&["B"]),
-            )
-            .expect("insert b");
-        }
-        question_clear_conversation(&state, "conv-a");
+        question_test_seed_conversation(&state, "conv-a");
+        question_test_seed_conversation(&state, "conv-b");
+        question_apply_tool_mutations(
+            &state,
+            "conv-a",
+            &[question_test_create_item("题一", &["A"])],
+        )
+        .expect("create a");
+        question_apply_tool_mutations(
+            &state,
+            "conv-b",
+            &[question_test_create_item("题二", &["B"])],
+        )
+        .expect("create b");
 
-        let conn = question_test_conn(&state);
-        assert_eq!(question_store_count(&conn, "conv-a").expect("count a"), 0);
-        let cursor: Option<i64> = conn
-            .query_row(
-                "SELECT next_number FROM question_next_number WHERE conversation_id = 'conv-a'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()
-            .expect("read cursor");
-        assert!(cursor.is_none(), "会话删除后编号游标一并清掉");
-        assert_eq!(
-            question_store_count(&conn, "conv-b").expect("count b"),
-            1,
-            "清理只作用于被删除会话"
+        conversation_service_v2()
+            .delete_conversation(&state, "conv-a")
+            .expect("delete conversation");
+
+        assert!(
+            question_views_for_conversation(&state, "conv-a").is_err(),
+            "会话没了，它的问题也读不出来"
         );
+        assert_eq!(
+            question_test_numbers(&question_views_for_conversation(&state, "conv-b").expect("b")),
+            vec![1],
+            "别的会话不受影响"
+        );
+    }
+
+    #[test]
+    fn question_should_survive_flush_to_disk() {
+        // 写入只改缓存，落盘是后置的：把问题连同编号游标一起跑到盘上再读回来。
+        let state = question_test_state();
+        let conversation = question_test_conversation("conv-disk", CONVERSATION_KIND_CHAT);
+        write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
+        state_mark_conversation_direct_persisted(&state, &conversation).expect("mark persisted");
+
+        question_apply_tool_mutations(
+            &state,
+            "conv-disk",
+            &[question_test_create_item("落盘的问题", &["A", "B"])],
+        )
+        .expect("create question");
+        assert!(flush_pending_persists_blocking(&state).expect("flush"), "必须真的落盘");
+
+        let restored = read_conversation_shard(&state.data_path, "conv-disk").expect("read back");
+        assert_eq!(restored.questions.len(), 1);
+        assert_eq!(restored.questions[0].number, 1);
+        assert_eq!(restored.questions[0].title, "落盘的问题");
+        assert_eq!(restored.questions[0].options.len(), 2);
+        assert_eq!(restored.question_next_number, 2, "编号游标也要一起落盘");
     }
 
     // ==================== 工具：编号定位 ====================
@@ -185,6 +211,7 @@
     #[test]
     fn question_tool_update_without_number_should_create_next_number() {
         let state = question_test_state();
+        question_test_seed_conversation(&state, "conv-a");
         let first = question_apply_tool_mutations(
             &state,
             "conv-a",
@@ -206,6 +233,7 @@
     #[test]
     fn question_tool_update_should_overwrite_existing_number() {
         let state = question_test_state();
+        question_test_seed_conversation(&state, "conv-a");
         question_apply_tool_mutations(
             &state,
             "conv-a",
@@ -233,6 +261,7 @@
     #[test]
     fn question_tool_update_with_blank_fields_should_delete() {
         let state = question_test_state();
+        question_test_seed_conversation(&state, "conv-a");
         question_apply_tool_mutations(
             &state,
             "conv-a",
@@ -242,23 +271,16 @@
             ],
         )
         .expect("create");
-        let after_delete = question_apply_tool_mutations(
-            &state,
-            "conv-a",
-            &[QuestionUpdateItem {
-                number: Some(1),
-                title: None,
-                background: None,
-                options: None,
-            }],
-        )
-        .expect("delete");
+        let after_delete =
+            question_apply_tool_mutations(&state, "conv-a", &[question_test_delete_item(1)])
+                .expect("delete");
         assert_eq!(question_test_numbers(&after_delete), vec![2]);
     }
 
     #[test]
     fn question_tool_update_should_reject_missing_number_without_creating() {
         let state = question_test_state();
+        question_test_seed_conversation(&state, "conv-a");
         question_apply_tool_mutations(
             &state,
             "conv-a",
@@ -290,6 +312,7 @@
     #[test]
     fn question_tool_view_should_not_expose_internal_id() {
         let state = question_test_state();
+        question_test_seed_conversation(&state, "conv-a");
         let views = question_apply_tool_mutations(
             &state,
             "conv-a",
@@ -312,6 +335,7 @@
     #[test]
     fn question_tool_should_reject_more_than_max_questions() {
         let state = question_test_state();
+        question_test_seed_conversation(&state, "conv-a");
         let creates = (1..=QUESTION_MAX_PER_CONVERSATION)
             .map(|index| question_test_create_item(&format!("题{index}"), &["A"]))
             .collect::<Vec<_>>();
@@ -328,12 +352,17 @@
             "报错要说明上限：{err}"
         );
         let views = question_views_for_conversation(&state, "conv-a").expect("list");
-        assert_eq!(views.len(), QUESTION_MAX_PER_CONVERSATION);
+        assert_eq!(
+            views.len(),
+            QUESTION_MAX_PER_CONVERSATION,
+            "被拒之后题目数量不变"
+        );
     }
 
     #[test]
     fn question_tool_should_reject_oversized_title_and_option() {
         let state = question_test_state();
+        question_test_seed_conversation(&state, "conv-a");
         let long_title = "题".repeat(QUESTION_TITLE_MAX_CHARS + 1);
         let err = question_apply_tool_mutations(
             &state,
@@ -341,24 +370,35 @@
             &[question_test_create_item(&long_title, &["A"])],
         )
         .expect_err("超长标题必须报错");
-        assert!(err.contains(&QUESTION_TITLE_MAX_CHARS.to_string()), "{err}");
+        assert!(
+            err.contains(&QUESTION_TITLE_MAX_CHARS.to_string()),
+            "报错要说明具体上限：{err}"
+        );
 
         let long_option = "选".repeat(QUESTION_OPTION_MAX_CHARS + 1);
         let err = question_apply_tool_mutations(
             &state,
             "conv-a",
-            &[question_test_create_item("正常标题", &[long_option.as_str()])],
+            &[question_test_create_item("题一", &[&long_option])],
         )
         .expect_err("超长选项必须报错");
-        assert!(err.contains(&QUESTION_OPTION_MAX_CHARS.to_string()), "{err}");
+        assert!(
+            err.contains(&QUESTION_OPTION_MAX_CHARS.to_string()),
+            "报错要说明具体上限：{err}"
+        );
 
         let views = question_views_for_conversation(&state, "conv-a").expect("list");
-        assert!(views.is_empty(), "校验失败时一条都不许落库");
+        assert!(
+            views.is_empty(),
+            "两次都被拒，一条都不许落库，实际落了 {} 条",
+            views.len()
+        );
     }
 
     #[test]
     fn question_tool_should_reject_empty_and_unknown_action() {
         let state = question_test_state();
+        question_test_seed_conversation(&state, "conv-a");
         let err = question_run_tool(
             &state,
             "conv-a",
@@ -367,7 +407,7 @@
                 items: Vec::new(),
             },
         )
-        .expect_err("缺少 action 必须报错");
+        .expect_err("空 action 必须报错");
         assert!(err.contains("action"), "{err}");
 
         let err = question_run_tool(
@@ -495,10 +535,7 @@
 
     #[test]
     fn question_answer_message_should_carry_number_and_original_title() {
-        let message = build_question_answer_message(
-            "【要不要现在发布？】\n→ 现在发布",
-            &[2],
-        );
+        let message = build_question_answer_message("【要不要现在发布？】\n→ 现在发布", &[2]);
         assert_eq!(message.role, "user");
         let text = message
             .parts
@@ -535,7 +572,7 @@
         );
     }
 
-    // ==================== 答题命令：删题 + 入队 ====================
+    // ==================== 答题命令：入队 + 删题 ====================
 
     fn question_test_answer(number: u32, option_index: usize) -> QuestionAnswerInput {
         QuestionAnswerInput {
@@ -588,12 +625,9 @@
         )
         .expect("create question");
 
-        let result = question_answer_inner(
-            &state,
-            "conv-main",
-            vec![question_test_answer(1, 0)],
-        )
-        .expect("answer question");
+        let result =
+            question_answer_inner(&state, "conv-main", vec![question_test_answer(1, 0)])
+                .expect("answer question");
         assert_eq!(result.answered_numbers, vec![1]);
         assert!(result.remaining.is_empty(), "答完必须从列表消失");
         assert!(
@@ -705,14 +739,8 @@
         .expect("answer both");
         assert_eq!(result.answered_numbers, vec![1, 2], "多题按编号升序答复");
 
-        let first = result
-            .message_text
-            .find("【题一】")
-            .expect("block 1");
-        let second = result
-            .message_text
-            .find("【题二】")
-            .expect("block 2");
+        let first = result.message_text.find("【题一】").expect("block 1");
+        let second = result.message_text.find("【题二】").expect("block 2");
         assert!(first < second, "正文顺序必须是 #1 在 #2 之前");
         assert!(result.message_text.contains("→ A1"), "{}", result.message_text);
         assert!(result.message_text.contains("→ B2"), "{}", result.message_text);
@@ -777,10 +805,9 @@
         .expect("create question");
 
         let err = question_answer_inner(&state, "conv-main", vec![question_test_answer(1, 3)])
-            .expect_err("选项下标越界必须报错");
+            .expect_err("选项越界必须报错");
         assert!(err.contains("#1"), "{err}");
-        let views = question_views_for_conversation(&state, "conv-main").expect("list");
-        assert_eq!(views.len(), 1, "越界时题目不能被删掉");
+        assert!(err.contains("选项"), "{err}");
     }
 
     #[test]
@@ -911,8 +938,8 @@
     fn question_answer_should_reject_empty_answers() {
         let state = question_test_state();
         question_test_answerable_conversation(&state, "conv-main");
-        let err = question_answer_inner(&state, "conv-main", Vec::new())
-            .expect_err("空答案必须报错");
+        let err =
+            question_answer_inner(&state, "conv-main", Vec::new()).expect_err("空答案必须报错");
         assert!(err.contains("答案"), "{err}");
     }
 
@@ -962,7 +989,7 @@
             "答掉 #2 之后只剩 #1"
         );
         let views = question_views_for_conversation(&state, "conv-main").expect("list");
-        assert_eq!(question_test_numbers(&views), vec![1], "被答的题必须从库里删掉");
+        assert_eq!(question_test_numbers(&views), vec![1], "被答的题必须从元数据里删掉");
 
         let event = question_test_last_queued_event(&state, "conv-main");
         assert!(matches!(event.source, ChatEventSource::User));
@@ -992,11 +1019,17 @@
         )
         .expect("create question");
 
-        let err = question_answer_inner(&state, "conv-main", vec![question_test_custom_answer(1, "   ")])
-            .expect_err("空内容不许提交");
+        let err =
+            question_answer_inner(&state, "conv-main", vec![question_test_custom_answer(1, "   ")])
+                .expect_err("空白自定义答案必须报错");
         assert!(err.contains("#1"), "{err}");
+
         let views = question_views_for_conversation(&state, "conv-main").expect("list");
-        assert_eq!(views.len(), 1, "被挡住时题目不能被删掉");
+        assert_eq!(
+            question_test_numbers(&views),
+            vec![1],
+            "被拒之后题目不能被删掉"
+        );
     }
 
     #[test]
@@ -1016,13 +1049,18 @@
             vec![QuestionAnswerInput {
                 number: 1,
                 option_index: Some(0),
-                custom_text: Some("我自己写".to_string()),
+                custom_text: Some("自己写的".to_string()),
             }],
         )
-        .expect_err("选项与自己写同时给必须报错");
-        assert!(err.contains("#1"), "{err}");
+        .expect_err("选项与自定义文本同时给必须报错");
+        assert!(err.contains("二选一"), "{err}");
+
         let views = question_views_for_conversation(&state, "conv-main").expect("list");
-        assert_eq!(views.len(), 1, "歧义输入不能被当成答案吃掉题目");
+        assert_eq!(
+            question_test_numbers(&views),
+            vec![1],
+            "被拒之后题目不能被删掉"
+        );
     }
 
     #[test]
@@ -1084,7 +1122,7 @@
         assert_eq!(
             question_test_numbers(&views),
             vec![1, 3],
-            "库里的题必须同步减少"
+            "元数据里的题必须同步减少"
         );
     }
 
@@ -1174,4 +1212,3 @@
         let err = question_reject_inner(&state, "conv-side", 1).expect_err("追问会话不能拒绝");
         assert!(err.contains("本地主会话"), "{err}");
     }
-

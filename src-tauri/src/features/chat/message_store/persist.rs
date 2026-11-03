@@ -781,6 +781,10 @@ mod message_store_persist_tests {
 
     fn test_conversation(messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: "conversation-persist".to_string(),
             title: "persist".to_string(),

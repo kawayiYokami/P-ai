@@ -290,7 +290,7 @@ fn chat_metadata_store_run_usage_trail_migration_inner(
     drop(statement);
     let mut migrated_row_count = 0_usize;
     for (conversation_id, metadata_json) in pending {
-        let meta = match serde_json::from_str::<ConversationShardMeta>(&metadata_json) {
+        let meta = match conversation_shard_meta_from_stored_json(&metadata_json) {
             Ok(meta) => meta,
             Err(_) => continue,
         };

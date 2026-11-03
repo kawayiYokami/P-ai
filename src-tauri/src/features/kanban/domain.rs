@@ -1,9 +1,7 @@
 // ==================== 队伍议题看板：领域模型 ====================
-// 议题是队伍级工作项，独立于会话元数据：
-// 不进 Conversation、不复用 current_todos，自带状态枚举与存储。
-// 对外一律用 number 定位；id 只是存储主键，不进工具参数、不上界面。
-
-const KANBAN_DB_FILE_NAME: &str = "kanban_store.db";
+// 议题挂在队长会话的元数据里（`Conversation.issues`），与会话同生共死：
+// 队长会话删掉，它名下的议题跟着消失，不会留下没人认领也删不掉的孤儿。
+// 对外一律用 number 定位；归属存名册编号，不存角色名。
 
 // ========== 状态枚举 ==========
 // 状态之间没有先后约束：任何一格都能切到任何一格（包括从已完成改回解决中）。
@@ -41,35 +39,12 @@ const KANBAN_ATTENTION_STATUSES: [&str; 4] = [
 // ========== 归属 ==========
 const KANBAN_ASSIGNEE_LEADER: &str = "leader";
 const KANBAN_ASSIGNEE_NONE: &str = "none";
-/// 存储里的 kind 值。真正的队员角色（人格名）另存 assignee_member_role。
+/// 存储里的 kind 值。指向谁另存 `member_number`（名册编号）。
 const KANBAN_ASSIGNEE_MEMBER: &str = "member";
 /// 对外写法前缀：`member:李工`。队员按角色认人，与队伍工具同一套标识。
 const KANBAN_ASSIGNEE_MEMBER_PREFIX: &str = "member:";
 
-#[derive(Debug, Clone)]
-struct KanbanIssue {
-    /// 存储主键。不对工具暴露、不进 UI、不对外序列化。
-    id: String,
-    /// 分区键：属于哪块看板（哪个主会话）。
-    leader_conversation_id: String,
-    /// 看板内自增编号，唯一对外引用。
-    number: u32,
-    title: String,
-    status: String,
-    assignee_kind: String,
-    /// 队员角色（人格名）。kind == member 时才有值。
-    assignee_member_role: Option<String>,
-    note: String,
-    /// 挂在这条议题上的计划文件路径（磁盘绝对路径）。空串表示没挂。
-    /// 只存引用不存正文：计划正文始终以磁盘上那份为准。
-    plan_path: String,
-    created_at: String,
-    updated_at: String,
-    /// 乐观锁版本，每次写入 +1。
-    version: u64,
-}
-
-/// 对外视图：**不含 id**。工具返回值、事件载荷、前端都只认这个。
+/// 对外视图：**不含存储细节**。工具返回值、事件载荷、前端都只认这个。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct KanbanIssueView {
@@ -96,22 +71,125 @@ pub(crate) struct KanbanActiveIssueSummary {
     pub(crate) status: String,
 }
 
-impl KanbanIssue {
-    fn to_view(&self) -> KanbanIssueView {
-        KanbanIssueView {
-            number: self.number,
-            title: self.title.clone(),
-            status: self.status.clone(),
-            assignee: kanban_assignee_to_wire(
-                &self.assignee_kind,
-                self.assignee_member_role.as_deref(),
-            ),
-            note: self.note.clone(),
-            plan_path: self.plan_path.clone(),
-            created_at: self.created_at.clone(),
-            updated_at: self.updated_at.clone(),
-            version: self.version,
+/// 一块看板的成员视角：名册编号 ⇄ 角色名。
+///
+/// 角色名不是存下来的，是运行时按「该队员会话当前绑定的人格」推出来的
+/// （人格改了名就是新名字，人格被删才退回名册里那份旧名字）。
+/// 所以议题只存编号，收发边界上才翻译成名字；翻译必须带着名册走，
+/// 不能指望议题自己能说出「5 号现在叫什么」。
+#[derive(Debug, Clone, Default)]
+pub(crate) struct KanbanBoardRoster {
+    /// 名册编号 -> 角色名。含已请离的队员：历史议题还挂着当年的负责人，
+    /// 显示上要能说出那是谁，不能因为人走了就变成 `none`。
+    roles_by_number: std::collections::HashMap<u32, String>,
+    /// 在队队员的角色名 -> 编号。写入时按角色名找编号，请离的人不能再被指派。
+    numbers_by_active_role: std::collections::HashMap<String, u32>,
+    /// 在队角色名，按名册顺序。报错时告诉模型「可选角色有哪些」。
+    active_roles: Vec<String>,
+}
+
+impl KanbanBoardRoster {
+    pub(crate) fn new(active: Vec<(u32, String)>, all: Vec<(u32, String)>) -> Self {
+        let mut roster = Self::default();
+        for (number, role) in all {
+            roster.roles_by_number.insert(number, role);
         }
+        for (number, role) in active {
+            let role = role.trim().to_string();
+            if role.is_empty() {
+                continue;
+            }
+            roster.active_roles.push(role.clone());
+            roster.numbers_by_active_role.insert(role, number);
+        }
+        roster
+    }
+
+    /// 在队角色名，报错文案用。
+    pub(crate) fn active_roles(&self) -> &[String] {
+        self.active_roles.as_slice()
+    }
+
+    /// 名册编号对应的角色名。含已请离的队员，所以历史议题也翻得出来。
+    /// 翻不出来时退回编号本身：报错文案宁可生硬，也不能说「不能指派给「」」。
+    pub(crate) fn member_label(&self, number: u32) -> String {
+        self.roles_by_number
+            .get(&number)
+            .map(|role| role.trim().to_string())
+            .filter(|role| !role.is_empty())
+            .unwrap_or_else(|| format!("{number} 号队员"))
+    }
+
+    /// 在队角色名对应的名册编号。过滤与指派都从这里过一道。
+    pub(crate) fn member_number_of_role(&self, role: &str) -> Option<u32> {
+        self.numbers_by_active_role
+            .get(role.trim())
+            .copied()
+    }
+
+    /// 把编号翻成对外写法。编号指不到人时落 `none`：那条议题的负责人已经无法解析，
+    /// 与其把 `member:5` 这种内部编号暴露给模型，不如显式说「没有负责人」。
+    fn wire_assignee(&self, assignee: &KanbanAssigneeRef) -> String {
+        match assignee.kind.trim() {
+            KANBAN_ASSIGNEE_LEADER => KANBAN_ASSIGNEE_LEADER.to_string(),
+            KANBAN_ASSIGNEE_MEMBER => assignee
+                .member_number
+                .and_then(|number| self.roles_by_number.get(&number))
+                .map(|role| role.trim())
+                .filter(|role| !role.is_empty())
+                .map(|role| format!("{KANBAN_ASSIGNEE_MEMBER_PREFIX}{role}"))
+                .unwrap_or_else(|| KANBAN_ASSIGNEE_NONE.to_string()),
+            _ => KANBAN_ASSIGNEE_NONE.to_string(),
+        }
+    }
+
+    /// 把对外写法翻成编号。
+    /// `leader` / `none` 不查名册；`member:<角色名>` 必须是在队队员，否则报错——
+    /// 指派给一个不存在的人，比直接拒绝更难查。
+    fn resolve_assignee(&self, raw: &str) -> Result<KanbanAssigneeRef, String> {
+        let (kind, role) = kanban_assignee_from_wire(raw)?;
+        if kind != KANBAN_ASSIGNEE_MEMBER {
+            return Ok(KanbanAssigneeRef {
+                kind,
+                member_number: None,
+            });
+        }
+        let role = role.unwrap_or_default();
+        match self.numbers_by_active_role.get(role.trim()) {
+            Some(number) => Ok(KanbanAssigneeRef {
+                kind,
+                member_number: Some(*number),
+            }),
+            None => {
+                let available = if self.active_roles.is_empty() {
+                    "（当前没有在队队员）".to_string()
+                } else {
+                    self.active_roles.join(" / ")
+                };
+                Err(format!(
+                    "议题负责人不能指派给不在队的角色：{}；当前在队角色：{available}。不分配请用 none",
+                    role.trim()
+                ))
+            }
+        }
+    }
+}
+
+/// 存储形态 -> 对外视图。
+pub(crate) fn kanban_issue_view(
+    issue: &KanbanIssueEntry,
+    roster: &KanbanBoardRoster,
+) -> KanbanIssueView {
+    KanbanIssueView {
+        number: issue.number,
+        title: issue.title.clone(),
+        status: issue.status.clone(),
+        assignee: roster.wire_assignee(&issue.assignee),
+        note: issue.note.clone(),
+        plan_path: issue.plan_path.clone(),
+        created_at: issue.created_at.clone(),
+        updated_at: issue.updated_at.clone(),
+        version: issue.version,
     }
 }
 
@@ -136,7 +214,7 @@ fn kanban_status_label(status: &str) -> &'static str {
 }
 
 /// 这个状态算不算「在办」，也就是占不占着负责人。
-/// 只有已完成不占人：处理完的议题留着负责人名字，只表示「谁做的」，不妨碍他接新活。
+/// 只有已完成不占人：已完成的那一刻负责人就被摘掉，人自然腾出手可以接新活。
 /// 待议也算在办——方向没定不等于没派给人。
 fn kanban_status_occupies_member(status: &str) -> bool {
     let trimmed = status.trim();
@@ -155,22 +233,10 @@ fn kanban_status_allows_assignee(status: &str) -> bool {
 
 // ==================== 归属编解码 ====================
 
-fn kanban_assignee_to_wire(kind: &str, member_role: Option<&str>) -> String {
-    match kind.trim() {
-        KANBAN_ASSIGNEE_LEADER => KANBAN_ASSIGNEE_LEADER.to_string(),
-        KANBAN_ASSIGNEE_MEMBER => member_role
-            .map(str::trim)
-            .filter(|role| !role.is_empty())
-            .map(|role| format!("{KANBAN_ASSIGNEE_MEMBER_PREFIX}{role}"))
-            .unwrap_or_else(|| KANBAN_ASSIGNEE_NONE.to_string()),
-        _ => KANBAN_ASSIGNEE_NONE.to_string(),
-    }
-}
-
 /// 解析 `leader` / `member:<角色名>` / `none` / 空。
 /// 空值与 `unassigned` 一并落到 none，避免模型换个说法就报错。
-/// 队员按角色认人：编号在队伍工具那侧已经不对模型暴露，
-/// 这里再接受编号，只会让模型拿着一个它根本没渠道看到的数字来试。
+/// 队员按角色认人：编号是存储内部的事，不进工具参数——
+/// 模型手里没有编号，让它填编号只会逼它瞎猜。
 fn kanban_assignee_from_wire(raw: &str) -> Result<(String, Option<String>), String> {
     let trimmed = raw.trim();
     if trimmed.is_empty()

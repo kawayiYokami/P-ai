@@ -69,12 +69,15 @@ pub(super) fn migration_read_v1_conversation(
             MigrationV1ToV2Failure::SystemFailure(message)
         }
     })?;
-    serde_json::from_str::<Conversation>(&raw).map_err(|err| {
+    let skip = |err: serde_json::Error| {
         MigrationV1ToV2Failure::ConversationSkipped(format!(
             "解析 V1 会话文件失败，path={}，error={err}",
             path.display()
         ))
-    })
+    };
+    let mut value: serde_json::Value = serde_json::from_str(&raw).map_err(skip)?;
+    conversation_json_fill_missing_attachments(&mut value);
+    serde_json::from_value::<Conversation>(value).map_err(skip)
 }
 
 /// 独立的 V1→V2 转换入口。
@@ -375,7 +378,7 @@ fn migration_read_v2_meta(
     let raw = fs::read_to_string(&paths.meta_file).map_err(|err| {
         migration_v2_io_failure("迁移读取 V2 meta 失败", &paths.meta_file, err)
     })?;
-    let meta = serde_json::from_str::<ConversationShardMeta>(&raw).map_err(|err| {
+    let meta = conversation_shard_meta_from_stored_json(&raw).map_err(|err| {
         migration_v2_parse_failure("迁移解析 V2 meta 失败", &paths.meta_file, err)
     })?;
     validate_conversation_shard_meta_id(paths, &meta).map_err(|err| {
@@ -739,6 +742,10 @@ mod message_store_tests {
 
     fn test_conversation(messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: "conversation-a".to_string(),
             title: "会话".to_string(),

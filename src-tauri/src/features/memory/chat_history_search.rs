@@ -542,6 +542,10 @@ fn chat_history_collect_slices_for_state(
             cumulative_usage: ConversationCumulativeUsage::default(),
             active_goal: conversation_meta.active_goal.clone(),
             team: conversation_meta.team.clone(),
+            questions: conversation_meta.questions.clone(),
+            question_next_number: conversation_meta.question_next_number,
+            issues: conversation_meta.issues.clone(),
+            issue_next_number: conversation_meta.issue_next_number,
             loaded_mcp_tools: Vec::new(),
             last_error: conversation_meta.last_error.clone(),
         };

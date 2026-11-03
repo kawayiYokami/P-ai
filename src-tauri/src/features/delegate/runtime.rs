@@ -125,6 +125,10 @@ fn delegate_parent_shell_workspace(
             cumulative_usage: ConversationCumulativeUsage::default(),
             active_goal: conversation_meta.active_goal,
             team: conversation_meta.team,
+            questions: conversation_meta.questions,
+            question_next_number: conversation_meta.question_next_number,
+            issues: conversation_meta.issues,
+            issue_next_number: conversation_meta.issue_next_number,
             loaded_mcp_tools: Vec::new(),
             last_error: conversation_meta.last_error,
         })

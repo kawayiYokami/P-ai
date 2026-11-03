@@ -1,6 +1,5 @@
 // ==================== 会话提问：实体与校验 ====================
 
-const QUESTION_DB_FILE_NAME: &str = "question_store.db";
 /// 单会话同时最多保留的问题数：面板在输入框上方，题多了会把对话区挤没。
 const QUESTION_MAX_PER_CONVERSATION: usize = 8;
 const QUESTION_TITLE_MAX_CHARS: usize = 120;
@@ -10,27 +9,13 @@ const QUESTION_OPTION_MAX_CHARS: usize = 60;
 const QUESTION_CUSTOM_ANSWER_MAX_CHARS: usize = 1000;
 const QUESTION_OPTIONS_MAX: usize = 6;
 
-/// 存储实体：`id` 仅作主键，不进工具参数、不上界面；对外一律按 `number` 引用。
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ConversationQuestion {
-    id: String,
-    conversation_id: String,
-    number: u32,
-    title: String,
-    background: String,
-    options: Vec<String>,
-    created_at: String,
-    updated_at: String,
-}
-
-impl ConversationQuestion {
-    fn to_view(&self) -> ConversationQuestionView {
-        ConversationQuestionView {
-            number: self.number,
-            title: self.title.clone(),
-            background: self.background.clone(),
-            options: self.options.clone(),
-        }
+/// 存储实体 -> 对外视图。对外只出现编号，不出现任何存储细节。
+fn question_view(entry: &ConversationQuestionEntry) -> ConversationQuestionView {
+    ConversationQuestionView {
+        number: entry.number,
+        title: entry.title.clone(),
+        background: entry.background.clone(),
+        options: entry.options.clone(),
     }
 }
 

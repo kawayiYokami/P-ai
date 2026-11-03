@@ -537,8 +537,90 @@ struct TeamMembership {
     pending_report_anchor: Option<String>,
 }
 
+// ==================== 会话附属记录 ====================
+// 问题与议题都是「一个会话拥有的一组记录」，与会话同生共死，所以放在会话元数据里，
+// 与 current_todos / active_goal / team 同层。
+
+/// 会话里一条待回答的问题。
+///
+/// 不存内部 id，也不存 conversation_id：编号在会话内自增且唯一，本身就能定位；
+/// 归属由「它躺在这条会话的元数据里」表达，再存一遍等于让字段指向自己。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationQuestionEntry {
+    /// 会话内自增编号，单调递增、不回收，是唯一的对外引用。
+    number: u32,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    background: String,
+    #[serde(default)]
+    options: Vec<String>,
+    #[serde(default)]
+    created_at: String,
+    #[serde(default)]
+    updated_at: String,
+}
+
+/// 议题归属。
+///
+/// 存名册编号，不存角色名：角色名是运行时按「会话当前绑定的人格」推出来的
+/// （人格改名、人格被删都会变），拿它当跨记录的关联键，改一次名就断一处。
+/// 名册编号由 `team.nextNumber` 分配，单调递增不回收；队员被请离也只是标记
+/// `dismissed_at`、不从名册删除，所以编号指得到的历史条目一直都在。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KanbanAssigneeRef {
+    /// `leader` / `member` / `none`。空串按 none 处理。
+    #[serde(default)]
+    kind: String,
+    /// kind == member 时才有值，指向队长会话 `team.members[].number`。
+    #[serde(default)]
+    member_number: Option<u32>,
+}
+
+/// 会话里一条议题。队员会话不存副本，只看队长会话这一份。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KanbanIssueEntry {
+    /// 看板内自增编号，单调递增、不回收，是唯一的对外引用。
+    number: u32,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    assignee: KanbanAssigneeRef,
+    #[serde(default)]
+    note: String,
+    /// 挂在这条议题上的计划文件路径；空串表示没挂。只存引用不存正文。
+    #[serde(default)]
+    plan_path: String,
+    #[serde(default)]
+    created_at: String,
+    #[serde(default)]
+    updated_at: String,
+    /// 乐观锁版本，每次写入 +1。
+    #[serde(default)]
+    version: u64,
+}
+
 const TEAM_MEMBER_STATUS_ACTIVE: &str = "active";
 const TEAM_MEMBER_STATUS_DISMISSED: &str = "dismissed";
+
+/// 分配会话内下一个编号：从游标取；游标还没建过（0）就以「当前最大 + 1」起步。
+///
+/// 问题与议题共用这条规则：分配即自增，删除不归还，所以编号单调递增、不回收。
+/// 回收编号会让「#3 是哪条」随时间变意思——旧的引用、旧的对话记录都会指错。
+fn conversation_allocate_number(current_max: u32, next_number: &mut u32) -> u32 {
+    let allocated = if *next_number == 0 {
+        current_max + 1
+    } else {
+        *next_number
+    };
+    *next_number = allocated + 1;
+    allocated
+}
 
 impl TeamState {
     fn next_number_for_recruit(&self) -> u32 {
@@ -639,6 +721,12 @@ struct Conversation {
     /// 队伍状态：队长会话持名册，队员会话持成员身份。
     #[serde(default)]
     team: TeamState,
+    /// 本会话自己的待答问题，以及编号游标（与 `team.nextNumber` 同口径：单调递增不回收）。
+    questions: Vec<ConversationQuestionEntry>,
+    question_next_number: u32,
+    /// 队长会话的议题看板，以及编号游标。队员会话这里恒为空，议题只认队长那一份。
+    issues: Vec<KanbanIssueEntry>,
+    issue_next_number: u32,
     /// MCP 按需加载临时名单：本会话已点名拿取的 MCP 精确工具名集合。
     /// 重启不丢；压缩后清空；fork / 委托不继承。
     #[serde(default)]

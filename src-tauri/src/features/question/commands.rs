@@ -107,10 +107,13 @@ fn question_answer_choice_from_input(
     }
 }
 
-/// 答题作答：题目校验通过后删除题目并入队一条普通用户消息。
+/// 答题作答：题目校验通过后入队一条普通用户消息，再把已答的题从会话元数据里去掉。
 ///
-/// 删题与入队放在同一个 SQLite 事务里：入队失败时事务回滚，题目不会被吃掉；
-/// 提交成功后才真正触发调度。
+/// 顺序是「先入队、后删题」：入队失败时题目还在，用户可以再答一次；
+/// 反过来先删题，一旦入队失败，题目没了、消息也没发出去，用户无从重试。
+///
+/// 整段在会话写入门里跑：校验看到的题、入队的那条消息、删题的写入要落在同一个临界区，
+/// 否则两次并发提交都拿着同一份快照通过校验，同一道题会被答两遍。
 fn question_answer_inner(
     state: &AppState,
     conversation_id: &str,
@@ -123,8 +126,19 @@ fn question_answer_inner(
     if answers.is_empty() {
         return Err("没有要提交的答案".to_string());
     }
+    with_conversation_mutation(state, &conversation_id, "question.answer", || {
+        question_answer_locked(state, &conversation_id, answers)
+    })
+}
+
+/// 写入门内的作答主体；调到这里时这条会话的写入已被独占。
+fn question_answer_locked(
+    state: &AppState,
+    conversation_id: &str,
+    answers: Vec<QuestionAnswerInput>,
+) -> Result<QuestionAnswerResult, String> {
     let meta = conversation_service_v2()
-        .get_conversation_meta(state, &conversation_id)
+        .get_conversation_meta(state, conversation_id)
         .map_err(|_| format!("会话不存在：{conversation_id}"))?;
     if !conversation_kind_is_local_main_chat(&meta.conversation_kind) {
         return Err("只有本地主会话可以回答问题".to_string());
@@ -143,14 +157,12 @@ fn question_answer_inner(
     }
     wanted.sort_by_key(|(number, _)| *number);
 
-    let mut conn = question_store_open(&state.data_path)?;
-    let tx = conn
-        .transaction()
-        .map_err(|err| format!("开启答题事务失败：{err}"))?;
-
     let mut blocks = Vec::with_capacity(wanted.len());
     for (number, choice) in &wanted {
-        let question = question_store_get_by_number(&tx, &conversation_id, *number)?
+        let question = meta
+            .questions
+            .iter()
+            .find(|entry| entry.number == *number)
             .ok_or_else(|| format!("#{number} 不存在（可能已被回答或清理）"))?;
         let answer_text = match choice {
             QuestionAnswerChoice::Option(option_index) => {
@@ -170,18 +182,11 @@ fn question_answer_inner(
     let message_text = blocks.join("\n\n");
     let answered_numbers = wanted.iter().map(|(number, _)| *number).collect::<Vec<_>>();
 
-    for number in &answered_numbers {
-        let deleted = question_store_delete(&tx, &conversation_id, *number)?;
-        if deleted == 0 {
-            return Err(format!("#{number} 不存在（可能已被回答或清理）"));
-        }
-    }
-
-    let agent_id = task_agent_from_conversation_for_write(state, &conversation_id)?
+    let agent_id = task_agent_from_conversation_for_write(state, conversation_id)?
         .ok_or_else(|| format!("会话未绑定人格：{conversation_id}"))?;
     let event = ChatPendingEvent {
         id: format!("question-answer-{}", Uuid::new_v4()),
-        conversation_id: conversation_id.clone(),
+        conversation_id: conversation_id.to_string(),
         created_at: now_utc_rfc3339(),
         source: ChatEventSource::User,
         queue_mode: ChatQueueMode::Normal,
@@ -193,15 +198,17 @@ fn question_answer_inner(
         sender_info: None,
     };
     let ingress = ingress_chat_event(state, event)?;
-    tx.commit()
-        .map_err(|err| format!("提交答题事务失败：{err}"))?;
+
+    let mut remaining: Vec<ConversationQuestionView> = Vec::new();
+    state_update_conversation_metadata_cached(state, &conversation_id, |conversation| {
+        conversation
+            .questions
+            .retain(|entry| !answered_numbers.contains(&entry.number));
+        remaining = conversation.questions.iter().map(question_view).collect();
+        Ok(())
+    })?;
     trigger_chat_event_after_ingress(state, ingress);
 
-    let remaining_items = question_store_list(&conn, &conversation_id)?;
-    let remaining = remaining_items
-        .iter()
-        .map(ConversationQuestion::to_view)
-        .collect::<Vec<_>>();
     question_emit_items_updated(state, &conversation_id, &remaining);
     Ok(QuestionAnswerResult {
         answered_numbers,
@@ -221,8 +228,8 @@ fn question_answer(
 
 /// 拒绝回答问题：只删题，不产生任何会话消息。
 ///
-/// 与答题的边界在这里：答题要构造一条用户消息入队并触发调度，所以删题必须与入队同事务；
-/// 拒绝不碰入队链路，单条删除本身就是原子的，不需要事务，也不需要会话人格。
+/// 与答题的边界在这里：答题要构造一条用户消息入队并触发调度，所以先入队再删题；
+/// 拒绝不碰入队链路，只要把题从会话元数据里去掉。
 fn question_reject_inner(
     state: &AppState,
     conversation_id: &str,
@@ -242,17 +249,17 @@ fn question_reject_inner(
         return Err("只有本地主会话可以拒绝回答问题".to_string());
     }
 
-    let conn = question_store_open(&state.data_path)?;
-    let deleted = question_store_delete(&conn, &conversation_id, number)?;
-    if deleted == 0 {
-        return Err(format!("#{number} 不存在（可能已被回答或清理）"));
-    }
+    let mut remaining: Vec<ConversationQuestionView> = Vec::new();
+    state_update_conversation_metadata_cached(state, &conversation_id, |conversation| {
+        let before = conversation.questions.len();
+        conversation.questions.retain(|entry| entry.number != number);
+        if conversation.questions.len() == before {
+            return Err(format!("#{number} 不存在（可能已被回答或清理）"));
+        }
+        remaining = conversation.questions.iter().map(question_view).collect();
+        Ok(())
+    })?;
 
-    let items = question_store_list(&conn, &conversation_id)?;
-    let remaining = items
-        .iter()
-        .map(ConversationQuestion::to_view)
-        .collect::<Vec<_>>();
     question_emit_items_updated(state, &conversation_id, &remaining);
     Ok(remaining)
 }

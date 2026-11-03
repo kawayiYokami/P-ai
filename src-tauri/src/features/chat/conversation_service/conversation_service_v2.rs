@@ -133,6 +133,16 @@ struct ConversationMetaView {
     active_goal: Option<ConversationGoalState>,
     #[serde(default)]
     team: TeamState,
+    /// 本会话自己的待答问题与编号游标。
+    #[serde(default)]
+    questions: Vec<ConversationQuestionEntry>,
+    #[serde(default)]
+    question_next_number: u32,
+    /// 队长会话的议题看板与编号游标；队员会话恒为空。
+    #[serde(default)]
+    issues: Vec<KanbanIssueEntry>,
+    #[serde(default)]
+    issue_next_number: u32,
     fast_request_turns: Vec<FastRequestTurn>,
     last_message_id: Option<String>,
     last_error: Option<String>,
@@ -324,6 +334,10 @@ impl ConversationMetaView {
             current_todos: meta.current_todos().to_vec(),
             active_goal: meta.active_goal().cloned(),
             team: meta.team().clone(),
+            questions: meta.questions().to_vec(),
+            question_next_number: meta.question_next_number(),
+            issues: meta.issues().to_vec(),
+            issue_next_number: meta.issue_next_number(),
             fast_request_turns: meta.fast_request_turns().to_vec(),
             last_message_id,
             last_error: meta.last_error().map(ToOwned::to_owned),
@@ -1502,6 +1516,10 @@ impl ConversationServiceV2 {
         conversation.cumulative_usage = conversation_meta.cumulative_usage.clone();
         conversation.active_goal = conversation_meta.active_goal.clone();
         conversation.team = conversation_meta.team.clone();
+        conversation.questions = conversation_meta.questions.clone();
+        conversation.question_next_number = conversation_meta.question_next_number;
+        conversation.issues = conversation_meta.issues.clone();
+        conversation.issue_next_number = conversation_meta.issue_next_number;
         conversation.fast_request_turns = conversation_meta.fast_request_turns.clone();
         conversation
     }

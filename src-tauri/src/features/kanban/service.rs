@@ -1,6 +1,9 @@
 // ==================== 队伍议题看板：业务编排 ====================
-// store.rs 只管 SQL，这里管「什么写入算合法」：
-// 主会话身份、编号预检、状态值合法性、改状态与清空 note 都要求理由、事务边界。
+// 议题存在队长会话的元数据里，这里管「什么写入算合法」：
+// 主会话身份、编号分配、状态值合法性、改状态与清空 note 都要求理由。
+//
+// 读改写都在一次会话元数据更新里完成：校验用副本，全部通过才写回。
+// 因此不存在「改了一半失败」的中间态——失败时元数据一行都没动。
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -9,260 +12,60 @@ struct KanbanUpsertResult {
     updated: Vec<KanbanIssueView>,
 }
 
-fn kanban_conn(state: &AppState) -> Result<Connection, String> {
-    let conn = kanban_store_open(&state.data_path)?;
-    kanban_migrate_legacy_member_assignees(state, &conn)?;
-    Ok(conn)
-}
+// ==================== 名册视角 ====================
 
-/// 一次性迁移：编号时代的 `member:<编号>` 归属换成角色。
-/// 反查不到就落 none——那个编号当时也指不到人，落 none 是把无效引用显式化，不是丢数据。
-/// 幂等：成功的行角色列有值、失败的行 kind 已是 none，第二遍一条都不会再命中。
-fn kanban_migrate_legacy_member_assignees(
-    state: &AppState,
-    conn: &Connection,
-) -> Result<(), String> {
-    let pending = kanban_store_legacy_member_assignees(conn)?;
-    if pending.is_empty() {
-        return Ok(());
-    }
-    let mut roster_cache: std::collections::HashMap<String, Vec<TeamMemberEntry>> =
-        std::collections::HashMap::new();
-    let mut migrated = 0usize;
-    let mut cleared = 0usize;
-    for row in pending {
-        let role = kanban_legacy_member_role(
-            state,
-            &mut roster_cache,
-            &row.leader_conversation_id,
-            row.member_number,
-        );
-        match role {
-            Some(role) => {
-                kanban_store_set_assignee_member_role(
-                    conn,
-                    &row.leader_conversation_id,
-                    row.number,
-                    &role,
-                )?;
-                migrated += 1;
-            }
-            None => {
-                kanban_store_clear_legacy_member_assignee(
-                    conn,
-                    &row.leader_conversation_id,
-                    row.number,
-                )?;
-                cleared += 1;
-            }
-        }
-    }
-    runtime_log_info(format!(
-        "[看板] 完成，任务=归属从编号迁移到角色，migrated={migrated}，cleared={cleared}"
-    ));
-    Ok(())
-}
-
-/// 一段批量读取里复用的看板连接：整批只开一次库，历史归属迁移扫描也只跑一次。
+/// 构造一块看板的成员视角：名册编号 ⇄ 角色名。
 ///
-/// 单个概览项一次只查一块看板，复用与否等价；差量概览按条构建 k 个概览时，
-/// 复用能把 k 次「开库 + 建表批次 + 迁移扫描」压成 1 次。
-pub(crate) struct KanbanSession {
-    conn: Option<Connection>,
-}
-
-impl KanbanSession {
-    pub(crate) fn new() -> Self {
-        Self { conn: None }
-    }
-
-    fn with_conn<T>(
-        &mut self,
-        state: &AppState,
-        run: impl FnOnce(&Connection) -> Result<T, String>,
-    ) -> Result<T, String> {
-        if self.conn.is_none() {
-            self.conn = Some(kanban_conn(state)?);
-        }
-        match self.conn.as_ref() {
-            Some(conn) => run(conn),
-            None => Err("看板连接不可用".to_string()),
-        }
-    }
-
-    /// 一块看板里「每个角色名下那条在办议题」。没有在办议题的角色不出现在结果里。
-    /// 队员磁贴靠它显示议题状态：一个角色最多一条在办，所以值是单个对象。
-    /// 读不到看板时返回空并把原因记进日志——概览项是首页高频路径，
-    /// 不能因为看板读不出来就让整份会话快照失败，磁贴退回运行时状态即可。
-    pub(crate) fn active_issues_by_role(
-        &mut self,
-        state: &AppState,
-        leader_conversation_id: &str,
-    ) -> std::collections::HashMap<String, KanbanActiveIssueSummary> {
-        let leader = leader_conversation_id.trim();
-        if leader.is_empty() {
-            return std::collections::HashMap::new();
-        }
-        let issues = match self
-            .with_conn(state, |conn| kanban_store_list(conn, leader, None, None, None))
-        {
-            Ok(issues) => issues,
-            Err(err) => {
-                runtime_log_warn(format!(
-                    "[看板] 跳过，任务=读取队员在办议题，leader_conversation_id={leader}，error={err}"
-                ));
-                return std::collections::HashMap::new();
-            }
-        };
-
-        // 查找队长人格名与 agent_id：议题指派给「队长」(leader) 时，
-        // 队长自己承接的在办议题也要在名下（以及队长名字、角色、leader key）正确显示。
-        let leader_meta = conversation_service_v2().get_conversation_meta(state, leader).ok();
-        let leader_agent_id = leader_meta
-            .as_ref()
-            .map(|m| m.agent_id.trim().to_string())
-            .filter(|s| !s.is_empty());
-        let leader_persona_name = leader_agent_id.as_deref().and_then(|aid| {
-            load_runtime_organization_snapshot(state).ok().and_then(|snapshot| {
-                snapshot.agents_by_id.get(aid).map(|a| a.name.clone())
-            })
-        });
-
-        active_issues_by_role_from_issues(
-            &issues,
-            leader_persona_name.as_deref(),
-            leader_agent_id.as_deref(),
-        )
-    }
-}
-
-/// 将看板议题映射为「角色 -> 在办议题摘要」：
-/// - 包含队员承接的议题（按 assignee_member_role）
-/// - 包含队长承接的议题（按 "leader"、"队长"、队长人格名、队长 agent_id 映射，
-///   确保队长自身承接时在队员状态表中正确显示为在办，而不是误判为空闲）。
-fn active_issues_by_role_from_issues(
-    issues: &[KanbanIssue],
-    leader_persona_name: Option<&str>,
-    leader_agent_id: Option<&str>,
-) -> std::collections::HashMap<String, KanbanActiveIssueSummary> {
-    let mut by_role: std::collections::HashMap<String, KanbanActiveIssueSummary> =
-        std::collections::HashMap::new();
-    // 一人一条是写入约束，库里可能还留着同一个人挂多条的历史数据。
-    // 这里保留编号最小的那条：读完不报错，也不擅自改库。
-    for issue in issues {
-        if !kanban_status_occupies_member(&issue.status) {
-            continue;
-        }
-        if issue.assignee_kind.trim() == KANBAN_ASSIGNEE_LEADER {
-            let summary = KanbanActiveIssueSummary {
-                number: issue.number,
-                title: issue.title.clone(),
-                status: issue.status.clone(),
-            };
-            by_role
-                .entry(KANBAN_ASSIGNEE_LEADER.to_string())
-                .or_insert_with(|| summary.clone());
-            by_role
-                .entry("队长".to_string())
-                .or_insert_with(|| summary.clone());
-            if let Some(name) = leader_persona_name.map(str::trim).filter(|s| !s.is_empty()) {
-                by_role
-                    .entry(name.to_string())
-                    .or_insert_with(|| summary.clone());
-            }
-            if let Some(aid) = leader_agent_id.map(str::trim).filter(|s| !s.is_empty()) {
-                by_role
-                    .entry(aid.to_string())
-                    .or_insert_with(|| summary.clone());
-            }
-            continue;
-        }
-        if issue.assignee_kind.trim() != KANBAN_ASSIGNEE_MEMBER {
-            continue;
-        }
-        let Some(role) = issue
-            .assignee_member_role
-            .as_deref()
-            .map(str::trim)
-            .filter(|role| !role.is_empty())
-            .map(str::to_string)
-        else {
-            continue;
-        };
-        by_role
-            .entry(role)
-            .or_insert(KanbanActiveIssueSummary {
-                number: issue.number,
-                title: issue.title.clone(),
-                status: issue.status.clone(),
-            });
-    }
-    by_role
-}
-
-/// 按名册反查历史编号对应的角色。
-/// 角色取当时记下的名字并剥掉旧的「N 号 · 」前缀：人格后来改过名也不影响迁移结果。
-fn kanban_legacy_member_role(
+/// 议题里只存编号，收发边界上才翻译成名字，翻译必须带上名册。
+/// 角色名取「队员会话当前绑定的人格名」，人格没了才退回名册里那份旧名字，
+/// 所以这里读的是一次组织快照加每个队员的一次会话元数据。
+/// 只给单条写入与看板页用；概览按编号直接比对，不走这条路径。
+fn kanban_board_roster(
     state: &AppState,
-    roster_cache: &mut std::collections::HashMap<String, Vec<TeamMemberEntry>>,
     leader_conversation_id: &str,
-    member_number: u32,
-) -> Option<String> {
-    let members = roster_cache
-        .entry(leader_conversation_id.to_string())
-        .or_insert_with(|| {
-            conversation_service_v2()
-                .get_conversation_meta(state, leader_conversation_id)
-                .map(|meta| meta.team.members)
-                .unwrap_or_default()
-        });
-    let member = members
-        .iter()
-        .find(|member| member.number == member_number)?;
-    let role = strip_legacy_member_number_prefix(&member.name)
-        .trim()
-        .to_string();
-    if role.is_empty() {
-        None
-    } else {
-        Some(role)
-    }
+) -> Result<KanbanBoardRoster, String> {
+    let active = team_member_number_roles(state, leader_conversation_id, false)?;
+    let all = team_member_number_roles(state, leader_conversation_id, true)?;
+    Ok(KanbanBoardRoster::new(active, all))
 }
 
-/// 测试专用：按编号时代的样子往库里塞一条归属，用来验证一次性迁移。
-#[cfg(test)]
-pub(crate) fn kanban_test_seed_legacy_assignee(
+// ==================== 读取 ====================
+
+fn kanban_read_board(
+    state: &AppState,
+    leader_conversation_id: &str,
+) -> Result<(Vec<KanbanIssueEntry>, u32), String> {
+    let meta = conversation_service_v2().get_conversation_meta(state, leader_conversation_id)?;
+    Ok((meta.issues.clone(), meta.issue_next_number))
+}
+
+/// 议题是否存在。只回布尔：给队伍派活那条硬约束用。
+pub(crate) fn kanban_issue_exists(
     state: &AppState,
     leader_conversation_id: &str,
     number: u32,
-    member_number: u32,
-    title: &str,
-) -> Result<(), String> {
-    let conn = kanban_store_open(&state.data_path)?;
-    let now = now_utc_rfc3339();
-    let issue = KanbanIssue {
-        id: format!("legacy-{leader_conversation_id}-{number}"),
-        leader_conversation_id: leader_conversation_id.to_string(),
-        number,
-        title: title.to_string(),
-        status: KANBAN_STATUS_TODO.to_string(),
-        assignee_kind: KANBAN_ASSIGNEE_MEMBER.to_string(),
-        assignee_member_role: None,
-        note: String::new(),
-        plan_path: String::new(),
-        created_at: now.clone(),
-        updated_at: now,
-        version: 0,
-    };
-    kanban_store_insert_legacy_member_assignee(&conn, &issue, member_number)
+) -> Result<bool, String> {
+    let meta = conversation_service_v2().get_conversation_meta(state, leader_conversation_id)?;
+    Ok(kanban_find_issue(meta.issues.as_slice(), number).is_some())
 }
 
-/// 测试专用：还剩多少条没迁移，用来断言迁移是幂等的。
-#[cfg(test)]
-pub(crate) fn kanban_test_pending_legacy_assignees(state: &AppState) -> Result<usize, String> {
-    let conn = kanban_store_open(&state.data_path)?;
-    Ok(kanban_store_legacy_member_assignees(&conn)?.len())
+// ==================== 编号 ====================
+
+fn kanban_find_issue(issues: &[KanbanIssueEntry], number: u32) -> Option<&KanbanIssueEntry> {
+    issues.iter().find(|issue| issue.number == number)
 }
+
+fn kanban_max_number(issues: &[KanbanIssueEntry]) -> u32 {
+    issues.iter().map(|issue| issue.number).max().unwrap_or(0)
+}
+
+/// 分配下一个编号。规则与问题共用 `conversation_allocate_number`：
+/// 从游标取，游标没建过就以「当前最大 + 1」起步；分配即自增，删除不归还。
+fn kanban_allocate_number(issues: &[KanbanIssueEntry], next_number: &mut u32) -> u32 {
+    conversation_allocate_number(kanban_max_number(issues), next_number)
+}
+
+// ==================== 前台会话定位 ====================
 
 /// 从工具 session_id 取 conversation_id。
 /// 主会话的 session_id 也带 `agent::` 前缀，所以不能按「有没有 ::」判断归属，
@@ -296,27 +99,11 @@ fn kanban_leader_conversation_id(state: &AppState, session_id: &str) -> Result<S
     Ok(meta.id.trim().to_string())
 }
 
-fn kanban_board_list(
-    state: &AppState,
-    leader_conversation_id: &str,
-    status: Option<&str>,
-    assignee_kind: Option<&str>,
-    assignee_role: Option<&str>,
-) -> Result<Vec<KanbanIssueView>, String> {
-    let conn = kanban_conn(state)?;
-    let issues = kanban_store_list(
-        &conn,
-        leader_conversation_id,
-        status,
-        assignee_kind,
-        assignee_role,
-    )?;
-    Ok(issues.iter().map(KanbanIssue::to_view).collect())
-}
+// ==================== 校验 ====================
 
 /// 改状态的前置校验：状态值有没有变、变了就得说明理由。
 ///
-/// 判据是**这次请求带没带 note**，不是库里最终存着什么。否则模型把旧值原样带上来
+/// 判据是**这次请求带没带 note**，不是最终存着什么。否则模型把旧值原样带上来
 /// 就能过闸，「每次变更都留理由」会退化成「这条议题以前写过理由」。
 ///
 /// 同状态重复写入不算变更，不要求理由；只改标题、只改负责人也走不到这里。
@@ -356,23 +143,15 @@ fn kanban_updated_note_checked(number: u32, note: &str) -> Result<String, String
     Ok(trimmed.to_string())
 }
 
-/// 写库前核对：`member:<角色名>` 必须是名册里的在队队员。
+/// 写之前核对：`member:<角色名>` 必须是名册里的在队队员。
 ///
-/// 落点选在写库前，不是 `kanban_assignee_from_wire`：
-/// - 解析函数只依赖一个字符串，拿不到名册；
-/// - 它同时服务 `list` 的过滤条件，给它加名册校验会把「筛不到人」改写成「查询报错」，
-///   那是两个语义；
-/// - 写库前是所有负责人写入的汇合点（改旧题与新建都在 `kanban_apply_upsert_in` 里），
-///   将来多一条写入入口也自动被这道门挡住，不用回来补名字。
-///
-/// `leader` / `none` 不查名册直接放行：它们不引用任何人。
+/// 单独留一道预检而不是只在解析时判，是为了保住报错顺序：
+/// 格式非法的那几条留给写入层统一报，这里只挑「已经能认出是队员指派」的条目，
+/// 否则同一个入参会先报名册错、再报格式错。
 fn kanban_validate_member_assignees(
-    state: &AppState,
-    leader_conversation_id: &str,
+    roster: &KanbanBoardRoster,
     items: &[KanbanIssueUpsertItem],
 ) -> Result<(), String> {
-    // 格式非法的那几条留给写库层统一报：这里只挑出「已经能认出是队员指派」的条目，
-    // 否则同一个入参会先报名册错、再报格式错，报错顺序变了。
     let requested = items
         .iter()
         .filter_map(|item| item.assignee.as_deref())
@@ -383,20 +162,20 @@ fn kanban_validate_member_assignees(
     if requested.is_empty() {
         return Ok(());
     }
-    let roles = team_active_member_roles(state, leader_conversation_id)?;
+    let known = roster.active_roles();
     let missing = requested
         .iter()
-        .filter(|role| !roles.iter().any(|known| known.trim() == role.trim()))
+        .filter(|role| !known.iter().any(|value| value.trim() == role.trim()))
         .cloned()
         .collect::<Vec<_>>();
     if missing.is_empty() {
         return Ok(());
     }
     // 报错要带上可选角色：模型只看到「不存在」，下一轮还会随便猜一个名字。
-    let available = if roles.is_empty() {
+    let available = if known.is_empty() {
         "（当前没有在队队员）".to_string()
     } else {
-        roles.join(" / ")
+        known.join(" / ")
     };
     Err(format!(
         "议题负责人不能指派给不在队的角色：{}；当前在队角色：{available}。不分配请用 none",
@@ -405,31 +184,27 @@ fn kanban_validate_member_assignees(
 }
 
 /// 本批写入后每条议题的最终状态与最终负责人。
-/// 校验必须看最终态：本次没传 status / assignee 时，最终值来自库里现值，
+/// 校验必须看最终态：本次没传 status / assignee 时，最终值来自现状，
 /// 否则校验看到的就不是这条议题真正会变成的样子。
 #[derive(Debug, Clone)]
 struct KanbanFinalAssignee {
-    /// 改的那条带编号；新建的没有，编号要等写库时才分配。
+    /// 改的那条带编号；新建的没有，编号要等落盘时才分配。
     number: Option<u32>,
     title: String,
     status: String,
-    assignee_kind: String,
-    assignee_member_role: Option<String>,
+    assignee: KanbanAssigneeRef,
 }
 
 impl KanbanFinalAssignee {
-    fn member_role(&self) -> Option<&str> {
-        if self.assignee_kind.trim() != KANBAN_ASSIGNEE_MEMBER {
+    fn member_number(&self) -> Option<u32> {
+        if self.assignee.kind.trim() != KANBAN_ASSIGNEE_MEMBER {
             return None;
         }
-        self.assignee_member_role
-            .as_deref()
-            .map(str::trim)
-            .filter(|role| !role.is_empty())
+        self.assignee.member_number
     }
 
     fn has_assignee(&self) -> bool {
-        self.assignee_kind.trim() != KANBAN_ASSIGNEE_NONE
+        self.assignee.kind.trim() != KANBAN_ASSIGNEE_NONE
     }
 
     /// 报错时指代这条议题：「议题 #7」或「这条新议题」。
@@ -440,10 +215,16 @@ impl KanbanFinalAssignee {
         }
     }
 
-    fn assignee_label(&self) -> String {
-        match self.assignee_kind.trim() {
+    /// 报错时怎么称呼负责人。编号翻不出名字就退回编号本身——报错文案宁可生硬，
+    /// 也不能说「不能指派给「」」。
+    fn assignee_label(&self, roster: &KanbanBoardRoster) -> String {
+        match self.assignee.kind.trim() {
             KANBAN_ASSIGNEE_LEADER => "队长".to_string(),
-            _ => self.member_role().unwrap_or("").to_string(),
+            KANBAN_ASSIGNEE_MEMBER => self
+                .member_number()
+                .map(|number| roster.member_label(number))
+                .unwrap_or_default(),
+            _ => String::new(),
         }
     }
 }
@@ -451,7 +232,7 @@ impl KanbanFinalAssignee {
 /// 别人名下、此刻还算在办的那条议题。只用于报错，不进任何返回值。
 #[derive(Debug, Clone)]
 struct KanbanOccupiedIssue {
-    /// 同批里新建的条目库里还没有编号，落 None。
+    /// 同批里新建的条目还没有编号，落 None。
     number: Option<u32>,
     title: String,
     status: String,
@@ -459,18 +240,20 @@ struct KanbanOccupiedIssue {
 
 /// 整批算出每条议题的最终状态与最终负责人。
 /// 逐条边算边判会把「同一批里两条绑给同一个人」和「先解绑再绑新的」都判错，
-/// 所以校验一律基于这份结果，不与写库混在一起。
+/// 所以校验一律基于这份结果，不与落盘混在一起。
 fn kanban_final_assignees(
-    conn: &Connection,
-    leader_conversation_id: &str,
+    issues: &[KanbanIssueEntry],
+    roster: &KanbanBoardRoster,
     items: &[KanbanIssueUpsertItem],
 ) -> Result<Vec<KanbanFinalAssignee>, String> {
     let mut finals = Vec::with_capacity(items.len());
     for item in items {
         // 没带编号就是新建，新建一律从待议开始。
         let mut status = KANBAN_STATUS_DISCUSSING.to_string();
-        let mut assignee_kind = KANBAN_ASSIGNEE_NONE.to_string();
-        let mut assignee_member_role: Option<String> = None;
+        let mut assignee = KanbanAssigneeRef {
+            kind: KANBAN_ASSIGNEE_NONE.to_string(),
+            member_number: None,
+        };
         let mut title = item
             .title
             .as_deref()
@@ -478,15 +261,14 @@ fn kanban_final_assignees(
             .unwrap_or_default()
             .to_string();
         if let Some(number) = item.issue_number {
-            let issue = kanban_store_find(conn, leader_conversation_id, number)?
+            let issue = kanban_find_issue(issues, number)
                 .ok_or_else(|| format!("议题 #{number} 不存在"))?;
-            status = issue.status;
-            assignee_kind = issue.assignee_kind;
-            assignee_member_role = issue.assignee_member_role;
+            status = issue.status.clone();
+            assignee = issue.assignee.clone();
             if title.is_empty() {
-                title = issue.title;
+                title = issue.title.clone();
             }
-            // 新建不收 status，那条会在写库时直接报错；这里也不把它算进最终态，
+            // 新建不收 status，那条会在落盘时直接报错；这里也不把它算进最终态，
             // 免得先报出「这下不能挂人」这种隔了一层的错。
             if let Some(raw) = item.status.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
                 if let Some(next) = kanban_status_normalized(raw) {
@@ -495,62 +277,51 @@ fn kanban_final_assignees(
             }
         }
         if let Some(raw) = item.assignee.as_deref() {
-            let (next_kind, next_role) = kanban_assignee_from_wire(raw)?;
-            assignee_kind = next_kind;
-            assignee_member_role = next_role;
+            assignee = roster.resolve_assignee(raw)?;
         }
         finals.push(KanbanFinalAssignee {
             number: item.issue_number,
             title,
             status,
-            assignee_kind,
-            assignee_member_role,
+            assignee,
         });
     }
     Ok(finals)
 }
 
-/// 同一块看板里，除 `self_index` 之外还有哪些在该角色名下的在办议题。
-/// 本批也在改的条目以最终态为准，没在本批里的以库里现态为准——
+/// 同一块看板里，除 `self_index` 之外还有哪些挂在该名册编号下的在办议题。
+/// 本批也在改的条目以最终态为准，没在本批里的以现状为准——
 /// 否则「同批里先把它改成已完成」会被当成仍然占着人。
-fn kanban_other_active_issues_for_role(
-    conn: &Connection,
-    leader_conversation_id: &str,
+fn kanban_other_active_issues_for_member(
+    issues: &[KanbanIssueEntry],
     finals: &[KanbanFinalAssignee],
     self_index: usize,
-    role: &str,
-) -> Result<Vec<KanbanOccupiedIssue>, String> {
+    member_number: u32,
+) -> Vec<KanbanOccupiedIssue> {
     let mut occupied = Vec::new();
-    let stored = kanban_store_list(
-        conn,
-        leader_conversation_id,
-        None,
-        Some(KANBAN_ASSIGNEE_MEMBER),
-        Some(role),
-    )?;
-    for issue in stored {
+    for issue in issues {
+        if issue.assignee.kind.trim() != KANBAN_ASSIGNEE_MEMBER
+            || issue.assignee.member_number != Some(member_number)
+        {
+            continue;
+        }
         let final_index = finals
             .iter()
             .position(|final_state| final_state.number == Some(issue.number));
         if final_index == Some(self_index) {
             continue;
         }
-        let (title, status, issue_role) = match final_index {
-            Some(index) => (
-                finals[index].title.clone(),
-                finals[index].status.clone(),
-                finals[index]
-                    .assignee_member_role
-                    .clone()
-                    .unwrap_or_default(),
-            ),
-            None => (
-                issue.title.clone(),
-                issue.status.clone(),
-                issue.assignee_member_role.clone().unwrap_or_default(),
-            ),
+        let (title, status) = match final_index {
+            Some(index) => (finals[index].title.clone(), finals[index].status.clone()),
+            None => (issue.title.clone(), issue.status.clone()),
         };
-        if issue_role.trim() != role || !kanban_status_occupies_member(&status) {
+        // 本批把它改到别人或改成无主了，就不再算在这个编号头上。
+        if let Some(index) = final_index {
+            if finals[index].member_number() != Some(member_number) {
+                continue;
+            }
+        }
+        if !kanban_status_occupies_member(&status) {
             continue;
         }
         occupied.push(KanbanOccupiedIssue {
@@ -559,16 +330,16 @@ fn kanban_other_active_issues_for_role(
             status,
         });
     }
-    // 同一批里也落在该角色名下的条目：这些改动还没写进库，只能从最终态看。
-    // 只按库里的现态判会漏掉「同批两条一起绑给同一个人」（写库前两条都不在库里挂着人）。
+    // 同一批里也挂在同一个编号下的新建条目：这些还没落盘，只能从最终态看。
+    // 只按现状判会漏掉「同批两条一起绑给同一个人」（落盘前两条都不在板上挂着人）。
     for (index, final_state) in finals.iter().enumerate() {
         if index == self_index
-            || final_state.member_role() != Some(role)
+            || final_state.member_number() != Some(member_number)
             || !kanban_status_occupies_member(&final_state.status)
         {
             continue;
         }
-        // 库里那条已经算过一次，别重复列进报错。
+        // 已经在板上算过的那条别重复列进报错。
         if let Some(number) = final_state.number {
             if occupied.iter().any(|issue| issue.number == Some(number)) {
                 continue;
@@ -580,19 +351,19 @@ fn kanban_other_active_issues_for_role(
             status: final_state.status.clone(),
         });
     }
-    Ok(occupied)
+    occupied
 }
 
 /// 两条绑定约束：待议 / 已完成不挂人；一个人同时只能有一条在办议题。
 /// 必须整批算完最终态再判——逐条判会漏掉同批内的互相冲突，也会误伤「先解绑再绑新的」。
 fn kanban_validate_assignee_constraints(
-    conn: &Connection,
-    leader_conversation_id: &str,
+    issues: &[KanbanIssueEntry],
+    roster: &KanbanBoardRoster,
     items: &[KanbanIssueUpsertItem],
 ) -> Result<(), String> {
-    let finals = kanban_final_assignees(conn, leader_conversation_id, items)?;
+    let finals = kanban_final_assignees(issues, roster, items)?;
 
-    // 一、不归任何人办的三态。
+    // 一、不归任何人办的两态。
     for final_state in &finals {
         if kanban_status_allows_assignee(&final_state.status) || !final_state.has_assignee() {
             continue;
@@ -609,23 +380,25 @@ fn kanban_validate_assignee_constraints(
              先把 assignee 写成 none，再改状态。",
             final_state.display(),
             label = kanban_status_label(&final_state.status),
-            who = final_state.assignee_label(),
+            who = final_state.assignee_label(roster),
         ));
     }
 
-    // 二、一个人同时只能有一条在办议题。
+    // 二、一个人同时只能有一条在办议题。按名册编号判，不按角色名：
+    // 同名但编号不同的两名队员互不影响，改过名的人也还是同一个人。
     for (index, final_state) in finals.iter().enumerate() {
         if !kanban_status_occupies_member(&final_state.status) {
             continue;
         }
-        let Some(role) = final_state.member_role() else {
+        let Some(member_number) = final_state.member_number() else {
             continue;
         };
         let occupied =
-            kanban_other_active_issues_for_role(conn, leader_conversation_id, &finals, index, role)?;
+            kanban_other_active_issues_for_member(issues, &finals, index, member_number);
         if occupied.is_empty() {
             continue;
         }
+        let role = roster.member_label(member_number);
         let listing = occupied
             .iter()
             .map(|issue| match issue.number {
@@ -652,56 +425,44 @@ fn kanban_validate_assignee_constraints(
     Ok(())
 }
 
+// ==================== 写入 ====================
+
 /// 批量写入。编号不存在一律报错，绝不静默新建——
 /// 队长以为在改旧题、实际悄悄新建了一条，比报错严重得多。
-fn kanban_apply_upsert(
-    state: &AppState,
-    leader_conversation_id: &str,
-    items: &[KanbanIssueUpsertItem],
-) -> Result<KanbanUpsertResult, String> {
-    kanban_validate_member_assignees(state, leader_conversation_id, items)?;
-    let conn = kanban_conn(state)?;
-    kanban_apply_upsert_in(&conn, leader_conversation_id, items)
-}
-
-/// upsert 的实际实现，只依赖一个已打开的连接。
-/// 与上面分开是为了让行为可测：新建拒绝任何 status、整批失败不落库这些结论
-/// 原来埋在需要完整 AppState 的入口后面，一条测试都写不了，也就锁不住。
-/// 连接用借用：测试要在调用之后继续查库，确认失败时一条都没写进去。
+///
+/// 在副本上做完全部校验与修改，最后一次性写回：任何一步失败，元数据一行都没动。
 fn kanban_apply_upsert_in(
-    conn: &Connection,
-    leader_conversation_id: &str,
+    issues: &mut Vec<KanbanIssueEntry>,
+    next_number: &mut u32,
+    roster: &KanbanBoardRoster,
     items: &[KanbanIssueUpsertItem],
 ) -> Result<KanbanUpsertResult, String> {
     if items.is_empty() {
         return Err("kanban upsert 至少要提供一条议题".to_string());
     }
 
+    let mut draft = issues.clone();
+    let mut draft_next_number = *next_number;
+
     // 编号预检：整批里只要有一个编号不存在，整批失败，不做部分成功。
-    let requested_numbers: Vec<u32> = items
+    let missing = items
         .iter()
         .filter_map(|item| item.issue_number)
-        .collect();
-    if !requested_numbers.is_empty() {
-        let missing = kanban_store_missing_numbers(conn, leader_conversation_id, &requested_numbers)?;
-        if !missing.is_empty() {
-            return Err(format!(
-                "议题编号不存在：{}；编号不会自动新建，请先确认看板上现有的编号",
-                missing
-                    .iter()
-                    .map(|number| format!("#{number}"))
-                    .collect::<Vec<_>>()
-                    .join("、")
-            ));
-        }
+        .filter(|number| kanban_find_issue(draft.as_slice(), *number).is_none())
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(format!(
+            "议题编号不存在：{}；编号不会自动新建，请先确认看板上现有的编号",
+            missing
+                .iter()
+                .map(|number| format!("#{number}"))
+                .collect::<Vec<_>>()
+                .join("、")
+        ));
     }
 
-    // 绑定约束在开局事务之前判：整批算完最终态再判，失败时库里一条都没动。
-    kanban_validate_assignee_constraints(conn, leader_conversation_id, items)?;
-
-    let tx = conn
-        .unchecked_transaction()
-        .map_err(|err| format!("开始看板事务失败：{err}"))?;
+    // 绑定约束在改动之前判：整批算完最终态再判，失败时板上一行都没动。
+    kanban_validate_assignee_constraints(draft.as_slice(), roster, items)?;
 
     let mut created = Vec::new();
     let mut updated = Vec::new();
@@ -710,7 +471,9 @@ fn kanban_apply_upsert_in(
         let now = now_utc_rfc3339();
         match item.issue_number {
             Some(number) => {
-                let mut issue = kanban_store_find(&tx, leader_conversation_id, number)?
+                let index = draft
+                    .iter()
+                    .position(|issue| issue.number == number)
                     .ok_or_else(|| format!("议题 #{number} 不存在"))?;
 
                 if let Some(title) = item.title.as_deref() {
@@ -718,7 +481,7 @@ fn kanban_apply_upsert_in(
                     if title.is_empty() {
                         return Err(format!("议题 #{number} 的标题不能为空"));
                     }
-                    issue.title = title.to_string();
+                    draft[index].title = title.to_string();
                 }
                 if let Some(status) = item.status.as_deref() {
                     let next_status = kanban_status_normalized(status).ok_or_else(|| {
@@ -730,29 +493,25 @@ fn kanban_apply_upsert_in(
                     })?;
                     kanban_next_state_checked(
                         number,
-                        &issue.status,
+                        &draft[index].status,
                         next_status,
                         item.note.as_deref(),
                     )?;
-                    issue.status = next_status.to_string();
+                    draft[index].status = next_status.to_string();
                 }
                 if let Some(assignee) = item.assignee.as_deref() {
-                    let (kind, role) = kanban_assignee_from_wire(assignee)?;
-                    issue.assignee_kind = kind;
-                    issue.assignee_member_role = role;
+                    draft[index].assignee = roster.resolve_assignee(assignee)?;
                 }
                 // note 任何时候都不能被清空：判据与状态无关，
                 // 即使这次同时把状态写成同一格（kanban_next_state_checked 直接放行），
                 // 也不能顺手把 note 抹成空串。
                 if let Some(note) = item.note.as_deref() {
-                    issue.note = kanban_updated_note_checked(number, note)?;
+                    draft[index].note = kanban_updated_note_checked(number, note)?;
                 }
-                issue.updated_at = now.clone();
-
-                if !kanban_store_update(&tx, &issue, None)? {
-                    return Err(format!("议题 #{number} 已不存在，可能刚被删除"));
-                }
-                updated.push(issue.to_view());
+                draft[index].updated_at = now.clone();
+                draft[index].version += 1;
+                let view = kanban_issue_view(&draft[index], roster);
+                updated.push(view);
             }
             None => {
                 let title = item
@@ -785,49 +544,86 @@ fn kanban_apply_upsert_in(
                         "新建议题必须在 note 里写明理由：为什么要把这件事记进看板".to_string()
                     })?
                     .to_string();
-                let (assignee_kind, assignee_role) = match item.assignee.as_deref() {
-                    Some(raw) => kanban_assignee_from_wire(raw)?,
-                    None => (KANBAN_ASSIGNEE_NONE.to_string(), None),
+                let assignee = match item.assignee.as_deref() {
+                    Some(raw) => roster.resolve_assignee(raw)?,
+                    None => KanbanAssigneeRef {
+                        kind: KANBAN_ASSIGNEE_NONE.to_string(),
+                        member_number: None,
+                    },
                 };
-                let number = kanban_store_allocate_number(&tx, leader_conversation_id)?;
-                let issue = KanbanIssue {
-                    id: Uuid::new_v4().to_string(),
-                    leader_conversation_id: leader_conversation_id.to_string(),
+                let number = kanban_allocate_number(draft.as_slice(), &mut draft_next_number);
+                let issue = KanbanIssueEntry {
                     number,
                     title: title.to_string(),
                     status: KANBAN_STATUS_DISCUSSING.to_string(),
-                    assignee_kind,
-                    assignee_member_role: assignee_role,
+                    assignee,
                     note,
                     plan_path: String::new(),
                     created_at: now.clone(),
                     updated_at: now,
                     version: 0,
                 };
-                kanban_store_insert(&tx, &issue)?;
-                created.push(issue.to_view());
+                let view = kanban_issue_view(&issue, roster);
+                draft.push(issue);
+                created.push(view);
             }
         }
     }
 
-    tx.commit()
-        .map_err(|err| format!("提交看板事务失败：{err}"))?;
+    *issues = draft;
+    *next_number = draft_next_number;
     Ok(KanbanUpsertResult { created, updated })
 }
 
+fn kanban_apply_upsert(
+    state: &AppState,
+    leader_conversation_id: &str,
+    items: &[KanbanIssueUpsertItem],
+) -> Result<KanbanUpsertResult, String> {
+    let roster = kanban_board_roster(state, leader_conversation_id)?;
+    kanban_validate_member_assignees(&roster, items)?;
+    let mut outcome: Option<KanbanUpsertResult> = None;
+    state_update_conversation_metadata_cached(state, leader_conversation_id, |conversation| {
+        let mut issues = conversation.issues.clone();
+        let mut next_number = conversation.issue_next_number;
+        let result = kanban_apply_upsert_in(&mut issues, &mut next_number, &roster, items)?;
+        conversation.issues = issues;
+        conversation.issue_next_number = next_number;
+        outcome = Some(result);
+        Ok(())
+    })?;
+    outcome.ok_or_else(|| "写入议题后未能取得结果".to_string())
+}
+
 /// 用户在看板上点「通过」：把待审查推进到已完成。
-/// 走条件更新，和队长工具调用撞车时先到先得；后到的一侧拿到 0 行而不是覆盖。
+/// 只在当前状态是待审时才推进，和队长工具调用撞车时先到先得；
+/// 后到的一侧拿到「状态不符」而不是覆盖。
 fn kanban_apply_approve(
     state: &AppState,
     leader_conversation_id: &str,
     number: u32,
     note: &str,
 ) -> Result<KanbanIssueView, String> {
-    let conn = kanban_conn(state)?;
-    let existed = kanban_store_find(&conn, leader_conversation_id, number)?;
-    if existed.is_none() {
-        return Err(format!("议题 #{number} 不存在"));
-    }
+    let roster = kanban_board_roster(state, leader_conversation_id)?;
+    let mut outcome: Option<KanbanIssueView> = None;
+    state_update_conversation_metadata_cached(state, leader_conversation_id, |conversation| {
+        outcome = Some(kanban_approve_in(
+            &mut conversation.issues,
+            &roster,
+            number,
+            note,
+        )?);
+        Ok(())
+    })?;
+    outcome.ok_or_else(|| format!("议题 #{number} 在通过后读不回来了"))
+}
+
+fn kanban_approve_in(
+    issues: &mut [KanbanIssueEntry],
+    roster: &KanbanBoardRoster,
+    number: u32,
+    note: &str,
+) -> Result<KanbanIssueView, String> {
     let now = now_utc_rfc3339();
     let note = note.trim();
     let note = if note.is_empty() {
@@ -835,27 +631,147 @@ fn kanban_apply_approve(
     } else {
         note
     };
-    let applied = kanban_store_transition(
-        &conn,
-        leader_conversation_id,
-        number,
-        KANBAN_STATUS_IN_REVIEW,
-        KANBAN_STATUS_DONE,
-        note,
-        // 已完成不归任何人办：用户点通过也要把人摘下来，否则这条议题会一直占着那名队员。
-        true,
-        &now,
-    )?;
-    if !applied {
-        let current = kanban_store_find(&conn, leader_conversation_id, number)?;
-        let current_status = current
-            .map(|issue| issue.status)
-            .unwrap_or_else(|| "未知".to_string());
+    let issue = issues
+        .iter_mut()
+        .find(|issue| issue.number == number)
+        .ok_or_else(|| format!("议题 #{number} 不存在"))?;
+    if issue.status.trim() != KANBAN_STATUS_IN_REVIEW {
+        let current = issue.status.trim().to_string();
         return Err(format!(
-            "议题 #{number} 当前状态是「{current_status}」，只有「待审查」才能点通过"
+            "议题 #{number} 当前状态是「{current}」，只有「待审查」才能点通过"
         ));
     }
-    let issue = kanban_store_find(&conn, leader_conversation_id, number)?
-        .ok_or_else(|| format!("议题 #{number} 在通过后读不回来了"))?;
-    Ok(issue.to_view())
+    issue.status = KANBAN_STATUS_DONE.to_string();
+    issue.note = note.to_string();
+    issue.updated_at = now;
+    issue.version += 1;
+    // 已完成不归任何人办：用户点通过也要把人摘下来，否则这条议题会一直占着那名队员。
+    issue.assignee = KanbanAssigneeRef {
+        kind: KANBAN_ASSIGNEE_NONE.to_string(),
+        member_number: None,
+    };
+    Ok(kanban_issue_view(issue, roster))
+}
+
+// ==================== 对外查询 ====================
+
+/// 看板页与工具 list 用。
+/// `assignee_role` 按角色名过滤，内部翻成名册编号再比——外部认名字，内部认编号。
+fn kanban_board_list(
+    state: &AppState,
+    leader_conversation_id: &str,
+    status: Option<&str>,
+    assignee_kind: Option<&str>,
+    assignee_role: Option<&str>,
+) -> Result<Vec<KanbanIssueView>, String> {
+    let (issues, _) = kanban_read_board(state, leader_conversation_id)?;
+    let roster = kanban_board_roster(state, leader_conversation_id)?;
+    Ok(kanban_board_list_in(
+        &issues,
+        &roster,
+        status,
+        assignee_kind,
+        assignee_role,
+    ))
+}
+
+fn kanban_board_list_in(
+    issues: &[KanbanIssueEntry],
+    roster: &KanbanBoardRoster,
+    status: Option<&str>,
+    assignee_kind: Option<&str>,
+    assignee_role: Option<&str>,
+) -> Vec<KanbanIssueView> {
+    let requested_role = assignee_role
+        .map(str::trim)
+        .filter(|role| !role.is_empty());
+    let wanted_number = match requested_role {
+        Some(role) => match roster.member_number_of_role(role) {
+            Some(number) => Some(number),
+            // 给了角色却查不到编号，说明这个人不在在队名册里：过滤成空，
+            // 不能退化成「这个维度不生效」把整块板漏出去。
+            None => return Vec::new(),
+        },
+        None => None,
+    };
+    let mut views = Vec::new();
+    for issue in issues {
+        if let Some(wanted) = status {
+            if issue.status.trim() != wanted.trim() {
+                continue;
+            }
+        }
+        if let Some(kind) = assignee_kind {
+            if issue.assignee.kind.trim() != kind.trim() {
+                continue;
+            }
+        }
+        if let Some(number) = wanted_number {
+            if issue.assignee.member_number != Some(number) {
+                continue;
+            }
+        }
+        views.push(kanban_issue_view(issue, roster));
+    }
+    views
+}
+
+/// 一块看板的读取缓存：整批概览里同一块板只读一次会话元数据。
+///
+/// 概览按名册编号直接比对，不构造角色名——那需要为每名队员各读一次会话，
+/// 而首页是高频路径，不该为显示一个议题标题付出这个代价。
+pub(crate) struct KanbanSession {
+    boards: std::collections::HashMap<String, Vec<KanbanIssueEntry>>,
+}
+
+impl KanbanSession {
+    pub(crate) fn new() -> Self {
+        Self {
+            boards: std::collections::HashMap::new(),
+        }
+    }
+
+    fn board(&mut self, state: &AppState, leader_conversation_id: &str) -> &[KanbanIssueEntry] {
+        let leader = leader_conversation_id.trim();
+        if !self.boards.contains_key(leader) {
+            let issues = match kanban_read_board(state, leader) {
+                Ok((issues, _)) => issues,
+                Err(err) => {
+                    runtime_log_warn(format!(
+                        "[看板] 跳过，任务=读取在办议题，leader_conversation_id={leader}，error={err}"
+                    ));
+                    Vec::new()
+                }
+            };
+            self.boards.insert(leader.to_string(), issues);
+        }
+        self.boards
+            .get(leader)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    /// 某名队员名下的在办议题。一个编号最多一条在办，所以是单个对象。
+    /// 万一同一人挂多条，取编号最小那条：选择要确定，不随读顺序变，也不擅自改板。
+    pub(crate) fn active_issue_for_member(
+        &mut self,
+        state: &AppState,
+        leader_conversation_id: &str,
+        member_number: u32,
+    ) -> Option<KanbanActiveIssueSummary> {
+        let issues = self.board(state, leader_conversation_id);
+        issues
+            .iter()
+            .filter(|issue| {
+                issue.assignee.kind.trim() == KANBAN_ASSIGNEE_MEMBER
+                    && issue.assignee.member_number == Some(member_number)
+                    && kanban_status_occupies_member(&issue.status)
+            })
+            .min_by_key(|issue| issue.number)
+            .map(|issue| KanbanActiveIssueSummary {
+                number: issue.number,
+                title: issue.title.clone(),
+                status: issue.status.clone(),
+            })
+    }
 }

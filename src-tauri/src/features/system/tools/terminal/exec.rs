@@ -1433,6 +1433,10 @@ mod terminal_exec_tests {
     ) -> Result<String, String> {
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: conversation_id.to_string(),
             title: "Terminal Test Conversation".to_string(),

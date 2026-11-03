@@ -558,6 +558,10 @@ fn ide_chat_conversation_from_meta_view(conversation_meta: &ConversationMetaView
         cumulative_usage: conversation_meta.cumulative_usage.clone(),
         active_goal: conversation_meta.active_goal.clone(),
         team: conversation_meta.team.clone(),
+        questions: conversation_meta.questions.clone(),
+        question_next_number: conversation_meta.question_next_number,
+        issues: conversation_meta.issues.clone(),
+        issue_next_number: conversation_meta.issue_next_number,
         loaded_mcp_tools: Vec::new(),
         last_error: conversation_meta.last_error.clone(),
     }

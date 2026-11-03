@@ -45,6 +45,10 @@ pub(super) struct ConversationPersistMeta {
     active_goal: Option<ConversationGoalState>,
     #[serde(default)]
     team: TeamState,
+    questions: Vec<ConversationQuestionEntry>,
+    question_next_number: u32,
+    issues: Vec<KanbanIssueEntry>,
+    issue_next_number: u32,
     #[serde(default)]
     loaded_mcp_tools: Vec<String>,
     fast_request_turns: Vec<FastRequestTurn>,
@@ -206,6 +210,12 @@ pub(super) struct ConversationShardMeta {
     /// 会话级队伍状态；联系人会话摘要需要读取名册，故对本 crate 开放。
     #[serde(default)]
     pub(crate) team: TeamState,
+    /// 本会话自己的待答问题与编号游标。
+    questions: Vec<ConversationQuestionEntry>,
+    question_next_number: u32,
+    /// 队长会话的议题看板与编号游标；队员会话恒为空。
+    issues: Vec<KanbanIssueEntry>,
+    issue_next_number: u32,
     #[serde(default)]
     loaded_mcp_tools: Vec<String>,
     #[serde(default)]
@@ -230,6 +240,37 @@ pub(super) struct ConversationShardMeta {
     latest_summary_title: Option<String>,
     #[serde(default)]
     preview_messages: Vec<ConversationShardPreviewMessage>,
+}
+
+// ==================== 落盘文本读取 ====================
+
+/// 读文件那一层做的归一化：缺附属记录的四个键时，补成「没有记录」再解析。
+///
+/// 结构体本身要求这四个键必须存在，缺了算数据错误，不靠字段属性兜底；
+/// 但读的时候不能因为缺键就丢掉整条会话，所以补键只发生在这一层。
+pub(super) fn conversation_json_fill_missing_attachments(value: &mut serde_json::Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    for (key, empty) in [
+        ("questions", serde_json::Value::Array(Vec::new())),
+        ("questionNextNumber", serde_json::Value::from(0)),
+        ("issues", serde_json::Value::Array(Vec::new())),
+        ("issueNextNumber", serde_json::Value::from(0)),
+    ] {
+        if !object.contains_key(key) {
+            object.insert(key.to_string(), empty);
+        }
+    }
+}
+
+/// 从落盘文本读出会话元数据：先把缺席的附属记录键补上，再转成结构体。
+pub(super) fn conversation_shard_meta_from_stored_json(
+    raw: &str,
+) -> Result<ConversationShardMeta, serde_json::Error> {
+    let mut value: serde_json::Value = serde_json::from_str(raw)?;
+    conversation_json_fill_missing_attachments(&mut value);
+    serde_json::from_value(value)
 }
 
 impl ConversationShardMeta {
@@ -466,6 +507,22 @@ impl ConversationShardMeta {
         &self.team
     }
 
+    pub(super) fn questions(&self) -> &[ConversationQuestionEntry] {
+        self.questions.as_slice()
+    }
+
+    pub(super) fn question_next_number(&self) -> u32 {
+        self.question_next_number
+    }
+
+    pub(super) fn issues(&self) -> &[KanbanIssueEntry] {
+        self.issues.as_slice()
+    }
+
+    pub(super) fn issue_next_number(&self) -> u32 {
+        self.issue_next_number
+    }
+
     pub(super) fn fast_request_turns(&self) -> &[FastRequestTurn] {
         self.fast_request_turns.as_slice()
     }
@@ -532,6 +589,10 @@ impl ConversationShardMeta {
         target.cumulative_usage = self.cumulative_usage.clone();
         target.active_goal = self.active_goal.clone();
         target.team = self.team.clone();
+        target.questions = self.questions.clone();
+        target.question_next_number = self.question_next_number;
+        target.issues = self.issues.clone();
+        target.issue_next_number = self.issue_next_number;
         target.loaded_mcp_tools = self.loaded_mcp_tools.clone();
         target.fast_request_turns = self.fast_request_turns.clone();
         target.last_error = self.last_error.clone();
@@ -571,6 +632,10 @@ impl ConversationShardMeta {
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
         self.team = source.team.clone();
+        self.questions = source.questions.clone();
+        self.question_next_number = source.question_next_number;
+        self.issues = source.issues.clone();
+        self.issue_next_number = source.issue_next_number;
         self.loaded_mcp_tools = source.loaded_mcp_tools.clone();
         self.fast_request_turns = source.fast_request_turns.clone();
         self.last_error = source.last_error.clone();
@@ -610,6 +675,10 @@ impl ConversationShardMeta {
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
         self.team = source.team.clone();
+        self.questions = source.questions.clone();
+        self.question_next_number = source.question_next_number;
+        self.issues = source.issues.clone();
+        self.issue_next_number = source.issue_next_number;
         self.loaded_mcp_tools = source.loaded_mcp_tools.clone();
         self.last_error = source.last_error.clone();
     }
@@ -646,6 +715,10 @@ impl ConversationShardMeta {
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
         self.team = source.team.clone();
+        self.questions = source.questions.clone();
+        self.question_next_number = source.question_next_number;
+        self.issues = source.issues.clone();
+        self.issue_next_number = source.issue_next_number;
         self.last_error = source.last_error.clone();
     }
 
@@ -923,6 +996,10 @@ impl ConversationShardMeta {
             cumulative_usage: conversation.cumulative_usage.clone(),
             active_goal: conversation.active_goal.clone(),
             team: conversation.team.clone(),
+            questions: conversation.questions.clone(),
+            question_next_number: conversation.question_next_number,
+            issues: conversation.issues.clone(),
+            issue_next_number: conversation.issue_next_number,
             loaded_mcp_tools: conversation.loaded_mcp_tools.clone(),
             fast_request_turns: conversation.fast_request_turns.clone(),
             last_error: conversation.last_error.clone(),
@@ -1024,6 +1101,10 @@ impl ConversationShardMeta {
             cumulative_usage: meta.cumulative_usage.clone(),
             active_goal: meta.active_goal.clone(),
             team: meta.team.clone(),
+            questions: meta.questions.clone(),
+            question_next_number: meta.question_next_number,
+            issues: meta.issues.clone(),
+            issue_next_number: meta.issue_next_number,
             loaded_mcp_tools: meta.loaded_mcp_tools.clone(),
             fast_request_turns: meta.fast_request_turns.clone(),
             last_message_id: meta.last_message_id.clone(),
@@ -1076,6 +1157,10 @@ impl ConversationShardMeta {
             cumulative_usage: self.cumulative_usage.clone(),
             active_goal: self.active_goal.clone(),
             team: self.team.clone(),
+            questions: self.questions.clone(),
+            question_next_number: self.question_next_number,
+            issues: self.issues.clone(),
+            issue_next_number: self.issue_next_number,
             loaded_mcp_tools: self.loaded_mcp_tools.clone(),
             fast_request_turns: self.fast_request_turns.clone(),
             last_message_id: self.last_message_id.clone(),
@@ -1129,6 +1214,10 @@ impl ConversationShardMeta {
             cumulative_usage: self.cumulative_usage,
             active_goal: self.active_goal,
             team: self.team,
+            questions: self.questions,
+            question_next_number: self.question_next_number,
+            issues: self.issues,
+            issue_next_number: self.issue_next_number,
             loaded_mcp_tools: self.loaded_mcp_tools,
             last_error: self.last_error,
         }
@@ -1151,13 +1240,40 @@ fn write_conversation_shard_meta_atomic(
 fn read_conversation_shard_meta(path: &PathBuf) -> Result<ConversationShardMeta, String> {
     let raw = fs::read_to_string(path)
         .map_err(|err| format!("读取会话元数据失败，path={}，error={err}", path.display()))?;
-    serde_json::from_str(&raw)
+    conversation_shard_meta_from_stored_json(&raw)
         .map_err(|err| format!("解析会话元数据失败，path={}，error={err}", path.display()))
 }
 
 #[cfg(test)]
 mod message_store_meta_tests {
     use super::*;
+
+    /// 老分片缺这四个键时，整条会话要照常读出来，附属记录读成空。
+    #[test]
+    fn missing_attachment_keys_should_read_as_empty() {
+        let conversation = test_conversation();
+        let meta = ConversationShardMeta::from_conversation(&conversation);
+        let mut value = serde_json::to_value(meta.to_persist_meta()).expect("serialize meta");
+        let object = value.as_object_mut().expect("落盘元数据必须是 JSON 对象");
+        for key in ["questions", "questionNextNumber", "issues", "issueNextNumber"] {
+            assert!(
+                object.remove(key).is_some(),
+                "这四个键本来就在落盘结构里：{key}"
+            );
+        }
+        let raw = serde_json::to_string(&value).expect("to text");
+
+        let restored = conversation_shard_meta_from_stored_json(&raw).expect("缺键也要读得出来");
+        assert_eq!(
+            restored.id(),
+            conversation.id,
+            "会话本身要读得出来，不许跳过"
+        );
+        assert!(restored.questions().is_empty(), "问题清单要读成空");
+        assert!(restored.issues().is_empty(), "议题清单要读成空");
+        assert_eq!(restored.question_next_number(), 0, "问题编号游标要读成 0");
+        assert_eq!(restored.issue_next_number(), 0, "议题编号游标要读成 0");
+    }
 
     fn test_message(id: &str) -> ChatMessage {
         ChatMessage {
@@ -1251,6 +1367,10 @@ mod message_store_meta_tests {
             last_error: Some("测试轮次失败".to_string()),
             is_draft: false,
             team: TeamState::default(),
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
         }
     }
 

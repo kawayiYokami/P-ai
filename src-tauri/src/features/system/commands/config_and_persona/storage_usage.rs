@@ -2203,6 +2203,10 @@ mod storage_usage_tests {
 
     fn storage_usage_test_conversation(conversation_id: &str, kind: &str) -> Conversation {
         Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
             loaded_mcp_tools: Vec::new(),
             id: conversation_id.to_string(),
             title: "测试会话".to_string(),
