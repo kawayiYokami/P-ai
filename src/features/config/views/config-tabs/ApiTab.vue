@@ -1672,8 +1672,6 @@ function seedGrokProvider(provider: ApiProviderConfigItem) {
   model.enableImage = true;
   provider.models = [model];
   provider.apiKeys = [];
-  const first = provider.models[0];
-  if (first) props.config.selectedApiConfigId = `${provider.id}::${first.id}`;
 }
 
 function createModel(seed: string, name = ""): ApiModelConfigItem {

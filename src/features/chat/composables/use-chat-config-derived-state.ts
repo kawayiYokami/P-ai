@@ -1,6 +1,6 @@
 import { computed } from "vue";
 import type { ApiRequestFormat, AppConfig } from "../../../types/app";
-import { isModelRoleApiConfigId, MODEL_ROLE_EXPERT_API_CONFIG_ID, resolveModelRoleApiConfigId } from "../../config/utils/model-role-options";
+import { MODEL_ROLE_EXPERT_API_CONFIG_ID, resolveModelRoleApiConfigId } from "../../config/utils/model-role-options";
 
 export function useChatConfigDerivedState(config: AppConfig) {
   const TEXT_REQUEST_FORMATS = new Set<ApiRequestFormat>([
@@ -93,9 +93,6 @@ export function useChatConfigDerivedState(config: AppConfig) {
     if (!nextId) return false;
     const next = agentOrderedApiConfigIds(agent);
     if ((next[0] || "") === nextId) {
-      if (!isModelRoleApiConfigId(nextId)) {
-        config.selectedApiConfigId = nextId;
-      }
       return false;
     }
     const filtered: string[] = [];
@@ -104,9 +101,6 @@ export function useChatConfigDerivedState(config: AppConfig) {
     agent.apiConfigIds = deduped;
     agent.apiConfigId = deduped[0] || "";
     agent.updatedAt = new Date().toISOString();
-    if (!isModelRoleApiConfigId(nextId)) {
-      config.selectedApiConfigId = nextId;
-    }
     return true;
   }
 

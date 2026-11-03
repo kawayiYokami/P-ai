@@ -21,19 +21,6 @@ type UseConfigEditorsOptions = {
 };
 
 export function useConfigEditors(options: UseConfigEditorsOptions) {
-  function firstActiveApiConfigId(): string {
-    for (const provider of options.config.apiProviders || []) {
-      if (provider.deprecated) continue;
-      for (const model of provider.models || []) {
-        if (model.deprecated) continue;
-        const providerId = String(provider.id || "").trim();
-        const modelId = String(model.id || "").trim();
-        if (providerId && modelId) return `${providerId}::${modelId}`;
-      }
-    }
-    return "";
-  }
-
   function addApiConfig() {
     const provider = options.createApiProvider();
     options.config.apiProviders.push(provider);
@@ -83,7 +70,6 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
       options.config.toolReviewApiConfigId = undefined;
     }
     options.normalizeApiBindingsLocal();
-    options.config.selectedApiConfigId = firstActiveApiConfigId();
   }
 
   async function addPersona() {
