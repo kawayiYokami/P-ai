@@ -586,7 +586,8 @@ mod kanban_tests {
     }
 
     #[test]
-    fn kanban_member_should_not_hold_two_active_issues() {
+    fn kanban_member_should_hold_multiple_active_issues() {
+        // 一个人可以同时挂多条在办议题：不许再因为「名下已经有在办」被拦。
         let roster = test_roster(&[(1, "李工")]);
         let mut issues = vec![issue_of_member(
             1,
@@ -597,7 +598,7 @@ mod kanban_tests {
         issues.push(test_issue(2, "补文档", KANBAN_STATUS_TODO));
         let mut next_number = 3u32;
 
-        let err = kanban_apply_upsert_in(
+        kanban_apply_upsert_in(
             &mut issues,
             &mut next_number,
             &roster,
@@ -609,22 +610,22 @@ mod kanban_tests {
                 None,
             )],
         )
-        .expect_err("一个人同时只能有一条在办议题");
-        assert!(err.contains("#2"), "要点出这次这条：{err}");
-        assert!(err.contains("李工"), "要点出是谁：{err}");
-        assert!(err.contains("#1"), "要点出冲突的是哪一条：{err}");
-        assert!(err.contains("修复登录超时"), "要带上冲突议题的标题：{err}");
-        assert!(err.contains("解决中"), "要带上冲突议题的状态：{err}");
-        assert!(err.contains("收口"), "要给一句能直接执行的动作：{err}");
+        .expect("同一个人可以同时挂两条在办议题");
         assert_eq!(
-            issues[1].assignee.kind, KANBAN_ASSIGNEE_NONE,
-            "被拒之后不能留下半截指派"
+            issues[1].assignee.member_number,
+            Some(1),
+            "第二条要真的写进去"
+        );
+        assert_eq!(
+            issues[0].assignee.member_number,
+            Some(1),
+            "第一条不受影响"
         );
     }
 
     #[test]
-    fn kanban_single_active_should_be_judged_by_number_not_role() {
-        // 判定键是名册编号：同名不同号互不影响，改过名的人还是同一个人。
+    fn kanban_assignee_should_resolve_to_member_number_not_role_name() {
+        // 同名不同号是两个人；改过名的人也还是同一个编号。两者都不能按角色名混算。
         let roster = test_roster(&[(1, "李工"), (2, "李工")]);
         let mut issues = vec![issue_of_member(1, "一号的活", KANBAN_STATUS_IN_PROGRESS, 1)];
         issues.push(test_issue(2, "二号的活", KANBAN_STATUS_TODO));
@@ -641,27 +642,24 @@ mod kanban_tests {
                 None,
             )],
         )
-        .expect("同名的另一个人不该被拦");
+        .expect("同名的另一个人可以接活");
         let resolved = issues[1]
             .assignee
             .member_number
             .expect("派出去的人必须落到名册编号上");
-        assert_ne!(
-            resolved, 1,
-            "解析到的是另一个编号的人，所以不该被 1 号的在办议题拦住"
-        );
+        assert_ne!(resolved, 1, "同名的第二个人是另一个编号");
         assert_eq!(
             issues[0].assignee.member_number,
             Some(1),
-            "已经在办的那条不能被顺手改掉"
+            "一号已经在办的那条不能被顺手改掉"
         );
 
-        // 同一编号换个名字派第二条，必须照样拦住。
+        // 改名后派的活照样落到原编号上。
         let renamed = test_roster(&[(2, "李明")]);
         let mut issues = vec![issue_of_member(1, "改名前埋的活", KANBAN_STATUS_IN_PROGRESS, 2)];
         issues.push(test_issue(2, "改名后派的新活", KANBAN_STATUS_TODO));
         let mut next_number = 3u32;
-        let err = kanban_apply_upsert_in(
+        kanban_apply_upsert_in(
             &mut issues,
             &mut next_number,
             &renamed,
@@ -673,8 +671,8 @@ mod kanban_tests {
                 None,
             )],
         )
-        .expect_err("同一个人改了名，名下在办议题照样占着名额");
-        assert!(err.contains("李明"), "报错要用名册里的当前名字：{err}");
+        .expect("改名不影响编号识别");
+        assert_eq!(issues[1].assignee.member_number, Some(2));
     }
 
     #[test]
@@ -701,15 +699,15 @@ mod kanban_tests {
     }
 
     #[test]
-    fn kanban_same_batch_should_not_bind_two_issues_to_one_member() {
-        // 逐条判会两条都放行，所以校验必须在整批算完最终态之后做。
+    fn kanban_same_batch_should_bind_two_issues_to_one_member() {
+        // 整批校验曾经在「同批两条绑给同一个人」上误伤，这条钉住它不再发生。
         let roster = test_roster(&[(1, "李工")]);
         let mut issues = vec![
             test_issue(1, "第一件", KANBAN_STATUS_TODO),
             test_issue(2, "第二件", KANBAN_STATUS_TODO),
         ];
         let mut next_number = 3u32;
-        let err = kanban_apply_upsert_in(
+        kanban_apply_upsert_in(
             &mut issues,
             &mut next_number,
             &roster,
@@ -718,12 +716,9 @@ mod kanban_tests {
                 upsert_item_with_assignee(Some(2), None, None, Some("member:李工"), None),
             ],
         )
-        .expect_err("同一批里两条绑给同一个人必须整批失败");
-        assert!(err.contains("李工"), "要点出是谁：{err}");
-        assert_eq!(
-            issues[0].assignee.kind, KANBAN_ASSIGNEE_NONE,
-            "整批失败时第一条也不能落库"
-        );
+        .expect("同一批里两条绑给同一个人应当整批成功");
+        assert_eq!(issues[0].assignee.member_number, Some(1), "第一条要落库");
+        assert_eq!(issues[1].assignee.member_number, Some(1), "第二条也要落库");
     }
 
     #[test]
@@ -749,14 +744,15 @@ mod kanban_tests {
     }
 
     #[test]
-    fn kanban_reopening_done_issue_should_still_respect_single_active() {
+    fn kanban_reopening_done_issue_should_keep_assignee() {
+        // 重开一条已完成议题不该再被「名下已有在办」拦住。
         let roster = test_roster(&[(1, "李工")]);
         let mut issues = vec![
             issue_of_member(1, "在办", KANBAN_STATUS_IN_PROGRESS, 1),
             issue_of_member(2, "做完了", KANBAN_STATUS_DONE, 1),
         ];
         let mut next_number = 3u32;
-        let err = kanban_apply_upsert_in(
+        kanban_apply_upsert_in(
             &mut issues,
             &mut next_number,
             &roster,
@@ -767,9 +763,18 @@ mod kanban_tests {
                 Some("用户要求重开"),
             )],
         )
-        .expect_err("重开后这个人就有两条在办了");
-        assert!(err.contains("#1"), "要点出冲突的是哪一条：{err}");
-        assert_eq!(issues[1].status, KANBAN_STATUS_DONE, "被拒后状态必须原样不动");
+        .expect("重开应当放行");
+        assert_eq!(issues[1].status, KANBAN_STATUS_IN_PROGRESS, "状态要真的改过来");
+        assert_eq!(
+            issues[1].assignee.member_number,
+            Some(1),
+            "重开后负责人保留"
+        );
+        assert_eq!(
+            issues[0].assignee.member_number,
+            Some(1),
+            "另一条在办不受影响"
+        );
     }
 
     #[test]
@@ -1203,7 +1208,8 @@ mod kanban_tests {
     }
 
     #[test]
-    fn kanban_active_issue_for_member_should_pick_single_issue_by_number() {
+    fn kanban_active_issue_for_member_should_pick_smallest_number_among_multiple() {
+        // 一个人可以同时挂多条在办：概览只显示编号最小那条，且不因此改动看板。
         // 概览按编号直接比对，不走角色名映射。
         let state = crate::tests::test_chat_runtime_state();
         let leader = "conv-kanban-active";
@@ -1212,6 +1218,7 @@ mod kanban_tests {
             vec![
                 issue_of_member(5, "后派的活", KANBAN_STATUS_TODO, 1),
                 issue_of_member(2, "更早的活", KANBAN_STATUS_IN_PROGRESS, 1),
+                issue_of_member(7, "第三条活", KANBAN_STATUS_IN_PROGRESS, 1),
                 issue_of_member(3, "别人的活", KANBAN_STATUS_IN_PROGRESS, 2),
                 issue_of_leader(4, "队长自己的活", KANBAN_STATUS_IN_PROGRESS),
             ],
@@ -1223,7 +1230,11 @@ mod kanban_tests {
         let issue = session
             .active_issue_for_member(&state, leader, 1)
             .expect("一号队员有一条在办");
-        assert_eq!(issue.number, 2, "同名下多条时取编号最小那条");
+        assert_eq!(issue.number, 2, "名下三条在办时取编号最小那条");
+        assert_eq!(
+            issue.title, "更早的活",
+            "取到的必须是编号最小那条本体"
+        );
         assert_eq!(
             session
                 .active_issue_for_member(&state, leader, 3)
@@ -1231,5 +1242,14 @@ mod kanban_tests {
             None,
             "没有议题的人不能借到别人的"
         );
+        // 概览只读：三条都还在，谁都没被顺手收口。
+        let (issues, _) = kanban_read_board(&state, leader).expect("read board");
+        let mut held = issues
+            .iter()
+            .filter(|item| item.assignee.member_number == Some(1))
+            .map(|item| item.number)
+            .collect::<Vec<_>>();
+        held.sort_unstable();
+        assert_eq!(held, vec![2, 5, 7], "看板上的绑定不该被概览改动");
     }
 }

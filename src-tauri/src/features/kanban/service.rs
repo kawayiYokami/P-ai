@@ -190,7 +190,6 @@ fn kanban_validate_member_assignees(
 struct KanbanFinalAssignee {
     /// 改的那条带编号；新建的没有，编号要等落盘时才分配。
     number: Option<u32>,
-    title: String,
     status: String,
     assignee: KanbanAssigneeRef,
 }
@@ -229,17 +228,8 @@ impl KanbanFinalAssignee {
     }
 }
 
-/// 别人名下、此刻还算在办的那条议题。只用于报错，不进任何返回值。
-#[derive(Debug, Clone)]
-struct KanbanOccupiedIssue {
-    /// 同批里新建的条目还没有编号，落 None。
-    number: Option<u32>,
-    title: String,
-    status: String,
-}
-
 /// 整批算出每条议题的最终状态与最终负责人。
-/// 逐条边算边判会把「同一批里两条绑给同一个人」和「先解绑再绑新的」都判错，
+/// 逐条边算边判会把「同一批里先改状态再改负责人」判成错，
 /// 所以校验一律基于这份结果，不与落盘混在一起。
 fn kanban_final_assignees(
     issues: &[KanbanIssueEntry],
@@ -254,20 +244,11 @@ fn kanban_final_assignees(
             kind: KANBAN_ASSIGNEE_NONE.to_string(),
             member_number: None,
         };
-        let mut title = item
-            .title
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or_default()
-            .to_string();
         if let Some(number) = item.issue_number {
             let issue = kanban_find_issue(issues, number)
                 .ok_or_else(|| format!("议题 #{number} 不存在"))?;
             status = issue.status.clone();
             assignee = issue.assignee.clone();
-            if title.is_empty() {
-                title = issue.title.clone();
-            }
             // 新建不收 status，那条会在落盘时直接报错；这里也不把它算进最终态，
             // 免得先报出「这下不能挂人」这种隔了一层的错。
             if let Some(raw) = item.status.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
@@ -281,7 +262,6 @@ fn kanban_final_assignees(
         }
         finals.push(KanbanFinalAssignee {
             number: item.issue_number,
-            title,
             status,
             assignee,
         });
@@ -289,73 +269,8 @@ fn kanban_final_assignees(
     Ok(finals)
 }
 
-/// 同一块看板里，除 `self_index` 之外还有哪些挂在该名册编号下的在办议题。
-/// 本批也在改的条目以最终态为准，没在本批里的以现状为准——
-/// 否则「同批里先把它改成已完成」会被当成仍然占着人。
-fn kanban_other_active_issues_for_member(
-    issues: &[KanbanIssueEntry],
-    finals: &[KanbanFinalAssignee],
-    self_index: usize,
-    member_number: u32,
-) -> Vec<KanbanOccupiedIssue> {
-    let mut occupied = Vec::new();
-    for issue in issues {
-        if issue.assignee.kind.trim() != KANBAN_ASSIGNEE_MEMBER
-            || issue.assignee.member_number != Some(member_number)
-        {
-            continue;
-        }
-        let final_index = finals
-            .iter()
-            .position(|final_state| final_state.number == Some(issue.number));
-        if final_index == Some(self_index) {
-            continue;
-        }
-        let (title, status) = match final_index {
-            Some(index) => (finals[index].title.clone(), finals[index].status.clone()),
-            None => (issue.title.clone(), issue.status.clone()),
-        };
-        // 本批把它改到别人或改成无主了，就不再算在这个编号头上。
-        if let Some(index) = final_index {
-            if finals[index].member_number() != Some(member_number) {
-                continue;
-            }
-        }
-        if !kanban_status_occupies_member(&status) {
-            continue;
-        }
-        occupied.push(KanbanOccupiedIssue {
-            number: Some(issue.number),
-            title,
-            status,
-        });
-    }
-    // 同一批里也挂在同一个编号下的新建条目：这些还没落盘，只能从最终态看。
-    // 只按现状判会漏掉「同批两条一起绑给同一个人」（落盘前两条都不在板上挂着人）。
-    for (index, final_state) in finals.iter().enumerate() {
-        if index == self_index
-            || final_state.member_number() != Some(member_number)
-            || !kanban_status_occupies_member(&final_state.status)
-        {
-            continue;
-        }
-        // 已经在板上算过的那条别重复列进报错。
-        if let Some(number) = final_state.number {
-            if occupied.iter().any(|issue| issue.number == Some(number)) {
-                continue;
-            }
-        }
-        occupied.push(KanbanOccupiedIssue {
-            number: final_state.number,
-            title: final_state.title.clone(),
-            status: final_state.status.clone(),
-        });
-    }
-    occupied
-}
-
-/// 两条绑定约束：待议 / 已完成不挂人；一个人同时只能有一条在办议题。
-/// 必须整批算完最终态再判——逐条判会漏掉同批内的互相冲突，也会误伤「先解绑再绑新的」。
+/// 一条绑定约束：待议 / 已完成 / 已关闭三态不挂人。
+/// 必须整批算完最终态再判——逐条判会漏掉同批内的互相影响，也会误伤「先解绑再绑新的」。
 fn kanban_validate_assignee_constraints(
     issues: &[KanbanIssueEntry],
     roster: &KanbanBoardRoster,
@@ -381,44 +296,6 @@ fn kanban_validate_assignee_constraints(
             final_state.display(),
             label = kanban_status_label(&final_state.status),
             who = final_state.assignee_label(roster),
-        ));
-    }
-
-    // 二、一个人同时只能有一条在办议题。按名册编号判，不按角色名：
-    // 同名但编号不同的两名队员互不影响，改过名的人也还是同一个人。
-    for (index, final_state) in finals.iter().enumerate() {
-        if !kanban_status_occupies_member(&final_state.status) {
-            continue;
-        }
-        let Some(member_number) = final_state.member_number() else {
-            continue;
-        };
-        let occupied =
-            kanban_other_active_issues_for_member(issues, &finals, index, member_number);
-        if occupied.is_empty() {
-            continue;
-        }
-        let role = roster.member_label(member_number);
-        let listing = occupied
-            .iter()
-            .map(|issue| match issue.number {
-                Some(number) => format!(
-                    "#{number}「{}」（{}）",
-                    issue.title,
-                    kanban_status_label(&issue.status)
-                ),
-                None => format!("同批新建的另一条（{}）", kanban_status_label(&issue.status)),
-            })
-            .collect::<Vec<_>>()
-            .join("、");
-        let first = occupied[0]
-            .number
-            .map(|number| format!("#{number}"))
-            .unwrap_or_else(|| "那条新议题".to_string());
-        return Err(format!(
-            "{} 不能指派给「{role}」：他名下已经挂着议题 {listing}。\
-             一个人同时只能有一条在办议题，先让 {first} 收口（改成已完成），再派这条。",
-            final_state.display(),
         ));
     }
 
@@ -751,8 +628,8 @@ impl KanbanSession {
             .unwrap_or_default()
     }
 
-    /// 某名队员名下的在办议题。一个编号最多一条在办，所以是单个对象。
-    /// 万一同一人挂多条，取编号最小那条：选择要确定，不随读顺序变，也不擅自改板。
+    /// 某名队员名下的在办议题。一个人可以同时挂多条在办，
+    /// 这里取编号最小那条：选择要确定，不随读顺序变，也不擅自改板。
     pub(crate) fn active_issue_for_member(
         &mut self,
         state: &AppState,
