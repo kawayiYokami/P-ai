@@ -48,7 +48,7 @@
 import { computed, ref, watch } from "vue";
 import SettingsStickyLayout from "./SettingsStickyLayout.vue";
 import SettingsBreadcrumb, { type SettingsBreadcrumbItem } from "./SettingsBreadcrumb.vue";
-import UnderlineTabs, { type UnderlineTabItem } from "./UnderlineTabs.vue";
+import UnderlineTabs, { type UnderlineTabItem } from "../../shared/components/UnderlineTabs.vue";
 
 const props = withDefaults(defineProps<{
   /** 面包屑项，末项为当前层，前面带 onClick 的项可点返回 */

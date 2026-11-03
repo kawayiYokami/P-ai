@@ -1,15 +1,21 @@
 <template>
-  <div ref="rootRef" role="tablist" class="relative flex min-w-0 items-center">
+  <div
+    ref="rootRef"
+    role="tablist"
+    class="relative flex min-w-0 items-center"
+    :class="[bordered ? 'border-b border-base-content/10' : '', size === 'sm' ? 'gap-1.5' : '']"
+  >
     <button
       v-for="(tab, index) in tabs"
       :key="tab.key"
       :ref="(el) => setTabRef(el, index)"
       type="button"
       role="tab"
-      class="tab h-10 min-w-0 gap-1.5 px-3 text-base"
+      class="tab min-w-0 gap-1.5"
       :class="[
+        size === 'sm' ? 'h-7 whitespace-nowrap px-1 text-xs' : 'h-10 px-3 text-base',
         tab.key === activeKey
-          ? 'font-medium text-base-content'
+          ? ['font-semibold', tab.accentClass || 'text-base-content']
           : 'text-base-content/60 hover:text-base-content',
         tab.disabled ? 'pointer-events-none opacity-45' : '',
       ]"
@@ -29,7 +35,8 @@
 
     <span
       v-if="indicatorReady"
-      class="ecall-tab-indicator pointer-events-none absolute bottom-0 h-0.5 rounded-full bg-base-content"
+      class="ecall-tab-indicator pointer-events-none absolute bottom-0 h-0.5 rounded-full"
+      :class="activeIndicatorClass"
       :style="indicatorStyle"
       aria-hidden="true"
     />
@@ -44,13 +51,23 @@ export type UnderlineTabItem = {
   label: string;
   badge?: string | number;
   disabled?: boolean;
+  /** 选中时的文字色，默认 text-base-content */
+  accentClass?: string;
+  /** 选中时下划线的色，默认 bg-base-content */
+  indicatorClass?: string;
 };
 
 const props = withDefaults(defineProps<{
   tabs: UnderlineTabItem[];
   activeKey: string;
+  /** 尺寸：md=40px 高度常规字号，sm=28px 小字号 */
+  size?: "md" | "sm";
+  /** 是否在底部画一条基线 */
+  bordered?: boolean;
 }>(), {
   activeKey: "",
+  size: "md",
+  bordered: false,
 });
 
 const emit = defineEmits<{
@@ -64,6 +81,12 @@ const indicatorStyle = ref<Record<string, string>>({ width: "0px", transform: "t
 let resizeObserver: ResizeObserver | null = null;
 
 const activeIndex = computed(() => props.tabs.findIndex((tab) => tab.key === props.activeKey));
+
+/** 下划线颜色跟随当前选中项；没给就退回前景色 */
+const activeIndicatorClass = computed(() => {
+  const active = props.tabs.find((tab) => tab.key === props.activeKey);
+  return active?.indicatorClass || "bg-base-content";
+});
 
 // 测量选中项的位置与宽度，驱动下划线指示条滑动；等宽与不等宽两种排版都适用
 function updateIndicator() {

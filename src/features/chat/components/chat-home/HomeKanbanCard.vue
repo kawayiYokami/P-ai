@@ -53,23 +53,15 @@
       <template v-if="visibleCount > 0">
         <!-- 模式 A：横向距离不够时（窄屏/手机端，容器宽度 < 500px）自动收缩为单列，纯手写动态下划线 Tab 切换 -->
         <div v-if="isNarrow" class="flex h-full min-h-0 w-full flex-1 flex-col">
-          <!-- 纯手写极简下划线 Tab 栏：纯文本、无数量、空分类不显示 -->
-          <div ref="tabBarRef" class="ecall-kanban-tab-bar relative flex shrink-0 items-center gap-1.5 border-b border-base-content/10 pb-1">
-            <div
-              class="ecall-kanban-underline pointer-events-none absolute bottom-0 h-0.5 rounded-full bg-warning"
-              :style="underlineStyle"
-            />
-            <button
-              v-for="group in activeGroups"
-              :key="group.status"
-              type="button"
-              class="ecall-kanban-tab-btn relative z-10 shrink-0 whitespace-nowrap px-1 py-1 text-xs font-medium transition-colors"
-              :class="group.status === activeGroupStatus ? 'font-semibold text-warning' : 'text-base-content/60 hover:text-base-content/90'"
-              @click="selectTab(group.status)"
-            >
-              {{ group.label }}
-            </button>
-          </div>
+          <!-- 下划线 Tab 栏：纯文本、无数量、空分类不显示 -->
+          <UnderlineTabs
+            class="shrink-0"
+            size="sm"
+            bordered
+            :tabs="tabItems"
+            :active-key="activeGroupStatus"
+            @update:active-key="selectTab"
+          />
 
           <!-- 单列内容视口：原地平滑呼吸升降淡入 + 独立滚轮隔离 + 底部羽化渐变。
                顶部留白给在页面上而不是父级 padding：页面是 absolute 定位，父级 padding 对它不生效 -->
@@ -84,7 +76,7 @@
                 orientation="vertical"
                 hide-scrollbar
                 isolate-scroll
-                class="ecall-kanban-fade-mask min-h-0 size-full"
+                class="ecall-fade-bottom touch-pan-y min-h-0 size-full"
                 scroller-class="h-full flex flex-col gap-1.5 pt-3 pb-8 pr-0.5"
                 @wheel.stop
               >
@@ -139,7 +131,7 @@
               orientation="vertical"
               hide-scrollbar
               isolate-scroll
-              class="ecall-kanban-fade-mask min-h-0 w-full flex-1"
+              class="ecall-fade-bottom touch-pan-y min-h-0 w-full flex-1"
               scroller-class="h-full flex flex-col gap-1.5 pb-8 pr-0.5"
               @wheel.stop
             >
@@ -177,12 +169,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { ArrowLeftRight, ArrowUpRight, LayoutGrid } from "@lucide/vue";
 import CardShell from "./CardShell.vue";
 import KanbanIssueCard from "../kanban/KanbanIssueCard.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
+import UnderlineTabs from "../../../shared/components/UnderlineTabs.vue";
 import {
   KANBAN_ATTENTION_ORDER,
   KANBAN_PROGRESS_ORDER,
@@ -194,23 +187,31 @@ import {
 const STATUS_STYLE: Record<
   string,
   {
+    /** 色点与选中下划线用同一个背景色 */
     dotClass: string;
+    /** 选中时文字色；必须写成字面量，Tailwind 才扫得到 */
+    textClass: string;
   }
 > = {
   in_review: {
     dotClass: "bg-warning",
+    textClass: "text-warning",
   },
   blocked: {
     dotClass: "bg-error",
+    textClass: "text-error",
   },
   discussing: {
     dotClass: "bg-info",
+    textClass: "text-info",
   },
   in_progress: {
     dotClass: "bg-base-content/60",
+    textClass: "text-base-content/60",
   },
   done: {
     dotClass: "bg-success",
+    textClass: "text-success",
   },
 };
 
@@ -310,11 +311,12 @@ const groups = computed(() => {
     const items = list
       .filter((issue) => String(issue.status || "").trim() === status)
       .sort((a, b) => (a.number - b.number) * direction);
-    const style = STATUS_STYLE[status] || { dotClass: "bg-base-content/40" };
+    const style = STATUS_STYLE[status] || { dotClass: "bg-base-content/40", textClass: "text-base-content/40" };
     return {
       status,
       label: String(t(`chat.kanban.status.${status}`)),
       dotClass: style.dotClass,
+      textClass: style.textClass,
       total: items.length,
       items,
     };
@@ -349,7 +351,6 @@ onMounted(() => {
       resizeObserver = new ResizeObserver((entries) => {
         for (const entry of entries) {
           flowContainerWidth.value = entry.contentRect.width;
-          void nextTick(updateUnderline);
         }
       });
       resizeObserver.observe(hostEl);
@@ -375,42 +376,17 @@ const activeGroupStatus = computed(() => {
   return defaultGroupStatus.value;
 });
 
-const tabBarRef = ref<HTMLElement | null>(null);
-const underlineStyle = ref<{ width: string; transform: string }>({
-  width: "0px",
-  transform: "translateX(0px)",
-});
+const tabItems = computed(() => activeGroups.value.map((group) => ({
+  key: group.status,
+  label: group.label,
+  accentClass: group.textClass,
+  indicatorClass: group.dotClass,
+})));
 
-const activeIndex = computed(() => {
-  const idx = activeGroups.value.findIndex((g) => g.status === activeGroupStatus.value);
-  return idx >= 0 ? idx : 0;
-});
-
-/** 把下划线移到第 index 个 Tab。按钮已经渲染、它的位置不会因为点击而变，
-    所以当场算、当场设：等 nextTick 再设会比内容切换晚一帧，看起来就是「动画跟不上手指」。 */
-function applyUnderline(index: number) {
-  if (!tabBarRef.value) return;
-  const target = tabBarRef.value.querySelectorAll<HTMLElement>(".ecall-kanban-tab-btn")[index];
-  if (!target) return;
-  underlineStyle.value = {
-    width: `${target.offsetWidth}px`,
-    transform: `translateX(${target.offsetLeft}px)`,
-  };
-}
-
+/** 选中即写入手动选择；下划线的位移与宽度由 UnderlineTabs 自己量。 */
 function selectTab(status: string) {
   manualGroupStatus.value = status;
-  const idx = activeGroups.value.findIndex((group) => group.status === status);
-  applyUnderline(idx >= 0 ? idx : 0);
 }
-
-function updateUnderline() {
-  applyUnderline(activeIndex.value);
-}
-
-watch([mode, isNarrow, activeGroupStatus], () => {
-  void nextTick(updateUnderline);
-}, { immediate: true });
 
 // ==================== 尺寸（由宿主给定） ====================
 /** 占几列几行由宿主算好传进来；磁贴只把它套到网格上，不参与尺寸决策，也不靠内容把格子撑大。 */
@@ -479,13 +455,6 @@ function resolveAvatar(raw: string): string {
   transition: all 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* 泳道纵向底部渐变淡出：自然羽化截断边缘 */
-.ecall-kanban-fade-mask {
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 2.5rem), transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 2.5rem), transparent 100%);
-  touch-action: pan-y;
-}
-
 /* 移动端/窄屏横向泳道轻吸附与平滑触摸体验 */
 .ecall-kanban-horizontal :deep(.overlay-scroll-area-scroller) {
   scroll-snap-type: x proximity;
@@ -494,13 +463,6 @@ function resolveAvatar(raw: string): string {
 
 .ecall-kanban-column {
   scroll-snap-align: start;
-}
-
-/* 纯手写动态下划线位移动画（弹性曲线） */
-.ecall-kanban-underline {
-  /* 与内容页淡入时长一致：两段动画各走各的时长，看起来就是「对不上」 */
-  transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
-  will-change: transform, width;
 }
 
 /* 单列内容页面：原地平滑呼吸升降淡入过渡 */

@@ -23,7 +23,7 @@
       >{{ unreadCount > 99 ? "99+" : unreadCount }}</span>
     </span>
     <div
-      class="ecall-home-card flex h-full w-full min-w-0 flex-col gap-3 overflow-hidden rounded-box border border-base-content/10 bg-base-100 p-3.5 transition-all duration-150"
+      class="ecall-home-card flex h-full w-full min-w-0 flex-col gap-1 overflow-hidden rounded-box border border-base-content/10 bg-base-100 p-3.5 transition-all duration-150"
       :class="[
         layout === 'tile' ? 'ecall-home-card-tile' : '',
         interactive

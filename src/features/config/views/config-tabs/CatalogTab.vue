@@ -392,7 +392,7 @@ import {
 } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
-import type { UnderlineTabItem } from "../../components/UnderlineTabs.vue";
+import type { UnderlineTabItem } from "../../../shared/components/UnderlineTabs.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 
 const { t } = useI18n();

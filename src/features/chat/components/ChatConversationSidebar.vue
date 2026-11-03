@@ -6,10 +6,14 @@
         :options="conversationTabOptions"
         size="sm"
         full-width
-        surface-class="bg-base-300"
+        surface-class="bg-base-200"
+        slider-class="bg-base-100"
       />
     </div>
-    <ChatConversationFloatingScroll ref="conversationFloatingScrollRef" class="flex-1 min-h-0 p-1">
+    <ChatConversationFloatingScroll
+      ref="conversationFloatingScrollRef"
+      class="flex-1 min-h-0 p-1 ecall-fade-bottom"
+    >
       <Transition :name="conversationTabTransitionName" mode="out-in" @after-enter="handleConversationTabTransitionSettled">
         <div :key="activeConversationTab" class="conversation-tab-panel">
           <ChatTaskSidebarPanel

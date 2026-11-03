@@ -11,7 +11,8 @@
   >
     <span
       v-if="sliderReady && !disabled"
-      class="pointer-events-none absolute bottom-0.5 top-0.5 z-0 rounded-[calc(var(--radius-field)-2px)] bg-base-100 shadow-sm transition-[transform,width] duration-200 ease-out"
+      class="pointer-events-none absolute bottom-0.5 left-0 top-0.5 z-0 rounded-[calc(var(--radius-field)-2px)] transition-[transform,width] duration-200 ease-out"
+      :class="sliderClass"
       :style="sliderStyle"
       aria-hidden="true"
     />
@@ -64,11 +65,14 @@ const props = withDefaults(defineProps<{
   fullWidth?: boolean;
   size?: "xs" | "sm" | "md";
   surfaceClass?: string;
+  /** 选中块的颜色；默认与原来一致，改这一项不影响其他使用处 */
+  sliderClass?: string;
 }>(), {
   disabled: false,
   fullWidth: true,
   size: "md",
   surfaceClass: "bg-base-200",
+  sliderClass: "bg-base-100 shadow-sm",
 });
 
 const emit = defineEmits<{

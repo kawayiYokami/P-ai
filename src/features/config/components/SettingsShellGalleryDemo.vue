@@ -30,7 +30,7 @@
 import { computed, ref } from "vue";
 import { RefreshCw } from "@lucide/vue";
 import SettingsPageShell from "./SettingsPageShell.vue";
-import type { UnderlineTabItem } from "./UnderlineTabs.vue";
+import type { UnderlineTabItem } from "../../shared/components/UnderlineTabs.vue";
 
 const activeTab = ref("overview");
 

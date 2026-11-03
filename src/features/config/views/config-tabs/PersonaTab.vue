@@ -501,7 +501,7 @@ import ConfigCard from "../../components/ConfigCard.vue";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
 import type { SettingsBreadcrumbBadge, SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
-import type { UnderlineTabItem } from "../../components/UnderlineTabs.vue";
+import type { UnderlineTabItem } from "../../../shared/components/UnderlineTabs.vue";
 import MarkdownEditor from "../../components/MarkdownEditor.vue";
 import InlineMarkdownText from "../../../chat/markdown/InlineMarkdownText.vue";
 import PersonaInjectionTable from "./persona-capability/PersonaInjectionTable.vue";

@@ -393,7 +393,7 @@ import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
 import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
-import type { UnderlineTabItem } from "../../components/UnderlineTabs.vue";
+import type { UnderlineTabItem } from "../../../shared/components/UnderlineTabs.vue";
 import { canUseTransportGenaiChatAdapters, invokeTauri, listTransportGenaiChatAdapters, openTransportExternalUrl } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import GrokProviderPanel from "./GrokProviderPanel.vue";

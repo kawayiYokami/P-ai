@@ -99,7 +99,7 @@
               v-if="!fileVariant && tab.badge"
               class="badge badge-xs shrink-0 border-base-300 bg-base-100"
             >{{ tab.badge }}</span>
-            <span class="min-w-0 overflow-hidden whitespace-nowrap font-medium" :class="fileVariant ? 'file-tab-label-fade' : 'truncate'">{{ tab.label }}</span>
+            <span class="min-w-0 overflow-hidden whitespace-nowrap font-medium" :class="fileVariant ? 'file-tab-label-fade ecall-fade-right' : 'truncate'">{{ tab.label }}</span>
           </button>
           <button
             v-if="!fileVariant && tab.closeable && shouldShowCloseButton(tab)"
@@ -605,7 +605,5 @@ onBeforeUnmount(() => {
   flex: 1 1 0%;
   white-space: nowrap;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 1rem), transparent 100%);
-  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 1rem), transparent 100%);
 }
 </style>

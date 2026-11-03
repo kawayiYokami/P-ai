@@ -486,6 +486,24 @@ body {
 .ecall-expandable-text-clamped {
   mask-image: linear-gradient(to bottom, #000 calc(100% - 2.25rem), transparent 100%);
 }
+
+/* ========== 淡出标准 ========== */
+/* 可滚动区域末段渐隐，避免内容在边缘硬切。长度统一由 --ecall-fade-size 控制，
+   需要不同长度时在使用处覆盖该变量，不要在组件里另写一份渐变。 */
+:root {
+  --ecall-fade-size: 1rem;
+}
+
+.ecall-fade-bottom {
+  -webkit-mask-image: linear-gradient(to top, transparent 0, #000 var(--ecall-fade-size));
+  mask-image: linear-gradient(to top, transparent 0, #000 var(--ecall-fade-size));
+}
+
+.ecall-fade-right {
+  -webkit-mask-image: linear-gradient(to left, transparent 0, #000 var(--ecall-fade-size));
+  mask-image: linear-gradient(to left, transparent 0, #000 var(--ecall-fade-size));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ecall-expandable__shell, .ecall-expandable__content { transition: none !important; }
 }
