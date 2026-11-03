@@ -21,6 +21,9 @@ use agent_client_protocol::schema::v1::{
 #[derive(Debug)]
 struct AcpTurnControl {
     turn_id: String,
+    /// 本轮调度的请求号。停止链路按身份指认对象，不带它就什么都停不下，
+    /// 所以这一轮的请求号在轮次创建时定下来，取消时原样带回去。
+    request_id: String,
     token: tokio_util::sync::CancellationToken,
 }
 
@@ -28,6 +31,7 @@ impl AcpTurnControl {
     fn new() -> Self {
         Self {
             turn_id: format!("acp-turn-{}", Uuid::new_v4()),
+            request_id: format!("acp-{}", Uuid::new_v4()),
             token: tokio_util::sync::CancellationToken::new(),
         }
     }
@@ -153,7 +157,14 @@ fn acp_handle_cancel_notification(
 ///
 /// 自己伪造一个中止结果比这省事，但会把已经流出去的内容留在内存里不落盘、
 /// 也不中止正在跑的工具句柄。停止链路已经处理了这些，直接调它。
-async fn acp_request_stop(state: &AppState, session: &AcpSessionState) -> Result<(), String> {
+///
+/// 停止链路按身份指认对象，`request_id` 是这一轮唯一的凭据：轮次创建时就定下，
+/// 一路带到调度层，取消时原样送回，才停得到本轮而不是别人的。
+async fn acp_request_stop(
+    state: &AppState,
+    session: &AcpSessionState,
+    turn: &AcpTurnControl,
+) -> Result<(), String> {
     let input = StopChatRequest {
         session: SessionSelector {
             api_config_id: Some(session.model_config_id.clone()),
@@ -162,30 +173,16 @@ async fn acp_request_stop(state: &AppState, session: &AcpSessionState) -> Result
         },
         partial_assistant_text: String::new(),
         partial_stream_blocks: Vec::new(),
+        request_id: Some(turn.request_id.clone()),
+        activation_id: None,
+        assistant_message_id: None,
     };
     let result = stop_chat_message_inner(input, state).await?;
     runtime_log_info(format!(
-        "[ACP] 完成，任务=停止轮次，session_id={}，aborted={}，persisted={}",
-        session.conversation_id, result.aborted, result.persisted
+        "[ACP] 完成，任务=停止轮次，session_id={}，request_id={}，aborted={}，persisted={}",
+        session.conversation_id, turn.request_id, result.aborted, result.persisted
     ));
     Ok(())
-}
-
-/// 轮次收尾时清掉本会话可能残留的停止意图。
-///
-/// 停止意图没有过期语义，会被该会话接下来的轮次消费。取消恰好和本轮收尾撞在
-/// 同一瞬间时，停止可能落到一个已经结束的轮次上并留下意图，必须在收尾处清掉，
-/// 否则下一轮刚开始就会被它打断。
-fn acp_clear_stop_intent(state: &AppState, conversation_id: &str) {
-    match clear_conversation_stop_intents(state, conversation_id) {
-        Ok(0) => {}
-        Ok(count) => runtime_log_info(format!(
-            "[ACP] 完成，任务=清理残留停止意图，session_id={conversation_id}，count={count}"
-        )),
-        Err(err) => runtime_log_error(format!(
-            "[ACP] 失败，任务=清理残留停止意图，session_id={conversation_id}，error={err}"
-        )),
-    }
 }
 
 /// 判断本次调用是否是 ACP agent 子命令（`p-ai acp`）。
@@ -1108,7 +1105,7 @@ async fn acp_run_prompt_turn(
         &session.agent_id,
         &session.model_config_id,
         &prompt_text,
-        "acp",
+        &turn.request_id,
         "acp_agent",
         "acp_prompt",
         &channel,
@@ -1128,7 +1125,7 @@ async fn acp_run_prompt_turn(
                     "[ACP] 受理，任务=停止轮次，session_id={session_id_text}，turn_id={}",
                     turn.turn_id
                 ));
-                if let Err(err) = acp_request_stop(&state, &session).await {
+                if let Err(err) = acp_request_stop(&state, &session, &turn).await {
                     runtime_log_error(format!(
                         "[ACP] 失败，任务=停止轮次，session_id={session_id_text}，error={err}"
                     ));
@@ -1140,8 +1137,6 @@ async fn acp_run_prompt_turn(
 
     if stop_requested {
         // 被打断的一轮一律回 cancelled：协议对 `session/cancel` 的回应就是它。
-        // 顺带把本会话可能残留的停止意图清掉，别让下一轮刚起步就挨一刀。
-        acp_clear_stop_intent(&state, &session.conversation_id);
         match &result {
             Ok(_) => runtime_log_info(format!(
                 "[ACP] 完成，任务=取消轮次，session_id={session_id_text}，turn_id={}，结果=已中止",

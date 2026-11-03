@@ -178,13 +178,14 @@ async fn headless_cli_run_turn(
     agent_id: &str,
     model_config_id: &str,
     text: &str,
-    request_prefix: &str,
+    request_id: &str,
     dispatch_source: &str,
     dispatch_action: &str,
     channel: &tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<String, String> {
     let conversation_id = conversation_id.trim().to_string();
-    let request_id = format!("{request_prefix}-{}", Uuid::new_v4());
+    // 请求号由调用方给：停止链路靠它指认要终止的那一轮，调用方必须自己也持有同一个号。
+    let request_id = request_id.trim().to_string();
     let user_message = ChatMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".to_string(),
@@ -311,7 +312,7 @@ async fn headless_cli_run_once(args: HeadlessCliArgs) -> Result<(), String> {
         &agent_id,
         &locked_model_id,
         &args.task,
-        "cli",
+        &format!("cli-{}", Uuid::new_v4()),
         "cli_headless",
         "cli_run",
         &channel,
