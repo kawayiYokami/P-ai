@@ -15,15 +15,66 @@ use agent_client_protocol::schema::v1::{
 };
 
 /// 一个 ACP session 在 PAI 这边的落地信息。
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct AcpSessionState {
     conversation_id: String,
     agent_id: String,
     model_config_id: String,
+    /// 本会话是否有轮次正在跑。同一会话同一时刻只允许一轮：无头轮次绕过桌面端的
+    /// `conversation_scheduler` 直接写会话历史，两轮并行会同时往同一份记录里写。
+    prompt_in_flight: bool,
 }
 
 type AcpSessionRegistry =
     std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, AcpSessionState>>>;
+
+/// `session/prompt` 抢占本会话在途轮次的结果。
+#[derive(Debug)]
+enum AcpPromptClaim {
+    /// 占位成功，可以开始跑本轮。
+    Ready(AcpSessionState),
+    /// 会话不存在。
+    Unknown,
+    /// 同一会话已有一轮在跑。
+    Busy,
+    /// 会话表锁不可用（中毒）。
+    Unavailable,
+}
+
+/// 抢占本会话的在途轮次。同一会话只允许一轮，抢占失败由调用方回错误。
+fn acp_claim_prompt_slot(sessions: &AcpSessionRegistry, session_id: &str) -> AcpPromptClaim {
+    let mut registry = match sessions.lock() {
+        Ok(guard) => guard,
+        Err(_) => return AcpPromptClaim::Unavailable,
+    };
+    let Some(session) = registry.get_mut(session_id) else {
+        return AcpPromptClaim::Unknown;
+    };
+    if session.prompt_in_flight {
+        return AcpPromptClaim::Busy;
+    }
+    session.prompt_in_flight = true;
+    AcpPromptClaim::Ready(session.clone())
+}
+
+/// 会话在途轮次的占位。轮次结束——成功、失败、提前返回都算——由 `Drop` 复位。
+///
+/// 用 RAII 而不是在每个返回点手写复位：这条路径出口有好几个，漏一个就会把会话
+/// 永久卡在「本轮尚未结束」。
+struct AcpPromptSlot {
+    sessions: AcpSessionRegistry,
+    conversation_id: String,
+}
+
+impl Drop for AcpPromptSlot {
+    fn drop(&mut self) {
+        if let Ok(mut registry) = self.sessions.lock() {
+            if let Some(session) = registry.get_mut(&self.conversation_id) {
+                session.prompt_in_flight = false;
+            }
+        }
+    }
+}
 
 /// 判断本次调用是否是 ACP agent 子命令（`p-ai acp`）。
 fn acp_cli_invocation(args: &[String]) -> bool {
@@ -193,6 +244,14 @@ fn acp_model_config_options(
     if current.is_empty() {
         return Err("会话没有正在使用的模型".to_string());
     }
+    // 协议要求 `currentValue` 必然是 `options` 里的某一项。放行一个不在选项里的值，
+    // 客户端下拉会显示空白、点不动；宁可当场报错，也不要发出违反协议的帧。
+    if !options
+        .iter()
+        .any(|item| item.value.0.to_string() == current)
+    {
+        return Err(format!("会话当前模型不在可选范围内: {current}"));
+    }
     let mut option = SessionConfigOption::select(
         ACP_MODEL_CONFIG_ID,
         "模型",
@@ -241,6 +300,17 @@ async fn acp_handle_new_session(
     req: agent_client_protocol::schema::v1::NewSessionRequest,
     responder: agent_client_protocol::Responder<agent_client_protocol::schema::v1::NewSessionResponse>,
 ) -> Result<(), agent_client_protocol::Error> {
+    // 参数校验放在最前：cwd 不成立时连会话都不该建，更不能先读一轮配置再报错。
+    let workspaces = match acp_new_session_workspaces(&req.cwd) {
+        Ok(value) => value,
+        Err(err) => {
+            runtime_log_error(format!(
+                "[ACP] 新建会话失败，任务=解析会话工作目录，原因={}",
+                err.message
+            ));
+            return responder.respond_with_error(err);
+        }
+    };
     let model_config_id = match acp_selected_model_config_id(&state) {
         Ok(value) => value,
         Err(err) => {
@@ -252,13 +322,6 @@ async fn acp_handle_new_session(
         Ok(value) => value,
         Err(err) => {
             runtime_log_error(format!("[ACP] 新建会话失败，任务=读取主助理人格：{err}"));
-            return responder.respond_with_error(acp_internal_error(err));
-        }
-    };
-    let workspaces = match acp_shell_workspaces(&req.cwd) {
-        Ok(value) => value,
-        Err(err) => {
-            runtime_log_error(format!("[ACP] 新建会话失败，任务=解析会话工作目录：{err}"));
             return responder.respond_with_error(acp_internal_error(err));
         }
     };
@@ -314,6 +377,7 @@ async fn acp_handle_new_session(
                 conversation_id: conversation_id.clone(),
                 agent_id,
                 model_config_id,
+                prompt_in_flight: false,
             },
         );
     }
@@ -402,6 +466,11 @@ async fn acp_handle_set_config_option(
     responder.respond(SetSessionConfigOptionResponse::new(config_options))
 }
 
+/// `session/prompt`：先在协议循环里做占用检查，再把这一轮派到连接任务上跑。
+///
+/// 必须在这里就返回：框架会 `await` 每个请求的 handler，整轮留在这里等待的话，
+/// 同一连接在整轮期间读不到下一帧——「本轮尚未结束」的第二帧会被一直阻塞到本轮
+/// 结束，互斥形同虚设，客户端也被卡住。
 async fn acp_handle_prompt(
     state: AppState,
     sessions: AcpSessionRegistry,
@@ -410,24 +479,42 @@ async fn acp_handle_prompt(
     cx: agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
 ) -> Result<(), agent_client_protocol::Error> {
     let session_id_text = req.session_id.0.to_string();
-    let session = match sessions
-        .lock()
-        .ok()
-        .and_then(|registry| registry.get(&session_id_text).cloned())
-    {
-        Some(session) => session,
-        None => {
+    let session = match acp_claim_prompt_slot(&sessions, &session_id_text) {
+        AcpPromptClaim::Ready(session) => session,
+        AcpPromptClaim::Unavailable => {
+            // 锁中毒与「会话不存在」是两件不同的事，不能都折成本地未知 session。
+            runtime_log_error(format!(
+                "[ACP] 轮次失败，任务=读取会话表，session_id={session_id_text}，原因=会话表不可用"
+            ));
+            return responder.respond_with_error(acp_internal_error("会话表不可用"));
+        }
+        AcpPromptClaim::Unknown => {
             runtime_log_error(format!(
                 "[ACP] 轮次失败，任务=定位会话，session_id={session_id_text}"
             ));
-            return responder.respond_with_error(acp_internal_error(format!(
+            return responder.respond_with_error(acp_invalid_params(format!(
                 "未知的 session_id: {session_id_text}"
             )));
         }
+        AcpPromptClaim::Busy => {
+            // 会话历史没有并发写保护，排队又会让客户端干等，所以直接拒。
+            runtime_log_warn(format!(
+                "[ACP] 拒绝，任务=处理轮次，session_id={session_id_text}，原因=该会话本轮尚未结束"
+            ));
+            return responder.respond_with_error(acp_invalid_params(format!(
+                "该会话本轮尚未结束，不能并发处理新的提示词: {session_id_text}"
+            )));
+        }
+    };
+    // 占位随轮次一起交给连接任务，轮次结束时由 Drop 复位。
+    let slot = AcpPromptSlot {
+        sessions: sessions.clone(),
+        conversation_id: session.conversation_id.clone(),
     };
 
     let prompt_text = acp_prompt_text(&req.prompt);
     if prompt_text.trim().is_empty() {
+        drop(slot);
         runtime_log_warn(format!(
             "[ACP] 跳过，任务=处理轮次，session_id={session_id_text}，原因=提示词没有文本内容"
         ));
@@ -435,6 +522,37 @@ async fn acp_handle_prompt(
             agent_client_protocol::schema::v1::StopReason::EndTurn,
         ));
     }
+
+    let session_id = req.session_id;
+    let cx_for_turn = cx.clone();
+    cx.spawn(async move {
+        let _slot = slot;
+        // 轮次内的错误已经通过 responder 回给客户端，这里只记日志：
+        // 让任务返回 Err 会把整个连接拆掉，代价远大于一次失败的轮次。
+        if let Err(err) =
+            acp_run_prompt_turn(state, session, session_id, prompt_text, responder, cx_for_turn).await
+        {
+            runtime_log_error(format!("[ACP] 失败，任务=派发轮次：{err}"));
+        }
+        Ok(())
+    })?;
+    Ok(())
+}
+
+/// 跑完一轮：构造流式回调、调用共享轮次装配、把结果回给客户端。
+///
+/// 由 `acp_handle_prompt` 派到连接任务里执行，不在协议输入循环上等待——
+/// 否则该连接在整轮期间读不到下一帧，同一会话的第二帧会一直被阻塞到本轮结束，
+/// 互斥检查永远没有机会命中。
+async fn acp_run_prompt_turn(
+    state: AppState,
+    session: AcpSessionState,
+    session_id: agent_client_protocol::schema::v1::SessionId,
+    prompt_text: String,
+    responder: agent_client_protocol::Responder<agent_client_protocol::schema::v1::PromptResponse>,
+    cx: agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
+) -> Result<(), agent_client_protocol::Error> {
+    let session_id_text = session_id.0.to_string();
 
     let sent_chars = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let sent_chars_for_channel = sent_chars.clone();
@@ -444,7 +562,7 @@ async fn acp_handle_prompt(
         std::sync::Mutex<std::collections::HashMap<String, AcpToolProgress>>,
     > = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     let tool_states_for_channel = tool_states.clone();
-    let session_id_for_channel = req.session_id.clone();
+    let session_id_for_channel = session_id.clone();
     let cx_for_channel = cx.clone();
     let channel = tauri::ipc::Channel::<AssistantDeltaEvent>::new(move |body| {
         let raw = match body {
@@ -507,7 +625,7 @@ async fn acp_handle_prompt(
                     ),
                 );
                 let notification = agent_client_protocol::schema::v1::SessionNotification::new(
-                    req.session_id.clone(),
+                    session_id.clone(),
                     update,
                 );
                 if let Err(err) = cx.send_notification(notification) {
@@ -531,19 +649,42 @@ async fn acp_handle_prompt(
     }
 }
 
-/// 会话模型：沿用配置里当前选中的聊天模型；为空时退到第一条可用配置。
-fn acp_selected_model_config_id(state: &AppState) -> Result<String, String> {
-    let config = state_read_config_cached(state)?;
+/// 会话模型：沿用配置里当前选中的聊天模型；不可用时退到第一条可用的聊天配置。
+///
+/// 判据与下拉、切换校验一致（`is_text_chat_api`）。少这一道过滤，全局恰好选中语音或
+/// 嵌入配置时，新会话会被锁到非聊天模型——`currentValue` 落在 `options` 之外违反协议，
+/// 首轮 prompt 也必然失败。
+fn acp_pick_session_model_config_id(config: &AppConfig) -> Result<String, String> {
     let selected = config.selected_api_config_id.trim();
-    if !selected.is_empty() && config.api_configs.iter().any(|api| api.id.trim() == selected) {
+    if !selected.is_empty()
+        && config
+            .api_configs
+            .iter()
+            .any(|api| api.id.trim() == selected && is_text_chat_api(api))
+    {
         return Ok(selected.to_string());
     }
     config
         .api_configs
-        .first()
+        .iter()
+        .find(|api| !api.id.trim().is_empty() && is_text_chat_api(api))
         .map(|api| api.id.trim().to_string())
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| "配置里没有可用的模型".to_string())
+        .ok_or_else(|| "配置里没有可用的聊天模型".to_string())
+}
+
+fn acp_selected_model_config_id(state: &AppState) -> Result<String, String> {
+    acp_pick_session_model_config_id(&state_read_config_cached(state)?)
+}
+
+/// `session/new` 的工作区入口：把 `cwd` 解析成主工作区，失败统一折成 `InvalidParams`。
+///
+/// 这是 `session/new` 的第一道校验，在建会话之前跑。目录不存在、传的是文件、路径
+/// 首尾含空白，都是调用方参数问题，不是 agent 内部故障——回 `InternalError` 会让
+/// 客户端当成 agent 挂了，重试逻辑也会走错分支。
+fn acp_new_session_workspaces(
+    cwd: &std::path::Path,
+) -> Result<Vec<ShellWorkspaceConfig>, agent_client_protocol::Error> {
+    acp_shell_workspaces(cwd).map_err(|err| acp_invalid_params(err))
 }
 
 /// ACP 的 `cwd` 映射成 PAI 的主工作区，与无头 CLI 用进程 cwd 的做法一致。
@@ -551,10 +692,19 @@ fn acp_shell_workspaces(cwd: &std::path::Path) -> Result<Vec<ShellWorkspaceConfi
     let canonical = cwd
         .canonicalize()
         .map_err(|err| format!("解析会话工作目录失败 ({}): {err}", cwd.display()))?;
+    // `canonicalize` 对文件也会成功。不在这里拦一道，文件路径会被当成工作区收下，
+    // 会话照建、日志照写「完成」，工具却静默跑回默认工作区——看着成功，地方不对。
+    if !canonical.is_dir() {
+        return Err(format!(
+            "会话工作目录不是目录 ({}): 需要传入目录而不是文件",
+            terminal_path_for_user(&canonical)
+        ));
+    }
     let path_text = canonical.to_string_lossy().into_owned();
     if path_text.trim() != path_text.as_str() {
         return Err(format!(
-            "会话工作目录路径首尾包含空白，无法作为工作区: {path_text}"
+            "会话工作目录路径首尾包含空白，无法作为工作区: {}",
+            terminal_path_for_user(&canonical)
         ));
     }
     Ok(vec![ShellWorkspaceConfig {
@@ -660,13 +810,26 @@ fn acp_apply_tool_result(
                 return updates;
             }
             let mut fields = ToolCallUpdateFields::default();
-            if previous.status != "done" {
+            // 失败是终态。上游会先发 `toolStatus = "failed"`，紧接着发同 id 的
+            // `assistant_tool_result`（内容是错误文本）；这里若把状态改回 Completed，
+            // 编辑器看到的每一次工具报错都会显示成「成功完成」。
+            let previous_status = acp_tool_status(&previous.status);
+            let keep_failed = previous_status == ToolCallStatus::Failed;
+            if !keep_failed && previous_status != ToolCallStatus::Completed {
                 fields.status = Some(ToolCallStatus::Completed);
             }
             fields.raw_output = output;
             tool_states.insert(
                 tool_call_id.to_string(),
-                AcpToolProgress::new("done".to_string(), previous.args_sent, true),
+                AcpToolProgress::new(
+                    if keep_failed {
+                        previous.status.clone()
+                    } else {
+                        "done".to_string()
+                    },
+                    previous.args_sent,
+                    true,
+                ),
             );
             updates.push(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                 ToolCallId::new(tool_call_id.to_string()),
@@ -917,23 +1080,35 @@ fn acp_tool_updates_from_delta(
             );
             updates.push(SessionUpdate::ToolCall(call));
         }
-        Some(previous) if previous.status != status_key => {
-            let mut fields = ToolCallUpdateFields::default();
-            fields.status = Some(call_status);
+        Some(previous) => {
+            // 与块路径同一判据：状态没变，但参数是新的，也必须补发。
+            // 只看状态是否变化会把「首帧建卡、参数后到」的那一帧整帧丢掉，
+            // 卡片参数就永久为空。
+            let status_changed = previous.status != status_key;
             let args_new = args_value.is_some() && !previous.args_sent;
+            if !status_changed && !args_new {
+                return updates;
+            }
+            let mut fields = ToolCallUpdateFields::default();
+            if status_changed {
+                fields.status = Some(call_status);
+            }
             if args_new {
                 fields.raw_input = args_value;
             }
             tool_states.insert(
                 raw_id.clone(),
-                AcpToolProgress::new(status_key, previous.args_sent || args_new, previous.result_sent),
+                AcpToolProgress::new(
+                    status_key,
+                    previous.args_sent || args_new,
+                    previous.result_sent,
+                ),
             );
             updates.push(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                 ToolCallId::new(raw_id),
                 fields,
             )));
         }
-        Some(_) => {}
     }
     updates
 }
@@ -1416,5 +1591,285 @@ mod acp_agent_cli_tests {
 
         let err = acp_apply_model_switch(&config, "stt-1").expect_err("语音配置不能当聊天模型");
         assert!(err.contains("文本聊天"), "错误要说明原因，实际 {err}");
+    }
+
+    /// cwd 用例的临时目录：名字带进程 id 与标签，避免并行测试相互踩踏。
+    fn acp_test_temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("pai-acp-cwd-{}-{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("应能创建临时目录");
+        dir
+    }
+
+    fn acp_test_error_code(err: &agent_client_protocol::Error) -> i32 {
+        err.code.into()
+    }
+
+    /// `session/new` 的 cwd 指向文件时必须被拒。
+    ///
+    /// `canonicalize` 对文件也成功，少一道 `is_dir()` 就会让会话照建、日志照写「完成」，
+    /// 工具却静默跑回默认工作区——看着成功，地方不对。
+    #[test]
+    fn new_session_should_reject_file_cwd_with_invalid_params() {
+        use agent_client_protocol::schema::v1::ErrorCode;
+
+        let dir = acp_test_temp_dir("file-cwd");
+        let file = dir.join("not-a-dir.txt");
+        std::fs::write(&file, b"marker").expect("应能写临时文件");
+
+        let err = acp_new_session_workspaces(&file).expect_err("cwd 传文件必须被拒");
+        assert_eq!(
+            err.code,
+            ErrorCode::InvalidParams,
+            "参数问题不该报成内部错误"
+        );
+        assert_eq!(
+            acp_test_error_code(&err),
+            -32602,
+            "客户端按 -32602 判断参数错误"
+        );
+        assert!(
+            err.message.contains("不是目录"),
+            "错误要说明原因，实际 {}",
+            err.message
+        );
+
+        // 同一路径按目录传仍然通过，防止校验写过头。
+        let workspaces = acp_new_session_workspaces(&dir).expect("合法目录应通过");
+        assert_eq!(workspaces.len(), 1, "只映射一个主工作区");
+        assert_eq!(workspaces[0].level, SHELL_WORKSPACE_LEVEL_MAIN);
+
+        let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// cwd 指向不存在的目录时同样归到参数错误。
+    #[test]
+    fn new_session_should_reject_missing_cwd_with_invalid_params() {
+        use agent_client_protocol::schema::v1::ErrorCode;
+
+        let dir = acp_test_temp_dir("missing-cwd");
+        let missing = dir.join("no-such-subdir");
+
+        let err = acp_new_session_workspaces(&missing).expect_err("目录不存在必须被拒");
+        assert_eq!(err.code, ErrorCode::InvalidParams);
+        assert_eq!(acp_test_error_code(&err), -32602);
+        assert!(
+            err.message.contains("解析会话工作目录失败"),
+            "错误要指出解析失败，实际 {}",
+            err.message
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn acp_test_registry(entries: &[(&str, bool)]) -> AcpSessionRegistry {
+        let mut map = std::collections::HashMap::new();
+        for (id, in_flight) in entries {
+            map.insert(
+                (*id).to_string(),
+                AcpSessionState {
+                    conversation_id: (*id).to_string(),
+                    agent_id: "agent-1".to_string(),
+                    model_config_id: "m-a".to_string(),
+                    prompt_in_flight: *in_flight,
+                },
+            );
+        }
+        std::sync::Arc::new(std::sync::Mutex::new(map))
+    }
+
+    /// 工具已经报过失败后，结果事件只许补输出，不许把状态改回成功。
+    #[test]
+    fn failed_tool_status_should_not_be_rewritten_to_completed_by_result() {
+        use agent_client_protocol::schema::v1::{SessionUpdate, ToolCallStatus};
+
+        let mut states = std::collections::HashMap::new();
+        let running = serde_json::json!({
+            "delta": "",
+            "kind": "tool_status",
+            "toolName": "exec",
+            "toolCallId": "call-9",
+            "toolStatus": "running",
+            "toolArgs": "{\"command\":\"exit 1\"}",
+            "message": "正在调用工具：exec"
+        });
+        assert!(matches!(
+            acp_updates_from_event(&running, &mut states).first(),
+            Some(SessionUpdate::ToolCall(_))
+        ));
+
+        let failed = serde_json::json!({
+            "delta": "",
+            "kind": "tool_status",
+            "toolName": "exec",
+            "toolCallId": "call-9",
+            "toolStatus": "failed",
+            "message": "工具调用失败：exec"
+        });
+        match acp_updates_from_event(&failed, &mut states).first() {
+            Some(SessionUpdate::ToolCallUpdate(update)) => assert_eq!(
+                update.fields.status,
+                Some(ToolCallStatus::Failed),
+                "失败状态要先发出去"
+            ),
+            other => panic!("失败应发 tool_call_update，实际 {other:?}"),
+        }
+
+        let result = serde_json::json!({
+            "delta": "",
+            "kind": "assistant_tool_result",
+            "message": serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call-9",
+                "content": "Exit code: 1\nOutput:\nboom\n",
+                "metadata": { "exit_code": 1 }
+            })
+            .to_string()
+        });
+        match acp_updates_from_event(&result, &mut states).first() {
+            Some(SessionUpdate::ToolCallUpdate(update)) => {
+                assert!(
+                    update.fields.status.is_none(),
+                    "失败是终态，结果事件不能把状态改回成功"
+                );
+                assert!(update.fields.raw_output.is_some(), "输出仍要补上");
+            }
+            other => panic!("结果应发 tool_call_update，实际 {other:?}"),
+        }
+    }
+
+    /// 首帧无参数建卡后，状态没变的参数补齐帧同样要发出去。
+    #[test]
+    fn delta_tool_args_should_be_patched_when_status_unchanged() {
+        use agent_client_protocol::schema::v1::SessionUpdate;
+
+        let mut states = std::collections::HashMap::new();
+        let first = serde_json::json!({
+            "delta": "",
+            "kind": "tool_status",
+            "toolName": "exec",
+            "toolCallId": "call-8",
+            "toolStatus": "running",
+            "message": "正在调用工具：exec"
+        });
+        match acp_updates_from_event(&first, &mut states).first() {
+            Some(SessionUpdate::ToolCall(call)) => {
+                assert!(call.raw_input.is_none(), "这一帧还没有参数")
+            }
+            other => panic!("首帧应发 tool_call，实际 {other:?}"),
+        }
+
+        let with_args = serde_json::json!({
+            "delta": "",
+            "kind": "tool_status",
+            "toolName": "exec",
+            "toolCallId": "call-8",
+            "toolStatus": "running",
+            "toolArgs": "{\"command\":\"echo hi\"}",
+            "message": "正在调用工具：exec"
+        });
+        match acp_updates_from_event(&with_args, &mut states).first() {
+            Some(SessionUpdate::ToolCallUpdate(update)) => {
+                assert!(update.fields.status.is_none(), "状态没变不该重复上报");
+                assert_eq!(
+                    update.fields.raw_input,
+                    Some(serde_json::json!({"command": "echo hi"})),
+                    "参数该补到卡片上"
+                );
+            }
+            other => panic!("参数后到应发 tool_call_update，实际 {other:?}"),
+        }
+
+        assert!(
+            acp_updates_from_event(&with_args, &mut states).is_empty(),
+            "同样的内容再来一帧不该重发"
+        );
+    }
+
+    /// 全局选中语音/嵌入配置时，新会话要退到第一条聊天配置。
+    #[test]
+    fn session_model_should_skip_non_chat_selected_config() {
+        let mut config = acp_test_config(&[
+            ("stt-1", "语音", "m-stt", RequestFormat::OpenAIStt),
+            ("chat-1", "聊天", "m-chat", RequestFormat::OpenAI),
+        ]);
+        config.selected_api_config_id = "stt-1".to_string();
+        assert_eq!(
+            acp_pick_session_model_config_id(&config).expect("应能选出聊天模型"),
+            "chat-1",
+            "全局选到非聊天配置时，新会话不能锁到它上面"
+        );
+
+        config.selected_api_config_id = "chat-1".to_string();
+        assert_eq!(
+            acp_pick_session_model_config_id(&config).expect("当前就是聊天配置"),
+            "chat-1"
+        );
+
+        let only_stt = acp_test_config(&[("stt-1", "语音", "m-stt", RequestFormat::OpenAIStt)]);
+        let err = acp_pick_session_model_config_id(&only_stt).expect_err("没有聊天模型要报错");
+        assert!(err.contains("聊天模型"), "错误要说明原因，实际 {err}");
+    }
+
+    /// `currentValue` 必须落在 `options` 里，否则客户端下拉显示空白。
+    #[test]
+    fn model_options_should_reject_current_value_outside_options() {
+        let config = acp_test_config(&[
+            ("chat-1", "聊天", "m-chat", RequestFormat::OpenAI),
+            ("stt-1", "语音", "m-stt", RequestFormat::OpenAIStt),
+        ]);
+        let err =
+            acp_model_config_options(&config, "stt-1").expect_err("当前值必须落在选项里");
+        assert!(err.contains("不在可选范围"), "错误要说明原因，实际 {err}");
+    }
+
+    /// 未知会话与中断的会话表是两件事：前者是参数错，后者才是内部故障。
+    #[test]
+    fn prompt_claim_should_tell_unknown_session_from_broken_registry() {
+        let registry = acp_test_registry(&[("s-1", false)]);
+        match acp_claim_prompt_slot(&registry, "nope") {
+            AcpPromptClaim::Unknown => {}
+            other => panic!("未知会话应判为 Unknown，实际 {other:?}"),
+        }
+
+        // 另起线程持锁后 panic，把互斥量打成中毒状态。
+        let poisoned = acp_test_registry(&[]);
+        let clone = poisoned.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = clone.lock().expect("首次加锁应成功");
+            panic!("故意让互斥量中毒");
+        })
+        .join();
+        match acp_claim_prompt_slot(&poisoned, "s-1") {
+            AcpPromptClaim::Unavailable => {}
+            other => panic!("锁中毒应判为 Unavailable，实际 {other:?}"),
+        }
+    }
+
+    /// 同一会话并发两帧 prompt：只跑一轮，第二帧立即被拒；本轮结束后又能进。
+    #[test]
+    fn second_prompt_on_same_session_should_be_rejected_until_released() {
+        let registry = acp_test_registry(&[("s-1", false)]);
+
+        let session = match acp_claim_prompt_slot(&registry, "s-1") {
+            AcpPromptClaim::Ready(session) => session,
+            other => panic!("第一帧应拿到占位，实际 {other:?}"),
+        };
+        let slot = AcpPromptSlot {
+            sessions: registry.clone(),
+            conversation_id: session.conversation_id.clone(),
+        };
+
+        match acp_claim_prompt_slot(&registry, "s-1") {
+            AcpPromptClaim::Busy => {}
+            other => panic!("第二帧应被判为在途，实际 {other:?}"),
+        }
+
+        drop(slot);
+
+        match acp_claim_prompt_slot(&registry, "s-1") {
+            AcpPromptClaim::Ready(_) => {}
+            other => panic!("上一轮结束后应能再次占位，实际 {other:?}"),
+        }
     }
 }
