@@ -540,7 +540,7 @@ impl RuntimeToolMetadata for BuiltinTerminalExecTool {
               "properties": {
                 "command": { "type": "string", "description": "要执行的一次性 shell 命令。" },
                 "description": { "type": "string", "description": "必填，本次命令的简短说明，用于向用户解释执行意图并在权限审批卡中呈现；后台任务也会用于列表展示与完成写回。" },
-                "mode": { "type": "string", "enum": ["wait", "background"], "default": "wait", "description": "执行模式。wait=当前调用等待结果；background=立即返回后台任务 id。" },
+                "mode": { "type": "string", "enum": ["wait", "background"], "default": "wait", "description": "执行模式。耗时较长的命令用 background，立即返回后台任务 id，跑完通知；快速返回的、或必须串行执行的命令用 wait，当场拿结果。" },
                 "timeout_ms": { "type": "integer", "minimum": 1, "default": 300000, "description": "命令超时时间，单位毫秒；未指定时默认 300000ms，超时后回收本次进程树。长耗时检查/构建应显式传入足够大的值。" },
                 "commitment": { "type": "string", "description": "危险命令确认承诺。平时留空；仅当 exec 返回 blockedReason=local_rule_blocked 且 message 要求确认时，向用户说明危险性并取得明确许可后，填入返回中的 commitmentHint 文案再重新调用。" }
               },
@@ -1825,7 +1825,7 @@ impl RuntimeToolMetadata for BuiltinDelegateTool {
               "type": "object",
               "properties": {
                 "agent_id": { "type": "string", "description": "要委托的下级人格，填「你的直属下级人格」清单里的人格名称（也兼容人格 id）。应选择与当前任务最匹配的直接下级人格。" },
-                "mode": { "type": "string", "enum": ["wait", "background"], "description": "委托方式。mode 只表示父调度是否等待结果，不表示是否并发。除非用户明确要求后台运行，否则一律使用 wait。wait 会等待子代理返回结果，多个 wait 委托可以同时发出并等待全部返回；background 会后台运行并稍后写回当前来源会话。", "default": "wait" },
+                "mode": { "type": "string", "enum": ["wait", "background"], "description": "委托方式。耗时长的单条委派用 background，后台跑完写回当前来源会话；需要并发委托的用 wait，一次发出多个、一起等全部返回。mode 只表示父调度是否等待，不表示串行。", "default": "wait" },
                 "why": { "type": "string", "description": "为什么要做、背景材料、已知事实、已有线索或必要上下文。" },
                 "goal": { "type": "string", "description": "这次委托要达成的目标，写成明确可执行、可判断完成的任务。" },
                 "todo": { "type": "string", "description": "优先关注点、范围边界、交付要求、下一步待办或需要避免的方向。" }

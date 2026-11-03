@@ -1050,8 +1050,7 @@ fn terminal_shell_runtime_label(shell: &TerminalShellProfile) -> String {
 fn terminal_exec_tool_description(shell: &TerminalShellProfile) -> String {
     format!(
         "在当前 shell 工作区根目录中执行一次性命令。运行时 shell：{}。命令结束、失败或超时后，本次进程树会被回收。\n\n\
-         后台执行（mode=background）：如无必要不要使用；仅适合长耗时的服务、监听或构建任务（如启动 dev server、持续 watch）。\
-         启动时建议传 description 说明用途，返回 backgroundId 与 logPath；输出全部写入日志文件，\
+         后台执行（mode=background）：启动时建议传 description 说明用途，返回 backgroundId 与 logPath；输出全部写入日志文件，\
          完成时系统会向会话推送通知（含退出码与输出尾部），不要忙轮询，等通知即可。\
          后台任务不受 timeout_ms 约束，会一直跑到自然结束或被 kill，需要限时请在命令内部自行处理。\
          用 background 工具管理：action=list 查看本会话任务，action=status id=… 查看状态与日志尾部，action=kill id=… 终止。\
