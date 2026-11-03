@@ -122,12 +122,6 @@
             @update:title="handleDraftTitleChange($event)"
           />
           <div class="ecall-chat-history-flow flex min-w-0 shrink-0 flex-col">
-            <div
-              v-if="showNoMoreHistoryDivider"
-              class="divider mx-auto my-0 w-full max-w-225 px-4 pb-2 pt-1 text-xs font-semibold text-base-content/55"
-            >
-              {{ t("chat.noMoreHistory") }}
-            </div>
             <Virtualizer
               v-if="scrollContainer"
               :data="virtualRenderItems"
@@ -856,6 +850,7 @@
             @refresh="reloadKanbanBoard"
             @approve="approveKanbanIssue"
             @open-plan="openHomeFile"
+            @reference="attachKanbanIssueReference"
           />
         </div>
         <div v-else-if="chatRightPanelMode === 'monitor'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">
@@ -2078,13 +2073,6 @@ const virtuaShift = computed(() => {
 // 索引型测量缓存，防止新会话尾部继承旧会话的实测高度。
 const virtuaKey = computed(() =>
   `${scrollContainer.value ? "virtua-ready" : "virtua-pending"}-${String(props.activeConversationId || "conversation-empty").trim()}`,
-);
-
-const showNoMoreHistoryDivider = computed(() =>
-  !!String(props.activeConversationId || "").trim()
-  && props.messageBlocks.length > 0
-  && !props.loadingOlderHistory
-  && !props.hasMoreHistory,
 );
 
 // ==================== block tracking ====================

@@ -16,7 +16,7 @@
     @refresh="emit('refresh')"
     @approve="emit('approve', $event)"
     @open-plan="emit('openPlan', $event)"
-    @select-issue="emit('selectIssue', $event)"
+    @reference="emit('reference', $event)"
   />
 </template>
 
@@ -52,6 +52,6 @@ const emit = defineEmits<{
   (e: "refresh"): void;
   (e: "approve", number: number): void;
   (e: "openPlan", path: string): void;
-  (e: "selectIssue", issue: KanbanIssue): void;
+  (e: "reference", issue: KanbanIssue): void;
 }>();
 </script>

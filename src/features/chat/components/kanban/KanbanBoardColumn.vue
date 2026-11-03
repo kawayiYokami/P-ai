@@ -28,9 +28,9 @@
           :assignee-name="resolveAssigneeName(issue.assignee)"
           :avatar-url="resolveAvatar(issue.assignee)"
           :approving-number="approvingNumber"
-          @select="emit('selectIssue', $event)"
           @approve="emit('approve', $event)"
           @open-plan="emit('openPlan', $event)"
+          @reference="emit('reference', $event)"
         />
       </template>
       <div
@@ -63,9 +63,9 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "selectIssue", issue: KanbanIssue): void;
   (e: "approve", number: number): void;
   (e: "openPlan", path: string): void;
+  (e: "reference", issue: KanbanIssue): void;
 }>();
 
 const { t } = useI18n();

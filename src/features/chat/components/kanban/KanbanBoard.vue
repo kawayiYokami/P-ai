@@ -70,9 +70,9 @@
           :resolve-assignee-name="resolveAssigneeName"
           :resolve-avatar="resolveAvatar"
           :class="activeColumns.length === 1 ? 'max-w-[340px]' : ''"
-          @select-issue="emit('selectIssue', $event)"
           @approve="emit('approve', $event)"
           @open-plan="emit('openPlan', $event)"
+          @reference="emit('reference', $event)"
         />
       </OverlayScrollArea>
     </div>
@@ -120,7 +120,7 @@ const emit = defineEmits<{
   (e: "refresh"): void;
   (e: "approve", number: number): void;
   (e: "openPlan", path: string): void;
-  (e: "selectIssue", issue: KanbanIssue): void;
+  (e: "reference", issue: KanbanIssue): void;
 }>();
 
 const { t } = useI18n();

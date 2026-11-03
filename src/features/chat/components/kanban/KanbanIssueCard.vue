@@ -1,20 +1,20 @@
 <template>
   <div
-    class="flex flex-col rounded-field border border-base-content/10 transition-colors hover:border-base-content/25 dark:bg-[color-mix(in_oklab,var(--color-base-100)_90%,white)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50"
+    class="flex flex-col rounded-field border border-base-content/10 transition-colors hover:border-base-content/25"
     :class="[
       densityClass,
       issue.status === 'in_review' ? 'border-warning/40' : '',
       issue.status === 'blocked' ? 'border-error/40' : '',
-      selectable ? 'cursor-pointer' : '',
+      canTapCard ? 'cursor-pointer' : '',
     ]"
     role="article"
-    :tabindex="selectable ? 0 : undefined"
-    @click="handleSelect"
-    @keydown.enter.prevent="handleSelect"
+    :tabindex="canTapCard ? 0 : undefined"
+    @click="handleCardTap"
+    @keydown.enter.prevent="handleCardTap"
   >
     <!-- 顶行：编号 + 计划文件外链 -->
     <div class="flex items-center justify-between gap-1.5 text-caption">
-      <!-- 编号：纯展示。引用入口在底行左下角，只有磁贴形态才出现 -->
+      <!-- 编号：纯展示。引用入口在底行左下角，两种形态都有 -->
       <span class="font-mono text-xs font-medium tabular-nums text-base-content/50">
         #{{ issue.number }}
       </span>
@@ -44,15 +44,14 @@
     <!-- 底行：执行人 + 相对时间 / 审核通过按钮 -->
     <div class="flex items-center justify-between gap-1.5 pt-0.5 text-caption">
       <div class="flex min-w-0 items-center gap-1.5">
-        <!-- 引用入口固定在卡片左下角：磁贴里才出现，点击把编号挂进输入框 -->
+        <!-- 引用入口固定在卡片左下角，两种形态一致：点击把编号挂进输入框 -->
         <button
-          v-if="canReference"
           type="button"
           class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full text-base-content/40 transition-colors hover:bg-base-300/60 hover:text-primary"
           :title="t('chat.kanban.referenceHint')"
           @click.stop="handleReference"
         >
-          <CornerDownRight class="size-3" aria-hidden="true" />
+          <ArrowDownLeft class="size-3" aria-hidden="true" />
         </button>
         <div class="avatar size-4 shrink-0">
           <div
@@ -103,7 +102,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, CornerDownRight, FileText } from "@lucide/vue";
+import { ArrowDownLeft, Check, FileText } from "@lucide/vue";
 import {
   formatTimeRelative,
   getAvatarColorByName,
@@ -113,8 +112,9 @@ import {
 /**
  * 议题卡：全屏看板与首页磁贴共用同一份实现。
  *
- * 形态差异只走 prop —— `density` 管内边距与底色，`selectable` 管能否点选，
- * `showPlanLink` 管计划文件外链。通过按钮不设开关：它就是这张卡的动作。
+ * 形态差异只走 prop —— `density` 管内边距与底色，
+ * `showPlanLink` 管计划文件外链。行为不随形态分叉：两种形态都有引用入口，
+ * 也都不响应整卡点击。通过按钮不设开关：它就是这张卡的动作。
  */
 const props = withDefaults(defineProps<{
   issue: KanbanIssue;
@@ -123,19 +123,15 @@ const props = withDefaults(defineProps<{
   approvingNumber?: number | null;
   /** board = 全屏看板（白底、宽松）；tile = 首页磁贴（更紧、底色下沉一档）。 */
   density?: "board" | "tile";
-  /** 能否点选：磁贴里点卡片等同打开看板。 */
-  selectable?: boolean;
   showPlanLink?: boolean;
 }>(), {
   avatarUrl: "",
   approvingNumber: null,
   density: "board",
-  selectable: true,
   showPlanLink: true,
 });
 
 const emit = defineEmits<{
-  (e: "select", issue: KanbanIssue): void;
   (e: "approve", number: number): void;
   (e: "openPlan", path: string): void;
   (e: "reference", issue: KanbanIssue): void;
@@ -146,12 +142,12 @@ const { t } = useI18n();
 const densityClass = computed(() =>
   props.density === "tile"
     ? "gap-1.5 p-2 bg-base-200/50 hover:bg-base-200/80"
-    : "gap-1.5 p-2.5 bg-base-100",
+    : "gap-1.5 p-2.5 bg-base-100 dark:bg-[color-mix(in_oklab,var(--color-base-100)_90%,white)]",
 );
 
-/** 磁贴里编号可点，挂进输入框当引用；看板页保持纯展示。
- *  条件由卡片按自身形态判断，不必再让调用方额外传一个开关。 */
-const canReference = computed(() => props.density === "tile");
+/** 整卡点击：议题页里点卡片等同左下角那个引用箭头，把编号挂进输入框。
+ *  首页磁贴是汇总视角，误点一下就改输入框太吵，所以磁贴只认箭头。 */
+const canTapCard = computed(() => props.density !== "tile");
 
 const avatarContainerStyle = computed(() => {
   if (props.avatarUrl) return {};
@@ -167,9 +163,9 @@ const timeLabel = computed(() => {
   return formatTimeRelative(props.issue.updatedAt || props.issue.createdAt);
 });
 
-function handleSelect(): void {
-  if (!props.selectable) return;
-  emit("select", props.issue);
+function handleCardTap(): void {
+  if (!canTapCard.value) return;
+  emit("reference", props.issue);
 }
 
 function handleReference(): void {
