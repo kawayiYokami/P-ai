@@ -51,8 +51,23 @@ let initialized = false;
 let eventUnlisten: (() => void) | null = null;
 let hintHideTimer: ReturnType<typeof window.setTimeout> | null = null;
 
+/**
+ * 界面尺寸映射：滑杆上的百分比表示「占屏面积」，线性尺寸取它的平方根。
+ * 150% 对应线性 √1.5 ≈ 1.2247 倍、面积 1.5 倍。
+ * 字号基准、--size-field、--size-selector、--border 以及根字号全挂在这一个比例上，
+ * 在这里开方，全链路一起变成同一个倍数，不会出现字缩了而间距还按旧比例放的错位。
+ */
+function scaledLinearFactor(scale: UiSizeScale): number {
+  return Math.sqrt(scale / 100);
+}
+
 function scaledPx(value: number, scale: UiSizeScale): string {
-  return `${Math.round(value * scale) / 100}px`;
+  return `${Math.round(value * scaledLinearFactor(scale) * 100) / 100}px`;
+}
+
+/** 边框不吃亚像素：低于 1px 在部分显示器上直接消失，所以取 1px 作下限。 */
+function scaledBorderPx(scale: UiSizeScale): string {
+  return `${Math.max(scaledLinearFactor(scale), 1).toFixed(2)}px`;
 }
 
 export function normalizeUiSizeScale(value: unknown): UiSizeScale {
@@ -88,7 +103,7 @@ export function uiSizeTokensFor(value: unknown): UiSizeTokens {
     markdownDocumentHeading4: scaledPx(16.32, scale),
     sizeField: scaledPx(4.16, scale),
     sizeSelector: scaledPx(4.16, scale),
-    border: scaledPx(1, scale),
+    border: scaledBorderPx(scale),
   };
 }
 
