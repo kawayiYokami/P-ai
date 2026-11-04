@@ -104,150 +104,172 @@
                   <li
                     v-for="(item, itemIndex) in presentedActivityItems"
                     :key="`${block.id}-activity-${activityItemKey(item)}`"
-                    v-memo="activityItemMemo(item)"
+                    v-memo="activityItemMemo(item, itemIndex === presentedActivityItems.length - 1)"
                     :class="[
                       activityItemNodeClass(item),
-                      item.kind === 'reasoning' ? 'ecall-activity-reasoning-item relative flex flex-col min-w-0' : 'flex gap-1.5',
+                      item.kind === 'reasoning' ? 'ecall-activity-reasoning-item' : '',
+                      'relative flex gap-1.5 min-w-0',
                     ]"
                   >
-                    <!-- ========== 思维链节点：整行吸顶架构（Icon + 首行标题 + 折叠箭头 一体化吸顶） ========== -->
+                    <!-- ========== 思维链节点：左列圆点与竖线 / 右列折叠头、正文、留白行 ========== -->
                     <template v-if="item.kind === 'reasoning'">
-                      <!-- 展开态吸顶检测哨兵（贴在 Header 正上方） -->
-                      <div
-                        v-if="activityItemExpanded(item) && activityItemCanExpand(item)"
-                        :ref="(el) => bindStickySentinel(activityItemKey(item), el as HTMLElement | null)"
-                        class="ecall-reasoning-sticky-sentinel pointer-events-none h-px w-full -mb-px"
-                      />
-
-                      <!-- 标题行：展开时才吸顶（sticky -top-3 z-10 抵消容器 py-3，紧贴视口最顶端），未展开时不吸顶随文档滚动 -->
-                      <div
-                        class="ecall-reasoning-sticky-header group flex min-h-6 items-center gap-1.5 bg-base-200 py-1"
-                        :class="[
-                          activityItemExpanded(item) ? 'sticky -top-3 z-10' : '',
-                          props.selectionModeEnabled || !activityItemCanExpand(item) ? '' : 'cursor-pointer select-none',
-                          isReasoningItemStuck(item) ? 'ecall-reasoning-stuck' : '',
-                        ]"
-                        @click="onReasoningHeaderClick(item, $event)"
-                      >
-                        <!-- 左侧思考 Icon（吸顶时不丢失） -->
-                        <div class="flex w-4 shrink-0 items-center justify-center">
+                      <!-- 左列：圆点与竖线。竖线是结构内的一列，撑满整个条目（含右列末尾的留白行），
+                           相邻条目在 li 边界处相接；不再用绝对定位与负 bottom 跨空隙 -->
+                      <div class="relative flex w-4 shrink-0 flex-col items-center">
+                        <span
+                          v-if="itemIndex !== 0"
+                          class="absolute top-0 h-1 w-px bg-current opacity-30"
+                        />
+                        <div class="flex h-6 shrink-0 items-center justify-center">
                           <svg viewBox="0 0 24 24" class="h-4 w-4">
                             <circle cx="12" cy="12" r="10" fill="currentColor" />
                             <path d="M12 4Q13 11 20 12Q13 13 12 20Q11 13 4 12Q11 11 12 4Z" class="text-base-200" fill="currentColor" />
                           </svg>
                         </div>
-
-                        <!-- 中间：首行标题摘要（宽度按内容，箭头紧跟在右肩） -->
-                        <span class="ecall-activity-item-summary min-w-0" :class="activityItemTitleClass(item)">
-                          <InlineMarkdownText :text="activityItemTitle(item)" />
-                        </span>
-
-                        <!-- 折叠箭头：平时不显示，悬停条目才出现；展开后常显，否则没有收起入口 -->
-                        <button
-                          v-if="activityItemCanExpand(item)"
-                          type="button"
-                          class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-base-content/45 hover:bg-base-300/50 hover:text-base-content/80 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                          :class="{ 'opacity-100': activityItemExpanded(item) }"
-                          :title="activityItemExpanded(item) ? t('common.collapse') : t('common.expand')"
-                          data-selection-ignore="true"
-                          @click.stop="toggleReasoningItemExpanded(item)"
-                        >
-                          <ChevronDown
-                            class="h-3.5 w-3.5 transition-transform duration-150"
-                            :class="{ 'rotate-180': activityItemExpanded(item) }"
-                          />
-                        </button>
-
-                        <!-- 底沿淡出：只有标题行真的贴住滚动区顶部才挂上，避免没贴顶时盖住正文 -->
-                        <div
-                          v-if="activityItemExpanded(item) && activityItemCanExpand(item) && isReasoningItemStuck(item)"
-                          class="ecall-reasoning-sticky-fade absolute top-full inset-x-0 h-3 pointer-events-none"
+                        <span
+                          v-if="itemIndex !== presentedActivityItems.length - 1"
+                          class="w-px flex-1 bg-current opacity-30"
                         />
                       </div>
 
-                      <!-- 正文区：左侧引导坚线 + 右侧内容（折叠态展示 4 行预览 + 底部 base-200 淡出；展开态完整展示且由 Header 吸顶） -->
-                      <div
-                        v-if="activityItemCanExpand(item)"
-                        class="flex gap-1.5 min-w-0 flex-1 pl-0"
-                      >
-                        <!-- 左侧引导坚线 -->
-                        <div class="flex w-4 shrink-0 justify-center">
-                          <span class="w-px bg-current opacity-30" />
-                        </div>
-
-                        <!-- 右侧正文外壳：折叠态限高约 4 行预览并加底部 base-200 淡出；展开态限高滚动 -->
+                      <!-- 右列：折叠头、正文、留白行 -->
+                      <div class="flex min-w-0 flex-1 flex-col">
+                        <!-- 展开态吸顶检测哨兵（贴在 Header 正上方） -->
                         <div
-                          class="ecall-reasoning-body-shell relative my-3 min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
-                          :class="[
-                            activityItemDetailClass(item),
-                            activityItemExpanded(item) ? 'ecall-reasoning-body--expanded' : 'ecall-reasoning-body--clamped cursor-pointer',
-                          ]"
-                          @click="onReasoningClampedBodyClick(item)"
-                        >
-                          <OverlayScrollArea v-if="activityItemExpanded(item)" scroller-class="max-h-80 pr-3" overscroll="auto">
-                            <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
-                            <template v-else>{{ activityItemBodyText(item) }}</template>
-                          </OverlayScrollArea>
-                          <template v-else>
-                            <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
-                            <template v-else>{{ activityItemBodyText(item) }}</template>
-                          </template>
+                          v-if="activityItemExpanded(item) && activityItemCanExpand(item)"
+                          :ref="(el) => bindStickySentinel(activityItemKey(item), el as HTMLElement | null)"
+                          class="ecall-reasoning-sticky-sentinel pointer-events-none h-px w-full -mb-px"
+                        />
 
-                          <!-- 折叠态底部 base-200 淡出遮罩 -->
+                        <!-- 标题行：展开时才吸顶（sticky -top-3 z-10 抵消容器 py-3，紧贴视口最顶端），未展开时不吸顶随文档滚动 -->
+                        <div
+                          class="ecall-reasoning-sticky-header group flex min-h-6 items-center gap-1.5 bg-base-200 py-1"
+                          :class="[
+                            activityItemExpanded(item) ? 'sticky -top-3 z-10' : '',
+                            props.selectionModeEnabled || !activityItemCanExpand(item) ? '' : 'cursor-pointer select-none',
+                            isReasoningItemStuck(item) ? 'ecall-reasoning-stuck' : '',
+                          ]"
+                          @click="onReasoningHeaderClick(item, $event)"
+                        >
+                          <!-- 首行标题摘要（宽度按内容，箭头紧跟在右肩） -->
+                          <span class="ecall-activity-item-summary min-w-0" :class="activityItemTitleClass(item)">
+                            <InlineMarkdownText :text="activityItemTitle(item)" />
+                          </span>
+
+                          <!-- 折叠箭头：平时不显示，悬停条目才出现；展开后常显，否则没有收起入口 -->
+                          <button
+                            v-if="activityItemCanExpand(item)"
+                            type="button"
+                            class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-base-content/45 hover:bg-base-300/50 hover:text-base-content/80 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                            :class="{ 'opacity-100': activityItemExpanded(item) }"
+                            :title="activityItemExpanded(item) ? t('common.collapse') : t('common.expand')"
+                            data-selection-ignore="true"
+                            @click.stop="toggleReasoningItemExpanded(item)"
+                          >
+                            <ChevronDown
+                              class="h-3.5 w-3.5 transition-transform duration-150"
+                              :class="{ 'rotate-180': activityItemExpanded(item) }"
+                            />
+                          </button>
+
+                          <!-- 底沿淡出：只有标题行真的贴住滚动区顶部才挂上，避免没贴顶时盖住正文 -->
                           <div
-                            v-if="!activityItemExpanded(item)"
-                            class="ecall-reasoning-clamped-fade absolute inset-x-0 bottom-0 h-7 pointer-events-none"
+                            v-if="activityItemExpanded(item) && activityItemCanExpand(item) && isReasoningItemStuck(item)"
+                            class="ecall-reasoning-sticky-fade absolute top-full inset-x-0 h-3 pointer-events-none"
                           />
                         </div>
+
+                        <!-- 正文区：折叠态展示 4 行预览 + 底部 base-200 淡出；展开态完整展示且由 Header 吸顶 -->
+                        <div
+                          v-if="activityItemCanExpand(item)"
+                          class="min-w-0 pb-1.5"
+                        >
+                          <!-- 正文外壳：折叠态限高约 4 行预览并加底部 base-200 淡出；展开态限高滚动 -->
+                          <div
+                            class="ecall-reasoning-body-shell relative min-w-0 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
+                            :class="[
+                              activityItemDetailClass(item),
+                              activityItemExpanded(item) ? 'ecall-reasoning-body--expanded' : 'ecall-reasoning-body--clamped cursor-pointer',
+                            ]"
+                            @click="onReasoningClampedBodyClick(item)"
+                          >
+                            <OverlayScrollArea v-if="activityItemExpanded(item)" scroller-class="max-h-80 pr-3" overscroll="auto">
+                              <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
+                              <template v-else>{{ activityItemBodyText(item) }}</template>
+                            </OverlayScrollArea>
+                            <template v-else>
+                              <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
+                              <template v-else>{{ activityItemBodyText(item) }}</template>
+                            </template>
+
+                            <!-- 折叠态底部 base-200 淡出遮罩 -->
+                            <div
+                              v-if="!activityItemExpanded(item)"
+                              class="ecall-reasoning-clamped-fade absolute inset-x-0 bottom-0 h-7 pointer-events-none"
+                            />
+                          </div>
+                        </div>
+
+                        <!-- 条目间距：右列末尾的留白行提供，左列竖线照常穿过 -->
+                        <div
+                          v-if="itemIndex !== presentedActivityItems.length - 1"
+                          class="h-6 shrink-0"
+                        />
                       </div>
                     </template>
 
-                    <!-- ========== 工具与正文节点：原有双列时间线结构 ========== -->
+                    <!-- ========== 工具与正文节点：同一套骨架（左列圆点与竖线 / 右列内容与留白行） ========== -->
                     <template v-else>
-                      <div class="relative flex w-4 shrink-0 flex-col items-center pt-1">
-                        <!-- 时间轴竖线：绝对定位撑满整条 li（含条目间距），相邻条目的线才能首尾相接 -->
+                      <div class="relative flex w-4 shrink-0 flex-col items-center">
+                        <span
+                          v-if="itemIndex !== 0"
+                          class="absolute top-0 h-1 w-px bg-current opacity-30"
+                        />
+                        <div class="flex h-6 shrink-0 items-center justify-center">
+                          <span
+                            v-if="item.kind === 'tool' && item.status === 'doing'"
+                            class="loading loading-spinner loading-xs text-primary"
+                          ></span>
+                          <svg
+                            v-else-if="item.kind === 'content'"
+                            viewBox="0 0 24 24"
+                            class="h-4 w-4"
+                          >
+                            <circle cx="12" cy="12" r="10" fill="currentColor" />
+                            <path d="M8.4 10.2h7.2M8.4 13.8h7.2" class="text-base-100" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                          </svg>
+                          <svg
+                            v-else
+                            viewBox="0 0 24 24"
+                            class="h-4 w-4"
+                          >
+                            <circle cx="12" cy="12" r="10" fill="currentColor" />
+                            <path
+                              d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                              class="text-base-100"
+                              fill="currentColor"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              transform="translate(3.84 3.84) scale(0.68)"
+                            />
+                          </svg>
+                        </div>
+                        <!-- 时间轴竖线：结构内的一列，撑满条目（含右列末尾留白行），相邻条目在 li 边界处相接 -->
                         <span
                           v-if="itemIndex !== presentedActivityItems.length - 1"
-                          class="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-current"
+                          class="w-px flex-1 bg-current"
                         />
-                        <span
-                          v-if="item.kind === 'tool' && item.status === 'doing'"
-                          class="loading loading-spinner loading-xs text-primary"
-                        ></span>
-                        <svg
-                          v-else-if="item.kind === 'content'"
-                          viewBox="0 0 24 24"
-                          class="h-4 w-4"
-                        >
-                          <circle cx="12" cy="12" r="10" fill="currentColor" />
-                          <path d="M8.4 10.2h7.2M8.4 13.8h7.2" class="text-base-100" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                        </svg>
-                        <svg
-                          v-else
-                          viewBox="0 0 24 24"
-                          class="h-4 w-4"
-                        >
-                          <circle cx="12" cy="12" r="10" fill="currentColor" />
-                          <path
-                            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
-                            class="text-base-100"
-                            fill="currentColor"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            transform="translate(3.84 3.84) scale(0.68)"
-                          />
-                        </svg>
                       </div>
-                      <div class="my-3 min-w-0 flex-1">
+                      <div class="flex min-w-0 flex-1 flex-col">
                         <details
                           v-if="item.kind === 'tool' && activityItemCanExpand(item)"
                           class="collapse rounded-none"
                           :open="activityItemExpanded(item)"
                           @toggle="onToolDetailsToggle(item, $event)"
                         >
-                          <summary class="collapse-title group flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
+                          <summary class="collapse-title group flex min-h-0 items-center gap-1.5 pl-0 pr-1 py-1 text-xs hover:bg-base-200">
                             <span
                               class="ecall-activity-item-summary min-w-0 inline-flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap"
                               :class="activityItemTitleClass(item)"
@@ -285,8 +307,8 @@
                               :class="{ 'opacity-100': activityItemExpanded(item) }"
                             />
                           </summary>
-                          <div class="collapse-content pb-2 pr-1 pt-1">
-                            <OverlayScrollArea scroller-class="max-h-72 rounded bg-base-200/60 p-2" overscroll="auto">
+                          <div class="collapse-content pb-2 pr-1 pt-1 pl-0">
+                            <OverlayScrollArea scroller-class="max-h-72 rounded bg-base-200/60 py-2 pl-0 pr-2" overscroll="auto">
                               <div class="flex flex-col gap-1.5">
                                 <!-- 参数区：整块走工具绿，其中的键名单独跳到行内代码红 -->
                                 <ToolArgsView
@@ -328,7 +350,7 @@
                         </details>
                         <div
                           v-else-if="item.kind === 'tool'"
-                          class="flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs"
+                          class="flex min-h-0 items-center gap-1.5 pr-1 py-1 text-xs"
                           @click.stop
                         >
                           <span
@@ -364,12 +386,17 @@
                             >-{{ activityItemDisplay(item).removes }}</span>
                           </span>
                         </div>
-                        <div v-else-if="item.kind === 'content'" class="flex px-1 py-1">
+                        <div v-else-if="item.kind === 'content'" class="flex pr-1 py-1">
                           <PlainMarkdownRenderer
                             class="min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
                             :text="activityItemText(item)"
                           />
                         </div>
+                        <!-- 条目间距：右列末尾的留白行提供，左列竖线照常穿过 -->
+                        <div
+                          v-if="itemIndex !== presentedActivityItems.length - 1"
+                          class="h-6 shrink-0"
+                        />
                       </div>
                     </template>
                   </li>
@@ -1448,13 +1475,14 @@ function activityItemBodyText(item: ChatActivityItem): string {
 }
 
 /** 已闭合条目只保留身份。正在生长的条目用常量级签名，不哈希全文。 */
-function activityItemMemo(item: ChatActivityItem): unknown[] {
+function activityItemMemo(item: ChatActivityItem, isLast: boolean): unknown[] {
   const expanded = activityItemExpanded(item);
+  // isLast 必须进依赖：末条追加新条目后会被翻转成非末条，要补上竖线与末尾留白行
   if (item.kind === "tool") {
-    return [activityItemKey(item), item.status || "", textContentSignature(item.argsText), textContentSignature(item.resultText)];
+    return [activityItemKey(item), item.status || "", textContentSignature(item.argsText), textContentSignature(item.resultText), isLast];
   }
-  if (!item.running) return [activityItemKey(item), expanded];
-  return [activityItemKey(item), expanded, liveActivityTextSignature(activityItemText(item))];
+  if (!item.running) return [activityItemKey(item), expanded, isLast];
+  return [activityItemKey(item), expanded, liveActivityTextSignature(activityItemText(item)), isLast];
 }
 
 function activityOpenPanelSignature(items: ChatActivityItem[]): string {
