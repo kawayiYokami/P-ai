@@ -80,7 +80,7 @@ import { Wrench } from "@lucide/vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import { normalizeLocalLinkHref, parseLocalFileReference } from "../utils/local-link";
 import { parseInlineSegments, normalizedTableRow, type MarkdownBlock, type InlineSegment } from "./parse-markdown";
-import { IncrementalMarkdownBlockParser } from "./incremental-markdown";
+import { IncrementalMarkdownBlockParser, UNSTABLE_TAIL_BLOCKS } from "./incremental-markdown";
 import {
   consumeCrossParagraphToolGroup,
   consumeGroupedToolcallRefs,
@@ -748,6 +748,11 @@ const BlockRenderer = defineComponent({
     };
 
     const isLastBlock = (idx: number) => idx === blockProps.blocks.length - 1;
+    // 只有尾部不稳定区里的块才算「还在增长」：冻结块的内容不会再变，
+    // 给它传 streaming 会让全局的流式状态漏进它的 props——收尾那一帧所有块一起
+    // 判定 props 变化、整篇重渲染一次（实测 18K 单帧 463 次块渲染、83ms）。
+    // 窗口与解析层的 UNSTABLE_TAIL_BLOCKS 对齐，保证被判为冻结的块真的不再变。
+    const isGrowingBlock = (idx: number) => idx >= blockProps.blocks.length - UNSTABLE_TAIL_BLOCKS;
 
     // 块级组件边界：每个块一个实例，父层 render 只产出组件 vnode。
     // props 里列出的都是「变了就要重画」的上下文；block 引用稳定且上下文不变时，
@@ -1039,7 +1044,7 @@ const BlockRenderer = defineComponent({
           block,
           index,
           isLast: isLastBlock(index),
-          streaming: blockProps.streaming,
+          streaming: blockProps.streaming && isGrowingBlock(index),
           isDark: blockProps.isDark,
           localImageBasePath: blockProps.localImageBasePath,
           footnoteIndexMap: blockProps.footnoteIndexMap,

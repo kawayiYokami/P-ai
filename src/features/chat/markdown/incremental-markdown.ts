@@ -146,7 +146,7 @@ function collectFootnoteDefinitions(text: string): Map<string, string> {
 }
 
 /** 尾部保留为不稳定区的块数：追加文本最多重塑最后一个块，倒数第二个作安全余量。 */
-const UNSTABLE_TAIL_BLOCKS = 2;
+export const UNSTABLE_TAIL_BLOCKS = 2;
 
 /**
  * 全进程累计的解析量。dev 下挂到 window，压测工具据此逐帧读「每帧解析了多少字符」——
