@@ -114,53 +114,6 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     await options.saveChatPreferences();
   }
 
-  /**
-   * 批量改写多个人格的直属下级，一次落盘。
-   * 组织页是草稿式编辑（勾选/连线先落本地草稿），保存时把有变更的人格一次性写回，
-   * 避免逐个人格各触发一次 personas 落盘。失败时整体回滚。
-   */
-  async function setPersonaChildAgentsBatch(input: {
-    updates: { agentId: string; childAgentIds: string[] }[];
-  }): Promise<boolean> {
-    const normalized = (input?.updates || [])
-      .map((item) => ({
-        agentId: String(item?.agentId || "").trim(),
-        childAgentIds: Array.from(
-          new Set((item?.childAgentIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
-        ),
-      }))
-      .filter((item) => !!item.agentId);
-    if (normalized.length === 0) return true;
-
-    const snapshot = new Map<string, string[]>();
-    let applied = 0;
-    for (const update of normalized) {
-      const persona = options.personas.value.find(
-        (item) => String(item.id || "").trim() === update.agentId,
-      );
-      if (!persona) continue;
-      snapshot.set(
-        update.agentId,
-        Array.isArray(persona.childAgentIds) ? [...persona.childAgentIds] : [],
-      );
-      persona.childAgentIds = update.childAgentIds;
-      applied += 1;
-    }
-    if (applied === 0) return true;
-
-    const saved = await options.savePersonas();
-    if (!saved) {
-      for (const [agentId, previous] of snapshot) {
-        const persona = options.personas.value.find(
-          (item) => String(item.id || "").trim() === agentId,
-        );
-        if (persona) persona.childAgentIds = previous;
-      }
-      return false;
-    }
-    return true;
-  }
-
   async function removeSelectedPersona() {
     if (options.assistantPersonas.value.length <= 1) return false;
     const target = options.selectedPersonaEditor.value;
@@ -187,7 +140,6 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     addApiConfig,
     removeSelectedApiConfig,
     addPersona,
-    setPersonaChildAgentsBatch,
     removeSelectedPersona,
   };
 }

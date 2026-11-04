@@ -115,7 +115,6 @@
         :restore-config-action="restoreLastSavedConfigSnapshot"
         :last-saved-config-json="lastSavedConfigJson"
         :set-status-action="setStatus"
-        :save-persona-relations="handleSavePersonaRelations"
         @update:config-tab="(value) => { configTab = value; }"
         @update:simple-setup-mode="setSimpleSetupMode"
         @update:ui-language="setUiLanguage"
@@ -143,7 +142,6 @@
         @remove-selected-persona="removeSelectedPersona"
         @reset-personas="loadPersonas"
         @save-personas="savePersonas"
-        @convert-private-persona-to-public="convertPrivatePersonaToPublic"
         @import-persona-memories="importPersonaMemories"
         @open-conversation-list="openConversationList"
         @open-prompt-preview="openPromptPreviewFromConfig"
@@ -404,7 +402,6 @@ type ConfigTab =
   | "skill"
   | "catalog"
   | "persona"
-  | "organization"
   | "demo"
   | "chatSettings"
   | "notification"
@@ -763,7 +760,6 @@ const {
   refreshPersonasAfterExternalChange,
   savePersonas,
   saveChatPreferences,
-  convertPrivatePersonaToPublic,
   patchChatSettings,
   patchConversationApiSettings,
   restoreLastSavedConfigSnapshot,
@@ -786,7 +782,6 @@ const {
   addApiConfig,
   removeSelectedApiConfig,
   addPersona,
-  setPersonaChildAgentsBatch,
   removeSelectedPersona,
 } = useConfigEditors({
   t: tr,
@@ -960,19 +955,6 @@ async function updatePersonaEditorIdWithNotice(value: string) {
     if (!allow) return;
   }
   personaEditorId.value = nextId;
-}
-
-/** 人格上下级关系的批量保存：把有变更的下级一次性写回，返回是否成功。 */
-async function handleSavePersonaRelations(
-  updates: { agentId: string; childAgentIds: string[] }[],
-): Promise<boolean> {
-  const ok = await setPersonaChildAgentsBatch({ updates });
-  if (!ok) {
-    setStatus(tr("config.persona.saveRelationsFailed"));
-    return false;
-  }
-  setStatus(tr("config.persona.saveRelationsSuccess"));
-  return true;
 }
 
 function updateInstructionPresets(value: PromptCommandPreset[]) {

@@ -206,7 +206,6 @@
           :text-capable-api-configs="textCapableApiConfigs"
           :expert-api-config-id="props.config?.expertApiConfigId ?? ''"
           :tool-review-api-config-id="props.config?.toolReviewApiConfigId ?? ''"
-          :save-relations="props.savePersonaRelations"
           :set-status-action="setStatusAction"
           @update:persona-editor-id="$emit('update:personaEditorId', $event)"
           @add-persona="$emit('addPersona')"
@@ -215,17 +214,6 @@
           @open-avatar-editor="openAvatarEditorForSelected"
           @import-persona-memories="$emit('importPersonaMemories', $event)"
           @save-personas="$emit('savePersonas')"
-          @convert-private-persona-to-public="$emit('convertPrivatePersonaToPublic', $event)"
-        />
-      </div>
-
-      <div v-else-if="props.configTab === 'organization'" class="flex-1 min-h-0">
-        <OrganizationTab
-          :personas="personas"
-          :persona-avatar-url-map="props.personaAvatarUrlMap"
-          :saving="personaSaving"
-          :save-relations="props.savePersonaRelations"
-          :set-status-action="setStatusAction"
         />
       </div>
 
@@ -453,7 +441,6 @@ import McpTab from "./config-tabs/McpTab.vue";
 import SkillTab from "./config-tabs/SkillTab.vue";
 import CatalogTab from "./config-tabs/CatalogTab.vue";
 import PersonaTab from "./config-tabs/PersonaTab.vue";
-import OrganizationTab from "./config-tabs/OrganizationTab.vue";
 import DemoTab from "./config-tabs/DemoTab.vue";
 import ChatSettingsTab from "./config-tabs/ChatSettingsTab.vue";
 import NotificationTab from "./config-tabs/NotificationTab.vue";
@@ -468,11 +455,11 @@ import StorageTab from "./config-tabs/StorageTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
 import SimpleSetupPanel from "./config-tabs/SimpleSetupPanel.vue";
 import { toErrorMessage } from "../../../utils/error";
-import { ArrowLeftRight, Beaker, Bell, ChevronRight, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, Network, Palette, Puzzle, Radio, ScrollText, Sparkles, Star, Store, User, Wifi } from "@lucide/vue";
+import { ArrowLeftRight, Beaker, Bell, ChevronRight, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, Palette, Puzzle, Radio, ScrollText, Sparkles, Star, Store, User, Wifi } from "@lucide/vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useUnsavedChangesGuard } from "../composables/use-unsaved-changes-guard";
 
-type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "organization" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type AvatarTarget = { agentId: string };
 type ConfigNavItem = {
   tab: ConfigTab;
@@ -517,7 +504,6 @@ const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
     titleKey: "config.navGroups.agents",
     items: [
       { tab: "persona", icon: User, labelKey: "config.tabs.persona" },
-      { tab: "organization", icon: Network, labelKey: "config.tabs.organization" },
     ],
   },
   {
@@ -619,7 +605,6 @@ const props = defineProps<{
   restoreConfigAction: () => boolean;
   lastSavedConfigJson: string;
   setStatusAction: (text: string, tone?: StatusTone, sticky?: boolean) => void;
-  savePersonaRelations?: (updates: { agentId: string; childAgentIds: string[] }[]) => Promise<boolean>;
 }>();
 
 const emit = defineEmits<{
@@ -651,7 +636,6 @@ const emit = defineEmits<{
   (e: "removeSelectedPersona"): void;
   (e: "resetPersonas"): void;
   (e: "savePersonas"): void;
-  (e: "convertPrivatePersonaToPublic", agentId: string): void;
   (e: "importPersonaMemories", value: { agentId: string; file: File }): void;
   (e: "openConversationList"): void;
   (e: "openPromptPreview"): void;

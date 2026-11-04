@@ -51,9 +51,6 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
   function normalizeAvatarError(error: unknown): string {
     const raw = String(error ?? "").trim();
     if (!raw) return "unknown";
-    if (raw.includes("当前人格来自私有工作区")) {
-      return options.t("config.persona.privateWorkspaceAvatarReadonly");
-    }
     if (raw.includes("Agent not found")) {
       return options.t("config.persona.avatarTargetMissing");
     }
