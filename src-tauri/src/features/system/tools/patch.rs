@@ -1353,16 +1353,13 @@ async fn builtin_apply_patch_with_name(
             "partial": !outcome.changed.is_empty(),
             "cwd": terminal_path_for_user(&cwd),
             "changed": outcome.changed,
-            "changedCount": outcome.changed.len(),
             "failed": {
                 "index": failure.index,
                 "op": failure.op,
                 "path": failure.path,
                 "message": failure.message,
             },
-            "elapsedMs": elapsed_ms,
             "backupRecordId": record_path.as_ref().map(|_| backup_record.record_id.clone()),
-            "backupFingerprint": record_path.as_ref().map(|_| backup_record.fingerprint.clone()),
             "backupRecordPath": record_path.as_ref().map(|path| terminal_path_for_user(path)),
         }));
     }
@@ -1378,10 +1375,7 @@ async fn builtin_apply_patch_with_name(
         "approved": true,
         "cwd": terminal_path_for_user(&cwd),
         "changed": outcome.changed,
-        "changedCount": outcome.changed.len(),
-        "elapsedMs": elapsed_ms,
         "backupRecordId": record_path.as_ref().map(|_| backup_record.record_id.clone()),
-        "backupFingerprint": record_path.as_ref().map(|_| backup_record.fingerprint.clone()),
         "backupRecordPath": record_path.as_ref().map(|path| terminal_path_for_user(path)),
     }))
 }

@@ -203,7 +203,7 @@ async fn builtin_task(
             let data_path = app_state.data_path.clone();
             let tasks = run_task_store_io(move || task_store_list_tasks(&data_path)).await?;
             serde_json::to_value(tasks)
-                .map(task_tool_receipt)
+                .map(|value| task_tool_receipt(value, true))
                 .map_err(|err| format!("Serialize task list failed: {err}"))
         }
         "get" => {
@@ -215,7 +215,7 @@ async fn builtin_task(
             let data_path = app_state.data_path.clone();
             let task = run_task_store_io(move || task_store_get_task(&data_path, &task_id)).await?;
             serde_json::to_value(task)
-                .map(task_tool_receipt)
+                .map(|value| task_tool_receipt(value, true))
                 .map_err(|err| format!("Serialize task get failed: {err}"))
         }
         "create" => {
@@ -265,7 +265,7 @@ async fn builtin_task(
             task_scheduler_notify_changed(app_state);
             task_publish_changed_event(app_state, "created", &task.task_id, Some(&task));
             serde_json::to_value(task)
-                .map(task_tool_receipt)
+                .map(|value| task_tool_receipt(value, false))
                 .map_err(|err| format!("Serialize task create failed: {err}"))
         }
         "complete" => {
@@ -294,30 +294,52 @@ async fn builtin_task(
             task_scheduler_notify_changed(app_state);
             task_publish_changed_event(app_state, "completed", &task.task_id, Some(&task));
             serde_json::to_value(task)
-                .map(task_tool_receipt)
+                .map(|value| task_tool_receipt(value, false))
                 .map_err(|err| format!("Serialize task complete failed: {err}"))
         }
         _ => Err("task.action must be one of: list, get, create, complete".to_string()),
     }
 }
 
-/// 任务回执不再搬运 goal / why / todo 正文：这三项是调用方提交的任务描述，
-/// 原样回显只是把同一段文字再塞回上下文。
+/// 任务回执只留「看得懂 + 下一步要用」的字段。
 ///
-/// `completionState` 与 `completionConclusion` 必须保留——`provider_tool_metadata_from_value`
-/// 依赖它们驱动任务控制流，删了会把任务收口打断。
-fn task_tool_receipt(mut value: Value) -> Value {
-    fn strip(map: &mut serde_json::Map<String, Value>) {
-        for key in ["goal", "why", "todo"] {
+/// 保留：`task_id`（get / complete 必填）、`trigger`（下一次何时触发）、
+/// `completion_state` / `completion_conclusion`（`provider_tool_metadata_from_value`
+/// 依赖它们驱动任务收口，删了会把任务收口打断）。
+///
+/// `goal` 只在 list / get 里留：任务列表没有标题就只剩一串 id，`goal` 是唯一的标题。
+/// create / complete 是刚提交完那一刻，正文属于回显，不留。
+/// `why` / `todo` 任何动作都是调用方刚提交的原文，一律不抄回。
+///
+/// 去掉的是纯内部账本：会话/人格归属、排序位、四个本地时间戳、进度备注。
+/// 注意 `TaskEntry` 按蛇形序列化，这里的键名必须与结构体字段一致。
+fn task_tool_receipt(value: Value, keep_goal: bool) -> Value {
+    fn strip(map: &mut serde_json::Map<String, Value>, keep_goal: bool) {
+        for key in [
+            "conversation_id",
+            "agent_id",
+            "order_index",
+            "progress_notes",
+            "created_at_local",
+            "updated_at_local",
+            "last_triggered_at_local",
+            "completed_at_local",
+            "why",
+            "todo",
+        ] {
             map.remove(key);
         }
+        if !keep_goal {
+            map.remove("goal");
+        }
     }
+    let mut value = value;
     match &mut value {
-        Value::Object(map) => strip(map),
+        Value::Object(map) => strip(map, keep_goal),
         Value::Array(items) => {
             for item in items.iter_mut() {
                 if let Value::Object(map) = item {
-                    strip(map);
+                    strip(map, keep_goal);
                 }
             }
         }

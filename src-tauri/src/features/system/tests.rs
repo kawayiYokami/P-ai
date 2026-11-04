@@ -374,7 +374,7 @@
         assert_eq!(stored.len(), 2);
         assert_eq!(
             todo_response_text(&stored),
-            "## Current Todo List\n\n→ Add todo MCP server\n○ Run cargo check"
+            "→ Add todo MCP server\n○ Run cargo check"
         );
         assert_eq!(
             conversation_todo_list(&state, &conversation_id)
@@ -411,7 +411,7 @@
                     status: "completed".to_string(),
                 },
             ]),
-            "## Current Todo List\n\n✓ Add todo MCP server\n✓ Run cargo check\n\n已经完成了所有步骤，请向用户进行汇报"
+            "✓ Add todo MCP server\n✓ Run cargo check\n\nall todos done"
         );
         assert!(
             conversation_todo_list(&state, &conversation_id)

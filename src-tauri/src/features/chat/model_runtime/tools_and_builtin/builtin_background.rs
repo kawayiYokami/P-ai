@@ -12,37 +12,6 @@ fn background_clip_text(text: String, limit: Option<usize>) -> String {
     text.chars().take(limit).collect()
 }
 
-#[allow(dead_code)]
-async fn background_shell_list_inner(
-    state: &AppState,
-    session_id: &str,
-    limit: Option<usize>,
-) -> Result<Value, String> {
-    let conversation_id = background_tool_conversation_id(session_id)?;
-    let tasks = terminal_background_shell_list(state, &conversation_id).await;
-    let mut items = Vec::<Value>::new();
-    for item in tasks {
-        let mut trial = items.clone();
-        trial.push(item.clone());
-        let rendered = serde_json::to_string(&trial)
-            .map_err(|err| format!("Serialize background list failed: {err}"))?;
-        if let Some(limit) = limit {
-            if rendered.chars().count() > limit {
-                break;
-            }
-        }
-        items.push(item);
-    }
-    Ok(serde_json::json!({
-        "ok": true,
-        "action": "list",
-        "kind": "shell",
-        "conversationId": conversation_id,
-        "count": items.len(),
-        "items": items,
-    }))
-}
-
 async fn background_shell_status_inner(
     state: &AppState,
     session_id: &str,
@@ -56,10 +25,6 @@ async fn background_shell_status_inner(
     };
     let detail = background_clip_text(terminal_background_shell_status_text(&task), limit);
     Ok(serde_json::json!({
-        "ok": true,
-        "action": "status",
-        "kind": "shell",
-        "conversationId": conversation_id,
         "id": task.id,
         "status": format!("{:?}", *task.status.lock().expect("terminal background status poisoned")),
         "detail": detail,
@@ -74,18 +39,18 @@ async fn background_shell_kill_inner(
     let conversation_id = background_tool_conversation_id(session_id)?;
     let (killed, confirmed, status, log) =
         terminal_background_shell_request_kill(state, &conversation_id, task_id.trim(), "assistant").await?;
-    Ok(serde_json::json!({
-        "ok": true,
-        "action": "kill",
-        "kind": "shell",
-        "conversationId": conversation_id,
+    // 只回「停掉了没有」和尾巴日志：killed 与 alreadyTerminal 互为反，
+    // confirmed 是内部确认位，kind 恒为 shell。
+    let mut output = serde_json::json!({
         "id": task_id.trim(),
-        "killed": killed,
-        "confirmed": confirmed,
-        "alreadyTerminal": !killed,
         "status": status,
         "log": log,
-    }))
+    });
+    if !killed {
+        output["alreadyEnded"] = serde_json::json!(true);
+    }
+    let _ = confirmed;
+    Ok(output)
 }
 
 async fn background_list_inner(state: &AppState, session_id: &str, limit: Option<usize>) -> Result<Value, String> {
@@ -101,28 +66,14 @@ async fn background_list_inner(state: &AppState, session_id: &str, limit: Option
         state,
     )?;
     for summary in summaries {
+        // 条目只留能被下一步用到的：id 定位、kind 决定续查走哪条、status 核心状态、
+        // title 唯一的人话、startedAt 判断跑了多久。其余都是内部进度账本。
         let item = serde_json::json!({
             "id": summary.delegate_id,
             "kind": summary.kind,
             "status": summary.status,
             "title": summary.title,
-            "active": summary.active,
             "startedAt": summary.started_at,
-            "updatedAt": summary.updated_at,
-            "completedAt": summary.completed_at,
-            "archivedAt": summary.archived_at,
-            "conversationId": summary.conversation_id,
-            "rootConversationId": summary.root_conversation_id,
-            "elapsedMs": summary.elapsed_ms,
-            "requestCount": summary.request_count,
-            "toolCallCount": summary.tool_call_count,
-            "lastToolName": summary.last_tool_name,
-            "tokenCount": summary.token_count,
-            "inputTokenCount": summary.input_token_count,
-            "outputTokenCount": summary.output_token_count,
-            "cacheReadTokenCount": summary.cache_read_token_count,
-            "cacheWriteTokenCount": summary.cache_write_token_count,
-            "targetAgentId": summary.target_agent_id,
         });
         items.push(item);
     }
@@ -203,9 +154,6 @@ fn background_delegate_status_inner(
             limit,
         );
         return Ok(serde_json::json!({
-            "ok": true,
-            "action": "status",
-            "conversationId": conversation_id,
             "id": summary.delegate_id,
             "status": summary.status,
             "detail": detail,
@@ -215,12 +163,9 @@ fn background_delegate_status_inner(
         .unwrap_or_else(|| "结果已写回会话".to_string());
     let result_text = background_clip_text(result_text, limit);
     Ok(serde_json::json!({
-        "ok": true,
-        "action": "status",
-        "conversationId": conversation_id,
         "id": summary.delegate_id,
         "status": summary.status,
-        "result": result_text,
+        "detail": result_text,
     }))
 }
 
@@ -246,11 +191,8 @@ fn background_delegate_kill_inner(
         state,
     )?;
     Ok(serde_json::json!({
-        "ok": true,
-        "action": "kill",
-        "conversationId": conversation_id,
         "id": delegate_id.trim(),
-        "killed": result.aborted,
+        "status": if result.aborted { "killed" } else { "already ended" },
     }))
 }
 

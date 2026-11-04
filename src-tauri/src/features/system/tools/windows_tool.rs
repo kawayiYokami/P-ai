@@ -26,16 +26,18 @@ struct WindowsRequest {
 #[serde(rename_all = "camelCase")]
 struct WindowsResponse {
     ok: bool,
-    executed_count: usize,
     steps: Vec<WindowsStepResult>,
 }
 
+/// 单步结果只留「这一步做成了没有」和窗口清单。
+/// `summary` 那句话没有消费者：种类由 `kind` 表达，成败由 `ok` 表达。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WindowsStepResult {
     kind: WindowsStepKind,
-    summary: String,
     ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    window_id: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     windows: Option<Vec<WindowInfo>>,
 }
@@ -116,39 +118,35 @@ fn run_windows_tool(input: WindowsRequest) -> DesktopToolResult<WindowsResponse>
         match action {
             WindowsAction::ListWindows { line } => {
                 let windows = platform::list_all_windows();
-                let step = WindowsStepResult {
-                    kind: WindowsStepKind::ListWindows,
-                    summary: format!("windows listed, count={}", windows.len()),
-                    ok: true,
-                    windows: Some(windows),
-                };
                 runtime_log_info(format!(
-                    "[窗口工具] 步骤完成，任务=run_windows_tool，line={}，kind=ListWindows，summary={}",
-                    line, step.summary
+                    "[窗口工具] 步骤完成，任务=run_windows_tool，line={}，kind=ListWindows，count={}",
+                    line,
+                    windows.len()
                 ));
-                steps.push(step);
+                steps.push(WindowsStepResult {
+                    kind: WindowsStepKind::ListWindows,
+                    ok: true,
+                    window_id: None,
+                    windows: Some(windows),
+                });
             }
             WindowsAction::ActivateWindow { line, window_id } => {
                 let (title, activated) = platform::activate_window(window_id);
-                let step = WindowsStepResult {
-                    kind: WindowsStepKind::ActivateWindow,
-                    summary: format!("activate window id={window_id} title={title:?} activated={activated}"),
-                    ok: activated,
-                    windows: None,
-                };
                 runtime_log_info(format!(
-                    "[窗口工具] 步骤完成，任务=run_windows_tool，line={}，kind=ActivateWindow，summary={}",
-                    line, step.summary
+                    "[窗口工具] 步骤完成，任务=run_windows_tool，line={}，kind=ActivateWindow，title={title:?}，activated={activated}",
+                    line
                 ));
-                steps.push(step);
+                steps.push(WindowsStepResult {
+                    kind: WindowsStepKind::ActivateWindow,
+                    ok: activated,
+                    window_id: Some(window_id),
+                    windows: None,
+                });
             }
         }
     }
-    Ok(WindowsResponse {
-        ok: steps.iter().all(|s| s.ok),
-        executed_count: steps.len(),
-        steps,
-    })
+    let ok = steps.iter().all(|step| step.ok);
+    Ok(WindowsResponse { ok, steps })
 }
 
 #[cfg(test)]

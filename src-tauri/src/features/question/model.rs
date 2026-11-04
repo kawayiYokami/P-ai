@@ -178,19 +178,22 @@ fn question_mutation_from_item(item: &QuestionUpdateItem) -> Result<QuestionMuta
 }
 
 /// 工具层文本输出：与 `list` 同形，队长一次调用即可看到最新状态。
+///
+/// 纯文本、英文、可读：编号 + 标题 + 选项。背景不搬——那是调用方刚写下的入参。
 fn question_list_text(views: &[ConversationQuestionView]) -> String {
     if views.is_empty() {
-        return "当前会话没有问题。".to_string();
+        return "no questions".to_string();
     }
-    let mut lines = vec![format!("当前会话问题（共 {} 条）：", views.len())];
+    let mut lines = vec![format!(
+        "{} question{}",
+        views.len(),
+        if views.len() == 1 { "" } else { "s" }
+    )];
     for view in views {
         lines.push(String::new());
-        lines.push(format!("#{} {}", view.number, view.title));
-        if !view.background.trim().is_empty() {
-            lines.push(format!("背景：{}", view.background.trim()));
-        }
+        lines.push(format!("#{} {}", view.number, view.title.trim()));
         for (index, option) in view.options.iter().enumerate() {
-            lines.push(format!("{}. {}", index + 1, option));
+            lines.push(format!("  {}. {}", index + 1, option));
         }
     }
     lines.join("\n")

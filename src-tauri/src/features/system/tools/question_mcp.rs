@@ -85,7 +85,11 @@ fn builtin_question(
     let views = question_run_tool(app_state, &conversation_id, request)?;
     if is_update {
         // 回执不复述刚提交的 title / background / options：那是入参原文，模型自己刚写过。
-        return Ok(format!("已更新当前会话问题，共 {} 条。", views.len()));
+        return Ok(format!(
+            "updated, {} question{}",
+            views.len(),
+            if views.len() == 1 { "" } else { "s" }
+        ));
     }
     Ok(question_list_text(&views))
 }

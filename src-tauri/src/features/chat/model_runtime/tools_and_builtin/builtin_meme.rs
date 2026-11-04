@@ -939,26 +939,20 @@ fn meme_rename_asset(state: &AppState, agent_id: &str, from: &str, to: &str) -> 
 }
 
 /// 列出人格库全部表情，带图片绝对路径，便于模型自行读图确认内容。
+///
+/// 回执只留 `emotion` 与 `path`：`emotion` 是 delete / rename 的定位键，
+/// `path` 让模型能自己读图。`name` 与 `emotion` 同值，`mime` 恒为图片类型，
+/// `bytes` 没人看，`action` / `count` 是入参与派生。
 fn meme_list_assets_json(state: &AppState, agent_id: &str) -> Result<serde_json::Value, String> {
     let grouped = meme_available_assets(state, agent_id)?;
     let mut items = Vec::with_capacity(grouped.len());
     for candidate in grouped.values() {
-        let bytes = std::fs::metadata(&candidate.absolute_path)
-            .map(|meta| meta.len())
-            .unwrap_or(0);
         items.push(serde_json::json!({
-            "name": candidate.name,
             "emotion": candidate.name,
-            "mime": candidate.mime,
             "path": candidate.absolute_path.to_string_lossy(),
-            "relativePath": candidate.relative_path,
-            "bytes": bytes,
         }));
     }
     Ok(serde_json::json!({
-        "ok": true,
-        "action": "list",
-        "count": items.len(),
         "memes": items,
     }))
 }
@@ -1306,14 +1300,18 @@ pub(crate) mod builtin_meme_tests {
             .expect("memes array");
 
         assert_eq!(memes.len(), 1);
-        assert_eq!(memes[0].get("name").and_then(|v| v.as_str()), Some("坏笑"));
+        // emotion 是 delete / rename 的定位键；path 让模型能自己读图。
+        assert_eq!(
+            memes[0].get("emotion").and_then(|v| v.as_str()),
+            Some("坏笑")
+        );
         assert_eq!(
             memes[0].get("path").and_then(|v| v.as_str()),
             Some(file.to_string_lossy().as_ref())
         );
-        assert_eq!(
-            memes[0].get("relativePath").and_then(|v| v.as_str()),
-            Some(".meme/agent-meme-test/坏笑.webp")
+        assert!(
+            memes[0].get("mime").is_none() && memes[0].get("bytes").is_none(),
+            "mime 按扩展名可知、bytes 没人看，都不回执"
         );
     }
 

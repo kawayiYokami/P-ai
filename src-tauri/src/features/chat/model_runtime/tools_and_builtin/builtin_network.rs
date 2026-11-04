@@ -204,31 +204,25 @@ async fn call_exa_mcp_tool(
     parse_exa_sse_result(&body)
 }
 
-fn map_exa_fetch_result(url: &str, max_length: usize, result: &Value) -> Result<Value, String> {
+fn map_exa_fetch_result(max_length: usize, result: &Value) -> Result<Value, String> {
     let texts = exa_result_texts(result);
     if texts.is_empty() {
         return Err("Exa fetch returned empty content.".to_string());
     }
     let combined = texts.join("\n\n");
     Ok(serde_json::json!({
-      "ok": true,
-      "url": url,
       "status": 200,
-      "content": truncate_by_chars(&combined, max_length),
-      "provider": "exa"
+      "content": truncate_by_chars(&combined, max_length)
     }))
 }
 
-fn map_exa_search_result(query: &str, result: &Value) -> Result<Value, String> {
+fn map_exa_search_result(result: &Value) -> Result<Value, String> {
     let texts = exa_result_texts(result);
     if texts.is_empty() {
         return Err("Exa search returned empty content.".to_string());
     }
     Ok(serde_json::json!({
-        "query": query,
-        "engine": "exa",
-        "results": texts,
-        "provider": "exa"
+        "results": texts
     }))
 }
 
@@ -307,10 +301,7 @@ async fn builtin_anysearch(state: &AppState, query: &str) -> Result<Value, Strin
         return Err("anysearch results missing title/url".to_string());
     }
     Ok(serde_json::json!({
-        "query": raw_query,
-        "engine": "anysearch",
         "results": rows,
-        "provider": "anysearch",
     }))
 }
 
@@ -457,7 +448,7 @@ async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result
     )
     .await
     {
-        Ok(result) if exa_result_has_content(&result) => map_exa_fetch_result(url.trim(), max_length, &result),
+        Ok(result) if exa_result_has_content(&result) => map_exa_fetch_result(max_length, &result),
         Ok(_) | Err(_) => builtin_fetch_fallback(state, url, max_length).await,
     }
 }
@@ -622,11 +613,7 @@ async fn builtin_bing_search_fallback(state: &AppState, query: &str) -> Result<V
         }
         if !rows.is_empty() {
             return Ok(serde_json::json!({
-                "query": query,
-                "requestUrl": url,
-                "engine": "bing",
-                "results": rows,
-                "provider": "builtin"
+                "results": rows
             }));
         }
         last_error = Some("no results parsed".to_string());
@@ -653,7 +640,7 @@ async fn builtin_bing_search(state: &AppState, query: &str) -> Result<Value, Str
     )
     .await
     {
-        Ok(result) if exa_result_has_content(&result) => map_exa_search_result(query.trim(), &result),
+        Ok(result) if exa_result_has_content(&result) => map_exa_search_result(&result),
         Ok(_) | Err(_) => builtin_bing_search_fallback(state, query).await,
     }
 }

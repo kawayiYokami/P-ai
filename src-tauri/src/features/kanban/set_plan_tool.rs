@@ -57,9 +57,5 @@ pub(crate) fn builtin_kanban_set_plan(
     let result = kanban_set_plan(app_state, &leader_conversation_id, number, plan_path)?;
     kanban_emit_updated(app_state, &leader_conversation_id);
 
-    let payload = serde_json::json!({
-        "number": result.number,
-        "planPath": result.plan_path,
-    });
-    serde_json::to_string(&payload).map_err(|err| format!("序列化计划设置结果失败：{err}"))
+    Ok(format!("#{} plan set\n{}", result.number, result.plan_path))
 }

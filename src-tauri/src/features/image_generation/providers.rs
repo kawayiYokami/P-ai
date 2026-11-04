@@ -528,8 +528,6 @@ async fn generate_openai_image_once(
     parse_openai_style_image_response(&value)
 }
 
-pub(crate) const GROK_IMAGE_TO_VIDEO_MODEL: &str = "grok-imagine-video-1.5";
-
 // ==================== Grok 视频首帧体积收敛 ====================
 // cli-chat-proxy 网关对请求体有 1 MiB 长度上限，实测（2026-10-03）1048195 字节通过，
 // 1052415 字节返回 {"error":"Failed to read request body: length limit exceeded"}，

@@ -177,59 +177,54 @@ pub(crate) fn builtin_plan(
         .map(ToOwned::to_owned);
     let auto_approved =
         action == "present" && plan_tool_should_auto_approve_present(conversation.as_ref());
-    let mut active_plan_recorded = false;
-    let mut active_plan_completed = false;
-    let mut plan_mode_closed = false;
 
     if action == "present" && auto_approved {
         if let Some(conversation_id) = conversation_id.as_deref() {
             let source_message_id = format!("auto-approved-plan-{}", Uuid::new_v4());
-            match message_store::active_plan_append_in_progress(
+            if let Err(err) = message_store::active_plan_append_in_progress(
                 &app_state.data_path,
                 conversation_id,
                 &source_message_id,
                 &resolved_path.display_path,
             ) {
-                Ok(()) => active_plan_recorded = true,
-                Err(err) => runtime_log_warn(format!(
+                runtime_log_warn(format!(
                     "[计划] 自动同意写入执行中计划失败 conversation_id={} session_id={} error={}",
                     conversation_id, session_id, err
-                )),
+                ));
             }
-            match set_conversation_plan_mode_enabled(app_state, conversation_id, false) {
-                Ok(()) => plan_mode_closed = true,
-                Err(err) => runtime_log_warn(format!(
+            if let Err(err) = set_conversation_plan_mode_enabled(app_state, conversation_id, false) {
+                runtime_log_warn(format!(
                     "[计划] 自动同意关闭计划模式失败 conversation_id={} session_id={} error={}",
                     conversation_id, session_id, err
-                )),
+                ));
             }
         }
     }
 
     if action == "complete" {
         if let Some(conversation_id) = conversation_id.as_deref() {
-            match message_store::active_plan_complete_by_path(
+            if let Err(err) = message_store::active_plan_complete_by_path(
                 &app_state.data_path,
                 conversation_id,
                 &resolved_path.display_path,
                 None,
             ) {
-                Ok(value) => active_plan_completed = value,
-                Err(err) => runtime_log_warn(format!(
+                runtime_log_warn(format!(
                     "[计划] 标记完成失败 conversation_id={} session_id={} error={}",
                     conversation_id, session_id, err
-                )),
+                ));
             }
         }
     }
 
+    // 回执只说「这次调用之后计划处在什么状态」，不铺内部开关。
+    // 保留的都是有消费者的：`action` / `path` / `should_stop_tool_loop` 被
+    // `provider_tool_metadata_from_value` 读取驱动工具循环与计划验收，
+    // `auto_approved` 决定回执该说「等确认」还是「已自动批准」。
     Ok(serde_json::json!({
         "action": action,
         "path": resolved_path.display_path,
         "should_stop_tool_loop": action == "present" && !auto_approved,
         "auto_approved": auto_approved,
-        "active_plan_recorded": active_plan_recorded,
-        "active_plan_completed": active_plan_completed,
-        "plan_mode_closed": plan_mode_closed,
     }))
 }

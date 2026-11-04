@@ -658,19 +658,20 @@ fn builtin_memory_save(
             })
         })
         .collect::<Vec<_>>();
-    Ok(serde_json::json!({
-      "ok": first.saved && display_failed_delete_ids.is_empty(),
-      "action": action,
+    // 回执只留调用方推不出来的事实：存成哪条、成没成、合并替换掉了哪些、库里总共多少。
+    // action / tags / reason / updatedAt 都是调用方自己刚提交的原文或内部时间戳，不再抄回。
+    let mut output = serde_json::json!({
       "saved": first.saved,
       "id": display_saved_id,
-      "tags": first.tags,
-      "updatedAt": first.updated_at,
-      "reason": first.reason,
-      "sourceMemoryIds": display_source_ids,
-      "deletedSourceIds": display_deleted_source_ids,
-      "failedDeleteIds": display_failed_delete_ids,
       "totalMemories": total_memories
-    }))
+    });
+    if !display_deleted_source_ids.is_empty() {
+        output["deletedSourceIds"] = serde_json::json!(display_deleted_source_ids);
+    }
+    if !display_failed_delete_ids.is_empty() {
+        output["failedDeleteIds"] = serde_json::json!(display_failed_delete_ids);
+    }
+    Ok(output)
 }
 
 fn builtin_recall(
@@ -687,14 +688,11 @@ fn builtin_recall(
     let limit = limit.unwrap_or(7).clamp(1, 50);
     if !memory_context.recall_enabled {
         return Ok(serde_json::json!({
-          "ok": true,
-          "memoryBoard": "",
+          "memories": "",
           "count": 0,
           "total": 0,
           "offset": offset,
           "limit": limit,
-          "time": time_prefix,
-          "query": trimmed_query,
           "reason": "memory_recall_disabled"
         }));
     }
@@ -726,17 +724,47 @@ fn builtin_recall(
         .skip(offset)
         .take(limit)
         .collect::<Vec<_>>();
-    let memory_board = build_memory_board_xml_from_recall_ids(&memories, &page_ids, true)
-        .unwrap_or_default();
+    // 回执正文自己拼，不走系统提示词那条 <memory_context> 拼装：
+    // recall 的调用方是模型自己，不需要 XML 外壳来标边界，标签只会变成噪音。
+    let memory_board = recall_receipt_board_text(&memories, &page_ids);
 
     Ok(serde_json::json!({
-      "ok": true,
-      "memoryBoard": memory_board,
+      "memories": memory_board,
       "count": page_ids.len(),
       "total": total,
       "offset": offset,
-      "limit": limit,
-      "time": time_prefix,
-      "query": trimmed_query
+      "limit": limit
     }))
+}
+
+/// recall 回执里的记忆正文：一行一条 `[id:xxx] 判断句`，有理由时缩进一行。
+///
+/// 与 `build_memory_board_xml_from_recall_ids` 的区别只有外层：那边给系统提示词用，
+/// 需要 `<memory_context>` 标出注入边界；这里是工具回执，边界由工具调用本身划出。
+fn recall_receipt_board_text(memories: &[MemoryEntry], recall_ids: &[String]) -> String {
+    if memories.is_empty() || recall_ids.is_empty() {
+        return String::new();
+    }
+    let memory_map = memories
+        .iter()
+        .map(|memory| (memory.id.as_str(), memory))
+        .collect::<std::collections::HashMap<_, _>>();
+    recall_ids
+        .iter()
+        .filter_map(|memory_id| memory_map.get(memory_id.as_str()).copied())
+        .map(|memory| {
+            let reasoning = memory.reasoning.trim();
+            if reasoning.is_empty() {
+                format!("[id:{}] {}", memory.display_id(), memory.judgment.trim())
+            } else {
+                format!(
+                    "[id:{}] {}\n> {}",
+                    memory.display_id(),
+                    memory.judgment.trim(),
+                    reasoning
+                )
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

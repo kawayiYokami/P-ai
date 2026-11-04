@@ -151,6 +151,372 @@ fn tool_value_readable_text(value: &Value) -> String {
     lines.join("\n")
 }
 
+// ==================== 工具回执的人话层 ====================
+//
+// 结果区是纯文本渲染，读不懂就是回执没写好——所以表型工具（名册、任务、后台、
+// 看板、搜索、窗口、表情、会话）在这里就把数据排成一段能直接读的文本，
+// 而不是把结构化字段丢给前端去拼。
+//
+// 只做排版，不补字段：需要的信息如果没在返回值里，那是上一步删过头了。
+
+fn receipt_array<'a>(value: &'a Value, key: &str) -> &'a [Value] {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+}
+
+fn receipt_count(value: &Value, key: &str) -> u64 {
+    value.get(key).and_then(Value::as_u64).unwrap_or(0)
+}
+
+fn receipt_bool(value: &Value, key: &str) -> bool {
+    value.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// `1 teammate` / `3 teammates`
+fn receipt_plural(count: usize, singular: &str, plural: &str) -> String {
+    if count == 1 {
+        format!("1 {singular}")
+    } else {
+        format!("{count} {plural}")
+    }
+}
+
+fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
+    match tool_name {
+        "recall" => {
+            if value_string(value, "reason").as_deref() == Some("memory_recall_disabled") {
+                return Some("memory recall disabled".to_string());
+            }
+            let memories = value_string(value, "memories").unwrap_or_default();
+            if memories.trim().is_empty() {
+                return Some("no memories".to_string());
+            }
+            Some(format!(
+                "recalled {} of {} (offset {}, limit {})\n{}",
+                receipt_count(value, "count"),
+                receipt_count(value, "total"),
+                receipt_count(value, "offset"),
+                receipt_count(value, "limit"),
+                memories
+            ))
+        }
+        "remember" => {
+            if !receipt_bool(value, "saved") {
+                return Some("memory save failed".to_string());
+            }
+            let id = value_string(value, "id").unwrap_or_default();
+            let merged = receipt_array(value, "deletedSourceIds").len();
+            let failed = receipt_array(value, "failedDeleteIds").len();
+            let mut text = if merged > 0 {
+                format!("merged {merged} memories into {id}")
+            } else {
+                format!("remembered {id}")
+            };
+            if failed > 0 {
+                text.push_str(&format!("\n{failed} old memories failed to delete"));
+            }
+            Some(text)
+        }
+        "plan" => {
+            let action = value_string(value, "action").unwrap_or_default();
+            let path = value_string(value, "path").unwrap_or_default();
+            let state = match action.as_str() {
+                "present" if receipt_bool(value, "auto_approved") => {
+                    "plan presented, auto approved"
+                }
+                "present" => "plan presented, awaiting confirmation",
+                "complete" => "plan completed",
+                _ => "plan updated",
+            };
+            Some(format!("{state}\n{path}"))
+        }
+        "team_info" => {
+            let members = receipt_array(value, "members");
+            let mut lines = Vec::<String>::new();
+            if members.is_empty() {
+                lines.push("no teammates".to_string());
+            } else {
+                lines.push(receipt_plural(members.len(), "teammate", "teammates"));
+            }
+            for member in members {
+                let role = value_string(member, "role").unwrap_or_else(|| "unknown".to_string());
+                let status = value_string(member, "status").unwrap_or_default();
+                let state = value_string(member, "state").unwrap_or_default();
+                let duty = value_string(member, "duty").unwrap_or_default();
+                let branch = value_string(member, "workBranch").unwrap_or_default();
+                let conversation = value_string(member, "conversationId").unwrap_or_default();
+                let mut line = format!("- {role} [{status}]");
+                if !state.is_empty() && !state.eq_ignore_ascii_case("idle") {
+                    line.push_str(&format!(" {state}"));
+                }
+                if !duty.is_empty() {
+                    line.push(' ');
+                    line.push_str(&duty);
+                }
+                if !branch.is_empty() {
+                    line.push_str(&format!(" (branch {branch})"));
+                }
+                if !conversation.is_empty() {
+                    line.push_str(&format!("  conv:{conversation}"));
+                }
+                lines.push(line);
+            }
+            let closed = receipt_array(value, "closedMissingMembers").len();
+            if closed > 0 {
+                lines.push(format!(
+                    "closed {} missing member(s) whose conversation is gone",
+                    closed
+                ));
+            }
+            Some(lines.join("\n"))
+        }
+        "team_read" => {
+            let messages = receipt_array(value, "messages");
+            if messages.is_empty() {
+                return Some("no messages".to_string());
+            }
+            let mut header = receipt_plural(messages.len(), "message", "messages");
+            if receipt_bool(value, "hasMore") {
+                header.push_str(", more available");
+            }
+            let mut lines = vec![header];
+            for message in messages {
+                let title = value_string(message, "title").unwrap_or_default();
+                let summary = value_string(message, "summary").unwrap_or_default();
+                let text = if title.is_empty() {
+                    summary
+                } else if summary.is_empty() {
+                    title
+                } else {
+                    format!("{title} — {summary}")
+                };
+                lines.push(format!("- {text}"));
+            }
+            for note in receipt_array(value, "notes") {
+                if let Some(text) = note.as_str() {
+                    lines.push(format!("({text})"));
+                }
+            }
+            Some(lines.join("\n"))
+        }
+        "task" => {
+            let items: Vec<Value> = match value {
+                Value::Array(items) => items.clone(),
+                Value::Object(_) => vec![value.clone()],
+                _ => Vec::new(),
+            };
+            if items.is_empty() {
+                return Some("no tasks".to_string());
+            }
+            let mut lines = vec![receipt_plural(items.len(), "task", "tasks")];
+            for item in &items {
+                // TaskEntry 按蛇形序列化；驼峰只是旧夹具的写法，兼容读一下。
+                let id = value_string(item, "task_id")
+                    .or_else(|| value_string(item, "taskId"))
+                    .unwrap_or_else(|| "?".to_string());
+                let state = value_string(item, "completion_state")
+                    .or_else(|| value_string(item, "completionState"))
+                    .unwrap_or_default();
+                let goal = value_string(item, "goal").unwrap_or_default();
+                let conclusion = value_string(item, "completion_conclusion")
+                    .or_else(|| value_string(item, "completionConclusion"))
+                    .unwrap_or_default();
+                let next = item
+                    .get("trigger")
+                    .and_then(|trigger| {
+                        value_string(trigger, "next_run_at")
+                            .or_else(|| value_string(trigger, "nextRunAt"))
+                    })
+                    .unwrap_or_default();
+                let mut line = format!("- {id} [{state}]");
+                if !goal.is_empty() {
+                    line.push(' ');
+                    line.push_str(&goal);
+                }
+                if !next.is_empty() {
+                    line.push_str(&format!("  next:{next}"));
+                }
+                if !conclusion.is_empty() {
+                    line.push_str(&format!("  ({conclusion})"));
+                }
+                lines.push(line);
+            }
+            Some(lines.join("\n"))
+        }
+        "background" => {
+            let items = receipt_array(value, "items");
+            if !items.is_empty() {
+                let running = items
+                    .iter()
+                    .filter(|item| {
+                        value_string(item, "status")
+                            .map(|status| status.eq_ignore_ascii_case("running"))
+                            .unwrap_or(false)
+                    })
+                    .count();
+                let mut lines = vec![if running > 0 {
+                    format!(
+                        "{running} of {} background tasks running",
+                        items.len()
+                    )
+                } else {
+                    receipt_plural(items.len(), "background task", "background tasks")
+                }];
+                for item in items {
+                    let id = value_string(item, "id").unwrap_or_else(|| "?".to_string());
+                    let kind = value_string(item, "kind").unwrap_or_default();
+                    let status = value_string(item, "status").unwrap_or_default();
+                    let title = value_string(item, "title").unwrap_or_default();
+                    let started = value_string(item, "startedAt").unwrap_or_default();
+                    let mut line = format!("- {id} {kind} [{status}]");
+                    if !title.is_empty() {
+                        line.push(' ');
+                        line.push_str(&title);
+                    }
+                    if !started.is_empty() {
+                        line.push_str(&format!("  since {started}"));
+                    }
+                    lines.push(line);
+                }
+                return Some(lines.join("\n"));
+            }
+            let id = value_string(value, "id").unwrap_or_default();
+            let status = value_string(value, "status").unwrap_or_default();
+            let detail = value_string(value, "detail")
+                .or_else(|| value_string(value, "log"))
+                .unwrap_or_default();
+            if id.is_empty() && status.is_empty() {
+                return None;
+            }
+            let mut text = format!("{id} {status}").trim().to_string();
+            if !detail.is_empty() {
+                text.push('\n');
+                text.push_str(&detail);
+            }
+            Some(text)
+        }
+        "windows" => {
+            let mut lines = Vec::<String>::new();
+            let mut total = 0usize;
+            for step in receipt_array(value, "steps") {
+                for window in receipt_array(step, "windows") {
+                    let id = window.get("windowId").and_then(Value::as_i64).unwrap_or(0);
+                    let title = value_string(window, "title").unwrap_or_default();
+                    let marker = if receipt_bool(window, "focused") {
+                        " (focused)"
+                    } else {
+                        ""
+                    };
+                    lines.push(format!("- {id} {title}{marker}"));
+                    total += 1;
+                }
+                if step
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .map(|kind| kind.eq_ignore_ascii_case("activateWindow"))
+                    .unwrap_or(false)
+                {
+                    let id = receipt_count(step, "windowId");
+                    if receipt_bool(step, "ok") {
+                        lines.push(format!("- activated window {id}"));
+                    } else {
+                        lines.push(format!("- failed to activate window {id}"));
+                    }
+                }
+            }
+            if lines.is_empty() {
+                return Some("no windows".to_string());
+            }
+            let mut out = vec![receipt_plural(total, "window", "windows")];
+            out.extend(lines);
+            Some(out.join("\n"))
+        }
+        "websearch" => {
+            let results = receipt_array(value, "results");
+            if results.is_empty() {
+                return Some("no results".to_string());
+            }
+            let mut lines = vec![receipt_plural(results.len(), "result", "results")];
+            for result in results {
+                let title = value_string(result, "title")
+                    .or_else(|| value_string(result, "name"))
+                    .unwrap_or_default();
+                let url = value_string(result, "url").unwrap_or_default();
+                let snippet = value_string(result, "snippet")
+                    .or_else(|| value_string(result, "text"))
+                    .unwrap_or_default();
+                let head = if title.is_empty() {
+                    url.clone()
+                } else if url.is_empty() {
+                    title.clone()
+                } else {
+                    format!("{title} — {url}")
+                };
+                lines.push(format!("- {head}"));
+                if !snippet.is_empty() {
+                    lines.push(format!("  {snippet}"));
+                }
+            }
+            Some(lines.join("\n"))
+        }
+        "meme" => {
+            let memes = receipt_array(value, "memes");
+            if memes.is_empty() {
+                return Some("no memes".to_string());
+            }
+            let mut lines = vec![receipt_plural(memes.len(), "meme", "memes")];
+            for meme in memes {
+                let emotion = value_string(meme, "emotion").unwrap_or_default();
+                let path = value_string(meme, "path")
+                    .or_else(|| value_string(meme, "relativePath"))
+                    .unwrap_or_default();
+                lines.push(format!("- {emotion}: {path}"));
+            }
+            Some(lines.join("\n"))
+        }
+        "get_session" => {
+            let Value::Array(items) = value else {
+                return None;
+            };
+            if items.is_empty() {
+                return Some("no sessions".to_string());
+            }
+            let mut lines = vec![receipt_plural(items.len(), "session", "sessions")];
+            for item in items {
+                let title = value_string(item, "title").unwrap_or_default();
+                let kind = value_string(item, "kind").unwrap_or_default();
+                let id = value_string(item, "session_id")
+                    .or_else(|| value_string(item, "sessionId"))
+                    .unwrap_or_default();
+                lines.push(format!("- {title} [{kind}] {id}"));
+            }
+            Some(lines.join("\n"))
+        }
+        "inform_session" => {
+            let id = value_string(value, "session_id")
+                .or_else(|| value_string(value, "sessionId"))
+                .unwrap_or_default();
+            let pushed = receipt_bool(value, "pushed_to_remote");
+            Some(if pushed {
+                format!("sent to {id} (delivered to remote)")
+            } else {
+                format!("sent to {id}")
+            })
+        }
+        "team_recruit" => {
+            let role = value_string(value, "role").unwrap_or_default();
+            Some(format!("recruited {role} — not activated yet, use team_send"))
+        }
+        "image_generate" | "image_edit" | "image_to_video" => {
+            value_string(value, "message").map(|message| message)
+        }
+        _ => None,
+    }
+}
+
 fn value_string(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::trim).filter(|text| !text.is_empty()).map(ToOwned::to_owned)
 }
@@ -203,6 +569,9 @@ fn provider_tool_metadata_from_value(tool_name: &str, value: &Value) -> Provider
 }
 
 fn provider_tool_output_from_value(tool_name: &str, value: &Value) -> String {
+    if let Some(text) = tool_receipt_text(tool_name, value) {
+        return text;
+    }
     match tool_name {
         "exec" => {
             if value.get("background").and_then(Value::as_bool) == Some(true) {
@@ -460,20 +829,19 @@ mod runtime_tool_result_tests {
 
     #[test]
     fn structured_tool_result_is_readable_text_not_json() {
+        // TaskEntry 按蛇形序列化，夹具照真实形状来。
         let result = provider_tool_result_from_value(
             "task",
             serde_json::json!({
-                "ok": true,
-                "taskId": "task-1",
-                "completionState": "completed",
-                "items": [{"title": "第一项", "done": true}]
+                "task_id": "task-1",
+                "completion_state": "completed",
+                "goal": "第一项",
             }),
         );
-        assert!(result.output.contains("taskId: task-1"));
-        assert!(result.output.contains("completionState: completed"));
+        assert!(result.output.contains("task-1"));
+        assert!(result.output.contains("completed"));
         assert!(!result.output.contains("{\""));
-        assert!(!result.output.contains("ok:"));
-        assert!(result.output.contains("done: true"));
+        assert!(!result.output.contains("task_id:"));
         assert!(matches!(
             result.metadata.control,
             ProviderToolControl::Task { .. }

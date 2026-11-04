@@ -525,18 +525,12 @@ mod kanban_tests {
     fn kanban_tool_output_should_not_expose_storage_id() {
         let roster = test_roster(&[]);
         let issue = test_issue(3, "接看板磁贴", KANBAN_STATUS_IN_REVIEW);
-        let value = kanban_tool_issue_value(&kanban_issue_view(&issue, &roster));
-        let text = serde_json::to_string(&value).expect("serialize");
+        let text = kanban_tool_issue_line(&kanban_issue_view(&issue, &roster));
 
-        assert!(text.contains("\"number\""), "对外只用 number 定位");
+        assert!(text.starts_with("#3 "), "对外只用 number 定位：{text}");
         assert!(
-            value.get("number").and_then(Value::as_u64) == Some(3),
-            "number 应直接出现在返回值里"
-        );
-        assert!(value.get("id").is_none(), "id 不能作为字段出现");
-        assert!(
-            value.get("version").is_none(),
-            "version 是内部并发控制，返回值里出现会引诱模型去维护它"
+            !text.to_lowercase().contains("version"),
+            "version 是内部并发控制，回执里出现会引诱模型去维护它：{text}"
         );
     }
 

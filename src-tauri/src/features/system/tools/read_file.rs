@@ -1203,29 +1203,24 @@ fn read_media_normalize_provider_image(
         .map_err(|err| format!("图片格式异常：{err}"))
 }
 
-/// 图片确实被缩放过时，用实际尺寸替换「原图」口径，避免模型按原图精度判断细节。
-fn read_media_image_text(
-    file_name: &str,
-    normalized: &LlmRequestNormalizedImage,
-    description: &str,
-) -> String {
+/// 图片回执只回答「给了哪张图、有没有被缩过」。
+///
+/// 原先是发给图转文模型的提示词外加回显调用方写下的 description：
+/// 图片本身已经作为图片 part 发出去，再写一段「请按以下侧重观察」既不是事实，
+/// 也会把调用方刚写过的话抄回来。
+fn read_media_image_text(file_name: &str, normalized: &LlmRequestNormalizedImage) -> String {
     let scaled = normalized.source_width != normalized.output_width
         || normalized.source_height != normalized.output_height;
-    let subject = if scaled {
+    if scaled {
         format!(
-            "{file_name} 的缩放图（原图 {}x{}，此处提供 {}x{}，细节精度低于原图）",
+            "image: {file_name} (scaled from {}x{} to {}x{})",
             normalized.source_width,
             normalized.source_height,
             normalized.output_width,
             normalized.output_height
         )
     } else {
-        format!("{file_name} 的原图")
-    };
-    if description.is_empty() {
-        format!("以下是 {subject}（作为下一条用户消息的图片提供），请直接观察图片内容并回应。")
-    } else {
-        format!("以下是 {subject}（作为下一条用户消息的图片提供），请按以下侧重观察图片并回应：{description}")
+        format!("image: {file_name}")
     }
 }
 
@@ -1271,7 +1266,7 @@ async fn builtin_read_media(
             .file_name()
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_else(|| path.to_string_lossy().to_string());
-        let text = read_media_image_text(&file_name, &media, &description_text);
+        let text = read_media_image_text(&file_name, &media);
         return Ok(serde_json::json!({
             "ok": true,
             "mediaType": detected.as_str(),
@@ -2544,9 +2539,9 @@ fn builtin_read_media_should_return_normalized_image_when_model_supports_image()
         // 直返路径不经过描述缓存，也不产生文字描述
         assert!(value.get("cached").is_none());
         let text = value.get("text").and_then(Value::as_str).expect("text");
+        assert!(text.starts_with("image: "));
         assert!(text.contains("sample.png"));
-        assert!(text.contains("请直接观察图片内容并回应"));
-        assert!(!text.contains("侧重"));
+        assert!(!text.contains("侧重"), "回执不再带图转文提示词：{text}");
     }
 
 #[cfg(test)]
@@ -2581,8 +2576,11 @@ fn builtin_read_media_should_return_normalized_image_with_description_hint_when_
             .map(|text| !text.is_empty())
             .unwrap_or(false));
         let text = value.get("text").and_then(Value::as_str).expect("text");
-        assert!(text.contains("请按以下侧重观察图片并回应"));
-        assert!(text.contains("只关注左上角文字"));
+        assert!(text.starts_with("image: "));
+        assert!(
+            !text.contains("只关注左上角文字"),
+            "description 是入参回显，不该出现在回执里：{text}"
+        );
         // description 非空但走了直返，证明没有落入多模态描述链路
         assert!(value.get("cached").is_none());
     }
@@ -2816,10 +2814,9 @@ fn read_media_image_text_should_report_scaled_dimensions() {
     let normalized =
         read_media_normalize_provider_image("image/png".to_string(), png).expect("normalize png");
 
-    let text = read_media_image_text("big.png", &normalized, "");
-    // 超过预算的图会被缩，文案不能再写「原图」，要给出原尺寸与实际尺寸
-    assert!(!text.contains("的原图"));
-    assert!(text.contains("4000x2000"));
+    let text = read_media_image_text("big.png", &normalized);
+    // 超过预算的图会被缩，回执要给出原尺寸与实际尺寸
+    assert!(text.contains("scaled from 4000x2000"));
     assert!(text.contains(&format!("{}x{}", normalized.output_width, normalized.output_height)));
 }
 
@@ -2838,8 +2835,9 @@ fn read_media_image_text_should_keep_original_wording_without_scaling() {
     let normalized =
         read_media_normalize_provider_image("image/png".to_string(), png).expect("normalize png");
 
-    let text = read_media_image_text("small.png", &normalized, "");
-    assert!(text.contains("的原图"));
+    let text = read_media_image_text("small.png", &normalized);
+    // 没被缩过就只报文件名，不带任何尺寸噪音
+    assert_eq!(text, "image: small.png");
 }
 
 #[cfg(test)]

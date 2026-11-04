@@ -12,7 +12,19 @@ fn builtin_get_session(
         state,
         args.keyword.as_deref(),
     )?;
-    serde_json::to_value(items).map_err(|err| format!("序列化会话列表失败：{err}"))
+    // 只留定位与识别用得到的三项：会话 id、类型、标题。
+    // 人格名与标题重复，三个远程联系人字段合成的信息标题里已经有了，更新时间没人看。
+    let rows = items
+        .into_iter()
+        .map(|item| {
+            serde_json::json!({
+                "sessionId": item.session_id,
+                "kind": item.kind,
+                "title": item.title,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(Value::Array(rows))
 }
 
 fn builtin_inform_session(
@@ -29,9 +41,7 @@ fn builtin_inform_session(
     )?;
     Ok(serde_json::json!({
         "session_id": result.target_conversation_id,
-        "remote_contact_id": result.remote_contact_id,
         "pushed_to_remote": result.pushed_to_remote,
-        "message_id": result.message.id,
     }))
 }
 

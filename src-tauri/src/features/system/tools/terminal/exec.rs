@@ -2448,7 +2448,11 @@ mod terminal_exec_tests {
             },
         )
         .await?;
-        assert_eq!(status.get("kind").and_then(Value::as_str), Some("shell"));
+        // status 回执只留 id / status / detail：kind 恒为 shell，不再回一份。
+        assert_eq!(
+            status.get("id").and_then(Value::as_str),
+            Some("bg-shell-current")
+        );
         assert!(status
             .get("detail")
             .and_then(Value::as_str)
@@ -2466,8 +2470,12 @@ mod terminal_exec_tests {
         )
         .await?;
         // 无 monitor 的登记表条目：kill 请求被受理，但没有 monitor 可确认终态。
-        assert_eq!(kill.get("killed").and_then(Value::as_bool), Some(true));
-        assert_eq!(kill.get("confirmed").and_then(Value::as_bool), Some(false));
+        // 回执只说「停掉了没有」：alreadyEnded 缺席就说明真的发出了 kill。
+        assert_eq!(
+            kill.get("id").and_then(Value::as_str),
+            Some("bg-shell-current")
+        );
+        assert!(kill.get("alreadyEnded").is_none());
         let remaining = state.terminal_background_shell_tasks.lock().await;
         assert!(remaining.contains_key("bg-shell-current"));
         assert!(remaining.contains_key("bg-shell-other"));
@@ -2611,7 +2619,8 @@ mod terminal_exec_tests {
             },
         )
         .await?;
-        assert_eq!(kill.get("killed").and_then(Value::as_bool), Some(true));
+        // 回执只报「停掉了没有」：没有 alreadyEnded 说明真的发出了 kill。
+        assert!(kill.get("alreadyEnded").is_none(), "进程仍在时应真的杀掉：{kill}");
 
         // 产品契约允许确认窗口内读不到终态时只报告「请求已受理」（confirmed=false），
         // 并发全量测试下 CPU 竞争会让收尸晚于那 2 秒窗口，因此这里等终态收敛，

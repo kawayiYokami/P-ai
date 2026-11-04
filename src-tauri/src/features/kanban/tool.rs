@@ -85,21 +85,32 @@ pub(crate) fn kanban_provider_tool_definition() -> ProviderToolDefinition {
     )
 }
 
-/// 工具侧议题视图：刻意不含 id / 创建时间 / 版本号。
-/// 模型不需要它们，而版本号出现在返回值里会引诱模型去维护它。
-fn kanban_tool_issue_value(view: &KanbanIssueView) -> Value {
-    serde_json::json!({
-        "number": view.number,
-        "title": view.title,
-        "status": view.status,
-        "assignee": view.assignee,
-        "note": view.note,
-        "planPath": view.plan_path,
-    })
+/// 一条议题排成一行纯文本：`#12 [review] 标题 · 木偶 · plan:/path`。
+///
+/// 结果区是纯文本渲染，所以回执直接给能读的行，而不是留给前端拼表格。
+/// 刻意不含 id / 创建时间 / 版本号：模型不需要它们，版本号出现在回执里还会引诱模型去维护它。
+/// `note` 也不给：它是调用方刚写下的备注，回执抄一遍纯属浪费。
+fn kanban_tool_issue_line(view: &KanbanIssueView) -> String {
+    let mut line = format!("#{} [{}] {}", view.number, view.status.trim(), view.title.trim());
+    let assignee = view.assignee.trim();
+    if !assignee.is_empty() {
+        line.push_str(" · ");
+        line.push_str(assignee);
+    }
+    let plan = view.plan_path.trim();
+    if !plan.is_empty() {
+        line.push_str(" · plan:");
+        line.push_str(plan);
+    }
+    line
 }
 
-fn kanban_tool_issue_values(views: &[KanbanIssueView]) -> Vec<Value> {
-    views.iter().map(kanban_tool_issue_value).collect()
+fn kanban_tool_issue_lines(views: &[KanbanIssueView]) -> String {
+    views
+        .iter()
+        .map(|view| format!("- {}", kanban_tool_issue_line(view)))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn kanban_tool_action_normalized(raw: &str) -> Option<&'static str> {
@@ -152,7 +163,7 @@ pub(crate) fn builtin_kanban(
         )
     })?;
 
-    let payload = match action {
+    let text = match action {
         "list" => {
             let status = match args.status.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
                 Some(raw) => {
@@ -182,25 +193,40 @@ pub(crate) fn builtin_kanban(
                 assignee.as_ref().map(|(kind, _)| kind.as_str()),
                 assignee.as_ref().and_then(|(_, role)| role.as_deref()),
             )?;
-            serde_json::json!({ "issues": kanban_tool_issue_values(&issues) })
+            if issues.is_empty() {
+                "no issues".to_string()
+            } else {
+                format!(
+                    "{} issue{}\n{}",
+                    issues.len(),
+                    if issues.len() == 1 { "" } else { "s" },
+                    kanban_tool_issue_lines(&issues)
+                )
+            }
         }
         "upsert" => {
             let review_numbers = kanban_pending_review_numbers(&args.issues);
             let result = kanban_apply_upsert(app_state, &leader_conversation_id, &args.issues)?;
             kanban_emit_updated(app_state, &leader_conversation_id);
-            let issues = kanban_board_list(app_state, &leader_conversation_id, None, None, None)?;
-            let mut payload = serde_json::json!({
-                "created": kanban_tool_issue_values(&result.created),
-                "updated": kanban_tool_issue_values(&result.updated),
-                "issues": kanban_tool_issue_values(&issues),
-            });
-            if !review_numbers.is_empty() {
-                payload["hint"] = Value::String(kanban_review_reflection_hint(&review_numbers));
+            // 只回这次的变更：整张看板要看得用 action=list。
+            let mut lines = Vec::<String>::new();
+            for issue in &result.created {
+                lines.push(format!("created {}", kanban_tool_issue_line(issue)));
             }
-            payload
+            for issue in &result.updated {
+                lines.push(format!("updated {}", kanban_tool_issue_line(issue)));
+            }
+            if lines.is_empty() {
+                lines.push("nothing changed".to_string());
+            }
+            if !review_numbers.is_empty() {
+                lines.push(String::new());
+                lines.push(kanban_review_reflection_hint(&review_numbers));
+            }
+            lines.join("\n")
         }
         _ => return Err(format!("kanban.action 不支持：{action}")),
     };
 
-    serde_json::to_string(&payload).map_err(|err| format!("序列化看板结果失败：{err}"))
+    Ok(text)
 }

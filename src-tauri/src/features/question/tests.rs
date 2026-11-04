@@ -517,7 +517,7 @@
         )
         .expect("主会话必须可用");
         // 回执不再回放提交的标题与选项，只报条数
-        assert!(text.contains("已更新当前会话问题，共 1 条"), "{text}");
+        assert!(text.contains("updated, 1 question"), "{text}");
 
         let listed = builtin_question(
             &state,
@@ -528,7 +528,7 @@
             },
         )
         .expect("list in main chat");
-        assert!(listed.contains("共 1 条"), "{listed}");
+        assert!(listed.contains("1 question"), "{listed}");
     }
 
     // ==================== 答题消息构造 ====================

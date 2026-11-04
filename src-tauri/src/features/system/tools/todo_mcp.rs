@@ -98,9 +98,9 @@ fn todo_status_marker(status: &str) -> &'static str {
 
 fn todo_response_text(items: &[ConversationTodoItem]) -> String {
     if items.is_empty() {
-        return "已经完成了所有步骤，请向用户进行汇报".to_string();
+        return "all todos done".to_string();
     }
-    let mut lines = vec!["## Current Todo List".to_string(), String::new()];
+    let mut lines = Vec::<String>::new();
     for item in items {
         lines.push(format!(
             "{} {}",
@@ -110,7 +110,7 @@ fn todo_response_text(items: &[ConversationTodoItem]) -> String {
     }
     if todo_items_all_completed(items) {
         lines.push(String::new());
-        lines.push("已经完成了所有步骤，请向用户进行汇报".to_string());
+        lines.push("all todos done".to_string());
     }
     lines.join("\n")
 }

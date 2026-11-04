@@ -786,7 +786,7 @@
         let recall_result = builtin_recall(&state, &memory_context, "猫咪", None, None, None)
             .expect("manual recall");
         let memory_board = recall_result
-            .get("memoryBoard")
+            .get("memories")
             .and_then(Value::as_str)
             .unwrap_or_default();
         assert_eq!(recall_result.get("count").and_then(Value::as_u64), Some(1));
@@ -844,7 +844,7 @@
         assert_eq!(recall_result.get("count").and_then(Value::as_u64), Some(0));
         assert_eq!(recall_result.get("total").and_then(Value::as_u64), Some(0));
         assert_eq!(
-            recall_result.get("memoryBoard").and_then(Value::as_str),
+            recall_result.get("memories").and_then(Value::as_str),
             Some("")
         );
     }
@@ -928,7 +928,7 @@
         let result = builtin_recall(&state, &worker_memory_context, "共享线索", None, None, None)
             .expect("recall current agent memories");
         let memory_board = result
-            .get("memoryBoard")
+            .get("memories")
             .and_then(Value::as_str)
             .unwrap_or_default();
 
@@ -970,7 +970,7 @@
         let recall_result = builtin_recall(&state, &deputy_memory_context, "副手回归", None, None, None)
             .expect("recall deputy memory");
         let memory_board = recall_result
-            .get("memoryBoard")
+            .get("memories")
             .and_then(Value::as_str)
             .unwrap_or_default();
 
@@ -1030,7 +1030,7 @@
         let recall_result = builtin_recall(&state, &private_worker_memory_context, "私有回归", None, None, None)
             .expect("recall private workspace memory");
         let memory_board = recall_result
-            .get("memoryBoard")
+            .get("memories")
             .and_then(Value::as_str)
             .unwrap_or_default();
 
@@ -14238,7 +14238,7 @@
             kanban_upsert_request(Some(title), None, None),
         )
         .expect("seed kanban issue");
-        let marker = "\"number\":";
+        let marker = "created #";
         let start = output.find(marker).expect("新建议题应返回编号") + marker.len();
         let digits: String = output[start..]
             .chars()
@@ -14257,7 +14257,7 @@
             kanban_upsert_request(Some("接看板磁贴"), None, None),
         )
         .expect("leader should write the board");
-        assert!(output.contains("\"number\":1"), "{output}");
+        assert!(output.contains("created #1"), "{output}");
 
         let member = recruit_member(&state, &leader.id, "李工");
         let member_id = member["conversationId"]
@@ -14441,7 +14441,7 @@
         let mut leader_request = kanban_upsert_request(Some("派给队长自己"), Some(1), Some("in_progress"));
         leader_request.issues[0].assignee = Some("leader".to_string());
         let output = kanban::builtin_kanban(&state, &session, leader_request).expect("leader 不受名册影响");
-        assert!(output.contains("\"assignee\":\"leader\""), "{output}");
+        assert!(output.contains("· leader"), "{output}");
 
         kanban::builtin_kanban(
             &state,
@@ -14452,7 +14452,7 @@
         let mut none_request = kanban_upsert_request(Some("不分配"), Some(2), Some("todo"));
         none_request.issues[0].assignee = Some("none".to_string());
         let output = kanban::builtin_kanban(&state, &session, none_request).expect("none 不受名册影响");
-        assert!(output.contains("\"assignee\":\"none\""), "{output}");
+        assert!(output.contains("· none"), "{output}");
     }
 
     #[test]
@@ -14472,8 +14472,8 @@
             kanban_upsert_request(Some("B 的议题"), None, None),
         )
         .expect("b upsert");
-        assert!(out_a.contains("\"number\":1"), "{out_a}");
-        assert!(out_b.contains("\"number\":1"), "两块看板各自从 1 开始：{out_b}");
+        assert!(out_a.contains("#1 "), "{out_a}");
+        assert!(out_b.contains("#1 "), "两块看板各自从 1 开始：{out_b}");
     }
 
     #[test]
@@ -14498,9 +14498,9 @@
         // 关键：报错之后看板上不能多出一条。悄悄新建比报错严重得多。
         let listed = kanban::builtin_kanban(&state, &team_session_id(&leader.id), kanban_list_request())
             .expect("list");
-        assert!(listed.contains("\"number\":1"), "{listed}");
-        assert!(!listed.contains("\"number\":9"), "不能凭空建出 9 号：{listed}");
-        assert_eq!(listed.matches("\"title\"").count(), 1, "{listed}");
+        assert!(listed.contains("#1 "), "{listed}");
+        assert!(!listed.contains("#9 "), "不能凭空建出 9 号：{listed}");
+        assert_eq!(listed.matches("- #").count(), 1, "{listed}");
     }
 
     fn member_message_kinds(state: &AppState, conversation_id: &str) -> Vec<String> {
@@ -14694,7 +14694,6 @@
         )
         .expect("team info active");
         assert_eq!(active["members"].as_array().map(Vec::len), Some(0));
-        assert_eq!(active["activeMemberCount"].as_u64(), Some(0));
 
         let history = builtin_team_info(
             &state,
@@ -14800,7 +14799,6 @@
             TeamInfoToolArgs { scope: None },
         )
         .expect("team info after delete");
-        assert_eq!(info["activeMemberCount"].as_u64(), Some(0));
         assert_eq!(info["members"].as_array().map(Vec::len), Some(0));
         let closed = info["closedMissingMembers"]
             .as_array()
@@ -14828,7 +14826,17 @@
             Some(TEAM_MEMBER_STATUS_DISMISSED),
             "会话已删的在队条目要收口成已请离"
         );
-        assert!(member["dismissedAt"].is_string(), "收口时要记下请离时间");
+        // 请离时间不再进回执（人不关心），但收口时必须落库。
+        let leader_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &leader.id)
+            .expect("leader meta");
+        let closed_member = leader_meta
+            .team
+            .members
+            .iter()
+            .find(|entry| entry.status.trim() == TEAM_MEMBER_STATUS_DISMISSED)
+            .expect("closed member entry");
+        assert!(closed_member.dismissed_at.is_some(), "收口时要记下请离时间");
     }
 
     #[test]
@@ -15201,9 +15209,8 @@
 
         let default_output = team_read_output(&state, &leader.id, Some("李工"), None, None)
             .expect("team read default");
-        assert_eq!(default_output["limit"], serde_json::json!(1), "不填 limit 默认只读 1 条");
-        assert_eq!(default_output["returnedCount"], serde_json::json!(1));
         let messages = default_output["messages"].as_array().expect("messages");
+        assert_eq!(messages.len(), 1, "不填 limit 默认只读 1 条");
         assert!(
             messages[0]["summary"]
                 .as_str()
@@ -15214,12 +15221,11 @@
 
         let capped_output = team_read_output(&state, &leader.id, Some("李工"), None, Some(99))
             .expect("team read capped");
-        assert_eq!(capped_output["limit"], serde_json::json!(10), "超上限按 10 条");
         let notes = capped_output["notes"].as_array().expect("notes");
         assert!(
             notes
                 .iter()
-                .any(|note| note.as_str().unwrap_or_default().contains("超过上限")),
+                .any(|note| note.as_str().unwrap_or_default().contains("limit clamped to 10")),
             "超上限要说明，不能静默截断：{notes:?}"
         );
     }
@@ -15264,7 +15270,6 @@
             .expect("team read backfill");
         let messages = output["messages"].as_array().expect("messages");
         assert_eq!(messages.len(), 3, "尾部工具调用不能被丢掉：{messages:?}");
-        assert_eq!(output["bodyMessageCount"], serde_json::json!(1));
         let placeholders = messages
             .iter()
             .filter(|message| message["summary"] == serde_json::json!("（工具调用，无正文）"))
@@ -17849,13 +17854,13 @@
             ("image_edit", json!({"ok": true, "message": "图片已编辑并保存到 Assistant Space", "provider": "p", "providerType": "openai", "modelId": "m", "model": "m", "images": [{"relativePath": "a.png", "remoteUrl": null, "markdown": "![x](a.png)", "mime": "image/png", "width": 512, "height": 512, "revisedPrompt": null}]})),
             ("image_to_video", json!({"ok": true, "message": "视频已生成并保存到 Assistant Space", "path": "a.mp4", "model": "grok"})),
             ("remember", json!({"ok": true, "action": "create", "saved": true, "id": "m1", "tags": ["t"], "updatedAt": "t", "reason": null, "sourceMemoryIds": [], "deletedSourceIds": [], "failedDeleteIds": [], "totalMemories": 1})),
-            ("recall", json!({"ok": true, "memoryBoard": "记忆板", "count": 1, "total": 1, "offset": 0, "limit": 7, "time": null, "query": "q"})),
+            ("recall", json!({"memories": "[id:m1] 记忆板", "count": 1, "total": 1, "offset": 0, "limit": 7})),
             ("todo", json!("## Current Todo List\n\n✓ 已完成")),
             ("kanban", json!({"issues": [{"number": 1, "title": "t", "status": "todo", "assignee": "leader", "note": "", "planPath": null}]})),
             ("kanban_set_plan", json!({"number": 1, "planPath": ".pai/plan/x.md"})),
             ("question", json!("当前会话问题（共 1 条）：\n\n#1 t")),
             ("get_tool", json!("已记录：read，下轮可用")),
-            ("task", json!({"taskId": "t1", "conversationId": "c", "agentId": null, "orderIndex": 0, "completionState": "active", "completionConclusion": "", "progressNotes": [], "trigger": {"runAt": null, "cronExpression": null, "everyMinutes": 0.0, "endAt": null, "nextRunAt": null}, "createdAtLocal": "t", "updatedAtLocal": "t", "lastTriggeredAtLocal": null, "completedAtLocal": null})),
+            ("task", json!({"task_id": "t1", "goal": "标题", "completion_state": "active", "completion_conclusion": "", "trigger": {"run_at": null, "cron_expression": null, "every_minutes": 0.0, "end_at": null, "next_run_at": null}})),
             ("create_goal", json!({"conversationId": "c", "goal": {"goalId": "goal-1", "status": "active", "startedAt": "t", "endedAt": null, "usageStart": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0, "byProviderModel": {}}, "usageEnd": null}, "usageDelta": {"inputTokens": 0, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0}})),
             ("update_goal", json!({"conversationId": "c", "goal": {"goalId": "goal-1", "status": "complete", "startedAt": "t", "endedAt": "t2", "usageStart": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0, "byProviderModel": {}}, "usageEnd": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0, "byProviderModel": {}}}, "usageDelta": {"inputTokens": 0, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0}})),
             ("get_session", json!([{"sessionId": "s1", "kind": "local_unarchived", "title": "t", "personaName": "我", "remoteContactId": null, "remoteContactName": null, "channelName": null, "updatedAt": "t"}])),
@@ -17948,24 +17953,51 @@
     fn tool_receipt_should_not_echo_submitted_text() {
         const MARKER: &str = "回显标记-7f3a";
 
-        // task：goal / why / todo 不回执；completionConclusion 是控制流依赖，必须留。
-        let task_receipt = task_tool_receipt(serde_json::json!({
-            "taskId": "t1",
-            "goal": MARKER,
-            "why": MARKER,
-            "todo": MARKER,
-            "completionState": "complete",
-            "completionConclusion": "结论原文",
-        }));
-        let task_text = task_receipt.to_string();
+        // task：why / todo 不回执；goal 在 list/get 里当标题保留；
+        // completion_state / completion_conclusion 是控制流依赖，必须留。
+        // TaskEntry 按蛇形序列化，夹具也用蛇形，否则测的是不存在的分支。
+        let task_list_receipt = task_tool_receipt(
+            serde_json::json!({
+                "task_id": "t1",
+                "goal": "标题",
+                "why": MARKER,
+                "todo": MARKER,
+                "completion_state": "complete",
+                "completion_conclusion": "结论原文",
+            }),
+            true,
+        );
+        let task_list_text = task_list_receipt.to_string();
         assert!(
-            !task_text.contains(MARKER),
-            "task 回执回显了调用方提交的正文：{task_text}"
+            !task_list_text.contains(MARKER),
+            "task 回执回显了调用方提交的正文：{task_list_text}"
         );
         assert_eq!(
-            task_receipt.get("completionConclusion").and_then(Value::as_str),
+            task_list_receipt.get("goal").and_then(Value::as_str),
+            Some("标题"),
+            "list/get 里 goal 是任务唯一的标题，不能删"
+        );
+        assert_eq!(
+            task_list_receipt
+                .get("completion_conclusion")
+                .and_then(Value::as_str),
             Some("结论原文"),
-            "completionConclusion 是任务控制流依赖，不能一起删掉"
+            "completion_conclusion 是任务控制流依赖，不能一起删掉"
+        );
+
+        // create / complete 是刚提交完那一刻，goal 属于回显，一起剥掉。
+        let task_create_receipt = task_tool_receipt(
+            serde_json::json!({
+                "task_id": "t1",
+                "goal": MARKER,
+                "why": MARKER,
+                "todo": MARKER,
+            }),
+            false,
+        );
+        assert!(
+            !task_create_receipt.to_string().contains(MARKER),
+            "create/complete 回执仍带调用方正文：{task_create_receipt}"
         );
 
         // delegate：why / goal / todo 不回执；标识与调用栈保留。

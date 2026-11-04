@@ -76,12 +76,7 @@ fn image_generation_tool_success_value(
         "message": format!(
             "{summary_prefix}。最终回答必须原样包含以下 Markdown 图片行，不要改写路径，也不要只回复‘已完成’：\n\n{markdown}"
         ),
-        "provider": result.provider_name,
-        "providerType": result.provider_type,
-        "modelId": result.model_id,
-        "model": result.model,
         "images": images,
-        "providerText": result.provider_text
     }))
 }
 
@@ -235,8 +230,7 @@ impl RuntimeValueTool for BuiltinImageToVideoTool {
             Ok(serde_json::json!({
                 "ok": true,
                 "message": format!("视频已生成并保存到 Assistant Space。最终回答必须原样包含这个路径，不要改写：\n\n{path}"),
-                "path": path,
-                "model": GROK_IMAGE_TO_VIDEO_MODEL
+                "path": path
             }))
         })
     }

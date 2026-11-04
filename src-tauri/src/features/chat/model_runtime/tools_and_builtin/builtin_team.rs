@@ -489,7 +489,6 @@ enum TeamToolRole {
 /// number 只给内部收尾（回滚、日志）用，不进入任何工具返回值。
 struct TeamCreatedMember {
     role: String,
-    duty: String,
     conversation_id: String,
 }
 
@@ -1027,8 +1026,6 @@ fn team_member_entry_json(
         "duty": member.duty,
         "status": member.status,
         "conversationId": member.conversation_id,
-        "recruitedAt": member.recruited_at,
-        "dismissedAt": member.dismissed_at,
         "worktreePath": member.worktree_path,
         "workBranch": member.work_branch,
         "state": member_state,
@@ -1149,12 +1146,10 @@ fn builtin_team_info(
         })
         .map(|member| team_member_entry_json(state, &persona_names, member))
         .collect::<Vec<_>>();
+    // 名册只给数据：范围、人数、有没有人这三个都能从 members 自己看出来，
+    // 「有没有队友」这句话交给回执文案层说，不在这里铺开关。
     let mut output = serde_json::json!({
-        "ok": true,
-        "scope": if include_history { "history" } else { "active" },
-        "activeMemberCount": leader.team.active_member_count(),
         "members": members,
-        "hasActiveMember": team_has_active_member(&leader.team),
     });
     if !closed_missing_members.is_empty() {
         output["closedMissingMembers"] = serde_json::json!(
@@ -1434,18 +1429,14 @@ fn builtin_team_read(
         .collect::<Vec<_>>();
     let mut notes: Vec<String> = Vec::new();
     if requested_limit > TEAM_READ_LIMIT_MAX {
-        notes.push(format!(
-            "limit={requested_limit} 超过上限，本次按 {TEAM_READ_LIMIT_MAX} 条返回"
-        ));
+        notes.push(format!("limit clamped to {TEAM_READ_LIMIT_MAX}"));
     }
     if body_count < limit {
-        notes.push(format!(
-            "「{role}」最近只有 {body_count} 条有正文的消息，其余是工具调用"
-        ));
+        notes.push(format!("only {body_count} messages with body, rest are tool calls"));
     }
     if scan_truncated {
         notes.push(format!(
-            "补读到扫描上限（{TEAM_READ_SCAN_MAX_MESSAGES} 条）就停了，更早的内容没有继续往前翻"
+            "stopped at scan limit {TEAM_READ_SCAN_MAX_MESSAGES}"
         ));
     }
     runtime_log_info(format!(
@@ -1454,12 +1445,7 @@ fn builtin_team_read(
         messages.len()
     ));
     Ok(serde_json::json!({
-        "ok": true,
-        "role": role,
         "conversationId": member_conversation_id,
-        "limit": limit,
-        "returnedCount": messages.len(),
-        "bodyMessageCount": body_count,
         "hasMore": has_more,
         "messages": messages,
         "notes": notes,
@@ -1690,7 +1676,6 @@ async fn team_create_member(
     ));
     Ok(TeamCreatedMember {
         role,
-        duty,
         conversation_id: member_conversation_id,
     })
 }
@@ -1722,11 +1707,9 @@ async fn builtin_team_recruit(
     )
     .await?;
     Ok(serde_json::json!({
-        "ok": true,
         "role": member.role,
-        "duty": member.duty,
         "conversationId": member.conversation_id,
-        "note": "队员已就位但不会被激活；要用它请再用 team_send 发一条指示",
+        "note": "not activated yet, use team_send",
     }))
 }
 
