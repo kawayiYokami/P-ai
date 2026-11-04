@@ -60,6 +60,39 @@ describe("chat render signatures", () => {
     expect(first).not.toEqual(second);
   });
 
+  it("changes block size dependencies when a closed reasoning item is corrected without growing", () => {
+    const first = blockSizeDependencies(assistantBlock({
+      activityItems: [{ kind: "reasoning", id: "reason-1", text: "reasoning-old", running: false }],
+    }));
+    const second = blockSizeDependencies(assistantBlock({
+      activityItems: [{ kind: "reasoning", id: "reason-1", text: "reasoning-new", running: false }],
+    }));
+
+    expect(first).not.toEqual(second);
+  });
+
+  it("changes block size dependencies when a closed content item is corrected without growing", () => {
+    const first = blockSizeDependencies(assistantBlock({
+      activityItems: [{ kind: "content", id: "content-1", text: "content-old", running: false }],
+    }));
+    const second = blockSizeDependencies(assistantBlock({
+      activityItems: [{ kind: "content", id: "content-1", text: "content-new", running: false }],
+    }));
+
+    expect(first).not.toEqual(second);
+  });
+
+  it("still tracks a running item that grows by only one character", () => {
+    const first = blockSizeDependencies(assistantBlock({
+      activityItems: [{ kind: "reasoning", id: "reason-1", text: "thinking", running: true }],
+    }));
+    const second = blockSizeDependencies(assistantBlock({
+      activityItems: [{ kind: "reasoning", id: "reason-1", text: "thinking.", running: true }],
+    }));
+
+    expect(first).not.toEqual(second);
+  });
+
   it("determines right-aligned messages correctly for standard and remote IM messages", async () => {
     const { isRightAlignedMessage } = await import("../src/features/chat/utils/chat-render");
 

@@ -69,23 +69,36 @@ export function estimateMessageBlockHeight(block: ChatMessageBlock, isOwn: boole
   return Math.max(64, estimate);
 }
 
+/**
+ * 已闭合条目的内容不会再变，不必哈希全文：列表级 memo 每帧对一屏所有条目做这件事，
+ * 长正文时是帧预算里最大的一项。只留长度的风险是「等长替换」漏检，所以留长度 + 首/中/尾字符，
+ * 仍是 O(1)，但把等长不同内容这条硬性关掉。
+ */
+function closedTextSignature(text?: string): string {
+  const input = String(text || "");
+  const length = input.length;
+  if (length === 0) return "0";
+  return `${length}:${input.charCodeAt(0)}:${input.charCodeAt(length >> 1)}:${input.charCodeAt(length - 1)}`;
+}
+
 function activityItemsSignature(block: ChatMessageBlock): string {
   return (block.activityItems || [])
     .map((item) => {
-      if (item.kind === "reasoning") {
-        return ["r", item.id || "", textContentSignature(item.text), item.running ? "1" : "0"].join(":");
+      if (item.kind === "reasoning" || item.kind === "content") {
+        const tag = item.kind === "reasoning" ? "r" : "c";
+        // 只有还在生长的条目会继续变长，它照旧全文哈希
+        if (item.running) return [tag, item.id || "", textContentSignature(item.text), "1"].join(":");
+        return [tag, item.id || "", closedTextSignature(item.text), "0"].join(":");
       }
-      if (item.kind === "content") {
-        return ["c", item.id || "", textContentSignature(item.text), item.running ? "1" : "0"].join(":");
-      }
+      const done = item.status !== "doing";
       return [
         "t",
         item.id || "",
         item.toolCallId || "",
         item.name || "",
         item.status || "",
-        textContentSignature(item.argsText),
-        textContentSignature(item.resultText),
+        done ? closedTextSignature(item.argsText) : textContentSignature(item.argsText),
+        done ? closedTextSignature(item.resultText) : textContentSignature(item.resultText),
       ].join(":");
     })
     .join("|");
