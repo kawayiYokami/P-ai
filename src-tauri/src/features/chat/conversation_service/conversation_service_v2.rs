@@ -2029,6 +2029,31 @@ impl ConversationServiceV2 {
         )
     }
 
+    /// 把一条委托结果消息按「系统引导消息入队」投递到根会话。
+    ///
+    /// 与 `enqueue_delegate_completion_notification` 走同一条通道，区别只在消息体：
+    /// 成功回执由通知正文重新拼装，失败回执要保留 `delegate_result` 元数据，
+    /// 所以整条消息由调用方给。走引导通道意味着排队与激活都交给调度器，
+    /// 投递方不再直接写库、也不再自己另起一轮。
+    fn enqueue_delegate_result_guided(
+        &self,
+        state: &AppState,
+        root_conversation_id: &str,
+        message: &ChatMessage,
+        body: &str,
+        action: &str,
+    ) -> Result<(), String> {
+        let resolved_target =
+            self.resolve_delegate_result_target_conversation(state, root_conversation_id)?;
+        enqueue_session_notification_dispatch(
+            state,
+            &resolved_target.target_conversation_id,
+            body,
+            message,
+            action,
+        )
+    }
+
     fn enqueue_auto_push_remote_contact_message(
         &self,
         state: &AppState,

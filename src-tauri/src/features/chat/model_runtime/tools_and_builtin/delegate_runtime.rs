@@ -124,7 +124,6 @@ async fn delegate_enqueue_result_message(
     // 优先回发原始会话；若原会话已归档/消失，则回退到系统通知会话。
     let resolved_target = conversation_service_v2()
         .resolve_delegate_result_target_conversation(app_state, root_conversation_id)?;
-    let agent_id = resolved_target.agent_id;
     let target_conversation_id = resolved_target.target_conversation_id;
 
     // 构造委托结果消息
@@ -148,16 +147,18 @@ async fn delegate_enqueue_result_message(
         speaker_agent_id,
         text,
     )?;
-    append_delegate_result_message_and_emit(
-        app_state,
-        &target_conversation_id,
-        &delegate_message,
-        notify_assistant,
-        Some(ChatSessionInfo {
-            agent_id,
-        }),
-    )
-    .await
+    if notify_assistant {
+        // 需要激活主助理的回执走系统引导通道：排队还是插话由 ingress 判定，
+        // 消息落库与激活都由调度器负责，投递方不再直接写库后自己起一轮。
+        return conversation_service_v2().enqueue_delegate_result_guided(
+            app_state,
+            root_conversation_id,
+            &delegate_message,
+            text,
+            "delegate_tool_background_failure",
+        );
+    }
+    append_delegate_result_message(app_state, &target_conversation_id, &delegate_message).await
 }
 
 const AGENT_WORK_EVENT_START: &str = "easy-call:agent-work-start";

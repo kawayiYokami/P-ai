@@ -907,14 +907,7 @@ async fn enqueue_user_mention_result_message(
         target_agent_id,
         text,
     )?;
-    append_delegate_result_message_and_emit(
-        app_state,
-        root_conversation_id,
-        &delegate_message,
-        false,
-        None,
-    )
-    .await
+    append_delegate_result_message(app_state, root_conversation_id, &delegate_message).await
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -961,12 +954,10 @@ fn emit_conversation_message_appended_event(
     }
 }
 
-async fn append_delegate_result_message_and_emit(
+async fn append_delegate_result_message(
     app_state: &AppState,
     conversation_id: &str,
     message: &ChatMessage,
-    continue_main_assistant: bool,
-    session_info: Option<ChatSessionInfo>,
 ) -> Result<(), String> {
     let conversation_id = conversation_id.trim();
     if conversation_id.is_empty() {
@@ -976,39 +967,6 @@ async fn append_delegate_result_message_and_emit(
         .append_message(app_state, conversation_id, message)
         .await?;
     emit_conversation_message_appended_event(app_state, conversation_id, message);
-
-    if continue_main_assistant {
-        let session_info = session_info.ok_or_else(|| "缺少 session_info，无法继续主助理".to_string())?;
-        tauri::async_runtime::spawn({
-            let state = app_state.clone();
-            let conversation_id = conversation_id.to_string();
-            async move {
-                let oldest_queue_created_at = now_iso();
-                let mut runtime_context = runtime_context_new("delegate_result", "delegate_continue");
-                runtime_context.request_id = Some(format!("delegate-continue-{}", Uuid::new_v4()));
-                if let Err(err) = activate_main_assistant(
-                    &state,
-                    &session_info,
-                    &conversation_id,
-                    None,
-                    None,
-                    None,
-                    Some(runtime_context),
-                    Vec::new(),
-                    &oldest_queue_created_at,
-                )
-                .await
-                {
-                    runtime_log_error(format!(
-                        "[委托结果] 追加后继续主助理失败: conversation_id={}, agent_id={}, error={}",
-                        conversation_id,
-                        session_info.agent_id,
-                        err
-                    ));
-                }
-            }
-        });
-    }
 
     Ok(())
 }
