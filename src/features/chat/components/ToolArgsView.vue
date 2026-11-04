@@ -107,9 +107,9 @@ function indentStyle(line: ToolArgLine): Record<string, string> {
 </template>
 
 <style scoped>
-/* 参数区整体：工具绿。条目那一层是 context 60% 灰，两层不同色是故意的 */
+/* 参数区整体：与思考正文同一档灰，条目标题另有一档 */
 .ecall-tool-args-body {
-  color: #15803d;
+  color: color-mix(in oklab, var(--color-base-content) 56%, transparent);
 }
 
 .ecall-tool-args-body-dark {

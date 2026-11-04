@@ -671,7 +671,7 @@ function activityItemTitleClass(item: ChatActivityItem): string {
 
 function activityItemDetailClass(item: ChatActivityItem): string {
   if (item.kind === "reasoning") {
-    return props.dark ? "ecall-activity-reasoning-dark" : "ecall-activity-reasoning";
+    return props.dark ? "ecall-activity-reasoning-dark" : "ecall-activity-reasoning-body";
   }
   if (item.kind === "content") return "";
   return props.dark ? "ecall-activity-tool-dark" : "ecall-activity-tool";
@@ -852,13 +852,18 @@ onBeforeUnmount(() => {
 <style scoped>
 /* 条目颜色：随组件一起走，宿主（消息 / 委托）不用各自再补一套。
    颜色类经 textClass 传入子组件内部文本元素，scoped 规则需 :deep 才能跨组件生效。 */
-/* 浅色主题：思维链橙色、工具绿色（加深保证白底可读）；正文不用单独色，inherit 面板正文色 */
+/* 浅色主题：整体走参考项目（deepseek-harness）的灰阶——标题一档、正文一档，工具跟思考同档。
+   对应参考项的 label-secondary（#61666b）与 label-tertiary（#81858c），换算到 base-content 的 70% / 56%。 */
 :deep(.ecall-activity-reasoning) {
-  color: #c2410c;
+  color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
+}
+
+:deep(.ecall-activity-reasoning-body) {
+  color: color-mix(in oklab, var(--color-base-content) 56%, transparent);
 }
 
 :deep(.ecall-activity-tool) {
-  color: #15803d;
+  color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
 }
 
 /* 深色主题：思维链橙色、工具绿色（提亮保证深底可读） */
@@ -870,10 +875,9 @@ onBeforeUnmount(() => {
   color: #4ade80;
 }
 
-/* 工具结果：青色。与参数的工具绿（142°）拉开 45° 色相，输入/输出一眼分得开。
-   亮度与饱和度按同一套规矩跟橙绿对齐：浅色偏深偏饱和，深色提亮降饱和 */
+/* 工具结果：正文档，与思考正文、工具参数同一档 */
 :deep(.ecall-activity-result) {
-  color: #188a98;
+  color: color-mix(in oklab, var(--color-base-content) 56%, transparent);
 }
 
 :deep(.ecall-activity-result-dark) {
@@ -943,10 +947,9 @@ onBeforeUnmount(() => {
   font-size: var(--app-text-xs-size, 0.75rem) !important;
 }
 
-/* 正文条目落一档：思维链与工具是彩色（橙/绿），正文只要 60% 的 base-content，
-   三档靠色相与深浅同时分开。用 color-mix 而不是 opacity，只淡文字不淡里面的代码块底色 */
+/* 正文条目与思考正文同一档灰，靠 color-mix 淡文字，不连带淡掉里面的代码块底色 */
 :deep(.ecall-activity-timeline .ecall-plain-markdown-markdown),
 :deep(.ecall-activity-timeline .ecall-plain-markdown-markdown p) {
-  color: color-mix(in oklab, var(--color-base-content) 60%, transparent) !important;
+  color: color-mix(in oklab, var(--color-base-content) 56%, transparent) !important;
 }
 </style>
