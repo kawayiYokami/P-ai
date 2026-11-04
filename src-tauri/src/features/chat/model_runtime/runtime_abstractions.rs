@@ -570,6 +570,24 @@ fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
             let role = value_string(value, "role").unwrap_or_default();
             Some(format!("recruited {role} — not activated yet, use team_send"))
         }
+        "team_send" => {
+            let role = value_string(value, "role").unwrap_or_default();
+            let issue = value
+                .get("issueNumber")
+                .and_then(Value::as_u64)
+                .or_else(|| value.get("issue").and_then(Value::as_u64))
+                .unwrap_or(0);
+            let head = if role.is_empty() {
+                "sent".to_string()
+            } else if issue == 0 {
+                format!("sent to {role}")
+            } else {
+                format!("sent to {role} (issue #{issue})")
+            };
+            Some(format!(
+                "{head}\nno shell wait needed, done/fail auto-notifies and activates you"
+            ))
+        }
         "image_generate" | "image_edit" | "image_to_video" => {
             value_string(value, "message").map(|message| message)
         }
