@@ -15021,6 +15021,44 @@
     }
 
     #[test]
+    fn team_report_should_put_issue_reminder_into_hidden_prompt_only() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-team-report-reminder");
+        let output = recruit_member(&state, &leader.id, "李工");
+        let member_id = output["conversationId"].as_str().expect("member id").to_string();
+        set_conversation_runtime_state_and_emit(&state, &leader.id, MainSessionState::AssistantStreaming)
+            .expect("mark leader busy");
+
+        builtin_team_report(
+            &state,
+            &team_session_id(&member_id),
+            TeamReportToolArgs {
+                title: "查完了".to_string(),
+                content: "结论 A".to_string(),
+            },
+        )
+        .expect("team report");
+
+        {
+            let slots = lock_conversation_runtime_slots(&state).expect("slots");
+            let slot = slots.get(&leader.id).expect("leader slot");
+            let message = &slot.pending_queue.back().expect("queued event").messages[0];
+            let text = message_text_content(message);
+            assert!(
+                !text.contains("[系统提醒]"),
+                "提醒只给模型看，不能进正文，前端展开就能读到：{text}"
+            );
+            assert!(text.contains("结论 A"), "队员原文要原样保留：{text}");
+            let meta = message.provider_meta.as_ref().expect("provider meta");
+            assert_eq!(
+                meta.get("hiddenPromptText").and_then(Value::as_str),
+                Some("[系统提醒] 队员有新进展，先更新议题现状再推进"),
+                "提醒要落在隐藏提示里，模型读得到、前端读不到"
+            );
+        }
+    }
+
+    #[test]
     fn team_mail_should_reject_blank_title() {
         let state = team_test_state();
         let leader = persist_team_leader(&state, "conversation-team-mail-blank-title");

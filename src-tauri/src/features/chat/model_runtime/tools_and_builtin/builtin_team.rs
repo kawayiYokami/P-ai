@@ -1162,6 +1162,9 @@ fn builtin_team_info(
     Ok(output)
 }
 
+/// 队员汇报落给队长时附在隐藏提示里的系统提醒：只进模型上下文，不进正文。
+const TEAM_REPORT_ISSUE_REMINDER: &str = "[系统提醒] 队员有新进展，先更新议题现状再推进";
+
 /// 队员自己的身份说明（给队员自己看名册范围用）。
 fn builtin_team_report(
     state: &AppState,
@@ -1183,9 +1186,10 @@ fn builtin_team_report(
         .name_of(&meta.agent_id)
         .map(str::to_string)
         .unwrap_or_else(|| strip_legacy_member_number_prefix(&membership.name));
-    let body = content.to_string();
-    let message = team_system_message(
-        body.clone(),
+    // 队长只盯最新汇报，容易光转述忘了改看板。这句只给模型看：写进隐藏提示，不进正文，
+    // 前端展开折叠块看不到。只加主动汇报这一条路，兜底与失败通知以后再说。
+    let mut message = team_system_message(
+        content.to_string(),
         TEAM_MESSAGE_KIND,
         TeamMessageSender {
             name: role.clone(),
@@ -1195,6 +1199,9 @@ fn builtin_team_report(
             title: title.clone(),
         }),
     );
+    if let Some(provider_meta) = message.provider_meta.as_mut() {
+        provider_meta["hiddenPromptText"] = serde_json::json!(TEAM_REPORT_ISSUE_REMINDER);
+    }
     let message_id = message.id.clone();
     team_enqueue_message(state, &membership.leader_conversation_id, message, "guided")?;
     // 队员已经自己汇报过：清掉待汇报标记，同一件事不再由兜底再投一遍。
