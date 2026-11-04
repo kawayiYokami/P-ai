@@ -1185,7 +1185,6 @@ async fn send_chat_message_inner(
         log_chat_stage("runtime_and_session_ready.runtime_data_cloned");
         let runtime_org_started = std::time::Instant::now();
         let runtime_org = build_runtime_organization_snapshot_from_parts(
-            &state.data_path,
             &app_config,
             &runtime_agents,
         )?;

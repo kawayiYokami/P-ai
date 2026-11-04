@@ -54,8 +54,6 @@ struct AgentProfile {
     private_memory_enabled: bool,
     #[serde(default = "default_memory_recall_mode")]
     memory_recall_mode: String,
-    #[serde(default = "default_main_source")]
-    source: String,
     #[serde(default = "default_global_scope")]
     scope: String,
     /// 人格简介：组织清单里对目标人格的说明。
@@ -86,32 +84,6 @@ struct AgentProfile {
 struct AgentsFile {
     #[serde(default)]
     agents: Vec<AgentProfile>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PrivatePersonaFile {
-    id: String,
-    name: String,
-    #[serde(alias = "prompt", alias = "systemPrompt")]
-    system_prompt: String,
-    #[serde(default)]
-    tools: Vec<ApiToolConfig>,
-    #[serde(default)]
-    avatar_path: Option<String>,
-    // 以下字段由 GUI/私有组织合并流程写入；CLI 保存时仅做透传，避免覆盖已有配置。
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    summary: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    resident_skill_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    optional_skill_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    api_config_ids: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    child_agent_ids: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    permission_control: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -681,13 +653,12 @@ fn handle_agent(ctx: &CliContext, args: &[String]) -> Result<(), String> {
             let name = required_arg(args, 1, "agent new <name> <persona> [<avatar-file>]")?;
             let persona = required_arg(args, 2, "agent new <name> <persona> [<avatar-file>]")?;
             let avatar = args.get(3).cloned();
-            let mut agents = load_main_agents(ctx)?;
-            let existing_agents = load_agents(ctx)?;
+            let mut agents = load_agents(ctx)?;
             let mut next = build_new_agent(name, persona, avatar);
             next.id = unique_slugified_id(
                 name,
                 "agent",
-                existing_agents.iter().map(|item| item.id.as_str()),
+                agents.iter().map(|item| item.id.as_str()),
             );
             validate_agent(&next)?;
             agents.push(next.clone());
@@ -728,7 +699,6 @@ fn handle_agent(ctx: &CliContext, args: &[String]) -> Result<(), String> {
             next.id = agents[idx].id.clone();
             next.created_at = keep_or_now(&agents[idx].created_at);
             next.updated_at = now_iso();
-            next.source = agents[idx].source.clone();
             next.scope = agents[idx].scope.clone();
             // 组织边只走树上的即时命令，update 不改边。
             next.child_agent_ids = agents[idx].child_agent_ids.clone();
@@ -1335,19 +1305,11 @@ fn handle_mcp(ctx: &CliContext, args: &[String]) -> Result<(), String> {
 }
 
 fn load_agents(ctx: &CliContext) -> Result<Vec<AgentProfile>, String> {
-    let mut agents = load_main_agents(ctx)?;
-    let mut seen_ids = agents
-        .iter()
-        .map(|agent| agent.id.trim().to_ascii_lowercase())
-        .filter(|id| !id.is_empty())
-        .collect::<BTreeSet<_>>();
-    for agent in load_private_agents(ctx)? {
-        let key = agent.id.trim().to_ascii_lowercase();
-        if !key.is_empty() && seen_ids.insert(key) {
-            agents.push(agent);
-        }
+    let shard = main_agents_shard_path(ctx);
+    if shard.exists() {
+        return Ok(read_json_file::<AgentsFile>(&shard)?.agents);
     }
-    Ok(agents)
+    Ok(Vec::new())
 }
 
 fn visible_agents(agents: &[AgentProfile]) -> Vec<AgentProfile> {
@@ -1382,14 +1344,6 @@ fn main_agents_shard_path(ctx: &CliContext) -> PathBuf {
         .join("agents.json")
 }
 
-fn load_main_agents(ctx: &CliContext) -> Result<Vec<AgentProfile>, String> {
-    let shard = main_agents_shard_path(ctx);
-    if shard.exists() {
-        return Ok(read_json_file::<AgentsFile>(&shard)?.agents);
-    }
-    Ok(Vec::new())
-}
-
 fn save_main_agents(ctx: &CliContext, agents: &[AgentProfile]) -> Result<(), String> {
     let shard = main_agents_shard_path(ctx);
     if let Some(parent) = shard.parent() {
@@ -1400,123 +1354,10 @@ fn save_main_agents(ctx: &CliContext, agents: &[AgentProfile]) -> Result<(), Str
 }
 
 fn save_agent(ctx: &CliContext, agent: &AgentProfile) -> Result<(), String> {
-    if is_private_agent(agent) {
-        return save_private_agent(ctx, agent);
-    }
-    let mut agents = load_main_agents(ctx)?;
+    let mut agents = load_agents(ctx)?;
     let idx = find_agent_index(&agents, &agent.id)?;
     agents[idx] = agent.clone();
     save_main_agents(ctx, &agents)
-}
-
-fn load_private_agents(ctx: &CliContext) -> Result<Vec<AgentProfile>, String> {
-    let dir = private_personas_dir(ctx);
-    if !dir.exists() {
-        return Ok(Vec::new());
-    }
-    let mut paths = fs::read_dir(&dir)
-        .map_err(|err| format!("读取私有人格目录失败 ({}): {err}", dir.display()))?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
-        .collect::<Vec<_>>();
-    paths.sort();
-    let mut agents = Vec::new();
-    for path in paths {
-        let file = read_json_file::<PrivatePersonaFile>(&path)?;
-        let id = file.id.trim().to_string();
-        if id.is_empty() || reserved_agent_id(&id) {
-            continue;
-        }
-        let name = file.name.trim().to_string();
-        let system_prompt = file.system_prompt.trim().to_string();
-        if name.is_empty() || system_prompt.is_empty() {
-            continue;
-        }
-        let now = now_iso();
-        agents.push(AgentProfile {
-            id,
-            name,
-            system_prompt,
-            tools: file.tools,
-            created_at: now.clone(),
-            updated_at: now,
-            avatar_path: file.avatar_path,
-            avatar_updated_at: None,
-            is_built_in_user: false,
-            is_built_in_system: false,
-            private_memory_enabled: false,
-            memory_recall_mode: default_memory_recall_mode(),
-            source: default_private_workspace_source(),
-            scope: default_assistant_private_scope(),
-            summary: file.summary,
-            resident_skill_names: file.resident_skill_names,
-            optional_skill_names: file.optional_skill_names,
-            api_config_ids: file.api_config_ids,
-            api_config_id: String::new(),
-            permission_control: file.permission_control,
-            child_agent_ids: file.child_agent_ids,
-        });
-    }
-    Ok(agents)
-}
-
-fn save_private_agent(ctx: &CliContext, agent: &AgentProfile) -> Result<(), String> {
-    let dir = private_personas_dir(ctx);
-    fs::create_dir_all(&dir)
-        .map_err(|err| format!("创建私有人格目录失败 ({}): {err}", dir.display()))?;
-    let existing = find_private_agent_path(ctx, &agent.id)?;
-    let path = existing
-        .clone()
-        .unwrap_or_else(|| dir.join(format!("{}.json", sanitize_file_id(&agent.id))));
-    // 人格字段本身已由 load_private_agents 从 JSON 读全，这里直接回写，
-    // 保证 agent update / set-parent 等命令改动的字段真的落盘。
-    let file = PrivatePersonaFile {
-        id: agent.id.clone(),
-        name: agent.name.clone(),
-        system_prompt: agent.system_prompt.clone(),
-        tools: agent.tools.clone(),
-        avatar_path: agent.avatar_path.clone(),
-        summary: agent.summary.clone(),
-        resident_skill_names: agent.resident_skill_names.clone(),
-        optional_skill_names: agent.optional_skill_names.clone(),
-        api_config_ids: agent.api_config_ids.clone(),
-        child_agent_ids: agent.child_agent_ids.clone(),
-        permission_control: agent.permission_control.clone(),
-    };
-    write_json_file(&path, &file)
-}
-
-fn find_private_agent_path(ctx: &CliContext, agent_id: &str) -> Result<Option<PathBuf>, String> {
-    let dir = private_personas_dir(ctx);
-    if !dir.exists() {
-        return Ok(None);
-    }
-    for entry in fs::read_dir(&dir)
-        .map_err(|err| format!("读取私有人格目录失败 ({}): {err}", dir.display()))?
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("json") {
-            continue;
-        }
-        let Ok(file) = read_json_file::<PrivatePersonaFile>(&path) else {
-            continue;
-        };
-        if file.id.eq_ignore_ascii_case(agent_id) {
-            return Ok(Some(path));
-        }
-    }
-    Ok(None)
-}
-
-fn private_personas_dir(ctx: &CliContext) -> PathBuf {
-    effective_workspace_root(ctx)
-        .join("private-organization")
-        .join("personas")
-}
-
-fn is_private_agent(agent: &AgentProfile) -> bool {
-    agent.source.trim() == default_private_workspace_source()
 }
 
 fn reserved_agent_id(id: &str) -> bool {
@@ -1645,7 +1486,6 @@ fn build_new_agent(name: &str, persona: &str, avatar: Option<String>) -> AgentPr
         is_built_in_system: false,
         private_memory_enabled: false,
         memory_recall_mode: default_memory_recall_mode(),
-        source: default_main_source(),
         scope: default_global_scope(),
         summary: String::new(),
         resident_skill_names: Vec::new(),
@@ -2386,20 +2226,8 @@ fn default_memory_recall_mode() -> String {
     "auto".to_string()
 }
 
-fn default_main_source() -> String {
-    "main_config".to_string()
-}
-
 fn default_global_scope() -> String {
     "global".to_string()
-}
-
-fn default_private_workspace_source() -> String {
-    "private_workspace".to_string()
-}
-
-fn default_assistant_private_scope() -> String {
-    "assistant_private".to_string()
 }
 
 #[cfg(test)]

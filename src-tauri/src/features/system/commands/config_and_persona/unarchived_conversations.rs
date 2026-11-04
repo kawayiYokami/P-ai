@@ -4656,7 +4656,6 @@ mod unarchived_conversations_tests {
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "manual".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),

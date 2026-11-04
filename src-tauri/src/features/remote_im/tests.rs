@@ -1674,7 +1674,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "manual".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -1767,49 +1766,6 @@
     }
 
     #[test]
-    fn ensure_remote_im_contact_conversation_id_should_accept_private_bound_agent() {
-        let state = remote_im_test_state();
-        let mut api = ApiConfig::default();
-        api.id = "api-a".to_string();
-        api.enable_text = true;
-        api.model = "gpt-4o-mini".to_string();
-        let config = AppConfig {
-            api_configs: vec![api],
-            expert_api_config_id: "api-a".to_string(),
-            ..AppConfig::default()
-        };
-        write_config(&state.config_path, &config).expect("write config");
-        let private_personas_dir = app_root_from_data_path(&state.data_path)
-            .join("llm-workspace")
-            .join("private-organization")
-            .join("personas");
-        std::fs::create_dir_all(&private_personas_dir)
-            .expect("create private personas dir");
-        std::fs::write(
-            private_personas_dir.join("private-agent.json"),
-            r#"{
-  "id": "private-agent",
-  "name": "私域助理",
-  "systemPrompt": "你是私域助理，负责接待私有渠道的联系人。"
-}"#,
-        )
-        .expect("write private persona");
-        state_write_agents_cached(&state, &[default_user_persona()]).expect("write agents");
-
-        let mut contact = remote_im_test_contact("contact-private", "");
-        contact.bound_agent_id = Some("private-agent".to_string());
-        contact.bound_conversation_id = None;
-
-        let conversation_id = ensure_remote_im_contact_conversation_id(&state, &mut contact)
-            .expect("ensure contact conversation");
-        let conversation =
-            state_read_conversation_cached(&state, &conversation_id).expect("read conversation");
-
-        assert_eq!(conversation.agent_id, "private-agent");
-        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
-    }
-
-    #[test]
     fn ensure_remote_im_contact_conversation_id_should_seed_initial_summary_context() {
         let state = remote_im_test_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
@@ -1894,7 +1850,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "manual".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),

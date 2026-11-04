@@ -483,14 +483,6 @@ fn ide_chat_clear_agent_avatar_for_web_settings(
     Ok(Value::Null)
 }
 
-fn ide_chat_convert_private_agent_to_main_for_web_settings(
-    state: &AppState,
-    params: Value,
-) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<ConvertPrivateAgentToMainInput>(params, "input")?;
-    ide_chat_serialize(convert_private_agent_to_main_inner(input, state)?)
-}
-
 fn ide_chat_list_agent_memes_for_web_settings(
     state: &AppState,
     params: Value,

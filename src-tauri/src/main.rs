@@ -1414,7 +1414,6 @@ fn main() {
             save_config,
             load_agents,
             save_agents,
-            convert_private_agent_to_main,
             get_agent_private_memory_count,
             set_agent_private_memory_enabled,
             set_agent_memory_recall_mode,

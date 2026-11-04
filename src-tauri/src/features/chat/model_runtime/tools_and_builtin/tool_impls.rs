@@ -534,8 +534,6 @@ async fn apply_config_tool_runtime_effect(
                 "mcpFailed": reload_result.mcp_failed,
                 "skillsLoaded": reload_result.skills_loaded,
                 "skillsFailed": reload_result.skills_failed,
-                "privateAgentsLoaded": reload_result.private_agents_loaded,
-                "privateAgentsFailed": reload_result.private_agents_failed,
                 "loadedSummary": reload_result.loaded_summary,
                 "failedSummary": reload_result.failed_summary,
                 "repairSummary": reload_result.repair_summary,

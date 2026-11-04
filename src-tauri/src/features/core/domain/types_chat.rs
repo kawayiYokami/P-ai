@@ -48,8 +48,6 @@ struct AgentProfile {
     private_memory_enabled: bool,
     #[serde(default = "default_agent_memory_recall_mode")]
     memory_recall_mode: String,
-    #[serde(default = "default_main_source")]
-    source: String,
     #[serde(default = "default_global_scope")]
     scope: String,
     /// 人格简介：一句话描述这个人格擅长什么。

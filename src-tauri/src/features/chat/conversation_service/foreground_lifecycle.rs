@@ -88,7 +88,6 @@ impl ConversationServiceV2 {
                 }
             };
         let _effective_agent_id = self.resolve_effective_agent_id_for_read(
-            state,
             &mut app_config,
             &agents,
             &assistant_agent_id,
@@ -251,7 +250,6 @@ impl ConversationServiceV2 {
         let assistant_agent_id = assistant_agent_id_downgraded(state);
         let agents = state_read_agents_cached(state)?;
         let effective_agent_id = self.resolve_effective_agent_id_for_read(
-            state,
             &mut app_config,
             &agents,
             &assistant_agent_id,

@@ -979,66 +979,6 @@
     }
 
     #[test]
-    fn builtin_memory_tools_should_accept_private_workspace_runtime_agent() {
-        let state = test_chat_runtime_state();
-        let now = now_iso();
-        let private_worker = AgentProfile {
-            id: "private-worker".to_string(),
-            name: "私人执行者".to_string(),
-            system_prompt: "你是谁：你是私人执行者。\n台词技巧：直接。\n性格画像：可靠。".to_string(),
-            tools: default_agent_tools(),
-            created_at: now.clone(),
-            updated_at: now,
-            avatar_path: None,
-            avatar_updated_at: None,
-            is_built_in_user: false,
-            is_built_in_system: false,
-            private_memory_enabled: false,
-            memory_recall_mode: default_agent_memory_recall_mode(),
-            source: default_private_workspace_source(),
-            scope: default_assistant_private_scope(),
-            summary: String::new(),
-            resident_skill_names: Vec::new(),
-            optional_skill_names: Vec::new(),
-            include_system_rules: true,
-            api_config_ids: Vec::new(),
-            api_config_id: String::new(),
-            model_failure_fallback_enabled: false,
-            permission_control: AgentPermissionControl::default(),
-            child_agent_ids: Vec::new(),
-        };
-        let private_worker_memory_context =
-            memory_agent_context_from_agent(&private_worker).expect("private worker memory context");
-
-        let save_result = builtin_memory_save(
-            &state,
-            &private_worker_memory_context,
-            serde_json::json!({
-                "action": "create",
-                "memory": {
-                    "memoryType": "knowledge",
-                    "judgment": "这是私有工作区人格记录的共享记忆",
-                    "reasoning": "回归测试",
-                    "tags": ["私有回归", "共享"]
-                }
-            }),
-        )
-        .expect("save private workspace memory");
-
-        assert_eq!(save_result.get("saved").and_then(Value::as_bool), Some(true));
-
-        let recall_result = builtin_recall(&state, &private_worker_memory_context, "私有回归", None, None, None)
-            .expect("recall private workspace memory");
-        let memory_board = recall_result
-            .get("memories")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-
-        assert_eq!(recall_result.get("count").and_then(Value::as_u64), Some(1));
-        assert!(memory_board.contains("这是私有工作区人格记录的共享记忆"));
-    }
-
-    #[test]
     fn build_prompt_user_meta_text_should_skip_compaction_message_metadata() {
         let now = now_iso();
         let mut message = test_text_message(
@@ -3370,7 +3310,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "global".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -3541,7 +3480,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "global".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -3701,7 +3639,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "global".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -3764,7 +3701,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "global".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),

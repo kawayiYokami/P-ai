@@ -51,14 +51,12 @@ fn normalize_runtime_organization_agent_children(agents: &mut [AgentProfile]) {
 }
 
 fn build_runtime_organization_snapshot_from_parts(
-    data_path: &PathBuf,
     base_config: &AppConfig,
     base_agents: &[AgentProfile],
 ) -> Result<RuntimeOrganizationSnapshot, String> {
     let config = base_config.clone();
     let mut runtime_data = AppData::default();
     runtime_data.agents = base_agents.to_vec();
-    merge_private_organization_into_runtime_data(data_path, &config, &mut runtime_data)?;
     normalize_runtime_organization_agent_children(&mut runtime_data.agents);
 
     let mut agents_by_id = std::collections::HashMap::<String, AgentProfile>::new();
@@ -82,7 +80,7 @@ fn load_runtime_organization_snapshot(
 ) -> Result<RuntimeOrganizationSnapshot, String> {
     let config = state_read_config_cached(state)?;
     let agents = state_read_agents_cached(state)?;
-    build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &agents)
+    build_runtime_organization_snapshot_from_parts(&config, &agents)
 }
 
 /// 人格主索引取人格。组织就是人格本身，新模型下的解析一律走这里。
@@ -182,7 +180,6 @@ mod runtime_organization_tests {
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "global".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),

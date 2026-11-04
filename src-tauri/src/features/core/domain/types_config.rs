@@ -279,20 +279,8 @@ fn support_permission_control() -> AgentPermissionControl {
 }
 
 
-fn default_main_source() -> String {
-    "main_config".to_string()
-}
-
-fn default_private_workspace_source() -> String {
-    "private_workspace".to_string()
-}
-
 fn default_global_scope() -> String {
     "global".to_string()
-}
-
-fn default_assistant_private_scope() -> String {
-    "assistant_private".to_string()
 }
 
 /// 保存配置的结果：归一化后的配置本体。

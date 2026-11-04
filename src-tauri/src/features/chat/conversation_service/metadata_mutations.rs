@@ -235,7 +235,6 @@ impl ConversationServiceV2 {
                 }
             };
         let _effective_agent_id = self.resolve_effective_agent_id_for_read(
-            state,
             &mut app_config,
             &agents,
             &assistant_agent_id,

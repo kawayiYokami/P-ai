@@ -1811,7 +1811,6 @@ fn reset_chat_shell_workspace(
     )?;
     ensure_workspace_mcp_layout_at_root(&root)?;
     ensure_workspace_skills_layout_at_root(&root)?;
-    ensure_workspace_private_organization_layout_at_root(&root)?;
     Ok(shell_workspace_display_path(&root))
 }
 
