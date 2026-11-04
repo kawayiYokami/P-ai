@@ -58,6 +58,8 @@ function createPresentation(agentNames: Record<string, string> = {}) {
     "status.toolTimeline.teamScopeActive": "当前队员",
     "status.toolTimeline.teamScopeHistory": "历史队员",
     "status.toolTimeline.actionTodo": "待办清单",
+    "status.toolTimeline.actionQuestion": "会话提问",
+    "status.toolTimeline.todoItems": "共 {count} 项",
     "status.toolTimeline.actionUpdate": "更新",
     "status.toolTimeline.actionWait": "等待",
     "status.toolTimeline.actionWebSearch": "搜索网页",
@@ -504,10 +506,35 @@ describe("createToolCallPresentation", () => {
     expect(multiWindows.target).toBe("列举窗口 · 激活窗口 42 · 另 1 步");
 
     // 六个工具都不该再落到 MCP 兜底
-    for (const toolName of ["kanban", "kanban_set_plan", "get_tool", "contact_reply", "contact_no_reply", "windows"]) {
+    for (const toolName of ["kanban", "kanban_set_plan", "get_tool", "contact_reply", "contact_no_reply", "windows", "todo", "question"]) {
       expect(presentation.toolCallSemanticPresentation({ name: toolName, argsText: "{}" }).action).not.toBe("链接到");
       expect(presentation.toolCallDisplayName(toolName)).not.toContain("链接到");
     }
+  });
+
+  it("会话提问：list 只报动作，update 报条数", () => {
+    const presentation = createPresentation();
+
+    const list = presentation.toolCallSemanticPresentation({
+      name: "question",
+      argsText: JSON.stringify({ action: "list" }),
+    });
+    expect(list.action).toBe("会话提问");
+    expect(list.target).toBe("");
+    expect(list.text).toBe("会话提问");
+
+    const update = presentation.toolCallSemanticPresentation({
+      name: "question",
+      argsText: JSON.stringify({
+        action: "update",
+        items: [{ title: "先做哪一件" }, { title: "什么时候交" }],
+      }),
+    });
+    expect(update.action).toBe("会话提问");
+    expect(update.target).toBe("共 2 项");
+    expect(update.text).toBe("会话提问 共 2 项");
+
+    expect(presentation.toolCallDisplayName("question")).toBe("会话提问");
   });
 
   it("外部 / MCP 工具：统一显示「链接到 {mcp工具名}」", () => {

@@ -529,6 +529,21 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       };
     }
 
+    // 11.5. 会话提问 (question)：list 读全部，update 按 items 条数报
+    if (toolName === "question") {
+      const action = toolTimelineText("actionQuestion");
+      const items = Array.isArray(obj.items) ? obj.items : [];
+      const updateMode = safeStringValue(obj, "action") === "update";
+      const target = updateMode && items.length
+        ? toolTimelineText("todoItems", { count: items.length })
+        : "";
+      return {
+        action,
+        target,
+        text: formatFullText(action, target),
+      };
+    }
+
     // 12. 目标管理 (create_goal / update_goal)
     if (toolName === "create_goal" || toolName === "update_goal") {
       const action = toolTimelineText("actionGoal");
@@ -1033,6 +1048,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     if (raw === "list_dir" || raw === "read_dir") return toolTimelineText("actionListDir");
     if (raw === "find" || raw === "search") return toolTimelineText("actionSearch");
     if (raw === "todo") return toolTimelineText("actionTodo");
+    if (raw === "question") return toolTimelineText("actionQuestion");
     if (raw === "create_goal" || raw === "update_goal") return toolTimelineText("actionGoal");
     if (raw === "get_session") return toolTimelineText("actionGetSession");
     if (raw === "background") return toolTimelineText("actionBackground");
@@ -1073,11 +1089,6 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     return semantic.text;
   }
 
-  function toolCallTitle(toolCall: { name: string; argsText: string }, index: number): string {
-    const semantic = toolCallSemanticPresentation(toolCall);
-    return `#${index} ${semantic.text}`;
-  }
-
   return {
     compactText,
     countTextLines,
@@ -1089,7 +1100,6 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     toolCallDisplayName,
     toolCallSemanticPresentation,
     toolCallSummaryText,
-    toolCallTitle,
     toolTimelineText,
   };
 }

@@ -246,33 +246,19 @@
                               class="ecall-activity-item-summary min-w-0 inline-flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap"
                               :class="activityItemTitleClass(item)"
                             >
-                              <template v-if="activityItemSemantic(item)">
-                                <span class="font-medium shrink-0">{{ activityItemSemantic(item)!.action }}</span>
-                                <span class="truncate">{{ activityItemSemantic(item)!.target }}</span>
-                                <span
-                                  v-if="activityItemSemantic(item)!.lineRange"
-                                  class="font-mono text-xs opacity-75 shrink-0"
-                                >{{ activityItemSemantic(item)!.lineRange }}</span>
-                                <span
-                                  v-if="activityItemSemantic(item)!.extra"
-                                  class="opacity-75 shrink-0 truncate"
-                                >{{ activityItemSemantic(item)!.extra }}</span>
-                                <span
-                                  v-if="activityItemStatusSuffix(item)"
-                                  class="opacity-75 shrink-0 font-normal"
-                                >{{ activityItemStatusSuffix(item) }}</span>
-                              </template>
-                              <template v-else>
-                                <span>{{ activityItemDisplay(item).text }}</span>
-                              </template>
+                              <span class="font-medium shrink-0 truncate">{{ toolCallDisplayName(item.name) }}</span>
                               <span
-                                v-if="activityItemDisplay(item).adds > 0"
+                                v-if="activityItemStatusSuffix(item)"
+                                class="opacity-75 shrink-0 font-normal"
+                              >{{ activityItemStatusSuffix(item) }}</span>
+                              <span
+                                v-if="toolCallDiffStats(item).adds > 0"
                                 class="ml-1 shrink-0 font-mono text-success"
-                              >+{{ activityItemDisplay(item).adds }}</span>
+                              >+{{ toolCallDiffStats(item).adds }}</span>
                               <span
-                                v-if="activityItemDisplay(item).removes > 0"
+                                v-if="toolCallDiffStats(item).removes > 0"
                                 class="ml-1 shrink-0 font-mono text-error"
-                              >-{{ activityItemDisplay(item).removes }}</span>
+                              >-{{ toolCallDiffStats(item).removes }}</span>
                             </span>
                             <ChevronDown
                               class="ecall-activity-chevron mt-0.5 h-3.5 w-3.5 shrink-0 text-base-content/45 transition-transform duration-150 opacity-0 group-hover:opacity-100"
@@ -329,33 +315,19 @@
                             class="ecall-activity-item-summary min-w-0 flex-1 inline-flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap"
                             :class="activityItemTitleClass(item)"
                           >
-                            <template v-if="activityItemSemantic(item)">
-                              <span class="font-medium shrink-0">{{ activityItemSemantic(item)!.action }}</span>
-                              <span class="truncate">{{ activityItemSemantic(item)!.target }}</span>
-                              <span
-                                v-if="activityItemSemantic(item)!.lineRange"
-                                class="font-mono text-xs opacity-75 shrink-0"
-                              >{{ activityItemSemantic(item)!.lineRange }}</span>
-                              <span
-                                v-if="activityItemSemantic(item)!.extra"
-                                class="opacity-75 shrink-0 truncate"
-                              >{{ activityItemSemantic(item)!.extra }}</span>
-                              <span
-                                v-if="activityItemStatusSuffix(item)"
-                                class="opacity-75 shrink-0 font-normal"
-                              >{{ activityItemStatusSuffix(item) }}</span>
-                            </template>
-                            <template v-else>
-                              <span>{{ activityItemDisplay(item).text }}</span>
-                            </template>
+                            <span class="font-medium shrink-0 truncate">{{ toolCallDisplayName(item.name) }}</span>
                             <span
-                              v-if="activityItemDisplay(item).adds > 0"
+                              v-if="activityItemStatusSuffix(item)"
+                              class="opacity-75 shrink-0 font-normal"
+                            >{{ activityItemStatusSuffix(item) }}</span>
+                            <span
+                              v-if="toolCallDiffStats(item).adds > 0"
                               class="ml-1 shrink-0 font-mono text-success"
-                            >+{{ activityItemDisplay(item).adds }}</span>
+                            >+{{ toolCallDiffStats(item).adds }}</span>
                             <span
-                              v-if="activityItemDisplay(item).removes > 0"
+                              v-if="toolCallDiffStats(item).removes > 0"
                               class="ml-1 shrink-0 font-mono text-error"
-                            >-{{ activityItemDisplay(item).removes }}</span>
+                            >-{{ toolCallDiffStats(item).removes }}</span>
                           </span>
                         </div>
                         <div v-else-if="item.kind === 'content'" class="flex px-1 py-1">
@@ -786,7 +758,6 @@ const {
   toolCallDisplayName,
   toolCallSemanticPresentation,
   toolCallSummaryText,
-  toolCallTitle,
   toolTimelineText,
 } = createToolCallPresentation({
   t: (key, params) => String(t(key, params ?? {})),
@@ -1216,8 +1187,9 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
     const doingToolCall = toolCallsForBlock(block).find((call) => call.status === "doing");
     if (doingToolCall) {
       // 只报工具名，不带目标：语义句会把整条命令塞进头部，长命令直接把这一行撑满。
+      // 前缀「正在执行：」已经去掉，头部只留工具名本身。
       const namedTool = compactText(toolCallDisplayName(doingToolCall.name), 32);
-      return withWater(t("chat.statusExecutingNamedTool", { name: namedTool }));
+      return withWater(namedTool);
     }
   }
   if (schedulingState) {
@@ -1825,12 +1797,6 @@ function activityItemStatusSuffix(item: ChatActivityItem): string {
   return "";
 }
 
-function activityItemSemantic(item: ChatActivityItem) {
-  if (item.kind !== "tool") return null;
-  return toolCallSemanticPresentation(item);
-}
-
-
 function activityItemTitle(item: ChatActivityItem): string {
   // 思考块标题固定成文案：首行切分那套像素估算已经去掉，标题不再跟着正文首句变
   if (item.kind === "reasoning") return t("chat.messageItem.reasoningTitle");
@@ -1922,16 +1888,6 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
   const parts = buildToolDetailParts(item, override);
   toolDetailPartsCache.set(item, { stamp, parts });
   return parts;
-}
-
-function activityItemDisplay(item: ChatActivityItem): { text: string; adds: number; removes: number } {
-  if (item.kind !== "tool") {
-    return { text: activityItemTitle(item), adds: 0, removes: 0 };
-  }
-  return {
-    text: activityItemTitle(item),
-    ...toolCallDiffStats(item),
-  };
 }
 
 function toolStatusLabel(block: ChatMessageBlock): string {
