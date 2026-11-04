@@ -9,8 +9,9 @@
  * 配色在这一层定：参数区的绿是它自己的语义，不跟随条目层的 context 灰。
  */
 <script setup lang="ts">
-import { computed } from "vue";
-import { parseToolArgs, type ToolArgLine } from "../utils/tool-args-tree";
+import { computed, ref, watch } from "vue";
+import { breakCommandLines, isCommandArgLabel, parseToolArgs, type ToolArgLine } from "../utils/tool-args-tree";
+import { highlightShellCommand } from "../utils/shell-highlight";
 
 const props = defineProps<{
   text: string;
@@ -47,6 +48,37 @@ function readLines(text: string): ToolArgLine[] | null {
 const source = computed(() => String(props.text ?? ""));
 const lines = computed(() => readLines(source.value));
 
+/** 命令行按操作符折行显示；其他字段原样。 */
+function valueText(line: ToolArgLine): string {
+  if (!line.value) return "";
+  if (!isCommandArgLabel(line.label)) return line.value;
+  return breakCommandLines(line.value);
+}
+
+/** 命令行的高亮结果，按行号存；shiki 是异步的，没就绪前这段为空，模板回退纯文本。 */
+const highlightedCommands = ref<Record<number, string>>({});
+
+watch(
+  [lines, () => props.dark],
+  async () => {
+    const snapshot = lines.value;
+    if (!snapshot) {
+      highlightedCommands.value = {};
+      return;
+    }
+    const next: Record<number, string> = {};
+    for (let index = 0; index < snapshot.length; index += 1) {
+      const line = snapshot[index];
+      if (!line?.value || !isCommandArgLabel(line.label)) continue;
+      const html = await highlightShellCommand(breakCommandLines(line.value), !!props.dark);
+      if (html) next[index] = html;
+    }
+    // 异步返回时参数可能已被新的流式内容替换，只有快照仍然有效才提交
+    if (lines.value === snapshot) highlightedCommands.value = next;
+  },
+  { immediate: true },
+);
+
 function indentStyle(line: ToolArgLine): Record<string, string> {
   return { paddingLeft: `calc(${INDENT_UNIT} * ${line.depth})` };
 }
@@ -64,10 +96,13 @@ function indentStyle(line: ToolArgLine): Record<string, string> {
       >
         <span v-if="line.prefix" class="ecall-tool-args-prefix shrink-0">{{ line.prefix }}</span>
         <span v-if="line.label" class="ecall-tool-arg-key shrink-0">{{ line.label }}<span class="ecall-tool-arg-colon">:</span></span>
-        <span v-if="line.value" class="min-w-0 break-all">{{ line.value }}</span>
+        <span v-if="line.value" class="min-w-0 whitespace-pre-wrap break-all">
+          <span v-if="highlightedCommands[index]" v-html="highlightedCommands[index]" />
+          <template v-else>{{ valueText(line) }}</template>
+        </span>
       </div>
     </div>
-    <span v-else class="whitespace-pre-wrap break-all">{{ source }}</span>
+    <span v-else class="whitespace-pre-wrap break-all">{{ breakCommandLines(source) }}</span>
   </div>
 </template>
 

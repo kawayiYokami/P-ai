@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseToolArgs, TOOL_ARG_EMPTY_MARK, TOOL_ARG_VALUE_MAX_CHARS } from "./tool-args-tree";
+import { breakCommandLines, isCommandArgLabel, parseToolArgs, TOOL_ARG_EMPTY_MARK, TOOL_ARG_VALUE_MAX_CHARS } from "./tool-args-tree";
 
 const flat = (text: string) => (parseToolArgs(text) || []).map(
   (line) => `${"  ".repeat(line.depth)}${line.prefix ? `${line.prefix} ` : ""}${line.label ? `${line.label}:` : ""}${line.value ?? ""}`,
@@ -61,5 +61,35 @@ describe("parseToolArgs", () => {
   it("截断的 JSON 返回 null，交给调用方退回纯文本", () => {
     expect(parseToolArgs('{"a":1,"b":')).toBeNull();
     expect(parseToolArgs('{"a":1')).toBeNull();
+  });
+});
+
+describe("breakCommandLines", () => {
+  it("按 && 与 | 折行，一条命令一步一行", () => {
+    const command = "cd /repo && git show HEAD:CHANGELOG.md 2>/dev/null | head -120";
+    expect(breakCommandLines(command)).toBe("cd /repo &&\ngit show HEAD:CHANGELOG.md 2>/dev/null |\nhead -120");
+  });
+
+  it("多段命令逐级切开，子 shell 照切不误", () => {
+    const command = "cd /repo && MB=$(git merge-base HEAD upstream/main) && echo $MB | head -1";
+    expect(breakCommandLines(command)).toBe(
+      "cd /repo &&\nMB=$(git merge-base HEAD upstream/main) &&\necho $MB |\nhead -1",
+    );
+  });
+
+  it("操作符前的空格原样保留，不额外加空格", () => {
+    expect(breakCommandLines("a || b; c")).toBe("a ||\nb;\nc");
+  });
+
+  it("没有操作符的命令原样返回", () => {
+    expect(breakCommandLines("git status --short")).toBe("git status --short");
+    expect(breakCommandLines("")).toBe("");
+  });
+
+  it("只对命令类键名折行", () => {
+    expect(isCommandArgLabel("command")).toBe(true);
+    expect(isCommandArgLabel("CMD")).toBe(true);
+    expect(isCommandArgLabel("query")).toBe(false);
+    expect(isCommandArgLabel(undefined)).toBe(false);
   });
 });

@@ -156,12 +156,12 @@
                             <InlineMarkdownText :text="activityItemTitle(item)" />
                           </span>
 
-                          <!-- 折叠箭头：平时不显示，悬停条目才出现；展开后常显，否则没有收起入口 -->
+                          <!-- 折叠箭头：能展开就常显，不再等悬停 -->
                           <button
                             v-if="activityItemCanExpand(item)"
                             type="button"
-                            class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-base-content/45 hover:bg-base-300/50 hover:text-base-content/80 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                            :class="{ 'opacity-100': activityItemExpanded(item) }"
+                            class="flex h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-base-300/50 transition-colors"
+                            :class="activityItemTitleClass(item)"
                             :title="activityItemExpanded(item) ? t('common.collapse') : t('common.expand')"
                             data-selection-ignore="true"
                             @click.stop="toggleReasoningItemExpanded(item)"
@@ -180,8 +180,9 @@
                         </div>
 
                         <!-- 正文区：折叠态展示 4 行预览 + 底部 base-200 淡出；展开态完整展示且由 Header 吸顶 -->
+                        <!-- 正文区：有无正文看 hasBody，能不能展开另由箭头决定 -->
                         <div
-                          v-if="activityItemCanExpand(item)"
+                          v-if="activityItemHasBody(item)"
                           class="min-w-0 pb-1.5"
                         >
                           <!-- 正文外壳：折叠态限高约 4 行预览并加底部 base-200 淡出；展开态限高滚动 -->
@@ -189,7 +190,8 @@
                             class="ecall-reasoning-body-shell relative min-w-0 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
                             :class="[
                               activityItemDetailClass(item),
-                              activityItemExpanded(item) ? 'ecall-reasoning-body--expanded' : 'ecall-reasoning-body--clamped cursor-pointer',
+                              activityItemExpanded(item) ? 'ecall-reasoning-body--expanded' : 'ecall-reasoning-body--clamped pr-3',
+                              !activityItemExpanded(item) && activityItemCanExpand(item) ? 'cursor-pointer' : '',
                             ]"
                             @click="onReasoningClampedBodyClick(item)"
                           >
@@ -202,10 +204,19 @@
                               <template v-else>{{ activityItemBodyText(item) }}</template>
                             </template>
 
+                            <!-- 展开态：上下各一条 0.5rem 淡出，滚到边缘时压住内容 -->
+                            <template v-if="activityItemExpanded(item)">
+                              <div
+                                class="ecall-reasoning-sticky-fade absolute inset-x-0 top-0 h-2 pointer-events-none"
+                              />
+                              <div
+                                class="ecall-reasoning-clamped-fade absolute inset-x-0 bottom-0 h-2 pointer-events-none"
+                              />
+                            </template>
                             <!-- 折叠态底部 base-200 淡出遮罩 -->
                             <div
-                              v-if="!activityItemExpanded(item)"
-                              class="ecall-reasoning-clamped-fade absolute inset-x-0 bottom-0 h-7 pointer-events-none"
+                              v-else
+                              class="ecall-reasoning-clamped-fade absolute inset-x-0 bottom-0 h-2 pointer-events-none"
                             />
                           </div>
                         </div>
@@ -213,7 +224,7 @@
                         <!-- 条目间距：右列末尾的留白行提供，左列竖线照常穿过 -->
                         <div
                           v-if="itemIndex !== presentedActivityItems.length - 1"
-                          class="h-6 shrink-0"
+                          class="h-4 shrink-0"
                         />
                       </div>
                     </template>
@@ -233,7 +244,7 @@
                           <svg
                             v-else-if="item.kind === 'content'"
                             viewBox="0 0 24 24"
-                            class="h-4 w-4"
+                            class="h-4 w-4 text-base-content/60"
                           >
                             <circle cx="12" cy="12" r="10" fill="currentColor" />
                             <path d="M8.4 10.2h7.2M8.4 13.8h7.2" class="text-base-100" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
@@ -259,7 +270,7 @@
                         <!-- 时间轴竖线：结构内的一列，撑满条目（含右列末尾留白行），相邻条目在 li 边界处相接 -->
                         <span
                           v-if="itemIndex !== presentedActivityItems.length - 1"
-                          class="w-px flex-1 bg-current"
+                          class="w-px flex-1 bg-current opacity-30"
                         />
                       </div>
                       <div class="flex min-w-0 flex-1 flex-col">
@@ -303,48 +314,66 @@
                               >-{{ activityItemDisplay(item).removes }}</span>
                             </span>
                             <ChevronDown
-                              class="ecall-activity-chevron mt-0.5 h-3.5 w-3.5 shrink-0 text-base-content/45 transition-transform duration-150 opacity-0 group-hover:opacity-100"
-                              :class="{ 'opacity-100': activityItemExpanded(item) }"
+                              class="ecall-activity-chevron mt-0.5 h-3.5 w-3.5 shrink-0 transition-transform duration-150"
                             />
                           </summary>
                           <div class="collapse-content pb-2 pr-1 pt-1 pl-0">
-                            <OverlayScrollArea scroller-class="max-h-72 rounded bg-base-200/60 py-2 pl-0 pr-2" overscroll="auto">
-                              <div class="flex flex-col gap-1.5">
-                                <!-- 参数区：整块走工具绿，其中的键名单独跳到行内代码红 -->
-                                <ToolArgsView
-                                  v-if="toolDetailParts(item).args"
-                                  :text="toolDetailParts(item).args"
-                                  :dark="markdownIsDark"
-                                  class="font-mono text-xs leading-relaxed"
-                                />
-                                <!-- 结果区：沿用条目那一档 context 灰 -->
-                                <pre
-                                  v-if="toolDetailParts(item).result"
-                                  class="m-0 whitespace-pre-wrap break-all text-xs leading-relaxed"
-                                  :class="activityItemDetailClass(item)"
-                                ><code>{{ toolDetailParts(item).result }}</code></pre>
-                              </div>
-                            </OverlayScrollArea>
-                            <div
-                              v-if="item.kind === 'tool' && item.contentOmitted && toolResultOverrides[activityItemKey(item)] === undefined"
-                              class="mt-1 flex items-center gap-2"
-                            >
-                              <button
-                                type="button"
-                                class="btn btn-xs btn-outline"
-                                :disabled="!!toolResultLoadingKeys[activityItemKey(item)]"
-                                @click.stop="loadToolResult(item)"
-                              >
-                                <span
-                                  v-if="toolResultLoadingKeys[activityItemKey(item)]"
-                                  class="loading loading-spinner loading-xs"
-                                ></span>
-                                {{ t("chat.toolReview.viewResult") || "查看结果" }}
-                              </button>
-                              <span
-                                v-if="toolResultErrorKeys[activityItemKey(item)]"
-                                class="text-error"
-                              >{{ toolResultErrorKeys[activityItemKey(item)] }}</span>
+                            <div class="relative">
+                              <OverlayScrollArea scroller-class="max-h-72 py-2 pr-2" overscroll="auto">
+                                <div class="flex flex-col gap-2">
+                                  <!-- 卡片一：参数（输入）。不设标题行，内容直接当卡片 -->
+                                  <div
+                                    v-if="toolDetailParts(item).args"
+                                    :class="['rounded-lg', FROST_GLASS]"
+                                  >
+                                    <!-- 参数区：整块走工具绿，其中的键名单独跳到行内代码红 -->
+                                    <ToolArgsView
+                                      :text="toolDetailParts(item).args"
+                                      :dark="markdownIsDark"
+                                      class="px-2.5 py-2 font-mono text-xs leading-relaxed"
+                                    />
+                                  </div>
+
+                                  <!-- 卡片二：结果（输出）。默认空态，点一下才把结果取回来 -->
+                                  <div
+                                    v-if="toolDetailParts(item).result || (item.contentOmitted && toolResultOverrides[activityItemKey(item)] === undefined)"
+                                    :class="['rounded-lg', FROST_GLASS]"
+                                  >
+                                    <!-- 结果区：沿用条目那一档 context 灰 -->
+                                    <pre
+                                      v-if="toolDetailParts(item).result"
+                                      class="m-0 whitespace-pre-wrap break-all px-2.5 py-2 text-xs leading-relaxed"
+                                      :class="markdownIsDark ? 'ecall-activity-result-dark' : 'ecall-activity-result'"
+                                    ><code>{{ toolDetailParts(item).result }}</code></pre>
+                                    <div v-else class="px-2.5 py-2">
+                                      <button
+                                        type="button"
+                                        class="btn btn-ghost btn-xs -ml-1 h-6 min-h-0 justify-start gap-1.5 px-1 text-xs font-normal text-base-content/60 hover:bg-base-300/60 hover:text-base-content"
+                                        :disabled="!!toolResultLoadingKeys[activityItemKey(item)]"
+                                        @click.stop="loadToolResult(item)"
+                                      >
+                                        <span
+                                          v-if="toolResultLoadingKeys[activityItemKey(item)]"
+                                          class="loading loading-spinner loading-xs"
+                                        ></span>
+                                        <ChevronRight v-else class="h-3 w-3 shrink-0" />
+                                        {{ t("chat.toolReview.viewResult") || "查看结果" }}
+                                      </button>
+                                      <span
+                                        v-if="toolResultErrorKeys[activityItemKey(item)]"
+                                        class="ml-2 text-error"
+                                      >{{ toolResultErrorKeys[activityItemKey(item)] }}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </OverlayScrollArea>
+                              <!-- 滚动区上下边缘各 0.5rem 淡出 -->
+                              <div
+                                class="ecall-activity-fade-top absolute inset-x-0 top-0 h-2 bg-base-200 pointer-events-none"
+                              />
+                              <div
+                                class="ecall-activity-fade-bottom absolute inset-x-0 bottom-0 h-2 bg-base-200 pointer-events-none"
+                              />
                             </div>
                           </div>
                         </details>
@@ -386,16 +415,17 @@
                             >-{{ activityItemDisplay(item).removes }}</span>
                           </span>
                         </div>
+                        <!-- 正文条目：只露 20 字，没有展开入口 -->
                         <div v-else-if="item.kind === 'content'" class="flex pr-1 py-1">
                           <PlainMarkdownRenderer
                             class="min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
-                            :text="activityItemText(item)"
+                            :text="activityItemContentText(item)"
                           />
                         </div>
                         <!-- 条目间距：右列末尾的留白行提供，左列竖线照常穿过 -->
                         <div
                           v-if="itemIndex !== presentedActivityItems.length - 1"
-                          class="h-6 shrink-0"
+                          class="h-4 shrink-0"
                         />
                       </div>
                     </template>
@@ -721,7 +751,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect, watchPostEffect, type StyleValue } from "vue";
 import { useI18n } from "vue-i18n";
-import { Braces, ChevronDown, ChevronRight, Copy, FileText, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
+import { Braces, ChevronDown, ChevronRight, Copy, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
 import { invokeTauri, openTransportWorkspaceFile, readTransportChatImage } from "../../../services/tauri-api";
 import type { ChatActivityItem, ChatMessageBlock } from "../../../types/app";
 import {
@@ -740,6 +770,8 @@ import { createStreamingSizeLock, observeStreamingSize, streamingSizeLockStyle }
 import { shouldFoldProcessSegments, type ProcessSegmentFoldIntent } from "../utils/process-segment-fold";
 import { createToolCallPresentation } from "../utils/tool-call-presentation";
 import { buildToolcallPreviewMap, parseToolCallResultStatus, type ToolcallPreviewEntry } from "../utils/toolcall-preview";
+import { parseToolArgs } from "../utils/tool-args-tree";
+import { FROST_GLASS } from "./session-float-styles";
 import { generateShareFromMessageIds } from "../utils/share-generator";
 import { frontendDispatchElapsedByMessageId } from "../composables/use-chat-flow-frontend-dispatch";
 import { useCollapseTransition } from "../composables/use-collapse-transition";
@@ -1439,6 +1471,13 @@ const presentedActivityItems = computed(() => {
 const collapsedActivityPreviewCache = new WeakMap<object, { source: string; preview: string }>();
 const COLLAPSED_ACTIVITY_PREVIEW_CHARS = 240;
 
+/** 思维链折叠态的可视行数（与 .ecall-reasoning-body--clamped 的 line-clamp 一致）。 */
+const REASONING_COLLAPSED_LINES = 4;
+/** 一行按约 36 个汉字估（12px 字号下的聊天窗宽度）。只用来决定要不要给展开箭头，不参与截断。 */
+const REASONING_CHARS_PER_LINE = 36;
+/** 超过这个字数才可能出现第 5 行，才值得给展开入口。估小不估大：漏给箭头会让内容打不开，多给只是多余。 */
+const REASONING_EXPAND_MIN_CHARS = REASONING_COLLAPSED_LINES * REASONING_CHARS_PER_LINE;
+
 type ToolDetailParts = { args: string; result: string };
 const EMPTY_TOOL_DETAIL_PARTS: ToolDetailParts = { args: "", result: "" };
 const toolDetailPartsCache = new WeakMap<ChatActivityItem, { stamp: string; parts: ToolDetailParts }>();
@@ -1696,6 +1735,7 @@ function onReasoningHeaderClick(item: ChatActivityItem, event: MouseEvent): void
 
 function onReasoningClampedBodyClick(item: ChatActivityItem): void {
   if (props.selectionModeEnabled || activityItemExpanded(item)) return;
+  if (!activityItemCanExpand(item)) return;
   if (hasNativeTextSelection()) return;
   toggleReasoningItemExpanded(item);
 }
@@ -1778,14 +1818,40 @@ function activityItemText(item: ChatActivityItem): string {
   return "";
 }
 
-function activityItemCanExpand(item: ChatActivityItem): boolean {
-  if (item.kind === "tool") {
-    // 无参数工具不显示参数区；但「无参数 + 有结果」的工具仍要能展开，否则结果本身也读不到。
-    if (activityToolArgsText(item).trim()) return true;
-    return !!String(item.resultText || "").trim() || item.contentOmitted === true;
-  }
+/** 条目有没有正文可显示。与「还有没有折叠起来的内容」是两件事：短思维链要显示正文，但不该给展开箭头。 */
+function activityItemHasBody(item: ChatActivityItem): boolean {
   if (item.kind === "reasoning") return !!activityItemText(item).trim();
+  if (item.kind === "tool") {
+    return !!toolDetailParts(item).args
+      || !!String(item.resultText || "").trim()
+      || item.contentOmitted === true;
+  }
   return false;
+}
+
+function activityItemCanExpand(item: ChatActivityItem): boolean {
+  if (!activityItemHasBody(item)) return false;
+  // 工具条目有正文就能展开：参数或结果总有一块可看
+  if (item.kind === "tool") return true;
+  if (item.kind === "reasoning") {
+    const text = activityItemText(item).trim();
+    // 折叠态是 line-clamp 4 行：文字没超过 4 行时，展开与不展开看到的是同一段，
+    // 这种条目不该给箭头。换行直接占行，先按行数判，再按字数估。
+    if (text.split("\n").length > REASONING_COLLAPSED_LINES) return true;
+    return text.length > REASONING_EXPAND_MIN_CHARS;
+  }
+  // 正文条目不给展开入口：折叠块里的正文只露头一小截
+  return false;
+}
+
+/** 正文条目在折叠块里只露出的字数。不提供展开，超出部分就写省略号。 */
+const ACTIVITY_CONTENT_PREVIEW_CHARS = 40;
+
+/** 正文条目的渲染文本：固定 20 字收尾，不随任何展开状态变化。 */
+function activityItemContentText(item: ChatActivityItem): string {
+  const text = activityItemText(item);
+  if (text.length <= ACTIVITY_CONTENT_PREVIEW_CHARS) return text;
+  return `${text.slice(0, ACTIVITY_CONTENT_PREVIEW_CHARS)}…`;
 }
 
 function stripToolcallMarkers(text: string): string {
@@ -1808,18 +1874,24 @@ function activityToolArgsText(item: ChatActivityItem): string {
 }
 
 /**
- * 折叠块里的正文发言：浅色下比常规正文淡一档（50%），深色保持原来的 base-content 不变。
- * 三档透明度只做浅色，深色各走自己的 -dark 类。
+ * 参数区实际要显示的文本。
+ * 空对象 / 空数组摊平后一行字段都没有，展开只会看到一对括号，按无参数处理；
+ * 不能直接判原文非空——`{}` 也是两个字符。
  */
-function activityContentColorClass(): string {
-  return props.markdownIsDark ? "text-base-content" : "ecall-activity-content";
+function toolArgsDisplayText(item: ChatActivityItem): string {
+  const text = activityToolArgsText(item);
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  if (parseToolArgs(trimmed)) return text;
+  if (trimmed === "{}" || trimmed === "[]") return "";
+  return text;
 }
 
 function activityItemNodeClass(item: ChatActivityItem): string {
   if (item.kind === "reasoning") {
     return props.markdownIsDark ? "ecall-activity-reasoning-dark" : "ecall-activity-reasoning";
   }
-  if (item.kind === "content") return activityContentColorClass();
+  if (item.kind === "content") return "";
   if (item.kind === "tool" && item.resultText) {
     const status = parseToolCallResultStatus(item.resultText);
     if (status.isDenied) return "text-warning";
@@ -1832,7 +1904,7 @@ function activityItemTitleClass(item: ChatActivityItem): string {
   if (item.kind === "reasoning") {
     return props.markdownIsDark ? "ecall-activity-reasoning-dark" : "ecall-activity-reasoning";
   }
-  if (item.kind === "content") return activityContentColorClass();
+  if (item.kind === "content") return "";
   if (item.kind === "tool" && item.resultText) {
     const status = parseToolCallResultStatus(item.resultText);
     if (status.isDenied) return "text-warning";
@@ -1845,7 +1917,7 @@ function activityItemDetailClass(item: ChatActivityItem): string {
   if (item.kind === "reasoning") {
     return props.markdownIsDark ? "ecall-activity-reasoning-dark" : "ecall-activity-reasoning";
   }
-  if (item.kind === "content") return activityContentColorClass();
+  if (item.kind === "content") return "";
   return props.markdownIsDark ? "ecall-activity-tool-dark" : "ecall-activity-tool";
 }
 
@@ -1912,7 +1984,7 @@ async function loadToolResult(item: ChatActivityItem): Promise<void> {
 // 原来的 '\n\n---\n\n' 分隔线随之取消。
 function buildToolDetailParts(item: ChatActivityItem, override: string | undefined): ToolDetailParts {
   if (item.kind !== "tool") return { args: "", result: "" };
-  const args = activityToolArgsText(item);
+  const args = toolArgsDisplayText(item);
   // 占位结果已被省略时，优先展示按需加载回来的真实结果；
   // 未加载时结果区由模板渲染「查看结果」按钮，这里只返回参数部分。
   if (item.contentOmitted) {
@@ -2421,19 +2493,14 @@ function openAttachmentPath(path: string) {
 </script>
 
 <style scoped>
-/* 浅色主题：折叠块内三档统一取 base-content（即 context 色），只靠透明度分层——思考 80%、工具 60%、正文 50% */
+/* 浅色主题：思维链橙色、工具绿色（加深保证白底可读）；正文不用单独色，inherit 面板正文色 */
 /* :deep 穿透：颜色类经 textClass 传入 ExpandableText 内部文本元素，scoped 规则需跨组件生效 */
 :deep(.ecall-activity-reasoning) {
-  color: color-mix(in srgb, var(--color-base-content) 80%, transparent);
+  color: #c2410c;
 }
 
 :deep(.ecall-activity-tool) {
-  color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
-}
-
-/* 正文这一档同时要压过下面那条把折叠块 markdown 钉成 100% base-content 的 !important 规则 */
-:deep(.ecall-activity-content) {
-  color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
+  color: #15803d;
 }
 
 /* 深色主题：思维链橙色、工具绿色（提亮保证深底可读） */
@@ -2443,6 +2510,16 @@ function openAttachmentPath(path: string) {
 
 :deep(.ecall-activity-tool-dark) {
   color: #4ade80;
+}
+
+/* 工具结果：青色。与参数的工具绿（142°）拉开 45° 色相，输入/输出一眼分得开。
+   亮度与饱和度按同一套规矩跟橙绿对齐：浅色偏深偏饱和，深色提亮降饱和 */
+:deep(.ecall-activity-result) {
+  color: #188a98;
+}
+
+:deep(.ecall-activity-result-dark) {
+  color: #54c5d4;
 }
 
 .ecall-activity-item-summary {
@@ -2486,19 +2563,33 @@ function openAttachmentPath(path: string) {
   mask-image: linear-gradient(to bottom, transparent 0%, #000 100%);
 }
 
+/* 工具参数区滚动边缘淡出：只做 mask 渐变，底色由 Tailwind 类给，
+   跟着参数区那层半透明底走，不硬塞实色 base-200 */
+.ecall-activity-fade-top {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+}
+
+.ecall-activity-fade-bottom {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 100%);
+}
+
 :deep(.ecall-activity-timeline .ecall-plain-markdown-markdown > :first-child) {
   margin-top: 0 !important;
 }
 
-:deep(.ecall-activity-timeline .ecall-plain-markdown-markdown),
-:deep(.ecall-activity-timeline .ecall-plain-markdown-markdown p) {
-  color: var(--color-base-content) !important;
+/* 正文条目与工具、思维链同一个字号：渲染器根节点自带的是聊天正文那档字号
+   （--app-chat-message-text-size），比折叠块里其他条目大一档，这里压回 text-xs。 */
+:deep(.ecall-activity-timeline .ecall-plain-markdown-markdown) {
+  font-size: var(--app-text-xs-size, 0.75rem) !important;
 }
 
-/* 上面那条把折叠块内 markdown 统一钉成 base-content；正文发言这一档要压过它才淡得下来 */
-:deep(.ecall-activity-timeline .ecall-activity-content .ecall-plain-markdown-markdown),
-:deep(.ecall-activity-timeline .ecall-activity-content .ecall-plain-markdown-markdown p) {
-  color: color-mix(in srgb, var(--color-base-content) 50%, transparent) !important;
+/* 正文条目落一档：思维链与工具是彩色（橙/绿），正文只要 60% 的 base-content，
+   三档靠色相与深浅同时分开。用 color-mix 而不是 opacity，只淡文字不淡里面的代码块底色 */
+:deep(.ecall-activity-timeline .ecall-plain-markdown-markdown),
+:deep(.ecall-activity-timeline .ecall-plain-markdown-markdown p) {
+  color: color-mix(in oklab, var(--color-base-content) 60%, transparent) !important;
 }
 
 .ecall-chat-message-row {

@@ -157,3 +157,22 @@ export function parseToolArgs(text: string): ToolArgLine[] | null {
   }
   return out.length > 0 ? out : null;
 }
+
+/** 命令类字段的键名。只有这些字段按操作符折行，其他值（检索词、路径）原样显示。 */
+const COMMAND_LABELS = new Set(["command", "cmd", "script"]);
+
+/**
+ * 命令按 `&&`、`||`、`|`、`;` 折行，一条命令一步一行，只为看清结构。
+ * 只动显示：操作符前的空格原样保留，操作符后那段空白换成换行，
+ * 因此拼回去（去掉换行）与原文一致。原文仍由复制按钮取 argsText。
+ */
+export function breakCommandLines(text: string): string {
+  if (!text) return text;
+  return text.replace(/([ \t]*)(&&|\|\||\||;)([ \t]*)/g, (_match, lead: string, operator: string) => `${lead}${operator}\n`);
+}
+
+/** 参数行是否该按命令折行：键名属于命令类字段。 */
+export function isCommandArgLabel(label: string | undefined): boolean {
+  if (!label) return false;
+  return COMMAND_LABELS.has(label.toLowerCase());
+}
