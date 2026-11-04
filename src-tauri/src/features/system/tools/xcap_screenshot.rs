@@ -350,6 +350,26 @@ fn resolve_window_by_id(windows: &[xcap::Window], window_id: u32) -> Option<xcap
         .cloned()
 }
 
+/// 按 ID 找不到可截窗口时的报错：xcap 枚举会过滤掉当前进程的窗口，
+/// 所以 PAI 自身窗口不是 ID 写错，模型照原样重试永远不会成功，必须直接给出路。
+fn window_not_found_error(window_id: u32) -> DesktopToolError {
+    let is_self = crate::platform::list_all_windows()
+        .iter()
+        .any(|info| info.window_id == window_id as usize && info.process_id == std::process::id());
+    let message = if is_self {
+        format!(
+            "window {window_id} belongs to PAI itself; window_id capture cannot capture PAI's own window. use desktop / monitor / region capture instead"
+        )
+    } else {
+        format!("window_id not found: {window_id}")
+    };
+    DesktopToolError {
+        code: DesktopToolErrorCode::TargetNotFound,
+        message,
+        details: None,
+    }
+}
+
 fn resolve_focused_window(windows: &[xcap::Window]) -> DesktopToolResult<xcap::Window> {
     // 前台窗口若属于 PAI 自身（xcap 枚举会过滤当前进程窗口，直接找不到），给出明确提示而非模糊的 not found。
     // 这样模型知道要先切换到目标应用再重试。
@@ -389,11 +409,7 @@ fn capture_window_once_xcap(window_id: Option<u32>) -> DesktopToolResult<(Vec<u8
         });
     }
     let window = if let Some(id) = window_id {
-        resolve_window_by_id(&windows, id).ok_or_else(|| DesktopToolError {
-            code: DesktopToolErrorCode::TargetNotFound,
-            message: format!("window_id not found: {id}"),
-            details: None,
-        })?
+        resolve_window_by_id(&windows, id).ok_or_else(|| window_not_found_error(id))?
     } else {
         resolve_focused_window(&windows)?
     };

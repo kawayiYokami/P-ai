@@ -491,13 +491,20 @@ fn resolve_window_by_name(name: &str) -> DesktopToolResult<WindowInfo> {
 }
 
 /// 可见窗口标题候选（最多 12 条），用于报错时给模型可改的名字。
+/// 带上进程号：同标题的两个窗口只能靠进程区分；当前进程的窗口截图截不到，标 self 并说明。
 fn window_title_candidates(windows: &[WindowInfo]) -> String {
-
+    let self_pid = std::process::id();
     let mut items = windows
         .iter()
         .filter(|w| !w.title.is_empty())
         .take(12)
-        .map(|w| format!("{}（{}）", w.title, w.window_id))
+        .map(|w| {
+            if w.process_id == self_pid {
+                format!("{}（{}，pid {}，self，截图截不到）", w.title, w.window_id, w.process_id)
+            } else {
+                format!("{}（{}，pid {}）", w.title, w.window_id, w.process_id)
+            }
+        })
         .collect::<Vec<_>>();
     if items.is_empty() {
         return "（无可见窗口）".to_string();
