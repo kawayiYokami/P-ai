@@ -3,7 +3,7 @@
     ref="rendererRootRef"
     v-bind="attrs"
     class="ecall-md-renderer"
-    :class="[isDark ? 'ecall-md-dark' : 'ecall-md-light', variant === 'document' ? 'ecall-md-document' : 'ecall-md-chat', streaming ? 'ecall-md-streaming' : '']"
+    :class="[isDark ? 'ecall-md-dark' : 'ecall-md-light', variant === 'document' ? 'ecall-md-document' : 'ecall-md-chat']"
     @click="emit('click', $event)"
   >
     <BlockRenderer
