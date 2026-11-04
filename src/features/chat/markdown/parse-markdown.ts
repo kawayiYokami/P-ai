@@ -178,14 +178,22 @@ function isEscapedAt(text: string, index: number): boolean {
   return slashCount % 2 === 1;
 }
 
-function findUnescapedDelimiter(text: string, delimiter: string, from: number): number {
+function findUnescapedDelimiter(
+  text: string,
+  delimiter: string,
+  from: number,
+  state?: InlineScanState,
+): number {
+  const missKey = `delim:${delimiter}`;
+  if (isScanMiss(state, missKey, from)) return -1;
   let cursor = Math.max(0, from);
   while (cursor < text.length) {
     const index = text.indexOf(delimiter, cursor);
-    if (index < 0) return -1;
+    if (index < 0) break;
     if (!isEscapedAt(text, index)) return index;
     cursor = index + delimiter.length;
   }
+  markScanMiss(state, missKey, from);
   return -1;
 }
 
@@ -538,6 +546,10 @@ const MARKDOWN_IMAGE_LINK_PATTERN = /\[!\[([^\]\n]*)\]\(([^)\n]+)\)\]\(([^)\n]+)
 const MARKDOWN_LINK_PATTERN = /!?\[([^\]\n]*)\]\(([^)\n]+)\)/g;
 const TOOLCALL_REF_PATTERN = /\[toolcall:([^\]\n]+)\]/g;
 const FOOTNOTE_REF_PATTERN = /\[\^([^\]\n]+)\]/g;
+// 行内扫描是逐游标调用，正则提到模块级，避免每轮重新构造
+const INLINE_CODE_PATTERN = /`([^`]+)`/g;
+const HTML_BR_PATTERN = /<br\s*\/?>/ig;
+const HTML_INLINE_TAG_PATTERN = /<(sub|sup|kbd|mark)>([\s\S]*?)<\/\1>/ig;
 
 function trimTrailingUrlPunctuation(value: string): { href: string; trailing: string } {
   let href = value;
@@ -572,10 +584,14 @@ function pickEarlierLink(left: LinkMatch | null, right: LinkMatch | null): LinkM
   return left.start <= right.start ? left : right;
 }
 
-function nextMarkdownImageLink(input: string, from: number): LinkMatch | null {
+function nextMarkdownImageLink(input: string, from: number, state?: InlineScanState): LinkMatch | null {
+  if (isScanMiss(state, "mdImageLink", from)) return null;
   MARKDOWN_IMAGE_LINK_PATTERN.lastIndex = from;
   const match = MARKDOWN_IMAGE_LINK_PATTERN.exec(input);
-  if (!match) return null;
+  if (!match) {
+    markScanMiss(state, "mdImageLink", from);
+    return null;
+  }
   return {
     kind: "image_link",
     start: match.index,
@@ -587,10 +603,14 @@ function nextMarkdownImageLink(input: string, from: number): LinkMatch | null {
   };
 }
 
-function nextMarkdownLink(input: string, from: number): LinkMatch | null {
+function nextMarkdownLink(input: string, from: number, state?: InlineScanState): LinkMatch | null {
+  if (isScanMiss(state, "mdLink", from)) return null;
   MARKDOWN_LINK_PATTERN.lastIndex = from;
   const match = MARKDOWN_LINK_PATTERN.exec(input);
-  if (!match) return null;
+  if (!match) {
+    markScanMiss(state, "mdLink", from);
+    return null;
+  }
   return {
     kind: "markdown",
     start: match.index,
@@ -602,19 +622,27 @@ function nextMarkdownLink(input: string, from: number): LinkMatch | null {
   };
 }
 
-function nextAutoLink(input: string, from: number): LinkMatch | null {
+function nextAutoLink(input: string, from: number, state?: InlineScanState): LinkMatch | null {
+  if (isScanMiss(state, "autoLink", from)) return null;
   const match = findNextMarkdownAutoLink(input, from);
-  if (!match) return null;
+  if (!match) {
+    markScanMiss(state, "autoLink", from);
+    return null;
+  }
   return {
     kind: "auto",
     ...match,
   };
 }
 
-function nextToolcallRef(input: string, from: number): LinkMatch | null {
+function nextToolcallRef(input: string, from: number, state?: InlineScanState): LinkMatch | null {
+  if (isScanMiss(state, "toolcallRef", from)) return null;
   TOOLCALL_REF_PATTERN.lastIndex = from;
   const match = TOOLCALL_REF_PATTERN.exec(input);
-  if (!match) return null;
+  if (!match) {
+    markScanMiss(state, "toolcallRef", from);
+    return null;
+  }
   return {
     kind: "toolcall_ref",
     start: match.index,
@@ -624,10 +652,14 @@ function nextToolcallRef(input: string, from: number): LinkMatch | null {
   };
 }
 
-function nextFootnoteRef(input: string, from: number): LinkMatch | null {
+function nextFootnoteRef(input: string, from: number, state?: InlineScanState): LinkMatch | null {
+  if (isScanMiss(state, "footnoteRef", from)) return null;
   FOOTNOTE_REF_PATTERN.lastIndex = from;
   const match = FOOTNOTE_REF_PATTERN.exec(input);
-  if (!match) return null;
+  if (!match) {
+    markScanMiss(state, "footnoteRef", from);
+    return null;
+  }
   return {
     kind: "footnote_ref",
     start: match.index,
@@ -666,21 +698,55 @@ type InlineSyntaxMatch =
 
 type ProtectedInlineRange = { start: number; end: number };
 
+// 行内扫描的共享状态。主循环游标只增不减，所以某类标记一旦在 from 之后确认找不到，
+// 更大的 from 也不必再扫全尾——早先每轮重扫整串，整轮退化成 O(n²)。
+type InlineScanState = {
+  protectedRanges: ProtectedInlineRange[];
+  missFrom: Map<string, number>;
+};
+
+function createInlineScanState(protectedRanges: ProtectedInlineRange[] = []): InlineScanState {
+  return { protectedRanges, missFrom: new Map() };
+}
+
+function isScanMiss(state: InlineScanState | undefined, key: string, from: number): boolean {
+  if (!state) return false;
+  const missFrom = state.missFrom.get(key);
+  return missFrom !== undefined && from >= missFrom;
+}
+
+function markScanMiss(state: InlineScanState | undefined, key: string, from: number): void {
+  if (!state) return;
+  const previous = state.missFrom.get(key);
+  if (previous === undefined || from < previous) state.missFrom.set(key, from);
+}
+
 function pickEarlierInline(left: InlineSyntaxMatch | null, right: InlineSyntaxMatch | null): InlineSyntaxMatch | null {
   if (!left) return right;
   if (!right) return left;
   return left.start <= right.start ? left : right;
 }
 
+// 区间由 collectProtectedInlineRanges 按游标递增产出，天然有序且互不重叠，可以二分
 function isIndexInProtectedRange(index: number, ranges: ProtectedInlineRange[]): boolean {
-  return ranges.some((range) => index >= range.start && index < range.end);
+  let low = 0;
+  let high = ranges.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const range = ranges[mid];
+    if (index < range.start) high = mid - 1;
+    else if (index >= range.end) low = mid + 1;
+    else return true;
+  }
+  return false;
 }
 
 function collectProtectedInlineRanges(text: string): ProtectedInlineRange[] {
   const ranges: ProtectedInlineRange[] = [];
+  const state = createInlineScanState(ranges);
   let cursor = 0;
   while (cursor < text.length) {
-    const match = nextCodeOrMath(text, cursor);
+    const match = nextCodeOrMath(text, cursor, state);
     if (!match) break;
     ranges.push({ start: match.start, end: match.end });
     cursor = Math.max(match.end, match.start + 1);
@@ -692,23 +758,28 @@ function findMarkerOutsideProtectedRanges(
   text: string,
   marker: string,
   from: number,
-  protectedRanges: ProtectedInlineRange[],
+  state: InlineScanState,
 ): number {
+  const missKey = `em:${marker}`;
+  if (isScanMiss(state, missKey, from)) return -1;
+  const protectedRanges = state.protectedRanges;
   let cursor = from;
   while (cursor < text.length) {
     const index = text.indexOf(marker, cursor);
-    if (index < 0) return -1;
+    if (index < 0) break;
     if (!isIndexInProtectedRange(index, protectedRanges)) return index;
     cursor = index + marker.length;
   }
+  markScanMiss(state, missKey, from);
   return -1;
 }
 
+// protectedRanges 由调用方在入口算一次传进来：它只与整串文本有关，和 from 无关。
 function findNextInlineMarker(
   text: string,
   from: number,
+  state: InlineScanState,
 ): { type: EmphasisMarkerType; start: number; end: number; inner: string } | null {
-  const protectedRanges = collectProtectedInlineRanges(text);
   const patterns: Array<{ type: EmphasisMarkerType; marker: string }> = [
     { type: "strongEm", marker: "***" },
     { type: "delete", marker: "~~" },
@@ -717,11 +788,11 @@ function findNextInlineMarker(
   ];
   let best: { type: EmphasisMarkerType; start: number; end: number; inner: string } | null = null;
   for (const pattern of patterns) {
-    const start = findMarkerOutsideProtectedRanges(text, pattern.marker, from, protectedRanges);
+    const start = findMarkerOutsideProtectedRanges(text, pattern.marker, from, state);
     if (start < 0) continue;
     if (pattern.marker === "*" && text[start + 1] === "*") continue;
     const contentStart = start + pattern.marker.length;
-    const endMarker = findMarkerOutsideProtectedRanges(text, pattern.marker, contentStart, protectedRanges);
+    const endMarker = findMarkerOutsideProtectedRanges(text, pattern.marker, contentStart, state);
     if (endMarker < 0 || endMarker === contentStart) continue;
     const candidate = {
       type: pattern.type,
@@ -736,11 +807,15 @@ function findNextInlineMarker(
   return best;
 }
 
-function nextInlineCode(input: string, from: number): InlineSyntaxMatch | null {
-  const codePattern = /`([^`]+)`/g;
+function nextInlineCode(input: string, from: number, state?: InlineScanState): InlineSyntaxMatch | null {
+  if (isScanMiss(state, "code", from)) return null;
+  const codePattern = INLINE_CODE_PATTERN;
   codePattern.lastIndex = from;
   const match = codePattern.exec(input);
-  if (!match) return null;
+  if (!match) {
+    markScanMiss(state, "code", from);
+    return null;
+  }
   return {
     kind: "code",
     start: match.index,
@@ -756,14 +831,15 @@ function inlineMathCanRender(text: string): boolean {
   return !/[\r\n]/.test(content);
 }
 
-function nextInlineParenMath(input: string, from: number): InlineSyntaxMatch | null {
+function nextInlineParenMath(input: string, from: number, state?: InlineScanState): InlineSyntaxMatch | null {
+  if (isScanMiss(state, "parenMath", from)) return null;
   let cursor = Math.max(0, from);
   while (cursor < input.length) {
-    const start = findUnescapedDelimiter(input, "\\(", cursor);
-    if (start < 0) return null;
+    const start = findUnescapedDelimiter(input, "\\(", cursor, state);
+    if (start < 0) break;
     const contentStart = start + 2;
-    const end = findUnescapedDelimiter(input, "\\)", contentStart);
-    if (end < 0) return null;
+    const end = findUnescapedDelimiter(input, "\\)", contentStart, state);
+    if (end < 0) break;
     const raw = input.slice(start, end + 2);
     const text = input.slice(contentStart, end);
     if (!inlineMathCanRender(text)) {
@@ -779,27 +855,29 @@ function nextInlineParenMath(input: string, from: number): InlineSyntaxMatch | n
       display: false,
     };
   }
+  markScanMiss(state, "parenMath", from);
   return null;
 }
 
-function nextInlineMath(input: string, from: number): InlineSyntaxMatch | null {
-  const dollarMath = nextInlineDollarMath(input, from);
-  const parenMath = nextInlineParenMath(input, from);
+function nextInlineMath(input: string, from: number, state?: InlineScanState): InlineSyntaxMatch | null {
+  const dollarMath = nextInlineDollarMath(input, from, state);
+  const parenMath = nextInlineParenMath(input, from, state);
   return pickEarlierInline(dollarMath, parenMath);
 }
 
-function nextInlineDollarMath(input: string, from: number): InlineSyntaxMatch | null {
+function nextInlineDollarMath(input: string, from: number, state?: InlineScanState): InlineSyntaxMatch | null {
+  if (isScanMiss(state, "dollarMath", from)) return null;
   let cursor = Math.max(0, from);
   while (cursor < input.length) {
-    const start = findUnescapedDelimiter(input, "$", cursor);
-    if (start < 0) return null;
+    const start = findUnescapedDelimiter(input, "$", cursor, state);
+    if (start < 0) break;
     if (input[start + 1] === "$" || input[start - 1] === "$") {
       cursor = start + 1;
       continue;
     }
     const contentStart = start + 1;
-    const end = findUnescapedDelimiter(input, "$", contentStart);
-    if (end < 0) return null;
+    const end = findUnescapedDelimiter(input, "$", contentStart, state);
+    if (end < 0) break;
     if (input[end + 1] === "$") {
       cursor = start + 1;
       continue;
@@ -819,21 +897,24 @@ function nextInlineDollarMath(input: string, from: number): InlineSyntaxMatch | 
       display: false,
     };
   }
+  markScanMiss(state, "dollarMath", from);
   return null;
 }
 
-function nextCodeOrMath(input: string, from: number): InlineSyntaxMatch | null {
-  return pickEarlierInline(nextInlineCode(input, from), nextInlineMath(input, from));
+function nextCodeOrMath(input: string, from: number, state?: InlineScanState): InlineSyntaxMatch | null {
+  return pickEarlierInline(nextInlineCode(input, from, state), nextInlineMath(input, from, state));
 }
 
-function nextAllowedHtml(input: string, from: number): InlineSyntaxMatch | null {
-  const brPattern = /<br\s*\/?>/ig;
+function nextAllowedHtml(input: string, from: number, state?: InlineScanState): InlineSyntaxMatch | null {
+  const brPattern = HTML_BR_PATTERN;
   brPattern.lastIndex = from;
-  const brMatch = brPattern.exec(input);
+  const brMatch = isScanMiss(state, "htmlBr", from) ? null : brPattern.exec(input);
+  if (!brMatch) markScanMiss(state, "htmlBr", from);
 
-  const tagPattern = /<(sub|sup|kbd|mark)>([\s\S]*?)<\/\1>/ig;
+  const tagPattern = HTML_INLINE_TAG_PATTERN;
   tagPattern.lastIndex = from;
-  const tagMatch = tagPattern.exec(input);
+  const tagMatch = isScanMiss(state, "htmlTag", from) ? null : tagPattern.exec(input);
+  if (!tagMatch) markScanMiss(state, "htmlTag", from);
 
   const brCandidate = brMatch
     ? {
@@ -857,20 +938,20 @@ function nextAllowedHtml(input: string, from: number): InlineSyntaxMatch | null 
   return pickEarlierInline(brCandidate, tagCandidate);
 }
 
-function nextLinkLike(input: string, from: number): LinkMatch | null {
-  const imageLink = nextMarkdownImageLink(input, from);
-  const markdownLink = nextMarkdownLink(input, from);
-  const autoLink = nextAutoLink(input, from);
-  const toolcallRef = nextToolcallRef(input, from);
-  const footnoteRef = nextFootnoteRef(input, from);
+function nextLinkLike(input: string, from: number, state?: InlineScanState): LinkMatch | null {
+  const imageLink = nextMarkdownImageLink(input, from, state);
+  const markdownLink = nextMarkdownLink(input, from, state);
+  const autoLink = nextAutoLink(input, from, state);
+  const toolcallRef = nextToolcallRef(input, from, state);
+  const footnoteRef = nextFootnoteRef(input, from, state);
   return pickEarlierLink(
     pickEarlierLink(pickEarlierLink(pickEarlierLink(imageLink, markdownLink), autoLink), toolcallRef),
     footnoteRef,
   );
 }
 
-function nextEmphasis(input: string, from: number): InlineSyntaxMatch | null {
-  const matched = findNextInlineMarker(input, from);
+function nextEmphasis(input: string, from: number, state: InlineScanState): InlineSyntaxMatch | null {
+  const matched = findNextInlineMarker(input, from, state);
   if (!matched) return null;
   return {
     kind: "emphasis",
@@ -969,15 +1050,18 @@ function emitInlineSyntaxMatch(match: InlineSyntaxMatch, segments: InlineSegment
 export function parseInlineSegments(input: string): InlineSegment[] {
   const segments: InlineSegment[] = [];
   const text = String(input || "");
+  // 受保护区间（行内代码 / 行内公式）扫一遍即可；游标只增不减，扫描状态随之共享，
+  // 各类标记「已确认不存在」之后不再重扫全尾。
+  const state = createInlineScanState(collectProtectedInlineRanges(text));
   let cursor = 0;
 
   while (cursor < text.length) {
     const next = pickEarlierInline(
       pickEarlierInline(
-        pickEarlierInline(nextCodeOrMath(text, cursor), nextAllowedHtml(text, cursor)),
-        nextLinkLike(text, cursor),
+        pickEarlierInline(nextCodeOrMath(text, cursor, state), nextAllowedHtml(text, cursor, state)),
+        nextLinkLike(text, cursor, state),
       ),
-      nextEmphasis(text, cursor),
+      nextEmphasis(text, cursor, state),
     );
     if (!next) break;
     pushTextSegment(segments, text.slice(cursor, next.start));
