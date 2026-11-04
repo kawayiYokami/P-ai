@@ -846,7 +846,6 @@ const {
 } = useChatMessageAppearance();
 const {
   joinNonEmpty,
-  compactText,
   normalizeToolCallArgs,
   toolCallDisplayName,
   toolCallSemanticPresentation,
@@ -1275,12 +1274,19 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
   // 只看阶段只能得到笼统的「正在执行工具」。streaming_tool 例外——那时参数还在生成，
   // 说「正在执行」不准确，仍按原分支报「正在生成工具调用」。
   if (schedulingState !== "streaming_tool") {
-    const doingToolCall = toolCallsForBlock(block).find((call) => call.status === "doing");
+    const calls = toolCallsForBlock(block);
+    const doingToolCall = calls.find((call) => call.status === "doing");
     if (doingToolCall) {
-      // 语义句会把整条命令塞进头部、长命令直接把这一行撑满，所以头部只取工具显示名，
-      // 目标与行号范围留给「思考与工具」折叠块里的摘要行去报。
-      const namedTool = compactText(toolCallDisplayName(doingToolCall.name), 32);
-      return withWater(t("chat.statusExecutingNamedTool", { name: namedTool }));
+      // 头部直接复用折叠块摘要行那一句：工具名 + 目标 + 行号范围，不另起一套说法，
+      // 也不再挂「正在执行：」前缀——头部和折叠头说的是同一件事，就该是同一句话。
+      return withWater(toolCallSummaryText(doingToolCall));
+    }
+    // 阶段还停在 executing_tool、但工具状态已经翻成 done：doing 那一帧常常落在两次投影之间，
+    // 快工具尤其抓不到。这时退回最后一条工具的摘要——说的仍是「这一轮在处理的这条工具」，
+    // 不再掉回笼统的「正在执行工具」。只在 executing_tool 下退，避免等待模型时错报上一条工具。
+    if (schedulingState === "executing_tool" && calls.length > 0) {
+      const latestToolCall = calls[calls.length - 1];
+      if (latestToolCall) return withWater(toolCallSummaryText(latestToolCall));
     }
   }
   if (schedulingState) {
@@ -1352,7 +1358,7 @@ function assistantStreamingHeaderStatus(block: ChatMessageBlock): string {
   if (!showStreamingUi(block)) return "";
   const withElapsed = (text: string): string => {
     const elapsed = frontendDispatchElapsedLabel(block);
-    return elapsed ? `${text}（${elapsed}）` : text;
+    return elapsed ? `${elapsed} · ${text}` : text;
   };
   return withElapsed(normalizedStreamingPhaseLabel(block));
 }

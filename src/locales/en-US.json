@@ -2273,7 +2273,6 @@
     "statusThinking": "Thinking",
     "statusGeneratingTools": "Generating tool calls",
     "statusExecutingTools": "Executing tools",
-    "statusExecutingNamedTool": "Running: {name}",
     "statusTypingBody": "Responding",
     "statusSpeaking": "Speaking",
     "statusDispatching": "Dispatching",
