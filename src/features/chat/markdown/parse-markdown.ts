@@ -63,6 +63,9 @@ function pushParagraph(blocks: MarkdownBlock[], lines: string[], keyPrefix: stri
   return block;
 }
 
+/** 块在源文本中的字符区间。块身份（渲染 key）取 start，跨 chunk 稳定。 */
+export type MarkdownBlockSpan = { start: number; end: number };
+
 function splitTableCells(line: string): string[] {
   // 按未被转义的竖线 | 分割，\| 保留（用于数学范数/绝对值等）
   const cells: string[] = [];
@@ -249,10 +252,25 @@ function parseDisplayMathBlockStart(
   return null;
 }
 
-export function parseMarkdownBlocks(input: string, streaming = false): MarkdownBlock[] {
+export function parseMarkdownBlocks(input: string, streaming = false, spans?: MarkdownBlockSpan[]): MarkdownBlock[] {
   const normalized = String(input || "").replace(/\r\n?/g, "\n");
   const lines = normalized.split("\n");
+  const lineOffsets: number[] = [];
+  {
+    let offset = 0;
+    for (const line of lines) {
+      lineOffsets.push(offset);
+      offset += line.length + 1;
+    }
+  }
   const result: MarkdownBlock[] = [];
+  // 每块消费的行区间：块身份取它的起始字符偏移，跨 chunk 稳定
+  const spanRows: Array<{ start: number; end: number }> = [];
+  let blockStartLine = 0;
+  const recordSpan = (endLine: number) => {
+    spanRows.push({ start: blockStartLine, end: endLine });
+    blockStartLine = endLine + 1;
+  };
   const paragraphLines: string[] = [];
   const footnotes = new Map<string, string>();
   const referencedFootnoteIds: string[] = [];
@@ -277,7 +295,7 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
     }
   };
 
-  const flushList = () => {
+  const flushList = (endLine: number) => {
     if (!activeList) return;
     activeList.items.forEach((item) => recordFootnoteRefs(item.text));
     result.push({
@@ -286,13 +304,16 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
       items: activeList.items,
       key: `list-${result.length}`,
     });
+    recordSpan(endLine);
     activeList = null;
   };
 
-  const flushParagraph = () => {
-    flushList();
+  const flushParagraph = (endLine: number) => {
+    flushList(endLine);
     const block = pushParagraph(result, paragraphLines, "root");
-    if (block?.type === "paragraph") recordFootnoteRefs(block.text);
+    if (!block) return;
+    if (block.type === "paragraph") recordFootnoteRefs(block.text);
+    recordSpan(endLine);
   };
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -307,6 +328,7 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
         const beforeClose = line.slice(0, closeIndex);
         if (beforeClose || mathLines.length > 0) mathLines.push(beforeClose);
         result.push(mathBlock(mathRawLines.join("\n"), mathLines.join("\n"), `math-${result.length}`));
+        recordSpan(lineIndex);
         inMathBlock = false;
         mathLines = [];
         mathRawLines = [];
@@ -319,9 +341,10 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
 
     const mathStart = !inCode ? parseDisplayMathBlockStart(line) : null;
     if (mathStart) {
-      flushParagraph();
+      flushParagraph(lineIndex - 1);
       if (mathStart.closed) {
         result.push(mathBlock(mathStart.raw, mathStart.text, `math-${result.length}`));
+        recordSpan(lineIndex);
       } else {
         inMathBlock = true;
         mathLines = mathStart.text ? [mathStart.text] : [];
@@ -341,11 +364,12 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
           text: codeLines.join("\n"),
           key: `code-${result.length}`,
         });
+        recordSpan(lineIndex);
         inCode = false;
         codeLang = "";
         codeLines = [];
       } else {
-        flushParagraph();
+        flushParagraph(lineIndex - 1);
         inCode = true;
         codeLang = fenceMatch.lang;
         codeLines = [];
@@ -361,7 +385,7 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
     // Footnote definitions are collected and rendered together at the end.
     const footnoteMatch = line.match(/^\s{0,3}\[\^([^\]\n]+)\]:\s*(.*)$/);
     if (footnoteMatch) {
-      flushParagraph();
+      flushParagraph(lineIndex - 1);
       const id = String(footnoteMatch[1] || "").trim();
       const noteLines = [String(footnoteMatch[2] || "").trim()];
       while (lineIndex + 1 < lines.length) {
@@ -371,37 +395,40 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
         lineIndex += 1;
       }
       if (id) footnotes.set(id, noteLines.join("\n").trim());
+      blockStartLine = lineIndex + 1;
       continue;
     }
 
     if (!line.trim()) {
-      flushParagraph();
+      flushParagraph(lineIndex - 1);
       continue;
     }
 
     // 文件嵌入标签：<agent-embed src="..."> —— 指向工作区内的 HTML 沙箱文件
     const embedMatch = line.match(/^\s{0,3}<agent-embed\s+src\s*=\s*"([^"]+)"\s*\/?>\s*(?:<\/agent-embed\s*>)?\s*$/i);
     if (embedMatch) {
-      flushParagraph();
+      flushParagraph(lineIndex - 1);
       result.push({
         type: "embed",
         src: String(embedMatch[1] || "").trim(),
         key: `embed-${result.length}`,
       });
+      recordSpan(lineIndex);
       continue;
     }
 
     // Horizontal rule
     const hrMatch = line.match(/^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/);
     if (hrMatch) {
-      flushParagraph();
+      flushParagraph(lineIndex - 1);
       result.push({ type: "hr", key: `hr-${result.length}` });
+      recordSpan(lineIndex);
       continue;
     }
 
     const detailsMatch = tryParseDetailsBlock(lines, lineIndex, streaming);
     if (detailsMatch) {
-      flushParagraph();
+      flushParagraph(lineIndex - 1);
       recordFootnoteRefs(detailsMatch.summary);
       recordFootnoteRefs(detailsMatch.body);
       result.push({
@@ -411,6 +438,7 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
         open: detailsMatch.open,
         key: `details-${result.length}`,
       });
+      recordSpan(detailsMatch.endIndex);
       lineIndex = detailsMatch.endIndex;
       continue;
     }
@@ -418,7 +446,7 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
     // Table
     const tableHeader = parseTableRow(line);
     if (tableHeader && isTableSeparator(lines[lineIndex + 1], tableHeader.length)) {
-      flushParagraph();
+      flushParagraph(lineIndex - 1);
       lineIndex += 2;
       const rows: string[][] = [];
       while (lineIndex < lines.length) {
@@ -447,13 +475,14 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
         rows,
         key: `table-${result.length}`,
       });
+      recordSpan(lineIndex);
       continue;
     }
 
     // Heading
     const headingMatch = line.match(/^\s{0,3}(#{1,4})\s+(.+?)\s*#*\s*$/);
     if (headingMatch) {
-      flushParagraph();
+      flushParagraph(lineIndex - 1);
       recordFootnoteRefs(headingMatch[2]);
       result.push({
         type: "heading",
@@ -461,13 +490,14 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
         text: headingMatch[2].trim(),
         key: `heading-${result.length}`,
       });
+      recordSpan(lineIndex);
       continue;
     }
 
     // Blockquote
     const quoteLine = stripBlockquoteMarker(line);
     if (quoteLine !== null) {
-      flushParagraph();
+      flushParagraph(lineIndex - 1);
       const quoteLines = [quoteLine];
       while (lineIndex + 1 < lines.length) {
         const nextQuoteLine = stripBlockquoteMarker(lines[lineIndex + 1]);
@@ -482,6 +512,7 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
         text: quoteText,
         key: `quote-${result.length}`,
       });
+      recordSpan(lineIndex);
       continue;
     }
 
@@ -489,10 +520,13 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
     const listMatch = line.match(/^\s{0,3}(?:([-*+])|(\d+)[.)])\s+(.+)$/);
     if (listMatch) {
       const block = pushParagraph(result, paragraphLines, "list-before");
-      if (block?.type === "paragraph") recordFootnoteRefs(block.text);
+      if (block) {
+        if (block.type === "paragraph") recordFootnoteRefs(block.text);
+        recordSpan(lineIndex - 1);
+      }
       const ordered = !!listMatch[2];
       if (!activeList || activeList.ordered !== ordered) {
-        flushList();
+        flushList(lineIndex - 1);
         activeList = { ordered, items: [] };
       }
       const numericValue = ordered ? Math.max(1, Number.parseInt(listMatch[2] || "1", 10) || 1) : undefined;
@@ -504,7 +538,7 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
       continue;
     }
 
-    flushList();
+    flushList(lineIndex - 1);
     paragraphLines.push(line);
   }
 
@@ -517,12 +551,14 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
       text: codeLines.join("\n"),
       key: `code-${result.length}`,
     });
+    recordSpan(lines.length - 1);
   }
   if (inMathBlock) {
     // 流式和非流式都输出未闭合的数学公式块（乐观渲染，展示已打出的公式内容）
     result.push(mathBlock(mathRawLines.join("\n"), mathLines.join("\n"), `math-${result.length}`));
+    recordSpan(lines.length - 1);
   }
-  flushParagraph();
+  flushParagraph(lines.length - 1);
   const footnoteItems = referencedFootnoteIds
     .map((id) => ({ id, text: footnotes.get(id) || "" }))
     .filter((item) => item.text.trim());
@@ -532,6 +568,13 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
       items: footnoteItems,
       key: `footnotes-${result.length}`,
     });
+    recordSpan(lines.length - 1);
+  }
+  if (spans) {
+    const toOffset = (lineIndex: number) => lineIndex < lineOffsets.length ? lineOffsets[lineIndex] : normalized.length;
+    for (const span of spanRows) {
+      spans.push({ start: toOffset(span.start), end: toOffset(span.end + 1) });
+    }
   }
   return result.length > 0
     ? result
