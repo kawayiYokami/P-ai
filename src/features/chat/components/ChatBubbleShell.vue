@@ -28,13 +28,13 @@
             <span v-else-if="meta" class="ecall-chat-bubble-meta">{{ meta }}</span>
           </div>
 
-          <div v-if="$slots.activity" class="ecall-chat-bubble-activity">
+          <div v-show="showActivity && !!$slots.activity" class="ecall-chat-bubble-activity">
             <slot name="activity" />
           </div>
         </div>
       </div>
 
-      <div v-if="$slots['activity-panel']" class="ecall-chat-bubble-activity-panel">
+      <div v-show="showActivity && !!$slots['activity-panel']" class="ecall-chat-bubble-activity-panel">
         <slot name="activity-panel" />
       </div>
 
@@ -65,6 +65,7 @@ const props = withDefaults(defineProps<{
   wide?: boolean;
   bubbleBackground?: boolean;
   contentEmpty?: boolean;
+  showActivity?: boolean;
 }>(), {
   tone: "assistant",
   meta: "",
@@ -75,6 +76,7 @@ const props = withDefaults(defineProps<{
   wide: false,
   bubbleBackground: false,
   contentEmpty: false,
+  showActivity: true,
 });
 
 const surfaceStyle = computed<StyleValue | undefined>(() => {

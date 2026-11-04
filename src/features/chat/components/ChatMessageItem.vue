@@ -43,8 +43,14 @@
       :streaming-text="streamingHeaderStatus"
       :wide="assistantNeedsWideBubble"
       :content-empty="bubbleContentEmpty(block)"
+      :show-activity="showActivitySummary(block)"
     >
-      <template v-if="showActivitySummary(block)" #activity>
+      <!-- activity 插槽必须常驻。流式结束那一帧 showActivitySummary 会从 false 翻 true
+           （纯正文回答没有思考与工具，走的是 `return !block.isStreaming` 分支），
+           用 template v-if 会让气泡容器在那一帧增删子节点，Blink 从公共祖先往下重算
+           整棵子树样式，markdown 全文节点全要走一遍——18K 实测单帧 55.9ms。
+           显隐交给 ChatBubbleShell 的 showActivity，只切 display。 -->
+      <template #activity>
         <div
           v-memo="activityPanelMemoKey(block)"
           class="flex flex-col opacity-90"
@@ -80,7 +86,7 @@
           </details>
         </div>
       </template>
-      <template v-if="showActivitySummary(block)" #activity-panel>
+      <template #activity-panel>
         <div v-memo="activityPanelMemoKey(block)" class="min-w-0">
           <Transition
             :css="false"
