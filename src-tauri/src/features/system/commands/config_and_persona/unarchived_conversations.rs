@@ -1340,9 +1340,14 @@ fn build_branch_conversation_record_from_selection(
             .messages
             .push(clone_chat_message_for_copied_conversation(message));
     } else {
+        let teammate_names = available_delegate_teammate_names(&data.agents, &agent_id);
         conversation
             .messages
-            .push(build_initial_summary_context_message(Some(&conversation.current_todos), None));
+            .push(build_initial_summary_context_message(
+                Some(&conversation.current_todos),
+                None,
+                &teammate_names,
+            ));
     }
     conversation_update_latest_summary_title_with_source(
         &mut conversation,
@@ -4564,7 +4569,7 @@ mod unarchived_conversations_tests {
         let mut source = build_test_conversation();
         source.messages.insert(
             0,
-            build_initial_summary_context_message(None, None),
+            build_initial_summary_context_message(None, None, &[]),
         );
         let (selected, first_selected_ordinal) = collect_selected_messages_for_branch(
             &source,

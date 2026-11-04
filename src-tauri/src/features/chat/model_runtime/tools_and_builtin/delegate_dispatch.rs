@@ -103,12 +103,55 @@ mod delegate_dispatch_tests {
             None
         );
     }
+
+    fn delegate_args(agent_id: &str) -> DelegateToolArgs {
+        DelegateToolArgs {
+            agent_id: agent_id.to_string(),
+            mode: None,
+            why: Some("背景".to_string()),
+            goal: Some("目标".to_string()),
+            todo: Some("边界".to_string()),
+            background: None,
+            question: None,
+            focus: None,
+        }
+    }
+
+    #[test]
+    fn validate_delegate_args_should_default_empty_target_to_deputy() {
+        let validated =
+            validate_delegate_args(&delegate_args("  ")).expect("缺省目标人格应是合法调用");
+
+        assert_eq!(validated.target_agent_id, DEPUTY_AGENT_ID);
+        assert!(validated.target_agent_defaulted);
+    }
+
+    #[test]
+    fn validate_delegate_args_should_keep_explicit_target() {
+        let validated = validate_delegate_args(&delegate_args("审阅者")).expect("显式目标");
+
+        assert_eq!(validated.target_agent_id, "审阅者");
+        assert!(!validated.target_agent_defaulted);
+    }
+
+    #[test]
+    fn validate_delegate_args_should_still_require_goal() {
+        let mut args = delegate_args("副手");
+        args.goal = None;
+
+        assert_eq!(
+            validate_delegate_args(&args).unwrap_err(),
+            "delegate.goal is required"
+        );
+    }
 }
 
 #[derive(Debug, Clone)]
 struct ValidatedDelegateArgs {
     mode: DelegateMode,
     target_agent_id: String,
+    /// 目标是否由缺省规则补出（用户没写 agent_id）；缺省目标允许指向当前人格自己。
+    target_agent_defaulted: bool,
     title: String,
     why: String,
     goal: String,
@@ -132,10 +175,14 @@ fn delegate_title_from_goal(goal: &str) -> String {
 
 fn validate_delegate_args(args: &DelegateToolArgs) -> Result<ValidatedDelegateArgs, String> {
     let mode = parse_delegate_mode(args.mode.as_deref())?;
-    let target_agent_id = args.agent_id.trim().to_string();
-    if target_agent_id.is_empty() {
-        return Err("delegate.agent_id is required".to_string());
-    }
+    let requested_target = args.agent_id.trim().to_string();
+    // 不填目标人格是合法调用：交给副手。
+    let target_agent_defaulted = requested_target.is_empty();
+    let target_agent_id = if target_agent_defaulted {
+        DEPUTY_AGENT_ID.to_string()
+    } else {
+        requested_target
+    };
     let why = delegate_arg_new_or_legacy(&args.why, &args.background);
     let goal = delegate_arg_new_or_legacy(&args.goal, &args.question);
     let todo = delegate_arg_new_or_legacy(&args.todo, &args.focus);
@@ -146,6 +193,7 @@ fn validate_delegate_args(args: &DelegateToolArgs) -> Result<ValidatedDelegateAr
     Ok(ValidatedDelegateArgs {
         mode,
         target_agent_id,
+        target_agent_defaulted,
         title,
         why,
         goal,
@@ -176,6 +224,7 @@ fn check_and_push_call_stack(
 #[derive(Debug, Clone)]
 struct DelegatePreflight {
     config: AppConfig,
+    agents: Vec<AgentProfile>,
     source_agent: AgentProfile,
     target_agent: AgentProfile,
     root_conversation_id: String,
@@ -188,7 +237,7 @@ fn common_delegate_preflight(
     source_conversation_id: Option<&str>,
     target_agent_id: &str,
 ) -> Result<DelegatePreflight, String> {
-    let (config, _agents, source_agent, target_agent, root_conversation_id, current_thread) =
+    let (config, agents, source_agent, target_agent, root_conversation_id, current_thread) =
         delegate_resolve_context(
             app_state,
             source_agent_id,
@@ -197,6 +246,7 @@ fn common_delegate_preflight(
         )?;
     Ok(DelegatePreflight {
         config,
+        agents,
         source_agent,
         target_agent,
         root_conversation_id,
@@ -204,25 +254,34 @@ fn common_delegate_preflight(
     })
 }
 
-fn validate_delegate_tool_direct_child_target(preflight: &DelegatePreflight) -> Result<(), String> {
-    if preflight
-        .source_agent
-        .child_agent_ids
+/// 目标必须是可委托的队友：人格库里除用户人格、系统播报人格、当前人格自己之外的全部人格。
+/// 不看组织关系，队长、队员、无组织关系的人格一律放行。
+/// 缺省补出的副手是唯一例外：当前人格本身可能就是副手，那时允许指向自己（后台模式仍由
+/// `same_persona_background_delegate_block_reason` 拦截）。
+fn validate_delegate_target_is_teammate(
+    preflight: &DelegatePreflight,
+    target_agent_defaulted: bool,
+) -> Result<(), String> {
+    let target_agent_id = preflight.target_agent.id.trim();
+    let same_agent = preflight.source_agent.id.trim() == target_agent_id;
+    if same_agent && target_agent_defaulted {
+        return Ok(());
+    }
+    let is_teammate = available_delegate_teammates(&preflight.agents, &preflight.source_agent.id)
         .iter()
-        .any(|id| id.trim() == preflight.target_agent.id)
-    {
+        .any(|agent| agent.id.trim() == target_agent_id);
+    if is_teammate {
         return Ok(());
     }
     runtime_log_debug(format!(
-        "[委托校验] 直接下级不匹配 source_agent_id={} source_agent_name={} target_agent_id={} target_agent_name={} source_child_agent_ids={:?}",
+        "[委托校验] 目标不在可委托名单 source_agent_id={} source_agent_name={} target_agent_id={} target_agent_name={}",
         preflight.source_agent.id,
         preflight.source_agent.name,
         preflight.target_agent.id,
-        preflight.target_agent.name,
-        preflight.source_agent.child_agent_ids
+        preflight.target_agent.name
     ));
     Err(format!(
-        "目标人格不是当前人格的直接下级，sourceAgentId={}，targetAgentId={}",
+        "目标人格不在可委托名单里，sourceAgentId={}，targetAgentId={}",
         preflight.source_agent.id, preflight.target_agent.id
     ))
 }
@@ -541,9 +600,22 @@ async fn builtin_delegate(
         &validated.target_agent_id,
     ) {
         Ok(value) => value,
-        Err(err) => return Ok(delegate_failed_result(err)),
+        Err(err) => {
+            if validated.target_agent_defaulted {
+                runtime_log_warn(format!(
+                    "[工具][委托] 缺省目标解析失败，任务=落到副手，agent_id={}，error={err}",
+                    DEPUTY_AGENT_ID
+                ));
+                return Ok(delegate_failed_result(
+                    "副手人格不存在，请指定 agent_id 或恢复副手".to_string(),
+                ));
+            }
+            return Ok(delegate_failed_result(err));
+        }
     };
-    if let Err(err) = validate_delegate_tool_direct_child_target(&preflight) {
+    if let Err(err) =
+        validate_delegate_target_is_teammate(&preflight, validated.target_agent_defaulted)
+    {
         return Ok(delegate_failed_result(err));
     }
     if validated.mode == DelegateMode::Wait {

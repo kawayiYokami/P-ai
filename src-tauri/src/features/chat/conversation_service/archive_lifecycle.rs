@@ -477,6 +477,10 @@ impl ConversationServiceV2 {
         };
         let background_shell_lines =
             terminal_background_shell_running_summary_lines(state, conversation_id);
+        let teammate_names = available_delegate_teammate_names(
+            &state_read_agents_cached(state)?,
+            &conversation_meta.agent_id,
+        );
         let summary = build_compaction_message(
             "",
             Some("远程唤醒上下文"),
@@ -487,6 +491,7 @@ impl ConversationServiceV2 {
             },
             (!preserved_dialogue.trim().is_empty()).then_some(preserved_dialogue.as_str()),
             &background_shell_lines,
+            &teammate_names,
         );
         let mut persisted_conversation = self.build_conversation_record_from_meta_view(&conversation_meta);
         persisted_conversation.updated_at = now_iso();

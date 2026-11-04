@@ -39,8 +39,15 @@ impl ConversationServiceV2 {
                 &state_read_config_cached(state)?,
                 normalized_root_conversation_id,
             );
-            let summary_message =
-                build_initial_summary_context_message(Some(&conversation.current_todos), None);
+            let teammate_names = available_delegate_teammate_names(
+                &state_read_agents_cached(state)?,
+                normalized_agent_id,
+            );
+            let summary_message = build_initial_summary_context_message(
+                Some(&conversation.current_todos),
+                None,
+                &teammate_names,
+            );
             conversation.last_user_at = Some(summary_message.created_at.clone());
             conversation.updated_at = summary_message.created_at.clone();
             conversation.messages.push(summary_message);

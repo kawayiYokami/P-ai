@@ -765,11 +765,6 @@ fn runtime_tool_denied_reason(
             if matches!(tool_name, "remember" | "recall") && memory_context.is_none() {
                 return Some("当前人格记忆上下文不可用".to_string());
             }
-            if tool_name == "delegate" {
-                if let Some(reason) = agent_delegate_unavailable_reason(Some(current_agent)) {
-                    return Some(reason);
-                }
-            }
             if builtin_tool_is_fixed_system(tool_name)
                 || builtin_tool_is_local_conversation_fixed(tool_name)
                 || builtin_tool_is_contact_only_hidden(tool_name)
@@ -837,13 +832,7 @@ fn resolve_legal_runtime_tools(
             memory_context,
             tool,
         ) {
-            let manifest_source = if tool.definition.name == "delegate"
-                && agent_delegate_unavailable_reason(Some(current_agent)).is_some()
-            {
-                "runtime_policy".to_string()
-            } else {
-                tool.source_label()
-            };
+            let manifest_source = tool.source_label();
             manifest.push(tool_manifest_item(
                 &manifest_source,
                 &tool.definition.name,
@@ -900,11 +889,6 @@ fn runtime_builtin_tool_authorization_error(
     let current_agent = agents
         .iter()
         .find(|agent| agent.id.trim() == executor_agent_id.trim());
-    if tool_name == "delegate" {
-        if let Some(reason) = agent_delegate_unavailable_reason(current_agent) {
-            return Some(reason);
-        }
-    }
     let Some(current_agent) = current_agent else {
         return Some("缺少当前执行人格，人格受控工具已降级为不可用".to_string());
     };

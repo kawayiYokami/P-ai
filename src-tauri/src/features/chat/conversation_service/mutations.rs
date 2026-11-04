@@ -597,8 +597,12 @@ fn build_unarchived_conversation_record_from_runtime(
     if let Some(snapshot) = user_profile_snapshot {
         conversation.user_profile_snapshot = snapshot;
     }
-    let summary_message =
-        build_initial_summary_context_message(Some(&conversation.current_todos), None);
+    let teammate_names = available_delegate_teammate_names(agents, agent_id);
+    let summary_message = build_initial_summary_context_message(
+        Some(&conversation.current_todos),
+        None,
+        &teammate_names,
+    );
     conversation.last_user_at = Some(summary_message.created_at.clone());
     conversation.updated_at = summary_message.created_at.clone();
     conversation.messages.push(summary_message);
@@ -675,9 +679,14 @@ fn build_branch_conversation_record_from_selection_runtime_meta_view(
             .messages
             .push(clone_chat_message_for_copied_conversation(message));
     } else {
+        let teammate_names = available_delegate_teammate_names(agents, &agent_id);
         conversation
             .messages
-            .push(build_initial_summary_context_message(Some(&conversation.current_todos), None));
+            .push(build_initial_summary_context_message(
+                Some(&conversation.current_todos),
+                None,
+                &teammate_names,
+            ));
     }
     conversation_update_latest_summary_title_with_source(
         &mut conversation,

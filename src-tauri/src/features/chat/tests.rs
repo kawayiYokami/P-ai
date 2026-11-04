@@ -6499,6 +6499,7 @@
             "force_context_usage_82",
             Some("用户：连续检查两个目标\n助手：第一轮工具检查已经完成。"),
             &[],
+            &[],
         );
         conversation_service_v2()
             .persist_compaction_message(&state, &conversation, &compression_message, None)
@@ -11446,7 +11447,7 @@
     }
 
     #[test]
-    fn common_delegate_preflight_should_reject_non_direct_child_target_in_validation() {
+    fn common_delegate_preflight_should_allow_target_without_organization_relation() {
         let state = test_chat_runtime_state();
         let mut source_agent = default_agent();
         source_agent.id = "source-agent".to_string();
@@ -11491,11 +11492,87 @@
         assert_eq!(preflight.source_agent.id, source_agent.id);
         assert_eq!(preflight.target_agent.id, target_agent.id);
         assert_eq!(preflight.root_conversation_id, conversation.id);
-        assert!(validate_delegate_tool_direct_child_target(&preflight).is_err());
+        assert!(validate_delegate_target_is_teammate(&preflight, false).is_ok());
+    }
+
+    fn delegate_preflight_for(
+        agents: Vec<AgentProfile>,
+        source_agent_id: &str,
+        target_agent_id: &str,
+    ) -> DelegatePreflight {
+        let source_agent = agents
+            .iter()
+            .find(|agent| agent.id == source_agent_id)
+            .cloned()
+            .expect("source agent");
+        let target_agent = agents
+            .iter()
+            .find(|agent| agent.id == target_agent_id)
+            .cloned()
+            .expect("target agent");
+        DelegatePreflight {
+            config: AppConfig::default(),
+            agents,
+            source_agent,
+            target_agent,
+            root_conversation_id: "conversation-delegate-preflight".to_string(),
+            current_thread: None,
+        }
     }
 
     #[test]
-    fn common_delegate_preflight_should_accept_direct_child_agent() {
+    fn delegate_target_should_allow_leader_persona() {
+        // 核心诉求：委托给自己的队长必须成功——组织关系上当前人格是队员。
+        let mut leader = default_agent();
+        leader.id = "leader-agent".to_string();
+        leader.name = "队长".to_string();
+        let mut member = default_agent();
+        member.id = "member-agent".to_string();
+        member.name = "队员".to_string();
+        leader.child_agent_ids = vec![member.id.clone()];
+
+        let preflight = delegate_preflight_for(
+            vec![leader, member, default_user_persona()],
+            "member-agent",
+            "leader-agent",
+        );
+
+        assert!(validate_delegate_target_is_teammate(&preflight, false).is_ok());
+    }
+
+    #[test]
+    fn delegate_target_should_reject_user_system_and_self() {
+        let mut teammate = default_agent();
+        teammate.id = "teammate-agent".to_string();
+        teammate.name = "队友".to_string();
+        let mut source = default_agent();
+        source.id = "source-agent".to_string();
+        source.name = "源人格".to_string();
+
+        let agents = vec![
+            source.clone(),
+            teammate,
+            default_user_persona(),
+            default_system_persona(),
+        ];
+        let user_persona = default_user_persona();
+        let system_persona = default_system_persona();
+
+        let user_preflight =
+            delegate_preflight_for(agents.clone(), &source.id, &user_persona.id);
+        assert!(validate_delegate_target_is_teammate(&user_preflight, false).is_err());
+
+        let system_preflight =
+            delegate_preflight_for(agents.clone(), &source.id, &system_persona.id);
+        assert!(validate_delegate_target_is_teammate(&system_preflight, false).is_err());
+
+        let self_preflight = delegate_preflight_for(agents, &source.id, &source.id);
+        assert!(validate_delegate_target_is_teammate(&self_preflight, false).is_err());
+        assert!(validate_delegate_target_is_teammate(&self_preflight, true).is_ok());
+    }
+
+    #[test]
+    fn common_delegate_preflight_should_accept_child_agent() {
         let state = test_chat_runtime_state();
         let mut parent_agent = default_agent();
         parent_agent.id = "parent-agent".to_string();
@@ -11541,7 +11618,7 @@
         assert_eq!(preflight.source_agent.id, parent_agent.id);
         assert_eq!(preflight.target_agent.id, private_agent.id);
         assert_eq!(preflight.root_conversation_id, conversation.id);
-        assert!(validate_delegate_tool_direct_child_target(&preflight).is_ok());
+        assert!(validate_delegate_target_is_teammate(&preflight, false).is_ok());
     }
 
     #[test]
@@ -11756,29 +11833,6 @@
         let resolved = delegate_target_chat_api_config_ids(&app_config, &agent);
 
         assert_eq!(resolved, vec![expert_id.to_string()]);
-    }
-
-    #[test]
-    fn build_organization_prompt_block_should_keep_same_persona_child_agents() {
-        let mut parent = default_agent();
-        parent.id = "agent-parent".to_string();
-        parent.name = "父人格".to_string();
-        parent.summary = "当任务需要总控时叫我".to_string();
-        parent.child_agent_ids = vec!["agent-child".to_string()];
-
-        let mut child = default_agent();
-        child.id = "agent-child".to_string();
-        child.name = "同人格下级".to_string();
-        child.summary = "当任务需要专项摸底时叫我".to_string();
-
-        let agents = vec![parent, child];
-        let block = build_organization_prompt_block("agent-parent", &agents, "zh-CN");
-
-        assert!(block.contains("人格：父人格"));
-        assert!(block.contains("你的直属下级人格："));
-        assert!(!block.contains("当任务需要总控时叫我"));
-        assert!(block.contains("同人格下级"));
-        assert!(block.contains("概述：当任务需要专项摸底时叫我"));
     }
 
     #[test]
@@ -17773,6 +17827,7 @@
             Some("压缩"),
             "force_context_usage_82",
             None,
+            &[],
             &[],
         );
         conversation_service_v2()

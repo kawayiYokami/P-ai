@@ -30,8 +30,12 @@ fn build_archive_replacement_conversation(
     if let Some(snapshot) = profile_snapshot {
         conversation.user_profile_snapshot = snapshot;
     }
-    let summary_message =
-        build_initial_summary_context_message(Some(&conversation.current_todos), None);
+    let teammate_names = available_delegate_teammate_names(agents, assistant_agent_id);
+    let summary_message = build_initial_summary_context_message(
+        Some(&conversation.current_todos),
+        None,
+        &teammate_names,
+    );
     conversation.last_user_at = Some(summary_message.created_at.clone());
     conversation.updated_at = summary_message.created_at.clone();
     conversation.messages.push(summary_message);

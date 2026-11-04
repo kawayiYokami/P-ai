@@ -11,7 +11,6 @@ struct PreparedConversationPromptPayload {
 
 #[derive(Debug, Clone)]
 struct AgentSystemPromptSnapshot {
-    agent_prompt_block: String,
     agent_tool_rule_blocks: Vec<String>,
 }
 
@@ -152,17 +151,13 @@ fn build_agent_system_prompt_cache_key(
 fn build_agent_system_prompt_snapshot_uncached(
     agent: &AgentProfile,
     agents: &[AgentProfile],
-    ui_language: &str,
 ) -> AgentSystemPromptSnapshot {
-    let agent_prompt_block =
-        build_organization_prompt_block(agent.id.trim(), agents, ui_language);
     let agent_tool_rule_blocks = build_system_tools_rule_blocks(
         agent.id.trim(),
         agents,
         prompt_runtime_rg_installed(),
     );
     AgentSystemPromptSnapshot {
-        agent_prompt_block,
         agent_tool_rule_blocks,
     }
 }
@@ -192,7 +187,7 @@ fn get_or_build_agent_system_prompt_snapshot(
         agent.id.trim(),
         rebuild_reason
     ));
-    let snapshot = build_agent_system_prompt_snapshot_uncached(agent, agents, ui_language);
+    let snapshot = build_agent_system_prompt_snapshot_uncached(agent, agents);
     let mut cache = cache_lock_recover("agent_system_prompt_cache", agent_system_prompt_cache());
     cache.insert(
         cache_key,
