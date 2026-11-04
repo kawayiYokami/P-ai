@@ -87,6 +87,38 @@ function createPresentation(agentNames: Record<string, string> = {}) {
 }
 
 describe("createToolCallPresentation", () => {
+  it("委派：摘要只报人格名，不把任务正文拼进摘要行", () => {
+    const presentation = createPresentation({ persona1: "八重神子" });
+    const result = presentation.toolCallSemanticPresentation({
+      name: "delegate",
+      argsText: JSON.stringify({
+        agent_id: "persona1",
+        goal: "直接回答：你今年多大？说说你的年龄，或者你愿意讲的关于年龄的说法。不用铺垫，一句话答就行。",
+        mode: "guided",
+      }),
+    });
+
+    expect(result.action).toBe("委托");
+    expect(result.target).toBe("八重神子");
+    expect(result.text).toBe("委托 八重神子");
+  });
+
+  it("阅读媒体：摘要只报文件名，不把描述堆在摘要行", () => {
+    const presentation = createPresentation();
+    const result = presentation.toolCallSemanticPresentation({
+      name: "read_media",
+      argsText: JSON.stringify({
+        path: "E:\\github\\paimonhome\\.meme\\agent-1790971569\\出神.webp",
+        description: "描述这张表情图的内容与风格",
+      }),
+    });
+
+    expect(result.action).toBe("阅读");
+    expect(result.target).toBe("出神.webp");
+    expect(result.extra).toBeUndefined();
+    expect(result.text).toBe("阅读 出神.webp");
+  });
+
   it("阅读文件：提取纯文件名、扩展名及行号区间", () => {
     const presentation = createPresentation();
     const result = presentation.toolCallSemanticPresentation({
@@ -205,6 +237,15 @@ describe("createToolCallPresentation", () => {
     expect(multi.action).toBe("执行命令");
     expect(multi.target).toBe("pnpm build (3 行)");
     expect(multi.text).toBe("执行命令 pnpm build (3 行)");
+
+    // 带 description 时摘要报描述，不报命令
+    const described = presentation.toolCallSemanticPresentation({
+      name: "exec",
+      argsText: JSON.stringify({ command: "ls -d .pai/reference-projects/*", description: "查找本地 genai 仓库位置" }),
+    });
+    expect(described.action).toBe("执行命令");
+    expect(described.target).toBe("查找本地 genai 仓库位置");
+    expect(described.text).toBe("执行命令 查找本地 genai 仓库位置");
   });
 
   it("配置 PAI：提取 command 命令", () => {

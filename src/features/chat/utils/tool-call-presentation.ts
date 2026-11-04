@@ -350,13 +350,12 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const rawPath = safeTextFromRecord(obj, ["path", "absolute_path", "absolutePath", "file"]);
       const target = fileNameFromPath(rawPath) || toolTimelineText("missingArgs");
       const action = toolTimelineText("actionRead");
-      const desc = safeTextFromRecord(obj, ["description", "focus", "prompt"]);
+      // 摘要只报文件名；描述（description/focus/prompt）在参数卡里，不往摘要行堆
       return {
         action,
         fileExt: extractFileExt(target),
         target,
-        extra: desc ? compactText(desc, 40) : undefined,
-        text: formatFullText(action, target, undefined, desc ? compactText(desc, 40) : undefined),
+        text: formatFullText(action, target),
       };
     }
 
@@ -462,9 +461,14 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
 
     // 8. 执行命令 (exec / shell_exec)
     if (toolName === "exec" || toolName === "shell_exec") {
+      // 摘要报这次执行是干什么的：模型给的 description 比整条命令好读得多，
+      // 命令本身在参数区里完整可见，不必再挤进折叠头。
+      const description = safeStringValue(obj, "description");
       const rawCmd = safeTextFromRecord(obj, ["command", "cmd", "shell", "input", "commandText"])
         || (typeof args === "string" ? args : safeTextFromRecord(obj, ["args", "arguments"]));
-      const target = collapseCommandForSummary(rawCmd) || toolTimelineText("notProvided");
+      const target = description
+        ? compactText(description, 50)
+        : (collapseCommandForSummary(rawCmd) || toolTimelineText("notProvided"));
       const action = toolTimelineText("actionExec");
       return {
         action,
@@ -649,7 +653,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
           || safeStringValue(obj, "instruction"),
         40,
       );
-      const target = targetAgent ? (content ? `${targetAgent}：${content}` : targetAgent) : content || toCompactValue(args);
+      const target = targetAgent || content || toCompactValue(args);
       return {
         action,
         target,
