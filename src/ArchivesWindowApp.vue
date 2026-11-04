@@ -163,7 +163,7 @@ import { useI18n } from "vue-i18n";
 import { invokeTauri, onTransportNotification } from "./services/tauri-api";
 import FileLinkContextMenu from "./features/shared/components/FileLinkContextMenu.vue";
 import { useFileLinkContextMenu } from "./features/shared/composables/use-file-link-context-menu";
-import type { AppBootstrapSnapshot, AppConfig } from "./types/app";
+import type { AppBootstrapSnapshot, AppConfig, PersonaProfile } from "./types/app";
 import { normalizeLocale } from "./i18n";
 import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
 import ArchivesView from "./features/archive/views/ArchivesView.vue";
@@ -224,7 +224,7 @@ const config = reactive<AppConfig>({
   imageProviders: [],
   apiConfigs: [],
 });
-const personas = ref([] as import("./types/app").PersonaProfile[]);
+const personas = ref([] as PersonaProfile[]);
 const userAlias = ref(t("archives.roleUser"));
 
 const {
@@ -420,7 +420,7 @@ const appBootstrap = useAppBootstrap({
 /** 人格表在别处被改后就地更新名字映射；失败不打扰用户，下次打开窗口会自愈。 */
 async function refreshArchivesPersonaNames() {
   try {
-    const list = await invokeTauri<import("./types/app").PersonaProfile[]>("load_agents");
+    const list = await invokeTauri<PersonaProfile[]>("load_agents");
     if (Array.isArray(list)) personas.value = list;
   } catch {
     // 静默：归档窗口只是展示，读不到名字时下一轮加载会补上
