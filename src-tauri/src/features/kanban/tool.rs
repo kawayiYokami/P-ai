@@ -85,11 +85,11 @@ pub(crate) fn kanban_provider_tool_definition() -> ProviderToolDefinition {
     )
 }
 
-/// 一条议题排成一行纯文本：`#12 [review] 标题 · 木偶 · plan:/path`。
+/// 一条议题排成一行纯文本：`#12 [review] 标题 · 木偶 · plan:/path — 上一条理由`。
 ///
 /// 结果区是纯文本渲染，所以回执直接给能读的行，而不是留给前端拼表格。
 /// 刻意不含 id / 创建时间 / 版本号：模型不需要它们，版本号出现在回执里还会引诱模型去维护它。
-/// `note` 也不给：它是调用方刚写下的备注，回执抄一遍纯属浪费。
+/// `note` 必须留：它是库里存下来的状态理由，不是入参回显，list 时模型靠它才看得到为什么阻塞、为什么待审。
 fn kanban_tool_issue_line(view: &KanbanIssueView) -> String {
     let mut line = format!("#{} [{}] {}", view.number, view.status.trim(), view.title.trim());
     let assignee = view.assignee.trim();
@@ -101,6 +101,11 @@ fn kanban_tool_issue_line(view: &KanbanIssueView) -> String {
     if !plan.is_empty() {
         line.push_str(" · plan:");
         line.push_str(plan);
+    }
+    let note = view.note.trim();
+    if !note.is_empty() {
+        line.push_str(" — ");
+        line.push_str(note);
     }
     line
 }

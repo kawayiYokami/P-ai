@@ -392,6 +392,11 @@ fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
                 return None;
             }
             let mut text = format!("{id} {status}").trim().to_string();
+            // shell kill 没杀成时 JSON 里带 alreadyEnded：正文必须说清是早就结束了，
+            // 否则模型只看到编号加状态，分不清这次到底杀掉了没有。
+            if receipt_bool(value, "alreadyEnded") {
+                text.push_str(" (already ended)");
+            }
             if !detail.is_empty() {
                 text.push('\n');
                 text.push_str(&detail);
