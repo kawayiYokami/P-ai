@@ -980,6 +980,7 @@ import { isSessionPersonaBlock as isSessionPersonaBlockShared, isUserBlock, TIME
 import { computeTimelineSegmentStarts, resolveTimelineVisibleStartIndex } from "../utils/timeline-segments";
 import { computeSessionTopColumnOffset, isSessionTopColumnOffsetSettled } from "../utils/session-top-column-offset";
 import { isSessionToolbarBehindElasticSpace } from "../utils/session-toolbar-visibility";
+import { resolveNextTailSpacerMinHeight } from "../utils/tail-spacer-calculator";
 import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import { clearFileReaderContextCandidates } from "../utils/file-reader-context-tags";
 import {
@@ -2082,6 +2083,7 @@ const virtuaKey = computed(() =>
 
 const { isOwnMessage, latestOwnMessageId, latestOwnElasticItemId } =
   useChatBlockTracking(toRef(props, "messageBlocks"), chatRenderItems);
+let lastTrackedElasticItemId = "";
 
 // ==================== selection mode ====================
 
@@ -2225,6 +2227,7 @@ watch(latestOwnElasticItemId, (next, prev) => {
 watch(() => String(props.activeConversationId || "").trim(), () => {
   ownTopAlignGen += 1;
   ownTopAlignPinnedTop.value = null;
+  lastTrackedElasticItemId = "";
 });
 // 最新用户消息对齐到视口顶部：与时间线跳转同一套 align: "start"。
 // 插入到量完+留白到位之前视口钉住不动，历史原地待着；到位后再做唯一一次平滑上推。
@@ -2921,15 +2924,24 @@ watch(
   ],
   ([itemId, targetHeight, tailContentHeight, tailContentMeasured]) => {
     if (!itemId) {
+      lastTrackedElasticItemId = "";
       latestOwnTailSpacerMinHeight.value = targetHeight;
       return;
     }
     if (!tailContentMeasured) return;
 
-    const next = Math.max(0, targetHeight - tailContentHeight);
-    const diff = Math.abs(latestOwnTailSpacerMinHeight.value - next);
-    // 归零必须精确到位；微小亚像素波动（< 2px）吸附避免无谓的样式回写与 Layout
-    if (next === 0 ? latestOwnTailSpacerMinHeight.value !== 0 : diff >= 2) {
+    const isNewTurn = itemId !== lastTrackedElasticItemId;
+    lastTrackedElasticItemId = itemId;
+
+    const next = resolveNextTailSpacerMinHeight({
+      targetHeight,
+      tailContentHeight,
+      currentSpacer: latestOwnTailSpacerMinHeight.value,
+      isNewTurn,
+      isStreaming: props.chatting,
+    });
+
+    if (next !== latestOwnTailSpacerMinHeight.value) {
       latestOwnTailSpacerMinHeight.value = next;
       // 留白重算只改高度，不再补滚到底：
       // 对齐语义是「最新用户消息停在视口顶部」，这里再滚一次会把它顶出可视区（跟随贴底另有 pin 负责）。
@@ -3963,7 +3975,12 @@ watch(chatContentRoot, (el, _prev, onCleanup) => {
     lastChatContentHeight = height - absorbed;
     if (absorbed > 0) void el.offsetHeight;
     if (absorbed < contentDelta) pinChatToBottomWhileFollowing(contentDelta - absorbed);
-    if (latestOwnTailSpacerMinHeight.value > 0 || !latestOwnTailContentMeasured.value) {
+    // 这里原来写的是 `spacer > 0 || !latestOwnTailContentMeasured`：只要首屏还没测完，
+    // RO 回调就会连续排 refresh；每次 refresh 都重算留白高度、反过来把内容根撑高一次，
+    // 于是又触发一次 RO，形成闭环，浏览器报
+    // "ResizeObserver loop completed with undelivered notifications"。
+    // 首屏测量已由挂载后的 nextTick 负责，这里只在内容真的增长时才排。
+    if (contentDelta > 1) {
       scheduleTailMetricsRefresh(1);
     }
     scrollNavigationTick.value += 1;
