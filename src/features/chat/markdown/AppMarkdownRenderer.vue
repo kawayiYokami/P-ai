@@ -79,7 +79,7 @@ import { useI18n } from "vue-i18n";
 import { Wrench } from "@lucide/vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import { normalizeLocalLinkHref, parseLocalFileReference } from "../utils/local-link";
-import { parseMarkdownBlocks, parseInlineSegments, normalizedTableRow, type MarkdownBlock, type InlineSegment } from "./parse-markdown";
+import { parseInlineSegments, normalizedTableRow, type MarkdownBlock, type InlineSegment } from "./parse-markdown";
 import { IncrementalMarkdownBlockParser } from "./incremental-markdown";
 import {
   consumeCrossParagraphToolGroup,
@@ -125,7 +125,6 @@ defineOptions({
 
 const props = defineProps<{
   text?: string;
-  blocks?: MarkdownBlock[];
   isDark?: boolean;
   streaming?: boolean;
   variant?: "chat" | "document";
@@ -378,13 +377,6 @@ const committedText = ref(props.text ?? "");
 let pendingRawText = props.text ?? "";
 let rafId = 0;
 
-// blocks 模式的 rAF 合批（ChatMessageItem 走 blocks，不走 text）
-const committedBlocks = ref<MarkdownBlock[]>(
-  Array.isArray(props.blocks) ? [...(props.blocks as MarkdownBlock[])] : [],
-);
-let pendingBlocks: MarkdownBlock[] | null = null;
-let blocksRafId = 0;
-
 function flushPendingTextToCommitted() {
   rafId = 0;
   if (pendingRawText !== committedText.value) {
@@ -406,34 +398,11 @@ function commitTextImmediately(next: string) {
   committedText.value = next;
 }
 
-function flushPendingBlocks() {
-  blocksRafId = 0;
-  if (pendingBlocks) {
-    committedBlocks.value = pendingBlocks;
-    pendingBlocks = null;
-  }
-}
-
-function scheduleBlocksFlush() {
-  if (blocksRafId) return;
-  blocksRafId = window.requestAnimationFrame(flushPendingBlocks);
-}
-
-function commitBlocksImmediately(next: MarkdownBlock[]) {
-  if (blocksRafId) {
-    window.cancelAnimationFrame(blocksRafId);
-    blocksRafId = 0;
-  }
-  pendingBlocks = null;
-  committedBlocks.value = [...next];
-}
-
 watch(
   () => props.text,
   (nextRaw) => {
     const next = nextRaw ?? "";
     pendingRawText = next;
-    if (Array.isArray(props.blocks)) return;
     if (!props.streaming) {
       commitTextImmediately(next);
       return;
@@ -443,51 +412,20 @@ watch(
 );
 
 watch(
-  () => props.blocks,
-  (nextBlocks) => {
-    if (!Array.isArray(nextBlocks)) return;
-    const cloned = [...(nextBlocks as MarkdownBlock[])];
-    pendingBlocks = cloned;
-    if (!props.streaming) {
-      commitBlocksImmediately(cloned);
-      return;
-    }
-    scheduleBlocksFlush();
-  },
-  { deep: false },
-);
-
-watch(
   () => props.streaming,
   (streaming, prevStreaming) => {
     if (streaming && !prevStreaming) {
-      if (Array.isArray(props.blocks)) {
-        if (Array.isArray(props.blocks) && props.blocks !== committedBlocks.value) {
-          pendingBlocks = [...(props.blocks as MarkdownBlock[])];
-          scheduleBlocksFlush();
-        }
-      } else {
-        pendingRawText = props.text ?? "";
-        if (pendingRawText !== committedText.value) scheduleRafFlush();
-      }
+      pendingRawText = props.text ?? "";
+      if (pendingRawText !== committedText.value) scheduleRafFlush();
     }
     if (!streaming) {
       if (rafId) {
         window.cancelAnimationFrame(rafId);
         rafId = 0;
       }
-      if (blocksRafId) {
-        window.cancelAnimationFrame(blocksRafId);
-        blocksRafId = 0;
-      }
-      pendingBlocks = null;
-      if (Array.isArray(props.blocks)) {
-        committedBlocks.value = [...(props.blocks as MarkdownBlock[])];
-      } else {
-        const next = props.text ?? "";
-        pendingRawText = next;
-        committedText.value = next;
-      }
+      const next = props.text ?? "";
+      pendingRawText = next;
+      committedText.value = next;
     }
   },
 );
@@ -533,10 +471,12 @@ function parseAndCacheBlocks(text: string, streaming: boolean): MarkdownBlock[] 
   }
   parseState.lastParseTime = Date.now();
   parseState.cachedText = text;
+  // 解析只有增量一条路：非流式也在同一个壳里解析完就 finalize，
+  // 不能退回「全量解析 + reset」——收尾那一帧块身份会整体换新，整篇重建一次。
+  const blocks = parseState.incrementalParser.parse(text);
   parseState.cachedBlocks = streaming
-    ? parseState.incrementalParser.parse(text)
-    : parseMarkdownBlocks(text, false);
-  if (!streaming) parseState.incrementalParser.reset();
+    ? blocks
+    : parseState.incrementalParser.finalize();
   return parseState.cachedBlocks;
 }
 
@@ -550,9 +490,6 @@ function scheduleStreamingParseRetry(delayMs: number) {
 
 const allBlocks = computed<MarkdownBlock[]>(() => {
   void parseRetryTick.value;
-  if (Array.isArray(props.blocks)) {
-    return props.streaming ? committedBlocks.value : (props.blocks as MarkdownBlock[]);
-  }
   const text = props.streaming ? committedText.value : (props.text ?? "");
   if (!text) {
     parseState.incrementalParser.reset();
@@ -583,25 +520,26 @@ const visibleBlocks = computed<MarkdownBlock[]>(() => {
   if (!props.streaming) {
     return blocks;
   }
-  // blocks 模式（ChatMessageItem）已走 rAF + tail 增量，直接全量展示，避免尾块被 batchLimit 藏住导致看不到淡入
-  if (Array.isArray(props.blocks)) {
-    return blocks;
-  }
   if (parseState.batchLimit > 0 && parseState.batchLimit < blocks.length) {
     return blocks.slice(0, parseState.batchLimit);
   }
   return blocks;
 });
 
+// 没有脚注的消息占绝大多数，这里必须返回同一个空对象：这个 map 会作为 props 传进每个块组件，
+// 每帧新建一个空 {} 会让所有块组件的 props 变化、整篇重新渲染，块级边界就白拆了。
+const EMPTY_FOOTNOTE_MAP: Record<string, number> = Object.freeze({}) as Record<string, number>;
 const footnoteIndexMap = computed<Record<string, number>>(() => {
+  let count = 0;
   const map: Record<string, number> = {};
   for (const block of allBlocks.value) {
     if (block.type !== "footnotes") continue;
     block.items.forEach((item, index) => {
       map[item.id] = index + 1;
+      count += 1;
     });
   }
-  return map;
+  return count > 0 ? map : EMPTY_FOOTNOTE_MAP;
 });
 
 // Progressive batch reveal during streaming
@@ -654,10 +592,6 @@ onBeforeUnmount(() => {
     window.cancelAnimationFrame(rafId);
     rafId = 0;
   }
-  if (blocksRafId) {
-    window.cancelAnimationFrame(blocksRafId);
-    blocksRafId = 0;
-  }
   clearParseRetryTimer();
   if (parseState.batchTimer) {
     clearTimeout(parseState.batchTimer);
@@ -687,38 +621,30 @@ function headingTag(level: unknown): "h1" | "h2" | "h3" | "h4" {
 }
 
 function nestedMarkdownBlocks(text: string, streaming: boolean, blockKey?: string): MarkdownBlock[] {
-  if (!blockKey) {
-    const cacheKey = `${streaming ? "s" : "n"}:${text}`;
-    const cached = nestedSimpleCache.get(cacheKey);
-    if (cached) return cached;
-    const blocks = parseMarkdownBlocks(text, streaming);
-    if (nestedSimpleCache.size >= NESTED_SIMPLE_CACHE_MAX) {
-      const first = nestedSimpleCache.keys().next().value as string | undefined;
-      if (first !== undefined) nestedSimpleCache.delete(first);
+  // 流式嵌套：同一个块 key 复用增量器，逐步冻结
+  if (streaming && blockKey) {
+    let parser = nestedIncrementalParsers.get(blockKey);
+    if (!parser) {
+      parser = new IncrementalMarkdownBlockParser();
+      nestedIncrementalParsers.set(blockKey, parser);
+      evictNestedParsersIfNeeded();
     }
-    nestedSimpleCache.set(cacheKey, blocks);
-    return blocks;
+    return parser.parse(text);
   }
-  if (!streaming) {
-    nestedIncrementalParsers.delete(blockKey);
-    const cacheKey = `n:${blockKey}:${text}`;
-    const cached = nestedSimpleCache.get(cacheKey);
-    if (cached) return cached;
-    const blocks = parseMarkdownBlocks(text, false);
-    if (nestedSimpleCache.size >= NESTED_SIMPLE_CACHE_MAX) {
-      const first = nestedSimpleCache.keys().next().value as string | undefined;
-      if (first !== undefined) nestedSimpleCache.delete(first);
-    }
-    nestedSimpleCache.set(cacheKey, blocks);
-    return blocks;
+  const cacheKey = blockKey ? `n:${blockKey}:${text}` : `n:${text}`;
+  const cached = nestedSimpleCache.get(cacheKey);
+  if (cached) return cached;
+  if (blockKey) nestedIncrementalParsers.delete(blockKey);
+  // 非流式嵌套：一次性解析完就收尾，结果进缓存
+  const oneShot = new IncrementalMarkdownBlockParser();
+  oneShot.parse(text);
+  const blocks = oneShot.finalize();
+  if (nestedSimpleCache.size >= NESTED_SIMPLE_CACHE_MAX) {
+    const first = nestedSimpleCache.keys().next().value as string | undefined;
+    if (first !== undefined) nestedSimpleCache.delete(first);
   }
-  let parser = nestedIncrementalParsers.get(blockKey);
-  if (!parser) {
-    parser = new IncrementalMarkdownBlockParser();
-    nestedIncrementalParsers.set(blockKey, parser);
-    evictNestedParsersIfNeeded();
-  }
-  return parser.parse(text);
+  nestedSimpleCache.set(cacheKey, blocks);
+  return blocks;
 }
 
 // ==================== Inline Renderer ====================
@@ -800,6 +726,25 @@ const BlockRenderer = defineComponent({
     };
 
     const isLastBlock = (idx: number) => idx === blockProps.blocks.length - 1;
+
+    // 块级组件边界：每个块一个实例，父层 render 只产出组件 vnode。
+    // props 里列出的都是「变了就要重画」的上下文；block 引用稳定且上下文不变时，
+    // Vue 会跳过这个子树的 patch，这正是整篇 VNode 重建要省掉的那部分。
+    const MarkdownBlockView = defineComponent({
+      name: "MarkdownBlockView",
+      props: {
+        block: { type: Object as PropType<MarkdownBlock>, required: true },
+        index: { type: Number, required: true },
+        isLast: { type: Boolean, default: false },
+        streaming: { type: Boolean, default: false },
+        isDark: { type: Boolean, default: false },
+        localImageBasePath: { type: String, default: "" },
+        footnoteIndexMap: { type: Object as PropType<Record<string, number>>, default: () => ({}) },
+      },
+      setup(viewProps) {
+        return () => renderBlock(viewProps.block, viewProps.index);
+      },
+    });
 
     const renderBlock = (block: MarkdownBlock, index: number): VNodeChild => {
       const blockKey = `${block.type}-${block.key}`;
@@ -1045,7 +990,16 @@ const BlockRenderer = defineComponent({
           index = grouped.endIndex;
           continue;
         }
-        nodes.push(renderBlock(block, index));
+        nodes.push(h(MarkdownBlockView, {
+          key: `${block.type}-${block.key}`,
+          block,
+          index,
+          isLast: isLastBlock(index),
+          streaming: blockProps.streaming,
+          isDark: blockProps.isDark,
+          localImageBasePath: blockProps.localImageBasePath,
+          footnoteIndexMap: blockProps.footnoteIndexMap,
+        }));
       }
       return nodes;
     };

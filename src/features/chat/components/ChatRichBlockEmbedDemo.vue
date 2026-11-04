@@ -33,7 +33,7 @@
               >
                 <AppMarkdownRenderer
                   class="ecall-markdown-content max-w-none"
-                  :blocks="segment.blocks"
+                  :text="segment.text"
                   :is-dark="isDark"
                 />
               </div>
@@ -57,22 +57,55 @@ import {
 } from "../markdown";
 
 // 复刻改动前的分段：富块各自成段，正文成段——仅用于这一页的「现状」列对照
-function legacySegments(blocks: MarkdownBlock[]): Array<{ key: string; kind: "text" | "rich"; blocks: MarkdownBlock[] }> {
-  const out: Array<{ key: string; kind: "text" | "rich"; blocks: MarkdownBlock[] }> = [];
-  let buffer: MarkdownBlock[] = [];
+// 渲染器已只接受文本，这里把每个块还原成它对应的 markdown 源码，再按段渲染
+function blockToSource(block: MarkdownBlock): string {
+  switch (block.type) {
+    case "heading":
+      return `${"#".repeat(block.level)} ${block.text}`;
+    case "paragraph":
+      return block.text;
+    case "quote":
+      return block.text.split("\n").map((line) => `> ${line}`).join("\n");
+    case "code":
+      return `\`\`\`${block.lang}\n${block.text}\n\`\`\``;
+    case "table": {
+      const header = `| ${block.headers.join(" | ")} |`;
+      const divider = `| ${block.headers.map(() => "---").join(" | ")} |`;
+      const rows = block.rows.map((row) => `| ${row.join(" | ")} |`);
+      return [header, divider, ...rows].join("\n");
+    }
+    case "math":
+      return (block.raw ?? block.text).trim() || block.text;
+    case "list":
+      return block.items
+        .map((item, index) => `${block.ordered ? `${index + 1}.` : "-"} ${item.text}`)
+        .join("\n");
+    case "details":
+      return block.body;
+    case "hr":
+      return "---";
+    default:
+      return "";
+  }
+}
+
+function legacySegments(blocks: MarkdownBlock[]): Array<{ key: string; kind: "text" | "rich"; text: string }> {
+  const out: Array<{ key: string; kind: "text" | "rich"; text: string }> = [];
+  let buffer: string[] = [];
   const flush = () => {
     if (buffer.length <= 0) return;
-    out.push({ key: `legacy-text-${out.length}`, kind: "text", blocks: buffer });
+    out.push({ key: `legacy-text-${out.length}`, kind: "text", text: buffer.join("\n\n") });
     buffer = [];
   };
   for (const block of blocks) {
     if (!block) continue;
     const rich = block.type === "code" || block.type === "table";
+    const source = blockToSource(block);
     if (rich) {
       flush();
-      out.push({ key: `legacy-rich-${out.length}`, kind: "rich", blocks: [block] });
+      out.push({ key: `legacy-rich-${out.length}`, kind: "rich", text: source });
     } else {
-      buffer.push(block);
+      buffer.push(source);
     }
   }
   flush();
@@ -135,7 +168,7 @@ type DemoColumn = {
   key: string;
   caption: string;
   note: string;
-  segments: Array<{ key: string; kind: "text" | "rich"; blocks: MarkdownBlock[]; withRich?: boolean }>;
+  segments: Array<{ key: string; kind: "text" | "rich"; text: string; withRich?: boolean }>;
 };
 
 const columns = computed<DemoColumn[]>(() => [
@@ -149,7 +182,7 @@ const columns = computed<DemoColumn[]>(() => [
     key: "target",
     caption: "改动后：一段正文一个气泡，富块内嵌其中",
     note: "富块不再切开气泡，代码块去掉底色与框线、表格去掉外框；含富块的那段恢复整行宽度，否则代码会被压窄成横向滚动。",
-    segments: [{ key: "target-all", kind: "text", blocks: blocks.value, withRich: true }],
+    segments: [{ key: "target-all", kind: "text", text: MARKDOWN, withRich: true }],
   },
 ]);
 </script>

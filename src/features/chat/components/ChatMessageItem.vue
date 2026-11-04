@@ -398,7 +398,7 @@
                 >
                   <AppMarkdownRenderer
                     class="ecall-markdown-content max-w-none"
-                    :blocks="piece.blocks"
+                    :text="piece.text"
                     :is-dark="markdownIsDark"
                     :streaming="!!block.isStreaming && piece.index === assistantMarkdownPieces.length - 1"
                     :local-image-base-path="currentWorkspaceRootPath"
@@ -671,7 +671,7 @@ import {
 } from "../../../utils/chat-message-semantics";
 import { formatIsoToLocalDateTime } from "../../../utils/time";
 import { useChatMessageAppearance } from "../../shell/composables/use-chat-message-appearance";
-import { AppMarkdownRenderer, initKatex, parseMarkdownBlocks, type MarkdownBlock } from "../markdown";
+import { AppMarkdownRenderer, initKatex } from "../markdown";
 import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import { normalizeLocalLinkHref } from "../utils/local-link";
 import { textContentSignature } from "../utils/text-signature";
@@ -803,7 +803,8 @@ const assistantRenderedText = computed(() =>
   assistantRawRenderedText.value.split(TOOL_TEXT_BREAK_PLACEHOLDER).join("\n\n"),
 );
 // 一段正文（工具调用之间的整段）即一个气泡；代码块 / 表格 / 图表内嵌其中，不切开气泡
-const assistantMarkdownPieces = computed<Array<{ key: string; blocks: MarkdownBlock[] }>>(() => {
+// 渲染器只吃文本：增量解析与块身份由 AppMarkdownRenderer 内部负责
+const assistantMarkdownPieces = computed<Array<{ key: string; text: string }>>(() => {
   if (plainMarkdownDebugEnabled) return [];
   const text = assistantRawRenderedText.value;
   if (!text) return [];
@@ -811,13 +812,10 @@ const assistantMarkdownPieces = computed<Array<{ key: string; blocks: MarkdownBl
   const pieces = segmented
     ? text.split(TOOL_TEXT_BREAK_PLACEHOLDER)
     : [assistantRenderedText.value];
-  const result: Array<{ key: string; blocks: MarkdownBlock[] }> = [];
+  const result: Array<{ key: string; text: string }> = [];
   pieces.forEach((piece, pieceIndex) => {
     if (!piece.trim()) return;
-    result.push({
-      key: `piece-${pieceIndex}`,
-      blocks: parseMarkdownBlocks(piece, !!props.block.isStreaming),
-    });
+    result.push({ key: `piece-${pieceIndex}`, text: piece });
   });
   return result;
 });

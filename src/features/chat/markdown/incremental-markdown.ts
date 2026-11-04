@@ -148,6 +148,15 @@ function collectFootnoteDefinitions(text: string): Map<string, string> {
 /** 尾部保留为不稳定区的块数：追加文本最多重塑最后一个块，倒数第二个作安全余量。 */
 const UNSTABLE_TAIL_BLOCKS = 2;
 
+/**
+ * 全进程累计的解析量。dev 下挂到 window，压测工具据此逐帧读「每帧解析了多少字符」——
+ * 这是「增量到底有没有生效」最直接的数字，比帧耗时更少受机器差异影响。
+ */
+const parseVolume = { parses: 0, parsedChars: 0 };
+if (import.meta.env.DEV && typeof window !== "undefined") {
+  (window as unknown as Record<string, unknown>).__ecallMdParseVolume = parseVolume;
+}
+
 /** 给块打上「全文起始偏移」身份。同一个块从尾部转入冻结区时 key 不变，渲染层靠它复用而不是重建。 */
 function withOffsetKey(block: MarkdownBlock, offset: number): MarkdownBlock {
   const key = `#${offset}`;
@@ -199,6 +208,8 @@ export class IncrementalMarkdownBlockParser {
     const spans: MarkdownBlockSpan[] = [];
     this.stats.parses += 1;
     this.stats.parsedChars += slice.length;
+    parseVolume.parses += 1;
+    parseVolume.parsedChars += slice.length;
     const blocks = parseMarkdownBlocks(slice, true, spans);
 
     // 位置缺失（fallback 单块等）时不做冻结，整段留在尾部

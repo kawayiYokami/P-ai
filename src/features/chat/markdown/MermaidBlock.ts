@@ -5,9 +5,14 @@ export function normalizeMermaidCodeForRender(code: string): string {
   return code.replace(/\\n/gi, "<br/>");
 }
 
-// mermaid 渲染时会先移除文档里同 id 的元素；blockKey 是位置派生的（code-1、code-2…），
+// mermaid 渲染时会先移除文档里同 id 的元素；blockKey 是块在全文中的起始偏移（#0、#12…），
 // 两处内容相同的图会算出同一个 id 并互相顶掉，所以 id 里必须带实例序号。
+// 另外 blockKey 带 #，不能直接进 CSS 选择器，落到 id 之前要先洗成合法片段。
 let mermaidInstanceSeq = 0;
+
+function sanitizeIdPart(value: string): string {
+  return String(value || "").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+}
 
 const MermaidBlock = defineComponent({
   name: "MermaidBlock",
@@ -49,7 +54,7 @@ const MermaidBlock = defineComponent({
           theme: mermaidProps.isDark ? "dark" : "default",
           securityLevel: "strict",
         });
-        const id = `ecall-mermaid-${mermaidProps.blockKey}-i${instanceId}-${currentRender}`;
+        const id = `ecall-mermaid-${sanitizeIdPart(mermaidProps.blockKey) || "b"}-i${instanceId}-${currentRender}`;
         const { svg } = await mermaid.render(id, normalizeMermaidCodeForRender(code));
         if (currentRender !== renderCount) return;
         svgHtml.value = svg;
