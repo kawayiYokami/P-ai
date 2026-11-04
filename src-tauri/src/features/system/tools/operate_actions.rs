@@ -441,7 +441,7 @@ fn resolve_foreground_window(target: &ForegroundTarget) -> DesktopToolResult<Win
                 many => Err(DesktopToolError::invalid_params(format!(
                     "目标窗口不唯一：标题包含 `{title}` 的窗口有 {} 个：{}；请改用更精确的标题或直接给 windowId",
                     many.len(),
-                    many.iter().map(|w| format!("{}（{}）", w.title, w.window_id)).collect::<Vec<_>>().join("、")
+                    join_window_labels(many.iter().copied())
                 ))),
             }
         }
@@ -464,7 +464,7 @@ fn resolve_window_by_name(name: &str) -> DesktopToolResult<WindowInfo> {
             return Err(DesktopToolError::invalid_params(format!(
                 "目标窗口不唯一：标题包含 `{name}` 的窗口有 {} 个：{}；请改用更精确的标题或直接给 windowId",
                 many.len(),
-                many.iter().map(|w| format!("{}（{}）", w.title, w.window_id)).collect::<Vec<_>>().join("、")
+                join_window_labels(many.iter().copied())
             )));
         }
     }
@@ -485,26 +485,32 @@ fn resolve_window_by_name(name: &str) -> DesktopToolResult<WindowInfo> {
         many => Err(DesktopToolError::invalid_params(format!(
             "目标窗口不唯一：进程名包含 `{name}` 的窗口有 {} 个：{}；请改用标题或直接给 windowId",
             many.len(),
-            many.iter().map(|w| format!("{}（{}）", w.title, w.window_id)).collect::<Vec<_>>().join("、")
+            join_window_labels(many.iter().copied())
         ))),
     }
 }
 
+/// 窗口候选的统一写法：标题（编号，pid N）。
+/// 同标题的两个窗口只能靠进程区分；PAI 自身窗口截图截不到，标 self 并写明，免得模型照着重试。
+fn window_candidate_label(window: &WindowInfo) -> String {
+    if window.process_id == std::process::id() {
+        format!("{}（{}，pid {}，self，截图截不到）", window.title, window.window_id, window.process_id)
+    } else {
+        format!("{}（{}，pid {}）", window.title, window.window_id, window.process_id)
+    }
+}
+
+fn join_window_labels<'a>(windows: impl Iterator<Item = &'a WindowInfo>) -> String {
+    windows.map(window_candidate_label).collect::<Vec<_>>().join("、")
+}
+
 /// 可见窗口标题候选（最多 12 条），用于报错时给模型可改的名字。
-/// 带上进程号：同标题的两个窗口只能靠进程区分；当前进程的窗口截图截不到，标 self 并说明。
 fn window_title_candidates(windows: &[WindowInfo]) -> String {
-    let self_pid = std::process::id();
     let mut items = windows
         .iter()
         .filter(|w| !w.title.is_empty())
         .take(12)
-        .map(|w| {
-            if w.process_id == self_pid {
-                format!("{}（{}，pid {}，self，截图截不到）", w.title, w.window_id, w.process_id)
-            } else {
-                format!("{}（{}，pid {}）", w.title, w.window_id, w.process_id)
-            }
-        })
+        .map(window_candidate_label)
         .collect::<Vec<_>>();
     if items.is_empty() {
         return "（无可见窗口）".to_string();

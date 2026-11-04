@@ -406,8 +406,8 @@ fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
         "windows" => {
             let mut lines = Vec::<String>::new();
             let mut total = 0usize;
-            // JSON 里刻意不带进程号（窗口很多时省上下文），同标题的两条只能靠进程区分，
-            // 所以这里按 windowId 回查一次枚举补上；自身窗口额外标 self，模型才知道截不到。
+            // 同标题的两条只能靠进程区分，自身窗口还得标出来（截图截不到）。
+            // window list 的 JSON 自带 processId，有就直接用；个别只回编号的场景才回查一次枚举。
             let self_pid = std::process::id();
             let mut pid_by_window: Option<std::collections::HashMap<usize, u32>> = None;
             for step in receipt_array(value, "steps") {
@@ -419,17 +419,24 @@ fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
                     } else {
                         ""
                     };
-                    let pid = usize::try_from(id).ok().and_then(|window_id| {
-                        pid_by_window
-                            .get_or_insert_with(|| {
-                                crate::platform::list_all_windows()
-                                    .into_iter()
-                                    .map(|info| (info.window_id, info.process_id))
-                                    .collect()
+                    let pid = window
+                        .get("processId")
+                        .or_else(|| window.get("process_id"))
+                        .and_then(Value::as_u64)
+                        .map(|pid| pid as u32)
+                        .or_else(|| {
+                            usize::try_from(id).ok().and_then(|window_id| {
+                                pid_by_window
+                                    .get_or_insert_with(|| {
+                                        crate::platform::list_all_windows()
+                                            .into_iter()
+                                            .map(|info| (info.window_id, info.process_id))
+                                            .collect()
+                                    })
+                                    .get(&window_id)
+                                    .copied()
                             })
-                            .get(&window_id)
-                            .copied()
-                    });
+                        });
                     let pid_note = match pid {
                         Some(pid) if pid == self_pid => format!(" (pid {pid}, self)"),
                         Some(pid) => format!(" (pid {pid})"),
