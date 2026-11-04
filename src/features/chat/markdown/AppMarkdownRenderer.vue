@@ -12,7 +12,7 @@
       :streaming="streaming"
       :local-image-base-path="localImageBasePath"
       :footnote-index-map="footnoteIndexMap"
-      :on-image-preview="(payload) => emit('openImagePreview', payload)"
+      :on-image-preview="handleImagePreview"
     />
   </div>
   <Teleport to="body">
@@ -146,6 +146,12 @@ const emit = defineEmits<{
 }>();
 const attrs = useAttrs();
 
+// 事件处理器必须是稳定引用：写成模板里的内联箭头，每次 render 都会生成新函数，
+// 子组件的 props 就被判定为变化而更新，块级边界会整片失效
+function handleImagePreview(payload: MarkdownImagePreviewPayload): void {
+  emit("openImagePreview", payload);
+}
+
 const { t } = useI18n();
 const rendererRootRef = ref<HTMLElement | null>(null);
 const activeToolcallIds = ref<string[]>([]);
@@ -154,6 +160,13 @@ const toolcallPopupRef = ref<HTMLElement | null>(null);
 const toolcallScrollerRef = ref<HTMLElement | null>(null);
 const toolcallScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
 const rendererInstanceId = `md-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+// dev 下统计块组件被重渲染的次数：流式期间若只有尾部块在涨，说明块级边界生效；
+// 若每帧涨 N 个（N=块数），说明 props 没稳住，组件边界白拆
+const blockRenderCounts: Record<string, number> = { __blocks: 0, __containers: 0, __setups: 0 };
+if (import.meta.env.DEV && typeof window !== "undefined") {
+  (window as unknown as Record<string, unknown>).__ecallMdBlockRenders = blockRenderCounts;
+}
 const activeFootnoteId = ref("");
 let activeFootnoteTimer = 0;
 const toolcallPopupStyle = ref<Record<string, string>>({
@@ -680,6 +693,15 @@ const InlineRenderer = defineComponent({
   },
 });
 
+type BlockRenderContext = {
+  isDark: boolean;
+  streaming: boolean;
+  isLast: boolean;
+  localImageBasePath: string;
+  footnoteIndexMap: Record<string, number>;
+  onImagePreview?: (payload: MarkdownImagePreviewPayload) => void;
+};
+
 const BlockRenderer = defineComponent({
   name: "BlockRenderer",
   props: {
@@ -740,13 +762,34 @@ const BlockRenderer = defineComponent({
         isDark: { type: Boolean, default: false },
         localImageBasePath: { type: String, default: "" },
         footnoteIndexMap: { type: Object as PropType<Record<string, number>>, default: () => ({}) },
+        onImagePreview: {
+          type: Function as PropType<(payload: MarkdownImagePreviewPayload) => void>,
+          default: undefined,
+        },
       },
       setup(viewProps) {
-        return () => renderBlock(viewProps.block, viewProps.index);
+        if (import.meta.env.DEV) {
+          // 块级边界有没有真的跳过 patch，用这个计数证明：流式期间应该只有尾部块在重渲染
+          blockRenderCounts.__setups += 1;
+          const setupKey = viewProps.block.key;
+          blockRenderCounts[`__setup:${setupKey}`] = (blockRenderCounts[`__setup:${setupKey}`] || 0) + 1;
+        }
+        return () => {
+          if (import.meta.env.DEV) {
+            blockRenderCounts.__blocks += 1;
+            const key = viewProps.block.key;
+            blockRenderCounts[key] = (blockRenderCounts[key] || 0) + 1;
+          }
+          return renderBlock(viewProps.block, viewProps.index, viewProps);
+        };
       },
     });
 
-    const renderBlock = (block: MarkdownBlock, index: number): VNodeChild => {
+    const renderBlock = (block: MarkdownBlock, index: number, ctx: BlockRenderContext): VNodeChild => {
+      // 用 ctx 顶掉外层的 props 代理：块的渲染只能依赖自己的 props。
+      // 直接读外层 blockProps 会把子组件的渲染副作用挂到父 props 上，
+      // 父一更新（每帧 blocks 数组都是新的）所有块就跟着重渲染，块级边界等于没拆。
+      const blockProps = ctx;
       const blockKey = `${block.type}-${block.key}`;
       if (block.type === "heading") {
         return h(headingTag(block.level), { key: blockKey, class: "ecall-md-heading" }, [
@@ -759,7 +802,7 @@ const BlockRenderer = defineComponent({
         ]);
       }
       if (block.type === "quote") {
-        const isCurrentLast = isLastBlock(index);
+        const isCurrentLast = ctx.isLast;
         const nestedStreaming = blockProps.streaming && isCurrentLast;
         const nestedBlocks = nestedMarkdownBlocks(block.text, nestedStreaming, block.key);
         return h("blockquote", { key: blockKey, class: "ecall-md-quote" }, [
@@ -845,7 +888,7 @@ const BlockRenderer = defineComponent({
         });
       }
       if (block.type === "details") {
-        const isCurrentLast = isLastBlock(index);
+        const isCurrentLast = ctx.isLast;
         const nestedStreaming = blockProps.streaming && isCurrentLast;
         const nestedBlocks = nestedMarkdownBlocks(block.body, nestedStreaming, `${block.key}::body`);
         return h("details", {
@@ -905,6 +948,7 @@ const BlockRenderer = defineComponent({
     };
 
     return () => {
+      if (import.meta.env.DEV) blockRenderCounts.__containers += 1;
       const nodes: VNodeChild[] = [];
       for (let index = 0; index < blockProps.blocks.length; index += 1) {
         const block = blockProps.blocks[index];
@@ -999,6 +1043,7 @@ const BlockRenderer = defineComponent({
           isDark: blockProps.isDark,
           localImageBasePath: blockProps.localImageBasePath,
           footnoteIndexMap: blockProps.footnoteIndexMap,
+          onImagePreview: blockProps.onImagePreview,
         }));
       }
       return nodes;

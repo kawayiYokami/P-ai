@@ -404,8 +404,8 @@
                     :local-image-base-path="currentWorkspaceRootPath"
                     :toolcall-preview-map="toolcallPreviewMap"
                     @math-context-menu="openMathContextMenu"
-                    @open-image-preview="emit('openImagePreview', $event)"
-                    @click="emit('assistantLinkClick', $event)"
+                    @open-image-preview="handleOpenImagePreview"
+                    @click="handleAssistantLinkClick"
                   />
                 </div>
               </div>
@@ -2016,6 +2016,16 @@ function openContextMenu(event: MouseEvent) {
   contextMenuY.value = Math.min(Math.max(margin, event.clientY), viewportHeight - menuHeight - margin);
   contextMenuOpen.value = true;
   window.addEventListener("pointerdown", handleGlobalPointerDownForContextMenu, true);
+}
+
+// 传给 AppMarkdownRenderer 的事件处理器必须是稳定引用：写成模板里的内联箭头，
+// 每次父组件渲染都会生成新函数，子组件 props 被判为变化，块级边界整片失效
+function handleOpenImagePreview(image: { mime?: string; bytesBase64?: string; dataUrl?: string; localPath?: string; src?: string; alt?: string }): void {
+  emit("openImagePreview", image);
+}
+
+function handleAssistantLinkClick(event: MouseEvent): void {
+  emit("assistantLinkClick", event);
 }
 
 function openMathContextMenu(payload: { clientX: number; clientY: number; copyText: string }) {
