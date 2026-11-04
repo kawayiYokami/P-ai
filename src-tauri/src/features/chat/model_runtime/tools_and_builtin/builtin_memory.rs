@@ -659,8 +659,10 @@ fn builtin_memory_save(
         })
         .collect::<Vec<_>>();
     // 回执只留调用方推不出来的事实：存成哪条、成没成、合并替换掉了哪些、库里总共多少。
-    // action / tags / reason / updatedAt 都是调用方自己刚提交的原文或内部时间戳，不再抄回。
+    // tags / reason / updatedAt 是调用方刚提交的原文或内部时间戳，不再抄回。
+    // action 是短枚举（create/update/merge），回执靠它区分更新与合并的文案，不是正文回显。
     let mut output = serde_json::json!({
+      "action": action,
       "saved": first.saved,
       "id": display_saved_id,
       "totalMemories": total_memories

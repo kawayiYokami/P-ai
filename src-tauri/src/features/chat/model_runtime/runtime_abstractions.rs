@@ -208,15 +208,43 @@ fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
                 return Some("memory save failed".to_string());
             }
             let id = value_string(value, "id").unwrap_or_default();
-            let merged = receipt_array(value, "deletedSourceIds").len();
+            let deleted = receipt_array(value, "deletedSourceIds");
             let failed = receipt_array(value, "failedDeleteIds").len();
-            let mut text = if merged > 0 {
-                format!("merged {merged} memories into {id}")
-            } else {
-                format!("remembered {id}")
+            let action = value_string(value, "action")
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            // 结果口径：旧X回收、新Y生成，不讲内部怎么转的。
+            let recycled = deleted
+                .iter()
+                .filter_map(|item| match item {
+                    Value::String(text) => {
+                        let trimmed = text.trim();
+                        (!trimmed.is_empty()).then(|| trimmed.to_string())
+                    }
+                    Value::Number(number) => Some(number.to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" & ");
+            let mut text = match action.as_str() {
+                "update" if !recycled.is_empty() => format!("{recycled} recycled, new {id}"),
+                "update" => format!("{id} unchanged"),
+                "merge" if !recycled.is_empty() => format!("{recycled} recycled, new {id}"),
+                "merge" => format!("merge completed {id}"),
+                "create" => format!("remembered {id}"),
+                // 兼容缺少 action 的旧回执：有回收就按回收说，没有就是新建。
+                _ if !recycled.is_empty() => format!("{recycled} recycled, new {id}"),
+                _ => format!("remembered {id}"),
             };
             if failed > 0 {
-                text.push_str(&format!("\n{failed} old memories failed to delete"));
+                text.push_str(&format!(
+                    "\n{}",
+                    receipt_plural(
+                        failed,
+                        "memory failed to recycle",
+                        "memories failed to recycle"
+                    )
+                ));
             }
             Some(text)
         }
@@ -1107,5 +1135,57 @@ mod runtime_tool_result_tests {
             result.output
         );
         assert!(!result.output.contains("{\""));
+    }
+
+    #[test]
+    fn remember_receipt_distinguishes_update_merge_create() {
+        // 红豆定稿：只说结果，不讲内部。update 说旧X回收、新Y生成。
+        let update = provider_tool_result_from_value(
+            "remember",
+            serde_json::json!({
+                "action": "update",
+                "saved": true,
+                "id": "7097",
+                "totalMemories": 10,
+                "deletedSourceIds": ["7096"]
+            }),
+        );
+        assert_eq!(update.output, "7096 recycled, new 7097");
+
+        // update 原地保留（判断句没变，未删除）：id 不变，直说 unchanged。
+        let update_retained = provider_tool_result_from_value(
+            "remember",
+            serde_json::json!({
+                "action": "update",
+                "saved": true,
+                "id": "7098",
+                "totalMemories": 10
+            }),
+        );
+        assert_eq!(update_retained.output, "7098 unchanged");
+
+        // merge 列出被合并的旧 id，顺序即传入顺序。
+        let merge = provider_tool_result_from_value(
+            "remember",
+            serde_json::json!({
+                "action": "merge",
+                "saved": true,
+                "id": "7098",
+                "totalMemories": 10,
+                "deletedSourceIds": ["2", "1"]
+            }),
+        );
+        assert_eq!(merge.output, "2 & 1 recycled, new 7098");
+
+        let create = provider_tool_result_from_value(
+            "remember",
+            serde_json::json!({
+                "action": "create",
+                "saved": true,
+                "id": "7099",
+                "totalMemories": 10
+            }),
+        );
+        assert_eq!(create.output, "remembered 7099");
     }
 }
