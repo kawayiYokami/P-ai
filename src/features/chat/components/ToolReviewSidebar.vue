@@ -174,11 +174,12 @@
         <div class="min-w-0 truncate text-sm font-semibold text-base-content">{{ delegateResultTitle }}</div>
         <button type="button" class="btn btn-ghost btn-sm gap-1 shrink-0" @click="closeDelegateResultDialog"><span class="text-base leading-none">×</span><span>关闭</span></button>
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+      <div class="min-h-0 flex-1 overflow-y-auto bg-base-200 px-5 py-4">
         <DelegateScheduleTimeline
           v-if="delegateResultConversationId"
           :conversation-id="delegateResultConversationId"
           :auto-refresh-key="delegateResultTimelineKey"
+          :status-snapshot="delegateResultStatusSnapshot"
         />
       </div>
     </div>
@@ -289,6 +290,7 @@ const collapsedDelegateSectionKeys = ref<Record<string, boolean>>({
 });
 const delegateResultConversationId = ref("");
 const delegateResultTimelineKey = ref("");
+const delegateResultStatusSnapshot = ref<import("../../../types/app").ConversationDelegateStatusSummary | null>(null);
 const collapsedTaskSectionKeys = ref<Record<string, boolean>>({
   active: false,
   completed: true,
@@ -518,6 +520,7 @@ function openDelegateResult(status: import("../../../types/app").ConversationDel
   delegateResultTitle.value = String(status?.title || status?.delegateId || "委托结果");
   delegateResultConversationId.value = conversationId;
   delegateResultTimelineKey.value = `${status.status}:${status.updatedAt}`;
+  delegateResultStatusSnapshot.value = status;
   delegateResultDialogOpen.value = true;
 }
 

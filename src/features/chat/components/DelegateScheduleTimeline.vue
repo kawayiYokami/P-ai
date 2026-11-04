@@ -19,7 +19,7 @@
     <!-- 内容展示 -->
     <div v-else class="space-y-4 min-w-0 w-full">
       <!-- 1. 顶部概要信息 -->
-      <section v-if="currentRun" class="rounded-box border border-base-300/60 bg-base-200/40 p-3 text-xs">
+      <section v-if="currentRun" class="rounded-box border border-base-300/60 bg-base-100 p-3 text-xs">
         <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <!-- 状态与时间段 -->
           <div class="flex flex-wrap items-center gap-2 min-w-0">
@@ -46,18 +46,17 @@
             </span>
 
             <span class="text-base-content/20">|</span>
-            <span class="tabular-nums text-base-content/75">{{ formatFullTime(currentRun.startedAt) }}</span>
-            <span v-if="!isRunning && currentRun.updatedAt" class="text-base-content/45 tabular-nums">— {{ formatFullTime(currentRun.updatedAt) }}</span>
+            <span class="tabular-nums text-base-content/75">{{ formatRunRange(displayStartedAt, isRunning ? "" : displayUpdatedAt) }}</span>
           </div>
 
           <!-- 耗时、步数与模型 -->
           <div class="flex flex-wrap items-center gap-2 text-base-content/60">
             <span class="inline-flex items-center gap-1 tabular-nums">
               <Clock class="h-3.5 w-3.5 opacity-60" />
-              <span>{{ formatElapsed(currentRun.elapsedMs) }}</span>
+              <span>{{ formatElapsed(displayElapsedMs) }}</span>
             </span>
             <span class="text-base-content/20">·</span>
-            <span class="tabular-nums">{{ currentRun.requestCount }} 步</span>
+            <span class="tabular-nums">{{ displayRequestCount }} 步</span>
             <template v-if="runModelName">
               <span class="text-base-content/20">·</span>
               <span class="inline-flex items-center gap-1 font-mono text-[11px] text-base-content/70 max-w-[200px] truncate" :title="runModelName">
@@ -69,98 +68,10 @@
         </div>
       </section>
 
-      <!-- 2. 思考与工具活动流 -->
+      <!-- 2. 思考与工具活动流：与消息内共用同一套渲染 -->
       <section v-if="activityItems.length > 0" class="space-y-2 min-w-0 w-full">
         <div class="text-[11px] font-medium text-base-content/50 px-0.5">执行过程</div>
-        <div class="space-y-2">
-          <div
-            v-for="item in activityItems"
-            :key="item.id"
-            class="rounded-box border border-base-300/60 bg-base-100 overflow-hidden text-xs transition-colors"
-          >
-            <!-- 思考过程节点 -->
-            <template v-if="item.kind === 'reasoning'">
-              <button
-                type="button"
-                class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-base-200/50 transition-colors select-none"
-                @click="toggleItemExpanded(item.id)"
-              >
-                <!-- AI 闪耀图标 -->
-                <Sparkles class="h-4 w-4 shrink-0 text-primary" />
-                <span class="min-w-0 flex-1 truncate font-medium text-base-content/85">{{ t("chat.messageItem.reasoningTitle") }}</span>
-                <span class="shrink-0 tabular-nums text-[11px] text-base-content/40">
-                  思考 {{ item.text.length }} 字
-                </span>
-                <ChevronDown
-                  class="h-3.5 w-3.5 shrink-0 text-base-content/40 transition-transform duration-200"
-                  :class="isItemExpanded(item.id) ? 'rotate-180' : ''"
-                />
-              </button>
-              <div
-                v-if="isItemExpanded(item.id)"
-                class="border-t border-base-300/40 bg-base-200/30 px-3.5 py-3"
-              >
-                <div class="border-l-2 border-primary/30 pl-3 leading-relaxed text-base-content/80 text-xs">
-                  <AppMarkdownRenderer :text="item.text" :is-dark="markdownIsDark" />
-                </div>
-              </div>
-            </template>
-
-            <!-- 工具调用节点 -->
-            <template v-else-if="item.kind === 'tool'">
-              <button
-                type="button"
-                class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-base-200/50 transition-colors select-none"
-                @click="toggleItemExpanded(item.id)"
-              >
-                <span v-if="item.status === 'doing'" class="loading loading-spinner loading-xs text-primary shrink-0"></span>
-                <AlertCircle v-else-if="isToolFailed(item)" class="h-4 w-4 shrink-0 text-error" />
-                <Wrench v-else class="h-4 w-4 shrink-0 text-base-content/60" />
-
-                <!-- 语义化标题 -->
-                <div class="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-                  <span class="font-medium text-base-content shrink-0">{{ getToolSemantic(item).action }}</span>
-                  <span class="truncate font-mono text-[11px] text-base-content/70">{{ getToolSemantic(item).target }}</span>
-                  <span v-if="getToolSemantic(item).lineRange" class="font-mono text-[11px] opacity-60 shrink-0">{{ getToolSemantic(item).lineRange }}</span>
-                  <span v-if="getToolSemantic(item).extra" class="text-[11px] opacity-60 shrink-0 truncate">{{ getToolSemantic(item).extra }}</span>
-                  <span v-if="getToolSemantic(item).adds" class="font-mono text-[11px] text-success shrink-0">+{{ getToolSemantic(item).adds }}</span>
-                  <span v-if="getToolSemantic(item).removes" class="font-mono text-[11px] text-error shrink-0">-{{ getToolSemantic(item).removes }}</span>
-                </div>
-
-                <span v-if="isToolFailed(item)" class="shrink-0 text-[11px] text-error font-medium">失败</span>
-                <span v-else-if="item.status === 'done'" class="shrink-0 text-[11px] text-success/80">完成</span>
-
-                <ChevronDown
-                  class="h-3.5 w-3.5 shrink-0 text-base-content/40 transition-transform duration-200"
-                  :class="isItemExpanded(item.id) ? 'rotate-180' : ''"
-                />
-              </button>
-
-              <div
-                v-if="isItemExpanded(item.id)"
-                class="border-t border-base-300/40 bg-base-200/30 px-3.5 py-3 space-y-2.5"
-              >
-                <!-- 参数 -->
-                <div v-if="item.argsText?.trim()">
-                  <div class="mb-1 text-[11px] font-medium text-base-content/50">参数</div>
-                  <pre class="m-0 max-h-60 overflow-y-auto whitespace-pre-wrap break-all rounded bg-base-100 p-2.5 font-mono text-[11px] leading-relaxed text-base-content/80 border border-base-300/40">{{ formatToolArgs(item.argsText) }}</pre>
-                </div>
-
-                <!-- 结果 -->
-                <div v-if="item.resultText?.trim()">
-                  <div class="mb-1 text-[11px] font-medium text-base-content/50">返回结果</div>
-                  <pre
-                    class="m-0 max-h-60 overflow-y-auto whitespace-pre-wrap break-all rounded p-2.5 font-mono text-[11px] leading-relaxed border"
-                    :class="isToolFailed(item) ? 'bg-error/5 text-error border-error/20' : 'bg-base-100 text-base-content/80 border-base-300/40'"
-                  >{{ formatToolResult(item.resultText) }}</pre>
-                </div>
-                <div v-else-if="item.status === 'doing'" class="text-[11px] text-base-content/40 py-1">
-                  正在执行中...
-                </div>
-              </div>
-            </template>
-          </div>
-        </div>
+        <ActivityTimeline :items="activityItems" :dark="markdownIsDark" :state="timelineState" />
       </section>
 
       <!-- 3. 最终答复区域 -->
@@ -189,26 +100,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onBeforeUnmount } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   AlertCircle,
   Check,
   CheckCircle2,
-  ChevronDown,
   Clock,
   Copy,
   Cpu,
-  Sparkles,
-  Wrench,
 } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
-import type { ArchiveBlockPage, ChatActivityItem, ScheduleEvent, ScheduleRun } from "../../../types/app";
+import type { ArchiveBlockPage, ChatActivityItem, ConversationDelegateStatusSummary, ScheduleEvent, ScheduleRun } from "../../../types/app";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
-import { createToolCallPresentation } from "../utils/tool-call-presentation";
 import { projectChatActivityForDisplay } from "../../../utils/chat-message-semantics";
-import { parseToolCallResultStatus } from "../utils/toolcall-preview";
+import ActivityTimeline from "./ActivityTimeline.vue";
 
 initKatex();
 
@@ -217,23 +124,29 @@ const props = defineProps<{
   autoRefreshKey?: string;
   initialRuns?: ScheduleRun[];
   initialBlockPage?: ArchiveBlockPage;
+  /**
+   * 委托列表那行的状态汇总。重启后内存事件已清，后端按持久化消息时间戳倒推出来的
+   * Run 起止时间会相同、耗时为 0；这份汇总是准的，用来兜住那几项展示值。
+   */
+  statusSnapshot?: ConversationDelegateStatusSummary | null;
 }>();
 
 const { t } = useI18n();
 const { currentTheme } = useAppTheme();
 const markdownIsDark = computed(() => isDarkAppTheme(String(currentTheme.value || "")));
 
-const { toolCallSemanticPresentation } = createToolCallPresentation({
-  t: (key, params) => String(t(key, params ?? {})),
-  agentName: (agentId) => agentId,
-});
-
 const runs = ref<ScheduleRun[]>([]);
 const activityItems = ref<ChatActivityItem[]>([]);
+// 时间线的条目级状态由这一层持有，刷新数据重建组件时不会丢展开态
+const timelineState = reactive({
+  expandedOverrides: {} as Record<string, boolean>,
+  toolResultOverrides: {} as Record<string, string>,
+  toolResultLoading: {} as Record<string, boolean>,
+  toolResultErrors: {} as Record<string, string>,
+});
 const finalText = ref("");
 const loading = ref(false);
 const errorText = ref("");
-const expandedIds = ref<Set<string>>(new Set());
 const copied = ref(false);
 
 let fetchToken = 0;
@@ -242,59 +155,28 @@ let copyResetTimer: ReturnType<typeof window.setTimeout> | null = null;
 
 const currentRun = computed(() => runs.value[0] || null);
 
+/**
+ * 后端冷路径合成的 Run（应用重启、内存事件已清）起止时间取自同一批持久化消息，
+ * 两条相同就把耗时算成 0。列表那行的状态汇总里是准的，这种情况下改用它。
+ */
+const runIsPersistedSynthesis = computed(() => String(currentRun.value?.runId || "").startsWith("persisted-"));
+const displaySnapshot = computed(() => (runIsPersistedSynthesis.value ? props.statusSnapshot || null : null));
+const displayStartedAt = computed(() => displaySnapshot.value?.startedAt || currentRun.value?.startedAt || "");
+const displayUpdatedAt = computed(() => displaySnapshot.value?.updatedAt || currentRun.value?.updatedAt || "");
+const displayElapsedMs = computed(() => {
+  const snapshotElapsed = displaySnapshot.value?.elapsedMs;
+  if (Number.isFinite(snapshotElapsed) && (snapshotElapsed as number) > 0) return snapshotElapsed as number;
+  return currentRun.value?.elapsedMs ?? 0;
+});
+const displayRequestCount = computed(() => {
+  const snapshotCount = displaySnapshot.value?.requestCount;
+  if (Number.isFinite(snapshotCount) && (snapshotCount as number) > 0) return snapshotCount as number;
+  return currentRun.value?.requestCount ?? 0;
+});
+
 const isRunning = computed(() => currentRun.value?.status === "running");
 const isError = computed(() => currentRun.value?.status === "error");
 const runModelName = computed(() => currentRun.value?.model || currentRun.value?.lastModelName || "");
-
-function isItemExpanded(id: string) {
-  return expandedIds.value.has(id);
-}
-
-function toggleItemExpanded(id: string) {
-  const next = new Set(expandedIds.value);
-  if (next.has(id)) {
-    next.delete(id);
-  } else {
-    next.add(id);
-  }
-  expandedIds.value = next;
-}
-
-function getToolSemantic(item: ChatActivityItem) {
-  if (item.kind !== "tool") {
-    return { action: "工具", target: "", text: "" };
-  }
-  return toolCallSemanticPresentation(item);
-}
-
-function isToolFailed(item: ChatActivityItem): boolean {
-  if (item.kind !== "tool") return false;
-  if (!item.resultText) return false;
-  const status = parseToolCallResultStatus(item.resultText);
-  return status.isFailed || status.isDenied;
-}
-
-function formatToolArgs(raw: string): string {
-  const trimmed = String(raw || "").trim();
-  if (!trimmed) return "";
-  try {
-    const parsed = JSON.parse(trimmed);
-    return JSON.stringify(parsed, null, 2);
-  } catch {
-    return trimmed;
-  }
-}
-
-function formatToolResult(raw: string): string {
-  const trimmed = String(raw || "").trim();
-  if (!trimmed) return "";
-  try {
-    const parsed = JSON.parse(trimmed);
-    return JSON.stringify(parsed, null, 2);
-  } catch {
-    return trimmed;
-  }
-}
 
 function formatDelegateResultText(text: string) {
   const trimmed = text.trim();
@@ -318,13 +200,39 @@ function formatElapsed(value: number) {
   return `${seconds}s`;
 }
 
-function formatFullTime(value?: string | null) {
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function parseTimeValue(value?: string | null): Date | null {
   const raw = String(value || "").trim();
-  if (!raw) return "--";
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return raw;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatMonthDayTime(d: Date, withYear: boolean) {
+  const md = `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  return `${withYear ? `${d.getFullYear()}-` : ""}${md} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/**
+ * 起止时间合成一段：同一天结束只给时分，跨天才重复日期；年份只在非当年或跨年时出现。
+ * 右边的耗时已经说明跨度，这里只负责回答「什么时候跑的」。
+ */
+function formatRunRange(startValue?: string | null, endValue?: string | null) {
+  const start = parseTimeValue(startValue);
+  if (!start) return "--";
+  const end = parseTimeValue(endValue);
+  const currentYear = new Date().getFullYear();
+  const crossedYear = !!end && start.getFullYear() !== end.getFullYear();
+  const head = formatMonthDayTime(start, crossedYear || start.getFullYear() !== currentYear);
+  if (!end) return head;
+  const sameDay = start.getFullYear() === end.getFullYear()
+    && start.getMonth() === end.getMonth()
+    && start.getDate() === end.getDate();
+  if (sameDay) return `${head} → ${pad2(end.getHours())}:${pad2(end.getMinutes())}`;
+  return `${head} → ${formatMonthDayTime(end, crossedYear || end.getFullYear() !== currentYear)}`;
 }
 
 async function copyFinalText() {

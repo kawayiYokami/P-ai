@@ -2414,6 +2414,7 @@
       "denied": "已拒絕",
       "failed": "執行失敗",
       "viewResult": "查看結果",
+      "resultOmitted": "結果已省略",
       "terminalGroup": "終端",
       "terminalCommand": "命令",
       "otherGroup": "其他工具",

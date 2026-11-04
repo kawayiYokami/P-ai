@@ -52,11 +52,12 @@
         <div class="min-w-0 truncate text-sm font-semibold text-base-content">{{ detailDialogTitle }}</div>
         <button type="button" class="btn btn-ghost btn-sm gap-1 shrink-0" @click="closeDetailDialog"><span class="text-base leading-none">×</span><span>关闭</span></button>
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+      <div class="min-h-0 flex-1 overflow-y-auto bg-base-200 px-5 py-4">
         <DelegateScheduleTimeline
           v-if="detailDialogConversationId"
           :conversation-id="detailDialogConversationId"
           :auto-refresh-key="detailDialogRefreshKey"
+          :status-snapshot="detailStatusSnapshot"
         />
       </div>
     </div>
@@ -104,6 +105,8 @@ watch(detailDialogRef, syncDetailDialog);
 const detailDialogTitle = ref("");
 const detailDialogConversationId = ref("");
 const detailDialogRefreshKey = ref("");
+// 列表那行的状态汇总：重启后 Run 的耗时倒推不出来，用它兜住起止时间与步数
+const detailStatusSnapshot = ref<ConversationDelegateStatusSummary | null>(null);
 
 function openDetailWithTimeline(status: ConversationDelegateStatusSummary) {
   const conversationId = String(status?.conversationId || status?.delegateId || "").trim();
@@ -111,6 +114,7 @@ function openDetailWithTimeline(status: ConversationDelegateStatusSummary) {
   detailDialogTitle.value = String(status?.title || status?.delegateId || "委托详情");
   detailDialogConversationId.value = conversationId;
   detailDialogRefreshKey.value = `${status.status}:${status.updatedAt}`;
+  detailStatusSnapshot.value = status;
   detailDialogOpen.value = true;
 }
 

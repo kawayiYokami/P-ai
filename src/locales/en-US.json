@@ -2426,6 +2426,7 @@
       "denied": "Denied",
       "failed": "Failed",
       "viewResult": "View result",
+      "resultOmitted": "Result omitted",
       "terminalGroup": "Terminal",
       "terminalCommand": "Command",
       "otherGroup": "Other tools",
