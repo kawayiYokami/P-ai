@@ -743,3 +743,12 @@ body {
 .ecall-frost {
   background-color: color-mix(in oklab, var(--color-base-300) 50%, transparent);
 }
+
+/*
+ * 覆盖态侧栏必须不透明，否则底下的中区内容会透出来；
+ * 但颜色要与布局态侧栏一致，所以把 ecall-frost 的半透明换成
+ * 「叠在 body 的 base-200 上」的实心等价色，两态同色、无档差。
+ */
+.ecall-frost-solid {
+  background-color: color-mix(in oklab, var(--color-base-300) 50%, var(--color-base-200));
+}

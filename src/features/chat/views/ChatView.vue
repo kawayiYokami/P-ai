@@ -14,7 +14,7 @@
     >
       <div
         v-if="showSideConversationList"
-        :class="leftPaneLayoutSnapshot ? 'relative flex h-full min-h-0 shrink-0 overflow-hidden' : 'absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 shadow-2xl overflow-hidden'"
+        :class="leftPaneLayoutSnapshot ? 'relative flex h-full min-h-0 shrink-0 overflow-hidden' : 'absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 shadow-2xl overflow-hidden ecall-frost-solid'"
         :style="{ width: `${leftPaneVisibleWidth}px` }"
       >
         <ChatConversationSidebar
@@ -58,7 +58,11 @@
     </Transition>
 
     <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-      <div data-chat-center-pane="true" class="relative flex min-h-0 min-w-0 flex-1 flex-col rounded-tl-2xl bg-base-200">
+      <div
+        data-chat-center-pane="true"
+        class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-base-200"
+        :class="{ 'rounded-tl-2xl': leftPaneLayoutSnapshot }"
+      >
         <div
           v-if="mediaDragActive && !chatting && !frozen && !conversationInteractionBusy"
           class="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-base-100/70 backdrop-blur-[1px]"
@@ -2330,38 +2334,13 @@ const latestOwnTailContentRange = computed(() => {
   return startIndex < 0 ? [] : virtualRenderItems.value.slice(startIndex);
 });
 
+// 尾部弹性留白高度。声明必须早于下面所有引用它的 computed：
+// latestOwnTailRangeSignature 在 watch(immediate) 里会被立即求值，
+// 一旦声明在后面就会抛 TDZ（打包后表现为 Cannot access 'xx' before initialization），
+// 有消息的会话在这个点上直接崩掉整个 ChatView。
+const latestOwnTailSpacerMinHeight = ref(0);
+
 // 尾部内容动态特征指纹：当正文增长、计划卡出现、工具执行或思考状态变更时自动感知，驱动弹性高度重测
-const latestOwnTailRangeSignature = computed(() => {
-  const range = latestOwnTailContentRange.value;
-  if (range.length === 0) return "";
-  // 留白归零剪枝：当留白已收缩至 0 且已完成测量，正文继续增长数学上绝不可能使留白恢复，可跳过正文长度追踪
-  const isSaturated = latestOwnTailSpacerMinHeight.value === 0
-    && latestOwnTailContentMeasured.value
-    && latestOwnTailContentHeight.value >= latestOwnElasticMinHeight.value;
-
-  return range
-    .map((item) => {
-      if (item.kind === "message") {
-        const b = item.block;
-        // 未饱和时按 60 字符（约 2~3 行）分块阶梯追踪，避免单字驱动高频重排；流式结束时会通过 props.chatting 精准冲刷
-        const textStep = isSaturated ? 0 : (b.text ? Math.floor(b.text.length / 60) : 0);
-        return [
-          item.id,
-          textStep,
-          b.planCard ? `${b.planCard.action || ""}:${b.planCard.path || ""}` : "",
-          b.activityItems ? b.activityItems.length : 0,
-          b.activityRunning ? "1" : "0",
-          b.toolCalls ? b.toolCalls.length : 0,
-          b.images ? b.images.length : 0,
-          b.audios ? b.audios.length : 0,
-          b.taskTrigger ? "1" : "0",
-        ].join(",");
-      }
-      return `${item.kind}:${item.id}`;
-    })
-    .join(";");
-});
-
 const tailMetricsTick = ref(0);
 let tailMetricsRaf = 0;
 let tailMetricsRetry = 0;
@@ -2380,21 +2359,6 @@ function scheduleTailMetricsRefresh(maxFrames = 3) {
     }
   });
 }
-watch(
-  [
-    () => virtualRenderItems.value.length,
-    () => String(latestOwnElasticItemId.value || "").trim(),
-    latestOwnTailRangeSignature,
-    () => props.chatting,
-    () => props.conversationBusy,
-    () => !!virtuaRef.value,
-  ],
-  () => {
-    tailMetricsRetry = 0;
-    void nextTick(() => scheduleTailMetricsRefresh(3));
-  },
-  { immediate: true },
-);
 onBeforeUnmount(() => {
   if (tailMetricsRaf) {
     cancelAnimationFrame(tailMetricsRaf);
@@ -2432,6 +2396,57 @@ const latestOwnTailContentMeasured = computed(() => {
   }
   return true;
 });
+
+// 尾部内容动态特征指纹：当正文增长、计划卡出现、工具执行或思考状态变更时自动感知，驱动弹性高度重测。
+// 必须放在 latestOwnTailContentMeasured / latestOwnTailContentHeight 之后：
+// 它是 computed，但下面的 watch(immediate) 会在 setup 阶段立即求值，
+// 一旦上面这些依赖还没初始化，就会抛 TDZ（打包后表现为 Cannot access 'xx' before initialization）。
+const latestOwnTailRangeSignature = computed(() => {
+  const range = latestOwnTailContentRange.value;
+  if (range.length === 0) return "";
+  // 留白归零剪枝：当留白已收缩至 0 且已完成测量，正文继续增长数学上绝不可能使留白恢复，可跳过正文长度追踪
+  const isSaturated = latestOwnTailSpacerMinHeight.value === 0
+    && latestOwnTailContentMeasured.value
+    && latestOwnTailContentHeight.value >= latestOwnElasticMinHeight.value;
+
+  return range
+    .map((item) => {
+      if (item.kind === "message") {
+        const b = item.block;
+        // 未饱和时按 60 字符（约 2~3 行）分块阶梯追踪，避免单字驱动高频重排；流式结束时会通过 props.chatting 精准冲刷
+        const textStep = isSaturated ? 0 : (b.text ? Math.floor(b.text.length / 60) : 0);
+        return [
+          item.id,
+          textStep,
+          b.planCard ? `${b.planCard.action || ""}:${b.planCard.path || ""}` : "",
+          b.activityItems ? b.activityItems.length : 0,
+          b.activityRunning ? "1" : "0",
+          b.toolCalls ? b.toolCalls.length : 0,
+          b.images ? b.images.length : 0,
+          b.audios ? b.audios.length : 0,
+          b.taskTrigger ? "1" : "0",
+        ].join(",");
+      }
+      return `${item.kind}:${item.id}`;
+    })
+    .join(";");
+});
+
+watch(
+  [
+    () => virtualRenderItems.value.length,
+    () => String(latestOwnElasticItemId.value || "").trim(),
+    latestOwnTailRangeSignature,
+    () => props.chatting,
+    () => props.conversationBusy,
+    () => !!virtuaRef.value,
+  ],
+  () => {
+    tailMetricsRetry = 0;
+    void nextTick(() => scheduleTailMetricsRefresh(3));
+  },
+  { immediate: true },
+);
 
 // 会话时间线：每条完成态消息（用户与助理）各占一个节点，标注发言人与发言时间。
 // 时间线按钮只在有足够节点时出现；点击弹出几乎盖满聊天区的面板，节点点击跳转到该条消息。
@@ -2895,8 +2910,6 @@ watch(
     timelinePanelOpen.value = false;
   },
 );
-
-const latestOwnTailSpacerMinHeight = ref(0);
 
 watch(
   [
