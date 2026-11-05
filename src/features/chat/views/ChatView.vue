@@ -3002,13 +3002,15 @@ const supportsFloatingSessionToolbar = computed(() =>
 
 const sessionToolbarBehindElasticSpace = computed(() => {
   void scrollNavigationTick.value;
+  const spacer = latestOwnTailSpacerMinHeight.value;
+  if (spacer <= 0) return false;
   const el = scrollContainer.value;
   if (!el) return false;
   return isSessionToolbarBehindElasticSpace({
     scrollHeight: el.scrollHeight,
     scrollTop: el.scrollTop,
     clientHeight: el.clientHeight,
-    spacer: latestOwnTailSpacerMinHeight.value,
+    spacer,
   });
 });
 
@@ -3191,6 +3193,7 @@ function countPreviousUserMessageJumpItemsBeforeIndex(index: number): number {
 
 const previousUserMessageJumpTargets = computed(() => {
   scrollNavigationTick.value;
+  if (!userScrollingUp.value) return [];
   return collectPreviousUserMessageJumpTargets();
 });
 
@@ -3220,6 +3223,7 @@ function collectNextUserMessageJumpTargets() {
 
 const nextUserMessageJumpTargets = computed(() => {
   scrollNavigationTick.value;
+  if (!userScrollingUp.value) return [];
   return collectNextUserMessageJumpTargets();
 });
 
@@ -3866,9 +3870,16 @@ const {
   emit: { loadOlderHistory: () => emit("loadOlderHistory"), jumpToConversationBottom: () => emit("jumpToConversationBottom") },
 });
 
+let pendingNavigationTick = false;
 function handleConversationScroll() {
   handleConversationScrollBase();
-  scrollNavigationTick.value += 1;
+  if (!pendingNavigationTick) {
+    pendingNavigationTick = true;
+    requestAnimationFrame(() => {
+      pendingNavigationTick = false;
+      scrollNavigationTick.value += 1;
+    });
+  }
 }
 
 function handleConversationWheelInput(event: WheelEvent) {
