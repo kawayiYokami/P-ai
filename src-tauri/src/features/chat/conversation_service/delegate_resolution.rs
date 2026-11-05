@@ -88,7 +88,6 @@ impl ConversationServiceV2 {
             .conversation_lock
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
-        let assistant_agent_id = state_service_get_assistant_agent_id(state)?;
         let normalized_root_conversation_id = root_conversation_id.trim();
         let mut conversation_to_persist = None::<Conversation>;
         let target_conversation_id =
@@ -134,7 +133,6 @@ impl ConversationServiceV2 {
             state_schedule_conversation_persist(state, &conversation)?;
         }
         Ok(DelegateResultTargetConversationResolution {
-            agent_id: assistant_agent_id,
             target_conversation_id,
         })
     }

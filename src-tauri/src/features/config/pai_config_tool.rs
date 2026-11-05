@@ -2318,7 +2318,6 @@ maxOutputTokens = 4096
       "updatedAt": "2026-01-01T00:00:00Z",
       "privateMemoryEnabled": false,
       "memoryRecallMode": "auto",
-      "source": "main_config",
       "scope": "global"
     }
   ]
@@ -2341,7 +2340,6 @@ maxOutputTokens = 4096
       "updatedAt": "2026-01-01T00:00:00Z",
       "privateMemoryEnabled": false,
       "memoryRecallMode": "auto",
-      "source": "main_config",
       "scope": "global"
     },
     {
@@ -2354,7 +2352,6 @@ maxOutputTokens = 4096
       "isBuiltInUser": true,
       "privateMemoryEnabled": false,
       "memoryRecallMode": "auto",
-      "source": "main_config",
       "scope": "global"
     }
   ]
@@ -2785,14 +2782,12 @@ level = "system"
       "name": "Agent A",
       "systemPrompt": "Prompt A",
       "summary": "A 的简介",
-      "source": "main_config",
       "scope": "global"
     },
     {
       "id": "agent-b",
       "name": "Agent B",
       "systemPrompt": "Prompt B",
-      "source": "main_config",
       "scope": "global"
     },
     {
@@ -2800,7 +2795,6 @@ level = "system"
       "name": "support",
       "systemPrompt": "内置 support",
       "residentSkillNames": ["support"],
-      "source": "main_config",
       "scope": "global"
     }
   ]

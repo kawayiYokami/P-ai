@@ -754,22 +754,25 @@ mod types_storage_tests {
     }
 
     #[test]
-    fn delegate_should_require_direct_child_agents() {
+    fn delegate_should_not_be_gated_by_agent_relations() {
+        // 没有当前执行人格，不再因关系被禁用。
+        assert_eq!(agent_builtin_tool_unavailable_reason(None, "delegate"), None);
+
+        // 没有任何下级的人格、与谁都没有上下级关系的人格，delegate 都应当可用。
+        let mut leaf = default_agent();
+        leaf.id = "agent-leaf".to_string();
+        leaf.name = "叶子人格".to_string();
+        leaf.child_agent_ids = Vec::new();
         assert_eq!(
-            agent_builtin_tool_unavailable_reason(None, "delegate"),
-            Some("缺少当前执行人格，无法使用委托".to_string())
+            agent_builtin_tool_unavailable_reason(Some(&leaf), "delegate"),
+            None
         );
 
-        let mut parent = default_agent();
-        parent.id = "agent-parent".to_string();
-        parent.name = "父人格".to_string();
-        parent.child_agent_ids = Vec::new();
+        // 挂了下级也不改变结果：判据根本不看 child_agent_ids。
+        leaf.child_agent_ids = vec!["dept-child".to_string()];
         assert_eq!(
-            agent_builtin_tool_unavailable_reason(Some(&parent), "delegate"),
-            Some("当前人格没有直接下级，无法使用委托".to_string())
+            agent_builtin_tool_unavailable_reason(Some(&leaf), "delegate"),
+            None
         );
-
-        parent.child_agent_ids = vec!["dept-child".to_string()];
-        assert_eq!(agent_builtin_tool_unavailable_reason(Some(&parent), "delegate"), None);
     }
 }

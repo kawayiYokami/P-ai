@@ -83,7 +83,6 @@ struct SchedulerHistoryFlushCommitResult {
 }
 
 struct DelegateResultTargetConversationResolution {
-    agent_id: String,
     target_conversation_id: String,
 }
 

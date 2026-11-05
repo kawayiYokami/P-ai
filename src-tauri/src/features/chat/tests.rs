@@ -10699,7 +10699,7 @@
     }
 
     #[test]
-    fn assemble_runtime_tools_should_gate_delegate_by_executor_agent() {
+    fn assemble_runtime_tools_should_not_gate_delegate_by_executor_agent() {
         let state = test_chat_runtime_state();
         let mut shared_agent = default_agent();
         shared_agent.id = "shared-agent".to_string();
@@ -10708,7 +10708,7 @@
         shared_agent.permission_control = AgentPermissionControl {
             enabled: true,
             mode: "whitelist".to_string(),
-            builtin_tool_names: vec!["fetch".to_string()],
+            builtin_tool_names: vec!["fetch".to_string(), "delegate".to_string()],
             skill_names: Vec::new(),
             mcp_tool_names: Vec::new(),
         };
@@ -10754,14 +10754,15 @@
                 &session_id,
             ));
 
-        assert!(assembly.tool_manifest.iter().any(|item| {
+        // 没有下级、与谁都没有上下级关系的人格，delegate 仍应出现在可用工具里。
+        assert!(!assembly.tool_manifest.iter().any(|item| {
             item.get("source").and_then(Value::as_str) == Some("runtime_policy")
                 && item.get("name").and_then(Value::as_str) == Some("delegate")
                 && item.get("enabled").and_then(Value::as_bool) == Some(false)
-                && item.get("reason").and_then(Value::as_str)
-                    == Some("当前人格没有直接下级，无法使用委托")
         }));
-        assert!(!assembly.tools.iter().any(|tool| tool.name() == "delegate"));
+        assert!(assembly.tool_definitions.iter().any(|tool| tool.name == "delegate"));
+        assert!(assembly.tools.iter().any(|tool| tool.name() == "delegate"));
+        // 权限白名单照旧生效：名单内的 fetch 可用，名单外的 config 不可用。
         assert!(assembly.tool_definitions.iter().any(|tool| tool.name == "fetch"));
         assert!(assembly.tools.iter().any(|tool| tool.name() == "fetch"));
         assert!(!assembly.tool_definitions.iter().any(|tool| tool.name == "config"));

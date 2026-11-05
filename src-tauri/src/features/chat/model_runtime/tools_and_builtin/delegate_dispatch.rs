@@ -117,6 +117,23 @@ mod delegate_dispatch_tests {
         }
     }
 
+    /// 模型照着工具描述省略 `agent_id` 时，必须能反序列化成功。
+    /// 这条测试必须走 `parse_runtime_tool_args`，因为缺陷就发生在反序列化这一层：
+    /// 直接构造 `DelegateToolArgs` 会绕开 `deny_unknown_fields` 与缺字段检查，永远测不出来。
+    #[test]
+    fn delegate_args_json_without_agent_id_should_reach_deputy_default() {
+        let args = parse_runtime_tool_args::<DelegateToolArgs>(
+            r#"{"why":"x","goal":"y","todo":"z"}"#,
+        )
+        .expect("省略 agent_id 应能解析成功");
+
+        assert_eq!(args.agent_id, "");
+
+        let validated = validate_delegate_args(&args).expect("缺省目标人格应是合法调用");
+        assert_eq!(validated.target_agent_id, DEPUTY_AGENT_ID);
+        assert!(validated.target_agent_defaulted);
+    }
+
     #[test]
     fn validate_delegate_args_should_default_empty_target_to_deputy() {
         let validated =
@@ -720,6 +737,11 @@ async fn delegate_execute_sync(
     args: DelegateToolArgs,
     model_override: Option<&str>,
 ) -> Result<Value, String> {
+    // 本入口自身不做「目标必须是队友」校验，也不做 preflight。
+    // 前提是三处调用方都自己保证过目标来源：主入口 `delegate_dispatch` 在转调（Wait 模式）前
+    // 已经跑完 `common_delegate_preflight` 与 `validate_delegate_target_is_teammate`；深度回忆委托
+    // 与工具审查委托的目标由代码构造、不经模型选择。
+    // 以后新增调用方若要接模型可控的目标，必须自己先过这两道，否则会绕过可委托名单。
     let validated = match validate_delegate_args(&args) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),
