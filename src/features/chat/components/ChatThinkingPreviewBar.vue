@@ -5,7 +5,7 @@
     leave-active-class="transition duration-150 ease-out"
     leave-to-class="opacity-0"
   >
-  <div v-if="visible" class="pointer-events-none flex justify-start">
+  <div v-if="visible && hasPreviewContent" class="pointer-events-none flex justify-start">
     <button
       type="button"
       :class="['ecall-thinking-preview-bar pointer-events-auto', SESSION_FLOAT_FROST_CARD]"
@@ -188,6 +188,12 @@ const reasoningWindowLines = computed(() => {
 // 思考预览行只在「流式中」且「思维链未展开」时渲染；展开后整条退化为回到底部。
 const showReasoningWindow = computed(
   () => props.streaming && reasoningWindowLines.value.length > 0,
+);
+
+// 预览条只在真有内容时出现：工具执行、下一段思考还没出字的那一小段，思考行与正文行都可能是空的，
+// 这时展开一个空条没有任何意义，直接不渲染。
+const hasPreviewContent = computed(
+  () => reasoningWindowLines.value.length > 0 || answerLine.value !== "",
 );
 
 function pendingWork(): boolean {
