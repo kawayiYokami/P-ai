@@ -207,6 +207,7 @@
         :chat-right-panel-mode="chatRightPanelMode"
         :chat-monitor-panel-mode="chatMonitorPanelMode"
         :side-chat-panel-enabled="true"
+        :show-attach-action="true"
         :team-visible="teamManageVisible"
         :team-members="teamMemberStatusItems"
         :team-member-avatar-url-map="chatPersonaAvatarUrlMap"
