@@ -665,16 +665,18 @@ impl ConversationPromptService {
         if prompt_origin_scope != RuntimeToolOriginScope::Unknown {
             prompt_runtime_policy.origin_scope = prompt_origin_scope;
         }
-        let mut tool_rule_blocks = Vec::<String>::new();
-        tool_rule_blocks.push(build_system_reminder_rule_block());
-        tool_rule_blocks.push(build_memory_rag_rule_block());
-        let mut deferred_tool_blocks = Vec::<String>::new();
-        let mut task_block = None;
-        for block in agent_snapshot.agent_tool_rule_blocks.iter().cloned() {
-            if block.contains("<task tool rule>") {
-                task_block = Some(block);
+        // 工具陈列统一收进一个 <tools> 容器；容器外的段落按原顺序留在 prompt_rule_blocks 里。
+        let mut prompt_rule_blocks = Vec::<String>::new();
+        prompt_rule_blocks.push(build_system_reminder_rule_block());
+        prompt_rule_blocks.push(build_memory_rag_rule_block());
+        let mut tool_lines = Vec::<String>::new();
+        let mut deferred_tool_lines = Vec::<String>::new();
+        let mut task_line = None;
+        for (rule_id, text) in agent_snapshot.agent_tool_rule_blocks.iter().cloned() {
+            if rule_id == "task" {
+                task_line = Some(text);
             } else {
-                deferred_tool_blocks.push(block);
+                deferred_tool_lines.push(text);
             }
         }
         if builtin_tool_prompt_rule_allowed_in_runtime(
@@ -687,8 +689,8 @@ impl ConversationPromptService {
             prompt_runtime_policy.contact_send_files_allowed,
             prompt_runtime_policy.deep_recall_delegate,
         ) {
-            if let Some(task_block) = task_block {
-                tool_rule_blocks.push(task_block);
+            if let Some(line) = task_line {
+                tool_lines.push(line);
             }
         }
         if builtin_tool_prompt_rule_allowed_in_runtime(
@@ -701,13 +703,13 @@ impl ConversationPromptService {
             prompt_runtime_policy.contact_send_files_allowed,
             prompt_runtime_policy.deep_recall_delegate,
         ) {
-            if let Some(block) = build_builtin_tool_rule_block("deeprecall", true) {
-                tool_rule_blocks.push(block);
+            if let Some(line) = build_builtin_tool_rule_block("deeprecall", ToolRuleOptions::default()) {
+                tool_lines.push(line);
             }
         }
         if builtin_tool_prompt_rule_allowed_in_origin("goal", prompt_origin_scope) {
-            if let Some(goal_block) = build_builtin_tool_rule_block("goal", true) {
-                tool_rule_blocks.push(goal_block);
+            if let Some(goal_line) = build_builtin_tool_rule_block("goal", ToolRuleOptions::default()) {
+                tool_lines.push(goal_line);
             }
         }
         let plan_tool_enabled = builtin_tool_prompt_rule_allowed_in_runtime(
@@ -720,14 +722,14 @@ impl ConversationPromptService {
             prompt_runtime_policy.contact_send_files_allowed,
             prompt_runtime_policy.deep_recall_delegate,
         );
-        tool_rule_blocks.push(build_question_and_planning_rule_block(
-            state,
-            conversation,
-            plan_tool_enabled,
-        ));
+        tool_lines.extend(
+            build_question_and_planning_rule_blocks(state, conversation, plan_tool_enabled)
+                .into_iter()
+                .map(|(_, text)| text),
+        );
         if builtin_tool_prompt_rule_allowed_in_origin("todo", prompt_origin_scope) {
-            if let Some(todo_block) = build_builtin_tool_rule_block("todo", true) {
-                tool_rule_blocks.push(todo_block);
+            if let Some(todo_line) = build_builtin_tool_rule_block("todo", ToolRuleOptions::default()) {
+                tool_lines.push(todo_line);
             }
         }
         // 看板只在本地主会话挂载，规则块跟着同一判据走：
@@ -736,11 +738,11 @@ impl ConversationPromptService {
             && !conversation_is_remote_im_contact(conversation)
             && builtin_tool_prompt_rule_allowed_in_origin("kanban", prompt_origin_scope)
         {
-            if let Some(kanban_block) = build_builtin_tool_rule_block("kanban", true) {
-                tool_rule_blocks.push(kanban_block);
+            if let Some(kanban_line) = build_builtin_tool_rule_block("kanban", ToolRuleOptions::default()) {
+                tool_lines.push(kanban_line);
             }
         }
-        tool_rule_blocks.extend(deferred_tool_blocks);
+        tool_lines.extend(deferred_tool_lines);
         let meme_rule_enabled = builtin_tool_ids_for_prompt_rule("meme")
             .into_iter()
             .any(|tool_id| {
@@ -750,16 +752,8 @@ impl ConversationPromptService {
             && builtin_tool_prompt_rule_allowed_in_origin("meme", prompt_origin_scope)
         {
             if let Some(meme_block) = meme_prompt_rule_block(state, agent.id.trim()).as_deref() {
-                tool_rule_blocks.push(meme_block.trim().to_string());
+                tool_lines.push(meme_block.trim().to_string());
             }
-        }
-        // 队伍身份只注入一份：队员拿自己的规则块，其余会话才拿队长块，两者互斥。
-        let team_block = state.and_then(|app_state| {
-            team_member_prompt_rule_block(app_state, conversation)
-                .or_else(|| team_leader_prompt_rule_block(app_state, conversation))
-        });
-        if let Some(team_block) = team_block {
-            tool_rule_blocks.push(team_block);
         }
         let contact_prompt_rule_enabled = (conversation_is_remote_im_contact(conversation)
             || chat_overrides
@@ -769,25 +763,28 @@ impl ConversationPromptService {
                 .is_some())
             && builtin_tool_prompt_rule_allowed_in_origin("contact_tools", prompt_origin_scope);
         if contact_prompt_rule_enabled {
-            tool_rule_blocks.push(prompt_xml_block(
-                "contact tools rule",
-                "联系人专用工具仅对本轮绑定联系人生效。\n\
-                 1. 普通文字答复直接写在本轮最终 assistant 回复中，系统会在本轮结束后自动发给本轮绑定联系人。\n\
-                 2. 若需要发送本地图片，可以在最终正文使用 `![简述](绝对路径)`；系统会识别并发送实际图片。若需要发送非图片文件，使用 `contact_send_files`，并把真实本地文件路径或 HTTP(S) URL 放进 `contact_send_files.file_paths`。\n\
-                 3. 图片 Markdown 之外，不要把本地路径或文件链接直接写进正文；不要向联系人解释发送工具或本地路径。\n\
-                 4. 不要把工具调用描述、内部判断或“是否回复”的结论发给联系人。",
-            ));
+            if let Some(line) = tool_rule_line(
+                "本轮绑定了联系人、要给他回文字、发本地图片或发非图片文件时用。不要把本地路径、文件链接、工具调用描述或「是否回复」的判断写进给联系人的正文。非图片文件要走 contact_send_files，把真实本地路径或 HTTP(S) URL 放进 file_paths；图片用 ![简述](绝对路径)，系统会识别并发送。普通文字答复直接写在本轮最终回复里，系统会在本轮结束后自动发给绑定联系人。",
+            ) {
+                tool_lines.push(line);
+            }
         }
         let (tool_rule_extra_blocks, runtime_extra_blocks, im_extra_blocks) =
             split_system_preamble_blocks(system_preamble_blocks);
-        tool_rule_blocks.extend(tool_rule_extra_blocks);
-        if !tool_rule_blocks
-            .iter()
-            .any(|block| block.contains("<builtin tool general rule>"))
-            && !tool_rule_blocks.is_empty()
-        {
-            tool_rule_blocks.insert(0, build_builtin_tool_general_rule_block());
+        // 工具陈列拼成唯一的 <tools> 容器，插在系统提醒与记忆块之后（此时前面只有这两块）；
+        // 队伍身份、技能索引等段落仍排在容器后面。
+        if let Some(container) = build_tools_container_block(&tool_lines) {
+            prompt_rule_blocks.push(container);
         }
+        // 队伍身份只注入一份：队员拿自己的规则块，其余会话才拿队长块，两者互斥。
+        let team_block = state.and_then(|app_state| {
+            team_member_prompt_rule_block(app_state, conversation)
+                .or_else(|| team_leader_prompt_rule_block(app_state, conversation))
+        });
+        if let Some(team_block) = team_block {
+            prompt_rule_blocks.push(team_block);
+        }
+        prompt_rule_blocks.extend(tool_rule_extra_blocks);
         let environment_snapshot = get_or_build_conversation_environment_prompt_snapshot(
             state,
             conversation,
@@ -806,7 +803,7 @@ impl ConversationPromptService {
             core_prompt_blocks.push(model_block);
         }
         core_prompt_blocks.extend(
-            tool_rule_blocks
+            prompt_rule_blocks
                 .into_iter()
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty()),
@@ -905,6 +902,9 @@ impl ConversationPromptService {
             );
             blocks.push(build_human_interface_environment_block(
                 remote_contact_type.as_deref(),
+                RuntimeToolPolicy::from_conversation(Some(conversation))
+                    .tool_unavailable_reason("question")
+                    .is_none(),
             ));
             if let Some(log_stage) = stage_logger {
                 log_stage("prepare_context.interface_ready");

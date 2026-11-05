@@ -230,8 +230,8 @@
             None,
         );
 
-        assert!(!group_snapshot.core_prompt.contains("<goal tool rule>"));
-        assert!(local_snapshot.core_prompt.contains("<goal tool rule>"));
+        assert!(!group_snapshot.core_prompt.contains("用户希望少询问"));
+        assert!(local_snapshot.core_prompt.contains("用户希望少询问"));
     }
 
     #[test]
@@ -294,16 +294,24 @@
             Some(&overrides),
         );
 
-        assert!(local_snapshot.core_prompt.contains("<task tool rule>"));
-        assert!(local_snapshot.core_prompt.contains("<plan tool rule>"));
-        assert!(!delegate_snapshot.core_prompt.contains("<task tool rule>"));
-        assert!(!delegate_snapshot.core_prompt.contains("<plan tool rule>"));
+        assert!(local_snapshot
+            .core_prompt
+            .contains("用户给出明确的延后执行"));
+        assert!(local_snapshot
+            .core_prompt
+            .contains("要做大规模重构、全新功能域设计"));
+        assert!(!delegate_snapshot
+            .core_prompt
+            .contains("用户给出明确的延后执行"));
+        assert!(!delegate_snapshot
+            .core_prompt
+            .contains("要做大规模重构、全新功能域设计"));
         assert!(remote_contact_snapshot
             .core_prompt
-            .contains("<task tool rule>"));
+            .contains("用户给出明确的延后执行"));
         assert!(!remote_contact_snapshot
             .core_prompt
-            .contains("<plan tool rule>"));
+            .contains("要做大规模重构、全新功能域设计"));
     }
 
     #[test]
@@ -11768,21 +11776,147 @@
     }
 
     #[test]
-    fn exec_tool_rule_should_include_rg_guidance_when_rg_installed() {
-        let block = build_builtin_tool_rule_block("exec", true).expect("exec tool rule");
+    fn exec_tool_rule_should_hint_rg_oneline_when_rg_installed() {
+        let block = build_builtin_tool_rule_block(
+            "exec",
+            ToolRuleOptions {
+                rg_installed: true,
+                read_available: true,
+            },
+        )
+        .expect("exec tool rule");
 
-        assert!(block.contains("`rg` 可用时优先用它搜索"));
-        assert!(block.contains("rg --files"));
-        assert!(block.contains("rg -n"));
+        assert!(block.contains("当前环境 rg 可用，优先用 rg 搜索。"));
+        // 只留一句提示，不再追加 rg 参数说明。
+        assert!(!block.contains("rg --files"));
+        assert!(!block.contains("-rn"));
     }
 
     #[test]
-    fn exec_tool_rule_should_omit_rg_guidance_when_rg_unavailable() {
-        let block = build_builtin_tool_rule_block("exec", false).expect("exec tool rule");
+    fn exec_tool_rule_should_omit_rg_hint_when_rg_unavailable() {
+        let block = build_builtin_tool_rule_block(
+            "exec",
+            ToolRuleOptions {
+                rg_installed: false,
+                read_available: true,
+            },
+        )
+        .expect("exec tool rule");
 
-        assert!(!block.contains("`rg`"));
-        assert!(!block.contains("rg --files"));
-        assert!(!block.contains("rg -n"));
+        assert!(!block.contains("rg"));
+    }
+
+    #[test]
+    fn exec_tool_rule_should_tell_model_to_wait_for_background_notification() {
+        let block = build_builtin_tool_rule_block(
+            "exec",
+            ToolRuleOptions {
+                rg_installed: false,
+                read_available: true,
+            },
+        )
+        .expect("exec tool rule");
+
+        // 后台任务靠 job id 与推送通知收口，轮询和 sleep 都不该出现。
+        assert!(block.contains("mode: background"));
+        assert!(block.contains("job id"));
+        assert!(block.contains("不要轮询"));
+        assert!(block.contains("sleep"));
+    }
+
+    #[test]
+    fn file_edit_tool_rule_should_require_reading_first_only_when_read_available() {
+        let with_read = build_builtin_tool_rule_block(
+            "file_edit",
+            ToolRuleOptions {
+                rg_installed: false,
+                read_available: true,
+            },
+        )
+        .expect("file edit tool rule");
+        assert!(with_read.contains("必须先用 read 读过它"));
+        assert!(with_read.contains("offset"));
+
+        let without_read = build_builtin_tool_rule_block(
+            "file_edit",
+            ToolRuleOptions {
+                rg_installed: false,
+                read_available: false,
+            },
+        )
+        .expect("file edit tool rule");
+        // read 不可用时不能要求模型去做它做不到的事，连带 offset / limit 也不提。
+        assert!(!without_read.contains("必须先用 read 读过它"));
+        assert!(!without_read.contains("offset"));
+    }
+
+    #[test]
+    fn file_edit_tool_rule_should_cover_offset_and_limit() {
+        // read 不再单独成条，读文件的规矩并进文件编辑那条。
+        let block = build_builtin_tool_rule_block(
+            "file_edit",
+            ToolRuleOptions {
+                rg_installed: false,
+                read_available: true,
+            },
+        )
+        .expect("file edit tool rule");
+
+        assert!(block.contains("offset"));
+        assert!(block.contains("limit"));
+        assert!(block.contains("cat"));
+        assert!(!block.contains('\n'), "一条陈列必须是单行：{block}");
+    }
+
+    #[test]
+    fn tools_container_should_list_one_line_per_tool_without_tags() {
+        let exec = build_builtin_tool_rule_block(
+            "exec",
+            ToolRuleOptions {
+                rg_installed: true,
+                read_available: true,
+            },
+        )
+        .expect("exec tool rule");
+        let todo =
+            build_builtin_tool_rule_block("todo", ToolRuleOptions::default()).expect("todo tool rule");
+        let container = build_tools_container_block(&[exec, todo]).expect("tools container");
+
+        assert!(container.starts_with("<tools>\n"));
+        assert!(container.ends_with("\n</tools>"));
+
+        let inner = container
+            .trim_start_matches("<tools>\n")
+            .trim_end_matches("\n</tools>");
+        let lines = inner.lines().collect::<Vec<_>>();
+        // 首行是使用原则，之后一行一条工具陈列。
+        assert_eq!(lines.len(), 3, "容器内行数不对：{container}");
+        for line in &lines {
+            assert!(!line.trim().is_empty());
+            // 纯陈列：不带子标签，不带列表符号，也不带工具名前缀。
+            assert!(!line.contains('<'), "陈列行不该带标签：{line}");
+            assert!(
+                !line.starts_with('-') && !line.starts_with('*') && !line.starts_with('#'),
+                "陈列行不该带列表符号：{line}"
+            );
+            let starts_with_ordered_marker = line
+                .chars()
+                .next()
+                .map(|value| value.is_ascii_digit())
+                .unwrap_or(false);
+            assert!(!starts_with_ordered_marker, "陈列行不该带编号：{line}");
+        }
+        // 整个容器里不存在第二层标签。
+        for tag in ["<exec>", "<todo>", "<when>", "<instead>", "<pitfall>", "<principle>", "<must>"] {
+            assert!(!container.contains(tag), "容器里不该出现 {tag}：{container}");
+        }
+    }
+
+    #[test]
+    fn tool_rule_line_should_flatten_multiline_body() {
+        // 内容文件将来若被写成多行，容器里也必须只是一行一条。
+        let line = tool_rule_line(" 第一句\n\n  第二句  ").expect("tool rule line");
+        assert_eq!(line, "第一句 第二句");
     }
 
     #[test]

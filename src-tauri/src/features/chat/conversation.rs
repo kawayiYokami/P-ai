@@ -3117,15 +3117,7 @@ fn build_system_reminder_rule_block() -> String {
     )
 }
 
-fn build_builtin_tool_general_rule_block() -> String {
-    prompt_xml_block(
-        "builtin tool general rule",
-        "仅在系统工具能真正帮助完成用户任务时才使用，不要为了显得主动而滥用工具。",
-    )
-}
-
 const EXEC_TOOL_RULE_SHELL_MD: &str = include_str!("../../../resources/prompts/exec-tool-rule-shell.md");
-const EXEC_TOOL_RULE_RG_MD: &str = include_str!("../../../resources/prompts/exec-tool-rule-rg.md");
 const DEEP_RECALL_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/deep-recall-tool-rule.md");
 const TODO_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/todo-tool-rule.md");
 const KANBAN_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/kanban-tool-rule.md");
@@ -3136,39 +3128,74 @@ const FILE_EDIT_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/fi
 const QUESTION_AND_PLANNING_RULE_MD: &str = include_str!("../../../resources/prompts/question-and-planning-rule.md");
 const PLAN_PROTOCOL_MD: &str = include_str!("../../../resources/prompts/plan-protocol.md");
 
-fn build_builtin_tool_rule_block(tool_id: &str, rg_installed: bool) -> Option<String> {
-    let (block_name, body) = match tool_id.trim() {
+/// `<tools>` 首行：能用专用工具就别用 shell。点名只用项目里真实存在的工具，
+/// 别写成「找文件用 glob、搜内容用 grep」——PAI 没有这两个工具，模型会照着编。
+const TOOLS_CONTAINER_PRINCIPLE: &str = "能用专用工具就别用 shell：读文件用 read，改文件用 write / update / delete / move，联网用 websearch / fetch；exec 留给跑命令、跑测试、查环境，工具只在真能帮上忙时才用。";
+
+/// `read` 不可用时「先读过再改」这条既做不到也没意义，所以由调用方决定加不加。
+const FILE_EDIT_READ_FIRST_RULE: &str = "覆盖或修改一个已存在的文件之前必须先用 read 读过它，长文件用 offset 和 limit 分次读完，不要一次拉全量——除非这个文件就是本轮刚创建或刚改过的。";
+
+/// 工具规则块的选项：只影响文案里加不加环境相关的那几句。
+#[derive(Default, Clone, Copy)]
+struct ToolRuleOptions {
+    /// 本机装了 rg：exec 那条多一句「优先用 rg 搜索」。
+    rg_installed: bool,
+    /// 该人格能用 read：「改之前先读」与 offset / limit 那几句才成立。
+    read_available: bool,
+}
+
+/// 一条工具陈列：压成单行、去掉首尾空白。`<tools>` 里一行一条，不带任何符号或子标签。
+fn tool_rule_line(body: &str) -> Option<String> {
+    let normalized = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        return None;
+    }
+    Some(normalized)
+}
+
+/// 把这一轮要注入的工具陈列拼成唯一的 `<tools>` 容器：首行是使用原则，其余一行一条。
+fn build_tools_container_block(entries: &[String]) -> Option<String> {
+    let mut lines = Vec::<String>::new();
+    lines.push(TOOLS_CONTAINER_PRINCIPLE.to_string());
+    for entry in entries {
+        if let Some(line) = tool_rule_line(entry) {
+            lines.push(line);
+        }
+    }
+    if lines.len() <= 1 {
+        // 一条工具都没有时不留空壳容器。
+        return None;
+    }
+    Some(format!("<tools>\n{}\n</tools>", lines.join("\n")))
+}
+
+fn build_builtin_tool_rule_block(tool_id: &str, options: ToolRuleOptions) -> Option<String> {
+    match tool_id.trim() {
         "exec" => {
             let mut body = String::from(EXEC_TOOL_RULE_SHELL_MD.trim());
-            if rg_installed {
-                body.push_str("\n\n");
-                body.push_str(EXEC_TOOL_RULE_RG_MD.trim());
+            if options.rg_installed {
+                body.push_str("当前环境 rg 可用，优先用 rg 搜索。");
             }
-            return Some(prompt_xml_block("exec tool rule", body));
+            tool_rule_line(&body)
         }
-        "deeprecall" => ("deep recall tool rule", DEEP_RECALL_TOOL_RULE_MD.trim()),
-        "todo" => ("todo tool rule", TODO_TOOL_RULE_MD.trim()),
-        "kanban" => ("kanban tool rule", KANBAN_TOOL_RULE_MD.trim()),
-        "goal" => ("goal tool rule", GOAL_TOOL_RULE_MD.trim()),
-        "get_session" | "inform_session" => (
-            "session tool rule",
-            "## 定位\n\
-             - `get_session` 用来查询可投递的会话列表，只返回本地普通未归档会话和远程联系人会话。\n\
-             - `inform_session` 用来向指定会话投递一条系统助理通知。\n\n\
-             ## 使用原则\n\
-             - 只有在确实需要跨会话同步信息、提醒、续接上下文或通知远程联系人时才使用。\n\
-             - 先用 `get_session` 缩小目标范围，再调用 `inform_session`。\n\
-             - `inform_session` 只负责投递，不会自动让目标会话继续推理。\n\
-             - 通知正文应简洁、可执行、可读，不要把整轮冗长思考原样倾倒给别的会话。",
+        "deeprecall" => tool_rule_line(DEEP_RECALL_TOOL_RULE_MD),
+        "todo" => tool_rule_line(TODO_TOOL_RULE_MD),
+        "kanban" => tool_rule_line(KANBAN_TOOL_RULE_MD),
+        "goal" => tool_rule_line(GOAL_TOOL_RULE_MD),
+        "get_session" | "inform_session" => tool_rule_line(
+            "要查可投递的会话列表，或向指定会话投递系统通知、提醒、续接上下文时用。同一会话内的正常回复直接答，不用它。inform_session 只负责投递，不会让目标会话继续推理；先用 get_session 缩小目标范围再 inform_session，通知正文简洁、可执行、可读，不要把整轮冗长思考原样倒给别的会话。",
         ),
-        "delegate" => ("delegate tool rule", DELEGATE_TOOL_RULE_MD.trim()),
-        "task" => ("task tool rule", TASK_TOOL_RULE_MD.trim()),
+        "delegate" => tool_rule_line(DELEGATE_TOOL_RULE_MD),
+        "task" => tool_rule_line(TASK_TOOL_RULE_MD),
         "write" | "delete" | "update" | "move" | "file_edit" => {
-            ("file edit tool rule", FILE_EDIT_TOOL_RULE_MD.trim())
+            let mut body = String::from(FILE_EDIT_TOOL_RULE_MD.trim());
+            if options.read_available {
+                body.push_str(FILE_EDIT_READ_FIRST_RULE);
+            }
+            tool_rule_line(&body)
         }
-        _ => return None,
-    };
-    Some(prompt_xml_block(block_name, body))
+        _ => None,
+    }
 }
 
 fn agent_builtin_tool_enabled(current_agent: Option<&AgentProfile>, id: &str) -> bool {
@@ -3191,66 +3218,58 @@ fn agent_builtin_tool_enabled(current_agent: Option<&AgentProfile>, id: &str) ->
     true
 }
 
+/// 该人格能用哪些工具陈列：返回 (rule_id, 陈列文本)，顺序固定。read 不单独成条，
+/// 它只决定 file_edit 那条里「改之前先读」与 offset / limit 成不成立。
 fn build_system_tools_rule_blocks(
     current_agent_id: &str,
     agents: &[AgentProfile],
     rg_installed: bool,
-) -> Vec<String> {
+) -> Vec<(String, String)> {
     let current_agent = agent_by_id(agents, current_agent_id);
-    let mut blocks = Vec::<String>::new();
-    let mut any_builtin_enabled = false;
+    let options = ToolRuleOptions {
+        rg_installed,
+        read_available: agent_builtin_tool_enabled(current_agent, "read"),
+    };
+    let mut blocks = Vec::<(String, String)>::new();
     for rule_id in ["delegate", "task", "exec", "file_edit"] {
         let rule_enabled = builtin_tool_ids_for_prompt_rule(rule_id)
             .into_iter()
             .any(|tool_id| agent_builtin_tool_enabled(current_agent, tool_id));
-        if rule_enabled {
-            any_builtin_enabled = true;
-            if let Some(block) = build_builtin_tool_rule_block(rule_id, rg_installed) {
-                blocks.push(block);
-            }
+        if !rule_enabled {
+            continue;
         }
-    }
-    if any_builtin_enabled {
-        blocks.insert(0, build_builtin_tool_general_rule_block());
+        if let Some(text) = build_builtin_tool_rule_block(rule_id, options) {
+            blocks.push((rule_id.to_string(), text));
+        }
     }
     blocks
 }
 
-fn build_question_and_planning_rule_block(
+/// 提问与计划：前者讲什么时候该问，后者只在 plan 工具可用时追加。
+fn build_question_and_planning_rule_blocks(
     state: Option<&AppState>,
     conversation: &Conversation,
     plan_tool_enabled: bool,
-) -> String {
+) -> Vec<(String, String)> {
+    let mut blocks = Vec::<(String, String)>::new();
+    if let Some(text) = tool_rule_line(QUESTION_AND_PLANNING_RULE_MD) {
+        blocks.push(("clarify".to_string(), text));
+    }
+    if !plan_tool_enabled {
+        return blocks;
+    }
     let preferred_plan_dir = state
         .and_then(|app_state| {
             plan_preferred_directory_display_for_conversation(app_state, Some(conversation)).ok()
         })
         .unwrap_or_else(|| "{会话工作目录或助理空间}\\.pai\\plan".to_string());
-    let plan_tool_sections = if plan_tool_enabled {
-        PLAN_PROTOCOL_MD
-            .trim()
-            .replace("{preferred_plan_dir}", &preferred_plan_dir)
-    } else {
-        String::new()
-    };
-    let mut body = String::from(QUESTION_AND_PLANNING_RULE_MD.trim());
-    if !plan_tool_sections.is_empty() {
-        // 计划协议插在「提问之法」与「核心逻辑」之间，与原拼接顺序一致。
-        if let Some(pos) = body.find("## 核心逻辑") {
-            body.insert_str(pos, &format!("{plan_tool_sections}\n\n"));
-        } else {
-            body.push_str("\n\n");
-            body.push_str(&plan_tool_sections);
-        }
+    let body = PLAN_PROTOCOL_MD
+        .trim()
+        .replace("{preferred_plan_dir}", &preferred_plan_dir);
+    if let Some(text) = tool_rule_line(&body) {
+        blocks.push(("plan".to_string(), text));
     }
-    prompt_xml_block(
-        if plan_tool_enabled {
-            "plan tool rule"
-        } else {
-            "question and planning rule"
-        },
-        &body,
-    )
+    blocks
 }
 
 #[allow(dead_code)]

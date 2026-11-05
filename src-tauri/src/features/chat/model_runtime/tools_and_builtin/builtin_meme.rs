@@ -692,25 +692,9 @@ fn meme_prompt_rule_block(state: Option<&AppState>, agent_id: &str) -> Option<St
     if names.is_empty() {
         return None;
     }
-    Some(prompt_xml_block(
-        "meme sticker rule",
-        format!(
-            "## 可用 meme\n\
-             - {}\n\n\
-             ## 发送贴纸\n\
-             - 直接在回答正文中写 `:meme名:`。\n\
-             - 示例：`:坏笑:`\n\
-             - 只能使用上方已经存在的 meme 名。\n\n\
-             ## 不要这样做\n\
-             - 不要编造不存在的 meme 名。\n\
-             - 名单已在上方列出，不必为了获取名单调用 `list`。\n\n\
-             ## 何时调用工具\n\
-             - 需要把当前看到的图片收入表情库时，用 `meme` 的 `add`。\n\
-             - 需要删除或改名时，用 `delete` / `rename`，表情名取上方列表里的名字。\n\
-             - 需要确认某张表情图的文件路径时，才用 `list`。\n\
-             - `emotion` 是贴纸名，也是后续可使用的 `:meme名:`。",
-            names.join("、")
-        ),
+    tool_rule_line(&format!(
+        "回答里要放已有表情贴纸，或要把当前看到的图片收入表情库时用。不要为了拿名单去调用 list，名单就在下面；确认某张表情图的文件路径时才用 list。只能使用下面已经存在的表情名，编造的名字发不出去。可用：{}；正文里直接写 :meme名:，例如 :坏笑:，emotion 就是贴纸名。收图用 add，删除或改名用 delete / rename，名字取上面列表里的。",
+        names.join("、")
     ))
 }
 

@@ -262,6 +262,9 @@ const INTERFACE_REMOTE_GROUP_CONTACT_PROMPT_MD: &str =
     include_str!("../../../../resources/prompts/interface_remote_group_contact.md");
 const INTERFACE_LOCAL_CONVERSATION_PROMPT_MD: &str =
     include_str!("../../../../resources/prompts/interface_local_conversation.md");
+/// 本地会话提示词里的提问占位符：`question` 工具可用时替换成下面这行，不可用时整行抹掉。
+const QUESTION_TOOL_PLACEHOLDER: &str = "{question_tool_requirement}";
+const QUESTION_TOOL_REQUIREMENT_LINE: &str = "- **问题用 question 工具提**：需要用户拍板、做选择或确认方向时，用 question 工具把问题写进问题面板，不要写进回复正文——正文里的问题会被后续消息冲走，用户答不上。";
 
 fn resolve_human_interface_remote_contact_type(
     state: Option<&AppState>,
@@ -300,13 +303,24 @@ fn resolve_human_interface_remote_contact_type(
         .filter(|value| !value.is_empty())
 }
 
-fn build_human_interface_environment_block(remote_contact_type: Option<&str>) -> String {
+fn build_human_interface_environment_block(
+    remote_contact_type: Option<&str>,
+    question_tool_available: bool,
+) -> String {
     let body = match remote_contact_type {
         Some(contact_type) if contact_type.trim().eq_ignore_ascii_case("group") => {
-            INTERFACE_REMOTE_GROUP_CONTACT_PROMPT_MD
+            INTERFACE_REMOTE_GROUP_CONTACT_PROMPT_MD.to_string()
         }
-        Some(_) => INTERFACE_REMOTE_PRIVATE_CONTACT_PROMPT_MD,
-        None => INTERFACE_LOCAL_CONVERSATION_PROMPT_MD,
+        Some(_) => INTERFACE_REMOTE_PRIVATE_CONTACT_PROMPT_MD.to_string(),
+        // 提问工具只挂在本地主会话，远程会话拿不到它，所以这段只有本地分支按可用性注入。
+        None if question_tool_available => {
+            INTERFACE_LOCAL_CONVERSATION_PROMPT_MD.replace(
+                QUESTION_TOOL_PLACEHOLDER,
+                QUESTION_TOOL_REQUIREMENT_LINE,
+            )
+        }
+        None => INTERFACE_LOCAL_CONVERSATION_PROMPT_MD
+            .replace(&format!("\n{}", QUESTION_TOOL_PLACEHOLDER), ""),
     };
     prompt_xml_block("interface", body.trim())
 }
@@ -679,17 +693,37 @@ mod prompt_assembly_tests {
 
     #[test]
     fn human_interface_environment_block_should_follow_output_environment() {
-        let local = build_human_interface_environment_block(None);
-        let private = build_human_interface_environment_block(Some("private"));
-        let group = build_human_interface_environment_block(Some("group"));
+        let local = build_human_interface_environment_block(None, true);
+        let private = build_human_interface_environment_block(Some("private"), true);
+        let group = build_human_interface_environment_block(Some("group"), true);
 
         assert!(local.contains("桌面应用的本地 WebUI"));
-        assert!(local.contains("调用工具、读文件"));
+        assert!(local.contains("调用工具、研读文件"));
         assert!(private.contains("Todo 发生实质变化"));
         assert!(private.contains("后台发生即可"));
         assert!(group.contains("群友和正在解决的问题永远是重点"));
         assert!(group.contains("都不再出现"));
         assert!(!group.contains("Todo 发生实质变化"));
+    }
+
+    #[test]
+    fn local_interface_block_should_require_question_tool_only_when_available() {
+        // 提问工具只在本地主会话可用：可用时必须出现「用 question 工具」这条硬要求，
+        // 不可用时整行连占位符一起消失，不能留下空行或花括号残留。
+        let available = build_human_interface_environment_block(None, true);
+        assert!(
+            available.contains("question 工具把问题写进问题面板"),
+            "本地主会话必须要求用 question 工具提问题"
+        );
+        assert!(!available.contains(QUESTION_TOOL_PLACEHOLDER));
+
+        let unavailable = build_human_interface_environment_block(None, false);
+        assert!(!unavailable.contains("question"));
+        assert!(!unavailable.contains(QUESTION_TOOL_PLACEHOLDER));
+        assert!(!unavailable.contains("\n\n\n"), "删除后不应留下多余空行");
+
+        // 远程会话拿不到 question 工具，永久不注入这条。
+        assert!(!build_human_interface_environment_block(Some("private"), true).contains("question"));
     }
 
     #[test]
@@ -1468,18 +1502,26 @@ mod prompt_assembly_tests {
         );
 
         let fixed_index = prompt.find("固定系统块").expect("fixed block");
-        let task_index = prompt.find("<task tool rule>").expect("task tool rule");
-        let plan_index = prompt.find("提问之法").expect("plan tool rule");
-        let todo_index = prompt.find("<todo tool rule>").expect("todo tool rule");
+        let tools_index = prompt.find("<tools>").expect("tools container");
+        let task_index = prompt.find("用户给出明确的延后执行").expect("task rule line");
+        let clarify_index = prompt
+            .find("缺的信息会显著影响方向")
+            .expect("question rule line");
+        let todo_index = prompt.find("这一轮要开始动手").expect("todo rule line");
+        let file_edit_index = prompt
+            .find("新建、整写、局部改")
+            .expect("file edit rule line");
         let runtime_index = prompt.find("运行环境块").expect("runtime block");
         let remote_contact_index = prompt
             .find("联系人是特殊用户")
             .expect("remote im contact rules");
 
-        assert!(fixed_index < plan_index);
-        assert!(task_index < plan_index);
-        assert!(plan_index < todo_index);
-        assert!(plan_index < runtime_index);
+        assert!(fixed_index < tools_index);
+        assert!(tools_index < task_index);
+        assert!(task_index < clarify_index);
+        assert!(clarify_index < todo_index);
+        assert!(todo_index < file_edit_index);
+        assert!(file_edit_index < runtime_index);
         assert!(runtime_index < remote_contact_index);
         assert!(!prompt.contains("技能索引块"));
         assert!(!prompt.contains("Todo 说明块"));
@@ -1558,9 +1600,9 @@ mod prompt_assembly_tests {
             None,
         );
 
-        assert!(prompt.contains("<todo tool rule>"));
-        assert!(!prompt.contains("<apply_patch tool rule>"));
-        assert!(prompt.contains("<file edit tool rule>"));
+        assert!(prompt.contains("这一轮要开始动手"));
+        assert!(prompt.contains("新建、整写、局部改"));
+        assert!(!prompt.contains("<apply_patch>"));
     }
 
     #[test]

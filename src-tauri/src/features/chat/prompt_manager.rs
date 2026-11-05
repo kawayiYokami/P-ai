@@ -11,7 +11,9 @@ struct PreparedConversationPromptPayload {
 
 #[derive(Debug, Clone)]
 struct AgentSystemPromptSnapshot {
-    agent_tool_rule_blocks: Vec<String>,
+    /// 该人格可见的工具陈列：(rule_id, 一条陈列文本)。task 要按会话运行态再筛一次，
+    /// 所以带着 rule_id 一路传下去。
+    agent_tool_rule_blocks: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone)]

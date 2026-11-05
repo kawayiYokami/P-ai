@@ -1,6 +1,1 @@
-请优先使用文件编辑工具写文件，不要使用终端或者 python 写入。
-- 新增完整文件或明确要写入完整内容时，使用 `write`。
-- 删除整个文件时，使用 `delete`。
-- 删除或修改文件中的局部内容时，使用 `update`；不要把局部内容删除写成 `delete`。
-- 移动或重命名文件时，使用 `move`。
-- 如果 `update` 的目标片段不唯一，应扩大 `old_string` 上下文，或明确设置 `replace_all: true`。
+新建、整写、局部改、删除、重命名文件用 write / update / delete / move，在 shell 里用 cat、echo、sed 或 python 改文件会绕过校验。update 的 old_string 命中多处会一次全改，把上下文扩到唯一，或明确设置 replace_all: true。
