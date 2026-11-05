@@ -81,6 +81,7 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
     readMessagesFromPayload: bindings.readMessagesFromPayload,
     setConversationBadge: bindings.setConversationBadge,
     formalizeConversationMessages: bindings.formalizeConversationMessages,
+    mergeMessagesIntoTimeline: bindings.mergeMessagesIntoTimeline,
     conversationMessageCache: bindings.conversationMessageCache,
     cacheConversationMessages: bindings.cacheConversationMessages,
     clearConversationBadge: bindings.clearConversationBadge,
