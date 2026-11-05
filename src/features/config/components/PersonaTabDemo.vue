@@ -12,7 +12,6 @@
       :persona-saving="false"
       :persona-dirty="false"
       :config-saving="false"
-      :save-relations="saveRelations"
       :set-status-action="setStatus"
     />
   </div>
@@ -23,7 +22,7 @@ import { onMounted, ref } from "vue";
 import type { PermissionCatalog, PersonaProfile, SkillSummaryItem } from "../../../types/app";
 import PersonaTab from "../views/config-tabs/PersonaTab.vue";
 
-const props = withDefaults(defineProps<{ view?: "profile" | "permission" | "delegate" | "injection" }>(), {
+const props = withDefaults(defineProps<{ view?: "profile" | "permission" }>(), {
   view: "profile",
 });
 
@@ -105,10 +104,6 @@ const catalog: PermissionCatalog = {
 
 function setStatus(message: string) {
   statusText.value = message;
-}
-
-async function saveRelations(): Promise<boolean> {
-  return true;
 }
 
 onMounted(() => {

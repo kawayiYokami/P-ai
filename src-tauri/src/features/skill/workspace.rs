@@ -1066,8 +1066,6 @@ fn format_workspace_named_item(name: &str, id: &str) -> String {
 fn build_workspace_loaded_groups(
     servers: &[McpServerConfig],
     skills: &[SkillSummaryItem],
-    agents: &[AgentProfile],
-    private_agent_ids: &[String],
 ) -> Vec<WorkspaceLoadedGroup> {
     let mcp_items = servers
         .iter()
@@ -1076,16 +1074,6 @@ fn build_workspace_loaded_groups(
     let skill_items = skills
         .iter()
         .map(|item| item.name.trim().to_string())
-        .collect::<Vec<_>>();
-    let private_agent_items = private_agent_ids
-        .iter()
-        .map(|id| {
-            agents
-                .iter()
-                .find(|agent| agent.id == *id)
-                .map(|agent| format_workspace_named_item(&agent.name, &agent.id))
-                .unwrap_or_else(|| id.clone())
-        })
         .collect::<Vec<_>>();
     vec![
         WorkspaceLoadedGroup {
@@ -1100,19 +1088,12 @@ fn build_workspace_loaded_groups(
             count: skill_items.len(),
             items: skill_items,
         },
-        WorkspaceLoadedGroup {
-            kind: "private_agent".to_string(),
-            label: "私有人格".to_string(),
-            count: private_agent_items.len(),
-            items: private_agent_items,
-        },
     ]
 }
 
 fn build_workspace_failed_groups(
     mcp_failed: &[WorkspaceLoadError],
     skills_failed: &[WorkspaceLoadError],
-    private_agents_failed: &[WorkspaceLoadError],
 ) -> Vec<WorkspaceFailedGroup> {
     vec![
         WorkspaceFailedGroup {
@@ -1126,12 +1107,6 @@ fn build_workspace_failed_groups(
             label: "SKILL".to_string(),
             count: skills_failed.len(),
             items: skills_failed.to_vec(),
-        },
-        WorkspaceFailedGroup {
-            kind: "private_agent".to_string(),
-            label: "私有人格".to_string(),
-            count: private_agents_failed.len(),
-            items: private_agents_failed.to_vec(),
         },
     ]
 }
@@ -1204,19 +1179,10 @@ fn summarize_workspace_repair_items(items: &[WorkspaceLoadError]) -> String {
 fn finalize_workspace_load_result(
     mut result: RefreshMcpAndSkillsResult,
     servers: &[McpServerConfig],
-    merged_agents: &[AgentProfile],
 ) -> RefreshMcpAndSkillsResult {
-    let loaded_groups = build_workspace_loaded_groups(
-        servers,
-        &result.skills,
-        merged_agents,
-        &result.private_agents_loaded,
-    );
-    let failed_groups = build_workspace_failed_groups(
-        &result.mcp_failed,
-        &result.skills_failed,
-        &result.private_agents_failed,
-    );
+    let loaded_groups = build_workspace_loaded_groups(servers, &result.skills);
+    let failed_groups =
+        build_workspace_failed_groups(&result.mcp_failed, &result.skills_failed);
     let total_loaded = loaded_groups.iter().map(|group| group.count).sum::<usize>();
     let total_failed = failed_groups.iter().map(|group| group.count).sum::<usize>();
     let loaded_summary = summarize_workspace_loaded_groups(&loaded_groups);
@@ -1242,11 +1208,9 @@ fn finalize_workspace_load_result(
     result
 }
 
-/// 构建一次工作区快照所需的输入：加载哪个工作区，配置与运行数据从哪里来。
+/// 构建一次工作区快照所需的输入：加载哪个工作区。
 pub(crate) struct WorkspaceSnapshotInput {
     pub workspace_root: PathBuf,
-    pub config_path: PathBuf,
-    pub data_path: PathBuf,
 }
 
 /// 一次纯加载的全部产物；写缓存、启动 MCP、发事件都由调用方自己决定。
@@ -1255,9 +1219,6 @@ pub(crate) struct WorkspaceSnapshot {
     pub skill_errors: Vec<WorkspaceLoadError>,
     pub mcp_servers: Vec<McpServerConfig>,
     pub mcp_errors: Vec<WorkspaceLoadError>,
-    pub agents: Vec<AgentProfile>,
-    pub private_agents_loaded: Vec<String>,
-    pub private_agents_failed: Vec<WorkspaceLoadError>,
 }
 
 /// 唯一的「建」：给定工作区根、配置与数据路径，把工作区里的技能、MCP、人格读出来。
@@ -1267,7 +1228,6 @@ pub(crate) struct WorkspaceSnapshot {
 /// 并且只有「铺过 layout」的路径才能保证 MCP OAuth 全局目录已设置。
 /// `workspace_root` 保持调用方给的原样：渲染侧用未规范化的根做路径前缀比对，
 /// 这里若自作主张 `canonicalize`（Windows 会带 `\\?\`）反而会让技能路径与渲染根对不上。
-/// 配置与 agents 读失败仍走 `Err`（调用方按既有语义中断整次加载）；
 /// 单个技能 / MCP 文件的问题收进 `*_errors`，不影响其余条目。
 pub(crate) fn build_workspace_snapshot(
     input: &WorkspaceSnapshotInput,
@@ -1276,10 +1236,6 @@ pub(crate) fn build_workspace_snapshot(
     let (mcp_servers, mcp_errors) =
         load_mcp_servers_from_dir(&llm_workspace_mcp_root_at(workspace_root).join("servers"))?;
     let (skills, skill_errors) = load_skill_summaries_from_root(workspace_root)?;
-    let config = read_config(&input.config_path)?;
-    let mut agents = read_agents_shard(&input.data_path)?;
-    let private_org =
-        merge_private_organization_into_runtime(&input.data_path, &config, &mut agents)?;
     Ok(WorkspaceSnapshot {
         skills,
         skill_errors,
@@ -1294,26 +1250,20 @@ pub(crate) fn build_workspace_snapshot(
                 )
             })
             .collect(),
-        agents,
-        private_agents_loaded: private_org.private_agents_loaded,
-        private_agents_failed: private_org.private_agents_failed,
     })
 }
 
 /// 薄壳：铺目录 → 纯建快照 → 写缓存 → 组装返回结果。
 fn collect_workspace_load_snapshot(
     state: &AppState,
-) -> Result<(RefreshMcpAndSkillsResult, Vec<McpServerConfig>, Vec<AgentProfile>), String> {
+) -> Result<(RefreshMcpAndSkillsResult, Vec<McpServerConfig>), String> {
     // 写盘与全局副作用只允许出现在这一层。
     // 根保持未规范化的形态，与渲染侧 `llm_workspace_skills_root(state)` 一致。
     let workspace_root = configured_workspace_root_path(state)?;
     ensure_workspace_mcp_layout_at_root(&workspace_root)?;
     ensure_workspace_skills_layout_at_root(&workspace_root)?;
-    ensure_workspace_private_organization_layout_at_root(&workspace_root)?;
     let snapshot = build_workspace_snapshot(&WorkspaceSnapshotInput {
         workspace_root,
-        config_path: state.config_path.clone(),
-        data_path: state.data_path.clone(),
     })?;
     if let Err(err) = update_hidden_skill_snapshot_cache(state, &snapshot.skills, None) {
         runtime_log_error(format!(
@@ -1350,8 +1300,6 @@ fn collect_workspace_load_snapshot(
         skills_failed: snapshot.skill_errors,
         skills: snapshot.skills.clone(),
         skill_summary,
-        private_agents_loaded: snapshot.private_agents_loaded,
-        private_agents_failed: snapshot.private_agents_failed,
         loaded_groups: Vec::new(),
         failed_groups: Vec::new(),
         total_loaded: 0,
@@ -1362,7 +1310,7 @@ fn collect_workspace_load_snapshot(
         repair_items: Vec::new(),
         needs_repair: false,
     };
-    Ok((result, snapshot.mcp_servers, snapshot.agents))
+    Ok((result, snapshot.mcp_servers))
 }
 
 async fn disconnect_workspace_mcp_runtime_clients(state: &AppState) {
@@ -1381,7 +1329,7 @@ async fn disconnect_workspace_mcp_runtime_clients(state: &AppState) {
 }
 
 pub(crate) async fn load_workspace(state: &AppState) -> Result<RefreshMcpAndSkillsResult, String> {
-    let (mut result, servers, merged_agents) = collect_workspace_load_snapshot(state)?;
+    let (mut result, servers) = collect_workspace_load_snapshot(state)?;
     match mcp_start_supervisor_probe_all_from_policy(state.clone(), "workspace_load") {
         Ok(()) => {}
         Err(err) => {
@@ -1394,7 +1342,7 @@ pub(crate) async fn load_workspace(state: &AppState) -> Result<RefreshMcpAndSkil
     }
     refresh_global_tool_schema_cache(state);
     mark_prompt_cache_rebuild_for_all_final_system_sources(state);
-    Ok(finalize_workspace_load_result(result, &servers, &merged_agents))
+    Ok(finalize_workspace_load_result(result, &servers))
 }
 
 pub(crate) async fn reload_workspace(
@@ -1704,8 +1652,6 @@ mod snapshot_index_tests {
     fn build_from(root: &std::path::Path) -> Result<WorkspaceSnapshot, String> {
         build_workspace_snapshot(&WorkspaceSnapshotInput {
             workspace_root: root.join("workspace"),
-            config_path: root.join("app_config.toml"),
-            data_path: root.join("data"),
         })
     }
 

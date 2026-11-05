@@ -39,7 +39,6 @@ mod archive_host_selection_tests {
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: default_main_source(),
             scope: default_global_scope(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -154,42 +153,5 @@ mod archive_host_selection_tests {
         let err = resolve_archive_owner_agent_id(&AppConfig::default(), &[], &source).unwrap_err();
 
         assert!(err.contains("归档记忆归属人格不存在"));
-    }
-
-    #[test]
-    fn archive_owner_should_accept_private_runtime_agent() {
-        let root = std::env::temp_dir().join(format!(
-            "eca-archive-owner-private-{}",
-            Uuid::new_v4()
-        ));
-        let data_path = root.join("data").join("config_mark");
-        let personas_dir = app_root_from_data_path(&data_path)
-            .join("llm-workspace")
-            .join("private-organization")
-            .join("personas");
-        std::fs::create_dir_all(&personas_dir).expect("create private personas dir");
-        std::fs::write(
-            personas_dir.join("private-owner.json"),
-            r#"{
-  "id": "private-owner",
-  "name": "私域归档人格",
-  "prompt": "x"
-}"#,
-        )
-        .expect("write private persona");
-
-        let snapshot = build_runtime_organization_snapshot_from_parts(
-            &data_path,
-            &AppConfig::default(),
-            &[default_user_persona()],
-        )
-        .expect("build runtime snapshot");
-        let source = mk_source("private-owner", Vec::new());
-
-        let owner =
-            resolve_archive_owner_agent_id(&snapshot.config, &snapshot.agents, &source).unwrap();
-
-        assert_eq!(owner, "private-owner");
-        let _ = std::fs::remove_dir_all(root);
     }
 }

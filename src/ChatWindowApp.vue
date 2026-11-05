@@ -277,7 +277,6 @@
       :remove-selected-persona="removeSelectedPersona"
       :reset-personas="loadPersonas"
       :save-personas="savePersonas"
-      :convert-private-persona-to-public="convertPrivatePersonaToPublic"
       :import-persona-memories="importPersonaMemories"
       :open-conversation-list="openConversationList"
       :open-conversation-summary="openConversationSummary"

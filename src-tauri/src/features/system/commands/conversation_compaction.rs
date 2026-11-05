@@ -303,12 +303,15 @@ async fn run_context_compaction_pipeline_inner(
         };
     let background_shell_lines =
         terminal_background_shell_running_summary_lines(state, &source.id);
+    let teammate_names =
+        available_delegate_teammate_names(&state_read_agents_cached(state)?, &source.agent_id);
     let compression_message = build_compaction_message(
         &summary_draft.summary,
         Some(summary_draft.title.as_str()),
         compaction_reason,
         Some(&preserved_dialogue),
         &background_shell_lines,
+        &teammate_names,
     );
     let persist_result = conversation_service_v2().persist_compaction_message(
         state,

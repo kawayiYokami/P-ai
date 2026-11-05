@@ -47,14 +47,6 @@
           :persona="selectedPersona"
         />
 
-        <!-- 子视图：随身技能与上下文顺序 -->
-        <PersonaInjectionTable
-          v-else-if="detailView === 'injection'"
-          key="injection"
-          :persona="selectedPersona"
-          :skills="capabilitySkills"
-        />
-
         <!-- 子视图：工具与技能权限 -->
         <PersonaPermissionView
           v-else-if="detailView === 'permission'"
@@ -64,57 +56,6 @@
           :loading="capabilityLoading"
           :load-error="capabilityLoadError"
         />
-
-        <!-- 子视图：下级委托人 -->
-        <template v-else-if="detailView === 'delegate'">
-          <!-- 委托模型配置 (对用户和系统角色隐藏)，位于委托页上方 -->
-          <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem" class="space-y-2">
-            <ConfigCard :title="t('config.persona.delegateModelSettings')" flush>
-              <div class="divide-y divide-base-200/60">
-                <!-- 四选一 -->
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
-                  <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-base-content">{{ t("config.persona.delegateModelTitle") }}</div>
-                    <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.delegateModelHint") }}</div>
-                  </div>
-                  <SegmentedControl
-                    :model-value="delegateModelSelection"
-                    :options="delegateModelOptions"
-                    :disabled="personaSaving"
-                    :full-width="false"
-                    size="sm"
-                    class="shrink-0 self-start sm:self-auto"
-                    @change="setDelegateModelOption"
-                  />
-                </div>
-
-                <!-- 自定义模型选择 -->
-                <div v-if="delegateModelSelection === 'custom'" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
-                  <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-base-content">{{ t("config.persona.delegateCustomModel") }}</div>
-                    <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.delegateCustomModelHint") }}</div>
-                  </div>
-                  <ApiConfigPicker
-                    class="min-w-0 sm:w-72 shrink-0"
-                    variant="field"
-                    :model-value="delegateCustomModelId"
-                    :api-configs="props.textCapableApiConfigs"
-                    :disabled="personaSaving"
-                    @update:model-value="setDelegateCustomModel"
-                  />
-                </div>
-              </div>
-            </ConfigCard>
-          </div>
-          <PersonaDelegateView
-            key="delegate"
-            :persona="selectedPersona"
-            :personas="personas"
-            :avatar-url-map="personaAvatarUrlMap"
-            :save-relations="saveRelations"
-            :set-status-action="setStatusAction"
-          />
-        </template>
 
         <!-- 主资料视图：扁平流式设计，杜绝卡片套卡片 -->
         <div v-else key="profile" class="space-y-6 min-w-0 max-w-full">
@@ -165,18 +106,6 @@
                   <span v-if="isPresetPersona(selectedPersona)" class="badge badge-neutral badge-xs">
                     {{ t("config.persona.systemTag") }}
                   </span>
-                  <span v-if="selectedPersonaIsPrivateWorkspace" class="badge badge-secondary badge-xs">
-                    {{ t("config.persona.privateWorkspaceTag") }}
-                  </span>
-                  <button
-                    v-if="selectedPersonaIsPrivateWorkspace"
-                    type="button"
-                    class="btn btn-xs min-h-[1.5rem] btn-outline gap-1"
-                    :disabled="personaSaving"
-                    @click="emitConvertPrivatePersona"
-                  >
-                    {{ t("config.persona.convertToPublic") }}
-                  </button>
                   <span v-if="avatarError" class="text-error text-caption">{{ avatarError }}</span>
                 </div>
               </div>
@@ -201,6 +130,52 @@
               </button>
             </template>
           </MarkdownEditor>
+
+          <!-- 委托模型 (对用户和系统角色隐藏) -->
+          <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem" class="space-y-2">
+            <ConfigCard :title="t('config.persona.delegateModelSettings')" flush>
+              <div class="divide-y divide-base-200/60">
+                <!-- 四选一 -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-medium text-base-content">{{ t("config.persona.delegateModelTitle") }}</div>
+                    <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.delegateModelHint") }}</div>
+                  </div>
+                  <SegmentedControl
+                    :model-value="delegateModelSelection"
+                    :options="delegateModelOptions"
+                    :disabled="personaSaving"
+                    :full-width="false"
+                    size="sm"
+                    class="shrink-0 self-start sm:self-auto"
+                    @change="setDelegateModelOption"
+                  />
+                </div>
+
+                <!-- 自定义模型选择 -->
+                <div v-if="delegateModelSelection === 'custom'" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-medium text-base-content">{{ t("config.persona.delegateCustomModel") }}</div>
+                    <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.delegateCustomModelHint") }}</div>
+                  </div>
+                  <ApiConfigPicker
+                    class="min-w-0 sm:w-72 shrink-0"
+                    variant="field"
+                    :model-value="delegateCustomModelId"
+                    :api-configs="props.textCapableApiConfigs"
+                    :disabled="personaSaving"
+                    @update:model-value="setDelegateCustomModel"
+                  />
+                </div>
+              </div>
+            </ConfigCard>
+          </div>
+
+          <!-- 随身技能与上下文顺序 -->
+          <PersonaInjectionTable
+            :persona="selectedPersona"
+            :skills="capabilitySkills"
+          />
 
           <!-- 3. 记忆设置 (对用户和系统角色隐藏) -->
           <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem" class="space-y-2">
@@ -507,7 +482,6 @@ import InlineMarkdownText from "../../../chat/markdown/InlineMarkdownText.vue";
 import PersonaInjectionTable from "./persona-capability/PersonaInjectionTable.vue";
 import PersonaMemesTab from "./persona-capability/PersonaMemesTab.vue";
 import PersonaPermissionView from "./persona-capability/PersonaPermissionView.vue";
-import PersonaDelegateView from "./persona-capability/PersonaDelegateView.vue";
 import { normalizePermissionCatalog } from "../../utils/permission-tree";
 
 const props = withDefaults(defineProps<{
@@ -525,14 +499,12 @@ const props = withDefaults(defineProps<{
   textCapableApiConfigs?: ApiConfigItem[];
   expertApiConfigId?: string;
   toolReviewApiConfigId?: string;
-  saveRelations?: (updates: { agentId: string; childAgentIds: string[] }[]) => Promise<boolean>;
   setStatusAction?: (message: string) => void;
 }>(), {
   personaAvatarUrlMap: () => ({}),
   textCapableApiConfigs: () => [],
   expertApiConfigId: "",
   toolReviewApiConfigId: "",
-  saveRelations: undefined,
   setStatusAction: undefined,
 });
 
@@ -544,15 +516,14 @@ const emit = defineEmits<{
   (e: "openAvatarEditor"): void;
   (e: "importPersonaMemories", value: { agentId: string; file: File }): void;
   (e: "savePersonas"): void;
-  (e: "convertPrivatePersonaToPublic", agentId: string): void;
 }>();
 
 const { t } = useI18n();
 
 const inDetailMode = ref(false);
 
-// 二级详情视图：资料主页（默认）/ 随身技能与顺序 / 权限控制 / 委托人 / 表情
-type PersonaDetailView = "profile" | "injection" | "permission" | "delegate" | "memes";
+// 二级详情视图：基础（默认）/ 权限控制 / 表情
+type PersonaDetailView = "profile" | "permission" | "memes";
 const detailView = ref<PersonaDetailView>("profile");
 
 const capabilitySkills = ref<SkillSummaryItem[]>([]);
@@ -617,26 +588,14 @@ defineExpose({
 });
 
 const detailSubMenuOptions = computed(() => {
-  const residentCount = (props.selectedPersona?.residentSkillNames || []).filter(Boolean).length;
-  const childCount = (props.selectedPersona?.childAgentIds || []).filter(Boolean).length;
   return [
     {
       value: "profile" as const,
       label: t("config.persona.profile"),
     },
     {
-      value: "injection" as const,
-      label: t("config.persona.skillsTab"),
-      badge: residentCount > 0 ? residentCount : undefined,
-    },
-    {
       value: "permission" as const,
       label: t("config.persona.permission.title"),
-    },
-    {
-      value: "delegate" as const,
-      label: t("config.persona.delegate.title"),
-      badge: childCount > 0 ? childCount : undefined,
     },
     {
       value: "memes" as const,
@@ -647,7 +606,7 @@ const detailSubMenuOptions = computed(() => {
 
 function onSubMenuTabChange(val: PersonaDetailView) {
   detailView.value = val;
-  if (val === "injection" || val === "permission") {
+  if (val === "profile" || val === "permission") {
     void loadCapabilityData();
   }
 }
@@ -697,7 +656,7 @@ const personaCategoryOptions = computed(() => [
 
 const headerTabs = computed<UnderlineTabItem[]>(() =>
   inDetailMode.value
-    ? detailSubMenuOptions.value.map((option) => ({ key: option.value, label: option.label, badge: option.badge }))
+    ? detailSubMenuOptions.value.map((option) => ({ key: option.value, label: option.label }))
     : personaCategoryOptions.value.map((option) => ({ key: option.value, label: option.label })),
 );
 
@@ -891,30 +850,18 @@ const selectedPersonaIsPreset = computed(
   () => isPresetPersona(props.selectedPersona),
 );
 
-const selectedPersonaIsPrivateWorkspace = computed(
-  () => props.selectedPersona?.source === "private_workspace",
-);
-
 const personaBreadcrumb = computed<SettingsBreadcrumbItem[]>(() => {
   const persona = props.selectedPersona;
   if (!inDetailMode.value) return [{ label: t("config.tabs.persona") }];
   const badges: SettingsBreadcrumbBadge[] = [];
   if (persona && isPresetPersona(persona)) {
     badges.push({ text: t("config.persona.systemTag"), class: "badge-neutral" });
-  } else if (selectedPersonaIsPrivateWorkspace.value) {
-    badges.push({ text: t("config.persona.privateWorkspaceTag"), class: "badge-secondary" });
   }
   return [
     { label: t("config.tabs.persona"), title: t("config.persona.backToList"), onClick: backToList },
     { label: persona?.name || t("config.persona.title"), badges },
   ];
 });
-
-function emitConvertPrivatePersona() {
-  const agentId = props.selectedPersona?.id;
-  if (!agentId || !selectedPersonaIsPrivateWorkspace.value) return;
-  emit("convertPrivatePersonaToPublic", agentId);
-}
 
 const selectedPersonaMemoryRecallMode = computed(() =>
   normalizeMemoryRecallMode(props.selectedPersona?.memoryRecallMode),

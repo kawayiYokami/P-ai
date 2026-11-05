@@ -6,7 +6,7 @@ fn load_agents(state: State<'_, AppState>) -> Result<Vec<AgentProfile>, String> 
 fn load_agents_inner(state: &AppState) -> Result<Vec<AgentProfile>, String> {
     let config = state_read_config_cached(&state)?;
     let agents = state_read_agents_cached(&state)?;
-    build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &agents)
+    build_runtime_organization_snapshot_from_parts(&config, &agents)
         .map(|snapshot| snapshot.agents)
 }
 
@@ -18,50 +18,6 @@ fn save_agents(
     save_agents_inner(input, &state)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ConvertPrivateAgentToMainInput {
-    agent_id: String,
-}
-
-#[tauri::command]
-fn convert_private_agent_to_main(
-    input: ConvertPrivateAgentToMainInput,
-    state: State<'_, AppState>,
-) -> Result<Vec<AgentProfile>, String> {
-    convert_private_agent_to_main_inner(input, state.inner())
-}
-
-fn convert_private_agent_to_main_inner(
-    input: ConvertPrivateAgentToMainInput,
-    state: &AppState,
-) -> Result<Vec<AgentProfile>, String> {
-    let agent_id = input.agent_id.trim();
-    if agent_id.is_empty() {
-        return Err("agentId is required".to_string());
-    }
-
-    let mut runtime_agents = load_agents_inner(state)?;
-    let target_idx = runtime_agents
-        .iter()
-        .position(|a| a.id == agent_id)
-        .ok_or_else(|| format!("Agent '{}' not found.", agent_id))?;
-    if !is_private_workspace_source(&runtime_agents[target_idx].source) {
-        return Err(format!("Agent '{}' is not a private-workspace persona.", agent_id));
-    }
-
-    runtime_agents[target_idx].source = "main_config".to_string();
-    runtime_agents[target_idx].scope = "global".to_string();
-    runtime_agents[target_idx].updated_at = now_iso();
-
-    save_agents_inner(
-        SaveAgentsInput {
-            agents: runtime_agents,
-        },
-        state,
-    )
-}
-
 fn save_agents_inner(
     input: SaveAgentsInput,
     state: &AppState,
@@ -70,7 +26,6 @@ fn save_agents_inner(
         return Err("At least one agent is required.".to_string());
     }
 
-    let base_config = read_config(&state.config_path)?;
     let mut data = AppData {
         agents: state_read_agents_cached(&state)?,
         ..Default::default()
@@ -87,11 +42,7 @@ fn save_agents_inner(
         .find(|a| a.id == SYSTEM_PERSONA_ID)
         .cloned();
     let desired_agents = input.agents.clone();
-    data.agents = input
-        .agents
-        .into_iter()
-        .filter(|agent| !is_private_workspace_source(&agent.source))
-        .collect();
+    data.agents = input.agents;
     for agent in &mut data.agents {
         agent.memory_recall_mode = normalize_agent_memory_recall_mode(&agent.memory_recall_mode);
     }
@@ -218,7 +169,6 @@ fn save_agents_inner(
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
-    sync_private_agents_to_workspace(&state.data_path, &base_config, &desired_agents)?;
     state_write_agents_cached(&state, &data.agents)?;
     if !affected_agent_ids.is_empty() {
         mark_prompt_cache_rebuild_for_system_sources_by_agents(&state, &affected_agent_ids);
@@ -228,12 +178,10 @@ fn save_agents_inner(
     for agent_id in agent_avatar_generation_pending_ids(desired_agents.iter(), &previous_by_id) {
         enqueue_agent_avatar_generation(state, &agent_id, AgentAvatarGenerationOrigin::Config);
     }
-    let config = state_read_config_cached(&state)?;
     broadcast_sidebar_persona_changed();
     // 人格表已经写盘，通知应用内各窗口就地重拉，气泡署名才不会停在旧名字或 agent-id。
     broadcast_personas_updated(&state, "settings");
-    let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
-    Ok(runtime_agents)
+    Ok(data.agents)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -330,13 +278,6 @@ fn get_agent_private_memory_count_inner(
     if agent_id.is_empty() {
         return Err("agentId is required".to_string());
     }
-    let config = read_config(&state.config_path)?;
-    let agents = state_read_agents_cached(&state)?;
-    let private_agent_ids =
-        runtime_private_organization_ids(&state.data_path, &config, &agents)?;
-    if private_agent_ids.contains(agent_id) {
-        return Err(private_agent_operation_error(agent_id));
-    }
     Ok(AgentPrivateMemoryCountResult {
         count: memory_store_count_private_memories_by_agent(&state.data_path, agent_id)?,
     })
@@ -358,12 +299,6 @@ fn set_agent_memory_recall_mode_inner(
     };
 
     let mut agents = state_read_agents_cached(&state)?;
-    let base_config = read_config(&state.config_path)?;
-    let private_agent_ids =
-        runtime_private_organization_ids(&state.data_path, &base_config, &agents)?;
-    if private_agent_ids.contains(agent_id) {
-        return Err(private_agent_operation_error(agent_id));
-    }
 
     let agent_idx = agents
         .iter()
@@ -393,12 +328,6 @@ fn set_agent_private_memory_enabled_inner(
     }
 
     let mut agents = state_read_agents_cached(&state)?;
-    let base_config = read_config(&state.config_path)?;
-    let private_agent_ids =
-        runtime_private_organization_ids(&state.data_path, &base_config, &agents)?;
-    if private_agent_ids.contains(agent_id) {
-        return Err(private_agent_operation_error(agent_id));
-    }
 
     let agent_idx = agents
         .iter()
@@ -450,13 +379,6 @@ fn export_agent_private_memories_inner(
     if agent_id.is_empty() {
         return Err("agentId is required".to_string());
     }
-    let config = read_config(&state.config_path)?;
-    let agents = state_read_agents_cached(&state)?;
-    let private_agent_ids =
-        runtime_private_organization_ids(&state.data_path, &config, &agents)?;
-    if private_agent_ids.contains(agent_id) {
-        return Err(private_agent_operation_error(agent_id));
-    }
     let export = memory_store_export_agent_private_memories(&state.data_path, agent_id)?;
     Ok(ExportAgentPrivateMemoriesResult {
         count: export.count,
@@ -474,12 +396,6 @@ fn disable_agent_private_memory_inner(
     }
 
     let mut agents = state_read_agents_cached(&state)?;
-    let base_config = read_config(&state.config_path)?;
-    let private_agent_ids =
-        runtime_private_organization_ids(&state.data_path, &base_config, &agents)?;
-    if private_agent_ids.contains(agent_id) {
-        return Err(private_agent_operation_error(agent_id));
-    }
 
     let agent_idx = agents
         .iter()
@@ -563,12 +479,6 @@ fn import_agent_memories_inner(
     }
 
     let agents = state_read_agents_cached(state)?;
-    let base_config = read_config(&state.config_path)?;
-    let private_agent_ids =
-        runtime_private_organization_ids(&state.data_path, &base_config, &agents)?;
-    if private_agent_ids.contains(agent_id) {
-        return Err(private_agent_operation_error(agent_id));
-    }
     if !agents
         .iter()
         .any(|a| a.id == agent_id && !a.is_built_in_user)
@@ -594,7 +504,7 @@ fn load_chat_settings_inner(state: &AppState) -> Result<ChatSettings, String> {
     let config = read_config(&state.config_path)?;
     let agents = state_read_agents_cached(state)?;
     let runtime_snapshot =
-        build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &agents)?;
+        build_runtime_organization_snapshot_from_parts(&config, &agents)?;
     let runtime_agents = runtime_snapshot.agents;
     let runtime_data = AppData {
         agents: runtime_agents.clone(),
@@ -634,7 +544,7 @@ struct ChatSettingsPatch {
 
 fn build_chat_settings_payload(state: &AppState, agents: &[AgentProfile], config: &AppConfig) -> Result<ChatSettings, String> {
     let runtime_snapshot =
-        build_runtime_organization_snapshot_from_parts(&state.data_path, config, agents)?;
+        build_runtime_organization_snapshot_from_parts(config, agents)?;
     let runtime_data = AppData {
         agents: runtime_snapshot.agents,
         ..Default::default()
@@ -857,17 +767,6 @@ fn save_agent_avatar_inner(
     }
 
     let mut agents = state_read_agents_cached(&state)?;
-    let base_config = read_config(&state.config_path)?;
-    let runtime_data = AppData {
-        agents: agents.clone(),
-        ..Default::default()
-    };
-    let runtime_agents = runtime_agents_with_private_organization(&state, &base_config, &runtime_data)?;
-    let target = runtime_agents
-        .iter()
-        .find(|a| a.id == input.agent_id)
-        .ok_or_else(|| "Agent not found".to_string())?;
-
     let raw = B64
         .decode(input.bytes_base64.trim())
         .map_err(|err| format!("Decode avatar base64 failed: {err}"))?;
@@ -883,26 +782,14 @@ fn save_agent_avatar_inner(
     let now = now_iso();
     // 存相对数据根的路径，数据根整体搬迁后仍可解析。
     let avatar_path = avatar_relative_path(&file_name);
-    if is_private_workspace_source(&target.source) {
-        let mut next_runtime_agents = runtime_agents.clone();
-        let idx = next_runtime_agents
-            .iter()
-            .position(|a| a.id == input.agent_id)
-            .ok_or_else(|| "Agent not found".to_string())?;
-        next_runtime_agents[idx].avatar_path = Some(avatar_path.clone());
-        next_runtime_agents[idx].avatar_updated_at = Some(now.clone());
-        next_runtime_agents[idx].updated_at = now.clone();
-        sync_private_agents_to_workspace(&state.data_path, &base_config, &next_runtime_agents)?;
-    } else {
-        let idx = agents
-            .iter()
-            .position(|a| a.id == input.agent_id)
-            .ok_or_else(|| "Agent not found".to_string())?;
-        agents[idx].avatar_path = Some(avatar_path.clone());
-        agents[idx].avatar_updated_at = Some(now.clone());
-        agents[idx].updated_at = now.clone();
-        state_write_agents_cached(&state, &agents)?;
-    }
+    let idx = agents
+        .iter()
+        .position(|a| a.id == input.agent_id)
+        .ok_or_else(|| "Agent not found".to_string())?;
+    agents[idx].avatar_path = Some(avatar_path.clone());
+    agents[idx].avatar_updated_at = Some(now.clone());
+    agents[idx].updated_at = now.clone();
+    state_write_agents_cached(&state, &agents)?;
 
     Ok(AvatarMeta {
         path: avatar_path,
@@ -927,13 +814,7 @@ fn clear_agent_avatar_inner(
     }
 
     let mut agents = state_read_agents_cached(&state)?;
-    let base_config = read_config(&state.config_path)?;
-    let runtime_data = AppData {
-        agents: agents.clone(),
-        ..Default::default()
-    };
-    let runtime_agents = runtime_agents_with_private_organization(&state, &base_config, &runtime_data)?;
-    let target = runtime_agents
+    let target = agents
         .iter()
         .find(|a| a.id == input.agent_id)
         .ok_or_else(|| "Agent not found".to_string())?;
@@ -945,26 +826,14 @@ fn clear_agent_avatar_inner(
         }
     }
     let now = now_iso();
-    if is_private_workspace_source(&target.source) {
-        let mut next_runtime_agents = runtime_agents.clone();
-        let idx = next_runtime_agents
-            .iter()
-            .position(|a| a.id == input.agent_id)
-            .ok_or_else(|| "Agent not found".to_string())?;
-        next_runtime_agents[idx].avatar_path = None;
-        next_runtime_agents[idx].avatar_updated_at = None;
-        next_runtime_agents[idx].updated_at = now;
-        sync_private_agents_to_workspace(&state.data_path, &base_config, &next_runtime_agents)?;
-    } else {
-        let idx = agents
-            .iter()
-            .position(|a| a.id == input.agent_id)
-            .ok_or_else(|| "Agent not found".to_string())?;
-        agents[idx].avatar_path = None;
-        agents[idx].avatar_updated_at = None;
-        agents[idx].updated_at = now;
-        state_write_agents_cached(&state, &agents)?;
-    }
+    let idx = agents
+        .iter()
+        .position(|a| a.id == input.agent_id)
+        .ok_or_else(|| "Agent not found".to_string())?;
+    agents[idx].avatar_path = None;
+    agents[idx].avatar_updated_at = None;
+    agents[idx].updated_at = now;
+    state_write_agents_cached(&state, &agents)?;
     Ok(())
 }
 
@@ -1322,14 +1191,11 @@ fn set_agent_primary_api_config_inner(
 
     state_write_config_cached(state, &config)?;
     state_write_agents_cached(state, &agents)?;
-    sync_private_agents_to_workspace(&state.data_path, &config, &agents)?;
-    let mut data = AppData::default();
-    data.agents = agents;
-    let runtime_config = runtime_config_for_transport(state, &config, &data)?;
+    let runtime_config = runtime_config_for_transport(&config);
 
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     broadcast_sidebar_persona_changed();
     broadcast_sidebar_provider_changed();
 
-    Ok(runtime_config)
+    Ok(config)
 }

@@ -467,28 +467,6 @@ fn agent_by_id<'a>(agents: &'a [AgentProfile], agent_id: &str) -> Option<&'a Age
     agents.iter().find(|item| item.id.trim() == trimmed)
 }
 
-fn agent_direct_child_ids(agents: &[AgentProfile], agent: &AgentProfile) -> Vec<String> {
-    let valid_ids = agents
-        .iter()
-        .map(|item| item.id.trim().to_string())
-        .filter(|id| !id.is_empty())
-        .collect::<std::collections::HashSet<_>>();
-    normalize_agent_child_ids(&agent.child_agent_ids, &agent.id)
-        .into_iter()
-        .filter(|id| valid_ids.contains(id))
-        .collect::<Vec<_>>()
-}
-
-fn agent_direct_child_agents<'a>(
-    agents: &'a [AgentProfile],
-    agent: &AgentProfile,
-) -> Vec<&'a AgentProfile> {
-    agent_direct_child_ids(agents, agent)
-        .into_iter()
-        .filter_map(|id| agent_by_id(agents, &id))
-        .collect::<Vec<_>>()
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AgentPermissionCategory {
     BuiltinTool,
@@ -614,29 +592,10 @@ fn tool_restricted_by_agent_permission(agent: &AgentProfile, tool_id: &str) -> O
     )
 }
 
-fn agent_delegate_unavailable_reason(agent: Option<&AgentProfile>) -> Option<String> {
-    let Some(agent) = agent else {
-        return Some("缺少当前执行人格，无法使用委托".to_string());
-    };
-    if agent
-        .child_agent_ids
-        .iter()
-        .any(|id| !id.trim().is_empty())
-    {
-        return None;
-    }
-    Some("当前人格没有直接下级，无法使用委托".to_string())
-}
-
 fn agent_builtin_tool_unavailable_reason(
     agent: Option<&AgentProfile>,
     tool_id: &str,
 ) -> Option<String> {
-    if tool_id.trim() == "delegate" {
-        if let Some(reason) = agent_delegate_unavailable_reason(agent) {
-            return Some(reason);
-        }
-    }
     match agent {
         Some(agent) => tool_restricted_by_agent_permission(agent, tool_id),
         None => None,
@@ -795,22 +754,25 @@ mod types_storage_tests {
     }
 
     #[test]
-    fn delegate_should_require_direct_child_agents() {
+    fn delegate_should_not_be_gated_by_agent_relations() {
+        // 没有当前执行人格，不再因关系被禁用。
+        assert_eq!(agent_builtin_tool_unavailable_reason(None, "delegate"), None);
+
+        // 没有任何下级的人格、与谁都没有上下级关系的人格，delegate 都应当可用。
+        let mut leaf = default_agent();
+        leaf.id = "agent-leaf".to_string();
+        leaf.name = "叶子人格".to_string();
+        leaf.child_agent_ids = Vec::new();
         assert_eq!(
-            agent_builtin_tool_unavailable_reason(None, "delegate"),
-            Some("缺少当前执行人格，无法使用委托".to_string())
+            agent_builtin_tool_unavailable_reason(Some(&leaf), "delegate"),
+            None
         );
 
-        let mut parent = default_agent();
-        parent.id = "agent-parent".to_string();
-        parent.name = "父人格".to_string();
-        parent.child_agent_ids = Vec::new();
+        // 挂了下级也不改变结果：判据根本不看 child_agent_ids。
+        leaf.child_agent_ids = vec!["dept-child".to_string()];
         assert_eq!(
-            agent_builtin_tool_unavailable_reason(Some(&parent), "delegate"),
-            Some("当前人格没有直接下级，无法使用委托".to_string())
+            agent_builtin_tool_unavailable_reason(Some(&leaf), "delegate"),
+            None
         );
-
-        parent.child_agent_ids = vec!["dept-child".to_string()];
-        assert_eq!(agent_builtin_tool_unavailable_reason(Some(&parent), "delegate"), None);
     }
 }

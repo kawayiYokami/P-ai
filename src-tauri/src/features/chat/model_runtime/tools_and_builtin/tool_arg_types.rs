@@ -166,6 +166,8 @@ struct TeamShareModelToolArgs {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct DelegateToolArgs {
+    /// 可选。不填则交给副手（由 `validate_delegate_args` 补 `DEPUTY_AGENT_ID`）。
+    #[serde(default)]
     agent_id: String,
     #[serde(default)]
     mode: Option<String>,

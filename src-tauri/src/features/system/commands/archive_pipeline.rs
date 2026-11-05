@@ -1040,6 +1040,7 @@ fn build_compaction_message(
     compaction_reason: &str,
     preserved_dialogue: Option<&str>,
     background_shell_lines: &[String],
+    teammate_names: &[String],
 ) -> ChatMessage {
     let now = now_iso();
     let reason = compaction_reason.trim();
@@ -1072,6 +1073,9 @@ fn build_compaction_message(
             "## 运行中的后台任务\n\n{}",
             normalize_multiline_block(&background_shell_lines.join("\n"))
         ));
+    }
+    if let Some(section) = available_teammates_section(teammate_names) {
+        sections.push(section);
     }
     let text = sections.join("\n\n");
     let normalized_title = title.and_then(normalize_summary_context_title);
@@ -1134,9 +1138,26 @@ fn clean_compaction_summary_text(input: &str) -> String {
     normalize_markdown_block(trimmed)
 }
 
+/// 摘要里的「当前可委托的队友」一节：只列名字，一人一行；名单为空时整节不出现。
+fn available_teammates_section(teammate_names: &[String]) -> Option<String> {
+    let mut lines = Vec::<String>::new();
+    for name in teammate_names {
+        let name = name.trim();
+        if name.is_empty() || lines.iter().any(|line| line == &format!("- {name}")) {
+            continue;
+        }
+        lines.push(format!("- {name}"));
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    Some(format!("## 当前可委托的队友\n\n{}", lines.join("\n")))
+}
+
 fn build_initial_summary_context_message(
     current_todos: Option<&[ConversationTodoItem]>,
     title: Option<&str>,
+    teammate_names: &[String],
 ) -> ChatMessage {
     let now = now_iso();
     let todo_snapshot = current_todos
@@ -1144,14 +1165,14 @@ fn build_initial_summary_context_message(
         .map(|value| normalize_markdown_block(&value))
         .unwrap_or_default();
     let normalized_title = title.and_then(normalize_summary_context_title);
-    let text = if todo_snapshot.is_empty() {
-        "## 摘要说明\n\n- 这是新会话的初始背景，不包含历史对话摘要。".to_string()
-    } else {
-        format!(
-            "## 摘要说明\n\n- 这是新会话的初始背景，不包含历史对话摘要。\n\n{}",
-            todo_snapshot
-        )
-    };
+    let mut sections = vec!["## 摘要说明\n\n- 这是新会话的初始背景，不包含历史对话摘要。".to_string()];
+    if !todo_snapshot.is_empty() {
+        sections.push(todo_snapshot);
+    }
+    if let Some(section) = available_teammates_section(teammate_names) {
+        sections.push(section);
+    }
+    let text = sections.join("\n\n");
     ChatMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".to_string(),
@@ -2052,6 +2073,7 @@ mod archive_pipeline_tests {
             "",
             None,
             &[],
+            &[],
         );
         let text = render_message_content_for_model(&message);
 
@@ -2070,12 +2092,79 @@ mod archive_pipeline_tests {
             "",
             None,
             &["- bg-shell-abc：description=跑 dev server，command=pnpm tauri dev".to_string()],
+            &[],
         );
         let text = render_message_content_for_model(&message);
 
         assert!(text.contains("## 运行中的后台任务"));
         assert!(text.contains("bg-shell-abc"));
         assert!(text.contains("pnpm tauri dev"));
+    }
+
+    #[test]
+    fn summary_seed_should_list_teammate_names_only() {
+        let message = build_initial_summary_context_message(
+            None,
+            Some("新会话"),
+            &["副手".to_string(), "审阅者".to_string()],
+        );
+        let text = render_message_content_for_model(&message);
+
+        assert!(text.contains("## 摘要说明"));
+        assert!(text.contains("## 当前可委托的队友"));
+        assert!(text.contains("- 副手\n- 审阅者"));
+    }
+
+    #[test]
+    fn summary_seed_should_omit_teammate_section_when_names_empty() {
+        let message = build_initial_summary_context_message(None, None, &[]);
+        let text = render_message_content_for_model(&message);
+
+        assert!(!text.contains("## 当前可委托的队友"));
+    }
+
+    #[test]
+    fn summary_seed_should_stay_stable_for_same_input() {
+        let names = vec!["副手".to_string(), "审阅者".to_string()];
+        let todos = [ConversationTodoItem {
+            content: "第一步".to_string(),
+            status: "pending".to_string(),
+        }];
+
+        let first =
+            render_message_content_for_model(&build_initial_summary_context_message(
+                Some(&todos),
+                Some("标题"),
+                &names,
+            ));
+        let second =
+            render_message_content_for_model(&build_initial_summary_context_message(
+                Some(&todos),
+                Some("标题"),
+                &names,
+            ));
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn compaction_message_should_keep_sections_and_append_teammates() {
+        let message = build_compaction_message(
+            "## 当前进展\n\n- 完成",
+            Some("标题"),
+            "",
+            None,
+            &["- bg-shell-abc：description=跑 dev server".to_string()],
+            &["副手".to_string()],
+        );
+        let text = render_message_content_for_model(&message);
+
+        assert!(text.contains("## 摘要说明"));
+        assert!(text.contains("## 摘要正文"));
+        assert!(text.contains("## 保留对话"));
+        assert!(text.contains("## 运行中的后台任务"));
+        assert!(text.contains("## 当前可委托的队友"));
+        assert!(text.ends_with("- 副手"));
     }
 
     #[test]

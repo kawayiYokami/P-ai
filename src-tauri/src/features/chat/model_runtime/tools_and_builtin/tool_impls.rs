@@ -536,8 +536,6 @@ async fn apply_config_tool_runtime_effect(
                 "mcpFailed": reload_result.mcp_failed,
                 "skillsLoaded": reload_result.skills_loaded,
                 "skillsFailed": reload_result.skills_failed,
-                "privateAgentsLoaded": reload_result.private_agents_loaded,
-                "privateAgentsFailed": reload_result.private_agents_failed,
                 "loadedSummary": reload_result.loaded_summary,
                 "failedSummary": reload_result.failed_summary,
                 "repairSummary": reload_result.repair_summary,
@@ -1847,17 +1845,17 @@ impl RuntimeToolMetadata for BuiltinDelegateTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "delegate",
-            "在下级人格开启一个子代理，协助处理当前工作。当当前工作有更匹配的直属下级人格，或子任务能用简明背景独立说明清楚时，应优先发起委托。",
+            "在队友人格开启一个子代理，协助处理当前工作。当当前工作有更匹配的人格，或子任务能用简明背景独立说明清楚时，应优先发起委托。",
             serde_json::json!({
               "type": "object",
               "properties": {
-                "agent_id": { "type": "string", "description": "要委托的下级人格，填「你的直属下级人格」清单里的人格名称（也兼容人格 id）。应选择与当前任务最匹配的直接下级人格。" },
+                "agent_id": { "type": "string", "description": "要委托的队友人格，填摘要里「当前可委托的队友」清单中的人格名称（也兼容人格 id）。不填则交给副手。只在任务与该人格能力匹配时使用。" },
                 "mode": { "type": "string", "enum": ["wait", "background"], "description": "委托方式。耗时长的单条委派用 background，后台跑完写回当前来源会话；需要并发委托的用 wait，一次发出多个、一起等全部返回。mode 只表示父调度是否等待，不表示串行。", "default": "wait" },
                 "why": { "type": "string", "description": "为什么要做、背景材料、已知事实、已有线索或必要上下文。" },
                 "goal": { "type": "string", "description": "这次委托要达成的目标，写成明确可执行、可判断完成的任务。" },
                 "todo": { "type": "string", "description": "优先关注点、范围边界、交付要求、下一步待办或需要避免的方向。" }
               },
-              "required": ["agent_id", "why", "goal", "todo"]
+              "required": ["why", "goal", "todo"]
             }),
         )
     }

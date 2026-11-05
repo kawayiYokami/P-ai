@@ -810,10 +810,6 @@ impl ConversationPromptService {
         if let Some(model_block) = driving_model_prompt_block(selected_api) {
             core_prompt_blocks.push(model_block);
         }
-        let agent_prompt_block = agent_snapshot.agent_prompt_block.trim();
-        if !agent_prompt_block.is_empty() {
-            core_prompt_blocks.push(agent_prompt_block.to_string());
-        }
         core_prompt_blocks.extend(
             tool_rule_blocks
                 .into_iter()

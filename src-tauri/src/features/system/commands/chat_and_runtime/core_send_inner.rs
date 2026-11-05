@@ -1185,7 +1185,6 @@ async fn send_chat_message_inner(
         log_chat_stage("runtime_and_session_ready.runtime_data_cloned");
         let runtime_org_started = std::time::Instant::now();
         let runtime_org = build_runtime_organization_snapshot_from_parts(
-            &state.data_path,
             &app_config,
             &runtime_agents,
         )?;
@@ -4330,7 +4329,7 @@ mod core_send_inner_tests {
         );
         conversation
             .messages
-            .push(build_initial_summary_context_message(None, Some("已有摘要标题")));
+            .push(build_initial_summary_context_message(None, Some("已有摘要标题"), &[]));
 
         assert!(!should_schedule_conversation_auto_title_generation(
             &conversation,
@@ -4350,7 +4349,7 @@ mod core_send_inner_tests {
         );
         conversation
             .messages
-            .push(build_initial_summary_context_message(None, Some("来自原会话的分支")));
+            .push(build_initial_summary_context_message(None, Some("来自原会话的分支"), &[]));
         assert!(conversation_update_latest_summary_title_with_source(
             &mut conversation,
             Some("来自原会话的分支"),

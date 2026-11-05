@@ -462,6 +462,7 @@
             "manual",
             Some("用户：继续推进\n助手甲：我来接着处理"),
             &[],
+            &[],
         );
         let text = message
             .parts
@@ -489,6 +490,7 @@
             Some("计划标题"),
             "manual",
             None,
+            &[],
             &[],
         );
         let text = message
@@ -829,7 +831,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: default_main_source(),
             scope: default_global_scope(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -892,7 +893,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: default_main_source(),
             scope: default_global_scope(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -1030,7 +1030,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: default_main_source(),
             scope: default_global_scope(),
             summary: "被折叠的简介".to_string(),
             resident_skill_names: Vec::new(),

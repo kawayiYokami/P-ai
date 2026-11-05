@@ -51,14 +51,12 @@ fn normalize_runtime_organization_agent_children(agents: &mut [AgentProfile]) {
 }
 
 fn build_runtime_organization_snapshot_from_parts(
-    data_path: &PathBuf,
     base_config: &AppConfig,
     base_agents: &[AgentProfile],
 ) -> Result<RuntimeOrganizationSnapshot, String> {
     let config = base_config.clone();
     let mut runtime_data = AppData::default();
     runtime_data.agents = base_agents.to_vec();
-    merge_private_organization_into_runtime_data(data_path, &config, &mut runtime_data)?;
     normalize_runtime_organization_agent_children(&mut runtime_data.agents);
 
     let mut agents_by_id = std::collections::HashMap::<String, AgentProfile>::new();
@@ -82,7 +80,7 @@ fn load_runtime_organization_snapshot(
 ) -> Result<RuntimeOrganizationSnapshot, String> {
     let config = state_read_config_cached(state)?;
     let agents = state_read_agents_cached(state)?;
-    build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &agents)
+    build_runtime_organization_snapshot_from_parts(&config, &agents)
 }
 
 /// 人格主索引取人格。组织就是人格本身，新模型下的解析一律走这里。
@@ -101,6 +99,35 @@ fn runtime_agent_by_id<'a>(
 /// 系统人格（`system-persona`）不在此排除，与既有的 `available_non_user_agent` 口径一致。
 fn runtime_agent_is_available(agent: &AgentProfile) -> bool {
     !agent.is_built_in_user
+}
+
+/// 可委托的队友：人格库里除用户人格、系统播报人格、当前人格自己之外的全部人格。
+/// 队友不看组织关系，队长、队员、毫无组织关系的人格一律算在内；顺序沿用 `agents` 原序。
+/// 委托目标校验与摘要注入共用这一份口径，避免两处看到不一致的名单。
+fn available_delegate_teammates<'a>(
+    agents: &'a [AgentProfile],
+    current_agent_id: &str,
+) -> Vec<&'a AgentProfile> {
+    let current_agent_id = current_agent_id.trim();
+    agents
+        .iter()
+        .filter(|agent| !agent.id.trim().is_empty())
+        .filter(|agent| !agent.name.trim().is_empty())
+        .filter(|agent| !agent.is_built_in_user && !agent.is_built_in_system)
+        .filter(|agent| agent.id.trim() != current_agent_id)
+        .collect()
+}
+
+/// 摘要只展示人格名：一人一项，去重后保持原序。
+fn available_delegate_teammate_names(agents: &[AgentProfile], current_agent_id: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::<String>::new();
+    available_delegate_teammates(agents, current_agent_id)
+        .into_iter()
+        .filter_map(|agent| {
+            let name = agent.name.trim().to_string();
+            seen.insert(name.clone()).then_some(name)
+        })
+        .collect()
 }
 
 fn runtime_available_agent<'a>(
@@ -153,7 +180,6 @@ mod runtime_organization_tests {
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "global".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -165,6 +191,54 @@ mod runtime_organization_tests {
             permission_control: AgentPermissionControl::default(),
             child_agent_ids: Vec::new(),
         }
+    }
+
+    #[test]
+    fn available_delegate_teammates_should_exclude_user_system_and_self() {
+        let mut user = agent_profile("user-persona", "红豆");
+        user.is_built_in_user = true;
+        let mut system = agent_profile("system-persona", "系统");
+        system.is_built_in_system = true;
+        let self_agent = agent_profile("leader", "队长");
+        let teammate = agent_profile("deputy-agent", "副手");
+
+        let agents = vec![user, system, self_agent, teammate];
+        let names = available_delegate_teammate_names(&agents, "leader");
+
+        assert_eq!(names, vec!["副手".to_string()]);
+    }
+
+    #[test]
+    fn available_delegate_teammates_should_keep_agents_order() {
+        let agents = vec![
+            agent_profile("a", "甲"),
+            agent_profile("b", "乙"),
+            agent_profile("c", "丙"),
+        ];
+
+        let names = available_delegate_teammate_names(&agents, "self");
+
+        assert_eq!(names, vec!["甲".to_string(), "乙".to_string(), "丙".to_string()]);
+    }
+
+    #[test]
+    fn available_delegate_teammates_should_ignore_organization_relations() {
+        // 判据不看 child_agent_ids：队长、队员、无组织关系的人格都是队友。
+        let mut leader = agent_profile("leader", "队长");
+        leader.child_agent_ids = vec!["member".to_string()];
+        let member = agent_profile("member", "队员");
+        let stranger = agent_profile("stranger", "外人");
+
+        let agents = vec![leader, member, stranger];
+
+        assert_eq!(
+            available_delegate_teammate_names(&agents, "member"),
+            vec!["队长".to_string(), "外人".to_string()]
+        );
+        assert_eq!(
+            available_delegate_teammate_names(&agents, "leader"),
+            vec!["队员".to_string(), "外人".to_string()]
+        );
     }
 
     fn snapshot_with(agents: Vec<AgentProfile>) -> RuntimeOrganizationSnapshot {

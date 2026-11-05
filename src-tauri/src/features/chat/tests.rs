@@ -979,66 +979,6 @@
     }
 
     #[test]
-    fn builtin_memory_tools_should_accept_private_workspace_runtime_agent() {
-        let state = test_chat_runtime_state();
-        let now = now_iso();
-        let private_worker = AgentProfile {
-            id: "private-worker".to_string(),
-            name: "私人执行者".to_string(),
-            system_prompt: "你是谁：你是私人执行者。\n台词技巧：直接。\n性格画像：可靠。".to_string(),
-            tools: default_agent_tools(),
-            created_at: now.clone(),
-            updated_at: now,
-            avatar_path: None,
-            avatar_updated_at: None,
-            is_built_in_user: false,
-            is_built_in_system: false,
-            private_memory_enabled: false,
-            memory_recall_mode: default_agent_memory_recall_mode(),
-            source: default_private_workspace_source(),
-            scope: default_assistant_private_scope(),
-            summary: String::new(),
-            resident_skill_names: Vec::new(),
-            optional_skill_names: Vec::new(),
-            include_system_rules: true,
-            api_config_ids: Vec::new(),
-            api_config_id: String::new(),
-            model_failure_fallback_enabled: false,
-            permission_control: AgentPermissionControl::default(),
-            child_agent_ids: Vec::new(),
-        };
-        let private_worker_memory_context =
-            memory_agent_context_from_agent(&private_worker).expect("private worker memory context");
-
-        let save_result = builtin_memory_save(
-            &state,
-            &private_worker_memory_context,
-            serde_json::json!({
-                "action": "create",
-                "memory": {
-                    "memoryType": "knowledge",
-                    "judgment": "这是私有工作区人格记录的共享记忆",
-                    "reasoning": "回归测试",
-                    "tags": ["私有回归", "共享"]
-                }
-            }),
-        )
-        .expect("save private workspace memory");
-
-        assert_eq!(save_result.get("saved").and_then(Value::as_bool), Some(true));
-
-        let recall_result = builtin_recall(&state, &private_worker_memory_context, "私有回归", None, None, None)
-            .expect("recall private workspace memory");
-        let memory_board = recall_result
-            .get("memories")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-
-        assert_eq!(recall_result.get("count").and_then(Value::as_u64), Some(1));
-        assert!(memory_board.contains("这是私有工作区人格记录的共享记忆"));
-    }
-
-    #[test]
     fn build_prompt_user_meta_text_should_skip_compaction_message_metadata() {
         let now = now_iso();
         let mut message = test_text_message(
@@ -3370,7 +3310,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "global".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -3541,7 +3480,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "global".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -3701,7 +3639,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "global".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -3764,7 +3701,6 @@
             is_built_in_system: false,
             private_memory_enabled: false,
             memory_recall_mode: default_agent_memory_recall_mode(),
-            source: "global".to_string(),
             scope: "global".to_string(),
             summary: String::new(),
             resident_skill_names: Vec::new(),
@@ -6498,6 +6434,7 @@
             Some("工具调度压缩"),
             "force_context_usage_82",
             Some("用户：连续检查两个目标\n助手：第一轮工具检查已经完成。"),
+            &[],
             &[],
         );
         conversation_service_v2()
@@ -10762,7 +10699,7 @@
     }
 
     #[test]
-    fn assemble_runtime_tools_should_gate_delegate_by_executor_agent() {
+    fn assemble_runtime_tools_should_not_gate_delegate_by_executor_agent() {
         let state = test_chat_runtime_state();
         let mut shared_agent = default_agent();
         shared_agent.id = "shared-agent".to_string();
@@ -10771,7 +10708,7 @@
         shared_agent.permission_control = AgentPermissionControl {
             enabled: true,
             mode: "whitelist".to_string(),
-            builtin_tool_names: vec!["fetch".to_string()],
+            builtin_tool_names: vec!["fetch".to_string(), "delegate".to_string()],
             skill_names: Vec::new(),
             mcp_tool_names: Vec::new(),
         };
@@ -10817,14 +10754,15 @@
                 &session_id,
             ));
 
-        assert!(assembly.tool_manifest.iter().any(|item| {
+        // 没有下级、与谁都没有上下级关系的人格，delegate 仍应出现在可用工具里。
+        assert!(!assembly.tool_manifest.iter().any(|item| {
             item.get("source").and_then(Value::as_str) == Some("runtime_policy")
                 && item.get("name").and_then(Value::as_str) == Some("delegate")
                 && item.get("enabled").and_then(Value::as_bool) == Some(false)
-                && item.get("reason").and_then(Value::as_str)
-                    == Some("当前人格没有直接下级，无法使用委托")
         }));
-        assert!(!assembly.tools.iter().any(|tool| tool.name() == "delegate"));
+        assert!(assembly.tool_definitions.iter().any(|tool| tool.name == "delegate"));
+        assert!(assembly.tools.iter().any(|tool| tool.name() == "delegate"));
+        // 权限白名单照旧生效：名单内的 fetch 可用，名单外的 config 不可用。
         assert!(assembly.tool_definitions.iter().any(|tool| tool.name == "fetch"));
         assert!(assembly.tools.iter().any(|tool| tool.name() == "fetch"));
         assert!(!assembly.tool_definitions.iter().any(|tool| tool.name == "config"));
@@ -11446,7 +11384,7 @@
     }
 
     #[test]
-    fn common_delegate_preflight_should_reject_non_direct_child_target_in_validation() {
+    fn common_delegate_preflight_should_allow_target_without_organization_relation() {
         let state = test_chat_runtime_state();
         let mut source_agent = default_agent();
         source_agent.id = "source-agent".to_string();
@@ -11491,11 +11429,87 @@
         assert_eq!(preflight.source_agent.id, source_agent.id);
         assert_eq!(preflight.target_agent.id, target_agent.id);
         assert_eq!(preflight.root_conversation_id, conversation.id);
-        assert!(validate_delegate_tool_direct_child_target(&preflight).is_err());
+        assert!(validate_delegate_target_is_teammate(&preflight, false).is_ok());
+    }
+
+    fn delegate_preflight_for(
+        agents: Vec<AgentProfile>,
+        source_agent_id: &str,
+        target_agent_id: &str,
+    ) -> DelegatePreflight {
+        let source_agent = agents
+            .iter()
+            .find(|agent| agent.id == source_agent_id)
+            .cloned()
+            .expect("source agent");
+        let target_agent = agents
+            .iter()
+            .find(|agent| agent.id == target_agent_id)
+            .cloned()
+            .expect("target agent");
+        DelegatePreflight {
+            config: AppConfig::default(),
+            agents,
+            source_agent,
+            target_agent,
+            root_conversation_id: "conversation-delegate-preflight".to_string(),
+            current_thread: None,
+        }
     }
 
     #[test]
-    fn common_delegate_preflight_should_accept_direct_child_agent() {
+    fn delegate_target_should_allow_leader_persona() {
+        // 核心诉求：委托给自己的队长必须成功——组织关系上当前人格是队员。
+        let mut leader = default_agent();
+        leader.id = "leader-agent".to_string();
+        leader.name = "队长".to_string();
+        let mut member = default_agent();
+        member.id = "member-agent".to_string();
+        member.name = "队员".to_string();
+        leader.child_agent_ids = vec![member.id.clone()];
+
+        let preflight = delegate_preflight_for(
+            vec![leader, member, default_user_persona()],
+            "member-agent",
+            "leader-agent",
+        );
+
+        assert!(validate_delegate_target_is_teammate(&preflight, false).is_ok());
+    }
+
+    #[test]
+    fn delegate_target_should_reject_user_system_and_self() {
+        let mut teammate = default_agent();
+        teammate.id = "teammate-agent".to_string();
+        teammate.name = "队友".to_string();
+        let mut source = default_agent();
+        source.id = "source-agent".to_string();
+        source.name = "源人格".to_string();
+
+        let agents = vec![
+            source.clone(),
+            teammate,
+            default_user_persona(),
+            default_system_persona(),
+        ];
+        let user_persona = default_user_persona();
+        let system_persona = default_system_persona();
+
+        let user_preflight =
+            delegate_preflight_for(agents.clone(), &source.id, &user_persona.id);
+        assert!(validate_delegate_target_is_teammate(&user_preflight, false).is_err());
+
+        let system_preflight =
+            delegate_preflight_for(agents.clone(), &source.id, &system_persona.id);
+        assert!(validate_delegate_target_is_teammate(&system_preflight, false).is_err());
+
+        let self_preflight = delegate_preflight_for(agents, &source.id, &source.id);
+        assert!(validate_delegate_target_is_teammate(&self_preflight, false).is_err());
+        assert!(validate_delegate_target_is_teammate(&self_preflight, true).is_ok());
+    }
+
+    #[test]
+    fn common_delegate_preflight_should_accept_child_agent() {
         let state = test_chat_runtime_state();
         let mut parent_agent = default_agent();
         parent_agent.id = "parent-agent".to_string();
@@ -11541,7 +11555,7 @@
         assert_eq!(preflight.source_agent.id, parent_agent.id);
         assert_eq!(preflight.target_agent.id, private_agent.id);
         assert_eq!(preflight.root_conversation_id, conversation.id);
-        assert!(validate_delegate_tool_direct_child_target(&preflight).is_ok());
+        assert!(validate_delegate_target_is_teammate(&preflight, false).is_ok());
     }
 
     #[test]
@@ -11756,29 +11770,6 @@
         let resolved = delegate_target_chat_api_config_ids(&app_config, &agent);
 
         assert_eq!(resolved, vec![expert_id.to_string()]);
-    }
-
-    #[test]
-    fn build_organization_prompt_block_should_keep_same_persona_child_agents() {
-        let mut parent = default_agent();
-        parent.id = "agent-parent".to_string();
-        parent.name = "父人格".to_string();
-        parent.summary = "当任务需要总控时叫我".to_string();
-        parent.child_agent_ids = vec!["agent-child".to_string()];
-
-        let mut child = default_agent();
-        child.id = "agent-child".to_string();
-        child.name = "同人格下级".to_string();
-        child.summary = "当任务需要专项摸底时叫我".to_string();
-
-        let agents = vec![parent, child];
-        let block = build_organization_prompt_block("agent-parent", &agents, "zh-CN");
-
-        assert!(block.contains("人格：父人格"));
-        assert!(block.contains("你的直属下级人格："));
-        assert!(!block.contains("当任务需要总控时叫我"));
-        assert!(block.contains("同人格下级"));
-        assert!(block.contains("概述：当任务需要专项摸底时叫我"));
     }
 
     #[test]
@@ -17811,6 +17802,7 @@
             Some("压缩"),
             "force_context_usage_82",
             None,
+            &[],
             &[],
         );
         conversation_service_v2()

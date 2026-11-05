@@ -706,8 +706,6 @@ export type RefreshMcpAndSkillsResult = {
   skillsFailed: WorkspaceLoadError[];
   skills: SkillSummaryItem[];
   skillSummary: string;
-  privateAgentsLoaded: string[];
-  privateAgentsFailed: WorkspaceLoadError[];
   loadedGroups: WorkspaceLoadedGroup[];
   failedGroups: WorkspaceFailedGroup[];
   totalLoaded: number;

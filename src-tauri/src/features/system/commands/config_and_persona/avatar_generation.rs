@@ -675,16 +675,7 @@ async fn generate_agent_avatar_inner(
         return Err("agentId is required".to_string());
     }
     let agents = state_read_agents_cached(state)?;
-    let base_config = read_config(&state.config_path)?;
-    let runtime_agents = runtime_agents_with_private_organization(
-        state,
-        &base_config,
-        &AppData {
-            agents: agents.clone(),
-            ..Default::default()
-        },
-    )?;
-    let target = runtime_agents
+    let target = agents
         .iter()
         .find(|agent| agent.id == agent_id)
         .cloned()
@@ -743,27 +734,15 @@ async fn generate_agent_avatar_inner(
     let now = now_iso();
     // 存相对数据根的路径，数据根整体搬迁后仍可解析。
     let avatar_path = avatar_relative_path(&file_name);
-    if is_private_workspace_source(&target.source) {
-        let mut next_runtime_agents = runtime_agents.clone();
-        let index = next_runtime_agents
-            .iter()
-            .position(|agent| agent.id == agent_id)
-            .ok_or_else(|| format!("Agent '{agent_id}' not found."))?;
-        next_runtime_agents[index].avatar_path = Some(avatar_path.clone());
-        next_runtime_agents[index].avatar_updated_at = Some(now.clone());
-        next_runtime_agents[index].updated_at = now.clone();
-        sync_private_agents_to_workspace(&state.data_path, &base_config, &next_runtime_agents)?;
-    } else {
-        let mut next_agents = agents;
-        let index = next_agents
-            .iter()
-            .position(|agent| agent.id == agent_id)
-            .ok_or_else(|| format!("Agent '{agent_id}' not found."))?;
-        next_agents[index].avatar_path = Some(avatar_path.clone());
-        next_agents[index].avatar_updated_at = Some(now.clone());
-        next_agents[index].updated_at = now.clone();
-        state_write_agents_cached(state, &next_agents)?;
-    }
+    let mut next_agents = agents;
+    let index = next_agents
+        .iter()
+        .position(|agent| agent.id == agent_id)
+        .ok_or_else(|| format!("Agent '{agent_id}' not found."))?;
+    next_agents[index].avatar_path = Some(avatar_path.clone());
+    next_agents[index].avatar_updated_at = Some(now.clone());
+    next_agents[index].updated_at = now.clone();
+    state_write_agents_cached(state, &next_agents)?;
 
     runtime_log_info(format!(
         "[头像生成] 完成，agentId={}，字节={}，耗时={}ms",

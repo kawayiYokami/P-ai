@@ -889,39 +889,6 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     }
   }
 
-  async function convertPrivatePersonaToPublic(agentId: string) {
-    const normalizedAgentId = String(agentId || "").trim();
-    if (!normalizedAgentId) return false;
-    options.suppressAutosave.value = true;
-    options.savingPersonas.value = true;
-    try {
-      options.personas.value = await invokeTauri<PersonaProfile[]>("convert_private_agent_to_main", {
-        input: { agentId: normalizedAgentId },
-      });
-      options.personas.value = options.personas.value.map((item) => ({
-        ...item,
-        tools: Array.isArray(item.tools)
-          ? item.tools.map((tool) => ({
-              ...tool,
-              args: Array.isArray(tool.args) ? [...tool.args] : [],
-              values: { ...((tool.values || {}) as Record<string, unknown>) },
-            }))
-          : [],
-      }));
-      options.syncUserAliasFromPersona();
-      options.lastSavedPersonasJson.value = options.buildPersonasSnapshotJson();
-      lastSavedPersonasSnapshotList = snapshotPersonas(options.personas.value);
-      options.setStatus(options.t("config.persona.convertToPublicSuccess"));
-      return true;
-    } catch (e) {
-      options.setStatusError("config.persona.convertToPublicFailed", e);
-      return false;
-    } finally {
-      options.savingPersonas.value = false;
-      options.suppressAutosave.value = false;
-    }
-  }
-
   async function saveChatPreferences() {
     await patchChatSettings({
       assistantAgentId: options.assistantAgentId.value,
@@ -1130,7 +1097,6 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     loadChatSettings,
     refreshPersonasAfterExternalChange,
     savePersonas,
-    convertPrivatePersonaToPublic,
     patchChatSettings,
     saveChatPreferences,
     patchConversationApiSettings,

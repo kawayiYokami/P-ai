@@ -392,9 +392,6 @@ async fn ide_chat_handle_jsonrpc_request(
             ide_chat_test_search_engine_for_web_settings(state, request.params).await
         }
         "load_agents" => ide_chat_load_agents_for_web_settings(state),
-        "convert_private_agent_to_main" => {
-            ide_chat_convert_private_agent_to_main_for_web_settings(state, request.params)
-        }
         "save_agent_avatar" => ide_chat_save_agent_avatar_for_web_settings(state, request.params),
         "list_agent_memes" => ide_chat_list_agent_memes_for_web_settings(state, request.params),
         "add_agent_meme" => ide_chat_add_agent_meme_for_web_settings(state, request.params),
@@ -1202,7 +1199,6 @@ mod web_native_capability_tests {
             "check_tools_status",
             "list_terminal_shell_candidates",
             "preview_rewind_conversation_from_message",
-            "convert_private_agent_to_main",
             "set_agent_private_memory_enabled",
             "remote_im_get_default_group_response_guidance",
             "remote_im_patch_contact_settings",

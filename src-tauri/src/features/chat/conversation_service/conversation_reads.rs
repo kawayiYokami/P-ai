@@ -91,11 +91,10 @@ impl ConversationServiceV2 {
 
         let _guard = lock_conversation_with_metrics(state, "get_chat_snapshot")?;
 
-        let mut app_config = state_read_config_cached(state)?;
+        let app_config = state_read_config_cached(state)?;
         let agents = state_read_agents_cached(state)?;
         let runtime_snapshot = build_runtime_organization_snapshot_from_parts(
-            &state.data_path,
-            &mut app_config,
+            &app_config,
             &agents,
         )?;
         let runtime_agents = runtime_snapshot.agents;

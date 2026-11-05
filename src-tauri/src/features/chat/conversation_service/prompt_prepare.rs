@@ -202,14 +202,13 @@ impl ConversationServiceV2 {
 
     fn resolve_effective_agent_id_for_read(
         &self,
-        state: &AppState,
         app_config: &mut AppConfig,
         runtime_agents: &[AgentProfile],
         assistant_agent_id: &str,
         requested_agent_id: &str,
     ) -> Result<String, String> {
         let runtime_snapshot =
-            build_runtime_organization_snapshot_from_parts(&state.data_path, app_config, runtime_agents)?;
+            build_runtime_organization_snapshot_from_parts(app_config, runtime_agents)?;
         *app_config = runtime_snapshot.config.clone();
         let runtime_agents = runtime_snapshot.agents;
         let requested_agent_id = requested_agent_id.trim();

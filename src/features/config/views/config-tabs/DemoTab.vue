@@ -30,9 +30,7 @@
             <option value="quick-model-card">快速模型不可用卡片</option>
             <option value="catalog-store">能力商店</option>
             <option value="persona-capability">人格主页（移动端极简版）</option>
-            <option value="persona-injection">人格随身技能与顺序（加载顺序表）</option>
             <option value="persona-permission">人格权限页（黑白名单树）</option>
-            <option value="persona-delegate">人格委托人（选下属）</option>
             <option value="settings-shell">设置页头部（面包屑 + 标签页）</option>
             <option value="kanban-board">议题看板页（KanbanBoardPanel）</option>
             <option value="kanban-card">议题看板磁贴（3×3）</option>
@@ -49,16 +47,8 @@
           <PersonaTabDemo view="profile" />
         </div>
 
-        <div v-if="demoComponentKey === 'persona-injection'" class="pt-2">
-          <PersonaTabDemo view="injection" />
-        </div>
-
         <div v-if="demoComponentKey === 'persona-permission'" class="pt-2">
           <PersonaTabDemo view="permission" />
-        </div>
-
-        <div v-if="demoComponentKey === 'persona-delegate'" class="pt-2">
-          <PersonaTabDemo view="delegate" />
         </div>
 
         <div v-if="demoComponentKey === 'question'" class="space-y-3 pt-2">
@@ -910,7 +900,7 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "persona-capability" | "persona-injection" | "persona-permission" | "persona-delegate" | "settings-shell" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "persona-capability" | "persona-permission" | "settings-shell" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
 
 // bare 模式下把内容高度写进标题，便于无头截图按内容高度精确裁剪。
 onMounted(() => {
@@ -921,9 +911,7 @@ onMounted(() => {
 });
 const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "persona-capability") return "人格主页";
-  if (demoComponentKey.value === "persona-injection") return "人格随身技能与顺序";
   if (demoComponentKey.value === "persona-permission") return "人格权限页";
-  if (demoComponentKey.value === "persona-delegate") return "人格委托人";
   if (demoComponentKey.value === "catalog-store") return "能力商店";
   if (demoComponentKey.value === "settings-shell") return "设置页头部";
   if (demoComponentKey.value === "kanban-board") return "议题看板页";

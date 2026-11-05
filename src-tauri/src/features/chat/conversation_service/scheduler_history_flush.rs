@@ -160,9 +160,14 @@ impl ConversationServiceV2 {
             && !has_summary_context
             && !conversation_is_delegate(conversation)
         {
+            let teammate_names = available_delegate_teammate_names(
+                &state_read_agents_cached(state).unwrap_or_default(),
+                &conversation.agent_id,
+            );
             let summary_message = build_initial_summary_context_message(
                 Some(&conversation.current_todos),
                 None,
+                &teammate_names,
             );
             persisted_batch_messages.push(summary_message.clone());
             conversation.messages.push(summary_message);
