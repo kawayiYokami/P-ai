@@ -107,6 +107,8 @@ struct SearchEngineScheduler {
     cooldown_until: std::collections::HashMap<String, std::time::Instant>,
     /// 会话 id → 上次成功的引擎 id
     last_success: std::collections::HashMap<String, String>,
+    /// 引擎 id → 正在飞的请求数；并发搜索不该全撞在同一个源上
+    in_flight: std::collections::HashMap<String, usize>,
 }
 
 impl SearchEngineScheduler {
@@ -114,6 +116,28 @@ impl SearchEngineScheduler {
         self.cooldown_until
             .get(engine.id())
             .is_some_and(|until| *until > now)
+    }
+
+    fn in_flight_count(&self, engine: SearchEngine) -> usize {
+        self.in_flight.get(engine.id()).copied().unwrap_or(0)
+    }
+
+    fn begin_in_flight(&mut self, engine: SearchEngine) {
+        *self
+            .in_flight
+            .entry(engine.id().to_string())
+            .or_insert(0) += 1;
+    }
+
+    fn finish_in_flight(&mut self, engine: SearchEngine) {
+        let key = engine.id().to_string();
+        let Some(count) = self.in_flight.get_mut(&key) else {
+            return;
+        };
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            self.in_flight.remove(&key);
+        }
     }
 
     fn set_cooldown(&mut self, engine: SearchEngine, seconds: u64, now: std::time::Instant) {
@@ -137,18 +161,25 @@ impl SearchEngineScheduler {
         SearchEngine::from_id(raw)
     }
 
-    /// 本次调用的尝试顺序：冷却中的剔掉；本会话上次成功的排第一；其余随机打散。
+    /// 本次调用的尝试顺序：冷却中的剔掉，正在飞的也剔掉；本会话上次成功的排第一；其余随机打散。
     fn plan(
         &self,
         session_key: &str,
         candidates: &[SearchEngine],
         now: std::time::Instant,
     ) -> Vec<SearchEngine> {
-        let mut available = candidates
+        let not_cooling = candidates
             .iter()
             .copied()
             .filter(|engine| !self.is_cooling(*engine, now))
             .collect::<Vec<_>>();
+        let idle = not_cooling
+            .iter()
+            .copied()
+            .filter(|engine| self.in_flight_count(*engine) == 0)
+            .collect::<Vec<_>>();
+        // 全都在飞（或候选只剩一个）时退回不过滤：宁可复用同一个源，也不能给出空候选。
+        let mut available = if idle.is_empty() { not_cooling } else { idle };
         if let Some(previous) = self.last_success_engine(session_key) {
             if let Some(index) = available.iter().position(|engine| *engine == previous) {
                 let preferred = available.remove(index);
@@ -160,6 +191,23 @@ impl SearchEngineScheduler {
         shuffle_search_engines(&mut available);
         available
     }
+}
+
+/// 在飞计数的作用域守卫：拿到就 +1，成功、失败、提前 return 或 panic 都由 Drop 收尾 -1。
+struct SearchEngineLease {
+    engine: SearchEngine,
+}
+
+impl Drop for SearchEngineLease {
+    fn drop(&mut self) {
+        let engine = self.engine;
+        with_search_scheduler(|scheduler| scheduler.finish_in_flight(engine));
+    }
+}
+
+fn acquire_search_engine(engine: SearchEngine) -> SearchEngineLease {
+    with_search_scheduler(|scheduler| scheduler.begin_in_flight(engine));
+    SearchEngineLease { engine }
 }
 
 /// 洗牌用 uuid v4 的随机位，不额外引入随机数依赖。
@@ -773,6 +821,16 @@ fn search_payload(engine_id: &str, engine_name: &str, results: Vec<Value>) -> Va
     })
 }
 
+/// 与「所有引擎都失败」区分开：这次是搜到了东西，但没有一条和查询有关。
+fn bing_irrelevant_results_message(query: &str, dropped: usize) -> String {
+    format!("搜索完成，但没有与查询相关的结果（query: {query}，已丢弃 {dropped} 条无关结果）")
+}
+
+/// 市场判定失败（Bing 给的是非中文页面）也算「搜到了但没用」，不能把日文结果当结果交出去。
+fn bing_market_mismatch_message(query: &str) -> String {
+    format!("搜索完成，但没有与查询相关的结果（query: {query}，Bing 返回的是非中文市场页面）")
+}
+
 async fn bing_search_as_fallback(
     state: &AppState,
     query: &str,
@@ -785,6 +843,25 @@ async fn bing_search_as_fallback(
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
+            let raw_count = results.len();
+            let market_mismatch = value
+                .get("marketMismatch")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if market_mismatch {
+                runtime_log_warn(format!(
+                    "[搜索引擎] Bing 市场判定失败，这次兜底不算有结果：query={query}"
+                ));
+                return Err(bing_market_mismatch_message(query));
+            }
+            // Bing 抓取不保证相关性：查不到东西时它照样回 10 条无关页面，原样塞给模型就是「搜不到」。
+            let results = filter_relevant_bing_results(query, results);
+            if results.is_empty() && raw_count > 0 {
+                runtime_log_info(format!(
+                    "[搜索引擎] Bing 结果与查询无关，已全部丢弃：query={query}，丢弃条数={raw_count}"
+                ));
+                return Err(bing_irrelevant_results_message(query, raw_count));
+            }
             if results.is_empty() {
                 failures.push("Bing: 没有解析出结果".to_string());
             } else {
@@ -851,6 +928,8 @@ async fn builtin_search(
         let Some(candidate) = candidates.iter().find(|candidate| candidate.engine == engine) else {
             continue;
         };
+        // 选源与占用成对：离开本轮作用域（任何分支）都会把在飞计数减回去。
+        let _lease = acquire_search_engine(engine);
         match call_search_engine(
             &state.shared_http_client,
             engine,
@@ -1249,5 +1328,80 @@ mod search_dispatch_tests {
         let config: AppConfig = serde_json::from_value(raw).expect("老配置应能读入");
         assert_eq!(config.search_engines.len(), 5);
         assert_eq!(config.search_mode, SearchMode::Auto);
+    }
+
+    // ========== 并发分散 ==========
+
+    #[test]
+    fn scheduler_plan_should_spread_concurrent_calls_across_engines() {
+        let mut scheduler = SearchEngineScheduler::default();
+        let now = instant();
+        let first = scheduler.plan("session-a", &all_engines(), now)[0];
+        scheduler.begin_in_flight(first);
+        let second = scheduler.plan("session-a", &all_engines(), now)[0];
+        assert_ne!(first, second, "并发请求不该挑同一个引擎");
+        assert!(
+            !scheduler.plan("session-a", &all_engines(), now).contains(&first),
+            "正在飞的引擎不该再进候选"
+        );
+        assert_eq!(scheduler.in_flight_count(first), 1);
+        scheduler.finish_in_flight(first);
+        assert_eq!(scheduler.in_flight_count(first), 0);
+        assert!(
+            scheduler.plan("session-a", &all_engines(), now).contains(&first),
+            "请求结束后该引擎要重新可选"
+        );
+    }
+
+    #[test]
+    fn scheduler_plan_should_fall_back_when_every_engine_is_in_flight() {
+        let mut scheduler = SearchEngineScheduler::default();
+        let now = instant();
+        for engine in all_engines() {
+            scheduler.begin_in_flight(engine);
+        }
+        let planned = scheduler.plan("session-a", &all_engines(), now);
+        assert_eq!(
+            planned.len(),
+            all_engines().len(),
+            "全在飞时也要给出可用引擎，不能返回空候选"
+        );
+    }
+
+    #[test]
+    fn scheduler_plan_should_reuse_single_engine_even_when_in_flight() {
+        let mut scheduler = SearchEngineScheduler::default();
+        scheduler.begin_in_flight(SearchEngine::Tavily);
+        let planned = scheduler.plan(
+            "session-a",
+            &[SearchEngine::Tavily],
+            instant(),
+        );
+        assert_eq!(planned, vec![SearchEngine::Tavily]);
+    }
+
+    #[test]
+    fn search_engine_lease_should_release_in_flight_count_on_drop() {
+        let lease = acquire_search_engine(SearchEngine::Exa);
+        assert_eq!(
+            with_search_scheduler(|scheduler| scheduler.in_flight_count(SearchEngine::Exa)),
+            1
+        );
+        drop(lease);
+        assert_eq!(
+            with_search_scheduler(|scheduler| scheduler.in_flight_count(SearchEngine::Exa)),
+            0
+        );
+    }
+
+    #[test]
+    fn bing_irrelevant_results_message_should_name_query_and_not_look_like_failure() {
+        let message = bing_irrelevant_results_message("zzqxvvbnmkljhgf", 10);
+        assert!(message.contains("zzqxvvbnmkljhgf"), "文案要带 query 原文");
+        assert!(message.contains("没有与查询相关的结果"));
+        assert!(
+            !message.contains("所有搜索引擎"),
+            "这句话不能被理解成引擎全挂"
+        );
     }
 }
