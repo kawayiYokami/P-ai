@@ -120,6 +120,10 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
       subscribe<AppConfig>("config.updated", (payload) => {
         options.onConfigUpdated?.(payload);
       });
+      // 后端 reload 后内存态已经换新，本窗口渲染的仍是旧值；刷新页面整体重载，比逐项重拉更彻底。
+      subscribe<{ reason?: string }>("config.reloadRequested", () => {
+        window.location.reload();
+      });
       subscribe<{
         agentId?: string;
         ok?: boolean;

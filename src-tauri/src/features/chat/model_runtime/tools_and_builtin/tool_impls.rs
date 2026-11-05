@@ -523,6 +523,8 @@ async fn apply_config_tool_runtime_effect(
         ConfigToolRuntimeEffect::WorkspaceReload { reason } => {
             let reload_result = reload_workspace(state).await?;
             log_workspace_load_result("[config工具][reload]", &reload_result);
+            // 后端内存态已经换新，各窗口还渲染着旧值；请求它们统一刷新页面。
+            broadcast_reload_requested(state, reason);
             Ok(Some(serde_json::json!({
                 "type": "workspaceReload",
                 "reason": reason,

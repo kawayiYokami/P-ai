@@ -2181,6 +2181,8 @@ const TRANSPORT_NOTIFICATION_EVENT_ALIASES: Record<string, string | string[]> = 
   "conversation.apiUpdated": "easy-call:conversation-api-updated",
   "chat.settingsUpdated": "easy-call:chat-settings-updated",
   "config.updated": "easy-call:config-updated",
+  // config 工具 reload 完成后的刷新请求：各窗口收到就重载页面，让新配置整体生效
+  "config.reloadRequested": "easy-call:config-reload-requested",
   // 人格头像生成结果：配置窗口与聊天窗口据此当场换图，或显示失败原因
   "persona.avatarGenerated": "easy-call:persona-avatar-generated",
   // 人格表写盘后的变更广播：前端据此就地重拉列表，新人格的名字不必等到重开窗口

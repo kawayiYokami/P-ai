@@ -150,6 +150,30 @@ fn broadcast_personas_updated(state: &AppState, reason: &str) {
     }
 }
 
+const RELOAD_REQUESTED_EVENT: &str = "easy-call:config-reload-requested";
+
+/// config 工具 reload 成功后广播一次，请求应用内所有窗口重新加载页面。
+///
+/// 后端内存态此刻已经换成新配置，但各窗口里渲染的还是旧值；让它们自己刷新页面，
+/// 比在每个窗口里逐项重拉配置要简单，也不会漏掉某一处。
+/// 双通道：tauri 窗口事件给应用内，config.reloadRequested 给 IDE/WS 客户端。
+fn broadcast_reload_requested(state: &AppState, reason: &str) {
+    let payload = serde_json::json!({ "reason": reason });
+    ide_chat_broadcast_notification("config.reloadRequested", payload.clone());
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.clone(),
+        Err(_) => None,
+    };
+    let Some(app_handle) = app_handle else {
+        return;
+    };
+    if let Err(err) = app_handle.emit(RELOAD_REQUESTED_EVENT, &payload) {
+        runtime_log_warn(format!(
+            "[配置] 失败，任务=广播 reload 刷新请求，reason={reason}，error={err}"
+        ));
+    }
+}
+
 fn broadcast_sidebar_provider_changed() {
     ide_chat_broadcast_simple_notification("provider.changed");
 }
