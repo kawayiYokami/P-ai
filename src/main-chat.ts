@@ -16,6 +16,13 @@ initUiSizeAppearance();
 window.addEventListener("error", (event) => {
   const error = event.error || event;
   const message = error?.message || event.message || "未知错误";
+  // 过滤 ResizeObserver 规范性无害通知，避免控制台刷屏报错
+  if (typeof message === "string" && (
+    message.includes("ResizeObserver loop completed with undelivered notifications") ||
+    message.includes("ResizeObserver loop limit exceeded")
+  )) {
+    return;
+  }
   const stack = error?.stack || "无堆栈信息";
   console.error(`[全局错误] 消息: ${message}, 堆栈: ${stack}`);
 });

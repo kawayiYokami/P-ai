@@ -2352,7 +2352,8 @@ function scheduleTailMetricsRefresh(maxFrames = 3) {
   tailMetricsRaf = requestAnimationFrame(() => {
     tailMetricsRaf = 0;
     tailMetricsTick.value += 1;
-    const needMeasure = !latestOwnTailContentMeasured.value && latestOwnTailContentRange.value.length > 0;
+    // 流式期间禁止自激轮询：正文流式增长已有 RO 驱动单帧刷新，轮询 24 帧会导致 ResizeObserver loop 死循环与界面假死
+    const needMeasure = !props.chatting && !latestOwnTailContentMeasured.value && latestOwnTailContentRange.value.length > 0;
     const limit = needMeasure ? 24 : maxFrames;
     if (tailMetricsRetry < limit) {
       tailMetricsRetry += 1;
@@ -2407,17 +2408,18 @@ const latestOwnTailContentMeasured = computed(() => {
 const latestOwnTailRangeSignature = computed(() => {
   const range = latestOwnTailContentRange.value;
   if (range.length === 0) return "";
-  // 留白归零剪枝：当留白已收缩至 0 且已完成测量，正文继续增长数学上绝不可能使留白恢复，可跳过正文长度追踪
+  // 留白归零剪枝：当留白已收缩至 0 且已完成测量，正文继续增长数学上绝不可能使留白恢复，可跳过正文长度追踪；
+  // 流式期间正文增长已由 ResizeObserver absorb 实时接管，无需按字符分块频繁刷新调度
   const isSaturated = latestOwnTailSpacerMinHeight.value === 0
     && latestOwnTailContentMeasured.value
     && latestOwnTailContentHeight.value >= latestOwnElasticMinHeight.value;
+  const skipTextStep = props.chatting || isSaturated;
 
   return range
     .map((item) => {
       if (item.kind === "message") {
         const b = item.block;
-        // 未饱和时按 60 字符（约 2~3 行）分块阶梯追踪，避免单字驱动高频重排；流式结束时会通过 props.chatting 精准冲刷
-        const textStep = isSaturated ? 0 : (b.text ? Math.floor(b.text.length / 60) : 0);
+        const textStep = skipTextStep ? 0 : (b.text ? Math.floor(b.text.length / 60) : 0);
         return [
           item.id,
           textStep,
@@ -2920,7 +2922,6 @@ watch(
     latestOwnElasticMinHeight,
     latestOwnTailContentHeight,
     latestOwnTailContentMeasured,
-    tailMetricsTick,
   ],
   ([itemId, targetHeight, tailContentHeight, tailContentMeasured]) => {
     if (!itemId) {
@@ -2932,6 +2933,12 @@ watch(
 
     const isNewTurn = itemId !== lastTrackedElasticItemId;
     lastTrackedElasticItemId = itemId;
+
+    // 同一回合流式期间：留白由 ResizeObserver 的 absorb 机制在每一帧绘制前实时吸收，
+    // 计算器无需在正文逐字增长时重复空转，避免无谓开销与探针日志刷屏
+    if (!isNewTurn && props.chatting) {
+      return;
+    }
 
     const next = resolveNextTailSpacerMinHeight({
       targetHeight,
@@ -3870,16 +3877,9 @@ const {
   emit: { loadOlderHistory: () => emit("loadOlderHistory"), jumpToConversationBottom: () => emit("jumpToConversationBottom") },
 });
 
-let pendingNavigationTick = false;
 function handleConversationScroll() {
   handleConversationScrollBase();
-  if (!pendingNavigationTick) {
-    pendingNavigationTick = true;
-    requestAnimationFrame(() => {
-      pendingNavigationTick = false;
-      scrollNavigationTick.value += 1;
-    });
-  }
+  scrollNavigationTick.value += 1;
 }
 
 function handleConversationWheelInput(event: WheelEvent) {
@@ -3984,14 +3984,9 @@ watch(chatContentRoot, (el, _prev, onCleanup) => {
     const absorbed = absorbContentGrowthIntoTailSpacer(contentDelta);
     lastTailSpacerHeight = latestOwnTailSpacerMinHeight.value;
     lastChatContentHeight = height - absorbed;
-    if (absorbed > 0) void el.offsetHeight;
     if (absorbed < contentDelta) pinChatToBottomWhileFollowing(contentDelta - absorbed);
-    // 这里原来写的是 `spacer > 0 || !latestOwnTailContentMeasured`：只要首屏还没测完，
-    // RO 回调就会连续排 refresh；每次 refresh 都重算留白高度、反过来把内容根撑高一次，
-    // 于是又触发一次 RO，形成闭环，浏览器报
-    // "ResizeObserver loop completed with undelivered notifications"。
-    // 首屏测量已由挂载后的 nextTick 负责，这里只在内容真的增长时才排。
-    if (contentDelta > 1) {
+    // 首屏测量已由挂载后的 nextTick 负责，非流式期内容变化才排 refresh；流式期间由 absorb 精准吸收，不打扰调度
+    if (!props.chatting && contentDelta > 1) {
       scheduleTailMetricsRefresh(1);
     }
     scrollNavigationTick.value += 1;

@@ -14,7 +14,7 @@ describe("resolveNextTailSpacerMinHeight", () => {
     expect(result).toBe(560);
   });
 
-  it("同一回合流式期间：正文增长导致计算高度变小，允许正常收缩", () => {
+  it("同一回合流式期间：正文增长由 absorb 增量式精准扣减，计算器在此期间保持现值避免双重扣减", () => {
     const result = resolveNextTailSpacerMinHeight({
       targetHeight: 600,
       tailContentHeight: 100,
@@ -22,7 +22,7 @@ describe("resolveNextTailSpacerMinHeight", () => {
       isNewTurn: false,
       isStreaming: true,
     });
-    expect(result).toBe(500);
+    expect(result).toBe(560);
   });
 
   it("同一回合流式期间：已被 absorb 扣减后，滞后的缓存计算值偏大时坚决不反弹", () => {
@@ -62,13 +62,13 @@ describe("resolveNextTailSpacerMinHeight", () => {
     expect(result).toBe(400);
   });
 
-  it("归零精确到位，即使差值仅为 1px 也必须精确归零", () => {
+  it("归零精确到位，即使差值仅为 1px 也必须精确归零（非流式收口阶段）", () => {
     const result = resolveNextTailSpacerMinHeight({
       targetHeight: 600,
       tailContentHeight: 600,
       currentSpacer: 1, // diff = 1, 但 next === 0
       isNewTurn: false,
-      isStreaming: true,
+      isStreaming: false,
     });
     expect(result).toBe(0);
   });

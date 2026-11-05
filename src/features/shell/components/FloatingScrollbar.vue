@@ -40,8 +40,6 @@ let appliedThumbSize = -1;
 let appliedThumbOffset = -1;
 
 let resizeObserver: ResizeObserver | null = null;
-let mutationObserver: MutationObserver | null = null;
-let observedChild: Element | null = null;
 let dragStartPointer = 0;
 let dragStartScrollOffset = 0;
 let activePointerId: number | null = null;
@@ -51,6 +49,10 @@ let needsExtentRefresh = false;
 let cachedClientExtent = 0;
 let cachedScrollExtent = 0;
 let cachedScrollOffset = 0;
+let lastExtentRefreshAt = 0;
+// 滚动热路径只读 scrollTop（廉价）；client/scroll extent 是布局依赖读，
+// 强制同步重排代价高，维持 300ms 缓存节流避免与正文排版/留白争抢时钟
+const EXTENT_REFRESH_MIN_INTERVAL_MS = 300;
 
 const isHorizontal = computed(() => props.orientation === "horizontal");
 
@@ -111,10 +113,12 @@ function updateThumbNow(forceExtentRefresh = false) {
   const scroller = targetRef.value;
   if (!scroller) return;
 
-  if (forceExtentRefresh || cachedClientExtent === 0 || cachedScrollExtent === 0) {
+  const now = performance.now();
+  if (forceExtentRefresh || cachedClientExtent === 0 || cachedScrollExtent === 0 || now - lastExtentRefreshAt >= EXTENT_REFRESH_MIN_INTERVAL_MS) {
     cachedClientExtent = isHorizontal.value ? scroller.clientWidth : scroller.clientHeight;
     cachedScrollExtent = isHorizontal.value ? scroller.scrollWidth : scroller.scrollHeight;
     cachedScrollOffset = isHorizontal.value ? scroller.scrollLeft : scroller.scrollTop;
+    lastExtentRefreshAt = now;
   }
   const clientExtent = cachedClientExtent;
   const scrollExtent = cachedScrollExtent;
@@ -175,9 +179,6 @@ function handleScroll(e?: Event) {
 function disconnectObservers() {
   resizeObserver?.disconnect();
   resizeObserver = null;
-  mutationObserver?.disconnect();
-  mutationObserver = null;
-  observedChild = null;
   if (pendingThumbFrame) {
     cancelAnimationFrame(pendingThumbFrame);
     pendingThumbFrame = 0;
@@ -191,18 +192,6 @@ function removeObservedScrollerListener(scroller = observedScroller) {
   }
 }
 
-function syncObservedChild(scroller: HTMLElement) {
-  const firstChild = scroller.firstElementChild;
-  if (firstChild === observedChild) return;
-  if (observedChild && resizeObserver) {
-    resizeObserver.unobserve(observedChild);
-  }
-  observedChild = firstChild;
-  if (observedChild && resizeObserver) {
-    resizeObserver.observe(observedChild);
-  }
-}
-
 function observeScroller(scroller: HTMLElement | null) {
   removeObservedScrollerListener();
   disconnectObservers();
@@ -211,6 +200,7 @@ function observeScroller(scroller: HTMLElement | null) {
   cachedScrollOffset = 0;
   appliedThumbSize = -1;
   appliedThumbOffset = -1;
+  lastExtentRefreshAt = 0;
   if (!scroller) {
     canScroll.value = false;
     return;
@@ -221,14 +211,6 @@ function observeScroller(scroller: HTMLElement | null) {
   if (typeof ResizeObserver !== "undefined") {
     resizeObserver = new ResizeObserver(() => updateThumb(true));
     resizeObserver.observe(scroller);
-    syncObservedChild(scroller);
-  }
-  if (typeof MutationObserver !== "undefined") {
-    mutationObserver = new MutationObserver(() => {
-      syncObservedChild(scroller);
-      updateThumb(true);
-    });
-    mutationObserver.observe(scroller, { childList: true });
   }
   void nextTick(() => updateThumb(true));
 }
