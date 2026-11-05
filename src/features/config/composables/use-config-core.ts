@@ -371,6 +371,15 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         allowSendFiles: !!item.allowSendFiles,
         behaviorSettings: item.behaviorSettings ? { ...item.behaviorSettings } : undefined,
       })),
+      // 搜索引擎：密钥是掩码时原样带回，后端按「掩码对得上旧值」沿用磁盘上的真密钥。
+      searchEngines: (options.config.searchEngines || []).map((item) => ({
+        id: String(item.id || "").trim(),
+        enabled: !!item.enabled,
+        ...(String(item.apiKey || "").trim() ? { apiKey: String(item.apiKey || "").trim() } : {}),
+      })),
+      searchMode: options.config.searchMode?.mode === "fixed"
+        ? { mode: "fixed", engineId: String(options.config.searchMode.engineId || "").trim() }
+        : { mode: "auto" },
       apiProviders: (options.config.apiProviders || []).map((provider) => ({
         id: provider.id,
         name: provider.name,

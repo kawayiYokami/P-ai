@@ -367,6 +367,17 @@ export type PermissionCatalog = {
   mcpTools: PermissionCatalogItem[];
 };
 
+/** 单个搜索引擎的配置项，id 与后端内置引擎表对应。 */
+export type SearchEngineConfigItem = {
+  id: string;
+  enabled: boolean;
+  /** 回传前端时是掩码（形如 `sk***ab`）；原样带回表示没改过，后端沿用旧密钥。 */
+  apiKey?: string;
+};
+
+/** 搜索调度模式：自动多源随机，或锁定某个填了密钥的引擎。 */
+export type SearchMode = { mode: "auto" } | { mode: "fixed"; engineId: string };
+
 export type AppConfig = {
   hotkey: string;
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
@@ -405,6 +416,8 @@ export type AppConfig = {
   shellWorkspaces: ShellWorkspace[];
   mcpServers: McpServerConfig[];
   remoteImChannels: RemoteImChannelConfig[];
+  searchEngines?: SearchEngineConfigItem[];
+  searchMode?: SearchMode;
   apiProviders: ApiProviderConfigItem[];
   imageProviders: ImageGenerationProviderConfigItem[];
   apiConfigs: ApiConfigItem[];
