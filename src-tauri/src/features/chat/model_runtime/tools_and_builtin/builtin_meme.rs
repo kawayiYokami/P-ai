@@ -57,6 +57,7 @@ struct MemeDetectedImageFormat {
     source: &'static str,
 }
 
+const MEME_TOOL_RULE_MD: &str = include_str!("../../../../../resources/prompts/tools/meme.md");
 const MEME_DHASH_INDEX_FILE_NAME: &str = "image_dhash_index.json";
 const MEME_DHASH_DISTANCE_THRESHOLD: u32 = 8;
 const MEME_NORMALIZED_MAX_EDGE: u32 = 300;
@@ -686,16 +687,24 @@ fn meme_find_duplicate_in_assets(
     best_match
 }
 
-fn meme_prompt_rule_block(state: Option<&AppState>, agent_id: &str) -> Option<String> {
-    let state = state?;
-    let names = meme_available_names(state, agent_id).ok()?;
+fn meme_prompt_rule_block(state: Option<&AppState>, agent_id: &str) -> Vec<String> {
+    let Some(state) = state else {
+        return Vec::new();
+    };
+    let Ok(names) = meme_available_names(state, agent_id) else {
+        return Vec::new();
+    };
     if names.is_empty() {
-        return None;
+        return Vec::new();
     }
-    tool_rule_line(&format!(
-        "回答里要放已有表情贴纸，或要把当前看到的图片收入表情库时用。不要为了拿名单去调用 list，名单就在下面；确认某张表情图的文件路径时才用 list。只能使用下面已经存在的表情名，编造的名字发不出去。可用：{}；正文里直接写 :meme名:，例如 :坏笑:，emotion 就是贴纸名。收图用 add，删除或改名用 delete / rename，名字取上面列表里的。",
-        names.join("、")
-    ))
+    // 只陈列能用的贴纸名，正文里直接写 :meme名: 就能发出去。
+    let tokens = names
+        .iter()
+        .map(|name| format!(":{name}:"))
+        .collect::<Vec<_>>()
+        .join("，");
+    let body = MEME_TOOL_RULE_MD.replace("{meme_names}", &tokens);
+    tool_rule_lines(&body)
 }
 
 fn meme_token_is_valid(name: &str) -> bool {
@@ -1223,12 +1232,12 @@ pub(crate) mod builtin_meme_tests {
     }
 
     #[test]
-    fn meme_prompt_rule_block_should_be_none_for_empty_library() {
+    fn meme_prompt_rule_block_should_be_empty_for_empty_library() {
         let state = meme_test_state();
         write_test_png(&meme_agent_root(&state, "agent-a").expect("root a").join("坏笑.webp"));
 
-        assert!(meme_prompt_rule_block(Some(&state), "agent-b").is_none());
-        assert!(meme_prompt_rule_block(Some(&state), "agent-a").is_some());
+        assert!(meme_prompt_rule_block(Some(&state), "agent-b").is_empty());
+        assert!(!meme_prompt_rule_block(Some(&state), "agent-a").is_empty());
     }
 
     #[test]

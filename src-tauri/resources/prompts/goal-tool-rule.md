@@ -1,1 +1,0 @@
-用户希望少询问、勿打扰地持续推进一个目标直到完成或严格阻塞时才用；一次问答应能收口的事不建 goal，已经有 active goal 时也不要再建。update_goal 只在两种情况下调用：complete 要带 evidence，说明哪些状态、文件、命令输出或测试证明目标达成；blocked 要带 blocking_condition，且同一阻塞条件连续至少三轮无法推进。其余情况保持 active，继续朝最终状态推进。把「还在推进」写成 complete 是最常见的误判。

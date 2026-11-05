@@ -3117,46 +3117,41 @@ fn build_system_reminder_rule_block() -> String {
     )
 }
 
-const EXEC_TOOL_RULE_SHELL_MD: &str = include_str!("../../../resources/prompts/exec-tool-rule-shell.md");
-const DEEP_RECALL_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/deep-recall-tool-rule.md");
-const TODO_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/todo-tool-rule.md");
-const KANBAN_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/kanban-tool-rule.md");
-const GOAL_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/goal-tool-rule.md");
-const DELEGATE_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/delegate-tool-rule.md");
-const TASK_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/task-tool-rule.md");
-const FILE_EDIT_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/file-edit-tool-rule.md");
-const QUESTION_AND_PLANNING_RULE_MD: &str = include_str!("../../../resources/prompts/question-and-planning-rule.md");
-const PLAN_PROTOCOL_MD: &str = include_str!("../../../resources/prompts/plan-protocol.md");
-
-/// `read` 不可用时「先读过再改」这条既做不到也没意义，所以由调用方决定加不加。
-const FILE_EDIT_READ_FIRST_RULE: &str = "覆盖或修改一个已存在的文件之前必须先用 read 读过它，长文件用 offset 和 limit 分次读完，不要一次拉全量——除非这个文件就是本轮刚创建或刚改过的。";
+const TOOL_RULE_EXEC_MD: &str = include_str!("../../../resources/prompts/tools/exec.md");
+const TOOL_RULE_DEEP_RECALL_MD: &str = include_str!("../../../resources/prompts/tools/deep-recall.md");
+const TOOL_RULE_TODO_MD: &str = include_str!("../../../resources/prompts/tools/todo.md");
+const TOOL_RULE_KANBAN_MD: &str = include_str!("../../../resources/prompts/tools/kanban.md");
+const TOOL_RULE_GOAL_MD: &str = include_str!("../../../resources/prompts/tools/goal.md");
+const TOOL_RULE_DELEGATE_MD: &str = include_str!("../../../resources/prompts/tools/delegate.md");
+const TOOL_RULE_TASK_MD: &str = include_str!("../../../resources/prompts/tools/task.md");
+const TOOL_RULE_FILE_EDIT_MD: &str = include_str!("../../../resources/prompts/tools/file-edit.md");
+const TOOL_RULE_QUESTION_MD: &str = include_str!("../../../resources/prompts/tools/question.md");
+const TOOL_RULE_CONTACT_MD: &str = include_str!("../../../resources/prompts/tools/contact.md");
+const TOOL_RULE_PLAN_MD: &str = include_str!("../../../resources/prompts/tools/plan.md");
 
 /// 工具规则块的选项：只影响文案里加不加环境相关的那几句。
 #[derive(Default, Clone, Copy)]
 struct ToolRuleOptions {
     /// 本机装了 rg：exec 那条多一句「优先用 rg 搜索」。
     rg_installed: bool,
-    /// 该人格能用 read：「改之前先读」与 offset / limit 那几句才成立。
-    read_available: bool,
 }
 
-/// 一条工具陈列：压成单行、去掉首尾空白。`<tools>` 里一行一条，不带任何符号或子标签。
-fn tool_rule_line(body: &str) -> Option<String> {
-    let normalized = body.split_whitespace().collect::<Vec<_>>().join(" ");
-    if normalized.is_empty() {
-        return None;
-    }
-    Some(normalized)
+/// 工具陈列按行切分：文件里每个非空行就是一条独立陈列，一条只讲一点。
+/// 行内连续空白压成一个空格、行首尾去空白；空行不产出陈列。
+fn tool_rule_lines(body: &str) -> Vec<String> {
+    body.lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|line| !line.is_empty())
+        .collect()
 }
 
 /// 把这一轮要注入的工具陈列拼成唯一的 `<tools>` 容器：一行一条，容器从第一条陈列开始。
 fn build_tools_container_block(entries: &[String]) -> Option<String> {
-    let mut lines = Vec::<String>::new();
-    for entry in entries {
-        if let Some(line) = tool_rule_line(entry) {
-            lines.push(line);
-        }
-    }
+    let lines = entries
+        .iter()
+        .map(|entry| entry.trim())
+        .filter(|entry| !entry.is_empty())
+        .collect::<Vec<_>>();
     if lines.is_empty() {
         // 一条工具都没有时不留空壳容器。
         return None;
@@ -3164,32 +3159,26 @@ fn build_tools_container_block(entries: &[String]) -> Option<String> {
     Some(format!("<tools>\n{}\n</tools>", lines.join("\n")))
 }
 
-fn build_builtin_tool_rule_block(tool_id: &str, options: ToolRuleOptions) -> Option<String> {
+fn build_builtin_tool_rule_block(tool_id: &str, options: ToolRuleOptions) -> Vec<String> {
     match tool_id.trim() {
         "exec" => {
-            let mut body = String::from(EXEC_TOOL_RULE_SHELL_MD.trim());
+            let mut lines = tool_rule_lines(TOOL_RULE_EXEC_MD);
             if options.rg_installed {
-                body.push_str("当前环境 rg 可用，优先用 rg 搜索。");
+                lines.push("当前环境装了 rg，搜字符串时优先用 rg。".to_string());
             }
-            tool_rule_line(&body)
+            lines
         }
-        "deeprecall" => tool_rule_line(DEEP_RECALL_TOOL_RULE_MD),
-        "todo" => tool_rule_line(TODO_TOOL_RULE_MD),
-        "kanban" => tool_rule_line(KANBAN_TOOL_RULE_MD),
-        "goal" => tool_rule_line(GOAL_TOOL_RULE_MD),
-        "get_session" | "inform_session" => tool_rule_line(
-            "要查可投递的会话列表，或向指定会话投递系统通知、提醒、续接上下文时用。同一会话内的正常回复直接答，不用它。inform_session 只负责投递，不会让目标会话继续推理；先用 get_session 缩小目标范围再 inform_session，通知正文简洁、可执行、可读，不要把整轮冗长思考原样倒给别的会话。",
-        ),
-        "delegate" => tool_rule_line(DELEGATE_TOOL_RULE_MD),
-        "task" => tool_rule_line(TASK_TOOL_RULE_MD),
+        "deeprecall" => tool_rule_lines(TOOL_RULE_DEEP_RECALL_MD),
+        "todo" => tool_rule_lines(TOOL_RULE_TODO_MD),
+        "kanban" => tool_rule_lines(TOOL_RULE_KANBAN_MD),
+        "goal" => tool_rule_lines(TOOL_RULE_GOAL_MD),
+        "get_session" | "inform_session" => tool_rule_lines(TOOL_RULE_CONTACT_MD),
+        "delegate" => tool_rule_lines(TOOL_RULE_DELEGATE_MD),
+        "task" => tool_rule_lines(TOOL_RULE_TASK_MD),
         "write" | "delete" | "update" | "move" | "file_edit" => {
-            let mut body = String::from(FILE_EDIT_TOOL_RULE_MD.trim());
-            if options.read_available {
-                body.push_str(FILE_EDIT_READ_FIRST_RULE);
-            }
-            tool_rule_line(&body)
+            tool_rule_lines(TOOL_RULE_FILE_EDIT_MD)
         }
-        _ => None,
+        _ => Vec::new(),
     }
 }
 
@@ -3213,18 +3202,14 @@ fn agent_builtin_tool_enabled(current_agent: Option<&AgentProfile>, id: &str) ->
     true
 }
 
-/// 该人格能用哪些工具陈列：返回 (rule_id, 陈列文本)，顺序固定。read 不单独成条，
-/// 它只决定 file_edit 那条里「改之前先读」与 offset / limit 成不成立。
+/// 该人格能用哪些工具陈列：返回 (rule_id, 陈列文本)，顺序固定。
 fn build_system_tools_rule_blocks(
     current_agent_id: &str,
     agents: &[AgentProfile],
     rg_installed: bool,
 ) -> Vec<(String, String)> {
     let current_agent = agent_by_id(agents, current_agent_id);
-    let options = ToolRuleOptions {
-        rg_installed,
-        read_available: agent_builtin_tool_enabled(current_agent, "read"),
-    };
+    let options = ToolRuleOptions { rg_installed };
     let mut blocks = Vec::<(String, String)>::new();
     for rule_id in ["delegate", "task", "exec", "file_edit"] {
         let rule_enabled = builtin_tool_ids_for_prompt_rule(rule_id)
@@ -3233,7 +3218,7 @@ fn build_system_tools_rule_blocks(
         if !rule_enabled {
             continue;
         }
-        if let Some(text) = build_builtin_tool_rule_block(rule_id, options) {
+        for text in build_builtin_tool_rule_block(rule_id, options) {
             blocks.push((rule_id.to_string(), text));
         }
     }
@@ -3247,7 +3232,7 @@ fn build_question_and_planning_rule_blocks(
     plan_tool_enabled: bool,
 ) -> Vec<(String, String)> {
     let mut blocks = Vec::<(String, String)>::new();
-    if let Some(text) = tool_rule_line(QUESTION_AND_PLANNING_RULE_MD) {
+    for text in tool_rule_lines(TOOL_RULE_QUESTION_MD) {
         blocks.push(("clarify".to_string(), text));
     }
     if !plan_tool_enabled {
@@ -3258,10 +3243,10 @@ fn build_question_and_planning_rule_blocks(
             plan_preferred_directory_display_for_conversation(app_state, Some(conversation)).ok()
         })
         .unwrap_or_else(|| "{会话工作目录或助理空间}\\.pai\\plan".to_string());
-    let body = PLAN_PROTOCOL_MD
+    let body = TOOL_RULE_PLAN_MD
         .trim()
         .replace("{preferred_plan_dir}", &preferred_plan_dir);
-    if let Some(text) = tool_rule_line(&body) {
+    for text in tool_rule_lines(&body) {
         blocks.push(("plan".to_string(), text));
     }
     blocks

@@ -1505,12 +1505,9 @@ mod prompt_assembly_tests {
         let tools_index = prompt.find("<tools>").expect("tools container");
         let task_index = prompt.find("用户给出明确的延后执行").expect("task rule line");
         let clarify_index = prompt
-            .find("缺的信息会显著影响方向")
+            .find("在需要用户做出关键决策时")
             .expect("question rule line");
-        let todo_index = prompt.find("这一轮要开始动手").expect("todo rule line");
-        let file_edit_index = prompt
-            .find("新建、整写、局部改")
-            .expect("file edit rule line");
+        let todo_index = prompt.find("这一轮要动手").expect("todo rule line");
         let runtime_index = prompt.find("运行环境块").expect("runtime block");
         let remote_contact_index = prompt
             .find("联系人是特殊用户")
@@ -1520,8 +1517,7 @@ mod prompt_assembly_tests {
         assert!(tools_index < task_index);
         assert!(task_index < clarify_index);
         assert!(clarify_index < todo_index);
-        assert!(todo_index < file_edit_index);
-        assert!(file_edit_index < runtime_index);
+        assert!(todo_index < runtime_index);
         assert!(runtime_index < remote_contact_index);
         assert!(!prompt.contains("技能索引块"));
         assert!(!prompt.contains("Todo 说明块"));
@@ -1600,8 +1596,8 @@ mod prompt_assembly_tests {
             None,
         );
 
-        assert!(prompt.contains("这一轮要开始动手"));
-        assert!(prompt.contains("新建、整写、局部改"));
+        assert!(prompt.contains("这一轮要动手"));
+        assert!(prompt.contains("<tools>"));
         assert!(!prompt.contains("<apply_patch>"));
     }
 

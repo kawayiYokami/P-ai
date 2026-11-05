@@ -812,6 +812,7 @@ async fn delegate_execute_sync(
             "conversationId": preflight.root_conversation_id,
             "assistantText": if run.final_response_text.trim().is_empty() { run.assistant_text } else { run.final_response_text },
             "targetAgentId": preflight.target_agent.id,
+            "verifyReminder": DELEGATE_RESULT_VERIFY_REMINDER.trim(),
         })),
         Err(err) => Ok(serde_json::json!({
             "ok": false,

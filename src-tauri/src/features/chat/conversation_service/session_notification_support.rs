@@ -1,3 +1,7 @@
+/// 委托结果回来时要提的一句：结果里的关键判断由主助理自己核验。
+const DELEGATE_RESULT_VERIFY_REMINDER: &str =
+    include_str!("../../../../resources/prompts/tools/delegate-result-reminder.md");
+
 fn normalized_session_search_keyword(keyword: Option<&str>) -> Option<String> {
     keyword
         .map(str::trim)
@@ -103,7 +107,10 @@ fn build_delegate_completion_notification_body(
         .map(|agent| agent.name.trim().to_string());
     let label = delegate_completion_notification_label(persona_name.as_deref());
     let title = format!("{label}的{normalized_title}委托执行成功");
-    Ok(format_system_user_fold(&title, normalized_content))
+    Ok(format_system_user_fold(
+        &title,
+        &format!("{normalized_content}\n\n{}", DELEGATE_RESULT_VERIFY_REMINDER.trim()),
+    ))
 }
 
 fn build_session_notification_body(

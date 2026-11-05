@@ -11775,111 +11775,70 @@
         assert_eq!(resolved, vec![expert_id.to_string()]);
     }
 
-    #[test]
-    fn exec_tool_rule_should_hint_rg_oneline_when_rg_installed() {
-        let block = build_builtin_tool_rule_block(
-            "exec",
-            ToolRuleOptions {
-                rg_installed: true,
-                read_available: true,
-            },
-        )
-        .expect("exec tool rule");
+    fn tool_rule_text(tool_id: &str, options: ToolRuleOptions) -> String {
+        build_builtin_tool_rule_block(tool_id, options).join("\n")
+    }
 
-        assert!(block.contains("当前环境 rg 可用，优先用 rg 搜索。"));
+    #[test]
+    fn exec_tool_rule_should_hint_rg_as_its_own_line_when_rg_installed() {
+        let lines = build_builtin_tool_rule_block("exec", ToolRuleOptions { rg_installed: true });
+
+        // rg 提示单独成条，不并进别的句子。
+        assert!(lines
+            .iter()
+            .any(|line| line == "当前环境装了 rg，搜字符串时优先用 rg。"));
+        let joined = lines.join("\n");
         // 只留一句提示，不再追加 rg 参数说明。
-        assert!(!block.contains("rg --files"));
-        assert!(!block.contains("-rn"));
+        assert!(!joined.contains("rg --files"));
+        assert!(!joined.contains("-rn"));
     }
 
     #[test]
     fn exec_tool_rule_should_omit_rg_hint_when_rg_unavailable() {
-        let block = build_builtin_tool_rule_block(
-            "exec",
-            ToolRuleOptions {
-                rg_installed: false,
-                read_available: true,
-            },
-        )
-        .expect("exec tool rule");
+        let joined = tool_rule_text("exec", ToolRuleOptions { rg_installed: false });
 
-        assert!(!block.contains("rg"));
+        assert!(!joined.contains("rg"));
     }
 
     #[test]
     fn exec_tool_rule_should_tell_model_to_wait_for_background_notification() {
-        let block = build_builtin_tool_rule_block(
-            "exec",
-            ToolRuleOptions {
-                rg_installed: false,
-                read_available: true,
-            },
-        )
-        .expect("exec tool rule");
+        let joined = tool_rule_text("exec", ToolRuleOptions { rg_installed: false });
 
         // 后台任务靠 job id 与推送通知收口，轮询和 sleep 都不该出现。
-        assert!(block.contains("mode: background"));
-        assert!(block.contains("job id"));
-        assert!(block.contains("不要轮询"));
-        assert!(block.contains("sleep"));
+        assert!(joined.contains("mode: background"));
+        assert!(joined.contains("job id"));
+        assert!(joined.contains("不要轮询"));
+        assert!(joined.contains("sleep"));
     }
 
     #[test]
-    fn file_edit_tool_rule_should_require_reading_first_only_when_read_available() {
-        let with_read = build_builtin_tool_rule_block(
+    fn empty_tool_rule_file_should_produce_no_line() {
+        // 内容文件留空，就代表这个工具不注入任何陈列。
+        for tool_id in [
+            "delegate",
             "file_edit",
-            ToolRuleOptions {
-                rg_installed: false,
-                read_available: true,
-            },
-        )
-        .expect("file edit tool rule");
-        assert!(with_read.contains("必须先用 read 读过它"));
-        assert!(with_read.contains("offset"));
-
-        let without_read = build_builtin_tool_rule_block(
-            "file_edit",
-            ToolRuleOptions {
-                rg_installed: false,
-                read_available: false,
-            },
-        )
-        .expect("file edit tool rule");
-        // read 不可用时不能要求模型去做它做不到的事，连带 offset / limit 也不提。
-        assert!(!without_read.contains("必须先用 read 读过它"));
-        assert!(!without_read.contains("offset"));
+            "write",
+            "update",
+            "delete",
+            "move",
+            "kanban",
+            "get_session",
+            "inform_session",
+        ] {
+            assert!(
+                build_builtin_tool_rule_block(tool_id, ToolRuleOptions::default()).is_empty(),
+                "{tool_id} 不该产出陈列"
+            );
+        }
     }
 
     #[test]
-    fn file_edit_tool_rule_should_cover_offset_and_limit() {
-        // read 不再单独成条，读文件的规矩并进文件编辑那条。
-        let block = build_builtin_tool_rule_block(
-            "file_edit",
-            ToolRuleOptions {
-                rg_installed: false,
-                read_available: true,
-            },
-        )
-        .expect("file edit tool rule");
-
-        assert!(block.contains("offset"));
-        assert!(block.contains("limit"));
-        assert!(!block.contains('\n'), "一条陈列必须是单行：{block}");
-    }
-
-    #[test]
-    fn tools_container_should_list_one_line_per_tool_without_tags() {
-        let exec = build_builtin_tool_rule_block(
-            "exec",
-            ToolRuleOptions {
-                rg_installed: true,
-                read_available: true,
-            },
-        )
-        .expect("exec tool rule");
-        let todo =
-            build_builtin_tool_rule_block("todo", ToolRuleOptions::default()).expect("todo tool rule");
-        let container = build_tools_container_block(&[exec, todo]).expect("tools container");
+    fn tools_container_should_list_one_line_per_rule_without_tags() {
+        let mut entries = build_builtin_tool_rule_block("exec", ToolRuleOptions { rg_installed: true });
+        let todo_lines = build_builtin_tool_rule_block("todo", ToolRuleOptions::default());
+        let expected_count = entries.len() + todo_lines.len();
+        entries.extend(todo_lines);
+        let container = build_tools_container_block(&entries).expect("tools container");
 
         assert!(container.starts_with("<tools>\n"));
         assert!(container.ends_with("\n</tools>"));
@@ -11888,8 +11847,8 @@
             .trim_start_matches("<tools>\n")
             .trim_end_matches("\n</tools>");
         let lines = inner.lines().collect::<Vec<_>>();
-        // 容器里就是一行一条工具陈列，没有别的前缀行。
-        assert_eq!(lines.len(), 2, "容器内行数不对：{container}");
+        // 容器里就是一行一条陈列：一条只讲一点，工具之间也不留分隔行。
+        assert_eq!(lines.len(), expected_count, "容器内行数不对：{container}");
         for line in &lines {
             assert!(!line.trim().is_empty());
             // 纯陈列：不带子标签，不带列表符号，也不带工具名前缀。
@@ -11912,10 +11871,10 @@
     }
 
     #[test]
-    fn tool_rule_line_should_flatten_multiline_body() {
-        // 内容文件将来若被写成多行，容器里也必须只是一行一条。
-        let line = tool_rule_line(" 第一句\n\n  第二句  ").expect("tool rule line");
-        assert_eq!(line, "第一句 第二句");
+    fn tool_rule_lines_should_split_each_non_empty_line_into_one_rule() {
+        // 内容文件里一行就是一条陈列，空行不产出陈列。
+        let lines = tool_rule_lines(" 第一句\n\n  第二句  ");
+        assert_eq!(lines, vec!["第一句".to_string(), "第二句".to_string()]);
     }
 
     #[test]
