@@ -2045,8 +2045,15 @@ function openAttachmentPath(path: string) {
   margin: 0.65rem 0;
 }
 
-.assistant-markdown :deep(.ecall-markdown-content :where(:not(pre) > code,.inline-code):not(.code-block-container *)) {
+/* 正文里的行内代码统一收到 xs 档；标题里不适用——标题本来就要大，
+   code 套这个档会被缩成正文尺寸，跟两侧的标题文字断开 */
+.assistant-markdown :deep(.ecall-markdown-content :where(:not(pre) > code,.inline-code):not(.code-block-container *):not(.ecall-md-heading *)) {
   font-size: var(--app-text-xs-size);
+}
+
+/* 标题内跟着标题自己的字号走 */
+.assistant-markdown :deep(.ecall-markdown-content .ecall-md-heading :where(code,.inline-code)) {
+  font-size: inherit;
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(table,.table-node)),
