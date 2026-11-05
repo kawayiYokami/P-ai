@@ -8,7 +8,36 @@
   >
     <template #actions>
       <div
-        v-if="inDetailMode && (activeTopTab === 'imageGeneration' || selectedProvider)"
+        v-if="activeTopTab === 'searchEngines'"
+        class="flex flex-wrap items-center gap-2"
+      >
+        <button
+          v-if="searchEnginesDirty"
+          class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
+          type="button"
+          :disabled="props.savingConfig"
+          :title="t('config.api.restoreProviderDraft')"
+          @click="restoreSearchEnginesDraft"
+        >
+          <RotateCcw class="h-4 w-4" />
+          <span>{{ t("config.api.restoreProviderDraft") }}</span>
+        </button>
+        <button
+          class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3.5"
+          :class="searchEnginesDirty ? 'btn-primary' : 'bg-base-100'"
+          type="button"
+          :disabled="!searchEnginesDirty || props.savingConfig"
+          :title="props.savingConfig ? t('config.api.saving') : t('config.api.saveConfig')"
+          @click="saveSearchEngines"
+        >
+          <span v-if="props.savingConfig" class="loading loading-spinner loading-xs"></span>
+          <Save v-else class="h-4 w-4" />
+          <span>{{ props.savingConfig ? t("config.api.saving") : t("common.save") }}</span>
+        </button>
+      </div>
+
+      <div
+        v-else-if="inDetailMode && (activeTopTab === 'imageGeneration' || selectedProvider)"
         class="flex flex-wrap items-center gap-2"
       >
         <template v-if="activeTopTab !== 'imageGeneration'">
@@ -254,6 +283,14 @@
       </div>
     </div>
 
+    <div v-else-if="activeTopTab === 'searchEngines'" key="searchEngines">
+      <SearchEnginesPanel
+        ref="searchEnginesPanelRef"
+        :config="config"
+        :last-saved-config-json="lastSavedConfigJson"
+      />
+    </div>
+
     <div v-else key="overview" class="space-y-3">
       <!-- 图像生成分类 -->
       <template v-if="activeTopTab === 'imageGeneration'">
@@ -398,6 +435,7 @@ import { canUseTransportGenaiChatAdapters, invokeTauri, listTransportGenaiChatAd
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import GrokProviderPanel from "./GrokProviderPanel.vue";
 import ImageGenerationTab from "./ImageGenerationTab.vue";
+import SearchEnginesPanel from "./SearchEnginesPanel.vue";
 import {
   appendImageGenerationProvider,
 } from "../../utils/image-generation-config";
@@ -423,7 +461,7 @@ import type { ConfigTemplateGroup } from "../../components/config-template";
 import { useUnsavedChangesGuard } from "../../composables/use-unsaved-changes-guard";
 
 type ApiCapability = "text" | "voice" | "embedding" | "rerank";
-type ApiTopTab = ApiCapability | "imageGeneration";
+type ApiTopTab = ApiCapability | "imageGeneration" | "searchEngines";
 type ProviderPresetCategory = "official" | "domestic" | "openaiCompatible" | "local";
 type ProviderPreset = {
   id: string;
@@ -580,6 +618,9 @@ watch(providerDeleteDialogOpen, syncProviderDeleteDialog);
 watch(providerDeleteDialogRef, syncProviderDeleteDialog);
 const pendingDeleteProviderName = ref("");
 const imageGenerationTabRef = ref<ImageGenerationTabPublicInstance | null>(null);
+// 搜索引擎面板只做内容区，脏态与草稿还原由它上报，保存按钮留在 header（与生图同一套分工）。
+const searchEnginesPanelRef = ref<{ dirty: boolean; restoreDraft: () => void } | null>(null);
+const searchEnginesDirty = computed(() => searchEnginesPanelRef.value?.dirty === true);
 // 生图供应商的选中项归页面持有：详情组件挂载晚于卡片点击，靠 ref 事后注入会落空
 const selectedImageProviderId = ref("");
 const modelCapabilityById = ref<Record<string, ModelCapabilityLimits>>({});
@@ -621,6 +662,7 @@ const capabilityTabs = computed<Array<{ id: ApiTopTab; label: string }>>(() => [
   { id: "embedding", label: t("config.api.capabilityEmbedding") },
   { id: "rerank", label: t("config.api.capabilityRerank") },
   { id: "imageGeneration", label: t("config.tabs.imageGeneration") },
+  { id: "searchEngines", label: t("config.tabs.searchEngines") },
 ]);
 // 本地补充项：genai 无对应 adapter，但项目自身支持（auto=自动探测、codex=本地协议）。
 const LOCAL_TEXT_PROTOCOL_OPTIONS: ProtocolOption[] = [
@@ -1887,7 +1929,7 @@ async function switchCapabilityTab(capability: ApiTopTab) {
     revertUnsavedConfigIfNeeded();
   }
   activeTopTab.value = capability;
-  if (capability === "imageGeneration") {
+  if (capability === "imageGeneration" || capability === "searchEngines") {
     return;
   }
   const nextProvider = activeProviderList.value.find((provider) => capabilityFromRequestFormat(provider.requestFormat) === capability);
@@ -2260,6 +2302,16 @@ async function handleSaveApiConfig(): Promise<boolean> {
 
 function handleRestoreProviderDraft() {
   revertUnsavedConfigIfNeeded();
+}
+
+// 搜索引擎：脏态归面板，保存走同一份全局保存，还原只动搜索那两个字段。
+async function saveSearchEngines() {
+  if (!searchEnginesDirty.value) return;
+  await Promise.resolve(props.saveApiConfigAction());
+}
+
+function restoreSearchEnginesDraft() {
+  searchEnginesPanelRef.value?.restoreDraft();
 }
 
 async function testModelConnection(modelCardId: string) {

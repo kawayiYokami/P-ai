@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { SearchEngineConfigItem, SearchMode } from "../../../../types/app";
 import {
   SEARCH_ENGINE_META,
   isSearchConfigDirty,
   lockableSearchEngines,
+  resolveSavedSearchConfig,
   searchEngineSnapshot,
 } from "./search-engine-model";
 
@@ -101,5 +103,48 @@ describe("搜索引擎设置页纯逻辑", () => {
       { mode: "auto" },
     );
     expect(left).toEqual(right);
+  });
+});
+
+describe("脏判定基准取自保存快照", () => {
+  const NORMALIZED: SearchEngineConfigItem[] = [
+    { id: "exa", enabled: true, apiKey: "" },
+    { id: "parallel", enabled: true, apiKey: "" },
+    { id: "tavily", enabled: true, apiKey: "" },
+    { id: "firecrawl", enabled: false, apiKey: "" },
+    { id: "deepseek", enabled: false, apiKey: "" },
+  ];
+  const AUTO: SearchMode = { mode: "auto" };
+  const current = { engines: NORMALIZED, mode: AUTO };
+
+  function dirtyAfter(savedJson: string, edited = current): boolean {
+    return isSearchConfigDirty(edited, resolveSavedSearchConfig(savedJson, current));
+  }
+
+  it("快照里没有搜索字段时视为一致，打开页面不进脏态", () => {
+    expect(dirtyAfter(JSON.stringify({ hotkey: "Alt+·" }))).toBe(false);
+  });
+
+  it("快照为空串、坏 JSON、null、数组时也不进脏态", () => {
+    for (const raw of ["", "   ", "not json", "null", "[]"]) {
+      expect(dirtyAfter(raw)).toBe(false);
+    }
+  });
+
+  it("真改过才进脏态，还原回快照后回到干净态", () => {
+    const savedJson = JSON.stringify({ searchEngines: NORMALIZED, searchMode: AUTO });
+    expect(dirtyAfter(savedJson)).toBe(false);
+
+    const edited = NORMALIZED.map((entry) =>
+      entry.id === "deepseek" ? { ...entry, enabled: true, apiKey: "sk-1" } : { ...entry },
+    );
+    expect(dirtyAfter(savedJson, { engines: edited, mode: AUTO })).toBe(true);
+
+    const restored = NORMALIZED.map((entry) => ({ ...entry }));
+    expect(dirtyAfter(savedJson, { engines: restored, mode: AUTO })).toBe(false);
+  });
+
+  it("快照里有搜索字段但没 searchMode 时，自动模式仍算一致", () => {
+    expect(dirtyAfter(JSON.stringify({ searchEngines: NORMALIZED }))).toBe(false);
   });
 });

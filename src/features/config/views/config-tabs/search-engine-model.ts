@@ -1,7 +1,7 @@
 // 搜索引擎设置页的纯逻辑：引擎清单、可锁定候选、快照与脏判定。
 // 拆出来是为了能直接单测；保存载荷由 use-config-core 的 buildConfigPayload 负责，这里不重复实现。
 
-import type { SearchEngineConfigItem, SearchMode } from "../../../../types/app";
+import type { AppConfig, SearchEngineConfigItem, SearchMode } from "../../../../types/app";
 
 export type SearchEngineMeta = {
   id: string;
@@ -96,4 +96,31 @@ export function isSearchConfigDirty(
     JSON.stringify(searchEngineSnapshot(current.engines, current.mode))
     !== JSON.stringify(searchEngineSnapshot(saved.engines, saved.mode))
   );
+}
+
+export type SearchConfigFields = {
+  engines: SearchEngineConfigItem[] | undefined;
+  mode: SearchMode | undefined;
+};
+
+/**
+ * 从 lastSavedConfigJson 里取脏判定基准。
+ * 快照里没有 searchEngines 字段时（首次打开、老快照、解析失败）用当前值当基准——
+ * 否则会拿「恒为 5 条」的当前值跟空列表比，一进页面就是脏的。
+ */
+export function resolveSavedSearchConfig(
+  lastSavedConfigJson: string,
+  current: SearchConfigFields,
+): SearchConfigFields {
+  let parsed: Partial<AppConfig> | null = null;
+  try {
+    const value = JSON.parse(String(lastSavedConfigJson || "{}")) as Partial<AppConfig>;
+    parsed = value && typeof value === "object" ? value : null;
+  } catch {
+    parsed = null;
+  }
+  if (!parsed || !Array.isArray(parsed.searchEngines)) {
+    return { engines: current.engines, mode: current.mode };
+  }
+  return { engines: parsed.searchEngines, mode: parsed.searchMode };
 }
