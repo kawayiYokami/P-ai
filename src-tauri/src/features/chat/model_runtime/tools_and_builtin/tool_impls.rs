@@ -309,18 +309,14 @@ fn config_tool_split_command(command: &str) -> Vec<String> {
 }
 
 /// 判断 config 命令是否只读查询命令（不产生配置改动副作用）。
-/// 保守策略：只把明确的查询命令（help / ls / get / example）判为只读，其余一律视为写命令，
-/// 宁可多重建缓存，不漏重建。
+/// 工具面只有 help / check / reload，其中 help 与 check 只读，reload 才是生效动作。
+/// 空命令等同于 help。
 fn config_tool_command_is_readonly(command: &str) -> bool {
     let parts = config_tool_split_command(command);
     match parts.first().map(String::as_str) {
-        Some("help") | Some("--help") | Some("-h") | Some("approot") => true,
-        Some("store") => store_command_is_readonly(&parts[1..]),
-        Some(_) => matches!(
-            parts.get(1).map(String::as_str),
-            Some("ls") | Some("get") | Some("example") | Some("tree")
-        ),
-        None => false,
+        None => true,
+        Some("help") | Some("--help") | Some("-h") | Some("check") => true,
+        Some(_) => false,
     }
 }
 
@@ -571,7 +567,7 @@ impl RuntimeToolMetadata for BuiltinConfigTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "config",
-            "这是 PAI 配置工具。当用户要求你修改 PAI 的设置时使用，例如人格、组织树、MCP、Skill。入参只有 command:string。使用方法：先调用 `help`，工具会返回类似 shell help 的命令指南；再按指南逐条执行查看、生成样例、检查、预览差异或更新配置。当前不开放供应商配置命令。",
+            "这是 PAI 配置工具。它给出 PAI 配置文件的绝对路径与字段清单，校验你的改动，并让运行中的应用重新加载内存态。入参只有 command:string，命令有三个：`help`（目录地图；加 -app / -agent / -mcp / -skill 可看某个文件的字段名、类型与含义）、`check`（校验文件能否被解析，不通过不能生效）、`reload`（重新加载 mcp / skills / agents）。改配置的方式就是直接编辑 help 给出的文件，工具不再提供逐字段的读写命令。",
             serde_json::json!({
               "type": "object",
               "properties": {
@@ -602,22 +598,14 @@ impl RuntimeValueTool for BuiltinConfigTool {
             ));
             let runtime_effect =
                 config_tool_runtime_effect_for_command(&self.app_state, &args.command);
-            let command_parts = config_tool_split_command(&args.command);
-            // 商店命令要联网、要读运行态缓存，交给能力商店的异步实现；其余命令仍走同步的配置工具。
-            let output = if command_parts.first().map(String::as_str) == Some("store") {
-                run_store_command(&self.app_state, &command_parts[1..])
-                    .await
-                    .map_err(ToolInvokeError::from)?
-            } else {
-                pai_config_tool::run_command_with_paths(
-                    self.app_state.config_path.clone(),
-                    self.app_state.data_path.clone(),
-                    configured_workspace_root_path(&self.app_state)
-                        .unwrap_or_else(|_| self.app_state.llm_workspace_path.clone()),
-                    &args.command,
-                )
-                .map_err(ToolInvokeError::from)?
-            };
+            let output = pai_config_tool::run_command_with_paths(
+                self.app_state.config_path.clone(),
+                self.app_state.data_path.clone(),
+                configured_workspace_root_path(&self.app_state)
+                    .unwrap_or_else(|_| self.app_state.llm_workspace_path.clone()),
+                &args.command,
+            )
+            .map_err(ToolInvokeError::from)?;
             if !config_tool_command_is_readonly(&args.command) {
                 invalidate_config_tool_runtime_caches(&self.app_state).map_err(ToolInvokeError::from)?;
                 // 人格表已经被这条命令改写，广播出去让各窗口就地重拉。
@@ -2058,24 +2046,18 @@ mod tool_impls_tests {
     use super::config_tool_command_is_readonly;
     #[test]
     fn config_tool_readonly_command_detection() {
+        assert!(config_tool_command_is_readonly(""));
+        assert!(config_tool_command_is_readonly("   "));
         assert!(config_tool_command_is_readonly("help"));
         assert!(config_tool_command_is_readonly("--help"));
         assert!(config_tool_command_is_readonly("-h"));
-        assert!(config_tool_command_is_readonly("agent ls"));
-        assert!(config_tool_command_is_readonly("agent get demo-agent"));
-        assert!(config_tool_command_is_readonly("agent example"));
-        assert!(config_tool_command_is_readonly("agent tree"));
-        assert!(config_tool_command_is_readonly("mcp ls"));
-        assert!(config_tool_command_is_readonly("mcp get some-server"));
-        assert!(!config_tool_command_is_readonly("agent new demo-agent"));
-        assert!(!config_tool_command_is_readonly("agent update demo-agent x.json"));
-        assert!(!config_tool_command_is_readonly("agent update demo-agent next.json"));
-        assert!(!config_tool_command_is_readonly("mcp enable some-server"));
-        assert!(config_tool_command_is_readonly("store"));
-        assert!(config_tool_command_is_readonly("store ls"));
-        assert!(config_tool_command_is_readonly("store search playwright"));
-        assert!(!config_tool_command_is_readonly("store install clawhub some/skill"));
-        assert!(!config_tool_command_is_readonly(""));
-        assert!(!config_tool_command_is_readonly("   "));
+        assert!(config_tool_command_is_readonly("help -agent"));
+        assert!(config_tool_command_is_readonly("check"));
+        assert!(config_tool_command_is_readonly("check -app"));
+        // reload 是生效动作，必须走缓存失效那一支。
+        assert!(!config_tool_command_is_readonly("reload"));
+        // 已废除的命令仍然进不了只读路径，报错前先清一次缓存不会有副作用。
+        assert!(!config_tool_command_is_readonly("agent ls"));
+        assert!(!config_tool_command_is_readonly("store search playwright"));
     }
 }

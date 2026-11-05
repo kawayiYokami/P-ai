@@ -1,5 +1,5 @@
 // 能力商店的 config 工具命令面：store ls / store search / store install。
-// 商店接口都是异步且依赖 AppState，所以命令只在运行态生效，由 config 工具的异步分支分派到这里。
+// 已从工具面下掉（config 工具只剩 help / check / reload），实现先保留，用不用等后续定。
 
 /// 搜索默认落在 Skill 商店；查 MCP 时显式给 --kind mcp。
 const STORE_DEFAULT_KIND: &str = CATALOG_KIND_SKILL;
@@ -9,6 +9,7 @@ const STORE_USAGE: &str =
     "用法: store ls [--kind skill|mcp] | store search <关键词> [--source <来源>] [--kind skill|mcp] [--page <页码>] | store install <来源> <条目>";
 
 /// store 命令的只读判定：列来源与搜索不改动本地状态。
+#[allow(dead_code)]
 fn store_command_is_readonly(args: &[String]) -> bool {
     matches!(
         args.first().map(String::as_str),
@@ -119,6 +120,7 @@ struct StoreSearchView {
 }
 
 /// 执行 store 命令，返回可直接回给模型的 JSON 文本。
+#[allow(dead_code)]
 async fn run_store_command(state: &AppState, args: &[String]) -> Result<String, String> {
     let parsed = parse_store_args(args);
     match parsed.positional.first().map(String::as_str).unwrap_or("ls") {
@@ -189,9 +191,9 @@ async fn run_store_command(state: &AppState, args: &[String]) -> Result<String, 
             };
             let result = install_catalog_entry_inner(state, &input).await?;
             let next_step = if result.kind == CATALOG_KIND_SKILL {
-                "Skill 已写入工作区且默认关闭；用 config \"skill ls\" 查看，并在配置页的 Skill 列表里启用。"
+                "Skill 已写入工作区且默认关闭；在配置页的 Skill 列表里启用，或改 llm-workspace/skills/<name>/SKILL.md 后 config \"reload\"。"
             } else {
-                "MCP 已写入工作区且默认关闭；用 config \"mcp ls\" 查看，需要时再启用并检查工具清单。"
+                "MCP 已写入工作区且默认关闭；在 llm-workspace/mcp/policies/<id>.json 里把 enabled 打开，改完 config \"check\" 再 config \"reload\"。"
             };
             let view = serde_json::json!({
                 "kind": result.kind,
