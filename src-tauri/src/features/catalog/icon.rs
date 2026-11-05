@@ -12,9 +12,13 @@ const CATALOG_ICON_TIMEOUT_SECS: u64 = 8;
 /// 重定向最多跟 3 跳。GitHub 头像要经一次 302 到 avatars.githubusercontent.com。
 const CATALOG_ICON_MAX_REDIRECTS: usize = 3;
 /// 白名单上限：翻页、切源会持续登记新地址，只增不减会一直涨。
-/// 取单页条目数的几倍量级，超出按登记顺序淘汰最旧的。
-const CATALOG_ICON_ALLOWED_LIMIT: usize = 128;
+/// 取 512 ≈ 三十条一页翻十几轮的覆盖量；超出按登记顺序淘汰最旧的。
+/// 不能每轮清空重来——那样翻回上一页时地址已被移出白名单，图标会重新被拒。
+const CATALOG_ICON_ALLOWED_LIMIT: usize = 512;
 
+/// 白名单本体。
+/// 注意它是**进程级共享**的：多个窗口共用这一份，A 窗口浏览过的地址 B 窗口也能取。
+/// 影响很小（取到的仍只是目录里出现过的公网图片），但不要以为它是按会话或按窗口隔离的。
 #[derive(Default)]
 struct CatalogIconAllowlist {
     order: std::collections::VecDeque<String>,

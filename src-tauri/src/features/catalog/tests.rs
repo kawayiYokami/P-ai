@@ -708,6 +708,34 @@ mod catalog_tests {
     }
 
     #[test]
+    fn catalog_icon_allowlist_should_evict_oldest_instead_of_growing_forever() {
+        let mut list = CatalogIconAllowlist::default();
+        let limit = CATALOG_ICON_ALLOWED_LIMIT;
+        for index in 0..(limit + 10) {
+            list.remember(&format!("https://example.com/{index}.png"));
+        }
+        assert!(
+            !list.contains("https://example.com/0.png"),
+            "超出上限后最旧的地址要被淘汰，不能只增不减"
+        );
+        assert!(
+            list.contains(&format!("https://example.com/{}.png", limit + 9)),
+            "最新登记的地址必须还在"
+        );
+        assert_eq!(list.order.len(), limit, "上限就是上限");
+        assert_eq!(list.set.len(), limit, "两个集合不能脱节");
+
+        // 重复登记不占新位置，也不改变淘汰顺序。
+        list.remember("https://example.com/10.png");
+        assert_eq!(list.order.len(), limit);
+        assert!(list.contains("https://example.com/10.png"));
+
+        // 翻回上一页的场景：刚登记过的地址仍可取，不因为翻页被清空。
+        list.remember(&format!("https://example.com/{}.png", limit + 9));
+        assert!(list.contains(&format!("https://example.com/{}.png", limit + 9)));
+    }
+
+    #[test]
     fn catalog_icon_fetch_should_refuse_address_outside_allowlist() {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
