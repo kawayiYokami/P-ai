@@ -1922,95 +1922,13 @@ ul.ecall-md-list {
 }
 
 /* ==================== Document Variant ==================== */
+/* document 变体（文档阅读）与对话的「宽松」档共用同一套排版：间距、行高都来自
+   markdown-content.css 里那组 :is(宽松档 .ecall-md-chat, .ecall-md-document) 规则。
+   这里只定字号来源与行高，别的都不再重复一遍 —— 两套各写一份必然越走越偏，
+   历史上它就是因为自挂 line-height: 1.7 而看起来「永远是宽松但又不完全是」。 */
 .ecall-md-document {
-  font-size: var(--app-text-base-size);
-  line-height: 1.7;
-}
-
-.ecall-md-document .ecall-md-heading {
-  margin: 1.2rem 0 0.5rem;
-  font-weight: var(--ecall-md-heading-weight-setting, var(--app-font-strong-weight, 600));
-  font-variation-settings: "wght" var(--ecall-md-heading-weight-setting, var(--app-font-strong-weight, 600));
-  line-height: 1.35;
-}
-
-.ecall-md-document h1.ecall-md-heading { font-size: var(--app-text-markdown-document-heading-1-size); }
-.ecall-md-document h2.ecall-md-heading { font-size: var(--app-text-markdown-document-heading-2-size); }
-.ecall-md-document h3.ecall-md-heading { font-size: var(--app-text-markdown-document-heading-3-size); }
-.ecall-md-document h4.ecall-md-heading { font-size: var(--app-text-markdown-document-heading-4-size); }
-
-.ecall-md-document h1.ecall-md-heading,
-.ecall-md-document h2.ecall-md-heading {
-  padding-bottom: 0.35rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-base-300) 84%, var(--color-base-content) 10%);
-}
-
-.ecall-md-document .ecall-md-paragraph {
-  margin: 0.6rem 0;
-  line-height: 1.8;
-}
-
-.ecall-md-document .ecall-md-quote {
-  margin: 0.6rem 0;
-  padding: 0.65rem 0.85rem 0.65rem 0.95rem;
+  font-size: var(--app-chat-message-text-size, var(--app-text-sm-size));
   line-height: 1.75;
-}
-
-.ecall-md-document .ecall-md-footnotes {
-  margin: 1.1rem 0 0.45rem;
-  padding-top: 0.65rem;
-  font-size: var(--app-text-xs-size);
-  line-height: 1.65;
-}
-
-.ecall-md-document .ecall-md-list {
-  margin: 0.5rem 0;
-  padding-left: 1.4rem;
-  line-height: 1.75;
-}
-
-.ecall-md-document .ecall-md-list li {
-  margin: 0.25rem 0;
-}
-
-.ecall-md-document .ecall-md-table-wrap {
-  margin: 0.75rem 0;
-}
-
-.ecall-md-document .ecall-md-table {
-  font-size: var(--app-text-sm-size);
-  line-height: 1.55;
-}
-
-.ecall-md-document .ecall-md-table th,
-.ecall-md-document .ecall-md-table td {
-  padding: 0.45rem 0.65rem;
-}
-
-.ecall-md-document .ecall-md-code-block {
-  margin: 0.75rem 0;
-}
-
-.ecall-md-document .ecall-md-code-title {
-  padding: 0.45rem 0.85rem;
-}
-
-.ecall-md-document .ecall-md-code-body {
-  padding: 0.85rem 1.1rem;
-  font-size: var(--app-text-sm-size);
-  line-height: 1.6;
-}
-
-.ecall-md-document .ecall-md-hr {
-  margin: 1.2rem 0;
-}
-
-.ecall-md-document .ecall-md-math-block {
-  margin: 0.75rem 0;
-}
-
-.ecall-md-document .ecall-md-mermaid-block {
-  margin: 0.75rem 0;
 }
 
 </style>

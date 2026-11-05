@@ -297,9 +297,10 @@
 /* 档位由 use-chat-message-appearance 在根元素挂 ecall-md-layout-{compact|comfortable|relaxed} */
 
 /* ---- 紧凑（0.6x 密度，贴 dsh 宽松）---- */
+/* 布局档位只管疏密，不碰字号：字号统一由界面尺寸档位（--app-chat-message-text-size）决定。
+   这里曾经写过 ×0.95，等于切一次疏密就把正文缩到 13.3px，是分数字号发虚的来源之一。 */
 html.ecall-md-layout-compact .ecall-md-chat.ecall-md-renderer {
   line-height: 1.62;
-  font-size: calc(var(--app-chat-message-text-size, var(--app-text-sm-size)) * 0.95);
 }
 
 html.ecall-md-layout-compact .ecall-md-chat .ecall-md-heading {
@@ -559,80 +560,81 @@ html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table td {
 
 /* ---- 宽松（deepseek-harness / dsh 基准，16/28 体系）---- */
 /* 对齐 dsh packages/client/ui-primitives/src/markdown/MarkdownText.module.css + gradient-shadow-text.css：
-   base 16px/28px(1.75)、h1 24/34、h2 22/32、h3 20/30、h4 16/28、p 16px、list/hr/table 均按 16px 基准换算为 em */
-html.ecall-md-layout-relaxed .ecall-md-chat.ecall-md-renderer {
-  font-size: var(--app-text-base-size, 16px);
+   base 16px/28px(1.75)、h1 24/34、h2 22/32、h3 20/30、h4 16/28、p 16px、list/hr/table 均按 16px 基准换算为 em。
+   字号不在这里定：这里曾经写过 font-size: var(--app-text-base-size)，等于切到宽松档就把正文从 14px 放大到 16px。
+   现在只保留行高与间距，em 值相对聊天正文字号等比缩放，档位之间只差疏密。 */
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document).ecall-md-renderer {
   line-height: 1.75; /* 28/16 */
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-heading {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-heading {
   font-weight: 700;
   letter-spacing: 0;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat h1.ecall-md-heading {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) h1.ecall-md-heading {
   margin: 2em 0 1em; /* 32 0 16 */
   font-size: 1.5em; /* 24/16 */
   line-height: 1.4167; /* 34/24 */
   font-weight: 700;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat h2.ecall-md-heading {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) h2.ecall-md-heading {
   margin: 2em 0 1em;
   font-size: 1.375em; /* 22/16 */
   line-height: 1.4545; /* 32/22 */
   font-weight: 700;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat h3.ecall-md-heading {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) h3.ecall-md-heading {
   margin: 2em 0 1em;
   font-size: 1.25em; /* 20/16 */
   line-height: 1.5; /* 30/20 */
   font-weight: 700;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat h4.ecall-md-heading {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) h4.ecall-md-heading {
   margin: 1em 0; /* 16 0 */
   font-size: 1em; /* 16/16 */
   line-height: 1.75; /* 28/16 */
   font-weight: 600;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat :where(h5, h6).ecall-md-heading {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) :where(h5, h6).ecall-md-heading {
   margin: 1em 0;
   font-size: 1em;
   line-height: 1.75;
   font-weight: 600;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-paragraph {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-paragraph {
   margin: 1em 0; /* 16 0 */
   line-height: 1.75;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-list {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-list {
   margin: 1em 0;
   padding-left: 1.125em; /* 18px */
   line-height: 1.75;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-list li {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-list li {
   margin: 0;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-list li:not(:first-child) {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-list li:not(:first-child) {
   margin-top: 0.375em; /* 6px */
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-list li > p {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-list li > p {
   margin: 0.5em 0; /* 8px */
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-list li > :where(ul, ol) {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-list li > :where(ul, ol) {
   margin-top: 0.25em; /* 4px */
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-quote {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-quote {
   margin: 1em 0 0;
   padding: 0 0 0 0.875em; /* 14px */
   border: 0;
@@ -642,53 +644,53 @@ html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-quote {
   line-height: 1.75;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-hr {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-hr {
   margin: 2em 0; /* 32 0 */
   border-top-width: 1px;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-code-block {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-code-block {
   margin: 1em 0; /* 16 0 */
   border-radius: 12px;
   overflow: hidden;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-code-title {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-code-title {
   padding: 0.5625rem 0.875rem; /* 9px 14px */
   font-size: 0.75em; /* 12px */
   line-height: 1.5; /* 18/12 */
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-code-body {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-code-body {
   padding: 1em; /* 16px */
   font-size: inherit;
   line-height: inherit;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-inline-code {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-inline-code {
   font-size: inherit;
   line-height: inherit;
   padding: 0 0.357em; /* 0 5px */
   border-radius: 6px;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table-wrap {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-table-wrap {
   margin: 1em 0;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-table {
   font-size: 0.9375em; /* 15/16 */
   line-height: 1.6667; /* 25/15 */
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table th {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-table th {
   font-size: 1em;
   line-height: 1.6667;
   font-weight: 500;
   padding: 0.6667em 1.0667em; /* 10 16 /15 */
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table td {
+:is(html.ecall-md-layout-relaxed .ecall-md-chat, .ecall-md-document) .ecall-md-table td {
   font-size: 1em;
   line-height: 1.6667;
   font-weight: 400;
