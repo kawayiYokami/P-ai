@@ -492,18 +492,42 @@ function dropIcon(entry: CatalogEntry) {
   if (entry.icon) iconDataUrl.value.delete(entry.icon);
 }
 
-async function loadIcon(address: string) {
-  if (!address || iconRequested.has(address)) return;
-  iconRequested.add(address);
+// 取图并发闸：一页 30 条进可视区会同时触发（rootMargin 160px 一次覆盖整屏），
+// 全发出去容易撞第三方限流；而失败不重试，那批图标会永久退成首字母方块。
+// 上限 6，兼顾首屏出图速度与对端压力。
+const ICON_CONCURRENCY = 6;
+let iconInFlight = 0;
+const iconQueue: string[] = [];
+
+async function runIconRequest(address: string) {
   try {
     const dataUrl = await fetchCatalogIconDataUrl(address);
     if (dataUrl) iconDataUrl.value.set(address, dataUrl);
   } catch {
     // 取不到就退首字母，不重试也不打断列表。
+  } finally {
+    iconInFlight -= 1;
+    pumpIconQueue();
   }
 }
 
-// 图标进可视区才取图：一页 30 张全并发没有意义。
+function pumpIconQueue() {
+  while (iconInFlight < ICON_CONCURRENCY && iconQueue.length > 0) {
+    const address = iconQueue.shift();
+    if (!address) return;
+    iconInFlight += 1;
+    void runIconRequest(address);
+  }
+}
+
+function loadIcon(address: string) {
+  if (!address || iconRequested.has(address)) return;
+  iconRequested.add(address);
+  iconQueue.push(address);
+  pumpIconQueue();
+}
+
+// 图标进可视区才取图：没翻到的条目不发请求，发出去的也按 ICON_CONCURRENCY 排队。
 function setIconRef(key: string) {
   return (el: Element | ComponentPublicInstance | null) => {
     if (el instanceof HTMLElement) {
@@ -511,7 +535,7 @@ function setIconRef(key: string) {
       if (iconObserver) {
         iconObserver.observe(el);
       } else {
-        void loadIcon(el.dataset.icon || "");
+        loadIcon(el.dataset.icon || "");
       }
       return;
     }
@@ -525,7 +549,7 @@ function handleIconIntersect(records: IntersectionObserverEntry[]) {
   for (const record of records) {
     if (!record.isIntersecting) continue;
     iconObserver?.unobserve(record.target);
-    void loadIcon((record.target as HTMLElement).dataset.icon || "");
+    loadIcon((record.target as HTMLElement).dataset.icon || "");
   }
 }
 
