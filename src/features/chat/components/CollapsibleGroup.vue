@@ -5,7 +5,7 @@
       tabindex="0"
       :draggable="draggable"
       class="group/section relative sticky top-0 z-20 mx-1 flex min-h-9 select-none items-center gap-2 rounded-lg px-2.5 py-1 text-left text-sm text-base-content/80 transition-colors hover:text-base-content"
-      :class="{ 'ecall-frost': headOpaque }"
+      :class="{ 'ecall-frost-solid': headOpaque }"
       :title="title"
       @click="toggle"
       @contextmenu.stop.prevent="collapseAll"
