@@ -1138,7 +1138,7 @@ fn clean_compaction_summary_text(input: &str) -> String {
     normalize_markdown_block(trimmed)
 }
 
-/// 摘要里的「当前可委托的队友」一节：只列名字，一人一行；名单为空时整节不出现。
+/// 摘要里的「当前可用队友」一节：只列名字，一人一行；名单为空时整节不出现。
 fn available_teammates_section(teammate_names: &[String]) -> Option<String> {
     let mut lines = Vec::<String>::new();
     for name in teammate_names {
@@ -1151,7 +1151,7 @@ fn available_teammates_section(teammate_names: &[String]) -> Option<String> {
     if lines.is_empty() {
         return None;
     }
-    Some(format!("## 当前可委托的队友\n\n{}", lines.join("\n")))
+    Some(format!("## 当前可用队友\n\n{}", lines.join("\n")))
 }
 
 fn build_initial_summary_context_message(
@@ -2111,7 +2111,7 @@ mod archive_pipeline_tests {
         let text = render_message_content_for_model(&message);
 
         assert!(text.contains("## 摘要说明"));
-        assert!(text.contains("## 当前可委托的队友"));
+        assert!(text.contains("## 当前可用队友"));
         assert!(text.contains("- 副手\n- 审阅者"));
     }
 
@@ -2120,7 +2120,7 @@ mod archive_pipeline_tests {
         let message = build_initial_summary_context_message(None, None, &[]);
         let text = render_message_content_for_model(&message);
 
-        assert!(!text.contains("## 当前可委托的队友"));
+        assert!(!text.contains("## 当前可用队友"));
     }
 
     #[test]
@@ -2163,7 +2163,7 @@ mod archive_pipeline_tests {
         assert!(text.contains("## 摘要正文"));
         assert!(text.contains("## 保留对话"));
         assert!(text.contains("## 运行中的后台任务"));
-        assert!(text.contains("## 当前可委托的队友"));
+        assert!(text.contains("## 当前可用队友"));
         assert!(text.ends_with("- 副手"));
     }
 

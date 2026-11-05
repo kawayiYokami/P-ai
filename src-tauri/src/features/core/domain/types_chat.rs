@@ -62,7 +62,7 @@ struct AgentProfile {
     #[serde(default)]
     optional_skill_names: Vec<String>,
     /// 系统准则：是否向该人格的系统提示词注入全局准则块（最高准则）。
-    /// 关闭后该人格失去反谄媚、执行边界、输出风格等基础约束，行为不可预测，故默认开启。
+    /// 关闭后该人格失去上下文与工具、执行边界、代码与设计、输出风格等基础约束，行为不可预测，故默认开启。
     #[serde(default = "default_true")]
     include_system_rules: bool,
     /// 人格驱动模型（会话基线，可被会话级首选覆盖）。

@@ -1849,7 +1849,7 @@ impl RuntimeToolMetadata for BuiltinDelegateTool {
             serde_json::json!({
               "type": "object",
               "properties": {
-                "agent_id": { "type": "string", "description": "要委托的队友人格，填摘要里「当前可委托的队友」清单中的人格名称（也兼容人格 id）。不填则交给副手。只在任务与该人格能力匹配时使用。" },
+                "agent_id": { "type": "string", "description": "要委托的队友人格，填摘要里「当前可用队友」清单中的人格名称（也兼容人格 id）。不填则交给副手。只在任务与该人格能力匹配时使用。" },
                 "mode": { "type": "string", "enum": ["wait", "background"], "description": "委托方式。耗时长的单条委派用 background，后台跑完写回当前来源会话；需要并发委托的用 wait，一次发出多个、一起等全部返回。mode 只表示父调度是否等待，不表示串行。", "default": "wait" },
                 "why": { "type": "string", "description": "为什么要做、背景材料、已知事实、已有线索或必要上下文。" },
                 "goal": { "type": "string", "description": "这次委托要达成的目标，写成明确可执行、可判断完成的任务。" },

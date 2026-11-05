@@ -1124,6 +1124,24 @@ fn team_member_number_roles(
         .collect())
 }
 
+/// 名册为空时附在回执上的两件事：可用队友名单 + 一句英文提示。
+///
+/// 提示刻意用英文：队伍工具回执统一走英文，模型照抄去用比读中文更省事。
+/// 分两支写：有名单时点明「上面的名字既能直接委托、也能招成队员」；
+/// 一个都不剩时只剩「用 config 工具新建人格」这一条路，不能还叫它去看上面。
+fn empty_roster_hint(teammate_names: Vec<String>) -> Vec<(&'static str, Value)> {
+    const NOTICE_WITH_NAMES: &str = "No teammates on this roster yet. Each persona above can take a delegate directly, and can also be recruited as a teammate. If none of them fits the task, create a new persona with the config tool and recruit it.";
+    const NOTICE_WITHOUT_NAMES: &str = "No teammates on this roster yet, and no other persona is available. Create a new persona with the config tool, then recruit it.";
+    if teammate_names.is_empty() {
+        vec![("notice", serde_json::json!(NOTICE_WITHOUT_NAMES))]
+    } else {
+        vec![
+            ("availableTeammates", serde_json::json!(teammate_names)),
+            ("notice", serde_json::json!(NOTICE_WITH_NAMES)),
+        ]
+    }
+}
+
 fn builtin_team_info(
     state: &AppState,
     session_id: &str,
@@ -1151,6 +1169,15 @@ fn builtin_team_info(
     let mut output = serde_json::json!({
         "members": members,
     });
+    // 没队员时把可用队友摆出来：这份名单与摘要注入同源，既能直接委托也能招进来当队员，
+    // 所以标题是「可用」而不是「可委托」。名册有人时不掺进来，免得两种语义混在一张表里。
+    if members.is_empty() {
+        let teammate_names =
+            available_delegate_teammate_names(&state_read_agents_cached(state)?, &leader.agent_id);
+        for (key, value) in empty_roster_hint(teammate_names) {
+            output[key] = value;
+        }
+    }
     if !closed_missing_members.is_empty() {
         output["closedMissingMembers"] = serde_json::json!(
             closed_missing_members

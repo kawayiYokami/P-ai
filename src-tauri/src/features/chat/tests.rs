@@ -17315,6 +17315,41 @@
     }
 
     #[test]
+    fn empty_roster_hint_should_list_names_and_point_to_config_tool() {
+        // 没队员时回执要同时给出「有哪些人格可用」和「不合适就自己造一个」这两件事。
+        let hint = empty_roster_hint(vec!["副手".to_string(), "甲".to_string()])
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(
+            hint.get("availableTeammates"),
+            Some(&serde_json::json!(["副手", "甲"]))
+        );
+        let notice = hint
+            .get("notice")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(notice.contains("config tool"), "提示要指向 config 工具：{notice}");
+        assert!(notice.contains("recruit"), "提示要说明能被招募：{notice}");
+    }
+
+    #[test]
+    fn empty_roster_hint_should_only_point_to_config_tool_when_no_persona_left() {
+        // 一个人格都不剩时不能再叫它「看上面」，只剩新建这一条路。
+        let hint = empty_roster_hint(Vec::new())
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert!(hint.get("availableTeammates").is_none());
+        let notice = hint
+            .get("notice")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(notice.contains("config tool"));
+        assert!(!notice.contains("above"), "没有名单时不能再说「上面」：{notice}");
+    }
+
+    #[test]
     fn team_share_model_should_write_model_silently() {
         let state = team_test_state();
         state_write_config_cached(
