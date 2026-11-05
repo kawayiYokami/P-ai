@@ -386,7 +386,8 @@ const SKILLS_SH_SEARCH_URL: &str = "https://www.skills.sh/api/search";
 /// 检索一次取 40 条：服务端的 limit 不是硬上限，这里比一页 30 条留些余量。
 /// 没有分页参数，取多了就是一次拉回整份 JSON，别往大调。
 const SKILLS_SH_SEARCH_LIMIT: usize = 40;
-/// 服务端不认普通客户端：UA 不是浏览器形态时它回自己的页面而不是结果。
+/// 带一个正常的浏览器 UA 与 Accept 就够了；实测 curl 默认 UA 同样 200，不是硬要求。
+/// 保留它只是给请求一个明确身份，不要据此以为需要整套浏览器头。
 const SKILLS_SH_USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
@@ -503,7 +504,7 @@ fn skills_sh_trending_entries(page: &str) -> Vec<CatalogEntry> {
     }
 }
 
-/// skills.sh 的 GET：带浏览器形态 UA，5xx 只重试一次。
+/// skills.sh 的 GET：带 UA 与 Accept，5xx 只重试一次。
 async fn skills_sh_get(state: &AppState, url: &str, accept: &str) -> Result<String, String> {
     let mut attempt = 0u8;
     loop {
