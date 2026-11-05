@@ -1,11 +1,10 @@
-use std::{
-    cell::RefCell,
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    path::{Path, PathBuf},
-};
+//! PAI config 工具：配置位置说明书 + 校验器 + 生效开关。
+//!
+//! 工具面只有三个命令：`help` / `check` / `reload`。改配置的路径统一为
+//! 「看地图 → 直接编辑文件 → check → reload」，不再提供逐字段的读写命令。
 
-use chrono::Utc;
+use std::{cell::RefCell, collections::HashSet, fs, path::{Path, PathBuf}};
+
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -14,6 +13,21 @@ thread_local! {
     static OUTPUT_BUFFER: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
+// ==================== 域内最小结构 ====================
+// 本模块是独立编译单元，看不到主程序经 include! 引入的类型，所以每类文件
+// 在这里保留一份只够校验用的最小定义。
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_memory_recall_mode() -> String {
+    "auto".to_string()
+}
+
+fn default_global_scope() -> String {
+    "global".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -56,25 +70,18 @@ struct AgentProfile {
     memory_recall_mode: String,
     #[serde(default = "default_global_scope")]
     scope: String,
-    /// 人格简介：组织清单里对目标人格的说明。
     #[serde(default)]
     summary: String,
-    /// 常驻 skill：说明全文注入该人格系统提示词。
     #[serde(default)]
     resident_skill_names: Vec<String>,
-    /// 可选 skill：只注入引用名字。
     #[serde(default)]
     optional_skill_names: Vec<String>,
-    /// 人格驱动模型（会话基线，可被会话级首选覆盖）。
     #[serde(default)]
     api_config_ids: Vec<String>,
     #[serde(default)]
     api_config_id: String,
-    /// 人格权限：强制约束该人格所有会话的工具/技能/MCP 可见性。
-    /// 结构由 GUI/私有组织定义，CLI 只做透传与挂摘，不在这里重复建模。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     permission_control: Option<JsonValue>,
-    /// 下级人格 id：组织树的父子边，语义为「可直接委托」。
     #[serde(default)]
     child_agent_ids: Vec<String>,
 }
@@ -84,126 +91,6 @@ struct AgentProfile {
 struct AgentsFile {
     #[serde(default)]
     agents: Vec<AgentProfile>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AgentListItem {
-    id: String,
-    name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct ApiModelConfig {
-    id: String,
-    model: String,
-    #[serde(default)]
-    display_name: String,
-    #[serde(default)]
-    enable_image: bool,
-    #[serde(default)]
-    enable_audio: bool,
-    #[serde(default)]
-    enable_video: bool,
-    #[serde(default = "default_true")]
-    enable_tools: bool,
-    #[serde(default = "default_reasoning_effort")]
-    reasoning_effort: String,
-    #[serde(default = "default_temperature")]
-    temperature: f64,
-    #[serde(default)]
-    custom_temperature_enabled: bool,
-    #[serde(default = "default_context_window_tokens")]
-    context_window_tokens: u32,
-    #[serde(default = "default_max_output_tokens")]
-    max_output_tokens: u32,
-    #[serde(default)]
-    custom_max_output_tokens_enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct ApiProviderConfig {
-    id: String,
-    name: String,
-    #[serde(default = "default_request_format")]
-    request_format: String,
-    #[serde(default)]
-    allow_concurrent_requests: bool,
-    #[serde(default)]
-    max_concurrent_requests: Option<u32>,
-    #[serde(default = "default_true")]
-    enable_text: bool,
-    #[serde(default)]
-    enable_image: bool,
-    #[serde(default)]
-    enable_audio: bool,
-    #[serde(default)]
-    enable_video: bool,
-    #[serde(default = "default_true")]
-    enable_tools: bool,
-    #[serde(default)]
-    tools: Vec<ApiToolConfig>,
-    #[serde(default)]
-    base_url: String,
-    #[serde(default)]
-    codex_auth_mode: String,
-    #[serde(default)]
-    codex_local_auth_path: String,
-    #[serde(default)]
-    codex_custom_url: Option<String>,
-    #[serde(default)]
-    codex_custom_api_key: Option<String>,
-    #[serde(default)]
-    codex_originator: String,
-    #[serde(default)]
-    codex_residency_requirement: Option<String>,
-    #[serde(default)]
-    api_keys: Vec<String>,
-    #[serde(default)]
-    key_cursor: u32,
-    #[serde(default)]
-    cached_model_options: Vec<String>,
-    #[serde(default)]
-    models: Vec<ApiModelConfig>,
-    #[serde(default)]
-    failure_retry_count: u32,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProviderListItem {
-    id: String,
-    name: String,
-    request_format: String,
-    base_url: String,
-    enabled: ProviderCapabilitySummary,
-    model_count: usize,
-    key_count: usize,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProviderCapabilitySummary {
-    text: bool,
-    image: bool,
-    audio: bool,
-    video: bool,
-    tools: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct AppConfigSnapshot {
-    #[serde(default, alias = "chatApiConfigId")]
-    selected_api_config_id: String,
-    #[serde(default)]
-    api_providers: Vec<ApiProviderConfig>,
-    #[serde(default)]
-    shell_workspaces: Vec<ShellWorkspaceConfigFile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -219,25 +106,40 @@ struct ShellWorkspaceConfigFile {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-struct McpServerFile {
+struct AppConfigSnapshot {
     #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    transport: Option<String>,
+    shell_workspaces: Vec<ShellWorkspaceConfigFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct McpServerEntry {
     #[serde(default)]
     command: Option<String>,
     #[serde(default)]
     args: Option<Vec<String>>,
     #[serde(default)]
-    url: Option<String>,
+    env: Option<std::collections::BTreeMap<String, String>>,
     #[serde(default)]
-    env: Option<BTreeMap<String, String>>,
-}
-
-#[derive(Debug, Clone)]
-struct McpServerEntry {
-    id: String,
-    file: McpServerFile,
+    cwd: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default, rename = "type")]
+    transport_type: Option<String>,
+    #[serde(default)]
+    transport: Option<String>,
+    #[serde(default)]
+    headers: Option<std::collections::BTreeMap<String, String>>,
+    #[serde(default)]
+    http_headers: Option<std::collections::BTreeMap<String, String>>,
+    #[serde(default)]
+    env_http_headers: Option<std::collections::BTreeMap<String, String>>,
+    #[serde(default)]
+    bearer_token_env_var: Option<String>,
+    #[serde(default)]
+    enabled_tools: Option<Vec<String>>,
+    #[serde(default)]
+    disabled_tools: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -247,6 +149,8 @@ struct McpPolicyFile {
     server_id: String,
     #[serde(default)]
     enabled: bool,
+    #[serde(default)]
+    oauth_capable: bool,
     #[serde(default)]
     tools: Vec<McpToolPolicy>,
 }
@@ -259,11 +163,133 @@ struct McpToolPolicy {
     enabled: bool,
 }
 
+/// `app_config.toml` 的顶层形状探针。
+///
+/// 顶层字段与 `features/core/domain/types_config.rs` 的 `AppConfig` 一一对应：
+/// 标量按真实类型声明，数组只要求「是数组」，逐元素字段留给应用自己的
+/// 反序列化。这样 `check` 报出的必填项与类型错误和 `read_config` 的判定一致。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppConfigProbe {
+    hotkey: String,
+    #[serde(default)]
+    ui_language: String,
+    #[serde(default)]
+    ui_font: String,
+    #[serde(default)]
+    code_font: String,
+    #[serde(default, alias = "uiSizePreset", alias = "ui_size_preset")]
+    ui_size_scale: Option<toml::Value>,
+    #[serde(default)]
+    web_access_port: u16,
+    #[serde(default)]
+    web_access_enabled: bool,
+    #[serde(default)]
+    web_access_password: String,
+    #[serde(default)]
+    github_update_method: String,
+    #[serde(default)]
+    skipped_github_update_version: String,
+    #[serde(default)]
+    record_hotkey: String,
+    #[serde(default)]
+    record_background_wake_enabled: bool,
+    #[serde(default)]
+    min_record_seconds: u32,
+    #[serde(default)]
+    max_record_seconds: u32,
+    #[serde(default)]
+    tool_max_iterations: u32,
+    #[serde(default)]
+    llm_round_log_capacity: u32,
+    #[serde(default)]
+    message_notification_enabled: bool,
+    #[serde(default)]
+    message_notification_sound_enabled: bool,
+    #[serde(default)]
+    desktop_operation_notice_enabled: bool,
+    #[serde(default)]
+    desktop_operate_enabled: bool,
+    #[serde(default)]
+    selected_api_config_id: String,
+    #[serde(default, alias = "chatApiConfigId")]
+    expert_api_config_id: String,
+    #[serde(default)]
+    vision_api_config_id: Option<String>,
+    #[serde(default)]
+    tool_review_api_config_id: Option<String>,
+    #[serde(default)]
+    stt_api_config_id: Option<String>,
+    #[serde(default)]
+    image_generation_model_id: Option<String>,
+    #[serde(default)]
+    image_to_video_model_id: Option<String>,
+    #[serde(default)]
+    stt_auto_send: bool,
+    #[serde(default)]
+    terminal_shell_kind: String,
+    #[serde(default)]
+    simple_setup_mode: bool,
+    /// 真实类型是 `SearchMode`（内部标记枚举），序列化形态是 `[searchMode] mode = "auto"`。
+    /// 带自定义 serde 的字段不复刻类型，按结构轻量校验，避免与应用侧判定漂移。
+    #[serde(default)]
+    search_mode: Option<toml::Value>,
+    #[serde(default)]
+    shell_workspaces: Vec<toml::Value>,
+    #[serde(default)]
+    mcp_servers: Vec<toml::Value>,
+    #[serde(default)]
+    remote_im_channels: Vec<toml::Value>,
+    #[serde(default)]
+    search_engines: Vec<toml::Value>,
+    #[serde(default)]
+    provider_non_stream_base_urls: Vec<String>,
+    #[serde(default)]
+    api_providers: Vec<toml::Value>,
+    #[serde(default)]
+    image_providers: Vec<toml::Value>,
+    #[serde(default)]
+    api_configs: Vec<toml::Value>,
+}
+
+// ==================== 入口与上下文 ====================
+
 #[derive(Debug, Clone)]
 pub(crate) struct CliContext {
     config_path: PathBuf,
     data_path: PathBuf,
     workspace_root: PathBuf,
+}
+
+impl CliContext {
+    fn detect() -> Result<Self, String> {
+        if let Some(portable_root) = detect_portable_runtime_root() {
+            let config_dir = portable_root.join("config");
+            return Ok(Self {
+                config_path: config_dir.join("app_config.toml"),
+                data_path: config_dir.join("config_mark"),
+                workspace_root: portable_root.join("llm-workspace"),
+            });
+        }
+
+        let config_dir = resolve_standard_config_dir()?;
+        Ok(Self {
+            config_path: config_dir.join("app_config.toml"),
+            data_path: config_dir.join("config_mark"),
+            workspace_root: config_dir.join("llm-workspace"),
+        })
+    }
+
+    fn app_root(&self) -> PathBuf {
+        app_root_from_cli_data_path(&self.data_path)
+    }
+
+    fn config_dir(&self) -> PathBuf {
+        self.config_path
+            .parent()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| self.config_path.clone())
+    }
 }
 
 #[allow(dead_code)]
@@ -300,144 +326,960 @@ pub fn run_command_with_paths(
 
 fn run_with_context(ctx: &CliContext, args: &[String]) -> Result<String, String> {
     clear_output_buffer();
-    if args.is_empty() {
-        print_help()?;
-        return Ok(take_output_buffer());
+    let command = args.first().map(String::as_str).unwrap_or("");
+    let rest = if args.is_empty() { &[][..] } else { &args[1..] };
+    match command {
+        "" | "help" | "--help" | "-h" => handle_help(ctx, rest)?,
+        "check" => handle_check(ctx, rest)?,
+        "reload" => handle_reload(ctx, rest)?,
+        // 供应商配置命令当前有意不开放，保持原样。
+        "provider" => {
+            return Err("provider 命令当前未开放，请不要通过 config 工具修改供应商。".to_string())
+        }
+        other => return Err(removed_command_hint(other).unwrap_or_else(|| unknown_command_hint(other))),
     }
-    match args[0].as_str() {
-        "agent" => handle_agent(ctx, &args[1..]),
-        "mcp" => handle_mcp(ctx, &args[1..]),
-        "skill" => handle_skill(ctx, &args[1..]),
-        "reload" => handle_reload(),
-        "approot" => handle_approot(ctx),
-        "help" | "--help" | "-h" => print_help(),
-        "provider" => Err("provider 命令当前未开放，请不要通过 config 工具修改供应商。".to_string()),
-        other => Err(format!("未知顶级命令: {other}")),
-    }?;
     Ok(take_output_buffer())
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SkillListItem {
-    name: String,
-    description: String,
-    enabled: bool,
-    path: String,
+fn unknown_command_hint(command: &str) -> String {
+    format!(
+        "未知命令: {command}\n可用命令: help / check / reload。\n先运行 config \"help\" 看目录地图。"
+    )
 }
 
-/// skill 组只开放最小面：列出现有技能供挂摘时选择（结论 22）。
-fn handle_skill(ctx: &CliContext, args: &[String]) -> Result<(), String> {
-    let cmd = args.first().map(String::as_str).unwrap_or("ls");
-    match cmd {
-        "ls" | "" => {
-            let items = skill_list_items(ctx)?;
-            print_json(&items)
+/// 已废除的子命令：一律给迁移提示，不静默成功。
+fn removed_command_hint(command: &str) -> Option<String> {
+    let hint = match command {
+        "agent" => {
+            "agent 系列命令已废除。人格定义现在直接改文件：\n\
+             1. config \"help\" -agent 看 config/agents.json 的字段清单；\n\
+             2. 按字段直接编辑 config/agents.json；\n\
+             3. config \"check\" -agent 校验，通过后 config \"reload\" 生效。"
         }
-        _ => Err("用法: skill ls".to_string()),
-    }
-}
-
-/// reload：请求宿主重新加载工作区（MCP / Skill / 私有人格）。
-/// 命令自身不持有运行态，真正的重载由宿主在命令成功后执行；独立 CLI 进程只会拿到这份回执。
-fn handle_reload() -> Result<(), String> {
-    print_json(&serde_json::json!({
-        "type": "workspaceReloadRequest",
-        "scope": ["mcp", "skills", "privateAgents"],
-    }))
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AppRootInfo {
-    app_root: String,
-    config_path: String,
-    workspace_root: String,
-}
-
-/// 输出应用数据目录。安装版与便携版的落盘位置没有统一规律，只能由应用自身报出。
-fn handle_approot(ctx: &CliContext) -> Result<(), String> {
-    print_json(&AppRootInfo {
-        app_root: app_root_from_cli_data_path(&ctx.data_path)
-            .display()
-            .to_string(),
-        config_path: ctx.config_path.display().to_string(),
-        workspace_root: effective_workspace_root(ctx).display().to_string(),
-    })
-}
-
-fn skill_list_items(ctx: &CliContext) -> Result<Vec<SkillListItem>, String> {
-    let workspace_root = effective_workspace_root(ctx);
-    let skills_dir = workspace_root.join("skills");
-    if !skills_dir.exists() {
-        return Ok(Vec::new());
-    }
-    let enabled_map = load_cli_skill_enabled_map(&workspace_root);
-    let mut dirs = fs::read_dir(&skills_dir)
-        .map_err(|err| format!("读取技能目录失败 ({}): {err}", skills_dir.display()))?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.is_dir())
-        .collect::<Vec<_>>();
-    dirs.sort();
-    let mut items = Vec::new();
-    for dir in dirs {
-        let skill_md = dir.join("SKILL.md");
-        if !skill_md.is_file() {
-            continue;
+        "mcp" => {
+            "mcp 系列命令已废除。MCP 服务现在直接改文件：\n\
+             1. config \"help\" -mcp 看字段清单；\n\
+             2. 服务定义写 llm-workspace/mcp/servers/<id>.json，启停策略写 llm-workspace/mcp/policies/<id>.json；\n\
+             3. config \"check\" -mcp 校验，通过后 config \"reload\" 生效。"
         }
-        let Ok((name, description, _)) = parse_skill_frontmatter(&skill_md) else {
-            continue;
-        };
-        let enabled = enabled_map
-            .iter()
-            .find(|(key, _)| key == &name)
-            .map(|(_, value)| *value)
-            .unwrap_or(true);
-        items.push(SkillListItem {
-            name,
-            description,
-            enabled,
-            path: skill_md.to_string_lossy().to_string(),
-        });
-    }
-    Ok(items)
-}
-
-fn load_cli_skill_enabled_map(workspace_root: &Path) -> Vec<(String, bool)> {
-    let dir = workspace_root.join("skill-policies");
-    let mut map = Vec::new();
-    let Ok(entries) = fs::read_dir(&dir) else {
-        return map;
+        "skill" => {
+            "skill 系列命令已废除。技能现在直接改文件：\n\
+             1. config \"help\" -skill 看 frontmatter 字段；\n\
+             2. 在 llm-workspace/skills/<name>/SKILL.md 里写 frontmatter 与正文；\n\
+             3. config \"check\" -skill 校验，通过后 config \"reload\" 生效。"
+        }
+        "approot" => {
+            "approot 命令已废除。\n\
+             直接运行 config \"help\"，目录地图里已给出 app_root 与 config_dir 的绝对路径。"
+        }
+        "store" => {
+            "store 命令已从 config 工具面移除，能力商店的搜索与安装这条路暂时不可用。\n\
+             现在只能手工落文件：技能写到 llm-workspace/skills/<name>/SKILL.md，\n\
+             MCP 写到 llm-workspace/mcp/servers/<id>.json，再 config \"reload\" 生效。\n\
+             字段清单用 config \"help\" -skill 或 config \"help\" -mcp 查。"
+        }
+        "update" | "delete" | "enable" | "disable" | "new" => {
+            "这些顶层命令已废除。\n\
+             配置改动一律直接编辑文件；改完 config \"check\" 校验，再 config \"reload\" 生效。\n\
+             结构性问题（新建人格、组织父子边、头像路径）也走文件：先看 config \"help\" -agent。"
+        }
+        _ => return None,
     };
-    for path in entries.filter_map(|entry| entry.ok().map(|entry| entry.path())) {
-        if path.extension().and_then(|value| value.to_str()) != Some("json") {
-            continue;
-        }
-        let Ok(file) = read_json_file::<SkillPolicyEntry>(&path) else {
-            continue;
+    Some(format!("{hint}\n（原命令: config \"{command}\"）"))
+}
+
+// ==================== help：目录地图 ====================
+
+struct LayoutEntry {
+    /// 相对 app_root 的路径；以 `/` 结尾表示目录，含 `<...>` 表示占位符。
+    path: &'static str,
+    desc: &'static str,
+}
+
+/// 目录地图的唯一来源，须与 `docs/data-schema-v2.md` 的「布局总表」保持一致。
+/// 顺序按顶层目录聚拢，便于渲染成分组结构。
+const LAYOUT: &[LayoutEntry] = &[
+    LayoutEntry {
+        path: "config/app_config.toml",
+        desc: "应用主配置：模型供应商、界面、搜索引擎、记忆与工具开关。含明文密钥。",
+    },
+    LayoutEntry {
+        path: "config/agents.json",
+        desc: "人格定义与组织关系，父子边写在 childAgentIds 里。",
+    },
+    LayoutEntry {
+        path: "config/llm-workspace/",
+        desc: "skills / MCP / tool-output 的实际落点（绑定 config_dir，不随 app_root 上提）。",
+    },
+    LayoutEntry {
+        path: "llm-workspace/downloads/",
+        desc: "下载落点，相对 app_root。",
+    },
+    LayoutEntry {
+        path: "state/state.sqlite",
+        desc: "全局状态总库：窗口布局、缓存、远程 IM 联系人等。",
+    },
+    LayoutEntry {
+        path: "state/runtime_state.json",
+        desc: "旧版全局状态 JSON，仅在数据迁移时读取，不再写入。",
+    },
+    LayoutEntry {
+        path: "chat/chat_metadata.sqlite",
+        desc: "会话元数据、消息定位索引、用量统计。",
+    },
+    LayoutEntry {
+        path: "chat/conversations/<id>/",
+        desc: "单个会话的正文压缩块。",
+    },
+    LayoutEntry {
+        path: "backups/",
+        desc: "迁移与导出的备份，按 backups/<时间戳>/ 组织。",
+    },
+    LayoutEntry {
+        path: "memory/memory_store.db",
+        desc: "记忆库。",
+    },
+    LayoutEntry {
+        path: "task/task_store.db",
+        desc: "定时任务库。",
+    },
+    LayoutEntry {
+        path: "delegate/delegate_store.db",
+        desc: "委托库。",
+    },
+    LayoutEntry {
+        path: "avatars/",
+        desc: "人格头像（webp）。",
+    },
+    LayoutEntry {
+        path: "media/",
+        desc: "媒体文件（<sha256>.<ext>）。",
+    },
+    LayoutEntry {
+        path: "exports/",
+        desc: "导出产物。",
+    },
+    LayoutEntry {
+        path: "auth/",
+        desc: "Codex / Grok 等认证落点。",
+    },
+    LayoutEntry {
+        path: "indexes/",
+        desc: "聊天历史检索索引。",
+    },
+    LayoutEntry {
+        path: "remote-im/",
+        desc: "远程 IM 频道状态。",
+    },
+    LayoutEntry {
+        path: "web-access/",
+        desc: "Web 访问桥接令牌。",
+    },
+    LayoutEntry {
+        path: "temp/",
+        desc: "临时产物。",
+    },
+    LayoutEntry {
+        path: "tool-review-reports/",
+        desc: "工具审查报告。",
+    },
+    LayoutEntry {
+        path: "delegate-conversations/",
+        desc: "委托会话存储。",
+    },
+];
+
+fn handle_help(ctx: &CliContext, args: &[String]) -> Result<(), String> {
+    if args.is_empty() {
+        push_output(&render_directory_map(ctx));
+        return Ok(());
+    }
+    let requests = parse_topic_flags(args)?;
+    let mut blocks = Vec::new();
+    for request in &requests {
+        blocks.push(render_topic(ctx, request)?);
+    }
+    push_output(&blocks.join("\n\n"));
+    Ok(())
+}
+
+fn render_directory_map(ctx: &CliContext) -> String {
+    let app_root = ctx.app_root();
+    let config_dir = ctx.config_dir();
+    let mut out = String::new();
+    out.push_str(&format!("app_root:   {}\n", app_root.display()));
+    out.push_str(&format!("config_dir: {}\n\n", config_dir.display()));
+
+    let mut current_group = String::new();
+    for entry in LAYOUT {
+        let (label, group) = match entry.path.split_once('/') {
+            Some((group, rest)) if !rest.is_empty() => (rest, Some(group)),
+            _ => (entry.path, None),
         };
-        let name = file.skill_name.trim().to_string();
-        if !name.is_empty() {
-            map.push((name, file.enabled));
+        match group {
+            Some(group) => {
+                if group != current_group {
+                    out.push_str(&format!("{group}/\n"));
+                    current_group = group.to_string();
+                }
+            }
+            None => current_group.clear(),
+        }
+        let exists = layout_entry_exists(&app_root, entry.path);
+        let suffix = if exists { "" } else { "  （尚未创建）" };
+        match group {
+            Some(_) => out.push_str(&format!("  {:<26} {}{}\n", label, entry.desc, suffix)),
+            None => out.push_str(&format!("{:<28} {}{}\n", label, entry.desc, suffix)),
         }
     }
-    map
+
+    out.push_str("\n核心文件：config/app_config.toml、config/agents.json\n");
+    out.push_str(
+        "改法：直接编辑上面的文件，改完 config \"check\" 校验，再 config \"reload\" 让运行中的应用重新加载内存态。\n",
+    );
+    out.push_str("app_config.toml 按 mtime 自动失效，不需要 reload 就能被读到。\n");
+    out.push('\n');
+    out.push_str(&available_topics_line());
+    out
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct SkillPolicyEntry {
-    #[serde(default)]
-    skill_name: String,
-    #[serde(default = "default_true")]
-    enabled: bool,
+fn layout_entry_exists(app_root: &Path, entry_path: &str) -> bool {
+    let trimmed = entry_path.trim_end_matches('/');
+    let probe = if trimmed.contains('<') {
+        trimmed.rsplit_once('/').map(|(head, _)| head).unwrap_or("")
+    } else {
+        trimmed
+    };
+    if probe.is_empty() {
+        return true;
+    }
+    app_root.join(probe).exists()
 }
 
-/// 读 SKILL.md 的 frontmatter，取 name 与 description。
-/// config 工具是独立 crate 模块，不能用主程序的解析函数，这里保留最小实现。
+fn available_topics_line() -> String {
+    "主题参数（可一次给多个）：\n  -app    app_config.toml\n  -agent  config/agents.json\n  -mcp    llm-workspace/mcp/servers/<id>.json 与 policies/<id>.json\n  -skill  llm-workspace/skills/<name>/SKILL.md 的 frontmatter".to_string()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Topic {
+    App,
+    Agent,
+    Mcp,
+    Skill,
+}
+
+struct TopicRequest {
+    topic: Topic,
+    selectors: Vec<String>,
+}
+
+fn parse_topic_flags(args: &[String]) -> Result<Vec<TopicRequest>, String> {
+    let mut requests: Vec<TopicRequest> = Vec::new();
+    for arg in args {
+        let topic = match arg.as_str() {
+            "-app" | "--app" => Some(Topic::App),
+            "-agent" | "--agent" => Some(Topic::Agent),
+            "-mcp" | "--mcp" => Some(Topic::Mcp),
+            "-skill" | "--skill" => Some(Topic::Skill),
+            _ => None,
+        };
+        match topic {
+            Some(topic) => requests.push(TopicRequest {
+                topic,
+                selectors: Vec::new(),
+            }),
+            None => {
+                if arg.starts_with('-') {
+                    return Err(format!(
+                        "未知主题: {arg}\n{}",
+                        available_topics_line()
+                    ));
+                }
+                match requests.last_mut() {
+                    Some(last) => last.selectors.push(arg.clone()),
+                    None => {
+                        return Err(format!(
+                            "主题参数前缺少文件名: {arg}\n{}",
+                            available_topics_line()
+                        ))
+                    }
+                }
+            }
+        }
+    }
+    if requests.is_empty() {
+        return Err(available_topics_line());
+    }
+    Ok(requests)
+}
+
+struct FieldSpec {
+    name: &'static str,
+    ty: &'static str,
+    required: bool,
+    desc: &'static str,
+}
+
+const APP_FIELDS: &[FieldSpec] = &[
+    FieldSpec { name: "hotkey", ty: "string", required: true, desc: "全局呼出热键。" },
+    FieldSpec { name: "uiLanguage", ty: "string", required: false, desc: "界面语言。" },
+    FieldSpec { name: "uiFont", ty: "string", required: false, desc: "界面字体。" },
+    FieldSpec { name: "codeFont", ty: "string", required: false, desc: "代码字体。" },
+    FieldSpec { name: "uiSizeScale", ty: "integer | string", required: false, desc: "界面缩放档位：整数 75-150，或旧预设字符串 small / default / large / extraLarge（旧键名 uiSizePreset）。" },
+    FieldSpec { name: "webAccessPort", ty: "integer", required: false, desc: "Web 访问端口。" },
+    FieldSpec { name: "webAccessEnabled", ty: "boolean", required: false, desc: "是否开启 Web 访问。" },
+    FieldSpec { name: "webAccessPassword", ty: "string", required: false, desc: "Web 访问口令。" },
+    FieldSpec { name: "githubUpdateMethod", ty: "string", required: false, desc: "GitHub 更新方式。" },
+    FieldSpec { name: "skippedGithubUpdateVersion", ty: "string", required: false, desc: "用户跳过提醒的版本号。" },
+    FieldSpec { name: "recordHotkey", ty: "string", required: false, desc: "录音热键。" },
+    FieldSpec { name: "recordBackgroundWakeEnabled", ty: "boolean", required: false, desc: "是否允许后台唤醒录音。" },
+    FieldSpec { name: "minRecordSeconds", ty: "integer", required: false, desc: "最短录音秒数。" },
+    FieldSpec { name: "maxRecordSeconds", ty: "integer", required: false, desc: "最长录音秒数。" },
+    FieldSpec { name: "toolMaxIterations", ty: "integer", required: false, desc: "单轮工具执行上限。" },
+    FieldSpec { name: "llmRoundLogCapacity", ty: "integer", required: false, desc: "轮次日志保留条数。" },
+    FieldSpec { name: "messageNotificationEnabled", ty: "boolean", required: false, desc: "消息通知开关。" },
+    FieldSpec { name: "messageNotificationSoundEnabled", ty: "boolean", required: false, desc: "消息通知声音开关。" },
+    FieldSpec { name: "desktopOperationNoticeEnabled", ty: "boolean", required: false, desc: "桌面操作提示开关。" },
+    FieldSpec { name: "desktopOperateEnabled", ty: "boolean", required: false, desc: "桌面操作能力开关。" },
+    FieldSpec { name: "selectedApiConfigId", ty: "string", required: false, desc: "默认对话模型 id。" },
+    FieldSpec { name: "expertApiConfigId", ty: "string", required: false, desc: "专家模型 id（旧键 chatApiConfigId）。" },
+    FieldSpec { name: "visionApiConfigId", ty: "string | null", required: false, desc: "视觉模型 id。" },
+    FieldSpec { name: "toolReviewApiConfigId", ty: "string | null", required: false, desc: "工具审查模型 id。" },
+    FieldSpec { name: "sttApiConfigId", ty: "string | null", required: false, desc: "语音转写模型 id。" },
+    FieldSpec { name: "imageGenerationModelId", ty: "string | null", required: false, desc: "图像生成模型 id。" },
+    FieldSpec { name: "imageToVideoModelId", ty: "string | null", required: false, desc: "图生视频模型 id。" },
+    FieldSpec { name: "sttAutoSend", ty: "boolean", required: false, desc: "转写完成后自动发送。" },
+    FieldSpec { name: "terminalShellKind", ty: "string", required: false, desc: "终端 shell 类型。" },
+    FieldSpec { name: "simpleSetupMode", ty: "boolean", required: false, desc: "是否精简设置模式。" },
+    FieldSpec { name: "searchMode", ty: "table", required: false, desc: "搜索调度模式，写成 [searchMode] 表，其中 mode = \"auto\" 或 \"fixed\"；fixed 时还要给 engineId。" },
+    FieldSpec { name: "shellWorkspaces", ty: "array<table>", required: false, desc: "工作区列表，元素：name / path / level。" },
+    FieldSpec { name: "mcpServers", ty: "array<table>", required: false, desc: "MCP 服务列表。" },
+    FieldSpec { name: "remoteImChannels", ty: "array<table>", required: false, desc: "远程 IM 渠道列表。" },
+    FieldSpec { name: "searchEngines", ty: "array<table>", required: false, desc: "搜索引擎列表。" },
+    FieldSpec { name: "providerNonStreamBaseUrls", ty: "array<string>", required: false, desc: "走非流式接口的 base URL 名单。" },
+    FieldSpec { name: "apiProviders", ty: "array<table>", required: false, desc: "模型供应商及其模型列表。" },
+    FieldSpec { name: "imageProviders", ty: "array<table>", required: false, desc: "图像供应商列表。" },
+    FieldSpec { name: "apiConfigs", ty: "array<table>", required: false, desc: "模型配置列表。" },
+];
+
+const AGENT_FIELDS: &[FieldSpec] = &[
+    FieldSpec { name: "id", ty: "string", required: true, desc: "人格 id，同名互斥。" },
+    FieldSpec { name: "name", ty: "string", required: true, desc: "显示名。" },
+    FieldSpec { name: "systemPrompt", ty: "string", required: true, desc: "系统提示词。" },
+    FieldSpec { name: "tools", ty: "array<table>", required: false, desc: "人格自带工具，元素：id / command / args / enabled / values。" },
+    FieldSpec { name: "createdAt", ty: "string", required: false, desc: "创建时间（RFC3339）。" },
+    FieldSpec { name: "updatedAt", ty: "string", required: false, desc: "更新时间（RFC3339）。" },
+    FieldSpec { name: "avatarPath", ty: "string | null", required: false, desc: "头像路径，相对 app_root（如 avatars/<id>.webp）。" },
+    FieldSpec { name: "avatarUpdatedAt", ty: "string | null", required: false, desc: "头像更新时间。" },
+    FieldSpec { name: "isBuiltInUser", ty: "boolean", required: false, desc: "是否内置用户人格。" },
+    FieldSpec { name: "isBuiltInSystem", ty: "boolean", required: false, desc: "是否内置系统人格。" },
+    FieldSpec { name: "privateMemoryEnabled", ty: "boolean", required: false, desc: "是否启用私有记忆。" },
+    FieldSpec { name: "memoryRecallMode", ty: "string", required: false, desc: "记忆召回模式。" },
+    FieldSpec { name: "scope", ty: "string", required: false, desc: "可见范围。" },
+    FieldSpec { name: "summary", ty: "string", required: false, desc: "人格简介。" },
+    FieldSpec { name: "residentSkillNames", ty: "array<string>", required: false, desc: "常驻技能：全文注入系统提示词。" },
+    FieldSpec { name: "optionalSkillNames", ty: "array<string>", required: false, desc: "可选技能：只注入名字。" },
+    FieldSpec { name: "apiConfigIds", ty: "array<string>", required: false, desc: "备选模型 id 列表。" },
+    FieldSpec { name: "apiConfigId", ty: "string", required: false, desc: "主模型 id。" },
+    FieldSpec { name: "permissionControl", ty: "object | null", required: false, desc: "人格权限：工具 / 技能 / MCP 可见性。" },
+    FieldSpec { name: "childAgentIds", ty: "array<string>", required: false, desc: "下级人格 id：组织树父子边，语义为可直接委托。" },
+];
+
+const MCP_FILE_FIELDS: &[FieldSpec] = &[
+    FieldSpec { name: "mcpServers", ty: "object<显示名, 服务定义>", required: false, desc: "界面保存的形态：键是显示名，不是服务 id。" },
+    FieldSpec { name: "name", ty: "string", required: false, desc: "商店安装的形态：服务显示名。" },
+    FieldSpec { name: "definitionJson", ty: "string", required: false, desc: "商店安装的形态：定义 JSON 的字符串形式。" },
+];
+
+const MCP_FIELDS: &[FieldSpec] = &[
+    FieldSpec { name: "command", ty: "string", required: false, desc: "stdio 方式的启动命令。" },
+    FieldSpec { name: "args", ty: "array<string>", required: false, desc: "stdio 方式的参数。" },
+    FieldSpec { name: "env", ty: "object<string,string>", required: false, desc: "启动时注入的环境变量。" },
+    FieldSpec { name: "cwd", ty: "string", required: false, desc: "stdio 方式的工作目录。" },
+    FieldSpec { name: "url", ty: "string", required: false, desc: "HTTP / SSE / streamable-http 方式的地址。" },
+    FieldSpec { name: "type", ty: "string", required: false, desc: "传输方式，如 streamable-http、sse、stdio。" },
+    FieldSpec { name: "transport", ty: "string", required: false, desc: "传输方式的旧写法，与 type 二选一。" },
+    FieldSpec { name: "headers", ty: "object<string,string>", required: false, desc: "HTTP 请求头，常用于 Authorization。" },
+    FieldSpec { name: "httpHeaders", ty: "object<string,string>", required: false, desc: "headers 的别名写法。" },
+    FieldSpec { name: "envHttpHeaders", ty: "object<string,string>", required: false, desc: "从环境变量取值的请求头。" },
+    FieldSpec { name: "bearerTokenEnvVar", ty: "string", required: false, desc: "存放 Bearer token 的环境变量名。" },
+    FieldSpec { name: "enabledTools", ty: "array<string>", required: false, desc: "只启用这些工具。" },
+    FieldSpec { name: "disabledTools", ty: "array<string>", required: false, desc: "排除这些工具。" },
+];
+
+const MCP_POLICY_FIELDS: &[FieldSpec] = &[
+    FieldSpec { name: "serverId", ty: "string", required: true, desc: "对应服务 id，等于 servers 目录里那份文件的文件名（不含 .json）。" },
+    FieldSpec { name: "enabled", ty: "boolean", required: true, desc: "是否启用该服务。" },
+    FieldSpec { name: "oauthCapable", ty: "boolean", required: false, desc: "该服务是否需要 OAuth 授权。" },
+    FieldSpec { name: "tools", ty: "array<table>", required: false, desc: "工具级策略，元素：toolName / enabled。" },
+];
+
+const SKILL_FIELDS: &[FieldSpec] = &[
+    FieldSpec { name: "name", ty: "string", required: true, desc: "技能名，与目录名一致。" },
+    FieldSpec { name: "description", ty: "string", required: false, desc: "技能说明：模型据此判断何时使用。" },
+];
+
+fn render_topic(ctx: &CliContext, request: &TopicRequest) -> Result<String, String> {
+    let mut out = String::new();
+    match request.topic {
+        Topic::App => {
+            out.push_str("app_config.toml — 应用主配置：模型供应商、界面、搜索引擎、记忆与工具开关。\n");
+            out.push_str(&format!("路径: {}\n", ctx.config_path.display()));
+            out.push_str("顶层字段（TOML，camelCase；未列出的键会被忽略）：\n");
+            out.push_str(&render_fields(APP_FIELDS));
+            out.push_str("注意：文件里是明文密钥。读文件才能拿到值。\n");
+        }
+        Topic::Agent => {
+            out.push_str("agents.json — 人格定义与组织父子边。\n");
+            out.push_str(&format!(
+                "路径: {}\n",
+                ctx.app_root().join("config").join("agents.json").display()
+            ));
+            out.push_str("顶层结构: { \"agents\": [ <人格>, ... ] }\n");
+            out.push_str("人格字段（JSON，camelCase）：\n");
+            out.push_str(&render_fields(AGENT_FIELDS));
+        }
+        Topic::Mcp => {
+            let servers_dir = mcp_servers_dir(ctx);
+            let policies_dir = mcp_policies_dir(ctx);
+            out.push_str("MCP — 每个服务一份定义文件，启停与工具开关落在对应的 policy 文件。\n");
+            match request.selectors.first() {
+                Some(id) => {
+                    let server = mcp_server_file_for_id(ctx, id);
+                    out.push_str(&format!(
+                        "定义: {}\n",
+                        server
+                            .as_ref()
+                            .map(|path| path.display().to_string())
+                            .unwrap_or_else(|| format!("未找到服务 {id} 的定义文件"))
+                    ));
+                    out.push_str(&format!(
+                        "策略: {}\n",
+                        mcp_policy_file_for_id(ctx, id)
+                            .map(|path| path.display().to_string())
+                            .unwrap_or_else(|| "尚未创建".to_string())
+                    ));
+                }
+                None => {
+                    out.push_str(&format!("定义目录: {}\n", servers_dir.display()));
+                    out.push_str(&format!("策略目录: {}\n", policies_dir.display()));
+                    out.push_str("服务 id 就是文件名（不含 .json）；policies/<id>.json 与之同名。\n");
+                    out.push_str("定义有两种外壳：界面保存的 mcpServers 表，和商店安装的 name + definitionJson。\n");
+                }
+            }
+            out.push_str("服务文件字段（JSON，camelCase）：\n");
+            out.push_str(&render_fields(MCP_FILE_FIELDS));
+            out.push_str("服务定义可以是：单服务直接字段（name / transport / command / args 这一套）、{ \"mcpServers\": { 名: 定义 } }、{ \"mcpServers\": [ 定义 ] }、根级命名集合 { 名: 定义 }、根级数组 [ 定义 ]。\n");
+            out.push_str("服务定义本身的字段（定义对象那层）：\n");
+            out.push_str(&render_fields(MCP_FIELDS));
+            out.push_str("policy 字段（JSON，camelCase）：\n");
+            out.push_str(&render_fields(MCP_POLICY_FIELDS));
+        }
+        Topic::Skill => {
+            let skills_dir = effective_workspace_root(ctx).join("skills");
+            out.push_str("Skill — 一个目录一个技能，说明在 SKILL.md 的 YAML frontmatter 里。\n");
+            match request.selectors.first() {
+                Some(name) => {
+                    out.push_str(&format!(
+                        "路径: {}\n",
+                        skills_dir.join(name).join("SKILL.md").display()
+                    ));
+                }
+                None => {
+                    out.push_str(&format!("目录: {}\n", skills_dir.join("<name>").join("SKILL.md").display()));
+                }
+            }
+            out.push_str("frontmatter 字段（写在文件开头的 --- 之间）：\n");
+            out.push_str(&render_fields(SKILL_FIELDS));
+            out.push_str("--- 之后是 markdown 正文，技能的完整说明。\n");
+        }
+    }
+    Ok(out.trim_end().to_string())
+}
+
+fn render_fields(fields: &[FieldSpec]) -> String {
+    let mut out = format!("  共 {} 个字段\n", fields.len());
+    for field in fields {
+        let required = if field.required { "必填" } else { "可选" };
+        out.push_str(&format!(
+            "  {:<34} {:<18} {:<4} {}\n",
+            field.name, field.ty, required, field.desc
+        ));
+    }
+    out
+}
+
+// ==================== check：校验 ====================
+
+struct CheckReport {
+    checked: Vec<String>,
+    errors: Vec<String>,
+}
+
+impl CheckReport {
+    fn new() -> Self {
+        Self {
+            checked: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    fn record(&mut self, path: &Path, result: Result<(), String>) {
+        match result {
+            Ok(()) => self.checked.push(path.display().to_string()),
+            Err(err) => self
+                .errors
+                .push(format!("{}: {err}", path.display())),
+        }
+    }
+
+    fn into_result(self) -> Result<String, String> {
+        if !self.errors.is_empty() {
+            let mut message = String::from("校验未通过，配置未进入生效环节：\n");
+            message.push_str(&self.errors.join("\n"));
+            return Err(message);
+        }
+        let mut out = String::from("校验通过：\n");
+        if self.checked.is_empty() {
+            out.push_str("  （没有找到可校验的配置文件）\n");
+        } else {
+            for path in &self.checked {
+                out.push_str(&format!("  {path}\n"));
+            }
+        }
+        Ok(out.trim_end().to_string())
+    }
+}
+
+fn handle_check(ctx: &CliContext, args: &[String]) -> Result<(), String> {
+    let report = if args.is_empty() {
+        check_all(ctx)
+    } else {
+        let requests = parse_topic_flags(args)?;
+        let mut report = CheckReport::new();
+        for request in &requests {
+            match request.topic {
+                Topic::App => check_app_config(ctx, &mut report),
+                Topic::Agent => check_agents(ctx, &mut report),
+                Topic::Mcp => check_mcp(ctx, request.selectors.first().map(String::as_str), &mut report),
+                Topic::Skill => check_skills(
+                    ctx,
+                    request.selectors.first().map(String::as_str),
+                    &mut report,
+                ),
+            }
+        }
+        report
+    };
+    push_output(&report.into_result()?);
+    Ok(())
+}
+
+fn check_all(ctx: &CliContext) -> CheckReport {
+    let mut report = CheckReport::new();
+    check_app_config(ctx, &mut report);
+    check_agents(ctx, &mut report);
+    check_mcp(ctx, None, &mut report);
+    check_skills(ctx, None, &mut report);
+    report
+}
+
+fn check_app_config(ctx: &CliContext, report: &mut CheckReport) {
+    let path = ctx.config_path.clone();
+    if !path.exists() {
+        report
+            .errors
+            .push(format!("{}: 配置文件不存在", path.display()));
+        return;
+    }
+    report.record(&path, validate_app_config_file(&path));
+}
+
+fn validate_app_config_file(path: &Path) -> Result<(), String> {
+    let text = fs::read_to_string(path).map_err(|err| format!("读取失败: {err}"))?;
+    // 语法层：toml 的报错带行列信息。
+    let _syntax: toml::Value = toml::from_str(&text).map_err(|err| format!("TOML 语法错误: {err}"))?;
+    // 类型与必填层：与 read_config 的反序列化判定一致。
+    let probe: AppConfigProbe =
+        toml::from_str(&text).map_err(|err| format!("字段校验失败: {err}"))?;
+    validate_app_config_probe(&probe)
+}
+
+/// 带自定义 serde 的字段不复刻类型，改按各自真实的序列化形态做轻量校验，
+/// 避免和应用侧的判定漂移成两套。
+fn validate_app_config_probe(probe: &AppConfigProbe) -> Result<(), String> {
+    if let Some(value) = &probe.search_mode {
+        // SearchMode 是内部标记枚举，落盘形态是 [searchMode] mode = "auto"，
+        // 锁定引擎时额外带 engineId。
+        let table = value
+            .as_table()
+            .ok_or_else(|| "searchMode 必须是表，形如 [searchMode] mode = \"auto\"".to_string())?;
+        let mode = table
+            .get("mode")
+            .and_then(toml::Value::as_str)
+            .ok_or_else(|| "searchMode.mode 必须是字符串".to_string())?;
+        match mode {
+            "auto" => {}
+            "fixed" => {
+                // 应用侧 `SearchMode::Fixed { engine_id: String }` 只要求字段在场，
+                // 不校验非空，所以这里也只要求在场，避免 check 比 read_config 严。
+                if table.get("engineId").and_then(toml::Value::as_str).is_none() {
+                    return Err("searchMode.mode = \"fixed\" 时必须给 engineId".to_string());
+                }
+            }
+            other => {
+                return Err(format!(
+                    "searchMode.mode 只能是 auto 或 fixed，当前是 {other}"
+                ))
+            }
+        }
+    }
+    if let Some(value) = &probe.ui_size_scale {
+        // uiSizeScale：整数档位，或旧预设字符串（small / default / large / extraLarge）。
+        if value.as_integer().is_none() && value.as_str().is_none() {
+            return Err("uiSizeScale 必须是整数（75-150）或旧预设字符串".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn check_agents(ctx: &CliContext, report: &mut CheckReport) {
+    let path = ctx.app_root().join("config").join("agents.json");
+    if !path.exists() {
+        return;
+    }
+    report.record(&path, validate_agents_file(&path));
+}
+
+fn validate_agents_file(path: &Path) -> Result<(), String> {
+    let text = fs::read_to_string(path).map_err(|err| format!("读取失败: {err}"))?;
+    let file: AgentsFile =
+        serde_json::from_str(&text).map_err(|err| format!("JSON 解析失败: {err}"))?;
+    let mut seen_ids = HashSet::new();
+    for (index, agent) in file.agents.iter().enumerate() {
+        let label = format!("agents[{index}]");
+        if agent.id.trim().is_empty() {
+            return Err(format!("{label}.id 不能为空"));
+        }
+        if !seen_ids.insert(agent.id.clone()) {
+            return Err(format!("{label}.id 重复: {}", agent.id));
+        }
+        if agent.name.trim().is_empty() {
+            return Err(format!("{label}.name 不能为空（id: {}）", agent.id));
+        }
+        if agent.system_prompt.trim().is_empty() {
+            return Err(format!("{label}.systemPrompt 不能为空（id: {}）", agent.id));
+        }
+    }
+    for (index, agent) in file.agents.iter().enumerate() {
+        for child_id in &agent.child_agent_ids {
+            if !seen_ids.contains(child_id) {
+                return Err(format!(
+                    "agents[{index}].childAgentIds 指向不存在的人格: {child_id}"
+                ));
+            }
+            if child_id == &agent.id {
+                return Err(format!(
+                    "agents[{index}].childAgentIds 指向自己: {child_id}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_mcp(ctx: &CliContext, selector: Option<&str>, report: &mut CheckReport) {
+    let servers_dir = mcp_servers_dir(ctx);
+    let policies_dir = mcp_policies_dir(ctx);
+    let server_paths = match selector {
+        Some(id) => match mcp_server_file_for_id(ctx, id) {
+            Some(path) => vec![path],
+            None => {
+                report
+                    .errors
+                    .push(format!("MCP 服务 {id}: 在 {} 下找不到定义", servers_dir.display()));
+                Vec::new()
+            }
+        },
+        None => json_files(&servers_dir).unwrap_or_default(),
+    };
+    for path in server_paths.iter().filter(|path| path.is_file()) {
+        report.record(path, validate_mcp_server_file(path));
+    }
+
+    let policy_paths = match selector {
+        Some(id) => mcp_policy_file_for_id(ctx, id).into_iter().collect::<Vec<_>>(),
+        None => json_files(&policies_dir).unwrap_or_default(),
+    };
+    for path in policy_paths {
+        report.record(&path, validate_mcp_policy_file(&path));
+    }
+}
+
+/// 写入侧 `features/mcp/workspace.rs::sanitize_mcp_server_id_for_filename` 会把
+/// 非字母数字、非 `-` `_` 的字符换成 `_` 再拼文件名，这里按同一规则清洗，
+/// 否则 id 里带中文或点号时按原样找文件会落空。规则改动要两边一起改。
+fn sanitize_mcp_server_id(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    let trimmed = out.trim_matches('_').trim().to_string();
+    if trimmed.is_empty() {
+        "mcp_server".to_string()
+    } else {
+        trimmed
+    }
+}
+
+/// 服务 id 就是文件名 stem（`features/mcp/workspace.rs` 的读取口径），
+/// `mcpServers` 的键与 `name` 只是显示名，不参与定位。
+fn mcp_server_file_for_id(ctx: &CliContext, id: &str) -> Option<PathBuf> {
+    let path = mcp_servers_dir(ctx).join(format!("{}.json", sanitize_mcp_server_id(id)));
+    path.is_file().then_some(path)
+}
+
+fn mcp_policy_file_for_id(ctx: &CliContext, id: &str) -> Option<PathBuf> {
+    let path = mcp_policies_dir(ctx).join(format!("{}.json", sanitize_mcp_server_id(id)));
+    path.is_file().then_some(path)
+}
+
+fn validate_mcp_server_file(path: &Path) -> Result<(), String> {
+    let text = fs::read_to_string(path).map_err(|err| format!("读取失败: {err}"))?;
+    let value: JsonValue =
+        serde_json::from_str(&text).map_err(|err| format!("JSON 解析失败: {err}"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "文件根必须是 JSON 对象".to_string())?;
+    if object.is_empty() {
+        return Err("文件是空对象，至少要有一个服务".to_string());
+    }
+    let definitions = mcp_definitions_from_file_value(&value)?;
+    for (display_name, server) in &definitions {
+        validate_mcp_server(server).map_err(|err| format!("{display_name}: {err}"))?;
+    }
+    Ok(())
+}
+
+/// 文件内容 → 定义值，口径与 `features/mcp/workspace.rs` 的
+/// `parse_workspace_mcp_server_from_file` 一致：有 `definitionJson` 字符串就用它，
+/// 没有就把整个文件对象本身当作定义。
+fn mcp_definitions_from_file_value(
+    value: &JsonValue,
+) -> Result<Vec<(String, McpServerEntry)>, String> {
+    let root = value
+        .as_object()
+        .ok_or_else(|| "文件根必须是 JSON 对象".to_string())?;
+    let raw = root
+        .get("definitionJson")
+        .or_else(|| root.get("definition_json"))
+        .and_then(JsonValue::as_str);
+    if let Some(raw) = raw {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err("definitionJson 是空字符串".to_string());
+        }
+        let definition: JsonValue = serde_json::from_str(trimmed)
+            .map_err(|err| format!("definitionJson 不是合法 JSON: {err}"))?;
+        return mcp_definitions_from_value(&definition);
+    }
+    mcp_definitions_from_value(value)
+}
+
+/// MCP 服务定义里属于「单个服务直接字段」的键。
+/// 与 `features/mcp/parser.rs::is_server_direct_field` 逐字对齐，改那边要回来改这里。
+const MCP_SERVER_DIRECT_FIELDS: &[&str] = &[
+    "command",
+    "args",
+    "env",
+    "cwd",
+    "url",
+    "transport",
+    "type",
+    "headers",
+    "httpHeaders",
+    "envHttpHeaders",
+    "bearerTokenEnvVar",
+    "enabledTools",
+    "disabledTools",
+];
+
+fn is_mcp_server_direct_field(key: &str) -> bool {
+    MCP_SERVER_DIRECT_FIELDS.contains(&key)
+}
+
+/// 把一份服务定义展开成「显示名 -> 服务定义」。
+///
+/// 形态集合与 `features/mcp/parser.rs::parse_mcp_definition_servers` 保持一致，
+/// 共五种，判断顺序也照它走；改那边要回来改这里：
+/// 1. `{ "mcpServers": { 名: { … } } }`
+/// 2. `{ 名: { … } }` 根级平铺命名对象（没有任何直接字段、且所有值都是对象）
+/// 3. `{ "mcpServers": [ { name, … } ] }`
+/// 4. `[ { name, … } ]` 根级数组
+/// 5. 单服务直接字段（`name` / `transport` / `command` / `args` 这一套，界面新增连接器的默认模板就是它）
+fn mcp_definitions_from_value(value: &JsonValue) -> Result<Vec<(String, McpServerEntry)>, String> {
+    if let Some(items) = value.as_array() {
+        if items.is_empty() {
+            return Err("根级数组为空，至少要有一个服务".to_string());
+        }
+        return mcp_definitions_from_array(items, "根级数组");
+    }
+    let root = value
+        .as_object()
+        .ok_or_else(|| "服务定义必须是 JSON 对象或数组".to_string())?;
+    if let Some(servers) = root.get("mcpServers") {
+        if let Some(map) = servers.as_object() {
+            return mcp_definitions_from_map(map, "mcpServers");
+        }
+        if let Some(items) = servers.as_array() {
+            if items.is_empty() {
+                return Err("mcpServers 数组为空，至少要有一个服务".to_string());
+            }
+            return mcp_definitions_from_array(items, "mcpServers");
+        }
+        return Err("mcpServers 必须是对象或数组".to_string());
+    }
+    let has_direct_field = root
+        .keys()
+        .any(|key| is_mcp_server_direct_field(key) || key.eq_ignore_ascii_case("name"));
+    if !has_direct_field && root.values().all(JsonValue::is_object) {
+        return mcp_definitions_from_map(root, "根级命名集合");
+    }
+    let name = root
+        .get("name")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("mcp-server")
+        .to_string();
+    let entry: McpServerEntry = serde_json::from_value(value.clone())
+        .map_err(|err| format!("服务定义字段类型不对: {err}"))?;
+    Ok(vec![(name, entry)])
+}
+
+fn mcp_definitions_from_map(
+    map: &serde_json::Map<String, JsonValue>,
+    path: &str,
+) -> Result<Vec<(String, McpServerEntry)>, String> {
+    if map.is_empty() {
+        return Err(format!("{path} 为空，至少要有一个服务"));
+    }
+    let mut out = Vec::with_capacity(map.len());
+    for (name, item) in map {
+        let entry: McpServerEntry = serde_json::from_value(item.clone())
+            .map_err(|err| format!("{path}.{name}: {err}"))?;
+        out.push((name.clone(), entry));
+    }
+    Ok(out)
+}
+
+fn mcp_definitions_from_array(
+    items: &[JsonValue],
+    path: &str,
+) -> Result<Vec<(String, McpServerEntry)>, String> {
+    let mut out = Vec::with_capacity(items.len());
+    for (index, item) in items.iter().enumerate() {
+        let name = item
+            .get("name")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("mcp-server")
+            .to_string();
+        let entry: McpServerEntry = serde_json::from_value(item.clone())
+            .map_err(|err| format!("{path}[{index}]: {err}"))?;
+        out.push((name, entry));
+    }
+    Ok(out)
+}
+
+fn validate_mcp_server(server: &McpServerEntry) -> Result<(), String> {
+    let has_command = server
+        .command
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some();
+    let has_url = server
+        .url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some();
+    if has_command && has_url {
+        return Err("command 与 url 只能给一个".to_string());
+    }
+    if has_command || has_url {
+        return Ok(());
+    }
+    Err("服务至少要给 command（stdio）或 url（http / sse / streamable-http）".to_string())
+}
+
+fn validate_mcp_policy_file(path: &Path) -> Result<(), String> {
+    let text = fs::read_to_string(path).map_err(|err| format!("读取失败: {err}"))?;
+    let policy: McpPolicyFile =
+        serde_json::from_str(&text).map_err(|err| format!("JSON 解析失败: {err}"))?;
+    if policy.server_id.trim().is_empty() {
+        return Err("policy.serverId 不能为空".to_string());
+    }
+    let mut seen = HashSet::new();
+    for tool in &policy.tools {
+        if tool.tool_name.trim().is_empty() {
+            return Err("policy.tools[].toolName 不能为空".to_string());
+        }
+        if !seen.insert(tool.tool_name.clone()) {
+            return Err(format!("policy.tools[].toolName 重复: {}", tool.tool_name));
+        }
+    }
+    Ok(())
+}
+
+fn check_skills(ctx: &CliContext, selector: Option<&str>, report: &mut CheckReport) {
+    let skills_dir = effective_workspace_root(ctx).join("skills");
+    let paths = match selector {
+        Some(name) => {
+            let path = skills_dir.join(name).join("SKILL.md");
+            if !path.is_file() {
+                report.errors.push(format!("{}: 文件不存在", path.display()));
+                return;
+            }
+            vec![path]
+        }
+        None => skill_md_files(&skills_dir),
+    };
+    for path in paths {
+        report.record(&path, validate_skill_file(&path));
+    }
+}
+
+fn skill_md_files(skills_dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = fs::read_dir(skills_dir) else {
+        return out;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let skill_md = entry.path().join("SKILL.md");
+        if skill_md.is_file() {
+            out.push(skill_md);
+        }
+    }
+    out.sort();
+    out
+}
+
+fn validate_skill_file(path: &Path) -> Result<(), String> {
+    let (name, _description, _body) = parse_skill_frontmatter(path)?;
+    if name.trim().is_empty() {
+        return Err("frontmatter 缺少 name".to_string());
+    }
+    Ok(())
+}
+
+/// 读 SKILL.md 的 frontmatter，取 name / description 与正文。
+/// 本模块是独立编译单元，用不到主程序的解析函数，这里保留最小实现。
 fn parse_skill_frontmatter(skill_md_path: &Path) -> Result<(String, String, String), String> {
     let content = fs::read_to_string(skill_md_path)
-        .map_err(|err| format!("读取 SKILL.md 失败 ({}): {err}", skill_md_path.display()))?;
+        .map_err(|err| format!("读取失败: {err}"))?;
     let mut lines = content.lines();
     let first = lines
         .next()
@@ -445,13 +1287,15 @@ fn parse_skill_frontmatter(skill_md_path: &Path) -> Result<(String, String, Stri
         .trim_start_matches('\u{feff}')
         .trim();
     if first != "---" {
-        return Err("SKILL.md 必须以 YAML frontmatter 开头".to_string());
+        return Err("SKILL.md 必须以 YAML frontmatter（---）开头".to_string());
     }
     let mut name = String::new();
     let mut description = String::new();
+    let mut closed = false;
     for line in lines.by_ref() {
         let trimmed = line.trim();
         if trimmed == "---" {
+            closed = true;
             break;
         }
         let Some((key, raw_value)) = trimmed.split_once(':') else {
@@ -462,7 +1306,9 @@ fn parse_skill_frontmatter(skill_md_path: &Path) -> Result<(String, String, Stri
             let bytes = value.as_bytes();
             let first_byte = bytes[0];
             let last_byte = bytes[value.len() - 1];
-            if (first_byte == b'"' && last_byte == b'"') || (first_byte == b'\'' && last_byte == b'\'') {
+            if (first_byte == b'"' && last_byte == b'"')
+                || (first_byte == b'\'' && last_byte == b'\'')
+            {
                 value = value[1..value.len() - 1].to_string();
             }
         }
@@ -471,6 +1317,9 @@ fn parse_skill_frontmatter(skill_md_path: &Path) -> Result<(String, String, Stri
             "description" => description = value,
             _ => {}
         }
+    }
+    if !closed {
+        return Err("frontmatter 没有闭合的 ---".to_string());
     }
     if name.trim().is_empty() {
         name = skill_md_path
@@ -487,838 +1336,24 @@ fn parse_skill_frontmatter(skill_md_path: &Path) -> Result<(String, String, Stri
     Ok((name, description, body))
 }
 
-/// 内置人格 id 名单：这些人格的常驻/可选 skill 引用锁定（结论 25）。
-const CLI_BUILT_IN_ORGANIZATION_AGENT_IDS: [&str; 5] = [
-    "default-agent",
-    "deputy-agent",
-    "reviewer",
-    "saddler",
-    "support",
-];
+// ==================== reload：生效 ====================
 
-fn is_built_in_organization_agent_id(agent_id: &str) -> bool {
-    CLI_BUILT_IN_ORGANIZATION_AGENT_IDS.contains(&agent_id.trim())
-}
-
-/// 模型角色端点：与主程序 `MODEL_ROLE_*` 常量同值，config 工具是独立 crate 模块，这里保留本地副本。
-const CLI_MODEL_ROLE_EXPERT_ENDPOINT: &str = "role:expert";
-const CLI_MODEL_ROLE_QUICK_ENDPOINT: &str = "role:quick";
-
-impl CliContext {
-    #[allow(dead_code)]
-    fn detect() -> Result<Self, String> {
-        if let Ok(root) = std::env::var("PAI_APP_ROOT") {
-            let app_root = PathBuf::from(root);
-            return Ok(Self {
-                config_path: app_root.join("app_config.toml"),
-                data_path: app_root.join("config_mark"),
-                workspace_root: app_root.join("llm-workspace"),
-            });
-        }
-
-        if let Some(portable_root) = detect_portable_runtime_root() {
-            let config_dir = portable_root.join("config");
-            return Ok(Self {
-                config_path: config_dir.join("app_config.toml"),
-                data_path: config_dir.join("config_mark"),
-                workspace_root: portable_root.join("llm-workspace"),
-            });
-        }
-
-        let config_dir = resolve_standard_config_dir()?;
-        Ok(Self {
-            config_path: config_dir.join("app_config.toml"),
-            data_path: config_dir.join("config_mark"),
-            workspace_root: config_dir.join("llm-workspace"),
-        })
+/// 先校验再声明生效范围。校验不过直接返回 Err，调用方不会进入重载环节。
+fn handle_reload(ctx: &CliContext, args: &[String]) -> Result<(), String> {
+    if let Some(extra) = args.first() {
+        return Err(format!(
+            "reload 不接受参数: {extra}\n先 config \"check\" 校验，再 config \"reload\" 生效。"
+        ));
     }
+    let report = check_all(ctx);
+    report.into_result()?;
+    print_json(&serde_json::json!({
+        "type": "workspaceReloadRequest",
+        "scope": ["mcp", "skills", "privateAgents", "agents"],
+    }))
 }
 
-fn print_help() -> Result<(), String> {
-    push_output(
-        r#"PAI config
-
-Description:
-  This is the PAI configuration tool for LLM agents.
-  Use it when the user asks to modify PAI settings, including agents/personas, agent tree, MCP,
-  or to find and install capabilities from the built-in store.
-
-Usage:
-  config "<command>"
-
-Rules:
-  - Start with config "help" when you need the command guide.
-  - One tool call executes one command.
-  - Use ls/get/example before writing when you do not know the current shape.
-  - Use check to verify an edited file, diff to preview the plan, then update to apply it.
-  - agent new / mcp add create and persist immediately.
-  - Do not edit PAI config source files directly.
-  - Delete commands are destructive and must only be used after the user explicitly agrees.
-  - Delete commands require --confirmed, for example: mcp delete playwright --confirmed.
-  - If an argument contains spaces, quote it.
-  - When no config command covers the case, run config "approot" first, then edit files under that data directory by hand.
-  - After editing Skill / MCP / private persona files by hand, run config "reload" so the running app reloads the workspace.
-
-Agent/persona:
-  agent ls
-  agent get <name-or-id>
-  agent tree
-  agent example
-  agent new <name> <persona> [<avatar-file>]
-  agent export <name-or-id> <file>
-  agent check <file>
-  agent diff <name-or-id> <file>
-  agent update <name-or-id> <file>
-  agent avatar <name-or-id> <image-file>
-
-Agent organization (tree edges are edited here, not through files):
-  agent parent <name-or-id>
-  agent children <name-or-id>
-  agent set-parent <child> <parent> [<parent>...]
-  agent clear-parent <child>
-
-Agent model and skills:
-  agent set-model-class <name-or-id> <expert|fast>
-  agent set-provider <name-or-id> <provider-id>
-  agent set-model <name-or-id> <model>
-  agent set-resident <name-or-id> <skill-name> [<skill-name>...]
-  agent unset-resident <name-or-id> <skill-name> [<skill-name>...]
-  agent set-optional <name-or-id> <skill-name> [<skill-name>...]
-  agent unset-optional <name-or-id> <skill-name> [<skill-name>...>
-
-Skill:
-  skill ls
-
-Workspace:
-  reload  # reload MCP / Skill / private personas in the running app (a no-op receipt in a standalone CLI process)
-
-Store (built-in capability store; searches and installs skills by default, --kind mcp for MCP servers):
-  store ls [--kind skill|mcp]
-  store search <query> [--source <source>] [--kind skill|mcp] [--page <n>]
-  store install <source> <entry-id>
-
-Location:
-  approot  # data directory: config (incl. workspace), state, conversations, avatars
-
-MCP:
-  mcp ls
-  mcp get <name-or-id>
-  mcp example
-  mcp add <name> -- <command> [args...]
-  mcp new <name>
-  mcp export <name-or-id> <file>
-  mcp check <file>
-  mcp diff <name-or-id> <file>
-  mcp update <name-or-id> <file>
-  mcp enable <name-or-id>
-  mcp disable <name-or-id>
-  mcp delete <name-or-id> --confirmed
-  mcp test <name-or-id>
-  mcp tools <name-or-id>
-
-Common flows:
-  config "agent get <name-or-id>"
-  config "agent export <name-or-id> <file>"
-  edit the exported JSON with file tools
-  config "agent check <file>"
-  config "agent diff <name-or-id> <file>"
-  config "agent update <name-or-id> <file>"
-
-  config "mcp add playwright -- npx @playwright/mcp@latest"
-  config "mcp enable playwright""#
-    );
-    Ok(())
-}
-
-fn handle_agent(ctx: &CliContext, args: &[String]) -> Result<(), String> {
-    let cmd = args.first().map(String::as_str).unwrap_or("help");
-    match cmd {
-        "ls" => {
-            let agents = visible_agents(&load_agents(ctx)?);
-            let items = agents.iter().map(agent_list_item).collect::<Vec<_>>();
-            print_json(&items)
-        }
-        "get" => {
-            let selector = required_arg(args, 1, "agent get <name-or-id>")?;
-            let agents = visible_agents(&load_agents(ctx)?);
-            let agent = find_agent(&agents, selector)?;
-            print_json(agent)
-        }
-        "tree" => {
-            let agents = load_agents(ctx)?;
-            print_json(&build_agent_tree(&agents))
-        }
-        "example" => print_json(&agent_example()),
-        "new" => {
-            let name = required_arg(args, 1, "agent new <name> <persona> [<avatar-file>]")?;
-            let persona = required_arg(args, 2, "agent new <name> <persona> [<avatar-file>]")?;
-            let avatar = args.get(3).cloned();
-            let mut agents = load_agents(ctx)?;
-            let mut next = build_new_agent(name, persona, avatar);
-            next.id = unique_slugified_id(
-                name,
-                "agent",
-                agents.iter().map(|item| item.id.as_str()),
-            );
-            validate_agent(&next)?;
-            agents.push(next.clone());
-            save_main_agents(ctx, &agents)?;
-            print_json(&next)
-        }
-        "export" => {
-            let selector = required_arg(args, 1, "agent export <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "agent export <name-or-id> <file>")?;
-            let agents = visible_agents(&load_agents(ctx)?);
-            let agent = find_agent(&agents, selector)?;
-            write_json_file(Path::new(file), agent)?;
-            print_output_path(file)
-        }
-        "check" => {
-            let file = required_arg(args, 1, "agent check <file>")?;
-            let agent = read_json_file::<AgentProfile>(Path::new(file))?;
-            validate_agent(&agent)?;
-            print_ok_preview(&agent)
-        }
-        "diff" => {
-            let selector = required_arg(args, 1, "agent diff <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "agent diff <name-or-id> <file>")?;
-            let agents = visible_agents(&load_agents(ctx)?);
-            let current = find_agent(&agents, selector)?;
-            let next = read_json_file::<AgentProfile>(Path::new(file))?;
-            validate_agent(&next)?;
-            print_json(&build_named_diff(current, &next))
-        }
-        "update" => {
-            let selector = required_arg(args, 1, "agent update <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "agent update <name-or-id> <file>")?;
-            let mut agents = load_agents(ctx)?;
-            let idx = find_agent_index(&agents, selector)?;
-            ensure_agent_writable(&agents[idx])?;
-            let mut next = read_json_file::<AgentProfile>(Path::new(file))?;
-            validate_agent(&next)?;
-            next.id = agents[idx].id.clone();
-            next.created_at = keep_or_now(&agents[idx].created_at);
-            next.updated_at = now_iso();
-            next.scope = agents[idx].scope.clone();
-            // 组织边只走树上的即时命令，update 不改边。
-            next.child_agent_ids = agents[idx].child_agent_ids.clone();
-            // 内置人格的常驻/可选引用锁定，update 不得改动。
-            if is_built_in_organization_agent_id(&agents[idx].id) {
-                next.resident_skill_names = agents[idx].resident_skill_names.clone();
-                next.optional_skill_names = agents[idx].optional_skill_names.clone();
-            }
-            agents[idx] = next.clone();
-            save_agent(ctx, &next)?;
-            print_json(&next)
-        }
-        "avatar" => {
-            let selector = required_arg(args, 1, "agent avatar <name-or-id> <image-file>")?;
-            let image = required_arg(args, 2, "agent avatar <name-or-id> <image-file>")?;
-            let mut agents = load_agents(ctx)?;
-            let idx = find_agent_index(&agents, selector)?;
-            ensure_agent_writable(&agents[idx])?;
-            let avatar_path = save_avatar_file(ctx, &agents[idx].id, Path::new(image))?;
-            let avatar_file_name = avatar_path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .ok_or_else(|| "头像文件名无效".to_string())?;
-            // 与运行态保持一致：存相对数据根的路径。
-            agents[idx].avatar_path = Some(format!("avatars/{avatar_file_name}"));
-            agents[idx].avatar_updated_at = Some(now_iso());
-            agents[idx].updated_at = now_iso();
-            save_agent(ctx, &agents[idx])?;
-            print_json(&agents[idx])
-        }
-        "parent" => {
-            let selector = required_arg(args, 1, "agent parent <name-or-id>")?;
-            let agents = visible_agents(&load_agents(ctx)?);
-            let agent = find_agent(&agents, selector)?;
-            print_json(&agent_parent_items(&agents, &agent.id))
-        }
-        "children" => {
-            let selector = required_arg(args, 1, "agent children <name-or-id>")?;
-            let agents = visible_agents(&load_agents(ctx)?);
-            let agent = find_agent(&agents, selector)?;
-            print_json(&agent_child_items(&agents, agent))
-        }
-        "set-parent" => {
-            let usage = "agent set-parent <child> <parent> [<parent>...]";
-            let child = required_arg(args, 1, usage)?;
-            let parent_selectors = args.get(2..).unwrap_or_default();
-            if parent_selectors.is_empty() {
-                return Err(format!("用法: {usage}"));
-            }
-            let mut agents = load_agents(ctx)?;
-            let child_idx = find_agent_index(&agents, child)?;
-            ensure_agent_writable(&agents[child_idx])?;
-            let child_id = agents[child_idx].id.clone();
-            let mut parent_ids = Vec::<String>::new();
-            for selector in parent_selectors {
-                let parent_idx = find_agent_index(&agents, selector)?;
-                let parent_id = agents[parent_idx].id.clone();
-                if parent_id == child_id {
-                    return Err(format!("组织树不能自指: {child_id}"));
-                }
-                if !parent_ids.contains(&parent_id) {
-                    parent_ids.push(parent_id);
-                }
-            }
-            // set 语义：父集合整体覆盖，先摘掉这个人格在所有父上的旧边。
-            for agent in agents.iter_mut() {
-                agent.child_agent_ids.retain(|id| id.trim() != child_id);
-            }
-            let mut changed = Vec::<AgentProfile>::new();
-            for parent_id in &parent_ids {
-                let idx = find_agent_index(&agents, parent_id)?;
-                if !agents[idx].child_agent_ids.iter().any(|id| id.trim() == child_id) {
-                    agents[idx].child_agent_ids.push(child_id.clone());
-                    agents[idx].updated_at = now_iso();
-                    changed.push(agents[idx].clone());
-                }
-            }
-            for agent in &changed {
-                save_agent(ctx, agent)?;
-            }
-            print_json(&serde_json::json!({ "child": child_id, "parents": parent_ids }))
-        }
-        "clear-parent" => {
-            let usage = "agent clear-parent <child>";
-            let child = required_arg(args, 1, usage)?;
-            let mut agents = load_agents(ctx)?;
-            let child_idx = find_agent_index(&agents, child)?;
-            ensure_agent_writable(&agents[child_idx])?;
-            let child_id = agents[child_idx].id.clone();
-            let mut changed = Vec::<AgentProfile>::new();
-            for agent in agents.iter_mut() {
-                let before = agent.child_agent_ids.len();
-                agent.child_agent_ids.retain(|id| id.trim() != child_id);
-                if agent.child_agent_ids.len() != before {
-                    agent.updated_at = now_iso();
-                    changed.push(agent.clone());
-                }
-            }
-            for agent in &changed {
-                save_agent(ctx, agent)?;
-            }
-            print_json(&serde_json::json!({ "child": child_id, "parents": Vec::<String>::new() }))
-        }
-        "set-model-class" => {
-            let usage = "agent set-model-class <name-or-id> <expert|fast>";
-            let selector = required_arg(args, 1, usage)?;
-            let model_class = required_arg(args, 2, usage)?;
-            let endpoint = match model_class {
-                "expert" => CLI_MODEL_ROLE_EXPERT_ENDPOINT.to_string(),
-                "fast" => CLI_MODEL_ROLE_QUICK_ENDPOINT.to_string(),
-                _ => return Err("model-class 只能是 expert 或 fast".to_string()),
-            };
-            mutate_agent(ctx, selector, |agent, _| {
-                agent.api_config_ids = vec![endpoint.clone()];
-                agent.api_config_id = endpoint.clone();
-                Ok(())
-            })
-        }
-        "set-provider" => {
-            let usage = "agent set-provider <name-or-id> <provider-id>";
-            let selector = required_arg(args, 1, usage)?;
-            let provider_selector = required_arg(args, 2, usage)?;
-            mutate_agent(ctx, selector, |agent, snapshot| {
-                let provider = snapshot
-                    .api_providers
-                    .iter()
-                    .find(|item| matches_selector(&item.id, &item.name, provider_selector))
-                    .ok_or_else(|| format!("provider not found: {provider_selector}"))?;
-                let endpoint = provider_first_endpoint(provider)
-                    .ok_or_else(|| format!("provider has no models: {provider_selector}"))?;
-                agent.api_config_ids = vec![endpoint.clone()];
-                agent.api_config_id = endpoint;
-                Ok(())
-            })
-        }
-        "set-model" => {
-            let usage = "agent set-model <name-or-id> <model>";
-            let selector = required_arg(args, 1, usage)?;
-            let model = required_arg(args, 2, usage)?;
-            mutate_agent(ctx, selector, |agent, snapshot| {
-                let current = agent_primary_endpoint(agent);
-                let (provider_id, _) = split_endpoint_id(&current)
-                    .ok_or_else(|| "当前人格没有可用 provider，先执行 agent set-provider".to_string())?;
-                let provider = snapshot
-                    .api_providers
-                    .iter()
-                    .find(|item| item.id == provider_id)
-                    .ok_or_else(|| format!("provider not found: {provider_id}"))?;
-                let endpoint = provider_model_endpoint(provider, model)
-                    .ok_or_else(|| format!("model not found under provider {provider_id}: {model}"))?;
-                agent.api_config_ids = vec![endpoint.clone()];
-                agent.api_config_id = endpoint;
-                Ok(())
-            })
-        }
-        "set-resident" => {
-            let usage = "agent set-resident <name-or-id> <skill-name> [<skill-name>...]";
-            let selector = required_arg(args, 1, usage)?;
-            let skills = args.get(2..).unwrap_or_default().to_vec();
-            if skills.is_empty() {
-                return Err(format!("用法: {usage}"));
-            }
-            mutate_agent_skills(ctx, selector, |agent, _| {
-                for skill in &skills {
-                    let skill = skill.trim();
-                    if skill.is_empty() {
-                        continue;
-                    }
-                    if !agent.resident_skill_names.iter().any(|item| item == skill) {
-                        agent.resident_skill_names.push(skill.to_string());
-                    }
-                    // 常驻与可选互斥：同一个 skill 不能同时挂两份。
-                    agent.optional_skill_names.retain(|item| item != skill);
-                }
-                Ok(())
-            })
-        }
-        "unset-resident" => {
-            let usage = "agent unset-resident <name-or-id> <skill-name> [<skill-name>...]";
-            let selector = required_arg(args, 1, usage)?;
-            let skills = args.get(2..).unwrap_or_default().to_vec();
-            if skills.is_empty() {
-                return Err(format!("用法: {usage}"));
-            }
-            mutate_agent_skills(ctx, selector, |agent, _| {
-                agent
-                    .resident_skill_names
-                    .retain(|item| !skills.iter().any(|skill| skill.trim() == item.trim()));
-                Ok(())
-            })
-        }
-        "set-optional" => {
-            let usage = "agent set-optional <name-or-id> <skill-name> [<skill-name>...]";
-            let selector = required_arg(args, 1, usage)?;
-            let skills = args.get(2..).unwrap_or_default().to_vec();
-            if skills.is_empty() {
-                return Err(format!("用法: {usage}"));
-            }
-            mutate_agent_skills(ctx, selector, |agent, _| {
-                for skill in &skills {
-                    let skill = skill.trim();
-                    if skill.is_empty() {
-                        continue;
-                    }
-                    if !agent.optional_skill_names.iter().any(|item| item == skill) {
-                        agent.optional_skill_names.push(skill.to_string());
-                    }
-                    agent.resident_skill_names.retain(|item| item != skill);
-                }
-                Ok(())
-            })
-        }
-        "unset-optional" => {
-            let usage = "agent unset-optional <name-or-id> <skill-name> [<skill-name>...]";
-            let selector = required_arg(args, 1, usage)?;
-            let skills = args.get(2..).unwrap_or_default().to_vec();
-            if skills.is_empty() {
-                return Err(format!("用法: {usage}"));
-            }
-            mutate_agent_skills(ctx, selector, |agent, _| {
-                agent
-                    .optional_skill_names
-                    .retain(|item| !skills.iter().any(|skill| skill.trim() == item.trim()));
-                Ok(())
-            })
-        }
-        _ => Err(
-            "用法: agent ls|get|tree|example|new|export|check|diff|update|avatar|parent|children|set-parent|clear-parent|set-model-class|set-provider|set-model|set-resident|unset-resident|set-optional|unset-optional"
-                .to_string(),
-        ),
-    }
-}
-
-/// 组织树上的父人格：所有把该人格列进 `childAgentIds` 的人格。
-fn agent_parent_items(agents: &[AgentProfile], child_id: &str) -> Vec<AgentListItem> {
-    let mut parents = agents
-        .iter()
-        .filter(|agent| {
-            agent.id.trim() != child_id
-                && agent
-                    .child_agent_ids
-                    .iter()
-                    .any(|id| id.trim() == child_id)
-        })
-        .map(agent_list_item)
-        .collect::<Vec<_>>();
-    parents.sort_by(|a, b| a.id.cmp(&b.id));
-    parents
-}
-
-/// 组织树上的直接下级人格。
-fn agent_child_items(agents: &[AgentProfile], agent: &AgentProfile) -> Vec<AgentListItem> {
-    let mut children = agent
-        .child_agent_ids
-        .iter()
-        .filter_map(|child_id| {
-            agents
-                .iter()
-                .find(|item| item.id.trim() == child_id.trim())
-                .map(agent_list_item)
-        })
-        .collect::<Vec<_>>();
-    children.sort_by(|a, b| a.id.cmp(&b.id));
-    children
-}
-
-fn agent_primary_endpoint(agent: &AgentProfile) -> String {
-    agent
-        .api_config_ids
-        .first()
-        .cloned()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| agent.api_config_id.clone())
-}
-
-/// 读改写单个人格：先校验可写，再落盘，最后打印新值。
-fn mutate_agent(
-    ctx: &CliContext,
-    selector: &str,
-    mutate: impl FnOnce(&mut AgentProfile, &AppConfigSnapshot) -> Result<(), String>,
-) -> Result<(), String> {
-    mutate_agent_with_check(ctx, selector, false, mutate)
-}
-
-/// 只改两个 skill 列表时额外校验：内置人格的常驻/可选引用锁定。
-fn mutate_agent_skills(
-    ctx: &CliContext,
-    selector: &str,
-    mutate: impl FnOnce(&mut AgentProfile, &AppConfigSnapshot) -> Result<(), String>,
-) -> Result<(), String> {
-    mutate_agent_with_check(ctx, selector, true, mutate)
-}
-
-fn mutate_agent_with_check(
-    ctx: &CliContext,
-    selector: &str,
-    lock_skills: bool,
-    mutate: impl FnOnce(&mut AgentProfile, &AppConfigSnapshot) -> Result<(), String>,
-) -> Result<(), String> {
-    let mut agents = load_agents(ctx)?;
-    let idx = find_agent_index(&agents, selector)?;
-    ensure_agent_writable(&agents[idx])?;
-    if lock_skills {
-        ensure_agent_skill_editable(&agents[idx])?;
-    }
-    let snapshot = load_snapshot(ctx)?;
-    mutate(&mut agents[idx], &snapshot)?;
-    agents[idx].updated_at = now_iso();
-    save_agent(ctx, &agents[idx])?;
-    print_json(&agents[idx])
-}
-
-fn provider_first_endpoint(provider: &ApiProviderConfig) -> Option<String> {
-    provider
-        .models
-        .first()
-        .map(|model| format!("{}::{}", provider.id, model.id))
-}
-
-fn provider_model_endpoint(provider: &ApiProviderConfig, model_selector: &str) -> Option<String> {
-    provider.models.iter().find_map(|model| {
-        if model.id.eq_ignore_ascii_case(model_selector)
-            || model.model.eq_ignore_ascii_case(model_selector)
-        {
-            Some(format!("{}::{}", provider.id, model.id))
-        } else {
-            None
-        }
-    })
-}
-
-fn split_endpoint_id(value: &str) -> Option<(String, String)> {
-    let (provider_id, model_id) = value.split_once("::")?;
-    let provider_id = provider_id.trim();
-    let model_id = model_id.trim();
-    if provider_id.is_empty() || model_id.is_empty() {
-        None
-    } else {
-        Some((provider_id.to_string(), model_id.to_string()))
-    }
-}
-
-fn build_agent_tree(agents: &[AgentProfile]) -> JsonValue {
-    use std::collections::{HashMap, HashSet};
-    let by_id = agents
-        .iter()
-        .filter(|agent| !agent.is_built_in_user)
-        .map(|agent| (agent.id.trim().to_string(), agent.clone()))
-        .collect::<HashMap<String, AgentProfile>>();
-    let mut child_ids = HashSet::<String>::new();
-    for agent in by_id.values() {
-        for child in &agent.child_agent_ids {
-            let child = child.trim();
-            if by_id.contains_key(child) && child != agent.id.trim() {
-                child_ids.insert(child.to_string());
-            }
-        }
-    }
-    let mut roots = by_id
-        .values()
-        .filter(|agent| !child_ids.contains(agent.id.trim()))
-        .map(|agent| agent.id.trim().to_string())
-        .collect::<Vec<_>>();
-    roots.sort();
-    let mut visited = HashSet::<String>::new();
-    let nodes = roots
-        .iter()
-        .map(|id| agent_tree_node(&by_id, id, &mut visited))
-        .collect::<Vec<_>>();
-    serde_json::json!({ "roots": nodes })
-}
-
-fn agent_tree_node(
-    by_id: &std::collections::HashMap<String, AgentProfile>,
-    id: &str,
-    visited: &mut std::collections::HashSet<String>,
-) -> JsonValue {
-    let Some(agent) = by_id.get(id) else {
-        return serde_json::json!({ "id": id });
-    };
-    if !visited.insert(id.to_string()) {
-        return serde_json::json!({ "id": id, "cycle": true });
-    }
-    let mut children = agent
-        .child_agent_ids
-        .iter()
-        .map(|child| child.trim().to_string())
-        .filter(|child| !child.is_empty() && child != id && by_id.contains_key(child))
-        .collect::<Vec<_>>();
-    children.sort();
-    children.dedup();
-    let child_nodes = children
-        .iter()
-        .map(|child| agent_tree_node(by_id, child, visited))
-        .collect::<Vec<_>>();
-    serde_json::json!({
-        "id": agent.id.trim(),
-        "name": agent.name.trim(),
-        "children": child_nodes,
-    })
-}
-
-#[allow(dead_code)]
-fn handle_provider(ctx: &CliContext, args: &[String]) -> Result<(), String> {
-    let cmd = args.first().map(String::as_str).unwrap_or("");
-    match cmd {
-        "ls" => {
-            let snapshot = load_snapshot(ctx)?;
-            let items = snapshot
-                .api_providers
-                .iter()
-                .map(provider_list_item)
-                .collect::<Vec<_>>();
-            print_json(&items)
-        }
-        "get" => {
-            let selector = required_arg(args, 1, "provider get <name-or-id>")?;
-            let snapshot = load_snapshot(ctx)?;
-            let provider = find_provider(&snapshot.api_providers, selector)?;
-            print_json(&redacted_provider(provider))
-        }
-        "example" => print_json(&provider_example()),
-        "new" => {
-            let name = required_arg(args, 1, "provider new <name>")?;
-            print_json(&build_new_provider(name))
-        }
-        "export" => {
-            let selector = required_arg(args, 1, "provider export <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "provider export <name-or-id> <file>")?;
-            let snapshot = load_snapshot(ctx)?;
-            let provider = find_provider(&snapshot.api_providers, selector)?;
-            write_json_file(Path::new(file), &redacted_provider(provider))?;
-            print_output_path(file)
-        }
-        "check" => {
-            let file = required_arg(args, 1, "provider check <file>")?;
-            let provider = read_json_file::<ApiProviderConfig>(Path::new(file))?;
-            validate_provider(&provider)?;
-            print_ok_preview(&redacted_provider(&provider))
-        }
-        "diff" => {
-            let selector = required_arg(args, 1, "provider diff <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "provider diff <name-or-id> <file>")?;
-            let snapshot = load_snapshot(ctx)?;
-            let current = find_provider(&snapshot.api_providers, selector)?;
-            let mut next = read_json_file::<ApiProviderConfig>(Path::new(file))?;
-            restore_redacted_provider_secrets(&mut next, current);
-            validate_provider(&next)?;
-            print_json(&build_named_diff(current, &next))
-        }
-        "update" => {
-            let selector = required_arg(args, 1, "provider update <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "provider update <name-or-id> <file>")?;
-            let mut doc = load_config_doc(ctx)?;
-            let mut snapshot = snapshot_from_doc(&doc)?;
-            let idx = find_provider_index(&snapshot.api_providers, selector)?;
-            let mut next = read_json_file::<ApiProviderConfig>(Path::new(file))?;
-            restore_redacted_provider_secrets(&mut next, &snapshot.api_providers[idx]);
-            validate_provider(&next)?;
-            next.id = snapshot.api_providers[idx].id.clone();
-            snapshot.api_providers[idx] = next.clone();
-            write_providers_to_doc(&mut doc, &snapshot.api_providers)?;
-            save_config_doc(ctx, &doc)?;
-            print_json(&redacted_provider(&next))
-        }
-        "test" => {
-            let selector = required_arg(args, 1, "provider test <name-or-id>")?;
-            let snapshot = load_snapshot(ctx)?;
-            let provider = find_provider(&snapshot.api_providers, selector)?;
-            validate_provider(provider)?;
-            print_json(&serde_json::json!({
-                "ok": true,
-                "message": "provider config is structurally valid",
-                "diagnostics": {
-                    "providerId": provider.id,
-                    "modelCount": provider.models.len(),
-                    "baseUrl": provider.base_url
-                }
-            }))
-        }
-        "models" => {
-            let selector = required_arg(args, 1, "provider models <name-or-id>")?;
-            let snapshot = load_snapshot(ctx)?;
-            let provider = find_provider(&snapshot.api_providers, selector)?;
-            print_json(&provider.models)
-        }
-        _ => Err("用法: provider ls|get|example|new|export|check|diff|update|test|models".to_string()),
-    }
-}
-
-fn handle_mcp(ctx: &CliContext, args: &[String]) -> Result<(), String> {
-    let cmd = args.first().map(String::as_str).unwrap_or("");
-    match cmd {
-        "ls" => {
-            let servers = list_mcp_servers(ctx)?;
-            print_json(&servers)
-        }
-        "get" => {
-            let selector = required_arg(args, 1, "mcp get <name-or-id>")?;
-            let server = find_mcp_server(ctx, selector)?;
-            print_json(&server)
-        }
-        "example" => print_json(&mcp_example()),
-        "add" => {
-            let name = required_arg(args, 1, "mcp add <name> -- <command> [args...]")?;
-            let sep = args
-                .iter()
-                .position(|item| item == "--")
-                .ok_or_else(|| "mcp add 需要使用 -- 分隔命令".to_string())?;
-            if sep + 1 >= args.len() {
-                return Err("mcp add 需要提供 command".to_string());
-            }
-            let command = &args[sep + 1];
-            let command_args = args[sep + 2..].to_vec();
-            let file = McpServerFile {
-                name: Some(name.to_string()),
-                transport: Some("stdio".to_string()),
-                command: Some(command.to_string()),
-                args: Some(command_args),
-                url: None,
-                env: None,
-            };
-            validate_mcp_server(&file)?;
-            save_mcp_server(ctx, name, &file)?;
-            ensure_mcp_policy(ctx, name, false)?;
-            print_json(&file)
-        }
-        "new" => {
-            let name = required_arg(args, 1, "mcp new <name>")?;
-            let mut sample = mcp_example();
-            sample.name = Some(name.to_string());
-            print_json(&sample)
-        }
-        "export" => {
-            let selector = required_arg(args, 1, "mcp export <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "mcp export <name-or-id> <file>")?;
-            let server = find_mcp_server(ctx, selector)?;
-            write_json_file(Path::new(file), &server)?;
-            print_output_path(file)
-        }
-        "check" => {
-            let file = required_arg(args, 1, "mcp check <file>")?;
-            let server = read_json_file::<McpServerFile>(Path::new(file))?;
-            validate_mcp_server(&server)?;
-            print_ok_preview(&server)
-        }
-        "diff" => {
-            let selector = required_arg(args, 1, "mcp diff <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "mcp diff <name-or-id> <file>")?;
-            let current = find_mcp_server(ctx, selector)?;
-            let next = read_json_file::<McpServerFile>(Path::new(file))?;
-            validate_mcp_server(&next)?;
-            print_json(&build_named_diff(&current, &next))
-        }
-        "update" => {
-            let selector = required_arg(args, 1, "mcp update <name-or-id> <file>")?;
-            let file = required_arg(args, 2, "mcp update <name-or-id> <file>")?;
-            let next = read_json_file::<McpServerFile>(Path::new(file))?;
-            validate_mcp_server(&next)?;
-            let server_id = find_mcp_server_id(ctx, selector)?;
-            save_mcp_server(ctx, &server_id, &next)?;
-            print_json(&next)
-        }
-        "enable" => {
-            let selector = required_arg(args, 1, "mcp enable <name-or-id>")?;
-            let id = find_mcp_server_id(ctx, selector)?;
-            ensure_mcp_policy(ctx, &id, true)?;
-            print_json(&serde_json::json!({"serverId": id, "enabled": true}))
-        }
-        "disable" => {
-            let selector = required_arg(args, 1, "mcp disable <name-or-id>")?;
-            let id = find_mcp_server_id(ctx, selector)?;
-            ensure_mcp_policy(ctx, &id, false)?;
-            print_json(&serde_json::json!({"serverId": id, "enabled": false}))
-        }
-        "delete" => {
-            let selector = required_arg(args, 1, "mcp delete <name-or-id> --confirmed")?;
-            require_delete_confirmed(args, "mcp delete <name-or-id> --confirmed")?;
-            let id = delete_mcp_server(ctx, selector)?;
-            print_json(&serde_json::json!({"ok": true, "serverId": id}))
-        }
-        "test" => {
-            let selector = required_arg(args, 1, "mcp test <name-or-id>")?;
-            let server = find_mcp_server(ctx, selector)?;
-            validate_mcp_server(&server)?;
-            print_json(&serde_json::json!({
-                "ok": true,
-                "message": "mcp definition is structurally valid",
-                "diagnostics": {
-                    "transport": server.transport,
-                    "command": server.command,
-                    "url": server.url
-                }
-            }))
-        }
-        "tools" => {
-            let selector = required_arg(args, 1, "mcp tools <name-or-id>")?;
-            let id = find_mcp_server_id(ctx, selector)?;
-            let policy = load_mcp_policy(ctx, &id)?;
-            print_json(&policy.tools)
-        }
-        _ => Err("用法: mcp ls|get|example|add|new|export|check|diff|update|enable|disable|delete|test|tools".to_string()),
-    }
-}
-
-fn load_agents(ctx: &CliContext) -> Result<Vec<AgentProfile>, String> {
-    let shard = main_agents_shard_path(ctx);
-    if shard.exists() {
-        return Ok(read_json_file::<AgentsFile>(&shard)?.agents);
-    }
-    Ok(Vec::new())
-}
-
-fn visible_agents(agents: &[AgentProfile]) -> Vec<AgentProfile> {
-    agents
-        .iter()
-        .filter(|agent| !is_preset_agent(agent))
-        .cloned()
-        .collect::<Vec<_>>()
-}
+// ==================== 路径解析 ====================
 
 fn app_root_from_cli_data_path(data_path: &Path) -> PathBuf {
     let parent = data_path
@@ -1338,538 +1373,20 @@ fn app_root_from_cli_data_path(data_path: &Path) -> PathBuf {
     parent
 }
 
-fn main_agents_shard_path(ctx: &CliContext) -> PathBuf {
-    app_root_from_cli_data_path(&ctx.data_path)
-        .join("config")
-        .join("agents.json")
-}
-
-fn save_main_agents(ctx: &CliContext, agents: &[AgentProfile]) -> Result<(), String> {
-    let shard = main_agents_shard_path(ctx);
-    if let Some(parent) = shard.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("创建 agents 目录失败 ({}): {err}", parent.display()))?;
-    }
-    write_json_file(&shard, &AgentsFile { agents: agents.to_vec() })
-}
-
-fn save_agent(ctx: &CliContext, agent: &AgentProfile) -> Result<(), String> {
-    let mut agents = load_agents(ctx)?;
-    let idx = find_agent_index(&agents, &agent.id)?;
-    agents[idx] = agent.clone();
-    save_main_agents(ctx, &agents)
-}
-
-fn reserved_agent_id(id: &str) -> bool {
-    matches!(id, "default" | "user" | "system")
-}
-
-fn is_preset_agent(agent: &AgentProfile) -> bool {
-    agent.is_built_in_user || agent.is_built_in_system || reserved_agent_id(&agent.id)
-}
-
-fn ensure_agent_writable(agent: &AgentProfile) -> Result<(), String> {
-    if is_preset_agent(agent) {
-        return Err("预设人格是只读的，不能通过 config 工具修改。".to_string());
-    }
-    Ok(())
-}
-
-/// 内置人格的常驻/可选 skill 引用锁定（结论 25）：引用不可摘、不可改。
-fn ensure_agent_skill_editable(agent: &AgentProfile) -> Result<(), String> {
-    if is_built_in_organization_agent_id(&agent.id) {
-        return Err(format!(
-            "内置人格的常驻/可选 skill 引用是锁定的，不能通过 config 工具修改：{}",
-            agent.id
-        ));
-    }
-    Ok(())
-}
-
 fn load_config_doc(ctx: &CliContext) -> Result<toml::Value, String> {
-    if !ctx.config_path.exists() {
-        let snapshot = AppConfigSnapshot::default();
-        return toml::Value::try_from(snapshot).map_err(|err| format!("初始化配置失败: {err}"));
-    }
-    let raw = fs::read_to_string(&ctx.config_path)
+    let text = fs::read_to_string(&ctx.config_path)
         .map_err(|err| format!("读取配置失败 ({}): {err}", ctx.config_path.display()))?;
-    toml::from_str::<toml::Value>(&raw)
-        .map_err(|err| format!("解析配置失败 ({}): {err}", ctx.config_path.display()))
-}
-
-fn save_config_doc(ctx: &CliContext, doc: &toml::Value) -> Result<(), String> {
-    if let Some(parent) = ctx.config_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("创建配置目录失败 ({}): {err}", parent.display()))?;
-    }
-    let text = toml::to_string_pretty(doc).map_err(|err| format!("序列化配置失败: {err}"))?;
-    fs::write(&ctx.config_path, text)
-        .map_err(|err| format!("写入配置失败 ({}): {err}", ctx.config_path.display()))
+    toml::from_str(&text).map_err(|err| format!("解析配置失败: {err}"))
 }
 
 fn snapshot_from_doc(doc: &toml::Value) -> Result<AppConfigSnapshot, String> {
     doc.clone()
-        .try_into()
-        .map_err(|err| format!("读取配置快照失败: {err}"))
+        .try_into::<AppConfigSnapshot>()
+        .map_err(|err| format!("配置结构不匹配: {err}"))
 }
 
 fn load_snapshot(ctx: &CliContext) -> Result<AppConfigSnapshot, String> {
     snapshot_from_doc(&load_config_doc(ctx)?)
-}
-
-#[allow(dead_code)]
-fn write_providers_to_doc(doc: &mut toml::Value, providers: &[ApiProviderConfig]) -> Result<(), String> {
-    let providers_value = toml::Value::try_from(providers.to_vec())
-        .map_err(|err| format!("序列化 apiProviders 失败: {err}"))?;
-    ensure_doc_table(doc)?
-        .insert("apiProviders".to_string(), providers_value);
-    Ok(())
-}
-
-fn ensure_doc_table(doc: &mut toml::Value) -> Result<&mut toml::map::Map<String, toml::Value>, String> {
-    doc.as_table_mut()
-        .ok_or_else(|| "配置根节点必须是 TOML table".to_string())
-}
-
-fn find_agent<'a>(agents: &'a [AgentProfile], selector: &str) -> Result<&'a AgentProfile, String> {
-    let idx = find_agent_index(agents, selector)?;
-    Ok(&agents[idx])
-}
-
-fn find_agent_index(agents: &[AgentProfile], selector: &str) -> Result<usize, String> {
-    agents
-        .iter()
-        .position(|item| matches_selector(&item.id, &item.name, selector))
-        .ok_or_else(|| format!("agent not found: {selector}"))
-}
-
-#[allow(dead_code)]
-fn find_provider<'a>(providers: &'a [ApiProviderConfig], selector: &str) -> Result<&'a ApiProviderConfig, String> {
-    let idx = find_provider_index(providers, selector)?;
-    Ok(&providers[idx])
-}
-
-#[allow(dead_code)]
-fn find_provider_index(providers: &[ApiProviderConfig], selector: &str) -> Result<usize, String> {
-    providers
-        .iter()
-        .position(|item| matches_selector(&item.id, &item.name, selector))
-        .ok_or_else(|| format!("provider not found: {selector}"))
-}
-
-fn matches_selector(id: &str, name: &str, selector: &str) -> bool {
-    let selector = selector.trim();
-    !selector.is_empty()
-        && (id.eq_ignore_ascii_case(selector) || name.eq_ignore_ascii_case(selector))
-}
-
-fn agent_example() -> AgentProfile {
-    build_new_agent(
-        "example-agent",
-        "你是一个可靠、直接、会先给结论再补说明的助手。",
-        None,
-    )
-}
-
-fn build_new_agent(name: &str, persona: &str, avatar: Option<String>) -> AgentProfile {
-    let now = now_iso();
-    AgentProfile {
-        id: slugify_with_fallback(name, "agent"),
-        name: name.to_string(),
-        system_prompt: persona.to_string(),
-        tools: Vec::new(),
-        created_at: now.clone(),
-        updated_at: now,
-        avatar_path: avatar,
-        avatar_updated_at: None,
-        is_built_in_user: false,
-        is_built_in_system: false,
-        private_memory_enabled: false,
-        memory_recall_mode: default_memory_recall_mode(),
-        scope: default_global_scope(),
-        summary: String::new(),
-        resident_skill_names: Vec::new(),
-        optional_skill_names: Vec::new(),
-        api_config_ids: Vec::new(),
-        api_config_id: String::new(),
-        permission_control: None,
-        child_agent_ids: Vec::new(),
-    }
-}
-
-fn validate_agent(agent: &AgentProfile) -> Result<(), String> {
-    if agent.name.trim().is_empty() {
-        return Err("agent.name 不能为空".to_string());
-    }
-    if agent.system_prompt.trim().is_empty() {
-        return Err("agent.systemPrompt 不能为空".to_string());
-    }
-    Ok(())
-}
-
-fn agent_list_item(agent: &AgentProfile) -> AgentListItem {
-    AgentListItem {
-        id: agent.id.clone(),
-        name: agent.name.clone(),
-    }
-}
-
-#[allow(dead_code)]
-fn provider_list_item(provider: &ApiProviderConfig) -> ProviderListItem {
-    ProviderListItem {
-        id: provider.id.clone(),
-        name: provider.name.clone(),
-        request_format: provider.request_format.clone(),
-        base_url: provider.base_url.clone(),
-        enabled: ProviderCapabilitySummary {
-            text: provider.enable_text,
-            image: provider.enable_image,
-            audio: provider.enable_audio,
-            video: provider.enable_video,
-            tools: provider.enable_tools,
-        },
-        model_count: provider.models.len(),
-        key_count: provider
-            .api_keys
-            .iter()
-            .filter(|key| !key.trim().is_empty())
-            .count(),
-    }
-}
-
-#[allow(dead_code)]
-fn redacted_provider(provider: &ApiProviderConfig) -> ApiProviderConfig {
-    let mut out = provider.clone();
-    out.api_keys = out
-        .api_keys
-        .iter()
-        .map(|key| redacted_secret_placeholder(key))
-        .collect();
-    out.codex_custom_api_key = out
-        .codex_custom_api_key
-        .as_ref()
-        .map(|key| redacted_secret_placeholder(key));
-    out
-}
-
-#[allow(dead_code)]
-fn redacted_secret_placeholder(secret: &str) -> String {
-    let len = secret.chars().count();
-    if len == 0 {
-        return String::new();
-    }
-    format!("__PAI_SECRET_REDACTED_LEN_{len}__")
-}
-
-#[allow(dead_code)]
-fn is_redacted_secret_placeholder(value: &str) -> bool {
-    let value = value.trim();
-    value.starts_with("__PAI_SECRET_REDACTED_LEN_") && value.ends_with("__")
-}
-
-#[allow(dead_code)]
-fn restore_redacted_provider_secrets(next: &mut ApiProviderConfig, current: &ApiProviderConfig) {
-    for (idx, key) in next.api_keys.iter_mut().enumerate() {
-        if is_redacted_secret_placeholder(key) {
-            if let Some(current_key) = current.api_keys.get(idx) {
-                *key = current_key.clone();
-            }
-        }
-    }
-    if next
-        .codex_custom_api_key
-        .as_deref()
-        .map(is_redacted_secret_placeholder)
-        .unwrap_or(false)
-    {
-        next.codex_custom_api_key = current.codex_custom_api_key.clone();
-    }
-}
-
-#[allow(dead_code)]
-fn provider_example() -> ApiProviderConfig {
-    build_new_provider("example-provider")
-}
-
-#[allow(dead_code)]
-fn build_new_provider(name: &str) -> ApiProviderConfig {
-    ApiProviderConfig {
-        id: slugify_with_fallback(name, "provider"),
-        name: name.to_string(),
-        request_format: default_request_format(),
-        allow_concurrent_requests: true,
-        max_concurrent_requests: None,
-        enable_text: true,
-        enable_image: false,
-        enable_audio: false,
-        enable_video: false,
-        enable_tools: true,
-        tools: Vec::new(),
-        base_url: "https://api.openai.com/v1".to_string(),
-        codex_auth_mode: "read_local".to_string(),
-        codex_local_auth_path: "~/.codex/auth.json".to_string(),
-        codex_custom_url: None,
-        codex_custom_api_key: None,
-        codex_originator: "codex-tui".to_string(),
-        codex_residency_requirement: None,
-        api_keys: Vec::new(),
-        key_cursor: 0,
-        cached_model_options: vec!["gpt-4o-mini".to_string()],
-        models: vec![ApiModelConfig {
-            id: "default-model".to_string(),
-            model: "gpt-4o-mini".to_string(),
-            display_name: String::new(),
-            enable_image: false,
-            enable_audio: false,
-            enable_video: false,
-            enable_tools: true,
-            reasoning_effort: default_reasoning_effort(),
-            temperature: default_temperature(),
-            custom_temperature_enabled: false,
-            context_window_tokens: default_context_window_tokens(),
-            max_output_tokens: default_max_output_tokens(),
-            custom_max_output_tokens_enabled: false,
-        }],
-        failure_retry_count: 0,
-    }
-}
-
-#[allow(dead_code)]
-fn validate_provider(provider: &ApiProviderConfig) -> Result<(), String> {
-    if provider.id.trim().is_empty() {
-        return Err("provider.id 不能为空".to_string());
-    }
-    if provider.name.trim().is_empty() {
-        return Err("provider.name 不能为空".to_string());
-    }
-    if provider.base_url.trim().is_empty() {
-        return Err("provider.baseUrl 不能为空".to_string());
-    }
-    if provider.models.is_empty() {
-        return Err("provider.models 至少需要一个模型".to_string());
-    }
-    if provider.models.iter().any(|item| item.id.trim().is_empty() || item.model.trim().is_empty()) {
-        return Err("provider.models 中的 id/model 不能为空".to_string());
-    }
-    Ok(())
-}
-
-fn list_mcp_servers(ctx: &CliContext) -> Result<Vec<McpServerSummary>, String> {
-    let mut out = Vec::new();
-    let dir = mcp_servers_dir(ctx);
-    if !dir.exists() {
-        return Ok(out);
-    }
-    for path in json_files(&dir)? {
-        let entry = read_mcp_server_entry(&path)?;
-        out.push(McpServerSummary {
-            id: entry.id,
-            name: entry.file.name.clone().unwrap_or_default(),
-        });
-    }
-    Ok(out)
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct McpServerSummary {
-    id: String,
-    name: String,
-}
-
-fn find_mcp_server(ctx: &CliContext, selector: &str) -> Result<McpServerFile, String> {
-    let id = find_mcp_server_id(ctx, selector)?;
-    let path = find_mcp_server_path(ctx, &id)?
-        .ok_or_else(|| format!("mcp server not found: {selector}"))?;
-    Ok(read_mcp_server_entry(&path)?.file)
-}
-
-fn find_mcp_server_id(ctx: &CliContext, selector: &str) -> Result<String, String> {
-    for server in list_mcp_servers(ctx)? {
-        if matches_selector(&server.id, &server.name, selector) {
-            return Ok(server.id);
-        }
-    }
-    Err(format!("mcp server not found: {selector}"))
-}
-
-fn find_mcp_server_path(ctx: &CliContext, id: &str) -> Result<Option<PathBuf>, String> {
-    let dir = mcp_servers_dir(ctx);
-    if !dir.exists() {
-        return Ok(None);
-    }
-    for path in json_files(&dir)? {
-        let entry = read_mcp_server_entry(&path)?;
-        if entry.id == id {
-            return Ok(Some(path));
-        }
-    }
-    Ok(None)
-}
-
-fn read_mcp_server_entry(path: &Path) -> Result<McpServerEntry, String> {
-    let id = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_string();
-    let raw = fs::read_to_string(path)
-        .map_err(|err| format!("读取 MCP 失败 ({}): {err}", path.display()))?;
-    let value = serde_json::from_str::<JsonValue>(&raw)
-        .map_err(|err| format!("解析 MCP JSON 失败 ({}): {err}", path.display()))?;
-    let definition_value = value
-        .get("definitionJson")
-        .or_else(|| value.get("definition_json"))
-        .and_then(JsonValue::as_str)
-        .and_then(|text| serde_json::from_str::<JsonValue>(text).ok())
-        .unwrap_or_else(|| value.clone());
-    let file = mcp_server_file_from_definition(&id, &definition_value)?;
-    Ok(McpServerEntry { id, file })
-}
-
-fn mcp_server_file_from_definition(id: &str, value: &JsonValue) -> Result<McpServerFile, String> {
-    if let Some(servers) = value.get("mcpServers").and_then(JsonValue::as_object) {
-        let (name, server_value) = servers
-            .iter()
-            .next()
-            .ok_or_else(|| "mcpServers 不能为空".to_string())?;
-        let mut file = mcp_server_file_from_object(server_value)?;
-        if file.name.as_deref().map(str::trim).unwrap_or("").is_empty() {
-            file.name = Some(name.to_string());
-        }
-        return Ok(file);
-    }
-    let mut file = mcp_server_file_from_object(value)?;
-    if file.name.as_deref().map(str::trim).unwrap_or("").is_empty() {
-        file.name = Some(id.to_string());
-    }
-    Ok(file)
-}
-
-fn mcp_server_file_from_object(value: &JsonValue) -> Result<McpServerFile, String> {
-    let mut file = serde_json::from_value::<McpServerFile>(value.clone())
-        .map_err(|err| format!("解析 MCP 定义失败: {err}"))?;
-    if file.transport.as_deref().map(str::trim).unwrap_or("").is_empty() {
-        if file.command.as_deref().map(str::trim).filter(|value| !value.is_empty()).is_some() {
-            file.transport = Some("stdio".to_string());
-        } else if file.url.as_deref().map(str::trim).filter(|value| !value.is_empty()).is_some() {
-            file.transport = Some("streamableHttp".to_string());
-        }
-    }
-    Ok(file)
-}
-
-fn mcp_server_definition_json(id: &str, server: &McpServerFile) -> JsonValue {
-    let name = server
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(id);
-    let mut server_obj = serde_json::Map::new();
-    if let Some(transport) = server.transport.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        server_obj.insert("transport".to_string(), JsonValue::String(transport.to_string()));
-    }
-    if let Some(command) = server.command.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        server_obj.insert("command".to_string(), JsonValue::String(command.to_string()));
-    }
-    if let Some(args) = &server.args {
-        server_obj.insert(
-            "args".to_string(),
-            JsonValue::Array(args.iter().map(|arg| JsonValue::String(arg.clone())).collect()),
-        );
-    }
-    if let Some(url) = server.url.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        server_obj.insert("url".to_string(), JsonValue::String(url.to_string()));
-    }
-    if let Some(env) = &server.env {
-        server_obj.insert(
-            "env".to_string(),
-            serde_json::to_value(env).unwrap_or_else(|_| JsonValue::Object(serde_json::Map::new())),
-        );
-    }
-    let mut servers = serde_json::Map::new();
-    servers.insert(name.to_string(), JsonValue::Object(server_obj));
-    let mut root = serde_json::Map::new();
-    root.insert("mcpServers".to_string(), JsonValue::Object(servers));
-    JsonValue::Object(root)
-}
-
-fn save_mcp_server(ctx: &CliContext, id: &str, server: &McpServerFile) -> Result<(), String> {
-    let dir = mcp_servers_dir(ctx);
-    fs::create_dir_all(&dir)
-        .map_err(|err| format!("创建 MCP 目录失败 ({}): {err}", dir.display()))?;
-    write_json_file(&dir.join(format!("{}.json", sanitize_file_id(id))), &mcp_server_definition_json(id, server))
-}
-
-fn delete_mcp_server(ctx: &CliContext, selector: &str) -> Result<String, String> {
-    let id = find_mcp_server_id(ctx, selector)?;
-    let server_path = find_mcp_server_path(ctx, &id)?
-        .ok_or_else(|| format!("mcp server not found: {selector}"))?;
-    fs::remove_file(&server_path)
-        .map_err(|err| format!("删除 MCP 失败 ({}): {err}", server_path.display()))?;
-    let policy_path = mcp_policies_dir(ctx).join(format!("{}.json", sanitize_file_id(&id)));
-    if policy_path.exists() {
-        fs::remove_file(&policy_path)
-            .map_err(|err| format!("删除 MCP policy 失败 ({}): {err}", policy_path.display()))?;
-    }
-    Ok(id)
-}
-
-fn ensure_mcp_policy(ctx: &CliContext, id: &str, enabled: bool) -> Result<(), String> {
-    let mut policy = load_mcp_policy(ctx, id).unwrap_or_default();
-    policy.server_id = id.to_string();
-    policy.enabled = enabled;
-    let dir = mcp_policies_dir(ctx);
-    fs::create_dir_all(&dir)
-        .map_err(|err| format!("创建 MCP policy 目录失败 ({}): {err}", dir.display()))?;
-    write_json_file(&dir.join(format!("{}.json", sanitize_file_id(id))), &policy)
-}
-
-fn load_mcp_policy(ctx: &CliContext, id: &str) -> Result<McpPolicyFile, String> {
-    let path = mcp_policies_dir(ctx).join(format!("{}.json", sanitize_file_id(id)));
-    if path.exists() {
-        read_json_file(&path)
-    } else {
-        Ok(McpPolicyFile {
-            server_id: id.to_string(),
-            enabled: false,
-            tools: Vec::new(),
-        })
-    }
-}
-
-fn validate_mcp_server(server: &McpServerFile) -> Result<(), String> {
-    let transport = server.transport.as_deref().unwrap_or_default().trim().to_ascii_lowercase();
-    let has_command = server.command.as_deref().map(str::trim).filter(|v| !v.is_empty()).is_some();
-    let has_url = server.url.as_deref().map(str::trim).filter(|v| !v.is_empty()).is_some();
-    if transport == "stdio" || (transport.is_empty() && has_command) {
-        if !has_command {
-            return Err("stdio MCP 必须提供 command".to_string());
-        }
-        return Ok(());
-    }
-    if transport == "http" || transport == "sse" || transport == "streamablehttp" || has_url {
-        if !has_url {
-            return Err("HTTP/SSE MCP 必须提供 url".to_string());
-        }
-        return Ok(());
-    }
-    if has_command || has_url {
-        return Ok(());
-    }
-    Err("MCP 至少需要 command 或 url".to_string())
-}
-
-fn mcp_example() -> McpServerFile {
-    McpServerFile {
-        name: Some("example-mcp".to_string()),
-        transport: Some("stdio".to_string()),
-        command: Some("npx".to_string()),
-        args: Some(vec!["@playwright/mcp@latest".to_string()]),
-        url: None,
-        env: None,
-    }
 }
 
 fn effective_workspace_root(ctx: &CliContext) -> PathBuf {
@@ -1896,7 +1413,11 @@ fn effective_workspace_root(ctx: &CliContext) -> PathBuf {
 }
 
 fn normalize_path_text(value: &str) -> String {
-    let mut out = value.trim().trim_matches('"').trim_matches('\'').to_string();
+    let mut out = value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string();
     if let Some(rest) = out.strip_prefix("~/") {
         if let Some(home) = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf()) {
             out = home.join(rest).to_string_lossy().to_string();
@@ -1935,216 +1456,17 @@ fn detect_portable_runtime_root() -> Option<PathBuf> {
 #[allow(dead_code)]
 fn resolve_standard_config_dir() -> Result<PathBuf, String> {
     let dirs = ProjectDirs::from("ai", "easycall", "p-ai")
-        .ok_or_else(|| "无法定位标准配置目录".to_string())?;
-    let path = dirs.config_dir().to_path_buf();
-    fs::create_dir_all(&path)
-        .map_err(|err| format!("创建标准配置目录失败 ({}): {err}", path.display()))?;
-    Ok(path)
+        .ok_or_else(|| "无法解析应用配置目录".to_string())?;
+    Ok(dirs.config_dir().to_path_buf())
 }
 
-fn slugify(text: &str) -> String {
-    let mut out = String::new();
-    let mut last_dash = false;
-    for ch in text.trim().chars() {
-        let mapped = if ch.is_ascii_alphanumeric() {
-            Some(ch.to_ascii_lowercase())
-        } else if ch == '-' || ch == '_' || ch.is_whitespace() {
-            Some('-')
-        } else {
-            None
-        };
-        if let Some(ch) = mapped {
-            if ch == '-' {
-                if !last_dash && !out.is_empty() {
-                    out.push(ch);
-                }
-                last_dash = true;
-            } else {
-                out.push(ch);
-                last_dash = false;
-            }
-        }
-    }
-    out.trim_matches('-').to_string()
-}
-
-fn slugify_with_fallback(text: &str, prefix: &str) -> String {
-    let out = slugify(text);
-    if out.is_empty() {
-        format!("{}-{}", prefix.trim(), Utc::now().timestamp())
-    } else {
-        out
-    }
-}
-
-fn unique_slugified_id<'a>(
-    text: &str,
-    prefix: &str,
-    existing_ids: impl IntoIterator<Item = &'a str>,
-) -> String {
-    let base = slugify_with_fallback(text, prefix);
-    let existing = existing_ids
-        .into_iter()
-        .map(|item| item.trim().to_ascii_lowercase())
-        .filter(|item| !item.is_empty())
-        .collect::<BTreeSet<_>>();
-    if !existing.contains(&base.to_ascii_lowercase()) {
-        return base;
-    }
-    for index in 2..=10_000 {
-        let candidate = format!("{base}-{index}");
-        if !existing.contains(&candidate.to_ascii_lowercase()) {
-            return candidate;
-        }
-    }
-    format!("{}-{}", base, Utc::now().timestamp_millis())
-}
-
-fn sanitize_file_id(raw: &str) -> String {
-    let mut out = String::new();
-    for ch in raw.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
-            out.push(ch);
-        } else {
-            out.push('_');
-        }
-    }
-    let trimmed = out.trim_matches('_').to_string();
-    if trimmed.is_empty() {
-        "item".to_string()
-    } else {
-        trimmed
-    }
-}
-
-fn now_iso() -> String {
-    Utc::now().to_rfc3339()
-}
-
-fn keep_or_now(value: &str) -> String {
-    if value.trim().is_empty() {
-        now_iso()
-    } else {
-        value.to_string()
-    }
-}
-
-fn required_arg<'a>(args: &'a [String], index: usize, usage: &str) -> Result<&'a str, String> {
-    args.get(index)
-        .map(String::as_str)
-        .ok_or_else(|| format!("参数不足，用法: {usage}"))
-}
-
-fn require_delete_confirmed(args: &[String], usage: &str) -> Result<(), String> {
-    if args.iter().any(|arg| arg == "--confirmed") {
-        Ok(())
-    } else {
-        Err(format!(
-            "删除命令必须先获得用户明确同意，并在命令中加入 --confirmed。用法: {usage}"
-        ))
-    }
-}
-
-fn save_avatar_file(ctx: &CliContext, agent_id: &str, image_path: &Path) -> Result<PathBuf, String> {
-    let ext = image_path
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(|value| value.to_ascii_lowercase())
-        .unwrap_or_default();
-    if ext != "png" && ext != "webp" {
-        return Err("头像目前只支持 .png 或 .webp".to_string());
-    }
-    // 头像与运行时读取共用同一个数据根：安装版下配置目录只是数据根的一层子目录，
-    // 直接拿配置目录拼头像目录会写到一个运行时不会去读的位置。
-    let avatars_dir = app_root_from_cli_data_path(&ctx.data_path).join("avatars");
-    fs::create_dir_all(&avatars_dir)
-        .map_err(|err| format!("创建头像目录失败 ({}): {err}", avatars_dir.display()))?;
-    let target = avatars_dir.join(format!("agent-{}.{}", sanitize_file_id(agent_id), ext));
-    fs::copy(image_path, &target).map_err(|err| {
-        format!(
-            "复制头像失败 ({} -> {}): {err}",
-            image_path.display(),
-            target.display()
-        )
-    })?;
-    Ok(target)
-}
-
-fn print_ok_preview<T: Serialize>(value: &T) -> Result<(), String> {
-    print_json(&serde_json::json!({
-        "ok": true,
-        "blockingIssues": [],
-        "warnings": [],
-        "normalizedPreview": value
-    }))
-}
-
-fn build_named_diff<T: Serialize>(current: &T, next: &T) -> serde_json::Value {
-    let current_value = serde_json::to_value(current).unwrap_or(JsonValue::Null);
-    let next_value = serde_json::to_value(next).unwrap_or(JsonValue::Null);
-    let changed_fields = diff_fields("", &current_value, &next_value);
-    serde_json::json!({
-        "planSummary": format!("{} 个字段将变化", changed_fields.len()),
-        "planItems": changed_fields,
-        "changedFields": changed_fields,
-        "affectedResources": []
-    })
-}
-
-fn diff_fields(prefix: &str, current: &JsonValue, next: &JsonValue) -> Vec<String> {
-    if current == next {
-        return Vec::new();
-    }
-    match (current, next) {
-        (JsonValue::Object(left), JsonValue::Object(right)) => {
-            let keys = left.keys().chain(right.keys()).cloned().collect::<BTreeSet<_>>();
-            let mut out = Vec::new();
-            for key in keys.iter() {
-                let path = if prefix.is_empty() {
-                    key.to_string()
-                } else {
-                    format!("{prefix}.{key}")
-                };
-                let left_value = left.get(key).unwrap_or(&JsonValue::Null);
-                let right_value = right.get(key).unwrap_or(&JsonValue::Null);
-                let nested = diff_fields(&path, left_value, right_value);
-                if nested.is_empty() && left_value != right_value {
-                    out.push(path);
-                } else {
-                    out.extend(nested);
-                }
-            }
-            out
-        }
-        _ => vec![prefix.to_string()],
-    }
-}
-
-fn read_json_file<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
-    let raw = fs::read_to_string(path)
-        .map_err(|err| format!("读取 JSON 失败 ({}): {err}", path.display()))?;
-    serde_json::from_str(&raw).map_err(|err| format!("解析 JSON 失败 ({}): {err}", path.display()))
-}
-
-fn write_json_file<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("创建目录失败 ({}): {err}", parent.display()))?;
-    }
-    let text = serde_json::to_string_pretty(value).map_err(|err| format!("序列化 JSON 失败: {err}"))?;
-    fs::write(path, text).map_err(|err| format!("写入文件失败 ({}): {err}", path.display()))
-}
+// ==================== 输出 ====================
 
 fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
-    let text = serde_json::to_string_pretty(value).map_err(|err| format!("序列化输出失败: {err}"))?;
+    let text = serde_json::to_string_pretty(value)
+        .map_err(|err| format!("序列化输出失败: {err}"))?;
     push_output(&text);
     Ok(())
-}
-
-fn print_output_path(path: &str) -> Result<(), String> {
-    print_json(&serde_json::json!({
-        "path": path
-    }))
 }
 
 fn clear_output_buffer() {
@@ -2198,800 +1520,695 @@ pub fn split_command_line(command: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-fn default_true() -> bool {
-    true
-}
-
-fn default_request_format() -> String {
-    "openai".to_string()
-}
-
-fn default_reasoning_effort() -> String {
-    "medium".to_string()
-}
-
-fn default_temperature() -> f64 {
-    1.0
-}
-
-fn default_context_window_tokens() -> u32 {
-    128_000
-}
-
-fn default_max_output_tokens() -> u32 {
-    4_096
-}
-
-fn default_memory_recall_mode() -> String {
-    "auto".to_string()
-}
-
-fn default_global_scope() -> String {
-    "global".to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use uuid::Uuid;
 
     fn test_root() -> PathBuf {
-        let root = std::env::temp_dir().join(format!("pai-config-module-test-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("pai-config-tool-test-{}", Uuid::new_v4()));
         fs::create_dir_all(root.join("config")).expect("create config dir");
         fs::create_dir_all(root.join("llm-workspace")).expect("create workspace dir");
         root
     }
 
-    fn seed_app(root: &Path) {
-        fs::write(root.join("app_config.toml"), sample_config_toml()).expect("write app_config");
-        fs::write(root.join("config").join("agents.json"), sample_agents_json()).expect("write agents");
+    fn run(root: &Path, command: &str) -> Result<String, String> {
+        run_command_with_paths(
+            root.join("app_config.toml"),
+            root.join("config_mark"),
+            root.join("llm-workspace"),
+            command,
+        )
     }
 
-    fn sample_config_toml() -> &'static str {
-        r#"
+    fn run_portable(root: &Path, command: &str) -> Result<String, String> {
+        run_command_with_paths(
+            root.join("config").join("app_config.toml"),
+            root.join("config").join("config_mark"),
+            root.join("config").join("llm-workspace"),
+            command,
+        )
+    }
+
+    /// 应用自己保存出来的 app_config.toml 形态：顶层标量齐全，`searchMode` 落成表，
+    /// 数组按各结构体的真实字段写。故意不写成极简版——极简版只能验证「能过」，
+    /// 验证不了「应用产的配置能过」。
+    /// 系统工作区路径用 @WORKSPACE@ 占位，测试里替换成临时目录，避免指向不存在的真实路径。
+    fn valid_app_config(workspace: &Path) -> String {
+        let template = r#"hotkey = "Alt+·"
+uiLanguage = "zh-CN"
+uiFont = "auto"
+codeFont = "auto"
+uiSizeScale = 100
+webAccessPort = 43129
+webAccessEnabled = true
+webAccessPassword = "changeme"
+githubUpdateMethod = "manual"
+skippedGithubUpdateVersion = ""
+recordHotkey = "CAPSLOCK"
+recordBackgroundWakeEnabled = false
+minRecordSeconds = 1
+maxRecordSeconds = 60
+toolMaxIterations = 10
+llmRoundLogCapacity = 10
+messageNotificationEnabled = true
+messageNotificationSoundEnabled = true
+desktopOperationNoticeEnabled = true
+desktopOperateEnabled = false
 selectedApiConfigId = "provider-a::model-a"
-assistantDepartmentApiConfigId = "provider-a::model-a"
+expertApiConfigId = "provider-a::model-a"
+visionApiConfigId = "provider-a::model-a"
+toolReviewApiConfigId = "provider-a::model-a"
+sttApiConfigId = "provider-a::model-a"
+imageGenerationModelId = "image-provider::image-model"
+imageToVideoModelId = "image-provider::video-model"
+sttAutoSend = false
+terminalShellKind = "git-bash"
+simpleSetupMode = false
+providerNonStreamBaseUrls = []
 
-[[departments]]
-id = "dept-a"
-name = "Dept A"
-summary = "A"
-guide = "GA"
-apiConfigIds = ["provider-a::model-a"]
-apiConfigId = "provider-a::model-a"
-agentIds = ["agent-a"]
-childDepartmentIds = []
-createdAt = "2026-01-01T00:00:00Z"
-updatedAt = "2026-01-01T00:00:00Z"
-orderIndex = 1
-isBuiltInAssistant = false
-source = "main_config"
-scope = "global"
+[searchMode]
+mode = "auto"
 
-[[departments]]
-id = "dept-b"
-name = "Dept B"
-summary = "B"
-guide = "GB"
-apiConfigIds = ["provider-a::model-a"]
-apiConfigId = "provider-a::model-a"
-agentIds = ["agent-b"]
-childDepartmentIds = []
-createdAt = "2026-01-01T00:00:00Z"
-updatedAt = "2026-01-01T00:00:00Z"
-orderIndex = 2
-isBuiltInAssistant = false
-source = "main_config"
-scope = "global"
+[[searchEngines]]
+id = "exa"
+enabled = true
+
+[[shellWorkspaces]]
+id = "system-workspace"
+name = "主工作区"
+path = '@WORKSPACE@'
+level = "system"
+
+[[mcpServers]]
+id = "mcp-1"
+name = "demo"
+enabled = true
+oauthCapable = false
+definitionJson = "{\"mcpServers\":{\"demo\":{\"command\":\"npx\"}}}"
+
+[[remoteImChannels]]
+id = "channel-1"
+name = "demo"
 
 [[apiProviders]]
 id = "provider-a"
 name = "Provider A"
 requestFormat = "openai"
-enableText = true
-enableTools = true
-baseUrl = "https://api.openai.com/v1"
-apiKeys = ["sk-test-secret"]
-cachedModelOptions = ["gpt-4o-mini"]
+baseUrl = "https://api.example.com/v1"
+apiKeys = ["sk-test"]
 
 [[apiProviders.models]]
 id = "model-a"
-model = "gpt-4o-mini"
-enableTools = true
-reasoningEffort = "medium"
-temperature = 1.0
-contextWindowTokens = 128000
-maxOutputTokens = 4096
-"#
+model = "demo-model"
+
+[[imageProviders]]
+id = "image-provider"
+name = "Image Provider"
+
+[[apiConfigs]]
+id = "provider-a::model-a"
+providerId = "provider-a"
+modelId = "model-a"
+"#;
+        template.replace("@WORKSPACE@", &workspace.display().to_string())
     }
 
-    fn sample_agents_json() -> &'static str {
-        r#"
-{
-  "agents": [
-    {
-      "id": "agent-a",
-      "name": "Agent A",
-      "systemPrompt": "Prompt A",
-      "tools": [],
-      "createdAt": "2026-01-01T00:00:00Z",
-      "updatedAt": "2026-01-01T00:00:00Z",
-      "privateMemoryEnabled": false,
-      "memoryRecallMode": "auto",
-      "scope": "global"
-    }
-  ]
-}
-"#
-    }
-
-    fn append_preset_agent_and_department(root: &Path) {
+    fn seed_valid(root: &Path) {
+        fs::write(
+            root.join("app_config.toml"),
+            valid_app_config(&root.join("llm-workspace")),
+        )
+        .expect("write app config");
         fs::write(
             root.join("config").join("agents.json"),
-            r#"
-{
-  "agents": [
-    {
-      "id": "agent-a",
-      "name": "Agent A",
-      "systemPrompt": "Prompt A",
-      "tools": [],
-      "createdAt": "2026-01-01T00:00:00Z",
-      "updatedAt": "2026-01-01T00:00:00Z",
-      "privateMemoryEnabled": false,
-      "memoryRecallMode": "auto",
-      "scope": "global"
-    },
-    {
-      "id": "user",
-      "name": "User Persona",
-      "systemPrompt": "Built-in user",
-      "tools": [],
-      "createdAt": "2026-01-01T00:00:00Z",
-      "updatedAt": "2026-01-01T00:00:00Z",
-      "isBuiltInUser": true,
-      "privateMemoryEnabled": false,
-      "memoryRecallMode": "auto",
-      "scope": "global"
-    }
-  ]
-}
-"#,
-        )
-        .expect("write agents with preset");
-        let mut config = fs::read_to_string(root.join("app_config.toml")).expect("read config");
-        config.push_str(
-            r#"
-
-[[departments]]
-id = "assistant-department"
-name = "助理部门"
-summary = "built-in"
-guide = "built-in"
-apiConfigIds = ["provider-a::model-a"]
-apiConfigId = "provider-a::model-a"
-agentIds = ["agent-a"]
-childDepartmentIds = []
-createdAt = "2026-01-01T00:00:00Z"
-updatedAt = "2026-01-01T00:00:00Z"
-orderIndex = 99
-isBuiltInAssistant = true
-source = "main_config"
-scope = "global"
-"#,
-        );
-        fs::write(root.join("app_config.toml"), config).expect("write config with preset department");
-    }
-
-    #[test]
-    fn approot_should_report_data_directory_and_key_paths() {
-        let root = test_root();
-        seed_app(&root);
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "approot",
-        )
-        .expect("run approot");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        assert_eq!(value["appRoot"], root.display().to_string());
-        assert_eq!(
-            value["configPath"],
-            root.join("app_config.toml").display().to_string()
-        );
-        assert_eq!(
-            value["workspaceRoot"],
-            root.join("llm-workspace").display().to_string()
-        );
-    }
-
-    #[test]
-    fn approot_should_lift_app_root_when_data_path_sits_under_config_dir() {
-        let root = test_root();
-        seed_app(&root);
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config").join("config_mark"),
-            root.join("llm-workspace"),
-            "approot",
-        )
-        .expect("run approot");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        assert_eq!(value["appRoot"], root.display().to_string());
-    }
-
-    #[test]
-    fn run_command_with_paths_should_report_workspace_reload_request() {
-        let root = test_root();
-        seed_app(&root);
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "reload",
-        )
-        .expect("run reload");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        assert_eq!(value["type"], "workspaceReloadRequest");
-        assert_eq!(value["scope"][1], "skills");
-    }
-
-    #[test]
-    fn run_command_with_paths_should_support_agent_ls() {
-        let root = test_root();
-        seed_app(&root);
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "agent ls",
-        )
-        .expect("run agent ls");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        assert_eq!(value.as_array().expect("agents array").len(), 1);
-        assert_eq!(value[0]["id"], "agent-a");
-        assert_eq!(value[0]["name"], "Agent A");
-        assert!(value[0].get("systemPrompt").is_none());
-    }
-
-    #[test]
-    fn agent_new_should_persist_and_use_agent_prefix_for_non_ascii_name() {
-        let root = test_root();
-        seed_app(&root);
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "agent new 测试人格 你是一个可靠助手",
-        )
-        .expect("create agent");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse created agent");
-        let agent_id = value["id"].as_str().expect("agent id");
-        assert!(agent_id.starts_with("agent-"));
-
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "agent ls",
-        )
-        .expect("run agent ls");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        let agents = value.as_array().expect("agents array");
-        assert!(agents.iter().any(|item| item["id"] == agent_id));
-        assert!(agents.iter().any(|item| item["name"] == "测试人格"));
-    }
-
-    #[test]
-    fn agent_new_should_write_agents_shard_next_to_data_path_not_workspace_root() {
-        let root = test_root();
-        seed_app(&root);
-        let actual_data_root = root.join("runtime-data");
-        let wrong_app_root = root.join("workspace-owner");
-        fs::create_dir_all(actual_data_root.join("config")).expect("create actual config dir");
-        fs::create_dir_all(wrong_app_root.join("llm-workspace")).expect("create wrong workspace dir");
-        fs::copy(root.join("app_config.toml"), actual_data_root.join("app_config.toml")).expect("copy config");
-        fs::copy(root.join("config_mark"), actual_data_root.join("config_mark")).ok();
-
-        let output = run_command_with_paths(
-            actual_data_root.join("app_config.toml"),
-            actual_data_root.join("config_mark"),
-            wrong_app_root.join("llm-workspace"),
-            "agent new TestAgent Prompt",
-        )
-        .expect("create agent");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse created agent");
-        assert_eq!(value["id"], "testagent");
-
-        let actual_agents_shard = actual_data_root.join("config").join("agents.json");
-        let wrong_agents_shard = wrong_app_root.join("config").join("agents.json");
-        assert!(actual_agents_shard.exists());
-        assert!(!wrong_agents_shard.exists());
-    }
-
-    #[test]
-    fn agent_avatar_should_write_into_data_root_instead_of_config_dir() {
-        let root = test_root();
-        seed_app(&root);
-        let config_dir = root.join("config");
-        let image = root.join("avatar-source.png");
-        fs::write(&image, b"fake-png-bytes").expect("write source image");
-
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            config_dir.join("config_mark"),
-            root.join("llm-workspace"),
-            &format!("agent avatar agent-a {}", image.display()),
-        )
-        .expect("set avatar");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        assert_eq!(value["avatarPath"], "avatars/agent-agent-a.png");
-        assert!(root.join("avatars").join("agent-agent-a.png").is_file());
-        assert!(!config_dir.join("avatars").exists());
-    }
-
-    #[test]
-    fn agent_ls_and_get_should_hide_preset_agents() {
-        let root = test_root();
-        seed_app(&root);
-        append_preset_agent_and_department(&root);
-
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "agent ls",
-        )
-        .expect("run agent ls");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        let agents = value.as_array().expect("agents array");
-        assert!(agents.iter().all(|item| item["id"] != "user"));
-
-        let err = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "agent get user",
-        )
-        .expect_err("preset agent should be hidden");
-        assert!(err.contains("agent not found: user"));
-    }
-
-    #[test]
-    fn agent_export_should_return_structured_path() {
-        let root = test_root();
-        seed_app(&root);
-        let export_path = root.join("agent-export.json");
-        let output = run_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            &[
-                "agent".to_string(),
-                "export".to_string(),
-                "agent-a".to_string(),
-                export_path.display().to_string(),
-            ],
-        )
-        .expect("export agent");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse export output");
-        assert_eq!(value["path"], export_path.to_string_lossy().to_string());
-    }
-
-    #[test]
-    fn split_command_line_should_keep_windows_backslashes_in_export_path() {
-        let root = test_root();
-        seed_app(&root);
-        let export_path = root.join(".tmp").join("test-agent-v2.json");
-        let command = format!("agent export agent-a {}", export_path.display());
-
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            &command,
-        )
-        .expect("export agent with windows path");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse export output");
-        assert_eq!(value["path"], export_path.to_string_lossy().to_string());
-        assert!(export_path.exists());
-    }
-
-    #[test]
-    fn agent_diff_should_detect_system_prompt_change() {
-        let root = test_root();
-        seed_app(&root);
-        let export_path = root.join("agent-diff.json");
-        run_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            &[
-                "agent".to_string(),
-                "export".to_string(),
-                "agent-a".to_string(),
-                export_path.display().to_string(),
-            ],
-        )
-        .expect("export agent");
-        let mut agent = read_json_file::<AgentProfile>(&export_path).expect("read exported agent");
-        agent.system_prompt = "你是一个完整的新人格设定。".to_string();
-        write_json_file(&export_path, &agent).expect("write updated agent");
-
-        let output = run_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            &[
-                "agent".to_string(),
-                "diff".to_string(),
-                "agent-a".to_string(),
-                export_path.display().to_string(),
-            ],
-        )
-        .expect("diff agent");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse diff output");
-        let changed_fields = value["changedFields"]
-            .as_array()
-            .expect("changedFields array");
-        assert!(changed_fields.iter().any(|item| item == "systemPrompt"));
-    }
-
-    #[allow(dead_code)]
-    fn provider_update_should_preserve_redacted_keys_when_reenabled() {
-        let root = test_root();
-        seed_app(&root);
-        let exported = root.join("provider.json");
-        run_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            &[
-                "provider".to_string(),
-                "export".to_string(),
-                "provider-a".to_string(),
-                exported.display().to_string(),
-            ],
-        )
-        .expect("export provider");
-        let mut provider = read_json_file::<ApiProviderConfig>(&exported).expect("read exported provider");
-        provider.name = "Provider Renamed".to_string();
-        write_json_file(&exported, &provider).expect("write exported provider");
-        let output = run_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            &[
-                "provider".to_string(),
-                "update".to_string(),
-                "provider-a".to_string(),
-                exported.display().to_string(),
-            ],
-        )
-        .expect("update provider");
-        assert!(!output.contains("sk-test-secret"));
-        let config = fs::read_to_string(root.join("app_config.toml")).expect("read config");
-        assert!(config.contains("Provider Renamed"));
-        assert!(config.contains("sk-test-secret"));
-    }
-
-    #[test]
-    fn provider_command_should_be_blocked_from_config_parser() {
-        let root = test_root();
-        seed_app(&root);
-        let err = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "provider ls",
-        )
-        .expect_err("provider command should be blocked");
-        assert!(err.contains("provider 命令当前未开放"));
-    }
-
-    #[test]
-    fn mcp_ls_should_read_workspace_mcp_servers() {
-        let root = test_root();
-        seed_app(&root);
-        let servers_dir = root.join("llm-workspace").join("mcp").join("servers");
-        fs::create_dir_all(&servers_dir).expect("create mcp servers dir");
-        fs::write(
-            servers_dir.join("playwright.json"),
-            r#"{
-  "mcpServers": {
-    "playwright": {
-      "command": "npx",
-      "args": ["@playwright/mcp@latest"]
-    }
-  }
-}"#,
-        )
-        .expect("write mcp server");
-
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "mcp ls",
-        )
-        .expect("run mcp ls");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        assert_eq!(value.as_array().expect("mcp array").len(), 1);
-        assert_eq!(value[0]["id"], "playwright");
-        assert_eq!(value[0]["name"], "playwright");
-        assert!(value[0].get("transport").is_none());
-        assert!(value[0].get("command").is_none());
-    }
-
-    #[test]
-    fn mcp_ls_should_use_configured_system_workspace() {
-        let root = test_root();
-        seed_app(&root);
-        let custom_workspace = root.join("custom-workspace");
-        let mut config = fs::read_to_string(root.join("app_config.toml")).expect("read config");
-        config.push_str(&format!(
-            r#"
-
-[[shellWorkspaces]]
-name = "custom"
-path = "{}"
-level = "system"
-"#,
-            custom_workspace.to_string_lossy().replace('\\', "\\\\")
-        ));
-        fs::write(root.join("app_config.toml"), config).expect("write config");
-        let servers_dir = custom_workspace.join("mcp").join("servers");
-        fs::create_dir_all(&servers_dir).expect("create mcp servers dir");
-        fs::write(
-            servers_dir.join("browser.json"),
-            r#"{
-  "mcpServers": {
-    "browser": {
-      "command": "npx",
-      "args": ["@browser/mcp@latest"]
-    }
-  }
-}"#,
-        )
-        .expect("write mcp server");
-
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "mcp ls",
-        )
-        .expect("run mcp ls");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        assert_eq!(value.as_array().expect("mcp array").len(), 1);
-        assert_eq!(value[0]["id"], "browser");
-        assert_eq!(value[0]["name"], "browser");
-    }
-
-    /// 造一个带两个人格（agent-a / agent-b）与内置 leader 的测试根目录。
-    fn seed_two_agents(root: &Path) {
-        seed_app(root);
-        fs::write(
-            root.join("config").join("agents.json"),
-            r#"
-{
-  "agents": [
-    {
-      "id": "agent-a",
-      "name": "Agent A",
-      "systemPrompt": "Prompt A",
-      "summary": "A 的简介",
-      "scope": "global"
-    },
-    {
-      "id": "agent-b",
-      "name": "Agent B",
-      "systemPrompt": "Prompt B",
-      "scope": "global"
-    },
-    {
-      "id": "support",
-      "name": "support",
-      "systemPrompt": "内置 support",
-      "residentSkillNames": ["support"],
-      "scope": "global"
-    }
-  ]
-}
-"#,
+            "{\"agents\":[{\"id\":\"a\",\"name\":\"A\",\"systemPrompt\":\"p\"}]}",
         )
         .expect("write agents");
     }
 
-    fn read_agents_json(root: &Path) -> JsonValue {
-        let raw = fs::read_to_string(root.join("config").join("agents.json")).expect("read agents");
-        serde_json::from_str(&raw).expect("parse agents")
-    }
-
-    #[test]
-    fn set_parent_and_clear_parent_should_edit_tree_edges() {
-        let root = test_root();
-        seed_two_agents(&root);
-        let run = |command: &str| {
-            run_command_with_paths(
-                root.join("app_config.toml"),
-                root.join("config_mark"),
-                root.join("llm-workspace"),
-                command,
-            )
-        };
-
-        run("agent set-parent agent-b agent-a").expect("set-parent");
-        let agents = read_agents_json(&root);
-        let children = agents["agents"]
-            .as_array()
-            .expect("array")
-            .iter()
-            .find(|agent| agent["id"] == "agent-a")
-            .expect("agent-a")["childAgentIds"]
-            .as_array()
-            .expect("childAgentIds")
-            .iter()
-            .map(|value| value.as_str().unwrap_or_default().to_string())
-            .collect::<Vec<_>>();
-        assert_eq!(children, vec!["agent-b".to_string()]);
-
-        let parents_output = run("agent parent agent-b").expect("parent");
-        let parents: JsonValue = serde_json::from_str(&parents_output).expect("parse parents");
-        assert_eq!(parents[0]["id"], "agent-a");
-
-        let children_output = run("agent children agent-a").expect("children");
-        let listed: JsonValue = serde_json::from_str(&children_output).expect("parse children");
-        assert_eq!(listed[0]["id"], "agent-b");
-
-        run("agent clear-parent agent-b").expect("clear-parent");
-        let agents = read_agents_json(&root);
-        assert!(agents["agents"]
-            .as_array()
-            .expect("array")
-            .iter()
-            .find(|agent| agent["id"] == "agent-a")
-            .expect("agent-a")["childAgentIds"]
-            .as_array()
-            .expect("childAgentIds")
-            .is_empty());
-    }
-
-    #[test]
-    fn set_parent_should_reject_self_reference() {
-        let root = test_root();
-        seed_two_agents(&root);
-        let err = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "agent set-parent agent-a agent-a",
-        )
-        .expect_err("self parent must fail");
-        assert!(err.contains("不能自指"), "unexpected: {err}");
-    }
-
-    #[test]
-    fn set_model_class_should_write_role_endpoint() {
-        let root = test_root();
-        seed_two_agents(&root);
-        run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "agent set-model-class agent-a fast",
-        )
-        .expect("set-model-class");
-        let agents = read_agents_json(&root);
-        let ids = agents["agents"]
-            .as_array()
-            .expect("array")
-            .iter()
-            .find(|agent| agent["id"] == "agent-a")
-            .expect("agent-a")["apiConfigIds"]
-            .as_array()
-            .expect("apiConfigIds")
-            .iter()
-            .map(|value| value.as_str().unwrap_or_default().to_string())
-            .collect::<Vec<_>>();
-        assert_eq!(ids, vec!["role:quick".to_string()]);
-    }
-
-    #[test]
-    fn set_resident_should_be_locked_for_built_in_persona() {
-        let root = test_root();
-        seed_two_agents(&root);
-        let err = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "agent set-resident support hr",
-        )
-        .expect_err("built-in persona skills are locked");
-        assert!(err.contains("锁定的"), "unexpected: {err}");
-    }
-
-    #[test]
-    fn set_resident_should_move_optional_to_resident() {
-        let root = test_root();
-        seed_two_agents(&root);
-        let run = |command: &str| {
-            run_command_with_paths(
-                root.join("app_config.toml"),
-                root.join("config_mark"),
-                root.join("llm-workspace"),
-                command,
-            )
-        };
-        run("agent set-optional agent-a hr").expect("set-optional");
-        run("agent set-resident agent-a hr").expect("set-resident");
-        let agents = read_agents_json(&root);
-        let agent = agents["agents"]
-            .as_array()
-            .expect("array")
-            .iter()
-            .find(|agent| agent["id"] == "agent-a")
-            .expect("agent-a");
-        assert_eq!(agent["residentSkillNames"][0], "hr");
-        assert!(agent["optionalSkillNames"]
-            .as_array()
-            .map(|items| items.is_empty())
-            .unwrap_or(true));
-    }
-
-    #[test]
-    fn skill_ls_should_list_workspace_skills() {
-        let root = test_root();
-        seed_app(&root);
-        let skill_dir = root.join("llm-workspace").join("skills").join("demo-skill");
-        fs::create_dir_all(&skill_dir).expect("create skill dir");
+    /// 商店安装写出来的 MCP 文件（`catalog/install.rs`）：name + definitionJson，
+    /// policy 的 serverId 是文件名 stem。
+    fn seed_store_installed_mcp(root: &Path) -> String {
+        let servers = root.join("llm-workspace").join("mcp").join("servers");
+        let policies = root.join("llm-workspace").join("mcp").join("policies");
+        fs::create_dir_all(&servers).expect("create servers dir");
+        fs::create_dir_all(&policies).expect("create policies dir");
+        let stem = "playwright-demo";
+        let definition = "{\"mcpServers\":{\"playwright\":{\"command\":\"npx\",\"args\":[\"-y\",\"@playwright/mcp@latest\"]}}}";
+        let payload = serde_json::json!({
+            "name": "Playwright MCP",
+            "definitionJson": definition,
+        });
         fs::write(
-            skill_dir.join("SKILL.md"),
-            "---\nname: demo-skill\ndescription: 示例技能\n---\n\n正文\n",
+            servers.join(format!("{stem}.json")),
+            serde_json::to_vec_pretty(&payload).expect("serialize payload"),
         )
-        .expect("write SKILL.md");
-        let output = run_command_with_paths(
-            root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "skill ls",
+        .expect("write server");
+        let policy = serde_json::json!({
+            "serverId": stem,
+            "enabled": false,
+            "tools": [],
+        });
+        fs::write(
+            policies.join(format!("{stem}.json")),
+            serde_json::to_vec_pretty(&policy).expect("serialize policy"),
         )
-        .expect("run skill ls");
-        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
-        let items = value.as_array().expect("skill array");
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["name"], "demo-skill");
-        assert_eq!(items[0]["enabled"], true);
+        .expect("write policy");
+        stem.to_string()
     }
 
     #[test]
-    fn help_should_explain_config_tool_commands() {
+    fn directory_map_shows_standard_and_portable_roots() {
+        // Windows 标准安装：config_dir 末段就是 config，app_root 上提一级。
+        let standard = test_root();
+        let output = run_portable(&standard, "help").expect("run help");
+        assert!(
+            output.contains(&format!("app_root:   {}", standard.display())),
+            "{output}"
+        );
+        assert!(
+            output.contains(&format!("config_dir: {}", standard.join("config").display())),
+            "{output}"
+        );
+
+        // 便携模式：数据根 data/ 下同样是 config/ + llm-workspace/。
+        let portable = test_root();
+        let output = run_portable(&portable, "help").expect("run help portable");
+        assert!(
+            output.contains(&format!("app_root:   {}", portable.display())),
+            "{output}"
+        );
+        assert!(
+            output.contains(&format!("config_dir: {}", portable.join("config").display())),
+            "{output}"
+        );
+
+        // Linux / macOS 标准安装：config_dir 就是业务根本身，app_root 与它重合。
+        let flat = std::env::temp_dir().join(format!("pai-config-flat-{}", Uuid::new_v4()));
+        fs::create_dir_all(&flat).expect("create flat root");
+        let output = run(&flat, "help").expect("run help flat");
+        assert!(
+            output.contains(&format!("app_root:   {}", flat.display())),
+            "{output}"
+        );
+        assert!(
+            output.contains(&format!("config_dir: {}", flat.display())),
+            "{output}"
+        );
+    }
+
+    #[test]
+    fn directory_map_marks_missing_dirs_and_lists_topics() {
         let root = test_root();
-        seed_app(&root);
-        let output = run_command_with_paths(
+        let output = run(&root, "help").expect("run help");
+        assert!(output.contains("config/app_config.toml") || output.contains("app_config.toml"), "{output}");
+        // config/ 已建、state/ 未建：只有后者带「尚未创建」。
+        assert!(output.contains("agents.json"), "{output}");
+        assert!(output.contains("state.sqlite"), "{output}");
+        assert!(output.contains("尚未创建"), "{output}");
+        assert!(output.contains("-app") && output.contains("-skill"), "{output}");
+    }
+
+    #[test]
+    fn directory_map_matches_docs_layout_table() {
+        let docs = include_str!("../../../../docs/data-schema-v2.md");
+        let mut in_section = false;
+        let mut documented = BTreeSet::new();
+        for line in docs.lines() {
+            let line = line.trim_end_matches('\r');
+            if line.starts_with("### 布局总表") {
+                in_section = true;
+                continue;
+            }
+            if !in_section {
+                continue;
+            }
+            if line.trim().is_empty() {
+                continue;
+            }
+            if !line.starts_with('|') {
+                break;
+            }
+            let Some(start) = line.find('`') else { continue };
+            let rest = &line[start + 1..];
+            let Some(end) = rest.find('`') else { continue };
+            let path = rest[..end].trim().trim_end_matches('/').to_string();
+            if path.is_empty() || path == "路径" {
+                continue;
+            }
+            documented.insert(path);
+        }
+        assert!(!documented.is_empty(), "没有解析到布局总表");
+        let ours = LAYOUT
+            .iter()
+            .map(|entry| entry.path.trim_end_matches('/').to_string())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            ours, documented,
+            "目录地图与 docs/data-schema-v2.md 的布局总表不一致"
+        );
+    }
+
+    #[test]
+    fn topic_field_lists_match_structs() {
+        // agents.json：字段清单与 AgentProfile 的反序列化字段集合一致。
+        let probe: AgentProfile =
+            serde_json::from_str("{\"id\":\"a\",\"name\":\"A\",\"systemPrompt\":\"p\",\"permissionControl\":{}}")
+                .expect("parse agent");
+        let keys = serde_json::to_value(&probe)
+            .expect("serialize agent")
+            .as_object()
+            .expect("object")
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        let declared = AGENT_FIELDS
+            .iter()
+            .map(|field| field.name.to_string())
+            .collect::<HashSet<_>>();
+        assert_eq!(keys, declared, "agents.json 字段清单与 AgentProfile 不一致");
+
+        // app_config.toml：字段清单与 AppConfigProbe 的字段集合一致。
+        let probe: AppConfigProbe =
+            toml::from_str("hotkey = \"Alt+·\"").expect("parse app config probe");
+        let keys = serde_json::to_value(&probe)
+            .expect("serialize app probe")
+            .as_object()
+            .expect("object")
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        let declared = APP_FIELDS
+            .iter()
+            .map(|field| field.name.to_string())
+            .collect::<HashSet<_>>();
+        assert_eq!(keys, declared, "app_config.toml 字段清单与 AppConfigProbe 不一致");
+
+        // MCP 文件外壳不再有单一结构体可对：界面保存与商店安装是两套写法，
+        // 校验走 `mcp_definitions_from_file_value` 按原始 JSON 展开。
+        // 这里只对服务定义与 policy 两份清单做结构体对齐。
+        let keys = serde_json::to_value(McpServerEntry::default())
+            .expect("serialize mcp entry")
+            .as_object()
+            .expect("object")
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        let declared = MCP_FIELDS
+            .iter()
+            .map(|field| field.name.to_string())
+            .collect::<HashSet<_>>();
+        assert_eq!(keys, declared, "MCP 服务定义字段清单与 McpServerEntry 不一致");
+
+        let policy = McpPolicyFile {
+            server_id: "s".to_string(),
+            enabled: true,
+            oauth_capable: false,
+            tools: Vec::new(),
+        };
+        let keys = serde_json::to_value(&policy)
+            .expect("serialize policy")
+            .as_object()
+            .expect("object")
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        let declared = MCP_POLICY_FIELDS
+            .iter()
+            .map(|field| field.name.to_string())
+            .collect::<HashSet<_>>();
+        assert_eq!(keys, declared, "MCP policy 字段清单与 McpPolicyFile 不一致");
+
+        // skill：frontmatter 只认 name / description，与解析实现一致。
+        let declared = SKILL_FIELDS
+            .iter()
+            .map(|field| field.name.to_string())
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            declared,
+            HashSet::from(["name".to_string(), "description".to_string()]),
+            "skill 字段清单与 frontmatter 解析字段不一致"
+        );
+    }
+
+    #[test]
+    fn app_config_field_list_matches_appconfig_struct() {
+        let source = include_str!("../core/domain/types_config.rs");
+        let marker = "struct AppConfig {";
+        let start = source.find(marker).expect("找不到 struct AppConfig");
+        let body = &source[start + marker.len()..];
+        let end = body.find("\n}\n").expect("找不到 struct AppConfig 结尾");
+        let mut expected = BTreeSet::new();
+        for line in body[..end].lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("#[") {
+                continue;
+            }
+            let Some((name, _)) = trimmed.split_once(':') else {
+                continue;
+            };
+            let name = name.trim();
+            if name.is_empty() || name.contains(' ') || name.contains('=') {
+                continue;
+            }
+            expected.insert(to_camel_case(name));
+        }
+        let declared = APP_FIELDS
+            .iter()
+            .map(|field| field.name.to_string())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            declared, expected,
+            "help -app 的字段清单与 AppConfig 的字段集合不一致"
+        );
+    }
+
+    fn to_camel_case(snake: &str) -> String {
+        let mut out = String::new();
+        let mut upper_next = false;
+        for ch in snake.chars() {
+            if ch == '_' {
+                upper_next = true;
+                continue;
+            }
+            if upper_next {
+                out.extend(ch.to_uppercase());
+                upper_next = false;
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn unknown_topic_lists_available_topics() {
+        let root = test_root();
+        let err = run(&root, "help -foo").expect_err("unknown topic should fail");
+        assert!(err.contains("未知主题"), "{err}");
+        assert!(err.contains("-app") && err.contains("-agent") && err.contains("-mcp") && err.contains("-skill"), "{err}");
+    }
+
+    #[test]
+    fn check_reports_syntax_type_and_required_errors() {
+        let root = test_root();
+        // 一、TOML 语法错：报错带行列。
+        fs::write(root.join("app_config.toml"), "hotkey = \"Alt+·\"\nbroken = [\n").expect("write");
+        let err = run(&root, "check -app").expect_err("syntax error");
+        assert!(err.contains("TOML 语法错误"), "{err}");
+        assert!(err.contains("line"), "{err}");
+
+        // 二、字段类型错：能定位到字段名。
+        fs::write(
             root.join("app_config.toml"),
-            root.join("config_mark"),
-            root.join("llm-workspace"),
-            "help",
+            "hotkey = \"Alt+·\"\nwebAccessPort = \"abc\"\n",
         )
-        .expect("run help");
-        assert!(output.contains("PAI config"));
-        assert!(output.contains("Use it when the user asks to modify PAI settings"));
-        assert!(output.contains("agent update <name-or-id> <file>"));
-        assert!(output.contains("agent tree"));
-        assert!(output.contains("agent set-parent <child> <parent> [<parent>...]"));
-        assert!(output.contains("agent set-model-class <name-or-id> <expert|fast>"));
-        assert!(output.contains("agent set-resident <name-or-id> <skill-name> [<skill-name>...]"));
-        assert!(output.contains("skill ls"));
-        assert!(output.contains("mcp add <name> -- <command> [args...]"));
-        assert!(output.contains("Delete commands are destructive"));
-        assert!(output.contains("mcp delete <name-or-id> --confirmed"));
-        assert!(!output.contains("skill update <name-or-id> <dir>"));
-        assert!(!output.contains("skill delete <name-or-id> --confirmed"));
-        assert!(output.contains("store search <query>"));
-        assert!(output.contains("store install <source> <entry-id>"));
-        assert!(!output.contains("provider ls"));
-        assert!(!output.contains("Provider:"));
+        .expect("write");
+        let err = run(&root, "check -app").expect_err("type error");
+        assert!(err.contains("webAccessPort"), "{err}");
+
+        // 三、缺必填字段：hotkey 没有 default，read_config 会直接 Err。
+        fs::write(root.join("app_config.toml"), "uiLanguage = \"zh-CN\"\n").expect("write");
+        let err = run(&root, "check -app").expect_err("missing required");
+        assert!(err.contains("hotkey"), "{err}");
+    }
+
+    /// 阻断 1 的守门用例：应用自己保存出来的配置带 `[searchMode]` 表，check 必须收下。
+    #[test]
+    fn check_accepts_app_saved_config_with_search_mode_table() {
+        let root = test_root();
+        seed_valid(&root);
+        let output = run(&root, "check -app").expect("app-saved config must pass");
+        assert!(output.contains("校验通过"), "{output}");
+    }
+
+    /// 反向：把 searchMode 写成裸字符串（help 以前就是这么写的）必须报错，且指向 searchMode。
+    #[test]
+    fn check_rejects_bare_string_search_mode() {
+        let root = test_root();
+        seed_valid(&root);
+        let broken = valid_app_config(&root.join("llm-workspace")).replace("[searchMode]\nmode = \"auto\"", "searchMode = \"auto\"");
+        fs::write(root.join("app_config.toml"), broken).expect("write");
+        let err = run(&root, "check -app").expect_err("bare string searchMode must fail");
+        assert!(err.contains("searchMode"), "{err}");
+    }
+
+    #[test]
+    fn check_accepts_legacy_ui_size_scale_preset() {
+        let root = test_root();
+        seed_valid(&root);
+        let legacy = valid_app_config(&root.join("llm-workspace"))
+            .replace("uiSizeScale = 100", "uiSizeScale = \"large\"");
+        fs::write(root.join("app_config.toml"), legacy).expect("write");
+        run(&root, "check -app").expect("legacy preset must pass");
+
+        let broken = valid_app_config(&root.join("llm-workspace"))
+            .replace("uiSizeScale = 100", "uiSizeScale = true");
+        fs::write(root.join("app_config.toml"), broken).expect("write");
+        let err = run(&root, "check -app").expect_err("bool uiSizeScale must fail");
+        assert!(err.contains("uiSizeScale"), "{err}");
+    }
+
+    /// 阻断 2 的守门用例：商店装出来的 MCP 文件（name + definitionJson）必须能过，
+    /// 且 id 是文件名 stem —— 用显示名去找必须失败。
+    #[test]
+    fn check_accepts_store_installed_mcp_file_by_file_stem() {
+        let root = test_root();
+        seed_valid(&root);
+        let stem = seed_store_installed_mcp(&root);
+
+        let output =
+            run(&root, &format!("check -mcp {stem}")).expect("store-installed mcp must pass");
+        assert!(output.contains(&format!("{stem}.json")), "{output}");
+
+        // 显示名不是 id：按显示名找必须找不到，否则模型会写出 policies/<显示名>.json。
+        let err = run(&root, "check -mcp \"Playwright MCP\"").expect_err("display name is not id");
+        assert!(err.contains("找不到定义"), "{err}");
+    }
+
+    /// 界面保存的那种外壳（mcpServers 包一层）同样要过。
+    #[test]
+    fn check_accepts_ui_saved_mcp_file() {
+        let root = test_root();
+        seed_valid(&root);
+        let servers = root.join("llm-workspace").join("mcp").join("servers");
+        fs::create_dir_all(&servers).expect("create servers dir");
+        fs::write(
+            servers.join("mcp-1700000000000.json"),
+            "{\"mcpServers\":{\"Tavily\":{\"type\":\"streamable-http\",\"url\":\"https://example.com/mcp\"}}}",
+        )
+        .expect("write server");
+        let output = run(&root, "check -mcp mcp-1700000000000").expect("ui-saved mcp must pass");
+        assert!(output.contains("mcp-1700000000000.json"), "{output}");
+    }
+
+    /// 写一份只含 definitionJson 外壳的 MCP 文件（商店安装形态）。
+    fn write_mcp_definition_file(root: &Path, stem: &str, definition: &str) -> PathBuf {
+        let servers = root.join("llm-workspace").join("mcp").join("servers");
+        fs::create_dir_all(&servers).expect("create servers dir");
+        let payload = serde_json::json!({
+            "name": "demo",
+            "definitionJson": definition,
+        });
+        let path = servers.join(format!("{stem}.json"));
+        fs::write(&path, serde_json::to_vec_pretty(&payload).expect("serialize"))
+            .expect("write server");
+        path
+    }
+
+    /// 界面「新增连接器」的默认模板（`src/features/config/views/config-tabs/McpTab.vue`
+    /// 的 `addServer()` 种子值）：没有 definitionJson，整个文件对象就是单服务直接字段形态。
+    #[test]
+    fn check_accepts_ui_new_connector_template() {
+        let root = test_root();
+        seed_valid(&root);
+        let servers = root.join("llm-workspace").join("mcp").join("servers");
+        fs::create_dir_all(&servers).expect("create servers dir");
+        fs::write(
+            servers.join("mcp-new-connector.json"),
+            "{
+  \"name\": \"mcp-server\",
+  \"transport\": \"stdio\",
+  \"command\": \"npx\",
+  \"args\": [\"-y\", \"@upstash/context7-mcp\"]
+}",
+        )
+        .expect("write server");
+        let output = run(&root, "check -mcp mcp-new-connector")
+            .expect("ui default connector template must pass");
+        assert!(output.contains("mcp-new-connector.json"), "{output}");
+    }
+
+    /// 真机 app_config 里那几条 `[[mcpServers]]` 的 definitionJson 是根级命名集合。
+    #[test]
+    fn check_accepts_root_named_collection_definition() {
+        let root = test_root();
+        seed_valid(&root);
+        write_mcp_definition_file(
+            &root,
+            "mcp-1771896035612",
+            "{\"Tavily\":{\"args\":[\"-y\",\"tavily-mcp\"],\"command\":\"npx\",\"env\":{\"TAVILY_API_KEY\":\"k\"}}}",
+        );
+        let output = run(&root, "check -mcp mcp-1771896035612")
+            .expect("root named collection must pass");
+        assert!(output.contains("mcp-1771896035612.json"), "{output}");
+    }
+
+    /// `mcpServers` 是数组时也要展开。
+    #[test]
+    fn check_accepts_mcp_servers_array_definition() {
+        let root = test_root();
+        seed_valid(&root);
+        write_mcp_definition_file(
+            &root,
+            "mcp-array-shell",
+            "{\"mcpServers\":[{\"name\":\"a\",\"command\":\"npx\"},{\"name\":\"b\",\"url\":\"https://example.com/mcp\"}]}",
+        );
+        let output = run(&root, "check -mcp mcp-array-shell").expect("mcpServers array must pass");
+        assert!(output.contains("mcp-array-shell.json"), "{output}");
+    }
+
+    /// 根级数组形态。
+    #[test]
+    fn check_accepts_root_array_definition() {
+        let root = test_root();
+        seed_valid(&root);
+        write_mcp_definition_file(
+            &root,
+            "mcp-root-array",
+            "[{\"name\":\"a\",\"command\":\"npx\"},{\"name\":\"b\",\"url\":\"https://example.com/mcp\"}]",
+        );
+        let output = run(&root, "check -mcp mcp-root-array").expect("root array must pass");
+        assert!(output.contains("mcp-root-array.json"), "{output}");
+    }
+
+    /// 根级命名集合里某条定义没有 command 也没有 url，仍要报错——展开之后照样逐条校验。
+    #[test]
+    fn check_rejects_named_collection_entry_without_transport() {
+        let root = test_root();
+        seed_valid(&root);
+        write_mcp_definition_file(
+            &root,
+            "mcp-broken",
+            "{\"broken\":{\"args\":[\"-y\"]}}",
+        );
+        let err = run(&root, "check -mcp mcp-broken").expect_err("missing transport must fail");
+        assert!(err.contains("服务至少要给"), "{err}");
+    }
+
+    /// id 含中文或点号时，写入侧会清洗成 `_`；check 要按同一规则找文件。
+    #[test]
+    fn check_resolves_mcp_id_with_sanitized_filename() {
+        let root = test_root();
+        seed_valid(&root);
+        let servers = root.join("llm-workspace").join("mcp").join("servers");
+        fs::create_dir_all(&servers).expect("create servers dir");
+        // sanitize_mcp_server_id("中文.名") 全被替换成下划线后 trim 成空，兜底 mcp_server。
+        fs::write(
+            servers.join("mcp_server.json"),
+            "{\"mcpServers\":{\"x\":{\"url\":\"https://example.com/mcp\"}}}",
+        )
+        .expect("write server");
+        let output = run(&root, "check -mcp \"中文.名\"").expect("sanitized id must resolve");
+        assert!(output.contains("mcp_server.json"), "{output}");
+    }
+
+    /// `mode = "fixed"` 配空 engineId：应用侧只要求字段在场，check 不额外收紧。
+    #[test]
+    fn check_accepts_fixed_search_mode_with_empty_engine_id() {
+        let root = test_root();
+        seed_valid(&root);
+        let config = valid_app_config(&root.join("llm-workspace")).replace(
+            "[searchMode]
+mode = \"auto\"",
+            "[searchMode]
+mode = \"fixed\"
+engineId = \"\"",
+        );
+        fs::write(root.join("app_config.toml"), config).expect("write");
+        run(&root, "check -app").expect("empty engineId must pass");
+
+        let missing = valid_app_config(&root.join("llm-workspace")).replace(
+            "[searchMode]
+mode = \"auto\"",
+            "[searchMode]
+mode = \"fixed\"",
+        );
+        fs::write(root.join("app_config.toml"), missing).expect("write");
+        let err = run(&root, "check -app").expect_err("missing engineId must fail");
+        assert!(err.contains("engineId"), "{err}");
+    }
+
+    #[test]
+    fn check_reports_missing_app_config() {
+        let root = test_root();
+        let err = run(&root, "check -app").expect_err("missing app config must fail");
+        assert!(err.contains("配置文件不存在"), "{err}");
+        let err = run(&root, "reload").expect_err("reload must fail without app config");
+        assert!(err.contains("配置文件不存在"), "{err}");
+        assert!(!err.contains("workspaceReloadRequest"), "{err}");
+    }
+
+    #[test]
+    fn reload_rejects_extra_arguments() {
+        let root = test_root();
+        seed_valid(&root);
+        let err = run(&root, "reload -app").expect_err("reload takes no argument");
+        assert!(err.contains("不接受参数"), "{err}");
+    }
+
+    #[test]
+    fn check_passes_on_valid_files() {
+        let root = test_root();
+        seed_valid(&root);
+        let output = run(&root, "check").expect("check should pass");
+        assert!(output.contains("校验通过"), "{output}");
+        assert!(output.contains("app_config.toml"), "{output}");
+        assert!(output.contains("agents.json"), "{output}");
+    }
+
+    #[test]
+    fn check_failure_blocks_reload() {
+        let root = test_root();
+        fs::write(root.join("app_config.toml"), "hotkey = \"Alt+·\"\nbroken = [\n").expect("write");
+        let err = run(&root, "reload").expect_err("reload must fail on invalid config");
+        assert!(err.contains("校验未通过"), "{err}");
+        assert!(!err.contains("workspaceReloadRequest"), "{err}");
+    }
+
+    #[test]
+    fn reload_scope_covers_mcp_skills_agents() {
+        let root = test_root();
+        seed_valid(&root);
+        let output = run(&root, "reload").expect("reload should pass");
+        assert!(output.contains("workspaceReloadRequest"), "{output}");
+        assert!(output.contains("\"mcp\"") && output.contains("\"skills\""), "{output}");
+        assert!(output.contains("\"privateAgents\"") && output.contains("\"agents\""), "{output}");
+    }
+
+    #[test]
+    fn removed_commands_return_migration_hint() {
+        let root = test_root();
+        seed_valid(&root);
+        for command in [
+            "agent ls",
+            "mcp ls",
+            "skill ls",
+            "store search pdf",
+            "approot",
+            "update",
+            "delete",
+            "enable",
+            "disable",
+            "new",
+        ] {
+            let err = run(&root, command).expect_err(command);
+            assert!(err.contains("已废除") || err.contains("已从 config 工具面移除"), "{command}: {err}");
+            assert!(err.contains("help"), "{command}: {err}");
+        }
+        let err = run(&root, "wat").expect_err("unknown command");
+        assert!(err.contains("未知命令"), "{err}");
     }
 }

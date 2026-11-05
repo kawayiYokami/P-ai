@@ -771,25 +771,14 @@ fn render_hidden_skill_snapshot_block(
             ),
         );
     }
-    // 示例名必须与示例路径的真实 Skill 对上：之前写死 assistant-space-guide，
-    // 路径却取 p-ai-config-guide，模型照抄就会读错文件。
-    let example_item = skills
-        .iter()
-        .find(|item| item.name.trim().eq_ignore_ascii_case("p-ai-config-guide"))
-        .or_else(|| skills.first());
-    let (example_name, example_path) = match example_item {
+    // 示例名与示例路径必须取自同一个技能，模型会照抄这一行去读文件。
+    // 列举为空时没有可引用项，退成占位文案，不要编一个不存在的技能名。
+    let (example_name, example_path) = match skills.first() {
         Some(item) => (
             item.name.trim().to_string(),
             item.path.trim().to_string(),
         ),
-        None => (
-            "p-ai-config-guide".to_string(),
-            skills_root_path
-                .join("p-ai-config-guide")
-                .join("SKILL.md")
-                .to_string_lossy()
-                .to_string(),
-        ),
+        None => ("（当前没有可用技能）".to_string(), String::new()),
     };
     let summary = render_skill_index_for_snapshot(skills, &skills_root_path);
     let has_external = skills
@@ -1548,7 +1537,7 @@ mod snapshot_index_tests {
             "全局技能缺失，got:\n{block}"
         );
         assert!(
-            block.contains("p-ai-config-guide"),
+            block.contains("memory-generation"),
             "全局技能缺失，got:\n{block}"
         );
         assert!(!block.contains("scan failed:"), "正常重扫不应报错：\n{block}");
