@@ -154,14 +154,15 @@ fn broadcast_sidebar_provider_changed() {
     ide_chat_broadcast_simple_notification("provider.changed");
 }
 
-/// 运行时组织快照 + 搜索密钥打码：这是**唯一**对外的配置出口。
-///
-/// 加载（`load_config_inner` / 启动快照）、保存回传、以及所有 `easy-call:config-updated`
-/// 配置广播都从这里取配置；打码放在这里而不是各调用点，是为了让新增的写入类命令
+/// 运行时组织快照 + 搜索密钥打码：写入类命令的返回值与所有 `easy-call:config-updated`
+/// 配置广播都从这里取配置。打码放在这里而不是各调用点，是为了让新增的写入类命令
 /// 不可能漏掉——它们拿到的是同一个已经打码的返回值。
 ///
-/// 注意：只有「交回前端」的路径才走这里。会话读取、prompt 准备等内部消费方仍然直接用
-/// `build_runtime_organization_snapshot_from_parts`，拿的是明文密钥。
+/// 注意两条边界：
+/// - 读取路径不走这里。`load_config_inner` 与启动快照各自直接调 `mask_search_engine_keys`，
+///   别再以为加了这个函数就把全链路的明文都堵住了。
+/// - 内部消费方（会话读取、prompt 准备）仍然直接用
+///   `build_runtime_organization_snapshot_from_parts`，拿的是明文密钥。
 fn runtime_config_for_transport(
     state: &AppState,
     config: &AppConfig,

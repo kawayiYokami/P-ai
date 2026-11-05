@@ -840,6 +840,26 @@ const SEARCH_NO_ENGINE_MESSAGE: &str =
     "搜索失败：没有启用任何搜索引擎。请在设置 → 搜索引擎里启用一个（exa / parallel / tavily 免密钥可用）";
 /// 引擎回了结果但一条都不沾查询时的说明行：宁可交回真实结果，也别告诉用户搜不到。
 const WEAK_RELEVANCE_NOTICE: &str = "以下结果与查询的相关性可能较低，请核对后再使用";
+/// 引擎都合法返回了 0 条：这是没搜到，不能写成相关性低。
+const SEARCH_NO_RESULT_HEADER: &str = "搜索完成：没有任何引擎搜到结果";
+
+/// 交回弱相关结果时的说明：别的引擎为什么没给结果也要带出来，别让鉴权失败静默。
+fn weak_relevance_notice(failures: &[String]) -> String {
+    if failures.is_empty() {
+        return WEAK_RELEVANCE_NOTICE.to_string();
+    }
+    format!(
+        "{WEAK_RELEVANCE_NOTICE}。另有引擎未能给出可用结果：{}",
+        failures.join("；")
+    )
+}
+
+fn search_no_result_message(reasons: &[String]) -> String {
+    if reasons.is_empty() {
+        return SEARCH_NO_RESULT_HEADER.to_string();
+    }
+    format!("{SEARCH_NO_RESULT_HEADER}\n- {}", reasons.join("\n- "))
+}
 
 /// 可用引擎全在冷却：限流没到期，跟额度、密钥都无关，不能套「额度耗尽」那句。
 fn search_all_cooling_message(cooling: &str) -> String {
@@ -874,6 +894,14 @@ fn split_engine_rows(
     engine: SearchEngine,
     rows: Vec<Value>,
 ) -> (Vec<Value>, Vec<Value>) {
+    // 合法返回 0 条是「没搜到」，不是「相关性低」：不打相关性告警，原始行也留空。
+    if rows.is_empty() {
+        runtime_log_info(format!(
+            "[搜索引擎] 引擎没有搜到结果：engine={}，query={query}",
+            engine.id()
+        ));
+        return (Vec::new(), Vec::new());
+    }
     let kept = filter_relevant_search_results(query, rows.clone());
     if kept.is_empty() {
         runtime_log_warn(format!(
@@ -927,7 +955,8 @@ where
                         kept,
                     ));
                 }
-                if weak.is_none() {
+                if weak.is_none() || weak.as_ref().is_some_and(|(_, rows)| rows.is_empty()) {
+                    // 空原始行不许抢位：后面那份非空的弱相关结果要能顶上来。
                     weak = Some((engine, raw));
                 }
             }
@@ -993,6 +1022,13 @@ async fn builtin_search(
             })?;
         // 引擎说成功不等于搜到了东西：乱码查询下它照样回一屏无关页面。
         let (kept, raw) = split_engine_rows(raw_query, fixed.engine, rows);
+        if raw.is_empty() {
+            // 合法返回 0 条：没搜到，不能写成相关性低。
+            return Err(search_no_result_message(&[format!(
+                "{}: 没有搜到结果",
+                fixed.engine.display_name()
+            )]));
+        }
         if kept.is_empty() {
             runtime_log_info(format!(
                 "[搜索引擎] 锁定引擎的结果都不沾查询，交回原始结果：engine={}，query={raw_query}",
@@ -1066,20 +1102,27 @@ async fn builtin_search(
             weak,
         } => {
             plan_failures.append(&mut engine_failures);
-            if let Some((engine, rows)) = weak {
-                runtime_log_info(format!(
-                    "[搜索引擎] 没有引擎给出沾边的结果，交回 {} 的原始结果：query={raw_query}，条数={}",
-                    engine.id(),
-                    rows.len()
-                ));
-                return Ok(search_payload_with_notice(
-                    engine.id(),
-                    engine.display_name(),
-                    rows,
-                    WEAK_RELEVANCE_NOTICE,
-                ));
+            match weak {
+                // 有原始结果但不沾查询：交回它，同时把别的引擎失败原因带出来，别静默。
+                Some((engine, rows)) if !rows.is_empty() => {
+                    let notice = weak_relevance_notice(&plan_failures);
+                    runtime_log_info(format!(
+                        "[搜索引擎] 没有引擎给出沾边的结果，交回 {} 的原始结果：query={raw_query}，条数={}，另带失败原因 {} 条",
+                        engine.id(),
+                        rows.len(),
+                        plan_failures.len()
+                    ));
+                    Ok(search_payload_with_notice(
+                        engine.id(),
+                        engine.display_name(),
+                        rows,
+                        &notice,
+                    ))
+                }
+                // 引擎都合法返回 0 条：没搜到，不是相关性低。
+                Some(_) => Err(search_no_result_message(&plan_failures)),
+                None => Err(search_failure_message(&plan_failures)),
             }
-            Err(search_failure_message(&plan_failures))
         }
     }
 }
@@ -1801,6 +1844,107 @@ mod search_dispatch_tests {
             }
             _ => panic!("没有沾边结果时要走 Missed + weak 分支"),
         }
+    }
+
+    #[tokio::test]
+    async fn try_candidates_should_not_let_empty_rows_take_the_weak_slot() {
+        // A 合法返回 0 条、B 回了 10 条无关但非空：交回的必须是 B，不能是 A 的空结果。
+        let candidates = vec![
+            candidate(SearchEngine::Exa, None),
+            candidate(SearchEngine::Tavily, None),
+        ];
+        let attempt = try_candidates_with(
+            "原神 纳西妲",
+            "session-empty-slot",
+            &candidates,
+            vec![SearchEngine::Exa, SearchEngine::Tavily],
+            |engine, _api_key| async move {
+                match engine {
+                    SearchEngine::Exa => Ok(Vec::new()),
+                    _ => Ok(vec![english_row(), english_row()]),
+                }
+            },
+        )
+        .await;
+        match attempt {
+            SearchAttempt::Missed { weak, .. } => {
+                let (engine, rows) = weak.expect("至少有一个弱相关候选");
+                assert_eq!(engine, SearchEngine::Tavily, "空结果不许占住弱相关位置");
+                assert_eq!(rows.len(), 2, "交回的应是 B 的原始行");
+            }
+            _ => panic!("两个源都没沾边结果时不该命中"),
+        }
+    }
+
+    #[tokio::test]
+    async fn weak_relevance_success_should_still_surface_auth_failure() {
+        // Exa 密钥过期 401 + Tavily 一屏无关页：既要交回原始行，也要让人看到 Exa 挂了。
+        let candidates = vec![
+            candidate(SearchEngine::Exa, Some("expired-key")),
+            candidate(SearchEngine::Tavily, None),
+        ];
+        let attempt = try_candidates_with(
+            "原神 纳西妲",
+            "session-weak-with-auth",
+            &candidates,
+            vec![SearchEngine::Exa, SearchEngine::Tavily],
+            |engine, _api_key| async move {
+                match engine {
+                    SearchEngine::Exa => {
+                        Err(SearchCallError::Auth("401 Unauthorized".to_string()))
+                    }
+                    _ => Ok(vec![english_row()]),
+                }
+            },
+        )
+        .await;
+        match attempt {
+            SearchAttempt::Missed { failures, weak } => {
+                assert_eq!(failures.len(), 1);
+                let (engine, rows) = weak.expect("弱相关结果要留住");
+                assert_eq!(engine, SearchEngine::Tavily);
+                let notice = weak_relevance_notice(&failures);
+                assert!(notice.contains("相关性"), "说明行要在：{notice}");
+                assert!(
+                    notice.contains("鉴权失败，请检查密钥"),
+                    "失败原因不能被成功路径吞掉：{notice}"
+                );
+                let payload = search_payload_with_notice(
+                    engine.id(),
+                    engine.display_name(),
+                    rows,
+                    &notice,
+                );
+                assert_eq!(
+                    payload["results"].as_array().map(|items| items.len()),
+                    Some(1)
+                );
+                assert!(payload["notice"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("鉴权失败"));
+            }
+            _ => panic!("401 + 弱相关时不该命中"),
+        }
+    }
+
+    #[test]
+    fn search_no_result_message_should_not_claim_weak_relevance() {
+        let message = search_no_result_message(&["Tavily: 没有搜到结果".to_string()]);
+        assert_eq!(message.lines().next(), Some(SEARCH_NO_RESULT_HEADER));
+        assert!(message.contains("Tavily: 没有搜到结果"), "原因照实列");
+        assert!(
+            !message.contains("相关性"),
+            "0 条是没搜到，不是相关性低：{message}"
+        );
+        assert!(!message.contains("额度"), "0 条跟额度无关：{message}");
+    }
+
+    #[test]
+    fn split_engine_rows_should_treat_zero_rows_as_no_result() {
+        let (kept, raw) = split_engine_rows("原神 纳西妲", SearchEngine::Exa, Vec::new());
+        assert!(kept.is_empty());
+        assert!(raw.is_empty(), "0 条不该留下会被当成弱相关的原始行");
     }
 
     // ========== P1：明文密钥不许从任何一条传输路径出去 ==========
