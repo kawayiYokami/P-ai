@@ -112,11 +112,18 @@ export type ToolCallResultStatus = {
   message?: string;
 };
 
+const toolCallStatusCache = new Map<string, ToolCallResultStatus>();
+const STATUS_CACHE_MAX = 200;
+
 export function parseToolCallResultStatus(resultText?: string): ToolCallResultStatus {
   const text = String(resultText || "").trim();
   if (!text) {
     return { isDenied: false, isFailed: false };
   }
+  const cached = toolCallStatusCache.get(text);
+  if (cached) return cached;
+
+  let status: ToolCallResultStatus;
   try {
     const data = JSON.parse(text);
     if (typeof data === "object" && data !== null) {
@@ -131,19 +138,29 @@ export function parseToolCallResultStatus(resultText?: string): ToolCallResultSt
         || isDenied
         || !!data.error
         || (typeof data.exitCode === "number" && data.exitCode !== 0);
-      return {
+      status = {
         isDenied,
         isFailed,
         blockedReason: blockedReason || undefined,
         message: String(data.message || data.error || data.failure?.message || "").trim() || undefined,
       };
+    } else {
+      status = { isDenied: false, isFailed: false };
     }
   } catch {
     if (text.startsWith("Error:") || text.startsWith("error:")) {
-      return { isDenied: false, isFailed: true, message: text };
+      status = { isDenied: false, isFailed: true, message: text };
+    } else {
+      status = { isDenied: false, isFailed: false };
     }
   }
-  return { isDenied: false, isFailed: false };
+
+  if (toolCallStatusCache.size >= STATUS_CACHE_MAX) {
+    const firstKey = toolCallStatusCache.keys().next().value;
+    if (firstKey !== undefined) toolCallStatusCache.delete(firstKey);
+  }
+  toolCallStatusCache.set(text, status);
+  return status;
 }
 
 export function buildToolcallPreviewMap(
