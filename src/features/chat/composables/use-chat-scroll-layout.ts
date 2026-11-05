@@ -3,7 +3,9 @@ import { isMobileTouchViewport } from "../../shared/utils/mobile-viewport";
 import { probeChatScroll } from "./chat-scroll-probe";
 
 const TODO_DROPDOWN_SAFE_GAP = 30;
-const FLOATING_TOOLBAR_MIN_RESERVE = 24;
+// 工具条在布局里始终预留这么多：它只为「留白不被工具条盖住」服务。
+// 不能去量真实高度——工具条不在场时量到 0，留白就会跟着一跳一跳。
+const TOOLBAR_RESERVED_HEIGHT = 40;
 const SESSION_CONTROL_PANEL_HIDE_DELAY_MS = 200;
 // 思维链预览条：滚动停止满这么久才出现；期间任何一次滚动都重新计时，也就是一滚动就收起
 const PREVIEW_IDLE_DELAY_MS = 3_000;
@@ -54,11 +56,7 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   const sessionFloatDockStyle = computed(() => ({
     bottom: `${composerReservedHeight.value + 8}px`,
   }));
-  const toolbarReservedHeight = computed(() => {
-    const measuredHeight = toolbarContainer.value?.offsetHeight ?? 0;
-    if (measuredHeight <= 0) return 0;
-    return Math.max(FLOATING_TOOLBAR_MIN_RESERVE, measuredHeight);
-  });
+  const toolbarReservedHeight = computed(() => TOOLBAR_RESERVED_HEIGHT);
 
   function updateJumpToBottomOffset() {
     const composerHeight = composerContainer.value?.offsetHeight ?? 0;
