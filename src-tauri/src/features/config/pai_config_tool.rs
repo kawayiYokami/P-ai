@@ -111,22 +111,6 @@ struct AppConfigSnapshot {
     shell_workspaces: Vec<ShellWorkspaceConfigFile>,
 }
 
-/// `mcp/servers/<stem>.json` 的两种外壳：
-/// 1. 界面保存：`{ "mcpServers": { "<显示名>": { ...定义 } } }`
-/// 2. 商店安装：`{ "name": "<显示名>", "definitionJson": "<定义 JSON 字符串>" }`
-/// 服务 id 一律取文件名 stem（见 `features/mcp/workspace.rs` 的
-/// `parse_workspace_mcp_server_from_file`），`policies/<stem>.json` 与之对齐。
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct McpServerFile {
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default, alias = "definition_json")]
-    definition_json: Option<String>,
-    #[serde(default)]
-    mcp_servers: std::collections::BTreeMap<String, McpServerEntry>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct McpServerEntry {
@@ -785,7 +769,8 @@ fn render_topic(ctx: &CliContext, request: &TopicRequest) -> Result<String, Stri
             }
             out.push_str("服务文件字段（JSON，camelCase）：\n");
             out.push_str(&render_fields(MCP_FILE_FIELDS));
-            out.push_str("服务定义本身的字段（mcpServers 里那层）：\n");
+            out.push_str("服务定义可以是：单服务直接字段（name / transport / command / args 这一套）、{ \"mcpServers\": { 名: 定义 } }、{ \"mcpServers\": [ 定义 ] }、根级命名集合 { 名: 定义 }、根级数组 [ 定义 ]。\n");
+            out.push_str("服务定义本身的字段（定义对象那层）：\n");
             out.push_str(&render_fields(MCP_FIELDS));
             out.push_str("policy 字段（JSON，camelCase）：\n");
             out.push_str(&render_fields(MCP_POLICY_FIELDS));
@@ -936,13 +921,9 @@ fn validate_app_config_probe(probe: &AppConfigProbe) -> Result<(), String> {
         match mode {
             "auto" => {}
             "fixed" => {
-                let has_engine = table
-                    .get("engineId")
-                    .and_then(toml::Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .is_some();
-                if !has_engine {
+                // 应用侧 `SearchMode::Fixed { engine_id: String }` 只要求字段在场，
+                // 不校验非空，所以这里也只要求在场，避免 check 比 read_config 严。
+                if table.get("engineId").and_then(toml::Value::as_str).is_none() {
                     return Err("searchMode.mode = \"fixed\" 时必须给 engineId".to_string());
                 }
             }
@@ -1035,102 +1016,181 @@ fn check_mcp(ctx: &CliContext, selector: Option<&str>, report: &mut CheckReport)
     }
 }
 
+/// 写入侧 `features/mcp/workspace.rs::sanitize_mcp_server_id_for_filename` 会把
+/// 非字母数字、非 `-` `_` 的字符换成 `_` 再拼文件名，这里按同一规则清洗，
+/// 否则 id 里带中文或点号时按原样找文件会落空。规则改动要两边一起改。
+fn sanitize_mcp_server_id(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    let trimmed = out.trim_matches('_').trim().to_string();
+    if trimmed.is_empty() {
+        "mcp_server".to_string()
+    } else {
+        trimmed
+    }
+}
+
 /// 服务 id 就是文件名 stem（`features/mcp/workspace.rs` 的读取口径），
 /// `mcpServers` 的键与 `name` 只是显示名，不参与定位。
 fn mcp_server_file_for_id(ctx: &CliContext, id: &str) -> Option<PathBuf> {
-    let path = mcp_servers_dir(ctx).join(format!("{id}.json"));
+    let path = mcp_servers_dir(ctx).join(format!("{}.json", sanitize_mcp_server_id(id)));
     path.is_file().then_some(path)
 }
 
 fn mcp_policy_file_for_id(ctx: &CliContext, id: &str) -> Option<PathBuf> {
-    let path = mcp_policies_dir(ctx).join(format!("{id}.json"));
+    let path = mcp_policies_dir(ctx).join(format!("{}.json", sanitize_mcp_server_id(id)));
     path.is_file().then_some(path)
 }
 
 fn validate_mcp_server_file(path: &Path) -> Result<(), String> {
     let text = fs::read_to_string(path).map_err(|err| format!("读取失败: {err}"))?;
-    let file: McpServerFile =
+    let value: JsonValue =
         serde_json::from_str(&text).map_err(|err| format!("JSON 解析失败: {err}"))?;
-    if file.mcp_servers.is_empty()
-        && file
-            .definition_json
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_none()
-    {
-        return Err(
-            "找不到服务定义：需要 definitionJson，或 mcpServers 里至少一条".to_string(),
-        );
+    let object = value
+        .as_object()
+        .ok_or_else(|| "文件根必须是 JSON 对象".to_string())?;
+    if object.is_empty() {
+        return Err("文件是空对象，至少要有一个服务".to_string());
     }
-    let definitions = mcp_definitions_from_server_file(&file)?;
+    let definitions = mcp_definitions_from_file_value(&value)?;
     for (display_name, server) in &definitions {
         validate_mcp_server(server).map_err(|err| format!("{display_name}: {err}"))?;
     }
     Ok(())
 }
 
-/// 两种外壳归一到同一份「显示名 -> 服务定义」，显示名只用于报错定位。
-fn mcp_definitions_from_server_file(
-    file: &McpServerFile,
+/// 文件内容 → 定义值，口径与 `features/mcp/workspace.rs` 的
+/// `parse_workspace_mcp_server_from_file` 一致：有 `definitionJson` 字符串就用它，
+/// 没有就把整个文件对象本身当作定义。
+fn mcp_definitions_from_file_value(
+    value: &JsonValue,
 ) -> Result<Vec<(String, McpServerEntry)>, String> {
-    if let Some(raw) = file.definition_json.as_deref() {
+    let root = value
+        .as_object()
+        .ok_or_else(|| "文件根必须是 JSON 对象".to_string())?;
+    let raw = root
+        .get("definitionJson")
+        .or_else(|| root.get("definition_json"))
+        .and_then(JsonValue::as_str);
+    if let Some(raw) = raw {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
             return Err("definitionJson 是空字符串".to_string());
         }
-        let value: JsonValue = serde_json::from_str(trimmed)
+        let definition: JsonValue = serde_json::from_str(trimmed)
             .map_err(|err| format!("definitionJson 不是合法 JSON: {err}"))?;
-        return mcp_definitions_from_value(&value);
+        return mcp_definitions_from_value(&definition);
     }
-    Ok(file
-        .mcp_servers
-        .iter()
-        .map(|(name, entry)| (name.clone(), entry.clone()))
-        .collect())
+    mcp_definitions_from_value(value)
 }
 
+/// MCP 服务定义里属于「单个服务直接字段」的键。
+/// 与 `features/mcp/parser.rs::is_server_direct_field` 逐字对齐，改那边要回来改这里。
+const MCP_SERVER_DIRECT_FIELDS: &[&str] = &[
+    "command",
+    "args",
+    "env",
+    "cwd",
+    "url",
+    "transport",
+    "type",
+    "headers",
+    "httpHeaders",
+    "envHttpHeaders",
+    "bearerTokenEnvVar",
+    "enabledTools",
+    "disabledTools",
+];
+
+fn is_mcp_server_direct_field(key: &str) -> bool {
+    MCP_SERVER_DIRECT_FIELDS.contains(&key)
+}
+
+/// 把一份服务定义展开成「显示名 -> 服务定义」。
+///
+/// 形态集合与 `features/mcp/parser.rs::parse_mcp_definition_servers` 保持一致，
+/// 共五种，判断顺序也照它走；改那边要回来改这里：
+/// 1. `{ "mcpServers": { 名: { … } } }`
+/// 2. `{ 名: { … } }` 根级平铺命名对象（没有任何直接字段、且所有值都是对象）
+/// 3. `{ "mcpServers": [ { name, … } ] }`
+/// 4. `[ { name, … } ]` 根级数组
+/// 5. 单服务直接字段（`name` / `transport` / `command` / `args` 这一套，界面新增连接器的默认模板就是它）
 fn mcp_definitions_from_value(value: &JsonValue) -> Result<Vec<(String, McpServerEntry)>, String> {
-    let mut out = Vec::new();
-    if let Some(servers) = value.get("mcpServers") {
-        push_mcp_definitions(servers, &mut out)?;
-        return Ok(out);
+    if let Some(items) = value.as_array() {
+        if items.is_empty() {
+            return Err("根级数组为空，至少要有一个服务".to_string());
+        }
+        return mcp_definitions_from_array(items, "根级数组");
     }
-    // 单 server 直接字段形态。
+    let root = value
+        .as_object()
+        .ok_or_else(|| "服务定义必须是 JSON 对象或数组".to_string())?;
+    if let Some(servers) = root.get("mcpServers") {
+        if let Some(map) = servers.as_object() {
+            return mcp_definitions_from_map(map, "mcpServers");
+        }
+        if let Some(items) = servers.as_array() {
+            if items.is_empty() {
+                return Err("mcpServers 数组为空，至少要有一个服务".to_string());
+            }
+            return mcp_definitions_from_array(items, "mcpServers");
+        }
+        return Err("mcpServers 必须是对象或数组".to_string());
+    }
+    let has_direct_field = root
+        .keys()
+        .any(|key| is_mcp_server_direct_field(key) || key.eq_ignore_ascii_case("name"));
+    if !has_direct_field && root.values().all(JsonValue::is_object) {
+        return mcp_definitions_from_map(root, "根级命名集合");
+    }
+    let name = root
+        .get("name")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("mcp-server")
+        .to_string();
     let entry: McpServerEntry = serde_json::from_value(value.clone())
-        .map_err(|err| format!("definitionJson 里的定义字段类型不对: {err}"))?;
-    out.push(("server".to_string(), entry));
+        .map_err(|err| format!("服务定义字段类型不对: {err}"))?;
+    Ok(vec![(name, entry)])
+}
+
+fn mcp_definitions_from_map(
+    map: &serde_json::Map<String, JsonValue>,
+    path: &str,
+) -> Result<Vec<(String, McpServerEntry)>, String> {
+    if map.is_empty() {
+        return Err(format!("{path} 为空，至少要有一个服务"));
+    }
+    let mut out = Vec::with_capacity(map.len());
+    for (name, item) in map {
+        let entry: McpServerEntry = serde_json::from_value(item.clone())
+            .map_err(|err| format!("{path}.{name}: {err}"))?;
+        out.push((name.clone(), entry));
+    }
     Ok(out)
 }
 
-fn push_mcp_definitions(
-    value: &JsonValue,
-    out: &mut Vec<(String, McpServerEntry)>,
-) -> Result<(), String> {
-    match value {
-        JsonValue::Object(map) => {
-            for (name, item) in map {
-                let entry: McpServerEntry = serde_json::from_value(item.clone())
-                    .map_err(|err| format!("definitionJson.mcpServers.{name}: {err}"))?;
-                out.push((name.clone(), entry));
-            }
-            Ok(())
-        }
-        JsonValue::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                let name = item
-                    .get("name")
-                    .and_then(JsonValue::as_str)
-                    .unwrap_or("server")
-                    .to_string();
-                let entry: McpServerEntry = serde_json::from_value(item.clone())
-                    .map_err(|err| format!("definitionJson.mcpServers[{index}]: {err}"))?;
-                out.push((name, entry));
-            }
-            Ok(())
-        }
-        _ => Err("definitionJson.mcpServers 必须是对象或数组".to_string()),
+fn mcp_definitions_from_array(
+    items: &[JsonValue],
+    path: &str,
+) -> Result<Vec<(String, McpServerEntry)>, String> {
+    let mut out = Vec::with_capacity(items.len());
+    for (index, item) in items.iter().enumerate() {
+        let name = item
+            .get("name")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("mcp-server")
+            .to_string();
+        let entry: McpServerEntry = serde_json::from_value(item.clone())
+            .map_err(|err| format!("{path}[{index}]: {err}"))?;
+        out.push((name, entry));
     }
+    Ok(out)
 }
 
 fn validate_mcp_server(server: &McpServerEntry) -> Result<(), String> {
@@ -1746,20 +1806,9 @@ modelId = "model-a"
             .collect::<HashSet<_>>();
         assert_eq!(keys, declared, "app_config.toml 字段清单与 AppConfigProbe 不一致");
 
-        // MCP：文件外壳与服务定义各一份，policy 一份。
-        let keys = serde_json::to_value(McpServerFile::default())
-            .expect("serialize mcp file")
-            .as_object()
-            .expect("object")
-            .keys()
-            .cloned()
-            .collect::<HashSet<_>>();
-        let declared = MCP_FILE_FIELDS
-            .iter()
-            .map(|field| field.name.to_string())
-            .collect::<HashSet<_>>();
-        assert_eq!(keys, declared, "MCP 文件外壳字段清单与 McpServerFile 不一致");
-
+        // MCP 文件外壳不再有单一结构体可对：界面保存与商店安装是两套写法，
+        // 校验走 `mcp_definitions_from_file_value` 按原始 JSON 展开。
+        // 这里只对服务定义与 policy 两份清单做结构体对齐。
         let keys = serde_json::to_value(McpServerEntry::default())
             .expect("serialize mcp entry")
             .as_object()
@@ -1953,6 +2002,143 @@ modelId = "model-a"
         .expect("write server");
         let output = run(&root, "check -mcp mcp-1700000000000").expect("ui-saved mcp must pass");
         assert!(output.contains("mcp-1700000000000.json"), "{output}");
+    }
+
+    /// 写一份只含 definitionJson 外壳的 MCP 文件（商店安装形态）。
+    fn write_mcp_definition_file(root: &Path, stem: &str, definition: &str) -> PathBuf {
+        let servers = root.join("llm-workspace").join("mcp").join("servers");
+        fs::create_dir_all(&servers).expect("create servers dir");
+        let payload = serde_json::json!({
+            "name": "demo",
+            "definitionJson": definition,
+        });
+        let path = servers.join(format!("{stem}.json"));
+        fs::write(&path, serde_json::to_vec_pretty(&payload).expect("serialize"))
+            .expect("write server");
+        path
+    }
+
+    /// 界面「新增连接器」的默认模板（`src/features/config/views/config-tabs/McpTab.vue`
+    /// 的 `addServer()` 种子值）：没有 definitionJson，整个文件对象就是单服务直接字段形态。
+    #[test]
+    fn check_accepts_ui_new_connector_template() {
+        let root = test_root();
+        seed_valid(&root);
+        let servers = root.join("llm-workspace").join("mcp").join("servers");
+        fs::create_dir_all(&servers).expect("create servers dir");
+        fs::write(
+            servers.join("mcp-new-connector.json"),
+            "{
+  \"name\": \"mcp-server\",
+  \"transport\": \"stdio\",
+  \"command\": \"npx\",
+  \"args\": [\"-y\", \"@upstash/context7-mcp\"]
+}",
+        )
+        .expect("write server");
+        let output = run(&root, "check -mcp mcp-new-connector")
+            .expect("ui default connector template must pass");
+        assert!(output.contains("mcp-new-connector.json"), "{output}");
+    }
+
+    /// 真机 app_config 里那几条 `[[mcpServers]]` 的 definitionJson 是根级命名集合。
+    #[test]
+    fn check_accepts_root_named_collection_definition() {
+        let root = test_root();
+        seed_valid(&root);
+        write_mcp_definition_file(
+            &root,
+            "mcp-1771896035612",
+            "{\"Tavily\":{\"args\":[\"-y\",\"tavily-mcp\"],\"command\":\"npx\",\"env\":{\"TAVILY_API_KEY\":\"k\"}}}",
+        );
+        let output = run(&root, "check -mcp mcp-1771896035612")
+            .expect("root named collection must pass");
+        assert!(output.contains("mcp-1771896035612.json"), "{output}");
+    }
+
+    /// `mcpServers` 是数组时也要展开。
+    #[test]
+    fn check_accepts_mcp_servers_array_definition() {
+        let root = test_root();
+        seed_valid(&root);
+        write_mcp_definition_file(
+            &root,
+            "mcp-array-shell",
+            "{\"mcpServers\":[{\"name\":\"a\",\"command\":\"npx\"},{\"name\":\"b\",\"url\":\"https://example.com/mcp\"}]}",
+        );
+        let output = run(&root, "check -mcp mcp-array-shell").expect("mcpServers array must pass");
+        assert!(output.contains("mcp-array-shell.json"), "{output}");
+    }
+
+    /// 根级数组形态。
+    #[test]
+    fn check_accepts_root_array_definition() {
+        let root = test_root();
+        seed_valid(&root);
+        write_mcp_definition_file(
+            &root,
+            "mcp-root-array",
+            "[{\"name\":\"a\",\"command\":\"npx\"},{\"name\":\"b\",\"url\":\"https://example.com/mcp\"}]",
+        );
+        let output = run(&root, "check -mcp mcp-root-array").expect("root array must pass");
+        assert!(output.contains("mcp-root-array.json"), "{output}");
+    }
+
+    /// 根级命名集合里某条定义没有 command 也没有 url，仍要报错——展开之后照样逐条校验。
+    #[test]
+    fn check_rejects_named_collection_entry_without_transport() {
+        let root = test_root();
+        seed_valid(&root);
+        write_mcp_definition_file(
+            &root,
+            "mcp-broken",
+            "{\"broken\":{\"args\":[\"-y\"]}}",
+        );
+        let err = run(&root, "check -mcp mcp-broken").expect_err("missing transport must fail");
+        assert!(err.contains("服务至少要给"), "{err}");
+    }
+
+    /// id 含中文或点号时，写入侧会清洗成 `_`；check 要按同一规则找文件。
+    #[test]
+    fn check_resolves_mcp_id_with_sanitized_filename() {
+        let root = test_root();
+        seed_valid(&root);
+        let servers = root.join("llm-workspace").join("mcp").join("servers");
+        fs::create_dir_all(&servers).expect("create servers dir");
+        // sanitize_mcp_server_id("中文.名") 全被替换成下划线后 trim 成空，兜底 mcp_server。
+        fs::write(
+            servers.join("mcp_server.json"),
+            "{\"mcpServers\":{\"x\":{\"url\":\"https://example.com/mcp\"}}}",
+        )
+        .expect("write server");
+        let output = run(&root, "check -mcp \"中文.名\"").expect("sanitized id must resolve");
+        assert!(output.contains("mcp_server.json"), "{output}");
+    }
+
+    /// `mode = "fixed"` 配空 engineId：应用侧只要求字段在场，check 不额外收紧。
+    #[test]
+    fn check_accepts_fixed_search_mode_with_empty_engine_id() {
+        let root = test_root();
+        seed_valid(&root);
+        let config = valid_app_config(&root.join("llm-workspace")).replace(
+            "[searchMode]
+mode = \"auto\"",
+            "[searchMode]
+mode = \"fixed\"
+engineId = \"\"",
+        );
+        fs::write(root.join("app_config.toml"), config).expect("write");
+        run(&root, "check -app").expect("empty engineId must pass");
+
+        let missing = valid_app_config(&root.join("llm-workspace")).replace(
+            "[searchMode]
+mode = \"auto\"",
+            "[searchMode]
+mode = \"fixed\"",
+        );
+        fs::write(root.join("app_config.toml"), missing).expect("write");
+        let err = run(&root, "check -app").expect_err("missing engineId must fail");
+        assert!(err.contains("engineId"), "{err}");
     }
 
     #[test]
