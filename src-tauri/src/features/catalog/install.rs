@@ -1,6 +1,12 @@
 // 商店安装：把远端条目落到本地工作区。
 // MCP 写入 servers/ + policies/（默认关闭）；Skill 写入 skills/{name}/ 并落盘启用状态（默认关闭）。
 
+/// 慢路径扫 frontmatter 时每批并发读多少个 SKILL.md。
+const SKILLS_SH_FRONTMATTER_SCAN_BATCH: usize = 24;
+/// 慢路径最多扫多少个 SKILL.md：`mattpocock/skills` 有 39 个，一次截断会让排在后面的技能永远装不上。
+/// 分批命中即停，扫满这个总量才放弃。
+const SKILLS_SH_FRONTMATTER_SCAN_MAX: usize = 192;
+
 fn catalog_entry_local_id(source: &str, entry_id: &str) -> String {
     let raw = format!("{source}-{entry_id}");
     sanitize_mcp_server_id_for_filename(&raw)
@@ -39,25 +45,40 @@ async fn find_catalog_entry(
 }
 
 /// GitHub 目录地址 -> 目录内 SKILL.md 的 raw 地址。
+/// 两种形态：
+/// - 仓库根 `https://github.com/{owner}/{repo}`：SKILL.md 就在根目录（`AMap-Web/amap-lbs-skill` 这类实测有）。
+/// - 目录 `https://github.com/{owner}/{repo}/tree/{branch}/{path}`：取该目录下的 SKILL.md。
+/// 两种都拼 `HEAD` 当 ref：raw 认 HEAD（实测 200），且不受默认分支改名影响；
+/// 拼字面的分支名会在仓库把 main 改成 master 那天整批 404。
 fn github_tree_url_to_skill_raw(url: &str) -> Option<String> {
-    let rest = url.strip_prefix("https://github.com/")?;
-    let (owner, rest) = rest.split_once('/')?;
-    let (repo, rest) = rest.split_once('/')?;
-    let rest = rest.strip_prefix("tree/")?;
-    let (branch, path) = rest.split_once('/')?;
+    let rest = url.trim().strip_prefix("https://github.com/")?;
+    let rest = rest.trim_end_matches('/');
+    let mut parts = rest.splitn(3, '/');
+    let owner = parts.next().filter(|part| !part.is_empty())?;
+    let repo = parts.next().filter(|part| !part.is_empty())?;
+    let tail = parts.next().unwrap_or_default();
+    // 仓库根地址：没有后半段，SKILL.md 落在根上。
+    // 注意根目录没有 SKILL.md 的仓库也会被判成可装，实际只能在安装时 404——列表阶段拿不到仓库树。
+    if tail.is_empty() {
+        return Some(format!(
+            "https://raw.githubusercontent.com/{owner}/{repo}/HEAD/SKILL.md"
+        ));
+    }
+    let rest = tail.strip_prefix("tree/")?;
+    // 分支名丢掉不用：只保留目录路径。
+    let (_, path) = rest.split_once('/')?;
     if path.trim().is_empty() {
         return None;
     }
     Some(format!(
-        "https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{}/SKILL.md",
+        "https://raw.githubusercontent.com/{owner}/{repo}/HEAD/{}/SKILL.md",
         path.trim_end_matches('/')
     ))
 }
 
 /// 条目来源能否拉到 SKILL.md。
-/// 与安装逻辑同口径：GitHub 目录地址可映射为目录内 SKILL.md，
-/// 或以 `.md` / raw 形式直接指向文件；仓库根地址、站点页面抓到的都是 HTML，
-/// 一律视为不可装（安装时会因缺 frontmatter 失败）。
+/// 与安装逻辑同口径：GitHub 仓库根与目录地址可映射为 SKILL.md，
+/// 或以 `.md` / raw 形式直接指向文件；站点页面抓到的都是 HTML，视为不可装。
 fn skill_source_is_installable(url: &str) -> bool {
     let url = url.trim();
     if url.is_empty() {
@@ -186,48 +207,12 @@ async fn install_catalog_mcp(
     entry: &CatalogEntry,
     env_values: &std::collections::HashMap<String, String>,
 ) -> Result<CatalogInstallResult, String> {
-    // Smithery 的列表不带启动配置，安装时再取详情。
-    let definition_json = if entry.definition_json.trim().is_empty() {
-        if entry.detail_url.trim().is_empty() {
-            return Err(format!("条目「{}」缺少可用的启动配置。", entry.name));
-        }
-        let resp = state
-            .shared_http_client
-            .get(entry.detail_url.trim())
-            .send()
-            .await
-            .map_err(|err| format!("请求条目详情失败：{err}"))?;
-        if !resp.status().is_success() {
-            return Err(format!("请求条目详情失败：HTTP {}", resp.status()));
-        }
-        let detail = resp
-            .json::<Value>()
-            .await
-            .map_err(|err| format!("解析条目详情失败：{err}"))?;
-        // 需要密钥的条目在安装前明确提示，避免装出一个连不上的服务。
-        let required = smithery_required_env_from_detail(&detail);
-        let missing: Vec<String> = required
-            .into_iter()
-            .filter(|name: &String| {
-                env_values
-                    .get(name.as_str())
-                    .map(|value| value.trim().is_empty())
-                    .unwrap_or(true)
-            })
-            .collect();
-        if !missing.is_empty() {
-            return Err(format!(
-                "条目「{}」需要先提供环境变量：{}。请在安装时填写后重试。",
-                entry.name,
-                missing.join("、")
-            ));
-        }
-        let definition = smithery_definition_from_detail(&detail, &entry.name)
-            .ok_or_else(|| format!("条目「{}」没有可用的远端连接地址。", entry.name))?;
-        serde_json::to_string(&definition).unwrap_or_default()
-    } else {
-        entry.definition_json.clone()
-    };
+    // 现役两个来源都把启动配置随列表一起给出；缺配置的条目在列表阶段已是 install_ready = false，
+    // 安装按钮点不动，这里只作兜底，不再回取详情。
+    if entry.definition_json.trim().is_empty() {
+        return Err(format!("条目「{}」缺少可用的启动配置。", entry.name));
+    }
+    let definition_json = entry.definition_json.clone();
 
     let definition_json = apply_env_overrides(&definition_json, env_values);
     let local_id = catalog_entry_local_id(&entry.source, &entry.id);
@@ -245,246 +230,347 @@ async fn install_catalog_mcp(
     })
 }
 
-/// ClawHub 压缩包内的平台附加文件：不是 skill 正文，落盘时跳过。
-const CLAWHUB_ARCHIVE_SKIP_FILES: [&str; 2] = ["_meta.json", "skill-card.md"];
+// ==================== skills.sh 安装 ====================
 
-/// 只跳过包根的附加文件；skill 自带 reference 目录里的同名文件不受影响。
-fn is_clawhub_archive_skip_file(relative_path: &std::path::Path) -> bool {
-    let at_archive_root = relative_path
-        .parent()
-        .map(|parent| parent.as_os_str().is_empty())
-        .unwrap_or(true);
-    at_archive_root
-        && relative_path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .map(|name| CLAWHUB_ARCHIVE_SKIP_FILES.contains(&name))
-            .unwrap_or(false)
-}
+const GITHUB_TREE_API: &str = "https://api.github.com/repos";
 
-/// ClawHub 条目 id 形如 `owner/slug`；只有 slug 时 owner 为空。
-fn clawhub_split_ref(entry_id: &str) -> (String, String) {
-    match entry_id.split_once('/') {
-        Some((owner, slug)) => (owner.trim().to_string(), slug.trim().to_string()),
-        None => (String::new(), entry_id.trim().to_string()),
+/// skills.sh 条目 id -> `(owner, repo, skillId)`；不是三段形态返回 None。
+fn skills_sh_split_entry_id(entry_id: &str) -> Option<(String, String, String)> {
+    let mut parts = entry_id.trim().rsplitn(3, '/');
+    let skill_id = parts.next()?.trim();
+    let repo = parts.next()?.trim();
+    let owner = parts.next()?.trim();
+    if owner.is_empty() || repo.is_empty() || skill_id.is_empty() {
+        return None;
     }
+    Some((owner.to_string(), repo.to_string(), skill_id.to_string()))
 }
 
-/// 由 install 入参的 id 直接构造 ClawHub 条目。
-/// 浏览来源的条目只带裸 slug、且列表接口不返回发布者，无法用精确 id 在检索结果里定位，
-/// 所以这里不再做二次检索，发布者解析与重名判定统一交给 `resolve_clawhub_publisher`。
-fn clawhub_entry_from_ref(entry_id: &str) -> CatalogEntry {
-    let (_, slug) = clawhub_split_ref(entry_id);
-    let name = if slug.is_empty() {
-        entry_id.to_string()
-    } else {
-        slug
+/// 包内不该按文本落盘的二进制文件。
+fn skills_sh_skip_binary_path(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    [
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip", ".woff", ".woff2",
+    ]
+    .iter()
+    .any(|ext| lower.ends_with(ext))
+}
+
+/// 以 SKILL.md 实际所在目录为基准，取同目录的文本引用文件。
+/// 目录基准只能从命中的 SKILL.md 反推：skill 目录常常不在仓库根，
+/// 而 skills.sh 的 skillId 是 frontmatter 的 name，未必等于目录名。
+fn skills_sh_sibling_paths(paths: &[String], skill_md: &str) -> (String, Vec<String>) {
+    let dir_prefix = skill_md
+        .strip_suffix("SKILL.md")
+        .unwrap_or(skill_md)
+        .to_string();
+    let mut siblings = Vec::new();
+    for path in paths {
+        if path == skill_md || !path.starts_with(&dir_prefix) {
+            continue;
+        }
+        // SKILL.md 落在仓库根时 dir_prefix 是空串，此时只算根下的文件，
+        // 否则整棵树都会被当成「同目录」一起拖下来。
+        if dir_prefix.is_empty() && path.contains('/') {
+            continue;
+        }
+        if skills_sh_skip_binary_path(path) {
+            continue;
+        }
+        siblings.push(path.clone());
+    }
+    (dir_prefix, siblings)
+}
+
+/// 落盘相对路径一律相对 SKILL.md 所在目录，保证 SKILL.md 落在技能目录根上。
+fn skills_sh_relative_path(path: &str, dir_prefix: &str) -> String {
+    path.strip_prefix(dir_prefix).unwrap_or(path).to_string()
+}
+
+/// 从 SKILL.md 文本里取 frontmatter 的 `name`。
+/// skills.sh 的 skillId 就是这个字段，不等于仓库目录名。
+fn skills_sh_frontmatter_name(content: &str) -> Option<String> {
+    let mut lines = content.lines();
+    let first = lines.next()?.trim_start_matches('\u{feff}').trim();
+    if first != "---" {
+        return None;
+    }
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            break;
+        }
+        let Some((key, raw_value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        if key.trim() != "name" {
+            continue;
+        }
+        let value = raw_value
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+/// 在 `(路径, frontmatter name)` 候选里挑出 name 与 skillId 一致的那一条。
+fn skills_sh_select_by_name(
+    candidates: &[(String, Option<String>)],
+    skill_id: &str,
+) -> Option<String> {
+    candidates
+        .iter()
+        .find(|(_, name)| name.as_deref() == Some(skill_id))
+        .map(|(path, _)| path.clone())
+}
+
+/// 快路径：目录名恰好等于 skillId（`obra/superpowers` 这类）。
+fn skills_sh_pick_skill_paths(
+    paths: &[String],
+    skill_id: &str,
+) -> Result<(String, String, Vec<String>), String> {
+    // 两种形态都要：仓库根下的 `{skillId}/SKILL.md` 与嵌套的 `skills/{skillId}/SKILL.md`。
+    // 嵌套形态必须带前导 `/`：`ends_with` 是纯字节后缀比较，
+    // 少了斜杠会让 `skills/pre-commit/SKILL.md` 命中 `commit`，静默装错技能。
+    let root_form = format!("{skill_id}/SKILL.md");
+    let nested_form = format!("/{skill_id}/SKILL.md");
+    let Some(skill_md) = paths
+        .iter()
+        .find(|path| *path == &root_form || path.ends_with(&nested_form))
+        .cloned()
+    else {
+        return Err(format!("仓库树里没有 {root_form}"));
     };
-    CatalogEntry {
-        id: entry_id.to_string(),
-        name,
-        description: String::new(),
-        kind: CATALOG_KIND_SKILL.to_string(),
-        source: CATALOG_SOURCE_CLAWHUB.to_string(),
-        categories: Vec::new(),
-        popularity: 0,
-        author: String::new(),
-        homepage: String::new(),
-        icon: String::new(),
-        transport: String::new(),
-        definition_json: String::new(),
-        required_env: Vec::new(),
-        tools: Vec::new(),
-        install_ready: true,
-        detail_url: String::new(),
-        installed: false,
-        enabled: false,
-        local_id: String::new(),
-    }
+    let (dir_prefix, siblings) = skills_sh_sibling_paths(paths, &skill_md);
+    Ok((skill_md, dir_prefix, siblings))
 }
 
-/// 解析条目要安装的发布者。
-/// 条目 id 已带 owner 时直接采用；只有裸 slug 时查详情补全——
-/// ClawHub 的 slug 可以重名，缺少发布者就无法唯一定位，此时列出候选交给用户选择。
-async fn resolve_clawhub_publisher(
+/// GitHub 匿名仓库树：定位 `{skillId}/SKILL.md`，
+/// 返回 `(默认分支 sha, SKILL.md 路径, 同目录其余文本文件)`。
+async fn github_skill_tree_files(
     state: &AppState,
-    entry: &CatalogEntry,
-) -> Result<(String, String), String> {
-    let (owner, slug) = clawhub_split_ref(&entry.id);
-    if slug.is_empty() {
-        return Err("条目缺少 slug，无法安装。".to_string());
-    }
-    if !owner.is_empty() {
-        return Ok((owner, slug));
-    }
-    let url = format!(
-        "https://clawhub.ai/api/v1/skills/{}",
-        urlencoding_encode(&slug)
-    );
+    owner: &str,
+    repo: &str,
+    skill_id: &str,
+) -> Result<(String, String, String, Vec<String>), String> {
+    let url = format!("{GITHUB_TREE_API}/{owner}/{repo}/git/trees/HEAD?recursive=1");
     let resp = state
         .shared_http_client
         .get(&url)
+        .header("User-Agent", SKILLS_SH_USER_AGENT)
+        .header("Accept", "application/vnd.github+json")
         .send()
         .await
-        .map_err(|err| format!("查询 ClawHub 条目详情失败：{err}"))?;
+        .map_err(|err| format!("请求 GitHub 仓库树失败（{owner}/{repo}）：{err}"))?;
     let status = resp.status();
-    // 先取文本，避免错误体（409 带候选清单、其它纯文本错误）不是 JSON 时先抛解析错。
-    let body = resp
-        .text()
-        .await
-        .map_err(|err| format!("读取 ClawHub 条目详情失败：{err}"))?;
-    let payload = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
-    if status.as_u16() == 409 {
-        let candidates = payload
-            .get("matches")
-            .and_then(|value| value.as_array())
-            .map(|items| {
-                items
-                    .iter()
-                    .map(|item| {
-                        let handle = json_str(item, "ownerHandle");
-                        let slug = json_str(item, "slug");
-                        if handle.is_empty() {
-                            slug
-                        } else {
-                            format!("@{handle}/{slug}")
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+    // 匿名接口每小时有额度：403 / 429 是限流，不能报成「skill 不存在」。
+    if status.as_u16() == 403 || status.as_u16() == 429 {
         return Err(format!(
-            "条目「{}」的名字有多个发布者，无法确定要安装哪一个，请用搜索框搜索后从结果中选择。候选：{}",
-            entry.name,
-            candidates.join("、")
+            "GitHub 接口限流，暂时装不了（{owner}/{repo}），请稍后再试"
         ));
     }
     if !status.is_success() {
-        let detail = {
-            let message = json_str(&payload, "message");
-            if message.trim().is_empty() {
-                body.chars().take(200).collect::<String>()
-            } else {
-                message
-            }
-        };
-        return Err(format!("查询 ClawHub 条目详情失败：{status} | {detail}"));
-    }
-    if payload.is_null() {
         return Err(format!(
-            "解析 ClawHub 条目详情失败：响应不是合法 JSON（{} 字节）。",
-            body.len()
+            "请求 GitHub 仓库树失败（{owner}/{repo}）：HTTP {status}"
         ));
     }
-    let resolved = payload
-        .get("owner")
-        .map(|owner| json_str(owner, "handle"))
-        .unwrap_or_default();
-    if resolved.trim().is_empty() {
-        return Err(format!("条目「{}」缺少发布者信息，无法安装。", entry.name));
+    let payload = resp
+        .json::<Value>()
+        .await
+        .map_err(|err| format!("解析 GitHub 仓库树失败（{owner}/{repo}）：{err}"))?;
+    let tree_sha = json_str(&payload, "sha");
+    // 后续 raw 下载一律用这个 commit sha 当 ref。raw 也认 HEAD（实测三个样本均 200），
+    // 用 sha 的理由不是 HEAD 不可用，而是它和这份仓库树严格对应：仓库在两次请求之间改默认分支
+    // 或推进 HEAD，都不会让「按树定位到的路径」与「下载到的文件」错位。
+    if tree_sha.trim().is_empty() {
+        return Err(format!(
+            "{owner}/{repo}：仓库树没有返回 commit sha，无法确定文件版本"
+        ));
     }
-    Ok((resolved, slug))
+    let reference = tree_sha.clone();
+    let paths: Vec<String> = payload
+        .get("tree")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| json_str(item, "type") == "blob")
+                .map(|item| json_str(item, "path"))
+                .filter(|path| !path.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    // 快路径：目录名恰好等于 skillId（`obra/superpowers` 这类）。
+    let (skill_md, dir_prefix, siblings) = match skills_sh_pick_skill_paths(&paths, skill_id) {
+        Ok(picked) => picked,
+        // 慢路径：skills.sh 的 skillId 是 SKILL.md 里的 frontmatter name，不等于目录名
+        //（`vercel-labs/agent-skills` 的 vercel-react-best-practices 落在 skills/react-best-practices/）。
+        // 仓库树里没有路径映射，只能把各 SKILL.md 的 name 读出来比对。
+        Err(_) => {
+            match skills_sh_find_skill_md_by_name(
+                state,
+                owner,
+                repo,
+                &reference,
+                &paths,
+                skill_id,
+            )
+            .await
+            {
+                Ok(skill_md) => {
+                    let (dir_prefix, siblings) = skills_sh_sibling_paths(&paths, &skill_md);
+                    (skill_md, dir_prefix, siblings)
+                }
+                Err(scanned) => {
+                    let total = paths
+                        .iter()
+                        .filter(|path| path.ends_with("SKILL.md"))
+                        .count();
+                    return Err(skills_sh_not_found_message(
+                        owner, repo, skill_id, scanned, total,
+                    ));
+                }
+            }
+        }
+    };
+    Ok((tree_sha, skill_md, dir_prefix, siblings))
 }
 
-/// ClawHub 安装：按 slug 取 zip 包，解压到 `skills/{dir}/`。
-/// 先把压缩包解到同级临时目录并完成校验，再整体替换目标目录，
-/// 避免中途失败在 `skills/` 里留下半截或新旧混合的目录。
-async fn install_clawhub_skill(
+/// 慢路径未命中时的报错文案。
+/// 扫满上限时不能说「不存在」——后面还有没扫到的，只是不再扫了。
+fn skills_sh_not_found_message(
+    owner: &str,
+    repo: &str,
+    skill_id: &str,
+    scanned: usize,
+    total: usize,
+) -> String {
+    let truncated = if scanned < total {
+        format!("，扫描上限为 {SKILLS_SH_FRONTMATTER_SCAN_MAX} 个")
+    } else {
+        String::new()
+    };
+    format!(
+        "{owner}/{repo}：已扫描前 {scanned} 个 SKILL.md（共 {total} 个）{truncated}，未找到 name 为「{skill_id}」的条目"
+    )
+}
+
+/// 慢路径：分批并发读候选 SKILL.md 的 frontmatter，命中即停。
+/// 返回 `Ok(SKILL.md 路径)`；`Err(已扫描数量)` 表示扫到上限仍未命中。
+/// 单个仓库的 SKILL.md 通常十来条，一批并发就读完；`mattpocock/skills` 这类 39 条的仓库靠分批覆盖，
+/// 不能按原始顺序截断——排在后面的技能会永远装不上。
+///
+/// 抓取点用闭包参数化：分批推进、`scanned` 累加、上限截断都是纯算术，不该被 `AppState` 与网络锁住，
+/// 测试里传一个不取网的闭包就能钉住这三条。
+async fn skills_sh_find_skill_md_by_name(
     state: &AppState,
-    entry: &CatalogEntry,
-) -> Result<CatalogInstallResult, String> {
-    let (owner, slug) = resolve_clawhub_publisher(state, entry).await?;
-    let url = clawhub_download_url(&owner, &slug);
-    let resp = state
-        .shared_http_client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|err| format!("下载 ClawHub 条目失败：{err}"))?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let snippet = resp
-            .text()
+    owner: &str,
+    repo: &str,
+    reference: &str,
+    paths: &[String],
+    skill_id: &str,
+) -> Result<String, usize> {
+    skills_sh_scan_skill_md_by_name(paths, skill_id, |path| async move {
+        let url = format!("https://raw.githubusercontent.com/{owner}/{repo}/{reference}/{path}");
+        let name = fetch_catalog_text(state, &url)
             .await
-            .unwrap_or_default()
-            .chars()
-            .take(200)
-            .collect::<String>();
-        return Err(format!("下载 ClawHub 条目失败：{status} | {snippet}"));
+            .ok()
+            .and_then(|content| skills_sh_frontmatter_name(&content));
+        (path, name)
+    })
+    .await
+}
+
+async fn skills_sh_scan_skill_md_by_name<F, Fut>(
+    paths: &[String],
+    skill_id: &str,
+    fetch: F,
+) -> Result<String, usize>
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = (String, Option<String>)>,
+{
+    let candidates = paths
+        .iter()
+        .filter(|path| path.ends_with("SKILL.md"))
+        .collect::<Vec<_>>();
+    let mut scanned = 0usize;
+    for batch in candidates.chunks(SKILLS_SH_FRONTMATTER_SCAN_BATCH) {
+        let remaining = SKILLS_SH_FRONTMATTER_SCAN_MAX.saturating_sub(scanned);
+        if remaining == 0 {
+            break;
+        }
+        let batch = &batch[..batch.len().min(remaining)];
+        let requests = batch
+            .iter()
+            .map(|path| fetch((*path).clone()))
+            .collect::<Vec<_>>();
+        let resolved = futures_util::future::join_all(requests).await;
+        if let Some(hit) = skills_sh_select_by_name(&resolved, skill_id) {
+            return Ok(hit);
+        }
+        scanned += batch.len();
     }
-    // 该端点对由 GitHub 托管的条目返回 JSON 交接信息，而不是压缩包。
-    let is_zip = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.contains("zip"))
-        .unwrap_or(false);
-    if !is_zip {
-        return Err(format!(
-            "条目「{}」由外部仓库托管，当前版本暂不支持安装。",
-            entry.name
-        ));
-    }
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|err| format!("读取 ClawHub 压缩包失败：{err}"))?;
+    Err(scanned)
+}
+
+async fn install_skills_sh_skill(
+    state: &AppState,
+    entry_id: &str,
+) -> Result<CatalogInstallResult, String> {
+    let (owner, repo, skill_id) = skills_sh_split_entry_id(entry_id)
+        .ok_or_else(|| format!("条目标识不是 owner/repo/skillId 形态：{entry_id}"))?;
+    let (tree_sha, skill_md_path, dir_prefix, sibling_paths) =
+        github_skill_tree_files(state, &owner, &repo, &skill_id).await?;
+    // 仓库树已经保证这里是 commit sha，不再有别的 ref 兜底。
+    let reference = tree_sha;
 
     let workspace_root = configured_workspace_root_path(state)?;
     ensure_workspace_skills_layout_at_root(&workspace_root)?;
     let skills_root = workspace_root.join("skills");
-    let dir_name = skill_dir_name_from_entry(entry);
+    let sanitized = sanitize_mcp_server_id_for_filename(&skill_id);
+    let dir_name = if sanitized.is_empty() {
+        "imported-skill".to_string()
+    } else {
+        sanitized
+    };
     let dir = skills_root.join(&dir_name);
-    // 先解到同级临时目录，校验全部通过后再整体替换目标目录。
-    let staging = skills_root.join(format!(
-        ".tmp-clawhub-{dir_name}-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|value| value.as_nanos())
-            .unwrap_or_default()
-    ));
+    fs::create_dir_all(&dir)
+        .map_err(|err| format!("创建 Skill 目录失败（{}）：{err}", dir.display()))?;
 
-    let written_files = match extract_clawhub_archive(&bytes, &staging, entry) {
-        Ok(count) => count,
-        Err(err) => {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(err);
+    let mut targets = vec![skill_md_path.clone()];
+    targets.extend(sibling_paths);
+    let mut written_paths = Vec::new();
+    for path in &targets {
+        let raw_url = format!("https://raw.githubusercontent.com/{owner}/{repo}/{reference}/{path}");
+        let content = fetch_catalog_text(state, &raw_url).await?;
+        let relative = skills_sh_relative_path(path, &dir_prefix);
+        let target = dir.join(&relative);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("创建 Skill 目录失败（{}）：{err}", parent.display()))?;
         }
-    };
-    if written_files == 0 {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(format!("条目「{}」的压缩包没有可落盘的文件。", entry.name));
+        fs::write(&target, &content)
+            .map_err(|err| format!("写入 Skill 文件失败（{}）：{err}", target.display()))?;
+        written_paths.push(format!("skills/{dir_name}/{relative}"));
     }
-    let skill_md = staging.join("SKILL.md");
-    if !skill_md.is_file() {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(format!("条目「{}」的压缩包缺少 SKILL.md。", entry.name));
-    }
-    let skill_name = match parse_skill_file(&skill_md) {
-        Ok((name, _, _)) => name,
-        Err(err) => {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(format!("解析条目「{}」的 SKILL.md 失败：{err}", entry.name));
-        }
-    };
-    if dir.exists() {
-        if let Err(err) = fs::remove_dir_all(&dir) {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(format!("清理旧的 Skill 目录失败（{}）：{err}", dir.display()));
-        }
-    }
-    if let Err(err) = fs::rename(&staging, &dir) {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(format!("落盘 Skill 目录失败（{}）：{err}", dir.display()));
-    }
+
+    let skill_md = dir.join("SKILL.md");
+    let skill_name = parse_skill_file(&skill_md)
+        .map(|(name, _, _)| name)
+        .unwrap_or_else(|_| skill_id.clone());
     // 商店安装的 Skill 默认关闭，由用户自行启用。
     write_skill_enabled(state, &skill_name, false)?;
     reload_workspace(state).await?;
     runtime_log_info(format!(
-        "[能力商店] 已安装 Skill：name={}，source={}，dir={dir_name}，文件数={written_files}",
-        entry.name, entry.source
+        "[能力商店] 已安装 Skill：name={skill_name}，source={}，repo={owner}/{repo}/{skill_id}，dir={dir_name}",
+        CATALOG_SOURCE_SKILLS_SH
     ));
-    let written_paths = vec![skill_installed_skill_md_rel_path(&dir_name)];
     Ok(CatalogInstallResult {
         kind: CATALOG_KIND_SKILL.to_string(),
         local_id: dir_name,
@@ -493,62 +579,10 @@ async fn install_clawhub_skill(
     })
 }
 
-/// 把 ClawHub 压缩包解到指定目录，返回落盘文件数。
-/// 跳过后端平台附加文件，并用 `enclosed_name` 拒绝越出包根的路径。
-fn extract_clawhub_archive(
-    bytes: &[u8],
-    dir: &std::path::Path,
-    entry: &CatalogEntry,
-) -> Result<usize, String> {
-    let reader = std::io::Cursor::new(bytes);
-    let mut archive =
-        zip::ZipArchive::new(reader).map_err(|err| format!("解析 ClawHub 压缩包失败：{err}"))?;
-    if archive.is_empty() {
-        return Err(format!("条目「{}」的压缩包为空。", entry.name));
-    }
-    let mut written_files = 0usize;
-    for index in 0..archive.len() {
-        let mut file = archive
-            .by_index(index)
-            .map_err(|err| format!("读取 ClawHub 压缩包条目失败：{err}"))?;
-        // enclosed_name 已拒绝越出包根的相对路径。
-        let Some(relative) = file.enclosed_name() else {
-            return Err(format!(
-                "条目「{}」的压缩包存在不安全路径：{}",
-                entry.name,
-                file.name()
-            ));
-        };
-        if is_clawhub_archive_skip_file(&relative) {
-            continue;
-        }
-        let output = dir.join(&relative);
-        if file.is_dir() {
-            fs::create_dir_all(&output)
-                .map_err(|err| format!("创建 Skill 目录失败（{}）：{err}", output.display()))?;
-            continue;
-        }
-        if let Some(parent) = output.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|err| format!("创建 Skill 目录失败（{}）：{err}", parent.display()))?;
-        }
-        let mut body = Vec::<u8>::new();
-        std::io::Read::read_to_end(&mut file, &mut body)
-            .map_err(|err| format!("读取 Skill 文件内容失败：{err}"))?;
-        fs::write(&output, body)
-            .map_err(|err| format!("写入 Skill 文件失败（{}）：{err}", output.display()))?;
-        written_files += 1;
-    }
-    Ok(written_files)
-}
-
 async fn install_catalog_skill(
     state: &AppState,
     entry: &CatalogEntry,
 ) -> Result<CatalogInstallResult, String> {
-    if entry.source == CATALOG_SOURCE_CLAWHUB {
-        return install_clawhub_skill(state, entry).await;
-    }
     let source_url = if entry.detail_url.trim().is_empty() {
         entry.homepage.trim().to_string()
     } else {
@@ -617,13 +651,12 @@ async fn install_catalog_entry_inner(
     if entry_id.is_empty() {
         return Err("缺少条目标识。".to_string());
     }
-    // ClawHub 浏览条目只带裸 slug，用精确 id 检索无法命中（检索结果 id 一律带发布者），
-    // 因此直接按 id 构造条目，交给安装链路自行解析发布者。
-    let entry = if source == CATALOG_SOURCE_CLAWHUB {
-        clawhub_entry_from_ref(entry_id)
-    } else {
-        find_catalog_entry(state, source, entry_id).await?
-    };
+    // skills.sh 的 skill 都在 GitHub 仓库目录里，id 已经带齐仓库与目录，安装时直接查树，
+    // 不再回列表接口检索一次。
+    if source == CATALOG_SOURCE_SKILLS_SH {
+        return install_skills_sh_skill(state, entry_id).await;
+    }
+    let entry = find_catalog_entry(state, source, entry_id).await?;
     if catalog_kind_for_source(source) == CATALOG_KIND_SKILL {
         install_catalog_skill(state, &entry).await
     } else {

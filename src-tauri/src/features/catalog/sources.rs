@@ -14,7 +14,9 @@ fn catalog_cache_key_hash(raw: &str) -> String {
 fn catalog_cache_file_name(source: &str, query: &str, page: u32, page_size: u32) -> String {
     // 缓存存的是归一化后的 CatalogEntry；解析口径变化时必须升版本，
     // 否则旧缓存里已冻结的错误字段（如把 schema 键名当环境变量）会继续被原样读出。
-    let key = format!("v2|{source}|{query}|{page}|{page_size}");
+    // v2 -> v3：官方注册中心只留 latest + active（旧缓存整份含重复版本），
+    // skills.sh 丢弃 skillId 含斜杠的脏条目，两处都是解析口径变化。
+    let key = format!("v3|{source}|{query}|{page}|{page_size}");
     let digest = catalog_cache_key_hash(&key);
     format!(
         "catalog_cache_{}_{}.json",
@@ -172,6 +174,8 @@ fn modelscope_mcp_entry(item: &Value) -> CatalogEntry {
         popularity: json_i64(item, "CallVolume"),
         author: scope.trim_start_matches('@').to_string(),
         homepage: json_str(item, "FromSiteUrl"),
+        // MCP 列表的图标在 FromSiteIcon，技能的在 SourceAvatar，两者互不通用（实测：各自另一个字段恒为 null）。
+        // 域名由服务端给出，其中 `resouces.modelscope.cn` 少一个 r 是魔搭的真实域名，不是笔误，别去「修正」它。
         icon: json_str(item, "FromSiteIcon"),
         transport,
         install_ready: !definition_json.is_empty(),
@@ -234,98 +238,87 @@ fn modelscope_skill_entry(item: &Value) -> CatalogEntry {
     }
 }
 
-// ==================== Smithery ====================
-
-const SMITHERY_LIST_URL: &str = "https://registry.smithery.ai/servers";
-
-fn smithery_entry(item: &Value) -> CatalogEntry {
-    let qualified = json_str(item, "qualifiedName");
-    CatalogEntry {
-        id: qualified.clone(),
-        name: {
-            let display = json_str(item, "displayName");
-            if display.is_empty() {
-                qualified.clone()
-            } else {
-                display
-            }
-        },
-        description: json_str(item, "description"),
-        kind: CATALOG_KIND_MCP.to_string(),
-        source: CATALOG_SOURCE_SMITHERY.to_string(),
-        categories: Vec::new(),
-        popularity: json_i64(item, "useCount"),
-        author: json_str(item, "namespace"),
-        homepage: json_str(item, "homepage"),
-        icon: json_str(item, "iconUrl"),
-        transport: "streamable_http".to_string(),
-        definition_json: String::new(),
-        required_env: Vec::new(),
-        tools: Vec::new(),
-        // Smithery 列表不含启动配置，安装时再取详情。
-        install_ready: !qualified.is_empty(),
-        detail_url: if qualified.is_empty() {
-            String::new()
-        } else {
-            format!("{SMITHERY_LIST_URL}/{qualified}")
-        },
-        installed: false,
-        enabled: false,
-        local_id: String::new(),
-    }
-}
-
-/// Smithery 详情 -> `mcpServers` 定义。
-fn smithery_definition_from_detail(detail: &Value, fallback_name: &str) -> Option<Value> {
-    let connections = detail.get("connections")?.as_array()?;
-    let first = connections.first()?;
-    let url = json_str(first, "deploymentUrl");
-    if url.is_empty() {
-        return None;
-    }
-    let entry_name = {
-        let qualified = json_str(detail, "qualifiedName");
-        if qualified.is_empty() {
-            fallback_name.to_string()
-        } else {
-            qualified.replace('/', "-")
-        }
-    };
-    Some(serde_json::json!({
-        "mcpServers": {
-            entry_name: {
-                "url": url,
-                "type": "streamable_http"
-            }
-        }
-    }))
-}
-
-fn smithery_required_env_from_detail(detail: &Value) -> Vec<String> {
-    let mut names = Vec::new();
-    if let Some(connections) = detail.get("connections").and_then(|value| value.as_array()) {
-        for connection in connections {
-            if let Some(required) = connection
-                .get("configSchema")
-                .and_then(|schema| schema.get("required"))
-                .and_then(|value| value.as_array())
-            {
-                for item in required {
-                    if let Some(name) = item.as_str() {
-                        if !names.contains(&name.to_string()) {
-                            names.push(name.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    names
-}
-
 // ==================== 官方 MCP Registry ====================
 
 const OFFICIAL_REGISTRY_URL: &str = "https://registry.modelcontextprotocol.io/v0/servers";
+
+/// 官方注册中心条目的 GitHub owner：仓库地址落在 github.com 上时取路径第一段，
+/// 名字以 `io.github.` 开头时取前缀之后那段；都不是则返回空。
+fn official_registry_github_owner(full_name: &str, repository_url: &str) -> String {
+    let from_repository = repository_url
+        .trim()
+        .strip_prefix("https://github.com/")
+        .or_else(|| repository_url.trim().strip_prefix("https://www.github.com/"))
+        .map(|rest| rest.trim_start_matches('/').split('/').next().unwrap_or_default())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !from_repository.is_empty() {
+        return from_repository;
+    }
+    full_name
+        .trim()
+        .strip_prefix("io.github.")
+        .map(|rest| rest.split('/').next().unwrap_or_default())
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// 官方注册中心条目的作者：优先用 GitHub owner，
+/// 否则把命名空间按点切开后倒序拼成域名形态（`com.example` → `example.com`）。
+fn official_registry_author(full_name: &str, repository_url: &str) -> String {
+    let owner = official_registry_github_owner(full_name, repository_url);
+    if !owner.is_empty() {
+        return owner;
+    }
+    let namespace = full_name.trim().split('/').next().unwrap_or_default();
+    let mut parts: Vec<&str> = namespace.split('.').filter(|part| !part.is_empty()).collect();
+    parts.reverse();
+    parts.join(".")
+}
+
+/// GitHub owner 的头像地址，尺寸 96。
+fn github_avatar_url(owner: &str) -> String {
+    format!("https://github.com/{}.png?size=96", owner.trim())
+}
+
+/// 官方注册中心条目的图标：取自带 `icons` 里第一个 `https://` 地址；
+/// 没有自带图标时，只有确认了 GitHub owner 才用头像兜底，不给非 GitHub 来源编造地址。
+fn official_registry_icon(server: &Value, github_owner: &str) -> String {
+    if let Some(items) = server.get("icons").and_then(|value| value.as_array()) {
+        for item in items {
+            let src = json_str(item, "src");
+            if src.starts_with("https://") {
+                return src;
+            }
+        }
+    }
+    if github_owner.trim().is_empty() {
+        return String::new();
+    }
+    github_avatar_url(github_owner)
+}
+
+/// 官方注册中心按版本返回：同一个 server 的 1.0.0 / 1.0.1 / 2.0.0 各占一条。
+/// 只留 `isLatest == true` 且 `status == "active"` 的那条，否则一页里同一个 MCP 会重复两三次。
+/// 缺 `_meta` 或字段缺失时放行，避免接口形态变化时整页被滤空。
+fn official_registry_item_is_latest_active(item: &Value) -> bool {
+    let Some(meta) = item.get("_meta").and_then(|value| {
+        value.get("io.modelcontextprotocol.registry/official")
+    }) else {
+        return true;
+    };
+    let is_latest = meta
+        .get("isLatest")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let status = meta
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("active");
+    is_latest && status == "active"
+}
 
 fn official_registry_entry(item: &Value) -> CatalogEntry {
     let server = item.get("server").cloned().unwrap_or(Value::Null);
@@ -356,6 +349,13 @@ fn official_registry_entry(item: &Value) -> CatalogEntry {
         }))
         .unwrap_or_default()
     };
+    let repository_url = server
+        .get("repository")
+        .map(|value| json_str(value, "url"))
+        .unwrap_or_default();
+    let github_owner = official_registry_github_owner(&full_name, &repository_url);
+    let author = official_registry_author(&full_name, &repository_url);
+    let icon = official_registry_icon(&server, &github_owner);
     CatalogEntry {
         id: full_name.clone(),
         name: if title.is_empty() { full_name.clone() } else { title },
@@ -364,13 +364,9 @@ fn official_registry_entry(item: &Value) -> CatalogEntry {
         source: CATALOG_SOURCE_OFFICIAL.to_string(),
         categories: Vec::new(),
         popularity: 0,
-        author: full_name
-            .split('/')
-            .next()
-            .unwrap_or_default()
-            .to_string(),
+        author,
         homepage: String::new(),
-        icon: String::new(),
+        icon,
         transport: if remote_url.is_empty() {
             String::new()
         } else {
@@ -387,245 +383,250 @@ fn official_registry_entry(item: &Value) -> CatalogEntry {
     }
 }
 
-// ==================== ClawHub ====================
+// ==================== skills.sh ====================
 
-const CLAWHUB_SKILLS_URL: &str = "https://clawhub.ai/api/v1/skills";
-const CLAWHUB_SEARCH_URL: &str = "https://clawhub.ai/api/v1/search";
+const SKILLS_SH_HOME_URL: &str = "https://www.skills.sh/";
+const SKILLS_SH_SEARCH_URL: &str = "https://www.skills.sh/api/search";
+/// 检索一次取 40 条：服务端的 limit 不是硬上限，这里比一页 30 条留些余量。
+/// 没有分页参数，取多了就是一次拉回整份 JSON，别往大调。
+const SKILLS_SH_SEARCH_LIMIT: usize = 40;
+/// 带一个正常的浏览器 UA 与 Accept 就够了；实测 curl 默认 UA 同样 200，不是硬要求。
+/// 保留它只是给请求一个明确身份，不要据此以为需要整套浏览器头。
+const SKILLS_SH_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
-/// ClawHub 条目网页地址；slug 级捷径地址会跳到 canonical 页面。
-fn clawhub_homepage_url(slug: &str) -> String {
-    format!("https://clawhub.ai/skills/{slug}")
-}
-
-/// ClawHub 条目唯一标识：有发布者时用 `owner/slug`，否则退回裸 slug。
-/// 裸 slug 可能对应多个发布者，安装时需要再解析。
-fn clawhub_entry_id(owner: &str, slug: &str) -> String {
-    let owner = owner.trim();
-    if owner.is_empty() {
-        slug.to_string()
-    } else {
-        format!("{owner}/{slug}")
+/// skills.sh 的 `source` 必须是 `owner/repo` 形态，其余视为脏数据丢弃。
+fn skills_sh_source_is_repo(source: &str) -> bool {
+    let mut parts = source.split('/');
+    let owner = parts.next().unwrap_or_default();
+    let repo = parts.next().unwrap_or_default();
+    if parts.next().is_some() {
+        return false;
     }
+    let valid = |part: &str| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-')
+    };
+    valid(owner) && valid(repo)
 }
 
-/// ClawHub 安装时按 owner + slug 取 zip 包。
-/// 不带 owner 的裸 slug 在存在重名时会返回 409，调用方需先解析发布者。
-fn clawhub_download_url(owner: &str, slug: &str) -> String {
-    let mut url = format!(
-        "https://clawhub.ai/api/v1/download?slug={}",
-        urlencoding_encode(slug)
-    );
-    let owner = owner.trim();
-    if !owner.is_empty() {
-        url.push_str(&format!("&ownerHandle={}", urlencoding_encode(owner)));
+/// skills.sh 条目 id：`owner/repo/skillId` 三段，安装时用来反解仓库与目录。
+fn skills_sh_entry_id(source: &str, skill_id: &str) -> String {
+    format!("{}/{}", source.trim(), skill_id.trim())
+}
+
+/// skills.sh 单条记录 -> 条目；`source` 或 `skillId` 不合法时丢弃。
+fn skills_sh_entry(raw: &Value) -> Option<CatalogEntry> {
+    let source = json_str(raw, "source");
+    let skill_id = json_str(raw, "skillId");
+    // skillId 含斜杠时 id 会变成四段，安装时 rsplitn(3) 会反解出错的仓库去查别人的仓库树。
+    if !skills_sh_source_is_repo(&source) || skill_id.trim().is_empty() || skill_id.contains('/') {
+        return None;
     }
-    url
-}
-
-/// ClawHub 热度：优先取安装数，其次下载数。
-fn clawhub_popularity(item: &Value) -> i64 {
-    let stats = item.get("stats").cloned().unwrap_or(Value::Null);
-    let installs = json_i64(&stats, "installs");
-    if installs > 0 {
-        installs
-    } else {
-        json_i64(&stats, "downloads")
-    }
-}
-
-/// ClawHub 浏览条目（`GET /api/v1/skills`）-> CatalogEntry。
-/// 该端点不返回作者，浏览态的 author 留空。
-fn clawhub_list_entry(item: &Value) -> CatalogEntry {
-    let slug = json_str(item, "slug");
-    let display = json_str(item, "displayName");
-    CatalogEntry {
-        id: slug.clone(),
-        name: if display.is_empty() { slug.clone() } else { display },
-        description: json_str(item, "summary"),
-        kind: CATALOG_KIND_SKILL.to_string(),
-        source: CATALOG_SOURCE_CLAWHUB.to_string(),
-        categories: json_string_list(item, "topics"),
-        popularity: clawhub_popularity(item),
-        author: String::new(),
-        homepage: if slug.is_empty() {
-            String::new()
+    let owner = source.split('/').next().unwrap_or_default().trim().to_string();
+    let name = {
+        let name = json_str(raw, "name");
+        if name.trim().is_empty() {
+            skill_id.clone()
         } else {
-            clawhub_homepage_url(&slug)
-        },
-        icon: String::new(),
-        transport: String::new(),
-        definition_json: String::new(),
-        required_env: Vec::new(),
-        tools: Vec::new(),
-        install_ready: !slug.is_empty(),
-        detail_url: if slug.is_empty() {
-            String::new()
-        } else {
-            clawhub_download_url("", &slug)
-        },
-        installed: false,
-        enabled: false,
-        local_id: String::new(),
-    }
-}
-
-/// ClawHub 检索条目（`GET /api/v1/search`）-> CatalogEntry。
-fn clawhub_search_entry(item: &Value) -> CatalogEntry {
-    let slug = json_str(item, "slug");
-    let display = json_str(item, "displayName");
-    let owner = json_str(item, "ownerHandle");
-    let canonical = json_str(item, "canonicalUrl");
-    CatalogEntry {
-        id: clawhub_entry_id(&owner, &slug),
-        name: if display.is_empty() { slug.clone() } else { display },
-        description: json_str(item, "summary"),
+            name
+        }
+    };
+    Some(CatalogEntry {
+        id: skills_sh_entry_id(&source, &skill_id),
+        name,
+        // 检索结果里没有描述，首版留空，不为它多打一次请求。
+        description: String::new(),
         kind: CATALOG_KIND_SKILL.to_string(),
-        source: CATALOG_SOURCE_CLAWHUB.to_string(),
+        source: CATALOG_SOURCE_SKILLS_SH.to_string(),
         categories: Vec::new(),
-        popularity: json_i64(item, "downloads"),
+        popularity: json_i64(raw, "installs"),
         author: owner.clone(),
-        homepage: {
-            let canonical = canonical.trim();
-            if canonical.is_empty() {
-                if slug.is_empty() {
-                    String::new()
-                } else {
-                    clawhub_homepage_url(&slug)
-                }
-            } else if canonical.starts_with("http") {
-                canonical.to_string()
-            } else {
-                format!("https://clawhub.ai{canonical}")
-            }
-        },
-        icon: json_str(item, "icon"),
+        homepage: format!("https://github.com/{}", source.trim()),
+        // skills.sh 不给图标；owner 是 GitHub 账号，用头像兜底。
+        icon: github_avatar_url(&owner),
         transport: String::new(),
         definition_json: String::new(),
         required_env: Vec::new(),
         tools: Vec::new(),
-        install_ready: !slug.is_empty(),
-        detail_url: if slug.is_empty() {
-            String::new()
-        } else {
-            clawhub_download_url(&owner, &slug)
-        },
+        detail_url: String::new(),
+        install_ready: true,
         installed: false,
         enabled: false,
         local_id: String::new(),
-    }
-}
-
-/// ClawHub 公开读接口：成功返回 JSON，失败把纯文本错误体带出来。
-async fn fetch_clawhub_json(state: &AppState, url: &str) -> Result<Value, String> {
-    let resp = state
-        .shared_http_client
-        .get(url)
-        .send()
-        .await
-        .map_err(|err| format!("请求 ClawHub 失败：{err}"))?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        // ClawHub 公开接口的错误响应是纯文本。
-        let snippet = resp
-            .text()
-            .await
-            .unwrap_or_default()
-            .chars()
-            .take(200)
-            .collect::<String>();
-        return Err(format!("请求 ClawHub 失败：{status} | {snippet}"));
-    }
-    resp.json::<Value>()
-        .await
-        .map_err(|err| format!("解析 ClawHub 响应失败：{err}"))
-}
-
-fn clawhub_entries_from(payload: &Value, map: fn(&Value) -> CatalogEntry) -> Vec<CatalogEntry> {
-    payload
-        .get("items")
-        .or_else(|| payload.get("results"))
-        .and_then(|value| value.as_array())
-        .map(|items| items.iter().map(map).collect::<Vec<_>>())
-        .unwrap_or_default()
-}
-
-/// ClawHub 浏览：`/api/v1/skills` 用游标分页，从第 1 页逐页推进到目标页。
-async fn fetch_clawhub_browse_page(
-    state: &AppState,
-    page: u32,
-    page_size: u32,
-) -> Result<CatalogRawPage, String> {
-    let limit = page_size.clamp(1, 200);
-    let mut cursor = String::new();
-    let mut entries = Vec::<CatalogEntry>::new();
-    let mut reached = false;
-    let mut has_more = false;
-    for current in 1..=page {
-        let mut url =
-            format!("{CLAWHUB_SKILLS_URL}?limit={limit}&sort=downloads&nonSuspiciousOnly=true");
-        if !cursor.is_empty() {
-            url.push_str(&format!("&cursor={}", urlencoding_encode(&cursor)));
-        }
-        let payload = fetch_clawhub_json(state, &url).await?;
-        entries = clawhub_entries_from(&payload, clawhub_list_entry);
-        cursor = payload
-            .get("nextCursor")
-            .and_then(|value| value.as_str())
-            .unwrap_or_default()
-            .to_string();
-        has_more = !cursor.is_empty();
-        if current == page {
-            reached = true;
-            break;
-        }
-        // 目标页之前已无更多数据：目标页为空。
-        if entries.is_empty() || !has_more {
-            entries = Vec::new();
-            break;
-        }
-    }
-    if !reached {
-        entries = Vec::new();
-    }
-    Ok(CatalogRawPage {
-        entries,
-        // ClawHub 不返回总数，用「已翻页数 + 是否还有下一页」折算，
-        // 保证前端「下一页」按钮只在确有下一页时出现。
-        total: if reached && has_more {
-            (page as i64) * (limit as i64) + 1
-        } else {
-            page as i64 * limit as i64
-        },
     })
 }
 
-/// ClawHub 检索：`/api/v1/search` 只给相关性 top-N，没有分页也没有总数。
-/// 相关性结果之外再取一次精确 slug 匹配并置顶，保证按 slug 定位条目时必定命中。
-async fn fetch_clawhub_search_page(
+fn skills_sh_entries(raw_items: &[Value]) -> Vec<CatalogEntry> {
+    raw_items.iter().filter_map(skills_sh_entry).collect()
+}
+
+/// 热门榜：页面数据里 `initialSkills":` 之后紧跟一个 JSON 数组，直接解码，不解析 DOM。
+/// 页面把这段 JSON 放在 JS 字符串里，键名的引号实测带一层反斜杠转义，
+/// 也有不转义的形态，两种都认。
+/// 页面把数组放在 JS 字符串里，引号与反斜杠各多一层转义。做一次单遍还原：
+/// `\"` -> `"`，`\\` -> `\`，其余序列原样留给 JSON 解析器。
+/// 不能用两次 replace 代替：`\\"` 无论先换哪一个都会丢字符。
+fn skills_sh_unescape_js_string(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.next() {
+            Some(next @ ('\\' | '"')) => out.push(next),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
+
+fn skills_sh_trending_entries(page: &str) -> Vec<CatalogEntry> {
+    const ESCAPED_KEY: &str = "initialSkills\\\":";
+    const PLAIN_KEY: &str = "initialSkills\":";
+    let tail = if let Some(start) = page.find(ESCAPED_KEY) {
+        &page[start + ESCAPED_KEY.len()..]
+    } else if let Some(start) = page.find(PLAIN_KEY) {
+        &page[start + PLAIN_KEY.len()..]
+    } else {
+        return Vec::new();
+    };
+    // 交给 serde 的流式解码器：它自己按括号与字符串状态扫到数组结束，
+    // 不会像正则那样贪到数组之外，所以这里不需要手写括号计数。
+    let decoded = skills_sh_unescape_js_string(tail);
+    let mut stream = serde_json::Deserializer::from_str(&decoded).into_iter::<Vec<Value>>();
+    match stream.next() {
+        Some(Ok(items)) => skills_sh_entries(&items),
+        _ => Vec::new(),
+    }
+}
+
+/// skills.sh 的 GET：带 UA 与 Accept，5xx 只重试一次。
+async fn skills_sh_get(state: &AppState, url: &str, accept: &str) -> Result<String, String> {
+    let mut attempt = 0u8;
+    loop {
+        attempt += 1;
+        let resp = state
+            .shared_http_client
+            .get(url)
+            .header("User-Agent", SKILLS_SH_USER_AGENT)
+            .header("Accept", accept)
+            .send()
+            .await
+            .map_err(|err| format!("请求 skills.sh 失败：{err}"))?;
+        let status = resp.status();
+        if status.is_success() {
+            return resp
+                .text()
+                .await
+                .map_err(|err| format!("读取 skills.sh 响应失败：{err}"));
+        }
+        // 5xx 当服务端点冷或暂忙，等一秒再问一次；其余状态码直接报错。
+        if status.is_server_error() && attempt == 1 {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            continue;
+        }
+        return Err(format!("skills.sh 返回 {status}"));
+    }
+}
+
+async fn fetch_skills_sh_page(
+    state: &AppState,
+    query: &str,
+    page: u32,
+) -> Result<CatalogRawPage, String> {
+    // 没有分页参数：页码恒按 1 处理，总数按未知标记。
+    if page > 1 {
+        return Ok(CatalogRawPage {
+            entries: Vec::new(),
+            total: -1,
+        });
+    }
+    // 空查询是浏览态：拉一次首页热门榜，靠磁盘缓存 TTL 挡住重复拉取。
+    // 单字查询在 load_catalog_page 就返回空页了，不会走到这里。
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        let html = skills_sh_get(state, SKILLS_SH_HOME_URL, "text/html").await?;
+        return Ok(CatalogRawPage {
+            entries: skills_sh_trending_entries(&html),
+            total: -1,
+        });
+    }
+    let url = format!(
+        "{SKILLS_SH_SEARCH_URL}?q={}&limit={SKILLS_SH_SEARCH_LIMIT}",
+        urlencoding_encode(query.trim())
+    );
+    let body = skills_sh_get(state, &url, "application/json").await?;
+    let payload = serde_json::from_str::<Value>(&body)
+        .map_err(|err| format!("解析 skills.sh 检索响应失败：{err}"))?;
+    // 只读 skills[]：响应里的 count 是本次实际返回条数，不是总数，不能拿来算分页。
+    let items = payload
+        .get("skills")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(CatalogRawPage {
+        entries: skills_sh_entries(&items),
+        // 没有分页也没有总数；中文查询是模糊匹配兜底到热门榜，质量由服务端决定，这里不做补救。
+        total: -1,
+    })
+}
+
+/// 官方 Registry 的单次游标请求：返回 (过滤后的条目, 下一页游标)。
+/// 只留 `isLatest == true` 且 `status == "active"` 的版本，其余（deprecated / deleted / 旧版本）丢弃。
+async fn fetch_official_registry_page(
     state: &AppState,
     query: &str,
     page_size: u32,
-) -> Result<CatalogRawPage, String> {
-    let limit = page_size.clamp(1, 200);
-    let url = format!(
-        "{CLAWHUB_SEARCH_URL}?q={}&limit={limit}&nonSuspiciousOnly=true",
+    cursor: &str,
+) -> Result<(Vec<CatalogEntry>, String), String> {
+    let mut url = format!(
+        "{OFFICIAL_REGISTRY_URL}?limit={page_size}&search={}",
         urlencoding_encode(query)
     );
-    let payload = fetch_clawhub_json(state, &url).await?;
-    let mut entries = clawhub_entries_from(&payload, clawhub_search_entry);
-
-    let exact_url = format!(
-        "{CLAWHUB_SEARCH_URL}?q={}&limit={limit}&mode=exact&nonSuspiciousOnly=true",
-        urlencoding_encode(query)
-    );
-    if let Ok(payload) = fetch_clawhub_json(state, &exact_url).await {
-        let mut exact = clawhub_entries_from(&payload, clawhub_search_entry);
-        exact.retain(|entry| !entries.iter().any(|hit| hit.id == entry.id));
-        exact.extend(entries);
-        entries = exact;
+    if !cursor.is_empty() {
+        url.push_str(&format!("&cursor={}", urlencoding_encode(cursor)));
     }
-
-    Ok(CatalogRawPage { entries, total: -1 })
+    let resp = state
+        .shared_http_client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|err| format!("请求官方 MCP Registry 失败：{err}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err(format!("请求官方 MCP Registry 失败：{status}"));
+    }
+    let payload = resp
+        .json::<Value>()
+        .await
+        .map_err(|err| format!("解析官方 MCP Registry 响应失败：{err}"))?;
+    let entries = payload
+        .get("servers")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| official_registry_item_is_latest_active(item))
+                .map(official_registry_entry)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let next_cursor = payload
+        .get("metadata")
+        .and_then(|value| value.get("nextCursor"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    Ok((entries, next_cursor))
 }
 
 // ==================== 统一入口 ====================
@@ -689,106 +690,42 @@ async fn fetch_catalog_raw_page(
                 total: json_i64(&data, "TotalCount"),
             })
         }
-        CATALOG_SOURCE_SMITHERY => {
-            let url = format!(
-                "{SMITHERY_LIST_URL}?q={}&page={page}&pageSize={page_size}",
-                urlencoding_encode(query)
-            );
-            let resp = state
-                .shared_http_client
-                .get(&url)
-                .send()
-                .await
-                .map_err(|err| format!("请求 Smithery 失败：{err}"))?;
-            if !resp.status().is_success() {
-                let status = resp.status();
-                return Err(format!("请求 Smithery 失败：{status}"));
-            }
-            let payload = resp
-                .json::<Value>()
-                .await
-                .map_err(|err| format!("解析 Smithery 响应失败：{err}"))?;
-            let entries = payload
-                .get("servers")
-                .and_then(|value| value.as_array())
-                .map(|items| items.iter().map(smithery_entry).collect::<Vec<_>>())
-                .unwrap_or_default();
-            let total = payload
-                .get("pagination")
-                .map(|p| json_i64(p, "totalCount"))
-                .unwrap_or(-1);
-            Ok(CatalogRawPage { entries, total })
-        }
+        CATALOG_SOURCE_SKILLS_SH => fetch_skills_sh_page(state, query, page).await,
         CATALOG_SOURCE_OFFICIAL => {
-            // 官方 Registry 用游标分页：从第 1 页起逐页推进到目标页，末页无游标即终止。
+            // 官方 Registry 按游标分页，也是按版本返回的：一页 30 条过滤掉非 latest 后实测只剩 16 条。
+            // 分页边界必须按「过滤后的条数」切，不能按「原始页」切——按原始页切的话，
+            // 第 2 页会从第 2 个原始页起取，把第 1 页补齐时已经展示过的条目再显示一遍。
+            // 所以这里一路翻游标攒够 page * page_size + 1 条再切片，攒够就停。
+            let need = (page as usize) * (page_size as usize) + 1;
+            let mut collected = Vec::<CatalogEntry>::new();
             let mut cursor = String::new();
-            let mut entries = Vec::<CatalogEntry>::new();
-            let mut has_more = false;
-            let mut reached = false;
-            for current in 1..=page {
-                let mut url = format!(
-                    "{OFFICIAL_REGISTRY_URL}?limit={page_size}&search={}",
-                    urlencoding_encode(query)
-                );
-                if !cursor.is_empty() {
-                    url.push_str(&format!("&cursor={}", urlencoding_encode(&cursor)));
-                }
-                let resp = state
-                    .shared_http_client
-                    .get(&url)
-                    .send()
-                    .await
-                    .map_err(|err| format!("请求官方 MCP Registry 失败：{err}"))?;
-                if !resp.status().is_success() {
-                    let status = resp.status();
-                    return Err(format!("请求官方 MCP Registry 失败：{status}"));
-                }
-                let payload = resp
-                    .json::<Value>()
-                    .await
-                    .map_err(|err| format!("解析官方 MCP Registry 响应失败：{err}"))?;
-                entries = payload
-                    .get("servers")
-                    .and_then(|value| value.as_array())
-                    .map(|items| items.iter().map(official_registry_entry).collect::<Vec<_>>())
-                    .unwrap_or_default();
-                cursor = payload
-                    .get("metadata")
-                    .and_then(|value| value.get("nextCursor"))
-                    .and_then(|value| value.as_str())
-                    .unwrap_or_default()
-                    .to_string();
-                has_more = !cursor.is_empty();
-                if current == page {
-                    reached = true;
-                    break;
-                }
-                // 目标页之前已无更多数据：目标页为空。
-                if entries.is_empty() || !has_more {
-                    entries = Vec::new();
+            let mut requests = 0usize;
+            // 过滤率约 50%，按页线性放宽到 4 倍，避免异常仓库把请求打成风暴。
+            let max_requests = (page as usize).saturating_mul(4).max(2);
+            loop {
+                let (batch, next_cursor) =
+                    fetch_official_registry_page(state, query, page_size, &cursor).await?;
+                collected.extend(batch);
+                cursor = next_cursor;
+                requests += 1;
+                if cursor.is_empty() || collected.len() >= need || requests >= max_requests {
                     break;
                 }
             }
-            if !reached {
-                entries = Vec::new();
-            }
-            Ok(CatalogRawPage {
-                entries,
-                // 官方 Registry 不返回总数，用「已翻页数 + 是否还有下一页」折算，
-                // 保证前端「下一页」按钮只在确有下一页时出现。
-                total: if reached && has_more {
-                    (page as i64) * (page_size as i64) + 1
-                } else {
-                    page as i64 * page_size as i64
-                },
-            })
-        }
-        CATALOG_SOURCE_CLAWHUB => {
-            if query.is_empty() {
-                fetch_clawhub_browse_page(state, page, page_size).await
-            } else {
-                fetch_clawhub_search_page(state, query, page_size).await
-            }
+            let has_more = !cursor.is_empty();
+            let start = ((page - 1) as usize) * (page_size as usize);
+            let mut entries = collected
+                .into_iter()
+                .skip(start)
+                .take(page_size as usize)
+                .collect::<Vec<_>>();
+            // smithery 包装发布的条目（`ai.smithery/...`）排在后面：
+            // 撤掉 smithery 独立源之后，注册中心里这类条目数量很多，不压后会把列表占满。
+            entries.sort_by_key(|entry| entry.id.starts_with("ai.smithery/"));
+            // 官方 Registry 不返回总数，按「本页起点 + 本页条数 + 是否还有下一页」折算，
+            // 保证前端「下一页」按钮只在确有下一页时出现，也不会因为补齐而多出一页空的。
+            let total = start as i64 + entries.len() as i64 + if has_more { 1 } else { 0 };
+            Ok(CatalogRawPage { entries, total })
         }
         other => Err(format!("未知的商店来源：{other}")),
     }
@@ -883,6 +820,13 @@ fn mcp_policy_enabled_map(
     map
 }
 
+/// skills.sh 的单字查询：不发请求、不写缓存，直接给空页。
+/// 首页 93 万字节，用户在搜索框里敲一个删一个会反复触发；而这个源单字命中本来就差，
+/// 不如让界面直接提示至少输入两个字。
+fn catalog_skills_sh_query_too_short(source: &str, query: &str) -> bool {
+    source == CATALOG_SOURCE_SKILLS_SH && query.chars().count() == 1
+}
+
 async fn load_catalog_page(
     state: &AppState,
     input: &CatalogSearchInput,
@@ -904,6 +848,19 @@ async fn load_catalog_page(
     let query = input.query.trim().to_string();
     let page = input.page.max(1);
     let page_size = input.page_size.clamp(1, 100);
+    // skills.sh 的单字查询在碰缓存层之前就返回：既不拉首页，也不为每个单字留一份空缓存文件。
+    if catalog_skills_sh_query_too_short(&source, &query) {
+        return Ok(CatalogPage {
+            kind: catalog_kind_for_source(&source).to_string(),
+            source,
+            page,
+            page_size,
+            total: -1,
+            entries: Vec::new(),
+            from_cache: false,
+            updated_at: String::new(),
+        });
+    }
     let cache_file = catalog_cache_file_name(&source, &query, page, page_size);
 
     let (cache, from_cache) = ensure_remote_catalog_cache(
@@ -928,6 +885,8 @@ async fn load_catalog_page(
         .unwrap_or_default();
     // 安装状态随本地文件变化，必须在读出缓存之后标注，不能写回缓存。
     mark_catalog_install_state(state, &source, &mut entries);
+    // 图标地址登记进白名单：只有本页出现过的地址才允许取图。
+    catalog_remember_icon_addresses(&entries);
     let total = cache
         .payload
         .get("total")

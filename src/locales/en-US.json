@@ -101,6 +101,7 @@
       "toggleFailed": "Failed to toggle enabled state",
       "loadSourcesFailed": "Failed to load sources",
       "searchFailed": "Search failed",
+      "queryTooShort": "Enter at least two characters to search this source",
       "envHint": "Fill in the following environment variables before use",
       "envRequired": "Please fill in: {names}"
     },

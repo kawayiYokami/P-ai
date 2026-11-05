@@ -1586,6 +1586,7 @@ fn main() {
             catalog_list_sources,
             catalog_search,
             catalog_install,
+            catalog_icon_data_url,
             commands::skill_set_enabled,
             commands::skill_remove,
             quick_genai_chat,
