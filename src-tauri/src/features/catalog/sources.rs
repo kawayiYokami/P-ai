@@ -417,7 +417,8 @@ fn skills_sh_entry_id(source: &str, skill_id: &str) -> String {
 fn skills_sh_entry(raw: &Value) -> Option<CatalogEntry> {
     let source = json_str(raw, "source");
     let skill_id = json_str(raw, "skillId");
-    if !skills_sh_source_is_repo(&source) || skill_id.trim().is_empty() {
+    // skillId 含斜杠时 id 会变成四段，安装时 rsplitn(3) 会反解出错的仓库去查别人的仓库树。
+    if !skills_sh_source_is_repo(&source) || skill_id.trim().is_empty() || skill_id.contains('/') {
         return None;
     }
     let owner = source.split('/').next().unwrap_or_default().trim().to_string();
@@ -687,8 +688,9 @@ async fn fetch_catalog_raw_page(
                     reached = true;
                     break;
                 }
-                // 目标页之前已无更多数据：目标页为空。
-                if entries.is_empty() || !has_more {
+                // 判据只能看游标有没有：某页 30 条恰好全是非 latest 版本时，
+                // 过滤后的条数为空不代表没有下一页，按条数判会把目标页整个判空。
+                if !has_more {
                     entries = Vec::new();
                     break;
                 }

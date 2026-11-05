@@ -516,6 +516,57 @@ mod catalog_tests {
     }
 
     #[test]
+    fn skills_sh_pick_paths_should_not_match_a_partial_directory_name() {
+        // `ends_with` 是纯字节后缀比较：少了前导斜杠，`commit` 会命中 `pre-commit`，
+        // 读到的是别人的正文、安装目录却叫 commit，全程不报错。
+        let paths = vec![
+            "skills/pre-commit/SKILL.md".to_string(),
+            "skills/pre-commit/reference.md".to_string(),
+        ];
+        assert!(
+            skills_sh_pick_skill_paths(&paths, "commit").is_err(),
+            "commit 不能命中 pre-commit"
+        );
+        // 完整目录名仍然要命中，取到的是 pre-commit 自己的文件。
+        let (skill_md, dir_prefix, siblings) =
+            skills_sh_pick_skill_paths(&paths, "pre-commit").expect("完整目录名应命中");
+        assert_eq!(skill_md, "skills/pre-commit/SKILL.md");
+        assert_eq!(dir_prefix, "skills/pre-commit/");
+        assert_eq!(siblings, vec!["skills/pre-commit/reference.md".to_string()]);
+    }
+
+    #[test]
+    fn skills_sh_pick_paths_should_support_repo_root_form() {
+        // 仓库根下的 `{skillId}/SKILL.md` 没有前导斜杠可依，必须靠整串相等命中。
+        let paths = vec![
+            "README.md".to_string(),
+            "using-git-worktrees/SKILL.md".to_string(),
+        ];
+        let (skill_md, dir_prefix, _) =
+            skills_sh_pick_skill_paths(&paths, "using-git-worktrees").expect("根目录形态应命中");
+        assert_eq!(skill_md, "using-git-worktrees/SKILL.md");
+        assert_eq!(dir_prefix, "using-git-worktrees/");
+    }
+
+    #[test]
+    fn skills_sh_entry_should_drop_skill_id_with_slash() {
+        // id 由三段拼成，skillId 含斜杠会变四段，安装时反解出错的仓库。
+        let dirty = serde_json::json!({
+            "source": "obra/superpowers",
+            "skillId": "skills/using-git-worktrees",
+            "name": "using-git-worktrees",
+        });
+        assert!(skills_sh_entry(&dirty).is_none(), "含斜杠的 skillId 直接丢掉");
+        let clean = serde_json::json!({
+            "source": "obra/superpowers",
+            "skillId": "using-git-worktrees",
+            "name": "using-git-worktrees",
+        });
+        let entry = skills_sh_entry(&clean).expect("正常条目应保留");
+        assert_eq!(entry.id, "obra/superpowers/using-git-worktrees");
+    }
+
+    #[test]
     fn catalog_icon_cache_should_live_under_app_temp_not_config_dir() {
         let root = std::env::temp_dir().join(format!(
             "eca-catalog-icon-cache-{}",

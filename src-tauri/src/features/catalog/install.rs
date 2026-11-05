@@ -1,8 +1,11 @@
 // 商店安装：把远端条目落到本地工作区。
 // MCP 写入 servers/ + policies/（默认关闭）；Skill 写入 skills/{name}/ 并落盘启用状态（默认关闭）。
 
-/// 慢路径扫 frontmatter 时最多读多少个 SKILL.md：正常仓库十来条，上限挡掉异常大的仓库。
-const SKILLS_SH_FRONTMATTER_SCAN_LIMIT: usize = 24;
+/// 慢路径扫 frontmatter 时每批并发读多少个 SKILL.md。
+const SKILLS_SH_FRONTMATTER_SCAN_BATCH: usize = 24;
+/// 慢路径最多扫多少个 SKILL.md：`mattpocock/skills` 有 39 个，一次截断会让排在后面的技能永远装不上。
+/// 分批命中即停，扫满这个总量才放弃。
+const SKILLS_SH_FRONTMATTER_SCAN_MAX: usize = 192;
 
 fn catalog_entry_local_id(source: &str, entry_id: &str) -> String {
     let raw = format!("{source}-{entry_id}");
@@ -316,9 +319,17 @@ fn skills_sh_pick_skill_paths(
     paths: &[String],
     skill_id: &str,
 ) -> Result<(String, String, Vec<String>), String> {
-    let suffix = format!("{skill_id}/SKILL.md");
-    let Some(skill_md) = paths.iter().find(|path| path.ends_with(&suffix)).cloned() else {
-        return Err(format!("这个仓库里没有 {suffix}"));
+    // 两种形态都要：仓库根下的 `{skillId}/SKILL.md` 与嵌套的 `skills/{skillId}/SKILL.md`。
+    // 嵌套形态必须带前导 `/`：`ends_with` 是纯字节后缀比较，
+    // 少了斜杠会让 `skills/pre-commit/SKILL.md` 命中 `commit`，静默装错技能。
+    let root_form = format!("{skill_id}/SKILL.md");
+    let nested_form = format!("/{skill_id}/SKILL.md");
+    let Some(skill_md) = paths
+        .iter()
+        .find(|path| *path == &root_form || path.ends_with(&nested_form))
+        .cloned()
+    else {
+        return Err(format!("仓库树里没有 {root_form}"));
     };
     let (dir_prefix, siblings) = skills_sh_sibling_paths(paths, &skill_md);
     Ok((skill_md, dir_prefix, siblings))
@@ -379,35 +390,51 @@ async fn github_skill_tree_files(
         })
         .unwrap_or_default();
     // 快路径：目录名恰好等于 skillId（`obra/superpowers` 这类）。
-    let picked = match skills_sh_pick_skill_paths(&paths, skill_id) {
-        Ok(picked) => Some(picked),
+    let (skill_md, dir_prefix, siblings) = match skills_sh_pick_skill_paths(&paths, skill_id) {
+        Ok(picked) => picked,
         // 慢路径：skills.sh 的 skillId 是 SKILL.md 里的 frontmatter name，不等于目录名
         //（`vercel-labs/agent-skills` 的 vercel-react-best-practices 落在 skills/react-best-practices/）。
         // 仓库树里没有路径映射，只能把各 SKILL.md 的 name 读出来比对。
-        Err(_) => skills_sh_find_skill_md_by_name(
-            state,
-            owner,
-            repo,
-            &reference,
-            &paths,
-            skill_id,
-        )
-        .await
-        .map(|skill_md| {
-            let (dir_prefix, siblings) = skills_sh_sibling_paths(&paths, &skill_md);
-            (skill_md, dir_prefix, siblings)
-        }),
-    };
-    let Some((skill_md, dir_prefix, siblings)) = picked else {
-        return Err(format!(
-            "{owner}/{repo}：仓库里没有 name 为「{skill_id}」的 SKILL.md"
-        ));
+        Err(_) => {
+            match skills_sh_find_skill_md_by_name(
+                state,
+                owner,
+                repo,
+                &reference,
+                &paths,
+                skill_id,
+            )
+            .await
+            {
+                Ok(skill_md) => {
+                    let (dir_prefix, siblings) = skills_sh_sibling_paths(&paths, &skill_md);
+                    (skill_md, dir_prefix, siblings)
+                }
+                Err(scanned) => {
+                    let total = paths
+                        .iter()
+                        .filter(|path| path.ends_with("SKILL.md"))
+                        .count();
+                    // 扫满上限时不能说「仓库里没有」——后面还有没扫到的，只是不再扫了。
+                    let truncated = if scanned < total {
+                        format!("，扫描上限为 {SKILLS_SH_FRONTMATTER_SCAN_MAX} 个")
+                    } else {
+                        String::new()
+                    };
+                    return Err(format!(
+                        "{owner}/{repo}：已扫描前 {scanned} 个 SKILL.md（共 {total} 个）{truncated}，未找到 name 为「{skill_id}」的条目"
+                    ));
+                }
+            }
+        }
     };
     Ok((tree_sha, skill_md, dir_prefix, siblings))
 }
 
-/// 慢路径：并发读候选 SKILL.md 的 frontmatter，挑出 name 与 skillId 一致的那一条。
-/// 单个仓库的 SKILL.md 通常十来条，一轮并发读完；上限挡掉异常大的仓库。
+/// 慢路径：分批并发读候选 SKILL.md 的 frontmatter，命中即停。
+/// 返回 `Ok(SKILL.md 路径)`；`Err(已扫描数量)` 表示扫到上限仍未命中。
+/// 单个仓库的 SKILL.md 通常十来条，一批并发就读完；`mattpocock/skills` 这类 39 条的仓库靠分批覆盖，
+/// 不能按原始顺序截断——排在后面的技能会永远装不上。
 async fn skills_sh_find_skill_md_by_name(
     state: &AppState,
     owner: &str,
@@ -415,24 +442,40 @@ async fn skills_sh_find_skill_md_by_name(
     reference: &str,
     paths: &[String],
     skill_id: &str,
-) -> Option<String> {
+) -> Result<String, usize> {
     let candidates = paths
         .iter()
         .filter(|path| path.ends_with("SKILL.md"))
-        .take(SKILLS_SH_FRONTMATTER_SCAN_LIMIT)
-        .map(|path| {
-            let url = format!("https://raw.githubusercontent.com/{owner}/{repo}/{reference}/{path}");
-            async move {
-                let name = fetch_catalog_text(state, &url)
-                    .await
-                    .ok()
-                    .and_then(|content| skills_sh_frontmatter_name(&content));
-                (path.clone(), name)
-            }
-        })
         .collect::<Vec<_>>();
-    let resolved = futures_util::future::join_all(candidates).await;
-    skills_sh_select_by_name(&resolved, skill_id)
+    let mut scanned = 0usize;
+    for batch in candidates.chunks(SKILLS_SH_FRONTMATTER_SCAN_BATCH) {
+        let remaining = SKILLS_SH_FRONTMATTER_SCAN_MAX.saturating_sub(scanned);
+        if remaining == 0 {
+            break;
+        }
+        let batch = &batch[..batch.len().min(remaining)];
+        let requests = batch
+            .iter()
+            .map(|path| {
+                let url =
+                    format!("https://raw.githubusercontent.com/{owner}/{repo}/{reference}/{path}");
+                let path = (*path).clone();
+                async move {
+                    let name = fetch_catalog_text(state, &url)
+                        .await
+                        .ok()
+                        .and_then(|content| skills_sh_frontmatter_name(&content));
+                    (path, name)
+                }
+            })
+            .collect::<Vec<_>>();
+        let resolved = futures_util::future::join_all(requests).await;
+        if let Some(hit) = skills_sh_select_by_name(&resolved, skill_id) {
+            return Ok(hit);
+        }
+        scanned += batch.len();
+    }
+    Err(scanned)
 }
 
 async fn install_skills_sh_skill(
