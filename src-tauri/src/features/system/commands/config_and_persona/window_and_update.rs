@@ -650,6 +650,13 @@ fn stop_removed_remote_im_channel_runtimes(
     });
 }
 
+/// 交回前端的配置：搜索密钥一律打码。加载、保存回传、配置广播都从这里过一遍，
+/// 否则刚从掩码合并出来的明文密钥会顺着保存/emit 穿回前端。
+fn config_for_transport(mut config: AppConfig) -> AppConfig {
+    mask_search_engine_keys(&mut config);
+    config
+}
+
 fn save_config_inner(
     config: AppConfig,
     app: &AppHandle,
@@ -734,8 +741,10 @@ fn save_config_inner(
             .await;
         });
     }
-    let runtime_config = runtime_config_with_private_organization(&state, &main_config, &data)
-        .map_err(|err| format!("配置已保存，但运行时配置刷新失败：{err}"))?;
+    let runtime_config = config_for_transport(
+        runtime_config_with_private_organization(&state, &main_config, &data)
+            .map_err(|err| format!("配置已保存，但运行时配置刷新失败：{err}"))?,
+    );
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     if assistant_workspace_label_synced > 0 {
         emit_unarchived_conversation_overview_updated_from_state(&state)?;

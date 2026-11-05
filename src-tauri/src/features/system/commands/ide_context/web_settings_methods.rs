@@ -33,7 +33,9 @@ async fn ide_chat_test_search_engine_for_web_settings(
     state: &AppState,
     params: Value,
 ) -> Result<Value, String> {
-    let input = ide_chat_parse_params::<TestSearchEngineInput>(params)?;
+    // 前端按 Tauri 习惯发 `{ input: { engineId, apiKey } }`；Web 侧收到的是原样 params，
+    // 所以必须按 input 字段取值，不能当成裸对象解析。
+    let input = ide_chat_parse_param_field::<TestSearchEngineInput>(params, "input")?;
     ide_chat_serialize(
         test_search_engine_connection(state, &input.engine_id, input.api_key).await?,
     )

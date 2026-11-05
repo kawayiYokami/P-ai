@@ -106,6 +106,25 @@ describe("useConfigCore search engines", () => {
     const payload = core.buildConfigPayload() as unknown as { searchMode: { mode: string } };
     expect(payload.searchMode).toEqual({ mode: "auto" });
   });
+
+  it("快照要与保存载荷同形带上搜索字段，否则脏判定永远看不到搜索改动", () => {
+    const config = createConfig();
+    config.searchEngines = [{ id: "exa", enabled: true, apiKey: "sk***ab" }];
+    config.searchMode = { mode: "fixed", engineId: "exa" };
+    const core = useConfigCore({
+      config,
+      textCapableApiConfigs: computed(() => []),
+    });
+
+    const snapshot = JSON.parse(core.buildConfigSnapshotJson()) as AppConfig;
+    expect(snapshot.searchEngines).toEqual([{ id: "exa", enabled: true, apiKey: "sk***ab" }]);
+    expect(snapshot.searchMode).toEqual({ mode: "fixed", engineId: "exa" });
+
+    // configDirty 比的就是两份快照 JSON：改一个搜索字段必须让它变化。
+    const before = core.buildConfigSnapshotJson();
+    config.searchEngines = [{ id: "exa", enabled: false, apiKey: "sk***ab" }];
+    expect(core.buildConfigSnapshotJson()).not.toBe(before);
+  });
 });
 
 describe("useConfigCore api provider displayName", () => {

@@ -101,6 +101,9 @@ impl SearchCallError {
 
 // ==================== 调度状态（会话级内存态，不落盘） ====================
 
+/// 会话级「上次成功引擎」表的容量上限，超过后只保留当前会话的那一条。
+const MAX_TRACKED_SEARCH_SESSIONS: usize = 128;
+
 #[derive(Default)]
 struct SearchEngineScheduler {
     /// 引擎 id → 冷却到期时刻
@@ -161,13 +164,22 @@ impl SearchEngineScheduler {
         SearchEngine::from_id(raw)
     }
 
+    /// 回收已经没用上的记账：冷却到期的丢掉；会话表给一个上限，避免随会话数无限长大。
+    fn prune_stale_state(&mut self, session_key: &str, now: std::time::Instant) {
+        self.cooldown_until.retain(|_, until| *until > now);
+        if self.last_success.len() > MAX_TRACKED_SEARCH_SESSIONS {
+            self.last_success.retain(|key, _| key == session_key);
+        }
+    }
+
     /// 本次调用的尝试顺序：冷却中的剔掉，正在飞的也剔掉；本会话上次成功的排第一；其余随机打散。
     fn plan(
-        &self,
+        &mut self,
         session_key: &str,
         candidates: &[SearchEngine],
         now: std::time::Instant,
     ) -> Vec<SearchEngine> {
+        self.prune_stale_state(session_key, now);
         let not_cooling = candidates
             .iter()
             .copied()
@@ -821,6 +833,10 @@ fn search_payload(engine_id: &str, engine_name: &str, results: Vec<Value>) -> Va
     })
 }
 
+const BING_FALLBACK_FAILED_HEADER: &str = "搜索失败：所有搜索引擎都没能返回结果";
+const BING_FALLBACK_COOLING_HEADER: &str =
+    "搜索失败：可用引擎都在冷却中（限流未到期），Bing 兜底也没有结果";
+
 /// 与「所有引擎都失败」区分开：这次是搜到了东西，但没有一条和查询有关。
 fn bing_irrelevant_results_message(query: &str, dropped: usize) -> String {
     format!("搜索完成，但没有与查询相关的结果（query: {query}，已丢弃 {dropped} 条无关结果）")
@@ -831,9 +847,11 @@ fn bing_market_mismatch_message(query: &str) -> String {
     format!("搜索完成，但没有与查询相关的结果（query: {query}，Bing 返回的是非中文市场页面）")
 }
 
+/// 引擎全部失败时退回 Bing 抓取；`header` 区分「引擎都挂了」与「引擎都在冷却」。
 async fn bing_search_as_fallback(
     state: &AppState,
     query: &str,
+    header: &str,
     mut failures: Vec<String>,
 ) -> Result<Value, String> {
     match builtin_bing_search_fallback(state, query).await {
@@ -874,10 +892,15 @@ async fn bing_search_as_fallback(
         }
         Err(err) => failures.push(format!("Bing: {err}")),
     }
-    Err(format!(
-        "搜索失败：所有搜索引擎都没能返回结果\n- {}",
-        failures.join("\n- ")
-    ))
+    Err(bing_fallback_failure_message(header, &failures))
+}
+
+/// 兜底失败文案：一行标题 + 逐条原因，永远不出现空条目。
+fn bing_fallback_failure_message(header: &str, failures: &[String]) -> String {
+    if failures.is_empty() {
+        return format!("{header}\n- 没有拿到任何失败原因");
+    }
+    format!("{header}\n- {}", failures.join("\n- "))
 }
 
 /// 一次搜索的入口：按配置选择引擎、调度、收口；五个引擎全失败时退回 Bing 抓取。
@@ -913,7 +936,13 @@ async fn builtin_search(
 
     let candidates = active_search_engines(&config);
     if candidates.is_empty() {
-        return bing_search_as_fallback(state, raw_query, Vec::new()).await;
+        return bing_search_as_fallback(
+            state,
+            raw_query,
+            BING_FALLBACK_FAILED_HEADER,
+            vec!["没有已启用的搜索引擎".to_string()],
+        )
+        .await;
     }
     let candidate_engines = candidates
         .iter()
@@ -924,6 +953,20 @@ async fn builtin_search(
     });
 
     let mut failures = Vec::<String>::new();
+    let mut header = BING_FALLBACK_FAILED_HEADER;
+    if ordered.is_empty() {
+        // 候选都在冷却里：Bing 兜底照走，但失败原因要说清是限流，不是这些引擎挂了。
+        let cooling = candidates
+            .iter()
+            .map(|candidate| candidate.engine.display_name())
+            .collect::<Vec<_>>()
+            .join("、");
+        runtime_log_info(format!(
+            "[搜索引擎] 候选引擎都在冷却中，直接走 Bing 兜底：query={raw_query}，冷却中的引擎={cooling}"
+        ));
+        header = BING_FALLBACK_COOLING_HEADER;
+        failures.push(format!("{cooling} 都在冷却中（限流未到期）"));
+    }
     for engine in ordered {
         let Some(candidate) = candidates.iter().find(|candidate| candidate.engine == engine) else {
             continue;
@@ -975,7 +1018,7 @@ async fn builtin_search(
             }
         }
     }
-    bing_search_as_fallback(state, raw_query, failures).await
+    bing_search_as_fallback(state, raw_query, header, failures).await
 }
 
 /// 测试连接：拿一次真实查询打过去，只回报成功/失败原因，不写冷却也不记成功。
@@ -1032,7 +1075,7 @@ mod search_dispatch_tests {
 
     #[test]
     fn scheduler_plan_should_cover_every_candidate_without_history() {
-        let scheduler = SearchEngineScheduler::default();
+        let mut scheduler = SearchEngineScheduler::default();
         let planned = scheduler.plan("session-a", &all_engines(), instant());
         let mut sorted = planned.clone();
         sorted.sort_by_key(|engine| engine.id());
@@ -1403,5 +1446,129 @@ mod search_dispatch_tests {
             !message.contains("所有搜索引擎"),
             "这句话不能被理解成引擎全挂"
         );
+    }
+
+    // ========== 兜底失败文案 ==========
+
+    #[test]
+    fn bing_fallback_failure_message_should_not_leave_empty_lines() {
+        let message = bing_fallback_failure_message(BING_FALLBACK_FAILED_HEADER, &[]);
+        assert!(!message.contains("- \n"), "不要挂空条目：{message}");
+        assert!(!message.trim_end().ends_with('-'));
+        assert!(message.contains("没有拿到任何失败原因"));
+    }
+
+    #[test]
+    fn bing_fallback_failure_message_should_tell_cooling_apart_from_failure() {
+        let cooling = bing_fallback_failure_message(
+            BING_FALLBACK_COOLING_HEADER,
+            &["Exa、Tavily 都在冷却中（限流未到期）".to_string()],
+        );
+        let failed = bing_fallback_failure_message(
+            BING_FALLBACK_FAILED_HEADER,
+            &["Exa: 没有解析出可用结果".to_string()],
+        );
+        assert!(cooling.contains("冷却"), "冷却要说得出来：{cooling}");
+        assert_ne!(
+            cooling.lines().next(),
+            failed.lines().next(),
+            "两种原因不能同一句标题"
+        );
+        for line in cooling.lines().chain(failed.lines()) {
+            assert!(!line.trim().is_empty(), "不该有空白行");
+        }
+    }
+
+    // ========== 记账回收 ==========
+
+    #[test]
+    fn scheduler_plan_should_drop_expired_cooldowns() {
+        let mut scheduler = SearchEngineScheduler::default();
+        let now = instant();
+        scheduler.set_cooldown(SearchEngine::Exa, 30, now);
+        assert_eq!(scheduler.cooldown_until.len(), 1);
+        let later = now + std::time::Duration::from_secs(31);
+        let _ = scheduler.plan("session-a", &all_engines(), later);
+        assert!(
+            scheduler.cooldown_until.is_empty(),
+            "冷却到期后表里不该还留着条目"
+        );
+    }
+
+    #[test]
+    fn scheduler_should_cap_tracked_sessions() {
+        let mut scheduler = SearchEngineScheduler::default();
+        let now = instant();
+        for index in 0..(MAX_TRACKED_SEARCH_SESSIONS + 10) {
+            scheduler.remember_success(&format!("session-{index}"), SearchEngine::Exa);
+        }
+        let _ = scheduler.plan("session-keep", &all_engines(), now);
+        assert!(
+            scheduler.last_success.len() <= MAX_TRACKED_SEARCH_SESSIONS,
+            "会话表要封顶，实际 {}",
+            scheduler.last_success.len()
+        );
+    }
+
+    // ========== 密钥不外泄 ==========
+
+    fn config_with_search_key(key: &str) -> AppConfig {
+        let mut config = AppConfig::default();
+        config.search_engines[0].api_key = Some(key.to_string());
+        config
+    }
+
+    #[test]
+    fn transport_config_should_mask_search_engine_keys() {
+        let config = config_for_transport(config_with_search_key("sk-plaintext-123456"));
+        let key = config.search_engines[0].api_key.clone().unwrap_or_default();
+        assert!(key.contains("***"), "回传前必须打码：{key}");
+        assert!(!key.contains("plaintext"));
+    }
+
+    #[test]
+    fn save_transport_config_should_not_leak_the_key_it_merged_back() {
+        // 复现保存链路：前端带回掩码 → 合并出明文 → 回传前必须打回掩码。
+        let stored = config_with_search_key("sk-plaintext-123456");
+        let mut masked = stored.clone();
+        mask_search_engine_keys(&mut masked);
+        assert!(masked.search_engines[0]
+            .api_key
+            .as_deref()
+            .unwrap_or_default()
+            .contains("***"));
+
+        let mut incoming = masked.clone();
+        merge_masked_search_engine_keys(&stored, &mut incoming);
+        assert_eq!(
+            incoming.search_engines[0].api_key.as_deref(),
+            Some("sk-plaintext-123456"),
+            "合并这一步本来就该拿到明文（要落盘）"
+        );
+
+        let outbound = config_for_transport(incoming);
+        let key = outbound.search_engines[0].api_key.clone().unwrap_or_default();
+        assert!(key.contains("***"), "回传/广播的配置必须打码：{key}");
+    }
+
+    // ========== Web 端参数形状 ==========
+
+    #[test]
+    fn test_search_engine_params_should_accept_input_wrapper() {
+        // 前端走 invokeTauri("test_search_engine", { input: {...} })，Web 侧收到的是原样 params。
+        let params = serde_json::json!({"input": {"engineId": "tavily", "apiKey": "k-1"}});
+        let input = ide_chat_parse_param_field::<TestSearchEngineInput>(params, "input")
+            .expect("带 input 包裹的参数应能解析");
+        assert_eq!(input.engine_id, "tavily");
+        assert_eq!(input.api_key.as_deref(), Some("k-1"));
+    }
+
+    #[test]
+    fn test_search_engine_params_should_accept_bare_fields() {
+        let params = serde_json::json!({"engineId": "exa"});
+        let input = ide_chat_parse_param_field::<TestSearchEngineInput>(params, "input")
+            .expect("裸字段参数也应能解析");
+        assert_eq!(input.engine_id, "exa");
+        assert_eq!(input.api_key, None);
     }
 }

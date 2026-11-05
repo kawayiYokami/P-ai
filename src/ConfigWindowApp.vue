@@ -400,6 +400,7 @@ type ConfigTab =
   | "welcome"
   | "hotkey"
   | "api"
+  | "searchEngines"
   | "mcp"
   | "skill"
   | "catalog"
