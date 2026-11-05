@@ -103,15 +103,8 @@ export type SearchConfigFields = {
   mode: SearchMode | undefined;
 };
 
-/**
- * 从 lastSavedConfigJson 里取脏判定基准。
- * 快照里没有 searchEngines 字段时（首次打开、老快照、解析失败）用当前值当基准——
- * 否则会拿「恒为 5 条」的当前值跟空列表比，一进页面就是脏的。
- */
-export function resolveSavedSearchConfig(
-  lastSavedConfigJson: string,
-  current: SearchConfigFields,
-): SearchConfigFields {
+/** 解析保存快照里的搜索字段；快照缺字段或解析失败返回 null。 */
+export function parseSavedSearchConfig(lastSavedConfigJson: string): SearchConfigFields | null {
   let parsed: Partial<AppConfig> | null = null;
   try {
     const value = JSON.parse(String(lastSavedConfigJson || "{}")) as Partial<AppConfig>;
@@ -120,7 +113,35 @@ export function resolveSavedSearchConfig(
     parsed = null;
   }
   if (!parsed || !Array.isArray(parsed.searchEngines)) {
-    return { engines: current.engines, mode: current.mode };
+    return null;
   }
   return { engines: parsed.searchEngines, mode: parsed.searchMode };
+}
+
+/** 浅拷贝一份配置字段：基准不能和当前指向同一份对象，否则原地编辑两边一起变。 */
+export function cloneSearchFields(fields: SearchConfigFields): SearchConfigFields {
+  return {
+    engines: (fields.engines ?? []).map((entry) => ({ ...entry })),
+    mode: fields.mode ? { ...fields.mode } : undefined,
+  };
+}
+
+/**
+ * 脏判定基准的解析器。
+ * 优先用保存快照；快照缺搜索字段时（首次打开、老快照、坏 JSON）取「第一次读到的当前值」
+ * 并浅拷贝冻结，之后原地编辑只改当前值、不再改基准。
+ */
+export function createSearchBaselineResolver() {
+  let frozenBaseline: SearchConfigFields | null = null;
+  return (lastSavedConfigJson: string, current: SearchConfigFields): SearchConfigFields => {
+    const parsed = parseSavedSearchConfig(lastSavedConfigJson);
+    if (parsed) {
+      frozenBaseline = null;
+      return parsed;
+    }
+    if (!frozenBaseline) {
+      frozenBaseline = cloneSearchFields(current);
+    }
+    return frozenBaseline;
+  };
 }

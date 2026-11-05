@@ -122,9 +122,9 @@ import SegmentedControl from "../../components/SegmentedControl.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import {
   SEARCH_ENGINE_META,
+  createSearchBaselineResolver,
   isSearchConfigDirty,
   lockableSearchEngines,
-  resolveSavedSearchConfig,
 } from "./search-engine-model";
 
 const props = defineProps<{
@@ -241,9 +241,14 @@ function toErrorMessage(error: unknown): string {
 
 // ==================== 脏判定与草稿还原（对 header 的保存按钮负责） ====================
 
-/** 基准快照：快照里没有 searchEngines 字段时用当前值当基准，别一进页面就是脏的。 */
+/**
+ * 基准解析器：快照里没有 searchEngines 字段时（首次打开、老快照、坏 JSON）取面板第一次
+ * 读到的值并冻结，原地编辑不会再改基准，所以「打开不脏 → 改了才脏」两头都成立。
+ */
+const resolveSearchBaseline = createSearchBaselineResolver();
+
 const savedSearchConfig = computed(() =>
-  resolveSavedSearchConfig(props.lastSavedConfigJson, {
+  resolveSearchBaseline(props.lastSavedConfigJson, {
     engines: props.config.searchEngines,
     mode: props.config.searchMode,
   }),
