@@ -447,7 +447,7 @@ function setReasoningItemStuck(key: string, stuck: boolean): void {
   emit("reasoningStuckChange", { key, stuck });
 }
 
-const stickySentinelCleanups = new Map<string, () => void>();
+const stickyObserverMap = new Map<string, IntersectionObserver>();
 
 function findScrollContainer(element: HTMLElement | null): HTMLElement | null {
   if (!element) return null;
@@ -455,10 +455,10 @@ function findScrollContainer(element: HTMLElement | null): HTMLElement | null {
 }
 
 function bindStickySentinel(key: string, el: HTMLElement | null): void {
-  const existing = stickySentinelCleanups.get(key);
-  if (existing) {
-    existing();
-    stickySentinelCleanups.delete(key);
+  const existingObserver = stickyObserverMap.get(key);
+  if (existingObserver) {
+    existingObserver.disconnect();
+    stickyObserverMap.delete(key);
   }
   if (!el) {
     setReasoningItemStuck(key, false);
@@ -471,35 +471,23 @@ function bindStickySentinel(key: string, el: HTMLElement | null): void {
     return;
   }
 
-  let frame = 0;
-  const update = () => {
-    frame = 0;
-    const header = el.nextElementSibling instanceof HTMLElement ? el.nextElementSibling : null;
-    if (!header) {
-      setReasoningItemStuck(key, false);
-      return;
-    }
-    const stickyTop = Number.parseFloat(window.getComputedStyle(header).top);
-    const pinTop = scrollRoot.getBoundingClientRect().top + (Number.isFinite(stickyTop) ? stickyTop : 0);
-    const headerTop = header.getBoundingClientRect().top;
-    const sentinelTop = el.getBoundingClientRect().top;
-    // 哨兵滑到标题行上方，且标题行停在吸顶线上，才算贴顶。
-    const stuck = sentinelTop < headerTop - 1 && Math.abs(headerTop - pinTop) <= 3;
-    setReasoningItemStuck(key, stuck);
-  };
-  const schedule = () => {
-    if (frame) return;
-    frame = window.requestAnimationFrame(update);
-  };
+  // 使用 IntersectionObserver 监听吸顶哨兵，彻底杜绝滚动事件循环内的强制同步布局重排（getComputedStyle 与 getBoundingClientRect）
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        const rootTop = entry.rootBounds ? entry.rootBounds.top : 0;
+        const stuck = !entry.isIntersecting && entry.boundingClientRect.bottom <= rootTop + 4;
+        setReasoningItemStuck(key, stuck);
+      }
+    },
+    {
+      root: scrollRoot,
+      threshold: [0, 1],
+    },
+  );
 
-  scrollRoot.addEventListener("scroll", schedule, { passive: true });
-  window.addEventListener("resize", schedule);
-  schedule();
-  stickySentinelCleanups.set(key, () => {
-    scrollRoot.removeEventListener("scroll", schedule);
-    window.removeEventListener("resize", schedule);
-    if (frame) window.cancelAnimationFrame(frame);
-  });
+  observer.observe(el);
+  stickyObserverMap.set(key, observer);
 }
 
 // ==================== 点击与展开入口 ====================
@@ -840,8 +828,8 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
 
 onBeforeUnmount(() => {
   // 卸载时把监听与吸顶状态一并收回，避免滚动区里留下悬空回调
-  stickySentinelCleanups.forEach((cleanup) => cleanup());
-  stickySentinelCleanups.clear();
+  stickyObserverMap.forEach((observer) => observer.disconnect());
+  stickyObserverMap.clear();
   for (const key of reasoningItemStuckKeys.value) {
     emit("reasoningStuckChange", { key, stuck: false });
   }
