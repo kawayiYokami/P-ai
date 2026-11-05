@@ -545,9 +545,10 @@ async fn fetch_skills_sh_page(
             total: -1,
         });
     }
-    // 查询词短于两个字符时只拉首页热门榜，不做过滤：
-    // 这一份要落进同一个缓存键给所有短查询复用，过滤统一在 load_catalog_page 读完缓存之后做。
-    if query.trim().chars().count() < 2 {
+    // 空查询是浏览态：拉一次首页热门榜，靠磁盘缓存 TTL 挡住重复拉取。
+    // 单字查询在 load_catalog_page 就返回空页了，不会走到这里。
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
         let html = skills_sh_get(state, SKILLS_SH_HOME_URL, "text/html").await?;
         return Ok(CatalogRawPage {
             entries: skills_sh_trending_entries(&html),
@@ -802,14 +803,11 @@ fn mcp_policy_enabled_map(
     map
 }
 
-/// skills.sh 短查询的缓存 query：含空查询在内统一归一成空串。
-/// 它们在同一个首页热门榜上过滤，键不归一就会一个字符一份缓存、重拉一次首页。
-fn catalog_cache_query(source: &str, query: &str) -> String {
-    if source == CATALOG_SOURCE_SKILLS_SH && query.chars().count() < 2 {
-        String::new()
-    } else {
-        query.to_string()
-    }
+/// skills.sh 的单字查询：不发请求、不写缓存，直接给空页。
+/// 首页 93 万字节，用户在搜索框里敲一个删一个会反复触发；而这个源单字命中本来就差，
+/// 不如让界面直接提示至少输入两个字。
+fn catalog_skills_sh_query_too_short(source: &str, query: &str) -> bool {
+    source == CATALOG_SOURCE_SKILLS_SH && query.chars().count() == 1
 }
 
 async fn load_catalog_page(
@@ -833,11 +831,20 @@ async fn load_catalog_page(
     let query = input.query.trim().to_string();
     let page = input.page.max(1);
     let page_size = input.page_size.clamp(1, 100);
-    // skills.sh 的短查询都落在首页热门榜上，缓存键把 query 归一成空串，
-    // 否则用户每敲一个字就新开一个键、重拉一次首页、再各写一份 json。
-    // 缓存里存的是未过滤的全集，过滤在读完缓存之后做。
-    let cache_query = catalog_cache_query(&source, &query);
-    let cache_file = catalog_cache_file_name(&source, &cache_query, page, page_size);
+    // skills.sh 的单字查询在碰缓存层之前就返回：既不拉首页，也不为每个单字留一份空缓存文件。
+    if catalog_skills_sh_query_too_short(&source, &query) {
+        return Ok(CatalogPage {
+            kind: catalog_kind_for_source(&source).to_string(),
+            source,
+            page,
+            page_size,
+            total: -1,
+            entries: Vec::new(),
+            from_cache: false,
+            updated_at: String::new(),
+        });
+    }
+    let cache_file = catalog_cache_file_name(&source, &query, page, page_size);
 
     let (cache, from_cache) = ensure_remote_catalog_cache(
         state,
@@ -845,8 +852,7 @@ async fn load_catalog_page(
         CATALOG_CACHE_MAX_AGE_MS,
         "能力商店",
         || async {
-            let raw =
-                fetch_catalog_raw_page(state, &source, &cache_query, page, page_size).await?;
+            let raw = fetch_catalog_raw_page(state, &source, &query, page, page_size).await?;
             Ok(serde_json::json!({
                 "entries": raw.entries,
                 "total": raw.total,
@@ -860,11 +866,6 @@ async fn load_catalog_page(
         .get("entries")
         .and_then(|value| serde_json::from_value::<Vec<CatalogEntry>>(value.clone()).ok())
         .unwrap_or_default();
-    // 短查询共用热门榜那份缓存，过滤在这里补回来：缓存里存的是未过滤的全集。
-    if cache_query.is_empty() && !query.is_empty() {
-        let keyword = query.to_lowercase();
-        entries.retain(|entry| entry.name.to_lowercase().contains(&keyword));
-    }
     // 安装状态随本地文件变化，必须在读出缓存之后标注，不能写回缓存。
     mark_catalog_install_state(state, &source, &mut entries);
     // 图标地址登记进白名单：只有本页出现过的地址才允许取图。

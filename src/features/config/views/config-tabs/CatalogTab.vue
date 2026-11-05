@@ -431,6 +431,10 @@ import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue"
 const { t } = useI18n();
 
 const PAGE_SIZE = 30;
+
+// 与后端 CATALOG_SOURCE_SKILLS_SH（types.rs）是同一条契约：该源的单字查询后端直接返回空页、不写缓存，
+// 这里提前拦一次是为了给出「至少两个字」的提示并避免白跑一趟调用。改任一侧的源 id 都要同步另一侧。
+const SKILLS_SH_SOURCE_ID = "skills-sh";
 // MCP 卡工具清单最多平铺几个，其余折算为 +N。
 const TOOL_PREVIEW_LIMIT = 6;
 
@@ -620,11 +624,22 @@ async function reload() {
     await loadSources();
     if (!sourceId.value) return;
   }
+  const trimmedQuery = query.value.trim();
+  // 单字查询对 skills.sh 没有语义收益（该源靠模糊匹配兜底），后端按空页处理；
+  // 空查询不在此列——打开能力商店时它是浏览态，照常拉热门榜。
+  if (sourceId.value === SKILLS_SH_SOURCE_ID && Array.from(trimmedQuery).length === 1) {
+    entries.value = [];
+    total.value = -1;
+    fromCache.value = false;
+    updatedAt.value = "";
+    setStatus(t("config.catalog.queryTooShort"));
+    return;
+  }
   loading.value = true;
   try {
     const result = await searchTransportCatalog({
       source: sourceId.value,
-      query: query.value.trim(),
+      query: trimmedQuery,
       page: page.value,
       pageSize: PAGE_SIZE,
     });

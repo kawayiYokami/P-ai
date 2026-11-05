@@ -119,6 +119,7 @@
       "toggleFailed": "切換啟用狀態失敗",
       "loadSourcesFailed": "載入來源失敗",
       "searchFailed": "檢索失敗",
+      "queryTooShort": "該來源至少輸入兩個字才能檢索",
       "envHint": "該條目需要填寫以下環境變數後才能使用",
       "envRequired": "請填寫：{names}"
     },

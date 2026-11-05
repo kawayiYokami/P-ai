@@ -119,6 +119,7 @@
       "toggleFailed": "切换启用状态失败",
       "loadSourcesFailed": "加载来源失败",
       "searchFailed": "检索失败",
+      "queryTooShort": "该来源至少输入两个字才能检索",
       "envHint": "该条目需要填写以下环境变量后才能使用",
       "envRequired": "请填写：{names}"
     },

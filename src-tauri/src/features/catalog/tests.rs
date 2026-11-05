@@ -852,32 +852,25 @@ mod catalog_tests {
     }
 
     #[test]
-    fn skills_sh_short_queries_should_share_one_cache_key() {
-        // 短查询共用首页那一份缓存：键必须归一，否则每敲一个字就重拉一次 934KB 首页。
-        assert_eq!(catalog_cache_query(CATALOG_SOURCE_SKILLS_SH, ""), "");
-        assert_eq!(catalog_cache_query(CATALOG_SOURCE_SKILLS_SH, "r"), "");
-        assert_eq!(
-            catalog_cache_file_name(
-                CATALOG_SOURCE_SKILLS_SH,
-                &catalog_cache_query(CATALOG_SOURCE_SKILLS_SH, "r"),
-                1,
-                30
-            ),
-            catalog_cache_file_name(
-                CATALOG_SOURCE_SKILLS_SH,
-                &catalog_cache_query(CATALOG_SOURCE_SKILLS_SH, ""),
-                1,
-                30
-            ),
-            "空查询与单字查询要落到同一个缓存文件"
-        );
-        // 两字符以上走检索接口，各自一份缓存，不能被归一掉。
-        assert_eq!(catalog_cache_query(CATALOG_SOURCE_SKILLS_SH, "re"), "re");
+    fn skills_sh_single_char_query_should_be_rejected_without_request() {
+        // 单字查询不发请求也不写缓存：首页 93 万字节，敲一个删一个会反复触发。
+        assert!(catalog_skills_sh_query_too_short(CATALOG_SOURCE_SKILLS_SH, "r"));
+        assert!(catalog_skills_sh_query_too_short(CATALOG_SOURCE_SKILLS_SH, "记"));
+        // 空查询是浏览态，必须放行去拉热门榜。
+        assert!(!catalog_skills_sh_query_too_short(
+            CATALOG_SOURCE_SKILLS_SH,
+            ""
+        ));
+        // 两字符起走检索接口。
+        assert!(!catalog_skills_sh_query_too_short(
+            CATALOG_SOURCE_SKILLS_SH,
+            "re"
+        ));
         // 别的来源行为不动。
-        assert_eq!(
-            catalog_cache_query(CATALOG_SOURCE_MODELSCOPE_SKILL, "r"),
+        assert!(!catalog_skills_sh_query_too_short(
+            CATALOG_SOURCE_MODELSCOPE_SKILL,
             "r"
-        );
+        ));
     }
 
     #[test]
