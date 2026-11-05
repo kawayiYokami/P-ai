@@ -9,6 +9,8 @@ export type PanelTabStripItem = {
   statusDotClass?: string;
   /** 状态圆点的提示文案（含证据原文），悬停可见 */
   statusTitle?: string;
+  /** 会话正在跑：标签右侧挂一个转圈，标题再长也不挤它 */
+  busy?: boolean;
   iconSrc?: string;
   icon?: Component;
   closeable?: boolean;

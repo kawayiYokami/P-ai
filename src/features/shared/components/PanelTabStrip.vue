@@ -42,7 +42,9 @@
               fileVariant && tab.key === activeKey ? 'text-base-content' : '',
               fileVariant && tab.key !== activeKey ? 'text-base-content/65 hover:text-base-content' : '',
               !fileVariant && (tab.iconSrc || tab.icon) ? 'gap-1.5' : '',
-              !fileVariant ? (shouldReserveCloseSpace(tab) ? 'justify-start pr-8' : 'justify-center') : '',
+              // 一律左对齐：图标与标题贴左，右侧那段空位留给运行态转圈，
+              // 居中会让标题随文字长短左右漂，同一排的几个 tab 也对不齐
+              !fileVariant ? (shouldReserveCloseSpace(tab) ? 'justify-start pr-8' : 'justify-start') : '',
             ]"
             :aria-selected="tab.key === activeKey"
             @click.stop="selectTab(tab)"
@@ -99,6 +101,12 @@
               class="badge badge-xs shrink-0 border-base-300 bg-base-100"
             >{{ tab.badge }}</span>
             <span class="min-w-0 overflow-hidden whitespace-nowrap font-medium" :class="fileVariant ? 'file-tab-label-fade ecall-fade-right' : 'truncate'">{{ tab.label }}</span>
+            <!-- 忙碌态：他在跑就把圈转起来。靠标签端部固定一格，标题再长也只截标题，不挤这一格 -->
+            <span
+              v-if="!fileVariant && tab.busy"
+              class="loading loading-spinner loading-xs ml-auto shrink-0 text-base-content/60"
+              aria-hidden="true"
+            />
           </button>
           <button
             v-if="!fileVariant && tab.closeable && shouldShowCloseButton(tab)"

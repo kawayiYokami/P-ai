@@ -711,10 +711,20 @@ export function useChatWindowApp() {
     const parent = unarchivedConversations.value
       .find((item) => String(item?.conversationId || "").trim() === parentId);
     const closingIds = new Set(closingSideConversationIds.value);
+    const liveRuntimeMap = sideConversationRuntimeMap.value;
     return (Array.isArray(parent?.childConversations) ? parent.childConversations : [])
       .filter((item) => {
         const conversationId = String(item?.conversationId || "").trim();
         return conversationId && !closingIds.has(conversationId);
+      })
+      // 子会话的运行态由 runtimeStateUpdated 事件实时维护在 sideConversationRuntimeMap 里，
+      // 概览摘要里那份是拉取那一刻的快照。不在这里盖回实时值，侧栏标签与磁贴的忙碌圈
+      // 就永远停在打开侧栏那一瞬。
+      .map((item) => {
+        const conversationId = String(item?.conversationId || "").trim();
+        const liveRuntimeState = String(liveRuntimeMap[conversationId] || "").trim();
+        if (!liveRuntimeState || liveRuntimeState === item.runtimeState) return item;
+        return { ...item, runtimeState: liveRuntimeState };
       });
   });
   let observedSideConversationParentId = "";
