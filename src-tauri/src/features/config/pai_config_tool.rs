@@ -397,7 +397,9 @@ struct LayoutEntry {
 }
 
 /// 目录地图的唯一来源，须与 `docs/data-schema-v2.md` 的「布局总表」保持一致。
-/// 顺序按顶层目录聚拢，便于渲染成分组结构。
+/// 只列「改配置要看/要改」的东西：运行时产物目录（avatars、media、exports、auth、indexes、
+/// remote-im、web-access、temp、tool-review-reports、delegate-conversations）一律不列，
+/// 它们跟改配置无关，列出来只会把地图冲淡。
 const LAYOUT: &[LayoutEntry] = &[
     LayoutEntry {
         path: "config/app_config.toml",
@@ -409,19 +411,11 @@ const LAYOUT: &[LayoutEntry] = &[
     },
     LayoutEntry {
         path: "config/llm-workspace/",
-        desc: "skills / MCP / tool-output 的实际落点（绑定 config_dir，不随 app_root 上提）。",
-    },
-    LayoutEntry {
-        path: "llm-workspace/downloads/",
-        desc: "下载落点，相对 app_root。",
+        desc: "未配置系统工作区时的默认工作区根；配了 shellWorkspaces 的 system 项就改用那一项。",
     },
     LayoutEntry {
         path: "state/state.sqlite",
         desc: "全局状态总库：窗口布局、缓存、远程 IM 联系人等。",
-    },
-    LayoutEntry {
-        path: "state/runtime_state.json",
-        desc: "旧版全局状态 JSON，仅在数据迁移时读取，不再写入。",
     },
     LayoutEntry {
         path: "chat/chat_metadata.sqlite",
@@ -447,46 +441,6 @@ const LAYOUT: &[LayoutEntry] = &[
         path: "delegate/delegate_store.db",
         desc: "委托库。",
     },
-    LayoutEntry {
-        path: "avatars/",
-        desc: "人格头像（webp）。",
-    },
-    LayoutEntry {
-        path: "media/",
-        desc: "媒体文件（<sha256>.<ext>）。",
-    },
-    LayoutEntry {
-        path: "exports/",
-        desc: "导出产物。",
-    },
-    LayoutEntry {
-        path: "auth/",
-        desc: "Codex / Grok 等认证落点。",
-    },
-    LayoutEntry {
-        path: "indexes/",
-        desc: "聊天历史检索索引。",
-    },
-    LayoutEntry {
-        path: "remote-im/",
-        desc: "远程 IM 频道状态。",
-    },
-    LayoutEntry {
-        path: "web-access/",
-        desc: "Web 访问桥接令牌。",
-    },
-    LayoutEntry {
-        path: "temp/",
-        desc: "临时产物。",
-    },
-    LayoutEntry {
-        path: "tool-review-reports/",
-        desc: "工具审查报告。",
-    },
-    LayoutEntry {
-        path: "delegate-conversations/",
-        desc: "委托会话存储。",
-    },
 ];
 
 fn handle_help(ctx: &CliContext, args: &[String]) -> Result<(), String> {
@@ -506,9 +460,16 @@ fn handle_help(ctx: &CliContext, args: &[String]) -> Result<(), String> {
 fn render_directory_map(ctx: &CliContext) -> String {
     let app_root = ctx.app_root();
     let config_dir = ctx.config_dir();
+    let workspace_root = effective_workspace_root(ctx);
     let mut out = String::new();
     out.push_str(&format!("app_root:   {}\n", app_root.display()));
-    out.push_str(&format!("config_dir: {}\n\n", config_dir.display()));
+    out.push_str(&format!("config_dir: {}\n", config_dir.display()));
+    // skills / MCP 的落点由工作区根决定，不是固定挂在 config_dir 下：配了 shellWorkspaces 的
+    // system 项就会整体搬到那一项指向的目录，照 config_dir 去找会扑空。
+    out.push_str(&format!(
+        "workspace_root: {}    （skills 与 MCP 的实际落点，取自 shellWorkspaces 里 level = \"system\" 那一项；没有配置时才是 config_dir/llm-workspace）\n\n",
+        workspace_root.display()
+    ));
 
     let mut current_group = String::new();
     for entry in LAYOUT {
@@ -533,6 +494,11 @@ fn render_directory_map(ctx: &CliContext) -> String {
         }
     }
 
+    out.push_str("\nllm-workspace/downloads/（相对 app_root）是下载落点，与 config/llm-workspace/ 同名不同位：\n");
+    out.push_str("前者存下载下来的文件，后者是工作区根。\n");
+    out.push_str("其余目录（state/runtime_state.json、avatars/ media/ exports/ auth/ indexes/ remote-im/\n");
+    out.push_str("web-access/ temp/ tool-review-reports/ delegate-conversations/）是运行时产物，与改配置无关，\n");
+    out.push_str("不在地图里，完整清单见 docs/data-schema-v2.md。\n");
     out.push_str("\n核心文件：config/app_config.toml、config/agents.json\n");
     out.push_str(
         "改法：直接编辑上面的文件，改完 config \"check\" 校验，再 config \"reload\" 让运行中的应用重新加载内存态。\n",
@@ -641,9 +607,9 @@ const APP_FIELDS: &[FieldSpec] = &[
     FieldSpec { name: "messageNotificationSoundEnabled", ty: "boolean", required: false, desc: "消息通知声音开关。" },
     FieldSpec { name: "desktopOperationNoticeEnabled", ty: "boolean", required: false, desc: "桌面操作提示开关。" },
     FieldSpec { name: "desktopOperateEnabled", ty: "boolean", required: false, desc: "桌面操作能力开关。" },
-    FieldSpec { name: "selectedApiConfigId", ty: "string", required: false, desc: "默认对话模型 id。" },
-    FieldSpec { name: "expertApiConfigId", ty: "string", required: false, desc: "专家模型 id（旧键 chatApiConfigId）。" },
-    FieldSpec { name: "visionApiConfigId", ty: "string | null", required: false, desc: "视觉模型 id。" },
+    FieldSpec { name: "selectedApiConfigId", ty: "string", required: false, desc: "默认对话模型 id（取自 apiConfigs 的 id）。" },
+    FieldSpec { name: "expertApiConfigId", ty: "string", required: false, desc: "专家模型 id（旧键 chatApiConfigId，取自 apiConfigs 的 id）。" },
+    FieldSpec { name: "visionApiConfigId", ty: "string | null", required: false, desc: "视觉模型 id（取自 apiConfigs 的 id），null 表示不配。" },
     FieldSpec { name: "toolReviewApiConfigId", ty: "string | null", required: false, desc: "工具审查模型 id。" },
     FieldSpec { name: "sttApiConfigId", ty: "string | null", required: false, desc: "语音转写模型 id。" },
     FieldSpec { name: "imageGenerationModelId", ty: "string | null", required: false, desc: "图像生成模型 id。" },
@@ -653,36 +619,83 @@ const APP_FIELDS: &[FieldSpec] = &[
     FieldSpec { name: "simpleSetupMode", ty: "boolean", required: false, desc: "是否精简设置模式。" },
     FieldSpec { name: "searchMode", ty: "table", required: false, desc: "搜索调度模式，写成 [searchMode] 表，其中 mode = \"auto\" 或 \"fixed\"；fixed 时还要给 engineId。" },
     FieldSpec { name: "shellWorkspaces", ty: "array<table>", required: false, desc: "工作区列表，元素：name / path / level。" },
-    FieldSpec { name: "mcpServers", ty: "array<table>", required: false, desc: "MCP 服务列表。" },
+    FieldSpec { name: "mcpServers", ty: "array<table>", required: false, desc: "旧版内嵌 MCP 列表，运行时不读它；MCP 定义只认工作区 mcp/servers/<id>.json，见 help -mcp。" },
     FieldSpec { name: "remoteImChannels", ty: "array<table>", required: false, desc: "远程 IM 渠道列表。" },
     FieldSpec { name: "searchEngines", ty: "array<table>", required: false, desc: "搜索引擎列表。" },
     FieldSpec { name: "providerNonStreamBaseUrls", ty: "array<string>", required: false, desc: "走非流式接口的 base URL 名单。" },
-    FieldSpec { name: "apiProviders", ty: "array<table>", required: false, desc: "模型供应商及其模型列表。" },
+    FieldSpec { name: "apiProviders", ty: "array<table>", required: false, desc: "模型供应商及其模型列表——真身，加/改模型改这里，结构见下。" },
     FieldSpec { name: "imageProviders", ty: "array<table>", required: false, desc: "图像供应商列表。" },
-    FieldSpec { name: "apiConfigs", ty: "array<table>", required: false, desc: "模型配置列表。" },
+    FieldSpec { name: "apiConfigs", ty: "array<table>", required: false, desc: "派生数据：由 apiProviders 展开，读取时会被重算覆盖，手改无效。" },
 ];
 
 const AGENT_FIELDS: &[FieldSpec] = &[
-    FieldSpec { name: "id", ty: "string", required: true, desc: "人格 id，同名互斥。" },
+    FieldSpec { name: "id", ty: "string", required: true, desc: "人格 id，全局唯一；重复即冲突（不是按 name 判重）。" },
     FieldSpec { name: "name", ty: "string", required: true, desc: "显示名。" },
     FieldSpec { name: "systemPrompt", ty: "string", required: true, desc: "系统提示词。" },
     FieldSpec { name: "tools", ty: "array<table>", required: false, desc: "人格自带工具，元素：id / command / args / enabled / values。" },
-    FieldSpec { name: "createdAt", ty: "string", required: false, desc: "创建时间（RFC3339）。" },
-    FieldSpec { name: "updatedAt", ty: "string", required: false, desc: "更新时间（RFC3339）。" },
-    FieldSpec { name: "avatarPath", ty: "string | null", required: false, desc: "头像路径，相对 app_root（如 avatars/<id>.webp）。" },
-    FieldSpec { name: "avatarUpdatedAt", ty: "string | null", required: false, desc: "头像更新时间。" },
     FieldSpec { name: "isBuiltInUser", ty: "boolean", required: false, desc: "是否内置用户人格。" },
     FieldSpec { name: "isBuiltInSystem", ty: "boolean", required: false, desc: "是否内置系统人格。" },
     FieldSpec { name: "privateMemoryEnabled", ty: "boolean", required: false, desc: "是否启用私有记忆。" },
-    FieldSpec { name: "memoryRecallMode", ty: "string", required: false, desc: "记忆召回模式。" },
-    FieldSpec { name: "scope", ty: "string", required: false, desc: "可见范围。" },
+    FieldSpec { name: "memoryRecallMode", ty: "string", required: false, desc: "记忆召回模式：auto（默认）/ manual（只在被要求时召回）/ off（不召回）。其它值按 auto 处理。" },
+    FieldSpec { name: "scope", ty: "string", required: false, desc: "可见范围，默认 global。" },
     FieldSpec { name: "summary", ty: "string", required: false, desc: "人格简介。" },
     FieldSpec { name: "residentSkillNames", ty: "array<string>", required: false, desc: "常驻技能：全文注入系统提示词。" },
     FieldSpec { name: "optionalSkillNames", ty: "array<string>", required: false, desc: "可选技能：只注入名字。" },
     FieldSpec { name: "apiConfigIds", ty: "array<string>", required: false, desc: "备选模型 id 列表。" },
     FieldSpec { name: "apiConfigId", ty: "string", required: false, desc: "主模型 id。" },
-    FieldSpec { name: "permissionControl", ty: "object | null", required: false, desc: "人格权限：工具 / 技能 / MCP 可见性。" },
+    FieldSpec { name: "permissionControl", ty: "object | null", required: false, desc: "人格权限：工具 / 技能 / MCP 可见性，结构见下；null 表示不限制。" },
     FieldSpec { name: "childAgentIds", ty: "array<string>", required: false, desc: "下级人格 id：组织树父子边，语义为可直接委托。" },
+    // 以下四项是元数据，渲染时单独归纳成一行，不占字段表篇幅；保留在清单里是为了让
+    // `topic_field_lists_match_structs` 继续钉住「清单 = AgentProfile 序列化字段集合」。
+    FieldSpec { name: "createdAt", ty: "string", required: false, desc: "创建时间，应用维护。" },
+    FieldSpec { name: "updatedAt", ty: "string", required: false, desc: "更新时间，应用维护。" },
+    FieldSpec { name: "avatarPath", ty: "string", required: false, desc: "头像文件路径，应用维护。" },
+    FieldSpec { name: "avatarUpdatedAt", ty: "string", required: false, desc: "头像更新时间，应用维护。" },
+];
+
+/// 只由应用写入、改人格时基本不碰的字段，渲染时归纳成一行。
+const AGENT_METADATA_FIELDS: &[&str] = &["createdAt", "updatedAt", "avatarPath", "avatarUpdatedAt"];
+
+/// `permissionControl` 的内部结构。它管工具 / 技能 / MCP 可见性，是实质配置，不能只写 `object | null`。
+const PERMISSION_CONTROL_FIELDS: &[FieldSpec] = &[
+    FieldSpec { name: "enabled", ty: "boolean", required: false, desc: "是否启用权限控制；false 时不看后面几项，全部放行。" },
+    FieldSpec { name: "mode", ty: "string", required: false, desc: "blacklist（默认，列表里的是禁止项）或 whitelist（列表里的是唯一允许项）。" },
+    FieldSpec { name: "builtinToolNames", ty: "array<string>", required: false, desc: "内置工具名，如 read / exec / websearch。" },
+    FieldSpec { name: "skillNames", ty: "array<string>", required: false, desc: "技能名。" },
+    FieldSpec { name: "mcpToolNames", ty: "array<string>", required: false, desc: "MCP 工具名（带服务前缀的完整名）。" },
+];
+
+/// `apiProviders` 的元素结构。这是模型配置的真身，加/改模型都改这里。
+const API_PROVIDER_FIELDS: &[FieldSpec] = &[
+    FieldSpec { name: "id", ty: "string", required: true, desc: "供应商 id，apiConfigs 的 id 由它和模型 id 拼成。" },
+    FieldSpec { name: "name", ty: "string", required: true, desc: "供应商显示名。" },
+    FieldSpec { name: "baseUrl", ty: "string", required: true, desc: "接口根地址。" },
+    FieldSpec { name: "requestFormat", ty: "string", required: false, desc: "请求格式：openai / openai_responses / anthropic / gemini / deepseek 等。" },
+    FieldSpec { name: "apiKeys", ty: "array<string>", required: false, desc: "密钥列表，轮换使用；明文。" },
+    FieldSpec { name: "models", ty: "array<table>", required: false, desc: "该供应商下的模型，结构见下一节。" },
+    FieldSpec { name: "deprecated", ty: "boolean", required: false, desc: "标记后不再展开成 apiConfigs。" },
+    FieldSpec { name: "allowConcurrentRequests", ty: "boolean", required: false, desc: "是否允许并发请求。" },
+    FieldSpec { name: "maxConcurrentRequests", ty: "integer | null", required: false, desc: "并发上限，null 表示默认。" },
+    FieldSpec { name: "enableText", ty: "boolean", required: false, desc: "该供应商是否提供文本能力。" },
+    FieldSpec { name: "enableTools", ty: "boolean", required: false, desc: "是否允许工具调用。" },
+    FieldSpec { name: "tools", ty: "array<table>", required: false, desc: "供应商级工具配置。" },
+    FieldSpec { name: "failureRetryCount", ty: "integer", required: false, desc: "失败重试次数。" },
+];
+
+/// `apiProviders[].models` 的元素结构。
+const API_MODEL_FIELDS: &[FieldSpec] = &[
+    FieldSpec { name: "id", ty: "string", required: true, desc: "模型 id（供应商内唯一），与 provider.id 拼成 apiConfigs 的 id。" },
+    FieldSpec { name: "model", ty: "string", required: true, desc: "发给接口的模型名。" },
+    FieldSpec { name: "displayName", ty: "string", required: false, desc: "显示名。" },
+    FieldSpec { name: "enableImage", ty: "boolean", required: false, desc: "是否支持图像输入。" },
+    FieldSpec { name: "enableAudio", ty: "boolean", required: false, desc: "是否支持音频。" },
+    FieldSpec { name: "enableVideo", ty: "boolean", required: false, desc: "是否支持视频。" },
+    FieldSpec { name: "enableTools", ty: "boolean", required: false, desc: "是否允许工具调用。" },
+    FieldSpec { name: "reasoningEffort", ty: "string", required: false, desc: "推理档位。" },
+    FieldSpec { name: "temperature", ty: "number", required: false, desc: "采样温度。" },
+    FieldSpec { name: "contextWindowTokens", ty: "integer", required: false, desc: "上下文窗口。" },
+    FieldSpec { name: "maxOutputTokens", ty: "integer", required: false, desc: "单次输出上限。" },
+    FieldSpec { name: "deprecated", ty: "boolean", required: false, desc: "标记后不再展开成 apiConfigs。" },
 ];
 
 const MCP_FILE_FIELDS: &[FieldSpec] = &[
@@ -703,14 +716,14 @@ const MCP_FIELDS: &[FieldSpec] = &[
     FieldSpec { name: "httpHeaders", ty: "object<string,string>", required: false, desc: "headers 的别名写法。" },
     FieldSpec { name: "envHttpHeaders", ty: "object<string,string>", required: false, desc: "从环境变量取值的请求头。" },
     FieldSpec { name: "bearerTokenEnvVar", ty: "string", required: false, desc: "存放 Bearer token 的环境变量名。" },
-    FieldSpec { name: "enabledTools", ty: "array<string>", required: false, desc: "只启用这些工具。" },
-    FieldSpec { name: "disabledTools", ty: "array<string>", required: false, desc: "排除这些工具。" },
+    FieldSpec { name: "enabledTools", ty: "array<string>", required: false, desc: "只启用这些工具；空数组等于不限制。" },
+    FieldSpec { name: "disabledTools", ty: "array<string>", required: false, desc: "排除这些工具。与 enabledTools 同时给时，disabledTools 优先——先查禁止名单，命中即不可用。" },
 ];
 
 const MCP_POLICY_FIELDS: &[FieldSpec] = &[
-    FieldSpec { name: "serverId", ty: "string", required: true, desc: "对应服务 id，等于 servers 目录里那份文件的文件名（不含 .json）。" },
+    FieldSpec { name: "serverId", ty: "string", required: true, desc: "自述字段，必须等于文件名（不含 .json）。文件名才是加载依据；两者不一致时 check 不会报，但以文件名为准。" },
     FieldSpec { name: "enabled", ty: "boolean", required: true, desc: "是否启用该服务。" },
-    FieldSpec { name: "oauthCapable", ty: "boolean", required: false, desc: "该服务是否需要 OAuth 授权。" },
+    FieldSpec { name: "oauthCapable", ty: "boolean", required: false, desc: "该服务是否需要 OAuth 授权。由应用在授权流程中写入，不手改。" },
     FieldSpec { name: "tools", ty: "array<table>", required: false, desc: "工具级策略，元素：toolName / enabled。" },
 ];
 
@@ -724,10 +737,19 @@ fn render_topic(ctx: &CliContext, request: &TopicRequest) -> Result<String, Stri
     match request.topic {
         Topic::App => {
             out.push_str("app_config.toml — 应用主配置：模型供应商、界面、搜索引擎、记忆与工具开关。\n");
+            out.push_str("（文件里是明文密钥，读文件才能拿到值；不要把内容整段贴进日志或对话。）\n");
             out.push_str(&format!("路径: {}\n", ctx.config_path.display()));
             out.push_str("顶层字段（TOML，camelCase；未列出的键会被忽略）：\n");
             out.push_str(&render_fields(APP_FIELDS));
-            out.push_str("注意：文件里是明文密钥。读文件才能拿到值。\n");
+            out.push_str("\n模型配置怎么改：主体是 apiProviders，apiConfigs 是它展开出来的派生数据。\n");
+            out.push_str("  · 加供应商 / 加模型 —— 改 apiProviders（provider 一层 + 它下面的 models 列表）。\n");
+            out.push_str("  · apiConfigs 每次读配置都会按 apiProviders 重算覆盖，别手改它，改了也会被冲掉。\n");
+            out.push_str("  · 那 7 个 *ApiConfigId / *ModelId 字段里填的 id，就是 apiConfigs 里的 id。\n");
+            out.push_str("apiProviders 元素结构：\n");
+            out.push_str(&render_fields(API_PROVIDER_FIELDS));
+            out.push_str("apiProviders[].models 元素结构：\n");
+            out.push_str(&render_fields(API_MODEL_FIELDS));
+            out.push_str("\nMCP 不在这里配：顶层 mcpServers 是旧版内嵌列表，运行时不读它，定义只认工作区 mcp/servers/。\n");
         }
         Topic::Agent => {
             out.push_str("agents.json — 人格定义与组织父子边。\n");
@@ -737,7 +759,16 @@ fn render_topic(ctx: &CliContext, request: &TopicRequest) -> Result<String, Stri
             ));
             out.push_str("顶层结构: { \"agents\": [ <人格>, ... ] }\n");
             out.push_str("人格字段（JSON，camelCase）：\n");
-            out.push_str(&render_fields(AGENT_FIELDS));
+            let editable = AGENT_FIELDS
+                .iter()
+                .filter(|field| !AGENT_METADATA_FIELDS.contains(&field.name));
+            out.push_str(&render_field_rows(
+                editable,
+                AGENT_FIELDS.len() - AGENT_METADATA_FIELDS.len(),
+            ));
+            out.push_str("元数据字段 createdAt / updatedAt / avatarPath / avatarUpdatedAt 由应用维护，不必手填。\n");
+            out.push_str("permissionControl 结构：\n");
+            out.push_str(&render_fields(PERMISSION_CONTROL_FIELDS));
         }
         Topic::Mcp => {
             let servers_dir = mcp_servers_dir(ctx);
@@ -764,12 +795,13 @@ fn render_topic(ctx: &CliContext, request: &TopicRequest) -> Result<String, Stri
                     out.push_str(&format!("定义目录: {}\n", servers_dir.display()));
                     out.push_str(&format!("策略目录: {}\n", policies_dir.display()));
                     out.push_str("服务 id 就是文件名（不含 .json）；policies/<id>.json 与之同名。\n");
-                    out.push_str("定义有两种外壳：界面保存的 mcpServers 表，和商店安装的 name + definitionJson。\n");
                 }
             }
             out.push_str("服务文件字段（JSON，camelCase）：\n");
             out.push_str(&render_fields(MCP_FILE_FIELDS));
-            out.push_str("服务定义可以是：单服务直接字段（name / transport / command / args 这一套）、{ \"mcpServers\": { 名: 定义 } }、{ \"mcpServers\": [ 定义 ] }、根级命名集合 { 名: 定义 }、根级数组 [ 定义 ]。\n");
+            out.push_str("\n外壳形态：常规就两种——界面保存的 { \"mcpServers\": { 显示名: 定义 } }，和商店安装的 name + definitionJson。\n");
+            out.push_str("其余四种（根级数组、{ \"mcpServers\": [定义] }、根级命名集合、单服务直接字段）是旧数据兼容，读得懂，不要再新写。\n");
+            out.push_str("同一个文件里出现多种外壳时的判断顺序是固定的：根级数组 → mcpServers 对象 → mcpServers 数组 → 根级命名集合 → 单服务直接字段。命中即停，后面的不再看。\n");
             out.push_str("服务定义本身的字段（定义对象那层）：\n");
             out.push_str(&render_fields(MCP_FIELDS));
             out.push_str("policy 字段（JSON，camelCase）：\n");
@@ -792,27 +824,60 @@ fn render_topic(ctx: &CliContext, request: &TopicRequest) -> Result<String, Stri
             out.push_str("frontmatter 字段（写在文件开头的 --- 之间）：\n");
             out.push_str(&render_fields(SKILL_FIELDS));
             out.push_str("--- 之后是 markdown 正文，技能的完整说明。\n");
+            out.push_str("\n技能不止一个根：\n");
+            out.push_str("  · 工作区根（上面那个目录）：全局技能，有启用/停用状态，check 会校验它下面每个 SKILL.md。\n");
+            out.push_str("  · 项目根：<项目>/.pai/skills、.claude/skills、.agents/skills、.codex/skills，绑定到会话所在项目。\n");
+            out.push_str("  · 项目技能默认全部启用、没有启用状态表，也不在 check 的校验范围内——改完只能靠实际加载看结果。\n");
+            out.push_str("  · 多根同名时按上面的顺序取第一个（.pai 优先），后面的同名技能被忽略。\n");
         }
     }
     Ok(out.trim_end().to_string())
 }
 
+/// 字段表渲染：必填项名字后加 `*`，其余不再逐行标「可选」。
+/// 39 行里 38 行都可选时，重复标「可选」等于没标，还把真正的必填项埋了。
 fn render_fields(fields: &[FieldSpec]) -> String {
-    let mut out = format!("  共 {} 个字段\n", fields.len());
+    render_field_rows(fields.iter(), fields.len())
+}
+
+/// `render_fields` 的底层形态：调用方可以先过滤掉不该逐行展开的字段。
+fn render_field_rows<'a>(fields: impl Iterator<Item = &'a FieldSpec>, count: usize) -> String {
+    let mut out = format!("  共 {count} 个字段，标 * 的是必填。\n");
     for field in fields {
-        let required = if field.required { "必填" } else { "可选" };
-        out.push_str(&format!(
-            "  {:<34} {:<18} {:<4} {}\n",
-            field.name, field.ty, required, field.desc
-        ));
+        let name = if field.required {
+            format!("{} *", field.name)
+        } else {
+            field.name.to_string()
+        };
+        out.push_str(&format!("  {:<34} {:<18} {}\n", name, field.ty, field.desc));
     }
     out
 }
 
 // ==================== check：校验 ====================
 
+/// `check` 的能力边界声明。结论要落到输出上，不能只写在文档里——
+/// 用户看到「校验通过」时的真实含义，必须在这一屏里说清。
+const CHECK_SCOPE_NOTE: &str = "\
+check 验什么：
+  · 文件存在、可读
+  · TOML / JSON 语法与字段类型
+  · app_config：必填项、searchMode 的 mode 与 engineId、uiSizeScale 的取值形态
+  · agents.json：id / name / systemPrompt 非空、id 不重复、childAgentIds 指向存在的人格
+  · MCP：定义文件能被解析、policy 的 serverId 非空、tools[].toolName 不重复
+  · Skill：SKILL.md 有闭合的 frontmatter 且 name 非空
+
+check 不验什么：
+  · 语义正确性。apiConfigId 指向一个不存在的模型、serverId 与文件名不一致、
+    模型 id 拼错、服务起不来——这些它都不判断，通过不等于配置一定对
+  · 运行时状态库（state.sqlite / chat_metadata.sqlite 等）不是「配置」，不在校验集
+  · 项目技能（<项目>/.pai/skills、.claude/skills 等）不在校验集，只校验工作区技能根
+
+失败时的样子：每行 `<文件绝对路径>: <原因>`，TOML 语法错误会带上行号。";
+
 struct CheckReport {
-    checked: Vec<String>,
+    /// 通过校验的文件，按分类记：(分类, 路径)。分类用于汇总，取值 app / agents / mcp / skill。
+    checked: Vec<(&'static str, String)>,
     errors: Vec<String>,
 }
 
@@ -824,29 +889,51 @@ impl CheckReport {
         }
     }
 
-    fn record(&mut self, path: &Path, result: Result<(), String>) {
+    fn record(&mut self, category: &'static str, path: &Path, result: Result<(), String>) {
         match result {
-            Ok(()) => self.checked.push(path.display().to_string()),
+            Ok(()) => self.checked.push((category, path.display().to_string())),
             Err(err) => self
                 .errors
                 .push(format!("{}: {err}", path.display())),
         }
     }
 
+    fn count_of(&self, category: &str) -> usize {
+        self.checked
+            .iter()
+            .filter(|(item, _)| *item == category)
+            .count()
+    }
+
     fn into_result(self) -> Result<String, String> {
+        let mut out = String::new();
         if !self.errors.is_empty() {
-            let mut message = String::from("校验未通过，配置未进入生效环节：\n");
-            message.push_str(&self.errors.join("\n"));
-            return Err(message);
+            out.push_str("校验未通过，配置未进入生效环节：\n");
+            for err in &self.errors {
+                out.push_str(&format!("  {err}\n"));
+            }
+            out.push('\n');
+            out.push_str(CHECK_SCOPE_NOTE);
+            return Err(out.trim_end().to_string());
         }
-        let mut out = String::from("校验通过：\n");
+        out.push_str("校验通过（只验语法与字段类型，不代表语义正确，详见下方说明）：\n");
         if self.checked.is_empty() {
             out.push_str("  （没有找到可校验的配置文件）\n");
         } else {
-            for path in &self.checked {
-                out.push_str(&format!("  {path}\n"));
+            // 配置类与 MCP 定义文件都只有几个，逐条列；技能可能几十个，只给总数——
+            // 24 行绝对路径里，用户真正要知道的只有「都过了没」。
+            for (category, path) in &self.checked {
+                if *category != "skill" {
+                    out.push_str(&format!("  {path}\n"));
+                }
+            }
+            let skill_count = self.count_of("skill");
+            if skill_count > 0 {
+                out.push_str(&format!("  skills：{skill_count} 个技能全部通过\n"));
             }
         }
+        out.push('\n');
+        out.push_str(CHECK_SCOPE_NOTE);
         Ok(out.trim_end().to_string())
     }
 }
@@ -892,7 +979,7 @@ fn check_app_config(ctx: &CliContext, report: &mut CheckReport) {
             .push(format!("{}: 配置文件不存在", path.display()));
         return;
     }
-    report.record(&path, validate_app_config_file(&path));
+    report.record("app", &path, validate_app_config_file(&path));
 }
 
 fn validate_app_config_file(path: &Path) -> Result<(), String> {
@@ -948,7 +1035,7 @@ fn check_agents(ctx: &CliContext, report: &mut CheckReport) {
     if !path.exists() {
         return;
     }
-    report.record(&path, validate_agents_file(&path));
+    report.record("agents", &path, validate_agents_file(&path));
 }
 
 fn validate_agents_file(path: &Path) -> Result<(), String> {
@@ -1004,7 +1091,7 @@ fn check_mcp(ctx: &CliContext, selector: Option<&str>, report: &mut CheckReport)
         None => json_files(&servers_dir).unwrap_or_default(),
     };
     for path in server_paths.iter().filter(|path| path.is_file()) {
-        report.record(path, validate_mcp_server_file(path));
+        report.record("mcp", path, validate_mcp_server_file(path));
     }
 
     let policy_paths = match selector {
@@ -1012,7 +1099,7 @@ fn check_mcp(ctx: &CliContext, selector: Option<&str>, report: &mut CheckReport)
         None => json_files(&policies_dir).unwrap_or_default(),
     };
     for path in policy_paths {
-        report.record(&path, validate_mcp_policy_file(&path));
+        report.record("mcp", &path, validate_mcp_policy_file(&path));
     }
 }
 
@@ -1248,7 +1335,7 @@ fn check_skills(ctx: &CliContext, selector: Option<&str>, report: &mut CheckRepo
         None => skill_md_files(&skills_dir),
     };
     for path in paths {
-        report.record(&path, validate_skill_file(&path));
+        report.record("skill", &path, validate_skill_file(&path));
     }
 }
 
@@ -1339,6 +1426,8 @@ fn parse_skill_frontmatter(skill_md_path: &Path) -> Result<(String, String, Stri
 // ==================== reload：生效 ====================
 
 /// 先校验再声明生效范围。校验不过直接返回 Err，调用方不会进入重载环节。
+/// 这里只负责「校验 + 声明要重载什么」；真正的重载由应用侧同步执行，
+/// 结果（各源加载成功/失败明细）由调用方作为 `runtimeEffect` 附在同一次回执里。
 fn handle_reload(ctx: &CliContext, args: &[String]) -> Result<(), String> {
     if let Some(extra) = args.first() {
         return Err(format!(
@@ -1350,6 +1439,8 @@ fn handle_reload(ctx: &CliContext, args: &[String]) -> Result<(), String> {
     print_json(&serde_json::json!({
         "type": "workspaceReloadRequest",
         "scope": ["mcp", "skills", "privateAgents", "agents"],
+        "sync": true,
+        "note": "同步执行：本回执返回时重载已经完成。实际加载结果（各源成功/失败条数与明细）在同一次回执的 runtimeEffect 里，不在本段 JSON 里。",
     }))
 }
 
