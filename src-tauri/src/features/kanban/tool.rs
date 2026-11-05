@@ -156,6 +156,17 @@ fn kanban_review_reflection_hint(numbers: &[u32]) -> String {
     )
 }
 
+// 改成解决中就该派活了，而派活前计划得先挂上：没挂，队员拿到的就是一句没有落点的活。
+// 判据取改完之后的库内状态与 plan_path，不取入参——重设一次已经是解决中的议题同样算数。
+
+fn kanban_in_progress_without_plan(issue: &KanbanIssueView) -> bool {
+    issue.status == KANBAN_STATUS_IN_PROGRESS && issue.plan_path.trim().is_empty()
+}
+
+fn kanban_in_progress_plan_hint() -> String {
+    "如果有计划，请确保挂上对应计划之后再派活".to_string()
+}
+
 pub(crate) fn builtin_kanban(
     app_state: &AppState,
     session_id: &str,
@@ -216,14 +227,25 @@ pub(crate) fn builtin_kanban(
             kanban_emit_updated(app_state, &leader_conversation_id);
             // 只回这次的变更：整张看板要看得用 action=list。
             let mut lines = Vec::<String>::new();
+            let mut unplanned_in_progress = Vec::<u32>::new();
             for issue in &result.created {
                 lines.push(format!("created {}", kanban_tool_issue_line(issue)));
+                if kanban_in_progress_without_plan(issue) {
+                    unplanned_in_progress.push(issue.number);
+                }
             }
             for issue in &result.updated {
                 lines.push(format!("updated {}", kanban_tool_issue_line(issue)));
+                if kanban_in_progress_without_plan(issue) {
+                    unplanned_in_progress.push(issue.number);
+                }
             }
             if lines.is_empty() {
                 lines.push("nothing changed".to_string());
+            }
+            if !unplanned_in_progress.is_empty() {
+                lines.push(String::new());
+                lines.push(kanban_in_progress_plan_hint());
             }
             if !review_numbers.is_empty() {
                 lines.push(String::new());
