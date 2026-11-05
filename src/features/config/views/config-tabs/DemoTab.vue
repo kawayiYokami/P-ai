@@ -24,6 +24,7 @@
             <option value="double-deck">双层卡（DoubleDeck）</option>
             <option value="thinking-preview">思考预览 bar</option>
             <option value="rich-block-embed">代码块 / mermaid 内嵌气泡</option>
+            <option value="markdown-view">Markdown 全量渲染</option>
             <option value="session-float-dock">会话悬浮操作区</option>
             <option value="session-timeline">会话时间线（垂直）</option>
             <option value="config-cards">配置卡片画廊（六大卡片第一性原理）</option>
@@ -189,6 +190,16 @@
           <p class="text-sm text-base-content/70">左边是改动前的分段气泡（代码块、mermaid 各自独立成块），右边是改动后富块内嵌进气泡、代码块去掉底色与框线的样子。两边用的是同一段 markdown 与真实的 markdown 渲染器。</p>
         </div>
         <ChatRichBlockEmbedDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'markdown-view'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">Markdown 全量渲染（AppMarkdownRendererDemo）</h3>
+          <p class="text-sm text-base-content/70">一份文本覆盖解析器全部块与行内类型，可切三种疏密档位、chat/document 变体、streaming 与深色配色。</p>
+        </div>
+        <AppMarkdownRendererDemo />
       </div>
     </div>
 
@@ -829,6 +840,7 @@ import ChatComposerStructureDemo from "../../../chat/components/ChatComposerStru
 import DoubleDeckCardDemo from "../../../chat/components/DoubleDeckCardDemo.vue";
 import ChatThinkingPreviewBarDemo from "../../../chat/components/ChatThinkingPreviewBarDemo.vue";
 import ChatRichBlockEmbedDemo from "../../../chat/components/ChatRichBlockEmbedDemo.vue";
+import AppMarkdownRendererDemo from "../../../chat/markdown/AppMarkdownRendererDemo.vue";
 import SessionFloatDockDemo from "../../../chat/components/SessionFloatDockDemo.vue";
 import SessionTimelineDemo from "../../../chat/components/SessionTimelineDemo.vue";
 import TeamMemberTileGridDemo from "../../../chat/components/TeamMemberTileGridDemo.vue";
@@ -924,7 +936,7 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "catalog-entry-card" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "markdown-view" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "catalog-entry-card" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
 
 // bare 模式下把内容高度写进标题，便于无头截图按内容高度精确裁剪。
 onMounted(() => {
@@ -951,6 +963,7 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "session-timeline") return "会话时间线（垂直）";
   if (demoComponentKey.value === "thinking-preview") return "思考预览 bar";
   if (demoComponentKey.value === "rich-block-embed") return "代码块 / mermaid 内嵌气泡";
+  if (demoComponentKey.value === "markdown-view") return "Markdown 全量渲染";
   if (demoComponentKey.value === "double-deck") return "双层卡";
   if (demoComponentKey.value === "home-cards") return "预览卡画廊";
   if (demoComponentKey.value === "conversation-list") return "列表卡画廊";
