@@ -270,7 +270,11 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
         });
     let builtin_definitions = vec![
         BuiltinFetchTool { app_state: state.clone() }.provider_tool_definition(),
-        BuiltinBingSearchTool { app_state: state.clone() }.provider_tool_definition(),
+        BuiltinBingSearchTool {
+            app_state: state.clone(),
+            session_id: String::new(),
+        }
+        .provider_tool_definition(),
         BuiltinRememberTool {
             app_state: state.clone(),
             memory_context: preview_memory_context.clone(),
@@ -1184,7 +1188,10 @@ fn build_builtin_runtime_tool_executor(
     let executor_agent_id = agent.id.trim().to_string();
     let tool: Box<dyn RuntimeToolDyn> = match tool_name {
         "fetch" => Box::new(BuiltinFetchTool { app_state: state.clone() }),
-        "websearch" => Box::new(BuiltinBingSearchTool { app_state: state.clone() }),
+        "websearch" => Box::new(BuiltinBingSearchTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
         "remember" => Box::new(BuiltinRememberTool {
             app_state: state.clone(),
             memory_context: memory_context

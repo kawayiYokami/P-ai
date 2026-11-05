@@ -29,6 +29,16 @@ fn ide_chat_save_config_for_web_settings(
     ide_chat_serialize(save_config_inner(config, app, state, ide_context_runtime)?)
 }
 
+async fn ide_chat_test_search_engine_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<TestSearchEngineInput>(params)?;
+    ide_chat_serialize(
+        test_search_engine_connection(state, &input.engine_id, input.api_key).await?,
+    )
+}
+
 fn ide_chat_load_agents_for_web_settings(state: &AppState) -> Result<Value, String> {
     ide_chat_serialize(load_agents_inner(state)?)
 }

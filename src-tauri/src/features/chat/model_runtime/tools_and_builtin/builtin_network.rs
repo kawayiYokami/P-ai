@@ -2,9 +2,7 @@ const FETCH_BROWSER_UA: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
 const EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp";
 const EXA_ACCEPT_HEADER: &str = "application/json, text/event-stream";
-const EXA_TOOL_NAME_WEB_SEARCH: &str = "web_search_exa";
 const EXA_TOOL_NAME_WEB_FETCH: &str = "web_fetch_exa";
-const ANYSEARCH_API_URL: &str = "https://api.anysearch.com/v1/search";
 
 fn is_forbidden_fetch_ip(ip: std::net::IpAddr) -> bool {
     match ip {
@@ -213,95 +211,6 @@ fn map_exa_fetch_result(max_length: usize, result: &Value) -> Result<Value, Stri
     Ok(serde_json::json!({
       "status": 200,
       "content": truncate_by_chars(&combined, max_length)
-    }))
-}
-
-fn map_exa_search_result(result: &Value) -> Result<Value, String> {
-    let texts = exa_result_texts(result);
-    if texts.is_empty() {
-        return Err("Exa search returned empty content.".to_string());
-    }
-    Ok(serde_json::json!({
-        "results": texts
-    }))
-}
-
-// ========== anysearch ==========
-
-async fn builtin_anysearch(state: &AppState, query: &str) -> Result<Value, String> {
-    let raw_query = query.trim();
-    if raw_query.is_empty() {
-        return Err("anysearch: empty query".to_string());
-    }
-    runtime_log_info(format!(
-        "[工具调试] anysearch 请求，query={}",
-        raw_query
-    ));
-    let resp = state
-        .shared_http_client
-        .post(ANYSEARCH_API_URL)
-        .header("Content-Type", "application/json")
-        .header("X-Anysearch-Client", "mcp/1.0.0")
-        .json(&serde_json::json!({
-            "query": raw_query,
-            "max_results": 10,
-        }))
-        .send()
-        .await
-        .map_err(|err| format!("anysearch request failed: {err}"))?;
-    let status = resp.status();
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!(
-            "anysearch returned status {status}: {}",
-            truncate_by_chars(&clean_text(&body), 240)
-        ));
-    }
-    let body: Value = resp
-        .json()
-        .await
-        .map_err(|err| format!("anysearch parse json failed: {err}"))?;
-    if body.get("code").and_then(Value::as_i64) != Some(0) {
-        let msg = body
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown");
-        return Err(format!("anysearch error: {msg}"));
-    }
-    let results = body
-        .pointer("/data/results")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if results.is_empty() {
-        return Err("anysearch returned empty results".to_string());
-    }
-    let rows: Vec<Value> = results
-        .iter()
-        .filter_map(|item| {
-            let title = item.get("title").and_then(Value::as_str)?.trim();
-            let url = item.get("url").and_then(Value::as_str)?.trim();
-            if title.is_empty() || url.is_empty() {
-                return None;
-            }
-            let snippet = item
-                .get("snippet")
-                .or_else(|| item.get("content"))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .trim();
-            Some(serde_json::json!({
-                "title": title,
-                "url": url,
-                "snippet": snippet,
-            }))
-        })
-        .collect();
-    if rows.is_empty() {
-        return Err("anysearch results missing title/url".to_string());
-    }
-    Ok(serde_json::json!({
-        "results": rows,
     }))
 }
 
@@ -624,24 +533,3 @@ async fn builtin_bing_search_fallback(state: &AppState, query: &str) -> Result<V
         last_request_url.unwrap_or_else(|| "<none>".to_string())
     ))
 }
-
-async fn builtin_bing_search(state: &AppState, query: &str) -> Result<Value, String> {
-    // 降级链：AnySearch → Exa → Bing 抓取
-    if let Ok(result) = builtin_anysearch(state, query).await {
-        return Ok(result);
-    }
-    match call_exa_mcp_tool(
-        state,
-        EXA_TOOL_NAME_WEB_SEARCH,
-        serde_json::json!({
-            "query": query.trim(),
-            "numResults": 10,
-        }),
-    )
-    .await
-    {
-        Ok(result) if exa_result_has_content(&result) => map_exa_search_result(&result),
-        Ok(_) | Err(_) => builtin_bing_search_fallback(state, query).await,
-    }
-}
-

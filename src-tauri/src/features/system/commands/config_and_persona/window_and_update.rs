@@ -346,8 +346,10 @@ fn load_config_inner(state: &AppState) -> Result<AppConfig, String> {
         result.simple_setup_mode = true;
     }
     let runtime_agents = state_read_agents_cached(&state)?;
-    let snapshot =
+    let mut snapshot =
         build_runtime_organization_snapshot_from_parts(&state.data_path, &result, &runtime_agents)?;
+    // 搜索引擎密钥只在本地配置里落明文，回传前端一律打码（保存时按掩码识别未改动）。
+    mask_search_engine_keys(&mut snapshot.config);
     Ok(snapshot.config)
 }
 
@@ -374,8 +376,9 @@ fn read_app_bootstrap_snapshot(state: &AppState) -> Result<AppBootstrapSnapshot,
     let _ = ensure_system_notification_conversation_shard(&state.data_path)?;
     let _ = state_read_chat_index_cached(state)?;
     let agents = state_read_agents_cached(state)?;
-    let runtime_snapshot =
+    let mut runtime_snapshot =
         build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &agents)?;
+    mask_search_engine_keys(&mut runtime_snapshot.config);
     let mut runtime_data = AppData::default();
     runtime_data.agents = runtime_snapshot.agents.clone();
     let chat_settings = ChatSettings {
@@ -558,6 +561,23 @@ fn update_record_background_wake(
     })
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestSearchEngineInput {
+    engine_id: String,
+    #[serde(default)]
+    api_key: Option<String>,
+}
+
+/// 测试某个搜索引擎的连通性：真发一次查询，只回成功/失败原因。
+#[tauri::command]
+async fn test_search_engine(
+    input: TestSearchEngineInput,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    test_search_engine_connection(&state, &input.engine_id, input.api_key).await
+}
+
 #[tauri::command]
 fn save_config(
     config: AppConfig,
@@ -649,6 +669,8 @@ fn save_config_inner(
     let mut data = AppData::default();
     data.agents = agents;
     let base_config = state_read_config_cached(&state)?;
+    // 前端带回的密钥是掩码：能对上旧值就沿用，绝不把掩码写进配置。
+    merge_masked_search_engine_keys(&base_config, &mut config);
     let removed_remote_im_channels = removed_remote_im_channels(&base_config, &config);
     let provider_changed = config_provider_domain_changed(&base_config, &config);
     let shell_workspaces_changed = base_config.shell_workspaces != config.shell_workspaces;

@@ -1392,6 +1392,7 @@ fn main() {
             get_autostart_enabled,
             set_autostart_enabled,
             load_config,
+            test_search_engine,
             generate_image,
             test_image_to_video,
             check_message_store_migration,

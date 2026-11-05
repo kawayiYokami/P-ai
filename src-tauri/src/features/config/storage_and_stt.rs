@@ -1028,6 +1028,8 @@ fn normalize_app_config(config: &mut AppConfig) {
         config.stt_auto_send = false;
     }
     normalize_terminal_shell_kind(config);
+    // 五个内置搜索引擎随配置初始化；锁定目标不可用时回落自动模式。
+    normalize_search_engines(config);
     normalize_shell_workspaces(config);
     normalize_mcp_servers(config);
     normalize_remote_im_channels(config);

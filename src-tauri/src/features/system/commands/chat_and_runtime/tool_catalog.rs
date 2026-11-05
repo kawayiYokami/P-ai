@@ -32,6 +32,7 @@ async fn builtin_tool_definitions_for_frontend(
         frontend_tool_definition(
             BuiltinBingSearchTool {
                 app_state: state.clone(),
+                session_id: String::new(),
             }
             .provider_tool_definition(),
         ),

@@ -388,6 +388,9 @@ async fn ide_chat_handle_jsonrpc_request(
             }),
         "messageStore.migration.confirm" => ide_chat_serialize(confirm_message_store_migration_summary()),
         "save_config" => ide_chat_save_config_for_web_settings(state, app, ide_context_runtime, request.params),
+        "test_search_engine" => {
+            ide_chat_test_search_engine_for_web_settings(state, request.params).await
+        }
         "load_agents" => ide_chat_load_agents_for_web_settings(state),
         "convert_private_agent_to_main" => {
             ide_chat_convert_private_agent_to_main_for_web_settings(state, request.params)
