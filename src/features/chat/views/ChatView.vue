@@ -612,6 +612,7 @@
             :kanban-issues="kanbanIssues" :attached-issue-references="kanbanIssueReferences"
             :current-theme="currentTheme"
             :show-conversation-actions="showConversationActions"
+            :show-attach-action="props.showAttachAction"
             @update:chat-input="$emit('update:chatInput', $event)" @add-mention="$emit('addMention', $event)"
             @remove-mention="$emit('removeMention', $event)" @remove-clipboard-image="$emit('removeClipboardImage', $event)"
             @remove-queued-attachment-notice="$emit('removeQueuedAttachmentNotice', $event)"
@@ -1090,6 +1091,8 @@ const props = defineProps<{
   terminalApprovals?: TerminalApprovalConversationItem[];
   terminalApprovalResolving?: boolean;
   hideConversationControlPanel?: boolean;
+  /** 追问面板没有会话操作，但仍要能添加附件；不传则跟随会话操作开关。 */
+  showAttachAction?: boolean;
   showOpenInBrowserButton?: boolean;
   systemNotificationMode?: boolean;
   hideWorkspaceButton?: boolean;

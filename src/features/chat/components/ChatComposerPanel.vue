@@ -347,7 +347,7 @@
                 <Target class="h-3.5 w-3.5" />
               </button>
               <button
-                v-if="showConversationActions"
+                v-if="showAttachAction"
                 type="button"
                 class="btn btn-sm btn-circle btn-ghost shrink-0 transition-transform duration-150 ease-out active:scale-90"
                 :title="t('chat.attach')"
@@ -547,6 +547,8 @@ const props = withDefaults(defineProps<{
   attachedIssueReferences?: KanbanIssueReference[];
   currentTheme?: string;
   showConversationActions?: boolean;
+  /** 附件入口独立于会话操作：追问面板没有会话操作，但同样要能加附件。 */
+  showAttachAction?: boolean;
   chatUsagePercent?: number;
   isRounded?: boolean;
   queueEventsOverride?: ChatQueueEvent[] | null;
@@ -594,6 +596,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const queueEnabled = computed(() => true);
 const showConversationActions = computed(() => props.showConversationActions ?? true);
+const showAttachAction = computed(() => props.showAttachAction ?? (props.showConversationActions ?? true));
 const systemNotificationMode = computed(() => !!props.systemNotificationMode);
 const remoteContactMode = computed(() => !!props.remoteContactMode);
 

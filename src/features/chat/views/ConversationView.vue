@@ -70,10 +70,12 @@
     :terminal-approvals="terminalApprovals"
     :terminal-approval-resolving="terminalApprovalResolving"
     :hide-conversation-control-panel="true"
+    :show-attach-action="true"
     :hide-workspace-button="true"
     :workspace-access="workspaceAccess"
     @update:chat-input="updateChatInput"
     @send-chat="runtime.send"
+    @pick-attachments="handlePickAttachments"
     @stop-chat="runtime.stop"
     @clear-chat-error="clearChatError"
     @refresh-conversation-after-storage-repair="refreshConversationAfterStorageRepair"
@@ -112,9 +114,9 @@ import { useConversationPreferredModel } from "../composables/use-conversation-p
 import { isTextRequestFormat } from "../../config/quick-setup/usable-text-llm";
 import { isViewLayerBusy } from "../composables/chat-view-busy";
 import { getActiveChatComposerScope, clearChatComposerFocus } from "../composables/chat-composer-focus";
-import { collectPastedFiles, ingestPastedImages } from "../composables/chat-paste-ingest";
+import { collectPastedFiles, ingestPastedImages, applyQueuedAttachmentResult } from "../composables/chat-paste-ingest";
 import { useI18n } from "vue-i18n";
-import { onTransportNotification, invokeTauri } from "../../../services/tauri-api";
+import { onTransportNotification, invokeTauri, pickTransportAttachmentSources, ingestTransportAttachmentSource } from "../../../services/tauri-api";
 import type { ConversationGoalState } from "../../../types/app";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import type { ExclusiveChatViewSubscriptionSlot } from "../composables/exclusive-chat-view-subscription-slot";
@@ -238,10 +240,40 @@ function refreshConversationAfterStorageRepair() {
   void runtime.refreshConversationAfterStorageRepair(conversationId.value);
 }
 
+// 追问输入栏的附件入口：与主会话共用同一套「选文件 → 读入 → 入队」链路，
+// 入队目标是追问自己的两份队列，不碰主会话。
+async function handlePickAttachments() {
+  const apiConfig = activeApiConfig.value;
+  if (!apiConfig) return;
+  clearChatError();
+  try {
+    const sources = await pickTransportAttachmentSources({
+      multiple: true,
+      directory: false,
+      title: "选择附件",
+    });
+    for (const source of sources) {
+      try {
+        const receipt = await ingestTransportAttachmentSource(source);
+        applyQueuedAttachmentResult(receipt, apiConfig, {
+          setChatError: clearChatError,
+          setStatusError: () => {},
+          clipboardImages: runtime.clipboardImages,
+          queuedAttachmentNotices: runtime.queuedAttachmentNotices,
+          hasVisionFallback: false,
+        });
+      } catch (error) {
+        console.error("[追问附件] 读取失败", { fileName: source.fileName, error });
+      }
+    }
+  } catch (error) {
+    console.error("[追问附件] 选择失败", { error });
+  }
+}
+
 // 焦点在本视图输入框内时的图片粘贴：与主会话共用同一份入队逻辑，
 // 由共享的「最后活跃输入框」状态判断归属，避免图片进错会话队列。
-function handleSidePaste(event: ClipboardEvent) {
-  if (getActiveChatComposerScope() !== "side") return;
+function handleSidePaste(event: ClipboardEvent) {  if (getActiveChatComposerScope() !== "side") return;
   const apiConfig = activeApiConfig.value;
   if (!apiConfig) return;
   const collected = collectPastedFiles(event);
