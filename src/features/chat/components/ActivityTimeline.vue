@@ -96,7 +96,14 @@
             >
               <OverlayScrollArea v-if="activityItemExpanded(item)" scroller-class="max-h-80 pr-3" overscroll="auto">
                 <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
-                <template v-else>{{ activityItemBodyText(item) }}</template>
+                <template v-else>
+                  <!-- 长文本按行切块：每块独立排版，配合 content-visibility 跳过屏外块的布局 -->
+                  <div
+                    v-for="chunk in activityItemPlainChunks(item)"
+                    :key="chunk.index"
+                    class="ecall-reasoning-plain-chunk"
+                  >{{ chunk.text }}</div>
+                </template>
               </OverlayScrollArea>
               <template v-else>
                 <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
@@ -578,6 +585,28 @@ function activityItemBodyText(item: ChatActivityItem): string {
   return text;
 }
 
+/** 长纯文本展开时按行切块，单块约 2000 字。块数按内容缓存，流式中每次只比对源文本。 */
+const PLAIN_CHUNK_TARGET_CHARS = 2000;
+const plainChunkCache = new WeakMap<object, { source: string; chunks: { index: number; text: string }[] }>();
+
+function activityItemPlainChunks(item: ChatActivityItem): { index: number; text: string }[] {
+  const source = activityItemBodyText(item);
+  const cached = plainChunkCache.get(item);
+  if (cached && cached.source === source) return cached.chunks;
+  const chunks: { index: number; text: string }[] = [];
+  let buffer = "";
+  for (const line of source.split("\n")) {
+    if (buffer && buffer.length + line.length + 1 > PLAIN_CHUNK_TARGET_CHARS) {
+      chunks.push({ index: chunks.length, text: buffer });
+      buffer = "";
+    }
+    buffer = buffer ? `${buffer}\n${line}` : line;
+  }
+  if (buffer) chunks.push({ index: chunks.length, text: buffer });
+  plainChunkCache.set(item, { source, chunks });
+  return chunks;
+}
+
 /** 生长中的正文只看长度和末尾字符，避免每个新字都扫描全文。 */
 function liveActivityTextSignature(text: string): string {
   const length = text.length;
@@ -905,6 +934,12 @@ onBeforeUnmount(() => {
 .ecall-reasoning-body--expanded {
   max-height: none;
   overflow: visible;
+}
+
+/* 长文本分块：屏外块跳过布局与绘制，滚动条长度用最近一次渲染尺寸估 */
+.ecall-reasoning-plain-chunk {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 1.5em;
 }
 
 .ecall-reasoning-clamped-fade {
