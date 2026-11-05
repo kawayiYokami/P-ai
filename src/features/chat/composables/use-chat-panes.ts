@@ -362,6 +362,21 @@ export function useChatPanes(options: UseChatPanesOptions) {
     },
   );
 
+  // 窄容器下两侧都是覆盖层，同时打开会叠在一起（遮罩只有一层）。
+  // 以最后打开的一侧为准，自动收起另一侧，形成切换而不是叠加。
+  // 用 lastOpenedPane 当裁判，避免程序同时打开两侧时互相踢成死循环。
+  watch(leftPaneOverlay, (open) => {
+    if (open && lastOpenedPane.value === "left" && rightPaneOverlay.value) {
+      onPaneCloseRequest("right");
+    }
+  });
+
+  watch(rightPaneOverlay, (open) => {
+    if (open && lastOpenedPane.value === "right" && leftPaneOverlay.value) {
+      onPaneCloseRequest("left");
+    }
+  });
+
 
   void nextTick(() => {
     measureContainerWidth();
