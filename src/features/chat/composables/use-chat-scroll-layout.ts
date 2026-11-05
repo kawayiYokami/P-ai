@@ -111,6 +111,14 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     return distance <= threshold;
   }
 
+  // 焦点是否落在可输入元素里：流式结束的自动聚焦据此让路，避免打断用户正在进行的输入。
+  function isEditableFocused(): boolean {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement)) return false;
+    if (active.isContentEditable) return true;
+    return active.tagName === "INPUT" || active.tagName === "TEXTAREA";
+  }
+
   function updateSessionControlPanelVisibility(nearBottom: boolean) {
     if (nearBottom) {
       if (sessionControlPanelHideTimer) {
@@ -357,7 +365,12 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
         && !options.busy.value
         && !isMobileTouchViewport()
       ) {
-        nextTick(() => options.focusComposerInput({ preventScroll: true }));
+        // 流式结束不再无条件抢焦点：用户此刻可能在追问输入框、或别的输入框里打字，
+        // 把焦点拽回主会话等于打断输入。只有焦点不在任何可编辑元素上时才落回输入框。
+        nextTick(() => {
+          if (isEditableFocused()) return;
+          options.focusComposerInput({ preventScroll: true });
+        });
       }
     },
   );
