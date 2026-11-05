@@ -1549,38 +1549,21 @@ fn build_mcp_directory_block(state: &AppState) -> Option<String> {
             } else {
                 server_name.clone()
             };
-            // 服描述优先用 MCP 握手 instructions（进程内内存态，不落盘），拿不到才退回工具描述聚合。
-            let description = match mcp_server_instructions_get(server_id) {
-                Some(text) => truncate_chars_for_mcp_directory(&text, 1000),
-                None => {
-                    let joined_description = list
-                        .iter()
-                        .map(|(_, description)| description.trim())
-                        .filter(|description| !description.is_empty())
-                        .collect::<Vec<_>>()
-                        .join("；");
-                    if joined_description.trim().is_empty() {
-                        "暂无官方描述".to_string()
-                    } else {
-                        truncate_chars_for_mcp_directory(&joined_description, 1000)
-                    }
-                }
-            };
-            let tool_names = list
-                .iter()
-                .map(|(name, _)| name.clone())
-                .collect::<Vec<_>>()
-                .join(", ");
-            lines.push(format!(
-                "-服 {} ({}): {}",
-                server_label.trim(),
-                server_id.trim(),
-                description
-            ));
-            lines.push(format!("  工具: {tool_names}"));
+            // 服描述只用 MCP 握手 instructions（进程内内存态，不落盘）；拿不到就不写，
+            // 不回退拼工具描述：目录只做路由，工具名已足够模型判断，拼描述只是把 schema 里的同一段话再花一遍 token。
+            let description = mcp_server_instructions_get(server_id)
+                .map(|text| truncate_chars_for_mcp_directory(&text, 1000))
+                .map(|text| text.trim().to_string())
+                .filter(|text| !text.is_empty());
+            match description {
+                Some(description) => lines.push(format!("{}：{}", server_label.trim(), description)),
+                None => lines.push(server_label.trim().to_string()),
+            }
+            for (name, _) in list {
+                lines.push(format!("- {}", name.trim()));
+            }
         }
         if any_tool {
-            lines.push("拿取示例: get_tool({\"tool_names\":[\"<精确工具名>\"]})，错名回3个相近建议，只建议不自动装。".to_string());
             return Some(lines.join("\n"));
         }
     }
@@ -1605,35 +1588,23 @@ fn build_mcp_directory_block(state: &AppState) -> Option<String> {
         } else {
             server.name.clone()
         };
-        // 服描述优先用 MCP 握手 instructions（进程内内存态，不落盘），拿不到才退回工具描述聚合。
-        let description = match mcp_server_instructions_get(&server.id) {
-            Some(text) => truncate_chars_for_mcp_directory(&text, 1000),
-            None => {
-                let joined_description = tools
-                    .iter()
-                    .map(|tool| tool.description.trim())
-                    .filter(|description| !description.is_empty())
-                    .collect::<Vec<_>>()
-                    .join("；");
-                if joined_description.trim().is_empty() {
-                    "暂无官方描述".to_string()
-                } else {
-                    truncate_chars_for_mcp_directory(&joined_description, 1000)
-                }
-            }
-        };
-        let tool_names = tools
-            .iter()
-            .map(|tool| tool.tool_name.clone())
-            .collect::<Vec<_>>()
-            .join(", ");
-        lines.push(format!("-服 {} ({}): {}", server_label.trim(), server.id.trim(), description));
-        lines.push(format!("  工具: {tool_names}"));
+        // 服描述只用 MCP 握手 instructions（进程内内存态，不落盘）；拿不到就不写，
+        // 不回退拼工具描述：目录只做路由，工具名已足够模型判断，拼描述只是把 schema 里的同一段话再花一遍 token。
+        let description = mcp_server_instructions_get(&server.id)
+            .map(|text| truncate_chars_for_mcp_directory(&text, 1000))
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty());
+        match description {
+            Some(description) => lines.push(format!("{}：{}", server_label.trim(), description)),
+            None => lines.push(server_label.trim().to_string()),
+        }
+        for tool in &tools {
+            lines.push(format!("- {}", tool.tool_name.trim()));
+        }
     }
     if !any_tool {
         return None;
     }
-    lines.push("拿取示例: get_tool({\"tool_names\":[\"<精确工具名>\"]})，错名回3个相近建议，只建议不自动装。".to_string());
     Some(lines.join("\n"))
 }
 

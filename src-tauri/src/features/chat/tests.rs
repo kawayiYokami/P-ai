@@ -17724,10 +17724,10 @@
 
         let directory = build_mcp_directory_block(&state).expect("目录应常驻");
         assert!(
-            directory.contains("(mcp-fold)"),
-            "目录缺少服名：{directory}"
+            directory.lines().any(|line| line.trim() == "fold"),
+            "目录缺少服名行：{directory}"
         );
-        assert!(directory.contains("fold_search"), "目录缺少工具名：{directory}");
+        assert!(directory.contains("- fold_search"), "目录缺少工具名：{directory}");
         assert!(
             !directory.contains("fold_broken"),
             "schema 不兼容的工具不该进目录：{directory}"
@@ -17779,8 +17779,8 @@
         let directory = build_mcp_directory_block(&state).expect("目录应常驻");
 
         assert!(
-            directory.contains("官方握手说明"),
-            "目录应优先用握手 instructions：{directory}"
+            directory.contains("fold：官方握手说明"),
+            "目录服行应为服名：说明口径：{directory}"
         );
         assert!(
             !directory.contains("的官方工具描述"),
