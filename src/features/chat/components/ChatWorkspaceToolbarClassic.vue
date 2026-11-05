@@ -165,6 +165,19 @@
               </li>
               <li>
                 <div class="flex flex-col items-stretch gap-1.5 px-2 py-1.5">
+                  <span class="text-xs font-medium text-base-content/80">{{ t("appearance.chatBubbleFontSize") }}</span>
+                  <SegmentedControl
+                    :model-value="messageFontSize"
+                    :options="messageFontSizeOptions"
+                    size="xs"
+                    :full-width="true"
+                    class="w-full"
+                    @change="setChatMessageFontSize"
+                  />
+                </div>
+              </li>
+              <li>
+                <div class="flex flex-col items-stretch gap-1.5 px-2 py-1.5">
                   <span class="text-xs font-medium text-base-content/80">{{ t("appearance.chatBubbleMarkdownLayout") }}</span>
                   <SegmentedControl
                     :model-value="markdownLayout"
@@ -362,7 +375,7 @@ import { BellRing, ClipboardCheck, ClipboardList, GitBranch, GitBranchPlus, Grip
 import type { ChatMentionEntry, ConversationDelegateStatusSummary } from "../../../types/app";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useChatComposerAppearance } from "../../shell/composables/use-chat-composer-appearance";
-import { useChatMessageAppearance, type ChatMarkdownLayout } from "../../shell/composables/use-chat-message-appearance";
+import { useChatMessageAppearance, type ChatMarkdownLayout, type ChatMessageFontSize } from "../../shell/composables/use-chat-message-appearance";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
 import SessionControlPanel from "./SessionControlPanel.vue";
 import SegmentedControl from "../../config/components/SegmentedControl.vue";
@@ -434,11 +447,19 @@ const {
   processMessagesFolded,
   chatTimeDisplayMode,
   markdownLayout,
+  messageFontSize,
   setAssistantBubbleBackgroundEnabled,
   setProcessMessagesFolded,
   setChatTimeDisplayMode,
   setChatMarkdownLayout,
+  setChatMessageFontSize,
 } = useChatMessageAppearance();
+const messageFontSizeOptions = computed<Array<{ value: ChatMessageFontSize; label: string }>>(() => [
+  { value: "compact", label: t("appearance.uiSizeCompact") },
+  { value: "default", label: t("appearance.uiSizeDefault") },
+  { value: "large", label: t("appearance.uiSizeLarge") },
+  { value: "xlarge", label: t("appearance.uiSizeXLarge") },
+]);
 const markdownLayoutOptions = computed<Array<{ value: ChatMarkdownLayout; label: string }>>(() => [
   { value: "compact", label: t("appearance.markdownLayoutCompact") },
   { value: "comfortable", label: t("appearance.markdownLayoutComfortable") },

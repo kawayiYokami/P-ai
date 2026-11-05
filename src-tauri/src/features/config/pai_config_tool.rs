@@ -597,7 +597,7 @@ const APP_FIELDS: &[FieldSpec] = &[
     FieldSpec { name: "uiLanguage", ty: "string", required: false, desc: "界面语言。" },
     FieldSpec { name: "uiFont", ty: "string", required: false, desc: "界面字体。" },
     FieldSpec { name: "codeFont", ty: "string", required: false, desc: "代码字体。" },
-    FieldSpec { name: "uiSizeScale", ty: "integer | string", required: false, desc: "界面缩放档位：整数 75-150，或旧预设字符串 small / default / large / extraLarge（旧键名 uiSizePreset）。" },
+    FieldSpec { name: "uiSizeScale", ty: "integer | string", required: false, desc: "界面字号档位：75=紧凑 / 100=默认 / 125=大 / 150=特大。只会落在这四档：任意 75-150 的旧整数与旧预设字符串 small / default / large / extraLarge 都按就近归入四档（旧键名 uiSizePreset）。" },
     FieldSpec { name: "webAccessPort", ty: "integer", required: false, desc: "Web 访问端口。" },
     FieldSpec { name: "webAccessEnabled", ty: "boolean", required: false, desc: "是否开启 Web 访问。" },
     FieldSpec { name: "webAccessPassword", ty: "string", required: false, desc: "Web 访问口令。" },

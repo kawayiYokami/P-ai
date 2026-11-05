@@ -8,8 +8,6 @@ const UI_SIZE_HINT_ELEMENT_ID = "easy-call-ui-size-hint";
 export const UI_SIZE_MIN_SCALE = 75;
 export const UI_SIZE_MAX_SCALE = 150;
 export const UI_SIZE_DEFAULT_SCALE = 100;
-export const UI_SIZE_STEP_SCALE = 10;
-export const UI_SIZE_SCALE_MARKS = [75, 100, 125, 150] as const;
 export type UiSizeScale = number;
 
 type UiSizePayload = {
@@ -52,59 +50,155 @@ let eventUnlisten: (() => void) | null = null;
 let hintHideTimer: ReturnType<typeof window.setTimeout> | null = null;
 
 /**
- * 界面尺寸映射：滑杆上的百分比表示「占屏面积」，线性尺寸取它的平方根。
- * 150% 对应线性 √1.5 ≈ 1.2247 倍、面积 1.5 倍。
- * 字号基准、--size-field、--size-selector、--border 以及根字号全挂在这一个比例上，
- * 在这里开方，全链路一起变成同一个倍数，不会出现字缩了而间距还按旧比例放的错位。
+ * 界面尺寸是四档字号，不再按百分比缩放。
+ *
+ * 以前的做法是滑杆给一个「占屏面积」百分比（75-150），线性尺寸取它的平方根，
+ * 于是 150% 档下 14px 会变成 17.15px、边框变成 1.22px。字号一旦不是整数，
+ * 行高、图标与间距就同时落在半像素上，看起来哪里都差一点；换行宽度的抖动也来自这里。
+ *
+ * 现在每档一张整数 px 表，档位之间只换表、不做乘法。对外仍用 uiSizeScale 这个字段，
+ * 取值收敛到四档编号（75/100/125/150），这样配置字段、三个窗口、持久化都不用改。
  */
-function scaledLinearFactor(scale: UiSizeScale): number {
-  return Math.sqrt(scale / 100);
+type UiSizePreset = "compact" | "default" | "large" | "xlarge";
+
+const UI_SIZE_PRESET_SCALES: Record<UiSizePreset, UiSizeScale> = {
+  compact: 75,
+  default: 100,
+  large: 125,
+  xlarge: 150,
+};
+
+const UI_SIZE_PRESET_ORDER: UiSizePreset[] = ["compact", "default", "large", "xlarge"];
+
+/** 每档的整数 px 表。新增字号只在这四张表里加整数，不要回头引入乘倍数。 */
+const UI_SIZE_TOKEN_TABLE: Record<UiSizePreset, UiSizeTokens> = {
+  compact: {
+    textMicro: "10px",
+    textCaption: "11px",
+    textXs: "12px",
+    textSm: "13px",
+    textBase: "14px",
+    textLg: "16px",
+    textXl: "18px",
+    text2Xl: "22px",
+    markdownHeading1: "15px",
+    markdownHeading2: "15px",
+    markdownHeading3: "14px",
+    markdownHeading4: "14px",
+    markdownDocumentHeading1: "20px",
+    markdownDocumentHeading2: "18px",
+    markdownDocumentHeading3: "16px",
+    markdownDocumentHeading4: "15px",
+    sizeField: "4px",
+    sizeSelector: "4px",
+    border: "1px",
+  },
+  default: {
+    textMicro: "11px",
+    textCaption: "12px",
+    textXs: "13px",
+    textSm: "14px",
+    textBase: "16px",
+    textLg: "18px",
+    textXl: "20px",
+    text2Xl: "24px",
+    markdownHeading1: "16px",
+    markdownHeading2: "16px",
+    markdownHeading3: "15px",
+    markdownHeading4: "14px",
+    markdownDocumentHeading1: "24px",
+    markdownDocumentHeading2: "20px",
+    markdownDocumentHeading3: "18px",
+    markdownDocumentHeading4: "16px",
+    sizeField: "4px",
+    sizeSelector: "4px",
+    border: "1px",
+  },
+  large: {
+    textMicro: "12px",
+    textCaption: "13px",
+    textXs: "14px",
+    textSm: "16px",
+    textBase: "18px",
+    textLg: "20px",
+    textXl: "24px",
+    text2Xl: "28px",
+    markdownHeading1: "18px",
+    markdownHeading2: "17px",
+    markdownHeading3: "16px",
+    markdownHeading4: "15px",
+    markdownDocumentHeading1: "28px",
+    markdownDocumentHeading2: "24px",
+    markdownDocumentHeading3: "20px",
+    markdownDocumentHeading4: "18px",
+    sizeField: "5px",
+    sizeSelector: "5px",
+    border: "1px",
+  },
+  xlarge: {
+    textMicro: "13px",
+    textCaption: "15px",
+    textXs: "16px",
+    textSm: "18px",
+    textBase: "20px",
+    textLg: "24px",
+    textXl: "28px",
+    text2Xl: "32px",
+    markdownHeading1: "20px",
+    markdownHeading2: "19px",
+    markdownHeading3: "18px",
+    markdownHeading4: "16px",
+    markdownDocumentHeading1: "32px",
+    markdownDocumentHeading2: "28px",
+    markdownDocumentHeading3: "24px",
+    markdownDocumentHeading4: "20px",
+    sizeField: "5px",
+    sizeSelector: "5px",
+    border: "1px",
+  },
+};
+
+/** 旧值（任意 75-150 之间的百分比、或 small/default/large/extraLarge）就近归到四档之一。 */
+function uiSizePresetOf(scale: UiSizeScale): UiSizePreset {
+  let best: UiSizePreset = "default";
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const preset of UI_SIZE_PRESET_ORDER) {
+    const distance = Math.abs(UI_SIZE_PRESET_SCALES[preset] - scale);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = preset;
+    }
+  }
+  return best;
 }
 
-function scaledPx(value: number, scale: UiSizeScale): string {
-  return `${Math.round(value * scaledLinearFactor(scale) * 100) / 100}px`;
+export function uiSizePresetLabel(value: unknown): UiSizePreset {
+  return uiSizePresetOf(normalizeUiSizeScale(value));
 }
 
-/** 边框不吃亚像素：低于 1px 在部分显示器上直接消失，所以取 1px 作下限。 */
-function scaledBorderPx(scale: UiSizeScale): string {
-  return `${Math.max(scaledLinearFactor(scale), 1).toFixed(2)}px`;
+export function uiSizeScaleOfPreset(preset: UiSizePreset): UiSizeScale {
+  return UI_SIZE_PRESET_SCALES[preset];
 }
 
 export function normalizeUiSizeScale(value: unknown): UiSizeScale {
   if (value == null || (typeof value === "string" && !value.trim())) {
     return UI_SIZE_DEFAULT_SCALE;
   }
-  if (typeof value === "string" && value.trim() in LEGACY_UI_SIZE_SCALE_MAP) {
-    return LEGACY_UI_SIZE_SCALE_MAP[value.trim()];
+  const raw = typeof value === "string" ? value.trim() : value;
+  for (const preset of UI_SIZE_PRESET_ORDER) {
+    if (raw === preset) return UI_SIZE_PRESET_SCALES[preset];
   }
-  const numeric = Math.round(Number(value));
+  if (typeof raw === "string" && raw in LEGACY_UI_SIZE_SCALE_MAP) {
+    return UI_SIZE_PRESET_SCALES[uiSizePresetOf(LEGACY_UI_SIZE_SCALE_MAP[raw])];
+  }
+  const numeric = Math.round(Number(raw));
   if (!Number.isFinite(numeric)) return UI_SIZE_DEFAULT_SCALE;
-  return Math.min(UI_SIZE_MAX_SCALE, Math.max(UI_SIZE_MIN_SCALE, numeric));
+  const clamped = Math.min(UI_SIZE_MAX_SCALE, Math.max(UI_SIZE_MIN_SCALE, numeric));
+  return UI_SIZE_PRESET_SCALES[uiSizePresetOf(clamped)];
 }
 
 export function uiSizeTokensFor(value: unknown): UiSizeTokens {
-  const scale = normalizeUiSizeScale(value);
-  return {
-    textMicro: scaledPx(9, scale),
-    textCaption: scaledPx(11, scale),
-    textXs: scaledPx(12, scale),
-    textSm: scaledPx(14, scale),
-    textBase: scaledPx(16, scale),
-    textLg: scaledPx(18, scale),
-    textXl: scaledPx(20, scale),
-    text2Xl: scaledPx(24, scale),
-    markdownHeading1: scaledPx(16.32, scale),
-    markdownHeading2: scaledPx(15.68, scale),
-    markdownHeading3: scaledPx(15.04, scale),
-    markdownHeading4: scaledPx(14.4, scale),
-    markdownDocumentHeading1: scaledPx(24, scale),
-    markdownDocumentHeading2: scaledPx(20.48, scale),
-    markdownDocumentHeading3: scaledPx(17.92, scale),
-    markdownDocumentHeading4: scaledPx(16.32, scale),
-    sizeField: scaledPx(4.16, scale),
-    sizeSelector: scaledPx(4.16, scale),
-    border: scaledBorderPx(scale),
-  };
+  return UI_SIZE_TOKEN_TABLE[uiSizePresetOf(normalizeUiSizeScale(value))];
 }
 
 function readStoredUiSizeScale(): UiSizeScale {
@@ -189,11 +283,18 @@ function ensureUiSizeHintElement(): HTMLElement | null {
   return el;
 }
 
+const UI_SIZE_PRESET_TEXT: Record<UiSizePreset, string> = {
+  compact: "紧凑",
+  default: "默认",
+  large: "大",
+  xlarge: "特大",
+};
+
 export function showUiSizeScaleHint(scale: UiSizeScale) {
   if (typeof document === "undefined" || typeof window === "undefined") return;
   const el = ensureUiSizeHintElement();
   if (!el) return;
-  el.textContent = `${normalizeUiSizeScale(scale)}%`;
+  el.textContent = UI_SIZE_PRESET_TEXT[uiSizePresetOf(normalizeUiSizeScale(scale))];
   el.style.opacity = "1";
   el.style.transform = "translate(-50%, -50%) scale(1)";
   if (hintHideTimer) {
@@ -208,8 +309,14 @@ export function showUiSizeScaleHint(scale: UiSizeScale) {
 }
 
 export function stepUiSizeScale(direction: number): UiSizeScale {
-  const delta = direction > 0 ? UI_SIZE_STEP_SCALE : -UI_SIZE_STEP_SCALE;
-  const next = setUiSizeScale(uiSizeScale.value + delta);
+  // 四档之间逐档切换，不再按 ±10% 连续加减：中间档位已经不存在了。
+  const currentPreset = uiSizePresetOf(normalizeUiSizeScale(uiSizeScale.value));
+  const currentIndex = UI_SIZE_PRESET_ORDER.indexOf(currentPreset);
+  const nextIndex = Math.min(
+    UI_SIZE_PRESET_ORDER.length - 1,
+    Math.max(0, currentIndex + (direction > 0 ? 1 : -1)),
+  );
+  const next = setUiSizeScale(UI_SIZE_PRESET_SCALES[UI_SIZE_PRESET_ORDER[nextIndex]]);
   showUiSizeScaleHint(next);
   return next;
 }

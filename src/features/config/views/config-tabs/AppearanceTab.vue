@@ -141,29 +141,20 @@
       <div class="grid min-w-0 gap-2">
         <div class="flex items-center justify-between gap-3">
           <span class="text-sm">{{ t("appearance.uiSizeScale") }}</span>
-          <output class="text-sm font-medium tabular-nums">{{ uiSizeScale }}%</output>
+          <output class="text-sm font-medium">{{ uiSizePresetText }}</output>
         </div>
-        <input
-          class="range range-primary w-full"
-          type="range"
-          min="75"
-          max="150"
-          step="1"
-          :value="uiSizeScale"
-          :aria-label="t('appearance.uiSizeScale')"
-          @input="$emit('update:uiSizeScale', Number(($event.target as HTMLInputElement).value))"
-        />
+        <!-- 四档字号，没有中间档：每档是一张手写的整数 px 表，不做百分比缩放 -->
         <div class="grid grid-cols-4 gap-1">
           <button
-            v-for="scale in uiSizeScaleMarks"
-            :key="scale"
-            class="btn btn-xs text-caption tabular-nums"
-            :class="uiSizeScale === scale ? 'btn-primary' : 'btn-ghost text-base-content/60'"
-            :aria-pressed="uiSizeScale === scale"
+            v-for="preset in uiSizePresets"
+            :key="preset.scale"
+            class="btn btn-xs text-caption"
+            :class="uiSizeScale === preset.scale ? 'btn-primary' : 'btn-ghost text-base-content/60'"
+            :aria-pressed="uiSizeScale === preset.scale"
             type="button"
-            @click="$emit('update:uiSizeScale', scale)"
+            @click="$emit('update:uiSizeScale', preset.scale)"
           >
-            {{ scale }}%
+            {{ preset.label }}
           </button>
         </div>
       </div>
@@ -327,7 +318,16 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => [
     rows: [{ key: "theme", items: [] }],
   },
 ]);
-const uiSizeScaleMarks = [75, 100, 125, 150] as const;
+const uiSizePresets = computed(() => [
+  { scale: 75, label: t("appearance.uiSizeCompact") },
+  { scale: 100, label: t("appearance.uiSizeDefault") },
+  { scale: 125, label: t("appearance.uiSizeLarge") },
+  { scale: 150, label: t("appearance.uiSizeXLarge") },
+]);
+const uiSizePresetText = computed(() => {
+  const preset = uiSizePresets.value.find((item) => item.scale === props.uiSizeScale);
+  return (preset ?? uiSizePresets.value[1]).label;
+});
 const displayModeOptions = computed<Array<{ value: ThemeModeKind; label: string }>>(() => [
   { value: "light", label: t("appearance.displayMode.light") },
   { value: "dark", label: t("appearance.displayMode.dark") },
