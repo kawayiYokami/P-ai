@@ -516,6 +516,53 @@ mod catalog_tests {
     }
 
     #[test]
+    fn official_registry_entry_should_match_real_samples() {
+        // 实测样例一：自带 icons[0].src，仓库地址能推出 owner。
+        let case = serde_json::json!({
+            "server": {
+                "name": "io.github.upstash/context7",
+                "title": "Context7",
+                "icons": [{"src": "https://raw.githubusercontent.com/upstash/context7/master/public/icon.png"}],
+                "repository": {"url": "https://github.com/upstash/context7"},
+                "remotes": [{"url": "https://mcp.context7.com/mcp"}]
+            },
+            "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active", "isLatest": true}}
+        });
+        let entry = official_registry_entry(&case);
+        assert_eq!(
+            entry.icon,
+            "https://raw.githubusercontent.com/upstash/context7/master/public/icon.png"
+        );
+        assert_eq!(entry.author, "upstash");
+        assert_eq!(entry.id, "io.github.upstash/context7");
+        assert_eq!(entry.transport, "streamable_http");
+
+        // 实测样例二：icons 为 null，但仓库地址能推 owner，用头像而不是空白。
+        let case = serde_json::json!({
+            "server": {
+                "name": "ai.smithery/renCosta2025-context7fork",
+                "title": "Context7 Fork",
+                "icons": null,
+                "repository": {"url": "https://github.com/renCosta2025/context7-fork"}
+            },
+            "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active", "isLatest": true}}
+        });
+        let entry = official_registry_entry(&case);
+        assert_eq!(entry.icon, "https://github.com/renCosta2025.png?size=96");
+        assert_eq!(entry.author, "renCosta2025");
+
+        // 实测 30 条里 13 条既无图标也无 GitHub 归属：只能是空串，前端退首字母。
+        // 不给它们编造默认图。
+        let case = serde_json::json!({
+            "server": {"name": "com.example/mcp", "title": "Example"},
+            "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active", "isLatest": true}}
+        });
+        let entry = official_registry_entry(&case);
+        assert_eq!(entry.icon, "");
+        assert_eq!(entry.author, "example.com");
+    }
+
+    #[test]
     fn official_registry_icon_should_prefer_own_icon_then_github_owner_then_empty() {
         let with_icon = serde_json::json!({
             "server": {
