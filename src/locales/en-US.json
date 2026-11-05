@@ -800,7 +800,7 @@
         "settings": "Persona settings",
         "locked": "Fixed",
         "systemRules": "System rules",
-        "systemRulesHint": "Baseline constraints: anti-flattery, execution boundaries, output style.",
+        "systemRulesHint": "PAI built-in prompts; conversation environment prompts still exist after it is turned off.",
         "systemRulesToggle": "Enabled; turn off to stop injecting system rules into this persona",
         "systemRulesDisableTitle": "Turn off system rules",
         "systemRulesDisableMessage": "With system rules off, the AI's behavior becomes unpredictable. Turn it off anyway?",

@@ -800,7 +800,7 @@
         "settings": "人格設定",
         "locked": "固定",
         "systemRules": "系統準則",
-        "systemRulesHint": "反諂媚、執行邊界與輸出風格等基礎行為約束。",
+        "systemRulesHint": "PAI 的內建提示詞，關閉後仍有工作階段環境提示詞",
         "systemRulesToggle": "已開啟，點擊關閉後該人格不再注入系統準則",
         "systemRulesDisableTitle": "關閉系統準則",
         "systemRulesDisableMessage": "關閉系統準則之後，AI 的行為會變得不可預測，確定要關閉嗎？",
