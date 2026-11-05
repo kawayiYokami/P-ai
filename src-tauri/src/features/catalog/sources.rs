@@ -460,6 +460,29 @@ fn skills_sh_entries(raw_items: &[Value]) -> Vec<CatalogEntry> {
 /// 热门榜：页面数据里 `initialSkills":` 之后紧跟一个 JSON 数组，直接解码，不解析 DOM。
 /// 页面把这段 JSON 放在 JS 字符串里，键名的引号实测带一层反斜杠转义，
 /// 也有不转义的形态，两种都认。
+/// 页面把数组放在 JS 字符串里，引号与反斜杠各多一层转义。做一次单遍还原：
+/// `\"` -> `"`，`\\` -> `\`，其余序列原样留给 JSON 解析器。
+/// 不能用两次 replace 代替：`\\"` 无论先换哪一个都会丢字符。
+fn skills_sh_unescape_js_string(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.next() {
+            Some(next @ ('\\' | '"')) => out.push(next),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
+
 fn skills_sh_trending_entries(page: &str) -> Vec<CatalogEntry> {
     const ESCAPED_KEY: &str = "initialSkills\\\":";
     const PLAIN_KEY: &str = "initialSkills\":";
@@ -470,8 +493,9 @@ fn skills_sh_trending_entries(page: &str) -> Vec<CatalogEntry> {
     } else {
         return Vec::new();
     };
-    // 转义形态解码前先还原引号与反斜杠。
-    let decoded = tail.replace("\\\\", "\\").replace("\\\"", "\"");
+    // 交给 serde 的流式解码器：它自己按括号与字符串状态扫到数组结束，
+    // 不会像正则那样贪到数组之外，所以这里不需要手写括号计数。
+    let decoded = skills_sh_unescape_js_string(tail);
     let mut stream = serde_json::Deserializer::from_str(&decoded).into_iter::<Vec<Value>>();
     match stream.next() {
         Some(Ok(items)) => skills_sh_entries(&items),

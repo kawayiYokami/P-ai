@@ -393,11 +393,29 @@ mod catalog_tests {
     }
 
     #[test]
+    fn skills_sh_js_string_unescape_should_restore_exactly_one_layer() {
+        assert_eq!(
+            skills_sh_unescape_js_string(r#"{\"a\":\"b\"}"#),
+            r#"{"a":"b"}"#
+        );
+        // 字面反斜杠是 `\\`，还原成一个；不能把紧随其后的引号一起吃掉。
+        assert_eq!(skills_sh_unescape_js_string(r#"C:\\path\""#), "C:\\path\"");
+        // 不属于这一层的转义（\n、\u）原样留给 JSON 解析器。
+        assert_eq!(skills_sh_unescape_js_string(r#"a\nb"#), r#"a\nb"#);
+        assert_eq!(skills_sh_unescape_js_string(r#"\u4e2d"#), r#"\u4e2d"#);
+    }
+
+    #[test]
     fn skills_sh_trending_should_read_escaped_array_and_drop_dirty_rows() {
         // 页面把列表嵌在 JS 字符串里：键名前后的引号带一层反斜杠转义。
-        let escaped = r#"initialSkills\":[{\"source\":\"obra/superpowers\",\"skillId\":\"using-git-worktrees\",\"name\":\"Using Git Worktrees\",\"installs\":1234},{\"source\":\"not-a-repo\",\"skillId\":\"junk\",\"name\":\"Junk\",\"installs\":9}]"#;
+        // 脏行取自实测：`uizze.sh`、`open.feishu.cn` 是站点把自己也列进去了（600 条里 31 条）。
+        let escaped = r#"initialSkills\":[{\"source\":\"obra/superpowers\",\"skillId\":\"using-git-worktrees\",\"name\":\"Using Git Worktrees\",\"installs\":1234},{\"source\":\"uizze.sh\",\"skillId\":\"junk\",\"name\":\"Junk\",\"installs\":9},{\"source\":\"open.feishu.cn\",\"skillId\":\"junk2\",\"name\":\"Junk2\",\"installs\":8},{\"source\":\"a/b/c\",\"skillId\":\"junk3\",\"name\":\"Junk3\",\"installs\":7}]"#;
         let entries = skills_sh_trending_entries(escaped);
-        assert_eq!(entries.len(), 1, "不是 owner/repo 形态的条目要丢掉");
+        assert_eq!(
+            entries.len(),
+            1,
+            "不是 owner/repo 两段形态的条目要丢掉"
+        );
         assert_eq!(entries[0].id, "obra/superpowers/using-git-worktrees");
         assert_eq!(entries[0].popularity, 1234);
 
