@@ -65,7 +65,6 @@
         :preset-light-theme="presetLightTheme"
         :preset-dark-theme="presetDarkTheme"
         :generated-theme-controls="generatedThemeControls"
-        :generated-theme-tokens="generatedThemeTokens"
         :generated-light-tokens="generatedLightTokens"
         :generated-dark-tokens="generatedDarkTokens"
         :ui-size-scale="config.uiSizeScale ?? 100"
@@ -495,7 +494,6 @@ const {
 const {
   currentTheme,
   generatedThemeControls,
-  generatedThemeTokens,
   generatedThemeTokensByMode,
   themeMode,
   themeSource,

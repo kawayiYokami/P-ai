@@ -20,6 +20,13 @@
             <span class="badge badge-sm badge-accent">A</span>
             <span class="badge badge-sm badge-neutral">A</span>
           </div>
+          <!-- 四大状态色：与主题卡片一致，自定义主题也要能看出状态色表现 -->
+          <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span class="badge badge-sm badge-success">A</span>
+            <span class="badge badge-sm badge-warning">A</span>
+            <span class="badge badge-sm badge-error">A</span>
+            <span class="badge badge-sm badge-info">A</span>
+          </div>
         </div>
       </div>
     </div>
@@ -29,13 +36,13 @@
         <div>
           <h4 class="text-sm font-semibold text-base-content">{{ t("appearance.customThemeControls") }}</h4>
         </div>
-        <button class="btn btn-xs" type="button" @click="$emit('reset')">{{ t("appearance.resetGeneratedTheme") }}</button>
+        <button class="btn btn-xs" type="button" @click="resetEditingMode">{{ t("appearance.resetGeneratedTheme") }}</button>
       </div>
 
       <div class="grid gap-4">
         <div class="space-y-2">
           <SegmentedControl
-            :model-value="props.controls.mode"
+            :model-value="editControls.mode"
             :options="modeOptions"
             @change="patchMode"
           />
@@ -44,7 +51,7 @@
         <label class="grid gap-2">
           <div class="flex items-center justify-between gap-3 text-sm">
             <span>{{ t("appearance.themeHue") }}</span>
-            <span class="font-mono text-xs text-base-content/65">{{ Math.round(props.controls.themeHue) }}deg</span>
+            <span class="font-mono text-xs text-base-content/65">{{ Math.round(editControls.themeHue) }}deg</span>
           </div>
           <input
             class="range range-primary w-full"
@@ -52,7 +59,7 @@
             min="1"
             max="360"
             step="1"
-            :value="props.controls.themeHue"
+            :value="editControls.themeHue"
             @input="patchSlider('themeHue', $event)"
           />
         </label>
@@ -60,7 +67,7 @@
         <label class="grid gap-2">
           <div class="flex items-center justify-between gap-3 text-sm">
             <span>{{ t("appearance.contrast") }}</span>
-            <span class="font-mono text-xs text-base-content/65">{{ props.controls.contrast }}</span>
+            <span class="font-mono text-xs text-base-content/65">{{ editControls.contrast }}</span>
           </div>
           <input
             class="range range-secondary w-full"
@@ -68,7 +75,7 @@
             min="1"
             max="30"
             step="1"
-            :value="props.controls.contrast"
+            :value="editControls.contrast"
             @input="patchSlider('contrast', $event)"
           />
         </label>
@@ -76,7 +83,7 @@
         <label class="grid gap-2">
           <div class="flex items-center justify-between gap-3 text-sm">
             <span>{{ brightnessLabel }}</span>
-            <span class="font-mono text-xs text-base-content/65">{{ props.controls.brightness }}</span>
+            <span class="font-mono text-xs text-base-content/65">{{ editControls.brightness }}</span>
           </div>
           <input
             class="range range-info w-full"
@@ -84,7 +91,7 @@
             min="0"
             max="100"
             step="1"
-            :value="props.controls.brightness"
+            :value="editControls.brightness"
             @input="patchSlider('brightness', $event)"
           />
         </label>
@@ -92,7 +99,7 @@
         <label class="grid gap-2">
           <div class="flex items-center justify-between gap-3 text-sm">
             <span>{{ t("appearance.tint") }}</span>
-            <span class="font-mono text-xs text-base-content/65">{{ props.controls.tint }}</span>
+            <span class="font-mono text-xs text-base-content/65">{{ editControls.tint }}</span>
           </div>
           <input
             class="range range-success w-full"
@@ -100,7 +107,7 @@
             min="0"
             max="100"
             step="1"
-            :value="props.controls.tint"
+            :value="editControls.tint"
             @input="patchSlider('tint', $event)"
           />
         </label>
@@ -108,7 +115,7 @@
         <label class="grid gap-2">
           <div class="flex items-center justify-between gap-3 text-sm">
             <span>{{ t("appearance.tone") }}</span>
-            <span class="font-mono text-xs text-base-content/65">{{ props.controls.tone }}</span>
+            <span class="font-mono text-xs text-base-content/65">{{ editControls.tone }}</span>
           </div>
           <input
             class="range range-accent w-full"
@@ -116,7 +123,7 @@
             min="30"
             max="100"
             step="1"
-            :value="props.controls.tone"
+            :value="editControls.tone"
             @input="patchSlider('tone', $event)"
           />
         </label>
@@ -124,7 +131,7 @@
         <label class="grid gap-2">
           <div class="flex items-center justify-between gap-3 text-sm">
             <span>{{ t("appearance.textStrength") }}</span>
-            <span class="font-mono text-xs text-base-content/65">{{ props.controls.textStrength }}</span>
+            <span class="font-mono text-xs text-base-content/65">{{ editControls.textStrength }}</span>
           </div>
           <input
             class="range range-warning w-full"
@@ -132,7 +139,7 @@
             min="55"
             max="100"
             step="1"
-            :value="props.controls.textStrength"
+            :value="editControls.textStrength"
             @input="patchSlider('textStrength', $event)"
           />
         </label>
@@ -140,7 +147,7 @@
         <label class="grid gap-2">
           <div class="flex items-center justify-between gap-3 text-sm">
             <span>{{ t("appearance.radius") }}</span>
-            <span class="font-mono text-xs text-base-content/65">{{ props.controls.radius }}px</span>
+            <span class="font-mono text-xs text-base-content/65">{{ editControls.radius }}px</span>
           </div>
           <input
             class="range w-full"
@@ -148,7 +155,7 @@
             min="0"
             max="28"
             step="1"
-            :value="props.controls.radius"
+            :value="editControls.radius"
             @input="patchSlider('radius', $event)"
           />
         </label>
@@ -158,7 +165,7 @@
             <input
               class="toggle toggle-sm"
               type="checkbox"
-              :checked="props.controls.depthEnabled"
+              :checked="editControls.depthEnabled"
               @change="patchBoolean('depthEnabled', $event)"
             />
             <span class="text-sm text-base-content">{{ t("appearance.depthEnabled") }}</span>
@@ -167,7 +174,7 @@
             <input
               class="toggle toggle-sm"
               type="checkbox"
-              :checked="props.controls.noiseEnabled"
+              :checked="editControls.noiseEnabled"
               @change="patchBoolean('noiseEnabled', $event)"
             />
             <span class="text-sm text-base-content">{{ t("appearance.noiseEnabled") }}</span>
@@ -179,45 +186,55 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import SegmentedControl from "./SegmentedControl.vue";
 import {
   GENERATED_THEME_NAME,
+  generateGeneratedThemeTokens,
   generatedThemeTokensToCssVariables,
+  getGeneratedThemeDefaultControls,
 } from "../../shell/theme/theme-generator";
 import type {
   GeneratedThemeControls,
-  GeneratedThemeTokens,
+  ThemeMode,
 } from "../../shell/theme/theme-types";
+import { useAppTheme } from "../../shell/composables/use-app-theme";
 
 const props = defineProps<{
   controls: GeneratedThemeControls;
-  tokens: GeneratedThemeTokens;
-}>();
-
-const emit = defineEmits<{
-  (e: "updateControls", value: Partial<GeneratedThemeControls>): void;
-  (e: "reset"): void;
 }>();
 
 const { t } = useI18n();
+const { generatedThemeControlsByMode, updateGeneratedThemeControls } = useAppTheme();
 
-const previewStyle = computed(() => generatedThemeTokensToCssVariables(props.tokens));
+/**
+ * 「我在编辑哪一侧」是编辑器自己的状态：只由这里的浅色/深色切换决定。
+ * 不能从应用当前生效的明暗派生——那样上面选了深色，这里就只能编辑深色，
+ * 点上浅色也会被主题重新施加时改回去。
+ */
+const editMode = ref<ThemeMode>(props.controls.mode);
+const editControls = computed(() => generatedThemeControlsByMode.value[editMode.value]);
+
+const previewStyle = computed(() => generatedThemeTokensToCssVariables(generateGeneratedThemeTokens(editControls.value)));
 const modeOptions = computed(() => [
   { value: "light" as const, label: t("appearance.modeOptions.light") },
   { value: "dark" as const, label: t("appearance.modeOptions.dark") },
 ]);
 const brightnessLabel = computed(() =>
-  props.controls.mode === "dark" ? t("appearance.darkness") : t("appearance.brightness"),
+  editMode.value === "dark" ? t("appearance.darkness") : t("appearance.brightness"),
 );
 
 function patchControls(patch: Partial<GeneratedThemeControls>) {
-  emit("updateControls", patch);
+  updateGeneratedThemeControls({ ...patch, mode: editMode.value });
 }
 
-function patchMode(mode: "light" | "dark") {
-  patchControls({ mode });
+function patchMode(mode: ThemeMode) {
+  editMode.value = mode;
+}
+
+function resetEditingMode() {
+  updateGeneratedThemeControls(getGeneratedThemeDefaultControls(editMode.value));
 }
 
 function patchSlider(key: "themeHue" | "contrast" | "brightness" | "tint" | "tone" | "textStrength" | "radius", event: Event) {

@@ -25,6 +25,7 @@
             <option value="thinking-preview">思考预览 bar</option>
             <option value="rich-block-embed">代码块 / mermaid 内嵌气泡</option>
             <option value="markdown-view">Markdown 全量渲染</option>
+            <option value="theme-cards">主题预设卡片</option>
             <option value="session-float-dock">会话悬浮操作区</option>
             <option value="session-timeline">会话时间线（垂直）</option>
             <option value="config-cards">配置卡片画廊（六大卡片第一性原理）</option>
@@ -200,6 +201,25 @@
           <p class="text-sm text-base-content/70">一份文本覆盖解析器全部块与行内类型，可切三种疏密档位、chat/document 变体、streaming 与深色配色。</p>
         </div>
         <AppMarkdownRendererDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'theme-cards'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">主题预设卡片（AutoThemeGrid）</h3>
+          <p class="text-sm text-base-content/70">每张卡片在品牌色（主色/次色/强调/中性）之下列出四大状态色（成功/警告/错误/信息），用来判断该主题的状态色是否够醒目。卡片用真实 DaisyUI 主题渲染。</p>
+        </div>
+        <AutoThemeGrid
+          :light-themes="demoLightThemes"
+          :dark-themes="demoDarkThemes"
+          auto-light-theme="light"
+          auto-dark-theme="dark"
+          :light-custom-tokens="demoLightTokens"
+          :dark-custom-tokens="demoDarkTokens"
+          @select-light="() => {}"
+          @select-dark="() => {}"
+        />
       </div>
     </div>
 
@@ -841,6 +861,11 @@ import DoubleDeckCardDemo from "../../../chat/components/DoubleDeckCardDemo.vue"
 import ChatThinkingPreviewBarDemo from "../../../chat/components/ChatThinkingPreviewBarDemo.vue";
 import ChatRichBlockEmbedDemo from "../../../chat/components/ChatRichBlockEmbedDemo.vue";
 import AppMarkdownRendererDemo from "../../../chat/markdown/AppMarkdownRendererDemo.vue";
+import AutoThemeGrid from "../../components/AutoThemeGrid.vue";
+import {
+  generateGeneratedThemeTokens,
+  getGeneratedThemeDefaultControls,
+} from "../../../shell/theme/theme-generator";
 import SessionFloatDockDemo from "../../../chat/components/SessionFloatDockDemo.vue";
 import SessionTimelineDemo from "../../../chat/components/SessionTimelineDemo.vue";
 import TeamMemberTileGridDemo from "../../../chat/components/TeamMemberTileGridDemo.vue";
@@ -936,7 +961,11 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "markdown-view" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "catalog-entry-card" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "markdown-view" | "theme-cards" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "catalog-entry-card" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
+const demoLightThemes = ["light", "cupcake", "corporate", "lofi", "fantasy", "autumn"];
+const demoDarkThemes = ["dark", "halloween", "forest", "dracula", "business", "dim"];
+const demoLightTokens = generateGeneratedThemeTokens(getGeneratedThemeDefaultControls("light"));
+const demoDarkTokens = generateGeneratedThemeTokens(getGeneratedThemeDefaultControls("dark"));
 
 // bare 模式下把内容高度写进标题，便于无头截图按内容高度精确裁剪。
 onMounted(() => {
@@ -964,6 +993,7 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "thinking-preview") return "思考预览 bar";
   if (demoComponentKey.value === "rich-block-embed") return "代码块 / mermaid 内嵌气泡";
   if (demoComponentKey.value === "markdown-view") return "Markdown 全量渲染";
+  if (demoComponentKey.value === "theme-cards") return "主题预设卡片";
   if (demoComponentKey.value === "double-deck") return "双层卡";
   if (demoComponentKey.value === "home-cards") return "预览卡画廊";
   if (demoComponentKey.value === "conversation-list") return "列表卡画廊";

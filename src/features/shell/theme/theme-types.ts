@@ -55,10 +55,12 @@ export type ThemeModeKind = "light" | "dark" | "auto";
 export type ThemeSourceKind = "preset" | "generated";
 
 /**
- * 外观偏好：来源与显示模式是两个独立维度。
+ * 外观偏好：明暗两侧各自记一张卡。
  *
- * 明暗各有一套主题——预设来源看 presetLightTheme / presetDarkTheme，
- * 自定义来源看 generatedControlsByMode 的两份参数。没有「当前单个主题」这个概念。
+ * presetLightTheme / presetDarkTheme 就是两侧生效的卡：内置预设名，或
+ * generated-light / generated-dark（自定义浅色 / 自定义深色）。
+ *
+ * source 是派生字段（当前生效那张卡是不是自定义），不再参与决定用哪套主题。
  */
 export type PersistedThemePreferences = {
   version: 4;

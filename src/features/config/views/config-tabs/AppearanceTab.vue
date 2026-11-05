@@ -176,16 +176,16 @@
           <button
             type="button"
             class="tab flex-1 rounded-btn"
-            :class="themeSource === 'preset' ? 'tab-active' : ''"
-            @click="selectThemeSource('preset')"
+            :class="themePanel === 'preset' ? 'tab-active' : ''"
+            @click="selectThemePanel('preset')"
           >
             {{ t("appearance.themeTabs.preset") }}
           </button>
           <button
             type="button"
             class="tab flex-1 rounded-btn"
-            :class="themeSource === 'generated' ? 'tab-active' : ''"
-            @click="selectThemeSource('generated')"
+            :class="themePanel === 'generated' ? 'tab-active' : ''"
+            @click="selectThemePanel('generated')"
           >
             {{ t("appearance.themeTabs.generated") }}
           </button>
@@ -193,11 +193,11 @@
 
         <!-- 预设这一栏原样沿用自动页那块：明暗各挑一个内置主题 -->
         <AutoThemeGrid
-          v-if="themeSource === 'preset'"
+          v-if="themePanel === 'preset'"
           :light-themes="lightThemes"
           :dark-themes="darkThemes"
-          :auto-light-theme="props.presetLightTheme"
-          :auto-dark-theme="props.presetDarkTheme"
+          :auto-light-theme="activeLightCardId"
+          :auto-dark-theme="activeDarkCardId"
           :light-custom-tokens="props.generatedLightTokens"
           :dark-custom-tokens="props.generatedDarkTokens"
           @select-light="$emit('setPresetTheme', 'light', $event)"
@@ -207,9 +207,6 @@
         <GeneratedThemeEditor
           v-else
           :controls="props.generatedThemeControls"
-          :tokens="props.generatedThemeTokens"
-          @update-controls="$emit('updateGeneratedThemeControls', $event)"
-          @reset="$emit('resetGeneratedTheme')"
         />
       </div>
     </template>
@@ -249,7 +246,6 @@ const props = defineProps<{
   presetLightTheme: string;
   presetDarkTheme: string;
   generatedThemeControls: GeneratedThemeControls;
-  generatedThemeTokens: GeneratedThemeTokens;
   generatedLightTokens: GeneratedThemeTokens;
   generatedDarkTokens: GeneratedThemeTokens;
   uiSizeScale: number;
@@ -334,17 +330,24 @@ const displayModeOptions = computed<Array<{ value: ThemeModeKind; label: string 
   { value: "auto", label: t("appearance.displayMode.auto") },
 ]);
 /** 来源直接读 props，不做本地副本：tab 只在点击时上报，状态永远以后端那份为准。 */
-const themeSource = computed<ThemeSourceKind>(() => props.themeSource);
-
 function onDisplayModeChange(mode: ThemeModeKind) {
   if (mode === props.themeMode) return;
   emit("setThemeMode", mode);
 }
 
-function selectThemeSource(source: ThemeSourceKind) {
-  if (source === props.themeSource) return;
-  emit("setThemeSource", source);
+/**
+ * 「预设 / 自定义」只是切视图：这里不写回主题来源，也不重落主题。
+ * 到底生效哪一套，由卡片上的勾决定（勾预设卡片 = 用预设，勾自定义卡片 = 用自定义）。
+ */
+const themePanel = ref<ThemeSourceKind>(props.themeSource);
+
+function selectThemePanel(source: ThemeSourceKind) {
+  themePanel.value = source;
 }
+
+/** 明暗两侧各记一张卡：勾就画在各自那张卡上，互不牵连 */
+const activeLightCardId = computed(() => props.presetLightTheme);
+const activeDarkCardId = computed(() => props.presetDarkTheme);
 const markdownFontScaleOptions = computed(() => [
   { value: 0, label: t("appearance.markdownFontScaleLight") },
   { value: 1, label: t("appearance.markdownFontScaleHeavy") },

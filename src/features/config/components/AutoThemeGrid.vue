@@ -14,8 +14,8 @@
           @click="$emit('selectLight', card.id)"
         >
           <div class="flex">
-            <div class="h-16 w-8 bg-base-200"></div>
-            <div class="h-16 w-8 bg-base-300"></div>
+            <div class="w-8 bg-base-200"></div>
+            <div class="w-8 bg-base-300"></div>
             <div class="flex-1 bg-base-100 px-3 py-2">
               <div class="flex items-center justify-between gap-1">
                 <div class="text-base font-semibold leading-tight text-base-content">{{ themeLabel(card) }}</div>
@@ -26,11 +26,18 @@
                   <Check class="h-3 w-3" />
                 </span>
               </div>
-              <div class="mt-2 flex items-center gap-1">
+              <div class="mt-2 flex flex-wrap items-center gap-1">
                 <span class="badge badge-sm badge-primary">A</span>
                 <span class="badge badge-sm badge-secondary">A</span>
                 <span class="badge badge-sm badge-accent">A</span>
                 <span class="badge badge-sm badge-neutral">A</span>
+              </div>
+              <!-- 四大状态色：卡片不只要看品牌色，也要看出成功/警告/错误/信息在该主题下的表现 -->
+              <div class="mt-1 flex flex-wrap items-center gap-1">
+                <span class="badge badge-sm badge-success">A</span>
+                <span class="badge badge-sm badge-warning">A</span>
+                <span class="badge badge-sm badge-error">A</span>
+                <span class="badge badge-sm badge-info">A</span>
               </div>
             </div>
           </div>
@@ -52,8 +59,8 @@
           @click="$emit('selectDark', card.id)"
         >
           <div class="flex">
-            <div class="h-16 w-8 bg-base-200"></div>
-            <div class="h-16 w-8 bg-base-300"></div>
+            <div class="w-8 bg-base-200"></div>
+            <div class="w-8 bg-base-300"></div>
             <div class="flex-1 bg-base-100 px-3 py-2">
               <div class="flex items-center justify-between gap-1">
                 <div class="text-base font-semibold leading-tight text-base-content">{{ themeLabel(card) }}</div>
@@ -64,11 +71,18 @@
                   <Check class="h-3 w-3" />
                 </span>
               </div>
-              <div class="mt-2 flex items-center gap-1">
+              <div class="mt-2 flex flex-wrap items-center gap-1">
                 <span class="badge badge-sm badge-primary">A</span>
                 <span class="badge badge-sm badge-secondary">A</span>
                 <span class="badge badge-sm badge-accent">A</span>
                 <span class="badge badge-sm badge-neutral">A</span>
+              </div>
+              <!-- 四大状态色：卡片不只要看品牌色，也要看出成功/警告/错误/信息在该主题下的表现 -->
+              <div class="mt-1 flex flex-wrap items-center gap-1">
+                <span class="badge badge-sm badge-success">A</span>
+                <span class="badge badge-sm badge-warning">A</span>
+                <span class="badge badge-sm badge-error">A</span>
+                <span class="badge badge-sm badge-info">A</span>
               </div>
             </div>
           </div>

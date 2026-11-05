@@ -215,13 +215,25 @@ function applyPresetTheme(theme: AppTheme): boolean {
   return true;
 }
 
+/** 明/暗两侧各自记一张卡：要么某个内置预设，要么「自定义浅色 / 自定义深色」。 */
+function isGeneratedCard(cardId: string): boolean {
+  return cardId === GENERATED_THEME_LIGHT_ID || cardId === GENERATED_THEME_DARK_ID;
+}
+
+function sideCardId(side: ThemeMode): string {
+  return side === "dark" ? presetDarkTheme.value : presetLightTheme.value;
+}
+
 /** 按「来源 × 当前生效明暗」落一次主题：这是唯一的施加入口。 */
 function applyCurrentTheme(): boolean {
   const mode = resolveActiveMode();
-  if (themeSource.value === "generated") {
+  const cardId = sideCardId(mode);
+  // 来源是派生值：只看这一侧的卡是不是自定义。切「预设/自定义」tab 不参与。
+  themeSource.value = isGeneratedCard(cardId) ? "generated" : "preset";
+  if (isGeneratedCard(cardId)) {
     return applyGeneratedTheme(generatedThemeControlsByMode.value[mode]);
   }
-  const preset = normalizePresetTheme(mode === "dark" ? presetDarkTheme.value : presetLightTheme.value);
+  const preset = normalizePresetTheme(cardId);
   return preset ? applyPresetTheme(preset) : false;
 }
 
@@ -415,9 +427,14 @@ export function useAppTheme() {
     if (typeof window === "undefined") return;
     const savedTheme = window.localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
     if (isValidTheme(savedTheme)) {
-      themeSource.value = "preset";
+      // 旧存档只记了一个主题名：把它落到对应那一侧的卡上，再走统一施加入口
       themeMode.value = DARK_APP_THEMES.has(savedTheme) ? "dark" : "light";
-      applyPresetTheme(savedTheme);
+      if (themeMode.value === "dark") {
+        presetDarkTheme.value = savedTheme;
+      } else {
+        presetLightTheme.value = savedTheme;
+      }
+      applyCurrentTheme();
       return;
     }
     // 全新安装无任何主题记录：默认自动档 + 自定义来源，浅色/深色都用自定义主题。
@@ -443,23 +460,40 @@ export function useAppTheme() {
     void emitThemeChanged();
   }
 
-  /** 切来源：预设 / 自定义。不影响显示模式，改了立刻按当前明暗重落一次。 */
+  /** 把当前生效侧的卡片切成「预设」或「自定义」。切 tab 不再调它，只由勾卡路径改来源。 */
   function setThemeSource(source: ThemeSourceKind) {
-    themeSource.value = source === "generated" ? "generated" : "preset";
+    const side = resolveActiveMode();
+    if (source === "generated") {
+      if (side === "light") {
+        presetLightTheme.value = GENERATED_THEME_LIGHT_ID;
+      } else {
+        presetDarkTheme.value = GENERATED_THEME_DARK_ID;
+      }
+    } else {
+      const preset = normalizePresetTheme(sideCardId(side)) ?? (side === "dark" ? "dark" : "light");
+      if (side === "light") {
+        presetLightTheme.value = preset;
+      } else {
+        presetDarkTheme.value = preset;
+      }
+    }
     applyCurrentTheme();
     void emitThemeChanged();
   }
 
-  /** 预设页里给「明」或「暗」挑一个内置主题；挑了就等于把来源定在预设。 */
+  /**
+   * 勾某一侧的主题卡片：这张卡就是这一侧（明 / 暗）生效的主题。
+   * 明暗两侧各自独立——勾了深色侧的自定义卡，不会把浅色侧也从预设改成自定义。
+   */
   function setPresetTheme(side: ThemeMode, themeId: string) {
-    const preset = normalizePresetTheme(themeId);
-    if (!preset) return;
+    const rawId = String(themeId || "").trim().toLowerCase();
+    const cardId = isGeneratedCard(rawId) ? rawId : normalizePresetTheme(rawId);
+    if (!cardId) return;
     if (side === "light") {
-      presetLightTheme.value = preset;
+      presetLightTheme.value = cardId;
     } else {
-      presetDarkTheme.value = preset;
+      presetDarkTheme.value = cardId;
     }
-    themeSource.value = "preset";
     applyCurrentTheme();
     void emitThemeChanged();
   }
@@ -477,8 +511,9 @@ export function useAppTheme() {
       [targetMode]: nextControls,
     };
     activeGeneratedMode.value = targetMode;
-    // 只在「正在看这一侧」时重落主题：编辑另一侧的参数不该把页面跳走
-    if (themeSource.value === "generated" && resolveActiveMode() === targetMode) {
+    // 只在「这一侧用的是自定义卡，且这一侧正在生效」时重落主题；
+    // 编辑另一侧、或这一侧在预设状态下的参数，都不该把页面跳走。
+    if (isGeneratedCard(sideCardId(targetMode)) && resolveActiveMode() === targetMode) {
       if (!applyGeneratedTheme(nextControls)) return;
     } else {
       persistThemePreferences();
