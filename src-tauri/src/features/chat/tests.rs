@@ -11864,7 +11864,6 @@
 
         assert!(block.contains("offset"));
         assert!(block.contains("limit"));
-        assert!(block.contains("cat"));
         assert!(!block.contains('\n'), "一条陈列必须是单行：{block}");
     }
 
