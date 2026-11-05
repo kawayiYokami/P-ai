@@ -223,7 +223,7 @@
                 class="ecall-activity-chevron mt-0.5 h-3.5 w-3.5 shrink-0 transition-transform duration-150"
               />
             </summary>
-            <div class="collapse-content pb-2 pr-1 pt-1 pl-0">
+            <div v-if="activityItemExpanded(item)" class="collapse-content pb-2 pr-1 pt-1 pl-0">
               <div class="relative">
                 <OverlayScrollArea scroller-class="max-h-72 py-2 pr-2" overscroll="auto">
                   <div class="flex flex-col gap-2">
