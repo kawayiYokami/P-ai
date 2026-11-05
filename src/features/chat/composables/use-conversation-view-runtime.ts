@@ -701,6 +701,18 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     },
   );
 
+  // 追问视图没有主会话那套 media / picker composable，附件删除在本会话状态上直接做同样的事：
+  // 越界直接忽略，命中就 splice。视图层只负责把 ChatView 的事件接过来。
+  function removeClipboardImage(index: number) {
+    if (index < 0 || index >= clipboardImages.value.length) return;
+    clipboardImages.value.splice(index, 1);
+  }
+
+  function removeQueuedAttachmentNotice(index: number) {
+    if (index < 0 || index >= queuedAttachmentNotices.value.length) return;
+    queuedAttachmentNotices.value.splice(index, 1);
+  }
+
   const stopChatErrorClearedEvent = onTransportNotification<{ conversationId?: string }>(
     "conversation.chatErrorCleared",
     (payload) => {
@@ -753,6 +765,8 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     planModeEnabled,
     send: () => flow.sendChat(),
     stop: () => flow.stopChat(),
+    removeClipboardImage,
+    removeQueuedAttachmentNotice,
     handleRecallTurn: rewindActions.handleRecallTurn,
     handleRegenerateTurn: rewindActions.handleRegenerateTurn,
     refreshConversationAfterStorageRepair: async (conversationId?: string) => {

@@ -76,6 +76,8 @@
     @update:chat-input="updateChatInput"
     @send-chat="runtime.send"
     @pick-attachments="handlePickAttachments"
+    @remove-clipboard-image="runtime.removeClipboardImage"
+    @remove-queued-attachment-notice="runtime.removeQueuedAttachmentNotice"
     @stop-chat="runtime.stop"
     @clear-chat-error="clearChatError"
     @refresh-conversation-after-storage-repair="refreshConversationAfterStorageRepair"
