@@ -160,30 +160,15 @@ const windowRange = computed(() => {
   return { start, end };
 });
 
-// 间隙兜底：工具执行、下一段思考刚开始出字之前，当前节点的思考窗口是空的。
-// 这时回退显示本回合最后一段非空思考的尾部行，不要让预览条在间隙里整块清空。
-const fallbackReasoningLines = computed(() => {
-  for (let i = props.blocks.length - 1; i >= 0; i -= 1) {
-    const lines = nonEmptyLines(props.blocks[i]?.reasoning || "");
-    if (lines.length > 0) return lines.slice(-props.lines);
-  }
-  return [];
-});
-
-const reasoningWindowLines = computed(() => {
-  const window = activeReasoningLines.value
+const reasoningWindowLines = computed(() =>
+  activeReasoningLines.value
     .slice(windowRange.value.start, windowRange.value.end)
     .map((text, index) => ({
       // 行在源文本中的绝对位置作为 key，只有整行进出才产生增删；当前行增长不会触发动画
       key: `${activeBlockIndex.value}:${windowRange.value.start + index}`,
       text: windowLine(text),
-    }));
-  if (window.length > 0) return window;
-  return fallbackReasoningLines.value.map((text, index) => ({
-    key: `fb:${index}`,
-    text: windowLine(text),
-  }));
-});
+    })),
+);
 
 // 思考预览行只在「流式中」且「思维链未展开」时渲染；展开后整条退化为回到底部。
 const showReasoningWindow = computed(
@@ -253,10 +238,12 @@ const blocksFingerprint = computed(() =>
   props.blocks.map((block) => `${block.reasoning?.length ?? 0}:${block.text?.length ?? 0}`).join("|"),
 );
 
-// 流式期间正文行的数据源：最后一段有正文的节点（纯工具节点会被跳过）。
-// 直接盯最新，不排队——否则思维链一长，正文行就永远停在开头。
+// 流式期间正文行的数据源：只看「已经闭合」的那一段。
+// 最后一个节点正是此刻在增长的，它算未闭合，跳过它，取它之前最后一个有正文的段——
+// 正文行只在某一段落收尾时才更新一次，不会跟着逐字重画。
 const latestBodyLine = computed(() => {
-  for (let i = props.blocks.length - 1; i >= 0; i -= 1) {
+  const end = props.streaming ? props.blocks.length - 1 : props.blocks.length;
+  for (let i = end - 1; i >= 0; i -= 1) {
     const text = finalBodyLine(props.blocks[i]?.text || "");
     if (text) return windowLine(text);
   }
