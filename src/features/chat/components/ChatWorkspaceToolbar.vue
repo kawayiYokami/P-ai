@@ -393,13 +393,11 @@ function updateMenuPlacement() {
 onMounted(() => {
   updateMenuPlacement();
   window.addEventListener("resize", updateMenuPlacement);
-  window.addEventListener("scroll", updateMenuPlacement, true);
   window.addEventListener("pointerdown", handleGlobalPointerDown, true);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", updateMenuPlacement);
-  window.removeEventListener("scroll", updateMenuPlacement, true);
   window.removeEventListener("pointerdown", handleGlobalPointerDown, true);
 });
 </script>

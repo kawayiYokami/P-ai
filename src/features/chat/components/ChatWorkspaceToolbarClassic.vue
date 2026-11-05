@@ -750,7 +750,6 @@ function frontSpeakingMuted(entry: ChatMentionEntry): boolean {
 onMounted(() => {
   updateMenuPlacement();
   window.addEventListener("resize", updateMenuPlacement);
-  window.addEventListener("scroll", updateMenuPlacement, true);
   window.addEventListener("resize", handleMentionPopupViewportChange);
   window.addEventListener("scroll", handleMentionPopupViewportChange, true);
   window.addEventListener("resize", handleAvatarPopupViewportChange);
@@ -761,7 +760,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", updateMenuPlacement);
-  window.removeEventListener("scroll", updateMenuPlacement, true);
   window.removeEventListener("resize", handleMentionPopupViewportChange);
   window.removeEventListener("scroll", handleMentionPopupViewportChange, true);
   window.removeEventListener("resize", handleAvatarPopupViewportChange);
