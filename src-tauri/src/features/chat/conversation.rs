@@ -3128,10 +3128,6 @@ const FILE_EDIT_TOOL_RULE_MD: &str = include_str!("../../../resources/prompts/fi
 const QUESTION_AND_PLANNING_RULE_MD: &str = include_str!("../../../resources/prompts/question-and-planning-rule.md");
 const PLAN_PROTOCOL_MD: &str = include_str!("../../../resources/prompts/plan-protocol.md");
 
-/// `<tools>` 首行：能用专用工具就别用 shell。点名只用项目里真实存在的工具，
-/// 别写成「找文件用 glob、搜内容用 grep」——PAI 没有这两个工具，模型会照着编。
-const TOOLS_CONTAINER_PRINCIPLE: &str = "能用专用工具就别用 shell：读文件用 read，改文件用 write / update / delete / move，联网用 websearch / fetch；exec 留给跑命令、跑测试、查环境，工具只在真能帮上忙时才用。";
-
 /// `read` 不可用时「先读过再改」这条既做不到也没意义，所以由调用方决定加不加。
 const FILE_EDIT_READ_FIRST_RULE: &str = "覆盖或修改一个已存在的文件之前必须先用 read 读过它，长文件用 offset 和 limit 分次读完，不要一次拉全量——除非这个文件就是本轮刚创建或刚改过的。";
 
@@ -3153,16 +3149,15 @@ fn tool_rule_line(body: &str) -> Option<String> {
     Some(normalized)
 }
 
-/// 把这一轮要注入的工具陈列拼成唯一的 `<tools>` 容器：首行是使用原则，其余一行一条。
+/// 把这一轮要注入的工具陈列拼成唯一的 `<tools>` 容器：一行一条，容器从第一条陈列开始。
 fn build_tools_container_block(entries: &[String]) -> Option<String> {
     let mut lines = Vec::<String>::new();
-    lines.push(TOOLS_CONTAINER_PRINCIPLE.to_string());
     for entry in entries {
         if let Some(line) = tool_rule_line(entry) {
             lines.push(line);
         }
     }
-    if lines.len() <= 1 {
+    if lines.is_empty() {
         // 一条工具都没有时不留空壳容器。
         return None;
     }

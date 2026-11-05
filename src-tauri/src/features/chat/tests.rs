@@ -11889,8 +11889,8 @@
             .trim_start_matches("<tools>\n")
             .trim_end_matches("\n</tools>");
         let lines = inner.lines().collect::<Vec<_>>();
-        // 首行是使用原则，之后一行一条工具陈列。
-        assert_eq!(lines.len(), 3, "容器内行数不对：{container}");
+        // 容器里就是一行一条工具陈列，没有别的前缀行。
+        assert_eq!(lines.len(), 2, "容器内行数不对：{container}");
         for line in &lines {
             assert!(!line.trim().is_empty());
             // 纯陈列：不带子标签，不带列表符号，也不带工具名前缀。
