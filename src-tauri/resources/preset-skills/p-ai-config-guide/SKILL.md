@@ -60,7 +60,7 @@ config "store install <来源> <条目>"       # 装到工作区，默认关闭�
 ```
 
 - 搜索结果里的来源与条目 id 原样照抄给 install，不要自己拼；已安装的条目会标记出来，别重复装。
-- skills.sh 没有命令行，网页 `https://www.skills.sh/` 用于人工浏览热门榜与搜索；它的 skill 都在 GitHub 仓库里，装的时候按 `owner/repo` 取仓库树，`skillId` 是 SKILL.md 里的 `name`，不等于仓库目录名。
+- skills.sh 的官方入口是 CLI：`npx skills find <关键词>` 搜索、`npx skills add <owner/repo/skillId>` 安装；网页 `https://skills.sh/` 用来人工浏览热门榜。它的 skill 都在 GitHub 仓库里，装的时候按 `owner/repo` 取仓库树，`skillId` 是 SKILL.md 里的 `name`，不等于仓库目录名。
 - 公开市场出现过恶意内容，安装或借鉴前先读全文，再看脚本和外链，确认没有危险命令。
 - 只借鉴一部分时，按当前格式重写，不要整篇复制无关内容。
 
