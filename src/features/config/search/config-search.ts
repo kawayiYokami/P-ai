@@ -3,7 +3,6 @@ import { LOCALE_MESSAGES, type SupportedLocale } from "../../../i18n";
 export type ConfigSearchTab =
   | "hotkey"
   | "api"
-  | "searchEngines"
   | "mcp"
   | "skill"
   | "catalog"
@@ -42,8 +41,7 @@ type ConfigSearchSource = {
 
 const CONFIG_SEARCH_SOURCES: ConfigSearchSource[] = [
   { tab: "hotkey", titleKey: "config.tabs.hotkey", titleFallback: "Hotkey", prefixes: ["config.hotkey"] },
-  { tab: "api", titleKey: "config.tabs.api", titleFallback: "API", prefixes: ["config.api", "config.imageGeneration"] },
-  { tab: "searchEngines", titleKey: "config.tabs.searchEngines", titleFallback: "Search", prefixes: ["config.searchEngines"] },
+  { tab: "api", titleKey: "config.tabs.api", titleFallback: "API", prefixes: ["config.api", "config.imageGeneration", "config.searchEngines"] },
   { tab: "mcp", titleFallback: "MCP", prefixes: ["config.mcp"] },
   { tab: "skill", titleKey: "config.tabs.skill", titleFallback: "Skill", prefixes: [] },
   { tab: "catalog", titleKey: "config.tabs.catalog", titleFallback: "Store", prefixes: ["config.catalog"] },

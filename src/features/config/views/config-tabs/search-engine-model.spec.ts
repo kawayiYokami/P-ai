@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { SearchEngineConfigItem, SearchMode } from "../../../../types/app";
 import {
   SEARCH_ENGINE_META,
+  createSearchBaselineResolver,
   isSearchConfigDirty,
   lockableSearchEngines,
   searchEngineSnapshot,
@@ -101,5 +103,84 @@ describe("搜索引擎设置页纯逻辑", () => {
       { mode: "auto" },
     );
     expect(left).toEqual(right);
+  });
+});
+
+describe("脏判定基准取自保存快照", () => {
+  function engines(): SearchEngineConfigItem[] {
+    return [
+      { id: "exa", enabled: true, apiKey: "" },
+      { id: "parallel", enabled: true, apiKey: "" },
+      { id: "tavily", enabled: true, apiKey: "" },
+      { id: "firecrawl", enabled: false, apiKey: "" },
+      { id: "deepseek", enabled: false, apiKey: "" },
+    ];
+  }
+  const AUTO: SearchMode = { mode: "auto" };
+
+  it("快照里没有搜索字段时视为一致，打开页面不进脏态", () => {
+    const current = engines();
+    const resolve = createSearchBaselineResolver();
+    const base = resolve(JSON.stringify({ hotkey: "Alt+·" }), { engines: current, mode: AUTO });
+    expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(false);
+  });
+
+  it("快照为空串、坏 JSON、null、数组时也不进脏态", () => {
+    for (const raw of ["", "   ", "not json", "null", "[]"]) {
+      const current = engines();
+      const resolve = createSearchBaselineResolver();
+      const base = resolve(raw, { engines: current, mode: AUTO });
+      expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(false);
+    }
+  });
+
+  it("缺字段时原地编辑要进脏态：基准不能和当前是同一份数组", () => {
+    // 面板编辑是原地改（engineEntry(id).enabled = ...），基准若是同一个引用就永远判不出改动。
+    const current = engines();
+    const resolve = createSearchBaselineResolver();
+    const base = resolve("", { engines: current, mode: AUTO });
+    expect(base.engines).not.toBe(current);
+    expect(base.engines?.[0]).not.toBe(current[0]);
+
+    current[0].enabled = false;
+    expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(true);
+  });
+
+  it("缺字段时基准只抓一次，连续编辑不会把基准带跑", () => {
+    const current = engines();
+    const resolve = createSearchBaselineResolver();
+    const base = resolve("", { engines: current, mode: AUTO });
+
+    current[0].apiKey = "sk-1";
+    expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(true);
+    expect(resolve("", { engines: current, mode: AUTO })).toBe(base);
+
+    current[3].enabled = true;
+    expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(true);
+  });
+
+  it("有真快照时用快照，改回快照值就干净", () => {
+    const saved = engines();
+    const savedJson = JSON.stringify({ searchEngines: saved, searchMode: AUTO });
+    const resolve = createSearchBaselineResolver();
+    const current = engines();
+    const base = resolve(savedJson, { engines: current, mode: AUTO });
+    expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(false);
+
+    current[4].enabled = true;
+    expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(true);
+
+    const restored = engines();
+    expect(isSearchConfigDirty({ engines: restored, mode: AUTO }, base)).toBe(false);
+  });
+
+  it("快照里有搜索字段但没 searchMode 时，自动模式仍算一致", () => {
+    const current = engines();
+    const resolve = createSearchBaselineResolver();
+    const base = resolve(JSON.stringify({ searchEngines: engines() }), {
+      engines: current,
+      mode: AUTO,
+    });
+    expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(false);
   });
 });

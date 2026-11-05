@@ -1,7 +1,7 @@
 // 搜索引擎设置页的纯逻辑：引擎清单、可锁定候选、快照与脏判定。
 // 拆出来是为了能直接单测；保存载荷由 use-config-core 的 buildConfigPayload 负责，这里不重复实现。
 
-import type { SearchEngineConfigItem, SearchMode } from "../../../../types/app";
+import type { AppConfig, SearchEngineConfigItem, SearchMode } from "../../../../types/app";
 
 export type SearchEngineMeta = {
   id: string;
@@ -96,4 +96,52 @@ export function isSearchConfigDirty(
     JSON.stringify(searchEngineSnapshot(current.engines, current.mode))
     !== JSON.stringify(searchEngineSnapshot(saved.engines, saved.mode))
   );
+}
+
+export type SearchConfigFields = {
+  engines: SearchEngineConfigItem[] | undefined;
+  mode: SearchMode | undefined;
+};
+
+/** 解析保存快照里的搜索字段；快照缺字段或解析失败返回 null。 */
+export function parseSavedSearchConfig(lastSavedConfigJson: string): SearchConfigFields | null {
+  let parsed: Partial<AppConfig> | null = null;
+  try {
+    const value = JSON.parse(String(lastSavedConfigJson || "{}")) as Partial<AppConfig>;
+    parsed = value && typeof value === "object" ? value : null;
+  } catch {
+    parsed = null;
+  }
+  if (!parsed || !Array.isArray(parsed.searchEngines)) {
+    return null;
+  }
+  return { engines: parsed.searchEngines, mode: parsed.searchMode };
+}
+
+/** 浅拷贝一份配置字段：基准不能和当前指向同一份对象，否则原地编辑两边一起变。 */
+export function cloneSearchFields(fields: SearchConfigFields): SearchConfigFields {
+  return {
+    engines: (fields.engines ?? []).map((entry) => ({ ...entry })),
+    mode: fields.mode ? { ...fields.mode } : undefined,
+  };
+}
+
+/**
+ * 脏判定基准的解析器。
+ * 优先用保存快照；快照缺搜索字段时（首次打开、老快照、坏 JSON）取「第一次读到的当前值」
+ * 并浅拷贝冻结，之后原地编辑只改当前值、不再改基准。
+ */
+export function createSearchBaselineResolver() {
+  let frozenBaseline: SearchConfigFields | null = null;
+  return (lastSavedConfigJson: string, current: SearchConfigFields): SearchConfigFields => {
+    const parsed = parseSavedSearchConfig(lastSavedConfigJson);
+    if (parsed) {
+      frozenBaseline = null;
+      return parsed;
+    }
+    if (!frozenBaseline) {
+      frozenBaseline = cloneSearchFields(current);
+    }
+    return frozenBaseline;
+  };
 }
