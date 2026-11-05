@@ -1,5 +1,5 @@
 import { computed, ref } from "vue";
-import { emitTransportEvent } from "../../../services/tauri-api";
+import { emitTransportEvent, isDesktopTauriHost } from "../../../services/tauri-api";
 import {
   buildGeneratedThemeStyleText,
   DEFAULT_GENERATED_THEME_CONTROLS,
@@ -110,6 +110,9 @@ function resolveSystemPrefersDark(): boolean {
 /** 当前实际生效的明暗：自动档看系统，明/暗档就是自己。 */
 function resolveActiveMode(): ThemeMode {
   if (themeMode.value === "auto") {
+    // 自动档只属于桌面宿主：Web / VS Code 侧栏没有「跟随系统」这一档，
+    // 明暗由各自前端存的那一份决定，不读宿主系统深浅。
+    if (!isDesktopTauriHost()) return "light";
     return systemPrefersDark.value ? "dark" : "light";
   }
   return themeMode.value;
@@ -117,7 +120,8 @@ function resolveActiveMode(): ThemeMode {
 
 function registerSystemThemeListener() {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-  if (isVscodeHost()) return; // VS Code 侧边栏只跟随 VS Code 主题，不参与自动模式
+  // 只有桌面宿主跟随系统深浅；Web / VS Code 侧栏的主题各自由前端存档决定。
+  if (!isDesktopTauriHost()) return;
   if (systemThemeListenerRegistered) return;
   systemThemeListenerRegistered = true;
   systemPrefersDark.value = resolveSystemPrefersDark();
