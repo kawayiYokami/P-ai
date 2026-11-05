@@ -29,6 +29,7 @@
             <option value="config-cards">配置卡片画廊（六大卡片第一性原理）</option>
             <option value="quick-model-card">快速模型不可用卡片</option>
             <option value="catalog-store">能力商店</option>
+            <option value="catalog-entry-card">能力商店条目卡（CatalogEntryCard）</option>
             <option value="persona-capability">人格主页（移动端极简版）</option>
             <option value="persona-permission">人格权限页（黑白名单树）</option>
             <option value="settings-shell">设置页头部（面包屑 + 标签页）</option>
@@ -268,6 +269,16 @@
           <p class="text-sm text-base-content/70">集中渲染联系人渠道、连接器、供应商、人格、技能 5 类卡片的真实模拟数据与自适应网格，支持切换宽度与主题进行视觉检验。</p>
         </div>
         <ConfigCardsGalleryDemo />
+      </div>
+    </div>
+
+    <div v-if="demoComponentKey === 'catalog-entry-card'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">能力商店条目卡</h3>
+          <p class="text-sm text-base-content/70">真实组件 + mock 条目。一行只放图标、名称、来源、两行说明和一个动作。</p>
+        </div>
+        <CatalogEntryCardDemo />
       </div>
     </div>
 
@@ -833,6 +844,7 @@ import QuickModelUnavailableCardDemo from "../../components/QuickModelUnavailabl
 import SettingsShellGalleryDemo from "../../components/SettingsShellGalleryDemo.vue";
 import SearchEnginesDemo from "./SearchEnginesDemo.vue";
 import CatalogStoreDemo from "../../components/CatalogStoreDemo.vue";
+import CatalogEntryCardDemo from "../../components/CatalogEntryCardDemo.vue";
 import PersonaTabDemo from "../../components/PersonaTabDemo.vue";
 import SkillTabDemo from "../../components/SkillTabDemo.vue";
 import PanelTabStrip from "../../../shared/components/PanelTabStrip.vue";
@@ -912,7 +924,7 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "catalog-entry-card" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
 
 // bare 模式下把内容高度写进标题，便于无头截图按内容高度精确裁剪。
 onMounted(() => {
@@ -925,6 +937,7 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "persona-capability") return "人格主页";
   if (demoComponentKey.value === "persona-permission") return "人格权限页";
   if (demoComponentKey.value === "catalog-store") return "能力商店";
+  if (demoComponentKey.value === "catalog-entry-card") return "能力商店条目卡";
   if (demoComponentKey.value === "settings-shell") return "设置页头部";
   if (demoComponentKey.value === "search-engines") return "搜索引擎设置";
   if (demoComponentKey.value === "kanban-board") return "议题看板页";

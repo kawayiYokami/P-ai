@@ -72,188 +72,17 @@
       <!-- 条目卡片 -->
       <div v-else class="config-grid-auto-sm">
         <template v-for="entry in entries" :key="entry.source + ':' + entry.id">
-          <!-- MCP 卡：工程面板感，热度归到底部与作者同行 -->
-          <div
-            v-if="entry.kind === 'mcp'"
-            class="rounded-box border border-base-300 bg-base-100 p-4 flex flex-col justify-between gap-3"
-          >
-          <div class="flex items-start justify-between gap-2">
-            <div class="flex min-w-0 flex-1 items-start gap-2">
-              <span
-                :ref="setIconRef(entryKey(entry))"
-                :data-icon="entry.icon"
-                class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-base-200/70 text-xs font-semibold text-base-content/50"
-              >
-                <img
-                  v-if="iconUrlOf(entry)"
-                  :src="iconUrlOf(entry)"
-                  alt=""
-                  class="h-full w-full object-cover"
-                  @error="dropIcon(entry)"
-                />
-                <span v-else>{{ iconInitial(entry) }}</span>
-              </span>
-              <div class="card-title-bar min-w-0 flex-1 text-sm font-semibold text-base-content truncate" :title="entry.name">
-                {{ entry.name }}
-              </div>
-            </div>
-            <div class="flex shrink-0 items-center gap-1">
-              <span v-if="entry.transport" class="badge badge-sm badge-ghost font-mono">
-                {{ entry.transport }}
-              </span>
-              <span
-                v-if="entry.requiredEnv.length"
-                class="badge badge-sm badge-outline border-warning/40 text-warning"
-              >
-                {{ t("config.catalog.needEnvBadge") }}
-              </span>
-            </div>
-            </div>
-
-          <p
-            :ref="setDescRef(entryKey(entry))"
-            class="text-xs line-clamp-2 leading-relaxed min-h-[2.5rem]"
-            :class="entry.description ? 'text-base-content/70' : 'text-base-content/40 italic'"
-          >
-            {{ entry.description || t("config.catalog.noDescription") }}
-          </p>
-
-          <!-- 工具清单：部分来源不提供，缺失时整块不渲染 -->
-          <div v-if="entry.tools.length" class="rounded-box border border-base-300 bg-base-200/50 px-2.5 py-2">
-            <div class="flex flex-wrap gap-1">
-              <span
-                v-for="tool in entry.tools.slice(0, TOOL_PREVIEW_LIMIT)"
-                :key="tool"
-                class="rounded border border-base-300 bg-base-100 px-1.5 py-0.5 font-mono text-caption truncate max-w-[9rem]"
-              >
-                {{ tool }}
-              </span>
-              <span v-if="entry.tools.length > TOOL_PREVIEW_LIMIT" class="px-1 py-0.5 font-mono text-caption opacity-50">
-                +{{ entry.tools.length - TOOL_PREVIEW_LIMIT }}
-              </span>
-            </div>
-          </div>
-
-          <div class="flex items-center justify-between border-t border-base-300 pt-2.5">
-            <div class="flex min-w-0 items-center gap-1.5 text-caption opacity-60">
-              <span v-if="entry.author" class="truncate max-w-[9rem]" :title="entry.author">{{ entry.author }}</span>
-              <span v-if="entry.author && entry.popularity" class="opacity-50">·</span>
-              <span v-if="entry.popularity" class="shrink-0">{{ formatPopularity(entry.popularity) }}</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <button
-                v-if="detailNeeded(entry)"
-                class="btn btn-sm h-8 min-h-[2rem] bg-base-100 px-3 text-caption"
-                type="button"
-                @click="openDetail(entry)"
-              >
-                {{ t("config.catalog.detail") }}
-              </button>
-              <template v-if="entry.installed">
-                <span class="text-caption opacity-60">
-                  {{ entry.enabled ? t("config.catalog.enabled") : t("config.catalog.disabled") }}
-                </span>
-                <input
-                  type="checkbox"
-                  class="toggle toggle-xs toggle-primary"
-                  :checked="entry.enabled"
-                  :disabled="togglingKey === entryKey(entry)"
-                  @change="toggleEntry(entry)"
-                />
-              </template>
-              <button
-                v-else
-                class="btn btn-sm min-h-[2rem] h-8 px-3.5"
-                :class="entry.installReady ? 'btn-primary' : 'bg-base-200'"
-                type="button"
-                :disabled="!entry.installReady || installingId === entryKey(entry)"
-                :title="entry.installReady ? '' : t('config.catalog.notInstallable')"
-                @click="requestInstall(entry)"
-              >
-                <span v-if="installingId === entryKey(entry)" class="loading loading-spinner loading-xs"></span>
-                <Download v-else class="h-3.5 w-3.5" />
-                <span>{{ t("config.catalog.install") }}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-          <!-- 技能卡：内容卡感，热度提到顶部与名称同行 -->
-          <div
-            v-else
-            class="rounded-box border border-base-300 bg-base-100 p-4 flex flex-col justify-between gap-3"
-          >
-          <div class="flex items-start justify-between gap-2">
-            <div class="flex min-w-0 flex-1 items-start gap-2">
-              <span
-                :ref="setIconRef(entryKey(entry))"
-                :data-icon="entry.icon"
-                class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-base-200/70 text-xs font-semibold text-base-content/50"
-              >
-                <img
-                  v-if="iconUrlOf(entry)"
-                  :src="iconUrlOf(entry)"
-                  alt=""
-                  class="h-full w-full object-cover"
-                  @error="dropIcon(entry)"
-                />
-                <span v-else>{{ iconInitial(entry) }}</span>
-              </span>
-              <div class="card-title-bar card-title-bar--accent min-w-0 flex-1 font-mono text-sm font-semibold text-base-content truncate" :title="entry.name">
-                {{ entry.name }}
-              </div>
-            </div>
-            <div class="flex shrink-0 items-center gap-1.5 text-caption opacity-60">
-              <span v-if="entry.author" class="truncate max-w-[8rem]" :title="entry.author">{{ entry.author }}</span>
-              <span v-if="entry.author && entry.popularity" class="opacity-50">·</span>
-              <span v-if="entry.popularity">{{ formatPopularity(entry.popularity) }}</span>
-            </div>
-            </div>
-
-          <p
-            :ref="setDescRef(entryKey(entry))"
-            class="text-xs line-clamp-3 leading-relaxed min-h-[3.25rem]"
-            :class="entry.description ? 'text-base-content/70' : 'text-base-content/40 italic'"
-          >
-            {{ entry.description || t("config.catalog.noDescription") }}
-          </p>
-
-          <div class="flex items-center justify-end gap-1.5 border-t border-base-300 pt-2.5">
-            <button
-              v-if="detailNeeded(entry)"
-              class="btn btn-sm h-8 min-h-[2rem] bg-base-100 px-3 text-caption"
-              type="button"
-              @click="openDetail(entry)"
-            >
-              {{ t("config.catalog.detail") }}
-            </button>
-            <template v-if="entry.installed">
-              <span class="text-caption opacity-60">
-                {{ entry.enabled ? t("config.catalog.enabled") : t("config.catalog.disabled") }}
-              </span>
-              <input
-                type="checkbox"
-                class="toggle toggle-xs toggle-primary"
-                :checked="entry.enabled"
-                :disabled="togglingKey === entryKey(entry)"
-                @change="toggleEntry(entry)"
-              />
-            </template>
-            <button
-              v-else
-              class="btn btn-sm min-h-[2rem] h-8 px-3.5"
-              :class="entry.installReady ? 'btn-primary' : 'bg-base-200'"
-              type="button"
-              :disabled="!entry.installReady || installingId === entryKey(entry)"
-              :title="entry.installReady ? '' : t('config.catalog.notInstallable')"
-              @click="requestInstall(entry)"
-            >
-              <span v-if="installingId === entryKey(entry)" class="loading loading-spinner loading-xs"></span>
-              <Download v-else class="h-3.5 w-3.5" />
-              <span>{{ t("config.catalog.install") }}</span>
-            </button>
-          </div>
-          </div>
+          <CatalogEntryCard
+            :entry="entry"
+            :icon-url="iconUrlOf(entry)"
+            :install-busy="installingId === entryKey(entry)"
+            :toggle-busy="togglingKey === entryKey(entry)"
+            :icon-ref="setIconRef(entryKey(entry))"
+            @open="openDetail(entry)"
+            @install="requestInstall(entry)"
+            @toggle="toggleEntry(entry)"
+            @icon-error="dropIcon(entry)"
+          />
         </template>
       </div>
 
@@ -416,6 +245,7 @@ import { Download, Package, RefreshCw, Search } from "@lucide/vue";
 import type { CatalogEntry, CatalogSourceInfo } from "../../../../types/app";
 import {
   fetchCatalogIconDataUrl,
+  fetchCatalogSkillDescriptions,
   installTransportCatalogEntry,
   invokeTauri,
   listTransportCatalogSources,
@@ -425,18 +255,13 @@ import {
 } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
+import CatalogEntryCard from "./CatalogEntryCard.vue";
 import type { UnderlineTabItem } from "../../../shared/components/UnderlineTabs.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 
 const { t } = useI18n();
 
 const PAGE_SIZE = 30;
-
-// 与后端 CATALOG_SOURCE_SKILLS_SH（types.rs）是同一条契约：该源的单字查询后端直接返回空页、不写缓存，
-// 这里提前拦一次是为了给出「至少两个字」的提示并避免白跑一趟调用。改任一侧的源 id 都要同步另一侧。
-const SKILLS_SH_SOURCE_ID = "skills-sh";
-// MCP 卡工具清单最多平铺几个，其余折算为 +N。
-const TOOL_PREVIEW_LIMIT = 6;
 
 const kind = ref<"mcp" | "skill">("mcp");
 
@@ -468,8 +293,6 @@ const detailModalRef = ref<HTMLDialogElement | null>(null);
 const detailEntry = ref<CatalogEntry | null>(null);
 
 // 说明被裁剪的条目键集合：只有这些才需要「详情」入口。
-const descEls = new Map<string, HTMLElement>();
-const truncatedKeys = ref<Set<string>>(new Set());
 
 // 图标地址 → data URL。同址只取一次，跨页复用，重渲染不重复拉。
 const iconDataUrl = ref(new Map<string, string>());
@@ -562,36 +385,11 @@ const hasNext = computed(() => {
   return entries.value.length >= PAGE_SIZE;
 });
 
-// 来源不提供总数（total = -1）就没有分页可翻，翻页控件整体隐藏。skills.sh 的两个入口都是这种。
+// 来源不提供总数（total = -1）就没有分页可翻，翻页控件整体隐藏。ClawHub 检索只给相关性 top-N，属于这种。
 const hidePager = computed(() => total.value < 0);
 
 function entryKey(entry: CatalogEntry): string {
   return `${entry.source}:${entry.id}`;
-}
-
-// 说明被裁剪时才需要「详情」入口。
-function detailNeeded(entry: CatalogEntry): boolean {
-  return truncatedKeys.value.has(entryKey(entry));
-}
-
-// 卡片说明段落的 ref 收集器：用于判断是否被 line-clamp 裁剪。
-function setDescRef(key: string) {
-  return (el: Element | ComponentPublicInstance | null) => {
-    if (el instanceof HTMLElement) {
-      descEls.set(key, el);
-    } else {
-      descEls.delete(key);
-    }
-  };
-}
-
-// 用滚动高度与可见高度比对，判断哪些说明实际被裁剪。
-function measureTruncation() {
-  const next = new Set<string>();
-  for (const [key, el] of descEls) {
-    if (el.scrollHeight > el.clientHeight + 1) next.add(key);
-  }
-  truncatedKeys.value = next;
 }
 
 async function openDetail(entry: CatalogEntry) {
@@ -643,22 +441,36 @@ async function loadSources() {
   }
 }
 
+/** 简介回填的世代号：列表一换，上一批迟到的结果就作废，不许覆盖新内容。 */
+const descriptionGeneration = ref(0);
+
+/**
+ * 列表已经渲染出来了，再回头把缺的简介补上。
+ * skills.sh 的检索与热门榜都不带简介，只能按 id 去详情页取；这一步绝不能挡在列表前面，
+ * 否则一页 30 条就要等 30 个页面抓完。
+ */
+async function fillMissingDescriptions(list: CatalogEntry[]) {
+  const ids = list.filter((entry) => !entry.description.trim()).map((entry) => entry.id);
+  if (ids.length === 0) return;
+  const generation = ++descriptionGeneration.value;
+  try {
+    const filled = await fetchCatalogSkillDescriptions(ids);
+    if (generation !== descriptionGeneration.value) return;
+    for (const entry of entries.value) {
+      const description = filled[entry.id];
+      if (description && !entry.description.trim()) entry.description = description;
+    }
+  } catch {
+    // 简介是补充信息，取不到就留着占位，不影响列表与安装。
+  }
+}
+
 async function reload() {
   if (!sourceId.value) {
     await loadSources();
     if (!sourceId.value) return;
   }
   const trimmedQuery = query.value.trim();
-  // 单字查询对 skills.sh 没有语义收益（该源靠模糊匹配兜底），后端按空页处理；
-  // 空查询不在此列——打开能力商店时它是浏览态，照常拉热门榜。
-  if (sourceId.value === SKILLS_SH_SOURCE_ID && Array.from(trimmedQuery).length === 1) {
-    entries.value = [];
-    total.value = -1;
-    fromCache.value = false;
-    updatedAt.value = "";
-    setStatus(t("config.catalog.queryTooShort"));
-    return;
-  }
   loading.value = true;
   try {
     const result = await searchTransportCatalog({
@@ -676,9 +488,8 @@ async function reload() {
       kind.value = result.kind;
     }
     setStatus("");
-    // 等卡片渲染完成后再判断哪些说明被裁剪。
-    await nextTick();
-    measureTruncation();
+    // 列表已经回到界面上了，简介在后面自己补，不占这条等待。
+    void fillMissingDescriptions(entries.value);
   } catch (error) {
     entries.value = [];
     setStatus(`${t("config.catalog.searchFailed")}: ${toErrorMessage(error)}`, true);
@@ -795,12 +606,7 @@ async function toggleEntry(entry: CatalogEntry) {
   }
 }
 
-function handleResize() {
-  measureTruncation();
-}
-
 onMounted(async () => {
-  window.addEventListener("resize", handleResize);
   if (typeof IntersectionObserver !== "undefined") {
     iconObserver = new IntersectionObserver(handleIconIntersect, { rootMargin: "160px" });
   }
@@ -809,7 +615,6 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener("resize", handleResize);
   iconObserver?.disconnect();
   iconObserver = null;
   iconEls.clear();

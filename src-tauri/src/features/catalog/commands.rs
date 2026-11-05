@@ -54,3 +54,13 @@ async fn catalog_icon_data_url(
 ) -> Result<String, String> {
     catalog_icon_data_url_inner(state.inner(), &address).await
 }
+
+/// 按条目 id 批量换简介，返回 `id -> 简介`。
+/// 列表接口不带简介时，前端渲染完再调用它回填；一次最多 60 条。
+#[tauri::command]
+async fn catalog_skill_descriptions(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    catalog_skill_descriptions_inner(state.inner(), &ids).await
+}

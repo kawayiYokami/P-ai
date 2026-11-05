@@ -1094,4 +1094,103 @@ mod catalog_tests {
             "链路本地地址换 https 也要拒"
         );
     }
+
+    #[test]
+    fn skills_sh_detail_url_should_only_accept_three_segments() {
+        assert_eq!(
+            skills_sh_detail_url("vercel-labs/skills/find-skills"),
+            "https://www.skills.sh/vercel-labs/skills/find-skills"
+        );
+        // 魔搭的 skill id 只有两段，拼不出 skills.sh 详情页，给空串让它跳过。
+        assert_eq!(skills_sh_detail_url("owner/name"), "");
+        assert_eq!(skills_sh_detail_url(""), "");
+    }
+
+    #[test]
+    fn catalog_meta_content_should_ignore_attribute_order() {
+        // 真实页面里 name 与 content 两种先后顺序都出现过。
+        let name_first = r#"<head><meta name="description" content="first"></head>"#;
+        assert_eq!(catalog_meta_content(name_first, "name=\"description\""), "first");
+        let content_first = r#"<meta content="second" name="description">"#;
+        assert_eq!(
+            catalog_meta_content(content_first, "name=\"description\""),
+            "second"
+        );
+        // 单引号形态同样要认。
+        let single = r#"<meta name='description' content='third'>"#;
+        assert_eq!(
+            catalog_meta_content(single, "name='description'"),
+            "third"
+        );
+        assert_eq!(catalog_meta_content("<head><title>x</title></head>", "name=\"description\""), "");
+    }
+
+    #[test]
+    fn skills_sh_meta_description_should_prefer_name_then_fall_back_to_og() {
+        let both = r#"<head><meta name="description" content="named"><meta property="og:description" content="og"></head>"#;
+        assert_eq!(skills_sh_meta_description(both), "named");
+        let og_only = r#"<head><meta property="og:description" content="only og"></head>"#;
+        assert_eq!(skills_sh_meta_description(og_only), "only og");
+        assert_eq!(
+            skills_sh_meta_description("<head><title>x</title></head>"),
+            "",
+            "两个都没有时给空串，不猜正文"
+        );
+    }
+
+    #[test]
+    fn catalog_decode_entities_should_restore_quotes_and_ampersand() {
+        assert_eq!(
+            catalog_decode_entities("Helps users &quot;find&quot; skills &amp; more"),
+            "Helps users \"find\" skills & more"
+        );
+        assert_eq!(catalog_decode_entities("a&lt;b&gt;c"), "a<b>c");
+        assert_eq!(catalog_decode_entities("it&#39;s"), "it's");
+        assert_eq!(catalog_decode_entities("A&#x4E2D;B"), "A中B");
+        // 不是实体的 & 原样留着，不能把后面的分号内容吃掉。
+        assert_eq!(catalog_decode_entities("a & b; c"), "a & b; c");
+    }
+
+    /// skills.sh 详情页的真实契约：默认忽略，需要网络时手动执行：
+    /// `cargo test skills_sh_about_live -- --ignored`
+    #[test]
+    #[ignore = "需要网络：验证 skills.sh 详情页能取到简介"]
+    fn skills_sh_about_live_contract_should_fetch_descriptions() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+        rt.block_on(async {
+            let state = catalog_test_state("skills-sh-about-live");
+            let ids = vec![
+                "vercel-labs/skills/find-skills".to_string(),
+                "vercel-labs/skills/grill-me".to_string(),
+            ];
+            let map = catalog_skill_descriptions_inner(&state, &ids)
+                .await
+                .expect("fetch descriptions");
+            for id in &ids {
+                let description = map.get(id).cloned().unwrap_or_default();
+                assert!(
+                    !description.trim().is_empty(),
+                    "{id} 应取到简介，实际为空"
+                );
+                assert!(
+                    !description.contains("&quot;") && !description.contains("&amp;"),
+                    "{id} 的实体应已还原：{description}"
+                );
+            }
+            // 第二次走缓存，不再发请求也必须给出同样的结果。
+            let cached = catalog_skill_descriptions_inner(&state, &ids)
+                .await
+                .expect("read cached descriptions");
+            assert_eq!(cached.get(&ids[0]), map.get(&ids[0]));
+            let _ = fs::remove_dir_all(
+                state
+                    .llm_workspace_path
+                    .parent()
+                    .unwrap_or(&state.llm_workspace_path),
+            );
+        });
+    }
 }

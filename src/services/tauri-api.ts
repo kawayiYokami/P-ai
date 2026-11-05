@@ -1141,6 +1141,16 @@ export function fetchCatalogIconDataUrl(address: string): Promise<string> {
   return invokeTauri<string>("catalog_icon_data_url", { address });
 }
 
+/**
+ * 按条目 id 批量换简介，返回 `id -> 简介`。
+ * 列表接口不带简介的源用它：列表先渲染，再回来把简介补上。
+ */
+export function fetchCatalogSkillDescriptions(
+  ids: string[]
+): Promise<Record<string, string>> {
+  return invokeTauri<Record<string, string>>("catalog_skill_descriptions", { ids });
+}
+
 export function openTransportStorageUsageItemDirectory(itemId: string): Promise<void> {
   return invokeRequiredNativeTransport<void>("存储项目录", "open_storage_usage_item_directory", {
     input: { itemId: String(itemId || "").trim() },

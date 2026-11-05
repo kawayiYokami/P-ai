@@ -56,6 +56,11 @@ fn github_tree_url_to_skill_raw(url: &str) -> Option<String> {
     let mut parts = rest.splitn(3, '/');
     let owner = parts.next().filter(|part| !part.is_empty())?;
     let repo = parts.next().filter(|part| !part.is_empty())?;
+    // 克隆地址形态 `{repo}.git`：原样拼进 raw 地址会变成 `{repo}.git/HEAD/SKILL.md`，必 404。
+    let repo = repo
+        .strip_suffix(".git")
+        .filter(|part| !part.is_empty())
+        .unwrap_or(repo);
     let tail = parts.next().unwrap_or_default();
     // 仓库根地址：没有后半段，SKILL.md 落在根上。
     // 注意根目录没有 SKILL.md 的仓库也会被判成可装，实际只能在安装时 404——列表阶段拿不到仓库树。
