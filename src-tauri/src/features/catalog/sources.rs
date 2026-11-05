@@ -383,7 +383,8 @@ fn official_registry_entry(item: &Value) -> CatalogEntry {
 
 const SKILLS_SH_HOME_URL: &str = "https://www.skills.sh/";
 const SKILLS_SH_SEARCH_URL: &str = "https://www.skills.sh/api/search";
-/// 检索一次固定 40 条上限，没有分页参数。
+/// 检索一次取 40 条：服务端的 limit 不是硬上限，这里比一页 30 条留些余量。
+/// 没有分页参数，取多了就是一次拉回整份 JSON，别往大调。
 const SKILLS_SH_SEARCH_LIMIT: usize = 40;
 /// 服务端不认普通客户端：UA 不是浏览器形态时它回自己的页面而不是结果。
 const SKILLS_SH_USER_AGENT: &str =
@@ -535,6 +536,7 @@ async fn fetch_skills_sh_page(
     let body = skills_sh_get(state, &url, "application/json").await?;
     let payload = serde_json::from_str::<Value>(&body)
         .map_err(|err| format!("解析 skills.sh 检索响应失败：{err}"))?;
+    // 只读 skills[]：响应里的 count 是本次实际返回条数，不是总数，不能拿来算分页。
     let items = payload
         .get("skills")
         .and_then(|value| value.as_array())
@@ -542,6 +544,7 @@ async fn fetch_skills_sh_page(
         .unwrap_or_default();
     Ok(CatalogRawPage {
         entries: skills_sh_entries(&items),
+        // 没有分页也没有总数；中文查询是模糊匹配兜底到热门榜，质量由服务端决定，这里不做补救。
         total: -1,
     })
 }

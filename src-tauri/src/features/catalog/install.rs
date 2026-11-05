@@ -358,6 +358,14 @@ async fn github_skill_tree_files(
         .await
         .map_err(|err| format!("解析 GitHub 仓库树失败（{owner}/{repo}）：{err}"))?;
     let tree_sha = json_str(&payload, "sha");
+    // 后续 raw 下载一律用这个 commit sha 当 ref：写死 main/master 会因为默认分支不同而 404，
+    // 而 `HEAD` 只有 API 认，raw.githubusercontent.com 不认。
+    if tree_sha.trim().is_empty() {
+        return Err(format!(
+            "{owner}/{repo}：仓库树没有返回 commit sha，无法确定文件版本"
+        ));
+    }
+    let reference = tree_sha.clone();
     let paths: Vec<String> = payload
         .get("tree")
         .and_then(|value| value.as_array())
@@ -370,11 +378,6 @@ async fn github_skill_tree_files(
                 .collect()
         })
         .unwrap_or_default();
-    let reference = if tree_sha.trim().is_empty() {
-        "HEAD".to_string()
-    } else {
-        tree_sha.clone()
-    };
     // 快路径：目录名恰好等于 skillId（`obra/superpowers` 这类）。
     let picked = match skills_sh_pick_skill_paths(&paths, skill_id) {
         Ok(picked) => Some(picked),
@@ -440,11 +443,8 @@ async fn install_skills_sh_skill(
         .ok_or_else(|| format!("条目标识不是 owner/repo/skillId 形态：{entry_id}"))?;
     let (tree_sha, skill_md_path, dir_prefix, sibling_paths) =
         github_skill_tree_files(state, &owner, &repo, &skill_id).await?;
-    let reference = if tree_sha.trim().is_empty() {
-        "HEAD".to_string()
-    } else {
-        tree_sha
-    };
+    // 仓库树已经保证这里是 commit sha，不再有别的 ref 兜底。
+    let reference = tree_sha;
 
     let workspace_root = configured_workspace_root_path(state)?;
     ensure_workspace_skills_layout_at_root(&workspace_root)?;
