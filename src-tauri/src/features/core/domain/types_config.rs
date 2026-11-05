@@ -292,11 +292,7 @@ fn whitelist_permission_control(
 fn explorer_permission_control() -> AgentPermissionControl {
     whitelist_permission_control(
         &["read", "read_media", "exec", "fetch", "websearch"],
-        &[
-            "p-ai-config-guide",
-            "agents-md-setup",
-            "memory-generation",
-        ],
+        &["agents-md-setup", "memory-generation"],
     )
 }
 

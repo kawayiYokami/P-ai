@@ -57,11 +57,6 @@ const WORKSPACE_PRESET_SKILLS: &[WorkspacePresetSkill] = &[
         managed: Some(ManagedSkillInjection::TeamLeader),
     },
     WorkspacePresetSkill {
-        dir_name: "p-ai-config-guide",
-        skill_md: include_str!("../../../resources/preset-skills/p-ai-config-guide/SKILL.md"),
-        managed: None,
-    },
-    WorkspacePresetSkill {
         dir_name: "pai-guide",
         skill_md: include_str!("../../../resources/preset-skills/pai-guide/SKILL.md"),
         managed: Some(ManagedSkillInjection::TeamLeader),
