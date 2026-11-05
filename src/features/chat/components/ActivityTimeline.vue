@@ -249,7 +249,7 @@
                       <pre
                         v-if="toolDetailParts(item).result"
                         class="m-0 whitespace-pre-wrap break-all px-2.5 py-2 text-xs leading-relaxed"
-                        :class="props.dark ? 'ecall-activity-result-dark' : 'ecall-activity-result'"
+                        :class="props.dark ? 'ecall-activity-result-dark' : 'text-base-content/56'"
                       ><code>{{ toolDetailParts(item).result }}</code></pre>
                       <div v-else class="px-2.5 py-2">
                         <button
@@ -661,9 +661,10 @@ function activityItemContentText(item: ChatActivityItem): string {
   return `${text.slice(0, ACTIVITY_CONTENT_PREVIEW_CHARS)}…`;
 }
 
+/** 条目容器（li）的颜色：图标用 currentColor，颜色挂在容器上，图标与文字一起继承。 */
 function activityItemNodeClass(item: ChatActivityItem): string {
   if (item.kind === "reasoning") {
-    return props.dark ? "ecall-activity-reasoning-dark" : "ecall-activity-reasoning";
+    return props.dark ? "ecall-activity-reasoning-dark" : "text-base-content/70";
   }
   if (item.kind === "content") return "";
   if (item.kind === "tool" && item.resultText) {
@@ -671,28 +672,25 @@ function activityItemNodeClass(item: ChatActivityItem): string {
     if (status.isDenied) return "text-warning";
     if (status.isFailed) return "text-error";
   }
-  return props.dark ? "ecall-activity-tool-dark" : "ecall-activity-tool";
+  return props.dark ? "ecall-activity-tool-dark" : "text-base-content/70";
 }
 
+/** 标题文字只补状态色，浅色档位由容器继承，不再各写一遍。 */
 function activityItemTitleClass(item: ChatActivityItem): string {
-  if (item.kind === "reasoning") {
-    return props.dark ? "ecall-activity-reasoning-dark" : "ecall-activity-reasoning";
-  }
-  if (item.kind === "content") return "";
   if (item.kind === "tool" && item.resultText) {
     const status = parseToolCallResultStatus(item.resultText);
     if (status.isDenied) return "text-warning";
     if (status.isFailed) return "text-error";
   }
-  return props.dark ? "ecall-activity-tool-dark" : "ecall-activity-tool";
+  return "";
 }
 
 function activityItemDetailClass(item: ChatActivityItem): string {
   if (item.kind === "reasoning") {
-    return props.dark ? "ecall-activity-reasoning-dark" : "ecall-activity-reasoning-body";
+    return props.dark ? "ecall-activity-reasoning-dark" : "text-base-content/56";
   }
   if (item.kind === "content") return "";
-  return props.dark ? "ecall-activity-tool-dark" : "ecall-activity-tool";
+  return props.dark ? "ecall-activity-tool-dark" : "text-base-content/56";
 }
 
 function activityItemStatusSuffix(item: ChatActivityItem): string {
@@ -869,36 +867,18 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* 条目颜色：随组件一起走，宿主（消息 / 委托）不用各自再补一套。
-   颜色类经 textClass 传入子组件内部文本元素，scoped 规则需 :deep 才能跨组件生效。 */
-/* 浅色主题：整体走参考项目（deepseek-harness）的灰阶——标题一档、正文一档，工具跟思考同档。
-   对应参考项的 label-secondary（#61666b）与 label-tertiary（#81858c），换算到 base-content 的 70% / 56%。 */
-:deep(.ecall-activity-reasoning) {
-  color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
-}
-
-:deep(.ecall-activity-reasoning-body) {
-  color: color-mix(in oklab, var(--color-base-content) 56%, transparent);
-}
-
-:deep(.ecall-activity-tool) {
-  color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
-}
-
-/* 深色主题：思维链橙色、工具绿色（提亮保证深底可读） */
-:deep(.ecall-activity-reasoning-dark) {
+   浅色走 Tailwind 的 text-base-content/xx 语义类（模板里直接挂），这里只留深色主题的彩色。 */
+/* 深色主题：思维链橙色、工具绿色（提亮保证深底可读）。
+   颜色类挂在本组件自己的元素上，用普通选择器；写 :deep 会变成后代选择器，永远不命中。 */
+.ecall-activity-reasoning-dark {
   color: #fb923c;
 }
 
-:deep(.ecall-activity-tool-dark) {
+.ecall-activity-tool-dark {
   color: #4ade80;
 }
 
-/* 工具结果：正文档，与思考正文、工具参数同一档 */
-:deep(.ecall-activity-result) {
-  color: color-mix(in oklab, var(--color-base-content) 56%, transparent);
-}
-
-:deep(.ecall-activity-result-dark) {
+.ecall-activity-result-dark {
   color: #54c5d4;
 }
 
@@ -961,19 +941,23 @@ onBeforeUnmount(() => {
   mask-image: linear-gradient(to bottom, transparent 0%, #000 100%);
 }
 
-:deep(.ecall-activity-timeline .ecall-plain-markdown-markdown > :first-child) {
+/* :deep 只留子组件内部那一层。不能再带 .ecall-activity-timeline：那是本组件自己的 ul，
+   写成 `[data-v] .ecall-activity-timeline .x` 等于要求它在自己内部，规则永远不命中。 */
+:deep(.ecall-plain-markdown-markdown > :first-child) {
   margin-top: 0 !important;
 }
 
 /* 正文条目与工具、思维链同一个字号：渲染器根节点自带的是聊天正文那档字号
-   （--app-chat-message-text-size），比折叠块里其他条目大一档，这里压回 text-xs。 */
-:deep(.ecall-activity-timeline .ecall-plain-markdown-markdown) {
-  font-size: var(--app-text-xs-size, 0.75rem) !important;
+   （--app-chat-message-text-size），比折叠块里其他条目大一档，这里压回 text-xs。
+   必须写死 0.75rem（text-xs 的实际值），不能写 var(--app-text-xs-size)：那个变量随
+   界面尺寸缩放，而块内其他文字的 text-xs 不跟缩放，两者会在非 100% 尺寸下对不上。 */
+:deep(.ecall-plain-markdown-markdown) {
+  font-size: 0.75rem !important;
 }
 
 /* 正文条目与思考正文同一档灰，靠 color-mix 淡文字，不连带淡掉里面的代码块底色 */
-:deep(.ecall-activity-timeline .ecall-plain-markdown-markdown),
-:deep(.ecall-activity-timeline .ecall-plain-markdown-markdown p) {
+:deep(.ecall-plain-markdown-markdown),
+:deep(.ecall-plain-markdown-markdown p) {
   color: color-mix(in oklab, var(--color-base-content) 56%, transparent) !important;
 }
 </style>

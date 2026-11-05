@@ -85,7 +85,7 @@ function indentStyle(line: ToolArgLine): Record<string, string> {
 </script>
 
 <template>
-  <div class="ecall-tool-args-body" :class="{ 'ecall-tool-args-body-dark': props.dark }">
+  <div class="ecall-tool-args-body text-base-content/56" :class="{ 'ecall-tool-args-body-dark': props.dark }">
     <div v-if="lines" class="flex flex-col gap-0.5">
       <div
         v-for="(line, index) in lines"
@@ -107,11 +107,7 @@ function indentStyle(line: ToolArgLine): Record<string, string> {
 </template>
 
 <style scoped>
-/* 参数区整体：与思考正文同一档灰，条目标题另有一档 */
-.ecall-tool-args-body {
-  color: color-mix(in oklab, var(--color-base-content) 56%, transparent);
-}
-
+/* 参数区颜色由模板上的 text-base-content/56 提供，这里只留深色主题的绿色 */
 .ecall-tool-args-body-dark {
   color: #4ade80;
 }

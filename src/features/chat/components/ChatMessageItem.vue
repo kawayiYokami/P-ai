@@ -64,10 +64,11 @@
             @toggle="onActivityToggle"
           >
             <summary
-              class="collapse-title px-0 py-0.5 min-h-0 text-xs font-normal flex items-center gap-1.5 text-base-content/55"
+              class="collapse-title group px-0 py-0.5 min-h-0 text-xs font-normal flex items-center gap-1.5 text-base-content/55"
               :class="showActivityPanel(block) ? 'hover:bg-base-200 cursor-pointer' : 'cursor-default'"
             >
-              <span class="flex min-w-0 flex-1 items-center gap-1.5">
+              <!-- 内容不设 flex-1：箭头要紧跟文字后面，而不是被推到行尾 -->
+              <span class="flex min-w-0 items-center gap-1.5">
                 <span v-if="hasActivityReasoning(block)" class="shrink-0">
                   {{ t("chat.messageItem.thought") }} <AnimatedCountText v-if="!activityReasoningRunning()" :target="block.activityReasoningCharCount || 0" />
                 </span>
@@ -87,9 +88,10 @@
                 v-if="activityExpanding"
                 class="loading loading-spinner loading-xs text-base-content/60 shrink-0"
               />
+              <!-- 箭头只在悬停这一行时露出来，平时不占视觉 -->
               <ChevronDown
                 v-else-if="showActivityPanel(block)"
-                class="h-3.5 w-3.5 shrink-0 opacity-60 transition-transform duration-150"
+                class="h-3.5 w-3.5 shrink-0 opacity-0 transition-all duration-150 group-hover:opacity-60"
                 :class="{ 'rotate-180': activityPanelOpen(block) }"
               />
             </summary>
