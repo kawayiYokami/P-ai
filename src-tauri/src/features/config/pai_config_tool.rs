@@ -111,11 +111,18 @@ struct AppConfigSnapshot {
     shell_workspaces: Vec<ShellWorkspaceConfigFile>,
 }
 
-/// `servers/<id>.json` 的真实形态：`{ "mcpServers": { "<id>": { ... } } }`。
-/// 字段与 `features/mcp/parser.rs` 里接受的服务直连字段一致。
+/// `mcp/servers/<stem>.json` 的两种外壳：
+/// 1. 界面保存：`{ "mcpServers": { "<显示名>": { ...定义 } } }`
+/// 2. 商店安装：`{ "name": "<显示名>", "definitionJson": "<定义 JSON 字符串>" }`
+/// 服务 id 一律取文件名 stem（见 `features/mcp/workspace.rs` 的
+/// `parse_workspace_mcp_server_from_file`），`policies/<stem>.json` 与之对齐。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct McpServerFile {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default, alias = "definition_json")]
+    definition_json: Option<String>,
     #[serde(default)]
     mcp_servers: std::collections::BTreeMap<String, McpServerEntry>,
 }
@@ -159,6 +166,8 @@ struct McpPolicyFile {
     #[serde(default)]
     enabled: bool,
     #[serde(default)]
+    oauth_capable: bool,
+    #[serde(default)]
     tools: Vec<McpToolPolicy>,
 }
 
@@ -186,7 +195,7 @@ struct AppConfigProbe {
     #[serde(default)]
     code_font: String,
     #[serde(default, alias = "uiSizePreset", alias = "ui_size_preset")]
-    ui_size_scale: u16,
+    ui_size_scale: Option<toml::Value>,
     #[serde(default)]
     web_access_port: u16,
     #[serde(default)]
@@ -237,8 +246,10 @@ struct AppConfigProbe {
     terminal_shell_kind: String,
     #[serde(default)]
     simple_setup_mode: bool,
+    /// 真实类型是 `SearchMode`（内部标记枚举），序列化形态是 `[searchMode] mode = "auto"`。
+    /// 带自定义 serde 的字段不复刻类型，按结构轻量校验，避免与应用侧判定漂移。
     #[serde(default)]
-    search_mode: String,
+    search_mode: Option<toml::Value>,
     #[serde(default)]
     shell_workspaces: Vec<toml::Value>,
     #[serde(default)]
@@ -336,7 +347,7 @@ fn run_with_context(ctx: &CliContext, args: &[String]) -> Result<String, String>
     match command {
         "" | "help" | "--help" | "-h" => handle_help(ctx, rest)?,
         "check" => handle_check(ctx, rest)?,
-        "reload" => handle_reload(ctx)?,
+        "reload" => handle_reload(ctx, rest)?,
         // 供应商配置命令当前有意不开放，保持原样。
         "provider" => {
             return Err("provider 命令当前未开放，请不要通过 config 工具修改供应商。".to_string())
@@ -630,7 +641,7 @@ const APP_FIELDS: &[FieldSpec] = &[
     FieldSpec { name: "uiLanguage", ty: "string", required: false, desc: "界面语言。" },
     FieldSpec { name: "uiFont", ty: "string", required: false, desc: "界面字体。" },
     FieldSpec { name: "codeFont", ty: "string", required: false, desc: "代码字体。" },
-    FieldSpec { name: "uiSizeScale", ty: "integer", required: false, desc: "界面缩放档位（旧键名 uiSizePreset）。" },
+    FieldSpec { name: "uiSizeScale", ty: "integer | string", required: false, desc: "界面缩放档位：整数 75-150，或旧预设字符串 small / default / large / extraLarge（旧键名 uiSizePreset）。" },
     FieldSpec { name: "webAccessPort", ty: "integer", required: false, desc: "Web 访问端口。" },
     FieldSpec { name: "webAccessEnabled", ty: "boolean", required: false, desc: "是否开启 Web 访问。" },
     FieldSpec { name: "webAccessPassword", ty: "string", required: false, desc: "Web 访问口令。" },
@@ -656,7 +667,7 @@ const APP_FIELDS: &[FieldSpec] = &[
     FieldSpec { name: "sttAutoSend", ty: "boolean", required: false, desc: "转写完成后自动发送。" },
     FieldSpec { name: "terminalShellKind", ty: "string", required: false, desc: "终端 shell 类型。" },
     FieldSpec { name: "simpleSetupMode", ty: "boolean", required: false, desc: "是否精简设置模式。" },
-    FieldSpec { name: "searchMode", ty: "string", required: false, desc: "搜索模式。" },
+    FieldSpec { name: "searchMode", ty: "table", required: false, desc: "搜索调度模式，写成 [searchMode] 表，其中 mode = \"auto\" 或 \"fixed\"；fixed 时还要给 engineId。" },
     FieldSpec { name: "shellWorkspaces", ty: "array<table>", required: false, desc: "工作区列表，元素：name / path / level。" },
     FieldSpec { name: "mcpServers", ty: "array<table>", required: false, desc: "MCP 服务列表。" },
     FieldSpec { name: "remoteImChannels", ty: "array<table>", required: false, desc: "远程 IM 渠道列表。" },
@@ -690,12 +701,11 @@ const AGENT_FIELDS: &[FieldSpec] = &[
     FieldSpec { name: "childAgentIds", ty: "array<string>", required: false, desc: "下级人格 id：组织树父子边，语义为可直接委托。" },
 ];
 
-const MCP_FILE_FIELDS: &[FieldSpec] = &[FieldSpec {
-    name: "mcpServers",
-    ty: "object<服务 id, 服务定义>",
-    required: true,
-    desc: "服务 id 取自这里的键；文件名只是落地名，不必与 id 相同。",
-}];
+const MCP_FILE_FIELDS: &[FieldSpec] = &[
+    FieldSpec { name: "mcpServers", ty: "object<显示名, 服务定义>", required: false, desc: "界面保存的形态：键是显示名，不是服务 id。" },
+    FieldSpec { name: "name", ty: "string", required: false, desc: "商店安装的形态：服务显示名。" },
+    FieldSpec { name: "definitionJson", ty: "string", required: false, desc: "商店安装的形态：定义 JSON 的字符串形式。" },
+];
 
 const MCP_FIELDS: &[FieldSpec] = &[
     FieldSpec { name: "command", ty: "string", required: false, desc: "stdio 方式的启动命令。" },
@@ -714,8 +724,9 @@ const MCP_FIELDS: &[FieldSpec] = &[
 ];
 
 const MCP_POLICY_FIELDS: &[FieldSpec] = &[
-    FieldSpec { name: "serverId", ty: "string", required: true, desc: "对应服务的 id，取 mcpServers 的键。" },
+    FieldSpec { name: "serverId", ty: "string", required: true, desc: "对应服务 id，等于 servers 目录里那份文件的文件名（不含 .json）。" },
     FieldSpec { name: "enabled", ty: "boolean", required: true, desc: "是否启用该服务。" },
+    FieldSpec { name: "oauthCapable", ty: "boolean", required: false, desc: "该服务是否需要 OAuth 授权。" },
     FieldSpec { name: "tools", ty: "array<table>", required: false, desc: "工具级策略，元素：toolName / enabled。" },
 ];
 
@@ -768,7 +779,8 @@ fn render_topic(ctx: &CliContext, request: &TopicRequest) -> Result<String, Stri
                 None => {
                     out.push_str(&format!("定义目录: {}\n", servers_dir.display()));
                     out.push_str(&format!("策略目录: {}\n", policies_dir.display()));
-                    out.push_str("每个服务一份 .json；服务 id 是 mcpServers 的键，policy 里的 serverId 与它一致。\n");
+                    out.push_str("服务 id 就是文件名（不含 .json）；policies/<id>.json 与之同名。\n");
+                    out.push_str("定义有两种外壳：界面保存的 mcpServers 表，和商店安装的 name + definitionJson。\n");
                 }
             }
             out.push_str("服务文件字段（JSON，camelCase）：\n");
@@ -890,6 +902,9 @@ fn check_all(ctx: &CliContext) -> CheckReport {
 fn check_app_config(ctx: &CliContext, report: &mut CheckReport) {
     let path = ctx.config_path.clone();
     if !path.exists() {
+        report
+            .errors
+            .push(format!("{}: 配置文件不存在", path.display()));
         return;
     }
     report.record(&path, validate_app_config_file(&path));
@@ -900,8 +915,50 @@ fn validate_app_config_file(path: &Path) -> Result<(), String> {
     // 语法层：toml 的报错带行列信息。
     let _syntax: toml::Value = toml::from_str(&text).map_err(|err| format!("TOML 语法错误: {err}"))?;
     // 类型与必填层：与 read_config 的反序列化判定一致。
-    let _probe: AppConfigProbe =
+    let probe: AppConfigProbe =
         toml::from_str(&text).map_err(|err| format!("字段校验失败: {err}"))?;
+    validate_app_config_probe(&probe)
+}
+
+/// 带自定义 serde 的字段不复刻类型，改按各自真实的序列化形态做轻量校验，
+/// 避免和应用侧的判定漂移成两套。
+fn validate_app_config_probe(probe: &AppConfigProbe) -> Result<(), String> {
+    if let Some(value) = &probe.search_mode {
+        // SearchMode 是内部标记枚举，落盘形态是 [searchMode] mode = "auto"，
+        // 锁定引擎时额外带 engineId。
+        let table = value
+            .as_table()
+            .ok_or_else(|| "searchMode 必须是表，形如 [searchMode] mode = \"auto\"".to_string())?;
+        let mode = table
+            .get("mode")
+            .and_then(toml::Value::as_str)
+            .ok_or_else(|| "searchMode.mode 必须是字符串".to_string())?;
+        match mode {
+            "auto" => {}
+            "fixed" => {
+                let has_engine = table
+                    .get("engineId")
+                    .and_then(toml::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .is_some();
+                if !has_engine {
+                    return Err("searchMode.mode = \"fixed\" 时必须给 engineId".to_string());
+                }
+            }
+            other => {
+                return Err(format!(
+                    "searchMode.mode 只能是 auto 或 fixed，当前是 {other}"
+                ))
+            }
+        }
+    }
+    if let Some(value) = &probe.ui_size_scale {
+        // uiSizeScale：整数档位，或旧预设字符串（small / default / large / extraLarge）。
+        if value.as_integer().is_none() && value.as_str().is_none() {
+            return Err("uiSizeScale 必须是整数（75-150）或旧预设字符串".to_string());
+        }
+    }
     Ok(())
 }
 
@@ -978,50 +1035,102 @@ fn check_mcp(ctx: &CliContext, selector: Option<&str>, report: &mut CheckReport)
     }
 }
 
-/// 服务 id 是 `mcpServers` 的键，文件名只是落地名，所以先按文件名试、再按键找。
+/// 服务 id 就是文件名 stem（`features/mcp/workspace.rs` 的读取口径），
+/// `mcpServers` 的键与 `name` 只是显示名，不参与定位。
 fn mcp_server_file_for_id(ctx: &CliContext, id: &str) -> Option<PathBuf> {
-    let dir = mcp_servers_dir(ctx);
-    let direct = dir.join(format!("{id}.json"));
-    if direct.is_file() {
-        return Some(direct);
-    }
-    json_files(&dir).unwrap_or_default().into_iter().find(|path| {
-        fs::read_to_string(path)
-            .ok()
-            .and_then(|text| serde_json::from_str::<McpServerFile>(&text).ok())
-            .map(|file| file.mcp_servers.keys().any(|key| key == id))
-            .unwrap_or(false)
-    })
+    let path = mcp_servers_dir(ctx).join(format!("{id}.json"));
+    path.is_file().then_some(path)
 }
 
 fn mcp_policy_file_for_id(ctx: &CliContext, id: &str) -> Option<PathBuf> {
-    let dir = mcp_policies_dir(ctx);
-    let direct = dir.join(format!("{id}.json"));
-    if direct.is_file() {
-        return Some(direct);
-    }
-    json_files(&dir).unwrap_or_default().into_iter().find(|path| {
-        fs::read_to_string(path)
-            .ok()
-            .and_then(|text| serde_json::from_str::<McpPolicyFile>(&text).ok())
-            .map(|policy| policy.server_id == id)
-            .unwrap_or(false)
-    })
+    let path = mcp_policies_dir(ctx).join(format!("{id}.json"));
+    path.is_file().then_some(path)
 }
 
 fn validate_mcp_server_file(path: &Path) -> Result<(), String> {
     let text = fs::read_to_string(path).map_err(|err| format!("读取失败: {err}"))?;
     let file: McpServerFile =
         serde_json::from_str(&text).map_err(|err| format!("JSON 解析失败: {err}"))?;
-    if file.mcp_servers.is_empty() {
-        return Err("mcpServers 为空，至少要有一个服务".to_string());
+    if file.mcp_servers.is_empty()
+        && file
+            .definition_json
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+    {
+        return Err(
+            "找不到服务定义：需要 definitionJson，或 mcpServers 里至少一条".to_string(),
+        );
     }
-    // 服务 id 取自 mcpServers 的键，文件名只是落地名（应用自己生成的文件两者并不相等），
-    // 所以这里只校验每条定义本身，不对文件名做约束。
-    for (name, server) in &file.mcp_servers {
-        validate_mcp_server(server).map_err(|err| format!("mcpServers.{name}: {err}"))?;
+    let definitions = mcp_definitions_from_server_file(&file)?;
+    for (display_name, server) in &definitions {
+        validate_mcp_server(server).map_err(|err| format!("{display_name}: {err}"))?;
     }
     Ok(())
+}
+
+/// 两种外壳归一到同一份「显示名 -> 服务定义」，显示名只用于报错定位。
+fn mcp_definitions_from_server_file(
+    file: &McpServerFile,
+) -> Result<Vec<(String, McpServerEntry)>, String> {
+    if let Some(raw) = file.definition_json.as_deref() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err("definitionJson 是空字符串".to_string());
+        }
+        let value: JsonValue = serde_json::from_str(trimmed)
+            .map_err(|err| format!("definitionJson 不是合法 JSON: {err}"))?;
+        return mcp_definitions_from_value(&value);
+    }
+    Ok(file
+        .mcp_servers
+        .iter()
+        .map(|(name, entry)| (name.clone(), entry.clone()))
+        .collect())
+}
+
+fn mcp_definitions_from_value(value: &JsonValue) -> Result<Vec<(String, McpServerEntry)>, String> {
+    let mut out = Vec::new();
+    if let Some(servers) = value.get("mcpServers") {
+        push_mcp_definitions(servers, &mut out)?;
+        return Ok(out);
+    }
+    // 单 server 直接字段形态。
+    let entry: McpServerEntry = serde_json::from_value(value.clone())
+        .map_err(|err| format!("definitionJson 里的定义字段类型不对: {err}"))?;
+    out.push(("server".to_string(), entry));
+    Ok(out)
+}
+
+fn push_mcp_definitions(
+    value: &JsonValue,
+    out: &mut Vec<(String, McpServerEntry)>,
+) -> Result<(), String> {
+    match value {
+        JsonValue::Object(map) => {
+            for (name, item) in map {
+                let entry: McpServerEntry = serde_json::from_value(item.clone())
+                    .map_err(|err| format!("definitionJson.mcpServers.{name}: {err}"))?;
+                out.push((name.clone(), entry));
+            }
+            Ok(())
+        }
+        JsonValue::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                let name = item
+                    .get("name")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("server")
+                    .to_string();
+                let entry: McpServerEntry = serde_json::from_value(item.clone())
+                    .map_err(|err| format!("definitionJson.mcpServers[{index}]: {err}"))?;
+                out.push((name, entry));
+            }
+            Ok(())
+        }
+        _ => Err("definitionJson.mcpServers 必须是对象或数组".to_string()),
+    }
 }
 
 fn validate_mcp_server(server: &McpServerEntry) -> Result<(), String> {
@@ -1170,7 +1279,12 @@ fn parse_skill_frontmatter(skill_md_path: &Path) -> Result<(String, String, Stri
 // ==================== reload：生效 ====================
 
 /// 先校验再声明生效范围。校验不过直接返回 Err，调用方不会进入重载环节。
-fn handle_reload(ctx: &CliContext) -> Result<(), String> {
+fn handle_reload(ctx: &CliContext, args: &[String]) -> Result<(), String> {
+    if let Some(extra) = args.first() {
+        return Err(format!(
+            "reload 不接受参数: {extra}\n先 config \"check\" 校验，再 config \"reload\" 生效。"
+        ));
+    }
     let report = check_all(ctx);
     report.into_result()?;
     print_json(&serde_json::json!({
@@ -1377,17 +1491,132 @@ mod tests {
         )
     }
 
-    fn valid_app_config() -> &'static str {
-        "hotkey = \"Alt+·\"\nselectedApiConfigId = \"p::m\"\n\n[[apiProviders]]\nid = \"p\"\n"
+    /// 应用自己保存出来的 app_config.toml 形态：顶层标量齐全，`searchMode` 落成表，
+    /// 数组按各结构体的真实字段写。故意不写成极简版——极简版只能验证「能过」，
+    /// 验证不了「应用产的配置能过」。
+    /// 系统工作区路径用 @WORKSPACE@ 占位，测试里替换成临时目录，避免指向不存在的真实路径。
+    fn valid_app_config(workspace: &Path) -> String {
+        let template = r#"hotkey = "Alt+·"
+uiLanguage = "zh-CN"
+uiFont = "auto"
+codeFont = "auto"
+uiSizeScale = 100
+webAccessPort = 43129
+webAccessEnabled = true
+webAccessPassword = "changeme"
+githubUpdateMethod = "manual"
+skippedGithubUpdateVersion = ""
+recordHotkey = "CAPSLOCK"
+recordBackgroundWakeEnabled = false
+minRecordSeconds = 1
+maxRecordSeconds = 60
+toolMaxIterations = 10
+llmRoundLogCapacity = 10
+messageNotificationEnabled = true
+messageNotificationSoundEnabled = true
+desktopOperationNoticeEnabled = true
+desktopOperateEnabled = false
+selectedApiConfigId = "provider-a::model-a"
+expertApiConfigId = "provider-a::model-a"
+visionApiConfigId = "provider-a::model-a"
+toolReviewApiConfigId = "provider-a::model-a"
+sttApiConfigId = "provider-a::model-a"
+imageGenerationModelId = "image-provider::image-model"
+imageToVideoModelId = "image-provider::video-model"
+sttAutoSend = false
+terminalShellKind = "git-bash"
+simpleSetupMode = false
+providerNonStreamBaseUrls = []
+
+[searchMode]
+mode = "auto"
+
+[[searchEngines]]
+id = "exa"
+enabled = true
+
+[[shellWorkspaces]]
+id = "system-workspace"
+name = "主工作区"
+path = '@WORKSPACE@'
+level = "system"
+
+[[mcpServers]]
+id = "mcp-1"
+name = "demo"
+enabled = true
+oauthCapable = false
+definitionJson = "{\"mcpServers\":{\"demo\":{\"command\":\"npx\"}}}"
+
+[[remoteImChannels]]
+id = "channel-1"
+name = "demo"
+
+[[apiProviders]]
+id = "provider-a"
+name = "Provider A"
+requestFormat = "openai"
+baseUrl = "https://api.example.com/v1"
+apiKeys = ["sk-test"]
+
+[[apiProviders.models]]
+id = "model-a"
+model = "demo-model"
+
+[[imageProviders]]
+id = "image-provider"
+name = "Image Provider"
+
+[[apiConfigs]]
+id = "provider-a::model-a"
+providerId = "provider-a"
+modelId = "model-a"
+"#;
+        template.replace("@WORKSPACE@", &workspace.display().to_string())
     }
 
     fn seed_valid(root: &Path) {
-        fs::write(root.join("app_config.toml"), valid_app_config()).expect("write app config");
+        fs::write(
+            root.join("app_config.toml"),
+            valid_app_config(&root.join("llm-workspace")),
+        )
+        .expect("write app config");
         fs::write(
             root.join("config").join("agents.json"),
             "{\"agents\":[{\"id\":\"a\",\"name\":\"A\",\"systemPrompt\":\"p\"}]}",
         )
         .expect("write agents");
+    }
+
+    /// 商店安装写出来的 MCP 文件（`catalog/install.rs`）：name + definitionJson，
+    /// policy 的 serverId 是文件名 stem。
+    fn seed_store_installed_mcp(root: &Path) -> String {
+        let servers = root.join("llm-workspace").join("mcp").join("servers");
+        let policies = root.join("llm-workspace").join("mcp").join("policies");
+        fs::create_dir_all(&servers).expect("create servers dir");
+        fs::create_dir_all(&policies).expect("create policies dir");
+        let stem = "playwright-demo";
+        let definition = "{\"mcpServers\":{\"playwright\":{\"command\":\"npx\",\"args\":[\"-y\",\"@playwright/mcp@latest\"]}}}";
+        let payload = serde_json::json!({
+            "name": "Playwright MCP",
+            "definitionJson": definition,
+        });
+        fs::write(
+            servers.join(format!("{stem}.json")),
+            serde_json::to_vec_pretty(&payload).expect("serialize payload"),
+        )
+        .expect("write server");
+        let policy = serde_json::json!({
+            "serverId": stem,
+            "enabled": false,
+            "tools": [],
+        });
+        fs::write(
+            policies.join(format!("{stem}.json")),
+            serde_json::to_vec_pretty(&policy).expect("serialize policy"),
+        )
+        .expect("write policy");
+        stem.to_string()
     }
 
     #[test]
@@ -1547,6 +1776,7 @@ mod tests {
         let policy = McpPolicyFile {
             server_id: "s".to_string(),
             enabled: true,
+            oauth_capable: false,
             tools: Vec::new(),
         };
         let keys = serde_json::to_value(&policy)
@@ -1656,6 +1886,93 @@ mod tests {
         assert!(err.contains("hotkey"), "{err}");
     }
 
+    /// 阻断 1 的守门用例：应用自己保存出来的配置带 `[searchMode]` 表，check 必须收下。
+    #[test]
+    fn check_accepts_app_saved_config_with_search_mode_table() {
+        let root = test_root();
+        seed_valid(&root);
+        let output = run(&root, "check -app").expect("app-saved config must pass");
+        assert!(output.contains("校验通过"), "{output}");
+    }
+
+    /// 反向：把 searchMode 写成裸字符串（help 以前就是这么写的）必须报错，且指向 searchMode。
+    #[test]
+    fn check_rejects_bare_string_search_mode() {
+        let root = test_root();
+        seed_valid(&root);
+        let broken = valid_app_config(&root.join("llm-workspace")).replace("[searchMode]\nmode = \"auto\"", "searchMode = \"auto\"");
+        fs::write(root.join("app_config.toml"), broken).expect("write");
+        let err = run(&root, "check -app").expect_err("bare string searchMode must fail");
+        assert!(err.contains("searchMode"), "{err}");
+    }
+
+    #[test]
+    fn check_accepts_legacy_ui_size_scale_preset() {
+        let root = test_root();
+        seed_valid(&root);
+        let legacy = valid_app_config(&root.join("llm-workspace"))
+            .replace("uiSizeScale = 100", "uiSizeScale = \"large\"");
+        fs::write(root.join("app_config.toml"), legacy).expect("write");
+        run(&root, "check -app").expect("legacy preset must pass");
+
+        let broken = valid_app_config(&root.join("llm-workspace"))
+            .replace("uiSizeScale = 100", "uiSizeScale = true");
+        fs::write(root.join("app_config.toml"), broken).expect("write");
+        let err = run(&root, "check -app").expect_err("bool uiSizeScale must fail");
+        assert!(err.contains("uiSizeScale"), "{err}");
+    }
+
+    /// 阻断 2 的守门用例：商店装出来的 MCP 文件（name + definitionJson）必须能过，
+    /// 且 id 是文件名 stem —— 用显示名去找必须失败。
+    #[test]
+    fn check_accepts_store_installed_mcp_file_by_file_stem() {
+        let root = test_root();
+        seed_valid(&root);
+        let stem = seed_store_installed_mcp(&root);
+
+        let output =
+            run(&root, &format!("check -mcp {stem}")).expect("store-installed mcp must pass");
+        assert!(output.contains(&format!("{stem}.json")), "{output}");
+
+        // 显示名不是 id：按显示名找必须找不到，否则模型会写出 policies/<显示名>.json。
+        let err = run(&root, "check -mcp \"Playwright MCP\"").expect_err("display name is not id");
+        assert!(err.contains("找不到定义"), "{err}");
+    }
+
+    /// 界面保存的那种外壳（mcpServers 包一层）同样要过。
+    #[test]
+    fn check_accepts_ui_saved_mcp_file() {
+        let root = test_root();
+        seed_valid(&root);
+        let servers = root.join("llm-workspace").join("mcp").join("servers");
+        fs::create_dir_all(&servers).expect("create servers dir");
+        fs::write(
+            servers.join("mcp-1700000000000.json"),
+            "{\"mcpServers\":{\"Tavily\":{\"type\":\"streamable-http\",\"url\":\"https://example.com/mcp\"}}}",
+        )
+        .expect("write server");
+        let output = run(&root, "check -mcp mcp-1700000000000").expect("ui-saved mcp must pass");
+        assert!(output.contains("mcp-1700000000000.json"), "{output}");
+    }
+
+    #[test]
+    fn check_reports_missing_app_config() {
+        let root = test_root();
+        let err = run(&root, "check -app").expect_err("missing app config must fail");
+        assert!(err.contains("配置文件不存在"), "{err}");
+        let err = run(&root, "reload").expect_err("reload must fail without app config");
+        assert!(err.contains("配置文件不存在"), "{err}");
+        assert!(!err.contains("workspaceReloadRequest"), "{err}");
+    }
+
+    #[test]
+    fn reload_rejects_extra_arguments() {
+        let root = test_root();
+        seed_valid(&root);
+        let err = run(&root, "reload -app").expect_err("reload takes no argument");
+        assert!(err.contains("不接受参数"), "{err}");
+    }
+
     #[test]
     fn check_passes_on_valid_files() {
         let root = test_root();
@@ -1683,25 +2000,6 @@ mod tests {
         assert!(output.contains("workspaceReloadRequest"), "{output}");
         assert!(output.contains("\"mcp\"") && output.contains("\"skills\""), "{output}");
         assert!(output.contains("\"privateAgents\"") && output.contains("\"agents\""), "{output}");
-    }
-
-    #[test]
-    fn check_mcp_resolves_service_id_from_mcp_servers_key() {
-        let root = test_root();
-        seed_valid(&root);
-        let servers = root.join("llm-workspace").join("mcp").join("servers");
-        fs::create_dir_all(&servers).expect("create servers dir");
-        // 文件名与应用生成的落地名一致，不等于服务 id；id 取 mcpServers 的键。
-        fs::write(
-            servers.join("mcp-1700000000000.json"),
-            "{\"mcpServers\":{\"demo\":{\"type\":\"streamable-http\",\"url\":\"https://example.com/mcp\"}}}",
-        )
-        .expect("write server");
-        let output = run(&root, "check -mcp demo").expect("check by id should pass");
-        assert!(output.contains("mcp-1700000000000.json"), "{output}");
-
-        let err = run(&root, "check -mcp nope").expect_err("unknown id");
-        assert!(err.contains("找不到定义"), "{err}");
     }
 
     #[test]
