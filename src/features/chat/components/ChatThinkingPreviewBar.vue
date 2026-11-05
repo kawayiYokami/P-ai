@@ -199,8 +199,10 @@ const hasPreviewContent = computed(
 function pendingWork(): boolean {
   const total = props.blocks.length;
   if (total === 0) return false;
-  if (activeBlockIndex.value < total - 1) return true;
-  return consumedLineCount.value < activeReasoningLines.value.length;
+  if (consumedLineCount.value < activeReasoningLines.value.length) return true;
+  if (activeBlockIndex.value >= total - 1) return false;
+  // 下一段还没有内容时不算有待办，让计时器停下来；等内容出现时 watch 会重新拉起
+  return nonEmptyLines(props.blocks[activeBlockIndex.value + 1]?.reasoning || "").length > 0;
 }
 
 function stopTicking() {
@@ -226,6 +228,9 @@ function advanceTick() {
 
   // 思维链读完；只有后面已经出现新节点，才推进到下一节点
   if (activeBlockIndex.value >= total - 1) return;
+  // 推进前确认下一段已经有思考内容。否则窗口先被清空、再由兜底把同样几行补回来，
+  // 元素每 100ms 被销毁重建一次，看起来就是内容没变却一直在抖。
+  if (nonEmptyLines(props.blocks[activeBlockIndex.value + 1]?.reasoning || "").length === 0) return;
 
   activeBlockIndex.value += 1;
   consumedLineCount.value = 0;
