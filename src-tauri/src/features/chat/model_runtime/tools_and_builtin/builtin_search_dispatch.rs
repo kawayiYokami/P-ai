@@ -61,9 +61,10 @@ impl SearchEngine {
         }
     }
 
-    /// 免密钥可用（DeepSeek 必须填 key，其余四家用公共免费额度）。
+    /// 免密钥可用。DeepSeek 必须填 key；Firecrawl 的 keyless 调用已被服务端关闭，
+    /// 不填 key 时每次都会白打一次必然失败的请求，因此也不算免密钥。
     fn is_keyless(self) -> bool {
-        !matches!(self, SearchEngine::Deepseek)
+        !matches!(self, SearchEngine::Deepseek | SearchEngine::Firecrawl)
     }
 
     fn from_id(raw: &str) -> Option<Self> {
@@ -81,7 +82,7 @@ enum SearchCallError {
     Cooldown { seconds: u64, message: String },
     /// 网络错误 / 5xx / 响应不可解析：换下一个源，不记冷却
     Transient(String),
-    /// 401/403：密钥无效，直接返回错误，不换源（换源只会掩盖配置问题）
+    /// 401/403：密钥无效。换下一个源，但把原因原样留在失败列表里，别掩盖配置问题
     Auth(String),
 }
 
@@ -833,15 +834,20 @@ fn search_payload(engine_id: &str, engine_name: &str, results: Vec<Value>) -> Va
     })
 }
 
-const SEARCH_FAILED_HEADER: &str = "搜索失败：当前搜索引擎免费额度耗尽，使用注册 key 可以获得更大额度";
+const SEARCH_FAILED_HEADER: &str =
+    "搜索失败：当前搜索引擎免费额度耗尽，使用注册 key 可以获得更大额度";
+const SEARCH_NO_ENGINE_MESSAGE: &str =
+    "搜索失败：没有启用任何搜索引擎。请在设置 → 搜索引擎里启用一个（exa / parallel / tavily 免密钥可用）";
+/// 引擎回了结果但一条都不沾查询时的说明行：宁可交回真实结果，也别告诉用户搜不到。
+const WEAK_RELEVANCE_NOTICE: &str = "以下结果与查询的相关性可能较低，请核对后再使用";
 
-/// 与「所有引擎都失败」区分开：这次是搜到了东西，但没有一条和查询有关。
-fn irrelevant_results_message(query: &str, dropped: usize) -> String {
-    format!("搜索完成，但没有与查询相关的结果（query: {query}，已丢弃 {dropped} 条无关结果）")
+/// 可用引擎全在冷却：限流没到期，跟额度、密钥都无关，不能套「额度耗尽」那句。
+fn search_all_cooling_message(cooling: &str) -> String {
+    format!("搜索失败：可用引擎都在冷却中（限流未到期），请稍后重试\n- {cooling} 冷却中")
 }
 
 /// 失败文案：一行主标题 + 逐条原因，永远不出现空条目。
-/// 原因要照实列，401/403 或网络问题在原因里一眼能看出来，不会被主标题带偏。
+/// 原因照实列：鉴权失败、网络错误、限流冷却在原因里一眼能区分，不会被主标题带偏。
 fn search_failure_message(failures: &[String]) -> String {
     if failures.is_empty() {
         return format!("{SEARCH_FAILED_HEADER}\n- 没有拿到任何失败原因");
@@ -849,112 +855,90 @@ fn search_failure_message(failures: &[String]) -> String {
     format!("{SEARCH_FAILED_HEADER}\n- {}", failures.join("\n- "))
 }
 
-/// 兜底失败文案：一行标题 + 逐条原因，永远不出现空条目。
-/// 一次搜索的入口：按配置选择引擎、调度、收口。
-async fn builtin_search(
-    state: &AppState,
+fn search_payload_with_notice(
+    engine_id: &str,
+    engine_name: &str,
+    results: Vec<Value>,
+    notice: &str,
+) -> Value {
+    serde_json::json!({
+        "engine": { "id": engine_id, "name": engine_name },
+        "notice": notice,
+        "results": results,
+    })
+}
+
+/// 一个引擎的一次结果：相关性过关的留用，原始行留着当兜底。
+fn split_engine_rows(
     query: &str,
+    engine: SearchEngine,
+    rows: Vec<Value>,
+) -> (Vec<Value>, Vec<Value>) {
+    let kept = filter_relevant_search_results(query, rows.clone());
+    if kept.is_empty() {
+        runtime_log_warn(format!(
+            "[搜索引擎] 结果与查询无关，先留原始结果备用：engine={}，query={query}，条数={}",
+            engine.id(),
+            rows.len()
+        ));
+    }
+    (kept, rows)
+}
+
+enum SearchAttempt {
+    Hit(Value),
+    Missed {
+        failures: Vec<String>,
+        weak: Option<(SearchEngine, Vec<Value>)>,
+    },
+}
+
+/// 按顺序试候选引擎。`call` 抽成参数，行为用例才能不依赖真实网络。
+async fn try_candidates_with<C, Fut>(
+    raw_query: &str,
     session_key: &str,
-) -> Result<Value, String> {
-    let raw_query = query.trim();
-    if raw_query.is_empty() {
-        return Err("搜索关键词为空".to_string());
-    }
-    let config = state_read_config_cached(state)?;
-
-    // 锁定模式：只用指定的引擎，不看冷却、不换源，失败原样返回。
-    if let Some(fixed) = fixed_search_engine(&config) {
-        let rows = call_search_engine(
-            &state.shared_http_client,
-            fixed.engine,
-            fixed.api_key.as_deref(),
-            raw_query,
-        )
-            .await
-            .map_err(|err| {
-                format!("{} 搜索失败：{}", fixed.engine.display_name(), err.message())
-            })?;
-        // 引擎说成功不等于搜到了东西：乱码查询下它照样回一屏无关页面。
-        let raw_count = rows.len();
-        let rows = filter_relevant_search_results(raw_query, rows);
-        if rows.is_empty() {
-            runtime_log_warn(format!(
-                "[搜索引擎] 结果与查询无关，已全部丢弃：engine={}，query={raw_query}，丢弃条数={raw_count}",
-                fixed.engine.id()
-            ));
-            return Err(irrelevant_results_message(raw_query, raw_count));
-        }
-        return Ok(search_payload(
-            fixed.engine.id(),
-            fixed.engine.display_name(),
-            rows,
-        ));
-    }
-
-    let candidates = active_search_engines(&config);
-    if candidates.is_empty() {
-        return Err(search_failure_message(&["没有已启用的搜索引擎".to_string()]));
-    }
-    let candidate_engines = candidates
-        .iter()
-        .map(|candidate| candidate.engine)
-        .collect::<Vec<_>>();
-    let ordered = with_search_scheduler(|scheduler| {
-        scheduler.plan(session_key, &candidate_engines, std::time::Instant::now())
-    });
-
+    candidates: &[ReadySearchEngine],
+    ordered: Vec<SearchEngine>,
+    mut call: C,
+) -> SearchAttempt
+where
+    C: FnMut(SearchEngine, Option<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<Value>, SearchCallError>>,
+{
     let mut failures = Vec::<String>::new();
-    if ordered.is_empty() {
-        // 候选都在冷却里：原因要写清是限流，不是这些引擎挂了。
-        let cooling = candidates
-            .iter()
-            .map(|candidate| candidate.engine.display_name())
-            .collect::<Vec<_>>()
-            .join("、");
-        runtime_log_info(format!(
-            "[搜索引擎] 候选引擎都在冷却中：query={raw_query}，冷却中的引擎={cooling}"
-        ));
-        failures.push(format!("{cooling} 都在冷却中（限流未到期）"));
-    }
+    let mut weak: Option<(SearchEngine, Vec<Value>)> = None;
     for engine in ordered {
-        let Some(candidate) = candidates.iter().find(|candidate| candidate.engine == engine) else {
+        let Some(candidate) = candidates.iter().find(|item| item.engine == engine) else {
             continue;
         };
+        let api_key = candidate.api_key.clone();
         // 选源与占用成对：离开本轮作用域（任何分支）都会把在飞计数减回去。
         let _lease = acquire_search_engine(engine);
-        match call_search_engine(
-            &state.shared_http_client,
-            engine,
-            candidate.api_key.as_deref(),
-            raw_query,
-        )
-        .await
-        {
+        match call(engine, api_key).await {
             Ok(rows) => {
-                let raw_count = rows.len();
-                let rows = filter_relevant_search_results(raw_query, rows);
-                if rows.is_empty() {
-                    runtime_log_warn(format!(
-                        "[搜索引擎] 结果与查询无关，换下一个源：engine={}，query={raw_query}，丢弃条数={raw_count}",
-                        engine.id()
+                let (kept, raw) = split_engine_rows(raw_query, engine, rows);
+                if !kept.is_empty() {
+                    with_search_scheduler(|scheduler| {
+                        scheduler.remember_success(session_key, engine)
+                    });
+                    return SearchAttempt::Hit(search_payload(
+                        engine.id(),
+                        engine.display_name(),
+                        kept,
                     ));
-                    failures.push(format!(
-                        "{}: {raw_count} 条结果都与查询无关",
-                        engine.display_name()
-                    ));
-                    continue;
                 }
-                with_search_scheduler(|scheduler| scheduler.remember_success(session_key, engine));
-                return Ok(search_payload(engine.id(), engine.display_name(), rows));
+                if weak.is_none() {
+                    weak = Some((engine, raw));
+                }
             }
             Err(SearchCallError::Auth(message)) => {
-                // 鉴权失败换源只会掩盖配置问题，直接让用户看到。
+                // 一个填错的旧 key 不该让其它源一起失效：换源，但原因原样留下。
                 runtime_log_warn(format!(
-                    "[搜索引擎] 鉴权被拒，不再换源：engine={}，error={message}",
+                    "[搜索引擎] 鉴权失败，换下一个源：engine={}，error={message}",
                     engine.id()
                 ));
-                return Err(format!(
-                    "{} 鉴权被拒（{message}）。请在设置里检查该引擎的密钥，或停用它。",
+                failures.push(format!(
+                    "{}: 鉴权失败，请检查密钥（{message}）",
                     engine.display_name()
                 ));
             }
@@ -980,7 +964,124 @@ async fn builtin_search(
             }
         }
     }
-    Err(search_failure_message(&failures))
+    SearchAttempt::Missed { failures, weak }
+}
+
+/// 一次搜索的入口：按配置选择引擎、调度、收口。
+async fn builtin_search(
+    state: &AppState,
+    query: &str,
+    session_key: &str,
+) -> Result<Value, String> {
+    let raw_query = query.trim();
+    if raw_query.is_empty() {
+        return Err("搜索关键词为空".to_string());
+    }
+    let config = state_read_config_cached(state)?;
+
+    // 锁定模式：只用指定的引擎，不看冷却、不换源，失败原样返回。
+    if let Some(fixed) = fixed_search_engine(&config) {
+        let rows = call_search_engine(
+            &state.shared_http_client,
+            fixed.engine,
+            fixed.api_key.as_deref(),
+            raw_query,
+        )
+            .await
+            .map_err(|err| {
+                format!("{} 搜索失败：{}", fixed.engine.display_name(), err.message())
+            })?;
+        // 引擎说成功不等于搜到了东西：乱码查询下它照样回一屏无关页面。
+        let (kept, raw) = split_engine_rows(raw_query, fixed.engine, rows);
+        if kept.is_empty() {
+            runtime_log_info(format!(
+                "[搜索引擎] 锁定引擎的结果都不沾查询，交回原始结果：engine={}，query={raw_query}",
+                fixed.engine.id()
+            ));
+            return Ok(search_payload_with_notice(
+                fixed.engine.id(),
+                fixed.engine.display_name(),
+                raw,
+                WEAK_RELEVANCE_NOTICE,
+            ));
+        }
+        return Ok(search_payload(
+            fixed.engine.id(),
+            fixed.engine.display_name(),
+            kept,
+        ));
+    }
+
+    let candidates = active_search_engines(&config);
+    if candidates.is_empty() {
+        return Err(SEARCH_NO_ENGINE_MESSAGE.to_string());
+    }
+    let candidate_engines = candidates
+        .iter()
+        .map(|candidate| candidate.engine)
+        .collect::<Vec<_>>();
+    let now = std::time::Instant::now();
+    let ordered = with_search_scheduler(|scheduler| {
+        scheduler.plan(session_key, &candidate_engines, now)
+    });
+    let cooling = with_search_scheduler(|scheduler| {
+        candidates
+            .iter()
+            .filter(|candidate| scheduler.is_cooling(candidate.engine, now))
+            .map(|candidate| candidate.engine.display_name())
+            .collect::<Vec<_>>()
+    });
+    if ordered.is_empty() {
+        runtime_log_info(format!(
+            "[搜索引擎] 候选引擎都在冷却中：query={raw_query}，冷却中的引擎={}",
+            cooling.join("、")
+        ));
+        return Err(search_all_cooling_message(&cooling.join("、")));
+    }
+
+    let mut plan_failures = Vec::<String>::new();
+    if !cooling.is_empty() {
+        // 部分冷却也要留痕，否则用户看不出某个源这次被跳过了。
+        plan_failures.push(format!(
+            "{} 冷却中（限流未到期），本次跳过",
+            cooling.join("、")
+        ));
+    }
+    let attempt = try_candidates_with(
+        raw_query,
+        session_key,
+        &candidates,
+        ordered,
+        |engine, api_key| {
+            let client = state.shared_http_client.clone();
+            let query = raw_query.to_string();
+            async move { call_search_engine(&client, engine, api_key.as_deref(), &query).await }
+        },
+    )
+    .await;
+    match attempt {
+        SearchAttempt::Hit(payload) => Ok(payload),
+        SearchAttempt::Missed {
+            failures: mut engine_failures,
+            weak,
+        } => {
+            plan_failures.append(&mut engine_failures);
+            if let Some((engine, rows)) = weak {
+                runtime_log_info(format!(
+                    "[搜索引擎] 没有引擎给出沾边的结果，交回 {} 的原始结果：query={raw_query}，条数={}",
+                    engine.id(),
+                    rows.len()
+                ));
+                return Ok(search_payload_with_notice(
+                    engine.id(),
+                    engine.display_name(),
+                    rows,
+                    WEAK_RELEVANCE_NOTICE,
+                ));
+            }
+            Err(search_failure_message(&plan_failures))
+        }
+    }
 }
 
 /// 测试连接：拿一次真实查询打过去，只回报成功/失败原因，不写冷却也不记成功。
@@ -1400,14 +1501,48 @@ mod search_dispatch_tests {
     }
 
     #[test]
-    fn irrelevant_results_message_should_name_query_and_not_look_like_failure() {
-        let message = irrelevant_results_message("zzqxvvbnmkljhgf", 10);
-        assert!(message.contains("zzqxvvbnmkljhgf"), "文案要带 query 原文");
-        assert!(message.contains("没有与查询相关的结果"));
-        assert!(
-            !message.contains("搜索失败"),
-            "这句话不能被理解成引擎全挂"
+    fn weak_relevance_payload_should_carry_notice_and_raw_rows() {
+        let payload = search_payload_with_notice(
+            "exa",
+            "Exa",
+            vec![serde_json::json!({"title": "日本酒店预订"})],
+            WEAK_RELEVANCE_NOTICE,
         );
+        assert_eq!(payload["engine"]["id"], "exa");
+        assert_eq!(payload["notice"], WEAK_RELEVANCE_NOTICE);
+        assert_eq!(payload["results"].as_array().map(|items| items.len()), Some(1));
+        assert!(
+            WEAK_RELEVANCE_NOTICE.contains("相关性"),
+            "说明行要讲清是相关性存疑，不是搜不到"
+        );
+    }
+
+    #[test]
+    fn search_no_engine_message_should_point_to_settings() {
+        // 没有已启用引擎是配置问题，不能套「额度耗尽」那句。
+        assert!(SEARCH_NO_ENGINE_MESSAGE.contains("没有启用任何搜索引擎"));
+        assert!(SEARCH_NO_ENGINE_MESSAGE.contains("设置"));
+        assert!(!SEARCH_NO_ENGINE_MESSAGE.contains("额度"));
+    }
+
+    #[test]
+    fn search_all_cooling_message_should_blame_rate_limit_not_quota() {
+        let message = search_all_cooling_message("Exa、Tavily");
+        assert!(message.contains("冷却中"));
+        assert!(message.contains("Exa、Tavily"), "要说清是哪些引擎在冷却");
+        assert!(!message.contains("额度"), "全冷却不能套额度文案：{message}");
+        assert!(!message.contains("- \n"), "不要挂空条目：{message}");
+    }
+
+    #[test]
+    fn split_engine_rows_should_keep_raw_rows_when_nothing_is_relevant() {
+        let rows = vec![
+            serde_json::json!({"title": "Booking hotels", "url": "https://hotel.example/1", "snippet": "reserve a room"}),
+            serde_json::json!({"title": "Modern novel", "url": "https://novel.example/2", "snippet": "chapter one"}),
+        ];
+        let (kept, raw) = split_engine_rows("原神 纳西妲", SearchEngine::Exa, rows);
+        assert!(kept.is_empty(), "英文页面跟中文查询不沾边");
+        assert_eq!(raw.len(), 2, "原始结果要留着兜底，不能直接丢");
     }
 
     // ========== 失败文案 ==========
@@ -1422,9 +1557,11 @@ mod search_dispatch_tests {
 
     #[test]
     fn search_failure_message_should_say_quota_and_keep_reasons() {
+        // 原因只用真实路径能产生的三种：鉴权失败、限流冷却、网络/解析失败。
         let message = search_failure_message(&[
-            "Exa: 401 Unauthorized".to_string(),
-            "Tavily 都在冷却中（限流未到期）".to_string(),
+            "Exa: 鉴权失败，请检查密钥（401 Unauthorized）".to_string(),
+            "Tavily: 限流，冷却 30 秒（429 Too Many Requests）".to_string(),
+            "Parallel: 连接超时".to_string(),
         ]);
         let mut lines = message.lines();
         assert_eq!(
@@ -1434,8 +1571,8 @@ mod search_dispatch_tests {
         );
         assert!(message.contains("免费额度耗尽"));
         assert!(message.contains("注册 key"));
-        assert!(message.contains("Exa: 401 Unauthorized"), "原因要照实列");
-        assert!(message.contains("冷却中"), "冷却要说得出来");
+        assert!(message.contains("鉴权失败，请检查密钥"), "原因要照实列");
+        assert!(message.contains("冷却"), "冷却要说得出来");
         assert!(!message.contains("兜底"), "不能再暗示还有别的兜底");
         assert!(!message.contains("所有搜索引擎都没能返回结果"));
     }
@@ -1531,5 +1668,170 @@ mod search_dispatch_tests {
             .expect("裸字段参数也应能解析");
         assert_eq!(input.engine_id, "exa");
         assert_eq!(input.api_key, None);
+    }
+
+    // ========== 换源与相关性兜底（行为用例，不碰网络） ==========
+
+    fn candidate(engine: SearchEngine, api_key: Option<&str>) -> ReadySearchEngine {
+        ReadySearchEngine {
+            engine,
+            api_key: api_key.map(str::to_string),
+        }
+    }
+
+    fn relevant_row() -> Value {
+        serde_json::json!({
+            "title": "原神纳西妲技能详解",
+            "url": "https://wiki.example/nahida",
+            "snippet": "纳西妲是原神里的草系角色",
+        })
+    }
+
+    fn english_row() -> Value {
+        serde_json::json!({
+            "title": "Booking hotels",
+            "url": "https://hotel.example/1",
+            "snippet": "reserve a room tonight",
+        })
+    }
+
+    #[tokio::test]
+    async fn try_candidates_should_move_on_after_auth_failure() {
+        // 一个填错的旧 key 不该让免密钥引擎一起失效。
+        let candidates = vec![
+            candidate(SearchEngine::Exa, Some("stale-key")),
+            candidate(SearchEngine::Tavily, None),
+        ];
+        let order = std::sync::Arc::new(std::sync::Mutex::new(Vec::<SearchEngine>::new()));
+        let order_in_call = order.clone();
+        let attempt = try_candidates_with(
+            "原神 纳西妲",
+            "session-auth-switch",
+            &candidates,
+            vec![SearchEngine::Exa, SearchEngine::Tavily],
+            move |engine, _api_key| {
+                let order = order_in_call.clone();
+                async move {
+                    order.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push(engine);
+                    match engine {
+                        SearchEngine::Exa => {
+                            Err(SearchCallError::Auth("401 Unauthorized".to_string()))
+                        }
+                        _ => Ok(vec![relevant_row()]),
+                    }
+                }
+            },
+        )
+        .await;
+        assert_eq!(
+            *order.lock().unwrap_or_else(|poisoned| poisoned.into_inner()),
+            vec![SearchEngine::Exa, SearchEngine::Tavily],
+            "鉴权失败后要继续试下一个源"
+        );
+        match attempt {
+            SearchAttempt::Hit(payload) => {
+                assert_eq!(payload["engine"]["id"], "tavily", "换源成功要交回第二个源的结果")
+            }
+            _ => panic!("鉴权失败后应该换源成功"),
+        }
+    }
+
+    #[tokio::test]
+    async fn try_candidates_should_keep_auth_reason_when_every_source_rejects() {
+        let candidates = vec![
+            candidate(SearchEngine::Exa, Some("bad-1")),
+            candidate(SearchEngine::Tavily, None),
+        ];
+        let attempt = try_candidates_with(
+            "原神 纳西妲",
+            "session-all-auth",
+            &candidates,
+            vec![SearchEngine::Exa, SearchEngine::Tavily],
+            |engine, _api_key| async move {
+                Err(SearchCallError::Auth(format!("{} 401", engine.id())))
+            },
+        )
+        .await;
+        match attempt {
+            SearchAttempt::Missed { failures, weak } => {
+                assert!(weak.is_none(), "没有原始结果可交回");
+                assert_eq!(failures.len(), 2);
+                assert!(
+                    failures.iter().all(|item| item.contains("鉴权失败，请检查密钥")),
+                    "配置问题不能被换源掩盖：{failures:?}"
+                );
+                let message = search_failure_message(&failures);
+                assert!(message.contains("鉴权失败，请检查密钥"));
+                assert!(!message.contains("兜底"));
+            }
+            _ => panic!("两源都鉴权失败时不该有命中"),
+        }
+    }
+
+    #[tokio::test]
+    async fn try_candidates_should_hand_back_raw_rows_when_nothing_is_relevant() {
+        // 纯中文查询 + 引擎只回英文页：不算引擎失败，原始结果要留一份。
+        let candidates = vec![candidate(SearchEngine::Exa, None)];
+        let attempt = try_candidates_with(
+            "原神 纳西妲",
+            "session-weak",
+            &candidates,
+            vec![SearchEngine::Exa],
+            |_engine, _api_key| async move { Ok(vec![english_row()]) },
+        )
+        .await;
+        match attempt {
+            SearchAttempt::Missed { failures, weak } => {
+                assert!(failures.is_empty(), "全被滤掉不算失败：{failures:?}");
+                let (engine, rows) = weak.expect("必须留一份原始结果兜住");
+                assert_eq!(engine, SearchEngine::Exa);
+                assert_eq!(rows.len(), 1);
+                let payload = search_payload_with_notice(
+                    engine.id(),
+                    engine.display_name(),
+                    rows,
+                    WEAK_RELEVANCE_NOTICE,
+                );
+                assert_eq!(payload["notice"], WEAK_RELEVANCE_NOTICE);
+                assert_eq!(
+                    payload["results"].as_array().map(|items| items.len()),
+                    Some(1),
+                    "宁可给可能不够准的结果，也不能说搜不到"
+                );
+            }
+            _ => panic!("没有沾边结果时要走 Missed + weak 分支"),
+        }
+    }
+
+    // ========== P1：明文密钥不许从任何一条传输路径出去 ==========
+
+    #[test]
+    fn outbound_config_should_only_flow_through_masked_transport_helper() {
+        // 打码必须收在唯一出口内部：调用点一律拿已打码的返回值，不许在个别分支上漏。
+        let window_and_update = include_str!(
+            "../../../system/commands/config_and_persona/window_and_update.rs"
+        );
+        let persona_settings = include_str!(
+            "../../../system/commands/config_and_persona/persona_and_chat_settings.rs"
+        );
+        for source in [window_and_update, persona_settings] {
+            assert!(
+                !source.contains("runtime_config_with_private_organization"),
+                "对外配置只允许走 runtime_config_for_transport"
+            );
+            assert!(
+                !source.contains("config_for_transport(runtime_config_for_transport"),
+                "调用点不许在出口外面再套一层打码"
+            );
+        }
+        let definition_start = window_and_update
+            .find("fn runtime_config_for_transport(")
+            .expect("传输出口必须存在");
+        let definition = &window_and_update[definition_start..];
+        let body_end = definition.find("\n}\n").expect("函数体应闭合");
+        assert!(
+            definition[..body_end].contains("config_for_transport("),
+            "打码要放在出口内部，新增的写入类命令才不会漏"
+        );
     }
 }

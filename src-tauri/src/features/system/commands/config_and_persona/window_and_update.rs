@@ -154,13 +154,21 @@ fn broadcast_sidebar_provider_changed() {
     ide_chat_broadcast_simple_notification("provider.changed");
 }
 
-fn runtime_config_with_private_organization(
+/// 运行时组织快照 + 搜索密钥打码：这是**唯一**对外的配置出口。
+///
+/// 加载（`load_config_inner` / 启动快照）、保存回传、以及所有 `easy-call:config-updated`
+/// 配置广播都从这里取配置；打码放在这里而不是各调用点，是为了让新增的写入类命令
+/// 不可能漏掉——它们拿到的是同一个已经打码的返回值。
+///
+/// 注意：只有「交回前端」的路径才走这里。会话读取、prompt 准备等内部消费方仍然直接用
+/// `build_runtime_organization_snapshot_from_parts`，拿的是明文密钥。
+fn runtime_config_for_transport(
     state: &AppState,
     config: &AppConfig,
     data: &AppData,
 ) -> Result<AppConfig, String> {
     build_runtime_organization_snapshot_from_parts(&state.data_path, config, &data.agents)
-        .map(|snapshot| snapshot.config)
+        .map(|snapshot| config_for_transport(snapshot.config))
 }
 
 fn runtime_agents_with_private_organization(
@@ -244,7 +252,7 @@ fn set_github_update_method_inner(
     let agents = state_read_agents_cached(state)?;
     let mut data = AppData::default();
     data.agents = agents;
-    let runtime_config = runtime_config_with_private_organization(state, &config, &data)?;
+    let runtime_config = runtime_config_for_transport(state, &config, &data)?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     Ok(runtime_config)
 }
@@ -275,7 +283,7 @@ fn set_skipped_github_update_version_inner(
     let agents = state_read_agents_cached(state)?;
     let mut data = AppData::default();
     data.agents = agents;
-    let runtime_config = runtime_config_with_private_organization(state, &config, &data)?;
+    let runtime_config = runtime_config_for_transport(state, &config, &data)?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     Ok(runtime_config)
 }
@@ -313,7 +321,7 @@ fn set_ui_language_inner(
     let agents = state_read_agents_cached(state)?;
     let mut data = AppData::default();
     data.agents = agents;
-    let runtime_config = runtime_config_with_private_organization(state, &config, &data)?;
+    let runtime_config = runtime_config_for_transport(state, &config, &data)?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     Ok(runtime_config)
 }
@@ -499,7 +507,7 @@ fn update_record_hotkey(
             let agents = state_read_agents_cached(&state)?;
     let mut data = AppData::default();
     data.agents = agents;
-            let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
+            let runtime_config = runtime_config_for_transport(&state, &config, &data)?;
             let _ = app.emit("easy-call:config-updated", &runtime_config);
         }
         return Ok(RecordHotkeyUpdateResult {
@@ -520,7 +528,7 @@ fn update_record_hotkey(
     let agents = state_read_agents_cached(&state)?;
     let mut data = AppData::default();
     data.agents = agents;
-    let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
+    let runtime_config = runtime_config_for_transport(&state, &config, &data)?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     Ok(RecordHotkeyUpdateResult {
         record_hotkey: normalized,
@@ -551,7 +559,7 @@ fn update_record_background_wake(
     let agents = state_read_agents_cached(&state)?;
     let mut data = AppData::default();
     data.agents = agents;
-    let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
+    let runtime_config = runtime_config_for_transport(&state, &config, &data)?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     Ok(RecordHotkeyUpdateResult {
         record_hotkey: config.record_hotkey.clone(),
@@ -650,8 +658,8 @@ fn stop_removed_remote_im_channel_runtimes(
     });
 }
 
-/// 交回前端的配置：搜索密钥一律打码。加载、保存回传、配置广播都从这里过一遍，
-/// 否则刚从掩码合并出来的明文密钥会顺着保存/emit 穿回前端。
+/// 交回前端的配置：搜索密钥一律打码。只由 `runtime_config_for_transport` 调用，
+/// 也就是所有对外出口共用这一个打码点；别在调用点外面再套一层。
 fn config_for_transport(mut config: AppConfig) -> AppConfig {
     mask_search_engine_keys(&mut config);
     config
@@ -741,10 +749,8 @@ fn save_config_inner(
             .await;
         });
     }
-    let runtime_config = config_for_transport(
-        runtime_config_with_private_organization(&state, &main_config, &data)
-            .map_err(|err| format!("配置已保存，但运行时配置刷新失败：{err}"))?,
-    );
+    let runtime_config = runtime_config_for_transport(&state, &main_config, &data)
+        .map_err(|err| format!("配置已保存，但运行时配置刷新失败：{err}"))?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     if assistant_workspace_label_synced > 0 {
         emit_unarchived_conversation_overview_updated_from_state(&state)?;

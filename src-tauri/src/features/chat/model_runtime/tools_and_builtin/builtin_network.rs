@@ -365,11 +365,21 @@ async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result
 // ========== 结果相关性（对全部搜索引擎通用） ==========
 
 /// 乱码或长句查询下，引擎照样会回一屏无关内容；这里做最后一道「搜到了但没用」的判定。
-/// 检索词里没有实义的虚词与口语连接词。
+/// 检索词里没有实义的虚词与口语连接词（中文 + 英文各一组：英文查询原来几乎不过滤）。
 const SEARCH_QUERY_STOPWORDS: &[&str] = &[
     "的", "了", "是", "在", "和", "与", "及", "或", "也", "就", "都", "还", "又", "把", "被", "吗",
     "呢", "吧", "啊", "什么", "怎么", "怎样", "如何", "为什么", "哪个", "哪些", "是否", "以及",
     "还有", "这个", "那个", "一个", "可以", "请问", "一下", "里面", "然后", "到底",
+    // 英文虚词：单字符已被长度过滤覆盖，这里只放两字母以上。
+    "is", "of", "to", "in", "on", "at", "as", "by", "be", "it", "if", "or", "so", "an", "am",
+    "the", "and", "for", "are", "was", "were", "has", "have", "had", "not", "but", "you", "your",
+    "its", "his", "her", "they", "them", "this", "that", "these", "those", "with", "from",
+    "into", "than", "then", "there", "here", "what", "when", "where", "which", "who", "whom",
+    "whose", "why", "how", "does", "did", "doing", "can", "could", "should", "would", "will",
+    "shall", "may", "might", "must", "about", "above", "after", "again", "against", "all",
+    "also", "any", "because", "been", "before", "being", "below", "between", "both", "each",
+    "few", "more", "most", "other", "some", "such", "only", "own", "same", "too", "very",
+    "just", "now", "out", "over", "under", "until", "while", "whether", "give", "tell", "please",
 ];
 
 /// 按空白与标点切词；连续字母数字或汉字算一个词。
@@ -473,6 +483,21 @@ mod search_relevance_tests {
             );
         }
         for kept in ["角色", "技能"] {
+            assert!(keywords.contains(&kept.to_string()), "缺少词元 {kept}");
+        }
+    }
+
+    #[test]
+    fn keywords_should_drop_english_stopwords() {
+        // 纯英文查询原来几乎不过滤（虚词全留），现在两头对齐。
+        let keywords = search_query_keywords("what is the capital of france");
+        for dropped in ["what", "the", "of"] {
+            assert!(
+                !keywords.contains(&dropped.to_string()),
+                "{dropped} 不该进词元表: {keywords:?}"
+            );
+        }
+        for kept in ["capital", "france"] {
             assert!(keywords.contains(&kept.to_string()), "缺少词元 {kept}");
         }
     }
