@@ -172,6 +172,8 @@ fn modelscope_mcp_entry(item: &Value) -> CatalogEntry {
         popularity: json_i64(item, "CallVolume"),
         author: scope.trim_start_matches('@').to_string(),
         homepage: json_str(item, "FromSiteUrl"),
+        // MCP 列表的图标在 FromSiteIcon，技能的在 SourceAvatar，两者互不通用（实测：各自另一个字段恒为 null）。
+        // 域名由服务端给出，其中 `resouces.modelscope.cn` 少一个 r 是魔搭的真实域名，不是笔误，别去「修正」它。
         icon: json_str(item, "FromSiteIcon"),
         transport,
         install_ready: !definition_json.is_empty(),

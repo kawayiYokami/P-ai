@@ -121,6 +121,11 @@ fn catalog_icon_url_is_public_https(address: &str) -> bool {
 
 /// 按魔数判断是不是图片，返回对应 MIME；不是图片返回 None。
 /// 只认这几种：PNG / JPEG / GIF / WebP / ICO / SVG。
+///
+/// 为什么必须是魔数、不能信 `Content-Type`：魔搭图标的响应头统一给
+/// `application/octet-stream`，即使字节头是标准 PNG 签名（实测五张封面全如此）。
+/// 一旦改成信 `Content-Type`，魔搭两个源（MCP 的 `FromSiteIcon`、技能的 `SourceAvatar`）
+/// 的图标会整片退回首字母方块。
 fn catalog_icon_mime_from_bytes(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
         return Some("image/png");
