@@ -486,7 +486,13 @@ fn render_directory_map(ctx: &CliContext) -> String {
             }
             None => current_group.clear(),
         }
-        let exists = layout_entry_exists(&app_root, entry.path);
+        // app_config.toml 的真实位置是 config_dir 下；Linux / macOS 标准安装时 config_dir 就是
+        // app_root，硬拼 app_root/config/ 会把它误报成「尚未创建」。
+        let exists = if entry.path == "config/app_config.toml" {
+            ctx.config_path.exists()
+        } else {
+            layout_entry_exists(&app_root, entry.path)
+        };
         let suffix = if exists { "" } else { "  （尚未创建）" };
         match group {
             Some(_) => out.push_str(&format!("  {:<26} {}{}\n", label, entry.desc, suffix)),
