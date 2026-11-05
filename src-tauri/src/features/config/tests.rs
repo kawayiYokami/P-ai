@@ -201,6 +201,8 @@
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
             remote_im_channels: Vec::new(),
+            search_engines: default_search_engines(),
+            search_mode: default_search_mode(),
             api_configs: vec![
                 ApiConfig {
                     id: "a1".to_string(),
@@ -311,6 +313,8 @@
             shell_workspaces: Vec::new(),
             mcp_servers: Vec::new(),
             remote_im_channels: Vec::new(),
+            search_engines: default_search_engines(),
+            search_mode: default_search_mode(),
             api_configs: vec![
                 ApiConfig {
                     id: "chat-a".to_string(),

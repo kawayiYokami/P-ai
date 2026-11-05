@@ -47,15 +47,17 @@ impl RuntimeValueTool for BuiltinFetchTool {
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinBingSearchTool {
+struct BuiltinWebSearchTool {
     app_state: AppState,
+    /// 会话标识：只用来记住「本会话上次成功的搜索引擎」，不落盘。
+    session_id: String,
 }
 
-impl RuntimeToolMetadata for BuiltinBingSearchTool {
+impl RuntimeToolMetadata for BuiltinWebSearchTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "websearch",
-            "搜索互联网内容。优先使用其他可用的联网搜索或抓取工具；仅在没有其他网络搜索或抓取能力时再使用。",
+            "搜索互联网内容。优先使用其他可用的联网搜索或抓取工具；仅在没有其他网络搜索或抓取能力时再使用。结果里会标明来源搜索引擎。",
             serde_json::json!({
               "type": "object",
               "properties": {
@@ -67,9 +69,9 @@ impl RuntimeToolMetadata for BuiltinBingSearchTool {
     }
 }
 
-impl RuntimeValueTool for BuiltinBingSearchTool {
+impl RuntimeValueTool for BuiltinWebSearchTool {
     const NAME: &'static str = "websearch";
-    type Args = BingSearchToolArgs;
+    type Args = WebSearchToolArgs;
     type Error = ToolInvokeError;
 
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
@@ -78,7 +80,7 @@ impl RuntimeValueTool for BuiltinBingSearchTool {
             "[工具调试] 内置工具执行开始 name=websearch args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
         ));
-        let result = builtin_bing_search(&self.app_state, &args.query)
+        let result = builtin_search(&self.app_state, &args.query, &self.session_id)
             .await
             .map_err(ToolInvokeError::from);
         match &result {

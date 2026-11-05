@@ -499,7 +499,16 @@ fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
             if results.is_empty() {
                 return Some("no results".to_string());
             }
-            let mut lines = vec![receipt_plural(results.len(), "result", "results")];
+            // 结果来自哪个搜索引擎要写在最前面，不然模型分不清是随机调度的哪一个源给的。
+            let engine_name = value
+                .pointer("/engine/name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|name| !name.is_empty());
+            let mut lines = vec![match engine_name {
+                Some(name) => format!("{} via {name}", receipt_plural(results.len(), "result", "results")),
+                None => receipt_plural(results.len(), "result", "results"),
+            }];
             for result in results {
                 let title = value_string(result, "title")
                     .or_else(|| value_string(result, "name"))

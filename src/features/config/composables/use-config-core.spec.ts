@@ -71,6 +71,62 @@ describe("useConfigCore image generation", () => {
   });
 });
 
+describe("useConfigCore search engines", () => {
+  it("密钥留空时保存载荷不下发 apiKey，掩码原样带回", () => {
+    const config = createConfig();
+    config.searchEngines = [
+      { id: "exa", enabled: true, apiKey: "sk***ab" },
+      { id: "tavily", enabled: true },
+    ];
+    config.searchMode = { mode: "fixed", engineId: "exa" };
+    const core = useConfigCore({
+      config,
+      textCapableApiConfigs: computed(() => []),
+    });
+
+    const payload = core.buildConfigPayload() as AppConfig & {
+      searchEngines: Array<{ id: string; enabled: boolean; apiKey?: string }>;
+      searchMode: { mode: string; engineId?: string };
+    };
+
+    expect(payload.searchEngines).toEqual([
+      { id: "exa", enabled: true, apiKey: "sk***ab" },
+      { id: "tavily", enabled: true },
+    ]);
+    expect(payload.searchMode).toEqual({ mode: "fixed", engineId: "exa" });
+  });
+
+  it("模式缺省时保存载荷写出自动模式", () => {
+    const config = createConfig();
+    const core = useConfigCore({
+      config,
+      textCapableApiConfigs: computed(() => []),
+    });
+
+    const payload = core.buildConfigPayload() as unknown as { searchMode: { mode: string } };
+    expect(payload.searchMode).toEqual({ mode: "auto" });
+  });
+
+  it("快照要与保存载荷同形带上搜索字段，否则脏判定永远看不到搜索改动", () => {
+    const config = createConfig();
+    config.searchEngines = [{ id: "exa", enabled: true, apiKey: "sk***ab" }];
+    config.searchMode = { mode: "fixed", engineId: "exa" };
+    const core = useConfigCore({
+      config,
+      textCapableApiConfigs: computed(() => []),
+    });
+
+    const snapshot = JSON.parse(core.buildConfigSnapshotJson()) as AppConfig;
+    expect(snapshot.searchEngines).toEqual([{ id: "exa", enabled: true, apiKey: "sk***ab" }]);
+    expect(snapshot.searchMode).toEqual({ mode: "fixed", engineId: "exa" });
+
+    // configDirty 比的就是两份快照 JSON：改一个搜索字段必须让它变化。
+    const before = core.buildConfigSnapshotJson();
+    config.searchEngines = [{ id: "exa", enabled: false, apiKey: "sk***ab" }];
+    expect(core.buildConfigSnapshotJson()).not.toBe(before);
+  });
+});
+
 describe("useConfigCore api provider displayName", () => {
   it("应在保存载荷与脏检查快照中保留模型显示名", () => {
     const config = createConfig();

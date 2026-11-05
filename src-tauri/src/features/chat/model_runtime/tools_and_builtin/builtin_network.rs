@@ -2,9 +2,7 @@ const FETCH_BROWSER_UA: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
 const EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp";
 const EXA_ACCEPT_HEADER: &str = "application/json, text/event-stream";
-const EXA_TOOL_NAME_WEB_SEARCH: &str = "web_search_exa";
 const EXA_TOOL_NAME_WEB_FETCH: &str = "web_fetch_exa";
-const ANYSEARCH_API_URL: &str = "https://api.anysearch.com/v1/search";
 
 fn is_forbidden_fetch_ip(ip: std::net::IpAddr) -> bool {
     match ip {
@@ -216,95 +214,6 @@ fn map_exa_fetch_result(max_length: usize, result: &Value) -> Result<Value, Stri
     }))
 }
 
-fn map_exa_search_result(result: &Value) -> Result<Value, String> {
-    let texts = exa_result_texts(result);
-    if texts.is_empty() {
-        return Err("Exa search returned empty content.".to_string());
-    }
-    Ok(serde_json::json!({
-        "results": texts
-    }))
-}
-
-// ========== anysearch ==========
-
-async fn builtin_anysearch(state: &AppState, query: &str) -> Result<Value, String> {
-    let raw_query = query.trim();
-    if raw_query.is_empty() {
-        return Err("anysearch: empty query".to_string());
-    }
-    runtime_log_info(format!(
-        "[工具调试] anysearch 请求，query={}",
-        raw_query
-    ));
-    let resp = state
-        .shared_http_client
-        .post(ANYSEARCH_API_URL)
-        .header("Content-Type", "application/json")
-        .header("X-Anysearch-Client", "mcp/1.0.0")
-        .json(&serde_json::json!({
-            "query": raw_query,
-            "max_results": 10,
-        }))
-        .send()
-        .await
-        .map_err(|err| format!("anysearch request failed: {err}"))?;
-    let status = resp.status();
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!(
-            "anysearch returned status {status}: {}",
-            truncate_by_chars(&clean_text(&body), 240)
-        ));
-    }
-    let body: Value = resp
-        .json()
-        .await
-        .map_err(|err| format!("anysearch parse json failed: {err}"))?;
-    if body.get("code").and_then(Value::as_i64) != Some(0) {
-        let msg = body
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown");
-        return Err(format!("anysearch error: {msg}"));
-    }
-    let results = body
-        .pointer("/data/results")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if results.is_empty() {
-        return Err("anysearch returned empty results".to_string());
-    }
-    let rows: Vec<Value> = results
-        .iter()
-        .filter_map(|item| {
-            let title = item.get("title").and_then(Value::as_str)?.trim();
-            let url = item.get("url").and_then(Value::as_str)?.trim();
-            if title.is_empty() || url.is_empty() {
-                return None;
-            }
-            let snippet = item
-                .get("snippet")
-                .or_else(|| item.get("content"))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .trim();
-            Some(serde_json::json!({
-                "title": title,
-                "url": url,
-                "snippet": snippet,
-            }))
-        })
-        .collect();
-    if rows.is_empty() {
-        return Err("anysearch results missing title/url".to_string());
-    }
-    Ok(serde_json::json!({
-        "results": rows,
-    }))
-}
-
 async fn builtin_fetch_fallback(state: &AppState, url: &str, max_length: usize) -> Result<Value, String> {
     let normalized_url = url.trim();
     if normalized_url.is_empty() {
@@ -453,195 +362,176 @@ async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result
     }
 }
 
-// ========== bing search ==========
+// ========== 结果相关性（对全部搜索引擎通用） ==========
 
-fn decode_b64_relaxed(input: &str) -> Option<String> {
-    let mut candidates = Vec::new();
-    candidates.push(input.trim().to_string());
-    candidates.push(input.trim().replace('-', "+").replace('_', "/"));
-    for mut candidate in candidates {
-        let rem = candidate.len() % 4;
-        if rem != 0 {
-            candidate.push_str(&"=".repeat(4 - rem));
-        }
-        if let Ok(bytes) = B64.decode(candidate.as_bytes()) {
-            if let Ok(text) = String::from_utf8(bytes) {
-                let trimmed = text.trim().to_string();
-                if !trimmed.is_empty() {
-                    return Some(trimmed);
-                }
-            }
+/// 乱码或长句查询下，引擎照样会回一屏无关内容；这里做最后一道「搜到了但没用」的判定。
+/// 检索词里没有实义的虚词与口语连接词（中文 + 英文各一组：英文查询原来几乎不过滤）。
+const SEARCH_QUERY_STOPWORDS: &[&str] = &[
+    "的", "了", "是", "在", "和", "与", "及", "或", "也", "就", "都", "还", "又", "把", "被", "吗",
+    "呢", "吧", "啊", "什么", "怎么", "怎样", "如何", "为什么", "哪个", "哪些", "是否", "以及",
+    "还有", "这个", "那个", "一个", "可以", "请问", "一下", "里面", "然后", "到底",
+    // 英文虚词：单字符已被长度过滤覆盖，这里只放两字母以上。
+    "is", "of", "to", "in", "on", "at", "as", "by", "be", "it", "if", "or", "so", "an", "am",
+    "the", "and", "for", "are", "was", "were", "has", "have", "had", "not", "but", "you", "your",
+    "its", "his", "her", "they", "them", "this", "that", "these", "those", "with", "from",
+    "into", "than", "then", "there", "here", "what", "when", "where", "which", "who", "whom",
+    "whose", "why", "how", "does", "did", "doing", "can", "could", "should", "would", "will",
+    "shall", "may", "might", "must", "about", "above", "after", "again", "against", "all",
+    "also", "any", "because", "been", "before", "being", "below", "between", "both", "each",
+    "few", "more", "most", "other", "some", "such", "only", "own", "same", "too", "very",
+    "just", "now", "out", "over", "under", "until", "while", "whether", "give", "tell", "please",
+];
+
+/// 按空白与标点切词；连续字母数字或汉字算一个词。
+fn split_query_tokens(query: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    for ch in query.chars() {
+        if ch.is_alphanumeric() {
+            current.push(ch);
+        } else if !current.is_empty() {
+            tokens.push(std::mem::take(&mut current));
         }
     }
-    None
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
 }
 
-fn normalize_bing_result_url(raw: &str) -> String {
-    let input = raw.trim();
-    if input.is_empty() {
-        return String::new();
+fn push_unique_keyword(keywords: &mut Vec<String>, candidate: String) {
+    if candidate.is_empty() {
+        return;
     }
-    let Ok(parsed) = reqwest::Url::parse(input) else {
-        return input.to_string();
-    };
-    let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-    let path = parsed.path().to_ascii_lowercase();
-    if !host.ends_with("bing.com") || !path.starts_with("/ck/") {
-        return input.to_string();
+    if !keywords.iter().any(|existing| existing == &candidate) {
+        keywords.push(candidate);
     }
-
-    for (k, v) in parsed.query_pairs() {
-        let key = k.as_ref();
-        let value = v.as_ref().trim();
-        if value.is_empty() {
-            continue;
-        }
-        if key == "url" && (value.starts_with("http://") || value.starts_with("https://")) {
-            return value.to_string();
-        }
-        if key == "u" {
-            let decoded_url = urlencoding::decode(value)
-                .map(|x| x.into_owned())
-                .unwrap_or_else(|_| value.to_string());
-            if decoded_url.starts_with("http://") || decoded_url.starts_with("https://") {
-                return decoded_url;
-            }
-            let b64_payload = decoded_url.strip_prefix("a1").unwrap_or(decoded_url.as_str());
-            if let Some(text) = decode_b64_relaxed(b64_payload) {
-                if text.starts_with("http://") || text.starts_with("https://") {
-                    return text;
-                }
-            }
-        }
-    }
-    input.to_string()
 }
 
-fn canonical_url_key(raw: &str) -> String {
-    let normalized = normalize_bing_result_url(raw);
-    if normalized.is_empty() {
-        return String::new();
-    }
-    let mut key = normalized.trim().trim_end_matches('/').to_ascii_lowercase();
-    if let Some(stripped) = key.strip_prefix("https://") {
-        key = stripped.to_string();
-    } else if let Some(stripped) = key.strip_prefix("http://") {
-        key = stripped.to_string();
-    }
-    key
-}
-
-async fn builtin_bing_search_fallback(state: &AppState, query: &str) -> Result<Value, String> {
-    let client = state.shared_http_client.clone();
-    let limit = 10usize;
-    let raw_query = query.trim();
-    let mut last_error: Option<String> = None;
-    let mut last_request_url: Option<String> = None;
-    // cn.bing.com 对非浏览器请求返回缓存导航页，统一用 www.bing.com
-    let bases = ["https://www.bing.com"];
-    for base in bases {
-        let item_sel =
-            Selector::parse("li.b_algo").map_err(|err| format!("Parse selector failed: {err}"))?;
-        let a_sel =
-            Selector::parse("h2 a").map_err(|err| format!("Parse selector failed: {err}"))?;
-        let p_sel = Selector::parse("div.b_caption p")
-            .map_err(|err| format!("Parse selector failed: {err}"))?;
-        let p_alt_sel = Selector::parse("div.b_caption div")
-            .map_err(|err| format!("Parse selector failed: {err}"))?;
-        let p_fallback_sel =
-            Selector::parse("p").map_err(|err| format!("Parse selector failed: {err}"))?;
-        let url = format!("{base}/search?q={}", urlencoding::encode(raw_query));
-        last_request_url = Some(url.clone());
-        runtime_log_info(format!(
-            "[工具调试] websearch 请求地址，query={}，url={}",
-            raw_query, url
-        ));
-        let resp = client
-            .get(&url)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            )
-            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-            .send()
-            .await;
-        let resp = match resp {
-            Ok(resp) => {
-                if !resp.status().is_success() {
-                    last_error = Some(format!("status {}", resp.status()));
+/// 从 query 提取判断相关性的词元：长度 1 的字与虚词丢掉，中文串额外切成连续二字、整串也算候选。
+fn search_query_keywords(query: &str) -> Vec<String> {
+    let mut keywords = Vec::new();
+    for token in split_query_tokens(query) {
+        let lower = token.to_lowercase();
+        let chars = lower.chars().collect::<Vec<_>>();
+        let is_stopword = SEARCH_QUERY_STOPWORDS.contains(&lower.as_str());
+        if chars.len() >= 2 && !is_stopword {
+            push_unique_keyword(&mut keywords, lower.clone());
+        }
+        // is_cjk_char 是 crate 级公共辅助（pdf_text_service.rs 里的同名函数），这里直接复用。
+        if chars.iter().any(|ch| is_cjk_char(*ch)) {
+            for window in chars.windows(2) {
+                let gram = window.iter().collect::<String>();
+                if SEARCH_QUERY_STOPWORDS.contains(&gram.as_str()) {
                     continue;
                 }
-                resp
-            }
-            Err(err) => {
-                last_error = Some(format!("request failed: {err}"));
-                continue;
-            }
-        };
-        let html = resp
-            .text()
-            .await
-            .map_err(|err| format!("Read search body failed: {err}"))?;
-        let doc = Html::parse_document(&html);
-        let mut seen = std::collections::HashSet::<String>::new();
-        let mut rows = Vec::new();
-        for item in doc.select(&item_sel) {
-            let title_node = item.select(&a_sel).next();
-            let title = title_node
-                .as_ref()
-                .map(|n| clean_text(&n.text().collect::<Vec<_>>().join(" ")))
-                .unwrap_or_default();
-            let raw_link = title_node
-                .as_ref()
-                .and_then(|n| n.value().attr("href"))
-                .unwrap_or_default();
-            let link = normalize_bing_result_url(raw_link);
-            let snippet = item
-                .select(&p_sel)
-                .next()
-                .or_else(|| item.select(&p_alt_sel).next())
-                .or_else(|| item.select(&p_fallback_sel).next())
-                .map(|n| clean_text(&n.text().collect::<Vec<_>>().join(" ")))
-                .unwrap_or_default();
-            let key = canonical_url_key(&link);
-            if !title.is_empty() && !link.is_empty() && !key.is_empty() && seen.insert(key) {
-                rows.push(serde_json::json!({"title": title, "url": link, "snippet": snippet}));
-                if rows.len() >= limit {
-                    break;
-                }
+                push_unique_keyword(&mut keywords, gram);
             }
         }
-        if !rows.is_empty() {
-            return Ok(serde_json::json!({
-                "results": rows
-            }));
+    }
+    keywords
+}
+
+fn result_matches_query_keywords(keywords: &[String], row: &Value) -> bool {
+    let mut haystack = String::new();
+    for field in ["title", "snippet", "url"] {
+        if let Some(text) = row.get(field).and_then(Value::as_str) {
+            haystack.push_str(text);
+            haystack.push(' ');
         }
-        last_error = Some("no results parsed".to_string());
     }
-    Err(format!(
-        "bing search failed: {} (request_url={})",
-        last_error.unwrap_or_else(|| "unknown".to_string()),
-        last_request_url.unwrap_or_else(|| "<none>".to_string())
-    ))
+    let haystack = haystack.to_lowercase();
+    keywords
+        .iter()
+        .any(|keyword| haystack.contains(keyword.as_str()))
 }
 
-async fn builtin_bing_search(state: &AppState, query: &str) -> Result<Value, String> {
-    // 降级链：AnySearch → Exa → Bing 抓取
-    if let Ok(result) = builtin_anysearch(state, query).await {
-        return Ok(result);
+/// 丢掉与查询毫无交集的结果；提取不出词元时无法判断，原样保留。
+fn filter_relevant_search_results(query: &str, rows: Vec<Value>) -> Vec<Value> {
+    let keywords = search_query_keywords(query);
+    if keywords.is_empty() {
+        return rows;
     }
-    match call_exa_mcp_tool(
-        state,
-        EXA_TOOL_NAME_WEB_SEARCH,
-        serde_json::json!({
-            "query": query.trim(),
-            "numResults": 10,
-        }),
-    )
-    .await
-    {
-        Ok(result) if exa_result_has_content(&result) => map_exa_search_result(&result),
-        Ok(_) | Err(_) => builtin_bing_search_fallback(state, query).await,
-    }
+    rows.into_iter()
+        .filter(|row| result_matches_query_keywords(&keywords, row))
+        .collect()
 }
 
+#[cfg(test)]
+mod search_relevance_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn keywords_should_split_cjk_into_bigrams() {
+        let keywords = search_query_keywords("原神 纳西妲");
+        for expected in ["原神", "纳西", "西妲", "纳西妲"] {
+            assert!(
+                keywords.contains(&expected.to_string()),
+                "缺少词元 {expected}: {keywords:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn keywords_should_drop_single_chars_and_stopwords() {
+        let keywords = search_query_keywords("这个 角色 的 技能 是什么");
+        for dropped in ["的", "这个", "什么"] {
+            assert!(
+                !keywords.contains(&dropped.to_string()),
+                "{dropped} 不该进词元表: {keywords:?}"
+            );
+        }
+        for kept in ["角色", "技能"] {
+            assert!(keywords.contains(&kept.to_string()), "缺少词元 {kept}");
+        }
+    }
+
+    #[test]
+    fn keywords_should_drop_english_stopwords() {
+        // 纯英文查询原来几乎不过滤（虚词全留），现在两头对齐。
+        let keywords = search_query_keywords("what is the capital of france");
+        for dropped in ["what", "the", "of"] {
+            assert!(
+                !keywords.contains(&dropped.to_string()),
+                "{dropped} 不该进词元表: {keywords:?}"
+            );
+        }
+        for kept in ["capital", "france"] {
+            assert!(keywords.contains(&kept.to_string()), "缺少词元 {kept}");
+        }
+    }
+
+    #[test]
+    fn relevance_should_keep_rows_mentioning_query() {
+        let rows = vec![
+            json!({"title": "纳西妲 - 米游社", "url": "https://www.miyoushe.com/x", "snippet": "须弥的草神"}),
+            json!({"title": "日本酒店预订", "url": "https://example.jp/hotel", "snippet": "东京 旅馆"}),
+        ];
+        let kept = filter_relevant_search_results("原神 纳西妲", rows);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0]["title"], json!("纳西妲 - 米游社"));
+    }
+
+    #[test]
+    fn relevance_should_drop_everything_when_nothing_matches() {
+        let rows = vec![
+            json!({"title": "日本酒店预订", "url": "https://example.jp/hotel", "snippet": "东京 旅馆"}),
+            json!({"title": "小红书 - 你的生活兴趣社区", "url": "https://www.xiaohongshu.com/", "snippet": "发现精彩"}),
+        ];
+        assert!(filter_relevant_search_results("zzqxvvbnmkljhgf", rows).is_empty());
+    }
+
+    #[test]
+    fn relevance_should_keep_everything_when_query_has_no_keywords() {
+        let rows = vec![json!({"title": "任意", "url": "https://example.com/", "snippet": ""})];
+        assert_eq!(filter_relevant_search_results("", rows.clone()).len(), 1);
+        assert_eq!(filter_relevant_search_results("!!! ???", rows).len(), 1);
+    }
+
+    #[test]
+    fn relevance_should_match_url_case_insensitively() {
+        let rows = vec![json!({"title": "Docs", "url": "https://Rust-Lang.org/", "snippet": ""})];
+        assert_eq!(filter_relevant_search_results("rust-lang", rows).len(), 1);
+    }
+}

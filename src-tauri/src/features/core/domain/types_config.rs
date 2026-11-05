@@ -194,6 +194,51 @@ fn default_mcp_servers() -> Vec<McpServerConfig> {
     Vec::new()
 }
 
+// ==================== 搜索引擎配置 ====================
+
+/// 单个搜索引擎的配置项，`id` 与内置引擎表一一对应（exa / parallel / firecrawl / tavily / deepseek）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchEngineConfig {
+    id: String,
+    #[serde(default = "default_true")]
+    enabled: bool,
+    /// 密钥只在本地配置文件里落明文；回传前端时打码，保存时带回掩码则沿用旧值。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    api_key: Option<String>,
+}
+
+/// 搜索调度模式：自动多源随机（Auto），或锁定某个填了密钥的引擎（Fixed）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "camelCase", rename_all_fields = "camelCase")]
+enum SearchMode {
+    Auto,
+    Fixed { engine_id: String },
+}
+
+impl Default for SearchMode {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+fn default_search_mode() -> SearchMode {
+    SearchMode::Auto
+}
+
+/// 五个内置引擎的初始配置。默认开启 exa / parallel / tavily 三家（2026-11-05 实测免密钥可用）；
+/// firecrawl 的免密钥调用实测已被服务端关闭（返回 isError: 需要 API key），默认关闭，填了密钥再打开；
+/// DeepSeek 必须填密钥且按次计费，默认关闭。
+fn default_search_engines() -> Vec<SearchEngineConfig> {
+    vec![
+        SearchEngineConfig { id: "exa".to_string(), enabled: true, api_key: None },
+        SearchEngineConfig { id: "parallel".to_string(), enabled: true, api_key: None },
+        SearchEngineConfig { id: "firecrawl".to_string(), enabled: false, api_key: None },
+        SearchEngineConfig { id: "tavily".to_string(), enabled: true, api_key: None },
+        SearchEngineConfig { id: "deepseek".to_string(), enabled: false, api_key: None },
+    ]
+}
+
 fn default_permission_mode() -> String {
     "blacklist".to_string()
 }
@@ -1117,6 +1162,10 @@ struct AppConfig {
     mcp_servers: Vec<McpServerConfig>,
     #[serde(default = "default_remote_im_channels")]
     remote_im_channels: Vec<RemoteImChannelConfig>,
+    #[serde(default = "default_search_engines")]
+    search_engines: Vec<SearchEngineConfig>,
+    #[serde(default = "default_search_mode")]
+    search_mode: SearchMode,
     #[serde(default = "default_provider_non_stream_base_urls")]
     provider_non_stream_base_urls: Vec<String>,
     #[serde(default)]
@@ -1164,6 +1213,8 @@ impl Default for AppConfig {
             shell_workspaces: Vec::new(),
             mcp_servers: default_mcp_servers(),
             remote_im_channels: default_remote_im_channels(),
+            search_engines: default_search_engines(),
+            search_mode: default_search_mode(),
             provider_non_stream_base_urls: default_provider_non_stream_base_urls(),
             api_providers: default_api_providers(),
             image_providers: default_image_generation_providers(),

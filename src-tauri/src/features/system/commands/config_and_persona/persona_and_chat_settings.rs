@@ -1325,7 +1325,7 @@ fn set_agent_primary_api_config_inner(
     sync_private_agents_to_workspace(&state.data_path, &config, &agents)?;
     let mut data = AppData::default();
     data.agents = agents;
-    let runtime_config = runtime_config_with_private_organization(state, &config, &data)?;
+    let runtime_config = runtime_config_for_transport(state, &config, &data)?;
 
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     broadcast_sidebar_persona_changed();

@@ -30,8 +30,9 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            BuiltinBingSearchTool {
+            BuiltinWebSearchTool {
                 app_state: state.clone(),
+                session_id: String::new(),
             }
             .provider_tool_definition(),
         ),

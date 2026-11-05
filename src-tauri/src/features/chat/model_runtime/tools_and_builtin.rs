@@ -6,6 +6,7 @@
 // 4) tool_impls: Builtin*Tool 的 Tool trait 封装层
 include!("tools_and_builtin/core_provider.rs");
 include!("tools_and_builtin/builtin_network.rs");
+include!("tools_and_builtin/builtin_search_dispatch.rs");
 include!("tools_and_builtin/builtin_memory.rs");
 include!("tools_and_builtin/builtin_plan.rs");
 include!("tools_and_builtin/tool_arg_types.rs");
