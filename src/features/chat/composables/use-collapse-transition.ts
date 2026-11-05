@@ -39,14 +39,13 @@ export function useCollapseTransition() {
     el.style.transform = "translateY(-6px)";
     el.style.overflow = "hidden";
     el.style.willChange = "height, opacity, transform";
-    void el.offsetHeight;
     const onEnd = bindTransitionEnd(el, done);
-    el.style.transition = [
-      "height 180ms cubic-bezier(0.22, 1, 0.36, 1)",
-      "opacity 140ms ease-out",
-      "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)",
-    ].join(", ");
     requestAnimationFrame(() => {
+      el.style.transition = [
+        "height 180ms cubic-bezier(0.22, 1, 0.36, 1)",
+        "opacity 140ms ease-out",
+        "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)",
+      ].join(", ");
       el.style.height = `${el.scrollHeight}px`;
       el.style.opacity = "1";
       el.style.transform = "translateY(0)";
@@ -63,14 +62,13 @@ export function useCollapseTransition() {
     el.style.transform = "translateY(0)";
     el.style.overflow = "hidden";
     el.style.willChange = "height, opacity, transform";
-    void el.offsetHeight;
     const onEnd = bindTransitionEnd(el, done);
-    el.style.transition = [
-      "height 180ms cubic-bezier(0.22, 1, 0.36, 1)",
-      "opacity 140ms ease-out",
-      "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)",
-    ].join(", ");
     requestAnimationFrame(() => {
+      el.style.transition = [
+        "height 180ms cubic-bezier(0.22, 1, 0.36, 1)",
+        "opacity 140ms ease-out",
+        "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)",
+      ].join(", ");
       el.style.height = "0px";
       el.style.opacity = "0";
       el.style.transform = "translateY(-6px)";
