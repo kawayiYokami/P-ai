@@ -32,12 +32,12 @@ function withIssue(id: string, name: string): TeamMemberTileItem {
   };
 }
 
-/** 空闲：rank 4，不该上磁贴 */
+/** 空闲：rank 4，排在最后但仍上表 */
 function idle(id: string, name: string): TeamMemberTileItem {
   return { conversationId: id, title: name, agentName: name, memberState: "idle" };
 }
 
-/** 出错：rank 3，也不该上磁贴 */
+/** 出错：rank 3，排在空闲之前 */
 function errored(id: string, name: string): TeamMemberTileItem {
   return { conversationId: id, title: name, agentName: name, memberState: "error" };
 }
@@ -64,7 +64,7 @@ describe("HomeTeamMemberBlock", () => {
     expect(html).toContain("王工");
   });
 
-  it("只显示工作中的队员：空闲与出错都不进磁贴", async () => {
+  it("全体队员都上表：空闲与出错也显示，不按工作状态筛人", async () => {
     const html = await renderBlock([
       busy("m1", "忙碌的"),
       withIssue("m2", "有议题的"),
@@ -73,17 +73,20 @@ describe("HomeTeamMemberBlock", () => {
     ]);
     expect(html).toContain("忙碌的");
     expect(html).toContain("有议题的");
-    expect(html).not.toContain("空闲的");
-    expect(html).not.toContain("出错的");
+    expect(html).toContain("空闲的");
+    expect(html).toContain("出错的");
   });
 
-  it("全部空闲时不隐藏卡片，留在原地显示工作态空文案", async () => {
-    const html = await renderBlock([idle("m1", "空闲甲"), idle("m2", "空闲乙")]);
+  it("队伍为空时才显示空文案", async () => {
+    const html = await renderBlock([]);
     expect(html).toContain("ecall-home-team-block");
-    expect(html).toContain("暂无队员在工作中");
-    expect(html).not.toContain("空闲甲");
-    // 队伍本身还有队员，不该退化成「队伍里还没有队员」
-    expect(html).not.toContain("队伍里还没有队员");
+    expect(html).toContain("队伍里还没有队员");
+    expect(html).not.toContain("ecall-home-team-scroller");
+  });
+
+  it("滚动区带全局底部渐隐类，长度走 --ecall-fade-size", async () => {
+    const html = await renderBlock([busy("m1", "甲")]);
+    expect(html).toContain("ecall-fade-bottom");
   });
 
   it("占几行几列只认宿主下发的 colSpan / rowSpan，不按人数自己涨", async () => {

@@ -17,15 +17,15 @@
       </button>
     </header>
 
-    <OverlayScrollArea v-if="workingMembers.length" class="flex-1 min-h-0 w-full" scroller-class="ecall-home-team-scroller">
+    <OverlayScrollArea v-if="orderedMembers.length" class="flex-1 min-h-0 w-full" scroller-class="ecall-home-team-scroller ecall-fade-bottom">
       <TeamMemberTileGrid
-        :members="workingMembers"
+        :members="orderedMembers"
         :avatar-url-map="avatarUrlMap"
         @select-member="emit('selectMember', $event)"
       />
     </OverlayScrollArea>
     <div v-else class="flex flex-1 items-center justify-center px-2 text-center text-xs text-base-content/50">
-      {{ t("chat.teamMember.emptyWorking") }}
+      {{ t("chat.teamMember.empty") }}
     </div>
   </section>
 </template>
@@ -39,18 +39,17 @@ import TeamMemberTileGrid from "../TeamMemberTileGrid.vue";
 import { teamMemberWorkRank, type TeamMemberTileItem } from "../team-member-tile";
 
 /**
- * 首页「队员状态表」整块：标题行 + 工作中的队员 + 内部滚动。
+ * 首页「队员状态表」整块：标题行 + 全体队员 + 内部滚动。
  *
- * 只放正在干活的人：判定直接用 teamMemberWorkRank，0/1/2
- * （忙碌且有在办议题、仅忙碌、有在办议题）算工作中；
- * 3（运行出错）与 4（空闲）不进磁贴——这里回答的是「现在谁在替我干活」，
- * 空闲与出错在队员页里看。判定不另写一套，免得两处口径分叉。
+ * 全部队员都上表，不按工作状态筛：这一块回答的是「我的队伍里都有谁」，
+ * 谁暂时闲着不该从列表里消失。排序仍走 teamMemberWorkRank，
+ * 调度中（0 忙碌且有议题、1 仅忙碌）自然排在最前，出错与空闲跟在后。
  *
  * 占几行几列由宿主 ChatHomePanel 算好通过 colSpan / rowSpan 下发，
- * 这一块不按人数自己涨高；超出可用高度后在内部平滑滚动。
- * 全部空闲时卡片不隐藏，留在原地显示一句空态，避免首页网格跳动。
+ * 这一块不按人数自己涨高；超出可用高度后在内部平滑滚动，
+ * 底部由全局 `.ecall-fade-bottom` 渐隐，不在组件里另写渐变。
  *
- * 排序：仍按 teamMemberWorkRank 分级，同状态内保持稳定招募顺序。
+ * 排序：按 teamMemberWorkRank 分级，同状态内保持稳定招募顺序。
  */
 const props = withDefaults(defineProps<{
   members?: TeamMemberTileItem[];
@@ -66,13 +65,8 @@ const props = withDefaults(defineProps<{
   rowSpan: 1,
 });
 
-/** rank 小于它就上磁贴：0 忙碌且有议题、1 仅忙碌、2 仅有在办议题。 */
-const WORKING_RANK_LIMIT = 3;
-
-const workingMembers = computed(() => {
-  const indexed = props.members
-    .map((member, index) => ({ member, index }))
-    .filter((entry) => teamMemberWorkRank(entry.member) < WORKING_RANK_LIMIT);
+const orderedMembers = computed(() => {
+  const indexed = props.members.map((member, index) => ({ member, index }));
   indexed.sort((a, b) =>
     teamMemberWorkRank(a.member) - teamMemberWorkRank(b.member)
     || a.index - b.index,
