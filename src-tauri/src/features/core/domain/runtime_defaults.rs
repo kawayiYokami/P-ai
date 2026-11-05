@@ -231,49 +231,6 @@ fn default_system_persona() -> AgentProfile {
     }
 }
 
-fn normalize_agent_tools(agent: &mut AgentProfile) -> bool {
-    let defaults = default_agent_tools();
-    let mut next = Vec::<ApiToolConfig>::new();
-    for default in defaults {
-        let found = agent.tools.iter().find(|tool| {
-            tool.id == default.id || (default.id == "read" && tool.id == "read_file")
-        });
-        if let Some(found) = found {
-            next.push(ApiToolConfig {
-                id: default.id.clone(),
-                command: if found.command.trim().is_empty() {
-                    default.command.clone()
-                } else {
-                    found.command.clone()
-                },
-                args: if found.args.is_empty() {
-                    default.args.clone()
-                } else if default.id == "read" && found.id == "read_file" {
-                    default.args.clone()
-                } else {
-                    found.args.clone()
-                },
-                enabled: found.enabled,
-                values: found.values.clone(),
-            });
-        } else {
-            next.push(default);
-        }
-    }
-    let changed = agent.tools.len() != next.len()
-        || agent.tools.iter().zip(next.iter()).any(|(left, right)| {
-            left.id != right.id
-                || left.enabled != right.enabled
-                || left.command != right.command
-                || left.args != right.args
-                || left.values != right.values
-        });
-    if changed {
-        agent.tools = next;
-    }
-    changed
-}
-
 fn fill_missing_conversation_message_speaker_agent_ids(conversation: &mut Conversation) -> bool {
     fn provider_meta_speaker_agent_id(message: &ChatMessage) -> Option<String> {
         let meta = message.provider_meta.as_ref()?;

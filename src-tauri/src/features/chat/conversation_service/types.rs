@@ -50,10 +50,7 @@ struct ToolSessionTargetSummary {
 
 struct InformSessionMutationResult {
     target_conversation_id: String,
-    target_kind: String,
-    remote_contact_id: Option<String>,
     pushed_to_remote: bool,
-    message: ChatMessage,
 }
 
 struct DeleteUnarchivedConversationMutationResult {

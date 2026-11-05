@@ -662,10 +662,7 @@ impl ConversationServiceV2 {
         )?;
         Ok(InformSessionMutationResult {
             target_conversation_id: normalized_target_session_id.to_string(),
-            target_kind: "queued".to_string(),
-            remote_contact_id: None,
             pushed_to_remote: false,
-            message,
         })
     }
 

@@ -8052,7 +8052,6 @@
             .inform_session(&state, &source_id, &target_local_id, "请跟进")
             .expect("inform local session");
 
-        assert_eq!(result.target_kind, "queued");
         assert!(!result.pushed_to_remote);
         // 本地会话走引导队列：空会话批次先补种初始摘要，通知消息随后写入并激活主助理。
         let target = {
@@ -8113,7 +8112,6 @@
             .inform_session(&state, &source_id, &remote_target_id, "同步一下")
             .expect("inform remote session");
 
-        assert_eq!(result.target_kind, "queued");
         assert!(!result.pushed_to_remote);
         let target = wait_for_session_notification(&state, &remote_target_id);
         assert_eq!(target.messages.len(), 1);
