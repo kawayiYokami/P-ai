@@ -6,7 +6,7 @@ struct FetchToolArgs {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct BingSearchToolArgs {
+struct WebSearchToolArgs {
     query: String,
 }
 

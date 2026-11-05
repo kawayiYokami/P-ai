@@ -17869,7 +17869,7 @@
         use serde_json::json;
         vec![
             ("fetch", json!({"ok": true, "url": "https://example.com", "status": 200, "content": "正文", "provider": "builtin"})),
-            ("websearch", json!({"query": "q", "engine": "bing", "provider": "builtin", "results": [{"title": "t", "url": "u", "snippet": "s"}]})),
+            ("websearch", json!({"query": "q", "engine": "exa", "provider": "builtin", "results": [{"title": "t", "url": "u", "snippet": "s"}]})),
             ("operate", json!({"ok": true, "executedCount": 1, "elapsedMs": 8, "steps": [{"line": 1, "kind": "click", "summary": "clicked", "ok": true}], "warnings": []})),
             ("windows", json!({"ok": true, "executedCount": 1, "steps": [{"kind": "list", "summary": "windows listed, count=1", "ok": true, "windows": [{"windowId": 1, "title": "t", "processName": "p.exe", "focused": true, "minimized": false}]}]})),
             ("read", json!({"ok": true, "path": "a.txt", "detectedType": "text", "readerKind": "text", "truncated": false, "nextOffset": null, "content": "第一行", "metadata": {"kind": "text", "offset": 0, "limit": 0, "returnedCount": 1, "totalCount": 1, "returnedCharCount": 3, "charLimit": 30000, "sourceLineEnding": "lf", "contentLineEnding": "lf", "lineEndingNote": "", "fileName": "a.txt", "extra": {}}})),

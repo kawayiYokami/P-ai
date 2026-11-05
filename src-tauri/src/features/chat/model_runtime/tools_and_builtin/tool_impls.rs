@@ -47,13 +47,13 @@ impl RuntimeValueTool for BuiltinFetchTool {
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinBingSearchTool {
+struct BuiltinWebSearchTool {
     app_state: AppState,
     /// 会话标识：只用来记住「本会话上次成功的搜索引擎」，不落盘。
     session_id: String,
 }
 
-impl RuntimeToolMetadata for BuiltinBingSearchTool {
+impl RuntimeToolMetadata for BuiltinWebSearchTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "websearch",
@@ -69,9 +69,9 @@ impl RuntimeToolMetadata for BuiltinBingSearchTool {
     }
 }
 
-impl RuntimeValueTool for BuiltinBingSearchTool {
+impl RuntimeValueTool for BuiltinWebSearchTool {
     const NAME: &'static str = "websearch";
-    type Args = BingSearchToolArgs;
+    type Args = WebSearchToolArgs;
     type Error = ToolInvokeError;
 
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {

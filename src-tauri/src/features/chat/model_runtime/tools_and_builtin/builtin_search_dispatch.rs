@@ -3,7 +3,7 @@
 // 五个内置搜索引擎（exa / parallel / firecrawl / tavily / deepseek），两种调度模式：
 // - Auto：候选集随机取一个，本会话上次成功的优先；429 记冷却换源，网络错误与 5xx 换源不记冷却。
 // - Fixed：只用锁定的那个引擎，不换源不看冷却，失败原样返回。
-// 五个引擎全失败时退回 Bing 抓取（最后兜底，不进配置页、不可配置）。
+// 五个引擎全失败时按引擎逐条列出失败原因，不设任何兜底抓取。
 
 const EXA_SEARCH_MCP_URL: &str = "https://mcp.exa.ai/mcp";
 const PARALLEL_SEARCH_MCP_URL: &str = "https://search.parallel.ai/mcp";
@@ -833,77 +833,24 @@ fn search_payload(engine_id: &str, engine_name: &str, results: Vec<Value>) -> Va
     })
 }
 
-const BING_FALLBACK_FAILED_HEADER: &str = "搜索失败：所有搜索引擎都没能返回结果";
-const BING_FALLBACK_COOLING_HEADER: &str =
-    "搜索失败：可用引擎都在冷却中（限流未到期），Bing 兜底也没有结果";
+const SEARCH_FAILED_HEADER: &str = "搜索失败：当前搜索引擎免费额度耗尽，使用注册 key 可以获得更大额度";
 
 /// 与「所有引擎都失败」区分开：这次是搜到了东西，但没有一条和查询有关。
-fn bing_irrelevant_results_message(query: &str, dropped: usize) -> String {
+fn irrelevant_results_message(query: &str, dropped: usize) -> String {
     format!("搜索完成，但没有与查询相关的结果（query: {query}，已丢弃 {dropped} 条无关结果）")
 }
 
-/// 市场判定失败（Bing 给的是非中文页面）也算「搜到了但没用」，不能把日文结果当结果交出去。
-fn bing_market_mismatch_message(query: &str) -> String {
-    format!("搜索完成，但没有与查询相关的结果（query: {query}，Bing 返回的是非中文市场页面）")
-}
-
-/// 引擎全部失败时退回 Bing 抓取；`header` 区分「引擎都挂了」与「引擎都在冷却」。
-async fn bing_search_as_fallback(
-    state: &AppState,
-    query: &str,
-    header: &str,
-    mut failures: Vec<String>,
-) -> Result<Value, String> {
-    match builtin_bing_search_fallback(state, query).await {
-        Ok(value) => {
-            let results = value
-                .get("results")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            let raw_count = results.len();
-            let market_mismatch = value
-                .get("marketMismatch")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            if market_mismatch {
-                runtime_log_warn(format!(
-                    "[搜索引擎] Bing 市场判定失败，这次兜底不算有结果：query={query}"
-                ));
-                return Err(bing_market_mismatch_message(query));
-            }
-            // Bing 抓取不保证相关性：查不到东西时它照样回 10 条无关页面，原样塞给模型就是「搜不到」。
-            let results = filter_relevant_bing_results(query, results);
-            if results.is_empty() && raw_count > 0 {
-                runtime_log_info(format!(
-                    "[搜索引擎] Bing 结果与查询无关，已全部丢弃：query={query}，丢弃条数={raw_count}"
-                ));
-                return Err(bing_irrelevant_results_message(query, raw_count));
-            }
-            if results.is_empty() {
-                failures.push("Bing: 没有解析出结果".to_string());
-            } else {
-                runtime_log_info(format!(
-                    "[搜索引擎] 五个引擎都失败，已退回 Bing 抓取：query={query}，结果数={}",
-                    results.len()
-                ));
-                return Ok(search_payload("bing", "Bing", results));
-            }
-        }
-        Err(err) => failures.push(format!("Bing: {err}")),
+/// 失败文案：一行主标题 + 逐条原因，永远不出现空条目。
+/// 原因要照实列，401/403 或网络问题在原因里一眼能看出来，不会被主标题带偏。
+fn search_failure_message(failures: &[String]) -> String {
+    if failures.is_empty() {
+        return format!("{SEARCH_FAILED_HEADER}\n- 没有拿到任何失败原因");
     }
-    Err(bing_fallback_failure_message(header, &failures))
+    format!("{SEARCH_FAILED_HEADER}\n- {}", failures.join("\n- "))
 }
 
 /// 兜底失败文案：一行标题 + 逐条原因，永远不出现空条目。
-fn bing_fallback_failure_message(header: &str, failures: &[String]) -> String {
-    if failures.is_empty() {
-        return format!("{header}\n- 没有拿到任何失败原因");
-    }
-    format!("{header}\n- {}", failures.join("\n- "))
-}
-
-/// 一次搜索的入口：按配置选择引擎、调度、收口；五个引擎全失败时退回 Bing 抓取。
+/// 一次搜索的入口：按配置选择引擎、调度、收口。
 async fn builtin_search(
     state: &AppState,
     query: &str,
@@ -915,7 +862,7 @@ async fn builtin_search(
     }
     let config = state_read_config_cached(state)?;
 
-    // 锁定模式：只用指定的引擎，不看冷却、不换源、不兜底，失败原样返回。
+    // 锁定模式：只用指定的引擎，不看冷却、不换源，失败原样返回。
     if let Some(fixed) = fixed_search_engine(&config) {
         let rows = call_search_engine(
             &state.shared_http_client,
@@ -927,6 +874,16 @@ async fn builtin_search(
             .map_err(|err| {
                 format!("{} 搜索失败：{}", fixed.engine.display_name(), err.message())
             })?;
+        // 引擎说成功不等于搜到了东西：乱码查询下它照样回一屏无关页面。
+        let raw_count = rows.len();
+        let rows = filter_relevant_search_results(raw_query, rows);
+        if rows.is_empty() {
+            runtime_log_warn(format!(
+                "[搜索引擎] 结果与查询无关，已全部丢弃：engine={}，query={raw_query}，丢弃条数={raw_count}",
+                fixed.engine.id()
+            ));
+            return Err(irrelevant_results_message(raw_query, raw_count));
+        }
         return Ok(search_payload(
             fixed.engine.id(),
             fixed.engine.display_name(),
@@ -936,13 +893,7 @@ async fn builtin_search(
 
     let candidates = active_search_engines(&config);
     if candidates.is_empty() {
-        return bing_search_as_fallback(
-            state,
-            raw_query,
-            BING_FALLBACK_FAILED_HEADER,
-            vec!["没有已启用的搜索引擎".to_string()],
-        )
-        .await;
+        return Err(search_failure_message(&["没有已启用的搜索引擎".to_string()]));
     }
     let candidate_engines = candidates
         .iter()
@@ -953,18 +904,16 @@ async fn builtin_search(
     });
 
     let mut failures = Vec::<String>::new();
-    let mut header = BING_FALLBACK_FAILED_HEADER;
     if ordered.is_empty() {
-        // 候选都在冷却里：Bing 兜底照走，但失败原因要说清是限流，不是这些引擎挂了。
+        // 候选都在冷却里：原因要写清是限流，不是这些引擎挂了。
         let cooling = candidates
             .iter()
             .map(|candidate| candidate.engine.display_name())
             .collect::<Vec<_>>()
             .join("、");
         runtime_log_info(format!(
-            "[搜索引擎] 候选引擎都在冷却中，直接走 Bing 兜底：query={raw_query}，冷却中的引擎={cooling}"
+            "[搜索引擎] 候选引擎都在冷却中：query={raw_query}，冷却中的引擎={cooling}"
         ));
-        header = BING_FALLBACK_COOLING_HEADER;
         failures.push(format!("{cooling} 都在冷却中（限流未到期）"));
     }
     for engine in ordered {
@@ -982,6 +931,19 @@ async fn builtin_search(
         .await
         {
             Ok(rows) => {
+                let raw_count = rows.len();
+                let rows = filter_relevant_search_results(raw_query, rows);
+                if rows.is_empty() {
+                    runtime_log_warn(format!(
+                        "[搜索引擎] 结果与查询无关，换下一个源：engine={}，query={raw_query}，丢弃条数={raw_count}",
+                        engine.id()
+                    ));
+                    failures.push(format!(
+                        "{}: {raw_count} 条结果都与查询无关",
+                        engine.display_name()
+                    ));
+                    continue;
+                }
                 with_search_scheduler(|scheduler| scheduler.remember_success(session_key, engine));
                 return Ok(search_payload(engine.id(), engine.display_name(), rows));
             }
@@ -1018,7 +980,7 @@ async fn builtin_search(
             }
         }
     }
-    bing_search_as_fallback(state, raw_query, header, failures).await
+    Err(search_failure_message(&failures))
 }
 
 /// 测试连接：拿一次真实查询打过去，只回报成功/失败原因，不写冷却也不记成功。
@@ -1438,45 +1400,44 @@ mod search_dispatch_tests {
     }
 
     #[test]
-    fn bing_irrelevant_results_message_should_name_query_and_not_look_like_failure() {
-        let message = bing_irrelevant_results_message("zzqxvvbnmkljhgf", 10);
+    fn irrelevant_results_message_should_name_query_and_not_look_like_failure() {
+        let message = irrelevant_results_message("zzqxvvbnmkljhgf", 10);
         assert!(message.contains("zzqxvvbnmkljhgf"), "文案要带 query 原文");
         assert!(message.contains("没有与查询相关的结果"));
         assert!(
-            !message.contains("所有搜索引擎"),
+            !message.contains("搜索失败"),
             "这句话不能被理解成引擎全挂"
         );
     }
 
-    // ========== 兜底失败文案 ==========
+    // ========== 失败文案 ==========
 
     #[test]
-    fn bing_fallback_failure_message_should_not_leave_empty_lines() {
-        let message = bing_fallback_failure_message(BING_FALLBACK_FAILED_HEADER, &[]);
+    fn search_failure_message_should_not_leave_empty_lines() {
+        let message = search_failure_message(&[]);
         assert!(!message.contains("- \n"), "不要挂空条目：{message}");
         assert!(!message.trim_end().ends_with('-'));
         assert!(message.contains("没有拿到任何失败原因"));
     }
 
     #[test]
-    fn bing_fallback_failure_message_should_tell_cooling_apart_from_failure() {
-        let cooling = bing_fallback_failure_message(
-            BING_FALLBACK_COOLING_HEADER,
-            &["Exa、Tavily 都在冷却中（限流未到期）".to_string()],
+    fn search_failure_message_should_say_quota_and_keep_reasons() {
+        let message = search_failure_message(&[
+            "Exa: 401 Unauthorized".to_string(),
+            "Tavily 都在冷却中（限流未到期）".to_string(),
+        ]);
+        let mut lines = message.lines();
+        assert_eq!(
+            lines.next(),
+            Some(SEARCH_FAILED_HEADER),
+            "主标题就是额度那句"
         );
-        let failed = bing_fallback_failure_message(
-            BING_FALLBACK_FAILED_HEADER,
-            &["Exa: 没有解析出可用结果".to_string()],
-        );
-        assert!(cooling.contains("冷却"), "冷却要说得出来：{cooling}");
-        assert_ne!(
-            cooling.lines().next(),
-            failed.lines().next(),
-            "两种原因不能同一句标题"
-        );
-        for line in cooling.lines().chain(failed.lines()) {
-            assert!(!line.trim().is_empty(), "不该有空白行");
-        }
+        assert!(message.contains("免费额度耗尽"));
+        assert!(message.contains("注册 key"));
+        assert!(message.contains("Exa: 401 Unauthorized"), "原因要照实列");
+        assert!(message.contains("冷却中"), "冷却要说得出来");
+        assert!(!message.contains("兜底"), "不能再暗示还有别的兜底");
+        assert!(!message.contains("所有搜索引擎都没能返回结果"));
     }
 
     // ========== 记账回收 ==========
