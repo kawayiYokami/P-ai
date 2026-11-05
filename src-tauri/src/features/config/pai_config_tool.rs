@@ -751,6 +751,9 @@ fn render_topic(ctx: &CliContext, request: &TopicRequest) -> Result<String, Stri
             out.push_str("  · 加供应商 / 加模型 —— 改 apiProviders（provider 一层 + 它下面的 models 列表）。\n");
             out.push_str("  · apiConfigs 每次读配置都会按 apiProviders 重算覆盖，别手改它，改了也会被冲掉。\n");
             out.push_str("  · 那 7 个 *ApiConfigId / *ModelId 字段里填的 id，就是 apiConfigs 里的 id。\n");
+            out.push_str("    模型绑定共 7 个，在字段表里是挨着的：selectedApiConfigId / expertApiConfigId /\n");
+            out.push_str("    visionApiConfigId / toolReviewApiConfigId / sttApiConfigId / imageGenerationModelId /\n");
+            out.push_str("    imageToVideoModelId。\n");
             out.push_str("apiProviders 元素结构：\n");
             out.push_str(&render_fields(API_PROVIDER_FIELDS));
             out.push_str("apiProviders[].models 元素结构：\n");
@@ -1446,7 +1449,7 @@ fn handle_reload(ctx: &CliContext, args: &[String]) -> Result<(), String> {
         "type": "workspaceReloadRequest",
         "scope": ["mcp", "skills", "privateAgents", "agents"],
         "sync": true,
-        "note": "同步执行：本回执返回时重载已经完成。实际加载结果（各源成功/失败条数与明细）在同一次回执的 runtimeEffect 里，不在本段 JSON 里。",
+        "note": "同步执行：本回执返回时重载已经完成。实际加载结果（ok / status、mcp 与 skills 各自的成功与失败条数、failedSummary）在同一次回执的 runtimeEffect（type = workspaceReload）里，不在本段 JSON 里。",
     }))
 }
 
