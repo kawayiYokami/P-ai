@@ -867,23 +867,6 @@ fn render_field_rows<'a>(fields: impl Iterator<Item = &'a FieldSpec>, count: usi
 
 /// `check` 的能力边界声明。结论要落到输出上，不能只写在文档里——
 /// 用户看到「校验通过」时的真实含义，必须在这一屏里说清。
-const CHECK_SCOPE_NOTE: &str = "\
-check 验什么：
-  · 文件存在、可读
-  · TOML / JSON 语法与字段类型
-  · app_config：必填项、searchMode 的 mode 与 engineId、uiSizeScale 的取值形态
-  · agents.json：id / name / systemPrompt 非空、id 不重复、childAgentIds 指向存在的人格
-  · MCP：定义文件能被解析、policy 的 serverId 非空、tools[].toolName 不重复
-  · Skill：SKILL.md 有闭合的 frontmatter 且 name 非空
-
-check 不验什么：
-  · 语义正确性。apiConfigId 指向一个不存在的模型、serverId 与文件名不一致、
-    模型 id 拼错、服务起不来——这些它都不判断，通过不等于配置一定对
-  · 运行时状态库（state.sqlite / chat_metadata.sqlite 等）不是「配置」，不在校验集
-  · 项目技能（<项目>/.pai/skills、.claude/skills 等）不在校验集，只校验工作区技能根
-
-失败时的样子：每行 `<文件绝对路径>: <原因>`，TOML 语法错误会带上行号。";
-
 struct CheckReport {
     /// 通过校验的文件，按分类记：(分类, 路径)。分类用于汇总，取值 app / agents / mcp / skill。
     checked: Vec<(&'static str, String)>,
@@ -921,11 +904,9 @@ impl CheckReport {
             for err in &self.errors {
                 out.push_str(&format!("  {err}\n"));
             }
-            out.push('\n');
-            out.push_str(CHECK_SCOPE_NOTE);
             return Err(out.trim_end().to_string());
         }
-        out.push_str("校验通过（只验语法与字段类型，不代表语义正确，详见下方说明）：\n");
+        out.push_str("校验通过：\n");
         if self.checked.is_empty() {
             out.push_str("  （没有找到可校验的配置文件）\n");
         } else {
@@ -941,8 +922,6 @@ impl CheckReport {
                 out.push_str(&format!("  skills：{skill_count} 个技能全部通过\n"));
             }
         }
-        out.push('\n');
-        out.push_str(CHECK_SCOPE_NOTE);
         Ok(out.trim_end().to_string())
     }
 }
