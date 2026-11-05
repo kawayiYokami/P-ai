@@ -1,5 +1,5 @@
 import { computed, ref } from "vue";
-import { appendTransportProbeLog } from "../../../services/tauri-api";
+import { appendTransportProbeLog, isDesktopTauriHost } from "../../../services/tauri-api";
 
 type SpeechRecognitionResultLike = { isFinal: boolean; 0: { transcript: string } };
 type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
@@ -313,6 +313,9 @@ export function useSpeechRecording(options: UseSpeechRecordingOptions) {
   }
 
   async function prewarmMicrophone(): Promise<boolean> {
+    // 预热只为桌面宿主的全局录音热键服务：让按下热键时麦克风已经就绪。
+    // Web/VS Code 宿主没有这个热键，预热在浏览器里唯一的效果就是弹一次麦克风授权请求。
+    if (!isDesktopTauriHost()) return false;
     // Only prewarm when remote STT path uses MediaRecorder/getUserMedia permission.
     if (!options.shouldUseRemoteStt()) return false;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return false;
