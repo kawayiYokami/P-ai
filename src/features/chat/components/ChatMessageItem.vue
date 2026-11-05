@@ -70,7 +70,7 @@
               <!-- 内容不设 flex-1：箭头要紧跟文字后面，而不是被推到行尾 -->
               <span class="flex min-w-0 items-center gap-1.5">
                 <span v-if="hasActivityReasoning(block)" class="shrink-0">
-                  {{ t("chat.messageItem.thought") }} <AnimatedCountText v-if="!activityReasoningRunning()" :target="block.activityReasoningCharCount || 0" />
+                  {{ t("chat.messageItem.thought") }} <AnimatedCountText :target="block.activityReasoningCharCount || 0" />
                 </span>
                 <span v-else-if="!activityToolCountsLabel(block)" class="shrink-0">
                   {{ t("chat.messageItem.notThought") }}
@@ -1273,19 +1273,10 @@ function hasActivityReasoning(block: ChatMessageBlock): boolean {
   return Number(block.activityReasoningCharCount || 0) > 0;
 }
 
-/**
- * 思考是否还在跑：只要还有一条 reasoning 条目 running，就认为思考没结束。
- * 折叠态读 activityItems、展开态读 contentBlocks 派生结果，两者都经由 presentedActivityItems 收敛。
- */
-function activityReasoningRunning(): boolean {
-  return presentedActivityItems.value.some(
-    (item) => item.kind === "reasoning" && item.running,
-  );
-}
-
+/** 数字标签同时是面板 memo 键的一部分：流式中也必须随字数变化，否则 memo 命中、数字冻结。 */
 function activityReasoningCountLabel(block: ChatMessageBlock): string {
   const count = Number(block.activityReasoningCharCount || 0);
-  if (count <= 0 || activityReasoningRunning()) return "";
+  if (count <= 0) return "";
   return `（${count.toLocaleString("zh-CN")}）`;
 }
 
