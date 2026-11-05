@@ -569,7 +569,7 @@ impl RuntimeToolMetadata for BuiltinConfigTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "config",
-            "这是 PAI 配置工具。它给出 PAI 配置文件的绝对路径与字段清单，校验你的改动，并让运行中的应用重新加载内存态。入参只有 command:string，命令有三个：`help`（目录地图；加 -app / -agent / -mcp / -skill 可看某个文件的字段名、类型与含义）、`check`（校验文件能否被解析，不通过不能生效）、`reload`（重新加载 mcp / skills / agents）。改配置的方式就是直接编辑 help 给出的文件，工具不再提供逐字段的读写命令。",
+            "这是 PAI 配置工具。它给出 PAI 配置文件的绝对路径与字段清单，校验你的改动，并让运行中的应用重新加载内存态。入参只有 command:string，命令有三个：`help`（目录地图；加 -app / -agent / -mcp / -skill 可看某个文件的字段名、类型与含义）、`check`（只验语法与字段类型、不验语义，不通过不能生效）、`reload`（同步重新加载 mcp / skills / agents，失败明细随同一次回执返回）。改配置的方式就是直接编辑 help 给出的文件，工具不再提供逐字段的读写命令。",
             serde_json::json!({
               "type": "object",
               "properties": {

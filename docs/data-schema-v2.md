@@ -27,18 +27,27 @@
 | `config/app_config.toml`（Windows 标准 / 便携）或 `app_config.toml`（Linux / macOS 标准，位于业务根直下） | TOML | 顶层配置（热键、供应商、工具开关等）。实际路径始终是 `config_dir/app_config.toml` |
 | `config/agents.json` | JSON | 代理配置 |
 | `state/state.sqlite` | SQLite | 全局状态总库（V4，runtime_state 表为现役落点） |
-| `state/runtime_state.json` 等旧 JSON | JSON | 仅迁移读取，V4 起不再写入 |
 | `chat/chat_metadata.sqlite` | SQLite | 聊天元数据、消息定位索引、用量统计 |
 | `chat/conversations/<id>/` | 分片目录 | 会话正文（见下文） |
 | `backups/` | 目录 | 迁移/导出备份，按 `backups/<时间戳>/` 组织 |
 | `memory/memory_store.db` | SQLite | 记忆库 |
 | `task/task_store.db` | SQLite | 任务库 |
 | `delegate/delegate_store.db` | SQLite | 委托库 |
+| `config/llm-workspace/` | 目录 | 未配置系统工作区时的默认工作区根。配了 `shellWorkspaces` 里 `level = "system"` 那项就整体改用该项路径，skills / MCP / tool-output 都跟着走（`AppState.llm_workspace_path` 默认绑在 `config_dir`） |
+
+上表是 `help` 无参数时的目录地图来源（`pai_config_tool.rs` 的 `LAYOUT`），只列「改配置要看/要改」的条目，测试 `directory_map_matches_docs_layout_table` 钉住两边一致。
+
+### 运行时目录（不进 help 地图）
+
+这些目录是运行时产物，与改配置无关，`help` 地图里刻意不列；排查问题或做备份时才需要知道。
+
+| 路径 | 形态 | 说明 |
+|---|---|---|
+| `state/runtime_state.json` 等旧 JSON | JSON | 仅迁移读取，V4 起不再写入（`help` 地图不列） |
 | `avatars/` | 目录 | 代理头像（webp） |
 | `media/` | 目录 | 媒体文件（`<sha256>.<ext>`） |
 | `exports/` | 目录 | 导出产物 |
-| `llm-workspace/downloads/` | 目录 | 下载落点（相对业务 `app_root`） |
-| `config/llm-workspace/` | 目录 | Windows 标准安装下 skills / MCP / tool-output 的实际落点（`AppState.llm_workspace_path` 绑在 `config_dir`，不会随业务 `app_root` 上提） |
+| `llm-workspace/downloads/` | 目录 | 下载落点（相对业务 `app_root`），与 `config/llm-workspace/` 同名不同位 |
 | `auth/` | 目录 | Codex / Grok 等认证落点 |
 | `indexes/` | 目录 | 聊天历史检索索引 |
 | `remote-im/` | 目录 | 远程 IM 频道状态 |
