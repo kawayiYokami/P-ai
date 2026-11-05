@@ -148,6 +148,7 @@ fn catalog_icon_mime_from_bytes(bytes: &[u8]) -> Option<&'static str> {
 }
 
 /// 图标缓存路径：`{地址哈希}.bin` 存字节，`{地址哈希}.type` 存 MIME。
+/// 目录跟运行目录一致放在 `app_root/temp/` 下，不写进配置文件所在的那层。
 fn catalog_icon_cache_paths(
     state: &AppState,
     address: &str,
@@ -159,7 +160,9 @@ fn catalog_icon_cache_paths(
         .take(16)
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    let dir = remote_catalog_cache_dir(state).join(CATALOG_ICON_CACHE_DIR);
+    let dir = app_root_from_data_path(&state.data_path)
+        .join("temp")
+        .join(CATALOG_ICON_CACHE_DIR);
     (dir.join(format!("{key}.bin")), dir.join(format!("{key}.type")))
 }
 

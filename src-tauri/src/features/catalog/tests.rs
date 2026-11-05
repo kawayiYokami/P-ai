@@ -516,6 +516,46 @@ mod catalog_tests {
     }
 
     #[test]
+    fn catalog_icon_cache_should_live_under_app_temp_not_config_dir() {
+        let root = std::env::temp_dir().join(format!(
+            "eca-catalog-icon-cache-{}",
+            Uuid::new_v4()
+        ));
+        let config_dir = root.join("config");
+        fs::create_dir_all(&config_dir).expect("create config dir");
+        let state = AppState {
+            config_path: config_dir.join("app_config.toml"),
+            data_path: config_dir.join("config_mark"),
+            llm_workspace_path: root.join("llm-workspace"),
+            ..AppState::new().expect("create test app state")
+        };
+
+        let (bin, mime) = catalog_icon_cache_paths(&state, "https://github.com/obra.png?size=96");
+        assert!(
+            bin.starts_with(root.join("temp")),
+            "图标缓存放在 app_root/temp 下：{}",
+            bin.display()
+        );
+        assert!(
+            !bin.starts_with(&config_dir),
+            "不能写进配置文件所在的那层：{}",
+            bin.display()
+        );
+        assert_eq!(bin.extension().and_then(|value| value.to_str()), Some("bin"));
+        assert_eq!(
+            mime.extension().and_then(|value| value.to_str()),
+            Some("type")
+        );
+        assert_eq!(bin.file_stem(), mime.file_stem(), "两个文件用同一个地址哈希");
+
+        // 地址不同 → 哈希不同，互不覆盖。
+        let (other, _) = catalog_icon_cache_paths(&state, "https://github.com/other.png?size=96");
+        assert_ne!(bin, other);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn official_registry_entry_should_match_real_samples() {
         // 实测样例一：自带 icons[0].src，仓库地址能推出 owner。
         let case = serde_json::json!({
