@@ -161,18 +161,15 @@ mod catalog_tests {
     }
 
     #[test]
-    fn github_tree_url_should_map_to_skill_raw() {
-        let converted = github_tree_url_to_skill_raw("https://github.com/owner/repo/tree/main/skills/demo");
-        assert_eq!(
-            converted.as_deref(),
-            Some("https://raw.githubusercontent.com/owner/repo/main/skills/demo/SKILL.md")
+    fn github_url_mapping_should_reject_non_github_and_blob() {
+        assert!(
+            github_tree_url_to_skill_raw("https://gitlab.com/owner/repo/tree/main/demo").is_none()
         );
-        assert!(github_tree_url_to_skill_raw("https://gitlab.com/owner/repo/tree/main/demo").is_none());
         assert!(github_tree_url_to_skill_raw("https://github.com/owner/repo/blob/main/x").is_none());
     }
 
     #[test]
-    fn skill_source_installable_should_require_a_fetchable_markdown() {
+    fn skill_source_installable_should_follow_the_mapping() {
         // GitHub 目录地址：可映射为目录内 SKILL.md。
         assert!(skill_source_is_installable(
             "https://github.com/owner/repo/tree/main/skills/demo"
@@ -182,9 +179,11 @@ mod catalog_tests {
             "https://raw.githubusercontent.com/owner/repo/main/SKILL.md"
         ));
         assert!(skill_source_is_installable("https://example.com/demo/SKILL.md"));
-        // 仓库根地址抓下来是 HTML，装不了。
-        assert!(!skill_source_is_installable("https://github.com/AMap-Web/amap-lbs-skill"));
-        // 站点页面同理。
+        // 仓库根地址：根目录可能有 SKILL.md（AMap-Web/amap-lbs-skill 实测 200），按可装放行。
+        assert!(skill_source_is_installable(
+            "https://github.com/AMap-Web/amap-lbs-skill"
+        ));
+        // 站点页面仍然装不了：抓下来是 HTML。
         assert!(!skill_source_is_installable("https://modelscope.cn/studios"));
         // 非 GitHub 的目录页也无法静态映射。
         assert!(!skill_source_is_installable(
@@ -564,6 +563,133 @@ mod catalog_tests {
         });
         let entry = skills_sh_entry(&clean).expect("正常条目应保留");
         assert_eq!(entry.id, "obra/superpowers/using-git-worktrees");
+    }
+
+    #[test]
+    fn github_url_mapping_should_cover_repo_root_and_use_head() {
+        let root = "https://raw.githubusercontent.com/AMap-Web/amap-lbs-skill/HEAD/SKILL.md";
+        // 仓库根地址：根目录就有 SKILL.md（AMap-Web/amap-lbs-skill 实测 200）。
+        assert_eq!(
+            github_tree_url_to_skill_raw("https://github.com/AMap-Web/amap-lbs-skill"),
+            Some(root.to_string())
+        );
+        // 尾斜杠不影响判定。
+        assert_eq!(
+            github_tree_url_to_skill_raw("https://github.com/AMap-Web/amap-lbs-skill/"),
+            Some(root.to_string())
+        );
+        // tree 地址：字面分支名丢掉，统一拼 HEAD（main / master 都能落到默认分支）。
+        assert_eq!(
+            github_tree_url_to_skill_raw(
+                "https://github.com/obra/superpowers/tree/master/skills/find-skills"
+            ),
+            Some(
+                "https://raw.githubusercontent.com/obra/superpowers/HEAD/skills/find-skills/SKILL.md"
+                    .to_string()
+            )
+        );
+        // 深路径同样直接接在 HEAD 后面。
+        assert_eq!(
+            github_tree_url_to_skill_raw(
+                "https://github.com/x/y/tree/main/plugins/skill-creator/skills/skill-creator"
+            ),
+            Some(
+                "https://raw.githubusercontent.com/x/y/HEAD/plugins/skill-creator/skills/skill-creator/SKILL.md"
+                    .to_string()
+            )
+        );
+        // 站点页仍判不可装。
+        assert_eq!(
+            github_tree_url_to_skill_raw("https://modelscope.cn/studios"),
+            None
+        );
+        assert!(!skill_source_is_installable("https://modelscope.cn/studios"));
+        assert!(skill_source_is_installable(
+            "https://github.com/AMap-Web/amap-lbs-skill"
+        ));
+    }
+
+    #[test]
+    fn skills_sh_scan_should_stop_after_first_batch_hit() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build runtime");
+        // 60 个候选、目标落在第一批里：读满一批就该停手，不能把后两批也读掉。
+        let paths = (0..60)
+            .map(|index| format!("skills/s{index:02}/SKILL.md"))
+            .collect::<Vec<_>>();
+        let calls = std::cell::Cell::new(0usize);
+        let result = rt.block_on(skills_sh_scan_skill_md_by_name(
+            &paths,
+            "target",
+            |path: String| {
+                calls.set(calls.get() + 1);
+                let name = if path == "skills/s03/SKILL.md" {
+                    Some("target".to_string())
+                } else {
+                    Some(format!("other:{path}"))
+                };
+                async move { (path, name) }
+            },
+        ));
+        assert_eq!(result.as_deref(), Ok("skills/s03/SKILL.md"));
+        assert_eq!(
+            calls.get(),
+            SKILLS_SH_FRONTMATTER_SCAN_BATCH,
+            "第一批命中即停：只发一批请求，后两批不该发"
+        );
+    }
+
+    #[test]
+    fn skills_sh_scan_should_count_exactly_when_hitting_the_cap() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build runtime");
+        // 220 个候选全不命中：扫到上限就停，返回的计数必须精确等于上限，
+        // 不能因为最后一批被 remaining 截断而少算或多算。
+        let paths = (0..220)
+            .map(|index| format!("skills/s{index:03}/SKILL.md"))
+            .collect::<Vec<_>>();
+        let calls = std::cell::Cell::new(0usize);
+        let result = rt.block_on(skills_sh_scan_skill_md_by_name(
+            &paths,
+            "target",
+            |path: String| {
+                calls.set(calls.get() + 1);
+                async move { (path, Some("other".to_string())) }
+            },
+        ));
+        assert_eq!(result, Err(SKILLS_SH_FRONTMATTER_SCAN_MAX));
+        assert_eq!(
+            calls.get(),
+            SKILLS_SH_FRONTMATTER_SCAN_MAX,
+            "触顶后不能再发请求"
+        );
+    }
+
+    #[test]
+    fn skills_sh_not_found_message_should_not_claim_absent_when_truncated() {
+        // 扫满上限仍未命中：文案要说「已扫描前 N 个（共 M 个）」并点明上限，不能说「没有」。
+        let truncated = skills_sh_not_found_message(
+            "owner",
+            "repo",
+            "target",
+            SKILLS_SH_FRONTMATTER_SCAN_MAX,
+            220,
+        );
+        assert!(truncated.contains("已扫描前 192"), "{truncated}");
+        assert!(truncated.contains("共 220"), "{truncated}");
+        assert!(truncated.contains("扫描上限为 192"), "{truncated}");
+        assert!(
+            !truncated.contains("没有"),
+            "后面还有没扫到的，不能说「没有」：{truncated}"
+        );
+        // 候选全部扫完仍未命中：这才是「确实找不到」，不该带上限提示。
+        let complete = skills_sh_not_found_message("owner", "repo", "target", 9, 9);
+        assert!(!complete.contains("扫描上限"), "{complete}");
+        assert!(complete.contains("已扫描前 9 个"), "{complete}");
     }
 
     #[test]

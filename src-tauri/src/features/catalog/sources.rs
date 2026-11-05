@@ -14,7 +14,9 @@ fn catalog_cache_key_hash(raw: &str) -> String {
 fn catalog_cache_file_name(source: &str, query: &str, page: u32, page_size: u32) -> String {
     // 缓存存的是归一化后的 CatalogEntry；解析口径变化时必须升版本，
     // 否则旧缓存里已冻结的错误字段（如把 schema 键名当环境变量）会继续被原样读出。
-    let key = format!("v2|{source}|{query}|{page}|{page_size}");
+    // v2 -> v3：官方注册中心只留 latest + active（旧缓存整份含重复版本），
+    // skills.sh 丢弃 skillId 含斜杠的脏条目，两处都是解析口径变化。
+    let key = format!("v3|{source}|{query}|{page}|{page_size}");
     let digest = catalog_cache_key_hash(&key);
     format!(
         "catalog_cache_{}_{}.json",
@@ -578,6 +580,55 @@ async fn fetch_skills_sh_page(
     })
 }
 
+/// 官方 Registry 的单次游标请求：返回 (过滤后的条目, 下一页游标)。
+/// 只留 `isLatest == true` 且 `status == "active"` 的版本，其余（deprecated / deleted / 旧版本）丢弃。
+async fn fetch_official_registry_page(
+    state: &AppState,
+    query: &str,
+    page_size: u32,
+    cursor: &str,
+) -> Result<(Vec<CatalogEntry>, String), String> {
+    let mut url = format!(
+        "{OFFICIAL_REGISTRY_URL}?limit={page_size}&search={}",
+        urlencoding_encode(query)
+    );
+    if !cursor.is_empty() {
+        url.push_str(&format!("&cursor={}", urlencoding_encode(cursor)));
+    }
+    let resp = state
+        .shared_http_client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|err| format!("请求官方 MCP Registry 失败：{err}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err(format!("请求官方 MCP Registry 失败：{status}"));
+    }
+    let payload = resp
+        .json::<Value>()
+        .await
+        .map_err(|err| format!("解析官方 MCP Registry 响应失败：{err}"))?;
+    let entries = payload
+        .get("servers")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| official_registry_item_is_latest_active(item))
+                .map(official_registry_entry)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let next_cursor = payload
+        .get("metadata")
+        .and_then(|value| value.get("nextCursor"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    Ok((entries, next_cursor))
+}
+
 // ==================== 统一入口 ====================
 
 struct CatalogRawPage {
@@ -641,78 +692,40 @@ async fn fetch_catalog_raw_page(
         }
         CATALOG_SOURCE_SKILLS_SH => fetch_skills_sh_page(state, query, page).await,
         CATALOG_SOURCE_OFFICIAL => {
-            // 官方 Registry 用游标分页：从第 1 页起逐页推进到目标页，末页无游标即终止。
+            // 官方 Registry 按游标分页，也是按版本返回的：一页 30 条过滤掉非 latest 后实测只剩 16 条。
+            // 分页边界必须按「过滤后的条数」切，不能按「原始页」切——按原始页切的话，
+            // 第 2 页会从第 2 个原始页起取，把第 1 页补齐时已经展示过的条目再显示一遍。
+            // 所以这里一路翻游标攒够 page * page_size + 1 条再切片，攒够就停。
+            let need = (page as usize) * (page_size as usize) + 1;
+            let mut collected = Vec::<CatalogEntry>::new();
             let mut cursor = String::new();
-            let mut entries = Vec::<CatalogEntry>::new();
-            let mut has_more = false;
-            let mut reached = false;
-            for current in 1..=page {
-                let mut url = format!(
-                    "{OFFICIAL_REGISTRY_URL}?limit={page_size}&search={}",
-                    urlencoding_encode(query)
-                );
-                if !cursor.is_empty() {
-                    url.push_str(&format!("&cursor={}", urlencoding_encode(&cursor)));
-                }
-                let resp = state
-                    .shared_http_client
-                    .get(&url)
-                    .send()
-                    .await
-                    .map_err(|err| format!("请求官方 MCP Registry 失败：{err}"))?;
-                if !resp.status().is_success() {
-                    let status = resp.status();
-                    return Err(format!("请求官方 MCP Registry 失败：{status}"));
-                }
-                let payload = resp
-                    .json::<Value>()
-                    .await
-                    .map_err(|err| format!("解析官方 MCP Registry 响应失败：{err}"))?;
-                entries = payload
-                    .get("servers")
-                    .and_then(|value| value.as_array())
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter(|item| official_registry_item_is_latest_active(item))
-                            .map(official_registry_entry)
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                cursor = payload
-                    .get("metadata")
-                    .and_then(|value| value.get("nextCursor"))
-                    .and_then(|value| value.as_str())
-                    .unwrap_or_default()
-                    .to_string();
-                has_more = !cursor.is_empty();
-                if current == page {
-                    reached = true;
-                    break;
-                }
-                // 判据只能看游标有没有：某页 30 条恰好全是非 latest 版本时，
-                // 过滤后的条数为空不代表没有下一页，按条数判会把目标页整个判空。
-                if !has_more {
-                    entries = Vec::new();
+            let mut requests = 0usize;
+            // 过滤率约 50%，按页线性放宽到 4 倍，避免异常仓库把请求打成风暴。
+            let max_requests = (page as usize).saturating_mul(4).max(2);
+            loop {
+                let (batch, next_cursor) =
+                    fetch_official_registry_page(state, query, page_size, &cursor).await?;
+                collected.extend(batch);
+                cursor = next_cursor;
+                requests += 1;
+                if cursor.is_empty() || collected.len() >= need || requests >= max_requests {
                     break;
                 }
             }
-            if !reached {
-                entries = Vec::new();
-            }
+            let has_more = !cursor.is_empty();
+            let start = ((page - 1) as usize) * (page_size as usize);
+            let mut entries = collected
+                .into_iter()
+                .skip(start)
+                .take(page_size as usize)
+                .collect::<Vec<_>>();
             // smithery 包装发布的条目（`ai.smithery/...`）排在后面：
             // 撤掉 smithery 独立源之后，注册中心里这类条目数量很多，不压后会把列表占满。
             entries.sort_by_key(|entry| entry.id.starts_with("ai.smithery/"));
-            Ok(CatalogRawPage {
-                entries,
-                // 官方 Registry 不返回总数，用「已翻页数 + 是否还有下一页」折算，
-                // 保证前端「下一页」按钮只在确有下一页时出现。
-                total: if reached && has_more {
-                    (page as i64) * (page_size as i64) + 1
-                } else {
-                    page as i64 * page_size as i64
-                },
-            })
+            // 官方 Registry 不返回总数，按「本页起点 + 本页条数 + 是否还有下一页」折算，
+            // 保证前端「下一页」按钮只在确有下一页时出现，也不会因为补齐而多出一页空的。
+            let total = start as i64 + entries.len() as i64 + if has_more { 1 } else { 0 };
+            Ok(CatalogRawPage { entries, total })
         }
         other => Err(format!("未知的商店来源：{other}")),
     }

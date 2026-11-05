@@ -45,25 +45,40 @@ async fn find_catalog_entry(
 }
 
 /// GitHub 目录地址 -> 目录内 SKILL.md 的 raw 地址。
+/// 两种形态：
+/// - 仓库根 `https://github.com/{owner}/{repo}`：SKILL.md 就在根目录（`AMap-Web/amap-lbs-skill` 这类实测有）。
+/// - 目录 `https://github.com/{owner}/{repo}/tree/{branch}/{path}`：取该目录下的 SKILL.md。
+/// 两种都拼 `HEAD` 当 ref：raw 认 HEAD（实测 200），且不受默认分支改名影响；
+/// 拼字面的分支名会在仓库把 main 改成 master 那天整批 404。
 fn github_tree_url_to_skill_raw(url: &str) -> Option<String> {
-    let rest = url.strip_prefix("https://github.com/")?;
-    let (owner, rest) = rest.split_once('/')?;
-    let (repo, rest) = rest.split_once('/')?;
-    let rest = rest.strip_prefix("tree/")?;
-    let (branch, path) = rest.split_once('/')?;
+    let rest = url.trim().strip_prefix("https://github.com/")?;
+    let rest = rest.trim_end_matches('/');
+    let mut parts = rest.splitn(3, '/');
+    let owner = parts.next().filter(|part| !part.is_empty())?;
+    let repo = parts.next().filter(|part| !part.is_empty())?;
+    let tail = parts.next().unwrap_or_default();
+    // 仓库根地址：没有后半段，SKILL.md 落在根上。
+    // 注意根目录没有 SKILL.md 的仓库也会被判成可装，实际只能在安装时 404——列表阶段拿不到仓库树。
+    if tail.is_empty() {
+        return Some(format!(
+            "https://raw.githubusercontent.com/{owner}/{repo}/HEAD/SKILL.md"
+        ));
+    }
+    let rest = tail.strip_prefix("tree/")?;
+    // 分支名丢掉不用：只保留目录路径。
+    let (_, path) = rest.split_once('/')?;
     if path.trim().is_empty() {
         return None;
     }
     Some(format!(
-        "https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{}/SKILL.md",
+        "https://raw.githubusercontent.com/{owner}/{repo}/HEAD/{}/SKILL.md",
         path.trim_end_matches('/')
     ))
 }
 
 /// 条目来源能否拉到 SKILL.md。
-/// 与安装逻辑同口径：GitHub 目录地址可映射为目录内 SKILL.md，
-/// 或以 `.md` / raw 形式直接指向文件；仓库根地址、站点页面抓到的都是 HTML，
-/// 一律视为不可装（安装时会因缺 frontmatter 失败）。
+/// 与安装逻辑同口径：GitHub 仓库根与目录地址可映射为 SKILL.md，
+/// 或以 `.md` / raw 形式直接指向文件；站点页面抓到的都是 HTML，视为不可装。
 fn skill_source_is_installable(url: &str) -> bool {
     let url = url.trim();
     if url.is_empty() {
@@ -369,8 +384,9 @@ async fn github_skill_tree_files(
         .await
         .map_err(|err| format!("解析 GitHub 仓库树失败（{owner}/{repo}）：{err}"))?;
     let tree_sha = json_str(&payload, "sha");
-    // 后续 raw 下载一律用这个 commit sha 当 ref：写死 main/master 会因为默认分支不同而 404，
-    // 而 `HEAD` 只有 API 认，raw.githubusercontent.com 不认。
+    // 后续 raw 下载一律用这个 commit sha 当 ref。raw 也认 HEAD（实测三个样本均 200），
+    // 用 sha 的理由不是 HEAD 不可用，而是它和这份仓库树严格对应：仓库在两次请求之间改默认分支
+    // 或推进 HEAD，都不会让「按树定位到的路径」与「下载到的文件」错位。
     if tree_sha.trim().is_empty() {
         return Err(format!(
             "{owner}/{repo}：仓库树没有返回 commit sha，无法确定文件版本"
@@ -415,14 +431,8 @@ async fn github_skill_tree_files(
                         .iter()
                         .filter(|path| path.ends_with("SKILL.md"))
                         .count();
-                    // 扫满上限时不能说「仓库里没有」——后面还有没扫到的，只是不再扫了。
-                    let truncated = if scanned < total {
-                        format!("，扫描上限为 {SKILLS_SH_FRONTMATTER_SCAN_MAX} 个")
-                    } else {
-                        String::new()
-                    };
-                    return Err(format!(
-                        "{owner}/{repo}：已扫描前 {scanned} 个 SKILL.md（共 {total} 个）{truncated}，未找到 name 为「{skill_id}」的条目"
+                    return Err(skills_sh_not_found_message(
+                        owner, repo, skill_id, scanned, total,
                     ));
                 }
             }
@@ -431,10 +441,32 @@ async fn github_skill_tree_files(
     Ok((tree_sha, skill_md, dir_prefix, siblings))
 }
 
+/// 慢路径未命中时的报错文案。
+/// 扫满上限时不能说「不存在」——后面还有没扫到的，只是不再扫了。
+fn skills_sh_not_found_message(
+    owner: &str,
+    repo: &str,
+    skill_id: &str,
+    scanned: usize,
+    total: usize,
+) -> String {
+    let truncated = if scanned < total {
+        format!("，扫描上限为 {SKILLS_SH_FRONTMATTER_SCAN_MAX} 个")
+    } else {
+        String::new()
+    };
+    format!(
+        "{owner}/{repo}：已扫描前 {scanned} 个 SKILL.md（共 {total} 个）{truncated}，未找到 name 为「{skill_id}」的条目"
+    )
+}
+
 /// 慢路径：分批并发读候选 SKILL.md 的 frontmatter，命中即停。
 /// 返回 `Ok(SKILL.md 路径)`；`Err(已扫描数量)` 表示扫到上限仍未命中。
 /// 单个仓库的 SKILL.md 通常十来条，一批并发就读完；`mattpocock/skills` 这类 39 条的仓库靠分批覆盖，
 /// 不能按原始顺序截断——排在后面的技能会永远装不上。
+///
+/// 抓取点用闭包参数化：分批推进、`scanned` 累加、上限截断都是纯算术，不该被 `AppState` 与网络锁住，
+/// 测试里传一个不取网的闭包就能钉住这三条。
 async fn skills_sh_find_skill_md_by_name(
     state: &AppState,
     owner: &str,
@@ -443,6 +475,26 @@ async fn skills_sh_find_skill_md_by_name(
     paths: &[String],
     skill_id: &str,
 ) -> Result<String, usize> {
+    skills_sh_scan_skill_md_by_name(paths, skill_id, |path| async move {
+        let url = format!("https://raw.githubusercontent.com/{owner}/{repo}/{reference}/{path}");
+        let name = fetch_catalog_text(state, &url)
+            .await
+            .ok()
+            .and_then(|content| skills_sh_frontmatter_name(&content));
+        (path, name)
+    })
+    .await
+}
+
+async fn skills_sh_scan_skill_md_by_name<F, Fut>(
+    paths: &[String],
+    skill_id: &str,
+    fetch: F,
+) -> Result<String, usize>
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = (String, Option<String>)>,
+{
     let candidates = paths
         .iter()
         .filter(|path| path.ends_with("SKILL.md"))
@@ -456,18 +508,7 @@ async fn skills_sh_find_skill_md_by_name(
         let batch = &batch[..batch.len().min(remaining)];
         let requests = batch
             .iter()
-            .map(|path| {
-                let url =
-                    format!("https://raw.githubusercontent.com/{owner}/{repo}/{reference}/{path}");
-                let path = (*path).clone();
-                async move {
-                    let name = fetch_catalog_text(state, &url)
-                        .await
-                        .ok()
-                        .and_then(|content| skills_sh_frontmatter_name(&content));
-                    (path, name)
-                }
-            })
+            .map(|path| fetch((*path).clone()))
             .collect::<Vec<_>>();
         let resolved = futures_util::future::join_all(requests).await;
         if let Some(hit) = skills_sh_select_by_name(&resolved, skill_id) {
