@@ -83,6 +83,15 @@
                   {{ activityToolCountsLabel(block) }}
                 </span>
               </span>
+              <span
+                v-if="activityExpanding"
+                class="loading loading-spinner loading-xs text-base-content/60 shrink-0"
+              />
+              <ChevronDown
+                v-else-if="showActivityPanel(block)"
+                class="h-3.5 w-3.5 shrink-0 opacity-60 transition-transform duration-150"
+                :class="{ 'rotate-180': activityPanelOpen(block) }"
+              />
             </summary>
           </details>
         </div>
@@ -91,10 +100,10 @@
         <div v-memo="activityPanelMemoKey(block)" class="min-w-0">
           <Transition
             :css="false"
-            @enter="animateEnter"
+            @enter="handleAnimateEnter"
             @leave="animateLeave"
-            @enter-cancelled="cleanupAnimation"
-            @leave-cancelled="cleanupAnimation"
+            @enter-cancelled="handleCleanupAnimation"
+            @leave-cancelled="handleCleanupAnimation"
           >
             <div
               v-if="showActivityPanel(block) && activityPanelOpen(block)"
@@ -114,7 +123,7 @@
                 />
                 <button
                   type="button"
-                  class="btn btn-sm mt-2 sticky bottom-0 z-10 w-full border border-base-content/15 bg-base-100/90 backdrop-blur text-base-content/70 hover:bg-base-200 hover:text-base-content hover:border-base-content/25 transition-colors"
+                  class="btn btn-sm mt-2 sticky bottom-0 z-10 w-full border border-base-content/15 bg-base-100 shadow-xs text-base-content/70 hover:bg-base-200 hover:text-base-content hover:border-base-content/25 transition-colors"
                   data-selection-ignore="true"
                   @pointerdown.stop.prevent="closeActivityDetails(true)"
                   @click.stop
@@ -432,7 +441,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect, watchPostEffect, type StyleValue } from "vue";
 import { useI18n } from "vue-i18n";
-import { Braces, ChevronRight, Copy, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
+import { Braces, ChevronDown, ChevronRight, Copy, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
 import { invokeTauri, openTransportWorkspaceFile, readTransportChatImage } from "../../../services/tauri-api";
 import type { ChatActivityItem, ChatMessageBlock } from "../../../types/app";
 import {
@@ -536,6 +545,7 @@ const resolvedImageSrcMap = ref<Record<string, string>>({});
 const markdownContainerRef = ref<HTMLElement | null>(null);
 const activityDetailsRef = ref<HTMLDetailsElement | null>(null);
 const activityExpanded = ref(false);
+const activityExpanding = ref(false);
 /**
  * 条目级状态放在消息这一层：顶层面板收起会卸载时间线组件，
  * 状态若跟着组件走，收起再展开时条目展开态和已取回的工具结果都会丢。
@@ -1218,8 +1228,32 @@ function activityPanelOpen(block: ChatMessageBlock): boolean {
 }
 
 function onActivityToggle(event: Event): void {
-  activityExpanded.value = detailsOpenFromEvent(event);
-  emit("activityToggle", { blockId: String(props.block.id || ""), open: activityExpanded.value });
+  const nextOpen = detailsOpenFromEvent(event);
+  if (nextOpen && !activityExpanded.value) {
+    activityExpanding.value = true;
+    requestAnimationFrame(() => {
+      activityExpanded.value = true;
+      emit("activityToggle", { blockId: String(props.block.id || ""), open: true });
+    });
+    return;
+  }
+  if (!nextOpen && activityExpanded.value) {
+    activityExpanding.value = false;
+    activityExpanded.value = false;
+    emit("activityToggle", { blockId: String(props.block.id || ""), open: false });
+  }
+}
+
+function handleAnimateEnter(element: Element, done: () => void): void {
+  animateEnter(element, () => {
+    activityExpanding.value = false;
+    done();
+  });
+}
+
+function handleCleanupAnimation(element: Element): void {
+  activityExpanding.value = false;
+  cleanupAnimation(element);
 }
 
 function closeActivityDetails(silent = false): void {
@@ -1227,6 +1261,7 @@ function closeActivityDetails(silent = false): void {
   if (details instanceof HTMLDetailsElement) {
     details.open = false;
   }
+  activityExpanding.value = false;
   activityExpanded.value = false;
   if (silent) return;
   emit("activityToggle", { blockId: String(props.block.id || ""), open: false });
@@ -1317,6 +1352,7 @@ function activityPanelMemoKey(block: ChatMessageBlock): unknown[] {
     showActivityPanel(block),
     activityExpanded.value,
     activityPanelOpen(block),
+    activityExpanding.value,
     activityStatusText(block),
     activityReasoningCountLabel(block),
     activityToolCountsLabel(block),
