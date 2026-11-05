@@ -230,7 +230,7 @@
                     <!-- 卡片一：参数（输入）。不设标题行，内容直接当卡片 -->
                     <div
                       v-if="toolDetailParts(item).args"
-                      :class="['rounded-lg', FROST_GLASS]"
+                      :class="['rounded-lg', TOOL_CARD_SURFACE]"
                     >
                       <!-- 参数区：整块走工具绿，其中的键名单独跳到行内代码红 -->
                       <ToolArgsView
@@ -243,7 +243,7 @@
                     <!-- 卡片二：结果（输出）。默认空态，点一下才把结果取回来 -->
                     <div
                       v-if="toolDetailParts(item).result || (item.contentOmitted && props.state.toolResultOverrides[activityItemKey(item)] === undefined)"
-                      :class="['rounded-lg', FROST_GLASS]"
+                      :class="['rounded-lg', TOOL_CARD_SURFACE]"
                     >
                       <!-- 结果区：沿用条目那一档 context 灰 -->
                       <pre
@@ -359,7 +359,8 @@ import { textContentSignature } from "../utils/text-signature";
 import { createToolCallPresentation } from "../utils/tool-call-presentation";
 import { parseToolCallResultStatus } from "../utils/toolcall-preview";
 import { parseToolArgs } from "../utils/tool-args-tree";
-import { FROST_GLASS } from "./session-float-styles";
+// 工具详情卡片底座：避免使用 backdrop-blur，防止在滚动区内触发大面积 GPU 离屏模糊着色
+const TOOL_CARD_SURFACE = "border border-base-300 bg-base-100/70";
 import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import PlainMarkdownRenderer from "./PlainMarkdownRenderer.vue";
 import ToolArgsView from "./ToolArgsView.vue";
