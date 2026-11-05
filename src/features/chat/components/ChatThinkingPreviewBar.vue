@@ -160,15 +160,30 @@ const windowRange = computed(() => {
   return { start, end };
 });
 
-const reasoningWindowLines = computed(() =>
-  activeReasoningLines.value
+// 间隙兜底：工具执行、下一段思考刚开始出字之前，当前节点的思考窗口是空的。
+// 这时回退显示本回合最后一段非空思考的尾部行，不要让预览条在间隙里整块清空。
+const fallbackReasoningLines = computed(() => {
+  for (let i = props.blocks.length - 1; i >= 0; i -= 1) {
+    const lines = nonEmptyLines(props.blocks[i]?.reasoning || "");
+    if (lines.length > 0) return lines.slice(-props.lines);
+  }
+  return [];
+});
+
+const reasoningWindowLines = computed(() => {
+  const window = activeReasoningLines.value
     .slice(windowRange.value.start, windowRange.value.end)
     .map((text, index) => ({
       // 行在源文本中的绝对位置作为 key，只有整行进出才产生增删；当前行增长不会触发动画
       key: `${activeBlockIndex.value}:${windowRange.value.start + index}`,
       text: windowLine(text),
-    })),
-);
+    }));
+  if (window.length > 0) return window;
+  return fallbackReasoningLines.value.map((text, index) => ({
+    key: `fb:${index}`,
+    text: windowLine(text),
+  }));
+});
 
 // 思考预览行只在「流式中」且「思维链未展开」时渲染；展开后整条退化为回到底部。
 const showReasoningWindow = computed(

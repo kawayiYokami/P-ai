@@ -905,7 +905,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, toRef, watch, type Ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, toRef, watch, watchEffect, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { isDarkAppTheme, isVscodeHost } from "../../shell/composables/use-app-theme";
 import {
@@ -3021,9 +3021,15 @@ const sessionToolbarBehindElasticSpace = computed(() => {
   });
 });
 
-// 会话悬浮操作区：下排工作区 bar 在贴底或背靠弹性空间（不遮挡消息）时显性，离底且消息进入背后时收起
+// 上排占位声明：预览条要用时，操作条让位。用 ref 中转而不是直接读 previewBarVisible，
+// 是因为它定义在后面，直接读会在首次求值时撞上未初始化。
+const sessionTopRowClaimed = ref(false);
+
+// 会话悬浮操作区：下排工作区 bar 在贴底或背靠弹性空间（不遮挡消息）时显性，离底且消息进入背后时收起。
+// 判断顺序：预览条先——留白区里预览条该显示时操作条让位；预览条不显示时操作条照旧在留白区出现。
 const showFloatingSessionToolbar = computed(() => {
   if (!supportsFloatingSessionToolbar.value) return false;
+  if (sessionTopRowClaimed.value) return false;
   return sessionControlPanelVisible.value || sessionToolbarBehindElasticSpace.value;
 });
 
@@ -4027,28 +4033,6 @@ const thinkingPreviewBlocks = computed<AssistantStreamBlock[]>(() => {
   return [];
 });
 
-// 预览只表达「最新的未读内容」：把预览看成最新未读内容的预览，读过了自然就没有。
-// 未读版本 = 「最新助理块的 id + 思考字数 + 执行次数」——只有新增一段思考或执行一次工具才算有新内容产出；
-// 读到最底部时记下当时的版本，之后只要版本变了就还有未读，交给预览条显示内容；
-// 版本一致即已读，预览内容清空，预览条自然回落到它本来就有的「回到底部」形态，不另造按钮。
-const latestAssistantContentVersion = computed(() => {
-  const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
-  for (let i = blocks.length - 1; i >= 0; i -= 1) {
-    const block = blocks[i];
-    if (block.isExtraTextBlock || block.remoteImOrigin) continue;
-    if (String(block.role || "") !== "assistant") continue;
-    const reasoningChars = Number(block.activityReasoningCharCount || 0);
-    const toolCount = Number(block.toolCallCount || 0);
-    return `${block.id}:${reasoningChars}:${toolCount}`;
-  }
-  return "";
-});
-const readContentVersion = ref("");
-watch(atConversationBottom, (atBottom) => {
-  if (!atBottom) return;
-  readContentVersion.value = latestAssistantContentVersion.value;
-});
-const previewHasUnread = computed(() => latestAssistantContentVersion.value !== readContentVersion.value);
 
 // 非流式预览：取最新一条助理消息的正文。
 // 不能只看 contentBlocks——历史消息常常没有这个字段，会取成空。
@@ -4064,17 +4048,23 @@ const idlePreviewText = computed(() => {
   return "";
 });
 
-// 预览条：离底、有未读内容、且滚动已静止三秒才显示；思维链已展开时用户正在看思维链，不再预览
+// 预览条：离底、滚动已静止三秒才显示；思维链已展开时用户正在看思维链，不再预览。
+// 不设「已读/未读」判据：预览条只表达「现在正在产出什么」，不追问用户看没看过。
+// 也不等「上排排位」：排位切换有 150ms 空窗，那一瞬间两排都不显示，看起来就像它卡住不出来。
+// 与操作条的先后由 sessionTopRowClaimed 表达——预览条该显示时操作条让位，两者不同时出现。
 const previewBarVisible = computed(() =>
   !atConversationBottom.value
-  && previewHasUnread.value
   && scrollIdle.value
   && !thinkingPreviewCollapsed.value
   && !chatStatusBanner.value
   && !timelinePanelOpen.value
   && !timelineFloatPanelVisible.value
-  && displayedSessionRow.value === "top",
 );
+
+// 预览条一显示就占住那一排，操作条据此让位；预览条退回（贴底、或内容不满足）时操作条立刻接班。
+watchEffect(() => {
+  sessionTopRowClaimed.value = previewBarVisible.value;
+});
 
 // 回到底部圆钮：与预览条同一排，离底就出现
 const jumpToBottomButtonVisible = computed(() =>

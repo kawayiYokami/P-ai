@@ -161,7 +161,6 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   function onScroll(options: { suppressFollowIntent?: boolean } = {}) {
     const el = scrollContainer.value;
     if (!el) return;
-    restartScrollIdleTimer();
     const nextScrollTop = el.scrollTop;
     const previousScrollTop = lastScrollTop.value;
     // 动画到岸：距底回到阈值内即视为送达，清掉未完成的 target；
@@ -172,6 +171,9 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     const followAnimating = followAnimTarget !== null;
     const userInitiatedScroll = pointerScrollIntentActive || Date.now() <= wheelScrollIntentUntil;
     if (userInitiatedScroll) {
+      // 静止计时只认用户手势：流式跟随、贴底动画这类程序化滚动每帧都在触发 scroll，
+      // 若一并重置，计时永远走不完，预览条就永远不出现。
+      restartScrollIdleTimer();
       if (nextScrollTop > previousScrollTop) {
         userScrollingDown.value = true;
         userScrollingUp.value = false;
