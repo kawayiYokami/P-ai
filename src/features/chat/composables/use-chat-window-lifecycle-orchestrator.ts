@@ -212,7 +212,6 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
     toolApiConfig: bindings.toolApiConfig,
     modelRefreshError: bindings.modelRefreshError,
     toolStatuses: bindings.toolStatuses,
-    defaultApiTools: bindings.defaultApiTools,
     tr: bindings.tr,
     normalizeApiBindingsLocal: bindings.normalizeApiBindingsLocal,
     syncUserAliasFromPersona: bindings.syncUserAliasFromPersona,

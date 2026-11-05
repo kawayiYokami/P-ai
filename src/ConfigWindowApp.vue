@@ -617,7 +617,6 @@ const chatPersonaAvatarUrlMap = computed<Record<string, string>>(() => {
 const configSearchResults = computed(() => searchConfigTabs(configSearchQuery.value, normalizeLocale(config.uiLanguage)));
 
 const {
-  defaultApiTools,
   createApiProvider,
   createApiConfig,
   normalizeApiBindingsLocal,
@@ -1066,7 +1065,6 @@ useAppWatchers({
   toolApiConfig,
   modelRefreshError,
   toolStatuses,
-  defaultApiTools,
   t: tr,
   normalizeApiBindingsLocal,
   syncUserAliasFromPersona,

@@ -61,7 +61,16 @@
 顶层字段（`types_config.rs`）：
 
 - 标量：`hotkey`、`uiLanguage`、`uiFont`、`codeFont`、`uiSizeScale`（别名 `uiSizePreset`）、`webAccessPort`、`webAccessEnabled`、`webAccessPassword`、`githubUpdateMethod`、`skippedGithubUpdateVersion`、`recordHotkey`、`recordBackgroundWakeEnabled`、`minRecordSeconds`、`maxRecordSeconds`、`toolMaxIterations`、`llmRoundLogCapacity`、`messageNotificationEnabled`、`messageNotificationSoundEnabled`、`desktopOperationNoticeEnabled`、`desktopOperateEnabled`、`selectedApiConfigId`、`expertApiConfigId`（serde 别名 `chatApiConfigId`；旧键 `assistantDepartmentApiConfigId` 只在启动期抢救里搬迁）、`visionApiConfigId`、`toolReviewApiConfigId`、`sttApiConfigId`、`imageGenerationModelId`、`imageToVideoModelId`、`sttAutoSend`、`terminalShellKind`、`simpleSetupMode`
-- 数组：`shellWorkspaces[]`、`mcpServers[]`、`remoteImChannels[]`、`providerNonStreamBaseUrls[]`、`apiProviders[]`、`imageProviders[]`、`apiConfigs[]`
+- 数组：`shellWorkspaces[]`、`remoteImChannels[]`、`providerNonStreamBaseUrls[]`、`apiProviders[]`、`imageProviders[]`
+
+写盘口径：文件只存用户设定。运行态与派生数据在结构体上保留字段，但写盘前被清空并靠 `skip_serializing_if` 省略（`config_snapshot_for_disk`，`storage_and_stt.rs`）：
+
+- `apiConfigs[]` — 由 `apiProviders[]` 全量展开而来，读文件后由 `expand_api_configs_from_providers` 重算，不落盘
+- `mcpServers[]` — 运行态副本，真身在 workspace 的 `mcp/servers/` 与 `mcp/policies/`，不落盘
+- `apiProviders[].keyCursor` — 密钥轮换游标，进程内另有 Mutex 态，不落盘
+- `apiProviders[].cachedModelOptions` — 从供应商拉回的模型列表缓存，不落盘
+
+已删除的历史字段：`apiConfigs[].tools`、`apiProviders[].tools`（`ApiToolConfig` 结构体保留，人格侧 `AgentProfile.tools` 仍在用）。旧文件里若还带这些键，读取时忽略。
 
 > 旧配置里的 `departments[]` 已不是本应用的字段，只在 V5 数据迁移里被读取一次（`agent_org_migration.rs`）。
 

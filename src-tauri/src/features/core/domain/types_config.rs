@@ -649,8 +649,6 @@ struct ApiProviderConfig {
     enable_video: bool,
     #[serde(default = "default_true")]
     enable_tools: bool,
-    #[serde(default = "default_api_tools")]
-    tools: Vec<ApiToolConfig>,
     base_url: String,
     #[serde(default)]
     login_provider: String,
@@ -668,9 +666,9 @@ struct ApiProviderConfig {
     codex_residency_requirement: Option<String>,
     #[serde(default)]
     api_keys: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
     key_cursor: u32,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     cached_model_options: Vec<String>,
     #[serde(default)]
     models: Vec<ApiModelConfig>,
@@ -692,7 +690,6 @@ impl Default for ApiProviderConfig {
             enable_audio: false,
             enable_video: false,
             enable_tools: true,
-            tools: default_api_tools(),
             base_url: "https://api.openai.com/v1".to_string(),
             login_provider: String::new(),
             codex_auth_mode: default_codex_auth_mode(),
@@ -735,8 +732,6 @@ struct ApiConfig {
     enable_video: bool,
     #[serde(default = "default_true")]
     enable_tools: bool,
-    #[serde(default = "default_api_tools")]
-    tools: Vec<ApiToolConfig>,
     base_url: String,
     api_key: String,
     #[serde(default = "default_codex_auth_mode")]
@@ -770,6 +765,11 @@ struct ApiConfig {
 
 fn default_true() -> bool {
     true
+}
+
+/// 运行态零值既不下发也不写盘：缺省即 0，读侧与前端都按「没有这个键」兜底成 0。
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
 }
 
 fn default_record_hotkey() -> String {
@@ -982,7 +982,6 @@ impl Default for ApiConfig {
             enable_audio: false,
             enable_video: false,
             enable_tools: true,
-            tools: default_api_tools(),
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: String::new(),
             codex_auth_mode: default_codex_auth_mode(),
@@ -1142,7 +1141,9 @@ struct AppConfig {
     simple_setup_mode: bool,
     #[serde(default)]
     shell_workspaces: Vec<ShellWorkspaceConfig>,
-    #[serde(default = "default_mcp_servers")]
+    /// 运行态：MCP 定义与策略的真身在 workspace 的 `mcp/servers/`、`mcp/policies/`，
+    /// 这一份是旧版内嵌列表，运行时不读，也不写盘。
+    #[serde(default = "default_mcp_servers", skip_serializing_if = "Vec::is_empty")]
     mcp_servers: Vec<McpServerConfig>,
     #[serde(default = "default_remote_im_channels")]
     remote_im_channels: Vec<RemoteImChannelConfig>,
@@ -1156,7 +1157,9 @@ struct AppConfig {
     api_providers: Vec<ApiProviderConfig>,
     #[serde(default = "default_image_generation_providers")]
     image_providers: Vec<ImageGenerationProviderConfig>,
-    #[serde(default)]
+    /// 派生数据：由 `api_providers` 全量展开，运行时按 id 查它，但每次读配置都会重算，
+    /// 所以不写盘——写出去只会随供应商数量膨胀，还会在改 provider 后与磁盘内容打架。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     api_configs: Vec<ApiConfig>,
 }
 

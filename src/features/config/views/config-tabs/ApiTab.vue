@@ -1576,15 +1576,6 @@ function normalizeProviderForCompare(provider: ApiProviderConfigItem) {
     enableAudio: !!provider.enableAudio,
     enableVideo: !!provider.enableVideo,
     enableTools: provider.enableTools !== false,
-    tools: Array.isArray(provider.tools)
-      ? provider.tools.map((tool) => ({
-        id: String(tool.id || "").trim(),
-        command: String(tool.command || "").trim(),
-        args: Array.isArray(tool.args) ? [...tool.args] : [],
-        enabled: tool.enabled !== false,
-        values: { ...(tool.values || {}) },
-      }))
-      : [],
     baseUrl: String(provider.baseUrl || "").trim(),
     codexAuthMode: (String(provider.codexAuthMode || DEFAULT_CODEX_AUTH_MODE).trim() || DEFAULT_CODEX_AUTH_MODE) as CodexAuthMode,
     codexLocalAuthPath: String(provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH,
@@ -1748,7 +1739,6 @@ function createProvider(seed: string, capability: ApiCapability = selectedCapabi
     enableAudio: capability === "voice",
     enableVideo: false,
     enableTools: capability === "text",
-    tools: [],
     baseUrl: providerPresets.find((preset) => preset.urls[requestFormat])?.urls[requestFormat] || (isCodex ? DEFAULT_CODEX_BASE_URL : "https://api.openai.com/v1"),
     loginProvider: "",
     codexAuthMode: DEFAULT_CODEX_AUTH_MODE,

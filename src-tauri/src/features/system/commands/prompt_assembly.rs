@@ -1579,7 +1579,6 @@ mod prompt_assembly_tests {
         let mut api_disabled = api_enabled.clone();
         api_disabled.id = "api-2".to_string();
         api_disabled.enable_tools = false;
-        api_disabled.tools.clear();
 
         let prompt_enabled = finalize_system_prompt_with_manager(
             Some(&state),

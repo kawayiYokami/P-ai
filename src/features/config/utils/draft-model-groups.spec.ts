@@ -29,7 +29,6 @@ function createProvider(models: ApiModelConfigItem[]): ApiProviderConfigItem {
     enableImage: false,
     enableAudio: false,
     enableTools: true,
-    tools: [],
     baseUrl: "https://api.example.com",
     apiKeys: [],
     cachedModelOptions: [],

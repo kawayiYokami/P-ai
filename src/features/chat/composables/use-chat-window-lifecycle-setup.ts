@@ -65,7 +65,6 @@ export function useChatWindowLifecycleSetup(bindings: Record<string, any>) {
     toolApiConfig: bindings.toolApiConfig,
     modelRefreshError: bindings.modelRefreshError,
     toolStatuses: bindings.toolStatuses,
-    defaultApiTools: bindings.defaultApiTools,
     t: bindings.tr,
     normalizeApiBindingsLocal: bindings.normalizeApiBindingsLocal,
     syncUserAliasFromPersona: bindings.syncUserAliasFromPersona,

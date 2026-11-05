@@ -81,10 +81,30 @@ fn read_config(path: &PathBuf) -> Result<AppConfig, String> {
     Ok(parsed)
 }
 
+/// 落盘视图：磁盘只存用户设定的内容。
+///
+/// `AppConfig` 的 `Serialize` 同时服务前端 IPC（模型下拉、MCP 列表都要 apiConfigs），
+/// 所以不能把字段整体 `skip_serializing`；改由这里在写盘前把运行态与派生数据清空，
+/// 字段上的 `skip_serializing_if` 再把清空后的空值整个省掉，文件里就不出现这些键。
+fn config_snapshot_for_disk(config: &AppConfig) -> AppConfig {
+    let mut disk = config.clone();
+    // MCP 真身在 workspace 的 mcp/servers 与 mcp/policies，运行时不读这一份。
+    disk.mcp_servers.clear();
+    // apiConfigs 由 api_providers 每次读配置时重算。
+    disk.api_configs.clear();
+    for provider in &mut disk.api_providers {
+        // 密钥轮换游标是进程内状态，缓存模型列表是拉取结果，都属运行态。
+        provider.key_cursor = 0;
+        provider.cached_model_options.clear();
+    }
+    disk
+}
+
 fn write_config(path: &PathBuf, config: &AppConfig) -> Result<(), String> {
     ensure_parent_dir(path)?;
+    let disk = config_snapshot_for_disk(config);
     let toml_str =
-        toml::to_string_pretty(config).map_err(|err| format!("Serialize config failed: {err}"))?;
+        toml::to_string_pretty(&disk).map_err(|err| format!("Serialize config failed: {err}"))?;
     fs::write(path, toml_str).map_err(|err| format!("Write config failed: {err}"))
 }
 
@@ -188,7 +208,6 @@ fn consume_api_key_for_request(resolved_api: &ResolvedApiConfig) -> String {
         enable_audio: false,
         enable_video: false,
         enable_tools: false,
-        tools: Vec::new(),
         base_url: resolved_api.base_url.clone(),
         login_provider: String::new(),
         codex_auth_mode: default_codex_auth_mode(),
@@ -250,7 +269,6 @@ fn migrate_legacy_api_configs_into_providers(config: &mut AppConfig) {
                 enable_audio: legacy.enable_audio,
                 enable_video: legacy.enable_video,
                 enable_tools: legacy.enable_tools,
-                tools: legacy.tools.clone(),
                 base_url: legacy.base_url.clone(),
                 login_provider: String::new(),
                 codex_auth_mode: legacy.codex_auth_mode.clone(),
@@ -294,23 +312,18 @@ fn migrate_legacy_api_configs_into_providers(config: &mut AppConfig) {
         .collect();
 }
 
+/// 识别「用户从未改动过的默认供应商占位」。
+///
+/// 判据只能用**磁盘上还存在的用户设定**：`tools` 字段已删除，旧默认占位里那份默认工具列表
+/// 不再参与判断；`keyCursor` 与 `cachedModelOptions` 属运行态、已不再写盘，新写出的文件里
+/// 前者缺省为 0、后者缺省为空数组。所以 `cachedModelOptions` 这个条件从「等于默认的
+/// ["gpt-4o-mini"]」放宽成「空或等于它」，否则本应用自己写出来的默认占位会被认成真配置，
+/// 老用户文件里的旧版 `apiConfigs` 就再也迁不进 `apiProviders`。
+/// 其余条件不变：它们全是用户可改的字段，任何一项被动过都会立刻返回 false。
 fn is_default_placeholder_provider(provider: &ApiProviderConfig) -> bool {
     let Some(model) = provider.models.first() else {
         return false;
     };
-    let default_tools = default_api_tools();
-    let tools_match = provider.tools.len() == default_tools.len()
-        && provider
-            .tools
-            .iter()
-            .zip(default_tools.iter())
-            .all(|(left, right)| {
-                left.id == right.id
-                    && left.command == right.command
-                    && left.args == right.args
-                    && left.enabled == right.enabled
-                    && left.values == right.values
-            });
     // 并发默认从串行改成不限制，旧占位和新占位不能靠这个字段区分。
     provider.id == "default-provider-openai"
         && provider.name == "Default OpenAI"
@@ -320,13 +333,13 @@ fn is_default_placeholder_provider(provider: &ApiProviderConfig) -> bool {
         && !provider.enable_audio
         && !provider.enable_video
         && provider.enable_tools
-        && tools_match
         && provider.base_url == "https://api.openai.com/v1"
         && provider.codex_auth_mode == default_codex_auth_mode()
         && provider.codex_local_auth_path == default_codex_local_auth_path()
         && provider.api_keys.is_empty()
         && provider.key_cursor == 0
-        && provider.cached_model_options == vec!["gpt-4o-mini".to_string()]
+        && (provider.cached_model_options.is_empty()
+            || provider.cached_model_options == vec!["gpt-4o-mini".to_string()])
         && provider.models.len() == 1
         && model.id == "default-model"
         && model.model == "gpt-4o-mini"
@@ -389,7 +402,6 @@ fn expand_api_configs_from_providers(config: &mut AppConfig) {
                 enable_audio: model.enable_audio,
                 enable_video: model.enable_video,
                 enable_tools: model.enable_tools,
-                tools: provider.tools.clone(),
                 base_url: provider.base_url.clone(),
                 api_key: provider.api_keys.first().cloned().unwrap_or_default(),
                 codex_auth_mode: provider.codex_auth_mode.clone(),
@@ -416,51 +428,6 @@ fn expand_api_configs_from_providers(config: &mut AppConfig) {
         expanded.push(ApiConfig::default());
     }
     config.api_configs = expanded;
-}
-
-fn normalize_tools_list(tools: &mut Vec<ApiToolConfig>, enable_tools: bool) {
-    for tool in tools.iter_mut() {
-        match tool.id.as_str() {
-            "bing-search" => {
-                tool.id = "websearch".to_string();
-            }
-            "desktop-wait" | "wait" => {
-                tool.id = "__merged_into_operate__".to_string();
-            }
-            "command" => {
-                tool.id = "__legacy_command__".to_string();
-            }
-            "shell-exec" => {
-                tool.id = "exec".to_string();
-                tool.args = vec!["exec".to_string()];
-            }
-            "shell-switch-workspace" => {
-                tool.id = "__removed_shell_switch_workspace__".to_string();
-            }
-            _ => {}
-        }
-    }
-    tools.retain(|tool| {
-        !matches!(
-            tool.id.as_str(),
-            "__legacy_command__" | "__removed_shell_switch_workspace__"
-                | "__merged_into_operate__"
-        )
-    });
-    tools.sort_by(|a, b| a.id.cmp(&b.id));
-    tools.dedup_by(|a, b| a.id == b.id);
-    if enable_tools {
-        if tools.is_empty() {
-            *tools = default_api_tools();
-        } else {
-            let defaults = default_api_tools();
-            for default_tool in defaults {
-                if !tools.iter().any(|tool| tool.id == default_tool.id) {
-                    tools.push(default_tool);
-                }
-            }
-        }
-    }
 }
 
 fn is_codex_spark_model(model_id: &str) -> bool {
@@ -495,7 +462,7 @@ fn migrate_legacy_grok_request_format(content: &str) -> String {
         .join("\n")
 }
 
-fn normalize_api_tools(config: &mut AppConfig) {
+fn normalize_api_providers(config: &mut AppConfig) {
     for provider in &mut config.api_providers {
         provider.key_cursor = provider.key_cursor.min(1_000_000);
         provider.failure_retry_count = provider.failure_retry_count.clamp(0, 20);
@@ -567,7 +534,6 @@ fn normalize_api_tools(config: &mut AppConfig) {
                 }
             }
         }
-        normalize_tools_list(&mut provider.tools, provider.enable_tools);
     }
 
     for api in &mut config.api_configs {
@@ -605,7 +571,6 @@ fn normalize_api_tools(config: &mut AppConfig) {
         api.custom_max_output_tokens_enabled =
             api.request_format.is_anthropic() || api.custom_max_output_tokens_enabled;
         api.failure_retry_count = api.failure_retry_count.clamp(0, 20);
-        normalize_tools_list(&mut api.tools, api.enable_tools);
     }
 }
 
@@ -967,7 +932,7 @@ fn normalize_app_config(config: &mut AppConfig) {
     config.skipped_github_update_version =
         normalize_skipped_github_update_version(&config.skipped_github_update_version);
 
-    normalize_api_tools(config);
+    normalize_api_providers(config);
 
     if let Some(stt_id) = config.stt_api_config_id.clone() {
         if let Some(api) = config.api_configs.iter_mut().find(|a| a.id == stt_id) {

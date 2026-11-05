@@ -1,6 +1,5 @@
 import type { ComputedRef } from "vue";
 import type { ApiConfigItem, ApiModelConfigItem, ApiProviderConfigItem, AppConfig, CodexAuthMode, RemoteImChannelConfig, RemoteImPlatform } from "../../../types/app";
-import { defaultToolBindings } from "../utils/builtin-tools";
 import { normalizeApiRequestFormat } from "../utils/api-request-format";
 import { apiConfigDisplayName as buildApiConfigDisplayName } from "../utils/api-config-display";
 import {
@@ -56,10 +55,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     return Number.isFinite(parsed) ? parsed : DEFAULT_MAX_OUTPUT_TOKENS;
   }
 
-  function defaultApiTools() {
-    return defaultToolBindings();
-  }
-
   function normalizeCodexAuthMode(value: unknown): CodexAuthMode {
     const normalized = String(value || "").trim();
     if (normalized === "managed_oauth") return "managed_oauth";
@@ -105,7 +100,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       enableAudio: false,
       enableVideo: false,
       enableTools: true,
-      tools: defaultApiTools(),
       baseUrl: "https://api.openai.com/v1",
       loginProvider: "",
       codexAuthMode: DEFAULT_CODEX_AUTH_MODE,
@@ -137,7 +131,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       enableAudio: provider.enableAudio,
       enableVideo: model.enableVideo,
       enableTools: model.enableTools,
-      tools: defaultApiTools(),
       baseUrl: provider.baseUrl,
       apiKey: "",
       codexAuthMode: normalizeCodexAuthMode(provider.codexAuthMode),
@@ -172,7 +165,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           enableAudio: !!api.enableAudio,
           enableVideo: !!api.enableVideo,
           enableTools: !!api.enableTools,
-          tools: (api.tools || []).map((tool) => ({ ...tool, args: [...(tool.args || [])], values: { ...(tool.values || {}) } })),
           baseUrl: api.baseUrl,
           loginProvider: "",
           codexAuthMode: normalizeCodexAuthMode(api.codexAuthMode),
@@ -285,7 +277,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           enableAudio: !!model.enableAudio,
           enableVideo: !!model.enableVideo,
           enableTools: model.enableTools !== false,
-          tools: (provider.tools || []).map((tool) => ({ ...tool, args: [...(tool.args || [])], values: { ...(tool.values || {}) } })),
           baseUrl: provider.baseUrl,
           apiKey,
           codexAuthMode: normalizeCodexAuthMode(provider.codexAuthMode),
@@ -392,13 +383,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         enableVideo: (provider.models || []).some((model) => !!model.enableVideo),
         enableAudio: (provider.models || []).some((model) => !!model.enableAudio),
         enableTools: (provider.models || []).some((model) => model.enableTools !== false),
-        tools: (provider.tools || []).map((t) => ({
-          id: t.id,
-          command: t.command,
-          args: Array.isArray(t.args) ? t.args : [],
-          enabled: typeof t.enabled === "boolean" ? t.enabled : true,
-          values: t.values ?? {},
-        })),
         baseUrl: effectiveProviderBaseUrl(provider),
         loginProvider: provider.loginProvider === "grok" ? "grok" : "",
         codexAuthMode: normalizeCodexAuthMode(provider.codexAuthMode),
@@ -442,13 +426,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         enableAudio: !!a.enableAudio,
         enableVideo: !!a.enableVideo,
         enableTools: true,
-        tools: (a.tools || []).map((t) => ({
-          id: t.id,
-          command: t.command,
-          args: Array.isArray(t.args) ? t.args : [],
-          enabled: typeof t.enabled === "boolean" ? t.enabled : true,
-          values: t.values ?? {},
-        })),
         baseUrl: a.baseUrl,
         apiKey: a.apiKey,
         codexAuthMode: normalizeCodexAuthMode(a.codexAuthMode),
@@ -532,13 +509,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         enableAudio: a.enableAudio,
         enableVideo: a.enableVideo,
         enableTools: a.enableTools,
-        tools: (a.tools || []).map((t) => ({
-          id: t.id,
-          command: t.command,
-          args: Array.isArray(t.args) ? t.args : [],
-          enabled: typeof t.enabled === "boolean" ? t.enabled : true,
-          values: t.values ?? {},
-        })),
         baseUrl: a.baseUrl,
         apiKey: a.apiKey,
         codexAuthMode: normalizeCodexAuthMode(a.codexAuthMode),
@@ -560,7 +530,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
   }
 
   return {
-    defaultApiTools,
     createApiProvider,
     createApiModel,
     createApiConfig,

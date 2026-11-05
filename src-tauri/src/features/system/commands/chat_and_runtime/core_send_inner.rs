@@ -3535,7 +3535,6 @@ mod core_send_inner_tests {
             enable_audio: false,
             enable_video: false,
             enable_tools: false,
-            tools: vec![],
             base_url: "https://example.com/v1".to_string(),
             api_key: "k".to_string(),
             codex_auth_mode: default_codex_auth_mode(),

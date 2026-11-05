@@ -215,7 +215,6 @@
                     enable_audio: false,
                     enable_video: false,
                     enable_tools: false,
-                    tools: vec![],
                     base_url: "https://api.openai.com/v1".to_string(),
                     api_key: "k".to_string(),
                     codex_auth_mode: default_codex_auth_mode(),
@@ -244,7 +243,6 @@
                     enable_audio: true,
                     enable_video: false,
                     enable_tools: false,
-                    tools: vec![],
                     base_url: "https://api.openai.com/v1".to_string(),
                     api_key: "k".to_string(),
                     codex_auth_mode: default_codex_auth_mode(),
@@ -327,7 +325,6 @@
                     enable_audio: true,
                     enable_video: false,
                     enable_tools: false,
-                    tools: vec![],
                     base_url: "https://api.openai.com/v1".to_string(),
                     api_key: "k".to_string(),
                     codex_auth_mode: default_codex_auth_mode(),
@@ -356,7 +353,6 @@
                     enable_audio: false,
                     enable_video: false,
                     enable_tools: false,
-                    tools: vec![],
                     base_url: "https://api.openai.com/v1".to_string(),
                     api_key: "k".to_string(),
                     codex_auth_mode: default_codex_auth_mode(),
@@ -406,7 +402,6 @@
                 enable_audio: false,
                 enable_video: false,
                 enable_tools: true,
-                tools: default_api_tools(),
                 base_url: "https://api.openai.com/v1".to_string(),
                 login_provider: String::new(),
                 codex_auth_mode: default_codex_auth_mode(),
@@ -536,7 +531,6 @@
                 enable_audio: false,
                 enable_video: false,
                 enable_tools: true,
-                tools: default_api_tools(),
                 base_url: "https://api.openai.com/v1".to_string(),
                 api_key: "legacy-key".to_string(),
                 codex_auth_mode: default_codex_auth_mode(),
@@ -761,7 +755,6 @@ enableTools = true
                 enable_audio: false,
                 enable_video: false,
                 enable_tools: true,
-                tools: default_api_tools(),
                 base_url: "https://api.openai.com/v1".to_string(),
                 login_provider: String::new(),
                 codex_auth_mode: default_codex_auth_mode(),
@@ -853,7 +846,6 @@ enableTools = true
                 enable_audio: false,
                 enable_video: false,
                 enable_tools: true,
-                tools: default_api_tools(),
                 base_url: "https://new.sharedchat.cc/codex".to_string(),
                 login_provider: String::new(),
                 codex_auth_mode: CODEX_AUTH_MODE_CUSTOM_URL.to_string(),
@@ -920,7 +912,6 @@ enableTools = true
                 enable_audio: false,
                 enable_video: false,
                 enable_tools: true,
-                tools: default_api_tools(),
                 base_url: "https://example.com/codex".to_string(),
                 login_provider: String::new(),
                 codex_auth_mode: CODEX_AUTH_MODE_CUSTOM_URL.to_string(),
@@ -1644,4 +1635,254 @@ enableTools = true
                 .expect("bridge value")
         });
         assert_eq!(value, 7);
+    }
+
+    // ==================== 运行态与废弃字段不落盘 ====================
+
+    fn test_provider_with_models(provider_id: &str, model_ids: &[&str]) -> ApiProviderConfig {
+        ApiProviderConfig {
+            id: provider_id.to_string(),
+            name: "Provider A".to_string(),
+            deprecated: false,
+            request_format: RequestFormat::OpenAI,
+            allow_concurrent_requests: true,
+            max_concurrent_requests: None,
+            enable_text: true,
+            enable_image: false,
+            enable_audio: false,
+            enable_video: false,
+            enable_tools: true,
+            base_url: "https://api.example.com/v1".to_string(),
+            login_provider: String::new(),
+            codex_auth_mode: default_codex_auth_mode(),
+            codex_local_auth_path: default_codex_local_auth_path(),
+            codex_custom_url: None,
+            codex_custom_api_key: None,
+            codex_originator: default_codex_originator(),
+            codex_residency_requirement: None,
+            api_keys: Vec::new(),
+            key_cursor: 0,
+            cached_model_options: Vec::new(),
+            models: model_ids
+                .iter()
+                .map(|model_id| ApiModelConfig {
+                    id: (*model_id).to_string(),
+                    model: (*model_id).to_string(),
+                    display_name: String::new(),
+                    deprecated: false,
+                    enable_image: false,
+                    enable_audio: false,
+                    enable_video: false,
+                    enable_tools: true,
+                    reasoning_effort: default_reasoning_effort(),
+                    temperature: default_api_temperature(),
+                    custom_temperature_enabled: false,
+                    context_window_tokens: default_context_window_tokens(),
+                    max_output_tokens: default_max_output_tokens(),
+                    custom_max_output_tokens_enabled: false,
+                })
+                .collect(),
+            failure_retry_count: default_failure_retry_count(),
+        }
+    }
+
+    fn test_mcp_server_config(id: &str) -> McpServerConfig {
+        McpServerConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            enabled: true,
+            definition_json: r#"{"command":"npx"}"#.to_string(),
+            oauth_capable: false,
+            has_oauth_token: false,
+            tool_policies: Vec::new(),
+            cached_tools: Vec::new(),
+            last_status: "ready".to_string(),
+            last_error: String::new(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    /// 旧文件里同时带 `apiConfigs` / `tools` / `keyCursor` / `cachedModelOptions` / `mcpServers`。
+    /// 读取必须成功：属于用户设定的照样读进来，磁盘上的派生 `apiConfigs` 被重算结果覆盖。
+    #[test]
+    fn legacy_config_with_removed_and_runtime_keys_should_still_load() {
+        let state = config_test_state();
+        let path = state.config_path.clone();
+        std::fs::create_dir_all(path.parent().expect("config parent")).expect("create config dir");
+        std::fs::write(
+            &path,
+            r#"hotkey = "Alt+·"
+selectedApiConfigId = "provider-a::model-a"
+
+[[mcpServers]]
+id = "embedded-mcp"
+name = "Embedded"
+definitionJson = "{\"command\":\"npx\"}"
+
+[[apiConfigs]]
+id = "legacy-config"
+name = "Legacy"
+requestFormat = "openai"
+baseUrl = "https://legacy.example.com/v1"
+apiKey = "legacy-key"
+model = "legacy-model"
+enableAudio = false
+tools = [{ id = "exec", enabled = true }]
+
+[[apiProviders]]
+id = "provider-a"
+name = "Provider A"
+requestFormat = "openai"
+baseUrl = "https://api.example.com/v1"
+apiKeys = ["key-1", "key-2"]
+keyCursor = 1
+cachedModelOptions = ["model-a"]
+enableAudio = false
+tools = [{ id = "write", enabled = true }]
+
+[[apiProviders.models]]
+id = "model-a"
+model = "gpt-4.1"
+enableAudio = false
+"#,
+        )
+        .expect("write legacy config");
+
+        let config = read_config(&path).expect("旧文件应能正常读入");
+
+        let provider = config.api_providers.first().expect("provider parsed");
+        assert_eq!(provider.id, "provider-a");
+        assert_eq!(provider.key_cursor, 1, "旧 keyCursor 仍读入结构体（只是不再写盘）");
+        assert_eq!(provider.cached_model_options, vec!["model-a".to_string()]);
+        assert_eq!(config.mcp_servers.len(), 1, "旧内嵌 mcpServers 仍读入结构体（只是不再写盘）");
+        assert_eq!(config.api_configs.len(), 1, "apiConfigs 读后由 apiProviders 重算");
+        assert_eq!(config.api_configs[0].id, "provider-a::model-a");
+        assert!(
+            !config.api_configs.iter().any(|api| api.id == "legacy-config"),
+            "磁盘上的旧 apiConfigs 应被重算结果覆盖"
+        );
+    }
+
+    /// 写盘：用户设定要留，运行态与派生数据一个键都不许出现。
+    #[test]
+    fn write_config_should_not_persist_runtime_or_derived_keys() {
+        let state = config_test_state();
+        let path = state.config_path.clone();
+        let mut config = AppConfig::default();
+        config.api_providers = vec![test_provider_with_models("provider-a", &["model-a", "model-b"])];
+        config.api_providers[0].key_cursor = 3;
+        config.api_providers[0].cached_model_options = vec!["model-a".to_string()];
+        config.mcp_servers = vec![test_mcp_server_config("embedded-mcp")];
+        expand_api_configs_from_providers(&mut config);
+        assert_eq!(config.api_configs.len(), 2, "内存里仍保留派生 apiConfigs");
+
+        write_config(&path, &config).expect("write config");
+        let text = std::fs::read_to_string(&path).expect("read written config");
+
+        assert!(text.contains("apiProviders"), "用户设定仍要落盘：{text}");
+        assert!(!text.contains("apiConfigs"), "派生 apiConfigs 不落盘：{text}");
+        assert!(!text.contains("mcpServers"), "运行态 mcpServers 不落盘：{text}");
+        assert!(!text.contains("keyCursor"), "密钥轮换游标不落盘：{text}");
+        assert!(!text.contains("cachedModelOptions"), "模型列表缓存不落盘：{text}");
+    }
+
+    /// 新格式文件（不带 apiConfigs）读回后，仍按 apiProviders 全量展开。
+    #[test]
+    fn read_config_should_rebuild_api_configs_from_providers() {
+        let state = config_test_state();
+        let path = state.config_path.clone();
+        std::fs::create_dir_all(path.parent().expect("config parent")).expect("create config dir");
+        std::fs::write(
+            &path,
+            r#"hotkey = "Alt+·"
+selectedApiConfigId = "provider-a::model-b"
+
+[[apiProviders]]
+id = "provider-a"
+name = "Provider A"
+baseUrl = "https://api.example.com/v1"
+enableAudio = false
+
+[[apiProviders.models]]
+id = "model-a"
+model = "gpt-4.1"
+enableAudio = false
+
+[[apiProviders.models]]
+id = "model-b"
+model = "gpt-4.1-mini"
+enableAudio = false
+"#,
+        )
+        .expect("write config without apiConfigs");
+
+        let config = read_config(&path).expect("read config");
+        let ids = config
+            .api_configs
+            .iter()
+            .map(|api| api.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec!["provider-a::model-a", "provider-a::model-b"]);
+        assert_eq!(config.api_configs[0].name, "Provider A/gpt-4.1");
+        assert_eq!(config.selected_api_config_id, "provider-a::model-b");
+    }
+
+    /// MCP 定义的来源是 workspace 目录，app_config 里的内嵌 mcpServers 已不是来源。
+    #[test]
+    fn mcp_definitions_should_still_load_from_workspace_dir() {
+        let state = config_test_state();
+        std::fs::create_dir_all(state.config_path.parent().expect("config parent"))
+            .expect("create config dir");
+        std::fs::write(
+            &state.config_path,
+            r#"hotkey = "Alt+·"
+
+[[mcpServers]]
+id = "embedded-mcp"
+name = "Embedded"
+definitionJson = "{\"command\":\"npx\"}"
+"#,
+        )
+        .expect("write config with embedded mcp servers");
+
+        let servers_dir = state.llm_workspace_path.join("mcp").join("servers");
+        std::fs::create_dir_all(&servers_dir).expect("create mcp servers dir");
+        std::fs::write(
+            servers_dir.join("demo-mcp.json"),
+            r#"{"command":"npx","args":["-y","demo-mcp"]}"#,
+        )
+        .expect("write mcp server file");
+
+        let servers = load_workspace_mcp_servers(&state).expect("load workspace mcp servers");
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].id, "demo-mcp");
+        assert!(
+            !servers.iter().any(|server| server.id == "embedded-mcp"),
+            "内嵌 mcpServers 不应再参与运行时装配"
+        );
+    }
+
+    /// 游标不落盘，但进程内轮换照旧：一次写盘 + 读回之后仍能从第二个密钥继续。
+    #[test]
+    fn key_rotation_should_keep_working_without_persisting_cursor() {
+        let state = config_test_state();
+        let path = state.config_path.clone();
+        let provider_id = format!("provider-rotate-{}", Uuid::new_v4());
+        let mut config = AppConfig::default();
+        config.api_providers = vec![test_provider_with_models(&provider_id, &["model-a"])];
+        config.api_providers[0].api_keys = vec!["key-1".to_string(), "key-2".to_string()];
+        expand_api_configs_from_providers(&mut config);
+
+        let first = select_and_advance_provider_api_key(&config.api_providers[0]);
+        assert_eq!(first, "key-1");
+
+        write_config(&path, &config).expect("write config");
+        let text = std::fs::read_to_string(&path).expect("read written config");
+        assert!(!text.contains("keyCursor"), "游标不落盘：{text}");
+
+        let reloaded = read_config(&path).expect("read config");
+        let provider = reloaded.api_providers.first().expect("provider");
+        assert_eq!(provider.key_cursor, 0, "磁盘不带游标，读回为 0");
+        let second = select_and_advance_provider_api_key(provider);
+        assert_eq!(second, "key-2", "进程内游标态仍在，轮换继续");
     }

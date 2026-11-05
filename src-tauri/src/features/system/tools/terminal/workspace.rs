@@ -938,18 +938,9 @@ fn terminal_prompt_trusted_roots_block(
     selected_api: &ApiConfig,
     conversation: Option<&Conversation>,
 ) -> Option<String> {
-    let terminal_enabled = selected_api.enable_tools
-        && selected_api
-            .tools
-            .iter()
-            .any(|tool| {
-                tool.enabled
-                    && matches!(
-                        tool.id.as_str(),
-                        "exec" | "write" | "delete" | "update" | "move"
-                    )
-            });
-    if !terminal_enabled {
+    // 挂哪些工具由 `enable_tools` 与人格权限决定；供应商/模型侧的 tools 清单已删除
+    // （那本是随默认值落盘的副本，改不动实际装配结果），这里只看总开关。
+    if !selected_api.enable_tools {
         return None;
     }
 
@@ -1945,14 +1936,6 @@ mod terminal_workspace_tests {
         state_write_config_cached(&state, &config).expect("write config");
         let mut api = ApiConfig::default();
         api.enable_tools = true;
-        api.tools = vec![ApiToolConfig {
-            id: "exec".to_string(),
-            command: String::new(),
-            args: Vec::new(),
-            enabled: true,
-            values: Value::Null,
-        }];
-
         let block = terminal_prompt_trusted_roots_block(&state, &api, None).expect("terminal block");
 
         assert!(block.contains("PowerShell 7"));
@@ -1993,14 +1976,6 @@ mod terminal_workspace_tests {
         state_write_config_cached(&state, &config).expect("write config");
         let mut api = ApiConfig::default();
         api.enable_tools = true;
-        api.tools = vec![ApiToolConfig {
-            id: "exec".to_string(),
-            command: String::new(),
-            args: Vec::new(),
-            enabled: true,
-            values: Value::Null,
-        }];
-
         let block = terminal_prompt_trusted_roots_block(&state, &api, None).expect("terminal block");
 
         assert!(block.contains("当前 shell: Windows PowerShell 5.1"));
@@ -2037,14 +2012,6 @@ mod terminal_workspace_tests {
         conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
         let mut api = ApiConfig::default();
         api.enable_tools = true;
-        api.tools = vec![ApiToolConfig {
-            id: "exec".to_string(),
-            command: String::new(),
-            args: Vec::new(),
-            enabled: true,
-            values: Value::Null,
-        }];
-
         let block = terminal_prompt_trusted_roots_block(&state, &api, Some(&conversation))
             .expect("terminal block");
 
@@ -2077,14 +2044,6 @@ mod terminal_workspace_tests {
         conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
         let mut api = ApiConfig::default();
         api.enable_tools = true;
-        api.tools = vec![ApiToolConfig {
-            id: "exec".to_string(),
-            command: String::new(),
-            args: Vec::new(),
-            enabled: true,
-            values: Value::Null,
-        }];
-
         let block = terminal_prompt_trusted_roots_block(&state, &api, Some(&conversation))
             .expect("terminal block");
 
@@ -2144,14 +2103,6 @@ mod terminal_workspace_tests {
         conversation.shell_worktree_path = bound_dir_text;
         let mut api = ApiConfig::default();
         api.enable_tools = true;
-        api.tools = vec![ApiToolConfig {
-            id: "exec".to_string(),
-            command: String::new(),
-            args: Vec::new(),
-            enabled: true,
-            values: Value::Null,
-        }];
-
         let block = terminal_prompt_trusted_roots_block(&state, &api, Some(&conversation))
             .expect("terminal block");
 

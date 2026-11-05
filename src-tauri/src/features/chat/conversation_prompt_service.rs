@@ -519,12 +519,7 @@ impl ConversationPromptService {
 
         if selected_api.enable_tools {
             let mut seen = std::collections::HashSet::<String>::new();
-            for tool in selected_api
-                .tools
-                .iter()
-                .chain(current_agent.tools.iter())
-                .filter(|tool| tool.enabled)
-            {
+            for tool in current_agent.tools.iter().filter(|tool| tool.enabled) {
                 let key = tool.id.trim().to_ascii_lowercase();
                 if key.is_empty() || !seen.insert(key) {
                     continue;

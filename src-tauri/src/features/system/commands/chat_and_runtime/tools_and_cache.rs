@@ -12,7 +12,7 @@ fn check_tools_status_inner(
 ) -> Result<Vec<ToolLoadStatus>, String> {
     let runtime_org = load_runtime_organization_snapshot(&state)?;
     let mut config = runtime_org.config.clone();
-    normalize_api_tools(&mut config);
+    normalize_api_providers(&mut config);
     let agents = runtime_org.agents.clone();
 
     let target_agent_id = input

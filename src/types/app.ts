@@ -99,7 +99,6 @@ export type ApiConfigItem = {
   enableAudio: boolean;
   enableVideo?: boolean;
   enableTools: boolean;
-  tools: ApiToolItem[];
   baseUrl: string;
   loginProvider?: string;
   apiKey: string;
@@ -148,7 +147,6 @@ export type ApiProviderConfigItem = {
   enableAudio: boolean;
   enableVideo?: boolean;
   enableTools: boolean;
-  tools: ApiToolItem[];
   baseUrl: string;
   loginProvider?: "" | "grok";
   codexAuthMode?: CodexAuthMode;

@@ -6,7 +6,6 @@ import type { ApiConfigItem, ApiModelConfigItem, ApiProviderConfigItem, AppConfi
 import responseStylesJson from "../../../constants/response-styles.json";
 import { useAppTheme } from "../../shell/composables/use-app-theme";
 import { applyUiSizeScale } from "../../shell/composables/use-ui-size-appearance";
-import { defaultToolBindings } from "../utils/builtin-tools";
 import { normalizeApiRequestFormat } from "../utils/api-request-format";
 import { apiConfigDisplayName } from "../utils/api-config-display";
 import { hasUsableTextLlm } from "./usable-text-llm";
@@ -596,7 +595,6 @@ export function useSimpleSetup() {
       enableAudio: false,
       enableVideo: models.some((model) => !!model.enableVideo),
       enableTools: enableText,
-      tools: defaultToolBindings(),
       baseUrl,
       codexAuthMode: "read_local",
       codexLocalAuthPath: "~/.codex/auth.json",
@@ -621,7 +619,6 @@ export function useSimpleSetup() {
       enableAudio: model.enableAudio ?? provider.enableAudio,
       enableVideo: model.enableVideo ?? false,
       enableTools: model.enableTools,
-      tools: defaultToolBindings(),
       baseUrl: provider.baseUrl,
       apiKey,
       codexAuthMode: "read_local",
@@ -698,7 +695,6 @@ export function useSimpleSetup() {
       enableAudio: isStt,
       enableVideo: false,
       enableTools: !isStt && !isEmbedding && !isRerank,
-      tools: defaultToolBindings(),
       baseUrl: draftModel.baseUrl.trim(),
       codexAuthMode: "read_local",
       codexLocalAuthPath: "~/.codex/auth.json",
@@ -737,7 +733,6 @@ export function useSimpleSetup() {
       enableImage: provider.models[0].enableImage,
       enableAudio: provider.enableAudio,
       enableTools: provider.models[0].enableTools,
-      tools: defaultToolBindings(),
       baseUrl: provider.baseUrl,
       apiKey: draftModel.apiKey.trim(),
       codexAuthMode: "read_local",

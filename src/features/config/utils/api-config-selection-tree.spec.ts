@@ -12,7 +12,6 @@ function apiConfig(overrides: Partial<ApiConfigItem>): ApiConfigItem {
     enableAudio: false,
     enableVideo: false,
     enableTools: true,
-    tools: [],
     baseUrl: "https://example.com/v1",
     apiKey: "",
     model: "gpt-5.6-terra",

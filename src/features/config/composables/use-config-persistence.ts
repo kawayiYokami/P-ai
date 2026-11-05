@@ -359,15 +359,6 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
           enableAudio: !!(provider as { enableAudio?: unknown }).enableAudio,
           enableVideo: !!(provider as { enableVideo?: unknown }).enableVideo,
           enableTools: (provider as { enableTools?: unknown }).enableTools !== false,
-          tools: Array.isArray((provider as { tools?: unknown[] }).tools)
-            ? ((provider as { tools?: unknown[] }).tools || []).map((tool) => ({
-                id: String((tool as { id?: unknown }).id || "").trim(),
-                command: String((tool as { command?: unknown }).command || ""),
-                args: Array.isArray((tool as { args?: unknown[] }).args) ? ((tool as { args?: unknown[] }).args || []).map((arg) => String(arg || "")) : [],
-                enabled: (tool as { enabled?: unknown }).enabled !== false,
-                values: ((tool as { values?: Record<string, unknown> }).values || {}),
-              }))
-            : [],
           baseUrl: String((provider as { baseUrl?: unknown }).baseUrl || "").trim(),
           loginProvider: (provider as { loginProvider?: unknown }).loginProvider === "grok" || (provider as { requestFormat?: unknown }).requestFormat === "grok" ? "grok" : "",
           codexAuthMode: normalizeCodexAuthMode((provider as { codexAuthMode?: unknown }).codexAuthMode),
@@ -405,11 +396,13 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
           failureRetryCount: Math.max(0, Number((provider as { failureRetryCount?: unknown }).failureRetryCount ?? 5)),
         }))
       : [];
+    // apiConfigs 是派生数据，后端在为空时整个键都不下发，这里必须自己兜住。
+    const incomingApiConfigs = Array.isArray((cfg as AppConfig).apiConfigs) ? cfg.apiConfigs : [];
     options.config.apiConfigs.splice(
       0,
       options.config.apiConfigs.length,
-      ...(cfg.apiConfigs.length
-        ? cfg.apiConfigs.map((api) => ({
+      ...(incomingApiConfigs.length
+        ? incomingApiConfigs.map((api) => ({
             ...api,
             requestFormat: normalizeApiRequestFormat((api as { requestFormat?: unknown }).requestFormat),
           }))
@@ -602,16 +595,13 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
             models: Array.isArray(provider.models)
               ? provider.models.map((model) => ({ ...model, deprecated: !!model.deprecated }))
               : [],
-            tools: Array.isArray(provider.tools)
-              ? provider.tools.map((tool) => ({
-                  ...tool,
-                  args: Array.isArray(tool.args) ? [...tool.args] : [],
-                  values: { ...((tool.values || {}) as Record<string, unknown>) },
-                }))
-              : [],
           }))
         : [];
-      options.config.apiConfigs.splice(0, options.config.apiConfigs.length, ...saved.apiConfigs);
+      options.config.apiConfigs.splice(
+        0,
+        options.config.apiConfigs.length,
+        ...(Array.isArray(saved.apiConfigs) ? saved.apiConfigs : []),
+      );
       options.normalizeApiBindingsLocal();
       options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
       console.info("[配置] save_config success");

@@ -1,5 +1,6 @@
 import { watch, type ComputedRef, type Ref } from "vue";
 import type { ApiConfigItem, AppConfig, PersonaProfile, ToolLoadStatus } from "../../../types/app";
+import { defaultToolBindings } from "../../config/utils/builtin-tools";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -16,7 +17,6 @@ type UseAppWatchersOptions = {
   toolApiConfig: ComputedRef<ApiConfigItem | null>;
   modelRefreshError: Ref<string>;
   toolStatuses: Ref<ToolLoadStatus[]>;
-  defaultApiTools: () => ApiConfigItem["tools"];
   t: TrFn;
   normalizeApiBindingsLocal: () => void;
   syncUserAliasFromPersona: () => void;
@@ -92,7 +92,7 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
         await options.refreshToolsStatus();
       } catch (error) {
         console.error("[监听] refreshToolsStatus failed:", error);
-        options.toolStatuses.value = options.defaultApiTools().map((tool) => ({
+        options.toolStatuses.value = defaultToolBindings().map((tool) => ({
           id: tool.id,
           status: "failed",
           detail: String(error),
