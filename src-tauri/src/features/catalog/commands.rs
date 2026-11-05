@@ -44,3 +44,13 @@ async fn catalog_install_inner(
 ) -> Result<CatalogInstallResult, String> {
     install_catalog_entry_inner(state, &input).await
 }
+
+/// 按图标地址取一张图，返回 data URL；取不到返回空串。
+/// 只接受当前目录结果里出现过的地址，不是通用取图接口。
+#[tauri::command]
+async fn catalog_icon_data_url(
+    state: State<'_, AppState>,
+    address: String,
+) -> Result<String, String> {
+    catalog_icon_data_url_inner(state.inner(), &address).await
+}

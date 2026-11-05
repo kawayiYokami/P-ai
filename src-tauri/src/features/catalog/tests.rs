@@ -27,13 +27,13 @@ mod catalog_tests {
         let to_args = |raw: &[&str]| raw.iter().map(|value| value.to_string()).collect::<Vec<_>>();
 
         let parsed = parse_store_args(&to_args(&[
-            "search", "playwright", "--source", "clawhub", "--page", "2",
+            "search", "playwright", "--source", "modelscope-skill", "--page", "2",
         ]));
         assert_eq!(
             parsed.positional,
             vec!["search".to_string(), "playwright".to_string()]
         );
-        assert_eq!(parsed.flag("source"), Some("clawhub"));
+        assert_eq!(parsed.flag("source"), Some("modelscope-skill"));
         assert_eq!(parsed.flag("page"), Some("2"));
         assert_eq!(parsed.flag("kind"), None);
 
@@ -48,7 +48,7 @@ mod catalog_tests {
         assert!(store_command_is_readonly(&to_args(&[])));
         assert!(store_command_is_readonly(&to_args(&["ls"])));
         assert!(store_command_is_readonly(&to_args(&["search", "pdf"])));
-        assert!(!store_command_is_readonly(&to_args(&["install", "clawhub", "a/b"])));
+        assert!(!store_command_is_readonly(&to_args(&["install", "skills-sh", "a/b"])));
     }
 
     #[test]
@@ -292,25 +292,6 @@ mod catalog_tests {
         );
     }
 
-    #[test]
-    fn smithery_detail_should_expose_definition_and_required_env() {
-        let detail = serde_json::json!({
-            "qualifiedName": "@demo/server",
-            "connections": [{
-                "deploymentUrl": "https://demo.example.com/mcp",
-                "configSchema": { "required": ["API_KEY", "TOKEN"] }
-            }]
-        });
-        let definition = smithery_definition_from_detail(&detail, "fallback").expect("definition");
-        assert_eq!(
-            definition["mcpServers"]["@demo-server"]["url"].as_str(),
-            Some("https://demo.example.com/mcp")
-        );
-        let mut required = smithery_required_env_from_detail(&detail);
-        required.sort();
-        assert_eq!(required, vec!["API_KEY".to_string(), "TOKEN".to_string()]);
-    }
-
     fn skill_entry(id: &str) -> CatalogEntry {
         CatalogEntry {
             id: id.to_string(),
@@ -382,246 +363,432 @@ mod catalog_tests {
     }
 
     #[test]
-    fn skill_kind_sources_should_include_clawhub_alongside_modelscope() {
+    fn skill_kind_sources_should_pair_modelscope_with_skills_sh() {
         let sources = catalog_sources_for_kind(CATALOG_KIND_SKILL);
         let ids = sources.iter().map(|item| item.id.as_str()).collect::<Vec<_>>();
-        assert_eq!(sources.len(), 2);
-        assert!(ids.contains(&CATALOG_SOURCE_MODELSCOPE_SKILL));
-        assert!(ids.contains(&CATALOG_SOURCE_CLAWHUB));
         assert_eq!(
-            catalog_kind_for_source(CATALOG_SOURCE_CLAWHUB),
+            ids,
+            vec![CATALOG_SOURCE_MODELSCOPE_SKILL, CATALOG_SOURCE_SKILLS_SH],
+            "Skill 分支两个源，顺序固定"
+        );
+        assert_eq!(
+            catalog_kind_for_source(CATALOG_SOURCE_SKILLS_SH),
             CATALOG_KIND_SKILL
         );
     }
 
     #[test]
-    fn mcp_kind_sources_should_stay_at_three_without_clawhub() {
+    fn mcp_kind_sources_should_pair_modelscope_with_official_registry() {
         let sources = catalog_sources_for_kind(CATALOG_KIND_MCP);
         let ids = sources.iter().map(|item| item.id.as_str()).collect::<Vec<_>>();
-        assert_eq!(sources.len(), 3);
-        assert!(!ids.contains(&CATALOG_SOURCE_CLAWHUB));
         assert_eq!(
-            catalog_kind_for_source(CATALOG_SOURCE_CLAWHUB),
-            CATALOG_KIND_SKILL,
-            "ClawHub 只属于 Skill 分支"
+            ids,
+            vec![CATALOG_SOURCE_MODELSCOPE_MCP, CATALOG_SOURCE_OFFICIAL],
+            "MCP 分支两个源，顺序固定"
+        );
+        assert_eq!(
+            catalog_kind_for_source(CATALOG_SOURCE_OFFICIAL),
+            CATALOG_KIND_MCP
         );
     }
 
     #[test]
-    fn clawhub_list_entry_should_map_core_fields() {
-        let item = serde_json::json!({
-            "slug": "linux-disk-triage",
-            "displayName": "Linux 磁盘告警治理",
-            "summary": "磁盘清理与扩容分析",
-            "topics": ["devops", "disk"],
-            "stats": { "installs": 120, "downloads": 300 },
-            "metadata": null
+    fn skills_sh_trending_should_read_escaped_array_and_drop_dirty_rows() {
+        // 页面把列表嵌在 JS 字符串里：键名前后的引号带一层反斜杠转义。
+        let escaped = r#"initialSkills\":[{\"source\":\"obra/superpowers\",\"skillId\":\"using-git-worktrees\",\"name\":\"Using Git Worktrees\",\"installs\":1234},{\"source\":\"not-a-repo\",\"skillId\":\"junk\",\"name\":\"Junk\",\"installs\":9}]"#;
+        let entries = skills_sh_trending_entries(escaped);
+        assert_eq!(entries.len(), 1, "不是 owner/repo 形态的条目要丢掉");
+        assert_eq!(entries[0].id, "obra/superpowers/using-git-worktrees");
+        assert_eq!(entries[0].popularity, 1234);
+
+        // 不带转义的形态同样要认。
+        let plain = r#"initialSkills":[{"source":"obra/superpowers","skillId":"using-git-worktrees","name":"Using Git Worktrees","installs":7}]"#;
+        let entries = skills_sh_trending_entries(plain);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].popularity, 7);
+    }
+
+    #[test]
+    fn skills_sh_search_should_map_fields() {
+        let payload = serde_json::json!({
+            "skills": [
+                {"source": "obra/superpowers", "skillId": "using-git-worktrees", "name": "Using Git Worktrees", "installs": 1234},
+                {"source": "单段", "skillId": "broken", "name": "Broken", "installs": 1}
+            ]
         });
-        let entry = clawhub_list_entry(&item);
-        assert_eq!(entry.id, "linux-disk-triage");
-        assert_eq!(entry.name, "Linux 磁盘告警治理");
-        assert_eq!(entry.description, "磁盘清理与扩容分析");
-        assert_eq!(entry.categories, vec!["devops".to_string(), "disk".to_string()]);
-        assert_eq!(entry.popularity, 120, "热度优先取安装数");
+        let items = payload["skills"].as_array().cloned().unwrap_or_default();
+        let entries = skills_sh_entries(&items);
+        assert_eq!(entries.len(), 1);
+        let entry = &entries[0];
+        assert_eq!(entry.id, "obra/superpowers/using-git-worktrees");
+        assert_eq!(entry.source, CATALOG_SOURCE_SKILLS_SH);
         assert_eq!(entry.kind, CATALOG_KIND_SKILL);
-        assert_eq!(entry.source, CATALOG_SOURCE_CLAWHUB);
+        assert_eq!(entry.popularity, 1234);
+        assert_eq!(entry.icon, "https://github.com/obra.png?size=96");
         assert!(entry.install_ready);
-        assert!(entry.detail_url.contains("slug=linux-disk-triage"));
+        assert!(entry.description.is_empty(), "检索结果没有描述，留空");
     }
 
     #[test]
-    fn clawhub_list_entry_should_fall_back_to_downloads_and_keep_author_blank() {
-        let item = serde_json::json!({
-            "slug": "demo",
-            "stats": { "installs": 0, "downloads": 42 }
-        });
-        let entry = clawhub_list_entry(&item);
-        assert_eq!(entry.name, "demo", "无展示名时回落到 slug");
-        assert_eq!(entry.popularity, 42, "无安装数时回落到下载数");
-        assert!(entry.author.is_empty(), "浏览端点不返回作者");
-    }
-
-    #[test]
-    fn clawhub_search_entry_should_join_owner_and_canonical_url() {
-        let item = serde_json::json!({
-            "slug": "linux-disk-triage",
-            "displayName": "Linux",
-            "summary": "x",
-            "downloads": 7,
-            "ownerHandle": "peterliu-512",
-            "canonicalUrl": "/peterliu-512/skills/linux-disk-triage"
-        });
-        let entry = clawhub_search_entry(&item);
-        assert_eq!(entry.id, "peterliu-512/linux-disk-triage", "检索态用 owner/slug 唯一标识");
-        assert_eq!(entry.author, "peterliu-512");
-        assert_eq!(entry.popularity, 7);
-        assert_eq!(
-            entry.homepage,
-            "https://clawhub.ai/peterliu-512/skills/linux-disk-triage"
-        );
-        assert!(entry.detail_url.contains("ownerHandle=peterliu-512"));
-    }
-
-    #[test]
-    fn clawhub_search_entry_should_fall_back_when_canonical_missing() {
-        let item = serde_json::json!({ "slug": "demo" });
-        let entry = clawhub_search_entry(&item);
-        assert_eq!(entry.id, "demo", "无发布者时退回裸 slug");
-        assert_eq!(entry.homepage, "https://clawhub.ai/skills/demo");
-    }
-
-    #[test]
-    fn clawhub_split_ref_should_separate_owner_from_slug() {
-        assert_eq!(
-            clawhub_split_ref("peterliu-512/linux-disk-triage"),
-            ("peterliu-512".to_string(), "linux-disk-triage".to_string())
-        );
-        assert_eq!(
-            clawhub_split_ref("linux-disk-triage"),
-            (String::new(), "linux-disk-triage".to_string())
-        );
-    }
-
-    #[test]
-    fn clawhub_download_url_should_only_carry_owner_when_known() {
-        assert_eq!(
-            clawhub_download_url("peterliu-512", "linux-disk-triage"),
-            "https://clawhub.ai/api/v1/download?slug=linux-disk-triage&ownerHandle=peterliu-512"
-        );
-        assert_eq!(
-            clawhub_download_url("", "linux-disk-triage"),
-            "https://clawhub.ai/api/v1/download?slug=linux-disk-triage"
-        );
-    }
-
-    #[test]
-    fn clawhub_entries_from_should_read_both_items_and_results() {
-        let list = serde_json::json!({ "items": [{ "slug": "a" }], "nextCursor": null });
-        assert_eq!(clawhub_entries_from(&list, clawhub_list_entry).len(), 1);
-        let search = serde_json::json!({ "results": [{ "slug": "a" }, { "slug": "b" }] });
-        assert_eq!(clawhub_entries_from(&search, clawhub_search_entry).len(), 2);
-        assert!(clawhub_entries_from(&serde_json::json!({}), clawhub_list_entry).is_empty());
-    }
-
-    /// 浏览态条目只带裸 slug，安装入口必须能直接据此构造条目，
-    /// 不能再走「精确 id 检索匹配」（那条路对裸 slug 永不命中）。
-    #[test]
-    fn clawhub_entry_from_ref_should_build_from_id_without_search() {
-        let browse = clawhub_entry_from_ref("linux-disk-triage");
-        assert_eq!(browse.id, "linux-disk-triage");
-        assert_eq!(browse.name, "linux-disk-triage");
-        assert_eq!(browse.source, CATALOG_SOURCE_CLAWHUB);
-        assert_eq!(browse.kind, CATALOG_KIND_SKILL);
-        assert!(browse.install_ready);
-
-        let owned = clawhub_entry_from_ref("acme/linux-disk-triage");
-        assert_eq!(owned.id, "acme/linux-disk-triage");
-        assert_eq!(owned.name, "linux-disk-triage", "展示名取 slug 段");
-    }
-
-    #[test]
-    fn clawhub_archive_skip_file_should_only_match_archive_root() {
-        assert!(is_clawhub_archive_skip_file(std::path::Path::new("_meta.json")));
-        assert!(is_clawhub_archive_skip_file(std::path::Path::new("skill-card.md")));
-        assert!(!is_clawhub_archive_skip_file(std::path::Path::new("SKILL.md")));
+    fn skills_sh_search_should_return_empty_when_nothing_found() {
+        assert!(skills_sh_entries(&[]).is_empty());
         assert!(
-            !is_clawhub_archive_skip_file(std::path::Path::new("references/_meta.json")),
-            "只跳过包根的平台附加文件"
+            skills_sh_trending_entries("页面里没有那个键").is_empty(),
+            "找不到列表时返回空"
         );
     }
 
-    /// ClawHub 公开接口的联网契约测试：浏览 / 检索 / 安装三段。
-    /// 默认忽略，需要网络时手动执行：
-    /// `cargo test clawhub_live_contract -- --ignored`
     #[test]
-    #[ignore = "需要网络：验证 ClawHub 公开接口契约"]
-    fn clawhub_live_contract_should_browse_search_and_install() {
+    fn skills_sh_request_should_report_failure() {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .expect("build tokio runtime");
-        rt.block_on(async {
-            let state = catalog_test_state("clawhub-live");
-
-            let browse = fetch_clawhub_browse_page(&state, 1, 5)
-                .await
-                .expect("browse ClawHub");
-            assert!(!browse.entries.is_empty(), "浏览应返回条目");
-            assert!(browse.total > 0, "浏览应折算出自有下一页的标记");
-            assert!(
-                browse.entries.iter().all(|entry| !entry.id.is_empty() && entry.install_ready),
-                "每个条目都应有 slug 且可安装"
-            );
-
-            let search = fetch_clawhub_search_page(&state, "disk", 5)
-                .await
-                .expect("search ClawHub");
-            assert!(!search.entries.is_empty(), "检索应返回条目");
-
-            let target = search
-                .entries
-                .first()
-                .expect("取一个检索结果")
-                .clone();
-            assert!(
-                target.id.contains('/'),
-                "检索条目应带发布者，形如 owner/slug：{}",
-                target.id
-            );
-            // 走真实安装入口：直接调 install_clawhub_skill 会绕过条目定位，掩盖安装派发层的问题。
-            let result = install_catalog_entry_inner(
+        let state = catalog_test_state("skills-sh-unreachable");
+        let err = rt
+            .block_on(skills_sh_get(
                 &state,
-                &CatalogInstallInput {
-                    source: CATALOG_SOURCE_CLAWHUB.to_string(),
-                    entry_id: target.id.clone(),
-                    env_values: std::collections::HashMap::new(),
-                },
-            )
-            .await
-            .expect("install ClawHub skill");
-            assert_eq!(result.kind, CATALOG_KIND_SKILL);
-            assert!(!result.local_id.is_empty());
-            assert!(!result.enabled, "商店安装的 Skill 默认关闭");
+                "http://127.0.0.1:1/nope",
+                "application/json",
+            ))
+            .expect_err("连不上的地址应当报错");
+        assert!(
+            err.contains("请求 skills.sh 失败") || err.contains("skills.sh 返回"),
+            "错误要说清是请求失败：{err}"
+        );
+        let _ = fs::remove_dir_all(
+            state
+                .llm_workspace_path
+                .parent()
+                .unwrap_or(&state.llm_workspace_path),
+        );
+    }
 
-            let skill_dir = state.llm_workspace_path.join("skills").join(&result.local_id);
-            let skill_md = skill_dir.join("SKILL.md");
-            assert!(skill_md.is_file(), "SKILL.md 应落盘：{}", skill_md.display());
-            let content = fs::read_to_string(&skill_md).expect("read SKILL.md");
-            assert!(
-                content.trim_start().starts_with("---"),
-                "落盘内容应是带 frontmatter 的 SKILL.md 正文"
-            );
-            assert!(
-                !skill_dir.join("_meta.json").exists(),
-                "平台附加文件不应落盘"
-            );
+    #[test]
+    fn skills_sh_pick_paths_should_find_skill_md_and_text_siblings() {
+        let paths = vec![
+            "README.md".to_string(),
+            "skills/using-git-worktrees/SKILL.md".to_string(),
+            "skills/using-git-worktrees/scripts/setup.sh".to_string(),
+            "skills/using-git-worktrees/preview.png".to_string(),
+            "skills/other/SKILL.md".to_string(),
+        ];
+        let (skill_md, dir_prefix, siblings) =
+            skills_sh_pick_skill_paths(&paths, "using-git-worktrees").expect("应能定位 SKILL.md");
+        assert_eq!(skill_md, "skills/using-git-worktrees/SKILL.md");
+        assert_eq!(
+            dir_prefix, "skills/using-git-worktrees/",
+            "目录基准应是 SKILL.md 所在目录，不是 skillId"
+        );
+        assert_eq!(
+            siblings,
+            vec!["skills/using-git-worktrees/scripts/setup.sh".to_string()],
+            "同目录文本文件带走，图片跳过，别的技能不碰"
+        );
+    }
 
-            // 浏览条目不带发布者：安装入口必须能直接接住裸 slug，
-            // 并在重名时给出可操作的候选提示，而不是笼统报「未找到条目」。
-            let browse_target = browse.entries.first().expect("取一个浏览条目").clone();
-            let browse_outcome = install_catalog_entry_inner(
-                &state,
-                &CatalogInstallInput {
-                    source: CATALOG_SOURCE_CLAWHUB.to_string(),
-                    entry_id: browse_target.id.clone(),
-                    env_values: std::collections::HashMap::new(),
-                },
-            )
-            .await;
-            if let Err(err) = browse_outcome {
-                assert!(
-                    !err.contains("未找到条目"),
-                    "浏览态安装不应因 id 匹配失败：{err}"
-                );
-                assert!(
-                    err.contains("多个发布者"),
-                    "浏览态条目的失败应指出重名并给出候选，实际：{err}"
-                );
+    #[test]
+    fn skills_sh_pick_paths_should_report_missing_skill_md() {
+        let paths = vec!["README.md".to_string()];
+        let err = skills_sh_pick_skill_paths(&paths, "missing").expect_err("找不到要报错");
+        assert!(
+            err.contains("missing/SKILL.md"),
+            "错误要说清缺哪个文件：{err}"
+        );
+    }
+
+    #[test]
+    fn official_registry_icon_should_prefer_own_icon_then_github_owner_then_empty() {
+        let with_icon = serde_json::json!({
+            "server": {
+                "name": "io.github.foo/bar",
+                "icons": [{"src": "ftp://x/y.png"}, {"src": "https://cdn.example.com/bar.png"}],
+                "repository": {"url": "https://github.com/foo/bar"}
             }
-
-            let _ = fs::remove_dir_all(
-                state.llm_workspace_path.parent().unwrap_or(&state.llm_workspace_path),
-            );
         });
+        let entry = official_registry_entry(&with_icon);
+        assert_eq!(
+            entry.icon, "https://cdn.example.com/bar.png",
+            "只取 icons 里第一个 https 地址"
+        );
+        assert_eq!(entry.author, "foo");
+
+        let owner_only = serde_json::json!({
+            "server": {
+                "name": "io.github.baz/qux",
+                "repository": {"url": "https://github.com/baz/qux"}
+            }
+        });
+        let entry = official_registry_entry(&owner_only);
+        assert_eq!(
+            entry.icon, "https://github.com/baz.png?size=96",
+            "没有自带图标时用 GitHub owner 头像"
+        );
+        assert_eq!(entry.author, "baz");
+
+        let neither = serde_json::json!({"server": {"name": "acme.dev/tool"}});
+        let entry = official_registry_entry(&neither);
+        assert_eq!(entry.icon, "", "推不出 GitHub owner 时不编造图标");
+        assert_eq!(entry.author, "dev.acme", "命名空间倒序拼成域名形态");
+    }
+
+    #[test]
+    fn catalog_icon_mime_should_recognize_known_magic_numbers() {
+        assert_eq!(
+            catalog_icon_mime_from_bytes(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 1]),
+            Some("image/png")
+        );
+        assert_eq!(
+            catalog_icon_mime_from_bytes(&[0xFF, 0xD8, 0xFF, 0xE0]),
+            Some("image/jpeg")
+        );
+        assert_eq!(catalog_icon_mime_from_bytes(b"GIF89a...."), Some("image/gif"));
+        let mut webp = b"RIFF".to_vec();
+        webp.extend_from_slice(&[0, 0, 0, 0]);
+        webp.extend_from_slice(b"WEBP");
+        assert_eq!(catalog_icon_mime_from_bytes(&webp), Some("image/webp"));
+        assert_eq!(
+            catalog_icon_mime_from_bytes(&[0x00, 0x00, 0x01, 0x00, 1]),
+            Some("image/x-icon")
+        );
+        assert_eq!(
+            catalog_icon_mime_from_bytes(b"<svg xmlns=\"x\"></svg>"),
+            Some("image/svg+xml")
+        );
+        assert_eq!(
+            catalog_icon_mime_from_bytes(b"<svg><script>alert(1)</script></svg>"),
+            None,
+            "带脚本的 SVG 不收"
+        );
+        assert_eq!(
+            catalog_icon_mime_from_bytes(b"<!DOCTYPE html><html></html>"),
+            None,
+            "不是图片"
+        );
+    }
+
+    #[test]
+    fn catalog_icon_url_should_reject_non_public_or_non_https() {
+        assert!(catalog_icon_url_is_public_https(
+            "https://github.com/obra.png?size=96"
+        ));
+        assert!(
+            !catalog_icon_url_is_public_https("http://github.com/obra.png"),
+            "只允许 https"
+        );
+        assert!(
+            !catalog_icon_url_is_public_https("https://user:pass@github.com/a.png"),
+            "拒绝带账号密码"
+        );
+        assert!(
+            !catalog_icon_url_is_public_https("https://github.com:8443/a.png"),
+            "拒绝非 443 端口"
+        );
+        assert!(
+            !catalog_icon_url_is_public_https("https://127.0.0.1/a.png"),
+            "拒绝回环地址"
+        );
+        assert!(
+            !catalog_icon_url_is_public_https("https://10.0.0.5/a.png"),
+            "拒绝内网地址"
+        );
+        assert!(
+            !catalog_icon_url_is_public_https("https://localhost/a.png"),
+            "拒绝本机名"
+        );
+        assert!(
+            !catalog_icon_url_is_public_https("https://foo.internal/a.png"),
+            "拒绝内网域名"
+        );
+    }
+
+    #[test]
+    fn catalog_icon_fetch_should_refuse_address_outside_allowlist() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+        let state = catalog_test_state("catalog-icon-allowlist");
+        let address = "https://github.com/obra-unlisted.png?size=96";
+
+        // 没登记过的地址：格式再合法也不能取，而且不报错（前端据此退首字母）。
+        let denied = rt.block_on(catalog_icon_data_url_inner(&state, address));
+        assert_eq!(denied.expect("不该报错"), "", "未登记地址应返回空");
+        assert!(!catalog_icon_address_is_allowed(address));
+
+        // 登记之后放行判定通过。
+        let mut entry = skill_entry("icon-probe");
+        entry.icon = address.to_string();
+        catalog_remember_icon_addresses(&[entry]);
+        assert!(catalog_icon_address_is_allowed(address));
+
+        let _ = fs::remove_dir_all(
+            state
+                .llm_workspace_path
+                .parent()
+                .unwrap_or(&state.llm_workspace_path),
+        );
+    }
+
+    #[test]
+    fn skills_sh_frontmatter_name_should_read_yaml_name() {
+        let content = "---\nname: vercel-react-best-practices\ndescription: 何时使用\n---\n\n# 正文\n";
+        assert_eq!(
+            skills_sh_frontmatter_name(content).as_deref(),
+            Some("vercel-react-best-practices")
+        );
+        assert_eq!(skills_sh_frontmatter_name("# 没有 frontmatter"), None);
+        assert_eq!(skills_sh_frontmatter_name("---\ndescription: 没名字\n---\n"), None);
+    }
+
+    #[test]
+    fn skills_sh_should_locate_skill_by_frontmatter_name_when_dir_differs() {
+        // 热门榜第一页的真实形状：skillId 是 frontmatter 的 name，目录名不一样。
+        let paths = vec![
+            "README.md".to_string(),
+            "skills/react-best-practices/SKILL.md".to_string(),
+            "skills/react-best-practices/rules/hooks.md".to_string(),
+            "skills/other/SKILL.md".to_string(),
+        ];
+        // 快路径按目录名拼前缀，这里必然落空：这正是要补慢路径的原因。
+        assert!(skills_sh_pick_skill_paths(&paths, "vercel-react-best-practices").is_err());
+
+        let candidates = vec![
+            (
+                "skills/other/SKILL.md".to_string(),
+                Some("other-skill".to_string()),
+            ),
+            (
+                "skills/react-best-practices/SKILL.md".to_string(),
+                Some("vercel-react-best-practices".to_string()),
+            ),
+        ];
+        let hit = skills_sh_select_by_name(&candidates, "vercel-react-best-practices")
+            .expect("按 frontmatter name 命中");
+        assert_eq!(hit, "skills/react-best-practices/SKILL.md");
+
+        let (dir_prefix, siblings) = skills_sh_sibling_paths(&paths, &hit);
+        assert_eq!(dir_prefix, "skills/react-best-practices/");
+        assert_eq!(
+            siblings,
+            vec!["skills/react-best-practices/rules/hooks.md".to_string()],
+            "兄弟文件按 SKILL.md 所在目录取，不碰别的技能"
+        );
+    }
+
+    #[test]
+    fn skills_sh_relative_path_should_put_skill_md_at_skill_dir_root() {
+        // 命中的 SKILL.md 在子目录时，落点必须是 {dir}/SKILL.md，
+        // 不能变成 {dir}/skills/xxx/SKILL.md（那样 parse_skill_file 会读不到）。
+        assert_eq!(
+            skills_sh_relative_path(
+                "skills/react-best-practices/SKILL.md",
+                "skills/react-best-practices/"
+            ),
+            "SKILL.md"
+        );
+        assert_eq!(
+            skills_sh_relative_path(
+                "skills/react-best-practices/rules/hooks.md",
+                "skills/react-best-practices/"
+            ),
+            "rules/hooks.md"
+        );
+    }
+
+    #[test]
+    fn skills_sh_sibling_paths_should_scope_to_root_when_skill_md_at_repo_root() {
+        let paths = vec![
+            "SKILL.md".to_string(),
+            "README.md".to_string(),
+            "notes/todo.md".to_string(),
+            "logo.png".to_string(),
+        ];
+        let (dir_prefix, siblings) = skills_sh_sibling_paths(&paths, "SKILL.md");
+        assert_eq!(dir_prefix, "", "仓库根 SKILL.md 的目录前缀是空串");
+        assert_eq!(
+            siblings,
+            vec!["README.md".to_string()],
+            "只取仓库根下的文本文件，不能把整棵树都拖下来"
+        );
+        assert_eq!(
+            skills_sh_relative_path("SKILL.md", &dir_prefix),
+            "SKILL.md",
+            "仓库根的 SKILL.md 落点仍是技能目录根下的 SKILL.md"
+        );
+    }
+
+    #[test]
+    fn skills_sh_short_queries_should_share_one_cache_key() {
+        // 短查询共用首页那一份缓存：键必须归一，否则每敲一个字就重拉一次 934KB 首页。
+        assert_eq!(catalog_cache_query(CATALOG_SOURCE_SKILLS_SH, ""), "");
+        assert_eq!(catalog_cache_query(CATALOG_SOURCE_SKILLS_SH, "r"), "");
+        assert_eq!(
+            catalog_cache_file_name(
+                CATALOG_SOURCE_SKILLS_SH,
+                &catalog_cache_query(CATALOG_SOURCE_SKILLS_SH, "r"),
+                1,
+                30
+            ),
+            catalog_cache_file_name(
+                CATALOG_SOURCE_SKILLS_SH,
+                &catalog_cache_query(CATALOG_SOURCE_SKILLS_SH, ""),
+                1,
+                30
+            ),
+            "空查询与单字查询要落到同一个缓存文件"
+        );
+        // 两字符以上走检索接口，各自一份缓存，不能被归一掉。
+        assert_eq!(catalog_cache_query(CATALOG_SOURCE_SKILLS_SH, "re"), "re");
+        // 别的来源行为不动。
+        assert_eq!(
+            catalog_cache_query(CATALOG_SOURCE_MODELSCOPE_SKILL, "r"),
+            "r"
+        );
+    }
+
+    #[test]
+    fn official_registry_should_keep_only_latest_active_versions() {
+        let item = |is_latest: bool, status: &str| {
+            serde_json::json!({
+                "server": {"name": "ac.inference.sh/mcp"},
+                "_meta": {
+                    "io.modelcontextprotocol.registry/official": {
+                        "status": status,
+                        "isLatest": is_latest
+                    }
+                }
+            })
+        };
+        assert!(
+            !official_registry_item_is_latest_active(&item(false, "active")),
+            "非最新版本要滤掉，否则同一个 MCP 一页出现两三次"
+        );
+        assert!(
+            !official_registry_item_is_latest_active(&item(true, "deprecated")),
+            "非 active 状态一起滤掉"
+        );
+        assert!(official_registry_item_is_latest_active(&item(true, "active")));
+        // 接口换形态、不带 _meta 时放行，避免整页被滤空。
+        assert!(official_registry_item_is_latest_active(
+            &serde_json::json!({"server": {"name": "x/y"}})
+        ));
+    }
+
+    #[test]
+    fn catalog_icon_redirect_targets_should_stay_public_https() {
+        // GitHub 头像 302 到 avatars.githubusercontent.com，这一跳必须放行，否则头像全拿不到。
+        assert!(catalog_icon_url_is_public_https(
+            "https://avatars.githubusercontent.com/u/14985020?s=96&v=4"
+        ));
+        // 跳转目标按同一套规则校验：链路本地地址与内网不能靠一串 302 绕过。
+        assert!(
+            !catalog_icon_url_is_public_https("http://169.254.169.254/latest/meta-data/"),
+            "链路本地地址要拒"
+        );
+        assert!(
+            !catalog_icon_url_is_public_https("https://169.254.169.254/a.png"),
+            "链路本地地址换 https 也要拒"
+        );
     }
 }

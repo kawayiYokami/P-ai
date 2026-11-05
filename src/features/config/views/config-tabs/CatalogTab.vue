@@ -78,8 +78,24 @@
             class="rounded-box border border-base-300 bg-base-100 p-4 flex flex-col justify-between gap-3"
           >
           <div class="flex items-start justify-between gap-2">
-            <div class="card-title-bar min-w-0 flex-1 text-sm font-semibold text-base-content truncate" :title="entry.name">
-              {{ entry.name }}
+            <div class="flex min-w-0 flex-1 items-start gap-2">
+              <span
+                :ref="setIconRef(entryKey(entry))"
+                :data-icon="entry.icon"
+                class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-base-200/70 text-xs font-semibold text-base-content/50"
+              >
+                <img
+                  v-if="iconUrlOf(entry)"
+                  :src="iconUrlOf(entry)"
+                  alt=""
+                  class="h-full w-full object-cover"
+                  @error="dropIcon(entry)"
+                />
+                <span v-else>{{ iconInitial(entry) }}</span>
+              </span>
+              <div class="card-title-bar min-w-0 flex-1 text-sm font-semibold text-base-content truncate" :title="entry.name">
+                {{ entry.name }}
+              </div>
             </div>
             <div class="flex shrink-0 items-center gap-1">
               <span v-if="entry.transport" class="badge badge-sm badge-ghost font-mono">
@@ -92,7 +108,7 @@
                 {{ t("config.catalog.needEnvBadge") }}
               </span>
             </div>
-          </div>
+            </div>
 
           <p
             :ref="setDescRef(entryKey(entry))"
@@ -168,15 +184,31 @@
             class="rounded-box border border-base-300 bg-base-100 p-4 flex flex-col justify-between gap-3"
           >
           <div class="flex items-start justify-between gap-2">
-            <div class="card-title-bar card-title-bar--accent min-w-0 flex-1 font-mono text-sm font-semibold text-base-content truncate" :title="entry.name">
-              {{ entry.name }}
+            <div class="flex min-w-0 flex-1 items-start gap-2">
+              <span
+                :ref="setIconRef(entryKey(entry))"
+                :data-icon="entry.icon"
+                class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-base-200/70 text-xs font-semibold text-base-content/50"
+              >
+                <img
+                  v-if="iconUrlOf(entry)"
+                  :src="iconUrlOf(entry)"
+                  alt=""
+                  class="h-full w-full object-cover"
+                  @error="dropIcon(entry)"
+                />
+                <span v-else>{{ iconInitial(entry) }}</span>
+              </span>
+              <div class="card-title-bar card-title-bar--accent min-w-0 flex-1 font-mono text-sm font-semibold text-base-content truncate" :title="entry.name">
+                {{ entry.name }}
+              </div>
             </div>
             <div class="flex shrink-0 items-center gap-1.5 text-caption opacity-60">
               <span v-if="entry.author" class="truncate max-w-[8rem]" :title="entry.author">{{ entry.author }}</span>
               <span v-if="entry.author && entry.popularity" class="opacity-50">·</span>
               <span v-if="entry.popularity">{{ formatPopularity(entry.popularity) }}</span>
             </div>
-          </div>
+            </div>
 
           <p
             :ref="setDescRef(entryKey(entry))"
@@ -225,7 +257,7 @@
         </template>
       </div>
 
-      <!-- 分页；ClawHub 检索态无分页，此时整块隐藏 -->
+      <!-- 分页；来源不提供总数时整块隐藏 -->
       <div v-if="entries.length > 0 && !hidePager" class="flex items-center justify-center gap-3 pt-1">
         <button class="btn btn-sm bg-base-100" type="button" :disabled="page <= 1 || loading" @click="gotoPage(page - 1)">
           {{ t("config.catalog.prev") }}
@@ -383,6 +415,7 @@ import { useI18n } from "vue-i18n";
 import { Download, Package, RefreshCw, Search } from "@lucide/vue";
 import type { CatalogEntry, CatalogSourceInfo } from "../../../../types/app";
 import {
+  fetchCatalogIconDataUrl,
   installTransportCatalogEntry,
   invokeTauri,
   listTransportCatalogSources,
@@ -411,8 +444,6 @@ const catalogTabs = computed<UnderlineTabItem[]>(() => [
 const sources = ref<CatalogSourceInfo[]>([]);
 const sourceId = ref("");
 const query = ref("");
-// 已执行的检索词：区分浏览态与检索态（后者无分页）。
-const activeQuery = ref("");
 const page = ref(1);
 const entries = ref<CatalogEntry[]>([]);
 const total = ref(-1);
@@ -436,6 +467,64 @@ const detailEntry = ref<CatalogEntry | null>(null);
 const descEls = new Map<string, HTMLElement>();
 const truncatedKeys = ref<Set<string>>(new Set());
 
+// 图标地址 → data URL。同址只取一次，跨页复用，重渲染不重复拉。
+const iconDataUrl = ref(new Map<string, string>());
+// 已发起过请求的地址：元素重建会导致重新 observe，靠集合挡住重复请求。
+const iconRequested = new Set<string>();
+const iconEls = new Map<string, HTMLElement>();
+let iconObserver: IntersectionObserver | null = null;
+
+// 没有图标时退化成首字母方块，不留空框也不显示碎图。
+function iconInitial(entry: CatalogEntry): string {
+  const text = String(entry.author || entry.name || "").trim();
+  return (text[0] || "?").toUpperCase();
+}
+
+function iconUrlOf(entry: CatalogEntry): string {
+  return entry.icon ? iconDataUrl.value.get(entry.icon) || "" : "";
+}
+
+function dropIcon(entry: CatalogEntry) {
+  if (entry.icon) iconDataUrl.value.delete(entry.icon);
+}
+
+async function loadIcon(address: string) {
+  if (!address || iconRequested.has(address)) return;
+  iconRequested.add(address);
+  try {
+    const dataUrl = await fetchCatalogIconDataUrl(address);
+    if (dataUrl) iconDataUrl.value.set(address, dataUrl);
+  } catch {
+    // 取不到就退首字母，不重试也不打断列表。
+  }
+}
+
+// 图标进可视区才取图：一页 30 张全并发没有意义。
+function setIconRef(key: string) {
+  return (el: Element | ComponentPublicInstance | null) => {
+    if (el instanceof HTMLElement) {
+      iconEls.set(key, el);
+      if (iconObserver) {
+        iconObserver.observe(el);
+      } else {
+        void loadIcon(el.dataset.icon || "");
+      }
+      return;
+    }
+    const current = iconEls.get(key);
+    if (current) iconObserver?.unobserve(current);
+    iconEls.delete(key);
+  };
+}
+
+function handleIconIntersect(records: IntersectionObserverEntry[]) {
+  for (const record of records) {
+    if (!record.isIntersecting) continue;
+    iconObserver?.unobserve(record.target);
+    void loadIcon((record.target as HTMLElement).dataset.icon || "");
+  }
+}
+
 const sourceDescription = computed(
   () => sources.value.find((source) => source.id === sourceId.value)?.description || ""
 );
@@ -445,11 +534,8 @@ const hasNext = computed(() => {
   return entries.value.length >= PAGE_SIZE;
 });
 
-// 检索态没有分页也没有总数，翻页按钮整体隐藏。
-const isSearchMode = computed(() => activeQuery.value.length > 0);
-
-// 只有 ClawHub 的检索端点无分页也无总数；其余来源的检索仍支持翻页，不能一并隐藏。
-const hidePager = computed(() => isSearchMode.value && sourceId.value === "clawhub");
+// 来源不提供总数（total = -1）就没有分页可翻，翻页控件整体隐藏。skills.sh 的两个入口都是这种。
+const hidePager = computed(() => total.value < 0);
 
 function entryKey(entry: CatalogEntry): string {
   return `${entry.source}:${entry.id}`;
@@ -535,7 +621,6 @@ async function reload() {
     if (!sourceId.value) return;
   }
   loading.value = true;
-  activeQuery.value = query.value.trim();
   try {
     const result = await searchTransportCatalog({
       source: sourceId.value,
@@ -677,11 +762,17 @@ function handleResize() {
 
 onMounted(async () => {
   window.addEventListener("resize", handleResize);
+  if (typeof IntersectionObserver !== "undefined") {
+    iconObserver = new IntersectionObserver(handleIconIntersect, { rootMargin: "160px" });
+  }
   await loadSources();
   await reload();
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", handleResize);
+  iconObserver?.disconnect();
+  iconObserver = null;
+  iconEls.clear();
 });
 </script>

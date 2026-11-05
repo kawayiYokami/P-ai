@@ -2074,7 +2074,7 @@ mod tool_impls_tests {
         assert!(config_tool_command_is_readonly("store"));
         assert!(config_tool_command_is_readonly("store ls"));
         assert!(config_tool_command_is_readonly("store search playwright"));
-        assert!(!config_tool_command_is_readonly("store install clawhub some/skill"));
+        assert!(!config_tool_command_is_readonly("store install skills-sh some/skill"));
         assert!(!config_tool_command_is_readonly(""));
         assert!(!config_tool_command_is_readonly("   "));
     }

@@ -1133,6 +1133,14 @@ export function installTransportCatalogEntry(input: {
   return invokeTauri<CatalogInstallResult>("catalog_install", { input });
 }
 
+/**
+ * 取一张目录图标，返回 data URL；取不到时返回空串。
+ * 走宿主而不是前端直连：侧边栏 webview 的 CSP 只放行 data:，远程 https 会被挡。
+ */
+export function fetchCatalogIconDataUrl(address: string): Promise<string> {
+  return invokeTauri<string>("catalog_icon_data_url", { address });
+}
+
 export function openTransportStorageUsageItemDirectory(itemId: string): Promise<void> {
   return invokeRequiredNativeTransport<void>("存储项目录", "open_storage_usage_item_directory", {
     input: { itemId: String(itemId || "").trim() },

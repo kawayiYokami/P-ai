@@ -24,6 +24,18 @@ async fn ide_chat_catalog_install_for_web_settings(
     ide_chat_serialize(catalog_install_inner(state, input).await?)
 }
 
+/// 图标取图同样要有 Web 通道：侧栏正是这条命令存在的唯一理由。
+async fn ide_chat_catalog_icon_data_url_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let address = params
+        .get("address")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Missing required parameter 'address'".to_string())?;
+    ide_chat_serialize(catalog_icon_data_url_inner(state, address).await?)
+}
+
 async fn ide_chat_skill_set_enabled_for_web_settings(
     state: &AppState,
     params: Value,
