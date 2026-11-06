@@ -159,7 +159,7 @@
                       <!-- 结果区：内容色由条目变量给，深色是青 -->
                       <pre
                         v-if="toolDetailParts(item).result"
-                        class="m-0 whitespace-pre-wrap break-all px-2.5 py-2 leading-relaxed"
+                        class="ecall-tool-result m-0 whitespace-pre-wrap break-all px-2.5 py-2 leading-relaxed"
                       ><code>{{ toolDetailParts(item).result }}</code></pre>
                       <div v-else class="px-2.5 py-2">
                         <button
@@ -1066,6 +1066,22 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
 .ecall-tool-body.is-open {
   interpolate-size: allow-keywords;
   transition: height var(--duration-fold) ease;
+}
+
+/* 「查看结果」取回内容的那一刻：结果从 0 展开 + 淡入。
+   按钮是一次调用的结果占位，真实结果可能一整屏，直接替换就是硬跳。
+   @starting-style 给它一个起始帧，不支持的内核退化成硬跳，不补 JS。 */
+.ecall-tool-result {
+  overflow: hidden;
+  interpolate-size: allow-keywords;
+  transition: height var(--duration-fold) ease, opacity var(--duration-fold) ease;
+}
+
+@starting-style {
+  .ecall-tool-result {
+    height: 0;
+    opacity: 0;
+  }
 }
 
 /* 工具参数区滚动边缘淡出：只做 mask 渐变，底色由 Tailwind 类给，
