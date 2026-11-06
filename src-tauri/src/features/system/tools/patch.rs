@@ -1220,8 +1220,6 @@ async fn apply_patch_execute_single_op(op: &ApplyPatchResolvedOp) -> Result<Valu
                 "op": "update",
                 "path": terminal_path_for_user(path),
                 "matchCount": update_result.match_line_ranges.len(),
-                "lineStart": update_result.match_line_ranges.first().map(|(start, _)| *start),
-                "lineEnd": update_result.match_line_ranges.first().map(|(_, end)| *end),
                 "lineRanges": update_result
                     .match_line_ranges
                     .iter()
@@ -1737,8 +1735,9 @@ mod apply_patch_tool_tests {
         assert_eq!(std::fs::read_to_string(&first).expect("read first"), "new\n");
         assert_eq!(std::fs::read_to_string(&second).expect("read second"), "still old\n");
         assert_eq!(outcome.changed.len(), 1);
-        assert_eq!(outcome.changed[0]["lineStart"], 1);
-        assert_eq!(outcome.changed[0]["lineEnd"], 1);
+        // 行范围只报一份：lineRanges 是唯一的来源，不再额外给 lineStart / lineEnd。
+        assert!(outcome.changed[0].get("lineStart").is_none());
+        assert!(outcome.changed[0].get("lineEnd").is_none());
         assert_eq!(outcome.changed[0]["lineRanges"][0]["start"], 1);
         assert_eq!(outcome.changed[0]["lineRanges"][0]["end"], 1);
         assert_eq!(record.entries.len(), 1);
