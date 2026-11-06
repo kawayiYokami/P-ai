@@ -200,6 +200,14 @@
                 </div>
               </template>
             </Virtualizer>
+            <!-- 滚动区底部固定留白：悬浮操作区是一片 absolute 覆盖层，压在滚动视口下沿，
+                 不占布局高度。留出这段空间，让它盖在空白上，而不是盖住最后一条消息 -->
+            <div
+              class="shrink-0"
+              :style="{ height: `${CHAT_SCROLL_BOTTOM_RESERVE_PX}px` }"
+              aria-hidden="true"
+              data-chat-scroll-bottom-reserve="true"
+            ></div>
           </div>
           </div>
           </div>
@@ -2197,9 +2205,21 @@ function updateScrollContainerHeight() {
     scrollContainerHeight.value = el.clientHeight;
   }
 }
+/** 最新一轮回合容器撑开的视口占比。留一截余量，不顶满整个可视高。 */
+const TURN_VIEWPORT_HEIGHT_RATIO = 0.92;
+
+/**
+ * 滚动区底部固定留白，用来避让悬浮操作区。
+ * 贴底时压在下沿的是工作条（btn-sm 32px）与时间线/回到底部竖列，操作区底边距视口底还有 8px，
+ * 合计约 40px；再留 8px 余量，让最后一条消息与按钮之间不是零距离。
+ */
+const CHAT_SCROLL_BOTTOM_RESERVE_PX = 48;
+
 const turnViewportMinHeight = computed(() => {
   // scrollContainer 的净可视高度 = clientHeight - 上下 padding (py-3: 12px + 12px = 24px)
-  return Math.max(0, scrollContainerHeight.value - 24);
+  const netViewportHeight = Math.max(0, scrollContainerHeight.value - 24);
+  // 再减掉滚动区底部的固定留白：那段空间要让给悬浮操作区，不能算进容器最小高度
+  return Math.max(0, Math.round(netViewportHeight * TURN_VIEWPORT_HEIGHT_RATIO) - CHAT_SCROLL_BOTTOM_RESERVE_PX);
 });
 
 watch(scrollContainer, (el) => {
@@ -2302,7 +2322,7 @@ watch(() => String(props.activeConversationId || "").trim(), () => {
 });
 
 // 最新用户消息对齐到视口顶部（Path B 回合容器架构）：
-// 容器自身通过 turnViewportMinHeight 在最新轮次撑满视口；换轮次时上一轮自动回归内容真实高，无需留白计算
+// 容器自身通过 turnViewportMinHeight 在最新轮次撑开视口；换轮次时上一轮自动回归内容真实高，无需留白计算
 // 切会话时 Virtualizer 按会话 id 重建，新实例内部还没有实测高度，scrollToIndex 会把偏移算成 0
 // 而滚不上去；这里按目标回合在 DOM 里的真实位置定位，并用 rAF 重试吃掉测量前的抖动。
 //
