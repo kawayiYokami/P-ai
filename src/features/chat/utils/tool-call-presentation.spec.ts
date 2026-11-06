@@ -263,6 +263,28 @@ describe("createToolCallPresentation", () => {
     expect(result.text).toBe("移动文件 oldName.ts → newName.ts");
   });
 
+  it("文件编辑类工具：长文件名统一中间省略并保留扩展名", () => {
+    const presentation = createPresentation();
+    const longName = "这是一个非常非常长的文件名_2026年11月06日_预览2.png";
+    const cases: { name: string; args: Record<string, unknown> }[] = [
+      { name: "update", args: { path: `src/${longName}`, oldString: "a", newString: "b" } },
+      { name: "write", args: { path: `src/${longName}`, content: "a\nb" } },
+      { name: "delete", args: { path: `src/${longName}` } },
+      { name: "move", args: { from: `src/${longName}`, to: "src/QQ_2026-11-06_08-44-17.png" } },
+    ];
+
+    const targets = cases.map((item) =>
+      presentation.toolCallSemanticPresentation({ name: item.name, argsText: JSON.stringify(item.args) }).target,
+    );
+
+    expect(targets).toEqual([
+      "这是一个非常非…6日_预览2.png",
+      "这是一个非常非…6日_预览2.png",
+      "这是一个非常非…6日_预览2.png",
+      "这是一个非常非…6日_预览2.png → QQ_2026…-44-17.png",
+    ]);
+  });
+
   it("执行命令：单行与多行命令精简展示", () => {
     const presentation = createPresentation();
     const single = presentation.toolCallSemanticPresentation({

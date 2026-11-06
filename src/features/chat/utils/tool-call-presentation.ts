@@ -387,7 +387,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     // 3. 更新文件 (update)
     if (toolName === "update") {
       const rawPath = safeTextFromRecord(obj, ["path", "file", "absolute_path", "absolutePath", "target"]);
-      const target = fileNameFromPath(rawPath) || toolTimelineText("missingArgs");
+      const target = compactFileName(fileNameFromPath(rawPath) || toolTimelineText("missingArgs"));
       const oldLines = countTextLines(String(obj.oldString || obj.old_string || ""));
       const newLines = countTextLines(String(obj.newString || obj.new_string || ""));
       const action = toolTimelineText("actionUpdate");
@@ -404,7 +404,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     // 4. 写入文件 (write / write_file / create_file / append_text)
     if (toolName === "write" || toolName === "write_file" || toolName === "create_file" || toolName === "append_text") {
       const rawPath = safeTextFromRecord(obj, ["path", "file", "absolute_path", "absolutePath", "target"]);
-      const target = fileNameFromPath(rawPath) || toolTimelineText("missingArgs");
+      const target = compactFileName(fileNameFromPath(rawPath) || toolTimelineText("missingArgs"));
       const lines = countTextLines(String(obj.content || obj.text || ""));
       const action = toolTimelineText("actionWrite");
       return {
@@ -419,7 +419,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     // 5. 删除文件 (delete / delete_file)
     if (toolName === "delete" || toolName === "delete_file") {
       const rawPath = safeTextFromRecord(obj, ["path", "file", "absolute_path", "absolutePath", "target"]);
-      const target = fileNameFromPath(rawPath) || toolTimelineText("missingArgs");
+      const target = compactFileName(fileNameFromPath(rawPath) || toolTimelineText("missingArgs"));
       const action = toolTimelineText("actionDelete");
       return {
         action,
@@ -433,8 +433,8 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     if (toolName === "move" || toolName === "move_file" || toolName === "rename_file") {
       const fromPath = safeTextFromRecord(obj, ["source", "from", "old_path", "oldPath", "path"]);
       const toPath = safeTextFromRecord(obj, ["destination", "to", "target", "new_path", "newPath"]);
-      const fromName = fileNameFromPath(fromPath);
-      const toName = fileNameFromPath(toPath);
+      const fromName = compactFileName(fileNameFromPath(fromPath));
+      const toName = compactFileName(fileNameFromPath(toPath));
       const target = fromName && toName ? `${fromName} → ${toName}` : (fromName || toName || toolTimelineText("missingArgs"));
       const action = toolTimelineText("actionMove");
       return {
