@@ -11,7 +11,6 @@
       selectionModeEnabled ? 'ecall-chat-message-row-selectable' : '',
       selectionModeEnabled && selected ? 'ecall-message-selected bg-neutral/10 ring-1 ring-neutral/20 shadow-sm' : '',
     ]"
-    :style="messageRootLockStyle"
     @click="handleSelectionRowClick"
     @contextmenu="openContextMenu($event)"
   >
@@ -122,7 +121,6 @@
                   :message-id="activityMessageId"
                   :agent-name-map="props.agentNameMap"
                   @item-expanded="onTimelineItemExpanded"
-                  @item-collapsed="onTimelineItemCollapsed"
                 />
                 <button
                   type="button"
@@ -142,7 +140,6 @@
       <template v-if="!isOwnMessage(block)">
         <div
           v-if="!showAssistantPreStreamingDots(block)"
-          ref="assistantBubbleRef"
           class="assistant-markdown ecall-assistant-bubble max-w-full"
           :class="{ 'ecall-assistant-bubble-wide': assistantNeedsWideBubble }"
           :data-bubble-background="assistantBubbleBackgroundEnabled ? 'on' : 'off'"
@@ -152,8 +149,6 @@
           <div v-if="block.text">
             <div
               v-if="plainMarkdownDebugEnabled"
-              :ref="(el) => { activeStreamingSegmentEl = (el as HTMLElement) || null; }"
-              :style="props.block.isStreaming ? streamingBubbleStyle : undefined"
               @click="emit('assistantLinkClick', $event)"
             >
               <PlainMarkdownRenderer :text="assistantRenderedText" />
@@ -175,10 +170,8 @@
                 <div
                   v-for="(piece, visibleIndex) in visibleAssistantPieces"
                   :key="piece.key"
-                  :ref="(el) => setStreamingSegmentRef(el, piece.index)"
                   class="ecall-assistant-segment ecall-assistant-segment-text"
                   :data-segment-divider="visibleIndex === visibleAssistantPieces.length - 1 && (visibleAssistantPieces.length > 1 || processSegmentsFolded) ? 'last' : undefined"
-                  :style="isStreamingPiece(piece.index) ? streamingBubbleStyle : undefined"
                 >
                   <AppMarkdownRenderer
                     class="ecall-markdown-content max-w-none"
@@ -442,7 +435,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect, watchPostEffect, type StyleValue } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect, watchPostEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import AppLoading from "../../shared/components/AppLoading.vue";
@@ -459,7 +452,6 @@ import { textContentSignature } from "../utils/text-signature";
 import { useChatMessageAppearance } from "../../shell/composables/use-chat-message-appearance";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
 import { normalizeLocalLinkHref } from "../utils/local-link";
-import { createStreamingSizeLock, nextMessageRootLockHeight, observeStreamingSize, streamingLockWatchChanged, streamingSizeLockStyle } from "../utils/streaming-size-lock";
 import { shouldFoldProcessSegments, type ProcessSegmentFoldIntent } from "../utils/process-segment-fold";
 import { createToolCallPresentation } from "../utils/tool-call-presentation";
 import { buildToolcallPreviewMap, parseToolCallResultStatus, type ToolcallPreviewEntry } from "../utils/toolcall-preview";
@@ -578,14 +570,6 @@ function onTimelineItemExpanded(payload: { expanded: boolean }): void {
   });
 }
 
-/** 收起条目后释放流式高度锁：锁是展开时的旧高且只增不减，收起不驱动重测，在这里显式清零。 */
-function onTimelineItemCollapsed(): void {
-  clearStreamingReleaseTimer();
-  cancelStreamingMeasure();
-  streamingSizeLock.value = createStreamingSizeLock();
-  messageRootMinHeight.value = 0;
-}
-
 const copyMessageImageBusy = ref(false);
 const planMarkdownText = ref("");
 const planMarkdownError = ref("");
@@ -636,151 +620,6 @@ const visibleAssistantPieces = computed(() => {
   if (!processSegmentsFolded.value) return pieces;
   return pieces.slice(-1);
 });
-// ==================== 流式气泡尺寸防抖（单调非减尺寸锁定） ====================
-// 锁只跟着当前正在输出的那一段。折叠收起上一段、或工具切开新段时，旧高度不能套到新段上。
-const assistantBubbleRef = ref<HTMLElement | null>(null);
-const activeStreamingSegmentEl = ref<HTMLElement | null>(null);
-const streamingTargetEl = computed(() => activeStreamingSegmentEl.value || assistantBubbleRef.value);
-const streamingSizeLock = ref(createStreamingSizeLock());
-let releaseStreamingLockTimer: ReturnType<typeof setTimeout> | null = null;
-
-function currentStreamingPieceIndex(): number {
-  if (plainMarkdownDebugEnabled) return 0;
-  const length = assistantMarkdownPieces.value.length;
-  return length > 0 ? length - 1 : -1;
-}
-
-function isStreamingPiece(pieceIndex: number): boolean {
-  return !!props.block.isStreaming && pieceIndex === assistantMarkdownPieces.value.length - 1;
-}
-
-function setStreamingSegmentRef(el: unknown, pieceIndex: number) {
-  if (isStreamingPiece(pieceIndex)) {
-    activeStreamingSegmentEl.value = (el as HTMLElement) || null;
-  }
-}
-
-function isStreamingSegmentTarget(el: HTMLElement | null | undefined): el is HTMLElement {
-  return !!el && el !== assistantBubbleRef.value;
-}
-
-const streamingBubbleStyle = computed<StyleValue | undefined>(() =>
-  streamingSizeLockStyle(streamingSizeLock.value, currentStreamingPieceIndex()),
-);
-
-// 消息根层锁：段级锁只管当前那一段，换段时旧锁作废、新段从零开始，中间还夹一次折叠，
-// 整条消息会在那一瞬矮一块，它下面的内容跟着上移，滚动区就反弹。这一层锁整条消息。
-const messageRootMinHeight = ref(0);
-
-const messageRootLockStyle = computed<StyleValue | undefined>(() => {
-  if (!props.block.isStreaming || messageRootMinHeight.value <= 0) return undefined;
-  return { minHeight: `${messageRootMinHeight.value}px` };
-});
-
-let streamingMeasureRafId = 0;
-
-// 高度锁的输入必须是「内容变了」，不能是「尺寸变了」。
-// 之前两个锁都用 ResizeObserver 观察元素、又在回调里改同一个元素的尺寸，
-// 属于自激观察，浏览器会持续报 ResizeObserver loop，流式中实测连刷 36 次。
-// 改成内容驱动：正文每增长一次就排队测一帧高度，测完即止，不监听自身尺寸。
-function cancelStreamingMeasure() {
-  if (streamingMeasureRafId) {
-    window.cancelAnimationFrame(streamingMeasureRafId);
-    streamingMeasureRafId = 0;
-  }
-}
-
-function scheduleStreamingMeasure() {
-  if (!props.block.isStreaming) return;
-  if (streamingMeasureRafId) return;
-  streamingMeasureRafId = window.requestAnimationFrame(() => {
-    streamingMeasureRafId = 0;
-    if (!props.block.isStreaming) return;
-    const segment = activeStreamingSegmentEl.value;
-    if (isStreamingSegmentTarget(segment)) {
-      rememberStreamingSegmentSize(segment, currentStreamingPieceIndex());
-    }
-    const root = messageRootRef.value;
-    if (root) {
-      const next = nextMessageRootLockHeight(messageRootMinHeight.value, root.offsetHeight);
-      if (next !== messageRootMinHeight.value) messageRootMinHeight.value = next;
-    }
-  });
-}
-
-function clearStreamingReleaseTimer() {
-  if (releaseStreamingLockTimer) {
-    clearTimeout(releaseStreamingLockTimer);
-    releaseStreamingLockTimer = null;
-  }
-}
-
-function rememberStreamingSegmentSize(el: HTMLElement, pieceIndex: number) {
-  streamingSizeLock.value = observeStreamingSize(
-    streamingSizeLock.value,
-    pieceIndex,
-    Math.ceil(el.offsetHeight),
-    Math.ceil(el.offsetWidth),
-    el.parentElement?.clientWidth ?? 0,
-  );
-}
-
-watch(
-  // 必须用数组形式的 source：返回新数组的 getter 会被 Object.is 判定为每次都变，
-  // 导致下面每帧重算一次锁，锁永远追不上真实高度。
-  [() => props.block.id, () => props.block.isStreaming, currentStreamingPieceIndex, streamingTargetEl],
-  ([messageId, isStreaming, pieceIndex, el], prev) => {
-    const prevMessageId = prev?.[0];
-    const prevStreaming = prev?.[1];
-    const prevPieceIndex = prev?.[2];
-    const prevEl = prev?.[3] ?? null;
-    // 双保险：数组 source 已经逐项比较，这里再挡一次。
-    const prevKey = prevMessageId === undefined
-      ? undefined
-      : ([prevMessageId, !!prevStreaming, prevPieceIndex ?? -1, prevEl] as const);
-    if (!streamingLockWatchChanged(prevKey, [messageId, !!isStreaming, pieceIndex, el ?? null])) return;
-    const messageChanged = prevMessageId !== undefined && messageId !== prevMessageId;
-    if (messageChanged) {
-      streamingSizeLock.value = createStreamingSizeLock();
-      clearStreamingReleaseTimer();
-    }
-    if (isStreaming) {
-      clearStreamingReleaseTimer();
-      const pieceChanged = prevPieceIndex !== pieceIndex;
-      const segmentBecameAvailable = isStreamingSegmentTarget(el) && !isStreamingSegmentTarget(prevEl);
-      if (
-        isStreamingSegmentTarget(el)
-        && (!prevStreaming || pieceChanged || messageChanged || segmentBecameAvailable)
-      ) {
-        rememberStreamingSegmentSize(el, pieceIndex);
-      }
-      scheduleStreamingMeasure();
-    } else {
-      cancelStreamingMeasure();
-      clearStreamingReleaseTimer();
-      // 流式结束，留出短暂缓冲让最终渲染稳定后再平滑释放锁定
-      releaseStreamingLockTimer = setTimeout(() => {
-        streamingSizeLock.value = createStreamingSizeLock();
-        messageRootMinHeight.value = 0;
-        releaseStreamingLockTimer = null;
-      }, 120);
-    }
-  },
-  { immediate: true, flush: "post" },
-);
-
-// 内容驱动：正文每增长一次就测一帧高度。不观察尺寸，因此不会自激。
-watch(
-  () => [
-    props.block.id,
-    props.block.isStreaming,
-    currentStreamingPieceIndex(),
-    assistantRawRenderedText.value.length,
-  ],
-  () => scheduleStreamingMeasure(),
-  { immediate: true, flush: "post" },
-);
-
 
 const teleportTheme = computed(() => {
   const documentTheme = typeof document === "undefined" ? "" : document.documentElement.getAttribute("data-theme");
@@ -1756,8 +1595,6 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  cancelStreamingMeasure();
-  clearStreamingReleaseTimer();
   closeContextMenu();
   if (relativeTimeNowTimer) {
     window.clearInterval(relativeTimeNowTimer);
