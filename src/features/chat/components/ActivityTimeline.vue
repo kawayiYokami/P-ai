@@ -562,7 +562,7 @@ function activityItemNodeClass(item: ChatActivityItem): string {
     if (status.isDenied) return "text-warning";
     if (status.isFailed) return "text-error";
   }
-  return props.dark ? "ecall-activity-tool-dark" : "text-base-content/70";
+  return props.dark ? "ecall-activity-tool-dark" : "text-base-content/56";
 }
 
 /** 标题文字只补状态色，浅色档位由容器继承，不再各写一遍。 */
@@ -577,7 +577,7 @@ function activityItemTitleClass(item: ChatActivityItem): string {
 
 function activityItemDetailClass(item: ChatActivityItem): string {
   if (item.kind === "reasoning") {
-    return props.dark ? "ecall-activity-reasoning-dark" : "text-base-content/56";
+    return props.dark ? "ecall-activity-reasoning-dark" : "text-base-content/70";
   }
   if (item.kind === "content") return "";
   return props.dark ? "ecall-activity-tool-dark" : "text-base-content/56";
