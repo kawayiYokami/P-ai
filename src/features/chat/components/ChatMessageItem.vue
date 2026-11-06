@@ -1077,9 +1077,25 @@ function onActivityToggle(event: Event): void {
 }
 
 function handleAnimateEnter(element: Element, done: () => void): void {
-  animateEnter(element, () => {
-    activityExpanding.value = false;
-    done();
+  const el = element as HTMLElement;
+  // 内容挂载与首帧渲染（每条思考都要解析 markdown）都挤在这一帧里，展开动画若同帧起跑，
+  // 观感就是「点一下、卡住、然后突然跳出来」。先把面板按住两帧：这期间标题行在转圈，
+  // 内容已在高度 0 下建完并完成布局，之后再开始展开。
+  el.style.height = "0px";
+  el.style.overflow = "hidden";
+  el.style.opacity = "0";
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (!el.isConnected) {
+        activityExpanding.value = false;
+        done();
+        return;
+      }
+      animateEnter(el, () => {
+        activityExpanding.value = false;
+        done();
+      });
+    });
   });
 }
 
