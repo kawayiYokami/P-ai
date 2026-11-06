@@ -22,7 +22,8 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
-    "@lucide/vue": "1.23.0",
+    "@hugeicons/core-free-icons": "4.4.0",
+    "@hugeicons/vue": "1.0.8",
     "@shikijs/stream": "^4.4.3",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
