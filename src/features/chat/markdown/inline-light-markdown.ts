@@ -15,6 +15,7 @@
 export type LightInlineSegment =
   | { type: "text"; text: string }
   | { type: "html_br" }
+  | { type: "paragraph_break" }
   | { type: "code"; text: string }
   | { type: "strong"; children: LightInlineSegment[] }
   | { type: "em"; children: LightInlineSegment[] }
@@ -110,26 +111,34 @@ const HEADING_LINE_PATTERN = /^\s{0,3}#{1,6}\s+(.*)$/;
  * 把整段文本切成行内段，顺带处理两件行内渲染特有的事：
  *
  * - 标题行剥掉 `#` 前缀当粗体，行内渲染不生成块级标题；
- * - 连续换行压成一个。行内渲染没有段落概念，`\n\n` 只会渲染成一整行空白。
+ * - 空行切成段落分隔段，由渲染层给 0.8em 的段间距。不能留成整行空行：
+ *   行高 1.5em 的话一段空行就是 1.5em，比正文渲染器的段落间距夸张一倍。
  */
 export function parseLightInlineText(input: string): LightInlineSegment[] {
   const segments: LightInlineSegment[] = [];
-  const lines = String(input || "")
+  const blocks = String(input || "")
     .replace(/\r\n?/g, "\n")
-    .replace(/\n{2,}/g, "\n")
-    .split("\n");
+    .replace(/^\n+/, "")
+    .replace(/\n+$/, "")
+    .split(/\n{2,}/)
+    // 连续空行只算一次段落分隔，切出来的空块丢掉，段首段尾残留的换行也一并去掉
+    .map((block) => block.replace(/^\n+/, "").replace(/\n+$/, ""))
+    .filter((block) => block.length > 0);
 
-  lines.forEach((line, index) => {
-    if (index > 0) segments.push({ type: "html_br" });
-    const heading = line.match(HEADING_LINE_PATTERN);
-    if (heading) {
-      const children = parseLightInline(heading[1]);
-      if (children.length > 0) {
-        segments.push({ type: "strong", children });
-        return;
+  blocks.forEach((block, blockIndex) => {
+    if (blockIndex > 0) segments.push({ type: "paragraph_break" });
+    block.split("\n").forEach((line, lineIndex) => {
+      if (lineIndex > 0) segments.push({ type: "html_br" });
+      const heading = line.match(HEADING_LINE_PATTERN);
+      if (heading) {
+        const children = parseLightInline(heading[1]);
+        if (children.length > 0) {
+          segments.push({ type: "strong", children });
+          return;
+        }
       }
-    }
-    segments.push(...parseLightInline(line));
+      segments.push(...parseLightInline(line));
+    });
   });
 
   // 相邻的 strong 段之间如果没有文本/空白分隔，插一个换行让它们各占一行——

@@ -36,6 +36,7 @@ function renderSegments(segments: LightInlineSegment[]): VNodeChild[] {
   return segments.map((seg) => {
     if (seg.type === "text") return seg.text;
     if (seg.type === "html_br") return h("br");
+    if (seg.type === "paragraph_break") return h("span", { class: "ecall-inline-md-para-gap" });
     if (seg.type === "code") return h("code", { class: "ecall-inline-md-code" }, seg.text);
     if (seg.type === "strong") return h("strong", { class: "ecall-inline-md-strong" }, renderSegments(seg.children));
     if (seg.type === "em") return h("em", { class: "ecall-inline-md-em" }, renderSegments(seg.children));
@@ -87,5 +88,13 @@ const InlineRenderer = defineComponent({
 
 :deep(.ecall-inline-md-delete) {
   opacity: 0.7;
+}
+
+/* 空行分隔出的段落间距：按字号比例给 0.8em，与正文渲染器 .ecall-md-paragraph
+   的 comfortable 档一致（那边也是 0.8em）。
+   不用整行空行——行高 1.5em 时一段空行就是 1.5em，比段落间距夸张一倍。 */
+:deep(.ecall-inline-md-para-gap) {
+  display: block;
+  height: 0.8em;
 }
 </style>

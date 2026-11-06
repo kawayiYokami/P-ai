@@ -33,10 +33,18 @@ describe("InlineMarkdownText", () => {
     expect(html).toContain("甲<br>乙");
   });
 
-  it("段落空行压成单个换行：行内渲染没有段落概念", async () => {
+  it("段落空行切成段间距，不渲染成整行空行", async () => {
     const html = await renderInlineMarkdown("甲\n\n乙\n\n\n丙");
-    expect(html).toContain("甲<br>乙<br>丙");
+    expect(html).toContain("ecall-inline-md-para-gap");
     expect(html).not.toContain("<br><br>");
+    // 空行不再退化成换行：甲与乙之间不该有 <br>
+    expect(html).not.toContain("甲<br>乙");
+  });
+
+  it("段内单换行仍渲染成换行", async () => {
+    const html = await renderInlineMarkdown("甲\n乙");
+    expect(html).toContain("甲<br>乙");
+    expect(html).not.toContain("ecall-inline-md-para-gap");
   });
 
   it("链接、图片、公式不进行内渲染，原样当文本", async () => {
