@@ -442,6 +442,10 @@ const config = reactive<AppConfig>({
   sttApiConfigId: undefined,
   sttAutoSend: false,
   terminalShellKind: "auto",
+  // 搜索这两个字段必须有初值：它们是「加载时回填」的兜底形态，缺省成 undefined 会让
+  // 脏判定把「页面补出空引擎」当成用户改动，也会让保存把磁盘上的密钥写成空
+  searchEngines: [],
+  searchMode: { mode: "auto" },
   shellWorkspaces: [],
   mcpServers: [],
   remoteImChannels: [],

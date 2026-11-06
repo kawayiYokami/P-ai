@@ -18,7 +18,9 @@ import type {
   PersonaProfile,
   PromptCommandPreset,
   RemoteImChannelConfig,
-} from "../../../types/app";import type { SupportedLocale } from "../../../i18n";
+  SearchEngineConfigItem,
+} from "../../../types/app";
+import type { SupportedLocale } from "../../../i18n";
 import { normalizeApiRequestFormat } from "../utils/api-request-format";
 import {
   normalizeImageGenerationModelId,
@@ -416,6 +418,26 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       sttApiConfigId: options.config.sttApiConfigId || null,
       sttAutoSend: !!options.config.sttAutoSend,
     });
+    // 搜索引擎：后端 bootstrap 回来的引擎与密钥（密钥是打码形态）必须在这里接住。
+    // 缺了这一段，config 里这两个字段永远是空的：搜索引擎页渲染时会补出空条目，
+    // 整份配置比对从打开那一刻起就恒真（误报未保存）；保存时又会把磁盘上已有的
+    // 打码密钥当成空的回传，把真实密钥抹掉。两者同源，一起在这里修。
+    const incomingSearchEngines = Array.isArray((cfg as AppConfig).searchEngines)
+      ? ((cfg as AppConfig).searchEngines as SearchEngineConfigItem[])
+      : [];
+    const currentSearchEngines = options.config.searchEngines ?? (options.config.searchEngines = []);
+    currentSearchEngines.splice(
+      0,
+      currentSearchEngines.length,
+      ...incomingSearchEngines.map((entry) => ({
+        id: String(entry?.id || "").trim(),
+        apiKeys: (entry?.apiKeys || []).map((key) => String(key || "")),
+      })),
+    );
+    const incomingSearchMode = (cfg as AppConfig).searchMode;
+    options.config.searchMode = incomingSearchMode?.mode === "fixed"
+      ? { mode: "fixed", engineId: String(incomingSearchMode.engineId || "").trim() }
+      : { mode: "auto" };
     options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
   }
 

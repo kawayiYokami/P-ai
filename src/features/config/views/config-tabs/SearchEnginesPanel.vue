@@ -40,7 +40,7 @@
           </div>
 
           <div class="flex min-w-0 flex-wrap items-center gap-2">
-            <template v-for="(apiKey, index) in engineEntry(engine.id).apiKeys" :key="index">
+            <template v-for="(apiKey, index) in engineView(engine.id).apiKeys" :key="index">
               <span
                 v-if="apiKey.trim()"
                 class="badge badge-lg h-7 gap-1.5 rounded-full border-base-300 bg-base-200 pl-3 pr-1.5 font-mono text-xs text-base-content/80"
@@ -136,8 +136,18 @@ function setLockTarget(engineId: string) {
   props.config.searchMode = { mode: "fixed", engineId };
 }
 
+/** 只读视图：渲染期只查不写。缺的引擎就地补一个空条目给模板用，**不回写 config**。
+ *  以前这里直接 push 进 props.config.searchEngines，于是「什么都没改」也会被
+ *  整份配置比对判成脏，且每次重渲染都会再补一遍。 */
+function engineView(id: string): SearchEngineConfigItem & { apiKeys: string[] } {
+  const existing = (props.config.searchEngines ?? []).find((entry) => entry.id === id);
+  if (!existing) return { id, apiKeys: [] };
+  if (!Array.isArray(existing.apiKeys)) existing.apiKeys = [];
+  return existing as SearchEngineConfigItem & { apiKeys: string[] };
+}
+
 /**
- * 取某个引擎的卡片数据并补齐 apiKeys。
+ * 写入入口：只在用户动作里调用（加 key、删 key）。
  * 原地改（不换对象），否则编辑写不到 config 上；返回类型已保证 apiKeys 是数组。
  */
 function engineEntry(id: string): SearchEngineConfigItem & { apiKeys: string[] } {
