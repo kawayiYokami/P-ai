@@ -121,6 +121,7 @@
                   :message-id="activityMessageId"
                   :agent-name-map="props.agentNameMap"
                   @item-expanded="onTimelineItemExpanded"
+                  @item-collapsed="onTimelineItemCollapsed"
                   @reasoning-stuck-change="onTimelineReasoningStuckChange"
                 />
                 <button
@@ -585,6 +586,14 @@ function onTimelineItemExpanded(payload: { key: string; expanded: boolean }): vo
     open: true,
     expandedKey: payload.key,
   });
+}
+
+/** 收起条目后释放流式高度锁：锁是展开时的旧高且只增不减，收起不驱动重测，在这里显式清零。 */
+function onTimelineItemCollapsed(): void {
+  clearStreamingReleaseTimer();
+  cancelStreamingMeasure();
+  streamingSizeLock.value = createStreamingSizeLock();
+  messageRootMinHeight.value = 0;
 }
 
 /** 思维链吸顶状态：条目键在这里补上块前缀，会话层据此去重。 */
