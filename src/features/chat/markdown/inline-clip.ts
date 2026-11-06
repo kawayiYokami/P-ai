@@ -1,19 +1,14 @@
-import type { InlineSegment } from "./parse-markdown";
+import type { LightInlineSegment } from "./inline-light-markdown";
 
 /** 一个行内段在屏幕上占用的可见长度 */
-function segmentLength(segment: InlineSegment): number {
+function segmentLength(segment: LightInlineSegment): number {
   if ("children" in segment) {
     return segment.children.reduce((sum, child) => sum + segmentLength(child), 0);
   }
   switch (segment.type) {
     case "text":
     case "code":
-    case "math":
-    case "link":
       return segment.text.length;
-    case "image":
-    case "imageLink":
-      return segment.alt.length;
     case "html_br":
       return 1;
     default:
@@ -21,12 +16,12 @@ function segmentLength(segment: InlineSegment): number {
   }
 }
 
-export function inlineSegmentsLength(segments: InlineSegment[]): number {
+export function inlineSegmentsLength(segments: LightInlineSegment[]): number {
   return segments.reduce((sum, segment) => sum + segmentLength(segment), 0);
 }
 
 /** 可以按字切开而不破坏标记的段：只有纯文本 */
-function isSplittable(segment: InlineSegment): segment is Extract<InlineSegment, { type: "text" }> {
+function isSplittable(segment: LightInlineSegment): segment is Extract<LightInlineSegment, { type: "text" }> {
   return segment.type === "text";
 }
 
@@ -35,16 +30,16 @@ function isSplittable(segment: InlineSegment): segment is Extract<InlineSegment,
  *
  * 切点规则：
  * - 纯文本段按字切开，切哪儿都不会破坏标记；
- * - 带标记的段（行内代码、数学、链接、粗体/斜体等）**整体保留或整体丢弃**，
+ * - 带标记的段（行内代码、粗体/斜体等）**整体保留或整体丢弃**，
  *   绝不切开，所以不会露出半截反引号或成对的 `**`。
  *
  * 代价：正好跨在切点上的标记段会整块不显示，实际字数只可能少于上限，不会超。
  */
 export function clipInlineSegments(
-  segments: InlineSegment[],
+  segments: LightInlineSegment[],
   limit: number,
   headRatio: number,
-): InlineSegment[] {
+): LightInlineSegment[] {
   const budget = Math.floor(Number(limit) || 0);
   if (budget <= 0) return segments;
   if (inlineSegmentsLength(segments) <= budget) return segments;
@@ -53,9 +48,9 @@ export function clipInlineSegments(
   const headBudget = Math.round(budget * ratio);
   const tailBudget = budget - headBudget;
 
-  const head: InlineSegment[] = [];
+  const head: LightInlineSegment[] = [];
   let headUsed = 0;
-  let headSplit: InlineSegment | null = null;
+  let headSplit: LightInlineSegment | null = null;
   let headSplitLength = 0;
   for (const segment of segments) {
     if (headUsed >= headBudget) break;
@@ -75,9 +70,9 @@ export function clipInlineSegments(
     headUsed += length;
   }
 
-  const tail: InlineSegment[] = [];
+  const tail: LightInlineSegment[] = [];
   let tailUsed = 0;
-  let tailSplit: InlineSegment | null = null;
+  let tailSplit: LightInlineSegment | null = null;
   let tailSplitLength = 0;
   for (let index = segments.length - 1; index >= 0; index -= 1) {
     if (tailUsed >= tailBudget) break;

@@ -83,6 +83,7 @@
           <div
             v-if="activityItemHasBody(item)"
             class="min-w-0 pb-1.5"
+            :class="activityItemExpanded(item) ? 'pr-4' : ''"
           >
             <!-- 正文外壳：折叠态限高约 4 行预览并加底部 base-200 淡出；展开态限高滚动 -->
             <div
@@ -94,7 +95,7 @@
               ]"
               @click="onReasoningClampedBodyClick(item)"
             >
-              <OverlayScrollArea v-if="activityItemExpanded(item)" scroller-class="max-h-80 pr-3" overscroll="auto">
+              <OverlayScrollArea v-if="activityItemExpanded(item)" scroller-class="max-h-80 pr-2" overscroll="auto">
                 <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
                 <template v-else>
                   <!-- 长文本按行切块：每块独立排版，配合 content-visibility 跳过屏外块的布局 -->
@@ -563,8 +564,6 @@ const REASONING_COLLAPSED_LINES = 4;
 const REASONING_CHARS_PER_LINE = 36;
 /** 超过这个字数才可能出现第 5 行，才值得给展开入口。估小不估大：漏给箭头会让内容打不开，多给只是多余。 */
 const REASONING_EXPAND_MIN_CHARS = REASONING_COLLAPSED_LINES * REASONING_CHARS_PER_LINE;
-/** 思维链富文本最大渲染字数，超过此长度自动降级为原生纯文本，避免数十万字在正则解析和 VNode 树构建时阻塞主线程 */
-const MAX_MARKDOWN_REASONING_CHARS = 8000;
 
 /** 折叠预览按固定字数截断。没有换行时也不能把全文放进页面。 */
 function collapsedActivityPreview(text: string, cacheKey: object): string {
@@ -576,10 +575,13 @@ function collapsedActivityPreview(text: string, cacheKey: object): string {
   return preview;
 }
 
+/**
+ * 纯文本分支只留给流式展开：文本每帧都在变，每帧重解析不值得。
+ * 不按字数降级——行内解析器是单趟扫描，18 万字实测解析 8.6ms、连同 VNode 构建 26ms，
+ * 一次性展开完全扛得住，用长度闸门反而把正常内容挡在富文本外面。
+ */
 function activityItemPlainBody(item: ChatActivityItem): boolean {
-  if (item.kind !== "reasoning") return false;
-  if (item.running && activityItemExpanded(item)) return true;
-  return activityItemText(item).length > MAX_MARKDOWN_REASONING_CHARS;
+  return item.kind === "reasoning" && item.running === true && activityItemExpanded(item);
 }
 
 function activityItemBodyText(item: ChatActivityItem): string {

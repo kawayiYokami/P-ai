@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, type PropType, type VNodeChild } from "vue";
-import { parseInlineSegments, type InlineSegment } from "./parse-markdown";
+import { parseLightInlineText, type LightInlineSegment } from "./inline-light-markdown";
 import { clipInlineSegments } from "./inline-clip";
 
 /**
- * 行内 simple Markdown 渲染：保留行内格式（粗体/斜体/删除线/行内代码/kbd/mark/上下标），
+ * 行内 simple Markdown 渲染：只保留行内格式（粗体/斜体/删除线/行内代码），
  * 并把 `#{1,6} 标题` 这类标题行按加粗渲染（剥掉 # 前缀，不生成块级 <h1>）。
  * 不生成链接锚点（预览卡整体是按钮，链接会让点击语义打架）。
  * 用于思维链预览条、配置卡片预览这类「紧凑」场景。
+ *
+ * 解析走自己的轻量解析器，不用完整渲染器那套：完整解析器要处理公式、链接、
+ * 图片、HTML 标签、脚注，对以纯文本为主的思维链是纯浪费。轻量解析器单趟扫描，
+ * 长文本也不需要在字数上设降级闸门。
  */
 const props = withDefaults(defineProps<{
   text: string;
@@ -20,77 +24,27 @@ const props = withDefaults(defineProps<{
   headRatio: 0.3,
 });
 
-const HEADING_LINE_PATTERN = /^\s{0,3}#{1,6}\s+(.*)$/;
-/** 超长行内 Markdown 保护上限：单次超过此字数直接降级为纯文本，防止正则与大量 VNode 阻塞主线程 */
-const MAX_INLINE_MARKDOWN_CHARS = 12000;
-
-function parseInlineWithHeadings(text: string): InlineSegment[] {
-  if (text.length > MAX_INLINE_MARKDOWN_CHARS) {
-    return [{ type: "text", text }];
-  }
-  const segments: InlineSegment[] = [];
-  // 行内渲染没有段落概念：\n\n 在这里只会变成一个空行，压成单个换行。
-  // 同时把 CRLF / CR 归一成 LF，行尾残留的 \r 会在 pre-wrap 容器里被当成又一次换行。
-  const lines = text
-    .replace(/\r\n?/g, "\n")
-    .replace(/\n{2,}/g, "\n")
-    .split("\n");
-  lines.forEach((line, index) => {
-    if (index > 0) segments.push({ type: "html_br" });
-    const heading = line.match(HEADING_LINE_PATTERN);
-    if (heading) {
-      const children = parseInlineSegments(heading[1]);
-      if (children.length > 0) {
-        segments.push({ type: "strong", children });
-        return;
-      }
-    }
-    segments.push(...parseInlineSegments(line));
-  });
-  // 相邻的 strong 段之间如果没有文本/空白分隔，插一个换行让它们各占一行——
-  // 思维链流式输出常是 "**Step1****Step2****Step3**" 这种无间隔格式，
-  // 直接渲染会连成一片不可读。
-  const spaced: InlineSegment[] = [];
-  for (const seg of segments) {
-    const prev = spaced[spaced.length - 1];
-    if (seg.type === "strong" && prev?.type === "strong") {
-      spaced.push({ type: "html_br" });
-    }
-    spaced.push(seg);
-  }
-  return spaced;
-}
-
-const parsedSegments = computed<InlineSegment[]>(() =>
-  parseInlineWithHeadings(String(props.text || "")),
+const parsedSegments = computed<LightInlineSegment[]>(() =>
+  parseLightInlineText(String(props.text || "")),
 );
 
-const inlineSegments = computed<InlineSegment[]>(() =>
+const inlineSegments = computed<LightInlineSegment[]>(() =>
   clipInlineSegments(parsedSegments.value, props.limit, props.headRatio),
 );
 
-function renderSegments(segments: InlineSegment[]): VNodeChild[] {
+function renderSegments(segments: LightInlineSegment[]): VNodeChild[] {
   return segments.map((seg) => {
     if (seg.type === "text") return seg.text;
     if (seg.type === "html_br") return h("br");
     if (seg.type === "code") return h("code", { class: "ecall-inline-md-code" }, seg.text);
-    if (seg.type === "strong") return h("strong", { class: "ecall-inline-md-strong" }, renderSegments(seg.children || []));
-    if (seg.type === "em") return h("em", { class: "ecall-inline-md-em" }, renderSegments(seg.children || []));
+    if (seg.type === "strong") return h("strong", { class: "ecall-inline-md-strong" }, renderSegments(seg.children));
+    if (seg.type === "em") return h("em", { class: "ecall-inline-md-em" }, renderSegments(seg.children));
     if (seg.type === "strongEm") {
       return h("strong", { class: "ecall-inline-md-strong" }, [
-        h("em", { class: "ecall-inline-md-em" }, renderSegments(seg.children || [])),
+        h("em", { class: "ecall-inline-md-em" }, renderSegments(seg.children)),
       ]);
     }
-    if (seg.type === "delete") return h("del", { class: "ecall-inline-md-delete" }, renderSegments(seg.children || []));
-    if (seg.type === "html_kbd") return h("kbd", { class: "ecall-inline-md-kbd" }, renderSegments(seg.children || []));
-    if (seg.type === "html_mark") return h("mark", { class: "ecall-inline-md-mark" }, renderSegments(seg.children || []));
-    if (seg.type === "html_sub") return h("sub", {}, renderSegments(seg.children || []));
-    if (seg.type === "html_sup") return h("sup", {}, renderSegments(seg.children || []));
-    if (seg.type === "link") return seg.text;
-    if (seg.type === "imageLink") return seg.alt || "";
-    if (seg.type === "image") return seg.alt || "";
-    if (seg.type === "math") return seg.text;
-    if (seg.type === "toolcall_ref" || seg.type === "footnote_ref") return "";
+    if (seg.type === "delete") return h("del", { class: "ecall-inline-md-delete" }, renderSegments(seg.children));
     return "";
   });
 }
@@ -98,7 +52,7 @@ function renderSegments(segments: InlineSegment[]): VNodeChild[] {
 const InlineRenderer = defineComponent({
   name: "InlineMarkdownTextSegments",
   props: {
-    segments: { type: Array as PropType<InlineSegment[]>, required: true },
+    segments: { type: Array as PropType<LightInlineSegment[]>, required: true },
   },
   setup(props) {
     return () => h("span", { class: "ecall-inline-md" }, renderSegments(props.segments));
@@ -133,17 +87,5 @@ const InlineRenderer = defineComponent({
 
 :deep(.ecall-inline-md-delete) {
   opacity: 0.7;
-}
-
-:deep(.ecall-inline-md-kbd) {
-  padding: 0 0.3em;
-  border: 1px solid color-mix(in oklab, currentColor 25%, transparent);
-  border-radius: 0.25rem;
-  font-size: 0.85em;
-}
-
-:deep(.ecall-inline-md-mark) {
-  background-color: color-mix(in oklab, currentColor 20%, transparent);
-  color: inherit;
 }
 </style>

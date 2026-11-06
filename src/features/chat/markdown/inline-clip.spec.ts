@@ -1,22 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { parseInlineSegments, type InlineSegment } from "./parse-markdown";
+import { parseLightInline, type LightInlineSegment } from "./inline-light-markdown";
 import { clipInlineSegments, inlineSegmentsLength } from "./inline-clip";
 
-function text(value: string): InlineSegment {
+function text(value: string): LightInlineSegment {
   return { type: "text", text: value };
 }
 
-function code(value: string): InlineSegment {
+function code(value: string): LightInlineSegment {
   return { type: "code", text: value };
 }
 
-function ellipsisCount(segments: InlineSegment[]): number {
+function ellipsisCount(segments: LightInlineSegment[]): number {
   return segments.filter((segment) => segment.type === "text" && segment.text === "…").length;
 }
 
 describe("inlineSegmentsLength", () => {
   it("按可见文本累计，嵌套段递归计算", () => {
-    const segments: InlineSegment[] = [
+    const segments: LightInlineSegment[] = [
       text("ab"),
       { type: "strong", children: [text("cde")] },
       code("fg"),
@@ -93,7 +93,7 @@ describe("clipInlineSegments", () => {
   });
 
   it("截断结果里的行内代码始终保持完整", () => {
-    const segments = parseInlineSegments("甲".repeat(400) + "`code-block`" + "乙".repeat(20));
+    const segments = parseLightInline("甲".repeat(400) + "`code-block`" + "乙".repeat(20));
     const clipped = clipInlineSegments(segments, 100, 0.3);
     const codeSegments = clipped.filter((segment) => segment.type === "code");
     expect(codeSegments).toHaveLength(1);
