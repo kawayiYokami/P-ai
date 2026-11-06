@@ -116,7 +116,50 @@ describe("createToolCallPresentation", () => {
     expect(result.action).toBe("阅读");
     expect(result.target).toBe("出神.webp");
     expect(result.extra).toBe("（描述这张表情图的内容与风格）");
-    expect(result.text).toBe("阅读 出神.webp （描述这张表情图的内容与风格）");
+    expect(result.text).toBe("阅读 出神.webp（描述这张表情图的内容与风格）");
+  });
+
+  it("阅读媒体：文件名过长时中间省略并保留扩展名，给括号里的描述留位置", () => {
+    const presentation = createPresentation();
+    const result = presentation.toolCallSemanticPresentation({
+      name: "read_media",
+      argsText: JSON.stringify({
+        path: "E:\\P-ai\\data\\media\\这是一个非常非常长的文件名_2026年11月06日_预览2.png",
+        description: "核对深蓝底经营业绩页",
+      }),
+    });
+
+    expect(result.target).toBe("这是一个非常非…6日_预览2.png");
+    expect(result.target.length).toBe(18);
+    expect(result.text).toBe("阅读 这是一个非常非…6日_预览2.png（核对深蓝底经营业绩页）");
+  });
+
+  it("阅读媒体：描述过长时尾部截断，不把整段说明塞进摘要行", () => {
+    const presentation = createPresentation();
+    const result = presentation.toolCallSemanticPresentation({
+      name: "read_media",
+      argsText: JSON.stringify({
+        path: "E:\\P-ai\\data\\media\\p4.png",
+        description: "核对这张深蓝底经营业绩页里的关键数字、图表标注与单位口径",
+      }),
+    });
+
+    expect(result.extra).toBe("（核对这张深蓝底经营业绩页里的关键数字、图表...）");
+  });
+
+  it("阅读文件：文件名过长时同样中间省略，行号区间仍然保留", () => {
+    const presentation = createPresentation();
+    const result = presentation.toolCallSemanticPresentation({
+      name: "read",
+      argsText: JSON.stringify({
+        absolute_path: "E:\\repo\\src\\QQ_2026-11-06_08-44-17.png",
+        start_line: 10,
+        end_line: 20,
+      }),
+    });
+
+    expect(result.target).toBe("QQ_2026…-44-17.png");
+    expect(result.lineRange).toBe("#10-20");
   });
 
   it("阅读文件：提取纯文件名、扩展名及行号区间", () => {

@@ -108,6 +108,24 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     return `${trimmed.slice(0, maxLen - 3)}...`;
   }
 
+  // 文件名中间省略并保留扩展名：标题行整体超长时由尾部截断，会把括号里的说明挤掉，
+  // 所以在数据层先把文件名压到固定长度，把空间留给后面的描述。
+  function compactFileName(name: string, maxLen = 18): string {
+    const text = String(name || "").trim();
+    if (text.length <= maxLen) return text;
+    const dotIndex = text.lastIndexOf(".");
+    const hasExt = dotIndex > 0 && text.length - dotIndex <= 8;
+    const ext = hasExt ? text.slice(dotIndex) : "";
+    const base = hasExt ? text.slice(0, dotIndex) : text;
+    const budget = maxLen - ext.length - 1;
+    if (budget <= 1) return `${text.slice(0, Math.max(1, maxLen - 1))}…`;
+    const head = Math.ceil(budget / 2);
+    const tail = budget - head;
+    const headText = base.slice(0, head);
+    const tailText = tail > 0 ? base.slice(base.length - tail) : "";
+    return `${headText}…${tailText}${ext}`;
+  }
+
   function joinNonEmpty(parts: (string | undefined | null)[], separator = " · "): string {
     return parts
       .map((part) => (typeof part === "string" ? part.trim() : ""))
@@ -333,7 +351,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     // 1. 阅读文件 (read / read_file)
     if (toolName === "read" || toolName === "read_file") {
       const rawPath = safeTextFromRecord(obj, ["absolute_path", "absolutePath", "path", "file"]) || (typeof args === "string" ? args.trim() : "");
-      const target = fileNameFromPath(rawPath) || toolTimelineText("missingArgs");
+      const target = compactFileName(fileNameFromPath(rawPath) || toolTimelineText("missingArgs"));
       const lineRange = extractLineRange(obj, rawPath);
       const action = toolTimelineText("actionRead");
       return {
@@ -348,20 +366,21 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     // 2. 阅读媒体 (read_media)
     if (toolName === "read_media") {
       const rawPath = safeTextFromRecord(obj, ["path", "absolute_path", "absolutePath", "file"]);
-      const target = fileNameFromPath(rawPath) || toolTimelineText("missingArgs");
+      const target = compactFileName(fileNameFromPath(rawPath) || toolTimelineText("missingArgs"));
       const action = toolTimelineText("actionRead");
       // 描述进摘要行：一眼看出这次读它是为了核对什么，不必展开参数才看得到。
       const focus =
         safeStringValue(obj, "description") ||
         safeStringValue(obj, "focus") ||
         safeStringValue(obj, "prompt");
-      const extra = focus ? `（${compactText(focus, 50)}）` : undefined;
+      const extra = focus ? `（${compactText(focus, 24)}）` : undefined;
       return {
         action,
         fileExt: extractFileExt(target),
         target,
         extra,
-        text: formatFullText(action, target, undefined, extra),
+        // 括号紧贴文件名，读起来更自然：阅读 p4.png（核对深蓝底经营业绩页）
+        text: `${action} ${target}${extra ?? ""}`,
       };
     }
 
