@@ -87,14 +87,14 @@
     dim;
 }
 
-/* 浅色主题定制：base200 #F2F2F2，base300 #E8E8E8，主题色 #1D5CC2，次要色 #219090，其余按常用搭配 */
+/* 浅色主题定制：base200 #F2F2F2，base300 #E8E8E8，主题色 #026EC1，次要色 #219090，其余按常用搭配 */
 [data-theme="light"] {
   color-scheme: light;
   --color-base-100: #ffffff;
   --color-base-200: #f2f2f2;
   --color-base-300: #e8e8e8;
   --color-base-content: #000000;
-  --color-primary: #1d5cc2;
+  --color-primary: #026ec1;
   --color-primary-content: #ffffff;
   --color-secondary: #219090;
   --color-secondary-content: #ffffff;
@@ -126,8 +126,11 @@
   --color-base-200: #202020;
   --color-base-300: #1c1c1c;
   --color-base-content: #ffffff;
-  --color-primary: #1d5cc2;
-  --color-primary-content: #ffffff;
+  /* 深色底上 primary 必须单独取一档：品牌色 #026ec1 对 #2b2b2b 只有 2.70:1。
+     #319eea 保持同色相（205°）提亮到 4.63:1，刚好过 4.5，不再往上推以免发白刺眼。
+     底色变亮，primary 上的文字随之改用深色，保证 5.9:1 */
+  --color-primary: #319eea;
+  --color-primary-content: #0d1b28;
   --color-secondary: #219090;
   --color-secondary-content: #ffffff;
   --color-accent: #7c5cff;

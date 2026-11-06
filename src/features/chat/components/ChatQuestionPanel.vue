@@ -602,7 +602,7 @@ function handleReject() {
 
 /* 选项文字沿项目既有混色口径（同 style.css 的 --ecall-md-link-color）：
    主色掺入正文色——浅色主题把主色压深、深色主题把主色提亮。
-   内置深蓝主色 #1d5cc2 压在内置深色底 #2b2b2b 上读不清，这里只在本面板内纠正，
+   浅深两档主色都已单独过对比度，这里只是让文字比实心按钮更收敛，
    不动全局 btn 样式；只作用于 soft 态，选中后的实心 primary 仍用 primary-content。 */
 .ecall-question-option.btn-soft {
   color: color-mix(in oklab, var(--color-primary) 70%, var(--color-base-content));
