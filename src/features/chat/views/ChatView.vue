@@ -193,7 +193,6 @@
                           @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
                           @assistant-link-click="handleAssistantLinkClick"
                           @activity-toggle="handleActivityToggle"
-                          @reasoning-stuck-change="handleReasoningStuckChange"
                         />
                       </div>
                     </div>
@@ -2042,7 +2041,6 @@ function clearFileReaderContextReferences(paths?: string[]) {
 watch(() => props.activeConversationId, () => {
   fileReaderVisibleContextReference.value = null;
   fileReaderSelectionContextReference.value = null;
-  activeStuckReasoningKeySet.value = new Set();
 });
 
 // ==================== selection state shared between virtual list & selection mode ====================
@@ -2975,21 +2973,7 @@ onBeforeUnmount(() => {
 // 上下两排不会同时出现（贴底出下排、离底出上排），不需要为上排预留下排的高度；
 // 上排时间线按钮靠 sessionTopColumnOffset 与下排操作条里的那个对齐。
 
-const activeStuckReasoningKeySet = ref<Set<string>>(new Set());
-
-function handleReasoningStuckChange(payload: { key: string; stuck: boolean }): void {
-  const next = new Set(activeStuckReasoningKeySet.value);
-  if (payload.stuck) {
-    next.add(payload.key);
-  } else {
-    next.delete(payload.key);
-  }
-  activeStuckReasoningKeySet.value = next;
-}
-
 const showConversationTodoBar = computed(() => {
-  // 思维链在顶端吸附时，主动隐藏顶部的 TodoBar 避免视觉重叠
-  if (activeStuckReasoningKeySet.value.size > 0) return false;
   const hasActiveOrPending = normalizedConversationTodos.value.some((item) => item.status === "pending" || item.status === "in_progress");
   if (!hasActiveOrPending) return false;
   return atConversationBottom.value;
@@ -3907,8 +3891,8 @@ const latestAssistantBlockId = computed(() => {
   return "";
 });
 
-// 思维链的展开状态是消息组件内部的 UI 状态，父级读不到，只能由它上报后在这里记账。
-// 多条消息可以同时展开，这里只记录哪些块开着，供流式预览条判断。
+// 活动面板的开合是消息组件内部的状态，父级读不到，只能由它上报后在这里记账。
+// 多条消息可以同时开着，这里只记录哪些块开着，供流式预览条判断。
 const expandedActivityBlockIds = ref<Record<string, boolean>>({});
 
 function handleActivityToggle(payload: { blockId: string; open: boolean }) {
@@ -3920,10 +3904,9 @@ function handleActivityToggle(payload: { blockId: string; open: boolean }) {
   expandedActivityBlockIds.value = next;
 }
 
-// 正在流式的那条消息思维链已展开：用户已经在看思维链，预览条不再预览，退化成回到底部
+// 最新一条助理消息的活动面板开着：用户正在看思考与工具，预览条不再预览，退化成回到底部。
 const thinkingPreviewCollapsed = computed(
   () =>
-    !!props.chatting &&
     latestAssistantBlockId.value !== "" &&
     expandedActivityBlockIds.value[latestAssistantBlockId.value] === true,
 );

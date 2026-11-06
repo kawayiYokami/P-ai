@@ -42,7 +42,6 @@
           @enter-selection-mode="() => {}"
           @toggle-message-selected="() => {}"
           @activity-toggle="() => {}"
-          @reasoning-stuck-change="() => {}"
         />
       </div>
     </div>

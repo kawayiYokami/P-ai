@@ -700,6 +700,5 @@ const chatItemHandlers = {
   enterSelectionMode: noop,
   toggleMessageSelected: noop,
   activityToggle: noop,
-  reasoningStuckChange: noop,
 };
 </script>

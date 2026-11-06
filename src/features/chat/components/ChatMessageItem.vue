@@ -122,7 +122,6 @@
                   :agent-name-map="props.agentNameMap"
                   @item-expanded="onTimelineItemExpanded"
                   @item-collapsed="onTimelineItemCollapsed"
-                  @reasoning-stuck-change="onTimelineReasoningStuckChange"
                 />
                 <button
                   type="button"
@@ -521,7 +520,6 @@ const emit = defineEmits<{
   (e: "toggleAudioPlayback", payload: { id: string; audio: { mime: string; bytesBase64?: string; mediaRef?: string } }): void;
   (e: "assistantLinkClick", event: MouseEvent): void;
   (e: "activityToggle", payload: { blockId: string; open: boolean }): void;
-  (e: "reasoningStuckChange", payload: { key: string; stuck: boolean }): void;
 }>();
 
 const { t } = useI18n();
@@ -550,7 +548,9 @@ const activityExpanded = ref(false);
 const activityExpanding = ref(false);
 /**
  * 条目级状态放在消息这一层：顶层面板收起会卸载时间线组件，
- * 状态若跟着组件走，收起再展开时条目展开态和已取回的工具结果都会丢。
+ * 状态若跟着组件走，收起再展开时已取回的工具结果会丢。
+ * 条目展开态不在此列——面板收起时由 resetTimelineItemExpansion 主动清掉，
+ * 重新打开应该回到折叠态，不该留着一个开着滚动的思维链。
  */
 const activityTimelineState = reactive({
   expandedOverrides: {} as Record<string, boolean>,
@@ -558,6 +558,12 @@ const activityTimelineState = reactive({
   toolResultLoading: {} as Record<string, boolean>,
   toolResultErrors: {} as Record<string, string>,
 });
+
+/** 收起活动面板时复位条目展开态。工具结果缓存保留：那是取回来的数据，重开不该再请求一次。 */
+function resetTimelineItemExpansion(): void {
+  if (Object.keys(activityTimelineState.expandedOverrides).length === 0) return;
+  activityTimelineState.expandedOverrides = {};
+}
 /** 工具结果按需加载要的消息定位：优先用源消息 id，回落到块 id。 */
 const activityMessageId = computed(() => String(props.block.sourceMessageId || props.block.id || "").trim());
 /** 时间线里点开了某个条目：告诉会话层这条消息的活动面板打开了。
@@ -576,15 +582,6 @@ function onTimelineItemCollapsed(): void {
   cancelStreamingMeasure();
   streamingSizeLock.value = createStreamingSizeLock();
   messageRootMinHeight.value = 0;
-}
-
-/** 思维链吸顶状态：条目键在这里补上块前缀，会话层据此去重。 */
-function onTimelineReasoningStuckChange(payload: { key: string; stuck: boolean }): void {
-  const blockId = String(props.block.id || "").trim();
-  emit("reasoningStuckChange", {
-    key: blockId ? `${blockId}::${payload.key}` : payload.key,
-    stuck: payload.stuck,
-  });
 }
 
 const copyMessageImageBusy = ref(false);
@@ -1233,6 +1230,7 @@ function onActivityToggle(event: Event): void {
   if (!nextOpen && activityExpanded.value) {
     activityExpanding.value = false;
     activityExpanded.value = false;
+    resetTimelineItemExpansion();
     emit("activityToggle", { blockId: String(props.block.id || ""), open: false });
   }
 }
@@ -1256,6 +1254,7 @@ function closeActivityDetails(silent = false): void {
   }
   activityExpanding.value = false;
   activityExpanded.value = false;
+  resetTimelineItemExpansion();
   if (silent) return;
   emit("activityToggle", { blockId: String(props.block.id || ""), open: false });
 }

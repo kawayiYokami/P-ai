@@ -1,12 +1,17 @@
 <template>
-  <TransitionGroup name="ecall-activity-item" tag="ul" class="ecall-activity-timeline space-y-2" :appear="false">
+  <TransitionGroup
+    name="ecall-activity-item"
+    tag="ul"
+    class="ecall-activity-timeline space-y-2"
+    :appear="false"
+    @scroll.capture="onTimelineScroll"
+  >
     <li
       v-for="(item, itemIndex) in items"
       :key="`activity-${activityItemKey(item)}`"
       v-memo="activityItemMemo(item, itemIndex === items.length - 1)"
       :class="[
         activityItemNodeClass(item),
-        item.kind === 'reasoning' ? 'ecall-activity-reasoning-item' : '',
         'relative flex gap-1.5 min-w-0',
       ]"
     >
@@ -19,7 +24,7 @@
             v-if="itemIndex !== 0"
             class="absolute top-0 h-1 w-px bg-current opacity-30"
           />
-          <div class="flex h-6 shrink-0 items-center justify-center">
+          <div class="flex h-[1.5em] shrink-0 items-center justify-center">
             <svg viewBox="0 0 24 24" class="h-4 w-4">
               <circle cx="12" cy="12" r="10" fill="currentColor" />
               <path d="M12 4Q13 11 20 12Q13 13 12 20Q11 13 4 12Q11 11 12 4Z" class="text-base-200" fill="currentColor" />
@@ -27,90 +32,40 @@
           </div>
           <span
             v-if="itemIndex !== items.length - 1"
-            class="absolute top-6 -bottom-2 left-1/2 w-px -translate-x-1/2 bg-current opacity-30"
+            class="absolute top-[1.5em] -bottom-2 left-1/2 w-px -translate-x-1/2 bg-current opacity-30"
           />
         </div>
 
-        <!-- 右列：折叠头、正文、留白行 -->
+        <!-- 右列：正文滚动区 -->
         <div class="flex min-w-0 flex-1 flex-col">
-          <!-- 展开态吸顶检测哨兵（贴在 Header 正上方） -->
-          <div
-            v-if="activityItemExpanded(item) && activityItemCanExpand(item)"
-            :ref="(el) => bindStickySentinel(activityItemKey(item), el as HTMLElement | null)"
-            class="ecall-reasoning-sticky-sentinel pointer-events-none h-px w-full -mb-px"
-          />
-
-          <!-- 标题行：展开时才吸顶（sticky -top-3 z-10 抵消容器 py-3，紧贴视口最顶端），未展开时不吸顶随文档滚动 -->
-          <div
-            class="ecall-reasoning-sticky-header group flex min-h-6 items-center gap-1.5 bg-base-200 py-1"
-            :class="[
-              activityItemExpanded(item) ? 'sticky -top-3 z-10' : '',
-              props.selectionMode || !activityItemCanExpand(item) ? '' : 'cursor-pointer select-none',
-              isReasoningItemStuck(item) ? 'ecall-reasoning-stuck' : '',
-            ]"
-            @click="onReasoningHeaderClick(item, $event)"
-          >
-            <!-- 首行标题摘要（宽度按内容，箭头紧跟在右肩） -->
-            <span class="ecall-activity-item-summary min-w-0" :class="activityItemTitleClass(item)">
-              <InlineMarkdownText :text="activityItemTitle(item)" />
-            </span>
-
-            <!-- 折叠箭头：能展开就常显，不再等悬停 -->
-            <button
-              v-if="activityItemCanExpand(item)"
-              type="button"
-              class="flex h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-base-300/50 transition-colors"
-              :class="activityItemTitleClass(item)"
-              :title="activityItemExpanded(item) ? t('common.collapse') : t('common.expand')"
-              data-selection-ignore="true"
-              @click.stop="toggleReasoningItemExpanded(item)"
-            >
-              <ChevronRight
-                class="h-3.5 w-3.5 transition-transform duration-150"
-                :class="{ 'rotate-90': activityItemExpanded(item) }"
-              />
-            </button>
-
-            <!-- 底沿淡出：只有标题行真的贴住滚动区顶部才挂上，避免没贴顶时盖住正文 -->
-            <div
-              v-if="activityItemExpanded(item) && activityItemCanExpand(item) && isReasoningItemStuck(item)"
-              class="ecall-reasoning-sticky-fade absolute top-full inset-x-0 h-3 pointer-events-none"
-            />
-          </div>
-
-          <!-- 正文区：折叠态展示 4 行预览 + 底部 base-200 淡出；展开态完整展示且由 Header 吸顶 -->
-          <!-- 正文区：有无正文看 hasBody，能不能展开另由箭头决定 -->
           <div
             v-if="activityItemHasBody(item)"
-            class="min-w-0 pb-1.5"
-            :class="activityItemExpanded(item) ? 'pr-4' : ''"
+            class="relative min-w-0 pb-1.5"
+            :style="{ '--ecall-reasoning-max-h': `calc(${REASONING_SCROLL_LINES} * 1.5em)` }"
           >
-            <!-- 正文外壳：折叠态限高约 4 行预览并加底部 base-200 淡出；展开态直接铺全文，不再套内部滚动区 -->
-            <div
-              class="ecall-reasoning-body-shell relative min-w-0 whitespace-pre-wrap wrap-break-word text-xs leading-normal pr-3"
-              :class="[
-                activityItemDetailClass(item),
-                activityItemExpanded(item) ? 'ecall-reasoning-body--expanded' : 'ecall-reasoning-body--clamped',
-                !activityItemExpanded(item) && activityItemCanExpand(item) ? 'cursor-pointer' : '',
-              ]"
-              @click="onReasoningClampedBodyClick(item)"
+            <!-- 正文：常驻滚动区，高度锁在 30 行。不截断、不展开、不收起——
+                 全文进 DOM，超出就滚。上下边缘渐隐跟着滚动位置走，
+                 渐隐挂在这一层（scroller）而不是内容壳：内容壳会跟着内容滚，mask 位置就飘了。 -->
+            <OverlayScrollArea
+              :scroller-class="`ecall-reasoning-scroll-limit ${reasoningFadeClass(item)}`.trim()"
+              overscroll="auto"
             >
-              <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
-              <template v-else>
-                <!-- 长文本按行切块：每块独立排版，配合 content-visibility 跳过屏外块的布局 -->
-                <div
-                  v-for="chunk in activityItemPlainChunks(item)"
-                  :key="chunk.index"
-                  class="ecall-reasoning-plain-chunk"
-                >{{ chunk.text }}</div>
-              </template>
-
-              <!-- 折叠态底部 base-200 淡出遮罩 -->
               <div
-                v-if="!activityItemExpanded(item)"
-                class="ecall-reasoning-clamped-fade absolute inset-x-0 bottom-0 h-2 pointer-events-none"
-              />
-            </div>
+                class="relative min-w-0 whitespace-pre-wrap wrap-break-word text-xs leading-normal pr-3"
+                :class="activityItemDetailClass(item)"
+                :ref="(el) => bindReasoningBody(item, el)"
+              >
+                <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemText(item)" />
+                <template v-else>
+                  <!-- 长文本按行切块：每块独立排版，配合 content-visibility 跳过屏外块的布局 -->
+                  <div
+                    v-for="chunk in activityItemPlainChunks(item)"
+                    :key="chunk.index"
+                    class="ecall-reasoning-plain-chunk"
+                  >{{ chunk.text }}</div>
+                </template>
+              </div>
+            </OverlayScrollArea>
           </div>
 
         </div>
@@ -326,7 +281,7 @@
 // 只负责「怎么画一条条活动」，不负责顶层折叠面板的开合：
 // 面板的 details 元素、summary 文案与展开态由调用方持有，
 // 这样消息里的气泡头与委托卡里的「执行过程」标题各自保留自己的外壳。
-import { computed, onBeforeUnmount, ref } from "vue";
+import { onBeforeUnmount, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { ChevronRight } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
@@ -371,7 +326,6 @@ type ActivityTimelineState = {
 const emit = defineEmits<{
   (e: "itemExpanded", payload: { key: string; expanded: boolean }): void;
   (e: "itemCollapsed", payload: { key: string }): void;
-  (e: "reasoningStuckChange", payload: { key: string; stuck: boolean }): void;
 }>();
 
 const { t } = useI18n();
@@ -390,6 +344,92 @@ function activityItemExpanded(item: ChatActivityItem): boolean {
   return props.state.expandedOverrides[activityItemKey(item)] === true;
 }
 
+/**
+ * 思维链正文是常驻滚动区，没有展开态。上下边缘渐隐跟着滚动位置走：
+ * 在顶部只淡底边、在底部只淡顶边、在中间两边都淡、内容不够高时两边都不淡。
+ * 是否可滚 CSS 判断不了（mask 按盒子算，不看内容多少），只能实测。
+ */
+const reasoningFade = reactive<Record<string, { top: boolean; bottom: boolean }>>({});
+const reasoningBodyElements = new Map<string, HTMLElement>();
+const reasoningScrollerKeys = new Map<HTMLElement, string>();
+let reasoningOverflowObserver: ResizeObserver | null = null;
+
+function reasoningFadeClass(item: ChatActivityItem): string {
+  const state = reasoningFade[activityItemKey(item)];
+  if (!state) return "";
+  if (state.top && state.bottom) return "ecall-reasoning-fade-both";
+  if (state.top) return "ecall-reasoning-fade-top";
+  if (state.bottom) return "ecall-reasoning-fade-bottom";
+  return "";
+}
+
+function measureReasoningFade(key: string, scroller: HTMLElement): void {
+  // 贴边判定留 1px 容差：亚像素高度会让 scrollTop 永远差一点点到不了端点
+  const atTop = scroller.scrollTop <= 0;
+  const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1;
+  const next = { top: !atTop, bottom: !atBottom };
+  const prev = reasoningFade[key];
+  // 不溢出时两者都是 false，正好等于「不挂任何渐隐」
+  if (prev && prev.top === next.top && prev.bottom === next.bottom) return;
+  reasoningFade[key] = next;
+}
+
+/** 内容壳的 ref 绑定：登记 scroller 供滚动监听反查，尺寸变化时重算边缘状态。 */
+function bindReasoningBody(item: ChatActivityItem, element: unknown): void {
+  const key = activityItemKey(item);
+  const body = element instanceof HTMLElement ? element : null;
+  const known = reasoningBodyElements.get(key);
+  if (!body) {
+    if (known) {
+      reasoningOverflowObserver?.unobserve(known);
+      const scroller = known.parentElement;
+      if (scroller) reasoningScrollerKeys.delete(scroller);
+      reasoningBodyElements.delete(key);
+    }
+    if (reasoningFade[key]) delete reasoningFade[key];
+    return;
+  }
+  // ref 每次更新都会重调，同一个元素不重复登记
+  if (known === body) return;
+  if (known) reasoningOverflowObserver?.unobserve(known);
+  reasoningBodyElements.set(key, body);
+  const scroller = body.parentElement;
+  if (scroller) {
+    reasoningScrollerKeys.set(scroller, key);
+    measureReasoningFade(key, scroller);
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    reasoningOverflowObserver ??= new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const target = entry.target as HTMLElement;
+        for (const [itemKey, el] of reasoningBodyElements) {
+          if (el !== target) continue;
+          const owner = el.parentElement;
+          if (owner) measureReasoningFade(itemKey, owner);
+          break;
+        }
+      }
+    });
+    reasoningOverflowObserver.observe(body);
+  }
+}
+
+/** 滚动监听挂在列表根节点上（capture 阶段能接住内部 scroller 的 scroll），只挂一个。 */
+function onTimelineScroll(event: Event): void {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const key = reasoningScrollerKeys.get(target);
+  if (!key) return;
+  measureReasoningFade(key, target);
+}
+
+onBeforeUnmount(() => {
+  reasoningOverflowObserver?.disconnect();
+  reasoningOverflowObserver = null;
+  reasoningBodyElements.clear();
+  reasoningScrollerKeys.clear();
+});
+
 function applyExpandedChange(item: ChatActivityItem, expanded: boolean): void {
   const key = activityItemKey(item);
   if (expanded) {
@@ -406,88 +446,7 @@ function applyExpandedChange(item: ChatActivityItem, expanded: boolean): void {
   emit("itemCollapsed", { key });
 }
 
-// 最新一条正在流式的活动块（思维块或内容块）：流式生长时不设高度上限
-const newestStreamingActivityKey = computed(() => {
-  const items = props.items;
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (item.kind === "reasoning" || item.kind === "content") return activityItemKey(item);
-  }
-  return "";
-});
-
-// ==================== 思维链吸顶 ====================
-
-const reasoningItemStuckKeys = ref<Set<string>>(new Set());
-
-function isReasoningItemStuck(item: ChatActivityItem): boolean {
-  return reasoningItemStuckKeys.value.has(activityItemKey(item));
-}
-
-function setReasoningItemStuck(key: string, stuck: boolean): void {
-  const currentHas = reasoningItemStuckKeys.value.has(key);
-  if (stuck === currentHas) return;
-  const next = new Set(reasoningItemStuckKeys.value);
-  if (stuck) next.add(key);
-  else next.delete(key);
-  reasoningItemStuckKeys.value = next;
-  emit("reasoningStuckChange", { key, stuck });
-}
-
-const stickyObserverMap = new Map<string, IntersectionObserver>();
-
-function findScrollContainer(element: HTMLElement | null): HTMLElement | null {
-  if (!element) return null;
-  return element.closest(".ecall-chat-scroll-container") as HTMLElement | null;
-}
-
-function bindStickySentinel(key: string, el: HTMLElement | null): void {
-  const existingObserver = stickyObserverMap.get(key);
-  if (existingObserver) {
-    existingObserver.disconnect();
-    stickyObserverMap.delete(key);
-  }
-  if (!el) {
-    setReasoningItemStuck(key, false);
-    return;
-  }
-
-  const scrollRoot = findScrollContainer(el);
-  if (!scrollRoot) {
-    setReasoningItemStuck(key, false);
-    return;
-  }
-
-  // 使用 IntersectionObserver 监听吸顶哨兵，彻底杜绝滚动事件循环内的强制同步布局重排（getComputedStyle 与 getBoundingClientRect）
-  const observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        const rootTop = entry.rootBounds ? entry.rootBounds.top : 0;
-        const stuck = !entry.isIntersecting && entry.boundingClientRect.bottom <= rootTop + 4;
-        setReasoningItemStuck(key, stuck);
-      }
-    },
-    {
-      root: scrollRoot,
-      threshold: [0, 1],
-    },
-  );
-
-  observer.observe(el);
-  stickyObserverMap.set(key, observer);
-}
-
 // ==================== 点击与展开入口 ====================
-
-function hasNativeTextSelection(): boolean {
-  try {
-    const selection = window.getSelection?.();
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
-    return !!String(selection.toString() || "").trim();
-  } catch {
-    return false;
-  }
-}
 
 function onToolDetailsToggle(item: ChatActivityItem, event: Event): void {
   const details = event.target instanceof HTMLDetailsElement
@@ -495,27 +454,6 @@ function onToolDetailsToggle(item: ChatActivityItem, event: Event): void {
     : (event.currentTarget instanceof HTMLDetailsElement ? event.currentTarget : null);
   const open = details ? details.open : !activityItemExpanded(item);
   applyExpandedChange(item, open);
-}
-
-function toggleReasoningItemExpanded(item: ChatActivityItem): void {
-  applyExpandedChange(item, !activityItemExpanded(item));
-}
-
-function onReasoningHeaderClick(item: ChatActivityItem, event: MouseEvent): void {
-  if (props.selectionMode || !activityItemCanExpand(item)) return;
-  if (hasNativeTextSelection()) return;
-  const target = event.target as HTMLElement | null;
-  if (target?.closest('button, a, input, textarea, select, [data-selection-ignore="true"]')) {
-    return;
-  }
-  toggleReasoningItemExpanded(item);
-}
-
-function onReasoningClampedBodyClick(item: ChatActivityItem): void {
-  if (props.selectionMode || activityItemExpanded(item)) return;
-  if (!activityItemCanExpand(item)) return;
-  if (hasNativeTextSelection()) return;
-  toggleReasoningItemExpanded(item);
 }
 
 // ==================== 条目文本 ====================
@@ -530,48 +468,23 @@ function stripToolcallMarkers(text: string): string {
   return String(text || "").replace(/\[toolcall:[^\]\n]+\]/g, "");
 }
 
-const collapsedActivityPreviewCache = new WeakMap<object, { source: string; preview: string }>();
-const COLLAPSED_ACTIVITY_PREVIEW_CHARS = 240;
-
-/** 思维链折叠态的可视行数（与 .ecall-reasoning-body--clamped 的 line-clamp 一致）。 */
-const REASONING_COLLAPSED_LINES = 4;
-/** 一行按约 36 个汉字估（12px 字号下的聊天窗宽度）。只用来决定要不要给展开箭头，不参与截断。 */
-const REASONING_CHARS_PER_LINE = 36;
-/** 超过这个字数才可能出现第 5 行，才值得给展开入口。估小不估大：漏给箭头会让内容打不开，多给只是多余。 */
-const REASONING_EXPAND_MIN_CHARS = REASONING_COLLAPSED_LINES * REASONING_CHARS_PER_LINE;
-
-/** 折叠预览按固定字数截断。没有换行时也不能把全文放进页面。 */
-function collapsedActivityPreview(text: string, cacheKey: object): string {
-  const source = String(text || "");
-  const cached = collapsedActivityPreviewCache.get(cacheKey);
-  if (cached && cached.source === source) return cached.preview;
-  const preview = source.slice(0, COLLAPSED_ACTIVITY_PREVIEW_CHARS);
-  collapsedActivityPreviewCache.set(cacheKey, { source, preview });
-  return preview;
-}
+/** 思维链滚动区的高度行数（与 .ecall-reasoning-scroll-limit 的 max-height 一致）。 */
+const REASONING_SCROLL_LINES = 30;
 
 /**
- * 纯文本分支只留给流式展开：文本每帧都在变，每帧重解析不值得。
- * 不按字数降级——行内解析器是单趟扫描，18 万字实测解析 8.6ms、连同 VNode 构建 26ms，
- * 一次性展开完全扛得住，用长度闸门反而把正常内容挡在富文本外面。
+ * 流式中的思维链走纯文本：文本每帧都在变，每帧重解析不值得。
+ * 与展开态无关——思维链已经是常驻滚动区，没有「展开」这个状态了。
  */
 function activityItemPlainBody(item: ChatActivityItem): boolean {
-  return item.kind === "reasoning" && item.running === true && activityItemExpanded(item);
+  return item.kind === "reasoning" && item.running === true;
 }
 
-function activityItemBodyText(item: ChatActivityItem): string {
-  const text = activityItemText(item);
-  if (item.kind !== "reasoning") return text;
-  if (!activityItemExpanded(item)) return collapsedActivityPreview(text, item);
-  return text;
-}
-
-/** 长纯文本展开时按行切块，单块约 2000 字。块数按内容缓存，流式中每次只比对源文本。 */
+/** 长纯文本按行切块，单块约 2000 字。块数按内容缓存，流式中每次只比对源文本。 */
 const PLAIN_CHUNK_TARGET_CHARS = 2000;
 const plainChunkCache = new WeakMap<object, { source: string; chunks: { index: number; text: string }[] }>();
 
 function activityItemPlainChunks(item: ChatActivityItem): { index: number; text: string }[] {
-  const source = activityItemBodyText(item);
+  const source = activityItemText(item);
   const cached = plainChunkCache.get(item);
   if (cached && cached.source === source) return cached.chunks;
   const chunks: { index: number; text: string }[] = [];
@@ -597,15 +510,19 @@ function liveActivityTextSignature(text: string): string {
 /** 已闭合条目只保留身份。正在生长的条目用常量级签名，不哈希全文。 */
 function activityItemMemo(item: ChatActivityItem, isLast: boolean): unknown[] {
   const expanded = activityItemExpanded(item);
+  // 思维链上下渐隐由实测滚动位置决定，必须进依赖，否则量出结果也不会重渲染。
+  // 编码成两位串：只有 bottom 变 both 时布尔值没变，但类名变了。
+  const fade = item.kind === "reasoning" ? reasoningFade[activityItemKey(item)] : undefined;
+  const fadeKey = fade ? `${fade.top ? 1 : 0}${fade.bottom ? 1 : 0}` : "";
   // isLast 必须进依赖：末条追加新条目后会被翻转成非末条，要补上竖线与末尾留白行
   if (item.kind === "tool") {
     return [activityItemKey(item), item.status || "", textContentSignature(item.argsText), textContentSignature(item.resultText), isLast];
   }
-  if (!item.running) return [activityItemKey(item), expanded, isLast];
-  return [activityItemKey(item), expanded, liveActivityTextSignature(activityItemText(item)), isLast];
+  if (!item.running) return [activityItemKey(item), expanded, fadeKey, isLast];
+  return [activityItemKey(item), expanded, fadeKey, liveActivityTextSignature(activityItemText(item)), isLast];
 }
 
-/** 条目有没有正文可显示。与「还有没有折叠起来的内容」是两件事：短思维链要显示正文，但不该给展开箭头。 */
+/** 条目有没有正文可显示。思维链只要有内容就显示，工具条目看参数或结果在不在。 */
 function activityItemHasBody(item: ChatActivityItem): boolean {
   if (item.kind === "reasoning") return !!activityItemText(item).trim();
   if (item.kind === "tool") {
@@ -620,14 +537,7 @@ function activityItemCanExpand(item: ChatActivityItem): boolean {
   if (!activityItemHasBody(item)) return false;
   // 工具条目有正文就能展开：参数或结果总有一块可看
   if (item.kind === "tool") return true;
-  if (item.kind === "reasoning") {
-    const text = activityItemText(item).trim();
-    // 折叠态是 line-clamp 4 行：文字没超过 4 行时，展开与不展开看到的是同一段，
-    // 这种条目不该给箭头。换行直接占行，先按行数判，再按字数估。
-    if (text.split("\n").length > REASONING_COLLAPSED_LINES) return true;
-    return text.length > REASONING_EXPAND_MIN_CHARS;
-  }
-  // 正文条目不给展开入口：折叠块里的正文只露头一小截
+  // 思维链是常驻滚动区，没有展开入口；正文条目也只露头一小截，同样不给
   return false;
 }
 
@@ -863,16 +773,6 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
   toolDetailPartsCache.set(item, { stamp, parts });
   return parts;
 }
-
-onBeforeUnmount(() => {
-  // 卸载时把监听与吸顶状态一并收回，避免滚动区里留下悬空回调
-  stickyObserverMap.forEach((observer) => observer.disconnect());
-  stickyObserverMap.clear();
-  for (const key of reasoningItemStuckKeys.value) {
-    emit("reasoningStuckChange", { key, stuck: false });
-  }
-  reasoningItemStuckKeys.value = new Set();
-});
 </script>
 
 <style scoped>
@@ -906,38 +806,50 @@ onBeforeUnmount(() => {
   transform: rotate(90deg);
 }
 
-.ecall-reasoning-sticky-fade {
-  /* 用遮罩淡出，避免渐变插值到 transparent 时混进黑色 */
-  background-color: var(--color-base-200);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+/* 思维链滚动区：高度 = 行数 × 1.5 行高，行数由 REASONING_SCROLL_LINES 注入到
+   --ecall-reasoning-max-h。规则要落到 OverlayScrollArea 内部的 scroller 上，
+   只能从本组件根节点往下穿透。
+   font-size 显式钉住 0.75rem：em 的基准是元素自身字号，scroller 若继承到别的字号，
+   calc 出来的高度就和正文壳的行高对不上。 */
+:deep(.ecall-reasoning-scroll-limit) {
+  font-size: 0.75rem;
+  max-height: var(--ecall-reasoning-max-h);
 }
 
-.ecall-reasoning-body--clamped {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  overflow: hidden;
-  position: relative;
-  /* 双保底：4lh 就是当前行高的 4 倍，行高档位变了不用同步这里 */
-  max-height: 4lh;
+/* 上下边缘渐隐跟着滚动位置走，类名由 JS 按实测的 scrollTop 挂上来。
+   直接对文字做 mask，不用猜气泡底色；内容不够高时三种类都不挂，一个字都不淡。
+   渐隐区约一行半，遮住滚出去的那截，中间态两头都收。 */
+:deep(.ecall-reasoning-fade-bottom) {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5em), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5em), transparent 100%);
 }
 
-.ecall-reasoning-body--expanded {
-  max-height: none;
-  overflow: visible;
+:deep(.ecall-reasoning-fade-top) {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 1.5em);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 1.5em);
+}
+
+:deep(.ecall-reasoning-fade-both) {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 1.5em,
+    #000 calc(100% - 1.5em),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 1.5em,
+    #000 calc(100% - 1.5em),
+    transparent 100%
+  );
 }
 
 /* 长文本分块：屏外块跳过布局与绘制，滚动条长度用最近一次渲染尺寸估 */
 .ecall-reasoning-plain-chunk {
   content-visibility: auto;
   contain-intrinsic-size: auto 1.5em;
-}
-
-.ecall-reasoning-clamped-fade {
-  background-color: var(--color-base-200);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 100%);
-  mask-image: linear-gradient(to bottom, transparent 0%, #000 100%);
 }
 
 /* 工具参数区滚动边缘淡出：只做 mask 渐变，底色由 Tailwind 类给，
