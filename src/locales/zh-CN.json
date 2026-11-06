@@ -2090,7 +2090,7 @@
       "title": "队员",
       "close": "关闭队员会话",
       "empty": "队伍里还没有队员",
-      "blockTitle": "队员状态",
+      "blockTitle": "队伍",
       "more": "更多",
       "busy": "正在运行",
       "workingOn": "负责 {issue}",

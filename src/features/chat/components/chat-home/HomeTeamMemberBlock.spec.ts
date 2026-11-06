@@ -52,7 +52,7 @@ describe("HomeTeamMemberBlock", () => {
 
   it("标题行左边是区块标题，右上是「更多」", async () => {
     const html = await renderBlock([busy("m1", "李工")]);
-    expect(html).toContain("队员状态");
+    expect(html).toContain("队伍");
     expect(html).toContain("更多");
   });
 

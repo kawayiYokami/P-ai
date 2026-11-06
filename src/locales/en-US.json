@@ -1954,7 +1954,7 @@
       "title": "Team members",
       "close": "Close team member chat",
       "empty": "No team members yet",
-      "blockTitle": "Team status",
+      "blockTitle": "Team",
       "more": "More",
       "busy": "Running",
       "workingOn": "Owns {issue}",
