@@ -9,8 +9,8 @@
       :title="modelValue ? t('gitPanel.expand') : t('gitPanel.collapse')"
       @click.stop="$emit('update:modelValue', !modelValue)"
     >
-      <ChevronDown v-if="!modelValue" class="h-3.5 w-3.5 opacity-70" />
-      <ChevronRight v-else class="h-3.5 w-3.5 opacity-70" />
+      <AppIcon name="chevron-down" v-if="!modelValue" class="h-3.5 w-3.5 opacity-70" />
+      <AppIcon name="chevron-right" v-else class="h-3.5 w-3.5 opacity-70" />
     </button>
     <slot />
     <span class="flex-1"></span>
@@ -23,7 +23,7 @@
 </template>
 
 <script setup lang="ts">
-import { ChevronDown, ChevronRight } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { useI18n } from "vue-i18n";
 
 defineProps<{ modelValue: boolean }>();

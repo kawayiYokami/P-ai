@@ -2,7 +2,7 @@
   <div class="relative flex h-screen min-h-0 flex-col bg-base-100 text-base-content">
     <header class="flex h-10 shrink-0 items-end gap-2 bg-base-200 px-2" data-tauri-drag-region>
       <button class="btn btn-ghost btn-sm shrink-0" type="button" :title="t('fileReader.openFile')" @click.stop="pickFile">
-        <FilePlus class="h-4 w-4" />
+        <AppIcon name="file-plus" class="h-4 w-4" />
       </button>
       <div class="flex min-w-0 flex-1 items-end gap-1 overflow-hidden" data-tauri-drag-region>
         <div
@@ -19,7 +19,7 @@
           @keydown.space.prevent="fileReaderPanelRef?.setActiveTab(tab.path)"
           @contextmenu.prevent.stop="openTabMenu(tab.path, $event.clientX, $event.clientY)"
         >
-          <FileText class="h-4 w-4 shrink-0 opacity-70" />
+          <AppIcon name="file-text" class="h-4 w-4 shrink-0 opacity-70" />
           <span class="min-w-0 flex-1 truncate font-medium">{{ tab.title }}</span>
           <button
             type="button"
@@ -27,18 +27,18 @@
             :title="t('fileReader.close')"
             @click.stop="fileReaderPanelRef?.closeTab(tab.path)"
           >
-            <X class="h-3.5 w-3.5" />
+            <AppIcon name="close" class="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
       <button class="btn btn-ghost btn-sm shrink-0" type="button" title="最小化" @click.stop="minimizeWindow">
-        <Minus class="h-3.5 w-3.5" />
+        <AppIcon name="minus" class="h-3.5 w-3.5" />
       </button>
       <button class="btn btn-ghost btn-sm shrink-0" type="button" :title="maximized ? '还原窗口' : '最大化'" @click.stop="toggleMaximizeWindow">
-        <Square class="h-3.5 w-3.5" />
+        <AppIcon name="square" class="h-3.5 w-3.5" />
       </button>
       <button class="btn btn-sm btn-ghost shrink-0 hover:bg-error" type="button" :title="t('fileReader.close')" @click.stop="closeWindow">
-        <X class="h-3.5 w-3.5" />
+        <AppIcon name="close" class="h-3.5 w-3.5" />
       </button>
     </header>
 
@@ -50,7 +50,7 @@
       @contextmenu.prevent.stop
     >
       <button type="button" class="btn btn-ghost btn-sm justify-start" @click.stop="closeCurrentTabFromMenu">
-        <X class="size-4" />
+        <AppIcon name="close" class="size-4" />
         <span>{{ t('fileReader.close') }}</span>
       </button>
       <button
@@ -104,7 +104,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { FilePlus, FileText, Minus, Square, X } from "@lucide/vue";
+import AppIcon from "../../features/shared/components/AppIcon.vue";
 import { useI18n } from "vue-i18n";
 import FileReaderPanel from "../../features/file-reader/components/FileReaderPanel.vue";
 import { directoryFromPath } from "../../features/file-reader/utils";

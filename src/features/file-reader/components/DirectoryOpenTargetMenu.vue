@@ -19,19 +19,19 @@
             alt=""
             class="h-4 w-4 shrink-0 object-contain"
           />
-          <SquareTerminal v-else-if="item.type === 'shell'" class="h-4 w-4 shrink-0" />
-          <Code2 v-else-if="item.type === 'vscode'" class="h-4 w-4 shrink-0" />
-          <Folders v-else class="h-4 w-4 shrink-0" />
+          <AppIcon name="square-terminal" v-else-if="item.type === 'shell'" class="h-4 w-4 shrink-0" />
+          <AppIcon name="code" v-else-if="item.type === 'vscode'" class="h-4 w-4 shrink-0" />
+          <AppIcon name="folders" v-else class="h-4 w-4 shrink-0" />
           <span class="min-w-0 truncate">{{ item.label }}</span>
         </span>
-        <Check v-if="selectedKind === item.kind" class="h-4 w-4 shrink-0" />
+        <AppIcon name="check" v-if="selectedKind === item.kind" class="h-4 w-4 shrink-0" />
       </button>
     </li>
   </ul>
 </template>
 
 <script setup lang="ts">
-import { Check, Code2, Folders, SquareTerminal } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { DirectoryOpenTargetOption } from "../composables/use-directory-open-targets";
 
 withDefaults(defineProps<{
