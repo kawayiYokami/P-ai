@@ -181,7 +181,6 @@
                           :can-confirm-plan="canConfirmPlan(item.block)"
                           :current-workspace-root-path="currentWorkspaceRootPath"
                           :current-theme="currentTheme"
-                          :collapse-activity-signal="collapseActivitySignal"
                           :disable-recall-and-branch-actions="activeConversationIsSystemNotification"
                           @create-conversation-branch-from-turn="$emit('createConversationBranchFromTurn', $event)"
                           @recall-turn="$emit('recallTurn', $event)" @regenerate-turn="$emit('regenerateTurn', $event)"
@@ -3909,30 +3908,24 @@ const latestAssistantBlockId = computed(() => {
 });
 
 // 思维链的展开状态是消息组件内部的 UI 状态，父级读不到，只能由它上报后在这里记账。
-// 不同消息只能展开一个：谁打开就收起别的消息（信号带 blockId，丝毫不碰条目级互斥）。
-const expandedActivityBlockId = ref("");
-const collapseActivitySignal = ref("");
+// 多条消息可以同时展开，这里只记录哪些块开着，供流式预览条判断。
+const expandedActivityBlockIds = ref<Record<string, boolean>>({});
 
-function handleActivityToggle(payload: { blockId: string; open: boolean; expandedKey?: string }) {
-  if (!payload.open) {
-    if (expandedActivityBlockId.value === payload.blockId) expandedActivityBlockId.value = "";
-    return;
-  }
+function handleActivityToggle(payload: { blockId: string; open: boolean }) {
   const blockId = String(payload.blockId || "").trim();
   if (!blockId) return;
-  expandedActivityBlockId.value = blockId;
-  // 同一条内的条目级互斥由消息组件自己收，外面只广播“别的消息都收”，
-  // 信号里带上 expandedKey，让本条收到时能把展开位钉回上报的那个。
-  const key = String(payload.expandedKey || "").trim();
-  collapseActivitySignal.value = key ? `${blockId}|${key}` : `${blockId}|`;
+  const next = { ...expandedActivityBlockIds.value };
+  if (payload.open) next[blockId] = true;
+  else delete next[blockId];
+  expandedActivityBlockIds.value = next;
 }
 
 // 正在流式的那条消息思维链已展开：用户已经在看思维链，预览条不再预览，退化成回到底部
 const thinkingPreviewCollapsed = computed(
   () =>
     !!props.chatting &&
-    expandedActivityBlockId.value !== "" &&
-    expandedActivityBlockId.value === latestAssistantBlockId.value,
+    latestAssistantBlockId.value !== "" &&
+    expandedActivityBlockIds.value[latestAssistantBlockId.value] === true,
 );
 
 function scrollToUserMessageTarget(target: { index: number; item: ChatRenderItem }) {

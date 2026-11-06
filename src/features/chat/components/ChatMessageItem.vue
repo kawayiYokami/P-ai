@@ -500,7 +500,6 @@ const props = defineProps<{
   compactWithPrevious: boolean;
   canRegenerate: boolean;
   canConfirmPlan: boolean;
-  collapseActivitySignal?: string;
   currentWorkspaceRootPath?: string;
   currentTheme?: string;
   disableRecallAndBranchActions?: boolean;
@@ -521,7 +520,7 @@ const emit = defineEmits<{
   (e: "openImagePreview", image: { mime?: string; bytesBase64?: string; dataUrl?: string; localPath?: string; src?: string; alt?: string }): void;
   (e: "toggleAudioPlayback", payload: { id: string; audio: { mime: string; bytesBase64?: string; mediaRef?: string } }): void;
   (e: "assistantLinkClick", event: MouseEvent): void;
-  (e: "activityToggle", payload: { blockId: string; open: boolean; expandedKey?: string }): void;
+  (e: "activityToggle", payload: { blockId: string; open: boolean }): void;
   (e: "reasoningStuckChange", payload: { key: string; stuck: boolean }): void;
 }>();
 
@@ -561,30 +560,13 @@ const activityTimelineState = reactive({
 });
 /** 工具结果按需加载要的消息定位：优先用源消息 id，回落到块 id。 */
 const activityMessageId = computed(() => String(props.block.sourceMessageId || props.block.id || "").trim());
-// 不同消息只能展开一个：活动面板打开时由父级记账，别的消息打开就收起这一条。
-// expandedKey 只在条目级互斥上报时带，顶层面板开关不带，避免误收条目。
-const collapseActivitySignal = computed(() => String(props.collapseActivitySignal || "").trim());
-watch(collapseActivitySignal, (signal) => {
-  if (!signal) return;
-  const [blockId, expandedKey] = signal.split("|");
-  if (String(blockId || "").trim() !== String(props.block.id || "").trim()) {
-    closeActivityDetails(true);
-    activityTimelineState.expandedOverrides = {};
-    return;
-  }
-  const key = String(expandedKey || "").trim();
-  if (!key) return;
-  // 同一条：只留上报的那个展开位
-  activityTimelineState.expandedOverrides = { [key]: true };
-});
-
-/** 时间线里点开了某个条目：把互斥信号原样往上抛，由会话层广播「别的消息都收」。 */
-function onTimelineItemExpanded(payload: { key: string; expanded: boolean }): void {
+/** 时间线里点开了某个条目：告诉会话层这条消息的活动面板打开了。
+ * 消息之间、条目之间都不互斥，所以不往外传任何收起信号。 */
+function onTimelineItemExpanded(payload: { expanded: boolean }): void {
   if (!payload.expanded) return;
   emit("activityToggle", {
     blockId: String(props.block.id || ""),
     open: true,
-    expandedKey: payload.key,
   });
 }
 

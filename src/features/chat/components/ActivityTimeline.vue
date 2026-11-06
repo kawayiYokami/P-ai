@@ -85,44 +85,29 @@
             class="min-w-0 pb-1.5"
             :class="activityItemExpanded(item) ? 'pr-4' : ''"
           >
-            <!-- 正文外壳：折叠态限高约 4 行预览并加底部 base-200 淡出；展开态限高滚动 -->
+            <!-- 正文外壳：折叠态限高约 4 行预览并加底部 base-200 淡出；展开态直接铺全文，不再套内部滚动区 -->
             <div
-              class="ecall-reasoning-body-shell relative min-w-0 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
+              class="ecall-reasoning-body-shell relative min-w-0 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed pr-3"
               :class="[
                 activityItemDetailClass(item),
-                activityItemExpanded(item) ? 'ecall-reasoning-body--expanded' : 'ecall-reasoning-body--clamped pr-3',
+                activityItemExpanded(item) ? 'ecall-reasoning-body--expanded' : 'ecall-reasoning-body--clamped',
                 !activityItemExpanded(item) && activityItemCanExpand(item) ? 'cursor-pointer' : '',
               ]"
               @click="onReasoningClampedBodyClick(item)"
             >
-              <OverlayScrollArea v-if="activityItemExpanded(item)" scroller-class="max-h-80 pr-2" overscroll="auto">
-                <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
-                <template v-else>
-                  <!-- 长文本按行切块：每块独立排版，配合 content-visibility 跳过屏外块的布局 -->
-                  <div
-                    v-for="chunk in activityItemPlainChunks(item)"
-                    :key="chunk.index"
-                    class="ecall-reasoning-plain-chunk"
-                  >{{ chunk.text }}</div>
-                </template>
-              </OverlayScrollArea>
+              <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
               <template v-else>
-                <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemBodyText(item)" />
-                <template v-else>{{ activityItemBodyText(item) }}</template>
+                <!-- 长文本按行切块：每块独立排版，配合 content-visibility 跳过屏外块的布局 -->
+                <div
+                  v-for="chunk in activityItemPlainChunks(item)"
+                  :key="chunk.index"
+                  class="ecall-reasoning-plain-chunk"
+                >{{ chunk.text }}</div>
               </template>
 
-              <!-- 展开态：上下各一条 0.5rem 淡出，滚到边缘时压住内容 -->
-              <template v-if="activityItemExpanded(item)">
-                <div
-                  class="ecall-reasoning-sticky-fade absolute inset-x-0 top-0 h-2 pointer-events-none"
-                />
-                <div
-                  class="ecall-reasoning-clamped-fade absolute inset-x-0 bottom-0 h-2 pointer-events-none"
-                />
-              </template>
               <!-- 折叠态底部 base-200 淡出遮罩 -->
               <div
-                v-else
+                v-if="!activityItemExpanded(item)"
                 class="ecall-reasoning-clamped-fade absolute inset-x-0 bottom-0 h-2 pointer-events-none"
               />
             </div>
@@ -418,8 +403,8 @@ function activityItemExpanded(item: ChatActivityItem): boolean {
 function applyExpandedChange(item: ChatActivityItem, expanded: boolean): void {
   const key = activityItemKey(item);
   if (expanded) {
-    // 同一条消息内只留一个展开位：点开谁就收起别的（思维/工具互斥）
-    props.state.expandedOverrides = { [key]: true };
+    // 条目之间互不干扰：同一条消息里可以同时展开思维链和工具详情
+    props.state.expandedOverrides = { ...props.state.expandedOverrides, [key]: true };
     emit("itemExpanded", { key, expanded: true });
     return;
   }
