@@ -1,5 +1,5 @@
 import type { Ref } from "vue";
-import type { AssistantStreamBlock, ChatIngressPart, ChatMentionTarget, ChatMessage } from "../../../types/app";
+import type { ChatIngressPart, ChatMentionTarget, ChatMessage } from "../../../types/app";
 import type { TransportChannel } from "../../../services/tauri-api";
 import type { AssistantDeltaEvent, ContextUsageUpdatePayload } from "./use-chat-flow-events";
 import type { ConversationRuntimeStreamCacheSnapshot } from "./use-chat-flow-stream-cache";
@@ -51,8 +51,6 @@ export type UseChatFlowOptions = {
   }>;
   invokeStopChatMessage?: (input: {
     session: { apiConfigId: string; agentId: string; conversationId?: string };
-    partialAssistantText: string;
-    partialStreamBlocks: AssistantStreamBlock[];
   }) => Promise<{
     aborted: boolean;
     persisted: boolean;

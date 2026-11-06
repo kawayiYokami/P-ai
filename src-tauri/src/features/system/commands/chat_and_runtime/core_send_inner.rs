@@ -1397,17 +1397,32 @@ async fn send_chat_message_inner(
         emit_assistant_delta_app_event(state, cid, &assistant_delta_broadcast_event(&early_event));
     }
 
-    let default_chat_key = inflight_chat_key(
-        &effective_agent_id,
-        requested_conversation_id.as_deref(),
-    );
+    // 一次调度只有一个身份串：聊天中止句柄、工具中止句柄、已完成工具历史共用它。
+    //
+    // 远程应答委托原先走的是另一个形态（remote-im-reply-delegate::<id>），与工具句柄
+    // 登记用的会话形态不同形，于是停止按这个 key 既杀不到工具，也关联不到委托的取消通道。
+    // 这里统一成会话形态：`{agent}::{conversation}::remote_reply_delegate:{delegate_id}`。
     let chat_key = runtime_context
         .remote_im_reply_delegate_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|delegate_id| format!("remote-im-reply-delegate::{delegate_id}"))
-        .unwrap_or_else(|| default_chat_key.clone());
+        .and_then(|delegate_id| {
+            requested_conversation_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|conversation_id| {
+                    format!(
+                        "{}::{}::remote_reply_delegate:{}",
+                        effective_agent_id, conversation_id, delegate_id
+                    )
+                })
+        })
+        .unwrap_or_else(|| {
+            inflight_chat_key(&effective_agent_id, requested_conversation_id.as_deref())
+        });
+    let chat_session_key = chat_key.clone();
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     // 登记时带上本次调度的身份，停止请求按身份命中，不按会话猜。
     let stopped_before_start = register_inflight_chat_abort_handle(
@@ -1420,29 +1435,6 @@ async fn send_chat_message_inner(
     reset_inflight_completed_tool_history(state, &chat_key)?;
     let _ = abort_inflight_tool_abort_handle(state, &chat_key);
 
-    let chat_session_key = runtime_context
-        .remote_im_reply_delegate_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .and_then(|_| {
-            requested_conversation_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|conversation_id| {
-                    format!(
-                        "{}::{}::remote_reply_delegate:{}",
-                        effective_agent_id,
-                        conversation_id,
-                        runtime_context
-                            .remote_im_reply_delegate_id
-                            .as_deref()
-                            .unwrap_or_default()
-                    )
-                })
-        })
-        .unwrap_or_else(|| chat_key.clone());
     let chat_session_key_for_log = chat_session_key.clone();
     let selected_api_for_log = selected_api.clone();
     let resolved_api_for_log = resolved_api.clone();

@@ -1240,8 +1240,7 @@ mod web_native_capability_tests {
                 "agentId": "agent-1",
                 "conversationId": "conversation-1"
             },
-            "partialAssistantText": "visible text",
-            "partialStreamBlocks": []
+            "requestId": "request-1"
         });
         let rewind = serde_json::json!({
             "session": {

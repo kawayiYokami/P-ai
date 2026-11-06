@@ -64,14 +64,6 @@ describe("useChatFlowStop", () => {
       settleStreamingAssistantMessages.mock.invocationCallOrder[0],
     );
     expect(invokeStopChatMessage).toHaveBeenCalledWith(expect.objectContaining({
-      partialStreamBlocks: [expect.objectContaining({
-        reasoning: "先检查配置。",
-        tools: [expect.objectContaining({
-          toolCallId: "call-1",
-          name: "read_file",
-          resultText: "配置已读取",
-        })],
-      })],
       // 停止必须指认正在收流的那一个调度，不能只给会话。
       activationId: "activation-1",
       assistantMessageId: "assistant-1",

@@ -1,6 +1,5 @@
 import { invokeTauri, type TransportChannel } from "../../../services/tauri-api";
 import type {
-  AssistantStreamBlock,
   ChatIngressPart,
   ChatMentionTarget,
   ChatMessage,
@@ -37,8 +36,6 @@ export type SendChatMessageResult = {
 
 export type InvokeStopChatMessageInput = {
   session: ChatSendSession;
-  partialAssistantText: string;
-  partialStreamBlocks: AssistantStreamBlock[];
   /** 要终止的那一次调度：三者任一即可指认；全空表示前端也不知道在停谁。 */
   requestId?: string;
   activationId?: string;
@@ -95,8 +92,6 @@ export function invokeSendChatMessage({
 /** 聊天停止唯一入口：主聊天与侧边追问共用。 */
 export function invokeStopChatMessage({
   session,
-  partialAssistantText,
-  partialStreamBlocks,
   requestId,
   activationId,
   assistantMessageId,
@@ -108,8 +103,6 @@ export function invokeStopChatMessage({
         agentId: session.agentId,
         conversationId: session.conversationId || null,
       },
-      partialAssistantText,
-      partialStreamBlocks,
       requestId,
       activationId,
       assistantMessageId,

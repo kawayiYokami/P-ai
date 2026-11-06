@@ -103,6 +103,87 @@
         handle
     }
 
+    /// 停止命令不允许等待收尾。
+    ///
+    /// 状态组合是本轮已在跑（登记了 Running 句柄）+ 工具组正在执行 + 会话流式缓存里已有正文，
+    /// 这正是旧实现走 `for _ in 0..25 { sleep(100ms) }` 轮询的入口。
+    ///
+    /// 为什么不允许等：abort 之后协程的收口必然会发生（落盘 partial → 置 Idle → 清流式缓存），
+    /// 等它只是在用户按下停止之后白加延迟，还会把队列里的下一条一起拖住。停止只需要中止，
+    /// 不需要确认中止已经完成。
+    ///
+    /// 阈值取 50ms：正常路径实测个位数毫秒，50ms 留足 CI 抖动；旧实现第一轮 sleep 就 100ms，
+    /// 一开始就超。
+    #[test]
+    fn stop_chat_message_should_not_block_on_graceful_exit() {
+        let runtime = test_runtime();
+        runtime.block_on(async {
+            let state = test_chat_runtime_state();
+            let conversation_id = "conversation-stop-latency";
+            // 用与实现同一个解析入口算 key，避免测试自己猜 agent_id 而错过真正的在途轮次。
+            let agent_id = resolve_runtime_control_agent_id(
+                &state,
+                Some(""),
+                Some(conversation_id),
+            )
+            .unwrap_or_default();
+            let chat_key = inflight_chat_key(&agent_id, Some(conversation_id));
+
+            state
+                .inflight_chat_abort_handles
+                .lock()
+                .expect("lock inflight chat abort handles")
+                .insert(
+                    chat_key.clone(),
+                    InflightChatAbortEntry::Running {
+                        handle: new_inflight_abort_handle(),
+                        request_id: "req-stop-latency".to_string(),
+                        assistant_message_id: "assistant-stop-latency".to_string(),
+                    },
+                );
+            state
+                .inflight_tool_abort_handles
+                .lock()
+                .expect("lock inflight tool abort handles")
+                .insert(chat_key.clone(), new_inflight_abort_handle());
+
+            // 「有流式内容」这个条件也要成立：旧实现除了看请求字段，还会读该会话的流式缓存。
+            // 少这一条，守卫只守得住「有工具在跑」，守不住「有内容可等」——将来有人把等待
+            // 加回来、并改按缓存判空，这个测试仍会绿。
+            lock_conversation_runtime_slots(&state)
+                .expect("lock runtime slots")
+                .entry(conversation_id.to_string())
+                .or_default()
+                .stream_cache
+                .assistant_text = "已经流出来的正文".to_string();
+
+            let input = StopChatRequest {
+                session: SessionSelector {
+                    api_config_id: None,
+                    agent_id: agent_id.clone(),
+                    conversation_id: Some(conversation_id.to_string()),
+                },
+                // 停止不再依赖调用方回传的部分正文：收尾由后端自己读流式缓存完成。
+                request_id: Some("req-stop-latency".to_string()),
+                activation_id: None,
+                assistant_message_id: Some("assistant-stop-latency".to_string()),
+            };
+
+            let started = std::time::Instant::now();
+            let result = stop_chat_message_inner(input, &state)
+                .await
+                .expect("停止不应失败");
+            let elapsed = started.elapsed();
+            println!("[stop-latency] stop_chat_message_inner 耗时 = {elapsed:?}");
+
+            assert!(result.aborted, "应当中止到这一轮");
+            assert!(
+                elapsed < std::time::Duration::from_millis(50),
+                "停止命令不允许等待收尾，实测 {elapsed:?}"
+            );
+        });
+    }
+
     /// 构造一次停止请求要终止的调度身份。
     fn stop_identity(request_id: &str, assistant_message_id: &str) -> StopDispatchIdentity {
         StopDispatchIdentity {

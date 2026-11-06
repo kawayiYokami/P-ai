@@ -637,7 +637,13 @@ fn abort_remote_im_reply_delegate(
         runtimes.remove(delegate_id);
         runtime
     };
-    let chat_key = format!("remote-im-reply-delegate::{delegate_id}");
+    // 聊天句柄与工具句柄共用同一个身份串：一次调度只有一个身份。
+    // 委托形态是 `{agent}::{conversation}::remote_reply_delegate:{delegate_id}`，
+    // 与登记时用的 chat_key 完全一致，停止命令按同一个 key 就能同时命中两者。
+    let chat_key = format!(
+        "{}::{}::remote_reply_delegate:{}",
+        runtime.session_agent_id, runtime.conversation_id, delegate_id
+    );
     let aborted_chat = {
         let mut inflight = match state.inflight_chat_abort_handles.lock() {
             Ok(guard) => guard,
@@ -656,11 +662,7 @@ fn abort_remote_im_reply_delegate(
             false
         }
     };
-    let tool_key = format!(
-        "{}::{}::remote_reply_delegate:{}",
-        runtime.session_agent_id, runtime.conversation_id, delegate_id
-    );
-    let aborted_tool = match abort_inflight_tool_abort_handle(state, &tool_key) {
+    let aborted_tool = match abort_inflight_tool_abort_handle(state, &chat_key) {
         Ok(aborted) => aborted,
         Err(err) => {
             runtime_log_warn(format!(

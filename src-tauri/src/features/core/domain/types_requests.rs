@@ -94,10 +94,6 @@ struct SendChatRequest {
 #[serde(rename_all = "camelCase")]
 struct StopChatRequest {
     session: SessionSelector,
-    #[serde(default)]
-    partial_assistant_text: String,
-    #[serde(default)]
-    partial_stream_blocks: Vec<AssistantStreamBlock>,
     /// 要终止的那个调度实例的标识。停止不是「按会话广播」的信号，必须指认具体对象：
     /// - `request_id`：这一次提交/调度的请求号（提交期还没宣布轮次时也能指认）；
     /// - `activation_id`：轮次宣布后广播的激活号；

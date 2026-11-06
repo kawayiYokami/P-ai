@@ -1,9 +1,8 @@
 import type { Ref } from "vue";
 import type { AssistantStreamBlock, ChatMessage } from "../../../types/app";
-import { assistantContentBlocksFromMessage, assistantTextFromStreamBlocks } from "../../../utils/chat-message-semantics";
+import { assistantContentBlocksFromMessage } from "../../../utils/chat-message-semantics";
 import { assistantMessageHasCanonicalVisibleContent } from "./chat-message-state-machine";
 import type { RoundState } from "./use-chat-flow-types";
-import { readMessagePlainText } from "./use-chat-flow-utils";
 
 type UseChatFlowStopOptions = {
   chatting: Ref<boolean>;
@@ -13,8 +12,6 @@ type UseChatFlowStopOptions = {
   getConversationId?: () => string;
   invokeStopChatMessage?: (input: {
     session: { apiConfigId: string; agentId: string; conversationId?: string };
-    partialAssistantText: string;
-    partialStreamBlocks: AssistantStreamBlock[];
     requestId?: string;
     activationId?: string;
     assistantMessageId?: string;
@@ -154,7 +151,6 @@ export function useChatFlowStop(options: UseChatFlowStopOptions) {
   async function stopChat() {
     // 先冲刷流式文本缓冲，让最后一段正文进入消息状态，再冻结轮次。
     options.flushStreamTextBuffer();
-    const round = options.getRound();
     // 提交期（发送请求尚未返回）也要能打断：这段时间轮次还没建立，没有激活号可指认，
     // 用这次发送自己的请求号（traceId）指认它。停止不带任何「留给下一轮」的东西。
     // 这里不设前置门槛：前端无法可靠判断后端此刻在不在跑，
@@ -167,13 +163,6 @@ export function useChatFlowStop(options: UseChatFlowStopOptions) {
 
     const stopSession = options.getSession();
     const cid = options.getConversationId ? options.getConversationId() : "";
-    const activeMessageId = round.phase === "streaming" || round.phase === "queued" ? round.messageId : "";
-    const activeMessage = activeMessageId
-      ? options.allMessages.value.find((message) => String(message?.id || "") === activeMessageId)
-      : undefined;
-    const partialStreamBlocks = assistantContentBlocksFromMessage(activeMessage);
-    const partialAssistantText = readMessagePlainText(activeMessage)
-      || assistantTextFromStreamBlocks(partialStreamBlocks);
 
     // 提交期停止时该轮次尚未建立，sendChat 返回后会重新 setRound({phase:"queued"})。
     // 先记下这次发送的 gen，sendChat 侧据此跳过轮次复活。
@@ -189,8 +178,6 @@ export function useChatFlowStop(options: UseChatFlowStopOptions) {
       try {
         const result = await options.invokeStopChatMessage({
           session: cid ? { ...stopSession, conversationId: cid } : stopSession,
-          partialAssistantText,
-          partialStreamBlocks,
           // 停止 = 终止我正在收流的那一个调度：提交期用请求号指认，
           // 已经起流之后用激活号 + 本轮助理消息 id 指认。
           requestId: pendingRequestId || undefined,
@@ -203,7 +190,7 @@ export function useChatFlowStop(options: UseChatFlowStopOptions) {
         }
       } catch (error) {
         const et = stringifyStopError(error);
-        console.warn(`[聊天] 停止消息失败，apiConfigId=${stopSession.apiConfigId}，agentId=${stopSession.agentId}，len=${partialAssistantText.length}，错误=${et}`);
+        console.warn(`[聊天] 停止消息失败，apiConfigId=${stopSession.apiConfigId}，agentId=${stopSession.agentId}，错误=${et}`);
       }
     }
   }

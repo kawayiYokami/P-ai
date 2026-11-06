@@ -171,8 +171,6 @@ async fn acp_request_stop(
             agent_id: session.agent_id.clone(),
             conversation_id: Some(session.conversation_id.clone()),
         },
-        partial_assistant_text: String::new(),
-        partial_stream_blocks: Vec::new(),
         request_id: Some(turn.request_id.clone()),
         activation_id: None,
         assistant_message_id: None,

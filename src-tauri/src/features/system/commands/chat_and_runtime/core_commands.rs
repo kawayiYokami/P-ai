@@ -2261,9 +2261,15 @@ async fn stop_chat_message_inner(
             keys.push(chat_key.clone());
         }
         if let Some(cid) = requested_conversation_id.as_deref() {
-            let cid_suffix = format!("::{cid}");
+            // 三条匹配都带分隔符，只认「同一个会话」的句柄：
+            //   cid                    —— 没带 agent 的裸会话 id
+            //   agent::cid             —— 普通调度
+            //   agent::cid::子用途     —— 同一会话下派生的调度（远程应答委托等）
+            // 不能用 `contains(cid)`：会话 id 是短串时会命中别的会话的 key。
+            let suffix = format!("::{cid}");
+            let infix = format!("::{cid}::");
             for k in inflight.keys() {
-                if (k.ends_with(&cid_suffix) || k == cid || k.contains(cid)) && !keys.contains(k) {
+                if (k == cid || k.ends_with(&suffix) || k.contains(&infix)) && !keys.contains(k) {
                     keys.push(k.clone());
                 }
             }
@@ -2271,88 +2277,27 @@ async fn stop_chat_message_inner(
         keys
     };
 
-    // 判断是否有需要等待保存的流式内容
-    let has_streaming_content = {
-        let has_input_content = !input.partial_assistant_text.trim().is_empty()
-            || !input.partial_stream_blocks.is_empty();
-        if has_input_content {
-            true
-        } else if let Some(cid) = requested_conversation_id.as_deref() {
-            read_conversation_runtime_snapshot(state, cid)
-                .ok()
-                .map(|snap| {
-                    !snap.stream_cache.assistant_text.trim().is_empty()
-                        || !snap.stream_cache.stream_blocks.is_empty()
-                })
-                .unwrap_or(false)
-        } else {
-            false
-        }
-    };
-
-    // 仅当确实有工具调用在跑时，优雅等待才有意义：中止工具句柄会让工具调用立即失败，
-    // 生成协程随即走到收尾并落盘。纯文本流式期间工具句柄并不存在，
-    // 此时中止工具是空操作，等待只会白等 2.5 秒，必须直接硬打断。
-    let has_inflight_tool = {
-        let inflight = state
-            .inflight_tool_abort_handles
-            .lock()
-            .map_err(|_| "Failed to lock inflight tool abort handles".to_string())?;
-        inflight.contains_key(&chat_key)
-    };
-
-    // 两阶段打断：
-    // 1. 若已有流式内容且正有工具在执行，先中止工具并等待最多 2.5 秒，让生成协程优雅保存落盘；
-    // 2. 其余情况（未首回、429 退避睡眠中、纯文本流式、超时未退出）立即硬打断。
-    // 两种情况下，如果该会话当前没有已登记的运行句柄（轮次尚未开始），都会留下停止意图，
-    // 由随后登记的轮次消费，从而保证「任何时刻发出的停止都能落到具体的某一轮上」。
-    let aborted_chat = if has_streaming_content && has_inflight_tool && !matching_keys.is_empty() {
-        let _ = abort_inflight_tool_abort_handle(state, &chat_key);
-        let mut exited_gracefully = false;
-        for _ in 0..25 {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            let inflight = state
-                .inflight_chat_abort_handles
-                .lock()
-                .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
-            if !matching_keys.iter().any(|k| inflight.contains_key(k)) {
-                exited_gracefully = true;
-                break;
-            }
-        }
-        if exited_gracefully {
-            true
-        } else {
-            // 超时未退出：按会话中止当前正在运行的那一轮。
-            // 这里必须按 key 中止「此刻」运行的句柄，而不是停止发起时捕获的旧句柄：
-            // 旧轮可能已退出、新轮已接手，捕获的旧句柄再 abort 是空操作，
-            // 会导致「停止指令到了却什么都没停下」。
-            let mut any_aborted = false;
-            for k in &matching_keys {
-                if request_stop_inflight_chat(state, k, &stop_identity)? {
-                    any_aborted = true;
-                }
-            }
-            any_aborted
-        }
-    } else {
-        // 无流式内容，无需等待，直接按身份打断。
-        // 表里没有对得上的调度时，若这次停止带了请求号，就记下「取消这一次提交」，
-        // 由这一次提交登记句柄时消费一次；没带请求号则什么都不写——找不到对象就是空操作。
-        let mut stop_keys = matching_keys.clone();
-        if !stop_keys.iter().any(|k| k == &chat_key) {
-            stop_keys.push(chat_key.clone());
-        }
-        let mut any_aborted = false;
-        for k in &stop_keys {
-            if request_stop_inflight_chat(state, k, &stop_identity)? {
-                any_aborted = true;
-            }
-        }
-        any_aborted
-    };
-
+    // 停止只做一件事：立刻中止这一轮，不等它收尾。
+    //
+    // abort 取消的是包在 Abortable 里的那一轮 run；外层收尾（落盘 partial → 置 Idle →
+    // 清流式缓存）在 abort 之后照样会执行，毫秒级就走完。等它「优雅退出」，等的是一个
+    // 必然会发生的事件——那段 25×100ms 轮询只制造延迟，不提高任何正确性。
+    //
+    // 顺序不能颠倒：先中止工具句柄，让正在执行的工具当场失败、工具循环随之退出，
+    // 收尾才有内容可落；再按身份中止这一轮本身。
     let aborted_tool = abort_inflight_tool_abort_handle(state, &chat_key)?;
+    // 表里没有对得上的调度时，若这次停止带了请求号，就记下「取消这一次提交」，
+    // 由这一次提交登记句柄时消费一次；没带请求号则什么都不写——找不到对象就是空操作。
+    let mut stop_keys = matching_keys.clone();
+    if !stop_keys.iter().any(|k| k == &chat_key) {
+        stop_keys.push(chat_key.clone());
+    }
+    let mut aborted_chat = false;
+    for k in &stop_keys {
+        if request_stop_inflight_chat(state, k, &stop_identity)? {
+            aborted_chat = true;
+        }
+    }
     let aborted_delegate_children =
         abort_delegate_runtime_descendants_by_parent_context(
             state,
