@@ -2044,7 +2044,8 @@
     "taskConversationTab": "任务",
     "filePanelTab": "文件",
     "monitorPanelTab": "监控",
-    "moreTabs": "更多标签页",
+    "collapseTabs": "收起",
+    "moreTabsShort": "更多",
     "homePanel": {
       "title": "预览",
       "gitChanges": "Git 更改",

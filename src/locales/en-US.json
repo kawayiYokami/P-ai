@@ -1908,7 +1908,8 @@
     "taskConversationTab": "Tasks",
     "filePanelTab": "Files",
     "monitorPanelTab": "Monitor",
-    "moreTabs": "More Tabs",
+    "collapseTabs": "Collapse",
+    "moreTabsShort": "More",
     "homePanel": {
       "title": "Preview",
       "gitChanges": "Git changes",
