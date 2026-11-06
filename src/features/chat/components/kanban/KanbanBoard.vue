@@ -9,12 +9,12 @@
       <template v-if="showBack" #leading>
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square"
+          class="btn btn-ghost btn-sm btn-square shrink-0"
           :title="t('chat.kanban.backToTiles')"
           :aria-label="t('chat.kanban.backToTiles')"
           @click="emit('back')"
         >
-          <AppIcon name="layout-grid" class="size-3.5" aria-hidden="true" />
+          <AppIcon name="layout-grid" class="size-4" aria-hidden="true" />
         </button>
       </template>
 
@@ -24,13 +24,13 @@
         </span>
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square"
+          class="btn btn-ghost btn-sm btn-square shrink-0"
           :title="t('chat.kanban.refresh')"
           :aria-label="t('chat.kanban.refresh')"
           :disabled="loading"
           @click="emit('refresh')"
         >
-          <AppIcon name="refresh-cw" class="size-3.5" :class="loading ? 'animate-spin' : ''" aria-hidden="true" />
+          <AppIcon name="refresh-cw" class="size-4" :class="loading ? 'animate-spin' : ''" aria-hidden="true" />
         </button>
       </template>
     </PanelTabStrip>
