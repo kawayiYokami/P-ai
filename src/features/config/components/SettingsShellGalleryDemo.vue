@@ -7,7 +7,7 @@
     >
       <template #actions>
         <button class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3" type="button">
-          <RefreshCw class="h-4 w-4" />
+          <AppIcon name="refresh-cw" class="h-4 w-4" />
           <span>刷新</span>
         </button>
       </template>
@@ -28,7 +28,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { RefreshCw } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import SettingsPageShell from "./SettingsPageShell.vue";
 import type { UnderlineTabItem } from "../../shared/components/UnderlineTabs.vue";
 

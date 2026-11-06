@@ -8,7 +8,7 @@
           class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
           :placeholder="t('config.skill.searchPlaceholder')"
         />
-        <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+        <AppIcon name="search" class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
         <button
           v-if="searchQuery"
           type="button"
@@ -34,7 +34,7 @@
                 :title="t('config.skill.discardTitle')"
                 @click="discardChanges"
               >
-                <RotateCcw class="h-4 w-4" />
+                <AppIcon name="rotate-ccw" class="h-4 w-4" />
                 <span>{{ t("config.skill.discard") }}</span>
               </button>
               <button
@@ -46,7 +46,7 @@
                 @click="saveCurrentSkill"
               >
                 <span v-if="savingSkill" class="loading loading-spinner loading-xs"></span>
-                <Save v-else class="h-4 w-4" />
+                <AppIcon name="save" v-else class="h-4 w-4" />
                 <span>{{ savingSkill ? t("common.saving") : t("common.save") }}</span>
               </button>
             </template>
@@ -58,7 +58,7 @@
               :disabled="loading"
               :title="t('config.skill.openFolderHint')"
             >
-              <FolderOpen class="h-4 w-4" />
+              <AppIcon name="folder-open" class="h-4 w-4" />
               <span>{{ t("config.skill.openFolder") }}</span>
             </button>
             <button
@@ -68,7 +68,7 @@
               :disabled="loading"
               :title="t('common.refresh')"
             >
-              <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
+              <AppIcon name="refresh-cw" class="h-4 w-4" :class="{ 'animate-spin': loading }" />
               <span>{{ t("common.refresh") }}</span>
             </button>
             <button
@@ -78,7 +78,7 @@
               :disabled="loading"
               @click="confirmRemoveSkill(selectedSkill)"
             >
-              <Trash2 class="h-4 w-4" />
+              <AppIcon name="trash" class="h-4 w-4" />
               <span>{{ t("config.skill.delete") }}</span>
             </button>
           </div>
@@ -93,7 +93,7 @@
               @click="openSkillsDir"
               :disabled="loading"
             >
-              <FolderOpen class="h-4 w-4" />
+              <AppIcon name="folder-open" class="h-4 w-4" />
               <span>{{ t("config.skill.openWorkspace") }}</span>
             </button>
             <button
@@ -102,7 +102,7 @@
               @click="reload"
               :disabled="loading"
             >
-              <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
+              <AppIcon name="refresh-cw" class="h-4 w-4" :class="{ 'animate-spin': loading }" />
               <span>{{ t("common.refresh") }}</span>
             </button>
           </div>
@@ -119,7 +119,7 @@
             <div class="flex items-center gap-2">
               <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.skill.metadata") }}</span>
               <span v-if="selectedSkill.isBuiltin" class="badge badge-sm badge-neutral opacity-70 flex items-center gap-1">
-                <Lock class="h-3 w-3" />
+                <AppIcon name="lock" class="h-3 w-3" />
                 {{ t("config.skill.builtinReadonly") }}
               </span>
               <span v-if="selectedSkill.managed" class="badge badge-sm badge-neutral opacity-70">
@@ -136,7 +136,7 @@
               :title="t('config.skill.openFolderHint')"
               @click="openCurrentSkillDir"
             >
-              <FolderOpen class="h-3.5 w-3.5" />
+              <AppIcon name="folder-open" class="h-3.5 w-3.5" />
               <span>{{ t("config.skill.openFolder") }}</span>
             </button>
           </div>
@@ -164,7 +164,7 @@
                   {{ editingName || t("config.skill.unnamed") }}
                 </div>
                 <div v-if="!selectedSkill.isBuiltin" class="flex items-center gap-1 opacity-0 group-hover:opacity-70 transition-opacity ml-2 shrink-0">
-                  <Edit3 class="h-3.5 w-3.5 text-primary" />
+                  <AppIcon name="edit" class="h-3.5 w-3.5 text-primary" />
                   <span class="text-caption text-primary">{{ t("common.edit") }}</span>
                 </div>
               </div>
@@ -216,7 +216,7 @@
                   {{ editingDescription || t("config.skill.noDescriptionPlaceholder") }}
                 </div>
                 <div v-if="!selectedSkill.isBuiltin" class="flex items-center gap-1 opacity-0 group-hover:opacity-70 transition-opacity ml-2 mt-0.5 shrink-0">
-                  <Edit3 class="h-3.5 w-3.5 text-primary" />
+                  <AppIcon name="edit" class="h-3.5 w-3.5 text-primary" />
                   <span class="text-caption text-primary">{{ t("common.edit") }}</span>
                 </div>
               </div>
@@ -262,7 +262,7 @@
                 class="flex items-center justify-between gap-2.5 rounded border border-base-300 bg-base-200/30 p-2.5 hover:bg-base-200/60 transition-colors"
               >
                 <div class="flex items-center gap-2 min-w-0 flex-1">
-                  <component :is="getFileIcon(file.name)" class="h-4 w-4 shrink-0 text-primary opacity-80" />
+                  <AppIcon :name="getFileIcon(file.name)" class="h-4 w-4 shrink-0 text-primary opacity-80" />
                   <div class="min-w-0 flex-1">
                     <div class="text-xs font-medium truncate" :title="file.relativePath">
                       {{ file.name }}
@@ -279,7 +279,7 @@
                     :title="t('config.skill.viewFile')"
                     @click="previewAdditionalFile(file)"
                   >
-                    <Eye class="h-3.5 w-3.5" />
+                    <AppIcon name="eye" class="h-3.5 w-3.5" />
                     <span class="text-xs">{{ t("config.skill.viewFile") }}</span>
                   </button>
                   <button
@@ -288,7 +288,7 @@
                     :title="t('common.copy')"
                     @click="copySkillPath(file.relativePath)"
                   >
-                    <Copy class="h-3.5 w-3.5" />
+                    <AppIcon name="copy" class="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
@@ -317,7 +317,7 @@
                   type="button"
                   @click="contentMode = 'preview'"
                 >
-                  <Eye class="h-3.5 w-3.5 mr-1" />
+                  <AppIcon name="eye" class="h-3.5 w-3.5 mr-1" />
                   <span class="text-xs">{{ t("config.skill.previewMarkdown") }}</span>
                 </button>
                 <button
@@ -326,7 +326,7 @@
                   type="button"
                   @click="contentMode = 'edit'"
                 >
-                  <Edit3 class="h-3.5 w-3.5 mr-1" />
+                  <AppIcon name="edit" class="h-3.5 w-3.5 mr-1" />
                   <span class="text-xs">{{ t("config.skill.editText") }}</span>
                 </button>
               </div>
@@ -337,8 +337,8 @@
                 type="button"
                 @click="copySkillContent"
               >
-                <Check v-if="copiedContent" class="h-3.5 w-3.5 text-success" />
-                <Copy v-else class="h-3.5 w-3.5" />
+                <AppIcon name="check" v-if="copiedContent" class="h-3.5 w-3.5 text-success" />
+                <AppIcon name="copy" v-else class="h-3.5 w-3.5" />
                 <span class="text-xs">{{ copiedContent ? t("config.skill.copySuccess") : t("config.skill.copyAll") }}</span>
               </button>
             </div>
@@ -380,13 +380,13 @@
       <!-- 一级概览：卡片矩阵视图 -->
       <div v-else key="overview-grid" class="grid gap-5 pb-8">
         <div v-if="loading && skills.length === 0" class="flex items-center justify-center py-16 text-sm opacity-60">
-          <RefreshCw class="mr-2 h-4 w-4 animate-spin" />
+          <AppIcon name="refresh-cw" class="mr-2 h-4 w-4 animate-spin" />
           <span>{{ t("config.skill.loading") }}</span>
         </div>
 
         <div v-else-if="filteredSkills.length === 0" class="rounded-box border border-dashed border-base-300 p-8 text-center">
           <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-base-200 text-base-content/50">
-            <Code class="h-6 w-6" />
+            <AppIcon name="code" class="h-6 w-6" />
           </div>
           <div class="mt-3 text-sm font-medium">
             {{ searchQuery ? t("config.skill.noSearchMatch") : t("config.skill.noSkills") }}
@@ -399,7 +399,7 @@
               {{ t("config.skill.clearSearch") }}
             </button>
             <button v-if="localFileSystemAvailable" class="btn btn-sm bg-base-200" type="button" @click="openSkillsDir">
-              <FolderOpen class="h-3.5 w-3.5 mr-1" />
+              <AppIcon name="folder-open" class="h-3.5 w-3.5 mr-1" />
               {{ t("config.skill.openWorkspace") }}
             </button>
           </div>
@@ -410,7 +410,7 @@
           <div class="space-y-2.5">
             <div class="flex items-center justify-between px-0.5">
               <div class="flex items-center gap-2">
-                <Code class="h-4 w-4 text-primary" />
+                <AppIcon name="code" class="h-4 w-4 text-primary" />
                 <span class="text-sm font-semibold">{{ t("config.skill.customSkills") }}</span>
                 <span class="badge badge-sm badge-neutral">{{ userSkills.length }}</span>
               </div>
@@ -464,7 +464,7 @@
                       @keydown.space.stop
                       @change="toggleSkillEnabled(item)"
                     />
-                    <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                    <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
                   </div>
                 </div>
               </div>
@@ -485,11 +485,11 @@
               @keydown.space.prevent="builtinCollapsed = !builtinCollapsed"
             >
               <div class="flex items-center gap-2.5">
-                <ChevronRight
+                <AppIcon name="chevron-right"
                   class="h-4 w-4 text-base-content/60 transition-transform duration-200"
                   :class="{ 'rotate-90': !builtinCollapsed }"
                 />
-                <ShieldCheck class="h-4 w-4 text-primary opacity-80" />
+                <AppIcon name="shield-check" class="h-4 w-4 text-primary opacity-80" />
                 <span class="text-sm font-semibold">{{ t("config.skill.builtinSkills") }}</span>
                 <span class="badge badge-sm badge-neutral">{{ builtinSkills.length }}</span>
               </div>
@@ -545,7 +545,7 @@
                         @keydown.space.stop
                         @change="toggleSkillEnabled(item)"
                       />
-                      <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                      <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
                     </div>
                   </div>
                 </div>
@@ -565,7 +565,7 @@
       <div class="modal-box max-w-2xl p-4">
         <div class="flex items-center justify-between border-b border-base-300 pb-3">
           <div class="flex items-center gap-2 min-w-0">
-            <component :is="getFileIcon(previewFileName)" class="h-5 w-5 text-primary shrink-0" />
+            <AppIcon :name="getFileIcon(previewFileName)" class="h-5 w-5 text-primary shrink-0" />
             <div class="min-w-0">
               <h3 class="text-sm font-bold truncate">{{ previewFileName }}</h3>
               <p class="text-caption opacity-60 font-mono truncate">{{ previewFileRelPath }}</p>
@@ -600,8 +600,8 @@
               :disabled="!previewFileContent"
               @click="copyFilePreviewContent"
             >
-              <Check v-if="previewFileCopied" class="h-4 w-4 text-success" />
-              <Copy v-else class="h-4 w-4" />
+              <AppIcon name="check" v-if="previewFileCopied" class="h-4 w-4 text-success" />
+              <AppIcon name="copy" v-else class="h-4 w-4" />
               <span>{{ previewFileCopied ? t("config.skill.copySuccess") : t("config.skill.copyContent") }}</span>
             </button>
             <button class="btn btn-sm min-h-[2.25rem] h-9 px-5" type="button" @click="closeFilePreview">
@@ -618,27 +618,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Component } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import {
-  Check,
-  ChevronRight,
-  Code,
-  Copy,
-  Edit3,
-  Eye,
-  FileCode,
-  FileText,
-  Files,
-  FolderOpen,
-  Lock,
-  RefreshCw,
-  RotateCcw,
-  Save,
-  Search,
-  ShieldCheck,
-  Trash2,
-} from "@lucide/vue";
+import type { AppIconName } from "../../../shared/icons/icon-map";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import {
   getTransportCapabilities,
   invokeTauri,
@@ -971,15 +954,15 @@ function handleTextareaKeydown(event: KeyboardEvent) {
   }
 }
 
-function getFileIcon(fileName: string): Component {
+function getFileIcon(fileName: string): AppIconName {
   const lower = fileName.toLowerCase();
   if (lower.endsWith(".py") || lower.endsWith(".js") || lower.endsWith(".ts") || lower.endsWith(".sh") || lower.endsWith(".bat")) {
-    return FileCode;
+    return "file-code";
   }
   if (lower.endsWith(".md") || lower.endsWith(".txt") || lower.endsWith(".json") || lower.endsWith(".yaml") || lower.endsWith(".yml")) {
-    return FileText;
+    return "file-text";
   }
-  return Files;
+  return "files";
 }
 
 function formatFileSize(bytes: number): string {

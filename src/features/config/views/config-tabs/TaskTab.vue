@@ -12,7 +12,7 @@
       <template #group-actions-task-list>
         <div class="flex items-center gap-2">
           <button class="btn btn-sm bg-base-100" :disabled="listLoading" @click="loadTasks()">
-            <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': listLoading }" />
+            <AppIcon name="refresh-cw" class="h-4 w-4" :class="{ 'animate-spin': listLoading }" />
             {{ t("common.refresh") }}
           </button>
         </div>
@@ -133,7 +133,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { RefreshCw } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { formatIsoToLocalDateTime } from "../../../../utils/time";
 import type { AppConfig, PersonaProfile } from "../../../../types/app";

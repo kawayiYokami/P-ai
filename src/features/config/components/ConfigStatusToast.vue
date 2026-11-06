@@ -16,7 +16,7 @@
           :title="t('common.close')"
           @click="hide"
         >
-          <X class="h-3.5 w-3.5" />
+          <AppIcon name="close" class="h-3.5 w-3.5" />
         </button>
       </div>
     </div>
@@ -26,7 +26,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { X } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { StatusTone } from "../../shell/composables/use-app-core";
 
 const props = withDefaults(defineProps<{

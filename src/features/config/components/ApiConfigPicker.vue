@@ -21,7 +21,7 @@
       </span>
       <!-- 等级独立成段且不收缩：模型名再长也不会把它截掉 -->
       <span v-if="triggerEffort" class="ml-1 shrink-0 whitespace-nowrap text-base-content/70">· {{ triggerEffort }}</span>
-      <ChevronDown
+      <AppIcon name="chevron-down"
         :class="['h-3 w-3 shrink-0 opacity-50 transition-transform', variant === 'field' ? '' : 'ml-auto', dropdownOpen ? 'rotate-0' : 'rotate-180']"
         :size="variant === 'field' ? 16 : 12"
       />
@@ -77,7 +77,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ChevronDown } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { ApiConfigItem } from "../../../types/app";
 import ApiConfigSelectionMenu from "./ApiConfigSelectionMenu.vue";
 import ChatModelEffortAdjuster from "./ChatModelEffortAdjuster.vue";

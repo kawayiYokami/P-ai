@@ -8,12 +8,7 @@
       @click="toggleCalendar"
     >
       <span class="truncate">{{ dateButtonText }}</span>
-      <svg class="size-4 shrink-0 opacity-60" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M8 2v4"></path>
-        <path d="M16 2v4"></path>
-        <path d="M3 10h18"></path>
-        <rect x="3" y="4" width="18" height="18" rx="2"></rect>
-      </svg>
+      <AppIcon name="calendar" class="size-4 shrink-0 opacity-60" />
     </button>
 
     <div
@@ -57,6 +52,7 @@
 
 <script setup lang="ts">
 import "cally";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {

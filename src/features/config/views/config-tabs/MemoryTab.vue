@@ -245,7 +245,7 @@
       <template #group-actions-memory-list>
         <div class="join">
           <button class="btn btn-sm join-item btn-ghost" :disabled="loading" @click="refreshMemories" :title="t('sidebar.memoryRefresh')">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
+            <AppIcon name="rotate-cw" class="h-3.5 w-3.5" />
           </button>
           <MemoryExportCard class="join-item" @exported="handleMemoryExportDone" />
           <MemoryImportCard class="join-item" @imported="handleMemoryImportDone" />
@@ -262,8 +262,8 @@
               :title="memoryViewMode === 'detailed' ? t('sidebar.memoryToggleView') : t('sidebar.memoryToggleViewDetailed')"
               @click="toggleMemoryViewMode"
             >
-              <LayoutList v-if="memoryViewMode === 'detailed'" class="h-3.5 w-3.5" />
-              <List v-else class="h-3.5 w-3.5" />
+              <AppIcon name="layout-list" v-if="memoryViewMode === 'detailed'" class="h-3.5 w-3.5" />
+              <AppIcon name="list" v-else class="h-3.5 w-3.5" />
             </button>
             <button
               class="btn btn-sm bg-base-200 hover:bg-base-300 shrink-0"
@@ -272,7 +272,7 @@
               :title="t('sidebar.memoryFilter')"
               @click="toggleFilterPanel"
             >
-              <SlidersHorizontal class="h-3.5 w-3.5" />
+              <AppIcon name="sliders-horizontal" class="h-3.5 w-3.5" />
             </button>
             <div class="join min-w-0 flex-1">
               <div class="flex-auto min-w-0">
@@ -419,7 +419,7 @@
                             class="btn btn-sm btn-ghost btn-circle"
                             @click="deleteMemory(memory.id)"
                           >
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            <AppIcon name="trash" class="h-3.5 w-3.5" />
                           </button>
                         </h2>
 
@@ -451,7 +451,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { LayoutList, List, SlidersHorizontal } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";

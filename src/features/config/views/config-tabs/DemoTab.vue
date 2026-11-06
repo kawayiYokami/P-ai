@@ -455,7 +455,7 @@
             :disabled="restarting"
             @click="restartApp"
           >
-            <RotateCcw class="size-4" aria-hidden="true" />
+            <AppIcon name="rotate-ccw" class="size-4" aria-hidden="true" />
             {{ restarting ? t("config.demo.restarting") : t("config.demo.restartApp") }}
           </button>
         </div>
@@ -588,9 +588,9 @@
                     >
                       <summary class="collapse-title flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
                         <span class="inline-flex w-3 shrink-0 items-center justify-center leading-none text-success">
-                          <FileText v-if="tool.icon === 'file'" class="size-3" aria-hidden="true" />
-                          <SquareTerminal v-else-if="tool.icon === 'terminal'" class="size-3" aria-hidden="true" />
-                          <Wrench v-else class="size-3" aria-hidden="true" />
+                          <AppIcon name="file-text" v-if="tool.icon === 'file'" class="size-3" aria-hidden="true" />
+                          <AppIcon name="square-terminal" v-else-if="tool.icon === 'terminal'" class="size-3" aria-hidden="true" />
+                          <AppIcon name="wrench" v-else class="size-3" aria-hidden="true" />
                         </span>
                         <span class="min-w-0 flex-1 truncate text-base-content/75">
                           {{ tool.name }}
@@ -637,11 +637,11 @@
               <template #footer>
                 <span v-if="message.footer">{{ message.footer }}</span>
                 <span v-if="!message.streaming" class="inline-flex items-center gap-1">
-                  <Copy class="size-3" aria-hidden="true" />
+                  <AppIcon name="copy" class="size-3" aria-hidden="true" />
                   复制
                 </span>
                 <span v-if="!message.streaming && message.canRecall" class="inline-flex items-center gap-1">
-                  <Undo2 class="size-3" aria-hidden="true" />
+                  <AppIcon name="undo" class="size-3" aria-hidden="true" />
                   撤回
                 </span>
               </template>
@@ -799,7 +799,7 @@
 </template>
 
 <script setup lang="ts">
-import { Copy, FileText, RotateCcw, SquareTerminal, Undo2, Wrench } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import KanbanBoardPanel from "../../../chat/components/kanban/KanbanBoardPanel.vue";
 import HomeKanbanCard from "../../../chat/components/chat-home/HomeKanbanCard.vue";
@@ -1814,12 +1814,12 @@ const initialDemoPanelTabs: PanelTabStripItem[] = [
 const demoPanelTabs = ref<PanelTabStripItem[]>([...initialDemoPanelTabs]);
 
 const initialDemoPanelFileTabs: PanelTabStripItem[] = [
-  { key: "readme", label: "README.md", icon: FileText, closeable: true },
-  { key: "tabstrip", label: "PanelTabStrip.vue", icon: FileText, closeable: true },
-  { key: "overflow", label: "use-panel-tab-overflow.ts", icon: FileText, closeable: true },
-  { key: "package", label: "package.json", icon: FileText, closeable: true },
-  { key: "cargo", label: "Cargo.toml", icon: FileText, closeable: true },
-  { key: "vite", label: "vite.config.ts", icon: FileText, closeable: true },
+  { key: "readme", label: "README.md", icon: "file-text", closeable: true },
+  { key: "tabstrip", label: "PanelTabStrip.vue", icon: "file-text", closeable: true },
+  { key: "overflow", label: "use-panel-tab-overflow.ts", icon: "file-text", closeable: true },
+  { key: "package", label: "package.json", icon: "file-text", closeable: true },
+  { key: "cargo", label: "Cargo.toml", icon: "file-text", closeable: true },
+  { key: "vite", label: "vite.config.ts", icon: "file-text", closeable: true },
 ];
 
 const demoPanelFileTabs = ref<PanelTabStripItem[]>([...initialDemoPanelFileTabs]);

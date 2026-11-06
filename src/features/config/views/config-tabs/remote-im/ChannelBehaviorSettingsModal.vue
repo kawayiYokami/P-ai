@@ -6,7 +6,7 @@
     :disabled="!channel"
     @click="openModal"
   >
-    <SlidersHorizontal class="h-4 w-4" />
+    <AppIcon name="sliders-horizontal" class="h-4 w-4" />
     <span>{{ t('config.remoteIm.channelBehaviorSettings') }}</span>
   </button>
 
@@ -174,7 +174,7 @@
           <button type="button" class="btn btn-ghost" :disabled="saving || !savedSnapshot" @click="restoreSaved">{{ t('config.remoteIm.restoreBehaviorSaved') }}</button>
           <button type="button" class="btn btn-primary" :disabled="saving || !dirty || !!validationError" @click="save">
             <span v-if="saving" class="loading loading-spinner loading-xs"></span>
-            <Save v-else class="h-3.5 w-3.5" />{{ t('common.save') }}
+            <AppIcon name="save" v-else class="h-3.5 w-3.5" />{{ t('common.save') }}
           </button>
         </footer>
     </div>
@@ -186,7 +186,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { Save, SlidersHorizontal } from "@lucide/vue";
+import AppIcon from "../../../../shared/components/AppIcon.vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../../services/tauri-api";
 import type { RemoteImChannelBehaviorSettings, RemoteImChannelConfig, RemoteImGroupReplyPacing } from "../../../../../types/app";

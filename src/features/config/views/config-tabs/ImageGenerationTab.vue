@@ -16,7 +16,7 @@
       <ConfigCard :title="t('config.api.modelCards')">
         <template #actions>
           <button class="btn btn-sm" type="button" :title="t('config.imageGeneration.addModel')" @click="addModel">
-            <Plus class="h-4 w-4" />
+            <AppIcon name="plus" class="h-4 w-4" />
             <span>{{ t("config.imageGeneration.addModel") }}</span>
           </button>
         </template>
@@ -26,7 +26,7 @@
               <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0 flex-1 truncate text-base font-semibold">{{ model.name || model.model || model.id }}</div>
                 <button class="btn btn-square btn-ghost btn-sm text-error" type="button" :title="t('common.delete')" @click="removeModel(model.id)">
-                  <Trash2 class="h-4 w-4" />
+                  <AppIcon name="trash" class="h-4 w-4" />
                 </button>
               </div>
               <label class="mt-3 grid gap-1">
@@ -37,7 +37,7 @@
                 <span class="text-sm font-medium">{{ t("config.api.model") }}</span>
                   <div class="join w-full">
                     <input v-model="model.model" class="input input-bordered input-sm join-item flex-1 font-mono" :placeholder="model.id" @blur="syncImageModelIdentifier(model)" @keydown.enter.prevent="syncImageModelIdentifier(model)" />
-                    <button class="btn btn-sm join-item bg-base-300" type="button" @click="toggleImageModelPicker(model.id)"><ChevronDown class="h-3.5 w-3.5" /></button>
+                    <button class="btn btn-sm join-item bg-base-300" type="button" @click="toggleImageModelPicker(model.id)"><AppIcon name="chevron-down" class="h-3.5 w-3.5" /></button>
                   </div>
                   <div v-if="activeImageModelPickerId === model.id" class="rounded-box border border-base-300 bg-base-200/50 p-3">
                     <input v-model="imageModelSearch" class="input input-bordered input-sm mb-2 w-full" :placeholder="t('config.api.searchModel')" />
@@ -137,7 +137,7 @@
               <span class="text-sm font-medium">{{ t("config.imageGeneration.testInputImages") }}</span>
               <button class="btn btn-xs btn-ghost gap-1" type="button" :disabled="pickingTestImage" @click="pickTestImage('images')">
                 <span v-if="pickingTestImage" class="loading loading-spinner loading-xs" />
-                <Plus v-else class="h-3.5 w-3.5" />
+                <AppIcon name="plus" v-else class="h-3.5 w-3.5" />
                 {{ t("config.imageGeneration.testPickImage") }}
               </button>
             </div>
@@ -168,7 +168,7 @@
               <span class="text-sm font-medium">{{ t("config.imageGeneration.testFirstFrame") }}</span>
               <button class="btn btn-xs btn-ghost gap-1" type="button" :disabled="pickingTestImage" @click="pickTestImage('firstFrame')">
                 <span v-if="pickingTestImage" class="loading loading-spinner loading-xs" />
-                <Plus v-else class="h-3.5 w-3.5" />
+                <AppIcon name="plus" v-else class="h-3.5 w-3.5" />
                 {{ t("config.imageGeneration.testPickImage") }}
               </button>
             </div>
@@ -231,7 +231,7 @@
                 {{ t("config.imageGeneration.copyImage") }}
               </button>
               <button class="btn btn-xs btn-ghost shrink-0" type="button" @click="copyGeneratedMarkdown(firstTestImage.markdown)">
-                <Copy class="h-3.5 w-3.5" />
+                <AppIcon name="copy" class="h-3.5 w-3.5" />
                 {{ t("config.imageGeneration.copyMarkdown") }}
               </button>
             </div>
@@ -248,7 +248,7 @@
         <ImageIcon class="h-10 w-10 opacity-35" />
         <p>{{ t("config.imageGeneration.selectOrAddProvider") }}</p>
         <button class="btn btn-sm btn-primary mt-2 gap-1.5" type="button" @click="addProvider">
-          <Plus class="h-4 w-4" />
+          <AppIcon name="plus" class="h-4 w-4" />
           <span>{{ t("config.imageGeneration.addProvider") }}</span>
         </button>
       </div>
@@ -259,7 +259,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ChevronDown, Copy, Image as ImageIcon, Plus, Trash2 } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import type {
   AppConfig,
   ComfyUiWorkflowMapping,

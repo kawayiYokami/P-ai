@@ -199,13 +199,13 @@
               :placeholder="t('config.chatSettings.instructionPresetPlaceholder')"
             />
             <button class="btn btn-sm btn-ghost btn-square shrink-0" @click="removeInstructionPreset(item.id)">
-              <Trash2 class="h-4 w-4" />
+              <AppIcon name="trash" class="h-4 w-4" />
             </button>
           </div>
         </div>
         <div class="flex items-center justify-between">
           <button class="btn btn-sm btn-ghost shrink-0" @click="addInstructionPreset">
-            <Plus class="h-4 w-4" />
+            <AppIcon name="plus" class="h-4 w-4" />
             <span>{{ t("config.chatSettings.addInstructionPreset") }}</span>
           </button>
           <button class="btn btn-sm btn-primary" :disabled="!instructionPresetsDirty" @click="saveInstructionPresets">
@@ -279,7 +279,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Plus, Trash2 } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";

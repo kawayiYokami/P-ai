@@ -30,7 +30,7 @@
                 @click.stop="startEditTitle"
               >
                 <span :class="embedded ? 'text-base font-semibold truncate' : 'card-title text-base mb-0 truncate'">{{ displayTitle }}</span>
-                <Pencil class="h-3.5 w-3.5 shrink-0 opacity-50" />
+                <AppIcon name="pencil" class="h-3.5 w-3.5 shrink-0 opacity-50" />
               </button>
               <span v-if="hint" class="min-w-0 truncate text-xs font-normal opacity-60">{{ hint }}</span>
             </div>
@@ -65,7 +65,7 @@
             :title="open ? t('config.api.collapseModelCard') : t('config.api.expandModelCard')"
             @click.stop="toggleOpen"
           >
-            <ChevronDown class="h-4 w-4 transition-transform duration-200" :class="open ? '' : '-rotate-90'" />
+            <AppIcon name="chevron-down" class="h-4 w-4 transition-transform duration-200" :class="open ? '' : '-rotate-90'" />
           </button>
           <button
             v-if="showDelete"
@@ -75,7 +75,7 @@
             :disabled="deleteDisabled"
             @click.stop="emit('remove')"
           >
-            <Trash2 class="h-3.5 w-3.5" />
+            <AppIcon name="trash" class="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -104,7 +104,7 @@
                   :disabled="filteredModelOptions.length === 0"
                   @click="togglePicker"
                 >
-                  <ChevronDown class="h-3.5 w-3.5" />
+                  <AppIcon name="chevron-down" class="h-3.5 w-3.5" />
                 </button>
                 <button
                   v-if="hasModelInfo"
@@ -114,7 +114,7 @@
                   :title="t('config.api.modelInfoTitle')"
                   @click.stop="toggleModelInfo"
                 >
-                  <HelpCircle class="h-3.5 w-3.5" />
+                  <AppIcon name="help-circle" class="h-3.5 w-3.5" />
                 </button>
               </div>
               <div v-if="protocolHint" class="mt-1 text-xs opacity-70">
@@ -133,7 +133,7 @@
                     :title="t('common.close')"
                     @click="modelInfoOpen = false"
                   >
-                    <X class="h-3.5 w-3.5" />
+                    <AppIcon name="close" class="h-3.5 w-3.5" />
                   </button>
                 </div>
                 <p v-if="capability?.fuzzyMatch" class="mb-3 text-xs text-warning">
@@ -177,7 +177,7 @@
                   class="btn btn-sm mt-4 w-full bg-base-200"
                   @click="emit('open-documentation')"
                 >
-                  <BookOpen class="h-3.5 w-3.5" />
+                  <AppIcon name="book-open" class="h-3.5 w-3.5" />
                   {{ t("config.api.modelInfoOpenDocs") }}
                 </button>
               </div>
@@ -385,7 +385,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { BookOpen, ChevronDown, HelpCircle, Pencil, Trash2, X } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { ApiModelConfigItem } from "../../../types/app";
 import { reasoningEffortDisplayLabel } from "../utils/api-config-display";
 import type { ModelCapabilitySnapshot } from "../utils/model-capability";

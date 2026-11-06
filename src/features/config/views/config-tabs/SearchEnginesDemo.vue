@@ -38,7 +38,7 @@
               type="button"
               @click="restoreDraft"
             >
-              <RotateCcw class="h-4 w-4" />
+              <AppIcon name="rotate-ccw" class="h-4 w-4" />
               <span>{{ t("config.api.restoreProviderDraft") }}</span>
             </button>
             <button
@@ -48,7 +48,7 @@
               :disabled="!dirty"
               @click="mockSave"
             >
-              <Save class="h-4 w-4" />
+              <AppIcon name="save" class="h-4 w-4" />
               <span>{{ t("common.save") }}</span>
             </button>
           </div>
@@ -72,7 +72,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { RotateCcw, Save } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import type { AppConfig, SearchEngineConfigItem, SearchMode } from "../../../../types/app";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
 import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";

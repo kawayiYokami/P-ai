@@ -3,9 +3,7 @@
     <li v-for="(item, index) in stages" :key="`${index}:${item.stage}:${item.elapsedMs}`" class="min-w-0">
       <hr v-if="index !== 0" />
       <div class="timeline-middle">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5 shrink-0" :class="iconColorClass(item.detail)">
-          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" />
-        </svg>
+        <AppIcon name="check-circle" class="h-5 w-5 shrink-0" :class="iconColorClass(item.detail)" />
       </div>
       <div class="timeline-end timeline-box min-w-0 w-full">
         <button type="button" class="flex w-full min-w-0 items-center gap-1.5 text-left" @click="toggleCollapsed(itemKey(item, index))">
@@ -13,7 +11,7 @@
           <span v-if="titleInlineSummary(item)" class="min-w-0 flex-1 truncate text-xs text-base-content/55">{{ titleInlineSummary(item) }}</span>
           <span v-else class="flex-1"></span>
           <span class="shrink-0 text-caption tabular-nums text-base-content/40">+{{ formatElapsedShort(item.elapsedMs) }}</span>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 shrink-0 text-base-content/25 transition-transform duration-200" :class="isCollapsed(itemKey(item, index)) ? '' : 'rotate-90'"><path fill-rule="evenodd" d="M7.21 14.78a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg>
+          <AppIcon name="chevron-right" class="h-3.5 w-3.5 shrink-0 text-base-content/25 transition-transform duration-200" :class="isCollapsed(itemKey(item, index)) ? '' : 'rotate-90'" />
         </button>
         <Transition :css="false" @enter="animateEnter" @leave="animateLeave" @enter-cancelled="cleanupAnimation" @leave-cancelled="cleanupAnimation">
           <div v-if="!isCollapsed(itemKey(item, index))" class="mt-2 min-w-0 w-full space-y-1.5 border-t border-base-300 pt-2">
@@ -32,6 +30,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { useI18n } from "vue-i18n";
 import type { LlmRoundLogStage } from "../../../types/app";
 

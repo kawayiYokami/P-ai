@@ -19,7 +19,7 @@
           class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
           :placeholder="t('config.remoteIm.searchPlaceholder')"
         />
-        <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+        <AppIcon name="search" class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
         <button
           v-if="channelSearchQuery"
           type="button"
@@ -40,7 +40,7 @@
               :title="t('config.remoteIm.viewLogs')"
               @click="openChannelLogsModalForChannel(selectedChannel.id)"
             >
-              <ScrollText class="h-4 w-4" />
+              <AppIcon name="scroll-text" class="h-4 w-4" />
               <span>{{ t("config.remoteIm.viewLogs") }}</span>
             </button>
             <button
@@ -50,7 +50,7 @@
               :disabled="contactsLoading"
               @click="refreshContacts"
             >
-              <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': contactsLoading }" />
+              <AppIcon name="refresh-cw" class="h-4 w-4" :class="{ 'animate-spin': contactsLoading }" />
               <span>{{ t("common.refresh") }}</span>
             </button>
             <button
@@ -62,7 +62,7 @@
               @click="saveChannels"
             >
               <span v-if="saving" class="loading loading-spinner loading-xs"></span>
-              <Save v-else class="h-4 w-4" />
+              <AppIcon name="save" v-else class="h-4 w-4" />
               <span>{{ t("common.save") }}</span>
             </button>
           </div>
@@ -77,7 +77,7 @@
         <details class="collapse collapse-arrow border border-base-300 bg-base-100 rounded-box shrink-0">
           <summary class="collapse-title min-h-0 py-2.5 px-4 text-xs font-semibold flex items-center justify-between cursor-pointer select-none">
             <div class="flex items-center gap-2">
-              <Settings class="h-4 w-4 opacity-70" />
+              <AppIcon name="settings" class="h-4 w-4 opacity-70" />
               <span>{{ t("config.remoteIm.channelSettings") }}</span>
               <span class="text-caption opacity-50 font-normal">({{ selectedChannel.name || platformLabelText(selectedChannel.platform) }})</span>
               <span v-if="channelDirty" class="badge badge-sm badge-warning">{{ t("config.skill.modified") }}</span>
@@ -231,7 +231,7 @@
                 :disabled="saving || isChannelOperationBusy(selectedChannel.id)"
                 @click="deleteSelectedChannel"
               >
-                <Trash2 class="h-3.5 w-3.5" />
+                <AppIcon name="trash" class="h-3.5 w-3.5" />
                 <span>{{ t("config.remoteIm.deleteChannel") || t("common.delete") }}</span>
               </button>
 
@@ -243,7 +243,7 @@
                 @click="saveChannels"
               >
                 <span v-if="saving" class="loading loading-spinner loading-xs"></span>
-                <Save v-else class="h-3.5 w-3.5" />
+                <AppIcon name="save" v-else class="h-3.5 w-3.5" />
                 <span>{{ t("common.save") }}</span>
               </button>
             </div>
@@ -254,7 +254,7 @@
         <div class="space-y-3 pt-2">
           <div class="flex flex-col gap-3 px-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <div class="flex shrink-0 items-center gap-2">
-              <Users class="h-4 w-4 opacity-70" />
+              <AppIcon name="users" class="h-4 w-4 opacity-70" />
               <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.remoteIm.contactsTitle") }}</span>
               <span class="badge badge-sm badge-neutral">{{ currentChannelContacts.length }}</span>
             </div>
@@ -266,7 +266,7 @@
                 :title="t('config.remoteIm.contactGroupCreateTitle')"
                 @click="startContactGroupCreate"
               >
-                <Plus class="h-4 w-4" />
+                <AppIcon name="plus" class="h-4 w-4" />
                 <span>{{ t("config.remoteIm.contactGroupCreateTitle") }}</span>
               </button>
 
@@ -278,7 +278,7 @@
                   class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
                   :placeholder="t('config.remoteIm.contactsSearchPlaceholder')"
                 />
-                <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+                <AppIcon name="search" class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
                 <button
                   v-if="contactSearchQuery"
                   type="button"
@@ -309,7 +309,7 @@
               @click="submitContactGroupEdit"
             >
               <span v-if="contactGroupBusy" class="loading loading-spinner loading-xs"></span>
-              <Check v-else class="h-4 w-4" />
+              <AppIcon name="check" v-else class="h-4 w-4" />
             </button>
             <button
               type="button"
@@ -317,7 +317,7 @@
               :disabled="contactGroupBusy"
               @click="cancelContactGroupEdit"
             >
-              <X class="h-4 w-4" />
+              <AppIcon name="close" class="h-4 w-4" />
             </button>
           </div>
           <p
@@ -351,8 +351,8 @@
                     :title="isContactSectionCollapsed(section) ? t('config.remoteIm.contactSectionExpand') : t('config.remoteIm.contactSectionCollapse')"
                     @click="toggleContactSectionCollapse(section)"
                   >
-                    <ChevronDown v-if="!isContactSectionCollapsed(section)" class="h-3.5 w-3.5 opacity-60" />
-                    <ChevronRight v-else class="h-3.5 w-3.5 opacity-60" />
+                    <AppIcon name="chevron-down" v-if="!isContactSectionCollapsed(section)" class="h-3.5 w-3.5 opacity-60" />
+                    <AppIcon name="chevron-right" v-else class="h-3.5 w-3.5 opacity-60" />
                   </button>
                   <template v-if="isContactGroupRenaming(section)">
                     <input
@@ -374,7 +374,7 @@
                       @click.stop="submitContactGroupEdit"
                     >
                       <span v-if="contactGroupBusy" class="loading loading-spinner loading-xs"></span>
-                      <Check v-else class="h-3.5 w-3.5" />
+                      <AppIcon name="check" v-else class="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
@@ -382,7 +382,7 @@
                       :disabled="contactGroupBusy"
                       @click.stop="cancelContactGroupEdit"
                     >
-                      <X class="h-3.5 w-3.5" />
+                      <AppIcon name="close" class="h-3.5 w-3.5" />
                     </button>
                   </template>
                   <span v-else class="truncate text-xs font-bold text-base-content/70">{{ section.name }}</span>
@@ -394,7 +394,7 @@
                     :title="t('config.remoteIm.batchSettingsTitle')"
                     @click="openBatchSettingsWizard(section.key)"
                   >
-                    <ListChecks class="h-3.5 w-3.5" />
+                    <AppIcon name="list-checks" class="h-3.5 w-3.5" />
                     <span>{{ t("config.remoteIm.batchSettings") }}</span>
                   </button>
                 </div>
@@ -418,8 +418,8 @@
                   <div class="avatar placeholder shrink-0">
                     <div class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-base-300 bg-base-200 text-xs font-semibold leading-none text-base-content/70">
                       <img v-if="contactAvatarUrl(item)" :src="contactAvatarUrl(item)" :alt="contactSafeDisplayName(item)" class="block h-full w-full object-cover" />
-                      <Users v-else-if="item.remoteContactType === 'group'" class="h-4 w-4 text-secondary" />
-                      <User v-else class="h-4 w-4 text-primary" />
+                      <AppIcon name="users" v-else-if="item.remoteContactType === 'group'" class="h-4 w-4 text-secondary" />
+                      <AppIcon name="user" v-else class="h-4 w-4 text-primary" />
                     </div>
                   </div>
 
@@ -447,15 +447,15 @@
                           :title="t('config.remoteIm.viewLogs')"
                           @click.stop="openContactLogsModal(item.id)"
                         >
-                          <ScrollText class="h-4 w-4" />
+                          <AppIcon name="scroll-text" class="h-4 w-4" />
                         </button>
                         <button
                           class="btn btn-ghost btn-circle h-8 w-8 min-h-[2rem]"
                           :title="t('config.remoteIm.contactSettingsTitle', { name: contactSafeDisplayName(item) })"
                           @click.stop="toggleContactSettings(item.id)"
                         >
-                          <ChevronDown v-if="isContactExpanded(item.id)" class="h-4 w-4" />
-                          <ChevronRight v-else class="h-4 w-4" />
+                          <AppIcon name="chevron-down" v-if="isContactExpanded(item.id)" class="h-4 w-4" />
+                          <AppIcon name="chevron-right" v-else class="h-4 w-4" />
                         </button>
                         <button
                           class="btn btn-ghost btn-circle h-8 w-8 min-h-[2rem]"
@@ -463,7 +463,7 @@
                           :disabled="isContactOperationBusy(item.id)"
                           @click.stop="copyContactSettings(item)"
                         >
-                          <Copy class="h-4 w-4" />
+                          <AppIcon name="copy" class="h-4 w-4" />
                         </button>
                         <button
                           class="btn btn-ghost btn-circle h-8 w-8 min-h-[2rem]"
@@ -471,7 +471,7 @@
                           :disabled="isContactOperationBusy(item.id) || !contactSettingsClipboard"
                           @click.stop="pasteContactSettings(item)"
                         >
-                          <ClipboardPaste class="h-4 w-4" />
+                          <AppIcon name="clipboard-paste" class="h-4 w-4" />
                         </button>
                       </div>
                     </div>
@@ -491,7 +491,7 @@
                           @click.stop="openContactPillMenu($event, item, 'activation')"
                         >
                           {{ contactActivationModeLabel(item) }}
-                          <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                          <AppIcon name="chevron-up" class="h-3.5 w-3.5 opacity-70" />
                         </button>
                       </div>
                       <span
@@ -499,7 +499,7 @@
                         class="badge badge-sm badge-warning shrink-0 gap-1.5"
                         :title="t('config.remoteIm.keywordMissingHint')"
                       >
-                        <AlertTriangle class="h-3.5 w-3.5" />
+                        <AppIcon name="alert-triangle" class="h-3.5 w-3.5" />
                         {{ t('config.remoteIm.keywordEmpty') }}
                       </span>
                       <div>
@@ -512,7 +512,7 @@
                           @click.stop="openContactPillMenu($event, item, 'processing')"
                         >
                           {{ contactProcessingModeLabel(item) }}
-                          <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                          <AppIcon name="chevron-up" class="h-3.5 w-3.5 opacity-70" />
                         </button>
                       </div>
                       <div v-if="!isPrivateContact(item)">
@@ -525,7 +525,7 @@
                           @click.stop="openContactPillMenu($event, item, 'response')"
                         >
                           {{ contactResponseStrategyLabel(item) }}
-                          <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                          <AppIcon name="chevron-up" class="h-3.5 w-3.5 opacity-70" />
                         </button>
                       </div>
                       <div>
@@ -538,7 +538,7 @@
                           @click.stop="openContactPillMenu($event, item, 'files')"
                         >
                           {{ contactSendFilesLabel(item) }}
-                          <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                          <AppIcon name="chevron-up" class="h-3.5 w-3.5 opacity-70" />
                         </button>
                       </div>
                       <div>
@@ -551,7 +551,7 @@
                           @click.stop="openContactPillMenu($event, item, 'group')"
                         >
                           {{ contactGroupLabelById(contactGroupIdOf(item)) }}
-                          <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                          <AppIcon name="chevron-up" class="h-3.5 w-3.5 opacity-70" />
                         </button>
                       </div>
                     </div>
@@ -642,7 +642,7 @@
                             :disabled="contactSaving || contactDeleting"
                             @click="deleteContact(selectedContact)"
                           >
-                            <Trash2 class="h-3.5 w-3.5" />
+                            <AppIcon name="trash" class="h-3.5 w-3.5" />
                             <span>{{ t("common.delete") }}</span>
                           </button>
                           <span v-if="contactDraftDirty" class="text-warning text-xs font-medium shrink-0 ml-1">● {{ t("config.skill.modified") }}</span>
@@ -653,7 +653,7 @@
                             :disabled="!contactDraftDirty || contactSaving"
                             @click="resetContactDraft"
                           >
-                            <RotateCcw class="h-3.5 w-3.5" />
+                            <AppIcon name="rotate-ccw" class="h-3.5 w-3.5" />
                             <span>{{ t("common.reset") }}</span>
                           </button>
                           <button
@@ -662,7 +662,7 @@
                             @click="saveContactDraft"
                           >
                             <span v-if="contactSaving" class="loading loading-spinner loading-xs"></span>
-                            <Save v-else class="h-3.5 w-3.5" />
+                            <AppIcon name="save" v-else class="h-3.5 w-3.5" />
                             <span>{{ t("common.save") }}</span>
                           </button>
                         </div>
@@ -726,7 +726,7 @@
               </div>
               <div class="flex items-center gap-2">
                 <span class="font-mono opacity-60">{{ t("config.remoteIm.contactsCount", { count: getChannelContactCount(ch.id).toLocaleString() }) }}</span>
-                <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
               </div>
             </div>
           </div>
@@ -737,7 +737,7 @@
             class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
             @click="openAddChannelModal"
           >
-            <Plus class="h-5 w-5" />
+            <AppIcon name="plus" class="h-5 w-5" />
             <span class="text-sm font-medium">{{ t("config.remoteIm.addChannel") }}</span>
           </button>
         </div>
@@ -804,9 +804,7 @@
         <div class="flex items-center justify-between">
           <div class="font-semibold text-lg">{{ t("config.remoteIm.addChannel") }}</div>
           <button class="btn btn-sm btn-circle btn-ghost" @click="closeAddChannelModal">
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <AppIcon name="close" class="h-5 w-5" />
           </button>
         </div>
         <div class="mt-3 text-sm opacity-70">{{ t("config.remoteIm.choosePlatform") }}</div>
@@ -837,7 +835,7 @@
           </div>
           <div class="flex items-center gap-2">
             <button class="btn btn-sm btn-ghost" :title="t('common.refresh')" @click="refreshChannelLogs">
-              <RefreshCw class="h-4 w-4" :class="channelLogsLoading ? 'animate-spin' : ''" />
+              <AppIcon name="refresh-cw" class="h-4 w-4" :class="channelLogsLoading ? 'animate-spin' : ''" />
             </button>
             <button class="btn btn-sm" @click="closeChannelLogsModal">{{ t("common.close") }}</button>
           </div>
@@ -860,7 +858,7 @@
           </div>
           <div class="flex items-center gap-2">
             <button class="btn btn-sm btn-ghost" :title="t('common.refresh')" @click="refreshContactLogs">
-              <RefreshCw class="h-4 w-4" :class="contactLogsLoading ? 'animate-spin' : ''" />
+              <AppIcon name="refresh-cw" class="h-4 w-4" :class="contactLogsLoading ? 'animate-spin' : ''" />
             </button>
             <button class="btn btn-sm" @click="closeContactLogsModal">{{ t("common.close") }}</button>
           </div>
@@ -883,9 +881,7 @@
             {{ t("config.remoteIm.channelDetails") }} · {{ selectedChannel?.name || "-" }}
           </div>
           <button class="btn btn-sm btn-circle btn-ghost" @click="closeChannelConfigModal">
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <AppIcon name="close" class="h-5 w-5" />
           </button>
         </div>
 
@@ -1083,7 +1079,7 @@
                     :disabled="isChannelOperationBusy(selectedChannel.id)"
                     @click="refreshChannelStatus"
                   >
-                    <RefreshCw class="h-3.5 w-3.5" />
+                    <AppIcon name="refresh-cw" class="h-3.5 w-3.5" />
                   </button>
                 </div>
                 <div class="mt-2 flex items-center gap-2">
@@ -1105,7 +1101,7 @@
               :disabled="saving || isChannelOperationBusy(selectedChannel.id)"
               @click="deleteSelectedChannel"
             >
-              <Trash2 class="h-3.5 w-3.5" />
+              <AppIcon name="trash" class="h-3.5 w-3.5" />
               {{ t("common.delete") }}
             </button>
             <div class="flex items-center gap-2">
@@ -1115,7 +1111,7 @@
                 :title="t('common.reset')"
                 @click="resetNapcatCredentials"
               >
-                <RotateCcw class="h-3.5 w-3.5" />
+                <AppIcon name="rotate-ccw" class="h-3.5 w-3.5" />
                 {{ t("common.reset") }}
               </button>
               <button
@@ -1124,7 +1120,7 @@
                 :disabled="!channelDirty || saving || isChannelOperationBusy(selectedChannel.id)"
                 @click="saveChannels"
               >
-                <Save v-if="!saving && !isChannelOperationBusy(selectedChannel.id)" class="h-3.5 w-3.5" />
+                <AppIcon name="save" v-if="!saving && !isChannelOperationBusy(selectedChannel.id)" class="h-3.5 w-3.5" />
                 <span v-else class="loading loading-spinner loading-xs"></span>
                 {{ t("common.save") }}
               </button>
@@ -1444,7 +1440,7 @@
                     class="input input-bordered input-sm text-xs pl-8 w-44"
                     :placeholder="t('config.remoteIm.contactsSearchPlaceholder')"
                   />
-                  <Search class="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 opacity-40" />
+                  <AppIcon name="search" class="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 opacity-40" />
                 </div>
                 <button
                   type="button"
@@ -1481,11 +1477,11 @@
                   @click="batchWizardToggleGroupExpand(section.key)"
                 >
                   <div class="flex items-center gap-2">
-                    <ChevronDown
+                    <AppIcon name="chevron-down"
                       v-if="batchWizardIsGroupExpanded(section.key)"
                       class="h-4 w-4 opacity-50"
                     />
-                    <ChevronRight
+                    <AppIcon name="chevron-right"
                       v-else
                       class="h-4 w-4 opacity-50"
                     />
@@ -1505,8 +1501,8 @@
                       class="flex h-3.5 w-3.5 items-center justify-center rounded border transition"
                       :class="batchWizardStateBoxClasses(batchWizardGroupSelectionState(section.contacts))"
                     >
-                      <Check v-if="batchWizardGroupSelectionState(section.contacts) === 'all'" class="h-2.5 w-2.5" stroke-width="3" />
-                      <Minus v-else-if="batchWizardGroupSelectionState(section.contacts) === 'partial'" class="h-2.5 w-2.5" stroke-width="3" />
+                      <AppIcon name="check" v-if="batchWizardGroupSelectionState(section.contacts) === 'all'" class="h-2.5 w-2.5" stroke-width="3" />
+                      <AppIcon name="minus" v-else-if="batchWizardGroupSelectionState(section.contacts) === 'partial'" class="h-2.5 w-2.5" stroke-width="3" />
                     </span>
                   </button>
                 </div>
@@ -1590,7 +1586,7 @@
           <template v-else>
             <div v-if="batchSettingsWizard.result" class="flex flex-col items-center py-6 text-center">
               <div class="flex h-12 w-12 items-center justify-center rounded-full bg-success/15 text-success mb-3">
-                <Check class="h-6 w-6 stroke-[2.5]" />
+                <AppIcon name="check" class="h-6 w-6 stroke-[2.5]" />
               </div>
               <div class="text-sm font-semibold mb-2">{{ t("common.success") || "设置已完成" }}</div>
               <div class="space-y-1 text-xs opacity-75">
@@ -1694,28 +1690,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import {
-  AlertTriangle,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  ClipboardPaste,
-  Copy,
-  ListChecks,
-  Minus,
-  Plus,
-  RefreshCw,
-  RotateCcw,
-  Save,
-  ScrollText,
-  Search,
-  Settings,
-  Trash2,
-  User,
-  Users,
-  X,
-} from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import { invokeTauri, openTransportFileDialog } from "../../../../services/tauri-api";
 import type { AppConfig, LegacyShellWorkspaceAccess, PersonaProfile, RemoteImChannelConfig, RemoteImContact, RemoteImContactGroup, RemoteImPlatform, ShellWorkspace, ShellWorkspaceAccess } from "../../../../types/app";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";

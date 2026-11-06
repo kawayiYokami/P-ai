@@ -11,7 +11,7 @@
               type="button"
               @click="emit('switch-to-advanced')"
             >
-              <SlidersHorizontal class="h-3.5 w-3.5" />
+              <AppIcon name="sliders-horizontal" class="h-3.5 w-3.5" />
               <span>{{ t("simpleSetup.switchToAdvanced") }}</span>
             </button>
           </div>
@@ -125,8 +125,8 @@
                 :aria-label="showApiKey ? t('quickSetup.actions.hideKey') : t('quickSetup.actions.showKey')"
                 @click="showApiKey = !showApiKey"
               >
-                <EyeOff v-if="showApiKey" class="h-3.5 w-3.5" />
-                <Eye v-else class="h-3.5 w-3.5" />
+                <AppIcon name="eye-off" v-if="showApiKey" class="h-3.5 w-3.5" />
+                <AppIcon name="eye" v-else class="h-3.5 w-3.5" />
               </button>
               <button
                 class="btn btn-sm bg-base-200 shrink-0"
@@ -135,7 +135,7 @@
                 @click="testConnection"
               >
                 <span v-if="testingConnection" class="loading loading-spinner loading-xs"></span>
-                <CheckCircle2 v-else class="h-3.5 w-3.5" />
+                <AppIcon name="check-circle" v-else class="h-3.5 w-3.5" />
                 {{ testingConnection ? t("simpleSetup.testingConnection") : t("simpleSetup.testConnection") }}
               </button>
             </div>
@@ -146,8 +146,8 @@
                 class="text-xs flex items-center gap-1.5 rounded px-2.5 py-1.5"
                 :class="connectionTestResult.ok ? 'bg-success/15 text-success' : 'bg-error/15 text-error'"
               >
-                <CheckCircle2 v-if="connectionTestResult.ok" class="h-3.5 w-3.5 shrink-0" />
-                <AlertCircle v-else class="h-3.5 w-3.5 shrink-0" />
+                <AppIcon name="check-circle" v-if="connectionTestResult.ok" class="h-3.5 w-3.5 shrink-0" />
+                <AppIcon name="alert-circle" v-else class="h-3.5 w-3.5 shrink-0" />
                 <span class="min-w-0 break-all">{{ connectionTestResult.message }}</span>
               </div>
             </div>
@@ -168,7 +168,7 @@
               :disabled="refreshingCustomModels"
               @click="refreshCustomModels"
             >
-              <RefreshCw class="h-3.5 w-3.5" />
+              <AppIcon name="refresh-cw" class="h-3.5 w-3.5" />
               {{ t("config.api.refreshModels") }}
             </button>
           </legend>
@@ -184,7 +184,7 @@
                 :for="`simple-model-${card.id}`"
               >
                 <span class="flex items-center gap-2">
-                  <component :is="card.icon" class="h-4 w-4 shrink-0 opacity-70" />
+                  <AppIcon :name="card.icon" class="h-4 w-4 shrink-0 opacity-70" />
                   <span class="text-sm font-semibold text-base-content">{{ card.label }}</span>
                 </span>
                 <span class="text-xs font-normal">{{ card.hint }}</span>
@@ -280,7 +280,7 @@
         <div class="card-body gap-3 p-4">
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2">
-              <Sparkles class="h-4 w-4 shrink-0 opacity-70" />
+              <AppIcon name="sparkles" class="h-4 w-4 shrink-0 opacity-70" />
               <h3 class="text-sm font-semibold">{{ t("simpleSetup.accelerationTitle") }}</h3>
             </div>
             <button
@@ -308,8 +308,8 @@
                 :aria-label="showSiliconFlowKey ? t('quickSetup.actions.hideKey') : t('quickSetup.actions.showKey')"
                 @click="showSiliconFlowKey = !showSiliconFlowKey"
               >
-                <EyeOff v-if="showSiliconFlowKey" class="h-3.5 w-3.5" />
-                <Eye v-else class="h-3.5 w-3.5" />
+                <AppIcon name="eye-off" v-if="showSiliconFlowKey" class="h-3.5 w-3.5" />
+                <AppIcon name="eye" v-else class="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
@@ -322,17 +322,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
-import {
-  AlertCircle,
-  Brain,
-  CheckCircle2,
-  Eye,
-  EyeOff,
-  RefreshCw,
-  SlidersHorizontal,
-  Sparkles,
-  Zap,
-} from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 import { openTransportWindow, hideCurrentTransportWindow } from "../../../../services/tauri-api";
 import {
@@ -385,9 +375,9 @@ const modelCards = computed(() => {
   const defaultModel = preset.defaultModel;
   const visionModel = preset.visionModel ?? preset.defaultModel;
   return [
-    { id: "quick" as SimpleModelCard, label: t("simpleSetup.modelQuick"), hint: t("simpleSetup.modelQuickHint"), icon: Zap, fallback: defaultModel },
-    { id: "expert" as SimpleModelCard, label: t("simpleSetup.modelExpert"), hint: t("simpleSetup.modelExpertHint"), icon: Brain, fallback: defaultModel },
-    { id: "vision" as SimpleModelCard, label: t("simpleSetup.modelVision"), hint: t("simpleSetup.modelVisionHint"), icon: Eye, fallback: visionModel },
+    { id: "quick" as SimpleModelCard, label: t("simpleSetup.modelQuick"), hint: t("simpleSetup.modelQuickHint"), icon: "zap" as const, fallback: defaultModel },
+    { id: "expert" as SimpleModelCard, label: t("simpleSetup.modelExpert"), hint: t("simpleSetup.modelExpertHint"), icon: "brain" as const, fallback: defaultModel },
+    { id: "vision" as SimpleModelCard, label: t("simpleSetup.modelVision"), hint: t("simpleSetup.modelVisionHint"), icon: "eye" as const, fallback: visionModel },
   ];
 });
 

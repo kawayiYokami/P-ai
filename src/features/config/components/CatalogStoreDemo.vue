@@ -2,7 +2,7 @@
   <div class="mx-auto w-full max-w-3xl">
     <!-- 搜索：唯一的入口，跨源聚合，用户不需要知道有哪几个源 -->
     <label class="input input-bordered flex w-full items-center gap-2">
-      <Search class="h-4 w-4 opacity-50" />
+      <AppIcon name="search" class="h-4 w-4 opacity-50" />
       <input
         v-model="query"
         type="text"
@@ -155,7 +155,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { Search } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 
 type StoreGroup = "all" | "connector" | "skill";
 
