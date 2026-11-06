@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Copy, X } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import ToolReviewCodePreview from "../ToolReviewCodePreview.vue";
 
 const props = defineProps<{
@@ -71,7 +71,7 @@ onBeforeUnmount(() => {
             :title="copied ? '已复制' : t('common.copy')"
             @click="copyCode"
           >
-            <Copy class="h-3.5 w-3.5" />
+            <AppIcon name="copy" class="h-3.5 w-3.5" />
             <span>{{ copied ? "已复制" : t("common.copy") }}</span>
           </button>
           <button
@@ -80,7 +80,7 @@ onBeforeUnmount(() => {
             :title="t('common.close')"
             @click="requestClose"
           >
-            <X class="h-3.5 w-3.5" />
+            <AppIcon name="close" class="h-3.5 w-3.5" />
           </button>
         </div>
         <ToolReviewCodePreview

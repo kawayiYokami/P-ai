@@ -1,4 +1,4 @@
-import { ImageIcon } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch, type PropType } from "vue";
 import { isDesktopTauriHost, readTransportChatImage, resolveLocalFileUrl } from "../../../services/tauri-api";
 import { markdownImageDisplayMode, resolveMarkdownImageSource, type MarkdownImagePreviewPayload, type MarkdownImageSource } from "./MarkdownImage";
@@ -166,7 +166,7 @@ export default defineComponent({
           ? h("span", {
             class: "ecall-md-image-skeleton skeleton inline-flex aspect-video w-64 max-w-full items-center justify-center rounded-lg",
             "aria-hidden": "true",
-          }, [h(ImageIcon, { class: "h-8 w-8 text-base-content/20" })])
+          }, [h(AppIcon, { name: "image", class: "h-8 w-8 text-base-content/20" })])
           : null,
         inViewport.value && resolvedSrc
           ? h("img", {

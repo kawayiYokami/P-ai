@@ -41,7 +41,7 @@
       </div>
       <div class="flex flex-wrap items-center justify-center gap-2">
         <button class="btn btn-neutral" @click="$emit('loadArchives')">
-          <RefreshCw class="h-4 w-4" />
+          <AppIcon name="refresh-cw" class="h-4 w-4" />
           {{ t("archives.refresh") }}
         </button>
         <button
@@ -50,19 +50,19 @@
           :disabled="!selectedArchiveId"
           @click="$emit('unarchiveArchive', selectedArchiveId)"
         >
-          <Undo2 class="h-4 w-4" />
+          <AppIcon name="undo" class="h-4 w-4" />
           {{ t("archives.unarchive") }}
         </button>
         <button class="btn btn-primary" @click="triggerArchiveImport">
-          <Import class="h-4 w-4" />
+          <AppIcon name="import" class="h-4 w-4" />
           {{ t("archives.importJson") }}
         </button>
         <button class="btn btn-primary" :disabled="viewMode !== 'archive' || !selectedArchiveId" @click="$emit('exportArchive', { format: 'markdown' })">
-          <FileDown class="h-4 w-4" />
+          <AppIcon name="file-down" class="h-4 w-4" />
           {{ t("archives.exportMarkdown") }}
         </button>
         <button class="btn btn-primary" :disabled="viewMode !== 'archive' || !selectedArchiveId" @click="$emit('exportArchive', { format: 'json' })">
-          <FileJson2 class="h-4 w-4" />
+          <AppIcon name="file-json" class="h-4 w-4" />
           {{ t("archives.exportJson") }}
         </button>
         <button
@@ -70,7 +70,7 @@
           :disabled="(viewMode === 'delegate' && !selectedDelegateConversationId) || (viewMode === 'archive' && !selectedArchiveId) || (viewMode === 'current' && (!selectedUnarchivedConversationId || selectedCurrentConversationSummary?.isSystemNotificationConversation)) || (viewMode === 'remoteIm' && !selectedRemoteImContactId)"
           @click="viewMode === 'archive' ? onDeleteArchiveClick(selectedArchiveId) : viewMode === 'delegate' ? onDeleteDelegateClick(selectedDelegateConversationId) : viewMode === 'remoteIm' ? onDeleteRemoteImContactClick(selectedRemoteImContactId) : onDeleteUnarchivedClick(selectedUnarchivedConversationId)"
         >
-          <Trash2 class="h-4 w-4" />
+          <AppIcon name="trash" class="h-4 w-4" />
           {{ t("common.delete") }}
         </button>
         <input
@@ -257,7 +257,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
-import { FileDown, FileJson2, Import, RefreshCw, Trash2, Undo2 } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { useI18n } from "vue-i18n";
 import {
   invokeTauri,

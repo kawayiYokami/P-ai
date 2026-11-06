@@ -156,7 +156,7 @@
                       <button type="button" class="btn btn-ghost btn-xs shrink-0 gap-1.5 px-2 text-base-content/60 hover:text-base-content"
                         :title="t('chat.viewSummary')" @click="openConversationSummary(item.block, $event)"
                         @contextmenu.prevent.stop="openCompactionSummaryContextMenu(item.block, $event)">
-                        <History class="h-3.5 w-3.5" />
+                        <AppIcon name="history" class="h-3.5 w-3.5" />
                         <span>{{ t("chat.viewSummary") }}</span>
                       </button>
                     </div>
@@ -287,7 +287,7 @@
               :aria-label="t('chat.jumpToBottom')"
               @click="handleJumpToBottomWithFollow"
             >
-              <ArrowDownToLine class="h-4 w-4 shrink-0" :stroke-width="2.5" />
+              <AppIcon name="arrow-down-to-line" class="h-4 w-4 shrink-0" :stroke-width="2.5" />
             </button>
             <!-- 时间线按钮：两排共用一个，常驻在这里，只随排切换底座、不随排重建。
                  离底那排悬停即在原位向上展开蛇形时间线；贴底时它就是操作条里的那个按钮，点一下直接开概览 -->
@@ -318,7 +318,7 @@
                 @mouseleave="handleTimelineButtonLeave"
                 @click="handleTimelineEntryButtonClick"
               >
-                <Route class="h-4 w-4 shrink-0" />
+                <AppIcon name="route" class="h-4 w-4 shrink-0" />
               </button>
             </div>
           </div>
@@ -389,11 +389,11 @@
               <!-- 底栏：说明 + 返回 -->
               <div class="flex shrink-0 items-center justify-between gap-2 px-3 py-2">
                 <span class="flex items-center gap-1 text-xs text-base-content/60">
-                  <CircleAlert class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <AppIcon name="circle-alert" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   {{ t("chat.timelineJumpHint") }}
                 </span>
                 <button type="button" class="btn btn-sm gap-1" @click="closeTimelinePanel">
-                  <ArrowLeft class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <AppIcon name="arrow-left" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   {{ t("chat.timelinePanelBack") }}
                 </button>
               </div>
@@ -417,7 +417,7 @@
         >
           <li>
             <button type="button" class="text-error" @click="recallCompactionSummaryFromContextMenu">
-              <Undo2 class="h-4 w-4" />
+              <AppIcon name="undo" class="h-4 w-4" />
               <span>{{ t("chat.recall") }}</span>
             </button>
           </li>
@@ -471,7 +471,7 @@
                         :disabled="chatStorageRepairing"
                         @click="void repairChatStorage()"
                       >
-                        <Wrench class="h-3.5 w-3.5" />
+                        <AppIcon name="wrench" class="h-3.5 w-3.5" />
                         <span>{{ chatStorageRepairing ? t("chat.storageRepairing") : t("chat.storageRepair") }}</span>
                       </button>
                       <button
@@ -479,7 +479,7 @@
                         class="btn btn-ghost btn-sm gap-1 text-error hover:bg-error/15"
                         @click="void copyStatusText(chatStatusBanner.text)"
                       >
-                        <Copy class="h-3.5 w-3.5" />
+                        <AppIcon name="copy" class="h-3.5 w-3.5" />
                         <span>{{ t("common.copy") }}</span>
                       </button>
                       <button
@@ -487,7 +487,7 @@
                         class="btn btn-ghost btn-sm gap-1 text-error hover:bg-error/15"
                         @click="$emit('clearChatError')"
                       >
-                        <X class="h-3.5 w-3.5" />
+                        <AppIcon name="close" class="h-3.5 w-3.5" />
                         <span>{{ t("common.close") }}</span>
                       </button>
                     </div>
@@ -534,7 +534,7 @@
                 <div
                   class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning"
                 >
-                  <CircleAlert class="h-5 w-5" />
+                  <AppIcon name="circle-alert" class="h-5 w-5" />
                 </div>
                 <div class="min-w-0">
                   <div class="font-semibold">{{ t("chat.recipientMissingTitle") }}</div>
@@ -562,7 +562,7 @@
                     :disabled="conversationInteractionBusy || !repairRecipientSelectedOption"
                     @click="handleRebindConversationRecipient"
                   >
-                    <Check class="h-3.5 w-3.5" />
+                    <AppIcon name="check" class="h-3.5 w-3.5" />
                     <span>{{ t("chat.recipientMissingApply") }}</span>
                   </button>
                   <button
@@ -571,7 +571,7 @@
                     :disabled="conversationInteractionBusy"
                     @click="handleConversationDelete(activeConversationId)"
                   >
-                    <Trash2 class="h-3.5 w-3.5" />
+                    <AppIcon name="trash" class="h-3.5 w-3.5" />
                     <span>{{ t("common.delete") }}</span>
                   </button>
                 </div>
@@ -913,7 +913,7 @@ import {
   useChatComposerAppearance,
   visibleChatComposerContextGroups,
 } from "../../shell/composables/use-chat-composer-appearance";
-import { ArrowDownToLine, ArrowLeft, Check, CircleAlert, Copy, History, Inbox, ListTodo, Network, Route, Trash2, Undo2, Wrench, X } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportHostContext,
@@ -1006,6 +1006,7 @@ import type { ChatMonitorPanelMode, ChatRightPanelMode } from "../composables/ch
 import { useChatBlockTracking } from "../composables/use-chat-block-tracking";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { AgentPersonaOption } from "../../shared/agent-persona-options";
+import type { AppIconName } from "../../shared/icons/icon-map";
 import { clearNativeTextSelection } from "../../../utils/native-selection";
 import ConversationSearchPanel from "../components/ConversationSearchPanel.vue";
 import KanbanBoardPanel from "../components/kanban/KanbanBoardPanel.vue";
@@ -1222,11 +1223,11 @@ const commitPageSize = ref(5);
 
 type ToolReviewSidebarTab = "tools" | "delegates" | "tasks" | "fastRequests";
 
-const monitorPanelTabs = computed<Array<{ key: ChatMonitorPanelMode; label: string; icon: typeof Network; closeable: false }>>(() => [
-  { key: "delegate", label: t("chat.toolReview.delegatesTab"), icon: Network, closeable: false },
-  { key: "tasks", label: t("chat.toolReview.tasksTab"), icon: ListTodo, closeable: false },
-  { key: "tools", label: t("chat.toolReview.toolsTab"), icon: Wrench, closeable: false },
-  { key: "fastRequests", label: t("chat.toolReview.overviewOthers"), icon: Inbox, closeable: false },
+const monitorPanelTabs = computed<Array<{ key: ChatMonitorPanelMode; label: string; icon: AppIconName; closeable: false }>>(() => [
+  { key: "delegate", label: t("chat.toolReview.delegatesTab"), icon: "network", closeable: false },
+  { key: "tasks", label: t("chat.toolReview.tasksTab"), icon: "list-todo", closeable: false },
+  { key: "tools", label: t("chat.toolReview.toolsTab"), icon: "wrench", closeable: false },
+  { key: "fastRequests", label: t("chat.toolReview.overviewOthers"), icon: "inbox", closeable: false },
 ]);
 
 const toolReviewSidebarActiveTab = computed<ToolReviewSidebarTab>(() => {

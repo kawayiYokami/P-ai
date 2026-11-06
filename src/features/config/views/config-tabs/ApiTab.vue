@@ -19,7 +19,7 @@
           :title="t('config.api.restoreProviderDraft')"
           @click="restoreSearchEnginesDraft"
         >
-          <RotateCcw class="h-4 w-4" />
+          <AppIcon name="rotate-ccw" class="h-4 w-4" />
           <span>{{ t("config.api.restoreProviderDraft") }}</span>
         </button>
         <button
@@ -31,7 +31,7 @@
           @click="saveSearchEngines"
         >
           <span v-if="props.savingConfig" class="loading loading-spinner loading-xs"></span>
-          <Save v-else class="h-4 w-4" />
+          <AppIcon name="save" v-else class="h-4 w-4" />
           <span>{{ props.savingConfig ? t("config.api.saving") : t("common.save") }}</span>
         </button>
       </div>
@@ -49,7 +49,7 @@
                 :title="t('config.api.restoreProviderDraft')"
                 @click="handleRestoreProviderDraft"
               >
-                <RotateCcw class="h-4 w-4" />
+                <AppIcon name="rotate-ccw" class="h-4 w-4" />
                 <span>{{ t("config.api.restoreProviderDraft") }}</span>
               </button>
               <button
@@ -61,7 +61,7 @@
                 @click="handleSaveApiConfig"
               >
                 <span v-if="props.savingConfig" class="loading loading-spinner loading-xs"></span>
-                <Save v-else class="h-4 w-4" />
+                <AppIcon name="save" v-else class="h-4 w-4" />
                 <span>{{ props.savingConfig ? t("config.api.saving") : t("common.save") }}</span>
               </button>
               <button
@@ -71,7 +71,7 @@
                 :title="t('config.api.removeProvider')"
                 @click="removeProvider(selectedProviderId)"
               >
-                <Trash2 class="h-4 w-4" />
+                <AppIcon name="trash" class="h-4 w-4" />
                 <span>{{ t("common.delete") }}</span>
               </button>
             </template>
@@ -83,7 +83,7 @@
                 :disabled="imageToolbarSaving"
                 @click="restoreImageProviderConfig"
               >
-                <RotateCcw class="h-4 w-4" />
+                <AppIcon name="rotate-ccw" class="h-4 w-4" />
                 <span>{{ t("common.reset") }}</span>
               </button>
               <button
@@ -94,7 +94,7 @@
                 @click="saveImageProviderConfig"
               >
                 <span v-if="imageToolbarSaving" class="loading loading-spinner loading-xs"></span>
-                <Save v-else class="h-4 w-4" />
+                <AppIcon name="save" v-else class="h-4 w-4" />
                 <span>{{ imageToolbarSaving ? t("config.api.saving") : t("common.save") }}</span>
               </button>
               <button
@@ -103,7 +103,7 @@
                 :disabled="imageToolbarRemoveDisabled"
                 @click="removeImageProvider"
               >
-                <Trash2 class="h-4 w-4" />
+                <AppIcon name="trash" class="h-4 w-4" />
                 <span>{{ t("common.delete") }}</span>
               </button>
         </template>
@@ -119,7 +119,7 @@
             <div class="flex items-center gap-2">
               <div class="text-sm">{{ field.label }}</div>
               <button class="btn btn-sm bg-base-200 min-h-[2rem]" type="button" @click="baseUrlHelperOpen = !baseUrlHelperOpen">
-                <WandSparkles class="h-3 w-3" />
+                <AppIcon name="wand-sparkles" class="h-3 w-3" />
                 <span>{{ t("config.api.linkHelper") }}</span>
               </button>
             </div>
@@ -146,7 +146,7 @@
                     {{ preset.name }}
                   </button>
                   <button class="btn btn-sm btn-neutral join-item" type="button" @click="openProviderSite(preset)">
-                    <ExternalLink class="h-3 w-3" />
+                    <AppIcon name="external-link" class="h-3 w-3" />
                   </button>
                 </div>
               </div>
@@ -222,11 +222,11 @@
         <template #actions>
           <button class="btn btn-sm" type="button" :class="{ loading: props.refreshingModels }"
             :disabled="props.refreshingModels" @click="emit('refreshModels', selectedProvider)">
-            <RefreshCw class="h-3.5 w-3.5" />
+            <AppIcon name="refresh-cw" class="h-3.5 w-3.5" />
             <span>{{ t("config.api.refreshModels") }}</span>
           </button>
           <button class="btn btn-sm" type="button" @click="addModelCard">
-            <Plus class="h-3.5 w-3.5" />
+            <AppIcon name="plus" class="h-3.5 w-3.5" />
             <span>{{ t("config.api.addModel") }}</span>
           </button>
         </template>
@@ -327,7 +327,7 @@
                 <span class="badge badge-sm badge-neutral">{{ t('config.api.modelCount', { count: provider.models?.length || 0 }) }}</span>
                 <span v-if="provider.providerType !== 'codex'" class="badge badge-sm badge-ghost">{{ t('config.api.keyCount', { count: provider.apiKeys?.length || 0 }) }}</span>
               </div>
-              <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+              <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
             </div>
           </div>
 
@@ -337,7 +337,7 @@
             class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
             @click="onAddProviderClick"
           >
-            <Plus class="h-5 w-5" />
+            <AppIcon name="plus" class="h-5 w-5" />
             <span class="text-sm font-medium">{{ t('config.api.addProvider') }}</span>
           </button>
         </div>
@@ -372,7 +372,7 @@
             <!-- 右侧：请求格式 + 进入指示 -->
             <div class="shrink-0 flex items-center gap-2">
               <span class="badge badge-ghost badge-xs font-mono">{{ provider.requestFormat }}</span>
-              <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+              <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
             </div>
           </div>
 
@@ -382,7 +382,7 @@
             class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
             @click="onAddProviderClick"
           >
-            <Plus class="h-5 w-5" />
+            <AppIcon name="plus" class="h-5 w-5" />
             <span class="text-sm font-medium">{{ t('config.api.addProvider') }}</span>
           </button>
         </div>
@@ -412,17 +412,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import {
-  ChevronRight,
-  ExternalLink,
-  Plus,
-  RefreshCw,
-  RotateCcw,
-  Save,
-  Settings,
-  Trash2,
-  WandSparkles,
-} from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import type { ApiModelConfigItem, ApiProviderConfigItem, ApiRequestFormat, AppConfig, CodexAuthMode, CodexAuthStatus, ImageGenerationProviderConfigItem } from "../../../../types/app";
 import ApiKeyListCard, { type ApiKeyConnectionStatus } from "../../components/ApiKeyListCard.vue";
 import ApiModelCard from "../../components/ApiModelCard.vue";

@@ -5,7 +5,6 @@ import "./features/chat/markdown/markdown-content.css";
 import "katex/dist/katex.min.css";
 import { i18n } from "./i18n";
 import { initMarkdownAppearance } from "./features/shell/composables/use-markdown-appearance";
-import { LUCIDE_CONTEXT } from "./lucide-context";
 import { installNativeSelectionGuard } from "./utils/native-selection";
 
 installNativeSelectionGuard();
@@ -31,4 +30,4 @@ window.addEventListener("unhandledrejection", (event) => {
   console.error(`[未处理的Promise拒绝] 消息: ${message}, 堆栈: ${stack}`);
 });
 
-createApp(ConfigApp).use(i18n).provide(LUCIDE_CONTEXT, {}).mount("#app");
+createApp(ConfigApp).use(i18n).mount("#app");

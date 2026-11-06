@@ -17,7 +17,7 @@
             :title="label"
             @click="toggle"
           >
-            <HelpCircle class="size-3.5" />
+            <AppIcon name="help-circle" class="size-3.5" />
           </button>
         </template>
         {{ hint }}
@@ -31,7 +31,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { HelpCircle } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import EcallDropdown from "../../shared/components/EcallDropdown.vue";
 
 defineProps<{

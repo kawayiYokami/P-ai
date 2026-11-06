@@ -59,7 +59,7 @@
           class="flex flex-wrap items-center justify-between gap-2 p-3 rounded-field bg-base-200/50 border border-base-300"
         >
           <div class="flex items-center gap-2">
-            <KeyRound class="h-4 w-4 text-warning shrink-0" />
+            <AppIcon name="key-round" class="h-4 w-4 text-warning shrink-0" />
             <div class="flex flex-col">
               <span class="text-xs font-medium">OAuth 2.1</span>
               <span class="text-caption opacity-70">
@@ -111,7 +111,7 @@
                 :disabled="disabled"
                 @click="$emit('oauthLogin', draft.id)"
               >
-                <KeyRound class="h-3 w-3" />
+                <AppIcon name="key-round" class="h-3 w-3" />
                 <span>{{ t('config.mcp.oauthLogin') }}</span>
               </button>
             </template>
@@ -171,7 +171,7 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { KeyRound } from "@lucide/vue";
+import AppIcon from "../../../../shared/components/AppIcon.vue";
 import type { McpOAuthStatusResult, McpServerConfig, McpToolDescriptor } from "../../../../../types/app";
 import McpToolList from "./McpToolList.vue";
 import { renameFirstMcpServerMember } from "../../../utils/mcp-definition";

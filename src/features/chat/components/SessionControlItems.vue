@@ -38,7 +38,7 @@
       class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-info/30 bg-info/15 text-info backdrop-blur-md"
       :title="autoPushTitle"
     >
-      <Send class="h-4 w-4" />
+      <AppIcon name="send" class="h-4 w-4" />
     </span>
   </Transition>
 
@@ -47,7 +47,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { Send } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { ShellWorkMode } from "../../../types/app";
 import { SESSION_GHOST_PILL } from "./session-float-styles";
 

@@ -10,7 +10,7 @@
           :title="t('common.close')"
           @click="handleClose"
         >
-          <X class="h-4 w-4" />
+          <AppIcon name="close" class="h-4 w-4" />
         </button>
       </div>
 
@@ -35,7 +35,7 @@
                 @click="handleOptimizeDraft"
               >
                 <span v-if="optimizing" class="loading loading-spinner loading-xs"></span>
-                <WandSparkles v-else class="h-3.5 w-3.5" />
+                <AppIcon name="wand-sparkles" v-else class="h-3.5 w-3.5" />
                 {{ t("chat.taskCreate.optimizeAction") }}
               </button>
             </span>
@@ -166,7 +166,7 @@
               :disabled="dialogBusy"
               @click="requestDeleteConfirm"
             >
-              <Trash2 class="h-4 w-4" />
+              <AppIcon name="trash" class="h-4 w-4" />
               {{ t("common.delete") }}
             </button>
             <span v-else class="hidden sm:block"></span>
@@ -214,7 +214,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Trash2, WandSparkles, X } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import { CronLight } from "@vue-js-cron/light";
 import "@vue-js-cron/light/dist/light.css";
 import { invokeTauri } from "../../../../services/tauri-api";

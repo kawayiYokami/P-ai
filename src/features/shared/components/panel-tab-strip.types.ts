@@ -1,4 +1,4 @@
-import type { Component } from "vue";
+import type { AppIconName } from "../icons/icon-map";
 
 export type PanelTabStripItem = {
   key: string;
@@ -12,7 +12,8 @@ export type PanelTabStripItem = {
   /** 会话正在跑：标签右侧挂一个转圈，标题再长也不挤它 */
   busy?: boolean;
   iconSrc?: string;
-  icon?: Component;
+  /** 图标语义名，查 APP_ICON_MAP */
+  icon?: AppIconName;
   closeable?: boolean;
   disabled?: boolean;
 };

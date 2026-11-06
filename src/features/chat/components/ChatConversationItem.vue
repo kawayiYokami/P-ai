@@ -94,7 +94,7 @@
               </div>
             </div>
             <div class="flex shrink-0 items-center gap-1 pr-1">
-              <Pin
+              <AppIcon name="pin"
                 v-if="showPinIndicator"
                 class="h-3.5 w-3.5 text-base-content/40"
                 :aria-label="t('chat.pinnedConversations')"
@@ -131,7 +131,7 @@
                 :aria-label="pendingQuestionTitle"
                 role="img"
               >
-                <HelpCircle class="h-3 w-3" aria-hidden="true" />
+                <AppIcon name="help-circle" class="h-3 w-3" aria-hidden="true" />
                 <span class="leading-none">{{ pendingQuestionBadge }}</span>
               </span>
               <span
@@ -157,8 +157,8 @@
             :disabled="!canTogglePin"
             @click.stop="close(); togglePin()"
           >
-            <PinOff v-if="item.isPinned" class="h-4 w-4" />
-            <Pin v-else class="h-4 w-4" />
+            <AppIcon name="pin-off" v-if="item.isPinned" class="h-4 w-4" />
+            <AppIcon name="pin" v-else class="h-4 w-4" />
             <span>{{ pinTitle }}</span>
           </button>
         </li>
@@ -168,7 +168,7 @@
             :disabled="!canRename"
             @click.stop="close(); startTitleEdit()"
           >
-            <PencilLine class="h-4 w-4" />
+            <AppIcon name="pencil-line" class="h-4 w-4" />
             <span>{{ t("common.rename") }}</span>
           </button>
         </li>
@@ -177,7 +177,7 @@
             type="button"
             @click.stop="close(); emit('revealSection')"
           >
-            <ListTree class="h-4 w-4" />
+            <AppIcon name="list-tree" class="h-4 w-4" />
             <span>{{ t("chat.jumpToConversationSection") }}</span>
           </button>
         </li>
@@ -187,7 +187,7 @@
             :disabled="!canExport"
             @click.stop="close(); exportConversation()"
           >
-            <Upload class="h-4 w-4" />
+            <AppIcon name="upload" class="h-4 w-4" />
             <span>{{ t("chat.exportConversation") }}</span>
           </button>
         </li>
@@ -197,7 +197,7 @@
             :disabled="!canArchive"
             @click.stop="close(); emit('archiveConversation', itemId)"
           >
-            <Archive class="h-4 w-4" />
+            <AppIcon name="archive" class="h-4 w-4" />
             <span>{{ t('common.archive') }}</span>
           </button>
         </li>
@@ -208,7 +208,7 @@
             class="text-error"
             @click.stop="close(); emit('deleteConversation', itemId)"
           >
-            <Trash2 class="h-4 w-4" />
+            <AppIcon name="trash" class="h-4 w-4" />
             <span>{{ t('common.delete') }}</span>
           </button>
         </li>
@@ -220,7 +220,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Archive, HelpCircle, ListTree, PencilLine, Pin, PinOff, Trash2, Upload } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import FloatingConversationMenu from "./FloatingConversationMenu.vue";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import type { ConversationPipelineStatus } from "../../shell/composables/use-pipeline-status";

@@ -6,7 +6,7 @@
       :title="props.addTitle"
       @click="emit('add')"
     >
-      <Plus class="h-4 w-4" />
+      <AppIcon name="plus" class="h-4 w-4" />
     </button>
     <button
       class="btn btn-sm btn-square btn-error shrink-0"
@@ -15,7 +15,7 @@
       :disabled="props.removeDisabled"
       @click="emit('remove')"
     >
-      <Trash2 class="h-4 w-4" />
+      <AppIcon name="trash" class="h-4 w-4" />
     </button>
     <select
       :value="props.modelValue"
@@ -35,7 +35,7 @@
       :disabled="props.restoreDisabled"
       @click="emit('restore')"
     >
-      <RotateCcw class="h-4 w-4" />
+      <AppIcon name="rotate-ccw" class="h-4 w-4" />
     </button>
     <button
       class="btn btn-sm btn-square"
@@ -45,14 +45,14 @@
       :disabled="props.saveDisabled"
       @click="emit('save')"
     >
-      <Save v-if="!props.saving" class="h-4 w-4" />
+      <AppIcon name="save" v-if="!props.saving" class="h-4 w-4" />
       <span v-else class="loading loading-spinner loading-sm"></span>
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Plus, RotateCcw, Save, Trash2 } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 
 export type ProviderToolbarOption = {
   id: string;

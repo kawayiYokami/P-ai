@@ -16,12 +16,12 @@
         </template>
         <!-- 目录（名字里按 / 折叠出的分组） -->
         <template v-else-if="row.node.data.kind === 'folder'">
-          <Folder class="h-3.5 w-3.5 shrink-0 opacity-60" />
+          <AppIcon name="folder" class="h-3.5 w-3.5 shrink-0 opacity-60" />
           <span class="min-w-0 flex-1 truncate font-medium opacity-70">{{ row.node.data.name }}</span>
         </template>
         <!-- 本地分支 -->
         <template v-else-if="row.node.data.kind === 'branch'">
-          <GitBranch
+          <AppIcon name="git-branch"
             class="h-3.5 w-3.5 shrink-0"
             :class="isSelectMode
               ? (isSelected(row.node.data.branch.name)
@@ -48,7 +48,7 @@
             >
               {{ t("gitPanel.worktreeOccupied") }}
             </span>
-            <Check v-else-if="isSelected(row.node.data.branch.name)" class="h-3.5 w-3.5 shrink-0 text-primary" />
+            <AppIcon name="check" v-else-if="isSelected(row.node.data.branch.name)" class="h-3.5 w-3.5 shrink-0 text-primary" />
           </template>
           <template v-else>
             <span
@@ -63,7 +63,7 @@
         </template>
         <!-- 远程分支 -->
         <template v-else-if="row.node.data.kind === 'remote-branch'">
-          <Cloud
+          <AppIcon name="cloud"
             class="h-3 w-3 shrink-0"
             :class="isSelectMode && isSelected(row.node.data.branch.name) ? 'text-primary' : 'opacity-60'"
           />
@@ -73,7 +73,7 @@
           >
             {{ row.node.data.branch.name }}
           </span>
-          <Check v-if="isSelectMode && isSelected(row.node.data.branch.name)" class="h-3.5 w-3.5 shrink-0 text-primary" />
+          <AppIcon name="check" v-if="isSelectMode && isSelected(row.node.data.branch.name)" class="h-3.5 w-3.5 shrink-0 text-primary" />
         </template>
       </template>
     </GitTree>
@@ -94,7 +94,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Cloud, Folder, GitBranch } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import {
   gitPanelBranchList,
   gitPanelCheckout,

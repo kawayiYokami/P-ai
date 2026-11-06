@@ -43,6 +43,7 @@
             <option value="skill-managed">技能面板（托管技能禁用态）</option>
             <option value="panel-tabs">标签栏组件（PanelTabStrip）</option>
             <option value="file-reader-preview">右栏内容视图（HTML 沙箱 / 源码 / 图片）</option>
+            <option value="app-icons">图标语义名总表（AppIcon 全量）</option>
           </select>
           <span class="text-xs text-base-content/50">当前：{{ demoComponentLabel }}</span>
         </div>
@@ -455,7 +456,7 @@
             :disabled="restarting"
             @click="restartApp"
           >
-            <RotateCcw class="size-4" aria-hidden="true" />
+            <AppIcon name="rotate-ccw" class="size-4" aria-hidden="true" />
             {{ restarting ? t("config.demo.restarting") : t("config.demo.restartApp") }}
           </button>
         </div>
@@ -588,9 +589,9 @@
                     >
                       <summary class="collapse-title flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
                         <span class="inline-flex w-3 shrink-0 items-center justify-center leading-none text-success">
-                          <FileText v-if="tool.icon === 'file'" class="size-3" aria-hidden="true" />
-                          <SquareTerminal v-else-if="tool.icon === 'terminal'" class="size-3" aria-hidden="true" />
-                          <Wrench v-else class="size-3" aria-hidden="true" />
+                          <AppIcon name="file-text" v-if="tool.icon === 'file'" class="size-3" aria-hidden="true" />
+                          <AppIcon name="square-terminal" v-else-if="tool.icon === 'terminal'" class="size-3" aria-hidden="true" />
+                          <AppIcon name="wrench" v-else class="size-3" aria-hidden="true" />
                         </span>
                         <span class="min-w-0 flex-1 truncate text-base-content/75">
                           {{ tool.name }}
@@ -637,11 +638,11 @@
               <template #footer>
                 <span v-if="message.footer">{{ message.footer }}</span>
                 <span v-if="!message.streaming" class="inline-flex items-center gap-1">
-                  <Copy class="size-3" aria-hidden="true" />
+                  <AppIcon name="copy" class="size-3" aria-hidden="true" />
                   复制
                 </span>
                 <span v-if="!message.streaming && message.canRecall" class="inline-flex items-center gap-1">
-                  <Undo2 class="size-3" aria-hidden="true" />
+                  <AppIcon name="undo" class="size-3" aria-hidden="true" />
                   撤回
                 </span>
               </template>
@@ -795,11 +796,40 @@
         <FileReaderPreviewDemo />
       </div>
     </div>
+
+    <div v-if="demoComponentKey === 'app-icons'" class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div>
+          <h4 class="card-title text-base">AppIcon 语义名总表（{{ appIconNames.length }} 个）</h4>
+          <p class="text-xs text-base-content/60">
+            全部取自 icon-map.ts，格子里就是 AppIcon 按该语义名渲染的真实结果，换图标库时先在这里逐名核对。
+          </p>
+        </div>
+        <label class="input input-bordered input-sm flex items-center gap-2">
+          <AppIcon name="search" class="h-3.5 w-3.5 opacity-50" />
+          <input v-model="appIconFilter" class="grow bg-transparent outline-none" placeholder="按语义名过滤" />
+        </label>
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-1.5">
+          <div
+            v-for="name in filteredAppIconNames"
+            :key="name"
+            class="flex min-w-0 flex-col items-center gap-1.5 rounded-lg border border-base-300/70 bg-base-200/40 px-1.5 py-2"
+          >
+            <AppIcon :name="name" class="h-6 w-6" />
+            <span class="w-full truncate text-center font-mono text-[10px] leading-tight text-base-content/60" :title="name">{{ name }}</span>
+          </div>
+        </div>
+        <p v-if="!filteredAppIconNames.length" class="py-6 text-center text-xs text-base-content/50">
+          没有匹配「{{ appIconFilter }}」的语义名
+        </p>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Copy, FileText, RotateCcw, SquareTerminal, Undo2, Wrench } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
+import { APP_ICON_MAP, type AppIconName } from "../../../shared/icons/icon-map";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import KanbanBoardPanel from "../../../chat/components/kanban/KanbanBoardPanel.vue";
 import HomeKanbanCard from "../../../chat/components/chat-home/HomeKanbanCard.vue";
@@ -961,7 +991,14 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "markdown-view" | "theme-cards" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "catalog-entry-card" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "markdown-view" | "theme-cards" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "catalog-entry-card" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview" | "app-icons">((props.initialKey as any) || "question");
+/** 图标语义名总表：直接取映射表的键，杜绝手抄漏项 */
+const appIconNames = Object.keys(APP_ICON_MAP).sort() as AppIconName[];
+const appIconFilter = ref("");
+const filteredAppIconNames = computed(() => {
+  const keyword = appIconFilter.value.trim().toLowerCase();
+  return keyword ? appIconNames.filter((name) => name.includes(keyword)) : appIconNames;
+});
 const demoLightThemes = ["light", "cupcake", "corporate", "lofi", "fantasy", "autumn"];
 const demoDarkThemes = ["dark", "halloween", "forest", "dracula", "business", "dim"];
 const demoLightTokens = generateGeneratedThemeTokens(getGeneratedThemeDefaultControls("light"));
@@ -1009,6 +1046,7 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "overview") return "监控概览（MonitorOverview）";
   if (demoComponentKey.value === "panel-tabs") return "标签栏组件（PanelTabStrip）";
   if (demoComponentKey.value === "file-reader-preview") return "右栏内容视图（HTML 沙箱 / 源码 / 图片）";
+  if (demoComponentKey.value === "app-icons") return "图标语义名总表";
   return "ConfigTemplate";
 });
 
@@ -1814,12 +1852,12 @@ const initialDemoPanelTabs: PanelTabStripItem[] = [
 const demoPanelTabs = ref<PanelTabStripItem[]>([...initialDemoPanelTabs]);
 
 const initialDemoPanelFileTabs: PanelTabStripItem[] = [
-  { key: "readme", label: "README.md", icon: FileText, closeable: true },
-  { key: "tabstrip", label: "PanelTabStrip.vue", icon: FileText, closeable: true },
-  { key: "overflow", label: "use-panel-tab-overflow.ts", icon: FileText, closeable: true },
-  { key: "package", label: "package.json", icon: FileText, closeable: true },
-  { key: "cargo", label: "Cargo.toml", icon: FileText, closeable: true },
-  { key: "vite", label: "vite.config.ts", icon: FileText, closeable: true },
+  { key: "readme", label: "README.md", icon: "file-text", closeable: true },
+  { key: "tabstrip", label: "PanelTabStrip.vue", icon: "file-text", closeable: true },
+  { key: "overflow", label: "use-panel-tab-overflow.ts", icon: "file-text", closeable: true },
+  { key: "package", label: "package.json", icon: "file-text", closeable: true },
+  { key: "cargo", label: "Cargo.toml", icon: "file-text", closeable: true },
+  { key: "vite", label: "vite.config.ts", icon: "file-text", closeable: true },
 ];
 
 const demoPanelFileTabs = ref<PanelTabStripItem[]>([...initialDemoPanelFileTabs]);

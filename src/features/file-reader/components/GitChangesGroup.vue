@@ -29,8 +29,8 @@
           :title="selectedCount > 0 ? `${actionTitle} (${selectedCount})` : actionTitle"
           @click.stop="runAction(entries.map((entry) => entry.path))"
         >
-          <Plus v-if="actionKind === 'stage'" class="h-3 w-3" />
-          <Minus v-else class="h-3 w-3" />
+          <AppIcon name="plus" v-if="actionKind === 'stage'" class="h-3 w-3" />
+          <AppIcon name="minus" v-else class="h-3 w-3" />
         </button>
         <span class="shrink-0 text-caption tabular-nums opacity-50">{{
           totalCount !== undefined && totalCount > 1000 ? "1000+" : (totalCount ?? entries.length)
@@ -59,7 +59,7 @@
             :disabled="busy"
             @click.stop="discardSelected(collectDirPaths(row.node.data))"
           >
-            <Undo2 class="h-3 w-3" />
+            <AppIcon name="undo" class="h-3 w-3" />
           </button>
           <button
             type="button"
@@ -68,8 +68,8 @@
             :disabled="busy"
             @click.stop="runAction(collectDirPaths(row.node.data))"
           >
-            <Plus v-if="actionKind === 'stage'" class="h-3 w-3" />
-            <Minus v-else class="h-3 w-3" />
+            <AppIcon name="plus" v-if="actionKind === 'stage'" class="h-3 w-3" />
+            <AppIcon name="minus" v-else class="h-3 w-3" />
           </button>
         </span>
       </template>
@@ -106,7 +106,7 @@
               :disabled="busy"
               @click.stop="discardSelected([row.node.data.path])"
             >
-              <Undo2 class="h-3 w-3" />
+              <AppIcon name="undo" class="h-3 w-3" />
             </button>
             <button
               type="button"
@@ -115,8 +115,8 @@
               :disabled="busy"
               @click.stop="runAction([row.node.data.path])"
             >
-              <Plus v-if="actionKind === 'stage'" class="h-3 w-3" />
-              <Minus v-else class="h-3 w-3" />
+              <AppIcon name="plus" v-if="actionKind === 'stage'" class="h-3 w-3" />
+              <AppIcon name="minus" v-else class="h-3 w-3" />
             </button>
           </span>
           <span
@@ -148,7 +148,7 @@
       class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-base-300/40"
       @click="collapseAllDirectories"
     >
-      <ChevronDown class="h-3.5 w-3.5 opacity-60" />
+      <AppIcon name="chevron-down" class="h-3.5 w-3.5 opacity-60" />
       {{ collapseAllTitle }}
     </button>
   </div>
@@ -156,7 +156,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { ChevronDown, Minus, Plus, Undo2 } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { GitPanelStatusEntry } from "../../../services/tauri-api";
 import { resolveFileTreeIcon } from "../file-tree-icons";
 import GitTree, { type GitTreeExpose, type GitTreeFlatRow, type GitTreeNode } from "./GitTree.vue";

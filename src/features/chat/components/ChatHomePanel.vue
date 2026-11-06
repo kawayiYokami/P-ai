@@ -118,7 +118,7 @@
       <div v-else class="flex h-full flex-col items-center justify-center p-6 text-center">
         <div class="max-w-xs space-y-3">
           <div class="mx-auto flex size-12 items-center justify-center rounded-2xl bg-base-300/40 text-base-content/50">
-            <LayoutGrid class="size-6" />
+            <AppIcon name="layout-grid" class="size-6" />
           </div>
           <div class="space-y-1">
             <div class="text-sm font-medium text-base-content/80">{{ t("chat.homePanel.emptyAll") }}</div>
@@ -132,7 +132,7 @@
               class="btn btn-sm btn-outline border-base-300 gap-1.5"
               @click="emit('openWorkspace')"
             >
-              <FolderTree class="size-4" />
+              <AppIcon name="folder-tree" class="size-4" />
               {{ t("chat.homePanel.workspace") }}
             </button>
           </div>
@@ -145,7 +145,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { FolderTree, LayoutGrid } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { BackgroundShellTaskSummary, ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review";

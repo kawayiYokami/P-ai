@@ -35,8 +35,8 @@
           :title="t('chat.conversationList')"
           @click.stop="emit('toggle-side-conversation-list')"
         >
-          <PanelLeftClose v-if="sideConversationListVisible" class="h-3.5 w-3.5" />
-          <PanelLeft v-else class="h-3.5 w-3.5" />
+          <AppIcon name="panel-left-close" v-if="sideConversationListVisible" class="h-3.5 w-3.5" />
+          <AppIcon name="panel-left" v-else class="h-3.5 w-3.5" />
         </button>
       </div>
     </div>
@@ -58,8 +58,8 @@
             :title="t('chat.conversationList')"
             @click.stop="emit('toggle-side-conversation-list')"
           >
-            <PanelLeftClose v-if="sideConversationListVisible" class="h-3.5 w-3.5" />
-            <PanelLeft v-else class="h-3.5 w-3.5" />
+            <AppIcon name="panel-left-close" v-if="sideConversationListVisible" class="h-3.5 w-3.5" />
+            <AppIcon name="panel-left" v-else class="h-3.5 w-3.5" />
           </button>
         </div>
         <button
@@ -67,7 +67,7 @@
           :title="t('chat.newConversation')"
           @click.stop="$emit('create-conversation')"
         >
-          <SquarePen class="h-4 w-4" />
+          <AppIcon name="square-pen" class="h-4 w-4" />
         </button>
         <button
           class="btn btn-ghost btn-sm btn-square h-8 min-h-8 w-8 shrink-0"
@@ -134,7 +134,7 @@
           aria-hidden="true"
         ></span>
         <span v-if="checkingUpdate" class="loading loading-spinner loading-xs"></span>
-        <Download v-else class="h-3.5 w-3.5" />
+        <AppIcon name="download" v-else class="h-3.5 w-3.5" />
         <span>{{ updateToLatestLabel }}</span>
       </button>
 
@@ -144,8 +144,8 @@
         @mousedown.stop
         @click.stop="$emit('toggle-tool-review-panel')"
       >
-        <PanelRightClose v-if="toolReviewPanelOpenVisible" class="h-3.5 w-3.5" />
-        <PanelRight v-else class="h-3.5 w-3.5" />
+        <AppIcon name="panel-right-close" v-if="toolReviewPanelOpenVisible" class="h-3.5 w-3.5" />
+        <AppIcon name="panel-right" v-else class="h-3.5 w-3.5" />
       </button>
 
       <button
@@ -155,7 +155,7 @@
         @mousedown.stop
         @click.stop="$emit('open-settings')"
       >
-        <Settings class="h-3.5 w-3.5" />
+        <AppIcon name="settings" class="h-3.5 w-3.5" />
       </button>
 
       <button
@@ -166,7 +166,7 @@
         @click.stop="$emit('minimize-window')"
         :disabled="!windowReady"
       >
-        <Minus class="h-3.5 w-3.5" />
+        <AppIcon name="minus" class="h-3.5 w-3.5" />
       </button>
       <button
         v-if="showWindowControls"
@@ -176,7 +176,7 @@
         @click.stop="$emit('toggle-maximize-window')"
         :disabled="!windowReady"
       >
-        <Square class="h-3.5 w-3.5" />
+        <AppIcon name="square" class="h-3.5 w-3.5" />
       </button>
       <button
         v-if="showWindowControls"
@@ -186,7 +186,7 @@
         @click.stop="$emit('close-window')"
         :disabled="!windowReady"
       >
-        <X class="h-3.5 w-3.5" />
+        <AppIcon name="close" class="h-3.5 w-3.5" />
       </button>
     </div>
 
@@ -203,7 +203,7 @@
           aria-hidden="true"
         ></span>
         <span v-if="checkingUpdate" class="loading loading-spinner loading-xs"></span>
-        <Download v-else class="h-3.5 w-3.5" />
+        <AppIcon name="download" v-else class="h-3.5 w-3.5" />
         <span>{{ updateToLatestLabel }}</span>
       </button>
     </div>
@@ -220,7 +220,7 @@
         ref="configSearchPopoverRef"
         class="input input-bordered input-sm relative flex h-8 w-[clamp(9rem,24vw,13rem)] items-center gap-2 bg-base-100"
       >
-        <Search class="h-3.5 w-3.5 opacity-70" />
+        <AppIcon name="search" class="h-3.5 w-3.5 opacity-70" />
         <input
           ref="configSearchInputRef"
           type="text"
@@ -264,7 +264,7 @@
         @click.stop="$emit('minimize-window')"
         :disabled="!windowReady"
       >
-        <Minus class="h-3.5 w-3.5" />
+        <AppIcon name="minus" class="h-3.5 w-3.5" />
       </button>
       <button
         v-if="showWindowControls"
@@ -273,7 +273,7 @@
         @click.stop="$emit('toggle-maximize-window')"
         :disabled="!windowReady"
       >
-        <Square class="h-3.5 w-3.5" />
+        <AppIcon name="square" class="h-3.5 w-3.5" />
       </button>
       <button
         v-if="showWindowControls"
@@ -282,7 +282,7 @@
         @click.stop="$emit('close-window')"
         :disabled="!windowReady"
       >
-        <X class="h-3.5 w-3.5" />
+        <AppIcon name="close" class="h-3.5 w-3.5" />
       </button>
     </div>
   </div>
@@ -292,7 +292,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { getTransportCapabilities } from "../../../services/tauri-api";
-import { Download, FoldVertical, History, Minus, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Search, Settings, Square, SquarePen, X } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";

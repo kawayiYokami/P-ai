@@ -26,7 +26,7 @@
                     class="inline-flex h-2 w-2 shrink-0 rounded-full bg-error"
                     :title="t('about.updateAvailableBadge')"
                   ></span>
-                  <ChevronRight
+                  <AppIcon name="chevron-right"
                     class="h-3 w-3 shrink-0 transition-transform duration-150"
                     :class="{ 'rotate-90': !isNavGroupCollapsed(group) }"
                   />
@@ -42,7 +42,7 @@
             <template v-if="!isNavGroupCollapsed(group)">
               <li v-for="item in group.items" :key="item.tab">
                 <a :class="configNavLinkClass(item.tab)" @click="selectConfigNavTab(item.tab)">
-                  <component :is="item.icon" class="h-4 w-4 shrink-0" />
+                  <AppIcon :name="item.icon" class="h-4 w-4 shrink-0" />
                   <span class="min-w-0 truncate">{{ item.labelKey ? t(item.labelKey) : item.label }}</span>
                   <span
                     v-if="item.tab === 'about' && props.hasAvailableUpdate"
@@ -62,7 +62,7 @@
           :title="t('config.welcome.quickSetupTitle')"
           @click="emit('update:simpleSetupMode', true)"
         >
-          <Sparkles class="h-3.5 w-3.5 shrink-0 opacity-70" />
+          <AppIcon name="sparkles" class="h-3.5 w-3.5 shrink-0 opacity-70" />
           <span class="truncate">{{ t("config.welcome.quickSetupTitle") }}</span>
         </button>
       </div>
@@ -100,7 +100,7 @@
                       class="inline-flex h-2 w-2 shrink-0 rounded-full bg-error"
                       :title="t('about.updateAvailableBadge')"
                     ></span>
-                    <ChevronRight
+                    <AppIcon name="chevron-right"
                       class="h-3 w-3 shrink-0 transition-transform duration-150"
                       :class="{ 'rotate-90': !isNavGroupCollapsed(group) }"
                     />
@@ -136,7 +136,7 @@
             :title="t('config.welcome.quickSetupTitle')"
             @click="configDrawerOpen = false; emit('update:simpleSetupMode', true)"
           >
-            <Sparkles class="h-3.5 w-3.5 shrink-0 opacity-70" />
+            <AppIcon name="sparkles" class="h-3.5 w-3.5 shrink-0 opacity-70" />
             <span class="truncate">{{ t("config.welcome.quickSetupTitle") }}</span>
           </button>
         </div>
@@ -151,7 +151,7 @@
           title="打开设置导航"
           @click="configDrawerOpen = true"
         >
-          <Menu class="h-4 w-4" />
+          <AppIcon name="menu" class="h-4 w-4" />
         </button>
         <div class="min-w-0 truncate text-sm font-medium">{{ activeConfigTabTitle }}</div>
       </div>
@@ -426,7 +426,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, ApiProviderConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
 import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind, ThemeSourceKind } from "../../shell/theme/theme-types";
@@ -454,7 +454,8 @@ import StorageTab from "./config-tabs/StorageTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
 import SimpleSetupPanel from "./config-tabs/SimpleSetupPanel.vue";
 import { toErrorMessage } from "../../../utils/error";
-import { ArrowLeftRight, Beaker, Bell, ChevronRight, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, Palette, Puzzle, Radio, ScrollText, Sparkles, Star, Store, User, Wifi } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
+import type { AppIconName } from "../../shared/icons/icon-map";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useUnsavedChangesGuard } from "../composables/use-unsaved-changes-guard";
 
@@ -462,7 +463,7 @@ type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "p
 type AvatarTarget = { agentId: string };
 type ConfigNavItem = {
   tab: ConfigTab;
-  icon: Component;
+  icon: AppIconName;
   labelKey?: string;
   label?: string;
   devOnly?: boolean;
@@ -481,36 +482,36 @@ const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
     id: "general",
     titleKey: "config.navGroups.general",
     items: [
-      { tab: "welcome", icon: Home, labelKey: "config.tabs.welcome" },
-      { tab: "chatSettings", icon: Star, labelKey: "config.tabs.chatSettings" },
-      { tab: "appearance", icon: Palette, labelKey: "config.tabs.appearance" },
-      { tab: "hotkey", icon: Keyboard, labelKey: "config.tabs.hotkey" },
-      { tab: "notification", icon: Bell, labelKey: "config.tabs.notification" },
+      { tab: "welcome", icon: "home", labelKey: "config.tabs.welcome" },
+      { tab: "chatSettings", icon: "star", labelKey: "config.tabs.chatSettings" },
+      { tab: "appearance", icon: "palette", labelKey: "config.tabs.appearance" },
+      { tab: "hotkey", icon: "keyboard", labelKey: "config.tabs.hotkey" },
+      { tab: "notification", icon: "bell", labelKey: "config.tabs.notification" },
     ],
   },
   {
     id: "ai",
     titleKey: "config.navGroups.ai",
     items: [
-      { tab: "api", icon: Cpu, labelKey: "config.tabs.api" },
-      { tab: "mcp", icon: Puzzle, labelKey: "config.tabs.mcp" },
-      { tab: "skill", icon: Code, labelKey: "config.tabs.skill" },
-      { tab: "catalog", icon: Store, labelKey: "config.tabs.catalog" },
+      { tab: "api", icon: "cpu", labelKey: "config.tabs.api" },
+      { tab: "mcp", icon: "puzzle", labelKey: "config.tabs.mcp" },
+      { tab: "skill", icon: "code", labelKey: "config.tabs.skill" },
+      { tab: "catalog", icon: "store", labelKey: "config.tabs.catalog" },
     ],
   },
   {
     id: "agents",
     titleKey: "config.navGroups.agents",
     items: [
-      { tab: "persona", icon: User, labelKey: "config.tabs.persona" },
+      { tab: "persona", icon: "user", labelKey: "config.tabs.persona" },
     ],
   },
   {
     id: "remote",
     titleKey: "config.navGroups.remote",
     items: [
-      { tab: "networkAccess", icon: Wifi, labelKey: "config.tabs.networkAccess" },
-      { tab: "remoteIm", icon: Radio, labelKey: "config.tabs.remoteIm" },
+      { tab: "networkAccess", icon: "wifi", labelKey: "config.tabs.networkAccess" },
+      { tab: "remoteIm", icon: "radio", labelKey: "config.tabs.remoteIm" },
     ],
   },
   {
@@ -519,9 +520,9 @@ const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
     collapsible: true,
     defaultCollapsed: true,
     items: [
-      { tab: "memory", icon: Database, labelKey: "config.tabs.memory" },
-      { tab: "task", icon: ClipboardList, labelKey: "config.tabs.task" },
-      { tab: "usage", icon: ScrollText, labelKey: "config.tabs.usage" },
+      { tab: "memory", icon: "database", labelKey: "config.tabs.memory" },
+      { tab: "task", icon: "clipboard-list", labelKey: "config.tabs.task" },
+      { tab: "usage", icon: "scroll-text", labelKey: "config.tabs.usage" },
     ],
   },
   {
@@ -530,10 +531,10 @@ const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
     collapsible: true,
     defaultCollapsed: true,
     items: [
-      { tab: "migration", icon: ArrowLeftRight, labelKey: "config.tabs.migration" },
-      { tab: "logs", icon: ScrollText, labelKey: "config.tabs.logs" },
-      { tab: "about", icon: Info, labelKey: "config.tabs.about" },
-      { tab: "demo", icon: Beaker, labelKey: "config.tabs.demo", devOnly: true },
+      { tab: "migration", icon: "arrow-left-right", labelKey: "config.tabs.migration" },
+      { tab: "logs", icon: "scroll-text", labelKey: "config.tabs.logs" },
+      { tab: "about", icon: "info", labelKey: "config.tabs.about" },
+      { tab: "demo", icon: "beaker", labelKey: "config.tabs.demo", devOnly: true },
     ],
   },
 ];

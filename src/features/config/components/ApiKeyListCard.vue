@@ -27,15 +27,15 @@
             :title="t('config.api.pinApiKeyToTop')"
             @click="pinKey(index)"
           >
-            <ArrowUpToLine class="h-3.5 w-3.5" />
+            <AppIcon name="arrow-up-to-line" class="h-3.5 w-3.5" />
           </button>
           <button
             class="btn btn-sm btn-square bg-base-200"
             type="button"
             @click="toggleKeyVisibility(index)"
           >
-            <EyeOff v-if="visibleKeys[index]" class="h-3.5 w-3.5" />
-            <Eye v-else class="h-3.5 w-3.5" />
+            <AppIcon name="eye-off" v-if="visibleKeys[index]" class="h-3.5 w-3.5" />
+            <AppIcon name="eye" v-else class="h-3.5 w-3.5" />
           </button>
           <button
             class="btn btn-sm btn-square bg-base-200 text-error"
@@ -44,14 +44,14 @@
             :title="t('common.delete')"
             @click="removeKey(index)"
           >
-            <Trash2 class="h-3.5 w-3.5" />
+            <AppIcon name="trash" class="h-3.5 w-3.5" />
           </button>
         </div>
         <div v-if="props.modelValue.length === 0" class="rounded-box border border-dashed border-base-300 px-3 py-3 text-sm opacity-60">
           {{ t("config.api.noApiKey") }}
         </div>
         <button class="btn btn-sm w-full" type="button" @click="addKey">
-          <Plus class="h-3.5 w-3.5" />
+          <AppIcon name="plus" class="h-3.5 w-3.5" />
           <span>{{ t("config.api.addApiKey") }}</span>
         </button>
       </div>
@@ -60,7 +60,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { ArrowUpToLine, Eye, EyeOff, Plus, Trash2 } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { useI18n } from "vue-i18n";
 import ConfigCard from "./ConfigCard.vue";
 

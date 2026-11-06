@@ -12,7 +12,7 @@
       <span class="min-w-0 flex-1 truncate" :class="isAuto ? 'text-base-content/50' : ''">
         {{ displayLabel }}
       </span>
-      <ChevronDown class="h-4 w-4 shrink-0 opacity-70 transition-transform" :class="open ? 'rotate-180' : ''" />
+      <AppIcon name="chevron-down" class="h-4 w-4 shrink-0 opacity-70 transition-transform" :class="open ? 'rotate-180' : ''" />
     </button>
 
     <!-- 下拉面板：popover 顶层渲染（无 overflow 裁剪），anchor 定位到按钮 -->
@@ -51,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-import { ChevronDown } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 defineOptions({ inheritAttrs: false });

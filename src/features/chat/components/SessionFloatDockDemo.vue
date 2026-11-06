@@ -129,7 +129,7 @@
               :class="SESSION_FLOAT_FROST_CIRCLE"
               aria-label="展开时间线"
             >
-              <GanttChart class="size-5" />
+              <AppIcon name="gantt-chart" class="size-5" />
             </button>
           </Transition>
         </div>
@@ -173,7 +173,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { GanttChart } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { ChatMentionEntry, ChatMentionTarget, ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
 import ChatThinkingPreviewBar from "./ChatThinkingPreviewBar.vue";
 import ChatWorkspaceToolbar from "./ChatWorkspaceToolbar.vue";

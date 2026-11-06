@@ -39,7 +39,7 @@
           title="打断委托"
           @click.stop="emit('abort')"
         >
-          <X class="size-3.5" aria-hidden="true" />
+          <AppIcon name="close" class="size-3.5" aria-hidden="true" />
           <span>打断</span>
         </button>
       </div>
@@ -48,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { X } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import DelegateProgressLine from "./DelegateProgressLine.vue";
 
 defineProps<{

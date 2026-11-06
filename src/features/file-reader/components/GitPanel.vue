@@ -12,7 +12,7 @@
 
     <!-- 未检测到 git 或非仓库（且没有可显示的仓库列表时） -->
     <div v-if="detectError && repos.length === 0 && !reposLoading" class="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-4 text-center">
-      <SquareTerminal class="h-8 w-8 opacity-50" />
+      <AppIcon name="square-terminal" class="h-8 w-8 opacity-50" />
       <div class="text-sm font-medium">{{ detectError }}</div>
       <div v-if="detectChecked" class="max-w-56 text-xs leading-relaxed text-base-content/55">
         {{ t('gitPanel.notRepositoryHint') }}
@@ -34,7 +34,7 @@
               :disabled="reposLoading || busy"
               @click="refreshRepos"
             >
-              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': reposLoading }" />
+              <AppIcon name="refresh-cw" class="h-3.5 w-3.5" :class="{ 'animate-spin': reposLoading }" />
             </button>
           </template>
         </GitSectionBar>
@@ -54,8 +54,8 @@
                 :title="worktree.path"
                 @click="switchRepo(worktree.path)"
               >
-                <FolderGit2 v-if="worktree.isMain" class="h-3 w-3 shrink-0 opacity-60" />
-                <GitBranch v-else class="h-3 w-3 shrink-0 opacity-60" />
+                <AppIcon name="folder-git" v-if="worktree.isMain" class="h-3 w-3 shrink-0 opacity-60" />
+                <AppIcon name="git-branch" v-else class="h-3 w-3 shrink-0 opacity-60" />
                 <span class="min-w-0 flex-1 truncate">{{ worktree.name }}</span>
                 <span v-if="worktree.branch" class="max-w-24 shrink-0 truncate opacity-45">{{ worktree.branch }}</span>
                 <span
@@ -78,7 +78,7 @@
                 :title="repo.path"
                 @click="switchRepo(repo.path)"
               >
-                <FolderGit2 class="h-3 w-3 shrink-0 opacity-60" />
+                <AppIcon name="folder-git" class="h-3 w-3 shrink-0 opacity-60" />
                 <span class="min-w-0 flex-1 truncate">{{ repo.name }}</span>
                 <span
                   v-if="isSessionRoot(repo.path)"
@@ -110,8 +110,8 @@
               :disabled="busy"
               @click="toggleChangesViewMode"
             >
-              <ListTree v-if="changesViewMode === 'tree'" class="h-3.5 w-3.5" />
-              <Rows3 v-else class="h-3.5 w-3.5" />
+              <AppIcon name="list-tree" v-if="changesViewMode === 'tree'" class="h-3.5 w-3.5" />
+              <AppIcon name="rows" v-else class="h-3.5 w-3.5" />
             </button>
             <button
               type="button"
@@ -120,7 +120,7 @@
               :disabled="busy"
               @click="refreshChanges"
             >
-              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': changesRefreshing }" />
+              <AppIcon name="refresh-cw" class="h-3.5 w-3.5" :class="{ 'animate-spin': changesRefreshing }" />
             </button>
           </template>
         </GitSectionBar>
@@ -213,7 +213,7 @@
         <GitSectionBar v-model="historyCollapsed">
           <template #default>
             <span v-if="historyCollapsed" class="flex items-center gap-1.5 text-xs font-medium opacity-70">
-              <component :is="activeHistoryTab.icon" class="h-3.5 w-3.5 shrink-0 opacity-60" />
+              <AppIcon :name="activeHistoryTab.icon" class="h-3.5 w-3.5 shrink-0 opacity-60" />
               <span class="truncate">{{ activeHistoryTab.label }}</span>
             </span>
           </template>
@@ -225,9 +225,9 @@
               :disabled="busy"
               @click="toggleBranchPicker"
             >
-              <GitBranch class="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <AppIcon name="git-branch" class="h-3.5 w-3.5 shrink-0 opacity-70" />
               <span class="min-w-0 max-w-28 truncate">{{ currentBranch || t('gitPanel.detachedHead') }}</span>
-              <ChevronUp class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-180': !branchPickerOpen }" />
+              <AppIcon name="chevron-up" class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-180': !branchPickerOpen }" />
             </button>
             <!-- 分支切换下拉（absolute 相对折叠条）：分组头为树根 + 分支子节点 -->
             <div v-if="branchPickerOpen" class="absolute left-0 right-0 top-full z-20 max-h-64 overflow-y-auto border border-base-300 bg-base-100 p-1 shadow-lg">
@@ -240,34 +240,34 @@
                   </template>
                   <!-- 目录（名字里按 / 折叠出的分组） -->
                   <template v-else-if="row.node.data.kind === 'folder'">
-                    <Folder class="h-3.5 w-3.5 shrink-0 opacity-60" />
+                    <AppIcon name="folder" class="h-3.5 w-3.5 shrink-0 opacity-60" />
                     <span class="min-w-0 flex-1 truncate font-medium opacity-70">{{ row.node.data.name }}</span>
                   </template>
                   <!-- 本地分支 -->
                   <template v-else-if="row.node.data.kind === 'branch'">
-                    <GitBranch class="h-3.5 w-3.5 shrink-0" :class="row.node.data.branch.isCurrent ? 'text-primary' : 'opacity-60'" />
+                    <AppIcon name="git-branch" class="h-3.5 w-3.5 shrink-0" :class="row.node.data.branch.isCurrent ? 'text-primary' : 'opacity-60'" />
                     <span class="min-w-0 flex-1 truncate">{{ row.node.data.branch.name }}</span>
                     <span v-if="row.node.data.branch.isCurrent" class="shrink-0 opacity-50">{{ t('gitPanel.current') }}</span>
                   </template>
                   <!-- 远程分支 -->
                   <template v-else-if="row.node.data.kind === 'remote-branch'">
-                    <Cloud class="h-3 w-3 shrink-0 opacity-60" />
+                    <AppIcon name="cloud" class="h-3 w-3 shrink-0 opacity-60" />
                     <span class="min-w-0 flex-1 truncate">{{ row.node.data.branch.name }}</span>
                   </template>
                 </template>
               </GitTree>
             </div>
             <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0" type="button" :title="t('gitPanel.refresh')" :disabled="busy" @click="refreshHistory">
-              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
+              <AppIcon name="refresh-cw" class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
             </button>
             <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0" type="button" :title="t('gitPanel.sync')" :disabled="busy" @click="runSync">
-              <CloudSync class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
+              <AppIcon name="cloud-sync" class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
             </button>
             <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0" type="button" :title="t('gitPanel.pull')" :disabled="busy" @click="runPull">
-              <ArrowDownToLine class="h-3.5 w-3.5" />
+              <AppIcon name="arrow-down-to-line" class="h-3.5 w-3.5" />
             </button>
             <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0" type="button" :title="t('gitPanel.push')" :disabled="busy" @click="runPush">
-              <ArrowUpFromLine class="h-3.5 w-3.5" />
+              <AppIcon name="arrow-up-from-line" class="h-3.5 w-3.5" />
             </button>
           </template>
         </GitSectionBar>
@@ -313,7 +313,7 @@
                       :title="t('gitPanel.moreActions')"
                       @click.stop="openCommitMenu(row.node.data.entry, $event)"
                     >
-                      <MoreHorizontal class="h-3.5 w-3.5" />
+                      <AppIcon name="more-horizontal" class="h-3.5 w-3.5" />
                     </button>
                   </template>
                   <!-- 子节点：查看全部更改 -->
@@ -325,7 +325,7 @@
                       :disabled="busy"
                       @click.stop="openCommitAllDiff(row.node.data.hash)"
                     >
-                      <Files class="h-3 w-3 shrink-0" />
+                      <AppIcon name="files" class="h-3 w-3 shrink-0" />
                       <span class="min-w-0 truncate">{{ t('gitPanel.viewCommitChanges') }}</span>
                     </button>
                   </template>
@@ -394,7 +394,7 @@
                       :title="t('gitPanel.moreActions')"
                       @click.stop="openStashMenu(row.node.data.stash, $event)"
                     >
-                      <MoreHorizontal class="h-3.5 w-3.5" />
+                      <AppIcon name="more-horizontal" class="h-3.5 w-3.5" />
                     </button>
                   </template>
                   <!-- 子节点：加载中 -->
@@ -430,7 +430,7 @@
                 @keydown.enter="runBranchCreate"
               />
               <button type="button" class="btn btn-sm" :disabled="busy || !newBranchName.trim()" @click="runBranchCreate">
-                <Plus class="h-3.5 w-3.5" />
+                <AppIcon name="plus" class="h-3.5 w-3.5" />
               </button>
             </div>
             <div ref="branchesScroller" class="git-panel-scroller min-h-0 flex-1 overflow-y-auto">
@@ -442,38 +442,38 @@
                   </template>
                   <!-- 目录（名字里按 / 折叠出的分组） -->
                   <template v-else-if="row.node.data.kind === 'folder'">
-                    <Folder class="h-3.5 w-3.5 shrink-0 opacity-60" />
+                    <AppIcon name="folder" class="h-3.5 w-3.5 shrink-0 opacity-60" />
                     <span class="min-w-0 flex-1 truncate font-medium opacity-70">{{ row.node.data.name }}</span>
                   </template>
                   <!-- 本地分支 -->
                   <template v-else-if="row.node.data.kind === 'branch'">
-                    <GitBranch class="h-3.5 w-3.5 shrink-0" :class="row.node.data.branch.isCurrent ? 'text-primary' : 'opacity-60'" />
+                    <AppIcon name="git-branch" class="h-3.5 w-3.5 shrink-0" :class="row.node.data.branch.isCurrent ? 'text-primary' : 'opacity-60'" />
                     <span class="min-w-0 truncate">{{ row.node.data.label }}</span>
                     <!-- 相对上游的领先/落后状态（↑↓ + 颜色），tooltip 给完整描述 -->
                     <span v-if="branchSyncText(row.node.data.branch).up || branchSyncText(row.node.data.branch).down || row.node.data.branch.upstreamMissing" class="shrink-0 inline-flex items-center gap-0.5" :class="branchSyncClass(row.node.data.branch)" :title="branchSyncTitle(row.node.data.branch)">
-                      <ArrowDown v-if="branchSyncText(row.node.data.branch).down" class="h-3 w-3" />
+                      <AppIcon name="arrow-down" v-if="branchSyncText(row.node.data.branch).down" class="h-3 w-3" />
                       <span v-if="row.node.data.branch.behind > 0" class="text-caption leading-none">{{ row.node.data.branch.behind }}</span>
-                      <ArrowUp v-if="branchSyncText(row.node.data.branch).up" class="h-3 w-3" />
+                      <AppIcon name="arrow-up" v-if="branchSyncText(row.node.data.branch).up" class="h-3 w-3" />
                       <span v-if="row.node.data.branch.ahead > 0" class="text-caption leading-none">{{ row.node.data.branch.ahead }}</span>
-                      <TriangleAlert v-if="row.node.data.branch.upstreamMissing" class="h-3 w-3" />
+                      <AppIcon name="triangle-alert" v-if="row.node.data.branch.upstreamMissing" class="h-3 w-3" />
                     </span>
                     <span class="shrink-0 text-caption opacity-45">{{ formatRecentRelativeTime(row.node.data.branch.committerDate, relativeNowTick, t) }}</span>
                     <button v-if="!row.node.data.branch.isCurrent" type="button" class="btn btn-ghost btn-xs ml-auto h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
-                      <ArrowRightLeft class="h-3 w-3" />
+                      <AppIcon name="arrow-right-left" class="h-3 w-3" />
                     </button>
                   </template>
                   <!-- 远程分支 -->
                   <template v-else-if="row.node.data.kind === 'remote-branch'">
-                    <Cloud class="h-3 w-3 shrink-0 opacity-60" />
+                    <AppIcon name="cloud" class="h-3 w-3 shrink-0 opacity-60" />
                     <span class="min-w-0 truncate">{{ row.node.data.label }}</span>
                     <span class="shrink-0 text-caption opacity-45">{{ formatRecentRelativeTime(row.node.data.branch.committerDate, relativeNowTick, t) }}</span>
                     <button type="button" class="btn btn-ghost btn-xs ml-auto h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
-                      <ArrowRightLeft class="h-3 w-3" />
+                      <AppIcon name="arrow-right-left" class="h-3 w-3" />
                     </button>
                   </template>
                   <!-- 远程 URL -->
                   <template v-else>
-                    <Cloud class="h-3 w-3 shrink-0 opacity-60" />
+                    <AppIcon name="cloud" class="h-3 w-3 shrink-0 opacity-60" />
                     <span class="shrink-0 font-medium">{{ row.node.data.remote.name }}</span>
                     <span class="min-w-0 truncate font-mono opacity-75">{{ row.node.data.remote.url }}</span>
                   </template>
@@ -497,7 +497,7 @@
             :class="activeGitTab === item.key ? 'bg-base-100 text-primary shadow-sm' : 'text-base-content/60 hover:bg-base-300/40'"
             @click="selectGitTab(item.key)"
           >
-              <component :is="item.icon" class="h-3.5 w-3.5" />
+              <AppIcon :name="item.icon" class="h-3.5 w-3.5" />
               <span class="truncate">{{ item.label }}</span>
             </button>
           </div>
@@ -522,17 +522,17 @@
         </div>
         <div class="flex flex-wrap gap-1 border-t border-base-300 px-2 py-2">
           <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6 gap-1 font-mono" @click="copyCommitHash">
-            <Copy class="h-3 w-3" />
+            <AppIcon name="copy" class="h-3 w-3" />
             {{ commitCard.entry.shortHash }}
           </button>
           <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6 gap-1" @click="copyCommitMessage">
-            <Copy class="h-3 w-3" />
+            <AppIcon name="copy" class="h-3 w-3" />
             {{ t('gitPanel.copyMessage') }}
           </button>
         </div>
         <div class="flex flex-col gap-1 border-t border-base-300 px-2 py-2">
           <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6 justify-start gap-1.5 px-2" @click="createBranchFromCommit">
-            <GitBranch class="h-3 w-3" />
+            <AppIcon name="git-branch" class="h-3 w-3" />
             <span class="truncate">{{ t('gitPanel.createBranchFromCommit') }}</span>
           </button>
           <button
@@ -541,7 +541,7 @@
             class="btn btn-ghost btn-xs h-6 min-h-6 justify-start gap-1.5 px-2"
             @click="resetSoftCommit"
           >
-            <Undo2 class="h-3 w-3" />
+            <AppIcon name="undo" class="h-3 w-3" />
             <span class="truncate">{{ t('gitPanel.resetSoftCommit') }}</span>
           </button>
         </div>
@@ -558,17 +558,17 @@
       >
         <div class="flex flex-col gap-1 border-b border-base-300 px-2 py-2">
           <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6 justify-start gap-1.5 px-2" :disabled="busy" @click="stashApplyFromMenu">
-            <Upload class="h-3 w-3" />
+            <AppIcon name="upload" class="h-3 w-3" />
             <span class="truncate">{{ t('gitPanel.stashApply') }}</span>
           </button>
           <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6 justify-start gap-1.5 px-2" :disabled="busy" @click="stashPopFromMenu">
-            <Upload class="h-3 w-3" />
+            <AppIcon name="upload" class="h-3 w-3" />
             <span class="truncate">{{ t('gitPanel.stashPop') }}</span>
           </button>
         </div>
         <div class="flex flex-col gap-1 px-2 py-2">
           <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6 justify-start gap-1.5 px-2 text-error" :disabled="busy" @click="stashDropFromMenu">
-            <Trash2 class="h-3 w-3" />
+            <AppIcon name="trash" class="h-3 w-3" />
             <span class="truncate">{{ t('gitPanel.stashDrop') }}</span>
           </button>
         </div>
@@ -579,33 +579,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import {
-  ArrowDown,
-  ArrowDownToLine,
-  ArrowRightLeft,
-  ArrowUp,
-  ArrowUpFromLine,
-  ChevronUp,
-  Cloud,
-  CloudSync,
-  Copy,
-  Files,
-  Folder,
-  FolderGit2,
-  GitBranch,
-  GitCommitHorizontal,
-  History,
-  ListTree,
-  MoreHorizontal,
-  Plus,
-  RefreshCw,
-  Rows3,
-  SquareTerminal,
-  Trash2,
-  TriangleAlert,
-  Undo2,
-  Upload,
-} from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { useI18n } from "vue-i18n";
 import {
   appendTransportProbeLog,
@@ -692,9 +666,9 @@ const emit = defineEmits<{
 const { t } = useI18n();
 
 const gitPanelTabs = computed(() => [
-  { key: "commits", label: t("gitPanel.commitsTab"), icon: History },
-  { key: "stashes", label: t("gitPanel.stashesTab"), icon: GitCommitHorizontal },
-  { key: "branches", label: t("gitPanel.branchesTab"), icon: GitBranch },
+  { key: "commits", label: t("gitPanel.commitsTab"), icon: "history" as const },
+  { key: "stashes", label: t("gitPanel.stashesTab"), icon: "git-commit-horizontal" as const },
+  { key: "branches", label: t("gitPanel.branchesTab"), icon: "git-branch" as const },
 ]);
 
 const activeGitTab = ref("commits");

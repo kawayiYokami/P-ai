@@ -34,7 +34,7 @@
             {{ selectedSummaryLabel }}
           </span>
         </div>
-        <ChevronDown class="h-4 w-4 shrink-0 opacity-70 transition-transform" :class="dropdownOpen ? 'rotate-180' : ''" />
+        <AppIcon name="chevron-down" class="h-4 w-4 shrink-0 opacity-70 transition-transform" :class="dropdownOpen ? 'rotate-180' : ''" />
       </button>
 
       <div
@@ -79,7 +79,7 @@
 </template>
 
 <script setup lang="ts">
-import { ChevronDown } from "@lucide/vue";
+import AppIcon from "./AppIcon.vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, PersonaProfile } from "../../../types/app";

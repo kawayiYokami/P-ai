@@ -17,7 +17,7 @@
         @click="toggle"
       >
         <span class="min-w-0 flex-1 truncate">{{ selectedLabel }}</span>
-        <ChevronDown class="size-4 shrink-0 opacity-50" />
+        <AppIcon name="chevron-down" class="size-4 shrink-0 opacity-50" />
       </button>
     </template>
 
@@ -55,7 +55,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { ChevronDown } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import EcallDropdown from "../../shared/components/EcallDropdown.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 

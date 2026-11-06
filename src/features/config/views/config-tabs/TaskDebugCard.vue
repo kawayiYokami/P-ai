@@ -187,7 +187,7 @@
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
           <button v-if="mode === 'edit'" class="btn btn-ghost" :disabled="saving || loading" @click="$emit('delete')">
-            <Trash2 class="h-4 w-4" />
+            <AppIcon name="trash" class="h-4 w-4" />
             {{ t("common.delete") }}
           </button>
         </div>
@@ -213,7 +213,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { Trash2 } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import type { TaskEditorForm, TaskEditorMode, TaskEntry, TaskRunLogEntry } from "./task-editor";
 import { formatIsoToLocalDateTime } from "../../../../utils/time";
 import type { AppConfig, PersonaProfile } from "../../../../types/app";

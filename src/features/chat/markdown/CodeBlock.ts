@@ -1,5 +1,5 @@
 import { computed, defineComponent, h, inject, onBeforeUnmount, ref, watch } from "vue";
-import { Check, Copy, Maximize2, Play } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import CodeBlockPreviewDialog from "../components/dialogs/CodeBlockPreviewDialog.vue";
 import InteractiveHtmlSandbox from "../components/InteractiveHtmlSandbox.vue";
 import MermaidBlock from "./MermaidBlock";
@@ -287,21 +287,21 @@ const CodeBlock = defineComponent({
               class: "ecall-md-code-action",
               title: "交互预览",
               onClick: () => { sandboxEnabled.value = true; },
-            }, [h(Play, { class: "ecall-md-code-action-icon" })])
+            }, [h(AppIcon, { name: "play", class: "ecall-md-code-action-icon" })])
             : null,
           h("button", {
             type: "button",
             class: "ecall-md-code-action",
             title: codeProps.expandText,
             onClick: openPreview,
-          }, [h(Maximize2, { class: "ecall-md-code-action-icon" })]),
+          }, [h(AppIcon, { name: "maximize", class: "ecall-md-code-action-icon" })]),
           h("button", {
             type: "button",
             class: "ecall-md-code-action ecall-md-code-copy",
             title: copied.value ? codeProps.copiedText : codeProps.copyText,
             "aria-label": copied.value ? codeProps.copiedText : codeProps.copyText,
             onClick: copyCode,
-          }, [h(copied.value ? Check : Copy, { class: "ecall-md-code-action-icon" })]),
+          }, [h(AppIcon, { name: copied.value ? "check" : "copy", class: "ecall-md-code-action-icon" })]),
         ]),
       ]);
 

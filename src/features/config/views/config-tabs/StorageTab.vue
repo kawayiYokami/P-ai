@@ -3,7 +3,7 @@
     <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
       <div class="flex min-w-0 items-start gap-3">
         <div class="flex shrink-0 items-center justify-center rounded-box bg-primary/15 p-3 text-primary">
-          <HardDrive class="h-6 w-6" />
+          <AppIcon name="hard-drive" class="h-6 w-6" />
         </div>
         <div class="min-w-0">
           <div class="text-sm font-semibold">{{ t("config.storage.pageTitle") }}</div>
@@ -14,7 +14,7 @@
         :disabled="storageLoading || !!cleanupBusyKind"
         @click="refreshStorageOverview"
       >
-        <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': storageLoading }" />
+        <AppIcon name="refresh-cw" class="h-4 w-4" :class="{ 'animate-spin': storageLoading }" />
         <span>{{ t("config.storage.refreshAction") }}</span>
       </button>
     </div>
@@ -88,7 +88,7 @@
                       :title="item.targetPath"
                       @click="handleOpenStorageItem(item)"
                     >
-                      <FolderOpen class="h-3.5 w-3.5" :class="{ 'animate-pulse': openingItemId === item.id }" />
+                      <AppIcon name="folder-open" class="h-3.5 w-3.5" :class="{ 'animate-pulse': openingItemId === item.id }" />
                       <span>{{ t("config.storage.openAction") }}</span>
                     </button>
                     <button
@@ -97,7 +97,7 @@
                       :disabled="storageLoading || !!cleanupBusyKind || item.cleanableFileCount === 0"
                       @click="handleCleanupStorageItem(item)"
                     >
-                      <Trash2 class="h-3.5 w-3.5" :class="{ 'animate-pulse': cleanupBusyKind === item.cleanupKind }" />
+                      <AppIcon name="trash" class="h-3.5 w-3.5" :class="{ 'animate-pulse': cleanupBusyKind === item.cleanupKind }" />
                       <span>{{ t("config.storage.cleanupAction") }}</span>
                     </button>
                   </div>
@@ -119,7 +119,7 @@
 
     <div class="flex items-center gap-3">
       <div class="flex items-center justify-center rounded-box bg-info/15 p-2 text-info">
-        <Download class="h-5 w-5" />
+        <AppIcon name="download" class="h-5 w-5" />
       </div>
       <div>
         <div class="text-sm font-semibold">{{ t("config.migration.pageTitle") }}</div>
@@ -131,7 +131,7 @@
         <div class="flex flex-col gap-5 py-3">
           <div class="flex items-start gap-4">
             <div class="flex items-center justify-center rounded-box bg-info/15 p-3 text-info">
-              <Download class="h-6 w-6" />
+              <AppIcon name="download" class="h-6 w-6" />
             </div>
           </div>
 
@@ -152,8 +152,8 @@
                 :placeholder="t('config.migration.passwordPlaceholder')"
               />
               <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="showExportPassword = !showExportPassword">
-                <EyeOff v-if="showExportPassword" class="h-5 w-5 opacity-60" />
-                <Eye v-else class="h-5 w-5 opacity-60" />
+                <AppIcon name="eye-off" v-if="showExportPassword" class="h-5 w-5 opacity-60" />
+                <AppIcon name="eye" v-else class="h-5 w-5 opacity-60" />
               </button>
             </label>
           </label>
@@ -176,7 +176,7 @@
         <div class="flex flex-col gap-5 py-3">
           <div class="flex items-start gap-4">
             <div class="flex items-center justify-center rounded-box bg-success/15 p-3 text-success">
-              <Upload class="h-6 w-6" />
+              <AppIcon name="upload" class="h-6 w-6" />
             </div>
           </div>
 
@@ -193,7 +193,7 @@
             :disabled="busy"
             @click="handleSelectImportPackage"
           >
-            <Upload class="mb-4 h-12 w-12 text-base-content/35" />
+            <AppIcon name="upload" class="mb-4 h-12 w-12 text-base-content/35" />
             <div class="text-base font-semibold">{{ t("config.migration.importUploadTitle") }}</div>
             <div class="mt-2 whitespace-pre-line text-sm opacity-70">{{ t("config.migration.importUploadHint") }}</div>
           </button>
@@ -208,8 +208,8 @@
                 :placeholder="t('config.migration.decryptPasswordPlaceholder')"
               />
               <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="showImportPassword = !showImportPassword">
-                <EyeOff v-if="showImportPassword" class="h-5 w-5 opacity-60" />
-                <Eye v-else class="h-5 w-5 opacity-60" />
+                <AppIcon name="eye-off" v-if="showImportPassword" class="h-5 w-5 opacity-60" />
+                <AppIcon name="eye" v-else class="h-5 w-5 opacity-60" />
               </button>
             </label>
           </label>
@@ -260,7 +260,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Download, Eye, EyeOff, FolderOpen, HardDrive, RefreshCw, Trash2, Upload } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
 import {
   applyTransportConfigMigrationPackage,

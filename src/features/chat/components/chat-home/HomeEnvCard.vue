@@ -3,7 +3,7 @@
     :col-span="colSpan"
     :row-span="rowSpan"
     tone="warning"
-    :icon="GitBranch"
+    icon="git-branch"
     :label="t('chat.homePanel.envLabel')"
     :interactive="false"
   >
@@ -15,7 +15,7 @@
         :title="changeTitle"
         @click="emit('openChanges')"
       >
-        <span class="ecall-env-icon ecall-env-icon-warning"><FileDiff class="size-3.5" /></span>
+        <span class="ecall-env-icon ecall-env-icon-warning"><AppIcon name="file-diff" class="size-3.5" /></span>
         <span class="ecall-env-label">{{ t("chat.homePanel.changesLabel") }}</span>
         <span class="ecall-env-value" :class="changeCount > 0 ? 'text-warning' : 'opacity-45'">{{ changeText }}</span>
       </button>
@@ -36,10 +36,10 @@
             :disabled="!repoRoot"
             @click="toggle"
           >
-            <span class="ecall-env-icon ecall-env-icon-primary"><GitBranch class="size-3.5" /></span>
+            <span class="ecall-env-icon ecall-env-icon-primary"><AppIcon name="git-branch" class="size-3.5" /></span>
             <span class="ecall-env-label">{{ t("chat.homePanel.branchLabel") }}</span>
             <span class="ecall-env-value min-w-0 truncate">{{ branchDisplay }}</span>
-            <ChevronDown
+            <AppIcon name="chevron-down"
               class="size-3 shrink-0 opacity-45 transition-transform"
               :class="{ 'rotate-180': open }"
             />
@@ -65,7 +65,7 @@
         :disabled="!latestCommit"
         @click="emit('openCommits')"
       >
-        <span class="ecall-env-icon ecall-env-icon-info"><History class="size-3.5" /></span>
+        <span class="ecall-env-icon ecall-env-icon-info"><AppIcon name="history" class="size-3.5" /></span>
         <span class="ecall-env-label">{{ t("chat.homePanel.latestCommitLabel") }}</span>
         <span class="ecall-env-value min-w-0 truncate">{{ latestCommitSubject || t("chat.homePanel.noCommits") }}</span>
       </button>
@@ -84,7 +84,7 @@
  */
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ChevronDown, FileDiff, GitBranch, History } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import CardShell from "./CardShell.vue";
 import EcallDropdown from "../../../shared/components/EcallDropdown.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";

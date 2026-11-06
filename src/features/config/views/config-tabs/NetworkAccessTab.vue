@@ -2,7 +2,7 @@
   <ConfigTemplate :model-value="templateValues" :groups="templateGroups">
     <template #group-actions-network-access>
       <button class="btn btn-sm bg-base-100 shrink-0" :disabled="loading" :title="t('common.refresh')" @click="refreshInfo">
-        <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
+        <AppIcon name="refresh-cw" class="h-4 w-4" :class="{ 'animate-spin': loading }" />
         <span>{{ t("common.refresh") }}</span>
       </button>
     </template>
@@ -41,7 +41,7 @@
           :disabled="!settingsDirty || props.savingConfig"
           @click="saveSettings"
         >
-          <Save class="h-4 w-4" />
+          <AppIcon name="save" class="h-4 w-4" />
           {{ props.savingConfig ? t("common.saving") : t("common.save") }}
         </button>
       </div>
@@ -54,7 +54,7 @@
           <div class="mt-1 break-all font-mono text-xs text-base-content/70">{{ localUrlText }}</div>
         </div>
         <button class="btn btn-sm btn-primary shrink-0" :disabled="!webInfo?.localUrl || !webInfo?.enabled" @click="openLocalUrl">
-          <ExternalLink class="h-4 w-4" />
+          <AppIcon name="external-link" class="h-4 w-4" />
           {{ t("config.networkAccess.open") }}
         </button>
       </div>
@@ -74,13 +74,13 @@
         </label>
         <div class="flex shrink-0 items-center gap-1">
           <button class="btn btn-sm btn-ghost" :disabled="!networkAccessEnabled" :title="t('config.networkAccess.regeneratePassword')" @click="regeneratePassword">
-            <KeyRound class="h-4 w-4" />
+            <AppIcon name="key-round" class="h-4 w-4" />
           </button>
           <button class="btn btn-sm btn-ghost" :disabled="!passwordInput || !webInfo?.enabled" @click="copyText(passwordInput)">
-            <Copy class="h-4 w-4" />
+            <AppIcon name="copy" class="h-4 w-4" />
           </button>
           <button class="btn btn-sm btn-primary" :disabled="!settingsDirty || props.savingConfig" :title="t('common.save')" @click="saveSettings">
-            <Save class="h-4 w-4" />
+            <AppIcon name="save" class="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -91,7 +91,7 @@
         <div class="flex items-center justify-between gap-4">
           <div class="text-sm">{{ t("config.networkAccess.remoteLinks") }}</div>
           <button class="btn btn-sm btn-ghost shrink-0" :disabled="remoteUrls.length === 0 || !webInfo?.enabled" @click="copyText(remoteUrls.join('\n'))">
-            <Copy class="h-4 w-4" />
+            <AppIcon name="copy" class="h-4 w-4" />
           </button>
         </div>
         <div v-if="remoteUrls.length > 0" class="grid gap-1">
@@ -149,7 +149,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Copy, ExternalLink, KeyRound, RefreshCw, Save } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import { invokeTauri, openTransportExternalUrl } from "../../../../services/tauri-api";

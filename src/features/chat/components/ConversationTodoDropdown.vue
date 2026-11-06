@@ -24,7 +24,7 @@
           v-if="todos.length > 1"
           class="badge badge-ghost badge-sm shrink-0 font-normal tabular-nums"
         >{{ completedCount }}/{{ todos.length }}</span>
-        <ChevronDown
+        <AppIcon name="chevron-down"
           class="h-3.5 w-3.5 shrink-0 text-base-content/50 transition-transform duration-300"
         />
       </button>
@@ -36,7 +36,7 @@
           :aria-label="t('chat.todoCollapse')"
           @click="toggleExpanded"
         >
-          <ChevronUp class="h-4 w-4" />
+          <AppIcon name="chevron-up" class="h-4 w-4" />
         </button>
         <div class="todo-body-inner">
           <div class="flex items-center justify-between gap-3 text-xs text-base-content/60">
@@ -74,7 +74,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ChevronDown, ChevronUp } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 
 interface NormalizedTodo {
   content: string;

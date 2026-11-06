@@ -8,7 +8,7 @@
               <p class="text-sm text-base-content/70">{{ t("chat.autoPush.summary") }}</p>
             </div>
             <button type="button" class="btn btn-ghost btn-sm btn-circle" :disabled="saving" @click="emit('close')">
-              <X class="h-4 w-4" />
+              <AppIcon name="close" class="h-4 w-4" />
             </button>
           </div>
 
@@ -72,7 +72,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { X } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { RemoteImContactConversationOption } from "../../../types/app";
 
 const props = defineProps<{

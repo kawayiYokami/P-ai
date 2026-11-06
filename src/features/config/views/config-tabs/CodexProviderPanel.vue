@@ -16,8 +16,8 @@
                 placeholder="sk-..."
               />
               <button class="btn btn-sm btn-square bg-base-200" type="button" @click="showCodexCustomApiKey = !showCodexCustomApiKey">
-                <EyeOff v-if="showCodexCustomApiKey" class="h-3.5 w-3.5" />
-                <Eye v-else class="h-3.5 w-3.5" />
+                <AppIcon name="eye-off" v-if="showCodexCustomApiKey" class="h-3.5 w-3.5" />
+                <AppIcon name="eye" v-else class="h-3.5 w-3.5" />
               </button>
             </div>
             <span class="text-xs opacity-60">{{ t("config.api.codexCustomApiKeyHint") }}</span>
@@ -179,7 +179,7 @@
               />
             </label>
             <button class="btn btn-sm btn-square btn-ghost text-error" type="button" @click="removeModelCard(group.primary.id)">
-              <Trash2 class="h-3.5 w-3.5" />
+              <AppIcon name="trash" class="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
@@ -191,7 +191,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Eye, EyeOff, Trash2 } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";

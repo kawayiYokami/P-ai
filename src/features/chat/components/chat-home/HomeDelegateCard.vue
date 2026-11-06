@@ -3,7 +3,7 @@
     :col-span="colSpan"
     :row-span="rowSpan"
     tone="primary"
-    :icon="Network"
+    icon="network"
     :label="t('chat.homePanel.delegateLabel')"
     interactive
     :pulsing="pulsing"
@@ -13,14 +13,14 @@
       <span class="ecall-home-num shrink-0 text-xs text-base-content/45">{{ elapsedText }}</span>
     </template>
     <span class="line-clamp-2 text-xs leading-snug text-base-content/85">{{ title }}</span>
-    <ArrowUpRight class="mt-auto size-3.5 self-end text-base-content/25" aria-hidden="true" />
+    <AppIcon name="arrow-up-right" class="mt-auto size-3.5 self-end text-base-content/25" aria-hidden="true" />
   </CardShell>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowUpRight, Network } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import CardShell from "./CardShell.vue";
 
 const props = withDefaults(defineProps<{

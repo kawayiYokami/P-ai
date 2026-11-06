@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 import type { ComponentPublicInstance } from "vue";
-import { ArrowDown } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import type { CatalogEntry } from "../../../../types/app";
 
 /**
@@ -87,7 +87,7 @@ function formatInstalls(value: number): string {
 
     <div class="mt-auto flex items-center justify-between gap-2" @click.stop>
       <span v-if="formatInstalls(props.entry.popularity)" class="flex items-center gap-1 text-caption text-base-content/50">
-        <ArrowDown class="h-3 w-3" />
+        <AppIcon name="arrow-down" class="h-3 w-3" />
         <span>{{ formatInstalls(props.entry.popularity) }}</span>
       </span>
       <span v-else></span>

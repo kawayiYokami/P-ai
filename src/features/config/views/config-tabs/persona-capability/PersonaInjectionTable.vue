@@ -12,7 +12,7 @@
           <div class="flex items-center gap-2 min-w-0">
             <span class="truncate text-sm font-medium text-base-content">{{ t("config.persona.injection.systemRules") }}</span>
             <span class="badge badge-ghost badge-xs gap-1 text-base-content/60 shrink-0">
-              <Lock class="h-3 w-3" />
+              <AppIcon name="lock" class="h-3 w-3" />
               {{ t("config.persona.injection.locked") }}
             </span>
           </div>
@@ -36,7 +36,7 @@
           <div class="flex items-center gap-2 min-w-0">
             <span class="truncate text-sm font-medium text-base-content">{{ t("config.persona.injection.settings") }}</span>
             <span class="badge badge-ghost badge-xs gap-1 text-base-content/60 shrink-0">
-              <Lock class="h-3 w-3" />
+              <AppIcon name="lock" class="h-3 w-3" />
               {{ t("config.persona.injection.locked") }}
             </span>
           </div>
@@ -68,7 +68,7 @@
             :title="t('config.persona.injection.moveUp')"
             @click="move(index, -1)"
           >
-            <ArrowUp class="h-4 w-4" />
+            <AppIcon name="arrow-up" class="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -77,7 +77,7 @@
             :title="t('config.persona.injection.moveDown')"
             @click="move(index, 1)"
           >
-            <ArrowDown class="h-4 w-4" />
+            <AppIcon name="arrow-down" class="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -85,7 +85,7 @@
             :title="t('config.persona.injection.remove')"
             @click="remove(name)"
           >
-            <X class="h-4 w-4" />
+            <AppIcon name="close" class="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -103,7 +103,7 @@
           class="flex w-full items-center justify-center gap-1.5 py-3 text-xs font-medium text-primary hover:bg-primary/5 transition"
           @click="picking = true"
         >
-          <Plus class="h-4 w-4" />
+          <AppIcon name="plus" class="h-4 w-4" />
           <span>{{ t("config.persona.injection.add") }}</span>
         </button>
 
@@ -117,7 +117,7 @@
               :placeholder="t('config.persona.injection.addPlaceholder')"
               autofocus
             />
-            <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+            <AppIcon name="search" class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
             <button
               v-if="query"
               type="button"
@@ -142,7 +142,7 @@
                   {{ skill.description }}
                 </span>
               </div>
-              <Plus class="h-4 w-4 shrink-0 text-primary opacity-70" />
+              <AppIcon name="plus" class="h-4 w-4 shrink-0 text-primary opacity-70" />
             </button>
             <div v-if="candidates.length === 0" class="px-4 py-5 text-center text-xs text-base-content/50">
               {{ t("config.persona.injection.noCandidate") }}
@@ -168,7 +168,7 @@
     <dialog ref="systemRulesDialog" class="modal">
       <div class="modal-box max-w-sm">
         <h3 class="text-sm font-semibold mb-2 text-warning flex items-center gap-2">
-          <CircleAlert class="h-4 w-4" />
+          <AppIcon name="circle-alert" class="h-4 w-4" />
           {{ t("config.persona.injection.systemRulesDisableTitle") }}
         </h3>
         <p class="text-sm text-base-content/80">
@@ -193,7 +193,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowDown, ArrowUp, CircleAlert, Lock, Plus, Search, X } from "@lucide/vue";
+import AppIcon from "../../../../shared/components/AppIcon.vue";
 import ConfigCard from "../../../components/ConfigCard.vue";
 import type { PersonaProfile, SkillSummaryItem } from "../../../../../types/app";
 

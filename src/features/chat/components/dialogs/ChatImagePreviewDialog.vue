@@ -2,30 +2,30 @@
   <dialog ref="dialogRef" class="modal ecall-image-preview-modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
     <div class="modal-box relative flex h-[92vh] max-h-[92vh] w-[92vw] max-w-[92vw] flex-col overflow-hidden rounded-box bg-black/95 p-0 text-white shadow-2xl">
       <button class="btn btn-lg btn-circle absolute right-4 top-4 z-20 border-0 bg-black/55 text-white/85 shadow-lg hover:bg-white/15 hover:text-white" type="button" title="关闭" aria-label="关闭" @click="emit('close')">
-        <X class="h-7 w-7" />
+        <AppIcon name="close" class="h-7 w-7" />
       </button>
       <div class="absolute bottom-4 left-1/2 z-10 flex max-w-[calc(92vw-2rem)] -translate-x-1/2 items-center gap-1 rounded-2xl border border-white/18 bg-black/60 px-2 py-1.5 backdrop-blur-md shadow-xl">
         <button class="btn btn-sm btn-ghost border-0 text-white/85 shadow-none hover:bg-white/12 hover:text-white" :disabled="zoom <= minZoom" @click="emit('zoomOut')">
-          <Minus class="h-4 w-4" />
+          <AppIcon name="minus" class="h-4 w-4" />
         </button>
         <button class="btn btn-sm btn-ghost border-0 text-white/85 shadow-none hover:bg-white/12 hover:text-white" :disabled="zoom >= maxZoom" @click="emit('zoomIn')">
-          <Plus class="h-4 w-4" />
+          <AppIcon name="plus" class="h-4 w-4" />
         </button>
         <button class="btn btn-sm min-w-16 border-0 bg-transparent text-white/85 shadow-none hover:bg-white/12 hover:text-white" :disabled="Math.abs(zoom - 1) < 0.001" @click="emit('reset')">
           100%
         </button>
         <button class="btn btn-sm btn-ghost border-0 text-white/85 shadow-none hover:bg-white/12 hover:text-white" @click="emit('rotate')">
-          <RotateCw class="h-4 w-4" />
+          <AppIcon name="rotate-cw" class="h-4 w-4" />
         </button>
         <button class="btn btn-sm btn-ghost border-0 text-white/85 shadow-none hover:bg-white/12 hover:text-white" type="button" title="在右栏打开" aria-label="在右栏打开" @click="emit('openInRightPanel')">
-          <PanelRight class="h-4 w-4" />
+          <AppIcon name="panel-right" class="h-4 w-4" />
         </button>
         <template v-if="localPath && localFileSystemAvailable">
           <button class="btn btn-sm btn-ghost border-0 text-white/85 shadow-none hover:bg-white/12 hover:text-white" :disabled="copyStatus === 'doing'" @click="emit('copyImage', localPath)">
-            <Copy class="h-4 w-4" />
+            <AppIcon name="copy" class="h-4 w-4" />
           </button>
           <button class="btn btn-sm btn-ghost border-0 text-white/85 shadow-none hover:bg-white/12 hover:text-white" :disabled="saveStatus === 'doing'" @click="emit('saveImage', localPath)">
-            <Download class="h-4 w-4" />
+            <AppIcon name="download" class="h-4 w-4" />
           </button>
         </template>
       </div>
@@ -57,7 +57,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { PanelRight, Copy, Download, Minus, Plus, RotateCw, X } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import { getTransportCapabilities } from "../../../../services/tauri-api";
 
 const localFileSystemAvailable = getTransportCapabilities().localFileSystem;

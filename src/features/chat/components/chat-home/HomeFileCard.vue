@@ -4,7 +4,7 @@
     class="relative"
     :col-span="colSpan"
     :row-span="rowSpan"
-    :icon="Files"
+    icon="files"
     :icon-src="iconSrc"
     :label="label"
     :title="path"
@@ -19,7 +19,7 @@
       @click.stop="emit('close')"
       @keydown.stop
     >
-      <X class="size-3.5" aria-hidden="true" />
+      <AppIcon name="close" class="size-3.5" aria-hidden="true" />
     </button>
   </CardShell>
 </template>
@@ -27,7 +27,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { Files, X } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import CardShell from "./CardShell.vue";
 import { resolveFileTreeIcon } from "../../../file-reader/file-tree-icons";
 

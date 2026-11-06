@@ -46,7 +46,7 @@
       <section v-if="activeTab === 'all' || activeTab === 'api'" class="space-y-2.5">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <Server class="h-4 w-4 text-primary" />
+            <AppIcon name="server" class="h-4 w-4 text-primary" />
             <h4 class="text-sm font-bold text-base-content">供应商与模型 (API Providers)</h4>
             <span class="badge badge-sm badge-neutral">{{ mockProviders.length }}</span>
           </div>
@@ -78,7 +78,7 @@
             <!-- 右侧：协议格式 + 进入箭头 -->
             <div class="shrink-0 flex items-center gap-2">
               <span class="badge badge-ghost badge-xs font-mono uppercase">{{ provider.requestFormat }}</span>
-              <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+              <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
             </div>
           </div>
         </div>
@@ -88,7 +88,7 @@
       <section v-if="activeTab === 'all' || activeTab === 'skill'" class="space-y-2.5">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <Sparkles class="h-4 w-4 text-secondary" />
+            <AppIcon name="sparkles" class="h-4 w-4 text-secondary" />
             <h4 class="text-sm font-bold text-base-content">技能库 (Skills)</h4>
             <span class="badge badge-sm badge-neutral">{{ mockSkills.length }}</span>
           </div>
@@ -119,7 +119,7 @@
             <!-- 底栏：正文内容规模 + 进入箭头 -->
             <div class="flex items-center justify-between border-t border-base-300 pt-2.5 text-caption opacity-70">
               <span class="font-mono text-xs">{{ item.contentWords }} 字正文</span>
-              <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+              <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
             </div>
           </div>
         </div>
@@ -129,7 +129,7 @@
       <section v-if="activeTab === 'all' || activeTab === 'mcp'" class="space-y-2.5">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <Cpu class="h-4 w-4 text-accent" />
+            <AppIcon name="cpu" class="h-4 w-4 text-accent" />
             <h4 class="text-sm font-bold text-base-content">连接器 (MCP Connectors)</h4>
             <span class="badge badge-sm badge-neutral">{{ mockMcpServers.length }}</span>
           </div>
@@ -188,7 +188,7 @@
                 <span v-if="server.transport && server.transport !== 'mcp'" class="font-mono text-caption opacity-60">
                   {{ server.transport }}
                 </span>
-                <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
               </div>
             </div>
           </div>
@@ -199,7 +199,7 @@
       <section v-if="activeTab === 'all' || activeTab === 'persona'" class="space-y-2.5">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <UserCircle class="h-4 w-4 text-info" />
+            <AppIcon name="user-circle" class="h-4 w-4 text-info" />
             <h4 class="text-sm font-bold text-base-content">人格成员 (Personas)</h4>
             <span class="badge badge-sm badge-neutral">{{ mockPersonas.length }}</span>
           </div>
@@ -252,7 +252,7 @@
                 title="删除"
                 @click.stop
               >
-                <Trash2 class="h-4 w-4" />
+                <AppIcon name="trash" class="h-4 w-4" />
               </button>
             </div>
 
@@ -271,7 +271,7 @@
                   {{ persona.recallMode }}
                 </span>
               </div>
-              <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all ml-auto" />
+              <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all ml-auto" />
             </div>
           </div>
         </div>
@@ -281,7 +281,7 @@
       <section v-if="activeTab === 'all' || activeTab === 'remoteIm'" class="space-y-2.5">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <Radio class="h-4 w-4 text-success" />
+            <AppIcon name="radio" class="h-4 w-4 text-success" />
             <h4 class="text-sm font-bold text-base-content">外部接入与联系人 (Remote IM)</h4>
             <span class="badge badge-sm badge-neutral">{{ mockChannels.length }}</span>
           </div>
@@ -329,7 +329,7 @@
               </div>
               <div class="flex items-center gap-2">
                 <span class="font-mono opacity-60">{{ ch.contactsCount }} 位联系人</span>
-                <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
               </div>
             </div>
           </div>
@@ -341,15 +341,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import {
-  ChevronRight,
-  Cpu,
-  Radio,
-  Server,
-  Sparkles,
-  Trash2,
-  UserCircle,
-} from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 
 import SegmentedControl from "./SegmentedControl.vue";
 import { formatEndpointDisplay } from "../utils/api-config-display";

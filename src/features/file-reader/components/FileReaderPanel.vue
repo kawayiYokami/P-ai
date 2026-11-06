@@ -26,7 +26,7 @@
             :title="t('fileReader.openFile')"
             @click.stop="pickFile"
           >
-            <FilePlus class="size-4" />
+            <AppIcon name="file-plus" class="size-4" />
           </button>
         </slot>
       </template>
@@ -45,9 +45,9 @@
               alt=""
               class="h-4 w-4 shrink-0 object-contain"
             />
-            <SquareTerminal v-else-if="currentDirectoryOpenTarget.type === 'shell'" class="h-4 w-4" />
-            <Code2 v-else-if="currentDirectoryOpenTarget.type === 'vscode'" class="h-4 w-4" />
-            <Folders v-else class="h-4 w-4" />
+            <AppIcon name="square-terminal" v-else-if="currentDirectoryOpenTarget.type === 'shell'" class="h-4 w-4" />
+            <AppIcon name="code" v-else-if="currentDirectoryOpenTarget.type === 'vscode'" class="h-4 w-4" />
+            <AppIcon name="folders" v-else class="h-4 w-4" />
           </button>
           <div ref="directoryOpenTargetDropdownRef" class="dropdown dropdown-end z-20">
             <button
@@ -57,7 +57,7 @@
               title="切换打开目标"
               @click.stop="toggleDirectoryOpenTargetDropdown"
             >
-              <ChevronDown class="h-4 w-4" />
+              <AppIcon name="chevron-down" class="h-4 w-4" />
             </button>
             <DirectoryOpenTargetMenu
               v-if="directoryOpenTargetDropdownOpen"
@@ -85,7 +85,7 @@
           :title="t('fileReader.filesTab')"
           @click="toggleFilesPanel"
         >
-          <Files class="size-4" />
+          <AppIcon name="files" class="size-4" />
         </button>
         <button
           type="button"
@@ -95,7 +95,7 @@
           :title="t('fileReader.gitTab')"
           @click="toggleGitPanel"
         >
-          <GitBranch class="size-4" />
+          <AppIcon name="git-branch" class="size-4" />
         </button>
         </div>
       </template>
@@ -123,15 +123,15 @@
               :aria-label="t('fileReader.expandDirectory')"
               @click="expandDirectoryTreeFromRail"
             >
-              <ChevronsLeft class="h-4 w-4" />
+              <AppIcon name="chevrons-left" class="h-4 w-4" />
             </button>
             <div class="my-1 h-px w-6 shrink-0 bg-base-300"></div>
             <span
               class="flex size-8 shrink-0 items-center justify-center text-base-content/60"
               :title="asideMode === 'git' ? t('fileReader.gitTab') : t('fileReader.filesTab')"
             >
-              <GitBranch v-if="asideMode === 'git'" class="h-4 w-4" />
-              <Files v-else class="h-4 w-4" />
+              <AppIcon name="git-branch" v-if="asideMode === 'git'" class="h-4 w-4" />
+              <AppIcon name="files" v-else class="h-4 w-4" />
             </span>
           </div>
           <div v-show="directoryTreeRailContent === 'full'" class="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -145,7 +145,7 @@
               @click="openDirectoryInFileManager(directoryTreeRoot.path)"
               @contextmenu.prevent.stop="openPathOnlyContextMenu(directoryTreeRoot.path, $event)"
             >
-              <Folders class="h-3.5 w-3.5 shrink-0 opacity-75" />
+              <AppIcon name="folders" class="h-3.5 w-3.5 shrink-0 opacity-75" />
               <span class="min-w-0 truncate">{{ directoryTreeRoot.name }}</span>
             </button>
             <span
@@ -161,12 +161,12 @@
               :title="t('fileReader.backToProjectDirectory')"
               @click="backToProjectDirectory"
             >
-              <Home class="h-3.5 w-3.5" />
+              <AppIcon name="home" class="h-3.5 w-3.5" />
             </button>
           </div>
           <div class="px-2 pt-2">
             <label class="input input-bordered input-sm flex items-center gap-2">
-              <Search class="h-4 w-4 shrink-0 opacity-60" />
+              <AppIcon name="search" class="h-4 w-4 shrink-0 opacity-60" />
               <input
                 ref="directoryTreeFilterInputRef"
                 v-model="directoryTreeFilter"
@@ -267,7 +267,7 @@
             title="打开源文件"
             @click.stop="openDiffTargetFile"
           >
-            <FileText class="h-4 w-4" />
+            <AppIcon name="file-text" class="h-4 w-4" />
           </button>
           <button
             class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0"
@@ -276,10 +276,10 @@
             :title="t('fileReader.openWithDefault')"
             @click.stop="openWithDefaultProgram"
           >
-            <ExternalLink class="h-4 w-4" />
+            <AppIcon name="external-link" class="h-4 w-4" />
           </button>
           <button class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0" type="button" :disabled="!activeTab" :title="t('fileReader.refresh')" @click.stop="refreshActiveTab">
-            <RefreshCw class="h-4 w-4" />
+            <AppIcon name="refresh-cw" class="h-4 w-4" />
           </button>
           <button
             v-if="activeTab && canToggleRawMode(activeTab)"
@@ -289,8 +289,8 @@
             :aria-label="isTabRawMode(activeTab) ? t('fileReader.currentRawView') : t('fileReader.currentRenderedView')"
             @click.stop="toggleActiveRawMode"
           >
-            <Code2 v-if="isTabRawMode(activeTab)" class="h-4 w-4" />
-            <Eye v-else class="h-4 w-4" />
+            <AppIcon name="code" v-if="isTabRawMode(activeTab)" class="h-4 w-4" />
+            <AppIcon name="eye" v-else class="h-4 w-4" />
           </button>
         </div>
         <div class="relative min-h-0 flex-1" @scroll.capture="handleContentScroll">
@@ -316,7 +316,7 @@
                   :title="directoryFromPath(activeTab.path)"
                   @click.stop="openDirectoryInFileManager(directoryFromPath(activeTab.path))"
                 >
-                  <Folders class="h-3.5 w-3.5" />
+                  <AppIcon name="folders" class="h-3.5 w-3.5" />
                   {{ t('fileReader.openContainingFolder') }}
                 </button>
               </div>
@@ -541,7 +541,7 @@
           @mousedown.prevent
           @click.stop="copySelectionActionText"
         >
-          <Copy class="h-3.5 w-3.5" />
+          <AppIcon name="copy" class="h-3.5 w-3.5" />
           {{ t('common.copy') }}
         </button>
         <button
@@ -550,7 +550,7 @@
           @mousedown.prevent
           @click.stop="addSelectionActionToChat"
         >
-          <MessageSquarePlus class="h-3.5 w-3.5" />
+          <AppIcon name="message-square-plus" class="h-3.5 w-3.5" />
           {{ t('fileReader.addToChat') }}
         </button>
       </div>
@@ -688,7 +688,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
-import { ChevronDown, Check, ChevronsLeft, Code2, Copy, Eye, ExternalLink, FilePlus, Files, FileText, Folders, GitBranch, Home, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportCapabilities,
@@ -1242,7 +1242,7 @@ const fileReaderPanelTabs = computed(() =>
     label: tab.title,
     title: tab.path,
     iconSrc: tab.kind === "diff" ? undefined : resolvePathIcon(tab.path),
-    icon: tab.kind === "diff" ? GitBranch : undefined,
+    icon: tab.kind === "diff" ? ("git-branch" as const) : undefined,
     closeable: true,
   })),
 );

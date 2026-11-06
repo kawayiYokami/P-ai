@@ -34,14 +34,14 @@
               v-else-if="isError"
               class="inline-flex items-center gap-1.5 font-medium text-error"
             >
-              <AlertCircle class="h-3.5 w-3.5" />
+              <AppIcon name="alert-circle" class="h-3.5 w-3.5" />
               <span>失败</span>
             </span>
             <span
               v-else
               class="inline-flex items-center gap-1.5 font-medium text-success"
             >
-              <CheckCircle2 class="h-3.5 w-3.5" />
+              <AppIcon name="check-circle" class="h-3.5 w-3.5" />
               <span>已完成</span>
             </span>
 
@@ -52,7 +52,7 @@
           <!-- 耗时、步数与模型 -->
           <div class="flex flex-wrap items-center gap-2 text-base-content/60">
             <span class="inline-flex items-center gap-1 tabular-nums">
-              <Clock class="h-3.5 w-3.5 opacity-60" />
+              <AppIcon name="clock" class="h-3.5 w-3.5 opacity-60" />
               <span>{{ formatElapsed(displayElapsedMs) }}</span>
             </span>
             <span class="text-base-content/20">·</span>
@@ -60,7 +60,7 @@
             <template v-if="runModelName">
               <span class="text-base-content/20">·</span>
               <span class="inline-flex items-center gap-1 font-mono text-[11px] text-base-content/70 max-w-[200px] truncate" :title="runModelName">
-                <Cpu class="h-3.5 w-3.5 opacity-60 shrink-0" />
+                <AppIcon name="cpu" class="h-3.5 w-3.5 opacity-60 shrink-0" />
                 <span class="truncate">{{ runModelName }}</span>
               </span>
             </template>
@@ -78,7 +78,7 @@
       <section v-if="finalText" class="rounded-box border border-base-300/60 bg-base-100 p-4 min-w-0 w-full">
         <div class="flex items-center justify-between mb-3 border-b border-base-300/40 pb-2">
           <div class="flex items-center gap-1.5 text-xs font-semibold text-base-content/85">
-            <CheckCircle2 class="h-4 w-4 text-success" />
+            <AppIcon name="check-circle" class="h-4 w-4 text-success" />
             <span>最终答复</span>
           </div>
           <button
@@ -86,8 +86,8 @@
             class="btn btn-ghost btn-xs gap-1 text-base-content/60 hover:text-base-content"
             @click="copyFinalText"
           >
-            <Check v-if="copied" class="h-3 w-3 text-success" />
-            <Copy v-else class="h-3 w-3" />
+            <AppIcon name="check" v-if="copied" class="h-3 w-3 text-success" />
+            <AppIcon name="copy" v-else class="h-3 w-3" />
             <span>{{ copied ? '已复制' : '复制' }}</span>
           </button>
         </div>
@@ -102,14 +102,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import {
-  AlertCircle,
-  Check,
-  CheckCircle2,
-  Clock,
-  Copy,
-  Cpu,
-} from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
 import type { ArchiveBlockPage, ChatActivityItem, ConversationDelegateStatusSummary, ScheduleEvent, ScheduleRun } from "../../../types/app";

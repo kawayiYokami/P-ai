@@ -43,8 +43,8 @@
                   class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-base-100"
                   :class="turn.success ? 'text-success' : 'text-error'"
                 >
-                  <CheckCircle2 v-if="turn.success" class="h-4 w-4" />
-                  <XCircle v-else class="h-4 w-4" />
+                  <AppIcon name="check-circle" v-if="turn.success" class="h-4 w-4" />
+                  <AppIcon name="x-circle" v-else class="h-4 w-4" />
                 </span>
                 <div class="min-w-0 flex-1 overflow-hidden">
                   <div class="flex min-w-0 items-start justify-between gap-2">
@@ -110,7 +110,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { CheckCircle2, XCircle } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { FastRequestTurn } from "../../../types/app";
 import { toErrorMessage } from "../../../utils/error";

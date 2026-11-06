@@ -23,7 +23,7 @@
                   v-if="props.autoLightTheme === card.id"
                   class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-base-content text-base-100"
                 >
-                  <Check class="h-3 w-3" />
+                  <AppIcon name="check" class="h-3 w-3" />
                 </span>
               </div>
               <div class="mt-2 flex flex-wrap items-center gap-1">
@@ -68,7 +68,7 @@
                   v-if="props.autoDarkTheme === card.id"
                   class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-base-content text-base-100"
                 >
-                  <Check class="h-3 w-3" />
+                  <AppIcon name="check" class="h-3 w-3" />
                 </span>
               </div>
               <div class="mt-2 flex flex-wrap items-center gap-1">
@@ -95,7 +95,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import {
   GENERATED_THEME_DARK_ID,
   GENERATED_THEME_LIGHT_ID,

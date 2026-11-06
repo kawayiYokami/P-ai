@@ -8,7 +8,7 @@
         :title="t('config.catalog.refresh')"
         @click="reload"
       >
-        <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
+        <AppIcon name="refresh-cw" class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
         <span>{{ t("config.catalog.refresh") }}</span>
       </button>
     </template>
@@ -35,7 +35,7 @@
             :placeholder="t('config.catalog.searchPlaceholder')"
             @keydown.enter="runSearch"
           />
-          <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+          <AppIcon name="search" class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
         </div>
         <button class="btn btn-sm min-h-[2.25rem] btn-primary px-4" type="button" :disabled="loading" @click="runSearch">
           {{ t("config.catalog.search") }}
@@ -58,12 +58,12 @@
 
       <!-- 加载 / 空态 -->
       <div v-if="loading && entries.length === 0" class="flex items-center justify-center py-16 text-sm opacity-60">
-        <RefreshCw class="mr-2 h-4 w-4 animate-spin" />
+        <AppIcon name="refresh-cw" class="mr-2 h-4 w-4 animate-spin" />
         <span>{{ t("config.catalog.loading") }}</span>
       </div>
       <div v-else-if="entries.length === 0" class="rounded-box border border-dashed border-base-300 p-8 text-center">
         <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-base-200 text-base-content/50">
-          <Package class="h-6 w-6" />
+          <AppIcon name="package" class="h-6 w-6" />
         </div>
         <div class="mt-3 text-sm font-medium">{{ t("config.catalog.empty") }}</div>
         <div class="mt-1 text-xs opacity-60">{{ t("config.catalog.emptyHint") }}</div>
@@ -196,7 +196,7 @@
             @click="installFromDetail"
           >
             <span v-if="installingId === entryKey(detailEntry)" class="loading loading-spinner loading-xs"></span>
-            <Download v-else class="h-3.5 w-3.5" />
+            <AppIcon name="download" v-else class="h-3.5 w-3.5" />
             <span>{{ t("config.catalog.install") }}</span>
           </button>
         </div>
@@ -241,7 +241,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from "vue";
 import { useI18n } from "vue-i18n";
-import { Download, Package, RefreshCw, Search } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import type { CatalogEntry, CatalogSourceInfo } from "../../../../types/app";
 import {
   fetchCatalogIconDataUrl,

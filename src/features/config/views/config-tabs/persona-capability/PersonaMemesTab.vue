@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
-import { Plus, X } from "@lucide/vue";
+import AppIcon from "../../../../shared/components/AppIcon.vue";
 import ConfigCard from "../../../components/ConfigCard.vue";
 import { invokeTauri } from "../../../../../services/tauri-api";
 import type { PersonaProfile } from "../../../../../types/app";
@@ -213,7 +213,7 @@ watch(
             class="btn btn-ghost btn-xs btn-circle shrink-0"
             @click="statusText = ''"
           >
-            <X class="h-3 w-3" />
+            <AppIcon name="close" class="h-3 w-3" />
           </button>
         </div>
 
@@ -242,7 +242,7 @@ watch(
             <div
               class="w-full aspect-square rounded-2xl border-2 border-dashed border-base-300 group-hover:border-primary group-hover:bg-primary/5 flex items-center justify-center transition-colors"
             >
-              <Plus class="h-7 w-7 text-base-content/30 group-hover:text-primary transition-colors" />
+              <AppIcon name="plus" class="h-7 w-7 text-base-content/30 group-hover:text-primary transition-colors" />
             </div>
           </button>
 
@@ -269,7 +269,7 @@ watch(
                 :disabled="busy"
                 @click.stop="deleteItem(item)"
               >
-                <X class="h-3 w-3" />
+                <AppIcon name="close" class="h-3 w-3" />
               </button>
             </div>
 

@@ -8,7 +8,7 @@
     <div class="modal-box max-w-md border border-base-300 bg-base-100 shadow-2xl">
       <div class="flex items-start gap-3">
         <div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning">
-          <AlertTriangle class="h-5 w-5" />
+          <AppIcon name="alert-triangle" class="h-5 w-5" />
         </div>
         <div class="min-w-0 flex-1">
           <h3 class="text-base font-semibold text-base-content">
@@ -45,7 +45,7 @@
             @click="guard.handleSaveAndLeave"
           >
             <span v-if="guard.saving.value" class="loading loading-spinner loading-xs"></span>
-            <Save v-else class="h-4 w-4" />
+            <AppIcon name="save" v-else class="h-4 w-4" />
             <span>{{ guard.dialogOptions.value.saveAndLeaveText || t("config.unsavedConfirm.saveAndLeave") }}</span>
           </button>
         </template>
@@ -77,7 +77,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { AlertTriangle, Save } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { useUnsavedChangesGuard } from "../composables/use-unsaved-changes-guard";
 
 const { t } = useI18n();

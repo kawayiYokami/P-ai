@@ -165,9 +165,7 @@
           <!-- 叙事行 -->
           <div v-if="historyData.activePeriodLabel" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm opacity-80">
             <span v-if="historyData.activePeriodLabel" class="flex items-center gap-1.5">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-3.5 opacity-50">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-              </svg>
+              <AppIcon name="clock" class="size-3.5 opacity-50" />
               {{ t("config.welcome.trail.activePeriod", { period: t(`config.welcome.trail.periods.${historyData.activePeriodLabel}`) }) }}
             </span>
           </div>
@@ -191,6 +189,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";

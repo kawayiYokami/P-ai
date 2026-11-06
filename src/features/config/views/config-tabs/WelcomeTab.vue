@@ -24,7 +24,7 @@
       <div class="flex-1" />
 
       <button class="btn btn-sm btn-primary" type="button" @click="emit('start-chat')">
-        <MessageSquare class="h-3.5 w-3.5" />
+        <AppIcon name="message-square" class="h-3.5 w-3.5" />
         {{ t("window.startChat") }}
       </button>
       </div>
@@ -38,7 +38,7 @@
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2">
               <div class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-base-200 text-base-content/80">
-                <Cpu class="size-4" />
+                <AppIcon name="cpu" class="size-4" />
               </div>
               <span class="text-sm font-semibold text-base-content">{{ t("config.welcome.expertSetupTitle") }}</span>
             </div>
@@ -53,7 +53,7 @@
               type="button"
               @click="emit('jump', 'api')"
             >
-              <Cpu class="size-3.5" />
+              <AppIcon name="cpu" class="size-3.5" />
               <span>{{ t("config.welcome.startExpertSetup") }}</span>
             </button>
           </div>
@@ -66,7 +66,7 @@
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2">
               <div class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-base-200 text-base-content/70">
-                <Sparkles class="size-4" />
+                <AppIcon name="sparkles" class="size-4" />
               </div>
               <span class="text-sm font-semibold text-base-content">{{ t("config.welcome.quickSetupTitle") }}</span>
             </div>
@@ -81,7 +81,7 @@
               type="button"
               @click="emit('open-quick-setup')"
             >
-              <SlidersHorizontal class="size-3.5" />
+              <AppIcon name="sliders-horizontal" class="size-3.5" />
               <span>{{ t("config.welcome.startQuickSetup") }}</span>
             </button>
           </div>
@@ -132,7 +132,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Cpu, MessageSquare, SlidersHorizontal, Sparkles } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import type { ApiConfigItem, AppConfig } from "../../../../types/app";
 import UsageTrailWall from "./UsageTrailWall.vue";
 import {

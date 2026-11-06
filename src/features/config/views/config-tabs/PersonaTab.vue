@@ -17,7 +17,7 @@
               :title="t('config.persona.restoreDraft')"
               @click="$emit('resetPersonas')"
             >
-              <RotateCcw class="h-4 w-4" />
+              <AppIcon name="rotate-ccw" class="h-4 w-4" />
               <span class="hidden sm:inline">{{ t("config.persona.restoreDraft") }}</span>
             </button>
 
@@ -31,7 +31,7 @@
               @click="$emit('savePersonas')"
             >
               <span v-if="personaSaving" class="loading loading-spinner loading-xs"></span>
-              <Save v-else class="h-4 w-4" />
+              <AppIcon name="save" v-else class="h-4 w-4" />
               <span>{{ personaSaving ? t("config.persona.saving") : t("common.save") }}</span>
             </button>
       </div>
@@ -83,13 +83,13 @@
                     {{ avatarInitial(selectedPersona.name) }}
                   </div>
                   <div class="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
-                    <Camera class="h-5 w-5 text-white" />
+                    <AppIcon name="camera" class="h-5 w-5 text-white" />
                   </div>
                 </button>
                 <div
                   class="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-base-100 shadow ring-1 ring-base-200 pointer-events-none text-base-content/70"
                 >
-                  <Camera class="h-3 w-3" />
+                  <AppIcon name="camera" class="h-3 w-3" />
                 </div>
               </div>
 
@@ -125,7 +125,7 @@
                 class="btn btn-ghost btn-xs gap-1 text-base-content/70 hover:text-base-content"
                 @click="restoreSelectedPersonaPreset"
               >
-                <RotateCcw class="h-3.5 w-3.5" />
+                <AppIcon name="rotate-ccw" class="h-3.5 w-3.5" />
                 <span>{{ t("config.persona.restoreInitial") }}</span>
               </button>
             </template>
@@ -225,7 +225,7 @@
                     class="btn btn-sm min-h-[2rem] btn-ghost gap-1.5"
                     @click="triggerPersonaMemoryImport"
                   >
-                    <Upload class="h-4 w-4" />
+                    <AppIcon name="upload" class="h-4 w-4" />
                     <span>{{ t("config.persona.import") }}</span>
                   </button>
                 </div>
@@ -253,7 +253,7 @@
       <!-- 空状态（自定义分类的入口由网格末尾的新增卡承担） -->
       <div v-if="displayedPersonas.length === 0 && activeCategoryTab !== 'custom'" class="card border border-dashed border-base-300 bg-base-100 py-12">
         <div class="card-body items-center justify-center text-center">
-          <User class="h-10 w-10 opacity-30" />
+          <AppIcon name="user" class="h-10 w-10 opacity-30" />
           <h3 class="text-sm font-medium opacity-70">
             {{ t("config.persona.noPresetPersonas") }}
           </h3>
@@ -345,9 +345,9 @@
                 :title="t('config.persona.remove')"
                 @click.stop="promptDelete(persona)"
               >
-                <Trash2 class="h-3.5 w-3.5" />
+                <AppIcon name="trash" class="h-3.5 w-3.5" />
               </button>
-              <ChevronRight class="h-4 w-4 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all text-base-content" />
+              <AppIcon name="chevron-right" class="h-4 w-4 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all text-base-content" />
             </div>
           </div>
 
@@ -377,7 +377,7 @@
           class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
           @click="onAddPersonaClick"
         >
-          <Plus class="h-5 w-5" />
+          <AppIcon name="plus" class="h-5 w-5" />
           <span class="text-sm font-medium">{{ t("config.persona.add") }}</span>
         </button>
       </div>
@@ -388,7 +388,7 @@
   <dialog ref="deleteDialogRef" class="modal">
     <div class="modal-box max-w-sm">
       <h3 class="text-sm font-semibold mb-2 text-error flex items-center gap-2">
-        <Trash2 class="h-4 w-4" />
+        <AppIcon name="trash" class="h-4 w-4" />
         {{ t("config.persona.deletePersona") }}
       </h3>
       <p class="text-sm text-base-content/80">
@@ -450,16 +450,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import {
-  Camera,
-  ChevronRight,
-  Plus,
-  RotateCcw,
-  Save,
-  Trash2,
-  Upload,
-  User,
-} from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import type {
   ApiConfigItem,
   MemoryRecallMode,

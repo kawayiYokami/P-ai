@@ -6,12 +6,12 @@
     :aria-label="t('chat.homePanel.title')"
     @click.stop="emit('selectHome')"
   >
-    <LayoutGrid class="size-4 shrink-0 opacity-70" aria-hidden="true" />
+    <AppIcon name="layout-grid" class="size-4 shrink-0 opacity-70" aria-hidden="true" />
   </button>
 </template>
 
 <script setup lang="ts">
-import { LayoutGrid } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { useI18n } from "vue-i18n";
 
 const emit = defineEmits<{

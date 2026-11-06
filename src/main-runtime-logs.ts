@@ -1,7 +1,6 @@
 import { createApp } from "vue";
 import RuntimeLogsApp from "./apps/runtime-logs/RuntimeLogsApp.vue";
 import "./style.css";
-import { LUCIDE_CONTEXT } from "./lucide-context";
 import { initMarkdownAppearance } from "./features/shell/composables/use-markdown-appearance";
 import { initUiSizeAppearance } from "./features/shell/composables/use-ui-size-appearance";
 import { installNativeSelectionGuard } from "./utils/native-selection";
@@ -30,4 +29,4 @@ window.addEventListener("unhandledrejection", (event) => {
   console.error(`[运行日志窗口][未处理的Promise拒绝] 消息: ${message}, 堆栈: ${stack}`);
 });
 
-createApp(RuntimeLogsApp).provide(LUCIDE_CONTEXT, {}).mount("#app");
+createApp(RuntimeLogsApp).mount("#app");

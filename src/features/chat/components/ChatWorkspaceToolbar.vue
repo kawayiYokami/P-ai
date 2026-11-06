@@ -24,7 +24,7 @@
           :title="t('chat.conversationMenu.title')"
           @mousedown="updateMenuPlacement"
         >
-          <Grip class="h-4 w-4" />
+          <AppIcon name="grip" class="h-4 w-4" />
         </button>
         <ul
           tabindex="0"
@@ -33,19 +33,19 @@
         >
           <li v-if="showTaskCreateMenuItem">
             <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openTaskCreate')">
-              <ListTodo class="h-4 w-4 shrink-0" />
+              <AppIcon name="list-todo" class="h-4 w-4 shrink-0" />
               <span class="leading-5">{{ t("chat.newTask") }}</span>
             </button>
           </li>
           <li v-if="showShareMenuItem">
             <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openShareSelection')">
-              <Share2 class="h-4 w-4 shrink-0" />
+              <AppIcon name="share" class="h-4 w-4 shrink-0" />
               <span class="leading-5">{{ t("chat.conversationMenu.shareConversation") }}</span>
             </button>
           </li>
           <li v-if="showDelegateMenuItem">
             <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openDelegateSelection')">
-              <ClipboardList class="h-4 w-4 shrink-0" />
+              <AppIcon name="clipboard-list" class="h-4 w-4 shrink-0" />
               <span class="leading-5">{{ t("chat.conversationMenu.groupDelegate") }}</span>
             </button>
           </li>
@@ -55,25 +55,25 @@
               @toggle="handleDetailsToggle($event, 'branch')"
             >
               <summary class="min-h-9 gap-3">
-                <Split class="h-4 w-4 shrink-0" />
+                <AppIcon name="split" class="h-4 w-4 shrink-0" />
                 <span class="leading-5">{{ t("chat.conversationMenu.groupBranch") }}</span>
               </summary>
               <ul ref="branchSubmenuEl">
               <li v-if="showBranchMenuItem">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openBranchFromCurrent')">
-                  <GitBranch class="h-4 w-4 shrink-0" />
+                  <AppIcon name="git-branch" class="h-4 w-4 shrink-0" />
                   <span class="leading-5">{{ t("chat.conversationMenu.branchFromCurrent") }}</span>
                 </button>
               </li>
               <li v-if="showBranchMenuItem">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openBranchSelection')">
-                  <GitBranchPlus class="h-4 w-4 shrink-0" />
+                  <AppIcon name="git-branch-plus" class="h-4 w-4 shrink-0" />
                   <span class="leading-5">{{ t("chat.conversationMenu.branchConversation") }}</span>
                 </button>
               </li>
               <li v-if="sideChatEnabled">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openSideChat')">
-                  <MessageSquareMore class="h-4 w-4 shrink-0" />
+                  <AppIcon name="message-square-more" class="h-4 w-4 shrink-0" />
                   <span class="leading-5">{{ t("chat.conversationMenu.sideChatFollowUp") }}</span>
                 </button>
               </li>
@@ -86,19 +86,19 @@
               @toggle="handleDetailsToggle($event, 'interaction')"
             >
               <summary class="min-h-9 gap-3">
-                <Send class="h-4 w-4 shrink-0" />
+                <AppIcon name="send" class="h-4 w-4 shrink-0" />
                 <span class="leading-5">{{ t("chat.conversationMenu.groupInteraction") }}</span>
               </summary>
               <ul ref="interactionSubmenuEl">
               <li v-if="showAutoPushMenuItem">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openAutoPush')">
-                  <BellRing class="h-4 w-4 shrink-0" />
+                  <AppIcon name="bell-ring" class="h-4 w-4 shrink-0" />
                   <span class="leading-5">{{ t("chat.conversationMenu.autoPushToContact") }}</span>
                 </button>
               </li>
               <li v-if="showForwardMenuItem">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openForwardSelection')">
-                  <Package class="h-4 w-4 shrink-0" />
+                  <AppIcon name="package" class="h-4 w-4 shrink-0" />
                   <span class="leading-5">{{ t("chat.conversationMenu.forwardToContact") }}</span>
                 </button>
               </li>
@@ -111,7 +111,7 @@
               @toggle="handleDetailsToggle($event, 'appearance')"
             >
               <summary class="min-h-9 gap-3">
-                <Palette class="h-4 w-4 shrink-0" />
+                <AppIcon name="palette" class="h-4 w-4 shrink-0" />
                 <span class="leading-5">{{ t("chat.conversationMenu.groupAppearance") }}</span>
               </summary>
               <ul ref="appearanceSubmenuEl">
@@ -239,7 +239,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useAttrs, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { BellRing, ClipboardList, GitBranch, GitBranchPlus, Grip, ListTodo, MessageSquareMore, Package, Palette, Send, Share2, Split } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { ChatMentionEntry, ChatMentionTarget, ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
 import { useChatComposerAppearance } from "../../shell/composables/use-chat-composer-appearance";
 import { useChatMessageAppearance, type ChatMarkdownLayout, type ChatMessageFontSize } from "../../shell/composables/use-chat-message-appearance";

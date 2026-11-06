@@ -13,11 +13,11 @@
           class="flex items-center gap-2.5 text-left min-w-0 flex-1 py-0.5 cursor-pointer select-none"
           @click="toggleExpand(expandKeySection(section.key))"
         >
-          <ChevronDown
+          <AppIcon name="chevron-down"
             v-if="isExpanded(expandKeySection(section.key))"
             class="h-4 w-4 shrink-0 text-base-content/50"
           />
-          <ChevronRight
+          <AppIcon name="chevron-right"
             v-else
             class="h-4 w-4 shrink-0 text-base-content/50"
           />
@@ -41,8 +41,8 @@
             class="flex h-4 w-4 items-center justify-center rounded-selector border transition"
             :class="stateBoxClasses(sectionState(section))"
           >
-            <Check v-if="sectionState(section) === 'all'" class="h-3 w-3" stroke-width="3" />
-            <Minus v-else-if="sectionState(section) === 'partial'" class="h-3 w-3" stroke-width="3" />
+            <AppIcon name="check" v-if="sectionState(section) === 'all'" class="h-3 w-3" stroke-width="3" />
+            <AppIcon name="minus" v-else-if="sectionState(section) === 'partial'" class="h-3 w-3" stroke-width="3" />
           </span>
           <span class="text-xs text-base-content/70">
             {{ sectionState(section) === 'all' ? t("config.persona.permission.selectNone") : t("config.persona.permission.selectAll") }}
@@ -62,11 +62,11 @@
                 class="flex items-center gap-2 text-left min-w-0 flex-1 cursor-pointer font-medium text-base-content/70 select-none"
                 @click="toggleExpand(expandKeyGroup(section.key, group.key))"
               >
-                <ChevronDown
+                <AppIcon name="chevron-down"
                   v-if="isExpanded(expandKeyGroup(section.key, group.key))"
                   class="h-3.5 w-3.5 shrink-0 text-base-content/40"
                 />
-                <ChevronRight
+                <AppIcon name="chevron-right"
                   v-else
                   class="h-3.5 w-3.5 shrink-0 text-base-content/40"
                 />
@@ -87,8 +87,8 @@
                   class="flex h-3.5 w-3.5 items-center justify-center rounded-selector border transition"
                   :class="stateBoxClasses(group.state)"
                 >
-                  <Check v-if="group.state === 'all'" class="h-2.5 w-2.5" stroke-width="3" />
-                  <Minus v-else-if="group.state === 'partial'" class="h-2.5 w-2.5" stroke-width="3" />
+                  <AppIcon name="check" v-if="group.state === 'all'" class="h-2.5 w-2.5" stroke-width="3" />
+                  <AppIcon name="minus" v-else-if="group.state === 'partial'" class="h-2.5 w-2.5" stroke-width="3" />
                 </span>
                 <span class="text-base-content/60">
                   {{ group.state === 'all' ? t("config.persona.permission.selectNone") : t("config.persona.permission.selectAll") }}
@@ -117,7 +117,7 @@
                       v-if="leaf.badge"
                       class="badge badge-ghost badge-xs gap-1 opacity-70 shrink-0"
                     >
-                      <Lock v-if="leaf.locked" class="h-3 w-3" />
+                      <AppIcon name="lock" v-if="leaf.locked" class="h-3 w-3" />
                       {{ leaf.badge }}
                     </span>
                   </div>
@@ -132,7 +132,7 @@
                     ? 'border-primary bg-primary text-primary-content shadow-xs'
                     : 'border-base-content/25 bg-transparent text-transparent'"
                 >
-                  <Check class="h-3.5 w-3.5" stroke-width="3" />
+                  <AppIcon name="check" class="h-3.5 w-3.5" stroke-width="3" />
                 </span>
               </button>
             </div>
@@ -157,7 +157,7 @@
                   v-if="leaf.badge"
                   class="badge badge-ghost badge-xs gap-1 opacity-70 shrink-0"
                 >
-                  <Lock v-if="leaf.locked" class="h-3 w-3" />
+                  <AppIcon name="lock" v-if="leaf.locked" class="h-3 w-3" />
                   {{ leaf.badge }}
                 </span>
               </div>
@@ -172,7 +172,7 @@
                 ? 'border-primary bg-primary text-primary-content shadow-xs'
                 : 'border-base-content/25 bg-transparent text-transparent'"
             >
-              <Check class="h-3.5 w-3.5" stroke-width="3" />
+              <AppIcon name="check" class="h-3.5 w-3.5" stroke-width="3" />
             </span>
           </button>
 
@@ -188,7 +188,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, ChevronDown, ChevronRight, Lock, Minus } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type {
   PermissionGroupState,
   PermissionTreeGroup,

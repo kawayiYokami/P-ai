@@ -31,19 +31,19 @@
           <img :src="avatarUrl" :alt="title" class="h-full w-full object-cover" />
         </span>
       </span>
-      <ChevronRight
+      <AppIcon name="chevron-right"
         v-else-if="icon === 'chevron'"
         class="h-4 w-4 shrink-0 transition-transform duration-200 ease-out"
         :class="collapsed ? '' : 'rotate-90'"
       />
-      <component
+      <AppIcon
         v-else
-        :is="collapsed ? Folder : FolderOpen"
+        :name="collapsed ? 'folder' : 'folder-open'"
         class="h-4 w-4 shrink-0"
       />
       <span class="min-w-0 truncate">{{ title }}</span>
       <span v-if="count !== undefined" class="shrink-0 tabular-nums">{{ count }}</span>
-      <ChevronRight
+      <AppIcon name="chevron-right"
         v-if="avatarUrl"
         class="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 ease-out"
         :class="collapsed ? '' : 'rotate-90'"
@@ -69,7 +69,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { ChevronRight, Folder, FolderOpen } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 
 const props = withDefaults(defineProps<{
   title: string;

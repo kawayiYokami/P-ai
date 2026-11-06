@@ -22,7 +22,7 @@
         :title="t('chat.toolReview.view')"
         @click.stop="emit('openDetail')"
       >
-        <Eye class="size-3.5" aria-hidden="true" />
+        <AppIcon name="eye" class="size-3.5" aria-hidden="true" />
         <span>{{ t("chat.toolReview.view") }}</span>
       </button>
     </div>
@@ -31,7 +31,7 @@
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import { Eye } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { ToolReviewReportRecord } from "../composables/use-chat-tool-review";
 import DelegateProgressLine from "./DelegateProgressLine.vue";
 

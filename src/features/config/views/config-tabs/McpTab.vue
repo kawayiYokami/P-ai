@@ -8,7 +8,7 @@
           class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
           :placeholder="t('config.mcp.searchPlaceholder')"
         />
-        <Search class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+        <AppIcon name="search" class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
         <button
           v-if="searchQuery"
           type="button"
@@ -30,7 +30,7 @@
               :disabled="loading"
               @click="validateDefinition(selectedServer)"
             >
-              <CheckCircle class="h-4 w-4" />
+              <AppIcon name="check-circle" class="h-4 w-4" />
               <span>{{ t('config.mcpServerCard.validate') }}</span>
             </button>
             <button
@@ -40,7 +40,7 @@
               :disabled="loading"
               @click="fixDefinition(selectedServer)"
             >
-              <Wrench class="h-4 w-4" />
+              <AppIcon name="wrench" class="h-4 w-4" />
               <span>{{ t('config.mcp.fixFormat') }}</span>
             </button>
             <button
@@ -50,7 +50,7 @@
               :disabled="loading"
               @click="saveServer(selectedServer)"
             >
-              <Save class="h-4 w-4" />
+              <AppIcon name="save" class="h-4 w-4" />
               <span>{{ t('common.save') }}</span>
             </button>
             <button
@@ -60,7 +60,7 @@
               :disabled="loading || oauthStatusMap[selectedServer.id]?.status === 'authorizing'"
               @click="handleOAuthLogin(selectedServer.id)"
             >
-              <KeyRound class="h-4 w-4" />
+              <AppIcon name="key-round" class="h-4 w-4" />
               <span>{{ t('config.mcp.oauthLogin') }}</span>
             </button>
             <button
@@ -70,7 +70,7 @@
               :disabled="loading"
               @click="toggleDeploy(selectedServer)"
             >
-              <Power class="h-4 w-4" />
+              <AppIcon name="power" class="h-4 w-4" />
               <span>{{ selectedServer.enabled ? t('config.mcp.stop') : t('config.mcp.deploy') }}</span>
             </button>
             <button
@@ -79,7 +79,7 @@
               :disabled="loading"
               @click="confirmRemoveServer(selectedServer)"
             >
-              <Trash2 class="h-4 w-4" />
+              <AppIcon name="trash" class="h-4 w-4" />
               <span>{{ t('config.mcpServerCard.delete') }}</span>
             </button>
           </div>
@@ -93,7 +93,7 @@
               :disabled="loading"
               @click="reloadServers"
             >
-              <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
+              <AppIcon name="refresh-cw" class="h-4 w-4" :class="{ 'animate-spin': loading }" />
               <span>{{ t('config.mcp.refresh') }}</span>
             </button>
             <button
@@ -103,7 +103,7 @@
               :disabled="loading"
               @click="openMcpDir"
             >
-              <FolderOpen class="h-4 w-4" />
+              <AppIcon name="folder-open" class="h-4 w-4" />
               <span>{{ t('config.mcp.openDir') }}</span>
             </button>
           </div>
@@ -240,7 +240,7 @@
                 <span v-if="getProtocolBadge(server.definitionJson)" class="font-mono text-caption opacity-60">
                   {{ getProtocolBadge(server.definitionJson) }}
                 </span>
-                <ChevronRight class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
               </div>
             </div>
           </div>
@@ -251,7 +251,7 @@
             class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
             @click="addServer"
           >
-            <Plus class="h-5 w-5" />
+            <AppIcon name="plus" class="h-5 w-5" />
             <span class="text-sm font-medium">{{ t('config.mcp.add') }}</span>
           </button>
         </div>
@@ -264,20 +264,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import {
-  CheckCircle,
-  ChevronRight,
-  FolderOpen,
-  KeyRound,
-  Plus,
-  Power,
-  RefreshCw,
-  Save,
-  Search,
-  Settings,
-  Trash2,
-  Wrench,
-} from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import {
   getTransportCapabilities,
   getTransportHostRuntimePrerequisites,

@@ -26,7 +26,7 @@
         :title="issue.planPath"
         @click.stop="emit('openPlan', issue.planPath)"
       >
-        <FileText class="size-3 shrink-0" aria-hidden="true" />
+        <AppIcon name="file-text" class="size-3 shrink-0" aria-hidden="true" />
         <span class="truncate">{{ planFileName(issue.planPath) }}</span>
       </button>
     </div>
@@ -51,7 +51,7 @@
           :title="t('chat.kanban.referenceHint')"
           @click.stop="handleReference"
         >
-          <ArrowDownLeft class="size-3" aria-hidden="true" />
+          <AppIcon name="arrow-down-left" class="size-3" aria-hidden="true" />
         </button>
         <div class="avatar size-4 shrink-0">
           <div
@@ -85,7 +85,7 @@
           :title="t('chat.kanban.approveHint')"
           @click.stop="emit('approve', issue.number)"
         >
-          <Check class="size-3" aria-hidden="true" />
+          <AppIcon name="check" class="size-3" aria-hidden="true" />
           <span>{{ t("chat.kanban.approve") }}</span>
         </button>
         <span
@@ -102,7 +102,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowDownLeft, Check, FileText } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import {
   formatTimeRelative,
   getAvatarColorByName,

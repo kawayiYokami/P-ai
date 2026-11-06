@@ -34,7 +34,7 @@
               class="h-4 w-4 shrink-0 rounded-full object-cover"
             />
             <span class="truncate leading-5 text-base-content/85"><InlineMarkdownText :text="answerLine" /></span>
-            <ArrowDownToLine
+            <AppIcon name="arrow-down-to-line"
               class="h-4 w-4 shrink-0 text-base-content/75"
               :stroke-width="2.5"
             />
@@ -49,7 +49,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowDownToLine } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { stripToolcallMarkers } from "../../../utils/chat-message-semantics";
 import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import { SESSION_FLOAT_FROST_CARD } from "./session-float-styles";

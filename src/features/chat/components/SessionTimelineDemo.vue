@@ -41,7 +41,7 @@
         aria-label="展开会话时间线"
         @click="panelOpen = true"
       >
-        <Route class="h-4 w-4 shrink-0" />
+        <AppIcon name="route" class="h-4 w-4 shrink-0" />
         <span class="ml-1.5 whitespace-nowrap text-xs leading-none">会话时间线</span>
       </button>
 
@@ -94,11 +94,11 @@
           </OverlayScrollArea>
           <div class="flex shrink-0 items-center justify-between gap-2 px-3 py-2">
             <span class="flex items-center gap-1 text-xs text-base-content/60">
-              <CircleAlert class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <AppIcon name="circle-alert" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               点击消息跳转到目标消息
             </span>
             <button type="button" class="btn btn-sm gap-1" @click="panelOpen = false">
-              <ArrowLeft class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <AppIcon name="arrow-left" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               返回
             </button>
           </div>
@@ -120,7 +120,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { ArrowLeft, CircleAlert, Route } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import { FROST_GLASS, FROST_SURFACE } from "./session-float-styles";

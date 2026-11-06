@@ -6,11 +6,7 @@
       :title="t('config.memory.importCardTitle')"
       @click="openDialog"
     >
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="7 10 12 15 17 10"/>
-        <line x1="12" x2="12" y1="15" y2="3"/>
-      </svg>
+      <AppIcon name="download" class="h-3.5 w-3.5" />
       <span>{{ t("config.memory.importShort") }}</span>
     </button>
 
@@ -128,6 +124,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../services/tauri-api";
 
