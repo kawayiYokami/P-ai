@@ -139,12 +139,11 @@
       >
         <div v-if="activityItemExpanded(item) || toolFoldClosing[activityItemKey(item)]" class="relative pt-2">
                 <OverlayScrollArea scroller-class="max-h-72 py-2 pr-2" overscroll="auto">
-                  <div class="flex flex-col gap-2">
-                    <!-- 卡片一：参数（输入）。不设标题行，内容直接当卡片 -->
-                    <div
-                      v-if="toolDetailParts(item).args"
-                      :class="['rounded-lg', TOOL_CARD_SURFACE]"
-                    >
+                  <!-- 一张卡装输入与输出：同一次工具调用的两半，中间用一条分割线分开。
+                       两块各自再套圆角边框会被看成两件事，连线都断开。 -->
+                  <div :class="['overflow-hidden rounded-lg divide-y divide-base-300', TOOL_CARD_SURFACE]">
+                    <!-- 上半：参数（输入）。不设标题行，内容直接当区块 -->
+                    <div v-if="toolDetailParts(item).args">
                       <!-- 参数区：整块走工具绿，其中的键名单独跳到行内代码红 -->
                       <ToolArgsView
                         :text="toolDetailParts(item).args"
@@ -153,10 +152,9 @@
                       />
                     </div>
 
-                    <!-- 卡片二：结果（输出）。默认空态，点一下才把结果取回来 -->
+                    <!-- 下半：结果（输出）。默认空态，点一下才把结果取回来 -->
                     <div
                       v-if="toolDetailParts(item).result || (item.contentOmitted && props.state.toolResultOverrides[activityItemKey(item)] === undefined)"
-                      :class="['rounded-lg', TOOL_CARD_SURFACE]"
                     >
                       <!-- 结果区：内容色由条目变量给，深色是青 -->
                       <pre
