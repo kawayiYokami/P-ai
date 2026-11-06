@@ -7,6 +7,9 @@
     :style="tileSpanStyle"
   >
     <template #leading>
+      <span class="grid size-6 shrink-0 place-items-center rounded-lg bg-warning/10 text-warning">
+        <AppIcon name="task-02" class="size-3.5 shrink-0" aria-hidden="true" />
+      </span>
       <div class="flex min-w-0 flex-1 items-center">
         <!-- 切换按钮表当前态，点一下换到另一态。展示名是「讨论 / 进展」；
              另一侧一条议题都没有时保留按钮但不可点，避免切到一屏空白 -->
