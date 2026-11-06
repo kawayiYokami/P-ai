@@ -109,7 +109,7 @@
           >
             <div
               v-if="showActivityPanel(block) && activityPanelOpen(block)"
-              class="px-0 pb-1 pt-2 text-xs text-base-content"
+              class="px-0 pb-1 text-xs text-base-content"
             >
               <div class="flex flex-col">
                 <ActivityTimeline
@@ -737,7 +737,7 @@ const toolcallPreviewMap = computed<Record<string, ToolcallPreviewEntry>>(() => 
     const semantic = toolCallSemanticPresentation(item);
     if (semantic) {
       previews[toolCallId].action = semantic.action;
-      const targetWithRange = [semantic.target, semantic.lineRange].filter(Boolean).join(" ");
+      const targetWithRange = [semantic.summary, semantic.lineRange].filter(Boolean).join(" ");
       previews[toolCallId].target = targetWithRange;
       previews[toolCallId].fileLabel = targetWithRange;
       previews[toolCallId].extra = semantic.extra;

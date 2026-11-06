@@ -293,7 +293,12 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
      让它自己按行居中，文字才会和左边的名字站在同一条线上 */
   align-self: center;
   gap: 0.2rem;
-  color: var(--color-primary);
+  /* 状态用中性胶囊：彩色只留给工具图标，这里一旦上主色就会比说话人名字还亮，主次颠倒。
+     文字取前景色 72%，和头像行同层，深浅主题都靠明暗自适应 */
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+  color: color-mix(in oklab, var(--color-base-content) 72%, transparent);
   font-size: var(--app-text-caption-size);
 }
 

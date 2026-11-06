@@ -1,4 +1,5 @@
 import {
+  AiMagicIcon,
   AlertCircleIcon,
   AppWindowIcon,
   ArchiveIcon,
@@ -20,6 +21,7 @@ import {
   BookOpenIcon,
   BracesIcon,
   BrainIcon,
+  BubbleChatIcon,
   CalendarIcon,
   CalendarPlusIcon,
   CameraIcon,
@@ -142,6 +144,7 @@ import {
   SunIcon,
   SunMoonIcon,
   TargetIcon,
+  ThoughtBubbleIcon,
   TimerIcon,
   TrashIcon,
   TriangleAlertIcon,
@@ -166,6 +169,8 @@ import {
  * 值与 lucide 的对应关系记在 .pai/report/20261106_hugeicons映射表.md。
  */
 export const APP_ICON_MAP = {
+  // AI 系列里只留思考这一只：普通版没有等价物，换掉就丢了辨识度
+  "ai-magic": AiMagicIcon,
   "alert-circle": AlertCircleIcon,
   "alert-triangle": TriangleAlertIcon,
   "app-window": AppWindowIcon,
@@ -188,6 +193,7 @@ export const APP_ICON_MAP = {
   "book-open": BookOpenIcon,
   "braces": BracesIcon,
   "brain": BrainIcon,
+  "bubble-chat": BubbleChatIcon,
   "calendar": CalendarIcon,
   "calendar-plus": CalendarPlusIcon,
   "camera": CameraIcon,
@@ -313,6 +319,7 @@ export const APP_ICON_MAP = {
   "sun": SunIcon,
   "sun-moon": SunMoonIcon,
   "target": TargetIcon,
+  "thought-bubble": ThoughtBubbleIcon,
   "timer": TimerIcon,
   "trash": TrashIcon,
   "triangle-alert": TriangleAlertIcon,

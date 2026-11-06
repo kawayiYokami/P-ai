@@ -94,7 +94,7 @@
           </Transition>
           <div
             ref="scrollContainer"
-            class="ecall-chat-scroll-container ecall-fade-bottom relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0 py-3"
+            class="ecall-chat-scroll-container ecall-fade-bottom relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0"
             :class="[
               chatting || frozen || conversationInteractionBusy ? 'pointer-events-auto' : '',
               conversationRevealHidden
@@ -109,7 +109,7 @@
             @pointerdown="beginPointerScrollIntent"
             @keydown="handleConversationKeydownInput"
           >
-          <div ref="chatContentRoot" class="flex min-w-0 shrink-0 flex-col">
+          <div ref="chatContentRoot" class="flex min-w-0 shrink-0 flex-col py-3">
           <DraftRecipientCard
             v-if="activeConversationIsDraft"
             :options="props.createConversationAgentOptions"
@@ -2223,7 +2223,8 @@ const TURN_VIEWPORT_HEIGHT_RATIO = 0.92;
 const CHAT_SCROLL_BOTTOM_RESERVE_PX = 48;
 
 const turnViewportMinHeight = computed(() => {
-  // scrollContainer 的净可视高度 = clientHeight - 上下 padding (py-3: 12px + 12px = 24px)
+  // 净可视高度 = clientHeight - 内容区上下留白（py-3: 12px + 12px = 24px）。
+  // 这段留白挂在 chatContentRoot 上而不是滚动容器上，是为了让 sticky top:0 能真正贴顶。
   const netViewportHeight = Math.max(0, scrollContainerHeight.value - 24);
   // 再减掉滚动区底部的固定留白：那段空间要让给悬浮操作区，不能算进容器最小高度
   return Math.max(0, Math.round(netViewportHeight * TURN_VIEWPORT_HEIGHT_RATIO) - CHAT_SCROLL_BOTTOM_RESERVE_PX);
