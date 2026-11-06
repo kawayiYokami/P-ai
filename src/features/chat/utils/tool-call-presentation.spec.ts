@@ -245,7 +245,7 @@ describe("createToolCallPresentation", () => {
     });
     expect(described.action).toBe("执行命令");
     expect(described.target).toBe("查找本地 genai 仓库位置");
-    expect(described.text).toBe("执行命令 查找本地 genai 仓库位置");
+    expect(described.text).toBe("执行命令（查找本地 genai 仓库位置）");
   });
 
   it("配置 PAI：提取 command 命令", () => {

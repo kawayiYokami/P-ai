@@ -468,14 +468,20 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     // 8. 执行命令 (exec / shell_exec)
     if (toolName === "exec" || toolName === "shell_exec") {
       // 摘要报这次执行是干什么的：模型给的 description 比整条命令好读得多，
-      // 命令本身在参数区里完整可见，不必再挤进折叠头。
+      // 命令本身在参数区里完整可见。描述放括号里，比用空格接在后面自然。
       const description = safeStringValue(obj, "description");
       const rawCmd = safeTextFromRecord(obj, ["command", "cmd", "shell", "input", "commandText"])
         || (typeof args === "string" ? args : safeTextFromRecord(obj, ["args", "arguments"]));
-      const target = description
-        ? compactText(description, 50)
-        : (collapseCommandForSummary(rawCmd) || toolTimelineText("notProvided"));
       const action = toolTimelineText("actionExec");
+      if (description) {
+        const target = compactText(description, 50);
+        return {
+          action,
+          target,
+          text: `${action}（${target}）`,
+        };
+      }
+      const target = collapseCommandForSummary(rawCmd) || toolTimelineText("notProvided");
       return {
         action,
         target,
