@@ -7,10 +7,10 @@
       v-if="busy || unreadCount > 0 || hasError"
       class="indicator-item indicator-top indicator-end z-10 border-0 bg-transparent p-0"
     >
-      <span
+      <AppLoading
         v-if="busy"
-        class="loading loading-spinner loading-sm text-base-content"
-        aria-hidden="true"
+        size="sm"
+        class="text-base-content"
       />
       <span
         v-else-if="hasError"
@@ -84,6 +84,7 @@
 import { computed } from "vue";
 import type { AppIconName } from "../../../shared/icons/icon-map";
 import AppIcon from "../../../shared/components/AppIcon.vue";
+import AppLoading from "../../../shared/components/AppLoading.vue";
 
 const props = withDefaults(defineProps<{
   label: string;

@@ -99,7 +99,7 @@
           {{ taskErrorText }}
         </div>
         <div v-else-if="taskLoading && taskSections.length === 0" class="flex min-h-0 flex-1 items-center justify-center px-4 py-8">
-          <span class="loading loading-spinner loading-sm text-base-content/45"></span>
+          <AppLoading size="sm" class="text-base-content/45" />
         </div>
         <div v-else-if="taskSections.length === 0" class="flex min-h-0 flex-1 items-center justify-center px-4 py-8 text-sm text-base-content/65">
           {{ t("chat.toolReview.taskEmpty") }}
@@ -203,6 +203,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import AppLoading from "../../shared/components/AppLoading.vue";
 import { invokeTauri, onTransportNotification, onTransportRecovered } from "../../../services/tauri-api";
 import type { ArchiveBlockPage, BackgroundShellTaskSummary, ChatMessage, ConversationDelegateStatusSummary, ShellWorkspace } from "../../../types/app";
 import { toErrorMessage } from "../../../utils/error";

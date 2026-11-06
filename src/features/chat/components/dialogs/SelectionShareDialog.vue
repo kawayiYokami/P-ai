@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import AppIcon from "../../../shared/components/AppIcon.vue";
+import AppLoading from "../../../shared/components/AppLoading.vue";
 
 const props = defineProps<{
   open: boolean;
@@ -51,7 +52,7 @@ watch(dialogRef, syncDialog);
       <div class="mt-2 text-sm opacity-75">{{ messageText }}</div>
       <div v-if="!loading" class="mt-1 text-xs opacity-60">{{ hintText }}</div>
       <div v-if="loading" class="mt-4 flex items-center gap-2 text-sm opacity-70">
-        <span class="loading loading-spinner loading-sm"></span>
+        <AppLoading size="sm" />
         <span>{{ hintText }}</span>
       </div>
       <div v-else class="mt-4 grid gap-3 sm:grid-cols-2">

@@ -96,7 +96,7 @@
               class="flex items-center justify-center py-10"
               :aria-label="t('chat.conversationSearchPanel.searching')"
             >
-              <span class="loading loading-spinner loading-md text-base-content/50"></span>
+              <AppLoading size="md" class="text-base-content/50" />
             </div>
           </div>
         </div>
@@ -108,6 +108,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import AppLoading from "../../shared/components/AppLoading.vue";
 import { useI18n } from "vue-i18n";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";

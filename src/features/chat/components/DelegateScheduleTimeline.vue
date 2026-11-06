@@ -7,7 +7,7 @@
 
     <!-- 加载中 -->
     <div v-else-if="loading && !currentRun && activityItems.length === 0" class="flex items-center justify-center gap-2 py-12 text-xs text-base-content/40">
-      <span class="loading loading-spinner loading-xs text-primary"></span>
+      <AppLoading size="xs" class="text-primary" />
       <span>加载中...</span>
     </div>
 
@@ -103,6 +103,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import AppLoading from "../../shared/components/AppLoading.vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
 import type { ArchiveBlockPage, ChatActivityItem, ConversationDelegateStatusSummary, ScheduleEvent, ScheduleRun } from "../../../types/app";

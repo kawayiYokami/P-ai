@@ -22,7 +22,7 @@
           <div class="ecall-chat-bubble-header">
             <span class="ecall-chat-bubble-name">{{ name }}</span>
             <span v-if="streaming" class="ecall-chat-bubble-meta ecall-chat-bubble-streaming-meta">
-              <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+              <AppLoading size="0.62rem" />
               {{ streamingText || "正在生成" }}
             </span>
             <span v-else-if="meta" class="ecall-chat-bubble-meta">{{ meta }}</span>
@@ -53,6 +53,7 @@
 
 <script setup lang="ts">
 import { computed, type StyleValue } from "vue";
+import AppLoading from "../../shared/components/AppLoading.vue";
 
 const props = withDefaults(defineProps<{
   tone?: "assistant" | "user" | "system";
@@ -288,15 +289,15 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
 .ecall-chat-bubble-streaming-meta {
   display: inline-flex;
   align-items: center;
+  /* 头部是基线对齐的，这层里装了非文字的加载指示器，基线会取到它底边，把整段状态文字顶高；
+     让它自己按行居中，文字才会和左边的名字站在同一条线上 */
+  align-self: center;
   gap: 0.2rem;
   color: var(--color-primary);
   font-size: var(--app-text-caption-size);
 }
 
-.ecall-chat-bubble-streaming-meta .loading {
-  width: 0.62rem;
-  height: 0.62rem;
-}
+/* 气泡头的状态点比正文小一号，尺寸由 AppLoading 的 size 传（约 0.62rem），不再用类压 */
 
 .ecall-chat-bubble-surface {
   width: fit-content;

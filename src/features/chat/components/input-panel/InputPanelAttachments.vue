@@ -42,7 +42,7 @@
             :key="file.id"
             class="badge badge-ghost gap-1 py-3"
           >
-            <span v-if="file.pending" class="loading loading-spinner loading-xs"></span>
+            <AppLoading v-if="file.pending" size="xs" />
             <AppIcon name="file-text" v-else class="h-3.5 w-3.5" />
             <span class="text-xs">{{ file.fileName }}</span>
             <button
@@ -92,6 +92,7 @@
 
 <script setup lang="ts">
 import AppIcon from "../../../shared/components/AppIcon.vue";
+import AppLoading from "../../../shared/components/AppLoading.vue";
 import InputPanelCollapse from "./InputPanelCollapse.vue";
 
 export type InputPanelImageItem = {

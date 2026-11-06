@@ -34,7 +34,7 @@
                 :title="t('chat.taskCreate.optimizeTitle')"
                 @click="handleOptimizeDraft"
               >
-                <span v-if="optimizing" class="loading loading-spinner loading-xs"></span>
+                <AppLoading v-if="optimizing" size="xs" />
                 <AppIcon name="wand-sparkles" v-else class="h-3.5 w-3.5" />
                 {{ t("chat.taskCreate.optimizeAction") }}
               </button>
@@ -178,7 +178,7 @@
                 {{ t("common.cancel") }}
               </button>
               <button type="submit" class="btn btn-primary" :disabled="dialogBusy">
-                <span v-if="saving" class="loading loading-spinner loading-sm"></span>
+                <AppLoading v-if="saving" size="sm" />
                 {{ submitButtonLabel }}
               </button>
             </div>
@@ -200,7 +200,7 @@
           {{ t("common.cancel") }}
         </button>
         <button class="btn btn-sm btn-error" type="button" :disabled="dialogBusy" @click="handleDeleteConfirmed">
-          <span v-if="saving" class="loading loading-spinner loading-xs"></span>
+          <AppLoading v-if="saving" size="xs" />
           {{ t("common.confirm") }}
         </button>
       </div>
@@ -215,6 +215,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../../shared/components/AppIcon.vue";
+import AppLoading from "../../../shared/components/AppLoading.vue";
 import { CronLight } from "@vue-js-cron/light";
 import "@vue-js-cron/light/dist/light.css";
 import { invokeTauri } from "../../../../services/tauri-api";

@@ -79,10 +79,11 @@
             class="absolute top-0 h-1 w-px bg-current opacity-30"
           />
           <div class="flex h-6 shrink-0 items-center justify-center">
-            <span
+            <AppLoading
               v-if="item.kind === 'tool' && item.status === 'doing'"
-              class="loading loading-spinner loading-xs text-primary"
-            ></span>
+              size="xs"
+              class="text-primary"
+            />
             <svg
               v-else-if="item.kind === 'content'"
               viewBox="0 0 24 24"
@@ -196,10 +197,10 @@
                           :disabled="!!props.state.toolResultLoading[activityItemKey(item)]"
                           @click.stop="loadToolResult(item)"
                         >
-                          <span
+                          <AppLoading
                             v-if="props.state.toolResultLoading[activityItemKey(item)]"
-                            class="loading loading-spinner loading-xs"
-                          ></span>
+                            size="xs"
+                          />
                           <AppIcon name="chevron-right" v-else class="h-3 w-3 shrink-0" />
                           {{ t("chat.toolReview.viewResult") || "查看结果" }}
                         </button>
@@ -285,6 +286,7 @@
 import { onBeforeUnmount, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import AppLoading from "../../shared/components/AppLoading.vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatActivityItem } from "../../../types/app";
 import { textContentSignature } from "../utils/text-signature";

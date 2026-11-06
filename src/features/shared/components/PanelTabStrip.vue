@@ -102,10 +102,10 @@
             >{{ tab.badge }}</span>
             <span class="min-w-0 overflow-hidden whitespace-nowrap font-medium" :class="fileVariant ? 'file-tab-label-fade ecall-fade-right' : 'truncate'">{{ tab.label }}</span>
             <!-- 忙碌态：他在跑就把圈转起来。靠标签端部固定一格，标题再长也只截标题，不挤这一格 -->
-            <span
+            <AppLoading
               v-if="!fileVariant && tab.busy"
-              class="loading loading-spinner loading-xs ml-auto shrink-0 text-base-content/60"
-              aria-hidden="true"
+              size="xs"
+              class="ml-auto shrink-0 text-base-content/60"
             />
           </button>
           <button
@@ -268,6 +268,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "./AppIcon.vue";
+import AppLoading from "./AppLoading.vue";
 import EcallDropdown from "./EcallDropdown.vue";
 import { usePanelTabOverflow } from "../composables/use-panel-tab-overflow";
 import type {

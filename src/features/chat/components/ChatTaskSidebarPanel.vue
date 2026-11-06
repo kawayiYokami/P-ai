@@ -1,7 +1,7 @@
 <template>
   <div class="conversation-tab-panel">
     <div v-if="loading && groupedTaskSections.length === 0" class="flex justify-center px-3 py-6">
-      <span class="loading loading-spinner loading-sm text-base-content/45"></span>
+      <AppLoading size="sm" class="text-base-content/45" />
     </div>
     <div v-else-if="errorText" class="px-3 py-4 text-center text-sm text-error">
       {{ errorText }}
@@ -39,6 +39,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import AppLoading from "../../shared/components/AppLoading.vue";
 import { invokeTauri, onTransportNotification, onTransportRecovered } from "../../../services/tauri-api";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";

@@ -25,7 +25,7 @@
             </div>
           </div>
         </div>
-        <span v-if="loading" class="loading loading-spinner loading-xs shrink-0 text-base-content/55"></span>
+        <AppLoading v-if="loading" size="xs" class="shrink-0 text-base-content/55" />
       </button>
       <div v-if="item.isSuccess === false" class="shrink-0">
         <span v-if="isDenied" class="badge badge-warning badge-xs font-normal">{{ t("chat.toolReview.denied") }}</span>
@@ -60,7 +60,7 @@
           :disabled="item.hasReview || item.isSuccess === false || loading || reviewing"
           @click.stop="handleReviewAction"
         >
-          <span v-if="reviewing" class="loading loading-spinner loading-xs"></span>
+          <AppLoading v-if="reviewing" size="xs" />
           <span v-else>{{ t("chat.toolReview.evaluate") }}</span>
         </button>
       </div>
@@ -84,6 +84,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import AppLoading from "../../shared/components/AppLoading.vue";
 import type { ToolReviewItemDetail, ToolReviewItemSummary } from "../composables/use-chat-tool-review";
 import ToolReviewChangesDialog from "./ToolReviewChangesDialog.vue";
 import { formatConversationListTimeWithMinuteDetails } from "../utils/conversation-time";

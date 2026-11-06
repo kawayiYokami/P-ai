@@ -77,10 +77,11 @@
           {{ memberStateLabel(member) }}
         </span>
         <!-- 最右边永远是转圈：调度进行中就把这圈转起来，不被别的元素挤占 -->
-        <span
+        <AppLoading
           v-if="memberBusy(member)"
-          class="loading loading-spinner loading-xs shrink-0 text-base-content/60"
-          :aria-label="t('chat.teamMember.busy')"
+          size="xs"
+          class="shrink-0 text-base-content/60"
+          :label="t('chat.teamMember.busy')"
         />
       </div>
     </div>
@@ -90,6 +91,7 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import AppLoading from "../../shared/components/AppLoading.vue";
 import { conversationRuntimeBusy } from "../utils/conversation-item-display";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 import type { TeamMemberActiveIssue, TeamMemberTileItem } from "./team-member-tile";

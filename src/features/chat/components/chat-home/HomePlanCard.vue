@@ -28,7 +28,7 @@
 
       <!-- 加载中状态 -->
       <div v-if="loading && !outline.items.length" class="flex items-center gap-1.5 py-1 text-xs text-base-content/40">
-        <span class="loading loading-spinner loading-xs"></span>
+        <AppLoading size="xs" />
         <span>{{ t("chat.homePanel.planLoading") }}</span>
       </div>
 
@@ -95,6 +95,7 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../../shared/components/AppIcon.vue";
+import AppLoading from "../../../shared/components/AppLoading.vue";
 import CardShell from "./CardShell.vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { parsePlanMarkdown, type ParsedPlanItem } from "../../utils/plan-card-parser";

@@ -631,7 +631,7 @@
               :disabled="batchArchiveStartDisabled"
               @click="submitBatchArchive"
             >
-              <span v-if="batchArchiveSubmitting" class="loading loading-spinner loading-xs"></span>
+              <AppLoading v-if="batchArchiveSubmitting" size="xs" />
               {{ t("chat.batchArchive.startArchive") }}
             </button>
           </div>
@@ -648,6 +648,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import AppLoading from "../../shared/components/AppLoading.vue";
 import type { AppIconName } from "../../shared/icons/icon-map";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import ChatConversationItem from "./ChatConversationItem.vue";

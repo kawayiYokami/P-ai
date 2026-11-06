@@ -84,9 +84,10 @@
                   {{ activityToolCountsLabel(block) }}
                 </span>
               </span>
-              <span
+              <AppLoading
                 v-if="activityExpanding"
-                class="loading loading-spinner loading-xs text-base-content/60 shrink-0"
+                size="xs"
+                class="text-base-content/60 shrink-0"
               />
               <!-- 箭头只在悬停这一行时露出来，平时不占视觉 -->
               <AppIcon name="chevron-right"
@@ -229,7 +230,7 @@
                 v-else-if="isImageMime(img.mime)"
                 class="flex h-28 w-28 items-center justify-center rounded bg-base-200/70 text-xs text-base-content/55"
               >
-                <span class="loading loading-spinner loading-xs mr-2"></span>
+                <AppLoading size="xs" class="mr-2" />
                 <span>{{ t('chat.messageItem.imageLoading') }}</span>
               </div>
               <ChatAttachmentItem
@@ -295,7 +296,7 @@
                 v-else-if="isImageMime(img.mime)"
                 class="flex h-28 w-28 items-center justify-center rounded bg-base-200/70 text-xs text-base-content/55"
               >
-                <span class="loading loading-spinner loading-xs mr-2"></span>
+                <AppLoading size="xs" class="mr-2" />
                 <span>{{ t('chat.messageItem.imageLoading') }}</span>
               </div>
               <ChatAttachmentItem
@@ -444,6 +445,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect, watchPostEffect, type StyleValue } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import AppLoading from "../../shared/components/AppLoading.vue";
 import { invokeTauri, openTransportWorkspaceFile, readTransportChatImage } from "../../../services/tauri-api";
 import type { ChatActivityItem, ChatMessageBlock } from "../../../types/app";
 import {

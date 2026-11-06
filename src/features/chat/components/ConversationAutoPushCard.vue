@@ -57,7 +57,7 @@
               {{ t("common.cancel") }}
             </button>
             <button type="button" class="btn btn-primary" :disabled="saveDisabled" @click="emit('save')">
-              <span v-if="saving" class="loading loading-spinner loading-xs"></span>
+              <AppLoading v-if="saving" size="xs" />
               {{ enabled ? t("common.save") : t("chat.autoPush.disableAction") }}
             </button>
           </div>
@@ -73,6 +73,7 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import AppLoading from "../../shared/components/AppLoading.vue";
 import type { RemoteImContactConversationOption } from "../../../types/app";
 
 const props = defineProps<{

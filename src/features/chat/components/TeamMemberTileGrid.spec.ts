@@ -95,7 +95,7 @@ describe("TeamMemberTileGrid 状态口径", () => {
         runtimeState: "assistant_streaming",
       }),
     ]);
-    expect(html).toContain("loading-spinner");
+    expect(html).toContain("app-loading");
   });
 
   it("队员名取会话绑定的 agent，不取会话标题", async () => {

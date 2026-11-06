@@ -44,7 +44,7 @@
                     v-else-if="entry.hasBackgroundTask"
                     class="indicator-item indicator-bottom indicator-end inline-flex min-w-5 translate-x-1/4 translate-y-1/4 items-center justify-center rounded-full border border-base-300 bg-base-100 px-1 py-0.5 text-caption text-base-content shadow-sm"
                   >
-                    <span class="loading loading-dots loading-xs"></span>
+                    <AppLoading size="0.75rem" />
                   </span>
                   <div class="avatar">
                     <div class="w-7 rounded-full">
@@ -76,6 +76,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs } from "vue";
 import { useI18n } from "vue-i18n";
+import AppLoading from "../../shared/components/AppLoading.vue";
 import type { ChatMentionEntry, ChatMentionTarget } from "../../../types/app";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 
