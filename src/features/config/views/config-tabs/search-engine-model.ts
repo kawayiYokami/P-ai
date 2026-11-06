@@ -52,7 +52,7 @@ export const SEARCH_ENGINE_META: SearchEngineMeta[] = [
 ];
 
 function hasKey(entry: SearchEngineConfigItem | undefined): boolean {
-  return String(entry?.apiKey ?? "").trim().length > 0;
+  return (entry?.apiKeys ?? []).some((key) => String(key ?? "").trim().length > 0);
 }
 
 /** 锁定模式下拉框的候选：只列填了密钥的引擎，免密钥引擎不能锁定。 */
@@ -65,12 +65,13 @@ export function lockableSearchEngines(
 }
 
 export type SearchConfigSnapshot = {
-  engines: Array<{ id: string; enabled: boolean; apiKey: string }>;
+  /** 每个引擎的多条密钥，顺序参与比对：轮换顺序有意义，挪动顺序算改动。 */
+  engines: Array<{ id: string; apiKeys: string[] }>;
   mode: string;
   engineId: string;
 };
 
-/** 回显与脏比对用的稳定快照：字段固定、排序固定、缺省值补齐。 */
+/** 回显与脏比对用的稳定快照：字段固定、引擎排序固定、缺省值补齐。 */
 export function searchEngineSnapshot(
   engines: SearchEngineConfigItem[] | undefined,
   mode: SearchMode | undefined,
@@ -79,8 +80,7 @@ export function searchEngineSnapshot(
     engines: (engines ?? [])
       .map((entry) => ({
         id: String(entry.id || "").trim(),
-        enabled: !!entry.enabled,
-        apiKey: String(entry.apiKey ?? "").trim(),
+        apiKeys: (entry.apiKeys ?? []).map((key) => String(key ?? "").trim()),
       }))
       .sort((left, right) => left.id.localeCompare(right.id)),
     mode: mode?.mode === "fixed" ? "fixed" : "auto",
@@ -121,7 +121,10 @@ export function parseSavedSearchConfig(lastSavedConfigJson: string): SearchConfi
 /** 浅拷贝一份配置字段：基准不能和当前指向同一份对象，否则原地编辑两边一起变。 */
 export function cloneSearchFields(fields: SearchConfigFields): SearchConfigFields {
   return {
-    engines: (fields.engines ?? []).map((entry) => ({ ...entry })),
+    engines: (fields.engines ?? []).map((entry) => ({
+      ...entry,
+      apiKeys: (entry.apiKeys ?? []).map((key) => String(key ?? "")),
+    })),
     mode: fields.mode ? { ...fields.mode } : undefined,
   };
 }

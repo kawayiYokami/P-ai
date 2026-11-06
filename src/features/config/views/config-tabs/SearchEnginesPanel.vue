@@ -1,30 +1,18 @@
 <template>
   <div class="grid gap-7">
     <ConfigTemplate :model-value="templateValues" :groups="modeGroups">
-      <template #row-search-mode>
+      <template #row-lock-target>
         <ConfigRowField
-          :label="t('config.searchEngines.modeLabel')"
-          :hint="isFixed ? t('config.searchEngines.modeFixedHint') : t('config.searchEngines.modeAutoHint')"
+          :label="t('config.searchEngines.lockTargetLabel')"
+          :hint="isFixed ? t('config.searchEngines.lockTargetFixedHint') : t('config.searchEngines.lockTargetAutoHint')"
         >
-          <SegmentedControl
-            class="w-44"
-            size="sm"
-            :model-value="modeValue"
-            :options="modeOptions"
-            @update:model-value="setMode"
-          />
-        </ConfigRowField>
-      </template>
-
-      <template #row-fixed-engine>
-        <ConfigRowField :label="t('config.searchEngines.fixedEngineLabel')">
           <ConfigValueSelect
-            class="w-44"
+            class="w-56"
             size="sm"
             :model-value="fixedEngineId"
             :options="lockableEngineOptions"
-            :placeholder="t('config.searchEngines.fixedEnginePlaceholder')"
-            @update:model-value="setFixedEngine"
+            :placeholder="t('config.searchEngines.lockTargetAuto')"
+            @update:model-value="setLockTarget"
           />
         </ConfigRowField>
       </template>
@@ -42,18 +30,6 @@
         </div>
       </template>
 
-      <template #actions>
-        <label class="flex shrink-0 items-center gap-2">
-          <span class="text-xs text-base-content/60">{{ t("config.searchEngines.enabledLabel") }}</span>
-          <input
-            :checked="engineEntry(engine.id).enabled"
-            class="toggle toggle-sm toggle-primary shrink-0"
-            type="checkbox"
-            @change="setEngineEnabled(engine.id, ($event.target as HTMLInputElement).checked)"
-          />
-        </label>
-      </template>
-
       <div class="divide-y divide-base-200/60">
         <div class="py-3">
           <p class="text-xs leading-relaxed text-base-content/60">
@@ -64,24 +40,45 @@
           </p>
         </div>
 
-        <div class="py-3">
+        <div class="grid gap-2 py-3">
           <ConfigRowField
-            :label="t('config.searchEngines.keyLabel')"
-            :hint="engine.keyless
-              ? t('config.searchEngines.keylessHint')
-              : t('config.searchEngines.requiredKeyHint')"
+            v-for="(apiKey, index) in engineEntry(engine.id).apiKeys"
+            :key="index"
+            :label="keyRowLabel(index)"
           >
             <input
-              :value="engineEntry(engine.id).apiKey ?? ''"
-              class="input input-bordered input-sm w-64 max-w-full"
+              :value="apiKey"
+              class="input input-bordered input-sm w-72 max-w-full"
               type="text"
               autocomplete="off"
               spellcheck="false"
               :placeholder="engine.keyless
                 ? t('config.searchEngines.keyPlaceholderKeyless')
                 : t('config.searchEngines.keyPlaceholderRequired')"
-              @input="setEngineApiKey(engine.id, ($event.target as HTMLInputElement).value)"
+              @input="setEngineKey(engine.id, index, ($event.target as HTMLInputElement).value)"
             />
+            <button
+              class="btn btn-sm btn-ghost btn-square"
+              type="button"
+              :title="t('config.searchEngines.removeKey')"
+              :aria-label="t('config.searchEngines.removeKey')"
+              @click="removeEngineKey(engine.id, index)"
+            >
+              <AppIcon name="trash" class="h-3.5 w-3.5" />
+            </button>
+          </ConfigRowField>
+
+          <p v-if="engineEntry(engine.id).apiKeys.length === 0" class="text-xs text-base-content/50">
+            {{ engine.keyless
+              ? t("config.searchEngines.keylessHint")
+              : t("config.searchEngines.requiredKeyHint") }}
+          </p>
+
+          <div class="flex flex-wrap items-center gap-2 pt-1">
+            <button class="btn btn-sm bg-base-100" type="button" @click="addEngineKey(engine.id)">
+              <AppIcon name="plus" class="h-3.5 w-3.5" />
+              <span>{{ t("config.searchEngines.addKey") }}</span>
+            </button>
             <button
               class="btn btn-sm bg-base-100"
               type="button"
@@ -102,7 +99,7 @@
             >
               {{ testStates[engine.id]?.message }}
             </span>
-          </ConfigRowField>
+          </div>
         </div>
       </div>
     </ConfigCard>
@@ -114,11 +111,11 @@ import { computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri, openTransportExternalUrl } from "../../../../services/tauri-api";
 import type { AppConfig, SearchEngineConfigItem } from "../../../../types/app";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigRowField from "../../components/ConfigRowField.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import ConfigValueSelect from "../../components/ConfigValueSelect.vue";
-import SegmentedControl from "../../components/SegmentedControl.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import {
   SEARCH_ENGINE_META,
@@ -139,15 +136,11 @@ const modeGroups = computed<ConfigTemplateGroup[]>(() => [
   {
     key: "searchMode",
     title: t("config.searchEngines.dispatchTitle"),
-    rows: [
-      { key: "search-mode", items: [] },
-      ...(isFixed.value ? [{ key: "fixed-engine", items: [] }] : []),
-    ],
+    rows: [{ key: "lock-target", items: [] }],
   },
 ]);
 
 const isFixed = computed(() => props.config.searchMode?.mode === "fixed");
-const modeValue = computed(() => (isFixed.value ? "fixed" : "auto"));
 const fixedEngineId = computed(() =>
   props.config.searchMode?.mode === "fixed" ? props.config.searchMode.engineId : "",
 );
@@ -157,49 +150,63 @@ const lockableEngineOptions = computed(() =>
     label: engine.name,
   })),
 );
-const modeOptions = computed(() => [
-  { value: "auto", label: t("config.searchEngines.modeAuto") },
-  {
-    value: "fixed",
-    label: t("config.searchEngines.modeFixed"),
-    disabled: lockableEngineOptions.value.length === 0,
-  },
-]);
 
-function engineEntry(id: string): SearchEngineConfigItem {
+/** 空值就是「自动」；选中某个引擎等于锁定它。 */
+function setLockTarget(engineId: string) {
+  if (!engineId) {
+    props.config.searchMode = { mode: "auto" };
+    return;
+  }
+  const lockable = lockableEngineOptions.value.some((option) => option.value === engineId);
+  if (!lockable) {
+    // 目标刚被删空密钥：保持自动，别写一个会被后端回落的锁定值。
+    props.config.searchMode = { mode: "auto" };
+    return;
+  }
+  props.config.searchMode = { mode: "fixed", engineId };
+}
+
+/**
+ * 取某个引擎的卡片数据并补齐 apiKeys。
+ * 原地改（不换对象），否则编辑写不到 config 上；返回类型已保证 apiKeys 是数组。
+ */
+function engineEntry(id: string): SearchEngineConfigItem & { apiKeys: string[] } {
   if (!props.config.searchEngines) props.config.searchEngines = [];
   const list = props.config.searchEngines;
   const existing = list.find((entry) => entry.id === id);
-  if (existing) return existing;
-  const created: SearchEngineConfigItem = { id, enabled: false };
+  if (existing) {
+    if (!Array.isArray(existing.apiKeys)) existing.apiKeys = [];
+    return existing as SearchEngineConfigItem & { apiKeys: string[] };
+  }
+  const created: SearchEngineConfigItem & { apiKeys: string[] } = { id, apiKeys: [] };
   list.push(created);
   return created;
 }
 
-function setMode(value: string | number | boolean) {
-  if (value !== "fixed") {
-    props.config.searchMode = { mode: "auto" };
-    return;
-  }
-  const first = lockableEngineOptions.value[0];
-  if (!first) return;
-  props.config.searchMode = { mode: "fixed", engineId: fixedEngineId.value || first.value };
+function keyRowLabel(index: number): string {
+  return t("config.searchEngines.keyRowLabel", { index: index + 1 });
 }
 
-function setFixedEngine(engineId: string) {
-  if (!engineId) return;
-  props.config.searchMode = { mode: "fixed", engineId };
+function addEngineKey(engineId: string) {
+  engineEntry(engineId).apiKeys?.push("");
 }
 
-function setEngineEnabled(engineId: string, enabled: boolean) {
-  engineEntry(engineId).enabled = enabled;
-  // 锁定的引擎被停用后回落自动；后端保存时也会做一次，这里让界面立刻一致。
-  if (!enabled && fixedEngineId.value === engineId) setMode("auto");
+function setEngineKey(engineId: string, index: number, value: string) {
+  const entry = engineEntry(engineId);
+  if (!entry.apiKeys) entry.apiKeys = [];
+  entry.apiKeys[index] = value;
+  // 锁定目标的密钥被清空后回落自动：后端保存时也会做一次，这里让界面立刻一致。
+  if (fixedEngineId.value === engineId && noKeyLeft(entry)) setLockTarget("");
 }
 
-function setEngineApiKey(engineId: string, apiKey: string) {
-  engineEntry(engineId).apiKey = apiKey;
-  if (apiKey.trim() === "" && fixedEngineId.value === engineId) setMode("auto");
+function removeEngineKey(engineId: string, index: number) {
+  const entry = engineEntry(engineId);
+  entry.apiKeys?.splice(index, 1);
+  if (fixedEngineId.value === engineId && noKeyLeft(entry)) setLockTarget("");
+}
+
+function noKeyLeft(entry: SearchEngineConfigItem): boolean {
+  return !(entry.apiKeys ?? []).some((key) => String(key ?? "").trim().length > 0);
 }
 
 async function openRegisterPage(url: string) {
@@ -220,7 +227,7 @@ async function testEngine(engineId: string) {
   testStates[engineId] = { testing: true, ok: false, message: "" };
   try {
     const result = await invokeTauri<{ ok: boolean; resultCount?: number }>("test_search_engine", {
-      input: { engineId, apiKey: entry.apiKey ?? "" },
+      input: { engineId, apiKeys: [...(entry.apiKeys ?? [])] },
     });
     const count = Number(result?.resultCount ?? 0);
     testStates[engineId] = {
@@ -263,7 +270,12 @@ const dirty = computed(() =>
 
 function restoreDraft() {
   const saved = savedSearchConfig.value;
-  if (saved.engines) props.config.searchEngines = saved.engines.map((entry) => ({ ...entry }));
+  if (saved.engines) {
+    props.config.searchEngines = saved.engines.map((entry) => ({
+      ...entry,
+      apiKeys: [...(entry.apiKeys ?? [])],
+    }));
+  }
   props.config.searchMode = saved.mode ? { ...saved.mode } : { mode: "auto" };
   for (const key of Object.keys(testStates)) delete testStates[key];
 }
