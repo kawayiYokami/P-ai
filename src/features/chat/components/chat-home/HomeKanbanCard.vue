@@ -1,7 +1,7 @@
 <template>
   <CardShell
     tone="warning"
-    icon="layout-grid"
+    icon="task-02"
     :label="t('chat.kanban.cardTitle')"
     class="ecall-home-kanban"
     :style="tileSpanStyle"

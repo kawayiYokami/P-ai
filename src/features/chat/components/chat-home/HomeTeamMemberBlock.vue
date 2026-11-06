@@ -4,6 +4,9 @@
     :style="{ gridColumn: `span ${colSpan}`, gridRow: `span ${rowSpan}` }"
   >
     <header class="mb-2 flex shrink-0 items-center gap-2">
+      <span class="grid size-6 shrink-0 place-items-center rounded-lg bg-info/10 text-info">
+        <AppIcon name="users" class="size-3.5 shrink-0" aria-hidden="true" />
+      </span>
       <span class="min-w-0 flex-1 truncate text-xs font-semibold text-base-content/80">
         {{ t("chat.teamMember.blockTitle") }}
       </span>
