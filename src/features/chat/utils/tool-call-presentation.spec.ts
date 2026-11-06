@@ -99,7 +99,7 @@ describe("createToolCallPresentation", () => {
     });
 
     expect(result.action).toBe("委托");
-    expect(result.target).toBe("八重神子");
+    expect(result.summary).toBe("八重神子");
     expect(result.text).toBe("委托 八重神子");
   });
 
@@ -114,7 +114,7 @@ describe("createToolCallPresentation", () => {
     });
 
     expect(result.action).toBe("阅读");
-    expect(result.target).toBe("出神.webp");
+    expect(result.summary).toBe("出神.webp");
     expect(result.extra).toBe("（描述这张表情图的内容与风格）");
     expect(result.text).toBe("阅读 出神.webp（描述这张表情图的内容与风格）");
   });
@@ -129,8 +129,8 @@ describe("createToolCallPresentation", () => {
       }),
     });
 
-    expect(result.target).toBe("这是一个非常非…6日_预览2.png");
-    expect(result.target.length).toBe(18);
+    expect(result.summary).toBe("这是一个非常非…6日_预览2.png");
+    expect(result.summary.length).toBe(18);
     expect(result.text).toBe("阅读 这是一个非常非…6日_预览2.png（核对深蓝底经营业绩页）");
   });
 
@@ -158,7 +158,7 @@ describe("createToolCallPresentation", () => {
       }),
     });
 
-    expect(result.target).toBe("QQ_2026…-44-17.png");
+    expect(result.summary).toBe("QQ_2026…-44-17.png");
     expect(result.lineRange).toBe("#10-20");
   });
 
@@ -174,7 +174,7 @@ describe("createToolCallPresentation", () => {
     });
 
     expect(result.action).toBe("阅读");
-    expect(result.target).toBe("agentStore.ts");
+    expect(result.summary).toBe("agentStore.ts");
     expect(result.fileExt).toBe("ts");
     expect(result.lineRange).toBe("#1090-1210");
     expect(result.text).toBe("阅读 agentStore.ts #1090-1210");
@@ -192,7 +192,7 @@ describe("createToolCallPresentation", () => {
     });
 
     expect(result.action).toBe("阅读");
-    expect(result.target).toBe("ChatView.vue");
+    expect(result.summary).toBe("ChatView.vue");
     expect(result.fileExt).toBe("vue");
     expect(result.lineRange).toBe("#100-150");
   });
@@ -211,7 +211,7 @@ describe("createToolCallPresentation", () => {
     });
 
     expect(result.action).toBe("更新");
-    expect(result.target).toBe("agentStore.ts");
+    expect(result.summary).toBe("agentStore.ts");
     expect(result.adds).toBe(100);
     expect(result.removes).toBe(30);
     expect(result.text).toBe("更新 agentStore.ts");
@@ -229,7 +229,7 @@ describe("createToolCallPresentation", () => {
     });
 
     expect(result.action).toBe("写入文件");
-    expect(result.target).toBe("math.rs");
+    expect(result.summary).toBe("math.rs");
     expect(result.adds).toBe(100);
     expect(result.text).toBe("写入文件 math.rs");
   });
@@ -244,7 +244,7 @@ describe("createToolCallPresentation", () => {
     });
 
     expect(result.action).toBe("删除文件");
-    expect(result.target).toBe("temp.json");
+    expect(result.summary).toBe("temp.json");
     expect(result.text).toBe("删除文件 temp.json");
   });
 
@@ -259,7 +259,7 @@ describe("createToolCallPresentation", () => {
     });
 
     expect(result.action).toBe("移动文件");
-    expect(result.target).toBe("oldName.ts → newName.ts");
+    expect(result.summary).toBe("oldName.ts → newName.ts");
     expect(result.text).toBe("移动文件 oldName.ts → newName.ts");
   });
 
@@ -274,7 +274,7 @@ describe("createToolCallPresentation", () => {
     ];
 
     const targets = cases.map((item) =>
-      presentation.toolCallSemanticPresentation({ name: item.name, argsText: JSON.stringify(item.args) }).target,
+      presentation.toolCallSemanticPresentation({ name: item.name, argsText: JSON.stringify(item.args) }).summary,
     );
 
     expect(targets).toEqual([
@@ -292,7 +292,7 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ command: "git status --short" }),
     });
     expect(single.action).toBe("执行命令");
-    expect(single.target).toBe("git status --short");
+    expect(single.summary).toBe("git status --short");
     expect(single.text).toBe("执行命令 git status --short");
 
     const multi = presentation.toolCallSemanticPresentation({
@@ -300,7 +300,7 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ command: "pnpm build\npnpm test\npnpm smoke" }),
     });
     expect(multi.action).toBe("执行命令");
-    expect(multi.target).toBe("pnpm build (3 行)");
+    expect(multi.summary).toBe("pnpm build (3 行)");
     expect(multi.text).toBe("执行命令 pnpm build (3 行)");
 
     // 带 description 时摘要报描述，不报命令
@@ -309,7 +309,7 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ command: "ls -d .pai/reference-projects/*", description: "查找本地 genai 仓库位置" }),
     });
     expect(described.action).toBe("执行命令");
-    expect(described.target).toBe("查找本地 genai 仓库位置");
+    expect(described.summary).toBe("查找本地 genai 仓库位置");
     expect(described.text).toBe("执行命令（查找本地 genai 仓库位置）");
   });
 
@@ -321,7 +321,7 @@ describe("createToolCallPresentation", () => {
     });
 
     expect(result.action).toBe("配置 PAI");
-    expect(result.target).toBe("help");
+    expect(result.summary).toBe("help");
     expect(result.text).toBe("配置 PAI help");
   });
 
@@ -333,7 +333,7 @@ describe("createToolCallPresentation", () => {
     });
 
     expect(result.action).toBe("计划");
-    expect(result.target).toBe("20261002_migration.md");
+    expect(result.summary).toBe("20261002_migration.md");
     expect(result.extra).toBe("提交");
     expect(result.text).toBe("计划 20261002_migration.md 提交");
   });
@@ -351,14 +351,14 @@ describe("createToolCallPresentation", () => {
       }),
     });
     expect(memRes.action).toBe("记录记忆");
-    expect(memRes.target).toBe("用户偏好紧凑排版与纯文字界面");
+    expect(memRes.summary).toBe("用户偏好紧凑排版与纯文字界面");
 
     const recallRes = presentation.toolCallSemanticPresentation({
       name: "recall",
       argsText: JSON.stringify({ query: "用户偏好" }),
     });
     expect(recallRes.action).toBe("检索记忆");
-    expect(recallRes.target).toBe("用户偏好");
+    expect(recallRes.summary).toBe("用户偏好");
   });
 
   it("桌面操作：提取脚本首步与步骤数", () => {
@@ -371,8 +371,8 @@ describe("createToolCallPresentation", () => {
     });
 
     expect(result.action).toBe("桌面操作");
-    expect(result.target).toContain("mouse left click @960,540");
-    expect(result.target).toContain("(3 步)");
+    expect(result.summary).toContain("mouse left click @960,540");
+    expect(result.summary).toContain("(3 步)");
   });
 
   it("网络访问与网页搜索", () => {
@@ -382,14 +382,14 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ url: "https://tauri.app/v2" }),
     });
     expect(fetchRes.action).toBe("访问网页");
-    expect(fetchRes.target).toBe("https://tauri.app/v2");
+    expect(fetchRes.summary).toBe("https://tauri.app/v2");
 
     const searchRes = presentation.toolCallSemanticPresentation({
       name: "websearch",
       argsText: JSON.stringify({ query: "Tauri 2 release notes" }),
     });
     expect(searchRes.action).toBe("搜索网页");
-    expect(searchRes.target).toBe("Tauri 2 release notes");
+    expect(searchRes.summary).toBe("Tauri 2 release notes");
   });
 
   it("会话与后台工具：get_session, background, inform_session", () => {
@@ -399,21 +399,21 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ keyword: "设计讨论" }),
     });
     expect(sessRes.action).toBe("查询会话");
-    expect(sessRes.target).toBe("设计讨论");
+    expect(sessRes.summary).toBe("设计讨论");
 
     const bgRes = presentation.toolCallSemanticPresentation({
       name: "background",
       argsText: JSON.stringify({ action: "status", id: "bg_12345" }),
     });
     expect(bgRes.action).toBe("后台任务");
-    expect(bgRes.target).toBe("status bg_12345");
+    expect(bgRes.summary).toBe("status bg_12345");
 
     const notifyRes = presentation.toolCallSemanticPresentation({
       name: "inform_session",
       argsText: JSON.stringify({ session_id: "sess_main", content: "任务已完成" }),
     });
     expect(notifyRes.action).toBe("通知会话");
-    expect(notifyRes.target).toBe("sess_main");
+    expect(notifyRes.summary).toBe("sess_main");
   });
 
   it("深度回忆：deeprecall, deeprecall_search, deeprecall_context", () => {
@@ -423,14 +423,14 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ query: "当初的部署方案" }),
     });
     expect(drRes.action).toBe("深度回忆");
-    expect(drRes.target).toBe("当初的部署方案");
+    expect(drRes.summary).toBe("当初的部署方案");
 
     const ctxRes = presentation.toolCallSemanticPresentation({
       name: "deeprecall_context",
       argsText: JSON.stringify({ conversation_index: 3, start_index: 10, end_index: 25 }),
     });
     expect(ctxRes.action).toBe("深度回忆");
-    expect(ctxRes.target).toBe("会话 3 #10-25");
+    expect(ctxRes.summary).toBe("会话 3 #10-25");
   });
 
   it("附件、表情与图片生成编辑：contact_send_files, meme, image_generate, image_edit", () => {
@@ -440,28 +440,28 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ file_paths: ["C:\\docs\\report.pdf", "C:\\img\\spec.png"] }),
     });
     expect(sendRes.action).toBe("发送附件");
-    expect(sendRes.target).toBe("report.pdf, spec.png");
+    expect(sendRes.summary).toBe("report.pdf, spec.png");
 
     const memeRes = presentation.toolCallSemanticPresentation({
       name: "meme",
       argsText: JSON.stringify({ emotion: "坏笑", path: "/tmp/evil.png" }),
     });
     expect(memeRes.action).toBe("保存表情");
-    expect(memeRes.target).toBe(":坏笑:");
+    expect(memeRes.summary).toBe(":坏笑:");
 
     const genRes = presentation.toolCallSemanticPresentation({
       name: "image_generate",
       argsText: JSON.stringify({ prompt: "未来城市夜景", resolution: "1024x1024" }),
     });
     expect(genRes.action).toBe("生成图片");
-    expect(genRes.target).toBe("未来城市夜景");
+    expect(genRes.summary).toBe("未来城市夜景");
 
     const editRes = presentation.toolCallSemanticPresentation({
       name: "image_edit",
       argsText: JSON.stringify({ prompt: "去除背景人物", images: ["/tmp/avatar.png"] }),
     });
     expect(editRes.action).toBe("编辑图片");
-    expect(editRes.target).toBe("去除背景人物");
+    expect(editRes.summary).toBe("去除背景人物");
   });
 
   it("队伍工具：名册、招募、请离、发送与汇报", () => {
@@ -472,21 +472,21 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ scope: "active" }),
     });
     expect(infoActive.action).toBe("查看队伍");
-    expect(infoActive.target).toBe("当前队员");
+    expect(infoActive.summary).toBe("当前队员");
     expect(infoActive.text).toBe("查看队伍 当前队员");
 
     const infoHistory = presentation.toolCallSemanticPresentation({
       name: "team_info",
       argsText: JSON.stringify({ scope: "history" }),
     });
-    expect(infoHistory.target).toBe("历史队员");
+    expect(infoHistory.summary).toBe("历史队员");
 
     const recruit = presentation.toolCallSemanticPresentation({
       name: "team_recruit",
       argsText: JSON.stringify({ role: "李工", duty: "跟进重构" }),
     });
     expect(recruit.action).toBe("招募队员");
-    expect(recruit.target).toBe("李工");
+    expect(recruit.summary).toBe("李工");
     expect(recruit.text).toBe("招募队员 李工");
 
     const send = presentation.toolCallSemanticPresentation({
@@ -494,21 +494,21 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ role: "莫娜", content: "把登录接口的测试补上" }),
     });
     expect(send.action).toBe("发送给队员");
-    expect(send.target).toBe("莫娜 把登录接口的测试补上");
+    expect(send.summary).toBe("莫娜 把登录接口的测试补上");
 
     const read = presentation.toolCallSemanticPresentation({
       name: "team_read",
       argsText: JSON.stringify({ role: "莫娜", limit: 2 }),
     });
     expect(read.action).toBe("读队员消息");
-    expect(read.target).toBe("莫娜");
+    expect(read.summary).toBe("莫娜");
 
     const report = presentation.toolCallSemanticPresentation({
       name: "team_report",
       argsText: JSON.stringify({ content: "已完成测试，分支 feature/login-test" }),
     });
     expect(report.action).toBe("汇报队长");
-    expect(report.target).toContain("已完成测试");
+    expect(report.summary).toContain("已完成测试");
 
     expect(presentation.toolCallDisplayName("team_info")).toBe("查看队伍");
     expect(presentation.toolCallDisplayName("team_recruit")).toBe("招募队员");
@@ -525,21 +525,21 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ action: "list", status: "in_review" }),
     });
     expect(listFiltered.action).toBe("查看议题看板");
-    expect(listFiltered.target).toBe("待审");
+    expect(listFiltered.summary).toBe("待审");
     expect(listFiltered.text).toBe("查看议题看板 待审");
 
     const listAll = presentation.toolCallSemanticPresentation({
       name: "kanban",
       argsText: JSON.stringify({ action: "list" }),
     });
-    expect(listAll.target).toBe("全部");
+    expect(listAll.summary).toBe("全部");
 
     const updateIssue = presentation.toolCallSemanticPresentation({
       name: "kanban",
       argsText: JSON.stringify({ action: "upsert", issues: [{ number: 3, status: "in_progress" }] }),
     });
     expect(updateIssue.action).toBe("更新议题");
-    expect(updateIssue.target).toBe("#3 → 解决中");
+    expect(updateIssue.summary).toBe("#3 → 解决中");
     expect(updateIssue.text).toBe("更新议题 #3 → 解决中");
 
     const createIssue = presentation.toolCallSemanticPresentation({
@@ -547,7 +547,7 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ action: "upsert", issues: [{ title: "补齐工具文案" }] }),
     });
     expect(createIssue.action).toBe("创建议题");
-    expect(createIssue.target).toBe("「补齐工具文案」");
+    expect(createIssue.summary).toBe("「补齐工具文案」");
 
     const batchIssues = presentation.toolCallSemanticPresentation({
       name: "kanban",
@@ -557,15 +557,15 @@ describe("createToolCallPresentation", () => {
       }),
     });
     expect(batchIssues.action).toBe("维护议题看板");
-    expect(batchIssues.target).toContain("共 2 条");
-    expect(batchIssues.target).toContain("#3 → 已完成");
+    expect(batchIssues.summary).toContain("共 2 条");
+    expect(batchIssues.summary).toContain("#3 → 已完成");
 
     const setPlan = presentation.toolCallSemanticPresentation({
       name: "kanban_set_plan",
       argsText: JSON.stringify({ number: 6, planPath: "E:/repo/.pai/plan/chat/20260101_样例计划.md" }),
     });
     expect(setPlan.action).toBe("设置议题计划");
-    expect(setPlan.target).toBe("#6");
+    expect(setPlan.summary).toBe("#6");
     expect(setPlan.extra).toBe("20260101_样例计划.md");
     expect(setPlan.text).toBe("设置议题计划 #6 20260101_样例计划.md");
 
@@ -574,14 +574,14 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ tool_names: ["deepwiki__ask_wiki_question", "akasha_search"] }),
     });
     expect(getTool.action).toBe("取用工具");
-    expect(getTool.target).toBe("deepwiki__ask_wiki_question、akasha_search");
+    expect(getTool.summary).toBe("deepwiki__ask_wiki_question、akasha_search");
 
     const replyContact = presentation.toolCallSemanticPresentation({
       name: "contact_reply",
       argsText: JSON.stringify({ contact_name: "老王", text: "已经改好了" }),
     });
     expect(replyContact.action).toBe("回复联系人");
-    expect(replyContact.target).toBe("老王");
+    expect(replyContact.summary).toBe("老王");
     expect(replyContact.text).toBe("回复联系人 老王 已经改好了");
 
     const noReply = presentation.toolCallSemanticPresentation({
@@ -589,7 +589,7 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ reason: "这轮只是通知" }),
     });
     expect(noReply.action).toBe("本轮不回复");
-    expect(noReply.target).toBe("当前联系人");
+    expect(noReply.summary).toBe("当前联系人");
     expect(noReply.text).toBe("本轮不回复 当前联系人 这轮只是通知");
 
     const listWindows = presentation.toolCallSemanticPresentation({
@@ -597,19 +597,19 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ script: "list windows" }),
     });
     expect(listWindows.action).toBe("窗口操作");
-    expect(listWindows.target).toBe("列举窗口");
+    expect(listWindows.summary).toBe("列举窗口");
 
     const activateWindow = presentation.toolCallSemanticPresentation({
       name: "windows",
       argsText: JSON.stringify({ script: "activate window id=0x1A2B" }),
     });
-    expect(activateWindow.target).toBe("激活窗口 0x1A2B");
+    expect(activateWindow.summary).toBe("激活窗口 0x1A2B");
 
     const multiWindows = presentation.toolCallSemanticPresentation({
       name: "windows",
       argsText: JSON.stringify({ script: "list windows\nactivate window id=42\nactivate window id=43" }),
     });
-    expect(multiWindows.target).toBe("列举窗口 · 激活窗口 42 · 另 1 步");
+    expect(multiWindows.summary).toBe("列举窗口 · 激活窗口 42 · 另 1 步");
 
     // 六个工具都不该再落到 MCP 兜底
     for (const toolName of ["kanban", "kanban_set_plan", "get_tool", "contact_reply", "contact_no_reply", "windows", "todo", "question"]) {
@@ -626,7 +626,7 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ action: "list" }),
     });
     expect(list.action).toBe("会话提问");
-    expect(list.target).toBe("");
+    expect(list.summary).toBe("");
     expect(list.text).toBe("会话提问");
 
     const update = presentation.toolCallSemanticPresentation({
@@ -637,7 +637,7 @@ describe("createToolCallPresentation", () => {
       }),
     });
     expect(update.action).toBe("会话提问");
-    expect(update.target).toBe("共 2 项");
+    expect(update.summary).toBe("共 2 项");
     expect(update.text).toBe("会话提问 共 2 项");
 
     expect(presentation.toolCallDisplayName("question")).toBe("会话提问");
@@ -650,7 +650,7 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ project: "easy_call_ai", issue_id: 42 }),
     });
     expect(mcp1.action).toBe("链接到");
-    expect(mcp1.target).toBe("gitlab_get_issue");
+    expect(mcp1.summary).toBe("gitlab_get_issue");
     expect(mcp1.text).toBe("链接到 gitlab_get_issue");
 
     // akasha 与 tavily 作为 MCP 外部工具，正确显示「链接到」
@@ -659,7 +659,7 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ query: "知识库搜索" }),
     });
     expect(akashaRes.action).toBe("链接到");
-    expect(akashaRes.target).toBe("akasha_search");
+    expect(akashaRes.summary).toBe("akasha_search");
     expect(akashaRes.text).toBe("链接到 akasha_search");
 
     const tavilyRes = presentation.toolCallSemanticPresentation({
@@ -667,7 +667,7 @@ describe("createToolCallPresentation", () => {
       argsText: JSON.stringify({ query: "联网搜索" }),
     });
     expect(tavilyRes.action).toBe("链接到");
-    expect(tavilyRes.target).toBe("tavily_search");
+    expect(tavilyRes.summary).toBe("tavily_search");
     expect(tavilyRes.text).toBe("链接到 tavily_search");
 
     // toolCallDisplayName 也统一包含「链接到」

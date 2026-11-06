@@ -10,7 +10,7 @@ export type ToolCallPresentationOptions = {
 export type SemanticToolPresentation = {
   action: string;
   fileExt?: string;
-  target: string;
+  summary: string;
   lineRange?: string;
   extra?: string;
   adds?: number;
@@ -357,7 +357,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       return {
         action,
         fileExt: extractFileExt(target),
-        target,
+        summary: target,
         lineRange,
         text: formatFullText(action, target, lineRange),
       };
@@ -377,7 +377,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       return {
         action,
         fileExt: extractFileExt(target),
-        target,
+        summary: target,
         extra,
         // 括号紧贴文件名，读起来更自然：阅读 p4.png（核对深蓝底经营业绩页）
         text: `${action} ${target}${extra ?? ""}`,
@@ -394,7 +394,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       return {
         action,
         fileExt: extractFileExt(target),
-        target,
+        summary: target,
         adds: newLines,
         removes: oldLines,
         text: formatFullText(action, target),
@@ -410,7 +410,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       return {
         action,
         fileExt: extractFileExt(target),
-        target,
+        summary: target,
         adds: lines,
         text: formatFullText(action, target),
       };
@@ -424,7 +424,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       return {
         action,
         fileExt: extractFileExt(target),
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -440,7 +440,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       return {
         action,
         fileExt: extractFileExt(toName || fromName),
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -477,7 +477,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       return {
         action,
         fileExt,
-        target,
+        summary: target,
         adds: adds || undefined,
         removes: removes || undefined,
         text: formatFullText(action, target),
@@ -496,14 +496,14 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
         const target = compactText(description, 50);
         return {
           action,
-          target,
+          summary: target,
           text: `${action}（${target}）`,
         };
       }
       const target = collapseCommandForSummary(rawCmd) || toolTimelineText("notProvided");
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -515,7 +515,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = cmd ? collapseCommandForSummary(cmd) : (toCompactValue(args) || toolTimelineText("checkArgs"));
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -530,7 +530,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       return {
         action,
         fileExt: extractFileExt(target),
-        target,
+        summary: target,
         extra,
         text: formatFullText(action, target, undefined, extra),
       };
@@ -553,13 +553,13 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
         const target = parts.join(" ");
         return {
           action,
-          target,
+          summary: target,
           text: formatFullText(action, target),
         };
       }
       return {
         action,
-        target: compactSingleLineJson(args, 40),
+        summary: compactSingleLineJson(args, 40),
         text: formatFullText(action, compactSingleLineJson(args, 40)),
       };
     }
@@ -574,7 +574,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
         : "";
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -589,7 +589,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = compactText(objText || (statusLabel && evidence ? `${statusLabel}: ${evidence}` : (statusLabel || toCompactValue(args))), 50);
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -601,7 +601,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = kw ? compactText(kw, 40) : "全部会话";
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -613,7 +613,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = id ? `${act} ${compactText(id, 30)}` : act;
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -626,7 +626,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const extra = content ? compactText(content, 30) : undefined;
       return {
         action,
-        target,
+        summary: target,
         extra,
         text: formatFullText(action, target, undefined, extra),
       };
@@ -641,7 +641,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = compactText(joinNonEmpty([act, goal || trigger]), 50) || toCompactValue(args);
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -653,7 +653,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = compactText(query || toCompactValue(args), 50);
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -667,7 +667,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = convIdx !== undefined ? `会话 ${convIdx}${range ? ` ${range}` : ""}` : (toCompactValue(args) || toolTimelineText("missingArgs"));
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -687,7 +687,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = targetAgent || content || toCompactValue(args);
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -704,7 +704,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const extra = extraParts.length > 0 ? extraParts.join(" · ") : undefined;
       return {
         action,
-        target,
+        summary: target,
         extra,
         text: formatFullText(action, target, undefined, extra),
       };
@@ -717,7 +717,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = query ? compactText(query, 50) : (time ? `时间: ${time}` : "全部可见记忆");
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -728,7 +728,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = safeStringValue(obj, "url") || toCompactValue(args);
       return {
         action,
-        target: compactText(target, 50),
+        summary: compactText(target, 50),
         text: formatFullText(action, compactText(target, 50)),
       };
     }
@@ -738,7 +738,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = safeStringValue(obj, "query") || safeStringValue(obj, "url") || toCompactValue(args);
       return {
         action,
-        target: compactText(target, 50),
+        summary: compactText(target, 50),
         text: formatFullText(action, compactText(target, 50)),
       };
     }
@@ -756,7 +756,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       }
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -780,7 +780,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
         : (toCompactValue(args) || toolTimelineText("missingArgs"));
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -794,7 +794,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       return {
         action,
         fileExt: fileNames[0] ? extractFileExt(fileNames[0]) : undefined,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -811,7 +811,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const extra = detail ? compactText(detail, 40) : undefined;
       return {
         action,
-        target,
+        summary: target,
         extra,
         text: formatFullText(action, target, undefined, extra),
       };
@@ -826,7 +826,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = emotion ? `:${emotion}:` : (fileName || toCompactValue(args));
       return {
         action,
-        target,
+        summary: target,
         extra: emotion && fileName ? fileName : undefined,
         text: formatFullText(action, target),
       };
@@ -840,7 +840,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = compactText(prompt || toCompactValue(args), 50);
       return {
         action,
-        target,
+        summary: target,
         extra: resolution || undefined,
         text: formatFullText(action, target, undefined, resolution || undefined),
       };
@@ -853,7 +853,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = compactText(prompt || image || toCompactValue(args), 50);
       return {
         action,
-        target,
+        summary: target,
         extra: image || undefined,
         text: formatFullText(action, target, undefined, image || undefined),
       };
@@ -868,7 +868,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       return {
         action,
         fileExt: firstImg ? extractFileExt(firstImg) : undefined,
-        target,
+        summary: target,
         extra: firstImg || undefined,
         text: formatFullText(action, target, undefined, firstImg || undefined),
       };
@@ -881,7 +881,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = fileNameFromPath(rawPath) || rawPath || ".";
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -891,7 +891,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = safeTextFromRecord(obj, ["pattern", "query", "path", "keyword"]) || toCompactValue(args) || toolTimelineText("missingArgs");
       return {
         action,
-        target: compactText(target, 40),
+        summary: compactText(target, 40),
         text: formatFullText(action, compactText(target, 40)),
       };
     }
@@ -903,7 +903,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = ms !== undefined && ms !== null ? `${ms}ms` : "";
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -918,7 +918,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
         : toolTimelineText("teamScopeActive");
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -929,7 +929,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = compactText(role || toCompactValue(args), 40);
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -941,7 +941,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = [role, content].filter(Boolean).join(" ");
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -953,7 +953,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = role || conversationId || toCompactValue(args);
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -964,7 +964,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = role || toCompactValue(args);
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -974,7 +974,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = compactText(safeStringValue(obj, "content") || toCompactValue(args), 40);
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -1006,7 +1006,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
           : entries[0].text;
         return {
           action,
-          target,
+          summary: target,
           text: formatFullText(action, target),
         };
       }
@@ -1017,7 +1017,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const target = status || toolTimelineText("kanbanAllStatuses");
       return {
         action,
-        target,
+        summary: target,
         extra: assignee || undefined,
         text: formatFullText(action, target, undefined, assignee || undefined),
       };
@@ -1033,7 +1033,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const extra = fileNameFromPath(planPath) || undefined;
       return {
         action,
-        target,
+        summary: target,
         extra,
         text: formatFullText(action, target, undefined, extra),
       };
@@ -1050,7 +1050,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
         : (toCompactValue(args) || toolTimelineText("missingArgs"));
       return {
         action,
-        target,
+        summary: target,
         text: formatFullText(action, target),
       };
     }
@@ -1061,7 +1061,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     const compactArg = toCompactValue(args);
     return {
       action,
-      target,
+      summary: target,
       extra: compactArg ? compactText(compactArg, 40) : undefined,
       text: formatFullText(action, target),
     };
