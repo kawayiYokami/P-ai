@@ -89,10 +89,10 @@
                 class="loading loading-spinner loading-xs text-base-content/60 shrink-0"
               />
               <!-- 箭头只在悬停这一行时露出来，平时不占视觉 -->
-              <ChevronDown
+              <ChevronRight
                 v-else-if="showActivityPanel(block)"
                 class="h-3.5 w-3.5 shrink-0 opacity-0 transition-all duration-150 group-hover:opacity-60"
-                :class="{ 'rotate-180': activityPanelOpen(block) }"
+                :class="{ 'rotate-90': activityPanelOpen(block) }"
               />
             </summary>
           </details>
@@ -444,7 +444,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect, watchPostEffect, type StyleValue } from "vue";
 import { useI18n } from "vue-i18n";
-import { Braces, ChevronDown, ChevronRight, Copy, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
+import { Braces, ChevronRight, Copy, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
 import { invokeTauri, openTransportWorkspaceFile, readTransportChatImage } from "../../../services/tauri-api";
 import type { ChatActivityItem, ChatMessageBlock } from "../../../types/app";
 import {

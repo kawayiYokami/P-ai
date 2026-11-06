@@ -65,9 +65,9 @@
               data-selection-ignore="true"
               @click.stop="toggleReasoningItemExpanded(item)"
             >
-              <ChevronDown
+              <ChevronRight
                 class="h-3.5 w-3.5 transition-transform duration-150"
-                :class="{ 'rotate-180': activityItemExpanded(item) }"
+                :class="{ 'rotate-90': activityItemExpanded(item) }"
               />
             </button>
 
@@ -219,7 +219,7 @@
                   class="ml-1 shrink-0 font-mono text-error"
                 >-{{ activityItemDisplay(item).removes }}</span>
               </span>
-              <ChevronDown
+              <ChevronRight
                 class="ecall-activity-chevron mt-0.5 h-3.5 w-3.5 shrink-0 transition-transform duration-150"
               />
             </summary>
@@ -352,7 +352,7 @@
 // 这样消息里的气泡头与委托卡里的「执行过程」标题各自保留自己的外壳。
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ChevronDown, ChevronRight } from "@lucide/vue";
+import { ChevronRight } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatActivityItem } from "../../../types/app";
 import { textContentSignature } from "../utils/text-signature";
@@ -923,9 +923,10 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
 }
 
-/* 条目 details 原生开合：chevron 旋转由 details[open] 驱动，不进 Vue 状态 */
+/* 条目 details 原生开合：chevron 旋转由 details[open] 驱动，不进 Vue 状态。
+   口径与 CollapsibleGroup / MultiFileDiffView 一致：收起朝右，展开转 90 度朝下。 */
 .ecall-activity-timeline details[open] .ecall-activity-chevron {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 
 .ecall-reasoning-sticky-fade {
