@@ -281,7 +281,7 @@
       <section v-if="activeTab === 'all' || activeTab === 'remoteIm'" class="space-y-2.5">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <AppIcon name="radio" class="h-4 w-4 text-success" />
+            <AppIcon name="customer-service" class="h-4 w-4 text-success" />
             <h4 class="text-sm font-bold text-base-content">外部接入与联系人 (Remote IM)</h4>
             <span class="badge badge-sm badge-neutral">{{ mockChannels.length }}</span>
           </div>

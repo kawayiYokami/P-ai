@@ -511,7 +511,7 @@ const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
     titleKey: "config.navGroups.remote",
     items: [
       { tab: "networkAccess", icon: "wifi", labelKey: "config.tabs.networkAccess" },
-      { tab: "remoteIm", icon: "radio", labelKey: "config.tabs.remoteIm" },
+      { tab: "remoteIm", icon: "customer-service", labelKey: "config.tabs.remoteIm" },
     ],
   },
   {

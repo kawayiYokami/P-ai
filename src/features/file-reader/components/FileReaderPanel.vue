@@ -85,7 +85,7 @@
           :title="t('fileReader.filesTab')"
           @click="toggleFilesPanel"
         >
-          <AppIcon name="files" class="size-4" />
+          <AppIcon name="folders" class="size-4" />
         </button>
         <button
           type="button"
