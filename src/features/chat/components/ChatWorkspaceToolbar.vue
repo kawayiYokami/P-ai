@@ -61,19 +61,16 @@
               <ul ref="branchSubmenuEl">
               <li v-if="showBranchMenuItem">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openBranchFromCurrent')">
-                  <AppIcon name="git-branch" class="h-4 w-4 shrink-0" />
                   <span class="leading-5">{{ t("chat.conversationMenu.branchFromCurrent") }}</span>
                 </button>
               </li>
               <li v-if="showBranchMenuItem">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openBranchSelection')">
-                  <AppIcon name="git-branch-plus" class="h-4 w-4 shrink-0" />
                   <span class="leading-5">{{ t("chat.conversationMenu.branchConversation") }}</span>
                 </button>
               </li>
               <li v-if="sideChatEnabled">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openSideChat')">
-                  <AppIcon name="message-square-more" class="h-4 w-4 shrink-0" />
                   <span class="leading-5">{{ t("chat.conversationMenu.sideChatFollowUp") }}</span>
                 </button>
               </li>
@@ -92,13 +89,11 @@
               <ul ref="interactionSubmenuEl">
               <li v-if="showAutoPushMenuItem">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openAutoPush')">
-                  <AppIcon name="bell-ring" class="h-4 w-4 shrink-0" />
                   <span class="leading-5">{{ t("chat.conversationMenu.autoPushToContact") }}</span>
                 </button>
               </li>
               <li v-if="showForwardMenuItem">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openForwardSelection')">
-                  <AppIcon name="package" class="h-4 w-4 shrink-0" />
                   <span class="leading-5">{{ t("chat.conversationMenu.forwardToContact") }}</span>
                 </button>
               </li>
