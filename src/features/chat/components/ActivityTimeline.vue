@@ -1,5 +1,5 @@
 <template>
-  <TransitionGroup name="ecall-activity-item" tag="ul" class="ecall-activity-timeline" :appear="false">
+  <TransitionGroup name="ecall-activity-item" tag="ul" class="ecall-activity-timeline space-y-2" :appear="false">
     <li
       v-for="(item, itemIndex) in items"
       :key="`activity-${activityItemKey(item)}`"
@@ -10,10 +10,10 @@
         'relative flex gap-1.5 min-w-0',
       ]"
     >
-      <!-- ========== 思维链节点：左列圆点与竖线 / 右列折叠头、正文、留白行 ========== -->
+      <!-- ========== 思维链节点：左列圆点与竖线 / 右列折叠头、正文 ========== -->
       <template v-if="item.kind === 'reasoning'">
-        <!-- 左列：圆点与竖线。竖线是结构内的一列，撑满整个条目（含右列末尾的留白行），
-             相邻条目在 li 边界处相接；不再用绝对定位与负 bottom 跨空隙 -->
+        <!-- 左列：圆点与竖线。竖线绝对定位，从圆点下沿一直画到下一个条目的圆点上沿，
+             负 bottom 抵消 ul 的 space-y 间距；改间距档位时这里要同步 -->
         <div class="relative flex w-4 shrink-0 flex-col items-center">
           <span
             v-if="itemIndex !== 0"
@@ -27,7 +27,7 @@
           </div>
           <span
             v-if="itemIndex !== items.length - 1"
-            class="w-px flex-1 bg-current opacity-30"
+            class="absolute top-6 -bottom-2 left-1/2 w-px -translate-x-1/2 bg-current opacity-30"
           />
         </div>
 
@@ -87,7 +87,7 @@
           >
             <!-- 正文外壳：折叠态限高约 4 行预览并加底部 base-200 淡出；展开态直接铺全文，不再套内部滚动区 -->
             <div
-              class="ecall-reasoning-body-shell relative min-w-0 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed pr-3"
+              class="ecall-reasoning-body-shell relative min-w-0 whitespace-pre-wrap wrap-break-word text-xs leading-normal pr-3"
               :class="[
                 activityItemDetailClass(item),
                 activityItemExpanded(item) ? 'ecall-reasoning-body--expanded' : 'ecall-reasoning-body--clamped',
@@ -113,11 +113,6 @@
             </div>
           </div>
 
-          <!-- 条目间距：右列末尾的留白行提供，左列竖线照常穿过 -->
-          <div
-            v-if="itemIndex !== items.length - 1"
-            class="h-4 shrink-0"
-          />
         </div>
       </template>
 
@@ -159,10 +154,10 @@
               />
             </svg>
           </div>
-          <!-- 时间轴竖线：结构内的一列，撑满条目（含右列末尾留白行），相邻条目在 li 边界处相接 -->
+          <!-- 时间轴竖线：绝对定位跨过条目间隙，负 bottom 抵消 ul 的 space-y 间距 -->
           <span
             v-if="itemIndex !== items.length - 1"
-            class="w-px flex-1 bg-current opacity-30"
+            class="absolute top-6 -bottom-2 left-1/2 w-px -translate-x-1/2 bg-current opacity-30"
           />
         </div>
         <div class="flex min-w-0 flex-1 flex-col">
@@ -319,11 +314,6 @@
               :text="activityItemContentText(item)"
             />
           </div>
-          <!-- 条目间距：右列末尾的留白行提供，左列竖线照常穿过 -->
-          <div
-            v-if="itemIndex !== items.length - 1"
-            class="h-4 shrink-0"
-          />
         </div>
       </template>
     </li>
@@ -929,8 +919,8 @@ onBeforeUnmount(() => {
   -webkit-line-clamp: 4;
   overflow: hidden;
   position: relative;
-  /* 双保底：基于 line-height: 1.625 (leading-relaxed) 随字号缩放，绝不在文字中间切断 */
-  max-height: calc(4 * 1.625em);
+  /* 双保底：4lh 就是当前行高的 4 倍，行高档位变了不用同步这里 */
+  max-height: 4lh;
 }
 
 .ecall-reasoning-body--expanded {
