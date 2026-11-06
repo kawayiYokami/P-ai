@@ -70,7 +70,7 @@ describe("DelegateScheduleTimeline", () => {
 
     // 2. 思考与工具
     expect(html).toContain("执行过程");
-    expect(html).toContain("深度回忆");
+    expect(html).toContain("追忆");
     expect(html).toContain("思考");
 
     // 3. 最终答复
