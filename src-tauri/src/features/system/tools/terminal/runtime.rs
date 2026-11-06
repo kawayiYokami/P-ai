@@ -145,6 +145,17 @@ struct TerminalBackgroundShellTask {
 
 type TerminalBackgroundShellTaskHandle = std::sync::Arc<TerminalBackgroundShellTask>;
 
+/// 后台 shell 的 id 用进程内递增序号：一串 uuid 既不好读也不好敲，会话内序号就够唯一。
+static TERMINAL_BACKGROUND_SHELL_SEQ: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+fn terminal_background_shell_next_id() -> String {
+    let seq = TERMINAL_BACKGROUND_SHELL_SEQ
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        + 1;
+    format!("bg-shell-{seq}")
+}
+
 /// 输出全部落盘，不做内存缓冲；读取时只取文件尾部。
 fn terminal_background_shell_log_path(id: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("{id}.log"))
@@ -408,10 +419,11 @@ fn terminal_background_shell_wrap_command_for_shell(
 fn terminal_background_shell_open_log(log_path: &std::path::Path) -> Result<std::fs::File, String> {
     // 注意：不能用 append 模式——FILE_APPEND_DATA-only 的句柄 MSYS2 子进程不识别，
     // 会导致 bash 静默退出（exit 1、无任何输出）。每个任务独占一个新日志文件，
-    // create+write 即可。
+    // create + truncate 保证序号复用后不会读到上一个任务的内容。
     std::fs::OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open(log_path)
         .map_err(|err| format!("background shell log create failed: {err}"))
 }
@@ -722,7 +734,7 @@ async fn terminal_background_shell_spawn_and_register(
     timeout_ms: Option<u64>,
     shell: TerminalShellProfile,
 ) -> Result<String, String> {
-    let id = format!("bg-shell-{}", Uuid::new_v4());
+    let id = terminal_background_shell_next_id();
     let log_path = terminal_background_shell_log_path(&id);
     let now = now_iso();
     let (kill_signal_tx, kill_signal_rx) = tokio::sync::watch::channel(false);

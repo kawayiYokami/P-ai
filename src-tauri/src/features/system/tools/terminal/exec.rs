@@ -1321,6 +1321,24 @@ mod terminal_exec_tests {
     use std::sync::{Arc, Mutex};
     use tokio::time::{timeout, Duration};
 
+    #[test]
+    fn background_shell_id_should_be_short_and_increasing() {
+        // 后台 id 要能一眼读完、能直接敲：进程内递增序号，不挂 uuid。
+        let first = terminal_background_shell_next_id();
+        let second = terminal_background_shell_next_id();
+        assert!(first.starts_with("bg-shell-"), "id 前缀不对：{first}");
+        assert!(first.len() <= 12, "id 太长：{first}");
+        let first_seq = first
+            .trim_start_matches("bg-shell-")
+            .parse::<usize>()
+            .expect("序号应是数字");
+        let second_seq = second
+            .trim_start_matches("bg-shell-")
+            .parse::<usize>()
+            .expect("序号应是数字");
+        assert_eq!(second_seq, first_seq + 1, "序号应逐个递增");
+    }
+
     fn build_test_state(shell: TerminalShellProfile, llm_workspace_path: PathBuf) -> AppState {
         AppState {
             app_handle: Arc::new(Mutex::new(None)),
