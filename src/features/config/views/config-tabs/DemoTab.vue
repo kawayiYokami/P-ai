@@ -394,7 +394,7 @@
 
     <div v-if="demoComponentKey === 'search-engines'" class="card border border-base-300 bg-base-100">
       <div class="card-body gap-3 p-4">
-        <div class="space-y-1">
+        <div class="space-y-1" data-demo-chrome>
           <h3 class="card-title text-base">搜索引擎设置（供应商页第六个标签）</h3>
           <p class="text-sm text-base-content/70">真实 SettingsPageShell + SearchEnginesPanel：调度模式一张卡，五个引擎各一张卡。</p>
         </div>
