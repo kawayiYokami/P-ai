@@ -79,10 +79,12 @@
             class="absolute top-0 h-1 w-px bg-current opacity-30"
           />
           <div class="flex h-6 shrink-0 items-center justify-center">
+            <!-- 颜色不写死：与同一列的圆点、工具图标一样继承条目颜色。
+                 doing 时条目还没有 resultText，继承到的是普通档位；
+                 失败/拒绝时条目整体转成 error/warning，指示器跟着一起转。 -->
             <AppLoading
               v-if="item.kind === 'tool' && item.status === 'doing'"
               size="xs"
-              class="text-primary"
             />
             <svg
               v-else-if="item.kind === 'content'"
