@@ -2270,6 +2270,15 @@ let ownTopAlignGen = 0;
 const ownTopAlignPinnedTop = ref<number | null>(null);
 // elastic 对齐只管同会话内的新用户消息：会话刚切时只记基线，对齐交给编排层的 own_top，避免两路抢。
 let lastElasticAlignConversationId = "";
+// 「切会话后的第一次对齐」标记：切换会话时置位，被对齐消费一次即清。
+// 只有这一次走瞬间落位，其余（发送新消息等）走平滑。
+let pendingSwitchAlign = true;
+
+function consumeConversationSwitchAlign(): boolean {
+  if (!pendingSwitchAlign) return false;
+  pendingSwitchAlign = false;
+  return true;
+}
 
 watch(latestOwnElasticItemId, (next, prev) => {
   const cid = String(props.activeConversationId || "").trim();
@@ -2289,12 +2298,19 @@ watch(() => String(props.activeConversationId || "").trim(), () => {
   ownTopAlignGen += 1;
   ownTopAlignPinnedTop.value = null;
   lastTrackedElasticItemId = "";
+  pendingSwitchAlign = true;
 });
 
 // 最新用户消息对齐到视口顶部（Path B 回合容器架构）：
 // 容器自身通过 turnViewportMinHeight 在最新轮次撑满视口；换轮次时上一轮自动回归内容真实高，无需留白计算
 // 切会话时 Virtualizer 按会话 id 重建，新实例内部还没有实测高度，scrollToIndex 会把偏移算成 0
 // 而滚不上去；这里按目标回合在 DOM 里的真实位置定位，并用 rAF 重试吃掉测量前的抖动。
+//
+// 瞬间还是平滑：只有「切会话后的第一次对齐」走瞬间，其余（发送新消息等）走平滑。
+// 切会话时新实例还没测高，真实位置要重试几帧才收敛，平滑动画与重试会互相踩——
+// 动画期间 scrollTop 每帧都在变，重试判据（偏差 > 2px）恒为真，于是每帧重新 scrollTo，
+// 动画永远走不完，只能表现成一抖一抖。所以切会话直接落位。
+// 发送消息时位置是确定的，一次位移就够，不需要重试，交给浏览器原生平滑。
 function alignLatestOwnMessageToTop() {
   stopFollowBottom();
   updateScrollContainerHeight();
@@ -2302,6 +2318,7 @@ function alignLatestOwnMessageToTop() {
   if (turns.length === 0) return;
   const targetTurnId = String(turns[turns.length - 1]?.id || "");
   const gen = (ownTopAlignGen += 1);
+  const smooth = !consumeConversationSwitchAlign();
 
   const attempt = (retries: number) => {
     if (gen !== ownTopAlignGen) return;
@@ -2318,9 +2335,10 @@ function alignLatestOwnMessageToTop() {
       0,
       Math.round(el.scrollTop + turnEl.getBoundingClientRect().top - el.getBoundingClientRect().top),
     );
-    el.scrollTo({ top: desired, behavior: "auto" });
+    el.scrollTo({ top: desired, behavior: smooth ? "smooth" : "auto" });
     chatScrollbarRef.value?.updateThumb();
-    if (retries > 0 && Math.abs(el.scrollTop - desired) > 2) {
+    // 平滑动画期间不做重试：位置一次就够，重试只会打断动画
+    if (!smooth && retries > 0 && Math.abs(el.scrollTop - desired) > 2) {
       requestAnimationFrame(() => attempt(retries - 1));
     }
   };
