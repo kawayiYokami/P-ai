@@ -3,7 +3,7 @@
     :col-span="colSpan"
     :row-span="rowSpan"
     tone="warning"
-    icon="git-branch"
+    icon="folder-git"
     :label="t('chat.homePanel.envLabel')"
     :interactive="false"
   >
