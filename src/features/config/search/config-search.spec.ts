@@ -13,8 +13,8 @@ describe("设置页搜索索引", () => {
     expect(tabs).toContain("api");
   });
 
-  it("按分页标题「搜索引擎」也能落到供应商页", () => {
-    const tabs = searchConfigTabs("搜索引擎", "zh-CN").map((item) => item.tab);
+  it("按分页标题「搜索」也能落到供应商页", () => {
+    const tabs = searchConfigTabs("搜索", "zh-CN").map((item) => item.tab);
     expect(tabs).toContain("api");
   });
 

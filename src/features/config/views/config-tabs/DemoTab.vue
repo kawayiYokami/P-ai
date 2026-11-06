@@ -35,7 +35,7 @@
             <option value="persona-capability">人格主页（移动端极简版）</option>
             <option value="persona-permission">人格权限页（黑白名单树）</option>
             <option value="settings-shell">设置页头部（面包屑 + 标签页）</option>
-            <option value="search-engines">搜索引擎设置（供应商页第六个标签）</option>
+            <option value="search-engines">搜索设置（供应商页第六个标签）</option>
             <option value="kanban-board">议题看板页（KanbanBoardPanel）</option>
             <option value="kanban-card">议题看板磁贴（3×3）</option>
             <option value="team-member-tiles">队员磁贴（自适应列数）</option>
@@ -396,8 +396,8 @@
     <div v-if="demoComponentKey === 'search-engines'" class="card border border-base-300 bg-base-100">
       <div class="card-body gap-3 p-4">
         <div class="space-y-1" data-demo-chrome>
-          <h3 class="card-title text-base">搜索引擎设置（供应商页第六个标签）</h3>
-          <p class="text-sm text-base-content/70">真实 SettingsPageShell + SearchEnginesPanel：调度模式一张卡，五个引擎各一张卡。</p>
+          <h3 class="card-title text-base">搜索设置（供应商页第六个标签）</h3>
+          <p class="text-sm text-base-content/70">真实 SettingsPageShell + SearchEnginesPanel：调度模式一张卡，五个搜索来源各一张卡。</p>
         </div>
         <SearchEnginesDemo />
       </div>
@@ -1023,7 +1023,7 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "catalog-store") return "能力商店";
   if (demoComponentKey.value === "catalog-entry-card") return "能力商店条目卡";
   if (demoComponentKey.value === "settings-shell") return "设置页头部";
-  if (demoComponentKey.value === "search-engines") return "搜索引擎设置";
+  if (demoComponentKey.value === "search-engines") return "搜索设置";
   if (demoComponentKey.value === "kanban-board") return "议题看板页";
   if (demoComponentKey.value === "kanban-card") return "议题看板磁贴";
   if (demoComponentKey.value === "team-member-tiles") return "队员磁贴";

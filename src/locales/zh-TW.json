@@ -48,7 +48,7 @@
       "mcp": "連接器",
       "skill": "技能",
       "catalog": "能力商店",
-      "searchEngines": "搜尋引擎",
+      "searchEngines": "搜尋",
       "persona": "人格",
       "demo": "Demo",
       "chatSettings": "常用",
@@ -164,9 +164,9 @@
       "builtinWheelKey": "滾輪"
     },
     "searchEngines": {
-      "title": "搜尋引擎",
-      "description": "聯網搜尋由多個搜尋引擎隨機調度；也可鎖定某一個，只用它。",
-      "dispatchTitle": "搜尋引擎調度",
+      "title": "搜尋",
+      "description": "聯網搜尋由多個搜尋來源隨機調度；也可鎖定某一個，只用它。",
+      "dispatchTitle": "搜尋調度",
       "keylessBadge": "免金鑰可用",
       "requiredKeyBadge": "需填金鑰",
       "engineColumnLabel": "供應商",
@@ -176,8 +176,8 @@
       "removeKey": "刪除這條金鑰",
       "lockTargetLabel": "調度方式",
       "lockTargetAuto": "自動（多源輪換）",
-      "lockTargetAutoHint": "在可用引擎裡挑選：本會話上次成功的優先，429 限流記冷卻後換源。填了金鑰的引擎可以鎖定。",
-      "lockTargetFixedHint": "只用這一個引擎，失敗直接報錯、不換源也不記冷卻；它的多把金鑰仍會按次輪換。金鑰清空後自動回到自動調度。"
+      "lockTargetAutoHint": "在可用搜尋來源裡挑選：本會話上次成功的優先，429 限流記冷卻後換源。填了金鑰的搜尋來源可以鎖定。",
+      "lockTargetFixedHint": "只用這一個搜尋來源，失敗直接報錯、不換源也不記冷卻；它的多把金鑰仍會按次輪換。金鑰清空後自動回到自動調度。"
     },
     "notification": {
       "title": "訊息通知",

@@ -48,7 +48,7 @@
       "mcp": "连接器",
       "skill": "技能",
       "catalog": "能力商店",
-      "searchEngines": "搜索引擎",
+      "searchEngines": "搜索",
       "persona": "人格",
       "demo": "Demo",
       "chatSettings": "常用",
@@ -164,9 +164,9 @@
       "builtinWheelKey": "滚轮"
     },
     "searchEngines": {
-      "title": "搜索引擎",
-      "description": "联网搜索由多个搜索引擎随机调度；也可锁定某一个，只用它。",
-      "dispatchTitle": "搜索引擎调度",
+      "title": "搜索",
+      "description": "联网搜索由多个搜索源随机调度；也可锁定某一个，只用它。",
+      "dispatchTitle": "搜索调度",
       "keylessBadge": "免密钥可用",
       "requiredKeyBadge": "需填密钥",
       "engineColumnLabel": "供应商",
@@ -176,8 +176,8 @@
       "removeKey": "删除这条密钥",
       "lockTargetLabel": "调度方式",
       "lockTargetAuto": "自动（多源轮换）",
-      "lockTargetAutoHint": "在可用引擎里挑选：本会话上次成功的优先，429 限流记冷却后换源。填了密钥的引擎可以锁定。",
-      "lockTargetFixedHint": "只用这一个引擎，失败直接报错、不换源也不记冷却；它的多把密钥仍会按次轮换。密钥清空后自动回到自动调度。"
+      "lockTargetAutoHint": "在可用搜索源里挑选：本会话上次成功的优先，429 限流记冷却后换源。填了密钥的搜索源可以锁定。",
+      "lockTargetFixedHint": "只用这一个搜索源，失败直接报错、不换源也不记冷却；它的多把密钥仍会按次轮换。密钥清空后自动回到自动调度。"
     },
     "notification": {
       "title": "消息通知",
