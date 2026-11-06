@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ChevronDown, ChevronUp } from "@lucide/vue";
+import AppIcon from "./AppIcon.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -152,7 +152,7 @@ onBeforeUnmount(() => {
       data-selection-ignore="true"
       @click.stop="toggleExpanded"
     >
-      <ChevronDown
+      <AppIcon name="chevron-down"
         class="h-3.5 w-3.5 transition-transform duration-150"
         :class="{ 'rotate-180': expanded }"
       />
@@ -191,7 +191,7 @@ onBeforeUnmount(() => {
         @click.stop
       >
         <span>{{ t("common.expand") }}</span>
-        <ChevronDown class="h-3 w-3" />
+        <AppIcon name="chevron-down" class="h-3 w-3" />
       </button>
       <button
         v-else
@@ -202,7 +202,7 @@ onBeforeUnmount(() => {
         @click.stop
       >
         <span>{{ t("common.collapse") }}</span>
-        <ChevronUp class="h-3 w-3" />
+        <AppIcon name="chevron-up" class="h-3 w-3" />
       </button>
     </div>
   </div>

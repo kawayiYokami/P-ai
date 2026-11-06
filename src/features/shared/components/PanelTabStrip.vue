@@ -57,9 +57,9 @@
                   alt=""
                   class="panel-tab-strip-icon absolute size-4 object-contain transition-opacity group-hover:opacity-0"
                 />
-                <component
-                  :is="tab.icon"
+                <AppIcon
                   v-else-if="tab.icon"
+                  :name="tab.icon"
                   class="absolute size-4 transition-opacity group-hover:opacity-0"
                   aria-hidden="true"
                 />
@@ -70,7 +70,7 @@
                   :title="closeTitle"
                   @click.stop="closeTab(tab)"
                 >
-                  <X class="size-3.5" />
+                  <AppIcon name="close" class="size-3.5" />
                 </span>
               </span>
             </template>
@@ -81,9 +81,9 @@
                 alt=""
                 class="panel-tab-strip-icon size-4 shrink-0 rounded-full object-cover"
               />
-              <component
-                :is="tab.icon"
+              <AppIcon
                 v-else-if="tab.icon"
+                :name="tab.icon"
                 class="size-4 shrink-0"
                 aria-hidden="true"
               />
@@ -118,7 +118,7 @@
             :title="closeTitle"
             @click.stop="closeTab(tab)"
           >
-            <X class="size-3.5" />
+            <AppIcon name="close" class="size-3.5" />
           </button>
         </div>
 
@@ -142,7 +142,7 @@
                 :title="overflowButtonTitle"
                 @click.stop="toggle"
               >
-                <MoreHorizontal class="size-4" />
+                <AppIcon name="more-horizontal" class="size-4" />
               </button>
             </template>
             <template #default>
@@ -169,9 +169,9 @@
                       alt=""
                       class="size-4 shrink-0 rounded-full object-cover"
                     />
-                    <component
-                      :is="tab.icon"
+                    <AppIcon
                       v-else-if="tab.icon"
+                      :name="tab.icon"
                       class="size-4 shrink-0"
                       aria-hidden="true"
                     />
@@ -190,7 +190,7 @@
                     :title="closeTitle"
                     @click.stop="closeOverflowTab(tab)"
                   >
-                    <X class="size-3" />
+                    <AppIcon name="close" class="size-3" />
                   </button>
                 </div>
               </div>
@@ -230,7 +230,7 @@
         <div v-if="currentCloseMenuTab?.closeable" class="my-1 border-t border-base-300"></div>
       </template>
       <button type="button" class="btn btn-ghost btn-sm justify-start" @click.stop="closeMenuTab">
-        <X class="size-4" />
+        <AppIcon name="close" class="size-4" />
         <span>{{ closeTitle }}</span>
       </button>
       <button
@@ -267,7 +267,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { MoreHorizontal, X } from "@lucide/vue";
+import AppIcon from "./AppIcon.vue";
 import EcallDropdown from "./EcallDropdown.vue";
 import { usePanelTabOverflow } from "../composables/use-panel-tab-overflow";
 import type {

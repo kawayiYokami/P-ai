@@ -48,7 +48,7 @@
               :aria-pressed="viewMode === 'list' ? 'true' : 'false'"
               @click="viewMode = 'list'"
             >
-              <List class="h-3.5 w-3.5" />
+              <AppIcon name="list" class="h-3.5 w-3.5" />
             </button>
             <button
               type="button"
@@ -59,7 +59,7 @@
               :aria-pressed="viewMode === 'grid' ? 'true' : 'false'"
               @click="viewMode = 'grid'"
             >
-              <LayoutGrid class="h-3.5 w-3.5" />
+              <AppIcon name="layout-grid" class="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
@@ -73,7 +73,7 @@
             :aria-label="t('chat.directoryPicker.back')"
             @click="goBack"
           >
-            <ArrowLeft class="h-3.5 w-3.5" />
+            <AppIcon name="arrow-left" class="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
@@ -83,7 +83,7 @@
             :aria-label="t('chat.directoryPicker.forward')"
             @click="goForward"
           >
-            <ArrowRight class="h-3.5 w-3.5" />
+            <AppIcon name="arrow-right" class="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
@@ -93,7 +93,7 @@
             :aria-label="t('chat.directoryPicker.up')"
             @click="onUp"
           >
-            <ArrowUp class="h-3.5 w-3.5" />
+            <AppIcon name="arrow-up" class="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
@@ -103,7 +103,7 @@
             :aria-label="t('chat.directoryPicker.refresh')"
             @click="onRefresh"
           >
-            <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
+            <AppIcon name="refresh-cw" class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
           </button>
           <BreadcrumbAddressBar
             class="min-w-0 flex-1"
@@ -184,7 +184,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowLeft, ArrowRight, ArrowUp, LayoutGrid, List, RefreshCw } from "@lucide/vue";
+import AppIcon from "./AppIcon.vue";
 import OverlayScrollArea from "./OverlayScrollArea.vue";
 import BreadcrumbAddressBar from "./BreadcrumbAddressBar.vue";
 import { invokeTauri, isDesktopTauriHost, openTransportFileDialog } from "../../../services/tauri-api";

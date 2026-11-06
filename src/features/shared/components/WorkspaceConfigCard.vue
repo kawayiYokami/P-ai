@@ -5,7 +5,7 @@
       <EcallDropdown v-model="mainDropdownOpen" :disabled="availableWorkspaces.length === 0 && !mainPath" :teleport="dropdownTeleport" :teleport-to="dropdownTeleportTo" root-class="min-w-[180px] flex-1" panel-class="w-full">
         <template #trigger="{ toggle, open }">
           <div class="flex h-9 w-full items-center gap-1 rounded-field border border-base-content/10 bg-base-100 pl-3.5 pr-1">
-            <FolderOpen class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
+            <AppIcon name="folder-open" class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
             <button
               type="button"
               class="min-w-0 flex-1 cursor-pointer text-left text-xs font-medium text-base-content outline-none"
@@ -16,7 +16,7 @@
                 {{ displayMainName || t("chat.draftWorkspacePlaceholder") }}
               </span>
             </button>
-            <ChevronDown
+            <AppIcon name="chevron-down"
               class="pointer-events-none h-3.5 w-3.5 shrink-0 text-base-content/45 transition-transform"
               :class="open ? 'rotate-180' : ''"
             />
@@ -26,7 +26,7 @@
               :title="t('common.browse')"
               @click.stop="openMainDirectoryPicker"
             >
-              <FolderSearch class="h-3.5 w-3.5" />
+              <AppIcon name="folder-search" class="h-3.5 w-3.5" />
             </button>
           </div>
         </template>
@@ -44,7 +44,7 @@
               @click="handleMainSelect(option.path, close)"
             >
               <span class="min-w-0 flex-1 truncate">{{ option.name }}</span>
-              <Check
+              <AppIcon name="check"
                 v-if="isSamePath(option.path, mainPath)"
                 class="h-3.5 w-3.5 shrink-0 text-primary"
               />
@@ -76,14 +76,14 @@
               :title="t('chat.workspaceWorktreeLabel') + ': ' + (displayWorktreeName || t('chat.workspaceWorktreePlaceholder'))"
               @click="toggle"
             >
-              <GitFork class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
+              <AppIcon name="git-fork" class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
               <span class="shrink-0 text-caption font-medium text-base-content/45 select-none">
                 {{ t("chat.workspaceWorktreeLabel") }}
               </span>
               <span class="max-w-[100px] truncate text-xs font-medium text-base-content" :class="displayWorktreeName ? '' : 'text-base-content/45'">
                 {{ displayWorktreeName || t("chat.workspaceWorktreePlaceholder") }}
               </span>
-              <ChevronDown
+              <AppIcon name="chevron-down"
                 class="pointer-events-none h-3 w-3 shrink-0 text-base-content/40 transition-transform"
                 :class="open ? 'rotate-180' : ''"
               />
@@ -107,7 +107,7 @@
                   <span v-if="entry.branch" class="opacity-50">· {{ entry.branch }}</span>
                   <span v-else-if="entry.detached" class="opacity-50">· (detached)</span>
                 </span>
-                <Check
+                <AppIcon name="check"
                   v-if="isWorktreeEntrySelected(entry)"
                   class="h-3.5 w-3.5 shrink-0 text-primary"
                 />
@@ -117,7 +117,7 @@
                 class="flex w-full items-center gap-2 rounded-field px-2.5 py-2 text-left text-xs transition-colors hover:bg-base-200/70"
                 @click="handleNewWorktree(close)"
               >
-                <FolderPlus class="h-3.5 w-3.5 shrink-0 opacity-60" />
+                <AppIcon name="folder-plus" class="h-3.5 w-3.5 shrink-0 opacity-60" />
                 <span class="min-w-0 flex-1 truncate">{{ t("chat.worktreeNew") }}</span>
               </button>
             </OverlayScrollArea>
@@ -145,14 +145,14 @@
               :title="t('chat.workspaceBranchLabel') + ': ' + (displayBranchName || t('chat.workspaceBranchPlaceholder'))"
               @click="toggle"
             >
-              <GitBranch class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
+              <AppIcon name="git-branch" class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
               <span class="shrink-0 text-caption font-medium text-base-content/45 select-none">
                 {{ t("chat.workspaceBranchLabel") }}
               </span>
               <span class="max-w-[120px] truncate text-xs font-medium" :class="displayBranchName ? (isCurrentHeadDetached ? 'text-warning font-semibold' : 'text-base-content') : 'text-base-content/45'">
                 {{ displayBranchName || (branchLoading ? t("common.loading") : t("chat.workspaceBranchPlaceholder")) }}
               </span>
-              <ChevronDown
+              <AppIcon name="chevron-down"
                 class="pointer-events-none h-3 w-3 shrink-0 text-base-content/40 transition-transform"
                 :class="open ? 'rotate-180' : ''"
               />
@@ -172,11 +172,11 @@
                     <span class="min-w-0 truncate font-medium opacity-60">{{ row.node.data.text }}</span>
                   </template>
                   <template v-else-if="row.node.data.kind === 'folder'">
-                    <Folder class="h-3.5 w-3.5 shrink-0 opacity-60" />
+                    <AppIcon name="folder" class="h-3.5 w-3.5 shrink-0 opacity-60" />
                     <span class="min-w-0 flex-1 truncate font-medium opacity-70">{{ row.node.data.name }}</span>
                   </template>
                   <template v-else>
-                    <GitBranch
+                    <AppIcon name="git-branch"
                       class="h-3.5 w-3.5 shrink-0"
                       :class="row.node.data.isCurrent ? 'text-primary' : 'opacity-60'"
                     />
@@ -193,7 +193,7 @@
                     <span v-else-if="row.node.data.timeText" class="shrink-0 text-caption opacity-50">
                       {{ row.node.data.timeText }}
                     </span>
-                    <Check v-if="row.node.data.isSelected" class="h-3.5 w-3.5 shrink-0 text-primary" />
+                    <AppIcon name="check" v-if="row.node.data.isSelected" class="h-3.5 w-3.5 shrink-0 text-primary" />
                   </template>
                 </template>
               </GitTree>
@@ -230,7 +230,7 @@
           class="group flex max-w-full items-center gap-1 rounded-full border border-base-300 bg-base-100 px-3 py-1.5 text-xs"
           :title="secPath"
         >
-          <FolderOpen class="h-3 w-3 shrink-0 text-base-content/45" />
+          <AppIcon name="folder-open" class="h-3 w-3 shrink-0 text-base-content/45" />
           <span class="max-w-[10rem] truncate font-medium text-base-content">{{ secondaryDisplayName(secPath) }}</span>
           <button
             type="button"
@@ -238,7 +238,7 @@
             :title="t('common.delete')"
             @click="emit('removeSecondary', secPath)"
           >
-            <X class="h-3 w-3" />
+            <AppIcon name="close" class="h-3 w-3" />
           </button>
         </div>
         <button
@@ -248,7 +248,7 @@
           :title="t('config.tools.addWorkspace')"
           @click="openSecondaryDirectoryPicker"
         >
-          <FolderPlus class="h-3 w-3 shrink-0 opacity-70" />
+          <AppIcon name="folder-plus" class="h-3 w-3 shrink-0 opacity-70" />
           <span>{{ t("config.tools.addWorkspace") }}</span>
         </button>
       </div>
@@ -323,7 +323,7 @@
                     @click="toggle"
                   >
                     <span class="min-w-0 truncate">{{ newWorktreeBase || "—" }}</span>
-                    <ChevronDown class="size-3.5 shrink-0 opacity-50" />
+                    <AppIcon name="chevron-down" class="size-3.5 shrink-0 opacity-50" />
                   </button>
                 </template>
                 <template #default>
@@ -379,7 +379,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Folder, FolderOpen, FolderSearch, FolderPlus, ChevronDown, Check, GitBranch, GitFork, X } from "@lucide/vue";
+import AppIcon from "./AppIcon.vue";
 import EcallDropdown from "./EcallDropdown.vue";
 import OverlayScrollArea from "./OverlayScrollArea.vue";
 import WorkspaceDirectoryPickerDialog from "./WorkspaceDirectoryPickerDialog.vue";
