@@ -1075,10 +1075,10 @@ function buildSideConversationTab(conversation: ChildConversationSummary) {
     // 没有时退回后者。两个都由后端算好，这里不做角色名匹配。
     activeIssue: conversation.activeIssue,
     memberState: String(conversation.memberState || "").trim(),
-    // 忙碌态转圈：口径与首页队员磁贴一致，运行态在跑或队员状态就是 busy。
-    // 不按 panel 分支——追问会话在跑时同样该转起来。
-    busy: conversationRuntimeBusy(conversation.runtimeState as Parameters<typeof conversationRuntimeBusy>[0])
-      || String(conversation.memberState || "").trim() === "busy",
+    // 忙碌态转圈只看会话调度：运行态在跑就转，其余一律不转。
+    // 不用 memberState——那份是父概览快照里的值，子会话（追问与队员同属 side_chat）
+    // 不进概览广播，跑完了它也不会回落，转圈会一直挂着。
+    busy: conversationRuntimeBusy(conversation.runtimeState as Parameters<typeof conversationRuntimeBusy>[0]),
     icon: teamAgentAvatarUrl ? undefined : (isTeamMember ? UserRound : MessageSquareMore),
     iconSrc: teamAgentAvatarUrl || undefined,
     // 队员标签不给关闭入口：关标签走的就是「整条会话不要了」，删掉后队长名册里那条
