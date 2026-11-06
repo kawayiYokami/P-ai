@@ -18,87 +18,58 @@
       </template>
     </ConfigTemplate>
 
-    <ConfigCard v-for="engine in SEARCH_ENGINE_META" :key="engine.id">
-      <template #title>
-        <div class="flex min-w-0 items-center gap-2">
-          <h3 class="text-sm font-semibold">{{ engine.name }}</h3>
-          <span class="badge badge-ghost badge-xs">
-            {{ engine.keyless
-              ? t("config.searchEngines.keylessBadge")
-              : t("config.searchEngines.paidBadge") }}
-          </span>
-        </div>
-      </template>
-
-      <div class="divide-y divide-base-200/60">
-        <div class="py-3">
-          <p class="text-xs leading-relaxed text-base-content/60">
-            {{ t(engine.descriptionKey) }}
-            <button class="link link-primary text-xs" type="button" @click="openRegisterPage(engine.registerUrl)">
-              {{ t("config.searchEngines.registerLink") }}
-            </button>
-          </p>
+    <ConfigCard>
+      <div class="grid gap-4 py-3">
+        <div class="grid gap-2 text-xs text-base-content/50 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
+          <span>{{ t("config.searchEngines.engineColumnLabel") }}</span>
+          <span>{{ t("config.searchEngines.apiKeysLabel") }}</span>
         </div>
 
-        <div class="grid gap-2 py-3">
-          <ConfigRowField
-            v-for="(apiKey, index) in engineEntry(engine.id).apiKeys"
-            :key="index"
-            :label="keyRowLabel(index)"
-          >
+        <div
+          v-for="engine in SEARCH_ENGINE_META"
+          :key="engine.id"
+          class="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-start sm:gap-4"
+        >
+          <div class="flex min-w-0 items-center gap-2 sm:pt-1">
+            <span class="text-sm">{{ engine.name }}</span>
+            <span class="badge badge-ghost badge-xs shrink-0">
+              {{ engine.keyless
+                ? t("config.searchEngines.keylessBadge")
+                : t("config.searchEngines.requiredKeyBadge") }}
+            </span>
+          </div>
+
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
+            <template v-for="(apiKey, index) in engineEntry(engine.id).apiKeys" :key="index">
+              <span
+                v-if="apiKey.trim()"
+                class="badge badge-lg h-7 gap-1.5 rounded-full border-base-300 bg-base-200 pl-3 pr-1.5 font-mono text-xs text-base-content/80"
+              >
+                <span class="max-w-56 truncate">{{ apiKey }}</span>
+                <button
+                  class="btn btn-ghost btn-xs btn-circle h-5 min-h-0 w-5 shrink-0"
+                  type="button"
+                  :title="t('config.searchEngines.removeKey')"
+                  :aria-label="t('config.searchEngines.removeKey')"
+                  @click="removeEngineKey(engine.id, index)"
+                >
+                  <AppIcon name="close" class="h-3 w-3" />
+                </button>
+              </span>
+            </template>
+
             <input
-              :value="apiKey"
-              class="input input-bordered input-sm w-72 max-w-full"
+              :value="keyDrafts[engine.id] ?? ''"
+              class="input input-bordered input-sm min-w-0 flex-1 basis-56"
               type="text"
               autocomplete="off"
               spellcheck="false"
               :placeholder="engine.keyless
                 ? t('config.searchEngines.keyPlaceholderKeyless')
                 : t('config.searchEngines.keyPlaceholderRequired')"
-              @input="setEngineKey(engine.id, index, ($event.target as HTMLInputElement).value)"
+              @input="keyDrafts[engine.id] = ($event.target as HTMLInputElement).value"
+              @keydown.enter="addEngineKey(engine.id, $event)"
             />
-            <button
-              class="btn btn-sm btn-ghost btn-square"
-              type="button"
-              :title="t('config.searchEngines.removeKey')"
-              :aria-label="t('config.searchEngines.removeKey')"
-              @click="removeEngineKey(engine.id, index)"
-            >
-              <AppIcon name="trash" class="h-3.5 w-3.5" />
-            </button>
-          </ConfigRowField>
-
-          <p v-if="engineEntry(engine.id).apiKeys.length === 0" class="text-xs text-base-content/50">
-            {{ engine.keyless
-              ? t("config.searchEngines.keylessHint")
-              : t("config.searchEngines.requiredKeyHint") }}
-          </p>
-
-          <div class="flex flex-wrap items-center gap-2 pt-1">
-            <button class="btn btn-sm bg-base-100" type="button" @click="addEngineKey(engine.id)">
-              <AppIcon name="plus" class="h-3.5 w-3.5" />
-              <span>{{ t("config.searchEngines.addKey") }}</span>
-            </button>
-            <button
-              class="btn btn-sm bg-base-100"
-              type="button"
-              :disabled="testStates[engine.id]?.testing === true"
-              @click="testEngine(engine.id)"
-            >
-              <span v-if="testStates[engine.id]?.testing" class="loading loading-spinner loading-xs"></span>
-              <span>
-                {{ testStates[engine.id]?.testing
-                  ? t("config.searchEngines.testing")
-                  : t("config.searchEngines.test") }}
-              </span>
-            </button>
-            <span
-              v-if="testStates[engine.id]?.message"
-              class="text-xs"
-              :class="testStates[engine.id]?.ok ? 'text-success' : 'text-error'"
-            >
-              {{ testStates[engine.id]?.message }}
-            </span>
           </div>
         </div>
       </div>
@@ -109,7 +80,6 @@
 <script setup lang="ts">
 import { computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
-import { invokeTauri, openTransportExternalUrl } from "../../../../services/tauri-api";
 import type { AppConfig, SearchEngineConfigItem } from "../../../../types/app";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
@@ -183,20 +153,20 @@ function engineEntry(id: string): SearchEngineConfigItem & { apiKeys: string[] }
   return created;
 }
 
-function keyRowLabel(index: number): string {
-  return t("config.searchEngines.keyRowLabel", { index: index + 1 });
-}
+/** 每个引擎的待提交输入框内容；回车才变成药丸，加完清空。 */
+const keyDrafts = reactive<Record<string, string>>({});
 
-function addEngineKey(engineId: string) {
-  engineEntry(engineId).apiKeys?.push("");
-}
-
-function setEngineKey(engineId: string, index: number, value: string) {
+function addEngineKey(engineId: string, event: KeyboardEvent) {
+  // 输入法候选里的回车不算确认：先让输入法把候选上屏。
+  if (event.isComposing) return;
+  // 让回车只在这里生效，别触发页面上别的事件。
+  event.preventDefault();
+  const draft = (keyDrafts[engineId] ?? "").trim();
+  keyDrafts[engineId] = "";
+  if (!draft) return;
   const entry = engineEntry(engineId);
-  if (!entry.apiKeys) entry.apiKeys = [];
-  entry.apiKeys[index] = value;
-  // 锁定目标的密钥被清空后回落自动：后端保存时也会做一次，这里让界面立刻一致。
-  if (fixedEngineId.value === engineId && noKeyLeft(entry)) setLockTarget("");
+  if (entry.apiKeys.includes(draft)) return;
+  entry.apiKeys.push(draft);
 }
 
 function removeEngineKey(engineId: string, index: number) {
@@ -207,43 +177,6 @@ function removeEngineKey(engineId: string, index: number) {
 
 function noKeyLeft(entry: SearchEngineConfigItem): boolean {
   return !(entry.apiKeys ?? []).some((key) => String(key ?? "").trim().length > 0);
-}
-
-async function openRegisterPage(url: string) {
-  try {
-    await openTransportExternalUrl(url);
-  } catch {
-    // 打不开浏览器不影响配置，用户可以自己复制链接
-  }
-}
-
-// ==================== 连接测试（纯界面态，不进配置） ====================
-
-type TestState = { testing: boolean; ok: boolean; message: string };
-const testStates = reactive<Record<string, TestState>>({});
-
-async function testEngine(engineId: string) {
-  const entry = engineEntry(engineId);
-  testStates[engineId] = { testing: true, ok: false, message: "" };
-  try {
-    const result = await invokeTauri<{ ok: boolean; resultCount?: number }>("test_search_engine", {
-      input: { engineId, apiKeys: [...(entry.apiKeys ?? [])] },
-    });
-    const count = Number(result?.resultCount ?? 0);
-    testStates[engineId] = {
-      testing: false,
-      ok: true,
-      message: t("config.searchEngines.testSuccess", { count }),
-    };
-  } catch (error) {
-    testStates[engineId] = { testing: false, ok: false, message: toErrorMessage(error) };
-  }
-}
-
-function toErrorMessage(error: unknown): string {
-  if (typeof error === "string") return error;
-  if (error instanceof Error) return error.message;
-  return String(error ?? "");
 }
 
 // ==================== 脏判定与草稿还原（对 header 的保存按钮负责） ====================
@@ -277,7 +210,6 @@ function restoreDraft() {
     }));
   }
   props.config.searchMode = saved.mode ? { ...saved.mode } : { mode: "auto" };
-  for (const key of Object.keys(testStates)) delete testStates[key];
 }
 
 defineExpose({ dirty, restoreDraft });

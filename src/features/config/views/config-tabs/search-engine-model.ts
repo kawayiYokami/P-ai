@@ -8,47 +8,15 @@ export type SearchEngineMeta = {
   name: string;
   /** 免密钥可用；firecrawl 的匿名额度已被服务端关闭，DeepSeek 必须填 key */
   keyless: boolean;
-  descriptionKey: string;
-  registerUrl: string;
 };
 
 /** 与后端内置引擎表一一对应；未启用的也列出来，方便随时打开。 */
 export const SEARCH_ENGINE_META: SearchEngineMeta[] = [
-  {
-    id: "exa",
-    name: "Exa",
-    keyless: true,
-    descriptionKey: "config.searchEngines.exaDescription",
-    registerUrl: "https://dashboard.exa.ai/",
-  },
-  {
-    id: "parallel",
-    name: "Parallel",
-    keyless: true,
-    descriptionKey: "config.searchEngines.parallelDescription",
-    registerUrl: "https://platform.parallel.ai/",
-  },
-  {
-    id: "firecrawl",
-    name: "Firecrawl",
-    keyless: false,
-    descriptionKey: "config.searchEngines.firecrawlDescription",
-    registerUrl: "https://www.firecrawl.dev/",
-  },
-  {
-    id: "tavily",
-    name: "Tavily",
-    keyless: true,
-    descriptionKey: "config.searchEngines.tavilyDescription",
-    registerUrl: "https://app.tavily.com/",
-  },
-  {
-    id: "deepseek",
-    name: "DeepSeek",
-    keyless: false,
-    descriptionKey: "config.searchEngines.deepseekDescription",
-    registerUrl: "https://platform.deepseek.com/",
-  },
+  { id: "exa", name: "Exa", keyless: true },
+  { id: "parallel", name: "Parallel", keyless: true },
+  { id: "firecrawl", name: "Firecrawl", keyless: false },
+  { id: "tavily", name: "Tavily", keyless: true },
+  { id: "deepseek", name: "DeepSeek", keyless: false },
 ];
 
 function hasKey(entry: SearchEngineConfigItem | undefined): boolean {

@@ -17,20 +17,12 @@
           <option value="dirty">改过两项（脏草稿）</option>
         </select>
       </label>
-      <label class="flex items-center gap-1">
-        <span class="opacity-70">高度</span>
-        <select v-model.number="demoHeight" class="select select-bordered select-xs">
-          <option :value="720">720</option>
-          <option :value="1200">1200</option>
-          <option :value="1600">1600</option>
-        </select>
-      </label>
       <span class="opacity-60">脏态：{{ dirty ? "有改动" : "干净" }}</span>
     </div>
 
     <div
       class="overflow-hidden rounded-box border border-base-300"
-      :style="{ width: `min(${demoWidth}px, 100%)`, height: `${demoHeight}px` }"
+      :style="{ width: `min(${demoWidth}px, 100%)` }"
     >
       <SettingsPageShell
         v-model:tab="activeTab"
@@ -72,7 +64,7 @@
 
     <p class="text-xs opacity-60" data-demo-chrome>
       渲染的是真实的 SettingsPageShell + SearchEnginesPanel：配置为 mock（五个引擎、多把密钥、含掩码），
-      「测试连接」真的会打后端，这里不点；保存按钮只把当前值写成新的基准快照，不落库。
+      保存按钮只把当前值写成新的基准快照，不落库。
     </p>
   </div>
 </template>
@@ -90,7 +82,6 @@ import SearchEnginesPanel from "./SearchEnginesPanel.vue";
 const { t } = useI18n();
 
 const demoWidth = ref(760);
-const demoHeight = ref(1200);
 const demoState = ref<"auto" | "fixed" | "dirty">("auto");
 const activeTab = ref("searchEngines");
 
@@ -129,7 +120,7 @@ function buildConfig(state: "auto" | "fixed" | "dirty"): AppConfig {
     const tavily = engines.find((entry) => entry.id === "tavily");
     if (tavily) tavily.apiKeys = [];
     const exa = engines.find((entry) => entry.id === "exa");
-    if (exa) exa.apiKeys = ["sk-demo-exa", ""];
+    if (exa) exa.apiKeys = ["sk-demo-exa"];
   }
   return { searchEngines: engines, searchMode: mode } as unknown as AppConfig;
 }
