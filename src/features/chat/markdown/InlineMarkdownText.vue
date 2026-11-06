@@ -29,7 +29,13 @@ function parseInlineWithHeadings(text: string): InlineSegment[] {
     return [{ type: "text", text }];
   }
   const segments: InlineSegment[] = [];
-  text.split("\n").forEach((line, index) => {
+  // 行内渲染没有段落概念：\n\n 在这里只会变成一个空行，压成单个换行。
+  // 同时把 CRLF / CR 归一成 LF，行尾残留的 \r 会在 pre-wrap 容器里被当成又一次换行。
+  const lines = text
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n{2,}/g, "\n")
+    .split("\n");
+  lines.forEach((line, index) => {
     if (index > 0) segments.push({ type: "html_br" });
     const heading = line.match(HEADING_LINE_PATTERN);
     if (heading) {

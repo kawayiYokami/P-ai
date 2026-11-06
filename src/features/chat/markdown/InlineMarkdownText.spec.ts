@@ -26,4 +26,16 @@ describe("InlineMarkdownText", () => {
     expect(html).not.toContain("ecall-inline-md-strong");
     expect(html).toContain("正常前缀 **加粗**");
   });
+
+  it("CRLF 换行不残留回车，避免在 pre-wrap 容器里和 <br> 叠成双倍行距", async () => {
+    const html = await renderInlineMarkdown("甲\r\n乙");
+    expect(html).not.toContain("\r");
+    expect(html).toContain("甲<br>乙");
+  });
+
+  it("段落空行压成单个换行：行内渲染没有段落概念", async () => {
+    const html = await renderInlineMarkdown("甲\n\n乙\n\n\n丙");
+    expect(html).toContain("甲<br>乙<br>丙");
+    expect(html).not.toContain("<br><br>");
+  });
 });
