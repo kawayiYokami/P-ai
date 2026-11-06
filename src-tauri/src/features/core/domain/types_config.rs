@@ -182,6 +182,10 @@ struct McpServerConfig {
     tool_policies: Vec<McpToolPolicy>,
     #[serde(default)]
     cached_tools: Vec<McpCachedTool>,
+    /// MCP 握手时服务自述的 instructions：进程内内存态，随进程重启清空。
+    /// 只用于界面展示「这是什么服务」；为空就表示没有可展示的介绍，前端应回落到地址/命令。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    instructions: String,
     #[serde(default)]
     last_status: String,
     #[serde(default)]

@@ -30,6 +30,7 @@ fn normalize_mcp_server_input(input: McpServerInput) -> Result<McpServerConfig, 
         has_oauth_token: false,
         tool_policies: Vec::new(),
         cached_tools: Vec::new(),
+        instructions: String::new(),
         last_status: String::new(),
         last_error: String::new(),
         updated_at: String::new(),
@@ -51,6 +52,8 @@ fn overlay_runtime_state_on_server(mut server: McpServerConfig) -> McpServerConf
             })
             .collect();
     }
+    // 握手说明是进程内内存态：连过才有，重启后为空。空值不送出去，前端按空回落地址显示。
+    server.instructions = mcp_server_instructions_get(&server.id).unwrap_or_default();
     server
 }
 

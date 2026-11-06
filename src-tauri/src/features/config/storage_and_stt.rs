@@ -789,6 +789,7 @@ fn normalize_mcp_servers(config: &mut AppConfig) {
             has_oauth_token: raw.has_oauth_token,
             tool_policies,
             cached_tools,
+            instructions: String::new(),
             last_status: raw.last_status.trim().to_string(),
             last_error: raw.last_error.trim().to_string(),
             updated_at: raw.updated_at.trim().to_string(),

@@ -619,6 +619,7 @@ fn acp_session_mcp_servers(
             has_oauth_token: false,
             tool_policies: Vec::new(),
             cached_tools: Vec::new(),
+            instructions: String::new(),
             last_status: String::new(),
             last_error: String::new(),
             updated_at: String::new(),

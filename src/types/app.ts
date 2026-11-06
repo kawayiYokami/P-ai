@@ -330,6 +330,8 @@ export type McpServerConfig = {
   hasOauthToken?: boolean;
   toolPolicies: McpToolPolicy[];
   cachedTools?: McpCachedTool[];
+  /** MCP 握手时服务自述的介绍：进程内内存态，未连接或重启后为空。 */
+  instructions?: string;
   lastStatus?: string;
   lastError?: string;
   updatedAt?: string;

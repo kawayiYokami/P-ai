@@ -199,8 +199,8 @@
                     {{ t('config.mcp.unsaved') }}
                   </span>
                 </div>
-                <div v-if="getServerSubtitle(server)" class="font-mono text-caption opacity-50 truncate mt-0.5">
-                  {{ getServerSubtitle(server) }}
+                <div v-if="getServerCardSubtitle(server)" class="text-caption opacity-50 truncate mt-0.5" :class="{ 'font-mono': !showInstructionsSubtitle(server) }">
+                  {{ getServerCardSubtitle(server) }}
                 </div>
               </div>
 
@@ -237,9 +237,6 @@
                 </template>
               </div>
               <div class="flex items-center gap-1.5 opacity-70">
-                <span v-if="getProtocolBadge(server.definitionJson)" class="font-mono text-caption opacity-60">
-                  {{ getProtocolBadge(server.definitionJson) }}
-                </span>
                 <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
               </div>
             </div>
@@ -283,6 +280,7 @@ import type {
 } from "../../../../types/app";
 import { toErrorMessage } from "../../../../utils/error";
 import { formatEndpointDisplay } from "../../utils/api-config-display";
+import { summarizeMcpInstructions } from "../../utils/mcp-instructions";
 import McpServerCard from "./mcp/McpServerCard.vue";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
 import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
@@ -480,62 +478,7 @@ function parseMcpServerEntries(definitionJson: string): McpServerEntry[] {
   return [];
 }
 
-/**
- * 解析 MCP 运行协议/执行器标签（第一性原理精准识别）
- * 1. 网络服务：
- *    - sse -> "sse"
- *    - streamable_http / streamable-http / http / url 端点 -> "流式 http"
- * 2. 本地子进程 (stdio)：
- *    - uvx / uv -> "uvx" / "uv"
- *    - npx / npm / bunx / bun / pnpm -> "npx" / "bunx" 等
- *    - node -> "node"
- *    - python / python3 / py -> "python"
- *    - docker -> "docker"
- *    - 其他本地命令 -> "stdio"
- */
-function getProtocolBadge(definitionJson: string): string {
-  const entries = parseMcpServerEntries(definitionJson);
-  if (entries.length === 0) return "";
-
-  const first = entries[0];
-  const transport = String(first.transport ?? first.type ?? "").toLowerCase();
-
-  // 1. 网络协议判断
-  if (transport === "sse") return "sse";
-  if (
-    transport === "streamable_http" ||
-    transport === "streamable-http" ||
-    transport === "http" ||
-    transport === "https" ||
-    first.url
-  ) {
-    return "流式 http";
-  }
-
-  // 2. 本地执行器/环境判断
-  if (first.command) {
-    const rawCmd = first.command.trim().toLowerCase();
-    const baseName = rawCmd.split(/[/\\]/).pop()?.replace(/\.(exe|cmd|bat|ps1)$/, "") || "";
-    const args = (first.args ?? []).map((a) => a.toLowerCase());
-
-    if (baseName === "uvx") return "uvx";
-    if (baseName === "uv") {
-      return args.includes("run") ? "uv run" : "uv";
-    }
-    if (baseName === "npx") return "npx";
-    if (baseName === "node") return "node";
-    if (baseName === "bunx" || baseName === "bun") return baseName;
-    if (baseName === "pnpm" || baseName === "npm" || baseName === "yarn") return baseName;
-    if (baseName === "docker") return "docker";
-    if (baseName === "python" || baseName === "python3" || baseName === "py") return "python";
-
-    return "stdio";
-  }
-
-  return "";
-}
-
-/** 获取卡片副标题（优先展示命令/URL；若无且名称与 ID 相同或为时间戳 ID，则不展示无意义复读） */
+/** 回落的副标题（命令或 URL）：未连上的服务、以及连上但没有握手说明的服务用它。 */
 function getServerSubtitle(server: McpServerConfig): string {
   const entries = parseMcpServerEntries(server.definitionJson);
   if (entries.length > 0) {
@@ -555,6 +498,24 @@ function getServerSubtitle(server: McpServerConfig): string {
     return server.id;
   }
   return "";
+}
+
+/** 已连上：状态就绪，或运行时已经列出工具。没连上的服务没有握手说明。 */
+function isServerConnected(server: McpServerView): boolean {
+  return server.lastStatus === "ready" || server.toolItems.length > 0;
+}
+
+/** 副标题是否用服务介绍：只有连上且有说明时才用，否则回落地址/命令。 */
+function showInstructionsSubtitle(server: McpServerView): boolean {
+  return isServerConnected(server) && !!(server.instructions || "").trim();
+}
+
+/** 卡片副标题：连上的服务显示「这是什么服务」，其余保持地址/命令。 */
+function getServerCardSubtitle(server: McpServerView): string {
+  if (showInstructionsSubtitle(server)) {
+    return summarizeMcpInstructions(server.instructions || "");
+  }
+  return getServerSubtitle(server);
 }
 
 /** 从 definitionJson 解析组内成员名（用于跨卡片重名检测与概览展示） */

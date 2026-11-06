@@ -1696,6 +1696,7 @@ enableTools = true
             has_oauth_token: false,
             tool_policies: Vec::new(),
             cached_tools: Vec::new(),
+            instructions: String::new(),
             last_status: "ready".to_string(),
             last_error: String::new(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
