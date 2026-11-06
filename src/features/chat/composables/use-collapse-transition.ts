@@ -40,13 +40,18 @@ export function useCollapseTransition() {
     el.style.overflow = "hidden";
     el.style.willChange = "height, opacity, transform";
     const onEnd = bindTransitionEnd(el, done);
+    // 只展开到露出为止：内容比一屏还高时，动画走过整段 height 会在同样 180ms 里
+    // 冲过上千像素，看上去就是直接跳出来。以「面板顶部到视口底部」为终点，
+    // 超出屏幕的部分不参与动画，速度与短内容一致。
+    const visibleHeight = Math.max(0, window.innerHeight - el.getBoundingClientRect().top);
+    const targetHeight = Math.min(el.scrollHeight, visibleHeight);
     requestAnimationFrame(() => {
       el.style.transition = [
         "height 180ms cubic-bezier(0.22, 1, 0.36, 1)",
         "opacity 140ms ease-out",
         "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)",
       ].join(", ");
-      el.style.height = `${el.scrollHeight}px`;
+      el.style.height = `${targetHeight}px`;
       el.style.opacity = "1";
       el.style.transform = "translateY(0)";
     });
