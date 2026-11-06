@@ -2177,9 +2177,9 @@ defineExpose({
 
 const {
   scrollContainer, composerContainer, toolbarContainer, chatLayoutRoot,
-  latestOwnElasticMinHeight, atConversationBottom, userScrollingUp,
+  atConversationBottom, userScrollingUp,
   followBottom, startFollowBottom, stopFollowBottom,
-  sessionControlPanelVisible, sessionFloatDockStyle, toolbarReservedHeight, scrollIdle, onScroll,
+  sessionControlPanelVisible, sessionFloatDockStyle, scrollIdle, onScroll,
   noteWheelScrollIntent, noteKeyboardScrollIntent, beginPointerScrollIntent,
   setFollowAnimating, prepareBottomAlignmentLayout,
 } = useChatScrollLayout({

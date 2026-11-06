@@ -2,10 +2,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, type Ref, watch } 
 import { isMobileTouchViewport } from "../../shared/utils/mobile-viewport";
 import { probeChatScroll } from "./chat-scroll-probe";
 
-const TODO_DROPDOWN_SAFE_GAP = 30;
-// 工具条在布局里始终预留这么多：它只为「留白不被工具条盖住」服务。
-// 不能去量真实高度——工具条不在场时量到 0，留白就会跟着一跳一跳。
-const TOOLBAR_RESERVED_HEIGHT = 40;
 const SESSION_CONTROL_PANEL_HIDE_DELAY_MS = 200;
 // 思维链预览条：滚动停止满这么久才出现；期间任何一次滚动都重新计时，也就是一滚动就收起
 const PREVIEW_IDLE_DELAY_MS = 3_000;
@@ -25,7 +21,6 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   const composerContainer = ref<HTMLElement | null>(null);
   const toolbarContainer = ref<HTMLElement | null>(null);
   const chatLayoutRoot = ref<HTMLElement | null>(null);
-  const latestOwnElasticMinHeight = ref(0);
   const composerReservedHeight = ref(0);
   const jumpToBottomOffset = ref(96);
   const lastBottomState = ref(false);
@@ -56,7 +51,6 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   const sessionFloatDockStyle = computed(() => ({
     bottom: `${composerReservedHeight.value + 8}px`,
   }));
-  const toolbarReservedHeight = computed(() => TOOLBAR_RESERVED_HEIGHT);
 
   function updateJumpToBottomOffset() {
     const composerHeight = composerContainer.value?.offsetHeight ?? 0;
@@ -69,37 +63,11 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     }
   }
 
-  function updateLatestOwnElasticMinHeight() {
-    const scrollEl = scrollContainer.value;
-    if (!scrollEl) {
-      if (latestOwnElasticMinHeight.value !== 0) {
-        latestOwnElasticMinHeight.value = 0;
-      }
-      return;
-    }
-    // 尾部留白给「最新用户消息」留出上滑余量，但不能大到把消息顶出屏幕：
-    // 上限取视口高扣掉工具条保留高度与下拉安全距，再留 5% 富余。
-    const scrollStyles = window.getComputedStyle(scrollEl);
-    const scrollViewportHeight =
-      scrollEl.clientHeight
-      - parseFloat(scrollStyles.paddingTop || "0")
-      - parseFloat(scrollStyles.paddingBottom || "0");
-    const nextMinHeight = Math.max(
-      0,
-      Math.round((scrollViewportHeight - toolbarReservedHeight.value - TODO_DROPDOWN_SAFE_GAP) * 0.95),
-    );
-    if (latestOwnElasticMinHeight.value !== nextMinHeight) {
-      latestOwnElasticMinHeight.value = nextMinHeight;
-    }
-  }
-
   async function prepareBottomAlignmentLayout() {
     updateJumpToBottomOffset();
-    updateLatestOwnElasticMinHeight();
     await nextTick();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     updateJumpToBottomOffset();
-    updateLatestOwnElasticMinHeight();
     await nextTick();
   }
 
@@ -278,20 +246,17 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
   onMounted(() => {
     nextTick(() => {
       updateJumpToBottomOffset();
-      updateLatestOwnElasticMinHeight();
       restartScrollIdleTimer();
       if (composerContainer.value && typeof ResizeObserver !== "undefined") {
         composerResizeObserver = new ResizeObserver(() => {
           if (typeof window === "undefined") {
             updateJumpToBottomOffset();
-            updateLatestOwnElasticMinHeight();
             return;
           }
           if (pendingComposerResizeFrame) return;
           pendingComposerResizeFrame = window.requestAnimationFrame(() => {
             pendingComposerResizeFrame = 0;
             updateJumpToBottomOffset();
-            updateLatestOwnElasticMinHeight();
           });
         });
         composerResizeObserver.observe(composerContainer.value);
@@ -300,14 +265,12 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
         chatLayoutResizeObserver = new ResizeObserver(() => {
           if (typeof window === "undefined") {
             updateJumpToBottomOffset();
-            updateLatestOwnElasticMinHeight();
             return;
           }
           if (pendingChatLayoutResizeFrame) return;
           pendingChatLayoutResizeFrame = window.requestAnimationFrame(() => {
             pendingChatLayoutResizeFrame = 0;
             updateJumpToBottomOffset();
-            updateLatestOwnElasticMinHeight();
           });
         });
         chatLayoutResizeObserver.observe(chatLayoutRoot.value);
@@ -378,7 +341,6 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     () => {
       nextTick(() => {
         updateJumpToBottomOffset();
-        updateLatestOwnElasticMinHeight();
         restartScrollIdleTimer();
         const el = scrollContainer.value;
         if (el) {
@@ -400,7 +362,6 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     () => {
       nextTick(() => {
         updateJumpToBottomOffset();
-        updateLatestOwnElasticMinHeight();
         const el = scrollContainer.value;
         if (el) {
           updateScrollPositionState(el);
@@ -415,7 +376,6 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     composerContainer,
     toolbarContainer,
     chatLayoutRoot,
-    latestOwnElasticMinHeight,
     composerReservedHeight,
     atConversationBottom: lastBottomState,
     followBottom,
@@ -426,7 +386,6 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
     sessionControlPanelVisible,
     scrollIdle,
     sessionFloatDockStyle,
-    toolbarReservedHeight,
     onScroll,
     noteWheelScrollIntent,
     noteKeyboardScrollIntent,
