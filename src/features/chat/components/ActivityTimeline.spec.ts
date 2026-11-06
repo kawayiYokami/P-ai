@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createSSRApp, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 import ActivityTimeline from "./ActivityTimeline.vue";
+import ACTIVITY_TIMELINE_SOURCE from "./ActivityTimeline.vue?raw";
 import { i18n } from "../../../i18n";
 import type { ChatActivityItem } from "../../../types/app";
 
@@ -84,26 +85,32 @@ describe("ActivityTimeline 两行网格", () => {
     for (const tag of titles) expect(tag).not.toContain("text-base-content");
   });
 
-  it("思考内容行默认裁四行，且与标题行隔 8px", async () => {
+  it("思考内容行默认展开全文，且与标题行隔 8px", async () => {
     const html = await renderTimeline([reasoningItem]);
     const body = html.match(/<div[^>]*ecall-reasoning-text[^>]*>/)?.[0] ?? "";
-    expect(body).toContain("ecall-reasoning-clamped");
+    // 没有 override 记录 = 这一条是本次流式新长出来的，默认就是全文可见
+    expect(body).toContain("is-open");
     expect(body).toContain("pt-2");
   });
 
-  it("工具条目不展开时不渲染内容行", async () => {
+  it("工具条目不展开时外壳在、内容不渲染", async () => {
     const html = await renderTimeline([toolItem]);
     expect(html).toContain("ecall-activity-title");
-    expect(html).not.toContain("ecall-activity-body");
+    // 外壳常驻才能用 CSS 从 0 过渡到 auto；内层 v-if 保住懒渲染
+    expect(html).toContain("ecall-tool-body");
+    expect(html).not.toContain("relative pt-2");
   });
 
-  it("工具条目展开后内容行落在第二行", async () => {
+  it("工具条目展开后内容行落在第二行，间距挪到折叠内层", async () => {
     const state = emptyState();
     state.expandedOverrides = { "tool:t1": true };
     const html = await renderTimeline([toolItem], state);
     const body = html.match(/<div[^>]*ecall-activity-body[^>]*>/)?.[0] ?? "";
     expect(body).not.toBe("");
-    expect(body).toContain("pt-2");
+    expect(body).toContain("is-open");
+    // pt-2 留在外壳上会让收起末帧残留 8px 再跳 0，间距必须落在内容内层里
+    expect(body).not.toContain("pt-2");
+    expect(html).toContain("relative pt-2");
   });
 
   it("展开态折叠节点带 is-expanded，下折箭头不靠 hover 才出现", async () => {
@@ -123,5 +130,49 @@ describe("ActivityTimeline 两行网格", () => {
     const html = await renderTimeline([{ kind: "content", id: "c1", text: "工具之间的一段正文" }]);
     expect(html).toContain("ecall-activity-title");
     expect(html).not.toContain("ecall-activity-body");
+  });
+
+  it("折叠过渡读一次真实高度驱动，不挂持续监听", async () => {
+    const source = ACTIVITY_TIMELINE_SOURCE;
+    // 量一次是允许的：目标高度是全文高/收起档高，只有布局知道
+    expect(source).toContain("getBoundingClientRect");
+    expect(source).toContain("scrollHeight");
+    // 时长与收尾方式：只认 transitionend，不用定时器
+    expect(source).toContain("const FOLD_MS = 200");
+    expect(source).toContain('"transitionend"');
+    expect(source).not.toContain("setTimeout");
+    // 不许退化成持续观察
+    expect(source).not.toContain("ResizeObserver");
+    expect(source).not.toContain("IntersectionObserver");
+    expect(source).not.toContain('addEventListener("scroll"');
+  });
+
+  it("收起档用 max-height 封顶，不再用 line-clamp", async () => {
+    const source = ACTIVITY_TIMELINE_SOURCE;
+    // clamp 的实际高度会把段落间距算进去，和行高乘四对不上，收起落定就会弹一下。
+    // max-height 只是上限：短思考按自然高度显示，底下不会多出空白。
+    expect(source).not.toContain("-webkit-line-clamp");
+    expect(source).toContain(".ecall-reasoning-text:not(.is-open) {");
+    expect(source).toContain("max-height: calc(1.5em * 4 + 8px)");
+    // 思考正文只走一条渲染路径：分块的 content-visibility 会让布局高度失真
+    expect(source).not.toContain("content-visibility");
+    expect(source).not.toContain("activityItemPlainBody");
+  });
+
+  it("流式默认展开、重开容器才收起", async () => {
+    const source = ACTIVITY_TIMELINE_SOURCE;
+    // 没有 override 记录 = 本次流式新长出来的条目，直接全文可见
+    expect(source).toContain("// 没有记录 = 这一条是本次流式新长出来的，直接全文可见；新内容长出来也是展开的");
+    // 重开容器 = 重新挂载：只把跑完的那些收成四行，还在流式的不动
+    expect(source).toContain("item.kind === \"reasoning\" && item.running !== true");
+  });
+
+  it("工具详情靠关键字插值从 0 过渡到 auto，不用 JS 量高", async () => {
+    const source = ACTIVITY_TIMELINE_SOURCE;
+    expect(source).toContain("interpolate-size: allow-keywords");
+    expect(source).toContain("ecall-tool-body");
+    // 外壳常驻 + 内层 v-if：不能再用 Transition 的钩子
+    expect(source).not.toContain("@enter=\"handleToolFoldEnter\"");
+    expect(source).not.toContain("<Transition\n        :css=\"false\"");
   });
 });

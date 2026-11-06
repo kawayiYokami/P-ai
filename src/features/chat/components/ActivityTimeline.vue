@@ -60,37 +60,30 @@
       <!-- 标题行（思考）：固定「思考」二字，点它开合 -->
       <div
         v-if="item.kind === 'reasoning'"
-        class="ecall-activity-title ecall-reasoning-head flex min-h-6 cursor-pointer items-center gap-1.5 pr-1 text-xs"
+        class="ecall-activity-title ecall-reasoning-head flex min-h-6 cursor-pointer items-center gap-1.5 pr-1"
         data-selection-ignore="true"
         :class="{ 'ecall-reasoning-stuck': reasoningCollapseOpen(item) }"
         role="button"
         tabindex="0"
         :aria-expanded="reasoningCollapseOpen(item)"
-        @click="toggleReasoningCollapse(item)"
-        @keydown.enter.prevent="toggleReasoningCollapse(item)"
-        @keydown.space.prevent="toggleReasoningCollapse(item)"
+        @click="handleReasoningToggle(item, $event)"
+        @keydown.enter.prevent="handleReasoningToggle(item, $event)"
+        @keydown.space.prevent="handleReasoningToggle(item, $event)"
       >{{ activityItemTitle(item) }}</div>
 
       <!-- 内容行（思考）：收起裁四行，展开后全文，不设滚动区 -->
       <div
         v-if="item.kind === 'reasoning' && activityItemHasBody(item)"
         class="ecall-activity-body ecall-reasoning-text min-w-0 pt-2"
-        :class="{ 'ecall-reasoning-clamped': !reasoningCollapseOpen(item) }"
+        :class="{ 'is-open': reasoningCollapseOpen(item) }"
       >
-        <InlineMarkdownText v-if="!activityItemPlainBody(item)" :text="activityItemText(item)" />
-        <template v-else>
-          <div
-            v-for="chunk in activityItemPlainChunks(item)"
-            :key="chunk.index"
-            class="ecall-reasoning-plain-chunk"
-          >{{ chunk.text }}</div>
-        </template>
+        <InlineMarkdownText :text="activityItemText(item)" />
       </div>
 
       <!-- 标题行（工具）：可展开时整行可点，其余情况只作展示 -->
       <div
         v-if="item.kind === 'tool'"
-        class="ecall-activity-title flex min-h-6 items-center gap-1.5 pr-1 text-xs"
+        class="ecall-activity-title flex min-h-6 items-center gap-1.5 pr-1"
         :class="[{ 'cursor-pointer hover:bg-base-200': activityItemCanExpand(item) }, activityItemTitleClass(item)]"
         data-selection-ignore="true"
         :role="activityItemCanExpand(item) ? 'button' : undefined"
@@ -109,7 +102,7 @@
                   <span class="truncate">{{ activityItemSemantic(item)!.summary }}</span>
                   <span
                     v-if="activityItemSemantic(item)!.lineRange"
-                    class="font-mono text-xs shrink-0"
+                    class="font-mono shrink-0"
                   >{{ activityItemSemantic(item)!.lineRange }}</span>
                   <span
                     v-if="activityItemSemantic(item)!.extra"
@@ -134,12 +127,17 @@
               </span>
       </div>
 
-      <!-- 内容行（工具）：初始不显示，点标题行才展开 -->
+      <!-- 内容行（工具）：外壳常驻，高度 0 ↔ auto 交给 CSS 关键字插值，内层 v-if 懒渲染。
+           不用 JS 量高：内层由 v-if 插入，Vue 的 DOM 更新在微任务里，同期读 scrollHeight
+           必定是 0，要量就得补一次 nextTick，不值当。不支持关键字插值的内核退化成硬跳。
+           pt-2 必须放在 overflow 容器里层：留在外壳上会让收起末帧残留 8px 再跳 0。 -->
       <div
-        v-if="item.kind === 'tool' && activityItemCanExpand(item) && activityItemExpanded(item)"
-        class="ecall-activity-body min-w-0 pr-1 pt-2"
+        v-if="item.kind === 'tool' && activityItemCanExpand(item)"
+        class="ecall-activity-body ecall-tool-body min-w-0 pr-1"
+        :class="{ 'is-open': activityItemExpanded(item) }"
+        @transitionend="handleToolFoldEnd(item, $event)"
       >
-              <div class="relative">
+        <div v-if="activityItemExpanded(item) || toolFoldClosing[activityItemKey(item)]" class="relative pt-2">
                 <OverlayScrollArea scroller-class="max-h-72 py-2 pr-2" overscroll="auto">
                   <div class="flex flex-col gap-2">
                     <!-- 卡片一：参数（输入）。不设标题行，内容直接当卡片 -->
@@ -151,7 +149,7 @@
                       <ToolArgsView
                         :text="toolDetailParts(item).args"
                         :dark="props.dark"
-                        class="px-2.5 py-2 font-mono text-xs leading-relaxed"
+                        class="px-2.5 py-2 font-mono leading-relaxed"
                       />
                     </div>
 
@@ -163,13 +161,13 @@
                       <!-- 结果区：内容色由条目变量给，深色是青 -->
                       <pre
                         v-if="toolDetailParts(item).result"
-                        class="m-0 whitespace-pre-wrap break-all px-2.5 py-2 text-xs leading-relaxed"
+                        class="m-0 whitespace-pre-wrap break-all px-2.5 py-2 leading-relaxed"
                       ><code>{{ toolDetailParts(item).result }}</code></pre>
                       <div v-else class="px-2.5 py-2">
                         <button
                           v-if="toolResultLoadable(item)"
                           type="button"
-                          class="btn btn-ghost btn-xs -ml-1 h-6 min-h-0 justify-start gap-1.5 px-1 text-xs font-normal ecall-activity-quiet hover:bg-base-300/60"
+                          class="btn btn-ghost btn-xs -ml-1 h-6 min-h-0 justify-start gap-1.5 px-1 font-normal ecall-activity-quiet hover:bg-base-300/60"
                           :disabled="!!props.state.toolResultLoading[activityItemKey(item)]"
                           @click.stop="loadToolResult(item)"
                         >
@@ -181,7 +179,7 @@
                           {{ t("chat.toolReview.viewResult") || "查看结果" }}
                         </button>
                         <!-- 缺定位上下文时不给按钮：点了也取不回，只留一句说明 -->
-                        <span v-else class="text-xs ecall-activity-quiet">
+                        <span v-else class="ecall-activity-quiet">
                           {{ t("chat.toolReview.resultOmitted") || "结果已省略" }}
                         </span>
                         <span
@@ -204,7 +202,7 @@
 
       <!-- 标题行（正文）：只露一小截预览，没有内容行 -->
       <div v-if="item.kind === 'content'" class="ecall-activity-title flex min-h-6 items-center pr-1">
-        <div class="min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed">
+        <div class="min-w-0 flex-1 whitespace-pre-wrap wrap-break-word leading-relaxed">
           <PlainMarkdownRenderer :text="activityItemContentText(item)" />
         </div>
       </div>
@@ -284,18 +282,98 @@ const reasoningCollapseOverrides = reactive<Record<string, boolean>>({});
 function reasoningCollapseOpen(item: ChatActivityItem): boolean {
   const override = reasoningCollapseOverrides[activityItemKey(item)];
   if (typeof override === "boolean") return override;
-  // 默认收起：只露四行，展开交给用户点
-  return false;
+  // 没有记录 = 这一条是本次流式新长出来的，直接全文可见；新内容长出来也是展开的
+  return true;
 }
 
-function toggleReasoningCollapse(item: ChatActivityItem): void {
-  reasoningCollapseOverrides[activityItemKey(item)] = !reasoningCollapseOpen(item);
+/** 收起档露四行：把「四行 + pt-2」算成像素，只用来判断这条思考有没有得展开、
+ *  要不要套收起高度与底部淡出，不当过渡终点（终点一律实测）。 */
+function reasoningCollapsedLimit(el: HTMLElement): number {
+  const style = getComputedStyle(el);
+  const lineHeight = Number.parseFloat(style.lineHeight) || 21;
+  const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+  return lineHeight * 4 + paddingTop;
 }
 
-/** 展开型思考行不再需要单独的深色类：配色由样式里那张 6 色表按 data-kind 统一给。 */
+/**
+ * 四行装得下就不切换收起态。
+ *
+ * 展开态会挂上吸附、换底色，这些在短思考上是看得见的副作用，所以不能只靠「没箭头
+ * 就别点」来拦。判据是正文比收起档高多少，与当前收起还是展开无关，读一次不挂监听。
+ */
+function handleReasoningToggle(item: ChatActivityItem, event?: Event): void {
+  const head = event?.currentTarget;
+  if (!(head instanceof HTMLElement)) return;
+  const body = head.closest(".ecall-activity-row")?.querySelector<HTMLElement>(".ecall-reasoning-text");
+  if (!body) return;
+  if (body.scrollHeight <= reasoningCollapsedLimit(body) + 1) return;
+  const open = reasoningCollapseOpen(item);
+  // class 与响应式状态一起改：class 直接落在 DOM 上，收起方向才量得到真实的收起高度
+  const apply = () => {
+    body.classList.toggle("is-open", !open);
+    reasoningCollapseOverrides[activityItemKey(item)] = !open;
+  };
+  if (open) collapseFold(body, apply);
+  else expandFold(body, apply);
+}
+
+// ===== 折叠过渡 =====
+// 只做两件事：把当前高度钉成像素，再过渡到布局给出的目标高度。读一次像素不是监听：
+// 过渡期间不再读，也不挂 observer。终点一律实测，不按「行高 × 4」自己算——
+// 段落间距会被算漏，收起落定那一帧就会弹开（实测差 26px）。
+const FOLD_MS = 200; // 与 src/style.css 的 --duration-fold 同值
+
+/** 过渡结束清内联高度，交回布局。只认 transitionend，不用定时器。 */
+function settleHeight(el: HTMLElement): void {
+  el.addEventListener("transitionend", () => {
+    el.style.transition = "";
+    el.style.maxHeight = "";
+    el.style.height = "";
+  }, { once: true });
+}
+
+/** 收起 → 展开：钉住当前高，读全文高，切到展开态，再过渡过去。 */
+function expandFold(el: HTMLElement, applyOpen: () => void): void {
+  const start = el.getBoundingClientRect().height;
+  el.style.height = `${start}px`;
+  const target = el.scrollHeight;
+  applyOpen();
+  // 高度没变就没有过渡可等，内联高度也别留着
+  if (Math.abs(target - start) < 1) {
+    el.style.height = "";
+    return;
+  }
+  el.style.transition = `height ${FOLD_MS}ms ease`;
+  void el.offsetHeight;
+  el.style.height = `${target}px`;
+  settleHeight(el);
+}
+
+/**
+ * 展开 → 收起：钉住当前高，过渡到收起档。
+ *
+ * 收起档就是样式里那条 max-height 的数值，两边同一个算法，落定值与过渡终点一致，不会弹。
+ * 但上限会把起点（当前全文高）压扁成四行，过渡就没起点——过渡期间先摘掉它，落定再交回去。
+ */
+function collapseFold(el: HTMLElement, applyClosed: () => void): void {
+  const current = el.getBoundingClientRect().height;
+  // 短思考的自然高比收起档还矮，取小的那个，落定后不会被撑到四行
+  const target = Math.min(reasoningCollapsedLimit(el), el.scrollHeight);
+  if (Math.abs(target - current) < 1) {
+    applyClosed();
+    return;
+  }
+  el.style.height = `${current}px`;
+  el.style.maxHeight = "none";
+  applyClosed();
+  el.style.transition = `height ${FOLD_MS}ms ease`;
+  void el.offsetHeight;
+  el.style.height = `${target}px`;
+  settleHeight(el);
+}
 
 // ===== 收起态底部淡出 =====
-// 只在正文真的被裁掉时才淡出：短思考（不足四行）如果也加遮罩，最后两行会整片变透明。
+// 只在正文比收起档高时才淡出：短思考如果也加遮罩，最后两行会整片变透明。
 // 用 data 属性而不是 class 绑定，Vue 不管理它，避免每帧比对 class 字符串。
 const timelineRootRef = ref<unknown>(null);
 
@@ -314,23 +392,38 @@ function resolveTimelineRoot(): HTMLElement | null {
 function syncReasoningFade(): void {
   const root = resolveTimelineRoot();
   if (!root || typeof root.querySelectorAll !== "function") return;
-  root.querySelectorAll<HTMLElement>(".ecall-reasoning-clamped").forEach((el) => {
-    if (el.scrollHeight - el.clientHeight > 1) el.dataset.faded = "1";
+  root.querySelectorAll<HTMLElement>(".ecall-reasoning-text").forEach((el) => {
+    // 和收起档比，不和当前盒子比：展开态盒子本来就装得下，按盒子比会把这标记清掉。
+    if (el.scrollHeight > reasoningCollapsedLimit(el) + 1) el.dataset.faded = "1";
     else delete el.dataset.faded;
   });
 }
 
-onMounted(syncReasoningFade);
-
 // 更新可能每帧都来（流式），用 rAF 合并，避免每次 patch 都强制一次布局
 let fadeRaf = 0;
-onUpdated(() => {
+
+/** 挪到下一帧再量：挂载那一帧布局还没落定，量出来的高度不作数。 */
+function scheduleSyncFade(): void {
   if (fadeRaf) return;
   fadeRaf = requestAnimationFrame(() => {
     fadeRaf = 0;
     syncReasoningFade();
   });
+}
+
+onMounted(() => {
+  // 容器每次重新打开都会重新挂载本组件：此刻还在列表里、且已经跑完的思考是上一轮留下的，
+  // 先收成四行。还在流式的那条不收，之后新长出来的条目也不在这个循环里——
+  // 这两者保持展开，新长出来的内容直接可见。
+  for (const item of props.items) {
+    if (item.kind === "reasoning" && item.running !== true) {
+      reasoningCollapseOverrides[activityItemKey(item)] = false;
+    }
+  }
+  scheduleSyncFade();
 });
+
+onUpdated(scheduleSyncFade);
 onBeforeUnmount(() => {
   if (fadeRaf) cancelAnimationFrame(fadeRaf);
 });
@@ -377,8 +470,27 @@ function activityItemFoldOpen(item: ChatActivityItem): boolean {
   return false;
 }
 
+/**
+ * 工具详情收起时先留着内层内容：v-if 和 class 在同一帧变化，内容一撤，外壳的
+ * auto 起始高度当场就是 0，过渡就没有起点了。等高度过渡结束（transitionend）再卸载。
+ */
+const toolFoldClosing = reactive<Record<string, boolean>>({});
+
 function toggleToolItem(item: ChatActivityItem): void {
-  applyExpandedChange(item, !activityItemExpanded(item));
+  const key = activityItemKey(item);
+  if (!activityItemExpanded(item)) {
+    delete toolFoldClosing[key];
+    applyExpandedChange(item, true);
+    return;
+  }
+  toolFoldClosing[key] = true;
+  applyExpandedChange(item, false);
+}
+
+function handleToolFoldEnd(item: ChatActivityItem, event: TransitionEvent): void {
+  // 只认外壳自己的 height 过渡：内层按钮的 hover 过渡也会冒泡上来
+  if (event.target !== event.currentTarget || event.propertyName !== "height") return;
+  delete toolFoldClosing[activityItemKey(item)];
 }
 
 // ==================== 条目文本 ====================
@@ -393,35 +505,6 @@ function stripToolcallMarkers(text: string): string {
   return String(text || "").replace(/\[toolcall:[^\]\n]+\]/g, "");
 }
 
-/**
- * 流式中的思维链走纯文本：文本每帧都在变，每帧重解析不值得。
- * 与展开态无关——思维链已经是常驻滚动区，没有「展开」这个状态了。
- */
-function activityItemPlainBody(item: ChatActivityItem): boolean {
-  return item.kind === "reasoning" && item.running === true;
-}
-
-/** 长纯文本按行切块，单块约 2000 字。块数按内容缓存，流式中每次只比对源文本。 */
-const PLAIN_CHUNK_TARGET_CHARS = 2000;
-const plainChunkCache = new WeakMap<object, { source: string; chunks: { index: number; text: string }[] }>();
-
-function activityItemPlainChunks(item: ChatActivityItem): { index: number; text: string }[] {
-  const source = activityItemText(item);
-  const cached = plainChunkCache.get(item);
-  if (cached && cached.source === source) return cached.chunks;
-  const chunks: { index: number; text: string }[] = [];
-  let buffer = "";
-  for (const line of source.split("\n")) {
-    if (buffer && buffer.length + line.length + 1 > PLAIN_CHUNK_TARGET_CHARS) {
-      chunks.push({ index: chunks.length, text: buffer });
-      buffer = "";
-    }
-    buffer = buffer ? `${buffer}\n${line}` : line;
-  }
-  if (buffer) chunks.push({ index: chunks.length, text: buffer });
-  plainChunkCache.set(item, { source, chunks });
-  return chunks;
-}
 
 /** 生长中的正文只看长度和末尾字符，避免每个新字都扫描全文。 */
 function liveActivityTextSignature(text: string): string {
@@ -436,9 +519,11 @@ function activityItemMemo(item: ChatActivityItem, isLast: boolean): unknown[] {
   if (item.kind === "tool") {
     // expanded 必须进依赖：它决定内容行渲不渲染、左列图标换成上还是下折箭头。
     // 漏了它，点开之后子树命中旧缓存，箭头停在默认图标上，只有 hover 的 CSS 还能动。
-    return [activityItemKey(item), item.status || "", expanded, textContentSignature(item.argsText), textContentSignature(item.resultText), isLast];
+    // closing 也要进：收起过渡结束后靠它把内层内容撤掉，不进就永远撤不掉。
+    const foldState = expanded ? (toolFoldClosing[activityItemKey(item)] ? "closing" : "open") : "closed";
+    return [activityItemKey(item), item.status || "", foldState, textContentSignature(item.argsText), textContentSignature(item.resultText), isLast];
   }
-  // 开合也要进依赖：它决定这一条思考露四行还是全文，不进依赖会停在旧形态
+  // 开合也要进依赖：它决定这一条思考露四行还是全文，不进依赖会停在旧形态。
   const collapseOpenKey = item.kind === "reasoning" ? (reasoningCollapseOpen(item) ? "1" : "0") : "";
   if (!item.running) return [activityItemKey(item), expanded, collapseOpenKey, isLast];
   return [activityItemKey(item), expanded, collapseOpenKey, liveActivityTextSignature(activityItemText(item)), isLast];
@@ -762,6 +847,14 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
 </script>
 
 <style scoped>
+/* ===== 块内字号：跟随消息正文字号档位 =====
+   折叠块里原来是 8 处 text-xs（写死 0.75rem），用户把消息字号调大时整块不跟。
+   这里在根上定一档，比正文小一档、跟着正文走（6/7 = 12/14，默认档正好 12px，
+   与改前的视觉一致），块内所有文字继承它，不再各处单独写档位。 */
+.ecall-activity-timeline {
+  font-size: calc(var(--app-chat-message-text-size, 0.875rem) * 6 / 7);
+}
+
 /* ===== 条目配色：一张表，两套皮肤 =====
    三种条目 × 两个位置 = 6 个色值，别处不再单独写颜色：
      UI  = 图标、竖线、动作名（工具名 / 「思考」）
@@ -823,6 +916,12 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
   color: var(--ecall-body);
 }
 
+/* 「查看结果」那个按钮带 btn-xs，会把字号又钉死回 0.75rem，
+   块内统一档位要在这里拉回来；同一类用在纯文本上时 inherit 本来就是原值，不会有多余影响。 */
+.ecall-activity-quiet {
+  font-size: inherit;
+}
+
 /* 工具图标不套圆底，图标裸显、只取前景色的淡档：整行不染色，一屏工具才不会花成一片。 */
 
 /* 折叠节点图标：所有可折叠条目共用一套表现——平时显示自己的图标，
@@ -845,6 +944,24 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
 }
 .ecall-fold-node.is-collapsible.is-expanded .ecall-fold-open {
   display: inline;
+}
+
+/* 思考正文装得下收起档（四行）时，展开没有意义：
+   悬停不换成折箭头、标题不给手型，免得点一下什么都没变。
+   `data-faded` 由脚本量出「比收起档高」才写，量不出来就是没得展开。
+   注意这条必须在上面三条之后：它要多一层 :has() 才能压过悬停规则。 */
+.ecall-activity-row:has(.ecall-reasoning-text:not([data-faded="1"])):hover
+  .ecall-fold-node.is-collapsible:not(.is-expanded)
+  .ecall-fold-default {
+  display: inline;
+}
+.ecall-activity-row:has(.ecall-reasoning-text:not([data-faded="1"])):hover
+  .ecall-fold-node.is-collapsible:not(.is-expanded)
+  .ecall-fold-hover {
+  display: none;
+}
+.ecall-activity-row:has(.ecall-reasoning-text:not([data-faded="1"])) .ecall-reasoning-head {
+  cursor: default;
 }
 
 .ecall-activity-item-summary {
@@ -918,28 +1035,39 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-/* 收起档：正好露四行，多出来的裁掉；裁切交给 line-clamp，不用测高度。
-   底部 2rem 淡出只在真的被裁掉时加（脚本里量出溢出才打 data-faded），
-   短思考不加遮罩，否则最后两行会整片透明。
-   用 mask 而不是盖一层渐变：气泡底色不固定，实色遮罩会在深色或自定义气泡里露馅。 */
-.ecall-reasoning-clamped {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
   overflow: hidden;
 }
 
-.ecall-reasoning-clamped[data-faded="1"] {
+/* 收起档：最多露四行（四行 + pt-2 的 8px），多出来的裁掉。
+   用 max-height 而不是 line-clamp：clamp 的实际高度会把段落间距算进去，
+   和「行高 × 4」对不上，收起落定那一帧就会弹开；max-height 只是上限，
+   装得下四行的短思考按自然高度显示，底下不会多出空白。 */
+.ecall-reasoning-text:not(.is-open) {
+  max-height: calc(1.5em * 4 + 8px);
+}
+
+/* 底部 2rem 淡出只在收起且真的被裁掉时加，短思考不加，否则最后两行会整片透明。
+   用 mask 而不是盖一层渐变：气泡底色不固定，实色遮罩会在深色或自定义气泡里露馅。 */
+.ecall-reasoning-text:not(.is-open)[data-faded="1"] {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent 100%);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent 100%);
 }
 
-/* 长文本分块：屏外块跳过布局与绘制，滚动条长度用最近一次渲染尺寸估 */
-.ecall-reasoning-plain-chunk {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 1.5em;
+/* 工具详情：外壳常驻、高度 0 起，靠关键字插值在 0 与 auto 之间过渡。
+   不支持 interpolate-size 的内核直接硬跳，不补 JS。 */
+.ecall-tool-body {
+  height: 0;
+  overflow: hidden;
+}
+
+.ecall-tool-body.is-open {
+  height: auto;
+}
+
+.ecall-tool-body,
+.ecall-tool-body.is-open {
+  interpolate-size: allow-keywords;
+  transition: height var(--duration-fold) ease;
 }
 
 /* 工具参数区滚动边缘淡出：只做 mask 渐变，底色由 Tailwind 类给，
@@ -960,12 +1088,11 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
   margin-top: 0 !important;
 }
 
-/* 正文条目与工具、思维链同一个字号：渲染器根节点自带的是聊天正文那档字号
-   （--app-chat-message-text-size），比折叠块里其他条目大一档，这里压回 text-xs。
-   必须写死 0.75rem（text-xs 的实际值），不能写 var(--app-text-xs-size)：那个变量随
-   界面尺寸缩放，而块内其他文字的 text-xs 不跟缩放，两者会在非 100% 尺寸下对不上。 */
+/* 正文条目的 markdown 渲染器根节点自带聊天正文那档字号，比折叠块其他条目大一档，
+   这里拉回块内那一档。写 inherit 而不是某个固定值：块内字号已经统一由
+   .ecall-activity-timeline 定义，跟着消息字号档位走，这里跟它对齐即可。 */
 :deep(.ecall-plain-markdown-markdown) {
-  font-size: 0.75rem !important;
+  font-size: inherit !important;
 }
 
 /* 正文条目用条目内容色（同一张表的 --ecall-body），靠 color-mix 淡文字，

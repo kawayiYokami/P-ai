@@ -414,7 +414,7 @@ const sampleCaptions: Record<string, string> = {
   "demo-done": "样本 1｜跑完的一轮：长思维链 → 无参数有结果的 get_session → 有参数有结果（多行 shell / 嵌套 JSON 参数 + 长路径）的 exec 与 read → 无参数无结果的 wait → 正文含代码块与表格。点开折叠块可看到三种工具形态；展开思维链条目后正文进限高滚动区（真实组件用 max-h-80，即 20rem / 320px）。",
   "demo-running": "样本 2｜正在跑：`_schedulingState=executing_tool` 且带一个 doing 工具，头部应报具体工具名（正在执行 exec），不是笼统的「正在执行工具」。",
   "demo-failed": "样本 3｜失败中断：工具结果是错误文本、正文停在半句、这一轮没有收口。错误不额外造样式——真实组件就是这么直出结果的。",
-  "demo-huge-reasoning": "样本 4｜思维链超过 8000 字符：展开后自动降级为纯文本路径（`activityItemPlainBody`），与样本 1 的 markdown 路径对照看。",
+  "demo-huge-reasoning": "样本 4｜思维链超过 8000 字符：收起态裁四行、展开后整段渲染，看长文本下的排版与开合手感。",
   "demo-tools-only": "样本 5｜没有思维链、只有工具：折叠块头部应显示「即答 · 工具执行毕」，不带「已思考」字数。",
 };
 
