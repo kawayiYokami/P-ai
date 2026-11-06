@@ -704,7 +704,7 @@ describe("useConversationViewRuntime", () => {
     const { runtime, scope } = await createRuntime("conversation-a");
     await vi.waitFor(() => expect(runtime.allMessages.value).toHaveLength(1));
     await vi.waitFor(() => expect(runtime.conversationScrollToBottomRequest.value).toBe(1));
-    expect(runtime.scrollToBottomBehavior.value).toBe("auto");
+    expect(runtime.scrollToBottomBehavior.value).toBe("own_top");
     scope.stop();
   });
 

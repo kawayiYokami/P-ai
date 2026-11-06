@@ -2270,11 +2270,20 @@ function scrollVirtualizerToIndex(
 
 let ownTopAlignGen = 0;
 const ownTopAlignPinnedTop = ref<number | null>(null);
+// elastic 对齐只管同会话内的新用户消息：会话刚切时只记基线，对齐交给编排层的 own_top，避免两路抢。
+let lastElasticAlignConversationId = "";
 
 watch(latestOwnElasticItemId, (next, prev) => {
+  const cid = String(props.activeConversationId || "").trim();
+  if (lastElasticAlignConversationId !== cid) {
+    lastElasticAlignConversationId = cid;
+    lastTrackedElasticItemId = String(next || "").trim();
+    return;
+  }
   const nextId = String(next || "").trim();
   const prevId = String(prev || "").trim();
   if (!nextId || !prevId || nextId === prevId) return;
+  lastTrackedElasticItemId = nextId;
   alignLatestOwnMessageToTop();
 });
 
@@ -2286,20 +2295,38 @@ watch(() => String(props.activeConversationId || "").trim(), () => {
 
 // 最新用户消息对齐到视口顶部（Path B 回合容器架构）：
 // 容器自身通过 turnViewportMinHeight 在最新轮次撑满视口；换轮次时上一轮自动回归内容真实高，无需留白计算
+// 切会话时 Virtualizer 按会话 id 重建，新实例内部还没有实测高度，scrollToIndex 会把偏移算成 0
+// 而滚不上去；这里按目标回合在 DOM 里的真实位置定位，并用 rAF 重试吃掉测量前的抖动。
 function alignLatestOwnMessageToTop() {
   stopFollowBottom();
   updateScrollContainerHeight();
   const turns = turnContainers.value;
   if (turns.length === 0) return;
-  const targetIndex = turns.length - 1;
+  const targetTurnId = String(turns[turns.length - 1]?.id || "");
+  const gen = (ownTopAlignGen += 1);
 
-  void nextTick(() => {
-    if (virtuaRef.value) {
-      try {
-        virtuaRef.value.scrollToIndex(targetIndex, { align: "start", smooth: true } as any);
-      } catch {}
+  const attempt = (retries: number) => {
+    if (gen !== ownTopAlignGen) return;
+    const el = scrollContainer.value;
+    if (!el) return;
+    const turnEl = targetTurnId
+      ? (el.querySelector(`[data-turn-id="${targetTurnId}"]`) as HTMLElement | null)
+      : null;
+    if (!turnEl) {
+      if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
+      return;
     }
-  });
+    const desired = Math.max(
+      0,
+      Math.round(el.scrollTop + turnEl.getBoundingClientRect().top - el.getBoundingClientRect().top),
+    );
+    el.scrollTo({ top: desired, behavior: "auto" });
+    chatScrollbarRef.value?.updateThumb();
+    if (retries > 0 && Math.abs(el.scrollTop - desired) > 2) {
+      requestAnimationFrame(() => attempt(retries - 1));
+    }
+  };
+  void nextTick(() => requestAnimationFrame(() => attempt(4)));
 }
 function resetVirtualizerAtConversationBottom(behavior: "auto" | "smooth" = "auto") {
   const el = scrollContainer.value;

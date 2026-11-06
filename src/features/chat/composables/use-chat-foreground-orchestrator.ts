@@ -458,7 +458,8 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
           // 后续无限增长的流式内容由跟随机制持续顶在底部；不再等落库/超时再补滚。
           bindings.triggerConversationScrollToBottom(cid, "switch_streaming_ready", "follow");
         } else {
-          bindings.triggerConversationScrollToBottom(cid, "switch_snapshot_ready");
+          // 静止会话只走 own_top：最新用户消息对齐到顶，不再用沉底，避免两路抢。
+          bindings.triggerConversationScrollToBottom(cid, "switch_snapshot_ready", "own_top");
         }
         bindings.logForegroundPaintTrace(trace, "前台轻量快照已接管最新消息", {
           conversationId: cid,

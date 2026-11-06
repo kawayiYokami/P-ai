@@ -137,6 +137,7 @@ describe("useChatForegroundOrchestrator", () => {
       expect(bindings.triggerConversationScrollToBottom).toHaveBeenCalledWith(
         "conversation-b",
         "switch_snapshot_ready",
+        "own_top",
       );
     });
   });

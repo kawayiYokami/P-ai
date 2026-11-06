@@ -584,7 +584,7 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
       preserveExistingHistory: false,
     });
     // 追问面板按会话 id 整棵重建，virtua 会从列表顶部开始渲染，没有主会话那样常驻的滚动位置；
-    // 这里补一次与主会话切换同口径的落位：流式中走 follow 持续贴底，否则瞬移到底。
+    // 这里补一次与主会话切换同口径的落位：流式中走 follow 持续贴底，否则 own_top 对齐到顶。
     if (disposed || conversationId !== currentConversationId()) return;
     await nextTick();
     if (disposed || conversationId !== currentConversationId()) return;
@@ -593,7 +593,7 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     triggerConversationScrollToBottom(
       conversationId,
       "side_snapshot_ready",
-      readyRuntimeState === "assistant_streaming" ? "follow" : "auto",
+      readyRuntimeState === "assistant_streaming" ? "follow" : "own_top",
     );
   }, { immediate: true });
 
