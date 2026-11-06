@@ -567,8 +567,13 @@
 </template>
 
 <script setup lang="ts">
-import ConfigView from "../../config/views/ConfigView.vue";
-import ChatView from "../../chat/views/ChatView.vue";
+/**
+ * 主视图按运行时 viewMode 二选一（见模板 v-if/v-else-if）。静态 import 会让
+ * 两个视图同时进每个窗口的首屏：聊天窗口拖着整套配置界面，配置窗口拖着整套
+ * 聊天界面。改成按需加载后，每个窗口只拉自己当前要显示的那一个。
+ */
+const ConfigView = defineAsyncComponent(() => import("../../config/views/ConfigView.vue"));
+const ChatView = defineAsyncComponent(() => import("../../chat/views/ChatView.vue"));
 import ConversationView from "../../chat/views/ConversationView.vue";
 import ChatRightPanelSwitcher from "../../chat/components/ChatRightPanelSwitcher.vue";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
@@ -583,7 +588,7 @@ import TeamManagementDialog, { type TeamManageMember } from "../../chat/componen
 import { resolveSideConversationPanel, resolveSideConversationTabsToClose } from "../../chat/composables/side-conversation-panel";
 import PromptPreviewDialog from "../../chat/components/dialogs/PromptPreviewDialog.vue";
 import SelectionShareDialog from "../../chat/components/dialogs/SelectionShareDialog.vue";
-import { computed, ref, type VNodeRef } from "vue";
+import { computed, defineAsyncComponent, ref, type VNodeRef } from "vue";
 import type {
   ApiConfigItem,
   ApiProviderConfigItem,

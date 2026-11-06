@@ -426,7 +426,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, ApiProviderConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
 import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind, ThemeSourceKind } from "../../shell/theme/theme-types";
@@ -440,7 +440,13 @@ import McpTab from "./config-tabs/McpTab.vue";
 import SkillTab from "./config-tabs/SkillTab.vue";
 import CatalogTab from "./config-tabs/CatalogTab.vue";
 import PersonaTab from "./config-tabs/PersonaTab.vue";
-import DemoTab from "./config-tabs/DemoTab.vue";
+/**
+ * Demo Tab 是 `import.meta.env.DEV` 才显示的调试页（见 SHOW_DEV_DEMO_TAB），
+ * 生产构建里它永远进不去。但静态 import 会让它整套子树留在依赖图里——
+ * 它引 ChatViewStreamDemo 进而引完整 ChatView，把配置窗口拖进上百个聊天模块。
+ * 改成动态 import：生产包里它自成一块，用户点不到就永远不加载。
+ */
+const DemoTab = defineAsyncComponent(() => import("./config-tabs/DemoTab.vue"));
 import ChatSettingsTab from "./config-tabs/ChatSettingsTab.vue";
 import NotificationTab from "./config-tabs/NotificationTab.vue";
 import NetworkAccessTab from "./config-tabs/NetworkAccessTab.vue";
