@@ -260,14 +260,14 @@
         </div>
       </div>
 
-      <!-- 人格卡片网格 -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+      <!-- 人格卡片网格：与能力商店同一套自动列宽，卡片大小才对得齐 -->
+      <div class="config-grid-auto-sm">
         <div
           v-for="persona in displayedPersonas"
           :key="persona.id"
           role="button"
           tabindex="0"
-          class="group rounded-box border border-base-300 bg-base-100 p-3.5 sm:p-4 hover:border-primary/50 hover:bg-base-content/[0.02] transition-all cursor-pointer flex flex-col justify-between gap-2.5 select-none active:scale-[0.99]"
+          class="group rounded-box border border-base-300 bg-base-100 p-4 hover:border-primary/50 hover:bg-base-content/[0.02] transition-all cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99]"
           :class="persona.id === selectedPersona?.id ? 'ring-1 ring-primary/40 border-primary/40' : ''"
           @click="enterPersona(persona)"
           @keydown.enter.prevent="enterPersona(persona)"
@@ -300,9 +300,6 @@
                   </span>
                   <span v-if="persona.isBuiltInUser" class="badge badge-info badge-xs shrink-0 font-medium">
                     {{ t("config.persona.userTag") }}
-                  </span>
-                  <span v-else-if="isPresetPersona(persona)" class="badge badge-neutral badge-xs shrink-0 font-medium">
-                    {{ t("config.persona.systemTag") }}
                   </span>
                 </div>
 
@@ -355,26 +352,13 @@
           <p class="text-xs text-base-content/65 line-clamp-2 leading-relaxed min-h-[2.25rem] break-words">
             <InlineMarkdownText :text="persona.systemPrompt?.trim() || t('config.persona.noPrompt')" />
           </p>
-
-          <!-- 底栏：特性指示 (若有) -->
-          <div
-            v-if="persona.privateMemoryEnabled || (persona.memoryRecallMode && persona.memoryRecallMode !== 'auto')"
-            class="flex items-center gap-1.5 border-t border-base-300 pt-2 text-caption opacity-80"
-          >
-            <span v-if="persona.privateMemoryEnabled" class="badge badge-xs badge-accent badge-outline text-caption">
-              {{ t("config.persona.privateMemory") }}
-            </span>
-            <span v-if="persona.memoryRecallMode && persona.memoryRecallMode !== 'auto'" class="badge badge-xs badge-ghost text-caption">
-              {{ recallModeLabel(persona.memoryRecallMode) }}
-            </span>
-          </div>
         </div>
 
         <!-- 新增人格卡：仅自定义分类，作为网格末位入口 -->
         <button
           v-if="activeCategoryTab === 'custom'"
           type="button"
-          class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
+          class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-4 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary"
           @click="onAddPersonaClick"
         >
           <AppIcon name="plus" class="h-5 w-5" />
@@ -685,12 +669,6 @@ function avatarInitial(name: string): string {
 function canDeletePersona(persona: PersonaProfile | null | undefined): boolean {
   if (!persona) return false;
   return !isPresetPersona(persona) && props.assistantPersonas.length > 1;
-}
-
-function recallModeLabel(mode?: string): string {
-  if (mode === "manual") return t("config.persona.memoryRecallManual");
-  if (mode === "off") return t("config.persona.memoryRecallOff");
-  return t("config.persona.memoryRecallAuto");
 }
 
 const deleteDialogRef = ref<HTMLDialogElement | null>(null);
