@@ -1234,47 +1234,6 @@ async fn builtin_search(
     }
 }
 
-/// 测试连接：拿一次真实查询打过去，只回报成功/失败原因，不写冷却也不记成功。
-async fn test_search_engine_connection(
-    state: &AppState,
-    engine_id: &str,
-    api_keys: Vec<String>,
-) -> Result<Value, String> {
-    let engine = SearchEngine::from_id(engine_id)
-        .ok_or_else(|| format!("未知的搜索引擎：{engine_id}"))?;
-    // 输入框里可能是掩码（用户没改过这一栏）或空白项，这些都不是能拿去测的真密钥。
-    let typed_key = api_keys
-        .iter()
-        .map(|key| key.trim())
-        .find(|key| !key.is_empty() && !key.contains("***"))
-        .map(ToOwned::to_owned);
-    // 没有新输入的密钥时，拿存盘的第一条真密钥去测。
-    let key = match typed_key {
-        Some(key) => Some(key),
-        None => state_read_config_cached(state)
-            .ok()
-            .and_then(|config| search_engine_api_keys(&config, engine).into_iter().next()),
-    };
-    if key.is_none() && !engine.is_keyless() {
-        return Err(format!("{} 必须填写 API key 才能使用", engine.display_name()));
-    }
-    match call_search_engine(
-        &state.shared_http_client,
-        engine,
-        key.as_deref(),
-        "P-ai search connectivity test",
-    )
-    .await
-    {
-        Ok(rows) => Ok(serde_json::json!({
-            "ok": true,
-            "engine": { "id": engine.id(), "name": engine.display_name() },
-            "resultCount": rows.len(),
-        })),
-        Err(err) => Err(format!("{} 连接失败：{}", engine.display_name(), err.message())),
-    }
-}
-
 #[cfg(test)]
 mod search_dispatch_tests {
     use super::*;
@@ -1914,27 +1873,6 @@ mod search_dispatch_tests {
         for key in &outbound.search_engines[0].api_keys {
             assert!(key.contains("***"), "回传/广播的配置必须打码：{key}");
         }
-    }
-
-    // ========== Web 端参数形状 ==========
-
-    #[test]
-    fn test_search_engine_params_should_accept_input_wrapper() {
-        // 前端走 invokeTauri("test_search_engine", { input: {...} })，Web 侧收到的是原样 params。
-        let params = serde_json::json!({"input": {"engineId": "tavily", "apiKeys": ["k-1", "k-2"]}});
-        let input = ide_chat_parse_param_field::<TestSearchEngineInput>(params, "input")
-            .expect("带 input 包裹的参数应能解析");
-        assert_eq!(input.engine_id, "tavily");
-        assert_eq!(input.api_keys, vec!["k-1".to_string(), "k-2".to_string()]);
-    }
-
-    #[test]
-    fn test_search_engine_params_should_accept_bare_fields() {
-        let params = serde_json::json!({"engineId": "exa"});
-        let input = ide_chat_parse_param_field::<TestSearchEngineInput>(params, "input")
-            .expect("裸字段参数也应能解析");
-        assert_eq!(input.engine_id, "exa");
-        assert!(input.api_keys.is_empty(), "不给 apiKeys 时是空列表，不是报错");
     }
 
     // ========== 换源与相关性兜底（行为用例，不碰网络） ==========
