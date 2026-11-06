@@ -1957,7 +1957,7 @@
       "blockTitle": "Team status",
       "more": "More",
       "busy": "Running",
-      "workingOn": "Working on {issue}",
+      "workingOn": "Owns {issue}",
       "state": {
         "busy": "Busy",
         "idle": "Idle",

@@ -2093,7 +2093,7 @@
       "blockTitle": "队员状态",
       "more": "更多",
       "busy": "正在运行",
-      "workingOn": "正在处理 {issue}",
+      "workingOn": "负责 {issue}",
       "state": {
         "busy": "忙碌",
         "idle": "空闲",

@@ -14,7 +14,7 @@
         <select v-model="demoPreset" class="select select-bordered select-xs">
           <option value="full">完整状态（六态 + 三种头像兜底）</option>
           <option value="remote">远程路径（无 agentId、无状态）</option>
-          <option value="with-issue">有在办议题（写「正在处理 #编号 标题」）</option>
+          <option value="with-issue">有在办议题（写「负责 #编号 标题」）</option>
           <option value="no-issue">没有议题（徽章显忙碌 / 空闲 / 出错）</option>
         </select>
       </label>

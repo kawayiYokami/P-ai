@@ -7,7 +7,7 @@ import { i18n } from "../../../i18n";
 
 /**
  * 磁贴的口径：
- * 有在办议题就写一整句「正在处理 #3 标题」，没有才显示自己的运行时三态。
+ * 有在办议题就写一整句「负责 #3 标题」，没有才显示自己的运行时三态。
  * 议题状态不再单独占一只徽章；队员名从会话绑定的 agent 取，不读会话标题。
  */
 async function render(items: TeamMemberTileItem[]): Promise<string> {
@@ -20,7 +20,7 @@ async function render(items: TeamMemberTileItem[]): Promise<string> {
 
 /**
  * 去掉 HTML 注释后的可见部分。
- * 模板注释里就写着「正在处理」「忙碌」这些词，SSR 会原样输出注释，
+ * 模板注释里就写着「负责」「忙碌」这些词，SSR 会原样输出注释，
  * 拿整段 HTML 做 toContain / not.toContain 等于在断言注释，改一句说明就能让测试红掉。
  */
 function visibleHtml(html: string): string {
@@ -45,7 +45,7 @@ function member(overrides: Partial<TeamMemberTileItem> = {}): TeamMemberTileItem
 }
 
 describe("TeamMemberTileGrid 状态口径", () => {
-  it("名下有一条在办议题时，写一整句「正在处理 #编号 标题」", async () => {
+  it("名下有一条在办议题时，写一整句「负责 #编号 标题」", async () => {
     const html = visibleHtml(
       await render([
         member({
@@ -54,7 +54,7 @@ describe("TeamMemberTileGrid 状态口径", () => {
         }),
       ]),
     );
-    expect(html).toContain("正在处理 #3 修复登录超时");
+    expect(html).toContain("负责 #3 修复登录超时");
     // 议题状态不再单独占一只徽章：解决中 / 待审这些词不该出现在磁贴上
     expect(html).not.toContain("解决中");
     expect(badgeTexts(html)).toEqual([]);
@@ -64,12 +64,12 @@ describe("TeamMemberTileGrid 状态口径", () => {
     const html = visibleHtml(
       await render([member({ activeIssue: { number: 7, title: "  ", status: "blocked" } })]),
     );
-    expect(html).toContain("正在处理 #7");
+    expect(html).toContain("负责 #7");
   });
 
-  it("没有议题时不写「正在处理」，只显示运行时状态：忙碌", async () => {
+  it("没有议题时不写「负责」，只显示运行时状态：忙碌", async () => {
     const html = visibleHtml(await render([member({ memberState: "busy" })]));
-    expect(html).not.toContain("正在处理");
+    expect(html).not.toContain("负责");
     expect(badgeTexts(html)).toEqual(["忙碌"]);
   });
 

@@ -2090,7 +2090,7 @@
       "blockTitle": "隊員狀態",
       "more": "更多",
       "busy": "正在執行",
-      "workingOn": "正在處理 {issue}",
+      "workingOn": "負責 {issue}",
       "state": {
         "busy": "忙碌",
         "idle": "空閒",
