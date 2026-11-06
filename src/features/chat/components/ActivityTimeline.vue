@@ -394,6 +394,7 @@ type ActivityTimelineState = {
 
 const emit = defineEmits<{
   (e: "itemExpanded", payload: { key: string; expanded: boolean }): void;
+  (e: "itemCollapsed", payload: { key: string }): void;
   (e: "reasoningStuckChange", payload: { key: string; stuck: boolean }): void;
 }>();
 
@@ -425,6 +426,8 @@ function applyExpandedChange(item: ChatActivityItem, expanded: boolean): void {
     ...props.state.expandedOverrides,
     [key]: false,
   };
+  // 收起后内容变矮，需要通知外层重测：外层不监听展开态。
+  emit("itemCollapsed", { key });
 }
 
 // 最新一条正在流式的活动块（思维块或内容块）：流式生长时不设高度上限
@@ -764,12 +767,42 @@ function activityToolArgsText(item: ChatActivityItem): string {
 }
 
 /**
+ * 摘要行已经用掉 description 的工具：参数区不再重复列同一个字段。
+ * 摘要看「这次读它是干什么的」，参数区只看路径这类真正要核对的输入。
+ */
+const SUMMARY_CONSUMES_DESCRIPTION_TOOLS = new Set(["read_media"]);
+const SUMMARY_CONSUMED_ARG_KEYS = ["description", "focus", "prompt"];
+
+function stripSummaryConsumedArgs(name: string, text: string): string {
+  if (!SUMMARY_CONSUMES_DESCRIPTION_TOOLS.has(String(name || "").trim())) return text;
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{")) return text;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return text;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return text;
+  const next: Record<string, unknown> = { ...(parsed as Record<string, unknown>) };
+  let removed = false;
+  for (const key of SUMMARY_CONSUMED_ARG_KEYS) {
+    if (key in next) {
+      delete next[key];
+      removed = true;
+    }
+  }
+  return removed ? JSON.stringify(next) : text;
+}
+
+/**
  * 参数区实际要显示的文本。
  * 空对象 / 空数组摊平后一行字段都没有，展开只会看到一对括号，按无参数处理；
  * 不能直接判原文非空——`{}` 也是两个字符。
  */
 function toolArgsDisplayText(item: ChatActivityItem): string {
-  const text = activityToolArgsText(item);
+  if (item.kind !== "tool") return "";
+  const text = stripSummaryConsumedArgs(item.name, activityToolArgsText(item));
   const trimmed = text.trim();
   if (!trimmed) return "";
   if (parseToolArgs(trimmed)) return text;

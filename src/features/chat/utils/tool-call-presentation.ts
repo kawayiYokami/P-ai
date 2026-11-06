@@ -350,12 +350,18 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       const rawPath = safeTextFromRecord(obj, ["path", "absolute_path", "absolutePath", "file"]);
       const target = fileNameFromPath(rawPath) || toolTimelineText("missingArgs");
       const action = toolTimelineText("actionRead");
-      // 摘要只报文件名；描述（description/focus/prompt）在参数卡里，不往摘要行堆
+      // 描述进摘要行：一眼看出这次读它是为了核对什么，不必展开参数才看得到。
+      const focus =
+        safeStringValue(obj, "description") ||
+        safeStringValue(obj, "focus") ||
+        safeStringValue(obj, "prompt");
+      const extra = focus ? `（${compactText(focus, 50)}）` : undefined;
       return {
         action,
         fileExt: extractFileExt(target),
         target,
-        text: formatFullText(action, target),
+        extra,
+        text: formatFullText(action, target, undefined, extra),
       };
     }
 

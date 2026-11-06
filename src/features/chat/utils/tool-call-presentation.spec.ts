@@ -103,7 +103,7 @@ describe("createToolCallPresentation", () => {
     expect(result.text).toBe("委托 八重神子");
   });
 
-  it("阅读媒体：摘要只报文件名，不把描述堆在摘要行", () => {
+  it("阅读媒体：描述进摘要行，一眼看出这次读它是为了核对什么", () => {
     const presentation = createPresentation();
     const result = presentation.toolCallSemanticPresentation({
       name: "read_media",
@@ -115,8 +115,8 @@ describe("createToolCallPresentation", () => {
 
     expect(result.action).toBe("阅读");
     expect(result.target).toBe("出神.webp");
-    expect(result.extra).toBeUndefined();
-    expect(result.text).toBe("阅读 出神.webp");
+    expect(result.extra).toBe("（描述这张表情图的内容与风格）");
+    expect(result.text).toBe("阅读 出神.webp （描述这张表情图的内容与风格）");
   });
 
   it("阅读文件：提取纯文件名、扩展名及行号区间", () => {
