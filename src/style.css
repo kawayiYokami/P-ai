@@ -499,6 +499,45 @@ body {
   mask-image: linear-gradient(to top, transparent 0, #000 var(--ecall-fade-size));
 }
 
+/* ========== 会话切换淡入 ========== */
+/* 只作用在消息滚动区，不包面板：切会话时输入框、工具栏、标签栏都没变，跟着一起淡出淡入反而更乱。
+   时长回到 200ms、不加延迟——老写法那 180ms 之所以舒服，是因为它切会话时内容已经在内存里，
+   淡入全程都有东西可看。我们这边内容异步到位，所以由代码控制「内容就绪才开播」（见 ChatView 的
+   conversationReveal*），这里只负责渐显这一段本身。两个动画名内容相同、只有名字不同，
+   class 真变了浏览器才肯重播。 */
+@keyframes ecall-conversation-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ecall-conversation-reveal-alt {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.ecall-conversation-reveal-a {
+  animation: ecall-conversation-reveal 200ms ease both;
+}
+.ecall-conversation-reveal-b {
+  animation: ecall-conversation-reveal-alt 200ms ease both;
+}
+
+/* 主会话跨会话共享同一个 ChatView 实例，不能按会话 id 重建，因此用不了上面的 <Transition>
+   （它靠子元素 key 变化触发）。改为切会话时轮换两个内容相同的动画名，强制重播同一段渐入，
+   参数与 page-switch 对齐：100ms 等挂载与落位跑完，再 180ms 渐显。 */
+@keyframes ecall-conversation-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ecall-conversation-reveal-alt {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.ecall-conversation-reveal-a {
+  animation: ecall-conversation-reveal 180ms ease 100ms both;
+}
+.ecall-conversation-reveal-b {
+  animation: ecall-conversation-reveal-alt 180ms ease 100ms both;
+}
+
 .ecall-fade-right {
   -webkit-mask-image: linear-gradient(to left, transparent 0, #000 var(--ecall-fade-size));
   mask-image: linear-gradient(to left, transparent 0, #000 var(--ecall-fade-size));

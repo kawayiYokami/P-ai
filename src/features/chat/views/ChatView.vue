@@ -95,7 +95,14 @@
           <div
             ref="scrollContainer"
             class="ecall-chat-scroll-container ecall-fade-bottom relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0 py-3"
-            :class="chatting || frozen || conversationInteractionBusy ? 'pointer-events-auto' : ''"
+            :class="[
+              chatting || frozen || conversationInteractionBusy ? 'pointer-events-auto' : '',
+              conversationRevealHidden
+                ? 'opacity-0'
+                : conversationRevealPhase === 1
+                  ? 'ecall-conversation-reveal-a'
+                  : 'ecall-conversation-reveal-b',
+            ]"
             :data-chat-interaction-locked="chatting || frozen || conversationInteractionBusy ? 'true' : undefined"
             @scroll="handleConversationScroll"
             @wheel="handleConversationWheelInput"
@@ -2233,6 +2240,56 @@ onBeforeUnmount(() => {
   window.removeEventListener("resize", updateScrollContainerHeight);
 });
 
+// ==================== 会话切换渐入 ====================
+
+// 老写法（story 的 page-switch）之所以舒服，是因为它切会话时消息常驻内存、同步可读，元素一插入
+// 就有内容，180ms 淡入全程都有东西可看。我们这边数据也在手边，但首屏要经过虚拟列表测量才真正
+// 画出来。所以不追求「等画稳再淡入」——那会先空一拍；改成切过去两帧后就开始渐显，
+// 内容在这段渐显里自己画出来，画面始终连续。
+const conversationRevealPhase = ref<1 | 2>(1);
+const conversationRevealHidden = ref(true);
+let conversationRevealFrame = 0;
+
+function playConversationReveal() {
+  if (conversationRevealFrame) {
+    cancelAnimationFrame(conversationRevealFrame);
+    conversationRevealFrame = 0;
+  }
+  // 两个内容相同的动画名轮换：class 真变了，浏览器才肯重播同一段 animation。
+  conversationRevealPhase.value = conversationRevealPhase.value === 1 ? 2 : 1;
+  conversationRevealHidden.value = false;
+}
+
+function holdConversationReveal() {
+  // 先把消息区压回透明：切过去那一帧虚拟列表还停在顶部，直接露出来就是「先看到顶部再跳下去」。
+  conversationRevealHidden.value = true;
+  if (conversationRevealFrame) cancelAnimationFrame(conversationRevealFrame);
+  // 两帧后开始渐显，够落位把视口挪到底，又不至于空出一段能感知的等待。
+  conversationRevealFrame = requestAnimationFrame(() => {
+    conversationRevealFrame = requestAnimationFrame(() => {
+      conversationRevealFrame = 0;
+      playConversationReveal();
+    });
+  });
+}
+
+watch(
+  () => String(props.activeConversationId || "").trim(),
+  () => {
+    holdConversationReveal();
+  },
+);
+
+// 侧面板是按会话 id 整棵重建的，新实例挂载时 activeConversationId 已经是新值，上面的 watch
+// 不会触发；这里补一次，让它同样先压透明再渐显。
+onMounted(() => {
+  if (conversationRevealHidden.value) holdConversationReveal();
+});
+
+onBeforeUnmount(() => {
+  if (conversationRevealFrame) cancelAnimationFrame(conversationRevealFrame);
+});
+
 // ==================== virtual scroll (virtua) ====================
 
 // 远近分界：与当前首项索引差超过10项算远（约3屏），走瞬移保性能；以内走平滑
@@ -2334,21 +2391,34 @@ watch(() => String(props.activeConversationId || "").trim(), () => {
 function alignLatestOwnMessageToTop() {
   stopFollowBottom();
   updateScrollContainerHeight();
-  const turns = turnContainers.value;
-  if (turns.length === 0) return;
-  const targetTurnId = String(turns[turns.length - 1]?.id || "");
   const gen = (ownTopAlignGen += 1);
   const smooth = !consumeConversationSwitchAlign();
+  // 对齐落空时的兜底：宁可在底部看到最新消息，也不要停在顶部。
+  // 侧面板（追问 / 队员）按会话 id 整棵重建，虚拟列表首帧可能还没渲染出目标回合，
+  // 按节点定位会落空；主会话列表常驻，切换时 DOM 里已经有上一轮，几乎走不到这里。
+  const fallbackToBottom = () => {
+    if (gen !== ownTopAlignGen) return;
+    resetVirtualizerAtConversationBottom("auto");
+  };
 
   const attempt = (retries: number) => {
     if (gen !== ownTopAlignGen) return;
     const el = scrollContainer.value;
-    if (!el) return;
+    if (!el) {
+      if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
+      else fallbackToBottom();
+      return;
+    }
+    // 目标回合要每帧重读：数据与 DOM 都可能比这次调用更晚就绪，
+    // 在函数入口算一次就固定住的话，晚到的那一轮永远对不上。
+    const turns = turnContainers.value;
+    const targetTurnId = String(turns[turns.length - 1]?.id || "");
     const turnEl = targetTurnId
       ? (el.querySelector(`[data-turn-id="${targetTurnId}"]`) as HTMLElement | null)
       : null;
     if (!turnEl) {
       if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
+      else fallbackToBottom();
       return;
     }
     const desired = Math.max(
@@ -2362,16 +2432,43 @@ function alignLatestOwnMessageToTop() {
       requestAnimationFrame(() => attempt(retries - 1));
     }
   };
-  void nextTick(() => requestAnimationFrame(() => attempt(4)));
+  // 帧数按老写法给到 6：虚拟列表首帧常常还没渲染出目标回合，
+  // 4 帧（约 66ms）在侧面板整棵重建时会落空。
+  void nextTick(() => requestAnimationFrame(() => attempt(6)));
 }
+// virtua 的 cache 不是响应式的，只能主动读一次快照。
+// 这两条判据来自老写法：列表还没测完高度时 scrollHeight 是估算值，
+// 滚到底后测量结果回填会让高度变长，而 scrollTop 与 targetTop 会一起被钳到上限，
+// 偏差判据看到的是 0 —— 只信它就会以为已经到底，提前收手停在中间。
+function readVirtualCacheSizes(): number[] | null {
+  const handle = virtuaRef.value as unknown as { cache?: unknown } | null;
+  const snapshot = handle?.cache as unknown;
+  if (Array.isArray(snapshot) && Array.isArray(snapshot[0])) {
+    return snapshot[0] as number[];
+  }
+  return null;
+}
+
+function isMeasuredVirtualSize(size: number | undefined): boolean {
+  return typeof size === "number" && Number.isFinite(size) && size > 0 && size !== -1;
+}
+
+/** 末尾几项还没测出真实高度：此时贴底结果不可信，要再等一帧。 */
+function virtualTailUnmeasured(): boolean {
+  if (!virtuaRef.value) return false;
+  const sizes = readVirtualCacheSizes();
+  if (!sizes) return true;
+  return sizes.slice(-4).some((size) => !isMeasuredVirtualSize(size));
+}
+
 function resetVirtualizerAtConversationBottom(behavior: "auto" | "smooth" = "auto") {
   const el = scrollContainer.value;
   if (el) {
-    const attempt = (retries = 4) => {
+    const attempt = (retries = 6) => {
       const targetTop = Math.max(0, el.scrollHeight - el.clientHeight);
       el.scrollTo({ top: targetTop, behavior });
       chatScrollbarRef.value?.updateThumb();
-      if (retries > 0 && Math.abs(el.scrollTop - targetTop) > 2) {
+      if (retries > 0 && (virtualTailUnmeasured() || Math.abs(el.scrollTop - targetTop) > 2)) {
         requestAnimationFrame(() => attempt(retries - 1));
       }
     };

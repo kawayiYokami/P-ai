@@ -311,7 +311,6 @@
             </PanelTabStrip>
             <ConversationView
               v-if="sideChatPanelConversationId"
-              :key="sideChatPanelConversationId"
               class="min-h-0 flex-1"
               :subscription-slot="sideChatSubscriptionSlot"
               :conversation-id="sideChatPanelConversationId"
@@ -390,7 +389,6 @@
             </PanelTabStrip>
             <ConversationView
               v-if="teamMemberPanelConversationId"
-              :key="teamMemberPanelConversationId"
               class="min-h-0 flex-1"
               :subscription-slot="teamMemberSubscriptionSlot"
               :conversation-id="teamMemberPanelConversationId"

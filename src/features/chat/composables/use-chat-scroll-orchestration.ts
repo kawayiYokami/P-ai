@@ -233,6 +233,13 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
       }
       doScrollToBottom(props.scrollToBottomBehavior.value);
     },
+    // 必须 immediate：侧面板（追问 / 队员）按会话 id 整棵重建，宿主在子视图挂载之前就
+    // 把请求号推到 1 了。watch 不是 immediate 的话，等它建立时读到的初值已经是 1，
+    // 之后不再变化，这一次落位请求就永远没人消费——表现是打开就停在最顶上。
+    // 主会话的视图常驻，请求总是在 watch 建立之后才递增，所以只有侧面板会踩。
+    //
+    // flush: post 同样必要：pre 阶段 DOM 还是上一轮的，按它算 scrollHeight 会滚到旧高度。
+    { immediate: true, flush: "post" },
   );
 
   watch(

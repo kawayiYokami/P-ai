@@ -727,8 +727,9 @@ describe("useChatFlow stream isolation", () => {
     expect(invokeStopChatMessage).toHaveBeenCalledTimes(1);
     expect(invokeStopChatMessage).toHaveBeenCalledWith({
       session: { apiConfigId: "api-1", agentId: "agent-1", conversationId: "conversation-1" },
-      partialAssistantText: "ABC",
-      partialStreamBlocks: [expectedStreamBlock({ reasoning: "R1", text: "ABC" })],
+      assistantMessageId: "stream-assistant-1",
+      activationId: undefined,
+      requestId: undefined,
     });
     expect(onReloadMessages).toHaveBeenCalledTimes(0);
     expect(allMessages.value).toHaveLength(2);

@@ -458,8 +458,10 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
           // 后续无限增长的流式内容由跟随机制持续顶在底部；不再等落库/超时再补滚。
           bindings.triggerConversationScrollToBottom(cid, "switch_streaming_ready", "follow");
         } else {
-          // 静止会话只走 own_top：最新用户消息对齐到顶，不再用沉底，避免两路抢。
-          bindings.triggerConversationScrollToBottom(cid, "switch_snapshot_ready", "own_top");
+          // 静止会话贴底：切会话看到的就是最新消息。
+          // 这里不能用 own_top——那个档位是「发送消息后把用户气泡顶到视口上方」，
+          // 用在切会话上会停在最后一条用户发言，把它的回复全推到屏幕外。
+          bindings.triggerConversationScrollToBottom(cid, "switch_snapshot_ready", "auto");
         }
         bindings.logForegroundPaintTrace(trace, "前台轻量快照已接管最新消息", {
           conversationId: cid,
