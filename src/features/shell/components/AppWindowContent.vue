@@ -305,7 +305,7 @@
                   :title="t('chat.sideChat.create')"
                   @click="openSideChatNewPage?.()"
                 >
-                  <Plus class="size-4" />
+                  <AppIcon name="plus" class="size-4" />
                 </button>
               </template>
             </PanelTabStrip>
@@ -576,7 +576,7 @@ import ChatRightPanelSwitcher from "../../chat/components/ChatRightPanelSwitcher
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import { conversationRuntimeBusy } from "../../chat/utils/conversation-item-display";
-import { MessageSquareMore, Plus, UserRound } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { TerminalApprovalConversationItem } from "../composables/use-terminal-approval";
 import type { BranchGuardCheck } from "../../chat/composables/use-chat-branch-guard";
 import ArchivesView from "../../archive/views/ArchivesView.vue";
@@ -1079,7 +1079,11 @@ function buildSideConversationTab(conversation: ChildConversationSummary) {
     // 不按 panel 分支——追问会话在跑时同样该转起来。
     busy: conversationRuntimeBusy(conversation.runtimeState as Parameters<typeof conversationRuntimeBusy>[0])
       || String(conversation.memberState || "").trim() === "busy",
-    icon: teamAgentAvatarUrl ? undefined : (isTeamMember ? UserRound : MessageSquareMore),
+    icon: teamAgentAvatarUrl
+      ? undefined
+      : isTeamMember
+        ? ("user-round" as const)
+        : ("message-square-more" as const),
     iconSrc: teamAgentAvatarUrl || undefined,
     // 队员标签不给关闭入口：关标签走的就是「整条会话不要了」，删掉后队长名册里那条
     // conversationId 会指向不存在的会话。追问标签保持可关闭。

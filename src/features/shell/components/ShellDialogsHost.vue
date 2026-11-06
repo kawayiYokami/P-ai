@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Star } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
 import type { RuntimeLogEntry } from "../../../types/app";
 import RuntimeLogsDialog from "./RuntimeLogsDialog.vue";
@@ -239,7 +239,7 @@ function canShowUpdateSecondaryActions() {
           class="btn btn-sm btn-warning"
           @click="emit('openUpdateRepository')"
         >
-          <Star class="h-4 w-4" />
+          <AppIcon name="star" class="h-4 w-4" />
           {{ t("about.starAuthor") }}
         </button>
         <div class="flex items-center gap-2">

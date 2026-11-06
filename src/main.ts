@@ -7,7 +7,6 @@ import { i18n } from "./i18n";
 import { invokeTauri } from "./services/tauri-api";
 import { initMarkdownAppearance } from "./features/shell/composables/use-markdown-appearance";
 import { initUiSizeAppearance } from "./features/shell/composables/use-ui-size-appearance";
-import { LUCIDE_CONTEXT } from "./lucide-context";
 import { installNativeSelectionGuard } from "./utils/native-selection";
 
 installNativeSelectionGuard();
@@ -43,4 +42,4 @@ window.addEventListener("unhandledrejection", (event) => {
   reportFrontendError("未处理的Promise拒绝", message, stack);
 });
 
-createApp(ConfigApp).use(i18n).provide(LUCIDE_CONTEXT, {}).mount("#app");
+createApp(ConfigApp).use(i18n).mount("#app");

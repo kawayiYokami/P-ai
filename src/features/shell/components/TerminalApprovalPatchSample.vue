@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { ChevronRight } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { getSingletonHighlighter, hastToHtml } from "shiki";
 import { isDarkAppTheme, useAppTheme } from "../composables/use-app-theme";
 import { countTerminalApprovalPatchDelta, getTerminalApprovalPatchKind } from "../utils/terminal-approval-preview";
@@ -245,7 +245,7 @@ function lineHtml(index: number, fallback: string) {
       @keydown.enter.prevent="toggleCollapsed"
       @keydown.space.prevent="toggleCollapsed"
     >
-      <ChevronRight
+      <AppIcon name="chevron-right"
         class="approval-patch-sample__title-chevron"
         :class="{ 'approval-patch-sample__title-chevron--open': !isCollapsed }"
       />
