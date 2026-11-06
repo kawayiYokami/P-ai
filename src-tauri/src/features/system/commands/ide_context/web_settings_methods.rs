@@ -37,7 +37,7 @@ async fn ide_chat_test_search_engine_for_web_settings(
     // 所以必须按 input 字段取值，不能当成裸对象解析。
     let input = ide_chat_parse_param_field::<TestSearchEngineInput>(params, "input")?;
     ide_chat_serialize(
-        test_search_engine_connection(state, &input.engine_id, input.api_key).await?,
+        test_search_engine_connection(state, &input.engine_id, input.api_keys).await?,
     )
 }
 

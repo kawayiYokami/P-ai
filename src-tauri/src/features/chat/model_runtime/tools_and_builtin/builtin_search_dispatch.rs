@@ -113,9 +113,30 @@ struct SearchEngineScheduler {
     last_success: std::collections::HashMap<String, String>,
     /// 引擎 id → 正在飞的请求数；并发搜索不该全撞在同一个源上
     in_flight: std::collections::HashMap<String, usize>,
+    /// 引擎 id → 最近成功的那条密钥下标；多 key 轮换的全部状态都在这里
+    key_cursor: std::collections::HashMap<String, usize>,
 }
 
 impl SearchEngineScheduler {
+    /// 本轮从哪条密钥开始试：最近成功的那条（首次为 0），对 key 数量取模。
+    fn next_key_index(&self, engine: SearchEngine, key_count: usize) -> usize {
+        if key_count == 0 {
+            return 0;
+        }
+        self.key_cursor.get(engine.id()).copied().unwrap_or(0) % key_count
+    }
+
+    /// 成功：把游标停在这条密钥上，下一次仍然先用它。
+    fn remember_success_key(&mut self, engine: SearchEngine, key_index: usize) {
+        self.key_cursor.insert(engine.id().to_string(), key_index);
+    }
+
+    /// 失败：游标进位到下一条，下次取用时自然轮换。
+    fn advance_key_cursor(&mut self, engine: SearchEngine, failed_index: usize) {
+        self.key_cursor
+            .insert(engine.id().to_string(), failed_index.saturating_add(1));
+    }
+
     fn is_cooling(&self, engine: SearchEngine, now: std::time::Instant) -> bool {
         self.cooldown_until
             .get(engine.id())
@@ -247,10 +268,11 @@ fn with_search_scheduler<T>(action: impl FnOnce(&mut SearchEngineScheduler) -> T
 
 // ==================== 配置读取 ====================
 
-/// 一个可用于本次调用的引擎配置（已过滤停用与缺密钥的情形）。
+/// 一个可用于本次调用的引擎配置（已过滤缺密钥的非免密钥引擎）。
 struct ReadySearchEngine {
     engine: SearchEngine,
-    api_key: Option<String>,
+    /// 该引擎可用的密钥列表；免密钥引擎可以一条都没有。
+    api_keys: Vec<String>,
 }
 
 fn search_engine_config_entry<'a>(
@@ -263,44 +285,46 @@ fn search_engine_config_entry<'a>(
         .find(|entry| entry.id.trim().eq_ignore_ascii_case(engine.id()))
 }
 
-fn search_engine_api_key(config: &AppConfig, engine: SearchEngine) -> Option<String> {
+/// 该引擎的可用密钥列表：去掉空白项，保持数组顺序（顺序就是轮换顺序）。
+fn search_engine_api_keys(config: &AppConfig, engine: SearchEngine) -> Vec<String> {
     search_engine_config_entry(config, engine)
-        .and_then(|entry| entry.api_key.as_deref())
-        .map(str::trim)
-        .filter(|key| !key.is_empty())
-        .map(ToOwned::to_owned)
+        .map(|entry| {
+            entry
+                .api_keys
+                .iter()
+                .map(|key| key.trim())
+                .filter(|key| !key.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
 }
 
-fn search_engine_enabled(config: &AppConfig, engine: SearchEngine) -> bool {
-    search_engine_config_entry(config, engine).is_some_and(|entry| entry.enabled)
-}
-
-/// 自动模式的候选集：已启用且（有密钥 或 本身免密钥）。
+/// 自动模式的候选集：有密钥，或本身免密钥。没有开关，能不能用只看这一条。
 fn active_search_engines(config: &AppConfig) -> Vec<ReadySearchEngine> {
     SearchEngine::ALL
         .into_iter()
-        .filter(|engine| search_engine_enabled(config, *engine))
         .filter_map(|engine| {
-            let api_key = search_engine_api_key(config, engine);
-            if api_key.is_none() && !engine.is_keyless() {
+            let api_keys = search_engine_api_keys(config, engine);
+            if api_keys.is_empty() && !engine.is_keyless() {
                 return None;
             }
-            Some(ReadySearchEngine { engine, api_key })
+            Some(ReadySearchEngine { engine, api_keys })
         })
         .collect()
 }
 
-/// 锁定模式的目标引擎。只有「已启用 + 填了密钥」才成立，否则回落自动模式。
+/// 锁定模式的目标引擎。必须有密钥才成立，否则回落自动模式。
 fn fixed_search_engine(config: &AppConfig) -> Option<ReadySearchEngine> {
     let SearchMode::Fixed { engine_id } = &config.search_mode else {
         return None;
     };
     let engine = SearchEngine::from_id(engine_id)?;
-    if !search_engine_enabled(config, engine) {
+    let api_keys = search_engine_api_keys(config, engine);
+    if api_keys.is_empty() {
         return None;
     }
-    let api_key = search_engine_api_key(config, engine)?;
-    Some(ReadySearchEngine { engine, api_key: Some(api_key) })
+    Some(ReadySearchEngine { engine, api_keys })
 }
 
 // ==================== 密钥打码与配置规范化 ====================
@@ -326,44 +350,66 @@ fn mask_search_engine_key(value: &str) -> String {
     format!("{head}***{tail}")
 }
 
-/// 回传前端前把密钥换成掩码。掩码本身带 `***`，保存时据此识别「未改动」。
+/// 回传前端前把密钥换成掩码（逐条打码，空项丢弃）。掩码本身带 `***`，保存时据此识别「未改动」。
 fn mask_search_engine_keys(config: &mut AppConfig) {
     for entry in &mut config.search_engines {
-        if let Some(key) = entry.api_key.as_deref() {
-            let trimmed = key.trim();
-            if trimmed.is_empty() {
-                entry.api_key = None;
-            } else {
-                entry.api_key = Some(mask_search_engine_key(trimmed));
-            }
-        }
+        // 兼容字段只用于读老配置，永远不回传。
+        entry.api_key = None;
+        entry.api_keys = entry
+            .api_keys
+            .iter()
+            .map(|key| key.trim())
+            .filter(|key| !key.is_empty())
+            .map(mask_search_engine_key)
+            .collect();
     }
 }
 
-/// 保存时合并掩码：前端把掩码原样带回，说明用户没改这一栏，沿用磁盘上的旧密钥。
+/// 存盘里该引擎的明文密钥（去掉空白项），按数组顺序保留下标语义。
+fn stored_search_engine_keys(stored: &AppConfig, engine: SearchEngine) -> Vec<String> {
+    search_engine_config_entry(stored, engine)
+        .map(|entry| {
+            entry
+                .api_keys
+                .iter()
+                .map(|key| key.trim())
+                .filter(|key| !key.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 保存时合并掩码：前端把掩码原样带回，说明用户没改这一栏，按**数组下标**沿用磁盘上的旧密钥。
+/// 下标越界（用户删过 key）或掩码对不上，该项丢弃——绝不把掩码本身写进配置。
 fn merge_masked_search_engine_keys(stored: &AppConfig, incoming: &mut AppConfig) {
     for entry in &mut incoming.search_engines {
-        let Some(incoming_key) = entry
-            .api_key
-            .as_deref()
-            .map(str::trim)
-            .filter(|key| key.contains("***"))
-            .map(ToOwned::to_owned)
-        else {
-            continue;
-        };
-        let stored_key = SearchEngine::from_id(&entry.id)
-            .and_then(|engine| search_engine_config_entry(stored, engine))
-            .and_then(|stored_entry| stored_entry.api_key.as_deref())
-            .map(str::trim)
-            .filter(|key| !key.is_empty() && mask_search_engine_key(key) == incoming_key)
-            .map(ToOwned::to_owned);
-        // 对不上就清空，绝不把掩码本身写进配置。
-        entry.api_key = stored_key;
+        entry.api_key = None;
+        let stored_keys = SearchEngine::from_id(&entry.id)
+            .map(|engine| stored_search_engine_keys(stored, engine))
+            .unwrap_or_default();
+        let mut merged = Vec::<String>::with_capacity(entry.api_keys.len());
+        for (index, incoming_key) in entry.api_keys.iter().enumerate() {
+            let trimmed = incoming_key.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !trimmed.contains("***") {
+                merged.push(trimmed.to_string());
+                continue;
+            }
+            let Some(stored_key) = stored_keys.get(index) else {
+                continue;
+            };
+            if mask_search_engine_key(stored_key) == trimmed {
+                merged.push(stored_key.clone());
+            }
+        }
+        entry.api_keys = merged;
     }
 }
 
-/// 规范化：补齐缺失的内置引擎、剔掉未知 id、去重；锁定目标不合法时回落自动模式。
+/// 规范化：补齐缺失的内置引擎、剔掉未知 id、去重；旧单值密钥并入首项；锁定目标不可用时回落自动。
 fn normalize_search_engines(config: &mut AppConfig) {
     let defaults = default_search_engines();
     let mut normalized = Vec::<SearchEngineConfig>::with_capacity(defaults.len());
@@ -378,22 +424,35 @@ fn normalize_search_engines(config: &mut AppConfig) {
         });
         let mut entry = existing.unwrap_or(default_entry);
         entry.id = entry.id.trim().to_ascii_lowercase();
-        entry.api_key = entry
-            .api_key
-            .as_deref()
-            .map(str::trim)
+        let mut keys = entry
+            .api_keys
+            .iter()
+            .map(|key| key.trim())
             .filter(|key| !key.is_empty())
-            .map(ToOwned::to_owned);
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        // 老配置只有单值 apiKey：并入首项后置空，不需要自定义反序列化就能升级。
+        if let Some(legacy) = entry.api_key.as_deref().map(str::trim).filter(|key| !key.is_empty()) {
+            if !keys.iter().any(|key| key == legacy) {
+                keys.insert(0, legacy.to_string());
+            }
+        }
+        // 去重但保住顺序：顺序就是轮换顺序。
+        let mut unique = Vec::<String>::with_capacity(keys.len());
+        for key in keys {
+            if !unique.iter().any(|existing| *existing == key) {
+                unique.push(key);
+            }
+        }
+        entry.api_keys = unique;
+        entry.api_key = None;
         normalized.push(entry);
     }
     config.search_engines = normalized;
 
     if let SearchMode::Fixed { engine_id } = config.search_mode.clone() {
         let engine = SearchEngine::from_id(&engine_id);
-        let lockable = engine.is_some_and(|engine| {
-            let has_key = search_engine_api_key(config, engine).is_some();
-            has_key && search_engine_enabled(config, engine)
-        });
+        let lockable = engine.is_some_and(|engine| !search_engine_api_keys(config, engine).is_empty());
         if !lockable {
             runtime_log_warn(format!(
                 "[搜索引擎] 锁定目标不可用，回落自动模式：engine_id={engine_id}"
@@ -922,6 +981,10 @@ enum SearchAttempt {
 }
 
 /// 按顺序试候选引擎。`call` 抽成参数，行为用例才能不依赖真实网络。
+///
+/// 多 key 规则（红豆拍板）：每个引擎本轮只用「游标指向的那一条 key」。
+/// 成功就把游标停在这条上；任何失败（401/403、网络/5xx、429）都只把游标进一位，
+/// 然后本次调用立刻换下一个引擎——不在同一次调用里换 key 重试，下一条 key 由下次取用时自然轮到。
 async fn try_candidates_with<C, Fut>(
     raw_query: &str,
     session_key: &str,
@@ -939,15 +1002,30 @@ where
         let Some(candidate) = candidates.iter().find(|item| item.engine == engine) else {
             continue;
         };
-        let api_key = candidate.api_key.clone();
+        let key_count = candidate.api_keys.len();
+        let key_index = with_search_scheduler(|scheduler| {
+            scheduler.next_key_index(engine, key_count)
+        });
+        let api_key = candidate.api_keys.get(key_index).cloned();
+        // 多条密钥时把「用的是第几条」带进失败原因，否则用户不知道该换哪一条。
+        let key_label = if key_count > 1 {
+            format!("第 {} 条密钥：", key_index + 1)
+        } else {
+            String::new()
+        };
         // 选源与占用成对：离开本轮作用域（任何分支）都会把在飞计数减回去。
         let _lease = acquire_search_engine(engine);
+        // 免密钥引擎不参与 key 游标：不写账本，免得把别的调用攒下的记账搅乱。
+        let tracks_key = key_count > 0;
         match call(engine, api_key).await {
             Ok(rows) => {
                 let (kept, raw) = split_engine_rows(raw_query, engine, rows);
                 if !kept.is_empty() {
                     with_search_scheduler(|scheduler| {
-                        scheduler.remember_success(session_key, engine)
+                        scheduler.remember_success(session_key, engine);
+                        if tracks_key {
+                            scheduler.remember_success_key(engine, key_index);
+                        }
                     });
                     return SearchAttempt::Hit(search_payload(
                         engine.id(),
@@ -961,35 +1039,44 @@ where
                 }
             }
             Err(SearchCallError::Auth(message)) => {
-                // 一个填错的旧 key 不该让其它源一起失效：换源，但原因原样留下。
+                // 一个填错的旧 key 不该让其它源一起失效：游标进位后换源，原因原样留下。
+                if tracks_key {
+                    with_search_scheduler(|scheduler| scheduler.advance_key_cursor(engine, key_index));
+                }
                 runtime_log_warn(format!(
-                    "[搜索引擎] 鉴权失败，换下一个源：engine={}，error={message}",
+                    "[搜索引擎] 鉴权失败，换下一个源：engine={}，keyIndex={key_index}，error={message}",
                     engine.id()
                 ));
                 failures.push(format!(
-                    "{}: 鉴权失败，请检查密钥（{message}）",
+                    "{}: 鉴权失败，请检查密钥（{key_label}{message}）",
                     engine.display_name()
                 ));
             }
             Err(SearchCallError::Cooldown { seconds, message }) => {
                 with_search_scheduler(|scheduler| {
-                    scheduler.set_cooldown(engine, seconds, std::time::Instant::now())
+                    if tracks_key {
+                        scheduler.advance_key_cursor(engine, key_index);
+                    }
+                    scheduler.set_cooldown(engine, seconds, std::time::Instant::now());
                 });
                 runtime_log_warn(format!(
-                    "[搜索引擎] 限流，记冷却后换源：engine={}，冷却秒数={seconds}，error={message}",
+                    "[搜索引擎] 限流，记冷却后换源：engine={}，keyIndex={key_index}，冷却秒数={seconds}，error={message}",
                     engine.id()
                 ));
                 failures.push(format!(
-                    "{}: 限流，冷却 {seconds} 秒（{message}）",
+                    "{}: 限流，冷却 {seconds} 秒（{key_label}{message}）",
                     engine.display_name()
                 ));
             }
             Err(SearchCallError::Transient(message)) => {
+                if tracks_key {
+                    with_search_scheduler(|scheduler| scheduler.advance_key_cursor(engine, key_index));
+                }
                 runtime_log_warn(format!(
-                    "[搜索引擎] 调用失败，换下一个源：engine={}，error={message}",
+                    "[搜索引擎] 调用失败，换下一个源：engine={}，keyIndex={key_index}，error={message}",
                     engine.id()
                 ));
-                failures.push(format!("{}: {message}", engine.display_name()));
+                failures.push(format!("{}: {key_label}{message}", engine.display_name()));
             }
         }
     }
@@ -1010,16 +1097,36 @@ async fn builtin_search(
 
     // 锁定模式：只用指定的引擎，不看冷却、不换源，失败原样返回。
     if let Some(fixed) = fixed_search_engine(&config) {
+        let key_count = fixed.api_keys.len();
+        let key_index =
+            with_search_scheduler(|scheduler| scheduler.next_key_index(fixed.engine, key_count));
+        let api_key = fixed.api_keys.get(key_index).cloned();
         let rows = call_search_engine(
             &state.shared_http_client,
             fixed.engine,
-            fixed.api_key.as_deref(),
+            api_key.as_deref(),
             raw_query,
         )
             .await
             .map_err(|err| {
-                format!("{} 搜索失败：{}", fixed.engine.display_name(), err.message())
+                // 锁定模式不换源，但多 key 的进位照做：下次搜索轮到下一条密钥。
+                with_search_scheduler(|scheduler| {
+                    scheduler.advance_key_cursor(fixed.engine, key_index)
+                });
+                let key_label = if key_count > 1 {
+                    format!("（第 {} 条密钥）", key_index + 1)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "{} 搜索失败{key_label}：{}",
+                    fixed.engine.display_name(),
+                    err.message()
+                )
             })?;
+        with_search_scheduler(|scheduler| {
+            scheduler.remember_success_key(fixed.engine, key_index)
+        });
         // 引擎说成功不等于搜到了东西：乱码查询下它照样回一屏无关页面。
         let (kept, raw) = split_engine_rows(raw_query, fixed.engine, rows);
         if raw.is_empty() {
@@ -1131,21 +1238,22 @@ async fn builtin_search(
 async fn test_search_engine_connection(
     state: &AppState,
     engine_id: &str,
-    api_key: Option<String>,
+    api_keys: Vec<String>,
 ) -> Result<Value, String> {
     let engine = SearchEngine::from_id(engine_id)
         .ok_or_else(|| format!("未知的搜索引擎：{engine_id}"))?;
-    let typed_key = api_key
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty() && !value.contains("***"))
+    // 输入框里可能是掩码（用户没改过这一栏）或空白项，这些都不是能拿去测的真密钥。
+    let typed_key = api_keys
+        .iter()
+        .map(|key| key.trim())
+        .find(|key| !key.is_empty() && !key.contains("***"))
         .map(ToOwned::to_owned);
-    // 输入框里可能是掩码（用户没改过这一栏），这种情况下拿磁盘上的真密钥去测。
+    // 没有新输入的密钥时，拿存盘的第一条真密钥去测。
     let key = match typed_key {
         Some(key) => Some(key),
         None => state_read_config_cached(state)
             .ok()
-            .and_then(|config| search_engine_api_key(&config, engine)),
+            .and_then(|config| search_engine_api_keys(&config, engine).into_iter().next()),
     };
     if key.is_none() && !engine.is_keyless() {
         return Err(format!("{} 必须填写 API key 才能使用", engine.display_name()));
@@ -1307,49 +1415,53 @@ mod search_dispatch_tests {
     }
 
     #[test]
-    fn active_search_engines_should_respect_enabled_key_and_keyless() {
+    fn active_search_engines_should_only_require_key_or_keyless() {
         let mut config = AppConfig::default();
         let active = active_search_engines(&config);
-        assert_eq!(active.len(), 3, "默认开启 exa / parallel / tavily");
+        assert_eq!(active.len(), 3, "默认免密钥可用的是 exa / parallel / tavily");
         assert!(active.iter().all(|item| item.engine != SearchEngine::Deepseek));
 
+        // 去掉开关后唯一的判据是「有密钥」：免密钥引擎清空密钥仍在候选里。
         if let Some(entry) = config.search_engines.iter_mut().find(|entry| entry.id == "tavily") {
-            entry.enabled = false;
+            entry.api_keys = vec!["  ".to_string()];
         }
-        assert_eq!(active_search_engines(&config).len(), 2);
+        assert_eq!(active_search_engines(&config).len(), 3, "空白密钥不算填了密钥");
 
-        for entry in &mut config.search_engines {
-            entry.enabled = false;
-        }
-        if let Some(entry) = config.search_engines.iter_mut().find(|entry| entry.id == "deepseek") {
-            entry.enabled = true;
-        }
-        assert!(active_search_engines(&config).is_empty(), "DeepSeek 没密钥不进候选");
+        // 没有密钥的非免密钥引擎不进候选。
+        assert!(!active_search_engines(&config)
+            .iter()
+            .any(|item| item.engine == SearchEngine::Firecrawl));
 
         if let Some(entry) = config.search_engines.iter_mut().find(|entry| entry.id == "deepseek") {
-            entry.api_key = Some("sk-test".to_string());
+            entry.api_keys = vec!["sk-test".to_string(), "sk-test-2".to_string()];
         }
         let active = active_search_engines(&config);
-        assert_eq!(active.len(), 1);
-        assert_eq!(active[0].engine, SearchEngine::Deepseek);
+        assert_eq!(active.len(), 4);
+        let deepseek = active
+            .iter()
+            .find(|item| item.engine == SearchEngine::Deepseek)
+            .expect("填了密钥应进候选");
+        assert_eq!(deepseek.api_keys, vec!["sk-test", "sk-test-2"]);
     }
 
     #[test]
-    fn fixed_search_engine_should_require_key_and_enabled_state() {
+    fn fixed_search_engine_should_require_key() {
         let mut config = AppConfig::default();
         config.search_mode = SearchMode::Fixed { engine_id: "tavily".to_string() };
         assert!(fixed_search_engine(&config).is_none(), "免密钥引擎没填密钥不能锁定");
 
         if let Some(entry) = config.search_engines.iter_mut().find(|entry| entry.id == "tavily") {
-            entry.api_key = Some("tvly-test".to_string());
+            entry.api_keys = vec!["tvly-test".to_string()];
         }
         let fixed = fixed_search_engine(&config).expect("填了密钥应可锁定");
         assert_eq!(fixed.engine, SearchEngine::Tavily);
+        assert_eq!(fixed.api_keys, vec!["tvly-test"]);
 
+        // 密钥清空后锁定失效，与开关无关。
         if let Some(entry) = config.search_engines.iter_mut().find(|entry| entry.id == "tavily") {
-            entry.enabled = false;
+            entry.api_keys.clear();
         }
-        assert!(fixed_search_engine(&config).is_none(), "停用后锁定失效");
+        assert!(fixed_search_engine(&config).is_none(), "密钥清空后锁定失效");
     }
 
     #[test]
@@ -1358,10 +1470,14 @@ mod search_dispatch_tests {
         config.search_engines = vec![
             SearchEngineConfig {
                 id: " Tavily ".to_string(),
-                enabled: false,
-                api_key: Some("  tvly-key  ".to_string()),
+                api_keys: vec!["  tvly-key-one  ".to_string(), "tvly-key-two".to_string()],
+                api_key: None,
             },
-            SearchEngineConfig { id: "unknown-engine".to_string(), enabled: true, api_key: None },
+            SearchEngineConfig {
+                id: "unknown-engine".to_string(),
+                api_keys: vec!["drop-me".to_string()],
+                api_key: None,
+            },
         ];
         normalize_search_engines(&mut config);
         let ids = config
@@ -1375,8 +1491,39 @@ mod search_dispatch_tests {
             .iter()
             .find(|entry| entry.id == "tavily")
             .expect("tavily 应保留");
-        assert!(!tavily.enabled);
-        assert_eq!(tavily.api_key.as_deref(), Some("tvly-key"));
+        assert_eq!(
+            tavily.api_keys,
+            vec!["tvly-key-one".to_string(), "tvly-key-two".to_string()],
+            "多 key 保序、去空白"
+        );
+        assert!(!ids.contains(&"unknown-engine"), "未知引擎要丢弃");
+    }
+
+    #[test]
+    fn normalize_search_engines_should_upgrade_legacy_single_key() {
+        // 老配置只有 apiKey 单值：并入 apiKeys 首项，兼容字段置空，key 不丢。
+        // 顺带留一个已经不存在的 enabled 字段，验证旧存档多余的键会被静默忽略。
+        let legacy: Vec<SearchEngineConfig> = serde_json::from_value(serde_json::json!([
+            { "id": "tavily", "apiKey": "  tvly-legacy  ", "enabled": false },
+            { "id": "exa", "apiKey": "exa-legacy", "apiKeys": ["exa-new"] }
+        ]))
+        .expect("老配置应能读入");
+        let mut config = AppConfig::default();
+        config.search_engines = legacy;
+        normalize_search_engines(&mut config);
+        let tavily = config
+            .search_engines
+            .iter()
+            .find(|entry| entry.id == "tavily")
+            .expect("tavily 应存在");
+        assert_eq!(tavily.api_keys, vec!["tvly-legacy".to_string()], "旧单 key 不丢");
+        assert!(tavily.api_key.is_none(), "兼容字段要置空，不再写盘");
+        let exa = config
+            .search_engines
+            .iter()
+            .find(|entry| entry.id == "exa")
+            .expect("exa 应存在");
+        assert_eq!(exa.api_keys, vec!["exa-legacy".to_string(), "exa-new".to_string()]);
     }
 
     #[test]
@@ -1388,8 +1535,7 @@ mod search_dispatch_tests {
 
         let mut config = AppConfig::default();
         if let Some(entry) = config.search_engines.iter_mut().find(|entry| entry.id == "deepseek") {
-            entry.enabled = true;
-            entry.api_key = Some("sk-test".to_string());
+            entry.api_keys = vec!["sk-test".to_string()];
         }
         config.search_mode = SearchMode::Fixed { engine_id: "deepseek".to_string() };
         normalize_search_engines(&mut config);
@@ -1397,10 +1543,10 @@ mod search_dispatch_tests {
     }
 
     #[test]
-    fn mask_and_merge_should_round_trip_keys() {
+    fn mask_and_merge_should_round_trip_multiple_keys_by_index() {
         let mut stored = AppConfig::default();
         if let Some(entry) = stored.search_engines.iter_mut().find(|entry| entry.id == "tavily") {
-            entry.api_key = Some("tvly-secret-value".to_string());
+            entry.api_keys = vec!["tvly-secret-one".to_string(), "tvly-secret-two".to_string()];
         }
 
         let mut to_frontend = stored.clone();
@@ -1409,31 +1555,86 @@ mod search_dispatch_tests {
             .search_engines
             .iter()
             .find(|entry| entry.id == "tavily")
-            .and_then(|entry| entry.api_key.clone())
+            .map(|entry| entry.api_keys.clone())
             .expect("应有掩码");
-        assert_ne!(masked, "tvly-secret-value");
-        assert!(masked.contains("***"));
+        assert_eq!(masked.len(), 2, "逐条打码");
+        assert!(masked.iter().all(|key| key.contains("***")));
+        assert!(!masked.iter().any(|key| key == "tvly-secret-one"));
 
+        // 原样带回：两条都按位还原。
         let mut incoming = to_frontend.clone();
         merge_masked_search_engine_keys(&stored, &mut incoming);
         let merged = incoming
             .search_engines
             .iter()
             .find(|entry| entry.id == "tavily")
-            .and_then(|entry| entry.api_key.clone());
-        assert_eq!(merged.as_deref(), Some("tvly-secret-value"));
+            .map(|entry| entry.api_keys.clone())
+            .expect("tavily 应存在");
+        assert_eq!(merged, vec!["tvly-secret-one".to_string(), "tvly-secret-two".to_string()]);
 
-        let mut mismatched = to_frontend;
+        // 掩码对不上：该项丢弃，绝不把掩码写进配置。
+        let mut mismatched = to_frontend.clone();
         if let Some(entry) = mismatched.search_engines.iter_mut().find(|entry| entry.id == "tavily") {
-            entry.api_key = Some("zz***zz".to_string());
+            entry.api_keys = vec!["zz***zz".to_string()];
         }
         merge_masked_search_engine_keys(&stored, &mut mismatched);
         let cleared = mismatched
             .search_engines
             .iter()
             .find(|entry| entry.id == "tavily")
-            .and_then(|entry| entry.api_key.clone());
-        assert!(cleared.is_none(), "掩码对不上时必须清空，不能把掩码写进配置");
+            .map(|entry| entry.api_keys.clone())
+            .expect("tavily 应存在");
+        assert!(cleared.is_empty(), "掩码对不上时必须丢弃");
+
+        // 用户删掉了第一条：剩下的掩码落到下标 1，不能再拿第 0 条的旧密钥顶上。
+        let mut deleted = to_frontend.clone();
+        if let Some(entry) = deleted.search_engines.iter_mut().find(|entry| entry.id == "tavily") {
+            let second = entry.api_keys[1].clone();
+            entry.api_keys = vec![second];
+        }
+        merge_masked_search_engine_keys(&stored, &mut deleted);
+        let after_delete = deleted
+            .search_engines
+            .iter()
+            .find(|entry| entry.id == "tavily")
+            .map(|entry| entry.api_keys.clone())
+            .expect("tavily 应存在");
+        assert!(after_delete.is_empty(), "下标越界的掩码要丢弃，不能串到别的 key 上");
+
+        // 新输入的明文原样保留。
+        let mut typed = to_frontend.clone();
+        if let Some(entry) = typed.search_engines.iter_mut().find(|entry| entry.id == "tavily") {
+            entry.api_keys = vec!["tvly-brand-new".to_string()];
+        }
+        merge_masked_search_engine_keys(&stored, &mut typed);
+        let typed_keys = typed
+            .search_engines
+            .iter()
+            .find(|entry| entry.id == "tavily")
+            .map(|entry| entry.api_keys.clone())
+            .expect("tavily 应存在");
+        assert_eq!(typed_keys, vec!["tvly-brand-new".to_string()]);
+    }
+
+    #[test]
+    fn key_cursor_should_rotate_on_failure_and_stay_on_success() {
+        let mut scheduler = SearchEngineScheduler::default();
+        assert_eq!(scheduler.next_key_index(SearchEngine::Tavily, 3), 0, "首次从第一条开始");
+        scheduler.advance_key_cursor(SearchEngine::Tavily, 0);
+        assert_eq!(scheduler.next_key_index(SearchEngine::Tavily, 3), 1, "失败进位");
+        scheduler.advance_key_cursor(SearchEngine::Tavily, 1);
+        assert_eq!(scheduler.next_key_index(SearchEngine::Tavily, 3), 2);
+        scheduler.advance_key_cursor(SearchEngine::Tavily, 2);
+        assert_eq!(scheduler.next_key_index(SearchEngine::Tavily, 3), 0, "取模回绕");
+
+        scheduler.remember_success_key(SearchEngine::Tavily, 2);
+        assert_eq!(scheduler.next_key_index(SearchEngine::Tavily, 3), 2, "成功记下标");
+        assert_eq!(
+            scheduler.next_key_index(SearchEngine::Tavily, 2),
+            0,
+            "key 数量变少时按取模收敛"
+        );
+        assert_eq!(scheduler.next_key_index(SearchEngine::Deepseek, 2), 0, "引擎之间互不干扰");
     }
 
     #[test]
@@ -1445,17 +1646,31 @@ mod search_dispatch_tests {
     }
 
     #[test]
-    fn default_config_should_enable_keyless_engines_that_work() {
+    fn default_config_should_have_no_keys_and_auto_mode() {
         let config = AppConfig::default();
-        let enabled = config
-            .search_engines
-            .iter()
-            .filter(|entry| entry.enabled)
-            .map(|entry| entry.id.as_str())
-            .collect::<Vec<_>>();
-        // firecrawl 免密钥实测已不可用，默认关闭；DeepSeek 需要密钥，默认关闭。
-        assert_eq!(enabled, vec!["exa", "parallel", "tavily"]);
         assert_eq!(config.search_mode, SearchMode::Auto);
+        assert_eq!(config.search_engines.len(), 5);
+        assert!(
+            config.search_engines.iter().all(|entry| entry.api_keys.is_empty()),
+            "默认不带任何密钥"
+        );
+        assert!(
+            config.search_engines.iter().all(|entry| entry.api_key.is_none()),
+            "兼容字段默认不写"
+        );
+        // 免密钥引擎默认就在候选里，firecrawl 与 deepseek 必须填密钥才进。
+        let active = active_search_engines(&config);
+        assert_eq!(active.len(), 3);
+        assert_eq!(
+            serde_json::to_value(SearchEngineConfig {
+                id: "exa".to_string(),
+                api_keys: vec!["sk-1".to_string()],
+                api_key: None,
+            })
+            .expect("序列化配置项"),
+            serde_json::json!({ "id": "exa", "apiKeys": ["sk-1"] }),
+            "落盘字段名是 apiKeys，兼容字段不出现"
+        );
     }
 
     #[test]
@@ -1653,43 +1868,52 @@ mod search_dispatch_tests {
 
     // ========== 密钥不外泄 ==========
 
-    fn config_with_search_key(key: &str) -> AppConfig {
+    fn config_with_search_keys(keys: &[&str]) -> AppConfig {
         let mut config = AppConfig::default();
-        config.search_engines[0].api_key = Some(key.to_string());
+        config.search_engines[0].api_keys = keys.iter().map(|key| key.to_string()).collect();
         config
     }
 
     #[test]
     fn transport_config_should_mask_search_engine_keys() {
-        let config = config_for_transport(config_with_search_key("sk-plaintext-123456"));
-        let key = config.search_engines[0].api_key.clone().unwrap_or_default();
-        assert!(key.contains("***"), "回传前必须打码：{key}");
-        assert!(!key.contains("plaintext"));
+        let config = config_for_transport(config_with_search_keys(&[
+            "sk-plaintext-123456",
+            "sk-second-abcdef",
+        ]));
+        let keys = config.search_engines[0].api_keys.clone();
+        assert_eq!(keys.len(), 2, "多条密钥都要回传，一条一个位置");
+        for key in &keys {
+            assert!(key.contains("***"), "回传前必须打码：{key}");
+        }
+        assert!(!config.search_engines[0].api_keys.iter().any(|key| key.contains("plaintext")));
     }
 
     #[test]
     fn save_transport_config_should_not_leak_the_key_it_merged_back() {
-        // 复现保存链路：前端带回掩码 → 合并出明文 → 回传前必须打回掩码。
-        let stored = config_with_search_key("sk-plaintext-123456");
+        // 复现保存链路：前端带回掩码 → 按数组下标合并出明文 → 回传前必须打回掩码。
+        let stored = config_with_search_keys(&["sk-plaintext-123456", "sk-second-abcdef"]);
         let mut masked = stored.clone();
         mask_search_engine_keys(&mut masked);
-        assert!(masked.search_engines[0]
-            .api_key
-            .as_deref()
-            .unwrap_or_default()
-            .contains("***"));
+        assert_eq!(masked.search_engines[0].api_keys.len(), 2);
+        for key in &masked.search_engines[0].api_keys {
+            assert!(key.contains("***"), "回传前必须打码：{key}");
+        }
 
         let mut incoming = masked.clone();
         merge_masked_search_engine_keys(&stored, &mut incoming);
         assert_eq!(
-            incoming.search_engines[0].api_key.as_deref(),
-            Some("sk-plaintext-123456"),
+            incoming.search_engines[0].api_keys,
+            vec![
+                "sk-plaintext-123456".to_string(),
+                "sk-second-abcdef".to_string()
+            ],
             "合并这一步本来就该拿到明文（要落盘）"
         );
 
         let outbound = config_for_transport(incoming);
-        let key = outbound.search_engines[0].api_key.clone().unwrap_or_default();
-        assert!(key.contains("***"), "回传/广播的配置必须打码：{key}");
+        for key in &outbound.search_engines[0].api_keys {
+            assert!(key.contains("***"), "回传/广播的配置必须打码：{key}");
+        }
     }
 
     // ========== Web 端参数形状 ==========
@@ -1697,11 +1921,11 @@ mod search_dispatch_tests {
     #[test]
     fn test_search_engine_params_should_accept_input_wrapper() {
         // 前端走 invokeTauri("test_search_engine", { input: {...} })，Web 侧收到的是原样 params。
-        let params = serde_json::json!({"input": {"engineId": "tavily", "apiKey": "k-1"}});
+        let params = serde_json::json!({"input": {"engineId": "tavily", "apiKeys": ["k-1", "k-2"]}});
         let input = ide_chat_parse_param_field::<TestSearchEngineInput>(params, "input")
             .expect("带 input 包裹的参数应能解析");
         assert_eq!(input.engine_id, "tavily");
-        assert_eq!(input.api_key.as_deref(), Some("k-1"));
+        assert_eq!(input.api_keys, vec!["k-1".to_string(), "k-2".to_string()]);
     }
 
     #[test]
@@ -1710,7 +1934,7 @@ mod search_dispatch_tests {
         let input = ide_chat_parse_param_field::<TestSearchEngineInput>(params, "input")
             .expect("裸字段参数也应能解析");
         assert_eq!(input.engine_id, "exa");
-        assert_eq!(input.api_key, None);
+        assert!(input.api_keys.is_empty(), "不给 apiKeys 时是空列表，不是报错");
     }
 
     // ========== 换源与相关性兜底（行为用例，不碰网络） ==========
@@ -1718,7 +1942,7 @@ mod search_dispatch_tests {
     fn candidate(engine: SearchEngine, api_key: Option<&str>) -> ReadySearchEngine {
         ReadySearchEngine {
             engine,
-            api_key: api_key.map(str::to_string),
+            api_keys: api_key.map(|key| vec![key.to_string()]).unwrap_or_default(),
         }
     }
 
@@ -1736,6 +1960,92 @@ mod search_dispatch_tests {
             "url": "https://hotel.example/1",
             "snippet": "reserve a room tonight",
         })
+    }
+
+    #[tokio::test]
+    async fn try_candidates_should_advance_key_cursor_without_retrying_same_engine() {
+        // 多 key 口径：本次只用游标指向的那条 key，任何失败只进位、立刻换下一个引擎；
+        // 下一条 key 等下次调用才轮到。
+        with_search_scheduler(|scheduler| scheduler.key_cursor.clear());
+        let candidates = vec![
+            ReadySearchEngine {
+                engine: SearchEngine::Tavily,
+                api_keys: vec!["tv-1".to_string(), "tv-2".to_string()],
+            },
+            ReadySearchEngine {
+                engine: SearchEngine::Exa,
+                api_keys: vec!["exa-1".to_string()],
+            },
+        ];
+        let used = std::sync::Arc::new(
+            std::sync::Mutex::new(Vec::<(SearchEngine, Option<String>)>::new()),
+        );
+
+        let used_first = used.clone();
+        let attempt = try_candidates_with(
+            "原神 纳西妲",
+            "session-key-rotate",
+            &candidates,
+            vec![SearchEngine::Tavily, SearchEngine::Exa],
+            move |engine, api_key| {
+                let used = used_first.clone();
+                async move {
+                    used.lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .push((engine, api_key));
+                    match engine {
+                        SearchEngine::Tavily => {
+                            Err(SearchCallError::Auth("401 Unauthorized".to_string()))
+                        }
+                        _ => Ok(vec![relevant_row()]),
+                    }
+                }
+            },
+        )
+        .await;
+        assert!(matches!(attempt, SearchAttempt::Hit(_)), "失败后应换源命中");
+        assert_eq!(
+            *used.lock().unwrap_or_else(|poisoned| poisoned.into_inner()),
+            vec![
+                (SearchEngine::Tavily, Some("tv-1".to_string())),
+                (SearchEngine::Exa, Some("exa-1".to_string())),
+            ],
+            "同一次调用里不许对同一引擎换 key 重试"
+        );
+
+        // 第二次调用：Tavily 游标已进位，轮到第二条 key。
+        let used_second = used.clone();
+        let attempt = try_candidates_with(
+            "原神 纳西妲",
+            "session-key-rotate",
+            &candidates,
+            vec![SearchEngine::Tavily, SearchEngine::Exa],
+            move |engine, api_key| {
+                let used = used_second.clone();
+                async move {
+                    used.lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .push((engine, api_key));
+                    match engine {
+                        SearchEngine::Tavily => Ok(vec![relevant_row()]),
+                        _ => Ok(vec![relevant_row()]),
+                    }
+                }
+            },
+        )
+        .await;
+        assert!(matches!(attempt, SearchAttempt::Hit(_)));
+        let calls = used.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+        assert_eq!(
+            calls.last().map(|(engine, key)| (*engine, key.clone())),
+            Some((SearchEngine::Tavily, Some("tv-2".to_string()))),
+            "进位后下一次用第二条密钥"
+        );
+        // 成功要停在当前 key 上，不回退。
+        let stays = with_search_scheduler(|scheduler| {
+            scheduler.next_key_index(SearchEngine::Tavily, 2)
+        });
+        assert_eq!(stays, 1, "成功后游标停在成功的这条上");
     }
 
     #[tokio::test]

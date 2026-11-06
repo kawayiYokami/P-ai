@@ -627,7 +627,7 @@ const APP_FIELDS: &[FieldSpec] = &[
     FieldSpec { name: "shellWorkspaces", ty: "array<table>", required: false, desc: "工作区列表，元素：name / path / level。" },
     FieldSpec { name: "mcpServers", ty: "array<table>", required: false, desc: "旧版内嵌 MCP 列表，运行时不读它；MCP 定义只认工作区 mcp/servers/<id>.json，见 help -mcp。" },
     FieldSpec { name: "remoteImChannels", ty: "array<table>", required: false, desc: "远程 IM 渠道列表。" },
-    FieldSpec { name: "searchEngines", ty: "array<table>", required: false, desc: "搜索引擎列表。" },
+    FieldSpec { name: "searchEngines", ty: "array<table>", required: false, desc: "搜索引擎列表，元素：id / apiKeys（多条密钥，轮换使用）。" },
     FieldSpec { name: "providerNonStreamBaseUrls", ty: "array<string>", required: false, desc: "走非流式接口的 base URL 名单。" },
     FieldSpec { name: "apiProviders", ty: "array<table>", required: false, desc: "模型供应商及其模型列表——真身，加/改模型改这里，结构见下。" },
     FieldSpec { name: "imageProviders", ty: "array<table>", required: false, desc: "图像供应商列表。" },
@@ -1672,7 +1672,7 @@ mode = "auto"
 
 [[searchEngines]]
 id = "exa"
-enabled = true
+apiKeys = []
 
 [[shellWorkspaces]]
 id = "system-workspace"

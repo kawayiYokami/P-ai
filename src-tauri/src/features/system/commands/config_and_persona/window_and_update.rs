@@ -558,8 +558,9 @@ fn update_record_background_wake(
 #[serde(rename_all = "camelCase")]
 struct TestSearchEngineInput {
     engine_id: String,
+    /// 该引擎的多条密钥；前端可能把掩码原样带回来，取用时会跳过掩码项。
     #[serde(default)]
-    api_key: Option<String>,
+    api_keys: Vec<String>,
 }
 
 /// 测试某个搜索引擎的连通性：真发一次查询，只回成功/失败原因。
@@ -568,7 +569,7 @@ async fn test_search_engine(
     input: TestSearchEngineInput,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    test_search_engine_connection(&state, &input.engine_id, input.api_key).await
+    test_search_engine_connection(&state, &input.engine_id, input.api_keys).await
 }
 
 #[tauri::command]
