@@ -38,7 +38,7 @@
               v-else
               class="flex h-5 w-5 items-center justify-center rounded-full bg-base-200 text-base-content/50"
             >
-              <UserRound class="h-3 w-3" aria-hidden="true" />
+              <AppIcon name="user-round" class="h-3 w-3" aria-hidden="true" />
             </div>
           </div>
         </div>
@@ -89,7 +89,7 @@
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import { UserRound } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { conversationRuntimeBusy } from "../utils/conversation-item-display";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 import type { TeamMemberActiveIssue, TeamMemberTileItem } from "./team-member-tile";

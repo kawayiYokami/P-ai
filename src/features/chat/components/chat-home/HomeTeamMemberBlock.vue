@@ -13,7 +13,7 @@
         @click="emit('openTeamManagement')"
       >
         <span>{{ t("chat.teamMember.more") }}</span>
-        <ArrowUpRight class="size-3" aria-hidden="true" />
+        <AppIcon name="arrow-up-right" class="size-3" aria-hidden="true" />
       </button>
     </header>
 
@@ -33,7 +33,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowUpRight } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 import TeamMemberTileGrid from "../TeamMemberTileGrid.vue";
 import { teamMemberWorkRank, type TeamMemberTileItem } from "../team-member-tile";

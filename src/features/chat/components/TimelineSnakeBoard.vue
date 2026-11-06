@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { UnfoldVertical } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import TimelinePreviewMarkdown from "./TimelinePreviewMarkdown.vue";
 
 type TimelineAnchor = {
@@ -633,7 +633,7 @@ defineExpose({ containsNode });
               class="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-primary/50 bg-primary/10 transition-transform duration-150 group-hover:scale-125 group-hover:border-primary group-hover:bg-primary/20"
               aria-hidden="true"
             >
-              <UnfoldVertical
+              <AppIcon name="unfold-vertical"
                 class="h-3 w-3 text-primary/70 transition-colors group-hover:text-primary"
                 aria-hidden="true"
               />

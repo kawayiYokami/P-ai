@@ -20,7 +20,7 @@
           :title="titleHint"
           @click="startUrlEdit"
         >
-          <AppWindow class="ecall-sandbox-title-icon" />
+          <AppIcon name="app-window" class="ecall-sandbox-title-icon" />
           <span class="ecall-sandbox-title-text">{{ titleLabel }}</span>
         </button>
       </div>
@@ -31,7 +31,7 @@
           :title="reloadTitle"
           @click="reload"
         >
-          <RotateCw class="ecall-sandbox-action-icon" />
+          <AppIcon name="rotate-cw" class="ecall-sandbox-action-icon" />
         </button>
         <template v-if="mode === 'inline'">
           <button
@@ -41,8 +41,8 @@
             :title="viewMode === 'code' ? previewTitle : codeTitle"
             @click="toggleViewMode"
           >
-            <Code2 v-if="viewMode === 'preview'" class="ecall-sandbox-action-icon" />
-            <Eye v-else class="ecall-sandbox-action-icon" />
+            <AppIcon name="code" v-if="viewMode === 'preview'" class="ecall-sandbox-action-icon" />
+            <AppIcon name="eye" v-else class="ecall-sandbox-action-icon" />
           </button>
           <button
             type="button"
@@ -50,8 +50,8 @@
             :title="copied ? copiedText : copyTitle"
             @click="copyCode"
           >
-            <Check v-if="copied" class="ecall-sandbox-action-icon" />
-            <Copy v-else class="ecall-sandbox-action-icon" />
+            <AppIcon name="check" v-if="copied" class="ecall-sandbox-action-icon" />
+            <AppIcon name="copy" v-else class="ecall-sandbox-action-icon" />
           </button>
           <button
             type="button"
@@ -59,7 +59,7 @@
             :title="exportTitle"
             @click="exportHtml"
           >
-            <Download class="ecall-sandbox-action-icon" />
+            <AppIcon name="download" class="ecall-sandbox-action-icon" />
           </button>
           <button
             v-if="openInReaderTitle"
@@ -69,7 +69,7 @@
             :aria-label="openInReaderTitle"
             @click="emit('open-in-reader')"
           >
-            <PanelRightOpen class="ecall-sandbox-action-icon" />
+            <AppIcon name="panel-right-open" class="ecall-sandbox-action-icon" />
             <span class="ecall-sandbox-action-text">{{ openInReaderTitle }}</span>
           </button>
           <button
@@ -79,14 +79,14 @@
             :title="exitTitle"
             @click="emit('exit')"
           >
-            <X class="ecall-sandbox-action-icon" />
+            <AppIcon name="close" class="ecall-sandbox-action-icon" />
           </button>
         </template>
       </div>
     </div>
 
     <div v-if="urlNotice" class="ecall-sandbox-error">
-      <CircleAlert class="ecall-sandbox-error-icon" />
+      <AppIcon name="circle-alert" class="ecall-sandbox-error-icon" />
       <span class="ecall-sandbox-error-text">{{ urlNotice }}</span>
     </div>
 
@@ -130,7 +130,7 @@
     <pre v-else class="ecall-sandbox-source"><code>{{ code }}</code></pre>
 
     <div v-if="frameError" class="ecall-sandbox-error">
-      <CircleAlert class="ecall-sandbox-error-icon" />
+      <AppIcon name="circle-alert" class="ecall-sandbox-error-icon" />
       <span class="ecall-sandbox-error-text">{{ frameError }}</span>
     </div>
   </div>
@@ -138,7 +138,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { AppWindow, Check, CircleAlert, Code2, Copy, Download, Eye, PanelRightOpen, RotateCw, X } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import {
   SANDBOX_MAX_HEIGHT,
   SANDBOX_MESSAGE_TYPE_ERROR,

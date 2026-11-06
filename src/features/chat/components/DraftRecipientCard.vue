@@ -31,7 +31,7 @@
             @click="startTitleEdit"
           >
             <span>{{ displayTitleText }}</span>
-            <Pencil class="h-3.5 w-3.5 opacity-50 transition-opacity group-hover:opacity-100" />
+            <AppIcon name="pencil" class="h-3.5 w-3.5 opacity-50 transition-opacity group-hover:opacity-100" />
           </button>
         </template>
       </div>
@@ -204,7 +204,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Pencil } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { agentPersonaOptionId, type AgentPersonaOption } from "../../shared/agent-persona-options";
 import WorkspaceConfigCard from "../../shared/components/WorkspaceConfigCard.vue";
 import type { ShellWorkspace, ShellWorkMode } from "../../../types/app";

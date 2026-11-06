@@ -32,7 +32,7 @@
         @mousedown.prevent
         @click="$emit('recallToInput', event)"
       >
-        <Undo2 class="h-3 w-3" />
+        <AppIcon name="undo" class="h-3 w-3" />
       </button>
       <button
         v-if="event.source === 'user'"
@@ -59,7 +59,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { Undo2 } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import type { ChatQueueEvent } from "../../composables/use-chat-queue";
 
 const props = withDefaults(

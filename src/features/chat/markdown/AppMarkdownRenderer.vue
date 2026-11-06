@@ -76,7 +76,7 @@
 <script setup lang="ts">
 import { Teleport, computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch, type PropType, type VNodeChild } from "vue";
 import { useI18n } from "vue-i18n";
-import { Wrench } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import { normalizeLocalLinkHref, parseLocalFileReference } from "../utils/local-link";
 import { parseInlineSegments, normalizedTableRow, type MarkdownBlock, type InlineSegment } from "./parse-markdown";
@@ -740,7 +740,7 @@ const BlockRenderer = defineComponent({
           toggleToolcallPreview(ids, event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null);
         },
       }, [
-        h(Wrench, { class: "ecall-md-toolcall-ref-icon" }),
+        h(AppIcon, { name: "wrench", class: "ecall-md-toolcall-ref-icon" }),
         count > 1
           ? h("span", { class: "ecall-md-toolcall-ref-count" }, `+${count}`)
           : null,
@@ -1120,7 +1120,7 @@ function renderSegments(
           options.onToolcallClick?.(ids, event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null);
         },
       }, [
-        h(Wrench, { class: "ecall-md-toolcall-ref-icon" }),
+        h(AppIcon, { name: "wrench", class: "ecall-md-toolcall-ref-icon" }),
         count > 1
           ? h("span", { class: "ecall-md-toolcall-ref-count" }, `+${count}`)
           : null,

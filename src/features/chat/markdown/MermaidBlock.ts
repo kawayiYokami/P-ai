@@ -1,5 +1,5 @@
 import { defineComponent, h, onBeforeUnmount, ref, watch } from "vue";
-import { Check, Copy } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 
 export function normalizeMermaidCodeForRender(code: string): string {
   return code.replace(/\\n/gi, "<br/>");
@@ -133,7 +133,7 @@ const MermaidBlock = defineComponent({
           title: copied.value ? mermaidProps.copiedText : mermaidProps.copyText,
           "aria-label": copied.value ? mermaidProps.copiedText : mermaidProps.copyText,
           onClick: copyMermaidCode,
-        }, [h(copied.value ? Check : Copy, { class: "ecall-md-code-action-icon" })])
+        }, [h(AppIcon, { name: copied.value ? "check" : "copy", class: "ecall-md-code-action-icon" })])
         : null;
       if (!svgHtml.value && !error.value) {
         return h("div", { class: "ecall-md-mermaid-shell" }, [

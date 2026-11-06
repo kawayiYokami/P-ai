@@ -16,7 +16,7 @@
         v-else-if="hasError"
         class="badge badge-sm badge-error p-1 text-error-content shadow-xs ring-1 ring-base-100"
         title="调度失败"
-      ><CircleAlert class="size-3" aria-hidden="true" /></span>
+      ><AppIcon name="circle-alert" class="size-3" aria-hidden="true" /></span>
       <span
         v-else-if="unreadCount > 0"
         class="badge badge-sm badge-success px-1.5 text-xs font-medium text-success-content shadow-xs ring-1 ring-base-100"
@@ -45,7 +45,7 @@
           class="size-5 rounded-full object-cover"
         />
         <img v-else-if="iconSrc" :src="iconSrc" alt="" class="size-5 object-contain" />
-        <component v-else :is="icon" class="size-5" aria-hidden="true" />
+        <AppIcon v-else :name="icon" class="size-5" aria-hidden="true" />
       </span>
       <span class="line-clamp-2 min-w-0 max-w-full text-sm font-medium text-base-content/85">{{ label }}</span>
       <slot />
@@ -62,7 +62,7 @@
               class="size-3.5 rounded-full object-cover"
             />
             <img v-else-if="iconSrc" :src="iconSrc" alt="" class="size-3.5 shrink-0 object-contain" />
-            <component v-else :is="icon" class="size-3.5 shrink-0" aria-hidden="true" />
+            <AppIcon v-else :name="icon" class="size-3.5 shrink-0" aria-hidden="true" />
           </span>
           <span v-if="pulsing && !busy" class="relative flex h-2 w-2 shrink-0 items-center justify-center">
             <span class="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" :class="toneDot.ping"></span>
@@ -81,12 +81,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, type Component } from "vue";
-import { CircleAlert } from "@lucide/vue";
+import { computed } from "vue";
+import type { AppIconName } from "../../../shared/icons/icon-map";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 
 const props = withDefaults(defineProps<{
   label: string;
-  icon: Component;
+  icon: AppIconName;
   tone?: "primary" | "secondary" | "info" | "success" | "warning" | "neutral";
   /** 占几列：由宿主 ChatHomePanel 算好下发，磁贴自己不改尺寸 */
   colSpan?: number;

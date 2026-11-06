@@ -47,7 +47,7 @@
             :title="t('common.expand')"
             @click="openPreview(block)"
           >
-            <Maximize2 class="h-3.5 w-3.5" />
+            <AppIcon name="maximize" class="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
@@ -77,7 +77,7 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, onBeforeUnmount, ref, type VNodeChild } from "vue";
 import { useI18n } from "vue-i18n";
-import { Maximize2 } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import CodeBlockPreviewDialog from "./dialogs/CodeBlockPreviewDialog.vue";
 import { findNextMarkdownAutoLink } from "../markdown/markdown-auto-link";
 

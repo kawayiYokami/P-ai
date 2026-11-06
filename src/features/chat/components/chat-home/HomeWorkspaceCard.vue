@@ -20,7 +20,7 @@
       @click.stop="toggleTarget"
       @keydown.stop
     >
-      <ArrowLeftRight class="size-2.5 shrink-0 opacity-70" />
+      <AppIcon name="arrow-left-right" class="size-2.5 shrink-0 opacity-70" />
       <span class="truncate">{{ nextTargetButtonText }}</span>
     </button>
 
@@ -66,9 +66,9 @@
                   alt=""
                   class="size-3.5 shrink-0 object-contain"
                 />
-                <SquareTerminal v-else-if="currentDirectoryOpenTarget.type === 'shell'" class="size-3.5 shrink-0 text-warning" />
-                <Code2 v-else-if="currentDirectoryOpenTarget.type === 'vscode'" class="size-3.5 shrink-0 text-info" />
-                <Folders v-else class="size-3.5 shrink-0 text-warning" />
+                <AppIcon name="square-terminal" v-else-if="currentDirectoryOpenTarget.type === 'shell'" class="size-3.5 shrink-0 text-warning" />
+                <AppIcon name="code" v-else-if="currentDirectoryOpenTarget.type === 'vscode'" class="size-3.5 shrink-0 text-info" />
+                <AppIcon name="folders" v-else class="size-3.5 shrink-0 text-warning" />
                 <span class="max-w-[62px] truncate">{{ currentDirectoryOpenTarget.label }}</span>
               </button>
 
@@ -83,7 +83,7 @@
                 :disabled="directoryOpenTargetsLoading"
                 @click.stop="toggle"
               >
-                <ChevronDown
+                <AppIcon name="chevron-down"
                   class="size-3 transition-transform duration-150"
                   :class="{ 'rotate-180': dropdownOpen }"
                 />
@@ -107,7 +107,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowLeftRight, ChevronDown, Code2, FolderTree, Folders, GitFork, SquareTerminal } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import type { ShellWorkMode } from "../../../../types/app";
 import CardShell from "./CardShell.vue";
 import EcallDropdown from "../../../shared/components/EcallDropdown.vue";
@@ -208,7 +208,7 @@ const currentLabel = computed(() => {
 });
 
 const currentIcon = computed(() => {
-  return isWorktreeTarget.value ? GitFork : FolderTree;
+  return isWorktreeTarget.value ? "git-fork" : "folder-tree";
 });
 
 const currentTone = computed<"warning" | "secondary">(() => {

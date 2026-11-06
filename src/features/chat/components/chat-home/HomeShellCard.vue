@@ -3,7 +3,7 @@
     :col-span="colSpan"
     :row-span="rowSpan"
     tone="success"
-    :icon="SquareTerminal"
+    icon="square-terminal"
     :label="t('chat.homePanel.shellLabel')"
     pulsing
   >
@@ -16,7 +16,7 @@
         :aria-label="t('chat.homePanel.shellInterrupt')"
         @click.stop="emit('interrupt')"
       >
-        <Square class="size-3" />
+        <AppIcon name="square" class="size-3" />
       </button>
       <span class="shrink-0 text-xs text-base-content/45">{{ elapsedText }}</span>
     </template>
@@ -28,7 +28,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { Square, SquareTerminal } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import CardShell from "./CardShell.vue";
 
 const props = withDefaults(defineProps<{

@@ -28,7 +28,7 @@
               :key="member.conversationId"
               class="flex items-center gap-2 rounded-field border border-base-content/10 bg-base-100 px-3 py-2"
             >
-              <UserRound class="h-3.5 w-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
+              <AppIcon name="user-round" class="h-3.5 w-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
               <span class="min-w-0 flex-1 truncate text-xs font-medium text-base-content/85">{{ member.teamName || member.title }}</span>
             </div>
           </div>
@@ -100,7 +100,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { UserRound } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import type { AgentPersonaOption } from "../../../shared/agent-persona-options";
 
 export type TeamManageMember = {

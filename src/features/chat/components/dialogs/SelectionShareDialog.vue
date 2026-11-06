@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { ImageIcon, FileCode2 } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 
 const props = defineProps<{
   open: boolean;
@@ -61,7 +61,7 @@ watch(dialogRef, syncDialog);
           @click="emit('exportImage')"
         >
           <span class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <ImageIcon class="h-5 w-5" />
+            <AppIcon name="image" class="h-5 w-5" />
           </span>
           <span class="text-sm font-semibold">{{ imageText }}</span>
         </button>
@@ -71,7 +71,7 @@ watch(dialogRef, syncDialog);
           @click="emit('exportHtml')"
         >
           <span class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-secondary/10 text-secondary">
-            <FileCode2 class="h-5 w-5" />
+            <AppIcon name="file-code" class="h-5 w-5" />
           </span>
           <span class="text-sm font-semibold">{{ htmlText }}</span>
         </button>

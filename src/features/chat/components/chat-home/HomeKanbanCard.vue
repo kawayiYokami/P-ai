@@ -1,7 +1,7 @@
 <template>
   <CardShell
     tone="warning"
-    :icon="LayoutGrid"
+    icon="layout-grid"
     :label="t('chat.kanban.cardTitle')"
     class="ecall-home-kanban"
     :style="tileSpanStyle"
@@ -19,7 +19,7 @@
           :aria-disabled="!canToggleMode"
           @click.stop="toggleMode"
         >
-          <ArrowLeftRight class="size-3.5 shrink-0" aria-hidden="true" />
+          <AppIcon name="arrow-left-right" class="size-3.5 shrink-0" aria-hidden="true" />
           <span class="truncate">{{ t(`chat.kanban.view.${mode}`) }}</span>
         </button>
       </div>
@@ -43,7 +43,7 @@
           @click.stop="emit('open')"
         >
           <span>{{ t("chat.kanban.cardMoreBtn") }}</span>
-          <ArrowUpRight class="size-3" aria-hidden="true" />
+          <AppIcon name="arrow-up-right" class="size-3" aria-hidden="true" />
         </button>
       </div>
     </template>
@@ -167,7 +167,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowLeftRight, ArrowUpRight, LayoutGrid } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import CardShell from "./CardShell.vue";
 import KanbanIssueCard from "../kanban/KanbanIssueCard.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";

@@ -3,7 +3,7 @@
     :col-span="colSpan"
     :row-span="rowSpan"
     tone="info"
-    :icon="Wrench"
+    icon="wrench"
     :label="t('chat.homePanel.toolLabel')"
     interactive
     @select="emit('open')"
@@ -28,7 +28,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { Wrench } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import CardShell from "./CardShell.vue";
 import type { ToolReviewBatchSummary } from "../../composables/use-chat-tool-review";
 

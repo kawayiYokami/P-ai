@@ -11,7 +11,7 @@
           :aria-label="t('chat.kanban.backToTiles')"
           @click="emit('back')"
         >
-          <LayoutGrid class="size-3.5" aria-hidden="true" />
+          <AppIcon name="layout-grid" class="size-3.5" aria-hidden="true" />
         </button>
 
         <span class="text-sm font-medium text-base-content/90">
@@ -32,7 +32,7 @@
           :disabled="loading"
           @click="emit('refresh')"
         >
-          <RefreshCw class="size-3.5" :class="loading ? 'animate-spin' : ''" aria-hidden="true" />
+          <AppIcon name="refresh-cw" class="size-3.5" :class="loading ? 'animate-spin' : ''" aria-hidden="true" />
         </button>
       </div>
     </header>
@@ -82,7 +82,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { LayoutGrid, RefreshCw } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 import KanbanBoardColumn from "./KanbanBoardColumn.vue";
 import type { KanbanIssue, KanbanStageStatus } from "./kanban-types";

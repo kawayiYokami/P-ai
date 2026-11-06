@@ -109,7 +109,7 @@
               :title="t('chat.newConversation')"
               @click="createConversationFromSidebar"
             >
-              <SquarePen class="h-4 w-4" />
+              <AppIcon name="square-pen" class="h-4 w-4" />
               <span>{{ t("chat.newConversation") }}</span>
             </button>
 
@@ -124,7 +124,7 @@
                   @click="toggleRecentSuperSection"
                 >
                   <span class="truncate">{{ t("chat.recentConversations") }}</span>
-                  <ChevronRight
+                  <AppIcon name="chevron-right"
                     class="h-3 w-3 shrink-0 ml-0.5 transition-transform duration-200 ease-out opacity-0 group-hover:opacity-60"
                     :class="recentSuperCollapsed ? '' : 'rotate-90'"
                   />
@@ -146,16 +146,16 @@
                         :title="currentRecentTimeLabel"
                         @click.stop="toggleTimeFilter"
                       >
-                        <Clock class="h-3 w-3" />
+                        <AppIcon name="clock" class="h-3 w-3" />
                       </button>
                     </template>
                     <template #default="{ close: closeTimeFilter }">
                       <ul class="menu w-full p-0">
                         <li v-for="opt in recentTimeFilterOptions" :key="opt.value">
                           <button type="button" class="flex-nowrap" @click="selectRecentTimeFilter(opt.value, closeTimeFilter)">
-                            <Clock class="h-3.5 w-3.5 shrink-0" />
+                            <AppIcon name="clock" class="h-3.5 w-3.5 shrink-0" />
                             <span class="whitespace-nowrap">{{ opt.label }}</span>
-                            <Check v-if="recentTimeFilterHours === opt.value" class="ml-auto h-3.5 w-3.5 shrink-0 text-primary" />
+                            <AppIcon name="check" v-if="recentTimeFilterHours === opt.value" class="ml-auto h-3.5 w-3.5 shrink-0 text-primary" />
                           </button>
                         </li>
                       </ul>
@@ -189,7 +189,7 @@
                           @click.stop="createConversationInSection(section)"
                           @dblclick.stop
                         >
-                          <SquarePen class="h-3.5 w-3.5" />
+                          <AppIcon name="square-pen" class="h-3.5 w-3.5" />
                         </button>
                       </template>
                       <template v-for="item in section.visibleItems" :key="item.conversationId">
@@ -277,7 +277,7 @@
                   @click="toggleCategorySuperSection"
                 >
                   <span class="truncate">{{ conversationGroupingLabel }}</span>
-                  <ChevronRight
+                  <AppIcon name="chevron-right"
                     class="h-3 w-3 shrink-0 ml-0.5 transition-transform duration-200 ease-out opacity-0 group-hover:opacity-60"
                     :class="categorySuperCollapsed ? '' : 'rotate-90'"
                   />
@@ -299,16 +299,16 @@
                         :title="conversationGroupingLabel"
                         @click.stop="toggleGroupingMenu"
                       >
-                        <component :is="currentGroupingIcon" class="h-3 w-3" />
+                        <AppIcon :name="currentGroupingIcon" class="h-3 w-3" />
                       </button>
                     </template>
                     <template #default="{ close: closeGroupingMenu }">
                       <ul class="menu w-full p-0">
                         <li v-for="option in conversationGroupingOptions" :key="option.value">
                           <button type="button" @click="selectConversationGrouping(option.value, closeGroupingMenu)">
-                            <component :is="option.icon" class="h-3.5 w-3.5" />
+                            <AppIcon :name="option.icon" class="h-3.5 w-3.5" />
                             <span>{{ option.label }}</span>
-                            <Check v-if="conversationGrouping === option.value" class="ml-auto h-3.5 w-3.5 text-primary" />
+                            <AppIcon name="check" v-if="conversationGrouping === option.value" class="ml-auto h-3.5 w-3.5 text-primary" />
                           </button>
                         </li>
                       </ul>
@@ -347,7 +347,7 @@
                           @click.stop="createConversationInSection(section)"
                           @dblclick.stop
                         >
-                          <SquarePen class="h-3.5 w-3.5" />
+                          <AppIcon name="square-pen" class="h-3.5 w-3.5" />
                         </button>
                       </template>
                       <template v-for="item in section.visibleItems" :key="item.conversationId">
@@ -435,7 +435,7 @@
     <div class="shrink-0 px-2 py-2">
       <div v-if="showSearch" class="pb-1.5">
         <label class="input input-bordered input-sm flex h-8 min-w-0 items-center gap-2 bg-base-100">
-          <Search class="h-3.5 w-3.5 opacity-60" />
+          <AppIcon name="search" class="h-3.5 w-3.5 opacity-60" />
           <input
             ref="searchInputRef"
             v-model="conversationSearchQuery"
@@ -466,13 +466,13 @@
           >
             <li>
               <button type="button" @click="handleOpenSettings">
-                <Settings class="h-3.5 w-3.5" />
+                <AppIcon name="settings" class="h-3.5 w-3.5" />
                 <span>{{ t("common.settings") }}</span>
               </button>
             </li>
             <li>
               <button type="button" @click="handleOpenBatchArchive">
-                <Archive class="h-3.5 w-3.5" />
+                <AppIcon name="archive" class="h-3.5 w-3.5" />
                 <span>{{ t("chat.batchArchive.entryAction") }}</span>
               </button>
             </li>
@@ -485,9 +485,9 @@
             :title="themeToggleTitle"
             @click="cycleThemeMode"
           >
-            <SunMoon v-if="themeMode === 'auto'" class="h-4 w-4" />
-            <Sun v-else-if="themeMode === 'light'" class="h-4 w-4" />
-            <Moon v-else class="h-4 w-4" />
+            <AppIcon name="sun-moon" v-if="themeMode === 'auto'" class="h-4 w-4" />
+            <AppIcon name="sun" v-else-if="themeMode === 'light'" class="h-4 w-4" />
+            <AppIcon name="moon" v-else class="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -496,7 +496,7 @@
             :title="t('chat.conversationFilter.title')"
             @click="showSearch = !showSearch"
           >
-            <ListFilter class="h-4 w-4" />
+            <AppIcon name="list-filter" class="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -504,7 +504,7 @@
             :title="t('chat.conversationSearchPanel.openTitle')"
             @click="emit('openConversationSearch')"
           >
-            <Search class="h-4 w-4" />
+            <AppIcon name="search" class="h-4 w-4" />
           </button>
           <button
             v-for="item in systemNotificationItems"
@@ -517,7 +517,7 @@
             :title="conversationDisplayTitle(item)"
             @click="selectSystemNotificationConversation(item)"
           >
-            <Bell class="h-4 w-4" />
+            <AppIcon name="bell" class="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -592,7 +592,7 @@
                   :checked="isBatchArchiveConversationSelected(item)"
                   @change="toggleBatchArchiveConversation(item, ($event.target as HTMLInputElement).checked)"
                 />
-                <Archive class="h-4 w-4 shrink-0 text-base-content/55" />
+                <AppIcon name="archive" class="h-4 w-4 shrink-0 text-base-content/55" />
                 <div class="min-w-0 flex-1">
                   <div class="truncate text-sm font-medium">{{ conversationDisplayTitle(item) }}</div>
                 </div>
@@ -645,9 +645,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Archive, Bell, Check, ChevronDown, ChevronRight, Clock, Folder, LayoutList, ListFilter, Moon, Search, Settings, SquarePen, Sun, SunMoon, UserRound } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
+import type { AppIconName } from "../../shared/icons/icon-map";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import ChatConversationItem from "./ChatConversationItem.vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
@@ -794,17 +795,17 @@ const groupingMenuOpen = ref(false);
 const conversationGroupingOptions = computed<Array<{
   value: ConversationSectionGrouping;
   label: string;
-  icon: Component;
+  icon: AppIconName;
 }>>(() => [
-  { value: "mixed", label: t("chat.groupingByMixed"), icon: LayoutList },
-  { value: "workspace", label: t("chat.groupingByWorkspace"), icon: Folder },
-  { value: "persona", label: t("chat.groupingByPersona"), icon: UserRound },
+  { value: "mixed", label: t("chat.groupingByMixed"), icon: "layout-list" },
+  { value: "workspace", label: t("chat.groupingByWorkspace"), icon: "folder" },
+  { value: "persona", label: t("chat.groupingByPersona"), icon: "user-round" },
 ]);
 const conversationGroupingLabel = computed(() =>
   conversationGroupingOptions.value.find((option) => option.value === conversationGrouping.value)?.label || "",
 );
 const currentGroupingIcon = computed(() =>
-  conversationGroupingOptions.value.find((option) => option.value === conversationGrouping.value)?.icon || LayoutList,
+  conversationGroupingOptions.value.find((option) => option.value === conversationGrouping.value)?.icon || "layout-list",
 );
 
 const RECENT_TIME_FILTER_KEY = "easy-call.chat.recent-time-filter.v1";

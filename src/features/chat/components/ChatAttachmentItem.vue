@@ -24,11 +24,11 @@
           v-if="attachment.kind === 'audio'"
           class="inline-flex size-6 items-center justify-center rounded-full bg-primary/15 text-primary"
         >
-          <Pause v-if="playing" class="size-3.5" aria-hidden="true" />
-          <Play v-else class="size-3.5" aria-hidden="true" />
+          <AppIcon name="pause" v-if="playing" class="size-3.5" aria-hidden="true" />
+          <AppIcon name="play" v-else class="size-3.5" aria-hidden="true" />
         </span>
-        <Code2 v-else-if="attachment.kind === 'context'" class="size-3.5 text-info" aria-hidden="true" />
-        <FileText v-else class="size-3.5 text-base-content/55" aria-hidden="true" />
+        <AppIcon name="code" v-else-if="attachment.kind === 'context'" class="size-3.5 text-info" aria-hidden="true" />
+        <AppIcon name="file-text" v-else class="size-3.5 text-base-content/55" aria-hidden="true" />
       </slot>
     </span>
     <span class="min-w-0 truncate">{{ attachment.label }}</span>
@@ -38,7 +38,7 @@
 </template>
 
 <script setup lang="ts">
-import { Code2, FileText, Pause, Play } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { ChatAttachmentView } from "../utils/chat-attachment-display";
 
 const props = withDefaults(defineProps<{

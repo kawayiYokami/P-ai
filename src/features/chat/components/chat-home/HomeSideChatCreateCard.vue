@@ -4,7 +4,7 @@
     :col-span="colSpan"
     :row-span="rowSpan"
     tone="secondary"
-    :icon="MessageSquareMore"
+    icon="message-square-more"
     :label="t('chat.sideChat.title')"
     interactive
     @select="emit('open')"
@@ -13,7 +13,7 @@
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import { MessageSquareMore } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import CardShell from "./CardShell.vue";
 
 withDefaults(defineProps<{

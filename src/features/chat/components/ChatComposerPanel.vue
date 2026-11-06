@@ -27,7 +27,7 @@
         :disabled="frozen || busy"
         @click="emit('openDelegateSelection')"
       >
-        <ClipboardList class="h-3.5 w-3.5" />
+        <AppIcon name="clipboard-list" class="h-3.5 w-3.5" />
         {{ t("chat.conversationMenu.groupDelegate") }}
       </button>
       <button
@@ -36,7 +36,7 @@
         :disabled="frozen || busy"
         @click="emit('openTaskCreate')"
       >
-        <CalendarPlus class="h-3.5 w-3.5" />
+        <AppIcon name="calendar-plus" class="h-3.5 w-3.5" />
         {{ t("chat.newTask") }}
       </button>
       <button
@@ -45,7 +45,7 @@
         :disabled="frozen || busy"
         @click="openCreateConversationDialog"
       >
-        <Plus class="h-3.5 w-3.5" />
+        <AppIcon name="plus" class="h-3.5 w-3.5" />
         {{ t("chat.newConversation") }}
       </button>
     </div>
@@ -64,7 +64,7 @@
         :disabled="frozen || busy"
         @click="emit('openDelegateSelection')"
       >
-        <ClipboardList class="h-3.5 w-3.5" />
+        <AppIcon name="clipboard-list" class="h-3.5 w-3.5" />
         {{ t("chat.conversationMenu.groupDelegate") }}
       </button>
       <button
@@ -73,7 +73,7 @@
         :disabled="frozen || busy"
         @click="emit('openTaskCreate')"
       >
-        <CalendarPlus class="h-3.5 w-3.5" />
+        <AppIcon name="calendar-plus" class="h-3.5 w-3.5" />
         {{ t("chat.newTask") }}
       </button>
     </div>
@@ -128,7 +128,7 @@
                 :title="t('chat.kanban.removeIssueReference')"
                 @click.stop="removeIssueReference(item.number)"
               >
-                <X class="h-3 w-3" />
+                <AppIcon name="close" class="h-3 w-3" />
               </button>
             </span>
           </div>
@@ -144,7 +144,7 @@
                 class="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-base-content transition hover:bg-error hover:text-error-content"
                 @click.stop="removeSelectedMention(item)"
               >
-                <X class="h-3 w-3" />
+                <AppIcon name="close" class="h-3 w-3" />
               </button>
             </span>
           </div>
@@ -172,7 +172,7 @@
                   @click="togglePlanMode()"
                 >
                   <span class="flex min-w-0 items-center gap-2">
-                    <ClipboardList class="h-4 w-4 shrink-0" :class="planModeEnabled ? 'text-info' : 'opacity-60'" />
+                    <AppIcon name="clipboard-list" class="h-4 w-4 shrink-0" :class="planModeEnabled ? 'text-info' : 'opacity-60'" />
                     <span class="truncate">{{ planModeEnabled ? t("chat.plan.enabled") : t("chat.plan.enterMode") }}</span>
                     <kbd class="kbd kbd-xs shrink-0 opacity-60">Shift+Tab</kbd>
                   </span>
@@ -189,7 +189,7 @@
                   @click="toggleWheelchairMode()"
                 >
                   <span class="flex min-w-0 items-center gap-2">
-                    <LifeBuoy class="h-4 w-4 shrink-0" :class="wheelchairModeEnabled ? 'text-warning' : 'opacity-60'" />
+                    <AppIcon name="life-buoy" class="h-4 w-4 shrink-0" :class="wheelchairModeEnabled ? 'text-warning' : 'opacity-60'" />
                     <span class="flex min-w-0 flex-col">
                       <span class="truncate">{{ wheelchairModeEnabled ? t("chat.wheelchair.enabled") : t("chat.wheelchair.enterMode") }}</span>
                       <span v-if="!wheelchairModeEnabled" class="truncate text-caption text-base-content/50">
@@ -344,7 +344,7 @@
                 @mousedown.prevent
                 @click="emit('openGoalTask')"
               >
-                <Target class="h-3.5 w-3.5" />
+                <AppIcon name="target" class="h-3.5 w-3.5" />
               </button>
               <button
                 v-if="showAttachAction"
@@ -355,7 +355,7 @@
                 @mousedown.prevent
                 @click="emit('pickAttachments')"
               >
-                <Paperclip class="h-3.5 w-3.5" />
+                <AppIcon name="paperclip" class="h-3.5 w-3.5" />
               </button>
               <ChatModelPicker
                 variant="chip"
@@ -410,7 +410,7 @@
                 @mousedown.prevent
                 @click="emit('stopChat')"
               >
-                <Square class="h-3.5 w-3.5 fill-current" />
+                <AppIcon name="square" class="h-3.5 w-3.5 fill-current" />
               </button>
               <div v-if="!composerInputBlank || !showStopAction" ref="sendModeMenuRef" class="relative flex shrink-0">
                 <button
@@ -424,7 +424,7 @@
                   @click="composerInputBlank ? (sendModeMenuOpen = !sendModeMenuOpen) : handleSendChat()"
                   @contextmenu.prevent="sendModeMenuOpen = !sendModeMenuOpen"
                 >
-                  <ArrowUp class="h-3.5 w-3.5" />
+                  <AppIcon name="arrow-up" class="h-3.5 w-3.5" />
                 </button>
                 <div
                   v-if="sendModeMenuOpen"
@@ -439,7 +439,7 @@
                       @click="setSendMode('enter')"
                     >
                       <span>{{ t("chat.sendModeEnter") }}</span>
-                      <Check v-if="sendMode === 'enter'" class="h-4 w-4 shrink-0 text-primary" />
+                      <AppIcon name="check" v-if="sendMode === 'enter'" class="h-4 w-4 shrink-0 text-primary" />
                     </button>
                     <button
                       type="button"
@@ -449,7 +449,7 @@
                       @click="setSendMode('ctrl_enter')"
                     >
                       <span>{{ t("chat.sendModeCtrlEnter") }}</span>
-                      <Check v-if="sendMode === 'ctrl_enter'" class="h-4 w-4 shrink-0 text-primary" />
+                      <AppIcon name="check" v-if="sendMode === 'ctrl_enter'" class="h-4 w-4 shrink-0 text-primary" />
                     </button>
                     <div class="px-2.5 pt-1 pb-0.5 text-xs opacity-50">{{ t("chat.sendModeAltS") }}</div>
                   </div>
@@ -467,7 +467,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowUp, CalendarPlus, Check, ClipboardList, LifeBuoy, Paperclip, Plus, Square, Target, X } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption } from "../../../types/app";
 import ChatSelectionActionPanel from "./ChatSelectionActionPanel.vue";
 import ChatModelPicker from "../../config/components/ApiConfigPicker.vue";

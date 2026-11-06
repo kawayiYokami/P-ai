@@ -65,7 +65,7 @@
               data-selection-ignore="true"
               @click.stop="toggleReasoningItemExpanded(item)"
             >
-              <ChevronRight
+              <AppIcon name="chevron-right"
                 class="h-3.5 w-3.5 transition-transform duration-150"
                 :class="{ 'rotate-90': activityItemExpanded(item) }"
               />
@@ -200,7 +200,7 @@
                   class="ml-1 shrink-0 font-mono text-error"
                 >-{{ activityItemDisplay(item).removes }}</span>
               </span>
-              <ChevronRight
+              <AppIcon name="chevron-right"
                 class="ecall-activity-chevron mt-0.5 h-3.5 w-3.5 shrink-0 transition-transform duration-150"
               />
             </summary>
@@ -244,7 +244,7 @@
                             v-if="props.state.toolResultLoading[activityItemKey(item)]"
                             class="loading loading-spinner loading-xs"
                           ></span>
-                          <ChevronRight v-else class="h-3 w-3 shrink-0" />
+                          <AppIcon name="chevron-right" v-else class="h-3 w-3 shrink-0" />
                           {{ t("chat.toolReview.viewResult") || "查看结果" }}
                         </button>
                         <!-- 缺定位上下文时不给按钮：点了也取不回，只留一句说明 -->
@@ -328,7 +328,7 @@
 // 这样消息里的气泡头与委托卡里的「执行过程」标题各自保留自己的外壳。
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ChevronRight } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatActivityItem } from "../../../types/app";
 import { textContentSignature } from "../utils/text-signature";

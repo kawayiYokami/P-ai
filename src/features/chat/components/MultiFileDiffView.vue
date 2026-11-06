@@ -19,7 +19,7 @@
           @click="toggle(section.key)"
           @contextmenu.prevent="collapseAll"
         >
-          <ChevronRight class="h-3.5 w-3.5 shrink-0 opacity-60 transition-transform" :class="{ 'rotate-90': isExpanded(section.key) }" />
+          <AppIcon name="chevron-right" class="h-3.5 w-3.5 shrink-0 opacity-60 transition-transform" :class="{ 'rotate-90': isExpanded(section.key) }" />
           <span class="min-w-0 flex-1 truncate font-mono text-xs font-medium">{{ section.path }}</span>
           <span v-if="section.isBinary" class="badge badge-ghost badge-xs">二进制</span>
           <template v-else>
@@ -32,7 +32,7 @@
             title="打开源文件"
             @click.stop="emit('openFile', { path: section.path })"
           >
-            <FileText class="h-3 w-3" />
+            <AppIcon name="file-text" class="h-3 w-3" />
           </span>
         </button>
         <div v-if="isExpanded(section.key)" class="file-section-body bg-base-100">
@@ -56,7 +56,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { ChevronRight, FileText } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import ToolReviewCodePreview from "./ToolReviewCodePreview.vue";
 import { parseMultiFileDiff, type FileDiffSection } from "../../file-reader/utils/multiFileDiff";

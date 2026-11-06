@@ -40,7 +40,7 @@
             v-if="hasMonitor"
             class="indicator-item indicator-top indicator-end h-2.5 w-2.5 rounded-full bg-success"
           ></span>
-          <Network class="size-3.5 shrink-0" :class="hasMonitor ? 'text-base-content/70' : 'text-base-content/40'" aria-hidden="true" />
+          <AppIcon name="network" class="size-3.5 shrink-0" :class="hasMonitor ? 'text-base-content/70' : 'text-base-content/40'" aria-hidden="true" />
         </span>
 
         <Transition name="wdc-content">
@@ -63,15 +63,15 @@
               <span class="h-4 w-px shrink-0 bg-base-300"></span>
               <span class="flex min-w-0 items-center gap-2 overflow-hidden text-xs text-base-content/75">
                 <span class="inline-flex min-w-0 items-center gap-1" :title="t('chat.monitorBar.elapsedTitle')">
-                  <Timer class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
+                  <AppIcon name="timer" class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
                   <span class="truncate tabular-nums">{{ elapsedText }}</span>
                 </span>
                 <span class="inline-flex min-w-0 items-center gap-1" :title="t('chat.monitorBar.requestTitle')">
-                  <Footprints class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
+                  <AppIcon name="footprints" class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
                   <span class="truncate tabular-nums">{{ t("chat.monitorBar.requestCountLabel", { count: requestCount }) }}</span>
                 </span>
                 <span class="inline-flex min-w-0 items-center gap-1" :title="t('chat.monitorBar.tokenTitle')">
-                  <Coins class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
+                  <AppIcon name="coins" class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
                   <span class="truncate tabular-nums">{{ t("chat.monitorBar.tokenCountLabel", { value: tokenText }) }}</span>
                 </span>
               </span>
@@ -81,7 +81,7 @@
       </button>
 
       <Transition name="wdc-content">
-        <PanelRightOpen
+        <AppIcon name="panel-right-open"
           v-if="expandedPanel === 'delegate' && delegateCount > 0"
           class="size-3.5 flex-none text-base-content/45"
           aria-hidden="true"
@@ -94,7 +94,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Coins, Eye, Footprints, Network, PanelRightOpen, ShieldCheck, ShieldOff, ShieldQuestion, Timer } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { ConversationDelegateStatusSummary } from "../../../types/app";
 
 const props = defineProps<{

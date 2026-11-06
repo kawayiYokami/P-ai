@@ -9,7 +9,7 @@
     >
       <div class="flex min-w-0 items-start gap-2">
         <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-base-100 text-base-content/65">
-          <ListTodo class="h-4 w-4" />
+          <AppIcon name="list-todo" class="h-4 w-4" />
         </div>
         <div class="min-w-0 flex-1">
           <div class="flex min-w-0 items-start justify-between gap-2">
@@ -35,7 +35,7 @@
 </template>
 
 <script setup lang="ts">
-import { ListTodo } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 
 defineProps<{
   label: string;

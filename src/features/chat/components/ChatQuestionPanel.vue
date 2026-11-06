@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ChevronDown, ChevronUp, HelpCircle } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import DoubleDeckCard from "./input-panel/DoubleDeckCard.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
@@ -355,9 +355,9 @@ function handleReject() {
       class="flex w-full items-center gap-2 rounded-box border border-base-content/15 bg-base-200/60 px-3 py-1.5 text-xs text-base-content/70 transition-colors hover:border-base-content/25 hover:text-base-content"
       @click="panelCollapsed = false"
     >
-      <HelpCircle class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <AppIcon name="help-circle" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <span class="min-w-0 truncate">{{ t("chat.questionPanel.pendingCount", { count: total }) }}</span>
-      <ChevronUp class="ml-auto h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <AppIcon name="chevron-up" class="ml-auto h-3.5 w-3.5 shrink-0" aria-hidden="true" />
     </button>
     <!-- 提问卡：双层卡，前提内容放底卡露头，题干加选项放面卡。
          收起不卸载卡片，走最大高度与透明度过渡，展开回来草稿与选中态都还在。 -->
@@ -481,7 +481,7 @@ function handleReject() {
                 @click="panelCollapsed = true"
               >
                 {{ t("chat.questionPanel.collapse") }}
-                <ChevronDown class="h-3 w-3" aria-hidden="true" />
+                <AppIcon name="chevron-down" class="h-3 w-3" aria-hidden="true" />
               </button>
             </div>
           <template

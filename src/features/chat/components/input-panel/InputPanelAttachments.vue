@@ -17,7 +17,7 @@
               draggable="false"
             />
             <div v-else class="input-panel-file-preview">
-              <FileText class="h-5 w-5" />
+              <AppIcon name="file-text" class="h-5 w-5" />
               <span class="text-xs">{{ img.label || `图片 ${idx + 1}` }}</span>
             </div>
             <button
@@ -28,7 +28,7 @@
               @mousedown.prevent
               @click.stop="$emit('removeImage', idx)"
             >
-              <X class="h-3 w-3" />
+              <AppIcon name="close" class="h-3 w-3" />
             </button>
           </div>
         </TransitionGroup>
@@ -43,7 +43,7 @@
             class="badge badge-ghost gap-1 py-3"
           >
             <span v-if="file.pending" class="loading loading-spinner loading-xs"></span>
-            <FileText v-else class="h-3.5 w-3.5" />
+            <AppIcon name="file-text" v-else class="h-3.5 w-3.5" />
             <span class="text-xs">{{ file.fileName }}</span>
             <button
               v-if="!file.pending"
@@ -52,7 +52,7 @@
               @mousedown.prevent
               @click="$emit('removeFile', idx)"
             >
-              <X class="h-3 w-3" />
+              <AppIcon name="close" class="h-3 w-3" />
             </button>
           </div>
         </TransitionGroup>
@@ -73,8 +73,8 @@
               @mousedown.prevent
               @click="$emit('toggleBridge', item.id)"
             >
-              <Minus v-if="item.attached" class="h-3.5 w-3.5 shrink-0" />
-              <Plus v-else class="h-3.5 w-3.5 shrink-0" />
+              <AppIcon name="minus" v-if="item.attached" class="h-3.5 w-3.5 shrink-0" />
+              <AppIcon name="plus" v-else class="h-3.5 w-3.5 shrink-0" />
               <span class="flex min-w-0 max-w-72 items-center text-xs">
                 <span class="min-w-0 truncate">{{ item.fileName }}</span>
                 <span
@@ -91,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { FileText, Minus, Plus, X } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import InputPanelCollapse from "./InputPanelCollapse.vue";
 
 export type InputPanelImageItem = {

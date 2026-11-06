@@ -3,7 +3,7 @@
     :col-span="colSpan"
     :row-span="rowSpan"
     tone="primary"
-    :icon="ClipboardList"
+    icon="clipboard-list"
     :label="t('chat.homePanel.planLabel')"
     interactive
     @select="emit('open', plan.path)"
@@ -23,7 +23,7 @@
         <span class="truncate text-xs font-semibold text-base-content/90" :title="outline.title">
           {{ outline.title }}
         </span>
-        <ArrowUpRight class="size-3 shrink-0 text-base-content/35" aria-hidden="true" />
+        <AppIcon name="arrow-up-right" class="size-3 shrink-0 text-base-content/35" aria-hidden="true" />
       </div>
 
       <!-- 加载中状态 -->
@@ -43,7 +43,7 @@
           <div class="min-w-0 gap-1.5 py-0.5 px-1 font-normal" :title="item.text">
             <!-- checklist item -->
             <template v-if="item.kind === 'checkbox'">
-              <Check
+              <AppIcon name="check"
                 v-if="item.status === 'completed'"
                 class="size-3 shrink-0 text-success"
                 aria-hidden="true"
@@ -94,7 +94,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowUpRight, Check, ClipboardList } from "@lucide/vue";
+import AppIcon from "../../../shared/components/AppIcon.vue";
 import CardShell from "./CardShell.vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { parsePlanMarkdown, type ParsedPlanItem } from "../../utils/plan-card-parser";

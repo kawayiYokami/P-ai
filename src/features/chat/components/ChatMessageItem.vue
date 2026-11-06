@@ -89,7 +89,7 @@
                 class="loading loading-spinner loading-xs text-base-content/60 shrink-0"
               />
               <!-- 箭头只在悬停这一行时露出来，平时不占视觉 -->
-              <ChevronRight
+              <AppIcon name="chevron-right"
                 v-else-if="showActivityPanel(block)"
                 class="h-3.5 w-3.5 shrink-0 opacity-0 transition-all duration-150 group-hover:opacity-60"
                 :class="{ 'rotate-90': activityPanelOpen(block) }"
@@ -167,7 +167,7 @@
                   @click.stop="toggleProcessSegments"
                 >
                   <span>{{ processSegmentsFolded ? t("chat.previousProcessMessages", { count: collapsibleProcessPieceCount }) : t("common.collapse") }}</span>
-                  <ChevronRight
+                  <AppIcon name="chevron-right"
                     class="h-3.5 w-3.5 shrink-0 transition-transform duration-200"
                     :class="processSegmentsFolded ? '' : 'rotate-90'"
                   />
@@ -338,7 +338,7 @@
           :title="t('chat.copy')"
           @click="emit('copyMessage', block)"
         >
-          <Copy class="h-3.5 w-3.5" />
+          <AppIcon name="copy" class="h-3.5 w-3.5" />
         </button>
         <button
           type="button"
@@ -347,7 +347,7 @@
           :disabled="copyMessageImageBusy"
           @click="copyCurrentMessageAsImage"
         >
-          <ImageIcon class="h-3.5 w-3.5" />
+          <AppIcon name="image" class="h-3.5 w-3.5" />
         </button>
         <button
           v-if="canRecallBlock(block)"
@@ -357,7 +357,7 @@
           :disabled="selectionModeEnabled || busy"
           @click="emit('recallTurn', { turnId: recallTurnId(block) })"
         >
-          <Undo2 class="h-3.5 w-3.5" />
+          <AppIcon name="undo" class="h-3.5 w-3.5" />
         </button>
       </template>
     </ChatBubbleShell>
@@ -378,43 +378,43 @@
     >
       <li>
         <button type="button" @click="handleContextMenuAction('select')">
-          <ListCheck class="h-4 w-4" />
+          <AppIcon name="list-check" class="h-4 w-4" />
           <span>{{ t('chat.messageItem.multiSelect') }}</span>
         </button>
       </li>
       <li>
         <button type="button" @click="handleContextMenuAction('copy')">
-          <Copy class="h-4 w-4" />
+          <AppIcon name="copy" class="h-4 w-4" />
           <span>{{ t('common.copy') }}</span>
         </button>
       </li>
       <li>
         <button type="button" @click="handleContextMenuAction('copyAsImage')">
-          <ImageIcon class="h-4 w-4" />
+          <AppIcon name="image" class="h-4 w-4" />
           <span>{{ t('chat.selection.copyImageAsImage') }}</span>
         </button>
       </li>
       <li v-if="isDevBuild">
         <button type="button" @click="handleContextMenuAction('showRawData')">
-          <Braces class="h-4 w-4" />
+          <AppIcon name="braces" class="h-4 w-4" />
           <span>显示原始 ChatMessage</span>
         </button>
       </li>
       <li v-if="mathContextCopyText">
         <button type="button" @click="handleContextMenuAction('copyMath')">
-          <Copy class="h-4 w-4" />
+          <AppIcon name="copy" class="h-4 w-4" />
           <span>{{ t('chat.copyMath') }}</span>
         </button>
       </li>
       <li v-if="canRecallBlock(block)">
         <button type="button" @click="handleContextMenuAction('branchFromMessage')">
-          <Split class="h-4 w-4" />
+          <AppIcon name="split" class="h-4 w-4" />
           <span>{{ t('chat.messageItem.branchFromMessage') }}</span>
         </button>
       </li>
       <li v-if="canRecallBlock(block)">
         <button type="button" class="text-error" @click="handleContextMenuAction('recall')">
-          <Undo2 class="h-4 w-4" />
+          <AppIcon name="undo" class="h-4 w-4" />
           <span>{{ t('chat.recall') }}</span>
         </button>
       </li>
@@ -444,7 +444,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect, watchPostEffect, type StyleValue } from "vue";
 import { useI18n } from "vue-i18n";
-import { Braces, ChevronRight, Copy, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { invokeTauri, openTransportWorkspaceFile, readTransportChatImage } from "../../../services/tauri-api";
 import type { ChatActivityItem, ChatMessageBlock } from "../../../types/app";
 import {

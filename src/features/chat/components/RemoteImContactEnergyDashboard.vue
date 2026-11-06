@@ -12,7 +12,7 @@
       </span>
       <span class="text-xs font-medium">{{ presenceText }}</span>
       <span class="h-4 w-px bg-base-300"></span>
-      <BatteryCharging class="size-4" :class="energyClass" aria-hidden="true" />
+      <AppIcon name="battery-charging" class="size-4" :class="energyClass" aria-hidden="true" />
       <span class="text-xs font-semibold tabular-nums" :class="energyClass">{{ compactEnergyText }}</span>
     </button>
 
@@ -54,7 +54,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { BatteryCharging } from "@lucide/vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import type { RemoteImContactDashboardSnapshot } from "../../../types/app";
 
 const props = defineProps<{
