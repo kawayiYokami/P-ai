@@ -61,30 +61,40 @@ impl DecodedTextFile {
     }
 }
 
-/// 把 CRLF / CR 统一成 LF，并记住出现的第一种行尾。
+/// 把 CRLF / CR 统一成 LF，并按**多数**决定整份文件的行尾。
 ///
 /// 行尾差异是正常输入，不是错误：模型读到的是 LF，磁盘上可能是 CRLF，两边直接
 /// 比较永远对不上。在这里一次统一，比等到匹配失败再补救便宜——后者要先扫全文
 /// 找候选，代价随文件大小暴涨。
+///
+/// 混合行尾按多数而不是「第一个出现的」，与 Claude Code 的
+/// `detectLineEndingsForString` 同口径（`crlfCount > lfCount ? 'CRLF' : 'LF'`）：
+/// 只被改坏几行的文件，多数行才是这个文件本来的写法。平票按 LF，也和它一致。
 fn normalize_line_endings(text: &str) -> (String, TextLineEnding) {
     if !text.contains('\r') {
         return (text.to_string(), TextLineEnding::Lf);
     }
-    let mut ending: Option<TextLineEnding> = None;
+    let mut crlf_count = 0usize;
+    let mut cr_count = 0usize;
+    let mut lf_count = 0usize;
     let mut normalized = String::with_capacity(text.len());
     let mut copied = 0usize;
     let mut chars = text.char_indices().peekable();
     while let Some((index, ch)) = chars.next() {
+        if ch == '\n' {
+            lf_count += 1;
+            continue;
+        }
         if ch != '\r' {
             continue;
         }
         normalized.push_str(&text[copied..index]);
         let is_crlf = text[index + 1..].starts_with('\n');
-        ending.get_or_insert(if is_crlf {
-            TextLineEnding::CrLf
+        if is_crlf {
+            crlf_count += 1;
         } else {
-            TextLineEnding::Cr
-        });
+            cr_count += 1;
+        }
         normalized.push('\n');
         copied = index + if is_crlf { 2 } else { 1 };
         if is_crlf {
@@ -92,7 +102,14 @@ fn normalize_line_endings(text: &str) -> (String, TextLineEnding) {
         }
     }
     normalized.push_str(&text[copied..]);
-    (normalized, ending.unwrap_or(TextLineEnding::Lf))
+    let ending = if crlf_count > lf_count && crlf_count >= cr_count {
+        TextLineEnding::CrLf
+    } else if cr_count > lf_count && cr_count > crlf_count {
+        TextLineEnding::Cr
+    } else {
+        TextLineEnding::Lf
+    };
+    (normalized, ending)
 }
 
 fn decode_text_file_bytes(bytes: &[u8]) -> Result<DecodedTextFile, String> {
@@ -303,17 +320,23 @@ mod text_codec_tests {
     }
 
     #[test]
-    fn decode_should_pick_the_first_line_ending_for_mixed_files() {
-        // 混合行尾文件会被整份统一成第一个出现的行尾。这是已知行为，不是疏忽：
-        // 要逐行保留就得把每个替换结果映射回原始字节区间，复杂度和测试面都远超范围。
-        // 钉住它是为了以后有人改到这里时，先看到这条测试再决定。
-        let decoded = decode_text_file_bytes(b"a\r\nb\nc\n").expect("decode mixed");
-        assert_eq!(decoded.text, "a\nb\nc\n");
-        assert_eq!(decoded.line_ending, TextLineEnding::CrLf);
+    fn decode_should_pick_majority_line_ending_for_mixed_files() {
+        // 混合行尾按多数决定，与 Claude Code 的 detectLineEndingsForString 同口径。
+        // 只被改坏几行的文件，多数行才是它本来的写法；取第一个出现的没有这个含义。
+        let mostly_lf = decode_text_file_bytes(b"a\r\nb\nc\n").expect("decode mixed");
+        assert_eq!(mostly_lf.text, "a\nb\nc\n");
+        assert_eq!(mostly_lf.line_ending, TextLineEnding::Lf);
         assert_eq!(
-            decoded.encode_like_original(&decoded.text).expect("encode"),
-            b"a\r\nb\r\nc\r\n"
+            mostly_lf.encode_like_original(&mostly_lf.text).expect("encode"),
+            b"a\nb\nc\n"
         );
+
+        let mostly_crlf = decode_text_file_bytes(b"a\nb\r\nc\r\n").expect("decode mixed");
+        assert_eq!(mostly_crlf.line_ending, TextLineEnding::CrLf);
+
+        // 平票按 LF：Claude Code 是 crlfCount > lfCount ? 'CRLF' : 'LF'，相等时落在 LF。
+        let tie = decode_text_file_bytes(b"a\r\nb\n").expect("decode mixed tie");
+        assert_eq!(tie.line_ending, TextLineEnding::Lf);
     }
 
     #[test]
