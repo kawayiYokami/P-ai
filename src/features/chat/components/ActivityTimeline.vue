@@ -332,9 +332,12 @@ function settleHeight(el: HTMLElement): void {
 
 /** 收起 → 展开：钉住当前高，读全文高，切到展开态，再过渡过去。 */
 function expandFold(el: HTMLElement, applyOpen: () => void): void {
-  const start = el.getBoundingClientRect().height;
+  const rect = el.getBoundingClientRect();
+  const start = rect.height;
+  // 与整体面板同一口径：长思考只展开到露出为止，超出屏幕的部分不参与过渡，
+  // 否则同样的 200ms 里要冲过上千像素，看上去就是直接跳出来。
+  const target = Math.min(el.scrollHeight, Math.max(0, window.innerHeight - rect.top));
   el.style.height = `${start}px`;
-  const target = el.scrollHeight;
   applyOpen();
   // 高度没变就没有过渡可等，内联高度也别留着
   if (Math.abs(target - start) < 1) {
