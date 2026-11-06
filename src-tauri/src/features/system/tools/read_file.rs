@@ -368,11 +368,16 @@ fn build_text_read_result(
     detected: ReadFileDetectedType,
     reader_kind: &str,
     text: &str,
+    source_line_ending: Option<&str>,
     offset: Option<usize>,
     limit: Option<usize>,
     extra_metadata: Value,
 ) -> Value {
-    let source_line_ending = detect_read_file_line_ending(text);
+    // 文本阅读器传进来的是解码后的 LF 视图，行尾已经归一化过，没法再从 text 里探测原样。
+    // 原行尾由解码层随手记下，这里优先用它；其余 reader 的内容是自己拼的，仍按内容探测。
+    let source_line_ending = source_line_ending
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| detect_read_file_line_ending(text).to_string());
     let normalized_text = normalize_text_line_endings_for_read_file(text);
     let lines = normalized_text.split('\n').map(|v| v.to_string()).collect::<Vec<_>>();
     let applied_offset = offset.unwrap_or(0);
@@ -1567,11 +1572,13 @@ impl ReadFileReader for TextFileReader {
         let path = ensure_absolute_file_path(request)?;
         let decoded = decode_text_file_from_path(&path)
             .map_err(|err| format!("读取文本文件失败：{err}"))?;
+        let source_line_ending = decoded.line_ending.source_label();
         Ok(build_text_read_result(
             &path,
             detected,
             self.reader_kind(),
             &decoded.text,
+            Some(source_line_ending),
             request.offset,
             request.limit,
             serde_json::json!({}),
@@ -1667,6 +1674,7 @@ impl ReadFileReader for PdfFileReader {
             detected,
             self.reader_kind(),
             &text,
+            None,
             request.offset,
             request.limit,
             serde_json::json!({
@@ -1765,6 +1773,7 @@ impl ReadFileReader for OfficeLitchiReader {
             detected,
             self.reader_kind(),
             &text,
+            None,
             request.offset,
             request.limit,
             serde_json::json!({
@@ -1824,6 +1833,7 @@ async fn builtin_read_file(
             detected,
             "media_redirect_notice",
             "该文件被识别为图片。`read_file` 现在只负责文本、PDF 和 Office 等文档读取；请改用 `read_media` 解析图片、音频或视频。",
+            None,
             request.offset,
             request.limit,
             serde_json::json!({
@@ -2237,6 +2247,7 @@ fn build_text_read_result_should_normalize_crlf_to_lf_and_report_source_line_end
             "line1\r\nline2\r\n",
             None,
             None,
+            None,
             serde_json::json!({}),
         );
         assert_eq!(
@@ -2265,6 +2276,7 @@ fn build_text_read_result_should_normalize_lone_cr_to_lf() {
             "line1\rline2\r",
             None,
             None,
+            None,
             serde_json::json!({}),
         );
         assert_eq!(
@@ -2277,6 +2289,29 @@ fn build_text_read_result_should_normalize_lone_cr_to_lf() {
             Some("cr")
         );
     }
+
+#[cfg(test)]
+#[test]
+fn build_text_read_result_should_report_source_line_ending_from_decoder() {
+        // 生产路径上传进来的是解码后的 LF 视图，内容里一个 \r 都没有，
+        // 行尾只能由解码层带过来。这条钉住那根接线，接线断了就会永久报 lf。
+        let decoded = decode_text_file_bytes(b"line1\r\nline2\r\n").expect("decode crlf");
+        let value = build_text_read_result(
+            std::path::Path::new("sample.txt"),
+            ReadFileDetectedType::Text,
+            "text",
+            &decoded.text,
+            Some(decoded.line_ending.source_label()),
+            None,
+            None,
+            serde_json::json!({}),
+        );
+        let metadata = value.get("metadata").expect("metadata");
+        assert_eq!(
+            metadata.get("sourceLineEnding").and_then(Value::as_str),
+            Some("crlf")
+        );
+}
 
 #[cfg(test)]
 #[test]

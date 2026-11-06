@@ -220,7 +220,9 @@ fn apply_patch_prepare_backup_entry(
             path: path.to_string_lossy().to_string(),
             from_path: None,
             to_path: None,
-            expected_current_content: Some(content.clone()),
+            // 撤回时用 apply_patch_read_text_file 读回当前内容，它读到的是归一化后的 LF 视图。
+            // expected 必须同口径，否则内容只是行尾不同也会被记成「被外部修改过」。
+            expected_current_content: Some(normalize_line_endings(content).0),
             backup_blob_file: None,
         }),
         ApplyPatchResolvedOp::Delete { path } => {
@@ -254,7 +256,8 @@ fn apply_patch_prepare_backup_entry(
                 path: path.to_string_lossy().to_string(),
                 from_path: None,
                 to_path: None,
-                expected_current_content: Some(content.clone()),
+                // 同 Add：撤回比较走归一化视图，写盘时才按原行尾还原。
+                expected_current_content: Some(normalize_line_endings(content).0),
                 backup_blob_file: Some(blob_file),
             })
         }
@@ -280,7 +283,7 @@ fn apply_patch_prepare_backup_entry(
             let old_content = decode_text_file_bytes(&raw)
                 .map_err(|err| format!("Update 操作失败，{}：{}", err, path.to_string_lossy()))?
                 .text;
-            let new_content = apply_patch_apply_update_with_line_ending_fallback(
+            let new_content = apply_patch_apply_update(
                 &old_content,
                 old_string,
                 new_string,
@@ -629,6 +632,13 @@ fn apply_patch_ops_from_tool_args(args: ApplyPatchToolArgs) -> Result<Vec<ApplyP
                         apply_patch_operation_example("update")
                     )));
                 }
+                // 补丁内容来自模型，模型看到的是 read_file 归一化后的 LF 视图；但它也可能
+                // 从 terminal 输出、git show 里复制到带 \r 的原文。这里统一到同一套视图，
+                // 否则文件内容里一格 \r 都不剩，任何带 \r 的 old_string 必然匹配失败，
+                // 而失败提示还会指出「最相似的就是这一段」，把模型逼进原地重试。
+                // new_string 同样归一化：写回时由目标文件的行尾统一还原，不会丢信息。
+                let old_string = normalize_line_endings(&old_string).0;
+                let new_string = normalize_line_endings(&new_string).0;
                 if old_string == new_string {
                     return Err(apply_patch_format_error(format!(
                         "apply_patch 操作[{}] (update) old_string 和 new_string 完全相同。update 必须真的修改内容。\n最小 update 示例：{}",
@@ -802,58 +812,41 @@ fn apply_patch_assess_safety(
     Ok(ApplyPatchSafetyCheck::AutoApprove)
 }
 
-fn apply_patch_apply_update(
+/// update 匹配失败的成因。刻意不带面向模型的文案——
+/// 构造文案要做全文候选定位，可能很贵，只应在确认彻底失败后做一次。
+enum ApplyPatchUpdateMiss {
+    EmptyOldString,
+    NotFound,
+    Unchanged,
+    Ambiguous { count: usize, ranges: String },
+}
+
+/// 只负责匹配与替换：不构造任何面向模型的文案。
+///
+/// 入参内容已是解码后的 LF 视图（见 `text_codec` 的行尾归一化），所以这里
+/// 不需要为 CRLF/LF 差异留任何后路——两套行尾写法不会同时出现在比较的两侧。
+fn apply_patch_update_core(
     content: &str,
     old_string: &str,
     new_string: &str,
     replace_all: bool,
-) -> Result<ApplyPatchUpdateResult, String> {
+) -> Result<ApplyPatchUpdateResult, ApplyPatchUpdateMiss> {
     if old_string.is_empty() {
-        return Err(format!(
-            "update 失败：old_string 不能为空。请提供要替换的原文片段。\n最小 update 示例：{}",
-            apply_patch_operation_example("update")
-        ));
+        return Err(ApplyPatchUpdateMiss::EmptyOldString);
     }
-    let old_preview = apply_patch_preview_text(old_string, 300);
     if !content.contains(old_string) {
-        let similar = apply_patch_similar_line_ranges(content, old_string, 1);
-        let similar_hint = if similar.is_empty() {
-            "最相似候选行范围：未找到可用候选。".to_string()
-        } else {
-            let rows = similar
-                .into_iter()
-                .map(|(start, end, summary)| {
-                    format!(
-                        "- {}，摘要：{}",
-                        apply_patch_format_line_range((start, end)),
-                        summary
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            format!("最相似候选行范围：\n{rows}")
-        };
-        return Err(format!(
-            "apply_patch update 失败：old_string 在文件中未找到。\n{}\n请先重新读取目标文件，直接复制文件中的原文作为 old_string。\n如果你原本想提交标准 git diff，请改成 JSON update 操作。\n最小 update 示例：{}\nold_string 预览（前 300 字符）：\n{}",
-            similar_hint,
-            apply_patch_operation_example("update"),
-            old_preview
-        ));
+        return Err(ApplyPatchUpdateMiss::NotFound);
     }
     if !replace_all {
         let count = content.matches(old_string).count();
         if count > 1 {
-            let ranges = apply_patch_format_ranges_limited(
-                apply_patch_exact_match_ranges(content, old_string),
-                12,
-            );
-            return Err(format!(
-                "apply_patch update 失败：old_string 在文件中出现了 {} 次，但 replace_all 为 false。\n命中行范围：{}\n请改用以下两种方式之一：\n1. 扩大 old_string，上下多带几行稳定上下文，使其只命中 1 处。\n2. 如果你确实要全部替换，再设置 replace_all: true。\n最小 update 示例：{}\nold_string 预览（前 300 字符）：\n{}",
+            return Err(ApplyPatchUpdateMiss::Ambiguous {
                 count,
-                ranges,
-                apply_patch_operation_example("update"),
-                old_preview
-            ));
+                ranges: apply_patch_format_ranges_limited(
+                    apply_patch_exact_match_ranges(content, old_string),
+                    12,
+                ),
+            });
         }
     }
     let match_line_ranges = apply_patch_exact_match_ranges(content, old_string);
@@ -863,7 +856,7 @@ fn apply_patch_apply_update(
         content.replacen(old_string, new_string, 1)
     };
     if result == content {
-        return Err("apply_patch update 失败：替换后文件内容未变化。".to_string());
+        return Err(ApplyPatchUpdateMiss::Unchanged);
     }
     Ok(ApplyPatchUpdateResult {
         content: result,
@@ -871,67 +864,66 @@ fn apply_patch_apply_update(
     })
 }
 
-fn apply_patch_apply_update_with_line_ending_fallback(
+/// 把一次失败升级成面向模型的完整文案。`NotFound` 分支要做全文候选定位，
+/// 是这里唯一可能昂贵的分支——调用方必须保证只在确实要返回错误时调用。
+fn apply_patch_update_miss_error(
+    content: &str,
+    old_string: &str,
+    miss: ApplyPatchUpdateMiss,
+) -> String {
+    let old_preview = apply_patch_preview_text(old_string, 300);
+    match miss {
+        ApplyPatchUpdateMiss::EmptyOldString => format!(
+            "update 失败：old_string 不能为空。请提供要替换的原文片段。\n最小 update 示例：{}",
+            apply_patch_operation_example("update")
+        ),
+        ApplyPatchUpdateMiss::Unchanged => {
+            "apply_patch update 失败：替换后文件内容未变化。".to_string()
+        }
+        ApplyPatchUpdateMiss::Ambiguous { count, ranges } => format!(
+            "apply_patch update 失败：old_string 在文件中出现了 {} 次，但 replace_all 为 false。\n命中行范围：{}\n请改用以下两种方式之一：\n1. 扩大 old_string，上下多带几行稳定上下文，使其只命中 1 处。\n2. 如果你确实要全部替换，再设置 replace_all: true。\n最小 update 示例：{}\nold_string 预览（前 300 字符）：\n{}",
+            count,
+            ranges,
+            apply_patch_operation_example("update"),
+            old_preview
+        ),
+        ApplyPatchUpdateMiss::NotFound => {
+            let similar = apply_patch_similar_line_ranges(content, old_string);
+            let similar_hint = if similar.is_empty() {
+                "最相似候选行范围：未找到可用候选。".to_string()
+            } else {
+                let rows = similar
+                    .into_iter()
+                    .map(|(start, end, summary)| {
+                        format!(
+                            "- {}，摘要：{}",
+                            apply_patch_format_line_range((start, end)),
+                            summary
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("最相似候选行范围：\n{rows}")
+            };
+            format!(
+                "apply_patch update 失败：old_string 在文件中未找到。\n{}\n请先重新读取目标文件，直接复制文件中的原文作为 old_string。\n如果你原本想提交标准 git diff，请改成 JSON update 操作。\n最小 update 示例：{}\nold_string 预览（前 300 字符）：\n{}",
+                similar_hint,
+                apply_patch_operation_example("update"),
+                old_preview
+            )
+        }
+    }
+}
+
+/// 单次尝试并即刻给出文案。
+fn apply_patch_apply_update(
     content: &str,
     old_string: &str,
     new_string: &str,
     replace_all: bool,
 ) -> Result<ApplyPatchUpdateResult, String> {
-    match apply_patch_apply_update(content, old_string, new_string, replace_all) {
-        Ok(value) => Ok(value),
-        Err(original_err) => {
-            let Some((normalized_content, normalized_old, normalized_new, newline)) =
-                apply_patch_prepare_line_ending_fallback(content, old_string, new_string)
-            else {
-                return Err(original_err);
-            };
-            apply_patch_apply_update(&normalized_content, &normalized_old, &normalized_new, replace_all)
-                .map(|value| ApplyPatchUpdateResult {
-                    content: apply_patch_normalized_lf_to_newline(&value.content, newline),
-                    match_line_ranges: value.match_line_ranges,
-                })
-                .map_err(|_| original_err)
-        }
-    }
-}
-
-fn apply_patch_prepare_line_ending_fallback(
-    content: &str,
-    old_string: &str,
-    new_string: &str,
-) -> Option<(String, String, String, &'static str)> {
-    let newline = if content.contains("\r\n") {
-        "\r\n"
-    } else if content.contains('\r') {
-        "\r"
-    } else if old_string.contains('\r') || new_string.contains('\r') {
-        "\n"
-    } else {
-        return None;
-    };
-    let normalized_content = apply_patch_normalize_to_lf(content);
-    let normalized_old = apply_patch_normalize_to_lf(old_string);
-    if normalized_old == old_string && normalized_content == content {
-        return None;
-    }
-    Some((
-        normalized_content,
-        normalized_old,
-        apply_patch_normalize_to_lf(new_string),
-        newline,
-    ))
-}
-
-fn apply_patch_normalize_to_lf(value: &str) -> String {
-    value.replace("\r\n", "\n").replace('\r', "\n")
-}
-
-fn apply_patch_normalized_lf_to_newline(value: &str, newline: &str) -> String {
-    if newline == "\n" {
-        value.to_string()
-    } else {
-        value.replace('\n', newline)
-    }
+    apply_patch_update_core(content, old_string, new_string, replace_all)
+        .map_err(|miss| apply_patch_update_miss_error(content, old_string, miss))
 }
 
 fn apply_patch_line_number_at_byte(content: &str, offset: usize) -> usize {
@@ -998,17 +990,40 @@ fn apply_patch_compact_line_summary(value: &str, limit: usize) -> String {
     apply_patch_preview_text(&compact, limit)
 }
 
-fn apply_patch_normalize_for_similarity(value: &str) -> String {
-    value
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
-        .to_lowercase()
+fn apply_patch_similar_line_ranges(
+    content: &str,
+    old_string: &str,
+) -> Vec<(usize, usize, String)> {
+    // 第一层按整行投票定位；投不出来再退到行内模糊比较。
+    // 两层都失败就承认没有候选，而不是随便指一处。
+    apply_patch_locate_candidate_by_line_votes(content, old_string)
+        .or_else(|| apply_patch_locate_candidate_by_line_similarity(content, old_string))
+        .map(|(start, end, preview)| {
+            vec![(start, end, apply_patch_compact_line_summary(&preview, 80))]
+        })
+        .unwrap_or_default()
 }
 
-fn apply_patch_levenshtein_distance(left: &str, right: &str) -> usize {
+/// 归一化一整行：去掉全部空白并转小写。
+///
+/// 缩进、行尾空白、大小写是手抄原文时最常见的三类偏差，整行归一化后它们不再影响定位。
+fn apply_patch_line_key(line: &str) -> String {
+    line.chars()
+        .filter(|ch| !ch.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// 只有含字母或数字的行才参与投票。
+///
+/// `}`、`);`、空行在文件里大量重复，让它们投票只会把候选摊平，反而掩盖真正的线索。
+fn apply_patch_line_is_distinct(key: &str) -> bool {
+    key.chars().any(char::is_alphanumeric)
+}
+
+/// 单行 Levenshtein。只用于比较两行文本，不参与整块窗口比对——
+/// 前者是 行长²，后者是 整块长度²，差着几个数量级。
+fn apply_patch_line_levenshtein(left: &str, right: &str) -> usize {
     let left_chars = left.chars().collect::<Vec<_>>();
     let right_chars = right.chars().collect::<Vec<_>>();
     if left_chars.is_empty() {
@@ -1030,74 +1045,195 @@ fn apply_patch_levenshtein_distance(left: &str, right: &str) -> usize {
     prev[right_chars.len()]
 }
 
-fn apply_patch_similarity_score(left: &str, right: &str) -> f64 {
-    let left = apply_patch_normalize_for_similarity(left);
-    let right = apply_patch_normalize_for_similarity(right);
-    let max_len = left.chars().count().max(right.chars().count());
-    if max_len == 0 {
-        return 1.0;
-    }
-    let distance = apply_patch_levenshtein_distance(&left, &right);
-    1.0 - (distance as f64 / max_len as f64)
-}
-
-fn apply_patch_similar_line_ranges(content: &str, old_string: &str, limit: usize) -> Vec<(usize, usize, String)> {
-    const MAX_FILE_LINES_FOR_SIMILARITY: usize = 5000;
-    const MIN_LINE_OVERLAP_RATIO: f64 = 0.9;
-    // 整行不相等但字符级高度相似的窗口也要纳入候选：手抄原文差一两个字是最常见的失败原因，
-    // 只靠整行精确重叠，这类输入永远拿不到候选，只能落到兜底文案。
-    const MIN_CHAR_SIMILARITY: f64 = 0.6;
-    // 长度差一倍以上的窗口不必算编辑距离，先按长度挡掉，避免长文件里逐窗口全量比对。
-    const MIN_LENGTH_RATIO: f64 = 0.5;
+/// 第二层兜底：整行一票都投不出来时（典型是手抄时某一行差了一两个字），
+/// 改用单行模糊比较——拿 old_string 里第一条有内容的行当锚点，逐行算行内编辑距离。
+///
+/// 代价是 文件行数 × 行长²，而不是旧实现的 窗口数 × 整块长度²。短行文件一万行在
+/// 百毫秒量级；行长上百字符时这一项会明显放大，但只在投票完全失败时才会走到，
+/// 且不会像旧实现那样随文件行数与块长度的平方一起爆掉。
+fn apply_patch_locate_candidate_by_line_similarity(
+    content: &str,
+    old_string: &str,
+) -> Option<(usize, usize, String)> {
+    // 单行相似度低于这个值不值得给候选：差一两个字是抄写偏差，差一半就是另一行了。
+    const MIN_LINE_SIMILARITY: f64 = 0.6;
+    // 最佳行必须比次佳行领先这么多，否则说明文件里有多行同样相近，指出哪一行都是猜。
+    const MIN_LINE_LEAD: f64 = 0.1;
 
     let lines = content.lines().collect::<Vec<_>>();
-    if lines.is_empty() || lines.len() > MAX_FILE_LINES_FOR_SIMILARITY {
-        return Vec::new();
-    }
-    let old_line_count = old_string.lines().count().max(1);
-    let old_lines_set: std::collections::HashSet<&str> = old_string.lines().collect();
-    let min_overlap = ((old_line_count as f64) * MIN_LINE_OVERLAP_RATIO).ceil() as usize;
-    let old_char_len = old_string.trim().chars().count().max(1);
-    let mut candidates = Vec::<(f64, usize, usize, String)>::new();
-    for window_len in [
-        old_line_count.saturating_sub(1).max(1),
-        old_line_count,
-        old_line_count.saturating_add(1),
-    ] {
-        if window_len > lines.len() {
+    let search = old_string.lines().collect::<Vec<_>>();
+
+    // 模糊层只负责补齐「绝大部分行精确命中、个别行差一两个字符」的情况。
+    // 多行 old_string 里只有一行对得上时，那一行会成为锚点，把任意短行指成候选——
+    // 这种猜测比不给候选更糟（会引导模型改坏别处），所以先要求精确命中已覆盖三分之二。
+    // 单行的 old_string 没有第二份证据可用，锚点即全部线索，不必卡这道门槛。
+    let exact_keys = lines
+        .iter()
+        .map(|line| apply_patch_line_key(line))
+        .collect::<std::collections::HashSet<_>>();
+    let mut wanted = 0usize;
+    let mut exact_hits = 0usize;
+    for line in &search {
+        let key = apply_patch_line_key(line);
+        if !apply_patch_line_is_distinct(&key) {
             continue;
         }
-        for start in 0..=lines.len() - window_len {
-            let window = &lines[start..start + window_len];
-            let preview = window.join("\n");
-            let preview_char_len = preview.trim().chars().count();
-            let length_ratio = preview_char_len.min(old_char_len) as f64
-                / preview_char_len.max(old_char_len).max(1) as f64;
-            if length_ratio < MIN_LENGTH_RATIO {
-                continue;
-            }
-            let overlap = window.iter().filter(|line| old_lines_set.contains(*line)).count();
-            let score = apply_patch_similarity_score(old_string, &preview);
-            if overlap < min_overlap && score < MIN_CHAR_SIMILARITY {
-                continue;
-            }
-            candidates.push((score, start + 1, start + window_len, preview));
+        wanted += 1;
+        if exact_keys.contains(&key) {
+            exact_hits += 1;
         }
     }
-    candidates.sort_by(|left, right| {
+    if wanted == 0 {
+        return None;
+    }
+    if wanted > 1 && exact_hits * 3 < wanted * 2 {
+        return None;
+    }
+
+    let (anchor_offset, anchor_key) = search
+        .iter()
+        .enumerate()
+        .map(|(offset, line)| (offset, apply_patch_line_key(line)))
+        .find(|(_, key)| apply_patch_line_is_distinct(key))?;
+    let anchor_len = anchor_key.chars().count();
+    if anchor_len == 0 {
+        return None;
+    }
+
+    let mut ranked = Vec::<(f64, usize)>::new();
+    for (index, line) in lines.iter().enumerate() {
+        let key = apply_patch_line_key(line);
+        if !apply_patch_line_is_distinct(&key) {
+            continue;
+        }
+        let len = key.chars().count();
+        // 长度差一倍以上不必算编辑距离
+        if len * 2 < anchor_len || anchor_len * 2 < len {
+            continue;
+        }
+        let distance = apply_patch_line_levenshtein(&key, &anchor_key);
+        let score = 1.0 - distance as f64 / len.max(anchor_len) as f64;
+        if score >= MIN_LINE_SIMILARITY {
+            ranked.push((score, index));
+        }
+    }
+    ranked.sort_by(|left, right| {
         right
             .0
             .partial_cmp(&left.0)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| left.1.cmp(&right.1))
-            .then_with(|| left.2.cmp(&right.2))
     });
-    candidates.dedup_by(|left, right| left.1 == right.1 && left.2 == right.2);
-    candidates
-        .into_iter()
-        .take(limit)
-        .map(|(_, start, end, preview)| (start, end, apply_patch_compact_line_summary(&preview, 80)))
-        .collect()
+    let (best, index) = *ranked.first()?;
+    if ranked
+        .get(1)
+        .map(|(second, _)| best - second < MIN_LINE_LEAD)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let start = index.saturating_sub(anchor_offset);
+    let end = start.saturating_add(search.len()).min(lines.len());
+    Some((start + 1, end, lines[start..end].join("\n")))
+}
+
+/// 在 old_string 未能精确匹配时，定位文件里最可能对应的一段，供错误提示使用。
+///
+/// 这里曾按「三种行数窗口 × 每一个起点」逐个计算整段编辑距离，代价是
+/// 窗口数 × 窗口长度²：一千行文件配三百行更新要十几分钟，且对 5000 行以上的文件
+/// 直接放弃、不给任何提示。改为行级投票后——整行归一化后建「行 -> 行号」索引，
+/// old_string 的每一行去索引里查并给候选起点投票——复杂度是
+/// O(文件行数 + old_string 行数)，与块长度无关，一万行文件也在十毫秒内。
+///
+/// 只产出唯一最优候选：调用方只需要一句「最可能是哪几行」，给多个反而干扰模型。
+fn apply_patch_locate_candidate_by_line_votes(
+    content: &str,
+    old_string: &str,
+) -> Option<(usize, usize, String)> {
+    // 有效行里至少三分之二要投到同一个起点。定在一半会让「只有一半行对得上」的输入
+    // 也拿到候选——那种情况实质上等于在猜，而猜错位置会让模型改坏别的地方。
+    const MIN_VOTE_NUMERATOR: usize = 2;
+    const MIN_VOTE_DENOMINATOR: usize = 3;
+    // 最高票还要明显领先次高票：文件里到处是相似内容时票数会被摊平，
+    // 此时指出任何位置都是瞎猜，宁可回落到兜底文案。
+    const LEAD_MULTIPLIER: usize = 3;
+    const LEAD_GAP_NUMERATOR: usize = 3;
+    const LEAD_GAP_DENOMINATOR: usize = 10;
+
+    let lines = content.lines().collect::<Vec<_>>();
+    let search = old_string.lines().collect::<Vec<_>>();
+    if lines.is_empty() || search.is_empty() {
+        return None;
+    }
+
+    let mut positions: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
+    for (index, line) in lines.iter().enumerate() {
+        let key = apply_patch_line_key(line);
+        if !apply_patch_line_is_distinct(&key) {
+            continue;
+        }
+        positions.entry(key).or_default().push(index);
+    }
+    if positions.is_empty() {
+        return None;
+    }
+
+    let mut votes: std::collections::HashMap<isize, usize> = std::collections::HashMap::new();
+    let mut wanted = 0usize;
+    for (offset, line) in search.iter().enumerate() {
+        let key = apply_patch_line_key(line);
+        if !apply_patch_line_is_distinct(&key) {
+            continue;
+        }
+        wanted += 1;
+        if let Some(hits) = positions.get(&key) {
+            for &index in hits {
+                *votes.entry(index as isize - offset as isize).or_insert(0) += 1;
+            }
+        }
+    }
+    if wanted == 0 {
+        return None;
+    }
+
+    // 同票时取更靠前的起点，保证同一输入永远得到同一结果。
+    let mut best: Option<(isize, usize)> = None;
+    for (start, count) in &votes {
+        let better = match best {
+            None => true,
+            Some((best_start, best_count)) => {
+                *count > best_count || (*count == best_count && *start < best_start)
+            }
+        };
+        if better {
+            best = Some((*start, *count));
+        }
+    }
+    let (start, best_count) = best?;
+    if start < 0 || best_count == 0 {
+        return None;
+    }
+    let second = votes
+        .iter()
+        .filter(|(candidate, _)| **candidate != start)
+        .map(|(_, count)| *count)
+        .max()
+        .unwrap_or(0);
+
+    if best_count * MIN_VOTE_DENOMINATOR < wanted * MIN_VOTE_NUMERATOR {
+        return None;
+    }
+    let lead_ok = second == 0
+        || best_count >= second.saturating_mul(LEAD_MULTIPLIER)
+        || (best_count - second) * LEAD_GAP_DENOMINATOR >= wanted * LEAD_GAP_NUMERATOR;
+    if !lead_ok {
+        return None;
+    }
+
+    let start = start as usize;
+    let end = start.saturating_add(search.len()).min(lines.len());
+    Some((start + 1, end, lines[start..end].join("\n")))
 }
 
 fn apply_patch_op_name(op: &ApplyPatchResolvedOp) -> &'static str {
@@ -1159,13 +1295,22 @@ async fn apply_patch_execute_single_op(op: &ApplyPatchResolvedOp) -> Result<Valu
                     .await
                     .map_err(|err| format!("创建目录失败（{}）：{err}", parent.to_string_lossy()))?;
             }
-            tokio::fs::write(path, content.as_bytes())
+            // 覆盖已有 CRLF 文件时沿用它的行尾，否则整份文件会被模型带来的 LF 刷成 LF，
+            // 产生一整篇全是改动的 diff。文件不存在（新建）时按 LF。
+            let line_ending = match tokio::fs::read(path).await {
+                Ok(raw) => decode_text_file_bytes(&raw)
+                    .map(|decoded| decoded.line_ending)
+                    .unwrap_or(TextLineEnding::Lf),
+                Err(_) => TextLineEnding::Lf,
+            };
+            let body = line_ending.restore(content);
+            tokio::fs::write(path, body.as_bytes())
                 .await
                 .map_err(|err| format!("写入文件失败（{}）：{err}", path.to_string_lossy()))?;
             Ok(serde_json::json!({
                 "op": "overwrite",
                 "path": terminal_path_for_user(path),
-                "bytes": content.len(),
+                "bytes": body.len(),
             }))
         }
         ApplyPatchResolvedOp::Move { from, to } => {
@@ -1204,7 +1349,7 @@ async fn apply_patch_execute_single_op(op: &ApplyPatchResolvedOp) -> Result<Valu
                 .map_err(|_| format!("Update 操作失败，文件不存在：{}", path.to_string_lossy()))?;
             let decoded = decode_text_file_bytes(&raw)
                 .map_err(|err| format!("Update 操作失败，{}：{}", err, path.to_string_lossy()))?;
-            let update_result = apply_patch_apply_update_with_line_ending_fallback(
+            let update_result = apply_patch_apply_update(
                 &decoded.text,
                 old_string,
                 new_string,
@@ -1486,6 +1631,110 @@ async fn builtin_move_file(
 mod apply_patch_tool_tests {
     use super::*;
 
+    // ------------------------------------------------------------------
+    // old_string 未命中时的候选定位：必须又快，且不能瞎猜。
+    // 旧实现按窗口逐个计算整段编辑距离，一千行文件配三百行更新要十几分钟，
+    // 五千行以上则直接不返回任何候选；这组测试把这两件事同时钉住。
+    // ------------------------------------------------------------------
+
+    fn similarity_fixture_lines(count: usize) -> Vec<String> {
+        (0..count)
+            .map(|index| match index % 5 {
+                0 => format!("const ITEM_{index}: usize = {index};"),
+                1 => format!("    self.handle_{index}(&mut ctx)"),
+                2 => format!("// 第 {index} 段：滚动区高度按行数乘以 1.4 倍行高估算"),
+                3 => format!("  color: #fb{}3c;", index % 90 + 10),
+                _ => format!("  pub fn slot_{index}() -> Result<()> {{"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn similar_line_ranges_should_locate_candidate_within_budget() {
+        // 一万行文件、三百行更新。旧实现在这个规模上要跑几十分钟，而且超过 5000 行
+        // 时直接返回空候选，模型什么提示都拿不到。
+        let lines = similarity_fixture_lines(10_000);
+        let content = lines.join("\n");
+        let start = 4_200usize;
+        let mut search = lines[start..start + 300].to_vec();
+        search[7] = format!("{} // 改过一行", search[7]);
+        let old_string = search.join("\n");
+
+        let started = std::time::Instant::now();
+        let found = apply_patch_similar_line_ranges(&content, &old_string);
+        let elapsed = started.elapsed();
+
+        assert_eq!(found.len(), 1, "一万行文件也应当给出唯一候选");
+        assert_eq!(found[0].0, start + 1, "候选起点应当命中真实位置");
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "定位耗时 {elapsed:?} 超出预算：行级投票不应当随文件规模退化"
+        );
+    }
+
+    #[test]
+    fn similar_line_ranges_should_ignore_indentation_and_case() {
+        // 缩进、行尾空白、大小写是手抄原文最常见的三类偏差，都不该妨碍定位。
+        let lines = similarity_fixture_lines(400);
+        let content = lines.join("\n");
+        let start = 120usize;
+        let search = lines[start..start + 60]
+            .iter()
+            .map(|line| format!("    {}   ", line.to_uppercase()))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let found = apply_patch_similar_line_ranges(&content, &search);
+        assert_eq!(found.len(), 1, "空白与大小写差异不应妨碍定位");
+        assert_eq!(found[0].0, start + 1, "起点应当命中真实位置");
+    }
+
+    #[test]
+    fn similar_line_ranges_should_not_guess_on_unrelated_content() {
+        let content = similarity_fixture_lines(600).join("\n");
+        let unrelated = (0..80)
+            .map(|index| format!("zzz unrelated payload {index} qqq"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            apply_patch_similar_line_ranges(&content, &unrelated).is_empty(),
+            "完全无关的内容不应给出候选"
+        );
+    }
+
+    #[test]
+    fn similar_line_ranges_should_not_guess_when_every_line_is_identical() {
+        // 整份文件全是同一行时票数会被摊平；此时指出任何位置都属于瞎猜。
+        let content = "  return true;\n".repeat(800);
+        let old_string = "  return true;\n  return false;\n  return true;";
+
+        assert!(
+            apply_patch_similar_line_ranges(&content, old_string).is_empty(),
+            "到处都像的时候应当拒绝给候选，而不是随便指一处"
+        );
+    }
+
+    #[test]
+    fn crlf_file_should_be_edited_through_a_single_lf_view() {
+        // 生产链路：磁盘上是 CRLF → 解码成 LF → 匹配一次 → 编码回 CRLF。
+        // 这替代了曾经「先按原样匹配、失败后归一化重试」的两趟写法：
+        // 失败那趟会先扫全文找候选，1000 行文件上实测一次 185 秒，重试成功后被丢掉。
+        let decoded =
+            decode_text_file_bytes("a\r\nold\r\nvalue\r\nc\r\n".as_bytes()).expect("decode crlf");
+        assert_eq!(decoded.text, "a\nold\nvalue\nc\n");
+
+        // 模型读到的是 LF，写回来的 old_string 也是 LF。
+        let updated = apply_patch_apply_update(&decoded.text, "old\nvalue", "new\nvalue", false)
+            .expect("LF old_string 应当直接在归一化后的内容上命中");
+        assert_eq!(updated.match_line_ranges, vec![(2, 3)]);
+
+        let written = decoded
+            .encode_like_original(&updated.content)
+            .expect("encode crlf");
+        assert_eq!(written, b"a\r\nnew\r\nvalue\r\nc\r\n");
+    }
+
     fn absolute_user_path(path: &Path) -> String {
         path.canonicalize()
             .unwrap_or_else(|_| path.to_path_buf())
@@ -1537,6 +1786,22 @@ mod apply_patch_tool_tests {
         };
         assert_eq!(path, "a.txt");
         assert_eq!(content, "after");
+    }
+
+    #[test]
+    fn tool_args_should_normalize_crlf_in_update_strings() {
+        // old_string 可能来自 terminal 输出、git show 或用户粘贴，带 \r；
+        // 而文件内容是归一化后的 LF 视图。不在入口统一，这类 old_string 必然匹配失败。
+        let args = serde_json::from_str(
+            r#"{"operations":[{"action":"update","path":"a.txt","oldString":"a\r\nb","newString":"x\r\ny"}]}"#,
+        )
+        .expect("parse crlf args");
+        let ops = apply_patch_ops_from_tool_args(args).expect("convert crlf args");
+        let ApplyPatchOp::Update { old_string, new_string, .. } = &ops[0] else {
+            panic!("expected update op");
+        };
+        assert_eq!(old_string, "a\nb");
+        assert_eq!(new_string, "x\ny");
     }
 
     #[test]
@@ -1673,32 +1938,6 @@ mod apply_patch_tool_tests {
             .expect("replace_all apply");
         assert_eq!(updated.content, "changed\nkeep\nchanged\nkeep\n");
         assert_eq!(updated.match_line_ranges, vec![(1, 1), (3, 3)]);
-    }
-
-    #[test]
-    fn apply_update_should_match_lf_old_string_against_crlf_file() {
-        let updated = apply_patch_apply_update_with_line_ending_fallback(
-            "a\r\nold\r\nvalue\r\nc\r\n",
-            "old\nvalue",
-            "new\nvalue",
-            false,
-        )
-        .expect("line ending fallback should apply");
-        assert_eq!(updated.content, "a\r\nnew\r\nvalue\r\nc\r\n");
-        assert_eq!(updated.match_line_ranges, vec![(2, 3)]);
-    }
-
-    #[test]
-    fn apply_update_should_match_crlf_old_string_against_lf_file() {
-        let updated = apply_patch_apply_update_with_line_ending_fallback(
-            "a\nold\nvalue\nc\n",
-            "old\r\nvalue",
-            "new\r\nvalue",
-            false,
-        )
-        .expect("line ending fallback should apply");
-        assert_eq!(updated.content, "a\nnew\nvalue\nc\n");
-        assert_eq!(updated.match_line_ranges, vec![(2, 3)]);
     }
 
     #[tokio::test]
@@ -1842,6 +2081,71 @@ mod apply_patch_tool_tests {
         assert_eq!(
             std::fs::read_to_string(&file).expect("read restored"),
             "old\ncontent\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_ops_should_keep_crlf_when_overwriting_existing_file() {
+        // 覆盖一个 CRLF 文件时，模型给的 content 是 LF。若照原样写下去，
+        // 整份文件的行尾会被刷成 LF，diff 上等于每一行都改了。
+        let data_path = make_temp_data_path("apply-patch-overwrite-crlf");
+        let cwd = app_root_from_data_path(&data_path).join("workspace");
+        std::fs::create_dir_all(&cwd).expect("create cwd");
+        let file = cwd.join("crlf.txt");
+        std::fs::write(&file, b"old\r\ncontent\r\n").expect("seed crlf file");
+        let ops = vec![ApplyPatchResolvedOp::Overwrite {
+            path: file.clone(),
+            content: "new\ncontent\n".to_string(),
+        }];
+        let mut record = apply_patch_empty_backup_record(&data_path, "s1", &cwd, "raw")
+            .expect("empty record");
+
+        apply_patch_execute_ops(&data_path, &mut record, &ops)
+            .await
+            .expect("execute overwrite");
+
+        assert_eq!(
+            std::fs::read(&file).expect("read overwritten"),
+            b"new\r\ncontent\r\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_ops_should_update_crlf_file_with_lf_old_string() {
+        // 事故现场：ActivityTimeline.vue 是 CRLF，模型给的 old_string 是 LF。
+        // 这条钉住整条生产链路：解码归一化 → 单次匹配 → 写回还原 CRLF → 撤回还原原字节。
+        let data_path = make_temp_data_path("apply-patch-update-crlf");
+        let cwd = app_root_from_data_path(&data_path).join("workspace");
+        std::fs::create_dir_all(&cwd).expect("create cwd");
+        let file = cwd.join("timeline.vue");
+        std::fs::write(&file, b"<template>\r\n  <div>old</div>\r\n</template>\r\n")
+            .expect("seed crlf file");
+        let ops = vec![ApplyPatchResolvedOp::Update {
+            path: file.clone(),
+            // 必须跨行：单行 old_string 不含 \n，CRLF/LF 差异根本不会暴露出来。
+            old_string: "<template>\n  <div>old</div>".to_string(),
+            new_string: "<template>\n  <div>new</div>".to_string(),
+            replace_all: false,
+        }];
+        let mut record = apply_patch_empty_backup_record(&data_path, "s1", &cwd, "raw")
+            .expect("empty record");
+
+        let outcome = apply_patch_execute_ops(&data_path, &mut record, &ops)
+            .await
+            .expect("execute update");
+        if let Some(failure) = &outcome.failure {
+            panic!("LF 写法的 old_string 应当直接命中 CRLF 文件：{}", failure.message);
+        }
+        assert_eq!(
+            std::fs::read(&file).expect("read updated"),
+            b"<template>\r\n  <div>new</div>\r\n</template>\r\n",
+            "没被触碰的行也必须保持 CRLF"
+        );
+
+        apply_patch_restore_backup_record(&data_path, &record).expect("restore");
+        assert_eq!(
+            std::fs::read(&file).expect("read restored"),
+            b"<template>\r\n  <div>old</div>\r\n</template>\r\n"
         );
     }
 
