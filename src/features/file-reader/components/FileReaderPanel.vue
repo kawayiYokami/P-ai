@@ -95,7 +95,7 @@
           :title="t('fileReader.gitTab')"
           @click="toggleGitPanel"
         >
-          <AppIcon name="git-branch" class="size-4" />
+          <AppIcon name="folder-git" class="size-4" />
         </button>
         </div>
       </template>
@@ -130,7 +130,7 @@
               class="flex size-8 shrink-0 items-center justify-center text-base-content/60"
               :title="asideMode === 'git' ? t('fileReader.gitTab') : t('fileReader.filesTab')"
             >
-              <AppIcon name="git-branch" v-if="asideMode === 'git'" class="h-4 w-4" />
+              <AppIcon name="folder-git" v-if="asideMode === 'git'" class="h-4 w-4" />
               <AppIcon name="files" v-else class="h-4 w-4" />
             </span>
           </div>
