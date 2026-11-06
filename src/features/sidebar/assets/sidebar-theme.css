@@ -72,11 +72,14 @@ html[data-host="vscode"] #app {
   color: var(--pai-sidebar-fg);
 }
 
-/* 纯 web 侧栏：走应用 data-theme / DaisyUI 主题色，不要用未定义的 vscode 变量 */
+/* 纯 web 侧栏：走应用 data-theme / DaisyUI 主题色，不要用未定义的 vscode 变量。
+   底色必须是 base-200：窗口底板 .ecall-frost 是 base-300 的 50% 半透明，
+   style.css 里 body 底也是 base-200，两端透出同一层，底板才不会分叉。
+   这里写 base-100 会让 web 透出的底色比桌面暗一档，整块面板看着和 APP 不是同一个色。 */
 html[data-host="web"],
 html[data-host="web"] body,
 html[data-host="web"] #app {
-  background: var(--color-base-100);
+  background: var(--color-base-200);
   color: var(--color-base-content);
 }
 
