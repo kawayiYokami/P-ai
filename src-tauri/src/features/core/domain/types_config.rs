@@ -201,9 +201,11 @@ fn default_mcp_servers() -> Vec<McpServerConfig> {
 #[serde(rename_all = "camelCase")]
 struct SearchEngineConfig {
     id: String,
-    #[serde(default = "default_true")]
-    enabled: bool,
-    /// 密钥只在本地配置文件里落明文；回传前端时打码，保存时带回掩码则沿用旧值。
+    /// 多条密钥按数组顺序轮换；空数组表示没填（只有免密钥引擎能用）。
+    #[serde(default)]
+    api_keys: Vec<String>,
+    /// 旧配置里的单值密钥，只读兼容：`normalize_search_engines` 把它并入 `api_keys` 首项后置空。
+    /// 保留这个字段是为了老配置文件直接反序列化就能升级，不需要自定义 Deserialize。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     api_key: Option<String>,
 }
@@ -226,16 +228,16 @@ fn default_search_mode() -> SearchMode {
     SearchMode::Auto
 }
 
-/// 五个内置引擎的初始配置。默认开启 exa / parallel / tavily 三家（2026-11-05 实测免密钥可用）；
-/// firecrawl 的免密钥调用实测已被服务端关闭（返回 isError: 需要 API key），默认关闭，填了密钥再打开；
-/// DeepSeek 必须填密钥且按次计费，默认关闭。
+/// 五个内置引擎的初始配置。默认都没有密钥：exa / parallel / tavily 免密钥可用，
+/// firecrawl 的免密钥调用实测已被服务端关闭（返回 isError: 需要 API key），
+/// DeepSeek 必须填密钥且按次计费；这两家填了密钥才进入候选。
 fn default_search_engines() -> Vec<SearchEngineConfig> {
     vec![
-        SearchEngineConfig { id: "exa".to_string(), enabled: true, api_key: None },
-        SearchEngineConfig { id: "parallel".to_string(), enabled: true, api_key: None },
-        SearchEngineConfig { id: "firecrawl".to_string(), enabled: false, api_key: None },
-        SearchEngineConfig { id: "tavily".to_string(), enabled: true, api_key: None },
-        SearchEngineConfig { id: "deepseek".to_string(), enabled: false, api_key: None },
+        SearchEngineConfig { id: "exa".to_string(), api_keys: Vec::new(), api_key: None },
+        SearchEngineConfig { id: "parallel".to_string(), api_keys: Vec::new(), api_key: None },
+        SearchEngineConfig { id: "firecrawl".to_string(), api_keys: Vec::new(), api_key: None },
+        SearchEngineConfig { id: "tavily".to_string(), api_keys: Vec::new(), api_key: None },
+        SearchEngineConfig { id: "deepseek".to_string(), api_keys: Vec::new(), api_key: None },
     ]
 }
 

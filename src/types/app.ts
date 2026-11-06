@@ -368,9 +368,8 @@ export type PermissionCatalog = {
 /** 单个搜索引擎的配置项，id 与后端内置引擎表对应。 */
 export type SearchEngineConfigItem = {
   id: string;
-  enabled: boolean;
-  /** 回传前端时是掩码（形如 `sk***ab`）；原样带回表示没改过，后端沿用旧密钥。 */
-  apiKey?: string;
+  /** 该引擎的多条密钥，数组顺序就是轮换顺序；回传前端时是掩码（形如 `sk***ab`）。 */
+  apiKeys?: string[];
 };
 
 /** 搜索调度模式：自动多源随机，或锁定某个填了密钥的引擎。 */

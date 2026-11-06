@@ -19,12 +19,12 @@ describe("搜索引擎设置页纯逻辑", () => {
     ]);
   });
 
-  it("锁定候选只含填了密钥的引擎，免密钥引擎不入候选", () => {
+  it("锁定候选只含填了密钥的引擎，多 key 只要有非空项就算", () => {
     const lockable = lockableSearchEngines([
-      { id: "exa", enabled: true },
-      { id: "tavily", enabled: true, apiKey: "   " },
-      { id: "deepseek", enabled: true, apiKey: "sk-deepseek" },
-      { id: "parallel", enabled: true, apiKey: "pk-parallel" },
+      { id: "exa", apiKeys: [] },
+      { id: "tavily", apiKeys: ["   "], },
+      { id: "deepseek", apiKeys: ["sk-deepseek", "sk-deepseek-2"] },
+      { id: "parallel", apiKeys: ["pk-parallel"] },
     ]);
     expect(lockable).toEqual([
       { id: "parallel", name: "Parallel" },
@@ -34,40 +34,50 @@ describe("搜索引擎设置页纯逻辑", () => {
 
   it("一个密钥都没填时锁定候选为空", () => {
     expect(lockableSearchEngines(undefined)).toEqual([]);
-    expect(lockableSearchEngines([{ id: "exa", enabled: true }])).toEqual([]);
+    expect(lockableSearchEngines([{ id: "exa", apiKeys: [] }])).toEqual([]);
+    expect(lockableSearchEngines([{ id: "exa" }])).toEqual([]);
   });
 
   it("密钥原样带回掩码时视为未改动", () => {
     const saved = {
-      engines: [{ id: "exa", enabled: true, apiKey: "sk***ab" }],
+      engines: [{ id: "exa", apiKeys: ["sk***ab", "cd***ef"] }],
       mode: { mode: "auto" as const },
     };
     const current = {
-      engines: [{ id: "exa", enabled: true, apiKey: "sk***ab" }],
+      engines: [{ id: "exa", apiKeys: ["sk***ab", "cd***ef"] }],
       mode: { mode: "auto" as const },
     };
     expect(isSearchConfigDirty(current, saved)).toBe(false);
   });
 
-  it("改动启用开关、密钥或模式都算有改动", () => {
-    const base = { engines: [{ id: "exa", enabled: true }], mode: { mode: "auto" as const } };
+  it("增删密钥、填入密钥或切换调度都算有改动", () => {
+    const base = { engines: [{ id: "exa", apiKeys: [] }], mode: { mode: "auto" as const } };
 
     expect(
       isSearchConfigDirty(
-        { engines: [{ id: "exa", enabled: false }], mode: { mode: "auto" } },
+        { engines: [{ id: "exa", apiKeys: ["sk-new"] }], mode: { mode: "auto" } },
         base,
       ),
     ).toBe(true);
     expect(
       isSearchConfigDirty(
-        { engines: [{ id: "exa", enabled: true, apiKey: "sk-new" }], mode: { mode: "auto" } },
+        { engines: [{ id: "exa", apiKeys: ["", ""] }], mode: { mode: "auto" } },
         base,
       ),
     ).toBe(true);
     expect(
       isSearchConfigDirty(
-        { engines: [{ id: "exa", enabled: true }], mode: { mode: "fixed", engineId: "exa" } },
+        { engines: [{ id: "exa", apiKeys: [] }], mode: { mode: "fixed", engineId: "exa" } },
         base,
+      ),
+    ).toBe(true);
+  });
+
+  it("密钥顺序参与比对：挪动顺序算改动，因为轮换顺序变了", () => {
+    expect(
+      isSearchConfigDirty(
+        { engines: [{ id: "exa", apiKeys: ["b", "a"] }], mode: { mode: "auto" } },
+        { engines: [{ id: "exa", apiKeys: ["a", "b"] }], mode: { mode: "auto" } },
       ),
     ).toBe(true);
   });
@@ -87,33 +97,41 @@ describe("搜索引擎设置页纯逻辑", () => {
     ).toBe(false);
   });
 
-  it("快照按 ID 排序，不受数组顺序影响", () => {
+  it("快照按 ID 排序，不受引擎数组顺序影响", () => {
     const left = searchEngineSnapshot(
       [
-        { id: "tavily", enabled: true },
-        { id: "exa", enabled: true },
+        { id: "tavily", apiKeys: ["tv"] },
+        { id: "exa", apiKeys: [] },
       ],
       { mode: "auto" },
     );
     const right = searchEngineSnapshot(
       [
-        { id: "exa", enabled: true },
-        { id: "tavily", enabled: true },
+        { id: "exa", apiKeys: [] },
+        { id: "tavily", apiKeys: ["tv"] },
       ],
       { mode: "auto" },
     );
     expect(left).toEqual(right);
+  });
+
+  it("快照保留每个引擎的多条密钥", () => {
+    const snapshot = searchEngineSnapshot(
+      [{ id: "exa", apiKeys: [" a ", "b"] }],
+      { mode: "auto" },
+    );
+    expect(snapshot.engines).toEqual([{ id: "exa", apiKeys: ["a", "b"] }]);
   });
 });
 
 describe("脏判定基准取自保存快照", () => {
   function engines(): SearchEngineConfigItem[] {
     return [
-      { id: "exa", enabled: true, apiKey: "" },
-      { id: "parallel", enabled: true, apiKey: "" },
-      { id: "tavily", enabled: true, apiKey: "" },
-      { id: "firecrawl", enabled: false, apiKey: "" },
-      { id: "deepseek", enabled: false, apiKey: "" },
+      { id: "exa", apiKeys: [] },
+      { id: "parallel", apiKeys: [] },
+      { id: "tavily", apiKeys: [] },
+      { id: "firecrawl", apiKeys: [] },
+      { id: "deepseek", apiKeys: [] },
     ];
   }
   const AUTO: SearchMode = { mode: "auto" };
@@ -134,15 +152,26 @@ describe("脏判定基准取自保存快照", () => {
     }
   });
 
-  it("缺字段时原地编辑要进脏态：基准不能和当前是同一份数组", () => {
-    // 面板编辑是原地改（engineEntry(id).enabled = ...），基准若是同一个引用就永远判不出改动。
+  it("缺字段时原地编辑要进脏态：基准不能和当前是同一份对象", () => {
+    // 面板编辑是原地改（entry.apiKeys.push(...)），基准若是同一个引用就永远判不出改动。
     const current = engines();
     const resolve = createSearchBaselineResolver();
     const base = resolve("", { engines: current, mode: AUTO });
     expect(base.engines).not.toBe(current);
     expect(base.engines?.[0]).not.toBe(current[0]);
 
-    current[0].enabled = false;
+    current[0].apiKeys?.push("sk-1");
+    expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(true);
+  });
+
+  it("基准里的密钥数组也要独立：改当前数组不会改到基准数组本身", () => {
+    const current = engines();
+    current[0].apiKeys = ["sk-a"];
+    const resolve = createSearchBaselineResolver();
+    const base = resolve("", { engines: current, mode: AUTO });
+    expect(base.engines?.[0].apiKeys).not.toBe(current[0].apiKeys);
+
+    current[0].apiKeys?.push("sk-b");
     expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(true);
   });
 
@@ -151,11 +180,11 @@ describe("脏判定基准取自保存快照", () => {
     const resolve = createSearchBaselineResolver();
     const base = resolve("", { engines: current, mode: AUTO });
 
-    current[0].apiKey = "sk-1";
+    current[0].apiKeys = ["sk-1"];
     expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(true);
     expect(resolve("", { engines: current, mode: AUTO })).toBe(base);
 
-    current[3].enabled = true;
+    current[3].apiKeys = ["fc-1"];
     expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(true);
   });
 
@@ -167,7 +196,7 @@ describe("脏判定基准取自保存快照", () => {
     const base = resolve(savedJson, { engines: current, mode: AUTO });
     expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(false);
 
-    current[4].enabled = true;
+    current[4].apiKeys = ["sk-deepseek"];
     expect(isSearchConfigDirty({ engines: current, mode: AUTO }, base)).toBe(true);
 
     const restored = engines();

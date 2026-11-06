@@ -363,10 +363,10 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         behaviorSettings: item.behaviorSettings ? { ...item.behaviorSettings } : undefined,
       })),
       // 搜索引擎：密钥是掩码时原样带回，后端按「掩码对得上旧值」沿用磁盘上的真密钥。
+      // 空行不在这里剔除：位置要和后端存档的下标对齐，剔空由后端合并/规范化负责。
       searchEngines: (options.config.searchEngines || []).map((item) => ({
         id: String(item.id || "").trim(),
-        enabled: !!item.enabled,
-        ...(String(item.apiKey || "").trim() ? { apiKey: String(item.apiKey || "").trim() } : {}),
+        apiKeys: (item.apiKeys || []).map((key) => String(key || "").trim()),
       })),
       searchMode: options.config.searchMode?.mode === "fixed"
         ? { mode: "fixed", engineId: String(options.config.searchMode.engineId || "").trim() }
@@ -489,8 +489,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       // 与 buildConfigPayload 同形：搜索改动同样要参与脏判定，否则改完直接切页会静默丢改动。
       searchEngines: (options.config.searchEngines || []).map((item) => ({
         id: String(item.id || "").trim(),
-        enabled: !!item.enabled,
-        ...(String(item.apiKey || "").trim() ? { apiKey: String(item.apiKey || "").trim() } : {}),
+        apiKeys: (item.apiKeys || []).map((key) => String(key || "").trim()),
       })),
       searchMode: options.config.searchMode?.mode === "fixed"
         ? { mode: "fixed", engineId: String(options.config.searchMode.engineId || "").trim() }

@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col gap-2">
-    <div class="flex flex-wrap items-center gap-2 text-xs">
+    <div class="flex flex-wrap items-center gap-2 text-xs" data-demo-chrome>
       <label class="flex items-center gap-1">
         <span class="opacity-70">宽度</span>
         <select v-model.number="demoWidth" class="select select-bordered select-xs">
@@ -21,7 +21,7 @@
     </div>
 
     <div
-      class="h-[720px] overflow-hidden rounded-box border border-base-300"
+      class="overflow-hidden rounded-box border border-base-300"
       :style="{ width: `min(${demoWidth}px, 100%)` }"
     >
       <SettingsPageShell
@@ -62,9 +62,9 @@
       </SettingsPageShell>
     </div>
 
-    <p class="text-xs opacity-60">
-      渲染的是真实的 SettingsPageShell + SearchEnginesPanel：配置为 mock（五个引擎、暗码里的密钥为空），
-      「测试连接」真的会打后端，这里不点；保存按钮只把当前值写成新的基准快照，不落库。
+    <p class="text-xs opacity-60" data-demo-chrome>
+      渲染的是真实的 SettingsPageShell + SearchEnginesPanel：配置为 mock（五个引擎、多把密钥、含掩码），
+      保存按钮只把当前值写成新的基准快照，不落库。
     </p>
   </div>
 </template>
@@ -98,11 +98,11 @@ const demoBreadcrumb: SettingsBreadcrumbItem[] = [{ label: t("config.tabs.api") 
 
 function baseEngines(): SearchEngineConfigItem[] {
   return [
-    { id: "exa", enabled: true },
-    { id: "parallel", enabled: true },
-    { id: "firecrawl", enabled: false },
-    { id: "tavily", enabled: true },
-    { id: "deepseek", enabled: false },
+    { id: "exa", apiKeys: [] },
+    { id: "parallel", apiKeys: ["pl-demo-1", "pl-demo-2"] },
+    { id: "firecrawl", apiKeys: [] },
+    { id: "tavily", apiKeys: ["tvly***ey"] },
+    { id: "deepseek", apiKeys: [] },
   ];
 }
 
@@ -112,16 +112,15 @@ function buildConfig(state: "auto" | "fixed" | "dirty"): AppConfig {
   if (state === "fixed") {
     const deepseek = engines.find((entry) => entry.id === "deepseek");
     if (deepseek) {
-      deepseek.enabled = true;
-      deepseek.apiKey = "sk-demo-deepseek";
+      deepseek.apiKeys = ["sk-demo-deepseek"];
     }
     mode = { mode: "fixed", engineId: "deepseek" };
   }
   if (state === "dirty") {
     const tavily = engines.find((entry) => entry.id === "tavily");
-    if (tavily) tavily.enabled = false;
+    if (tavily) tavily.apiKeys = [];
     const exa = engines.find((entry) => entry.id === "exa");
-    if (exa) exa.apiKey = "sk-demo-exa";
+    if (exa) exa.apiKeys = ["sk-demo-exa"];
   }
   return { searchEngines: engines, searchMode: mode } as unknown as AppConfig;
 }

@@ -554,23 +554,6 @@ fn update_record_background_wake(
     })
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TestSearchEngineInput {
-    engine_id: String,
-    #[serde(default)]
-    api_key: Option<String>,
-}
-
-/// 测试某个搜索引擎的连通性：真发一次查询，只回成功/失败原因。
-#[tauri::command]
-async fn test_search_engine(
-    input: TestSearchEngineInput,
-    state: State<'_, AppState>,
-) -> Result<Value, String> {
-    test_search_engine_connection(&state, &input.engine_id, input.api_key).await
-}
-
 #[tauri::command]
 fn save_config(
     config: AppConfig,
