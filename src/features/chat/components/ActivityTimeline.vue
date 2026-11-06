@@ -894,23 +894,14 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
 /* 思维链展开后标题吸附：内容再长也能随时点回收起。
    吸附范围被这一条 li 框住，滚到条目末尾自动脱离，不会压住后面的工具行。
    底色是固定的聊天区底色，和工具详情区那两条渐隐同一档。
-   底部 2rem 淡出：内容从标题下穿过时不是硬切一刀；不判吸附状态，常显。 */
+   标题下方不留渐变：那条渐隐只能跟着展开态一起出现，无法只在真的贴住时出现，
+   于是没贴顶的时候也压在正文上，看着像无端发白。内容从标题底下穿过时，
+   标题自身的不透明底色已经挡住了。 */
 .ecall-reasoning-head.ecall-reasoning-stuck {
   position: sticky;
   top: 0;
   z-index: 12;
   background-color: var(--color-base-200);
-}
-
-.ecall-reasoning-head.ecall-reasoning-stuck::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  height: 2rem;
-  pointer-events: none;
-  background: linear-gradient(to bottom, var(--color-base-200), transparent);
 }
 
 /* 图标那一格跟着一起吸附，否则标题吸住了、图标还跟着内容往上跑，看着像标题悬空。
