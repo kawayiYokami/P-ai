@@ -26,7 +26,7 @@
           :class="[
             fileVariant ? 'ecall-tab-item--file rounded-lg' : 'overflow-hidden',
             tab.disabled ? 'pointer-events-none opacity-45' : 'cursor-pointer',
-            fileVariant && tab.key === activeKey ? 'bg-base-100 shadow-sm ring-1 ring-base-content/10' : '',
+            fileVariant && tab.key === activeKey ? 'bg-base-100' : '',
             fileVariant && tab.key !== activeKey ? 'hover:bg-base-300/60' : '',
           ]"
           :title="tab.title || tab.label"
@@ -45,7 +45,7 @@
               fileVariant
                 ? 'flex h-auto min-h-7 flex-1 cursor-pointer items-center justify-start gap-1.5 rounded-lg bg-transparent px-2 py-1 text-left'
                 : 'btn btn-ghost btn-sm w-full',
-              !fileVariant && tab.key === activeKey ? 'bg-base-100 ring-1 ring-base-content/10' : '',
+              !fileVariant && tab.key === activeKey ? 'bg-base-100' : '',
               fileVariant && tab.key === activeKey ? 'text-base-content' : '',
               fileVariant && tab.key !== activeKey ? 'text-base-content/65 hover:text-base-content' : '',
               !fileVariant && (tab.iconSrc || tab.icon) ? 'gap-1.5' : '',

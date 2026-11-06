@@ -97,23 +97,30 @@ describe("PanelTabStrip 标签宽度", () => {
 });
 
 describe("PanelTabStrip 激活项底色", () => {
-  it("默认档激活按钮是 bg-base-100 并带极淡描边", async () => {
+  it("默认档激活按钮只有 bg-base-100，不加描边", async () => {
     const html = await render([tab("对话"), tab("设置")], { activeKey: "设置" });
     const active = tabButtons(html).filter((button) => button.includes('aria-selected="true"'));
     expect(active).toHaveLength(1);
     expect(active[0]).toContain("bg-base-100");
-    expect(active[0]).toContain("ring-1 ring-base-content/10");
+    // 描边是上一轮擅自加的，红豆要求删掉：激活态只留底色
+    expect(active[0]).not.toContain("ring-1");
 
     const inactive = tabButtons(html).filter((button) => button.includes('aria-selected="false"'));
     expect(inactive).toHaveLength(1);
     expect(inactive[0]).not.toContain("bg-base-100");
   });
 
-  it("file 档激活块铺在标签外壳上，同样 bg-base-100 加描边", async () => {
+  it("file 档激活块铺在标签外壳上，只有 bg-base-100，无描边无阴影", async () => {
     const html = await render([tab("a"), tab("b")], { variant: "file", activeKey: "b" });
     const active = tabItemWrappers(html).filter((wrapper) => wrapper.includes("bg-base-100"));
     expect(active).toHaveLength(1);
-    expect(active[0]).toContain("ring-1 ring-base-content/10");
+    expect(active[0]).not.toContain("ring-1");
+    expect(active[0]).not.toContain("shadow-sm");
+  });
+
+  it("整个组件里不再出现 ring-1 / shadow-sm 这类激活装饰", () => {
+    expect(SFC_SOURCE).not.toContain("ring-1 ring-base-content/10");
+    expect(SFC_SOURCE).not.toContain("shadow-sm");
   });
 });
 
