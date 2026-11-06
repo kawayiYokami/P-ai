@@ -2601,6 +2601,7 @@
       "cardAllNormal": "All progressing normally",
       "cardTotalBoard": "{count} on board",
       "boardTitle": "Issue board",
+      "boardTab": "Issues",
       "backToTiles": "Back to tiles",
       "refresh": "Refresh",
       "issueCount": "{count} total",

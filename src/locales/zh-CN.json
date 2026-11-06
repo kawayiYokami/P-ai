@@ -2601,6 +2601,7 @@
       "cardAllNormal": "均在正常推进中",
       "cardTotalBoard": "全板 {count} 项",
       "boardTitle": "议题看板",
+      "boardTab": "议题",
       "backToTiles": "回到磁贴",
       "refresh": "刷新",
       "issueCount": "共 {count} 条",
