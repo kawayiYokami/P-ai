@@ -746,6 +746,79 @@ fn test_mcp_check_and_extract_auth_challenge() {
 }
 
 #[test]
+fn test_mcp_empty_auth_challenge_is_not_oauth() {
+    // 服务器回了空值的 WWW-Authenticate：连接层把空串塞进 AuthRequiredError，
+    // 渲染出来就是 "auth_required: "。这仍然只是普通 401，不能标成需要 OAuth。
+    for empty_challenge in [
+        "auth_required:",
+        "auth_required: ",
+        "auth_required:   ",
+        "Connect MCP streamable HTTP server failed: auth_required: ",
+        "MCP 组内 2 个成员连接失败: s1: auth_required:  | s2: connect error",
+    ] {
+        assert_eq!(
+            mcp_check_and_extract_auth_challenge(empty_challenge),
+            None,
+            "空 challenge 不应被识别为 OAuth 挑战: {empty_challenge:?}"
+        );
+        assert_eq!(
+            mcp_status_from_runtime_error(empty_challenge),
+            "failed",
+            "空 challenge 应落到普通失败: {empty_challenge:?}"
+        );
+    }
+}
+
+#[test]
+fn test_mcp_stale_oauth_mark_cleared_only_without_credentials() {
+    // 探测成功 + 无凭证：历史误判留下的标记要清掉，否则卡片上的 OAuth 按钮永远挂着。
+    assert!(mcp_stale_oauth_mark_should_clear(true, false));
+    // 有凭证：不能清，否则下一次 token 失效时没人知道这个服务还能重新授权。
+    assert!(!mcp_stale_oauth_mark_should_clear(true, true));
+    // 本来就不是 OAuth 的服务不受影响。
+    assert!(!mcp_stale_oauth_mark_should_clear(false, false));
+    assert!(!mcp_stale_oauth_mark_should_clear(false, true));
+}
+
+#[test]
+fn test_mcp_stale_oauth_mark_cleared_on_non_challenge_failure() {
+    // 服务回了非挑战的 4xx/5xx：它不是要授权，只是连不上，陈旧标记要清掉。
+    assert!(mcp_stale_oauth_mark_should_clear_after_failure("failed", true, false));
+    // 有凭证时不清：保留重新授权的入口。
+    assert!(!mcp_stale_oauth_mark_should_clear_after_failure("failed", true, true));
+    // 本来就没标记时不必清。
+    assert!(!mcp_stale_oauth_mark_should_clear_after_failure("failed", false, false));
+}
+
+#[test]
+fn test_mcp_stale_oauth_mark_kept_on_timeout() {
+    // 超时不足以证明它不需要 OAuth：这个服务可能正好是要登录的那个。
+    assert!(!mcp_stale_oauth_mark_should_clear_after_failure("timeout", true, false));
+}
+
+#[test]
+fn test_mcp_stale_oauth_mark_kept_on_auth_required() {
+    // 真挑战当然不清，否则登录入口会自己消失。
+    assert!(!mcp_stale_oauth_mark_should_clear_after_failure("auth_required", true, false));
+}
+
+#[test]
+fn overlay_runtime_state_should_carry_handshake_instructions() {
+    // 连上的服务：握手说明要随列表一起送出去，前端才有的显示。
+    let mut with_instructions = test_server_with_definition(r#"{"command":"node"}"#);
+    // 用独立 id，避免和别的用例共用全局说明缓存里的同一条。
+    with_instructions.id = "mcp-overlay-instructions".to_string();
+    mcp_server_instructions_set(&with_instructions.id, "可以查询代码仓库文档。");
+    let overlaid = overlay_runtime_state_on_server(with_instructions.clone());
+    assert_eq!(overlaid.instructions, "可以查询代码仓库文档。");
+
+    // 没连过 / 重启后的服务：空串，前端据此回落地址与命令。
+    mcp_server_instructions_remove(&with_instructions.id);
+    let cleared = overlay_runtime_state_on_server(with_instructions);
+    assert!(cleared.instructions.is_empty());
+}
+
+#[test]
 fn mcp_tool_result_should_not_repeat_structured_and_text_payload() {
     // deepwiki 这类服务会同时把同一份内容放进 structuredContent 和 content 文本。
     let mut result = rmcp::model::CallToolResult::success(vec![

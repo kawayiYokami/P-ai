@@ -168,10 +168,70 @@ fn mcp_current_server_matches_probe(
 fn mcp_check_and_extract_auth_challenge(err: &str) -> Option<String> {
     // 只认连接层从 WWW-Authenticate 头构造的 auth_required: 前缀；
     // 普通 401 文本（如 SSE transport、token 过期）不含 challenge 参数，不能当作 OAuth 挑战。
-    err.find("auth_required:").map(|idx| {
-        let after = &err[idx + "auth_required:".len()..];
-        after.split(" | ").next().unwrap_or(after).trim().to_string()
-    })
+    //
+    // 前缀后面必须真的带 challenge：服务器回了空值的 WWW-Authenticate 时，
+    // 连接层会把空串塞进 AuthRequiredError，渲染出来就是 "auth_required: "。
+    // 那不是 OAuth 服务，当成挑战会把普通 401 误标成需要授权登录。
+    let idx = err.find("auth_required:")?;
+    let after = &err[idx + "auth_required:".len()..];
+    let challenge = after.split(" | ").next().unwrap_or(after).trim();
+    if challenge.is_empty() {
+        return None;
+    }
+    Some(challenge.to_string())
+}
+
+/// 成功探测之后，是否要清掉历史遗留的 oauth_capable 标记。
+///
+/// 探测成功说明这个服务现在不需要 OAuth；误判留下的标记会让卡片上的「OAuth 登录」
+/// 按钮一直挂在连得好好的服务上。但有凭证的服务必须保留标记，否则下次 token 失效时
+/// 就没人知道它还能重新授权。
+fn mcp_stale_oauth_mark_should_clear(
+    oauth_capable: bool,
+    has_oauth_credentials: bool,
+) -> bool {
+    oauth_capable && !has_oauth_credentials
+}
+
+/// 失败探测之后，是否要清掉历史遗留的 oauth_capable 标记。
+///
+/// 只有「非挑战的失败」能证明这个服务不需要 OAuth：它回了非挑战的 4xx/5xx，
+/// 说明它没在要授权，只是连不上（没配 key、key 错、网关不认）。这类服务如果一直失败，
+/// 陈旧的标记就永远没有机会被成功路径清掉，卡片上的黄标会一直挂着。
+///
+/// `timeout` 不清：超时的服务可能正好是要 OAuth 的，证据不足。
+/// `auth_required` 更不能清：那是真挑战。
+fn mcp_stale_oauth_mark_should_clear_after_failure(
+    runtime_status: &str,
+    oauth_capable: bool,
+    has_oauth_credentials: bool,
+) -> bool {
+    runtime_status == "failed"
+        && mcp_stale_oauth_mark_should_clear(oauth_capable, has_oauth_credentials)
+}
+
+/// 清掉陈旧的 oauth_capable 标记：写盘 + 清内存挑战缓存，返回是否真的清了。
+///
+/// 判据由调用方给：探测成功用 [`mcp_stale_oauth_mark_should_clear`]，
+/// 探测失败用 [`mcp_stale_oauth_mark_should_clear_after_failure`]。
+fn mcp_clear_stale_oauth_capable_mark(state: &AppState, server_id: &str) -> bool {
+    match set_workspace_mcp_policy_oauth_capable(state, server_id, false) {
+        Ok(()) => {
+            mcp_oauth_clear_cached_challenge(server_id);
+            runtime_log_info(format!(
+                "[MCP OAuth] 清理陈旧标记，任务=clear_oauth_capable，server_id={}，原因=探测结果证明不需要 OAuth",
+                server_id
+            ));
+            true
+        }
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[MCP OAuth] 清理陈旧标记失败，server_id={}，error={}",
+                server_id, err
+            ));
+            false
+        }
+    }
 }
 
 fn mcp_status_from_runtime_error(error: &str) -> &'static str {
@@ -258,6 +318,15 @@ async fn mcp_probe_server_tools_background(
                 return;
             }
             let status = mcp_status_from_runtime_error(&err);
+            // 非挑战的失败说明它不是要授权，而是真的连不上：陈旧标记要清掉，
+            // 否则一直 401 的服务永远等不到成功路径，黄标会一直挂着。
+            if mcp_stale_oauth_mark_should_clear_after_failure(
+                status,
+                current_server.oauth_capable,
+                mcp_oauth_has_credentials(&state, &current_server.id),
+            ) {
+                let _ = mcp_clear_stale_oauth_capable_mark(&state, &current_server.id);
+            }
             mcp_runtime_state_mark_probe_failure(&current_server, status, &err);
             let label = if status == "timeout" { "超时" } else { "失败" };
             runtime_log_warn(format!(
@@ -317,6 +386,13 @@ async fn mcp_probe_server_tools_background(
         })
         .collect::<Vec<_>>();
     let tool_count = final_tools.len();
+    // 探测成功之后，历史误判留下的 oauth_capable 标记要一起清掉（有凭证的除外）。
+    if mcp_stale_oauth_mark_should_clear(
+        server_with_policies.oauth_capable,
+        mcp_oauth_has_credentials(&state, &server_with_policies.id),
+    ) {
+        let _ = mcp_clear_stale_oauth_capable_mark(&state, &server_with_policies.id);
+    }
     mcp_runtime_state_set(&server_with_policies.id, true, "ready", "", final_tools);
     refresh_global_tool_schema_cache(&state);
     mark_prompt_cache_rebuild_for_all_final_system_sources(&state);
@@ -472,6 +548,14 @@ async fn mcp_list_server_tools_inner(
                 return Err("需要 OAuth 授权登录".to_string());
             }
             let status = mcp_status_from_runtime_error(&err);
+            // 同上：非挑战的失败要清陈旧标记，timeout 与真挑战都不清。
+            if mcp_stale_oauth_mark_should_clear_after_failure(
+                status,
+                server.oauth_capable,
+                mcp_oauth_has_credentials(state, &server.id),
+            ) {
+                let _ = mcp_clear_stale_oauth_capable_mark(state, &server.id);
+            }
             mcp_runtime_state_mark_probe_failure(&server, status, &err);
             return Err(err);
         }
@@ -493,6 +577,13 @@ async fn mcp_list_server_tools_inner(
             McpToolDescriptor { enabled, ..tool }
         })
         .collect::<Vec<_>>();
+    // 列工具成功说明这个服务当前不需要 OAuth：清掉历史误判留下的标记（有凭证的除外）。
+    if mcp_stale_oauth_mark_should_clear(
+        server.oauth_capable,
+        mcp_oauth_has_credentials(state, &server.id),
+    ) {
+        let _ = mcp_clear_stale_oauth_capable_mark(state, &server.id);
+    }
     mcp_runtime_state_set(&server.id, true, "ready", "", final_tools.clone());
     refresh_global_tool_schema_cache(state);
     mark_prompt_cache_rebuild_for_all_final_system_sources(state);

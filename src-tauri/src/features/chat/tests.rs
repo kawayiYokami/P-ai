@@ -17639,6 +17639,9 @@
     }
 
     fn mcp_fold_test_setup() -> (AppState, AgentProfile, ApiConfig, AppConfig, Conversation) {
+        // 握手说明是进程内全局缓存：上一个用例留下的说明会串到这里，
+        // 让「没有说明时只写服名」这类断言读到别人的说明。每个用例从一个干净的点开始。
+        mcp_server_instructions_remove("mcp-fold");
         let state = test_chat_runtime_state();
         persist_test_mcp_server(
             &state,
