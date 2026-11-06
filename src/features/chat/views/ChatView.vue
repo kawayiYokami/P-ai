@@ -3799,9 +3799,11 @@ watch(chatContentRoot, (el, _prev, onCleanup) => {
   });
 });
 
-// 手动「回到底部」的滚动行为：与底部相隔在当前可视项 10 项以内走平滑，否则瞬移
+// 手动「回到底部」的滚动行为：距底部在当前可视轮次 VIRTUAL_SMOOTH_DISTANCE 个以内走平滑，否则瞬移
+// 这里必须用轮次容器数，和 currentFirstVisibleVirtualIndex() 同一单位；
+// 拿 virtualRenderItems.length（消息项数）去比会永远超出阈值，退化成一律瞬移。
 function resolveManualScrollToBottomBehavior(): "auto" | "smooth" {
-  const len = virtualRenderItems.value.length;
+  const len = turnContainers.value.length;
   return len > 0 && resolveVirtualSmooth(len - 1, "smooth") ? "smooth" : "auto";
 }
 
