@@ -69,7 +69,13 @@
         @click="handleReasoningToggle(item, $event)"
         @keydown.enter.prevent="handleReasoningToggle(item, $event)"
         @keydown.space.prevent="handleReasoningToggle(item, $event)"
-      >{{ activityItemTitle(item) }}</div>
+      >
+        <span>{{ activityItemTitle(item) }}</span>
+        <template v-if="reasoningCharCount(item) > 0">
+          <span class="opacity-30">·</span>
+          <span class="ecall-activity-title-meta font-normal">{{ reasoningCharCount(item) }} 字</span>
+        </template>
+      </div>
 
       <!-- 内容行（思考）：收起裁四行，展开后全文，不设滚动区 -->
       <div
@@ -677,6 +683,11 @@ function activityItemTitle(item: ChatActivityItem): string {
   return suffix ? `${baseTitle} ${suffix}` : baseTitle;
 }
 
+/** 这条思考的字数：直接取正文长度，不 trim——流式时每帧都会求值，别为个数字复制一遍长字符串。 */
+function reasoningCharCount(item: ChatActivityItem): number {
+  return item.kind === "reasoning" ? activityItemText(item).length : 0;
+}
+
 function toolCallDiffStats(toolCall: { name: string; argsText: string; resultText?: string }): { adds: number; removes: number } {
   if (toolCall.resultText) {
     const status = parseToolCallResultStatus(toolCall.resultText);
@@ -897,6 +908,11 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
 .ecall-activity-action,
 .ecall-activity-row[data-kind="reasoning"] .ecall-activity-title {
   color: var(--ecall-ui);
+}
+
+/* 标题行里属于摘要的那一段（思考字数）：它描述内容、不是 UI，走内容色 */
+.ecall-activity-title-meta {
+  color: var(--ecall-body);
 }
 
 /* 失败 / 拒绝压过类型色：动作名也要跟着变，否则一行里绿字配红字 */
