@@ -7,6 +7,14 @@
    悬停才出现的按钮会一直停在透明态。桌面应用固定有指针，直接按 :hover 生效。 */
 @custom-variant hover (&:hover);
 
+/* Tailwind 的 font-mono 默认走系统等宽栈（ui-monospace / Consolas），和项目自带的
+   "Easy Call JetBrains Mono" 是两套，同一屏里两种等宽并存。
+   inline 修饰符让 font-mono 直接内联引用这个变量，而不是把当前值抄进编译产物：
+   use-ui-font 在运行时改 --app-code-font-family 时，font-mono 跟着一起变。 */
+@theme inline {
+  --font-mono: var(--app-code-font-family);
+}
+
 @font-face {
   font-family: "Easy Call JetBrains Mono";
   src: url("./assets/fonts/JetBrainsMono-wght.ttf") format("truetype");
