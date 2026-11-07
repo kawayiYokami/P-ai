@@ -930,43 +930,13 @@ impl RuntimeToolDyn for AuthorizationCheckedRuntimeTool {
     }
 }
 
-fn empty_runtime_tool_assembly(tool_manifest: Vec<Value>) -> RuntimeToolAssembly {
-    RuntimeToolAssembly {
-        tools: Vec::new(),
-        tool_definitions: Vec::new(),
-        tool_manifest,
-        unavailable_tool_notices: Vec::new(),
-    }
-}
-
-pub(crate) async fn assemble_runtime_tools(
-    app_config: &AppConfig,
-    selected_api: &ApiConfig,
-    agent: &AgentProfile,
-    app_state: Option<&AppState>,
+/// 本轮真正可见的工具清单：读缓存 + 电脑使用总开关 + MCP 按需 + 队伍门控。
+/// 装配与 token 估算共用这一份口径，过滤逻辑只能改在这里，避免两边各算一套。
+fn discoverable_runtime_tools_for_session(
+    state: &AppState,
     tool_session_id: &str,
-) -> RuntimeToolAssembly {
-    if !selected_api.enable_tools {
-        return empty_runtime_tool_assembly(Vec::new());
-    }
-    let Some(state) = app_state else {
-        runtime_log_warn("[工具装配] 跳过，原因=缺少AppState，聊天继续但本轮不挂载工具".to_string());
-        return empty_runtime_tool_assembly(Vec::new());
-    };
-    // 执行上下文就是当前人格本身：权限、下级、模型全部从人格上取。
-    let executor_agent = agent;
-    let runtime_tool_policy = runtime_tool_policy_from_session(app_state, tool_session_id, true);
-    let memory_context = match memory_agent_context_from_agent(agent) {
-        Ok(context) => Some(context),
-        Err(err) => {
-            runtime_log_warn(format!(
-                "[工具装配] 记忆工具降级，agent_id={}，error={err}",
-                agent.id
-            ));
-            None
-        }
-    };
-    let mut discoverable_tools = read_global_tool_schema_cache(app_state);
+) -> Vec<CachedRuntimeToolSchema> {
+    let mut discoverable_tools = read_global_tool_schema_cache(Some(state));
     if discoverable_tools.is_empty() {
         runtime_log_warn("[工具装配] Schema缓存为空，尝试按当前可发现能力重建".to_string());
         discoverable_tools = refresh_global_tool_schema_cache(state);
@@ -1065,6 +1035,93 @@ pub(crate) async fn assemble_runtime_tools(
             });
         }
     }
+    discoverable_tools
+}
+
+/// 本轮实际会发给模型的工具定义，只解析定义、不构建执行器。
+/// token 估算走这里，保证算的是真发出去的那一份，而不是配置里的历史副本。
+pub(crate) fn resolve_runtime_tool_definitions(
+    app_config: &AppConfig,
+    selected_api: &ApiConfig,
+    agent: &AgentProfile,
+    app_state: Option<&AppState>,
+    tool_session_id: &str,
+) -> Vec<ProviderToolDefinition> {
+    if !selected_api.enable_tools {
+        return Vec::new();
+    }
+    let Some(state) = app_state else {
+        return Vec::new();
+    };
+    let runtime_tool_policy = runtime_tool_policy_from_session(app_state, tool_session_id, true);
+    let memory_context = match memory_agent_context_from_agent(agent) {
+        Ok(context) => Some(context),
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[工具装配] 记忆工具降级，agent_id={}，error={err}",
+                agent.id
+            ));
+            None
+        }
+    };
+    let discoverable_tools = discoverable_runtime_tools_for_session(state, tool_session_id);
+    let resolved = resolve_legal_runtime_tools(
+        app_config,
+        selected_api,
+        agent,
+        &runtime_tool_policy,
+        memory_context.as_ref(),
+        &discoverable_tools,
+    );
+    let mut definitions: Vec<ProviderToolDefinition> = resolved
+        .attached
+        .into_iter()
+        .map(|tool| tool.definition)
+        .collect();
+    // 护航委托额外挂 advise 工具，与装配保持一致。
+    if wheelchair_delegate_tool_session(state, tool_session_id) {
+        definitions.push(advise_provider_tool_definition());
+    }
+    definitions
+}
+
+fn empty_runtime_tool_assembly(tool_manifest: Vec<Value>) -> RuntimeToolAssembly {
+    RuntimeToolAssembly {
+        tools: Vec::new(),
+        tool_definitions: Vec::new(),
+        tool_manifest,
+        unavailable_tool_notices: Vec::new(),
+    }
+}
+
+pub(crate) async fn assemble_runtime_tools(
+    app_config: &AppConfig,
+    selected_api: &ApiConfig,
+    agent: &AgentProfile,
+    app_state: Option<&AppState>,
+    tool_session_id: &str,
+) -> RuntimeToolAssembly {
+    if !selected_api.enable_tools {
+        return empty_runtime_tool_assembly(Vec::new());
+    }
+    let Some(state) = app_state else {
+        runtime_log_warn("[工具装配] 跳过，原因=缺少AppState，聊天继续但本轮不挂载工具".to_string());
+        return empty_runtime_tool_assembly(Vec::new());
+    };
+    // 执行上下文就是当前人格本身：权限、下级、模型全部从人格上取。
+    let executor_agent = agent;
+    let runtime_tool_policy = runtime_tool_policy_from_session(app_state, tool_session_id, true);
+    let memory_context = match memory_agent_context_from_agent(agent) {
+        Ok(context) => Some(context),
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[工具装配] 记忆工具降级，agent_id={}，error={err}",
+                agent.id
+            ));
+            None
+        }
+    };
+    let discoverable_tools = discoverable_runtime_tools_for_session(state, tool_session_id);
     let resolved = resolve_legal_runtime_tools(
         app_config,
         selected_api,

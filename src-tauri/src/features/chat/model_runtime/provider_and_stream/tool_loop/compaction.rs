@@ -53,7 +53,12 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         &context.trusted_prompt_usage,
         &prepared_before,
         selected_api,
-        &context.agent,
+        &resolve_estimate_tool_definitions(
+            selected_api,
+            &context.agent,
+            Some(state),
+            chat_session_key,
+        ),
     );
     let usage = base_usage;
     let (decision, decision_source) = decide_archive_before_send_from_usage(

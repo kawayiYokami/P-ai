@@ -1952,7 +1952,12 @@ async fn send_chat_message_inner(
         let usage_resolution = conversation_prompt_service().resolve_prompt_usage(
             &prepared_prompt,
             &selected_api,
-            &current_agent,
+            &resolve_estimate_tool_definitions(
+                &selected_api,
+                &current_agent,
+                Some(&state),
+                &chat_session_key,
+            ),
             &conversation,
         );
         if usage_resolution.estimated_prompt_tokens.is_some() {
@@ -1994,7 +1999,12 @@ async fn send_chat_message_inner(
         prepared_context.5 = Some(conversation_prompt_service().estimate_prepared_prompt_tokens(
             &prepared_context.1,
             &selected_api,
-            &prepared_context.4,
+            &resolve_estimate_tool_definitions(
+                &selected_api,
+                &prepared_context.4,
+                Some(&state),
+                &chat_session_key,
+            ),
         ));
     }
     let conversation_for_compaction = prepared_context.9.clone();
@@ -2110,7 +2120,12 @@ async fn send_chat_message_inner(
             &conversation_for_compaction,
             &prepared_context.1,
             &selected_api,
-            &prepared_context.4,
+            &resolve_estimate_tool_definitions(
+                &selected_api,
+                &prepared_context.4,
+                Some(&state),
+                &chat_session_key,
+            ),
         );
         let latest_real_usage = runtime_context
             .trusted_prompt_usage
@@ -2678,10 +2693,16 @@ async fn send_chat_message_inner(
         if trusted_input_tokens.is_some() {
             0
         } else {
+            let tool_definitions = resolve_estimate_tool_definitions(
+                &active_selected_api,
+                &current_agent,
+                Some(&state),
+                &chat_session_key,
+            );
             conversation_prompt_service().estimate_prepared_prompt_tokens(
                 &prepared_prompt,
                 &active_selected_api,
-                &current_agent,
+                &tool_definitions,
             )
         }
     });

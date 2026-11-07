@@ -3305,29 +3305,6 @@
             mcp_call: None,
         meme_annotations: None,
         });
-        let agent = AgentProfile {
-            id: DEFAULT_AGENT_ID.to_string(),
-            name: "默认助手".to_string(),
-            system_prompt: String::new(),
-            created_at: now.clone(),
-            updated_at: now.clone(),
-            avatar_path: None,
-            avatar_updated_at: None,
-            is_built_in_user: false,
-            is_built_in_system: false,
-            private_memory_enabled: false,
-            memory_recall_mode: default_agent_memory_recall_mode(),
-            scope: "global".to_string(),
-            summary: String::new(),
-            resident_skill_names: Vec::new(),
-            optional_skill_names: Vec::new(),
-            include_system_rules: true,
-            api_config_ids: Vec::new(),
-            api_config_id: String::new(),
-            model_failure_fallback_enabled: false,
-            permission_control: AgentPermissionControl::default(),
-            child_agent_ids: Vec::new(),
-        };
         let usage = conversation_prompt_service()
             .latest_real_prompt_usage(&conversation, &ApiConfig::default())
             .expect("latest real prompt usage");
@@ -3351,7 +3328,7 @@
         let resolved = conversation_prompt_service().resolve_prompt_usage(
             &prepared,
             &ApiConfig::default(),
-            &agent,
+            &[],
             &conversation,
         );
         assert_eq!(resolved, usage);
@@ -3474,29 +3451,6 @@
             mcp_call: None,
         meme_annotations: None,
         });
-        let agent = AgentProfile {
-            id: DEFAULT_AGENT_ID.to_string(),
-            name: "默认助手".to_string(),
-            system_prompt: String::new(),
-            created_at: now.clone(),
-            updated_at: now.clone(),
-            avatar_path: None,
-            avatar_updated_at: None,
-            is_built_in_user: false,
-            is_built_in_system: false,
-            private_memory_enabled: false,
-            memory_recall_mode: default_agent_memory_recall_mode(),
-            scope: "global".to_string(),
-            summary: String::new(),
-            resident_skill_names: Vec::new(),
-            optional_skill_names: Vec::new(),
-            include_system_rules: true,
-            api_config_ids: Vec::new(),
-            api_config_id: String::new(),
-            model_failure_fallback_enabled: false,
-            permission_control: AgentPermissionControl::default(),
-            child_agent_ids: Vec::new(),
-        };
         let prepared = PreparedPrompt {
             preamble: "系统提示词".to_string(),
             history_messages: Vec::new(),
@@ -3512,7 +3466,7 @@
         let usage = conversation_prompt_service().resolve_prompt_usage(
             &prepared,
             &ApiConfig::default(),
-            &agent,
+            &[],
             &conversation,
         );
 
@@ -3520,6 +3474,67 @@
         assert!(usage.estimated_prompt_tokens.is_some());
         assert!(usage.effective_prompt_tokens > 0);
         assert!(usage.usage_ratio > 0.0);
+    }
+
+    /// 工具开销按整份工具定义统计：挂上工具估算必须变大，多一条异名工具必须再变大。
+    /// 去重不在估算这层做——装配的 `resolve_legal_runtime_tools` 已按 name 收口。
+    #[test]
+    fn resolve_prompt_usage_should_count_whole_tool_definition_block() {
+        let now = now_iso();
+        let conversation = test_chat_conversation("conversation-main", "active", &now);
+        let prepared = PreparedPrompt {
+            preamble: "系统提示词".to_string(),
+            history_messages: Vec::new(),
+            latest_user_text: "用户消息".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+        let api = ApiConfig::default();
+        let read_file = ProviderToolDefinition {
+            name: "read_file".to_string(),
+            description: "读取本地文件的完整内容".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "文件的绝对路径"}},
+                "required": ["path"],
+            }),
+        };
+        let write_file = ProviderToolDefinition {
+            name: "write_file".to_string(),
+            description: "把内容写入本地文件".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "文件的绝对路径"},
+                    "content": {"type": "string", "description": "要写入的完整内容"},
+                },
+                "required": ["path", "content"],
+            }),
+        };
+
+        let estimate = |tools: &[ProviderToolDefinition]| {
+            let usage =
+                conversation_prompt_service().resolve_prompt_usage(&prepared, &api, tools, &conversation);
+            assert_eq!(usage.source, "estimated_prompt_tokens");
+            usage.effective_prompt_tokens
+        };
+
+        let without_tools = estimate(&[]);
+        let with_one_tool = estimate(&[read_file.clone()]);
+        let with_two_tools = estimate(&[read_file.clone(), write_file.clone()]);
+
+        assert!(
+            with_one_tool > without_tools + 20,
+            "挂上一条工具定义后估算必须明显变大：空工具={without_tools} 一条工具={with_one_tool}"
+        );
+        assert!(
+            with_two_tools > with_one_tool,
+            "异名工具应各记一份：一条工具={with_one_tool} 两条工具={with_two_tools}"
+        );
     }
 
     #[test]
@@ -3632,29 +3647,6 @@
             mcp_call: None,
         meme_annotations: None,
         });
-        let agent = AgentProfile {
-            id: DEFAULT_AGENT_ID.to_string(),
-            name: "默认助手".to_string(),
-            system_prompt: String::new(),
-            created_at: now.clone(),
-            updated_at: now.clone(),
-            avatar_path: None,
-            avatar_updated_at: None,
-            is_built_in_user: false,
-            is_built_in_system: false,
-            private_memory_enabled: false,
-            memory_recall_mode: default_agent_memory_recall_mode(),
-            scope: "global".to_string(),
-            summary: String::new(),
-            resident_skill_names: Vec::new(),
-            optional_skill_names: Vec::new(),
-            include_system_rules: true,
-            api_config_ids: Vec::new(),
-            api_config_id: String::new(),
-            model_failure_fallback_enabled: false,
-            permission_control: AgentPermissionControl::default(),
-            child_agent_ids: Vec::new(),
-        };
         let prepared = PreparedPrompt {
             preamble: "系统提示词".to_string(),
             history_messages: Vec::new(),
@@ -3672,7 +3664,7 @@
             &conversation,
             &prepared,
             &ApiConfig::default(),
-            &agent,
+            &[],
         );
         assert_eq!(primed.source, "assistant_message_effective_prompt_tokens");
 
@@ -3683,7 +3675,7 @@
             &conversation,
             &prepared,
             &ApiConfig::default(),
-            &agent,
+            &[],
         );
         assert_eq!(reused.source, "trusted_prompt_usage");
         assert_eq!(reused.effective_prompt_tokens, 640);
@@ -3692,30 +3684,6 @@
 
     #[test]
     fn shared_trusted_prompt_usage_should_refresh_after_provider_response() {
-        let now = now_iso();
-        let agent = AgentProfile {
-            id: DEFAULT_AGENT_ID.to_string(),
-            name: "默认助手".to_string(),
-            system_prompt: String::new(),
-            created_at: now.clone(),
-            updated_at: now.clone(),
-            avatar_path: None,
-            avatar_updated_at: None,
-            is_built_in_user: false,
-            is_built_in_system: false,
-            private_memory_enabled: false,
-            memory_recall_mode: default_agent_memory_recall_mode(),
-            scope: "global".to_string(),
-            summary: String::new(),
-            resident_skill_names: Vec::new(),
-            optional_skill_names: Vec::new(),
-            include_system_rules: true,
-            api_config_ids: Vec::new(),
-            api_config_id: String::new(),
-            model_failure_fallback_enabled: false,
-            permission_control: AgentPermissionControl::default(),
-            child_agent_ids: Vec::new(),
-        };
         let prepared = PreparedPrompt {
             preamble: "系统提示词".to_string(),
             history_messages: Vec::new(),
@@ -3738,7 +3706,7 @@
             &trusted,
             &prepared,
             &ApiConfig::default(),
-            &agent,
+            &[],
         );
         assert_eq!(first.source, "trusted_prompt_usage");
         assert_eq!(first.effective_prompt_tokens, 640);
@@ -3748,7 +3716,7 @@
             &trusted,
             &prepared,
             &ApiConfig::default(),
-            &agent,
+            &[],
         );
         assert_eq!(second.source, "trusted_prompt_usage");
         assert_eq!(second.effective_prompt_tokens, 640);
@@ -3764,7 +3732,7 @@
                 &trusted,
                 &prepared,
                 &ApiConfig::default(),
-                &agent,
+                &[],
             );
         assert_eq!(after_missing_provider_usage.source, "trusted_prompt_usage");
         assert_eq!(after_missing_provider_usage.effective_prompt_tokens, 640);
@@ -18208,4 +18176,5 @@
             );
         }
     }
+
 

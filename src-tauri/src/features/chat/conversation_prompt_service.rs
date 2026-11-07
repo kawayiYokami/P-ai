@@ -54,6 +54,33 @@ struct AbstractMessageProjectionCacheEntry {
 #[derive(Debug, Default)]
 struct ConversationPromptService;
 
+/// 估算用的工具定义：读当前配置后走与装配完全相同的解析，读不到就降级为不挂工具。
+fn resolve_estimate_tool_definitions(
+    selected_api: &ApiConfig,
+    agent: &AgentProfile,
+    app_state: Option<&AppState>,
+    tool_session_id: &str,
+) -> Vec<ProviderToolDefinition> {
+    let Some(state) = app_state else {
+        return Vec::new();
+    };
+    match state_read_config_cached(state) {
+        Ok(app_config) => resolve_runtime_tool_definitions(
+            &app_config,
+            selected_api,
+            agent,
+            Some(state),
+            tool_session_id,
+        ),
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[估算Token] 读取配置失败，本轮不估算工具开销，error={err}"
+            ));
+            Vec::new()
+        }
+    }
+}
+
 fn conversation_prompt_service() -> &'static ConversationPromptService {
     static SERVICE: OnceLock<ConversationPromptService> = OnceLock::new();
     SERVICE.get_or_init(ConversationPromptService::default)
@@ -353,7 +380,7 @@ impl ConversationPromptService {
         conversation: &Conversation,
         prepared: &PreparedPrompt,
         selected_api: &ApiConfig,
-        current_agent: &AgentProfile,
+        tool_definitions: &[ProviderToolDefinition],
     ) -> PromptUsageResolution {
         if let Some(usage) = runtime_context.trusted_prompt_usage {
             return self.prompt_usage_from_runtime_usage(usage, "trusted_prompt_usage");
@@ -363,7 +390,8 @@ impl ConversationPromptService {
                 self.trusted_prompt_usage_from_real_usage(usage);
             return usage;
         }
-        let usage = self.resolve_prompt_usage_from_estimate(prepared, selected_api, current_agent);
+        let usage =
+            self.resolve_prompt_usage_from_estimate(prepared, selected_api, tool_definitions);
         runtime_context.trusted_prompt_usage = self.trusted_prompt_usage_from_tokens(
             usage.effective_prompt_tokens,
             selected_api,
@@ -377,14 +405,14 @@ impl ConversationPromptService {
         trusted_prompt_usage: &std::sync::Mutex<Option<TrustedPromptUsage>>,
         prepared: &PreparedPrompt,
         selected_api: &ApiConfig,
-        current_agent: &AgentProfile,
+        tool_definitions: &[ProviderToolDefinition],
     ) -> PromptUsageResolution {
         let guard = cache_lock_recover("trusted_prompt_usage", trusted_prompt_usage);
         if let Some(usage) = *guard {
             return self.prompt_usage_from_runtime_usage(usage, "trusted_prompt_usage");
         }
         drop(guard);
-        self.resolve_prompt_usage_from_estimate(prepared, selected_api, current_agent)
+        self.resolve_prompt_usage_from_estimate(prepared, selected_api, tool_definitions)
     }
 
     fn refresh_shared_trusted_prompt_usage(
@@ -468,8 +496,8 @@ impl ConversationPromptService {
     fn estimate_prepared_prompt_tokens(
         &self,
         prepared: &PreparedPrompt,
-        selected_api: &ApiConfig,
-        current_agent: &AgentProfile,
+        _selected_api: &ApiConfig,
+        tool_definitions: &[ProviderToolDefinition],
     ) -> u64 {
         let mut total = 0.0f64;
         let preamble_tokens = estimated_tokens_for_text(&prepared.preamble);
@@ -517,8 +545,23 @@ impl ConversationPromptService {
         total += prepared.latest_images.len() as f64 * 280.0;
         total += prepared.latest_audios.len() as f64 * 320.0;
 
-        // 人格自由工具列表已废弃，工具开销不再在这里单独估算。
-        let _ = (current_agent, selected_api);
+        // 工具开销：整份工具定义序列化一次再编码，不逐条累加。
+        // 去重由装配层保证（`resolve_legal_runtime_tools` 已按 name 收口），这里不再重复。
+        let mut tool_tokens = 0.0f64;
+        if !tool_definitions.is_empty() {
+            match serde_json::to_string(tool_definitions) {
+                Ok(serialized) => tool_tokens = estimated_tokens_for_text(&serialized),
+                Err(err) => runtime_log_warn(format!(
+                    "[估算Token] 工具定义序列化失败，工具开销不计入估算，count={} error={err}",
+                    tool_definitions.len()
+                )),
+            }
+        }
+        total += tool_tokens;
+        runtime_log_debug(format!(
+            "[估算Token] tool_count={} tool_tokens={tool_tokens:.0}",
+            tool_definitions.len()
+        ));
 
         total.ceil().max(0.0).min(u64::MAX as f64) as u64
     }
@@ -527,11 +570,11 @@ impl ConversationPromptService {
         &self,
         prepared: &PreparedPrompt,
         selected_api: &ApiConfig,
-        current_agent: &AgentProfile,
+        tool_definitions: &[ProviderToolDefinition],
     ) -> PromptUsageResolution {
         let context_window = f64::from(selected_api.context_window_tokens.max(1));
         let estimated_prompt_tokens =
-            self.estimate_prepared_prompt_tokens(prepared, selected_api, current_agent);
+            self.estimate_prepared_prompt_tokens(prepared, selected_api, tool_definitions);
         PromptUsageResolution {
             effective_prompt_tokens: estimated_prompt_tokens,
             usage_ratio: estimated_prompt_tokens as f64 / context_window,
@@ -544,13 +587,13 @@ impl ConversationPromptService {
         &self,
         prepared: &PreparedPrompt,
         selected_api: &ApiConfig,
-        current_agent: &AgentProfile,
+        tool_definitions: &[ProviderToolDefinition],
         conversation: &Conversation,
     ) -> PromptUsageResolution {
         if let Some(usage) = self.latest_real_prompt_usage(conversation, selected_api) {
             return usage;
         }
-        self.resolve_prompt_usage_from_estimate(prepared, selected_api, current_agent)
+        self.resolve_prompt_usage_from_estimate(prepared, selected_api, tool_definitions)
     }
 
     fn build_prompt_revisions(
