@@ -848,12 +848,11 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
 </script>
 
 <style scoped>
-/* ===== 块内字号：跟随消息正文字号档位 =====
+/* ===== 块内字号：与消息正文同档 =====
    折叠块里原来是 8 处 text-xs（写死 0.75rem），用户把消息字号调大时整块不跟。
-   这里在根上定一档，比正文小一档、跟着正文走（6/7 = 12/14，默认档正好 12px，
-   与改前的视觉一致），块内所有文字继承它，不再各处单独写档位。 */
+   现在整块跟正文用同一个字号，块内所有文字继承它，不再各处单独写档位。 */
 .ecall-activity-timeline {
-  font-size: calc(var(--app-chat-message-text-size, 0.875rem) * 6 / 7);
+  font-size: var(--app-chat-message-text-size, 0.875rem);
 }
 
 /* ===== 条目配色：一张表，两套皮肤 =====
