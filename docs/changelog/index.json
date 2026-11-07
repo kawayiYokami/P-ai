@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-10-31T07:55:24.251Z",
-  "latestVersion": "v0.97.11",
+  "generatedAt": "2026-11-07T03:27:29.214Z",
+  "latestVersion": "v0.98.0",
   "releases": [
+    {
+      "version": "v0.98.0",
+      "path": "docs/changelog/releases/v0.98.0.md",
+      "summary": "**这一版让几个 AI 一起干活成为可能：普通聊天里就能把活分给它们，配一块看板盯进度、一组问题卡等你拍板；聊天的样子、设置页、联网搜索和能力商店也都换了新的。**"
+    },
     {
       "version": "v0.97.11",
       "path": "docs/changelog/releases/v0.97.11.md",
