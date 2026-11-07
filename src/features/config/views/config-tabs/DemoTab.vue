@@ -1853,7 +1853,7 @@ const initialDemoPanelTabs: PanelTabStripItem[] = [
   { key: "yae", label: "八重神子", iconSrc: demoKanbanAvatarMap["莫娜"], closeable: true },
   { key: "nahida", label: "小吉祥草王", iconSrc: demoKanbanAvatarMap["小吉祥草王"], closeable: true },
   { key: "sandrone", label: "桑多涅", iconSrc: demoKanbanAvatarMap["桑多涅"], closeable: true },
-  { key: "zhongli", label: "钟离", iconSrc: demoKanbanAvatarMap["钟离"], closeable: true },
+  { key: "zhongli", label: "钟离", iconSrc: demoKanbanAvatarMap["钟离"], busy: true, closeable: true },
 ];
 
 const demoPanelTabs = ref<PanelTabStripItem[]>([...initialDemoPanelTabs]);

@@ -706,6 +706,24 @@ export function useChatWindowApp() {
   const sideChatNewPageRequested = ref(false);
   // 只记住每个父会话当前选中的标签；真实标签集合始终以后端父摘要为准。
   const activeSideConversationByParent = new Map<string, string>();
+  // 最近的打开/切换顺序：新开一个就顶到最前，之前的整体往后挤一层，像浏览器标签。
+  // 这份只在内存里，重启后回到后端给的顺序。
+  const sideConversationRecentOrder = ref<string[]>([]);
+  /** 没进过记录的一律排在后面，彼此之间保持后端顺序（sort 稳定，不受影响）。 */
+  function sideConversationRecentRank(item: ChildConversationSummary): number {
+    const conversationId = String(item?.conversationId || "").trim();
+    const index = sideConversationRecentOrder.value.indexOf(conversationId);
+    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+  }
+  function touchSideConversation(conversationId: string): void {
+    const id = String(conversationId || "").trim();
+    if (!id) return;
+    if (sideConversationRecentOrder.value[0] === id) return;
+    sideConversationRecentOrder.value = [
+      id,
+      ...sideConversationRecentOrder.value.filter((item) => item !== id),
+    ];
+  }
   const sideConversations = computed<ChildConversationSummary[]>(() => {
     const parentId = String(currentChatConversationId.value || "").trim();
     const parent = unarchivedConversations.value
@@ -725,7 +743,10 @@ export function useChatWindowApp() {
         const liveRuntimeState = String(liveRuntimeMap[conversationId] || "").trim();
         if (!liveRuntimeState || liveRuntimeState === item.runtimeState) return item;
         return { ...item, runtimeState: liveRuntimeState };
-      });
+      })
+      // 最近打开或切到的排最前，新开一个就把之前的整体往后挤一层。
+      // 没进过记录的一律排在有记录的后面，彼此之间保持后端给的顺序。
+      .sort((left, right) => sideConversationRecentRank(left) - sideConversationRecentRank(right));
   });
   let observedSideConversationParentId = "";
   watch(
@@ -816,6 +837,7 @@ export function useChatWindowApp() {
     if (!sideConversations.value.some((item) => String(item.conversationId || "").trim() === normalizedId)) return;
     sideChatNewPageRequested.value = false;
     sideConversationId.value = normalizedId;
+    touchSideConversation(normalizedId);
     clearSideConversationUnread(normalizedId);
     const parentId = String(currentChatConversationId.value || "").trim();
     if (parentId) activeSideConversationByParent.set(parentId, normalizedId);
@@ -836,6 +858,7 @@ export function useChatWindowApp() {
     if (conversationId) {
       sideChatNewPageRequested.value = false;
       sideConversationId.value = conversationId;
+      touchSideConversation(conversationId);
       const parentId = String(currentChatConversationId.value || "").trim();
       if (parentId) activeSideConversationByParent.set(parentId, conversationId);
       chatUiState.updateChatRightPanelMode("sideChat");

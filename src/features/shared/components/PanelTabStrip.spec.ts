@@ -8,18 +8,18 @@ import type { PanelTabStripItem, PanelTabStripVariant } from "./panel-tab-strip.
 import { i18n } from "../../../i18n";
 
 /**
- * 标签行的口径（四轮迭代后的最终版）：
- * - 标签固定宽度，不平分；放不下就 flex-wrap 换行，不折进「更多」下拉菜单。
- * - 展开态最多 4 行高，超出在标签区内纵向滚动；尾部胶囊文案「收起」。
- * - 收起态压成一行；尾部胶囊文案「更多」。
- * - 激活项 bg-base-100 加一层极淡描边。
+ * 标签行的口径（A+B 组合）：
+ * - 单行恒定高度，绝不换行。标签按 flex-1 basis-0 自适应压宽，最宽 max-w-40（文件档 44）。
+ * - 放不下就收进「更多」下拉菜单，不再靠换行堆行数。
+ * - 「更多」按钮默认悬停即弹出（openMoreOnHover）。
+ * - 下拉菜单项与标签一样带忙碌转圈。
+ * - 激活项只有底色，没有描边与阴影。
  *
  * 已知限制：仓库没有 jsdom / @vue/test-utils，只能 SSR。
- * SSR 下 onMounted 不执行，可用宽度恒为 0，composable 因此走进
- * 「宽度未就绪 → 全量呈现、不出现尾部胶囊」的分支，
- * 所以「换行时渲染胶囊」「收起态渲染更多」「收起只显示一行」这三个状态
- * 在 SSR 里构造不出来。这部分用下面的样式/文案契约（源码守护）钉住，
- * 真实观感与几何由浏览器实测核对。
+ * SSR 下 onMounted 不执行，可用宽度恒为 0，usePanelTabOverflow 因此走进
+ * 「宽度未就绪 → 全量呈现、不出现更多按钮」的分支，
+ * 所以「出现更多按钮」「菜单里某项在转圈」这两个状态在 SSR 里构造不出来，
+ * 改用源码契约钉住。真实观感与几何由浏览器实测核对。
  */
 
 const SFC_SOURCE: string = SFC_SOURCE_RAW;
@@ -30,24 +30,17 @@ function tab(key: string, overrides: Partial<PanelTabStripItem> = {}): PanelTabS
 
 async function render(
   tabs: PanelTabStripItem[],
-  options: { activeKey?: string; variant?: PanelTabStripVariant; tabWidth?: number } = {},
+  options: { activeKey?: string; variant?: PanelTabStripVariant } = {},
 ): Promise<string> {
   const app = createSSRApp({
     render: () => h(PanelTabStrip, {
       tabs,
       activeKey: options.activeKey ?? "",
       variant: options.variant ?? "default",
-      tabWidth: options.tabWidth,
     }),
   });
   app.use(i18n);
   return renderToString(app);
-}
-
-/** 只取 tablist 那一段，避免把尾部长相无关的部分算进来 */
-function tabListStyle(html: string): string {
-  const match = html.match(/<div[^>]*role="tablist"[^>]*style="([^"]*)"/);
-  return match?.[1] ?? "";
 }
 
 function tabButtons(html: string): string[] {
@@ -55,11 +48,9 @@ function tabButtons(html: string): string[] {
 }
 
 function tabItemWrappers(html: string): string[] {
-  // 动态 class 排在静态 class 前面，ecall-tab-item 不一定是 class 的第一个词
   return [...html.matchAll(/<div\b[^>]*class="[^"]*\becall-tab-item\b[^"]*"[^>]*>/g)].map((m) => m[0]);
 }
 
-/** 取出某个 CSS 规则块的内容；找不到返回空串 */
 function cssBlock(selector: string): string {
   const index = SFC_SOURCE.indexOf(`${selector} {`);
   if (index < 0) return "";
@@ -67,138 +58,93 @@ function cssBlock(selector: string): string {
   return end < 0 ? "" : SFC_SOURCE.slice(index, end);
 }
 
-describe("PanelTabStrip 标签宽度", () => {
-  it("标签等宽：宽度是按一行容量均分出来的固定值，不用 flex-grow 拉满", async () => {
+describe("PanelTabStrip 布局", () => {
+  it("标签自适应压宽而不是固定宽度：flex-1 basis-0，各自带上限", async () => {
     const html = await render([tab("对话"), tab("设置")]);
-    // SSR 下可摆宽为 0，下发的兜底值就是换行基准宽
-    expect(tabListStyle(html)).toContain("--ecall-tab-w:104px");
-    expect(tabItemWrappers(html)).toHaveLength(2);
-    const block = cssBlock(".ecall-tab-item");
-    expect(block).toContain("flex: 0 0 auto");
-    expect(block).toContain("width: var(--ecall-tab-w, 104px)");
-    expect(block).toContain("max-width: 160px");
-    // 宽度靠均分算出，不靠 grow：最后一行只剩一个标签时也不会被拉宽
-    expect(SFC_SOURCE).toContain("Math.floor((width - (cols - 1) * gap) / cols)");
-    expect(SFC_SOURCE).not.toContain("flex-basis");
-    // 标签项自己不能靠 grow 铺满（label 内部的 flex 与此无关，只看标签项那条规则）
-    expect(cssBlock(".ecall-tab-item")).not.toContain("flex: 1 1");
+    expect(html).toContain("flex min-w-0 flex-1 basis-0");
+    expect(html).toContain("max-w-40");
   });
 
-  it("file 档只把上限放宽到 176，均分基准不变（否则两档一行能排几个会不一致）", async () => {
-    const html = await render([tab("a"), tab("b")], { variant: "file" });
-    expect(tabListStyle(html)).toContain("--ecall-tab-w:104px");
-    expect(cssBlock(".ecall-tab-item--file")).toContain("max-width: 176px");
+  it("文件档把上限放宽到 max-w-44，并换成圆角档", async () => {
+    const html = await render([tab("a")], { variant: "file" });
+    expect(html).toContain("max-w-44");
+    expect(html).toContain("rounded-lg");
   });
 
-  it("宿主显式传 tabWidth 时以传入值为准", async () => {
-    const html = await render([tab("a")], { tabWidth: 200 });
-    expect(tabListStyle(html)).toContain("--ecall-tab-w:200px");
+  it("单行恒定高度：tablist 不换行，也不设多行高度", () => {
+    expect(SFC_SOURCE).toContain('class="flex w-full min-w-0 items-center"');
+    expect(SFC_SOURCE).not.toContain("flex-wrap");
+    expect(SFC_SOURCE).not.toContain("max-height: calc(");
   });
 });
 
 describe("PanelTabStrip 激活项底色", () => {
-  it("默认档激活按钮只有 bg-base-100，不加描边", async () => {
+  it("默认档激活按钮只加底色，不加描边", async () => {
     const html = await render([tab("对话"), tab("设置")], { activeKey: "设置" });
     const active = tabButtons(html).filter((button) => button.includes('aria-selected="true"'));
     expect(active).toHaveLength(1);
-    expect(active[0]).toContain("bg-base-100");
-    // 描边是上一轮擅自加的，红豆要求删掉：激活态只留底色
+    expect(active[0]).toContain("bg-base-100/60");
     expect(active[0]).not.toContain("ring-1");
-
     const inactive = tabButtons(html).filter((button) => button.includes('aria-selected="false"'));
-    expect(inactive).toHaveLength(1);
     expect(inactive[0]).not.toContain("bg-base-100");
   });
 
-  it("file 档激活块铺在标签外壳上，只有 bg-base-100，无描边无阴影", async () => {
-    const html = await render([tab("a"), tab("b")], { variant: "file", activeKey: "b" });
-    const active = tabItemWrappers(html).filter((wrapper) => wrapper.includes("bg-base-100"));
-    expect(active).toHaveLength(1);
-    expect(active[0]).not.toContain("ring-1");
-    expect(active[0]).not.toContain("shadow-sm");
-  });
-
-  it("整个组件里不再出现 ring-1 / shadow-sm 这类激活装饰", () => {
-    expect(SFC_SOURCE).not.toContain("ring-1 ring-base-content/10");
-    expect(SFC_SOURCE).not.toContain("shadow-sm");
+  it("文件档激活项只加底色，不加描边与阴影", async () => {
+    const html = await render([tab("a"), tab("b")], { activeKey: "b", variant: "file" });
+    // 文件档的底色铺在标签外壳上，按钮本身保持透明
+    expect(html).toContain("cursor-pointer bg-base-100 group relative");
+    expect(html).not.toContain("shadow-sm");
   });
 });
 
-describe("PanelTabStrip 溢出行为", () => {
-  it("放不下时全部标签都渲染，不折进下拉菜单", async () => {
-    const tabs = Array.from({ length: 9 }, (_, index) => tab(`标签${index}`));
-    const html = await render(tabs, { activeKey: "标签8" });
-    // 9 个标签全部在 DOM 里，顺序不变
-    expect(tabItemWrappers(html)).toHaveLength(9);
-    const labels = [...html.matchAll(/<span class="[^"]*whitespace-nowrap font-medium[^"]*"[^>]*>([^<]*)</g)]
-      .map((m) => m[1]);
-    expect(labels).toEqual(tabs.map((item) => item.label));
+describe("PanelTabStrip 溢出进下拉菜单", () => {
+  it("溢出项走 EcallDropdown，不再靠换行铺开", () => {
+    expect(SFC_SOURCE).toContain("<EcallDropdown");
+    expect(SFC_SOURCE).toContain("v-for=\"tab in overflowTabs\"");
+    expect(SFC_SOURCE).toContain("v-if=\"hasOverflow\"");
   });
 
-  it("单行放得下时不渲染尾部胶囊（SSR 下可用宽度为 0，等价于不换行）", async () => {
-    const html = await render([tab("对话"), tab("设置")]);
-    expect(html).not.toContain("ecall-tab-pill");
+  it("「更多」按钮默认悬停即弹出", () => {
+    // prop 默认值必须是 true，否则用户得先点一下才知道后面还有标签
+    expect(SFC_SOURCE).toContain('openMoreOnHover: true');
+    expect(SFC_SOURCE).toContain(':open-on-hover="openMoreOnHover"');
+  });
+
+  it("激活项掉进溢出菜单时，更多按钮有高亮", () => {
+    expect(SFC_SOURCE).toContain("activeInOverflow");
+    expect(SFC_SOURCE).toContain("ring-base-content/15");
   });
 });
 
-/**
- * SSR 构造不出「换行 / 收起」这两个状态，改用源码契约钉住口径：
- * 改动口径时这几条会当场变红，不会静默漂掉。
- */
-describe("PanelTabStrip 展开/收起契约", () => {
-  it("展开态高度写死为 4 行（行高 × 4 + 行间距 × 3），并在标签区内滚动", () => {
-    const block = cssBlock(".ecall-tab-list");
-    expect(block).toContain("max-height: calc(32px * 4 + 2px * 3)");
-    expect(block).toContain("overflow-y: auto");
+describe("PanelTabStrip 忙碌态", () => {
+  it("标签上的转圈靠右固定一格，标题再长也不挤它", async () => {
+    const html = await render([tab("a", { busy: true })], { activeKey: "a" });
+    expect(html).toContain("ml-auto shrink-0");
   });
 
-  it("file 档也是 32px 行高（label 24 + padding 8），只把行间距放宽", () => {
-    const block = cssBlock(".ecall-tab-list--file");
-    expect(block).toContain("max-height: calc(32px * 4 + 4px * 3)");
-    // 28px 这个数在 file 档从来没成立过：按它算 4 行装不下，第 4 行会被裁一半
-    expect(SFC_SOURCE).not.toContain("28px * 4");
+  it("下拉菜单项同样显示转圈", () => {
+    const menuStart = SFC_SOURCE.indexOf('v-for="tab in overflowTabs"');
+    const menuEnd = SFC_SOURCE.indexOf("</EcallDropdown>");
+    expect(menuStart).toBeGreaterThan(0);
+    const menuSource = SFC_SOURCE.slice(menuStart, menuEnd);
+    expect(menuSource).toContain("tab.busy");
+    expect(menuSource).toContain("<AppLoading");
+  });
+});
+
+describe("PanelTabStrip 样式契约", () => {
+  it("图标有轻微描边，浅底深底都能看清", () => {
+    const block = cssBlock(".panel-tab-strip-icon");
+    expect(block).toContain("drop-shadow");
   });
 
-  it("收起态只显示一行：标签按整行容量切片，不做 max-height 裁切", () => {
-    // 裁切会把被藏的标签留在 DOM 里，Tab 键还能走到看不见的标签上
-    expect(SFC_SOURCE).toContain("Math.max(1, perRowCapacity.value)");
-    expect(SFC_SOURCE).toContain("props.tabs.slice(0, collapsedCapacity.value)");
-    expect(SFC_SOURCE).toContain("v-for=\"tab in renderedTabs\"");
-    expect(SFC_SOURCE).not.toContain("ecall-tab-list--collapsed");
+  it("文件档标题超长走右侧淡出，不是硬截断", () => {
+    expect(SFC_SOURCE).toContain("file-tab-label-fade");
+    expect(cssBlock(".file-tab-label-fade")).toContain("overflow: hidden");
   });
 
-  it("折叠开关是纯图标 ghost 圆按钮：无文字、无底无框", () => {
-    expect(SFC_SOURCE).toContain("ecall-tab-pill btn btn-ghost btn-sm btn-circle");
-    // 之前是自定义实心胶囊（base-100 底 + base-300 描边），红豆要求改 ghost
-    expect(cssBlock(".ecall-tab-pill")).toBe("");
-    // 不带文字：文字会把第一行挤窄
-    expect(SFC_SOURCE).not.toContain("whitespace-nowrap\">{{ collapsed");
-  });
-
-  it("图标区分折叠方向：展开态是向下，收起态是向右", () => {
-    expect(SFC_SOURCE).toContain("collapsed ? 'chevron-right' : 'chevron-down'");
-  });
-
-  it("折叠开关和 tabTrailing 都钉在第一行右侧，且不放进滚动区里", () => {
-    // 放进 tablist 会被 4 行滚动区滚走，标签多到 5 行时入口就点不到了
-    expect(SFC_SOURCE).not.toContain("self-end");
-    expect(SFC_SOURCE.indexOf("$slots.tabTrailing")).toBeLessThan(SFC_SOURCE.indexOf("ecall-tab-pill"));
-    expect(SFC_SOURCE.indexOf("ecall-tab-pill")).toBeLessThan(SFC_SOURCE.indexOf('$slots.actions'));
-  });
-
-  it("文案仍用于 title / aria-label，所以键不能删", () => {
-    expect(SFC_SOURCE).toContain(':title="collapsed ? t(\'chat.moreTabsShort\') : t(\'chat.collapseTabs\')"');
-    expect(SFC_SOURCE).toContain(":aria-expanded=\"!collapsed\"");
-    expect(i18n.global.t("chat.collapseTabs")).toBe("收起");
-    expect(i18n.global.t("chat.moreTabsShort")).toBe("更多");
-  });
-
-  it("默认展开", () => {
-    expect(SFC_SOURCE).toContain("const collapsed = ref(false)");
-  });
-
-  it("「更多」下拉菜单已随口径变更整块删除", () => {
-    expect(SFC_SOURCE).not.toContain("overflowTabs");
-    expect(SFC_SOURCE).not.toContain("EcallDropdown");
+  it("i18n 文案键仍在用", () => {
+    expect(SFC_SOURCE).toContain('t("chat.moreTabs")');
+    expect(i18n.global.t("chat.moreTabs")).toBeTruthy();
   });
 });

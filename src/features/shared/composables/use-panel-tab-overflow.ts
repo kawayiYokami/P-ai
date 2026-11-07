@@ -21,34 +21,28 @@ export function usePanelTabOverflow(options: UsePanelTabOverflowOptions) {
     const gapVal = toValue(options.gap) ?? 4;
     const currentActiveKey = toValue(options.activeKey) || "";
 
-    // 每行能放几个：标签宽度固定后，就是容器宽整除「标签宽 + 间距」。
-    // 换行不再需要测量——行数只是把这个数乘上去。
-    const perRowCapacity = Math.max(1, Math.floor((width + gapVal) / (minTabW + gapVal)));
-
     // 没有标签或者容器宽度未就绪时，直接全量呈现，不出现更多按钮
     if (total <= 1 || width <= 0) {
       return {
         visibleTabs: allTabs,
         overflowTabs: [] as PanelTabStripItem[],
         hasOverflow: false,
-        perRowCapacity: Math.max(1, total),
       };
     }
 
-    // 全部标签在一行内放得下 → 全量呈现，不出现更多按钮
-    if (total <= perRowCapacity) {
+    // 判断不带更多按钮时能否全部容纳
+    const requiredWidthNoOverflow = total * minTabW + (total - 1) * gapVal;
+    if (width >= requiredWidthNoOverflow) {
       return {
         visibleTabs: allTabs,
         overflowTabs: [] as PanelTabStripItem[],
         hasOverflow: false,
-        perRowCapacity,
       };
     }
 
-    // 放不下：留一格给更多按钮
+    // 无法全部容纳，必须留出更多按钮空间
     const usableWidth = Math.max(0, width - overflowBtnW - gapVal);
-    const perRowWithButton = Math.max(1, Math.floor((usableWidth + gapVal) / (minTabW + gapVal)));
-    const capacity = Math.max(1, Math.min(total - 1, perRowWithButton));
+    const capacity = Math.max(1, Math.min(total - 1, Math.floor((usableWidth + gapVal) / (minTabW + gapVal))));
 
     const activeIdx = allTabs.findIndex((t) => t.key === currentActiveKey);
 
@@ -58,7 +52,6 @@ export function usePanelTabOverflow(options: UsePanelTabOverflowOptions) {
         visibleTabs: allTabs.slice(0, capacity),
         overflowTabs: allTabs.slice(capacity),
         hasOverflow: true,
-        perRowCapacity,
       };
     }
 
@@ -75,15 +68,12 @@ export function usePanelTabOverflow(options: UsePanelTabOverflowOptions) {
       visibleTabs,
       overflowTabs,
       hasOverflow: true,
-      perRowCapacity,
     };
   });
 
   const visibleTabs = computed(() => resolved.value.visibleTabs);
   const overflowTabs = computed(() => resolved.value.overflowTabs);
   const hasOverflow = computed(() => resolved.value.hasOverflow);
-  /** 每行能放几个标签。固定宽度后它就是「一行容量」，收起态的隐藏数量也用它。 */
-  const perRowCapacity = computed(() => resolved.value.perRowCapacity);
 
   const activeInOverflow = computed(() => {
     const currentActiveKey = toValue(options.activeKey) || "";
@@ -95,6 +85,5 @@ export function usePanelTabOverflow(options: UsePanelTabOverflowOptions) {
     overflowTabs,
     hasOverflow,
     activeInOverflow,
-    perRowCapacity,
   };
 }
