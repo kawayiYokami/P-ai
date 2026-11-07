@@ -32,7 +32,6 @@ const statusText = ref("");
 function makePersona(input: Partial<PersonaProfile> & { id: string; name: string }): PersonaProfile {
   return {
     systemPrompt: "",
-    tools: [],
     createdAt: "2026-09-16T00:00:00Z",
     updatedAt: "2026-09-16T00:00:00Z",
     ...input,

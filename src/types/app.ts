@@ -777,7 +777,6 @@ export type PersonaProfile = {
   apiConfigIds?: string[];
   childAgentIds?: string[];
   permissionControl?: AgentPermissionControl;
-  tools: ApiToolItem[];
   privateMemoryEnabled?: boolean;
   memoryRecallMode?: MemoryRecallMode;
   createdAt: string;

@@ -551,6 +551,8 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
     ]
 }
 
+/// 内置工具清单：人格「能用到哪些工具」的枚举基准。
+/// 只描述工具本身，不代表某个人格实际挂载了它——能不能用由人格黑白名单决定。
 fn default_agent_tools() -> Vec<ApiToolConfig> {
     let mut tools = default_api_tools();
     tools.insert(
@@ -595,3 +597,4 @@ fn default_agent_tools() -> Vec<ApiToolConfig> {
     );
     tools
 }
+

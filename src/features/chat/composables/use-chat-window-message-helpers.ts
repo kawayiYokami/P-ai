@@ -38,13 +38,6 @@ export function buildPersonasSnapshotJson(personas: PersonaProfile[]) {
       includeSystemRules: item.includeSystemRules !== false,
       source: item.source || "",
       scope: item.scope || "",
-      tools: (item.tools || []).map((tool) => ({
-        id: tool.id,
-        enabled: !!tool.enabled,
-        command: tool.command || "",
-        args: Array.isArray(tool.args) ? [...tool.args] : [],
-        values: tool.values ?? null,
-      })),
     })),
   );
 }

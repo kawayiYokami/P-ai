@@ -526,7 +526,6 @@
             id: id.to_string(),
             name: name.to_string(),
             system_prompt: String::new(),
-            tools: Vec::new(),
             created_at: now_iso(),
             updated_at: now_iso(),
             avatar_path: None,

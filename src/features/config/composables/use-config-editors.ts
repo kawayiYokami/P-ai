@@ -1,6 +1,5 @@
 import type { ComputedRef, Ref } from "vue";
 import type { ApiConfigItem, ApiProviderConfigItem, AppConfig, PersonaProfile } from "../../../types/app";
-import { defaultToolBindings } from "../utils/builtin-tools";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -73,16 +72,7 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
   }
 
   async function addPersona() {
-    const previousPersonas = options.personas.value.map((persona) => ({
-      ...persona,
-      tools: Array.isArray(persona.tools)
-        ? persona.tools.map((tool) => ({
-            ...tool,
-            args: Array.isArray(tool.args) ? [...tool.args] : [],
-            values: { ...((tool.values || {}) as Record<string, unknown>) },
-          }))
-        : [],
-    }));
+    const previousPersonas = options.personas.value.map((persona) => ({ ...persona }));
     const previousPersonaEditorId = options.personaEditorId.value;
     const id = `persona-${Date.now()}`;
     const now = new Date().toISOString();
@@ -90,7 +80,6 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
       id,
       name: `${options.t("config.persona.title")} ${options.assistantPersonas.value.length + 1}`,
       systemPrompt: options.t("config.persona.assistantPlaceholder"),
-      tools: defaultToolBindings(),
       privateMemoryEnabled: false,
       memoryRecallMode: "auto",
       createdAt: now,

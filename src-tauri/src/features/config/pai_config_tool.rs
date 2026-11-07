@@ -31,27 +31,11 @@ fn default_global_scope() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-struct ApiToolConfig {
-    id: String,
-    #[serde(default)]
-    command: String,
-    #[serde(default)]
-    args: Vec<String>,
-    #[serde(default = "default_true")]
-    enabled: bool,
-    #[serde(default)]
-    values: JsonValue,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 struct AgentProfile {
     id: String,
     name: String,
     #[serde(alias = "prompt")]
     system_prompt: String,
-    #[serde(default)]
-    tools: Vec<ApiToolConfig>,
     #[serde(default)]
     created_at: String,
     #[serde(default)]
@@ -638,7 +622,6 @@ const AGENT_FIELDS: &[FieldSpec] = &[
     FieldSpec { name: "id", ty: "string", required: true, desc: "人格 id，全局唯一；重复即冲突（不是按 name 判重）。" },
     FieldSpec { name: "name", ty: "string", required: true, desc: "显示名。" },
     FieldSpec { name: "systemPrompt", ty: "string", required: true, desc: "系统提示词。" },
-    FieldSpec { name: "tools", ty: "array<table>", required: false, desc: "人格自带工具，元素：id / command / args / enabled / values。" },
     FieldSpec { name: "isBuiltInUser", ty: "boolean", required: false, desc: "是否内置用户人格。" },
     FieldSpec { name: "isBuiltInSystem", ty: "boolean", required: false, desc: "是否内置系统人格。" },
     FieldSpec { name: "privateMemoryEnabled", ty: "boolean", required: false, desc: "是否启用私有记忆。" },

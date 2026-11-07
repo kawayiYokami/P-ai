@@ -32,8 +32,6 @@ struct AgentProfile {
     id: String,
     name: String,
     system_prompt: String,
-    #[serde(default = "default_agent_tools")]
-    tools: Vec<ApiToolConfig>,
     created_at: String,
     updated_at: String,
     #[serde(default)]

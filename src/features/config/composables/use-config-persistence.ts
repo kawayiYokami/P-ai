@@ -446,16 +446,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
   }
 
   function applyLoadedPersonas(list: PersonaProfile[]) {
-    options.personas.value = list.map((item) => ({
-      ...item,
-      tools: Array.isArray(item.tools)
-        ? item.tools.map((tool) => ({
-            ...tool,
-            args: Array.isArray(tool.args) ? [...tool.args] : [],
-            values: { ...((tool.values || {}) as Record<string, unknown>) },
-          }))
-        : [],
-    }));
+    options.personas.value = list.map((item) => ({ ...item }));
     if (!options.assistantPersonas.value.some((p) => p.id === options.assistantAgentId.value)) {
       options.assistantAgentId.value = options.assistantPersonas.value[0]?.id ?? "default-agent";
     }
@@ -877,16 +868,6 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.personas.value = await invokeTauri<PersonaProfile[]>("save_agents", {
         input: { agents: options.personas.value },
       });
-      options.personas.value = options.personas.value.map((item) => ({
-        ...item,
-        tools: Array.isArray(item.tools)
-          ? item.tools.map((tool) => ({
-              ...tool,
-              args: Array.isArray(tool.args) ? [...tool.args] : [],
-              values: { ...((tool.values || {}) as Record<string, unknown>) },
-            }))
-          : [],
-      }));
       options.syncUserAliasFromPersona();
       options.lastSavedPersonasJson.value = options.buildPersonasSnapshotJson();
       lastSavedPersonasSnapshotList = snapshotPersonas(options.personas.value);

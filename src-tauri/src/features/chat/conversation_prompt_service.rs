@@ -517,17 +517,8 @@ impl ConversationPromptService {
         total += prepared.latest_images.len() as f64 * 280.0;
         total += prepared.latest_audios.len() as f64 * 320.0;
 
-        if selected_api.enable_tools {
-            let mut seen = std::collections::HashSet::<String>::new();
-            for tool in current_agent.tools.iter().filter(|tool| tool.enabled) {
-                let key = tool.id.trim().to_ascii_lowercase();
-                if key.is_empty() || !seen.insert(key) {
-                    continue;
-                }
-                let text = serde_json::to_string(tool).unwrap_or_default();
-                total += estimated_tokens_for_text(&text);
-            }
-        }
+        // 人格自由工具列表已废弃，工具开销不再在这里单独估算。
+        let _ = (current_agent, selected_api);
 
         total.ceil().max(0.0).min(u64::MAX as f64) as u64
     }

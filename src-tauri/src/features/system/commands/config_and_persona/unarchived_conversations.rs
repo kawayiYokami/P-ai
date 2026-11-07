@@ -4647,7 +4647,6 @@ mod unarchived_conversations_tests {
             id: "agent-a".to_string(),
             name: "助手".to_string(),
             system_prompt: String::new(),
-            tools: Vec::new(),
             created_at: "2026-04-18T10:00:00Z".to_string(),
             updated_at: "2026-04-18T10:00:00Z".to_string(),
             avatar_path: None,

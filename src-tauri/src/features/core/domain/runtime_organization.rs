@@ -171,7 +171,6 @@ mod runtime_organization_tests {
             id: id.to_string(),
             name: name.to_string(),
             system_prompt: String::new(),
-            tools: Vec::new(),
             created_at: String::new(),
             updated_at: String::new(),
             avatar_path: None,

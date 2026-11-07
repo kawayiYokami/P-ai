@@ -30,7 +30,6 @@ mod archive_host_selection_tests {
             id: id.to_string(),
             name: id.to_string(),
             system_prompt: String::new(),
-            tools: default_agent_tools(),
             created_at: now_iso(),
             updated_at: now_iso(),
             avatar_path: None,
