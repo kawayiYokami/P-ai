@@ -86,6 +86,11 @@ const hasExtra = computed(() => {
   return hasPreviewText.value;
 });
 const answersMap = computed(() => props.modelValue ?? {});
+/** 当前题已经采用的自定义答案。它本身就是这一题的选中态，点一下可重新编辑。 */
+const customAnswerText = computed(() => {
+  const item = currentItem.value;
+  return item ? String(answersMap.value[item.id]?.customText ?? "").trim() : "";
+});
 /** 已选且填好的题目条数：发送按钮的文案与可用态都看它。 */
 const selectedCount = computed(() => countAnsweredQuestions(props.items, answersMap.value));
 
@@ -185,6 +190,7 @@ function handleCustomAnswerConfirm() {
     [item.id]: { optionId: "", label: text, comment: "", customText: text },
   };
   emit("update:modelValue", next);
+  customAnswerEditing.value = false;
   // 自己写也是答完一题：多题时同样跳到下一道未答（单题没有去处，保持只记录）。
   if (!isSingle.value) advanceAfterAnswer(next);
 }
@@ -194,7 +200,8 @@ watch(currentItem, () => {
   // 切到一题时，已经自己写过答案的直接展开并预填，省得再点一次入口。
   const item = currentItem.value;
   const existing = item ? String(answersMap.value[item.id]?.customText ?? "").trim() : "";
-  customAnswerEditing.value = existing.length > 0;
+  // 已经写过答案的题，切回来时展示「答案本身」这个高亮按钮；要改再点它，不自动摊开输入行。
+  customAnswerEditing.value = false;
   if (item && existing && !getCustomAnswerDraft(item.id)) {
     customAnswerDrafts.value[item.id] = existing;
   }
@@ -527,7 +534,17 @@ function handleReject() {
           <!-- 其他：自己写答案。只在会话提问出现，终端审批那套的选项是批准/拒绝执行，不改 -->
           <div v-if="isManualSubmit" class="w-full">
             <button
-              v-if="!customAnswerEditing"
+              v-if="customAnswerText && !customAnswerEditing"
+              type="button"
+              class="btn btn-sm ecall-question-option w-full min-w-0 justify-center btn-primary"
+              :title="customAnswerText"
+              :disabled="submitting"
+              @click="handleStartCustomAnswer"
+            >
+              <span class="truncate">{{ customAnswerText }}</span>
+            </button>
+            <button
+              v-else-if="!customAnswerEditing"
               type="button"
               class="btn btn-sm ecall-question-option w-full justify-center btn-primary btn-soft"
               :disabled="submitting"
