@@ -104,6 +104,7 @@ import type { AssistantStreamBlock, ChatMessage, ChatMessageBlock } from "../../
 import ChatMessageItem from "./ChatMessageItem.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useChatMessageBlocks } from "../composables/use-chat-turns";
+import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
 
 const demoWidth = ref(620);
 
@@ -653,11 +654,30 @@ onMounted(() => {
   if (params.get("stress") === "auto") {
     window.setTimeout(() => startStress(), 600);
   }
+  themeName.value = document.documentElement.dataset.theme ?? "";
+  themeObserver = new MutationObserver(() => {
+    themeName.value = document.documentElement.dataset.theme ?? "";
+  });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 });
 
 onBeforeUnmount(() => {
   if (stressRafId) window.cancelAnimationFrame(stressRafId);
+  themeObserver?.disconnect();
+  themeObserver = null;
 });
+
+/**
+ * 深色与否必须跟着当前主题走，不能在 demo 里写死。
+ *
+ * 真实链路上 ChatMessageItem 的 markdownIsDark 由 use-chat-conversation-ctx
+ * 用 isDarkAppTheme(currentTheme) 算出来，再传给 ActivityTimeline 决定
+ * .ecall-activity-dark 那一套皮肤。demo 写死 false 的话，页面切成深色主题时
+ * 底色变深、组件内部却还在用浅色那套配色，看到的就是一个根本不存在的状态。
+ */
+const themeName = ref("");
+const markdownIsDark = computed(() => isDarkAppTheme(themeName.value));
+let themeObserver: MutationObserver | null = null;
 
 // ==================== 真实组件的 props / 事件 ====================
 
@@ -677,7 +697,7 @@ function chatItemProps(block: ChatMessageBlock) {
     userAvatarUrl: "",
     personaNameMap,
     personaAvatarUrlMap,
-    markdownIsDark: false,
+    markdownIsDark: markdownIsDark.value,
     playingAudioId: "",
     activeTurnUser: false,
     compactWithPrevious: false,
