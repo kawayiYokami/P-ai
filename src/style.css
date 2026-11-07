@@ -1,16 +1,11 @@
-@import "tailwindcss";
+@import "tailwindcss" source("../src");
+/* 源限定到 src/ 是必须的：不限定的时候 Tailwind v4 会递归遍历整个项目根，
+   .pai（几十万文件）与 src-tauri（Cargo target）都在里面，首屏样式编译要 20 多秒；
+   而 @source not 对自动检测出来的源不起作用。所有 HTML 入口都在 src/entries/。 */
 /* Tailwind v4 默认把 hover / group-hover 关进 @media (hover: hover)：
    主指针不报告支持悬停的设备（触摸笔记本、平板模式）里这些样式永不命中，
    悬停才出现的按钮会一直停在透明态。桌面应用固定有指针，直接按 :hover 生效。 */
 @custom-variant hover (&:hover);
-@source not "../dist";
-/* .pai 是项目级资产目录（草稿、截图、临时脚本），已被 git 忽略、不含产品代码；
-   它还常常堆到上万个文件，Tailwind 扫它会让样式编译从毫秒级掉到分钟级。 */
-@source not "../.pai";
-@source not "../src-tauri/target";
-@source not "../src-tauri/memory";
-@source not "../src-tauri/gen";
-@source not "../src-tauri/icons";
 
 @font-face {
   font-family: "Easy Call JetBrains Mono";
