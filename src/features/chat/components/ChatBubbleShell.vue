@@ -24,7 +24,6 @@
             <span
               v-if="streaming"
               class="ecall-chat-bubble-meta ecall-chat-bubble-streaming-meta"
-              :class="{ 'ecall-chat-bubble-streaming-meta-themed': isDark }"
             >
               <AppLoading size="0.62rem" />
               {{ streamingText || "正在生成" }}
@@ -66,8 +65,6 @@ const props = withDefaults(defineProps<{
   avatarUrl?: string;
   streaming?: boolean;
   streamingText?: string;
-  /** 当前是否深色主题。深色下状态胶囊改用主题色，浅色保持中性 */
-  isDark?: boolean;
   separated?: boolean;
   wide?: boolean;
   bubbleBackground?: boolean;
@@ -79,7 +76,6 @@ const props = withDefaults(defineProps<{
   avatarUrl: "",
   streaming: false,
   streamingText: "",
-  isDark: false,
   separated: false,
   wide: false,
   bubbleBackground: false,
@@ -312,14 +308,6 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
   background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
   color: color-mix(in oklab, var(--color-base-content) 72%, transparent);
   font-size: var(--app-text-caption-size);
-}
-
-/* 深色主题的状态胶囊改用主题色。深色底的 primary 是针对 #2b2b2b 单独提亮过的一档
-   （#319eea，4.63:1），做胶囊文字本身够用；浅色主题不动，保持中性，彩色只留给工具图标。
-   用双类写死特异性，不依赖这条规则排在 .ecall-chat-bubble-streaming-meta 之后 */
-.ecall-chat-bubble-streaming-meta.ecall-chat-bubble-streaming-meta-themed {
-  background: color-mix(in oklab, var(--color-primary) 14%, transparent);
-  color: var(--color-primary);
 }
 
 /* 气泡头的状态点比正文小一号，尺寸由 AppLoading 的 size 传（约 0.62rem），不再用类压 */

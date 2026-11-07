@@ -45,7 +45,6 @@
             <option value="file-reader-preview">右栏内容视图（HTML 沙箱 / 源码 / 图片）</option>
             <option value="app-icons">图标语义名总表（AppIcon 全量）</option>
             <option value="app-loading">加载指示器（AppLoading 四叶草）</option>
-            <option value="bubble-streaming-chip">气泡状态胶囊三版对比</option>
           </select>
           <span class="text-xs text-base-content/50">当前：{{ demoComponentLabel }}</span>
         </div>
@@ -830,17 +829,12 @@
     <div v-if="demoComponentKey === 'app-loading'" class="card border border-base-300 bg-base-100">
       <div class="card-body p-0"><AppLoadingDemo /></div>
     </div>
-
-    <div v-if="demoComponentKey === 'bubble-streaming-chip'" class="card border border-base-300 bg-base-100">
-      <div class="card-body p-0"><ChatBubbleShellDemo /></div>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import AppLoadingDemo from "../../../shared/components/AppLoadingDemo.vue";
-import ChatBubbleShellDemo from "../../../chat/components/ChatBubbleShellDemo.vue";
 import { APP_ICON_MAP, type AppIconName } from "../../../shared/icons/icon-map";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import KanbanBoardPanel from "../../../chat/components/kanban/KanbanBoardPanel.vue";
@@ -1003,7 +997,7 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "markdown-view" | "theme-cards" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "catalog-entry-card" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview" | "app-icons" | "app-loading" | "bubble-streaming-chip">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "markdown-view" | "theme-cards" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "catalog-entry-card" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview" | "app-icons" | "app-loading">((props.initialKey as any) || "question");
 /** 图标语义名总表：直接取映射表的键，杜绝手抄漏项 */
 const appIconNames = Object.keys(APP_ICON_MAP).sort() as AppIconName[];
 const appIconFilter = ref("");
@@ -1060,7 +1054,6 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "file-reader-preview") return "右栏内容视图（HTML 沙箱 / 源码 / 图片）";
   if (demoComponentKey.value === "app-icons") return "图标语义名总表";
   if (demoComponentKey.value === "app-loading") return "加载指示器（AppLoading）";
-  if (demoComponentKey.value === "bubble-streaming-chip") return "气泡状态胶囊三版对比";
   return "ConfigTemplate";
 });
 
