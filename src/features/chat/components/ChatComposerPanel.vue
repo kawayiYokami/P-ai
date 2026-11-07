@@ -181,27 +181,7 @@
                     :class="planModeEnabled ? 'badge-info' : 'badge-ghost'"
                   >{{ planModeEnabled ? t("chat.plan.exitMode") : t("chat.plan.modeOff") }}</span>
                 </button>
-                <button
-                  type="button"
-                  class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors"
-                  :class="wheelchairModeEnabled ? 'bg-warning/10' : 'hover:bg-base-200'"
-                  :title="wheelchairModeEnabled ? t('chat.wheelchair.exitMode') : t('chat.wheelchair.enterMode')"
-                  @click="toggleWheelchairMode()"
-                >
-                  <span class="flex min-w-0 items-center gap-2">
-                    <AppIcon name="life-buoy" class="h-4 w-4 shrink-0" :class="wheelchairModeEnabled ? 'text-warning' : 'opacity-60'" />
-                    <span class="flex min-w-0 flex-col">
-                      <span class="truncate">{{ wheelchairModeEnabled ? t("chat.wheelchair.enabled") : t("chat.wheelchair.enterMode") }}</span>
-                      <span v-if="!wheelchairModeEnabled" class="truncate text-caption text-base-content/50">
-                        {{ t("chat.wheelchair.costHint") }}
-                      </span>
-                    </span>
-                  </span>
-                  <span
-                    class="badge badge-sm shrink-0"
-                    :class="wheelchairModeEnabled ? 'badge-warning' : 'badge-ghost'"
-                  >{{ wheelchairModeEnabled ? t("chat.wheelchair.exitMode") : t("chat.wheelchair.modeOff") }}</span>
-                </button>
+                <!-- 护航模式入口已关闭，功能保留：不再提供开启入口，已开启的会话仍可从输入框右侧的状态 chip 退出。 -->
                 <div class="border-t border-base-300" />
                 <div class="flex flex-wrap content-start gap-2 max-h-48 overflow-y-auto p-2">
                   <button
