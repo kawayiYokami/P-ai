@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-07T03:27:29.214Z",
-  "latestVersion": "v0.98.0",
+  "generatedAt": "2026-11-07T06:05:03.550Z",
+  "latestVersion": "v0.98.1",
   "releases": [
+    {
+      "version": "v0.98.1",
+      "path": "docs/changelog/releases/v0.98.1.md",
+      "summary": "**标签栏改回一行排到底：标签再多也不会把对话往下挤，放不下的收进「更多」；新打开的标签自动排到最前。**"
+    },
     {
       "version": "v0.98.0",
       "path": "docs/changelog/releases/v0.98.0.md",
