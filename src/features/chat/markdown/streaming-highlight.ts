@@ -7,7 +7,7 @@ export type HighlightStreamController = {
 };
 
 let shikiModulePromise: Promise<typeof import("shiki") | null> | null = null;
-let streamModulePromise: Promise<typeof import("@shikijs/stream") | typeof import("shiki-stream") | null> | null = null;
+let streamModulePromise: Promise<typeof import("@shikijs/stream") | null> | null = null;
 
 async function loadShiki() {
   if (!shikiModulePromise) {
@@ -18,8 +18,7 @@ async function loadShiki() {
 
 async function loadStream() {
   if (!streamModulePromise) {
-    streamModulePromise = import("@shikijs/stream")
-      .catch(() => import("shiki-stream").catch(() => null)) as Promise<any>;
+    streamModulePromise = import("@shikijs/stream").catch(() => null);
   }
   return streamModulePromise;
 }
@@ -70,7 +69,7 @@ export function createHighlightStream(): HighlightStreamController {
     try {
       const tokens = [...(tokenizerInstance.tokensStable || []), ...(tokenizerInstance.tokensUnstable || [])] as any[];
       if (tokens.length === 0) return "";
-      // tokens 按行合并为 pre > code 的 innerHTML，由 shiki-stream 的 tokenizer 统一着色
+      // tokens 按行合并为 pre > code 的 innerHTML，由 @shikijs/stream 的 tokenizer 统一着色
       // 复用与 x-markdown 一致的 pre 样式：背景由外层主题控制，这里只产出 token span
       const lines: string[] = [];
       let currentLineSpans: string[] = [];
