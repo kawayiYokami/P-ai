@@ -6,48 +6,6 @@ const CHAT_PROCESS_MESSAGES_FOLDED_STORAGE_KEY = "easy-call.chat.process-message
 const CHAT_SEGMENTED_MARKDOWN_STORAGE_KEY = "easy-call.chat.segmented-markdown.v1";
 const CHAT_TIME_DISPLAY_MODE_STORAGE_KEY = "easy-call.chat.time-display-mode.v1";
 const CHAT_MARKDOWN_LAYOUT_STORAGE_KEY = "easy-call.chat.markdown-layout.v1";
-const CHAT_MESSAGE_FONT_SIZE_STORAGE_KEY = "easy-call.chat.message-font-size.v1";
-
-/** 聊天气泡正文字号档位。与全局「UI 界面尺寸」是两个维度：这里只改消息正文。 */
-export type ChatMessageFontSize = "compact" | "default" | "large" | "xlarge";
-
-const CHAT_MESSAGE_FONT_SIZE_PX: Record<ChatMessageFontSize, string> = {
-  compact: "13px",
-  // default 不写死 px：移除覆盖，回到 --app-text-sm-size，跟随全局界面尺寸
-  default: "",
-  large: "16px",
-  xlarge: "18px",
-};
-
-function normalizeChatMessageFontSize(value: unknown): ChatMessageFontSize {
-  return value === "compact" || value === "large" || value === "xlarge" ? value : "default";
-}
-
-function readChatMessageFontSizePreference(): ChatMessageFontSize {
-  if (typeof window === "undefined") return "default";
-  return normalizeChatMessageFontSize(window.localStorage.getItem(CHAT_MESSAGE_FONT_SIZE_STORAGE_KEY));
-}
-
-function persistChatMessageFontSize(size: ChatMessageFontSize) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(CHAT_MESSAGE_FONT_SIZE_STORAGE_KEY, size);
-}
-
-/**
- * 应用到根元素：只覆盖 --app-chat-message-text-size，不动字号 token 本身。
- * default 档必须移除覆盖而不是写回原值——style.css 里它默认等于 --app-text-sm-size，
- * 移除后才会跟随全局界面尺寸档位。
- */
-function applyChatMessageFontSize(size: ChatMessageFontSize) {
-  if (typeof document === "undefined") return;
-  const root = document.documentElement.style;
-  const px = CHAT_MESSAGE_FONT_SIZE_PX[size];
-  if (px) {
-    root.setProperty("--app-chat-message-text-size", px);
-  } else {
-    root.removeProperty("--app-chat-message-text-size");
-  }
-}
 
 type ChatTimeDisplayMode = "relative" | "absolute";
 
@@ -62,7 +20,6 @@ type ChatMessageAppearancePayload = {
   segmentedMarkdownEnabled?: boolean;
   chatTimeDisplayMode?: ChatTimeDisplayMode;
   markdownLayout?: ChatMarkdownLayout;
-  messageFontSize?: ChatMessageFontSize;
 };
 
 const assistantBubbleBackgroundEnabled = ref(readBooleanPreferenceDefault(CHAT_BUBBLE_BACKGROUND_STORAGE_KEY, true));
@@ -71,7 +28,6 @@ const processMessagesFolded = ref(readBooleanPreferenceDefault(CHAT_PROCESS_MESS
 const segmentedMarkdownEnabled = ref(true);
 const chatTimeDisplayMode = ref<ChatTimeDisplayMode>(readChatTimeDisplayModePreference());
 const markdownLayout = ref<ChatMarkdownLayout>(readMarkdownLayoutPreference());
-const messageFontSize = ref<ChatMessageFontSize>(readChatMessageFontSizePreference());
 let initialized = false;
 let eventUnlisten: (() => void) | null = null;
 
@@ -138,11 +94,6 @@ function applyPayload(payload: ChatMessageAppearancePayload | undefined) {
     markdownLayout.value = payload.markdownLayout;
     applyMarkdownLayoutClass(payload.markdownLayout);
   }
-  if (payload?.messageFontSize) {
-    const next = normalizeChatMessageFontSize(payload.messageFontSize);
-    messageFontSize.value = next;
-    applyChatMessageFontSize(next);
-  }
 }
 
 function restoreFromStorage() {
@@ -153,8 +104,6 @@ function restoreFromStorage() {
   chatTimeDisplayMode.value = readChatTimeDisplayModePreference();
   markdownLayout.value = readMarkdownLayoutPreference();
   applyMarkdownLayoutClass(markdownLayout.value);
-  messageFontSize.value = readChatMessageFontSizePreference();
-  applyChatMessageFontSize(messageFontSize.value);
 }
 
 function handleStorageEvent(event: StorageEvent) {
@@ -164,7 +113,6 @@ function handleStorageEvent(event: StorageEvent) {
     && event.key !== CHAT_SEGMENTED_MARKDOWN_STORAGE_KEY
     && event.key !== CHAT_TIME_DISPLAY_MODE_STORAGE_KEY
     && event.key !== CHAT_MARKDOWN_LAYOUT_STORAGE_KEY
-    && event.key !== CHAT_MESSAGE_FONT_SIZE_STORAGE_KEY
   ) return;
   restoreFromStorage();
 }
@@ -188,7 +136,6 @@ function emitAppearanceChanged() {
     segmentedMarkdownEnabled: segmentedMarkdownEnabled.value,
     chatTimeDisplayMode: chatTimeDisplayMode.value,
     markdownLayout: markdownLayout.value,
-    messageFontSize: messageFontSize.value,
   } satisfies ChatMessageAppearancePayload).catch((error) => {
     console.warn("[聊天外观] 同步消息外观变化失败", error);
   });
@@ -228,26 +175,16 @@ export function useChatMessageAppearance() {
     emitAppearanceChanged();
   }
 
-  function setChatMessageFontSize(size: ChatMessageFontSize) {
-    const next = normalizeChatMessageFontSize(size);
-    messageFontSize.value = next;
-    persistChatMessageFontSize(next);
-    applyChatMessageFontSize(next);
-    emitAppearanceChanged();
-  }
-
   return {
     assistantBubbleBackgroundEnabled,
     processMessagesFolded,
     segmentedMarkdownEnabled,
     chatTimeDisplayMode,
     markdownLayout,
-    messageFontSize,
     setAssistantBubbleBackgroundEnabled,
     setProcessMessagesFolded,
     setSegmentedMarkdownEnabled,
     setChatTimeDisplayMode,
     setChatMarkdownLayout,
-    setChatMessageFontSize,
   };
 }

@@ -68,6 +68,12 @@ const UI_SIZE_PRESET_SCALES: Record<UiSizePreset, UiSizeScale> = {
   xlarge: 150,
 };
 
+/** 四档尺寸编号，供外部做档位控件时引用，不要在各处重复写数值。 */
+export const UI_SIZE_PRESET_COMPACT = UI_SIZE_PRESET_SCALES.compact;
+export const UI_SIZE_PRESET_DEFAULT = UI_SIZE_PRESET_SCALES.default;
+export const UI_SIZE_PRESET_LARGE = UI_SIZE_PRESET_SCALES.large;
+export const UI_SIZE_PRESET_XLARGE = UI_SIZE_PRESET_SCALES.xlarge;
+
 const UI_SIZE_PRESET_ORDER: UiSizePreset[] = ["compact", "default", "large", "xlarge"];
 
 /** 每档的整数 px 表。新增字号只在这四张表里加整数，不要回头引入乘倍数。 */

@@ -167,12 +167,12 @@
                 <div class="flex flex-col items-stretch gap-1.5 px-2 py-1.5">
                   <span class="text-xs font-medium text-base-content/80">{{ t("appearance.chatBubbleFontSize") }}</span>
                   <SegmentedControl
-                    :model-value="messageFontSize"
-                    :options="messageFontSizeOptions"
+                    :model-value="uiSizeScale"
+                    :options="uiSizeScaleOptions"
                     size="xs"
                     :full-width="true"
                     class="w-full"
-                    @change="setChatMessageFontSize"
+                    @change="setUiSizeScale"
                   />
                 </div>
               </li>
@@ -376,7 +376,15 @@ import AppLoading from "../../shared/components/AppLoading.vue";
 import type { ChatMentionEntry, ConversationDelegateStatusSummary } from "../../../types/app";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useChatComposerAppearance } from "../../shell/composables/use-chat-composer-appearance";
-import { useChatMessageAppearance, type ChatMarkdownLayout, type ChatMessageFontSize } from "../../shell/composables/use-chat-message-appearance";
+import { useChatMessageAppearance, type ChatMarkdownLayout } from "../../shell/composables/use-chat-message-appearance";
+import {
+  UI_SIZE_PRESET_COMPACT,
+  UI_SIZE_PRESET_DEFAULT,
+  UI_SIZE_PRESET_LARGE,
+  UI_SIZE_PRESET_XLARGE,
+  useUiSizeAppearance,
+  type UiSizeScale,
+} from "../../shell/composables/use-ui-size-appearance";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
 import SessionControlPanel from "./SessionControlPanel.vue";
 import SegmentedControl from "../../config/components/SegmentedControl.vue";
@@ -448,18 +456,18 @@ const {
   processMessagesFolded,
   chatTimeDisplayMode,
   markdownLayout,
-  messageFontSize,
   setAssistantBubbleBackgroundEnabled,
   setProcessMessagesFolded,
   setChatTimeDisplayMode,
   setChatMarkdownLayout,
-  setChatMessageFontSize,
 } = useChatMessageAppearance();
-const messageFontSizeOptions = computed<Array<{ value: ChatMessageFontSize; label: string }>>(() => [
-  { value: "compact", label: t("appearance.uiSizeCompact") },
-  { value: "default", label: t("appearance.uiSizeDefault") },
-  { value: "large", label: t("appearance.uiSizeLarge") },
-  { value: "xlarge", label: t("appearance.uiSizeXLarge") },
+/** 「字号」就是全局界面尺寸的第二个入口，改这里等于改设置页的 UI 界面尺寸。 */
+const { uiSizeScale, setUiSizeScale } = useUiSizeAppearance();
+const uiSizeScaleOptions = computed<Array<{ value: UiSizeScale; label: string }>>(() => [
+  { value: UI_SIZE_PRESET_COMPACT, label: t("appearance.uiSizeCompact") },
+  { value: UI_SIZE_PRESET_DEFAULT, label: t("appearance.uiSizeDefault") },
+  { value: UI_SIZE_PRESET_LARGE, label: t("appearance.uiSizeLarge") },
+  { value: UI_SIZE_PRESET_XLARGE, label: t("appearance.uiSizeXLarge") },
 ]);
 const markdownLayoutOptions = computed<Array<{ value: ChatMarkdownLayout; label: string }>>(() => [
   { value: "compact", label: t("appearance.markdownLayoutCompact") },
