@@ -41,6 +41,7 @@
       :avatar-url="avatarUrl"
       :streaming="!!streamingHeaderStatus"
       :streaming-text="streamingHeaderStatus"
+      :is-dark="markdownIsDark"
       :wide="assistantNeedsWideBubble"
       :content-empty="bubbleContentEmpty(block)"
       :show-activity="showActivitySummary(block)"

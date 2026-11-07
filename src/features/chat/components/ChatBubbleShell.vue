@@ -21,7 +21,11 @@
         <div class="ecall-chat-bubble-main">
           <div class="ecall-chat-bubble-header">
             <span class="ecall-chat-bubble-name">{{ name }}</span>
-            <span v-if="streaming" class="ecall-chat-bubble-meta ecall-chat-bubble-streaming-meta">
+            <span
+              v-if="streaming"
+              class="ecall-chat-bubble-meta ecall-chat-bubble-streaming-meta"
+              :class="{ 'ecall-chat-bubble-streaming-meta-themed': isDark }"
+            >
               <AppLoading size="0.62rem" />
               {{ streamingText || "正在生成" }}
             </span>
@@ -62,6 +66,8 @@ const props = withDefaults(defineProps<{
   avatarUrl?: string;
   streaming?: boolean;
   streamingText?: string;
+  /** 当前是否深色主题。深色下状态胶囊改用主题色，浅色保持中性 */
+  isDark?: boolean;
   separated?: boolean;
   wide?: boolean;
   bubbleBackground?: boolean;
@@ -73,6 +79,7 @@ const props = withDefaults(defineProps<{
   avatarUrl: "",
   streaming: false,
   streamingText: "",
+  isDark: false,
   separated: false,
   wide: false,
   bubbleBackground: false,
@@ -292,6 +299,11 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
   /* 头部是基线对齐的，这层里装了非文字的加载指示器，基线会取到它底边，把整段状态文字顶高；
      让它自己按行居中，文字才会和左边的名字站在同一条线上 */
   align-self: center;
+  /* 行高必须钉成 1。这层带上下 padding，如果继承正文的 1.2 行高，盒高会到 17.6px，
+     比名字的 15.6px 更高，反而成了头部这一行里最高的一项——align-self:center 再没有余量可居中，
+     结果顶边对齐名字、底边多出 2px，看起来就是「胶囊往下坠」。钉成 1 之后盒高 15.2px，
+     低于名字，名字重新成为行高基准，胶囊上下各留 0.2px，才是真的居中 */
+  line-height: 1;
   gap: 0.2rem;
   /* 状态用中性胶囊：彩色只留给工具图标，这里一旦上主色就会比说话人名字还亮，主次颠倒。
      文字取前景色 72%，和头像行同层，深浅主题都靠明暗自适应 */
@@ -300,6 +312,14 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
   background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
   color: color-mix(in oklab, var(--color-base-content) 72%, transparent);
   font-size: var(--app-text-caption-size);
+}
+
+/* 深色主题的状态胶囊改用主题色。深色底的 primary 是针对 #2b2b2b 单独提亮过的一档
+   （#319eea，4.63:1），做胶囊文字本身够用；浅色主题不动，保持中性，彩色只留给工具图标。
+   用双类写死特异性，不依赖这条规则排在 .ecall-chat-bubble-streaming-meta 之后 */
+.ecall-chat-bubble-streaming-meta.ecall-chat-bubble-streaming-meta-themed {
+  background: color-mix(in oklab, var(--color-primary) 14%, transparent);
+  color: var(--color-primary);
 }
 
 /* 气泡头的状态点比正文小一号，尺寸由 AppLoading 的 size 传（约 0.62rem），不再用类压 */
