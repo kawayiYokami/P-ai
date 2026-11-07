@@ -873,8 +873,8 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
    条目类型只作为数据写在 li 的 data-kind 上，颜色全部在这里按类型映射，
    元素自己只引用 var(--ecall-ui) / var(--ecall-body)，不各自压档。 */
 .ecall-activity-row {
-  --ecall-ui: color-mix(in oklab, var(--color-base-content) 80%, transparent);
-  --ecall-body: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+  --ecall-ui: color-mix(in oklab, var(--color-base-content) 90%, transparent);
+  --ecall-body: color-mix(in oklab, var(--color-base-content) 65%, transparent);
 }
 
 /* 深色：正文保持中性灰，思考走橙，工具 UI 绿 / 内容青 */
