@@ -1155,7 +1155,13 @@ fn extract_zip_to_dir(
             .map_err(|err| format!("读取 ZIP 条目失败：{err}"))?;
         let enclosed = entry
             .enclosed_name()
-            .ok_or_else(|| format!("更新包中存在不安全路径：{}", entry.name()))?
+            .ok_or_else(|| {
+                let display = entry
+                    .name()
+                    .map(|name| name.into_owned())
+                    .unwrap_or_else(|_| "<非 UTF-8 文件名>".to_string());
+                format!("更新包中存在不安全路径：{display}")
+            })?
             .to_path_buf();
         let out_path = output_dir.join(&enclosed);
         if entry.is_dir() {

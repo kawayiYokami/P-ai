@@ -543,7 +543,10 @@ fn unzip_migration_package_to_dir(
                 .by_index_decrypt(index, password.as_bytes())
                 .map_err(|err| format!("解密迁移包失败: {err}"))?
         };
-        let relative_path = sanitize_migration_zip_entry_path(file.name())?;
+        let entry_name = file
+            .name()
+            .map_err(|err| format!("读取迁移包条目名失败: {err}"))?;
+        let relative_path = sanitize_migration_zip_entry_path(&entry_name)?;
         let output = target_dir.join(&relative_path);
         if file.is_dir() {
             std::fs::create_dir_all(&output)

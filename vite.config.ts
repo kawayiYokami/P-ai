@@ -4,10 +4,10 @@ import vue from "@vitejs/plugin-vue";
 import { resolve } from "node:path";
 import { readdir, rename, rm } from "node:fs/promises";
 
-const entryDir = resolve(__dirname, "src/entries");
+const entryDir = resolve(import.meta.dirname, "src/entries");
 // 隔离工作树位于 .pai/.worktree/* 下；若 ignored 里再排除 .pai，会把工作树自身
 // 的所有文件一并排除，watcher 收不到变更、HMR 完全失效。
-const isIsolatedWorktree = __dirname.replace(/\\/g, "/").includes("/.pai/.worktree/");
+const isIsolatedWorktree = import.meta.dirname.replace(/\\/g, "/").includes("/.pai/.worktree/");
 const htmlEntryAliases = new Set([
   "/",
   "/index.html",
@@ -46,7 +46,7 @@ export default defineConfig({
         });
       },
       async closeBundle() {
-        const builtEntryDir = resolve(__dirname, "dist/src/entries");
+        const builtEntryDir = resolve(import.meta.dirname, "dist/src/entries");
         let builtEntries: string[] = [];
         try {
           builtEntries = await readdir(builtEntryDir);
@@ -60,12 +60,12 @@ export default defineConfig({
             .map((fileName) =>
               rename(
                 resolve(builtEntryDir, fileName),
-                resolve(__dirname, "dist", fileName),
+                resolve(import.meta.dirname, "dist", fileName),
               ),
             ),
         );
 
-        await rm(resolve(__dirname, "dist/src"), { recursive: true, force: true });
+        await rm(resolve(import.meta.dirname, "dist/src"), { recursive: true, force: true });
       },
     },
   ],
