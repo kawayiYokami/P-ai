@@ -73,7 +73,7 @@
         <span>{{ activityItemTitle(item) }}</span>
         <template v-if="reasoningCharCount(item) > 0">
           <span class="opacity-30">·</span>
-          <span class="ecall-activity-title-meta font-normal">{{ reasoningCharCount(item) }} 字</span>
+          <span class="ecall-activity-title-meta font-normal">{{ reasoningCharCount(item) }}</span>
         </template>
       </div>
 
