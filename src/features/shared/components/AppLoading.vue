@@ -93,25 +93,27 @@ const rootStyle = computed(() => ({
   animation: app-loading-run var(--app-loading-dur) linear infinite;
 }
 
-/* 直角朝中心：左上叶片直角在右下、右上在左下、左下在右上、右下在左上 */
+/* 直角朝中心：左上叶片直角在右下、右上在左下、左下在右上、右下在左上。
+   负延迟越负 = 相位越超前 = 越先亮，所以顺时针「左上→右上→右下→左下」
+   要求左上最超前（-0.75）、左下最滞后（0）。 */
 .app-loading i:nth-child(1) {
   border-radius: 100% 100% 0 100%;
-  animation-delay: 0s;
+  animation-delay: calc(var(--app-loading-dur) * -0.75);
 }
 
 .app-loading i:nth-child(2) {
   border-radius: 100% 100% 100% 0;
-  animation-delay: calc(var(--app-loading-dur) / -4);
+  animation-delay: calc(var(--app-loading-dur) / -2);
 }
 
 .app-loading i:nth-child(4) {
   border-radius: 0 100% 100% 100%;
-  animation-delay: calc(var(--app-loading-dur) / -2);
+  animation-delay: calc(var(--app-loading-dur) / -4);
 }
 
 .app-loading i:nth-child(3) {
   border-radius: 100% 0 100% 100%;
-  animation-delay: calc(var(--app-loading-dur) * -0.75);
+  animation-delay: 0s;
 }
 
 /* 慢慢亮上去再缓缓压下去，全程连续插值，不做瞬间跳变 */
