@@ -11,6 +11,8 @@ export function useCollapseTransition() {
     el.style.overflow = "";
     el.style.willChange = "";
     el.style.transition = "";
+    el.style.paddingTop = "";
+    el.style.paddingBottom = "";
   }
 
   function finishAnimation(el: HTMLElement, onEnd: (e: TransitionEvent) => void, done: () => void) {
@@ -77,6 +79,10 @@ export function useCollapseTransition() {
       el.style.height = "0px";
       el.style.opacity = "0";
       el.style.transform = "translateY(-6px)";
+      // 内层带 pb-1：border-box 下 height 归 0 也压不住 padding，元素卸载前会一直
+      // 剩一条 3.5px 的尾巴。收起时把上下内边距一起归零，落定就真的是 0。
+      el.style.paddingTop = "0px";
+      el.style.paddingBottom = "0px";
     });
     window.setTimeout(() => finishAnimation(el, onEnd, done), 400);
   }
