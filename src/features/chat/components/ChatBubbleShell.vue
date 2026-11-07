@@ -26,9 +26,11 @@
               class="ecall-chat-bubble-meta ecall-chat-bubble-streaming-meta"
             >
               <AppLoading size="0.62rem" />
-              {{ streamingText || "正在生成" }}
+              <span class="ecall-chat-bubble-status-text">{{ streamingText || "正在生成" }}</span>
             </span>
-            <span v-else-if="meta" class="ecall-chat-bubble-meta">{{ meta }}</span>
+            <span v-else-if="meta" class="ecall-chat-bubble-meta">
+              <span class="ecall-chat-bubble-status-text">{{ meta }}</span>
+            </span>
           </div>
 
           <div v-show="showActivity && !!$slots.activity" class="ecall-chat-bubble-activity">
@@ -261,6 +263,7 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
 .ecall-chat-bubble-header,
 .ecall-chat-bubble-footer {
   display: inline-flex;
+  min-width: 0;
   max-width: 100%;
   align-items: baseline;
   gap: 0.45rem;
@@ -278,9 +281,24 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
 }
 
 .ecall-chat-bubble-meta {
+  /* 状态条与名字抢同一行：名字可截断，状态条也必须可截断，
+     否则窄屏（手机）上文字挤不下就会折成两行，把消息头顶高。
+     宽度不在这里定死，交给上级容器收缩，这里只保证不换行、溢出截断 */
+  min-width: 0;
+  overflow: hidden;
   color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
   font-size: var(--app-text-xs-size);
   line-height: 1.2;
+}
+
+/* 状态文字本体：外层胶囊是 flex 容器，裸文本会变成匿名 flex item，
+   text-overflow 在 flex 容器上不生效，所以文字单独包一层来截断 */
+.ecall-chat-bubble-status-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ecall-chat-bubble-footer {

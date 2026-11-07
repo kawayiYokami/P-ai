@@ -558,6 +558,7 @@
               :meta="message.meta"
               :avatar-url="message.avatarUrl"
               :streaming="!!message.streaming"
+              :streaming-text="message.streamingText"
               :separated="message.separated"
             >
               <template v-if="message.reasoning?.length || message.tools?.length" #activity>
@@ -955,6 +956,7 @@ type BubbleDemoMessage = {
   footer?: string;
   canRecall?: boolean;
   streaming?: boolean;
+  streamingText?: string;
 };
 
 type BubbleDemoTool = NonNullable<BubbleDemoMessage["tools"]>[number];
@@ -1620,6 +1622,7 @@ const bubbleDemoMessages: BubbleDemoMessage[] = [
     ],
     chips: ["未来兼容: assistant-attachment.md"],
     streaming: true,
+    streamingText: "正在执行工具并等待供应商返回结果",
   },
 ];
 const userPersona = computed(
