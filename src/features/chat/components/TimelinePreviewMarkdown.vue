@@ -129,7 +129,7 @@ const Inline = defineComponent({
   border-radius: 0.35rem;
   padding: 0.06rem 0.28rem;
   line-height: 1.4;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--app-code-font-family);
 }
 .ecall-timeline-preview-markdown :deep(.ecall-timeline-kbd) {
   border: 1px solid color-mix(in srgb, var(--color-base-content) 18%, transparent);

@@ -74,7 +74,7 @@ const InlineRenderer = defineComponent({
   /* 与主渲染器同一口径：红字、无底色 */
   color: var(--ecall-md-inline-code-color);
   background: transparent;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--app-code-font-family);
   font-size: 0.95em;
 }
 
