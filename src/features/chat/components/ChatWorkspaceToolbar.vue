@@ -322,7 +322,7 @@ const {
   setChatTimeDisplayMode,
   setChatMarkdownLayout,
 } = useChatMessageAppearance();
-/** 「字号」就是全局界面尺寸的第二个入口，改这里等于改设置页的 UI 界面尺寸。 */
+/** 「字体大小」就是全局字体大小设置的第二个入口，改这里等于改设置页那一项。 */
 const { uiSizeScale, setUiSizeScale } = useUiSizeAppearance();
 const uiSizeScaleOptions = computed<Array<{ value: UiSizeScale; label: string }>>(() => [
   { value: UI_SIZE_PRESET_COMPACT, label: t("appearance.uiSizeCompact") },
