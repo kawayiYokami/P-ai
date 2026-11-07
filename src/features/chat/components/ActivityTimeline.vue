@@ -1089,10 +1089,18 @@ function toolDetailParts(item: ChatActivityItem): ToolDetailParts {
 /* 「查看结果」取回内容的那一刻：结果从 0 展开 + 淡入。
    按钮是一次调用的结果占位，真实结果可能一整屏，直接替换就是硬跳。
    @starting-style 给它一个起始帧，不支持的内核退化成硬跳，不补 JS。 */
+/* 结果区就是「结果蓝」这个语义，浅色也照上。
+   原来浅色跟着条目内容色走中性灰，只有深色是青，同一个东西两套观感。
+   摘要行、动作名这些「外面」的仍然走 --ecall-body，不受这里影响。 */
 .ecall-tool-result {
   overflow: hidden;
+  color: #0e7490;
   interpolate-size: allow-keywords;
   transition: height var(--duration-fold) ease, opacity var(--duration-fold) ease;
+}
+
+.ecall-activity-dark .ecall-tool-result {
+  color: #54c5d4;
 }
 
 @starting-style {

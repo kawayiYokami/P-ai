@@ -85,7 +85,7 @@ function indentStyle(line: ToolArgLine): Record<string, string> {
 </script>
 
 <template>
-  <div class="ecall-tool-args-body text-base-content/56" :class="{ 'ecall-tool-args-body-dark': props.dark }">
+  <div class="ecall-tool-args-body" :class="{ 'ecall-tool-args-body-dark': props.dark }">
     <div v-if="lines" class="flex flex-col gap-0.5">
       <div
         v-for="(line, index) in lines"
@@ -107,7 +107,13 @@ function indentStyle(line: ToolArgLine): Record<string, string> {
 </template>
 
 <style scoped>
-/* 参数区颜色由模板上的 text-base-content/56 提供，这里只留深色主题的绿色 */
+/* 参数区整块就是「工具绿」这个语义，浅色也照上，不跟随外层条目的中性灰。
+   浅色底上用同色相压深一档（#047857），深色底上提亮（#4ade80），
+   与深色主题提亮字号色是同一套处理。键名仍走行内代码红。 */
+.ecall-tool-args-body {
+  color: #047857;
+}
+
 .ecall-tool-args-body-dark {
   color: #4ade80;
 }
