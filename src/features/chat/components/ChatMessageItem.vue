@@ -1034,7 +1034,16 @@ function resolvedActivityItems(block: ChatMessageBlock): ChatActivityItem[] {
  */
 const presentedActivityItems = computed(() => {
   const items = resolvedActivityItems(props.block);
-  if (!props.block.isStreaming || items.length === 0) return items;
+  if (!props.block.isStreaming) {
+    // 流式中分不出「工具之间的一段正文」和「最终答复」，只能等这一轮落定：
+    // 落定后末尾那条正文已经作为气泡显示了，时间轴里再留一条就是双显。
+    const lastContent = items.reduce(
+      (found, item, index) => (item.kind === "content" ? index : found),
+      -1,
+    );
+    return lastContent < 0 ? items : items.filter((_, index) => index !== lastContent);
+  }
+  if (items.length === 0) return items;
   let liveIndex = -1;
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const kind = items[index].kind;
