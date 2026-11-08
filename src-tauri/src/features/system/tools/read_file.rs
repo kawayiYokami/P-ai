@@ -1687,10 +1687,217 @@ impl ReadFileReader for PdfFileReader {
 
 struct OfficeLitchiReader;
 
+// ========== Office 容器结构预检 ==========
+// release 构建是 `panic = "abort"`，litchi 对畸形文档 panic 会直接带走进程，
+// `catch_unwind` 在那种构建下兜不住，所以必须在进 litchi 之前先把结构明显不对的文件挡掉。
+// 预检只降低概率、不是保证：容器结构合法但内部内容畸形的文件仍可能让 litchi panic，
+// 因此下面 `read` 里的 `catch_unwind` 继续保留（它是第二道，在 abort 构建下只是空壳）。
+
+/// OLE 复合文档（doc / xls / ppt）512 字节头部的固定魔数。
+const OLE_COMPOUND_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+/// zip 本地文件头 / 空归档 / 分卷归档的起始魔数。
+const ZIP_LOCAL_HEADER_MAGIC: [u8; 4] = [0x50, 0x4B, 0x03, 0x04];
+const ZIP_EMPTY_ARCHIVE_MAGIC: [u8; 4] = [0x50, 0x4B, 0x05, 0x06];
+const ZIP_SPANNED_MAGIC: [u8; 4] = [0x50, 0x4B, 0x07, 0x08];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OfficeContainerKind {
+    /// OOXML / ODF / iWork：本质都是 zip 包。
+    Zip,
+    /// doc / xls / ppt：OLE 复合文档。
+    Ole,
+    /// rtf：纯文本，靠起始标记识别。
+    Rtf,
+}
+
+fn office_container_kind(detected: ReadFileDetectedType) -> Option<OfficeContainerKind> {
+    match detected {
+        ReadFileDetectedType::Docx
+        | ReadFileDetectedType::Xlsx
+        | ReadFileDetectedType::Pptx
+        | ReadFileDetectedType::Ods
+        | ReadFileDetectedType::Odp
+        | ReadFileDetectedType::Numbers
+        | ReadFileDetectedType::Pages
+        | ReadFileDetectedType::Keynote => Some(OfficeContainerKind::Zip),
+        ReadFileDetectedType::Doc | ReadFileDetectedType::Xls | ReadFileDetectedType::Ppt => {
+            Some(OfficeContainerKind::Ole)
+        }
+        ReadFileDetectedType::Rtf => Some(OfficeContainerKind::Rtf),
+        // xlsb 是 BIFF12 记录流，没有稳定的起始魔数，预检放过交给 litchi。
+        _ => None,
+    }
+}
+
+/// 进 litchi 前验容器结构：格式能识别就按魔数/中央目录判，识别不了就放过。
+fn precheck_office_container(
+    path: &std::path::Path,
+    detected: ReadFileDetectedType,
+) -> Result<(), String> {
+    use std::io::Read as _;
+
+    let Some(kind) = office_container_kind(detected) else {
+        return Ok(());
+    };
+    let format = detected.as_str();
+    let mut file =
+        std::fs::File::open(path).map_err(|err| format!("打开待解析文件失败: {err}"))?;
+
+    match kind {
+        OfficeContainerKind::Ole => {
+            let mut head = [0u8; 8];
+            file.read_exact(&mut head)
+                .map_err(|_| format!("文件过短，不足以构成 {format} 的 OLE 复合文档头"))?;
+            if head != OLE_COMPOUND_MAGIC {
+                return Err(format!(
+                    "文件头不是 OLE 复合文档魔数，疑似文件损坏或扩展名与实际格式不符（{format}）"
+                ));
+            }
+            Ok(())
+        }
+        OfficeContainerKind::Rtf => {
+            let mut head = [0u8; 64];
+            let read = file
+                .read(&mut head)
+                .map_err(|err| format!("读取文件头失败: {err}"))?;
+            let head = &head[..read];
+            // 允许 UTF-8 BOM 与前导空白，正文必须以 {\rtf 开头。
+            let body = head
+                .strip_prefix(&[0xEF, 0xBB, 0xBF][..])
+                .unwrap_or(head);
+            let body = body
+                .iter()
+                .position(|byte| !byte.is_ascii_whitespace())
+                .map(|offset| &body[offset..])
+                .unwrap_or(&[]);
+            if !body.starts_with(b"{\\rtf") {
+                return Err(format!(
+                    "文件开头不是 RTF 标记 {{\\rtf，疑似文件损坏或扩展名与实际格式不符（{format}）"
+                ));
+            }
+            Ok(())
+        }
+        OfficeContainerKind::Zip => {
+            let mut head = [0u8; 4];
+            file.read_exact(&mut head)
+                .map_err(|_| format!("文件过短，不足以构成 {format} 的 zip 容器头"))?;
+            let magic_ok = head == ZIP_LOCAL_HEADER_MAGIC
+                || head == ZIP_EMPTY_ARCHIVE_MAGIC
+                || head == ZIP_SPANNED_MAGIC;
+            if !magic_ok {
+                return Err(format!(
+                    "文件头不是 zip 容器，疑似文件损坏或扩展名与实际格式不符（{format} 以 zip 打包）"
+                ));
+            }
+            // 头部对得上还不够：要能读出中央目录，否则容器本身是断的。
+            drop(file);
+            let reopened = std::fs::File::open(path)
+                .map_err(|err| format!("重新打开 zip 容器失败: {err}"))?;
+            let archive = zip::ZipArchive::new(reopened)
+                .map_err(|err| format!("zip 容器中央目录读取失败，文件可能已损坏: {err}"))?;
+            if archive.len() == 0 {
+                return Err(format!("zip 容器内没有任何条目，不是有效的 {format} 文件"));
+            }
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod office_container_precheck_tests {
+    use super::*;
+
+    fn precheck_temp_dir(tag: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "eca-office-precheck-{tag}-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        root
+    }
+
+    fn write_minimal_zip(path: &std::path::Path) {
+        use std::io::Write as _;
+        let file = std::fs::File::create(path).expect("create zip file");
+        let mut writer = zip::ZipWriter::new(file);
+        writer
+            .start_file(
+                "word/document.xml",
+                zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored),
+            )
+            .expect("start zip entry");
+        writer.write_all(b"<w:document/>").expect("write zip entry");
+        writer.finish().expect("finish zip");
+    }
+
+    #[test]
+    fn precheck_should_accept_valid_docx_doc_and_rtf() {
+        let root = precheck_temp_dir("accept");
+        let docx = root.join("ok.docx");
+        write_minimal_zip(&docx);
+        precheck_office_container(&docx, ReadFileDetectedType::Docx).expect("合法 docx 应通过");
+
+        let doc = root.join("ok.doc");
+        let mut ole = OLE_COMPOUND_MAGIC.to_vec();
+        ole.resize(512, 0);
+        std::fs::write(&doc, &ole).expect("write ole");
+        precheck_office_container(&doc, ReadFileDetectedType::Doc).expect("合法 doc 应通过");
+
+        let rtf = root.join("ok.rtf");
+        std::fs::write(&rtf, b"{\\rtf1\\ansi hello}").expect("write rtf");
+        precheck_office_container(&rtf, ReadFileDetectedType::Rtf).expect("合法 rtf 应通过");
+
+        // xlsb 没有稳定魔数，预检不拦；即便文件不存在也不该在这里报错。
+        let xlsb = root.join("missing.xlsb");
+        precheck_office_container(&xlsb, ReadFileDetectedType::Xlsb).expect("xlsb 不做结构预检");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn precheck_should_reject_broken_zip_container() {
+        let root = precheck_temp_dir("broken-zip");
+        // 有 zip 魔数但没有可读中央目录：头对得上、容器是断的。
+        let broken = root.join("broken.docx");
+        let mut bytes = ZIP_LOCAL_HEADER_MAGIC.to_vec();
+        bytes.extend_from_slice(&[0u8; 250]);
+        std::fs::write(&broken, &bytes).expect("write broken zip");
+        let err = precheck_office_container(&broken, ReadFileDetectedType::Docx)
+            .expect_err("断掉的 zip 必须被拒");
+        assert!(
+            err.contains("zip 容器"),
+            "错误信息应说明是 zip 容器问题，实际: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn precheck_should_reject_random_binary_for_zip_and_ole() {
+        let root = precheck_temp_dir("random");
+        let random = root.join("random.bin");
+        let bytes = (0..512u32).map(|i| (i % 251) as u8).collect::<Vec<_>>();
+        std::fs::write(&random, &bytes).expect("write random bytes");
+
+        let zip_err = precheck_office_container(&random, ReadFileDetectedType::Xlsx)
+            .expect_err("随机二进制不能当 xlsx");
+        assert!(zip_err.contains("zip 容器"), "实际: {zip_err}");
+
+        let ole_err = precheck_office_container(&random, ReadFileDetectedType::Xls)
+            .expect_err("随机二进制不能当 xls");
+        assert!(ole_err.contains("OLE"), "实际: {ole_err}");
+
+        let rtf_err = precheck_office_container(&random, ReadFileDetectedType::Rtf)
+            .expect_err("随机二进制不能当 rtf");
+        assert!(rtf_err.contains("RTF"), "实际: {rtf_err}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
 impl ReadFileReader for OfficeLitchiReader {
     fn reader_kind(&self) -> &'static str {
         "litchi"
     }
+
 
     fn supports(&self, detected: ReadFileDetectedType) -> bool {
         matches!(
@@ -1720,6 +1927,8 @@ impl ReadFileReader for OfficeLitchiReader {
         detected: ReadFileDetectedType,
     ) -> Result<Value, String> {
         let path = ensure_absolute_file_path(request)?;
+        // 解析前先验容器结构：只要格式能识别且结构明显不对，就在这里返回可读错误，不进 litchi。
+        precheck_office_container(&path, detected)?;
         let path_for_read = path.clone();
         let detected_for_read = detected;
         let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || -> Result<String, String> {

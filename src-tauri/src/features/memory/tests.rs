@@ -681,3 +681,82 @@
             ]
         );
     }
+
+    // ==================== 检索语法预检 ====================
+
+    #[test]
+    fn tantivy_query_precheck_should_accept_normal_queries() {
+        for query in [
+            "记忆",
+            "content:\"记忆\"",
+            "+content:\"记忆\" +content:\"回灌\"",
+            "content:\"a\" OR content:\"b\"",
+            "alpha AND beta",
+            "alpha OR beta",
+            "NOT alpha",
+            "alpha AND NOT beta",
+            "alpha OR NOT beta",
+            "(alpha OR beta) AND gamma",
+            "tag:[a TO z]",
+            "\"引号里的 AND 与 ( 只是文本\"",
+            "ANDROID 不是操作符",
+            "user_name:record_1",
+            "alpha",
+        ] {
+            assert!(
+                validate_tantivy_query_syntax(query).is_ok(),
+                "正常查询不应被拒: {query}"
+            );
+        }
+    }
+
+    #[test]
+    fn tantivy_query_precheck_should_reject_unbalanced_brackets_and_quotes() {
+        for query in ["(alpha", "alpha)", "[a TO b", "a]", "\"未闭合", "((alpha)"]
+        {
+            assert!(
+                validate_tantivy_query_syntax(query).is_err(),
+                "括号或引号不配对必须被拒: {query}"
+            );
+        }
+    }
+
+    #[test]
+    fn tantivy_query_precheck_should_reject_too_long_query() {
+        let too_long = "记".repeat(TANTIVY_QUERY_MAX_CHARS + 1);
+        let err = validate_tantivy_query_syntax(&too_long).expect_err("超长查询必须被拒");
+        assert!(err.contains("超过上限"), "错误信息应说明超长，实际: {err}");
+
+        let at_limit = "记".repeat(TANTIVY_QUERY_MAX_CHARS);
+        assert!(
+            validate_tantivy_query_syntax(&at_limit).is_ok(),
+            "刚好等于上限应放行"
+        );
+    }
+
+    #[test]
+    fn tantivy_query_precheck_should_reject_operator_position_errors() {
+        for query in [
+            "alpha AND",
+            "alpha OR",
+            "alpha NOT",
+            "NOT",
+            "AND beta",
+            "OR beta",
+            "alpha AND OR beta",
+            "alpha NOT AND beta",
+            "alpha NOT NOT beta",
+        ] {
+            assert!(
+                validate_tantivy_query_syntax(query).is_err(),
+                "操作符位置非法必须被拒: {query}"
+            );
+        }
+        // AND NOT / OR NOT 是合法的出现标记，不能误拒。
+        for query in ["alpha AND NOT beta", "alpha OR NOT beta"] {
+            assert!(
+                validate_tantivy_query_syntax(query).is_ok(),
+                "合法的出现标记被误拒: {query}"
+            );
+        }
+    }

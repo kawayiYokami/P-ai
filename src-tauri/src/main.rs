@@ -312,12 +312,33 @@ fn unix_extend_process_path_from_login_shell() {
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn unix_extend_process_path_from_login_shell() {}
 
+/// 本进程是否已经占用过 Tauri 异步运行时的设置位。
+/// tauri 2 没有公开「运行时是否已初始化」的查询接口（内部 `RUNTIME` 是模块私有），
+/// 只能在项目侧自己记账：`async_runtime::set` 第二次进入会 panic，
+/// 而 release 是 `panic = "abort"`，那一下就带崩整个进程。
+static TAURI_ASYNC_RUNTIME_INSTALLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn claim_tauri_async_runtime_slot() -> Result<(), String> {
+    claim_async_runtime_slot(&TAURI_ASYNC_RUNTIME_INSTALLED)
+}
+
+/// 抢占运行时设置位；已被占用时返回可读错误，调用方不再碰 `set`。
+fn claim_async_runtime_slot(flag: &std::sync::atomic::AtomicBool) -> Result<(), String> {
+    if flag.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err("Tauri 异步运行时已经设置过，跳过重复设置".to_string());
+    }
+    Ok(())
+}
+
 fn install_tauri_async_runtime() -> Result<tokio::runtime::Runtime, String> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_stack_size(8 * 1024 * 1024)
         .build()
         .map_err(|err| format!("创建 Tauri 异步运行时失败: {err}"))?;
+    // 先占位再设置：占不到就直接返回，不给 `set` 制造 panic 的机会。
+    claim_tauri_async_runtime_slot()?;
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // 必须在 Tauri Builder 初始化前设置，否则会命中 tauri::async_runtime::set 的已初始化 panic。
         tauri::async_runtime::set(runtime.handle().clone());
@@ -1782,4 +1803,20 @@ fn main() {
 #[cfg(test)]
 mod tests {
     include!("features/tests.rs");
+}
+
+#[cfg(test)]
+mod startup_runtime_slot_tests {
+    use super::*;
+
+    #[test]
+    fn claim_async_runtime_slot_should_reject_second_install() {
+        let flag = std::sync::atomic::AtomicBool::new(false);
+        claim_async_runtime_slot(&flag).expect("第一次占位应成功");
+        let err = claim_async_runtime_slot(&flag).expect_err("第二次占位必须被拒，而不是再调 set");
+        assert!(
+            err.contains("已经设置过"),
+            "错误信息应让人看懂发生了什么，实际: {err}"
+        );
+    }
 }
