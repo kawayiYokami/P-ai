@@ -1001,21 +1001,33 @@ fn spawn_user_mention_failure_message(app_state: AppState, failure: UserMentionF
     });
 }
 
+/// 快捷委托的记录入参：正文是「用户补充背景 + 目标 + 待办」的合成，
+/// 其中背景里带着用户选中的消息正文。
+fn user_async_delegate_input(plan: &UserAsyncDelegatePlan) -> DelegateCreateInput {
+    DelegateCreateInput {
+        kind: DELEGATE_TOOL_KIND_USER_CUSTOM_DELEGATE.to_string(),
+        conversation_id: plan.root_conversation_id.clone(),
+        parent_delegate_id: None,
+        source_agent_id: plan.source_agent_id.clone(),
+        target_agent_id: plan.target_agent_id.clone(),
+        title: plan.title.clone(),
+        why: plan.why.clone(),
+        goal: plan.goal.clone(),
+        todo: plan.todo.clone(),
+        prompt: delegate_prompt_from_parts(&[
+            plan.why.as_str(),
+            plan.goal.as_str(),
+            plan.todo.as_str(),
+        ]),
+        notify_assistant_when_done: false,
+        call_stack: vec![plan.source_agent_id.clone(), plan.target_agent_id.clone()],
+    }
+}
+
 fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -> Result<String, String> {
-    let delegate = delegate_create_record(
-        &app_state,
-        DELEGATE_TOOL_KIND_USER_CUSTOM_DELEGATE,
-        &plan.root_conversation_id,
-        None,
-        &plan.source_agent_id,
-        &plan.target_agent_id,
-        &plan.title,
-        plan.why.clone(),
-        plan.goal.clone(),
-        plan.todo.clone(),
-        String::new(),
-        false,
-        vec![plan.source_agent_id.clone(), plan.target_agent_id.clone()],
+    let delegate = delegate_store_create_delegate(
+        &app_state.data_path,
+        &user_async_delegate_input(&plan),
     )?;
     let delegate_id = delegate.delegate_id.clone();
     let parent_chat_session_key = Some(inflight_chat_key(
@@ -1130,7 +1142,11 @@ fn spawn_user_mention_delegate(app_state: AppState, plan: UserMentionPlan) {
             plan.background.clone(),
             plan.instruction.clone(),
             "请直接基于当前上下文作答，不要复述委托框架。".to_string(),
-            String::new(),
+            delegate_prompt_from_parts(&[
+                plan.background.as_str(),
+                plan.instruction.as_str(),
+                "请直接基于当前上下文作答，不要复述委托框架。",
+            ]),
             false,
             vec![plan.source_agent_id.clone(), plan.target_agent_id.clone()],
         ) {

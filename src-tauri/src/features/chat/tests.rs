@@ -11622,6 +11622,123 @@
         );
     }
 
+    /// 系统任务委托：正文必须是完整指令，不能只剩回填出来的标题。
+    #[tokio::test]
+    async fn system_task_delegate_should_put_full_instruction_into_prompt() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+        let task = TaskRecordStored {
+            task_id: "task-delegate-prompt".to_string(),
+            conversation_id: Some("conversation-sub".to_string()),
+            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
+            order_index: 1,
+            title: "每日部署检查".to_string(),
+            cause: String::new(),
+            goal: "把今天的部署结果汇总成一段结论".to_string(),
+            flow: String::new(),
+            todos: vec!["先查部署日志".to_string()],
+            status_summary: "先查部署日志".to_string(),
+            completion_state: TASK_STATE_ACTIVE.to_string(),
+            completion_conclusion: String::new(),
+            progress_notes: Vec::new(),
+            stage_key: String::new(),
+            stage_updated_at_utc: None,
+            trigger: TaskTriggerStored {
+                run_at_utc: None,
+                cron_expression: None,
+                legacy_every_minutes: None,
+                end_at_utc: None,
+                next_run_at_utc: None,
+            },
+            created_at_utc: now_utc_rfc3339(),
+            updated_at_utc: now_utc_rfc3339(),
+            last_triggered_at_utc: None,
+            completed_at_utc: None,
+        };
+        let session = task_resolve_dispatch_session(&state, &task)
+            .expect("resolve task session")
+            .expect("dispatch session");
+
+        let delegate_id = task_dispatch_system_delegate(&state, &task, &session)
+            .expect("dispatch system task delegate");
+        let stored = delegate_store_get_delegate(&state.data_path, &delegate_id)
+            .expect("read delegate record");
+
+        assert!(
+            stored.prompt.contains("把今天的部署结果汇总成一段结论"),
+            "正文要含任务目标：{}",
+            stored.prompt
+        );
+        assert!(
+            stored.prompt.contains("先查部署日志"),
+            "正文要含待办原文：{}",
+            stored.prompt
+        );
+        assert_ne!(stored.prompt, stored.goal, "正文不能退化成回填出来的标题");
+    }
+
+    /// 护航委托：正文是算出来的审查词，不是 `goal` 里那句泛化目标。
+    #[test]
+    fn wheelchair_delegate_should_put_review_prompt_into_prompt() {
+        let state = test_chat_runtime_state();
+        let review_prompt = wheelchair_review_prompt(
+            "红豆",
+            "助理",
+            "人格摘要",
+            "[用户]: 这段对话正文要进审查词",
+            "zh-CN",
+        );
+
+        let delegate = delegate_store_create_delegate(
+            &state.data_path,
+            &wheelchair_delegate_input("conversation-1", "agent-a", review_prompt.clone()),
+        )
+        .expect("create wheelchair delegate");
+        let stored = delegate_store_get_delegate(&state.data_path, &delegate.delegate_id)
+            .expect("read delegate record");
+
+        assert_eq!(stored.prompt, review_prompt.trim());
+        assert!(stored.prompt.contains("这段对话正文要进审查词"));
+        assert_ne!(stored.prompt, stored.goal, "正文不能退化成泛化目标");
+    }
+
+    /// 快捷委托：正文要带上用户选中的消息正文，不只是补充背景。
+    #[test]
+    fn user_async_delegate_should_put_selected_context_into_prompt() {
+        let state = test_chat_runtime_state();
+        let plan = UserAsyncDelegatePlan {
+            root_conversation_id: "conversation-root".to_string(),
+            source_agent_id: "agent-root".to_string(),
+            target_agent_id: "agent-child".to_string(),
+            target_agent_name: "子人格".to_string(),
+            title: "审查委托：看看这段日志".to_string(),
+            goal: "看一下这段日志为什么报警".to_string(),
+            why: "用户补充背景：\n先确认影响范围\n\n选中的对话：\n[用户]: 这段是选中消息原文"
+                .to_string(),
+            todo: "给出结论".to_string(),
+            target_api_config_ids: vec!["api-a".to_string()],
+        };
+
+        let delegate = delegate_store_create_delegate(
+            &state.data_path,
+            &user_async_delegate_input(&plan),
+        )
+        .expect("create user async delegate");
+        let stored = delegate_store_get_delegate(&state.data_path, &delegate.delegate_id)
+            .expect("read delegate record");
+
+        assert!(
+            stored.prompt.contains("这段是选中消息原文"),
+            "正文要含选中消息内容：{}",
+            stored.prompt
+        );
+        assert!(stored.prompt.contains("看一下这段日志为什么报警"));
+        assert_ne!(stored.prompt, stored.goal, "正文不能退化成回填出来的 goal");
+    }
+
     #[test]
     fn delegate_target_chat_api_config_ids_should_only_keep_current_department_models() {
         let app_config = AppConfig {

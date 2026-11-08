@@ -41,6 +41,32 @@ fn wheelchair_extract_block_texts(messages: &[ChatMessage]) -> String {
 const WHEELCHAIR_DELEGATE_KIND: &str = "wheelchair";
 const WHEELCHAIR_TOOL_ROUNDS: usize = 3;
 
+/// 护航委托的记录入参：正文就是算出来的审查词。
+///
+/// `why` / `goal` / `todo` 保留原值只为旧字段完整：任务书只读 `prompt`，
+/// 把审查词塞在 `todo` 里会随回填退化成 `goal` 那句泛化目标。
+fn wheelchair_delegate_input(
+    conversation_id: &str,
+    agent_id: &str,
+    review_prompt: String,
+) -> DelegateCreateInput {
+    DelegateCreateInput {
+        kind: WHEELCHAIR_DELEGATE_KIND.to_string(),
+        conversation_id: conversation_id.to_string(),
+        parent_delegate_id: None,
+        source_agent_id: agent_id.to_string(),
+        target_agent_id: agent_id.to_string(),
+        title: "护航沟通建议".to_string(),
+        why: "主会话本轮调度已经结束。这个委托只在用户还没发出下一条消息时有用。".to_string(),
+        goal: "根据当前块对话，给出让双方沟通更顺的建议。尽快回答，不要做多余调查。"
+            .to_string(),
+        todo: review_prompt.clone(),
+        prompt: review_prompt,
+        notify_assistant_when_done: false,
+        call_stack: vec![agent_id.to_string()],
+    }
+}
+
 const WHEELCHAIR_REVIEW_MD: &str = include_str!("../../../resources/prompts/wheelchair-review.md");
 
 fn wheelchair_review_prompt(
@@ -205,20 +231,9 @@ pub(crate) fn start_wheelchair_delegate_after_reply(
         &dialogue_text,
         language,
     );
-    let delegate = delegate_create_record(
-        state,
-        WHEELCHAIR_DELEGATE_KIND,
-        conversation_id,
-        None,
-        agent_id,
-        agent_id,
-        "护航沟通建议",
-        "主会话本轮调度已经结束。这个委托只在用户还没发出下一条消息时有用。".to_string(),
-        "根据当前块对话，给出让双方沟通更顺的建议。尽快回答，不要做多余调查。".to_string(),
-        prompt,
-        String::new(),
-        false,
-        vec![agent_id.to_string()],
+    let delegate = delegate_store_create_delegate(
+        &state.data_path,
+        &wheelchair_delegate_input(conversation_id, agent_id, prompt),
     )?;
     let snapshot = delegate_capture_workspace_snapshot(state, conversation_id, None)
         .map(wheelchair_force_workspace_read_only);

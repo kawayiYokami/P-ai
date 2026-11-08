@@ -114,6 +114,19 @@ struct DelegateCreateInput {
     call_stack: Vec<String>,
 }
 
+/// 内部入口把正文写进 `prompt`：按给定顺序拼接非空段，段间空一行。
+///
+/// 任务书只读 `prompt`，读层回填（`prompt` 空时取 `goal`）只服务历史遗留行；
+/// 内部入口自己知道正文是几段什么内容，直接拼成成品正文，不再依赖回填。
+fn delegate_prompt_from_parts(parts: &[&str]) -> String {
+    parts
+        .iter()
+        .map(|part| part.trim())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 #[cfg(test)]
 mod delegate_work_type_tests {
     use super::*;

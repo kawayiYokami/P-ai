@@ -428,10 +428,10 @@ fn task_dispatch_system_delegate(
         &session.agent_id,
         &session.agent_id,
         &title,
-        instruction,
+        instruction.clone(),
         title.clone(),
         "完成系统任务，并直接汇报结果。".to_string(),
-        String::new(),
+        instruction,
         false,
         vec![session.agent_id.clone()],
     )?;

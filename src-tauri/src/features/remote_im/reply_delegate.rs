@@ -102,7 +102,11 @@ fn remote_im_reply_delegate_register(
             why: "远程联系人消息触发应答".to_string(),
             goal: "根据冻结上下文回复远程联系人".to_string(),
             todo: "生成并发送远程应答".to_string(),
-            prompt: String::new(),
+            prompt: delegate_prompt_from_parts(&[
+                "远程联系人消息触发应答",
+                "根据冻结上下文回复远程联系人",
+                "生成并发送远程应答",
+            ]),
             notify_assistant_when_done: false,
             call_stack: Vec::new(),
         },
