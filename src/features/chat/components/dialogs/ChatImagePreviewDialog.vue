@@ -11,8 +11,13 @@
         <button class="btn btn-sm btn-ghost border-0 text-white/85 shadow-none hover:bg-white/12 hover:text-white" :disabled="zoom >= maxZoom" @click="emit('zoomIn')">
           <AppIcon name="plus" class="h-4 w-4" />
         </button>
-        <button class="btn btn-sm min-w-16 border-0 bg-transparent text-white/85 shadow-none hover:bg-white/12 hover:text-white" :disabled="Math.abs(zoom - 1) < 0.001" @click="emit('reset')">
-          100%
+        <button
+          class="btn btn-sm min-w-16 border-0 bg-transparent text-white/85 shadow-none hover:bg-white/12 hover:text-white"
+          :disabled="Math.abs(zoom - 1) < 0.001"
+          :title="`当前 ${zoomPercentLabel}，点击恢复 100%`"
+          @click="emit('reset')"
+        >
+          {{ zoomPercentLabel }}
         </button>
         <button class="btn btn-sm btn-ghost border-0 text-white/85 shadow-none hover:bg-white/12 hover:text-white" @click="emit('rotate')">
           <AppIcon name="rotate-cw" class="h-4 w-4" />
@@ -56,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import { getTransportCapabilities } from "../../../../services/tauri-api";
 
@@ -93,6 +98,9 @@ const emit = defineEmits<{
 }>();
 
 const dialogRef = ref<HTMLDialogElement | null>(null);
+
+// 百分比按当前实际缩放显示；缩放值可能带小数（滚轮连续缩放），取整避免出现 99.999% 这类读数
+const zoomPercentLabel = computed(() => `${Math.round(props.zoom * 100)}%`);
 
 function onDialogClose() {
   emit("close");
