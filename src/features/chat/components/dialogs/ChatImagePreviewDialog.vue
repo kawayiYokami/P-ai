@@ -13,7 +13,7 @@
         </button>
         <button
           class="btn btn-sm min-w-16 border-0 bg-transparent text-white/85 shadow-none hover:bg-white/12 hover:text-white"
-          :disabled="Math.abs(zoom - 1) < 0.001"
+          :disabled="atFullZoom"
           :title="`当前 ${zoomPercentLabel}，点击恢复 100%`"
           @click="emit('reset')"
         >
@@ -101,6 +101,11 @@ const dialogRef = ref<HTMLDialogElement | null>(null);
 
 // 百分比按当前实际缩放显示；缩放值可能带小数（滚轮连续缩放），取整避免出现 99.999% 这类读数
 const zoomPercentLabel = computed(() => `${Math.round(props.zoom * 100)}%`);
+
+// 按钮的禁用态跟着「读数」走，而不是跟着浮点值走：读数已经显示 100% 时按钮仍可点，等于
+// 读数与可交互状态自相矛盾（滚轮能停在 1.004 这种值上，显示 100% 却还能按）。两者用同一
+// 个取整口径，回到 100% 附近就一定是禁用态，点了也只是把 1.004 归一到精确 1，没有信息损失。
+const atFullZoom = computed(() => Math.round(props.zoom * 100) === 100);
 
 function onDialogClose() {
   emit("close");
