@@ -442,11 +442,18 @@ function scheduleSyncFade(): void {
  */
 function runFrame(): void {
   fadeRaf = 0;
+  const host = followHostElement();
+  if (host) {
+    const rect = host.getBoundingClientRect();
+    // 面板不在视口：不付每帧重排的成本（量思考正文、查样式），数据变化会经 onUpdated 重新唤醒。
+    if (rect.bottom <= 0 || rect.top >= window.innerHeight) return;
+  }
   syncReasoningFade();
   const again = stepFollowHeight();
   // 流式期间逐帧续跑，不靠「下一次 update」来续：条目的增量可能在两次渲染之间到达，
-  // 链一停面板就卡在落后一行的位置不动。
-  if (again || (props.followHeight && hasLiveItem())) scheduleSyncFade();
+  // 链一停面板就卡在落后一行的位置不动。续跑只看「这一条是否还在流式」，不看条目数据里的
+  // status/running——那种字段在中断后可能永远停在 doing，会让链永久空转。
+  if (again || props.followHeight === true) scheduleSyncFade();
 }
 
 // ==================== 面板高度渐变跟随 ====================
@@ -466,13 +473,6 @@ function followHostElement(): HTMLElement | null {
   return root.closest<HTMLElement>("[data-activity-panel-box]");
 }
 
-/** 这一块还有条目在长（思考正文或工具正在跑）？只在流式中插值。 */
-function hasLiveItem(): boolean {
-  return props.items.some((item) => (
-    item.kind === "tool" ? item.status === "doing" : item.running === true
-  ));
-}
-
 /** 走一帧；读数在 step 内部一次拿完（可见性与内容自然高），写样式也只在内部发生。 */
 function stepFollowHeight(): boolean {
   const host = followHostElement();
@@ -481,7 +481,7 @@ function stepFollowHeight(): boolean {
     panelFollow.release(host);
     return false;
   }
-  return panelFollow.step(host, hasLiveItem());
+  return panelFollow.step(host, true);
 }
 
 onMounted(() => {

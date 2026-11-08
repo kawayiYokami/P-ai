@@ -120,7 +120,7 @@
                   :conversation-id="props.activeConversationId"
                   :message-id="activityMessageId"
                   :agent-name-map="props.agentNameMap"
-                  follow-height
+                  :follow-height="props.block.isStreaming === true"
                   @item-expanded="onTimelineItemExpanded"
                 />
                 <button
@@ -1636,6 +1636,13 @@ function stepBubbleFollow(): void {
   bubbleFollowRaf = 0;
   const el = assistantBubbleRef.value;
   if (!el) return;
+  const rect = el.getBoundingClientRect();
+  // 气泡不在视口（如用户上滚看历史，元素仍在 overscan 内挂载）：不付每帧重排成本，
+  // 数据变化会经 onUpdated 重新唤醒，滚回来时也就恢复了跟随。
+  if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
+    bubbleFollow.release(el);
+    return;
+  }
   const live = props.block.isStreaming === true;
   const chasing = bubbleFollow.step(el, live);
   // 流式期间逐帧跑，不靠「下一次 update」来续：正文的增量可能在两次渲染之间到达，

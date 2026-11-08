@@ -55,6 +55,8 @@ export function createGradualHeight(options: GradualHeightOptions = {}): Gradual
 
   let pinned = false;
   let value = 0;
+  /** 最近一次被钉住的元素；元素被 v-if 替换时，闭包状态不能沿用到新元素身上 */
+  let hostRef: HTMLElement | null = null;
   /** 最近一次「还在流式」的时刻；流式停下后从这里起算收尾宽限 */
   let liveSeenAt = 0;
 
@@ -76,6 +78,12 @@ export function createGradualHeight(options: GradualHeightOptions = {}): Gradual
   }
 
   function step(host: HTMLElement, live: boolean): boolean {
+    // 元素被替换（如流式前后的 pre-streaming 圆点与气泡互换）：旧元素的高度不能沿用到新元素，
+    // 否则会把新元素 max-height 压到内容之下、再慢慢收回，那几帧是在裁正文。
+    if (hostRef !== host) {
+      hostRef = host;
+      pinned = false;
+    }
     // 不在流式、也没在跟随的块，不必每帧来算
     if (!live && !pinned) return false;
     if (live) liveSeenAt = performance.now();
