@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-07T06:05:03.550Z",
-  "latestVersion": "v0.98.1",
+  "generatedAt": "2026-11-08T12:59:35.248Z",
+  "latestVersion": "v0.98.2",
   "releases": [
+    {
+      "version": "v0.98.2",
+      "path": "docs/changelog/releases/v0.98.2.md",
+      "summary": "**回答正文、思考过程和工具卡片的高度改为平滑展开，收起与展开不再一格一格往上蹦。**"
+    },
     {
       "version": "v0.98.1",
       "path": "docs/changelog/releases/v0.98.1.md",
