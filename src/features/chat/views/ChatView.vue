@@ -132,11 +132,12 @@
             @change="handleDraftPersonaChange($event)"
             @update:title="handleDraftTitleChange($event)"
           />
-          <div class="ecall-chat-history-flow flex min-w-0 shrink-0 flex-col">
+          <div ref="chatHistoryAnchor" class="ecall-chat-history-flow flex min-w-0 shrink-0 flex-col">
             <Virtualizer
               v-if="scrollContainer"
               :data="turnContainers"
               :shift="virtuaShift"
+              :start-margin="virtualStartMargin"
               ref="virtuaRef"
               :key="virtuaKey"
               :scroll-ref="(scrollContainer as unknown as HTMLElement)"
@@ -984,6 +985,7 @@ import ConversationAutoPushCard from "../components/ConversationAutoPushCard.vue
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
+import { useChatVirtualStartMargin } from "../composables/use-chat-virtual-start-margin";
 import { probeChatScroll } from "../composables/chat-scroll-probe";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import { isAbsoluteLocalPath, isAssistantSpacePath, normalizeLocalLinkHref, parseLocalFileReference } from "../utils/local-link";
@@ -2203,6 +2205,11 @@ const {
   onReachedBottom: () => emit("reachedBottom"),
   focusComposerInput: (options) => composerPanelRef.value?.focusInput(options),
 });
+
+// Virtualizer 前面还有 chatContentRoot 的上留白（py-3 = 12px），virtua 不传 startMargin 就把
+// 这段当作 0，所有 scrollToIndex 落点与 findItemIndex 都会少算这段距离。距离必须实测：
+// 前置留白/卡片一旦变化，写死的常量就会变成新的误差源。
+const chatHistoryAnchor = ref<HTMLElement | null>(null);
 
 const scrollContainerHeight = ref(0);
 function updateScrollContainerHeight() {
@@ -3867,6 +3874,14 @@ function handleConversationKeydownInput(event: KeyboardEvent) {
 const chatContentRoot = ref<HTMLElement | null>(null);
 let contentResizeObserver: ResizeObserver | null = null;
 let lastChatContentHeight = 0;
+
+// 列表起点相对滚动容器顶部的距离（virtua 的 startMargin）：量出来喂给 Virtualizer，
+// 不传的话 scrollToIndex 落点与 findItemIndex 都会少算 chatContentRoot 的上留白。
+const { startMargin: virtualStartMargin } = useChatVirtualStartMargin({
+  scrollContainer,
+  listAnchor: chatHistoryAnchor,
+  prefixContainer: chatContentRoot,
+});
 
 // 跟随模式下内容尺寸变化（流式增长、气泡变高）时同步贴底。
 // virtua 不会在内容增长时自动维持贴底，这里补上；未进入跟随则保持视口不动。
