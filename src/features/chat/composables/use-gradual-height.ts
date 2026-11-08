@@ -37,7 +37,7 @@ export type GradualHeightOptions = {
 export type GradualHeight = {
   /** 走一帧。返回 true 表示还需要下一帧。live=false 时只做收尾（追上目标后交回精确高度）。 */
   step(host: HTMLElement, live: boolean): boolean;
-  /** 交回布局：撤掉内联 max-height / overflow */
+  /** 交回布局：撤掉内联 max-height / contain */
   release(host: HTMLElement): void;
   /** 当前是否钉着高度 */
   readonly pinned: boolean;
@@ -63,15 +63,17 @@ export function createGradualHeight(options: GradualHeightOptions = {}): Gradual
   function release(host: HTMLElement): void {
     if (!pinned) return;
     host.style.maxHeight = "";
-    host.style.overflow = "";
+    host.style.contain = "";
     pinned = false;
   }
 
   function pin(host: HTMLElement, next: number): void {
     value = next;
     if (!pinned) {
-      // 钉住的起点就是当前自然高，所以这一帧本身不产生跳动
-      host.style.overflow = "hidden";
+      // 钉住的起点就是当前自然高，所以这一帧本身不产生跳动。
+      // 用 contain: paint 裁掉超出上限的部分，而不是 overflow: hidden：后者会把这块盒子
+      // 变成滚动容器，里面 sticky 的按钮在钉住期间会失效（它会贴着这个不滚动的盒子）。
+      host.style.contain = "paint";
       pinned = true;
     }
     host.style.maxHeight = `${next}px`;
