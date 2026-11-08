@@ -230,6 +230,7 @@ import { textContentSignature } from "../utils/text-signature";
 import { createToolCallPresentation } from "../utils/tool-call-presentation";
 import { parseToolCallResultStatus } from "../utils/toolcall-preview";
 import { parseToolArgs } from "../utils/tool-args-tree";
+import { createGradualHeight } from "../composables/use-gradual-height";
 // 工具详情卡片底座：避免使用 backdrop-blur，防止在滚动区内触发大面积 GPU 离屏模糊着色
 const TOOL_CARD_SURFACE = "border border-base-300 bg-base-100/70";
 // 时间轴图标的线宽：默认 2 在 16px 下偏粗，压到 1.5 后笔画与 12px 文字齐平
@@ -443,29 +444,20 @@ function runFrame(): void {
   fadeRaf = 0;
   syncReasoningFade();
   const again = stepFollowHeight();
-  if (again) scheduleSyncFade();
+  // 流式期间逐帧续跑，不靠「下一次 update」来续：条目的增量可能在两次渲染之间到达，
+  // 链一停面板就卡在落后一行的位置不动。
+  if (again || (props.followHeight && hasLiveItem())) scheduleSyncFade();
 }
 
 // ==================== 面板高度渐变跟随 ====================
 //
 // 流式中这块高度是逐字「长」出来的：每换一行，整块就往上跳一行，虚拟列表跟着重测一次、
-// 滚动条跟着跳一次。这里把外层面板壳的高度钉在上限上，每帧向内容自然高走一部分，
-// 让高度是渐变而不是瞬跳。
+// 滚动条跟着跳一次。做法见 composables/use-gradual-height.ts：钉住上限、每帧走一部分。
 //
-// 三条边界：
-// 1. 用 max-height 而不是 height。内容比上限矮时元素自然高就是内容高，钉住也不会留空白；
-//    而钉住期间 scrollHeight 仍然返回内容真实高度，插值目标一次读数就够，不必反复量。
-// 2. 与目标差小于半像素就撤掉内联 max-height，把高度交回布局给的精确值。流式收口后不留残差，
-//    也不会出现「差几像素、最后一行被裁一半」。
-// 3. 用户手动展开/收起（思考四行档、工具详情）期间完全让开：那两处自己就有 200ms 高度过渡，
-//    外层面板壳跟着布局走就行。同一时刻只允许一处代码写这块高度。
-const FOLLOW_RATE = 0.12; // 每帧走完差额的比例：63px 的跳变首帧约 7.6px，十几帧走完，与 FOLD_MS 同量级
-const FOLLOW_MIN_STEP = 6; // 单帧最少走 6px：小增量也能在两三帧内落定，不拖成黏滞感
-const FOLLOW_MAX_STEP = 24; // 单帧最多走 24px：一次插入很大的块也不至于要一秒才跟上
-const FOLLOW_MIN_DIFF = 0.5; // 与目标差小于半像素才算收敛，收敛时交回精确高度
-
-let followPinned = false;
-let followValue = 0;
+// 本组件只负责两件与自身相关的事：找到要接管的那块壳（调用方标了 data-activity-panel-box），
+// 以及判断这一块还在不在流式。用户手动展开/收起（思考四行档、工具详情）期间整段让开：
+// 那两处自己就有 200ms 高度过渡，外层面板壳跟着布局走就行，同一时刻只允许一处写高度。
+const panelFollow = createGradualHeight();
 
 /** 面板壳：调用方在 ActivityTimeline 的父级上标了 data-activity-panel-box。没标就不接管。 */
 function followHostElement(): HTMLElement | null {
@@ -481,63 +473,15 @@ function hasLiveItem(): boolean {
   ));
 }
 
-function releaseFollowHeight(host: HTMLElement): void {
-  if (!followPinned) return;
-  host.style.maxHeight = "";
-  host.style.overflow = "";
-  followPinned = false;
-}
-
-function pinFollowHeight(host: HTMLElement, value: number): void {
-  followValue = value;
-  if (!followPinned) {
-    // 钉住的起点就是当前自然高，所以这一帧本身不产生跳动
-    host.style.overflow = "hidden";
-    followPinned = true;
-  }
-  host.style.maxHeight = `${value}px`;
-}
-
-/**
- * 走一帧。返回 true 表示还要下一帧（正在追上目标）。
- * 读数只在本帧第一次强制布局时拿：可见性用 getBoundingClientRect，目标高用 scrollHeight
- * （钉住期间它仍然返回内容真实高度），写完样式就收工，一帧只脏一次布局。
- */
+/** 走一帧；读数在 step 内部一次拿完（可见性与内容自然高），写样式也只在内部发生。 */
 function stepFollowHeight(): boolean {
   const host = followHostElement();
   if (!host) return false;
   if (!props.followHeight || performance.now() < foldReleaseUntil) {
-    releaseFollowHeight(host);
+    panelFollow.release(host);
     return false;
   }
-  const live = hasLiveItem();
-  // 流式已经结束、也没有在跟随的块，不必每帧来算
-  if (!live && !followPinned) return false;
-  const rect = host.getBoundingClientRect();
-  // 不在视口里的块直接给终值：看不见的渐变没人看，白付每帧重排的代价
-  if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
-    releaseFollowHeight(host);
-    return false;
-  }
-  const target = host.scrollHeight;
-  const current = followPinned ? followValue : rect.height;
-  const diff = target - current;
-  if (Math.abs(diff) < FOLLOW_MIN_DIFF) {
-    if (!live) {
-      // 收口：把高度交回布局给的精确值。差半像素以内才撤，撤完就是内容真实高，不留残差
-      releaseFollowHeight(host);
-      return false;
-    }
-    // 还在流式：钉在目标上等下一次增长。这里不能撤——撤了下一帧又得从自然高重新起跳，
-    // 每次增长都变成一次瞬跳
-    pinFollowHeight(host, target);
-    return false;
-  }
-  const stepSize = Math.min(FOLLOW_MAX_STEP, Math.max(FOLLOW_MIN_STEP, Math.abs(diff) * FOLLOW_RATE));
-  // 最后一帧直接落到目标上：别在几百毫秒之后还差一两像素
-  const next = Math.abs(diff) > stepSize ? current + Math.sign(diff) * stepSize : target;
-  pinFollowHeight(host, next);
-  return true;
+  return panelFollow.step(host, hasLiveItem());
 }
 
 onMounted(() => {
@@ -557,7 +501,7 @@ onBeforeUnmount(() => {
   if (fadeRaf) cancelAnimationFrame(fadeRaf);
   // 卸载时把高度交回布局，别把钉住的内联 max-height 留在 DOM 上
   const host = followHostElement();
-  if (host) releaseFollowHeight(host);
+  if (host) panelFollow.release(host);
 });
 
 // ==================== 条目展开态 ====================

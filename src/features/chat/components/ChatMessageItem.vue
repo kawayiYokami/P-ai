@@ -141,6 +141,7 @@
       <template v-if="!isOwnMessage(block)">
         <div
           v-if="!showAssistantPreStreamingDots(block)"
+          ref="assistantBubbleRef"
           class="assistant-markdown ecall-assistant-bubble max-w-full"
           :class="{ 'ecall-assistant-bubble-wide': assistantNeedsWideBubble }"
           :data-bubble-background="assistantBubbleBackgroundEnabled ? 'on' : 'off'"
@@ -436,7 +437,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect, watchPostEffect } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, reactive, ref, watch, watchEffect, watchPostEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import AppLoading from "../../shared/components/AppLoading.vue";
@@ -459,6 +460,7 @@ import { buildToolcallPreviewMap, parseToolCallResultStatus, type ToolcallPrevie
 import { generateShareFromMessageIds } from "../utils/share-generator";
 import { frontendDispatchElapsedByMessageId } from "../composables/use-chat-flow-frontend-dispatch";
 import { useCollapseTransition } from "../composables/use-collapse-transition";
+import { createGradualHeight } from "../composables/use-gradual-height";
 import { displayFileName, extraTextReferenceDisplayParts } from "../utils/chat-attachment-display";
 import { formatRecentRelativeTime } from "../../shared/utils/relative-time";
 import ChatBubbleShell from "./ChatBubbleShell.vue";
@@ -1614,6 +1616,35 @@ watchPostEffect(() => {
   });
 });
 
+// ==================== 正文气泡高度渐变跟随 ====================
+// 流式正文与思考/工具块同构：每换一行整块上跳一行，虚拟列表与滚动条跟着跳一次。
+// 做法与口径统一在 composables/use-gradual-height.ts，这里只负责驱动与何时让开。
+//
+// 与思考块的唯一差别是步长上限：正文被裁就是读不到，一次撑开很大的块（代码块、表格、图片）
+// 必须几帧内补齐，不能让「文字已经渲染、框还没撑开」拖上半秒。
+const assistantBubbleRef = ref<HTMLElement | null>(null);
+const bubbleFollow = createGradualHeight({ maxStep: 64, framesBudget: 5 });
+
+let bubbleFollowRaf = 0;
+
+function scheduleBubbleFollow(): void {
+  if (bubbleFollowRaf) return;
+  bubbleFollowRaf = requestAnimationFrame(stepBubbleFollow);
+}
+
+function stepBubbleFollow(): void {
+  bubbleFollowRaf = 0;
+  const el = assistantBubbleRef.value;
+  if (!el) return;
+  const live = props.block.isStreaming === true;
+  const chasing = bubbleFollow.step(el, live);
+  // 流式期间逐帧跑，不靠「下一次 update」来续：正文的增量可能在两次渲染之间到达，
+  // 链一停框就卡在落后一行的位置不动，观感是「字出来了、框隔一会儿才跟上」。
+  if (live || chasing) scheduleBubbleFollow();
+}
+
+onUpdated(scheduleBubbleFollow);
+
 onMounted(() => {
   relativeTimeNowTimer = window.setInterval(() => {
     relativeTimeNowTick.value = Date.now();
@@ -1626,6 +1657,13 @@ onBeforeUnmount(() => {
     window.clearInterval(relativeTimeNowTimer);
     relativeTimeNowTimer = 0;
   }
+  if (bubbleFollowRaf) {
+    cancelAnimationFrame(bubbleFollowRaf);
+    bubbleFollowRaf = 0;
+  }
+  // 卸载时把高度交回布局，别把钉住的内联 max-height 留在 DOM 上
+  const bubbleEl = assistantBubbleRef.value;
+  if (bubbleEl) bubbleFollow.release(bubbleEl);
   disposed = true;
 });
 
