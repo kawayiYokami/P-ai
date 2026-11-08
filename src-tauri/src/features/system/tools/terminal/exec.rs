@@ -1168,7 +1168,7 @@ async fn builtin_shell_exec(
                 "ok": false,
                 "approved": false,
                 "blockedReason": "delegate_denied_write_risk_command",
-                "message": "子代理工具调用被自动拒绝（需要人工审批）。",
+                "message": "子智能体工具调用被自动拒绝（需要人工审批）。",
                 "rootPath": session_root_text,
                 "workspacePath": workspace_path_text,
                 "cwd": terminal_path_for_user(&cwd),

@@ -1004,7 +1004,7 @@ fn spawn_user_mention_failure_message(app_state: AppState, failure: UserMentionF
 fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -> Result<String, String> {
     let delegate = delegate_create_record(
         &app_state,
-        DELEGATE_TOOL_KIND_USER_MENTION,
+        DELEGATE_TOOL_KIND_USER_CUSTOM_DELEGATE,
         &plan.root_conversation_id,
         None,
         &plan.source_agent_id,
@@ -1013,6 +1013,7 @@ fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -
         plan.why.clone(),
         plan.goal.clone(),
         plan.todo.clone(),
+        String::new(),
         false,
         vec![plan.source_agent_id.clone(), plan.target_agent_id.clone()],
     )?;
@@ -1028,6 +1029,7 @@ fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -
             delegate.clone(),
             plan.target_api_config_ids.clone(),
             parent_chat_session_key,
+            None,
         )
         .await;
         match run_result {
@@ -1060,7 +1062,7 @@ fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -
                     serde_json::json!({
                         "messageKind": "delegate_result",
                         "delegateId": delegate.delegate_id,
-                        "delegateKind": DELEGATE_TOOL_KIND_USER_MENTION,
+                        "delegateKind": DELEGATE_TOOL_KIND_USER_CUSTOM_DELEGATE,
                         "resultStatus": "completed",
                         "speakerAgentId": plan.target_agent_id,
                         "sourceAgentId": plan.source_agent_id,
@@ -1087,7 +1089,7 @@ fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -
                     serde_json::json!({
                         "messageKind": "delegate_result",
                         "delegateId": delegate.delegate_id,
-                        "delegateKind": DELEGATE_TOOL_KIND_USER_MENTION,
+                        "delegateKind": DELEGATE_TOOL_KIND_USER_CUSTOM_DELEGATE,
                         "resultStatus": "failed",
                         "speakerAgentId": plan.target_agent_id,
                         "sourceAgentId": plan.source_agent_id,
@@ -1128,6 +1130,7 @@ fn spawn_user_mention_delegate(app_state: AppState, plan: UserMentionPlan) {
             plan.background.clone(),
             plan.instruction.clone(),
             "请直接基于当前上下文作答，不要复述委托框架。".to_string(),
+            String::new(),
             false,
             vec![plan.source_agent_id.clone(), plan.target_agent_id.clone()],
         ) {
@@ -1156,6 +1159,7 @@ fn spawn_user_mention_delegate(app_state: AppState, plan: UserMentionPlan) {
             delegate.clone(),
             plan.target_api_config_ids.clone(),
             parent_chat_session_key,
+            None,
         )
         .await;
         match run_result {

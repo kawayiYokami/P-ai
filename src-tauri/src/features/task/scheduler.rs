@@ -431,6 +431,7 @@ fn task_dispatch_system_delegate(
         instruction,
         title.clone(),
         "完成系统任务，并直接汇报结果。".to_string(),
+        String::new(),
         false,
         vec![session.agent_id.clone()],
     )?;
@@ -440,6 +441,7 @@ fn task_dispatch_system_delegate(
         delegate,
         SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string(),
         vec![session.model_config_id.clone()],
+        None,
         None,
     );
     Ok(delegate_id)

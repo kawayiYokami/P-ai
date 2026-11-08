@@ -41,6 +41,7 @@ fn delegate_create_record(
     why: String,
     goal: String,
     todo: String,
+    prompt: String,
     notify_assistant_when_done: bool,
     call_stack: Vec<String>,
 ) -> Result<DelegateEntry, String> {
@@ -56,6 +57,7 @@ fn delegate_create_record(
             why,
             goal,
             todo,
+            prompt,
             notify_assistant_when_done,
             call_stack,
         },
@@ -104,77 +106,101 @@ mod delegate_dispatch_tests {
         );
     }
 
-    fn delegate_args(agent_id: &str) -> DelegateToolArgs {
+    fn delegate_args(work_type: Option<&str>, prompt: &str) -> DelegateToolArgs {
         DelegateToolArgs {
-            agent_id: agent_id.to_string(),
+            work_type: work_type.map(|value| value.to_string()),
             mode: None,
-            why: Some("背景".to_string()),
-            goal: Some("目标".to_string()),
-            todo: Some("边界".to_string()),
-            background: None,
-            question: None,
-            focus: None,
+            prompt: prompt.to_string(),
         }
     }
 
-    /// 模型照着工具描述省略 `agent_id` 时，必须能反序列化成功。
-    /// 这条测试必须走 `parse_runtime_tool_args`，因为缺陷就发生在反序列化这一层：
-    /// 直接构造 `DelegateToolArgs` 会绕开 `deny_unknown_fields` 与缺字段检查，永远测不出来。
+    /// 工具 schema 只声明 `type` / `mode` / `prompt`：模型照着描述调用必须原样解析成功。
+    /// 这条必须走 `parse_runtime_tool_args`，因为 `deny_unknown_fields` 与缺字段检查就在这一层。
     #[test]
-    fn delegate_args_json_without_agent_id_should_reach_deputy_default() {
+    fn delegate_args_json_should_parse_type_and_prompt() {
         let args = parse_runtime_tool_args::<DelegateToolArgs>(
-            r#"{"why":"x","goal":"y","todo":"z"}"#,
+            r#"{"type":"explore","prompt":"找一下这个符号定义在哪"}"#,
         )
-        .expect("省略 agent_id 应能解析成功");
+        .expect("type + prompt 应能解析成功");
 
-        assert_eq!(args.agent_id, "");
+        let validated = validate_delegate_args(&args, true).expect("合法调用");
 
-        let validated = validate_delegate_args(&args).expect("缺省目标人格应是合法调用");
-        assert_eq!(validated.target_agent_id, DEPUTY_AGENT_ID);
-        assert!(validated.target_agent_defaulted);
+        assert_eq!(validated.work_type, Some(DelegateWorkType::Explore));
+        assert_eq!(validated.mode, DelegateMode::Background);
+        assert_eq!(validated.prompt, "找一下这个符号定义在哪");
     }
 
     #[test]
-    fn validate_delegate_args_should_default_empty_target_to_deputy() {
-        let validated =
-            validate_delegate_args(&delegate_args("  ")).expect("缺省目标人格应是合法调用");
-
-        assert_eq!(validated.target_agent_id, DEPUTY_AGENT_ID);
-        assert!(validated.target_agent_defaulted);
-    }
-
-    #[test]
-    fn validate_delegate_args_should_keep_explicit_target() {
-        let validated = validate_delegate_args(&delegate_args("审阅者")).expect("显式目标");
-
-        assert_eq!(validated.target_agent_id, "审阅者");
-        assert!(!validated.target_agent_defaulted);
-    }
-
-    #[test]
-    fn validate_delegate_args_should_still_require_goal() {
-        let mut args = delegate_args("副手");
-        args.goal = None;
-
+    fn validate_delegate_args_should_require_type_for_model_entry() {
         assert_eq!(
-            validate_delegate_args(&args).unwrap_err(),
-            "delegate.goal is required"
+            validate_delegate_args(&delegate_args(None, "正文"), true).unwrap_err(),
+            "delegate.type is required"
         );
+        assert_eq!(
+            validate_delegate_args(&delegate_args(Some("   "), "正文"), true).unwrap_err(),
+            "delegate.type is required"
+        );
+    }
+
+    /// 内部入口（深度回忆、代码审查）不注入类型提示词，缺 type 不算错。
+    #[test]
+    fn validate_delegate_args_should_allow_missing_type_for_internal_entry() {
+        let validated = validate_delegate_args(&delegate_args(None, "内部正文"), false)
+            .expect("内部入口可以不声明类型");
+
+        assert_eq!(validated.work_type, None);
+        assert_eq!(validated.prompt, "内部正文");
+    }
+
+    #[test]
+    fn validate_delegate_args_should_reject_unknown_type() {
+        let err = validate_delegate_args(&delegate_args(Some("search"), "正文"), true).unwrap_err();
+
+        assert!(err.contains("explore"), "报错要列出可用取值：{err}");
+    }
+
+    #[test]
+    fn validate_delegate_args_should_require_prompt() {
+        assert_eq!(
+            validate_delegate_args(&delegate_args(Some("work"), "   \n "), true).unwrap_err(),
+            "delegate.prompt is required"
+        );
+    }
+
+    /// 任务书正文只认 `prompt`：标题从它首行截 32 字，空则「未命名委托」。
+    #[test]
+    fn delegate_title_from_goal_should_take_first_line_trimmed_to_32_chars() {
+        let long_line = "一".repeat(40);
+        let prompt = format!("\n  {long_line}  \n第二行不参与标题");
+        let validated = validate_delegate_args(&delegate_args(Some("work"), &prompt), true)
+            .expect("合法调用");
+
+        assert_eq!(validated.title, "一".repeat(32));
+        assert_eq!(validated.prompt, prompt.trim());
+        assert_eq!(delegate_title_from_goal("   "), "未命名委托");
+    }
+
+    /// kind 落值：模型链的 kind 与 type 同名。
+    #[test]
+    fn work_type_should_map_to_same_name_kind() {
+        assert_eq!(DelegateWorkType::Explore.as_str(), DELEGATE_WORK_TYPE_EXPLORE);
+        assert_eq!(DelegateWorkType::Review.as_str(), DELEGATE_WORK_TYPE_REVIEW);
+        assert_eq!(DelegateWorkType::Work.as_str(), DELEGATE_WORK_TYPE_WORK);
     }
 }
 
 #[derive(Debug, Clone)]
 struct ValidatedDelegateArgs {
     mode: DelegateMode,
-    target_agent_id: String,
-    /// 目标是否由缺省规则补出（用户没写 agent_id）；缺省目标允许指向当前人格自己。
-    target_agent_defaulted: bool,
+    /// 类型只决定注入哪段内置提示词，不参与任何权限判断。
+    /// `None` 只可能来自内部入口（深度回忆、代码审查），它们不注入类型提示词。
+    work_type: Option<DelegateWorkType>,
     title: String,
-    why: String,
-    goal: String,
-    todo: String,
+    /// 成品正文，原样落委托记录的 `prompt` 列。
+    prompt: String,
 }
 
+/// 标题：取正文首个非空行截 32 字，空则「未命名委托」。
 fn delegate_title_from_goal(goal: &str) -> String {
     let compact = goal
         .trim()
@@ -190,31 +216,34 @@ fn delegate_title_from_goal(goal: &str) -> String {
     }
 }
 
-fn validate_delegate_args(args: &DelegateToolArgs) -> Result<ValidatedDelegateArgs, String> {
+/// 校验委托参数。
+///
+/// `require_type` 只对模型工具入口为真：模型必须声明是哪一类活，漏填或空串报同一条错；
+/// 内部入口（深度回忆、代码审查）不注入类型提示词，传 false。
+fn validate_delegate_args(
+    args: &DelegateToolArgs,
+    require_type: bool,
+) -> Result<ValidatedDelegateArgs, String> {
     let mode = parse_delegate_mode(args.mode.as_deref())?;
-    let requested_target = args.agent_id.trim().to_string();
-    // 不填目标人格是合法调用：交给副手。
-    let target_agent_defaulted = requested_target.is_empty();
-    let target_agent_id = if target_agent_defaulted {
-        DEPUTY_AGENT_ID.to_string()
+    let raw_type = args.work_type.as_deref().unwrap_or_default().trim();
+    let work_type = if raw_type.is_empty() {
+        if require_type {
+            return Err("delegate.type is required".to_string());
+        }
+        None
     } else {
-        requested_target
+        Some(DelegateWorkType::parse(raw_type)?)
     };
-    let why = delegate_arg_new_or_legacy(&args.why, &args.background);
-    let goal = delegate_arg_new_or_legacy(&args.goal, &args.question);
-    let todo = delegate_arg_new_or_legacy(&args.todo, &args.focus);
-    if goal.trim().is_empty() {
-        return Err("delegate.goal is required".to_string());
+    let prompt = args.prompt.trim().to_string();
+    if prompt.is_empty() {
+        return Err("delegate.prompt is required".to_string());
     }
-    let title = delegate_title_from_goal(&goal);
+    let title = delegate_title_from_goal(&prompt);
     Ok(ValidatedDelegateArgs {
         mode,
-        target_agent_id,
-        target_agent_defaulted,
+        work_type,
         title,
-        why,
-        goal,
-        todo,
+        prompt,
     })
 }
 
@@ -365,6 +394,7 @@ fn spawn_delegate_task(
     root_conversation_id: String,
     target_api_config_ids: Vec<String>,
     parent_chat_session_key: Option<String>,
+    work_type: Option<DelegateWorkType>,
 ) {
     let app_state_for_run = app_state.clone();
     let app_state_for_publish = app_state;
@@ -376,6 +406,7 @@ fn spawn_delegate_task(
             delegate_for_run,
             target_api_config_ids,
             parent_chat_session_key,
+            work_type,
         )
         .await;
         match run_result {
@@ -459,6 +490,7 @@ async fn run_sync_delegate_on_child_task(
     delegate: DelegateEntry,
     target_api_config_ids: Vec<String>,
     parent_chat_session_key: String,
+    work_type: Option<DelegateWorkType>,
 ) -> Result<SendChatResult, String> {
     // 同步委托仍需等待结果，但不要把子会话整条发送链路直接压在当前工具调用栈上。
     // 远程联系人路径会额外叠加一层上下文准备与 IM 规则处理，直接 await 容易把 tokio worker 栈顶爆。
@@ -474,6 +506,7 @@ async fn run_sync_delegate_on_child_task(
                 delegate,
                 target_api_config_ids,
                 Some(parent_chat_session_key),
+                work_type,
             )
             .await
         },
@@ -599,9 +632,17 @@ async fn builtin_delegate(
     source_agent_id: Option<&str>,
     args: DelegateToolArgs,
 ) -> Result<Value, String> {
-    let validated = match validate_delegate_args(&args) {
+    // 模型入口：先校验（type 必填），再拆成结构化字段。
+    // kind 与 type 同名，记录里据此能直接筛出是哪一类活。
+    let validated = match validate_delegate_args(&args, true) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),
+    };
+    // 模型入口 `require_type = true` 时 `type` 必填，这里不会为 None；
+    // 仍然显式报错而不是静默退化成某个默认 kind —— 将来谁放宽 `require_type`，当场拿到错误。
+    let kind = match validated.work_type {
+        Some(work_type) => work_type.as_str(),
+        None => return Ok(delegate_failed_result("delegate.work_type 缺失".to_string())),
     };
     let session_agent_id = delegate_session_agent_id(session_id);
     let source_conversation_id = delegate_session_conversation_id(session_id);
@@ -610,29 +651,25 @@ async fn builtin_delegate(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or(session_agent_id);
+    // 模型没有指派人格的权力：目标恒为副手。
     let preflight = match common_delegate_preflight(
         app_state,
         &source_agent_id,
         source_conversation_id.as_deref(),
-        &validated.target_agent_id,
+        DEPUTY_AGENT_ID,
     ) {
         Ok(value) => value,
         Err(err) => {
-            if validated.target_agent_defaulted {
-                runtime_log_warn(format!(
-                    "[工具][委托] 缺省目标解析失败，任务=落到副手，agent_id={}，error={err}",
-                    DEPUTY_AGENT_ID
-                ));
-                return Ok(delegate_failed_result(
-                    "副手人格不存在，请指定 agent_id 或恢复副手".to_string(),
-                ));
-            }
-            return Ok(delegate_failed_result(err));
+            runtime_log_warn(format!(
+                "[工具][委托] 缺省目标解析失败，任务=落到副手，agent_id={}，error={err}",
+                DEPUTY_AGENT_ID
+            ));
+            return Ok(delegate_failed_result(
+                "副手人格不存在，请指定 agent_id 或恢复副手".to_string(),
+            ));
         }
     };
-    if let Err(err) =
-        validate_delegate_target_is_teammate(&preflight, validated.target_agent_defaulted)
-    {
+    if let Err(err) = validate_delegate_target_is_teammate(&preflight, true) {
         return Ok(delegate_failed_result(err));
     }
     if validated.mode == DelegateMode::Wait {
@@ -640,8 +677,9 @@ async fn builtin_delegate(
             app_state,
             session_id,
             Some(source_agent_id.as_str()),
-            DELEGATE_TOOL_KIND_DELEGATE,
+            kind,
             args,
+            None,
             None,
         )
         .await;
@@ -671,15 +709,16 @@ async fn builtin_delegate(
 
     let delegate = delegate_create_record(
         app_state,
-        DELEGATE_TOOL_KIND_DELEGATE,
+        kind,
         &preflight.root_conversation_id,
         None,
         &source_agent_id,
         &preflight.target_agent.id,
         &validated.title,
-        validated.why,
-        validated.goal,
-        validated.todo,
+        String::new(),
+        String::new(),
+        String::new(),
+        validated.prompt,
         true,
         call_stack,
     )?;
@@ -705,6 +744,7 @@ async fn builtin_delegate(
             Some(session_id),
         )?,
         Some(session_id.to_string()),
+        validated.work_type,
     );
 
     Ok(serde_json::json!({
@@ -717,12 +757,12 @@ async fn builtin_delegate(
 
 /// 委托回执里的 `delegate` 结构：剔掉委托请求正文。
 ///
-/// `why` / `goal` / `todo` 是调用方刚写下的内容，原样搬回只是重复计费；
-/// `assistantText` 是子代理产出，不属于入参回显，保持不动。
+/// `title` / `why` / `goal` / `todo` / `prompt` 是调用方刚写下的内容，原样搬回只是重复计费；
+/// `assistantText` 是子智能体产出，不属于入参回显，保持不动。
 fn delegate_tool_entry(entry: DelegateEntry) -> Value {
     let mut value = serde_json::to_value(entry).unwrap_or(Value::Null);
     if let Value::Object(map) = &mut value {
-        for key in ["why", "goal", "todo"] {
+        for key in ["title", "why", "goal", "todo", "prompt"] {
             map.remove(key);
         }
     }
@@ -736,16 +776,24 @@ async fn delegate_execute_sync(
     kind: &str,
     args: DelegateToolArgs,
     model_override: Option<&str>,
+    target_agent_override: Option<&str>,
 ) -> Result<Value, String> {
-    // 本入口自身不做「目标必须是队友」校验，也不做 preflight。
+    // 本入口自身不做「目标必须是队友」校验，也不做 preflight 之外的资格判断。
     // 前提是三处调用方都自己保证过目标来源：主入口 `delegate_dispatch` 在转调（Wait 模式）前
     // 已经跑完 `common_delegate_preflight` 与 `validate_delegate_target_is_teammate`；深度回忆委托
     // 与工具审查委托的目标由代码构造、不经模型选择。
     // 以后新增调用方若要接模型可控的目标，必须自己先过这两道，否则会绕过可委托名单。
-    let validated = match validate_delegate_args(&args) {
+    // 这里不强制 `type`：类型提示词只由模型入口决定，内部入口不注入。
+    let validated = match validate_delegate_args(&args, false) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),
     };
+    // 目标人格：模型入口恒副手（传 None），内部入口由代码指定（深度回忆=发起者自己，
+    // 代码审查=审查者）。模型永远拿不到这个参数。
+    let target_agent_id = target_agent_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEPUTY_AGENT_ID);
     let session_agent_id = delegate_session_agent_id(session_id);
     let source_conversation_id = delegate_session_conversation_id(session_id);
     let source_agent_id = source_agent_id
@@ -757,7 +805,7 @@ async fn delegate_execute_sync(
         app_state,
         &source_agent_id,
         source_conversation_id.as_deref(),
-        &validated.target_agent_id,
+        target_agent_id,
     ) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),
@@ -784,9 +832,10 @@ async fn delegate_execute_sync(
         &source_agent_id,
         &preflight.target_agent.id,
         &validated.title,
-        validated.why,
-        validated.goal,
-        validated.todo,
+        String::new(),
+        String::new(),
+        String::new(),
+        validated.prompt,
         true,
         call_stack,
     )?;
@@ -801,6 +850,7 @@ async fn delegate_execute_sync(
             model_override,
         )?,
         session_id.to_string(),
+        validated.work_type,
     )
     .await;
     abort_guard.complete();

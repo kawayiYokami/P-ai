@@ -216,6 +216,7 @@ pub(crate) fn start_wheelchair_delegate_after_reply(
         "主会话本轮调度已经结束。这个委托只在用户还没发出下一条消息时有用。".to_string(),
         "根据当前块对话，给出让双方沟通更顺的建议。尽快回答，不要做多余调查。".to_string(),
         prompt,
+        String::new(),
         false,
         vec![agent_id.to_string()],
     )?;
@@ -226,6 +227,7 @@ pub(crate) fn start_wheelchair_delegate_after_reply(
         &delegate,
         &api_config_id,
         snapshot,
+        None,
         None,
     )?;
     set_conversation_wheelchair_delegate_id(state, conversation_id, Some(delegate.delegate_id.clone()))?;
@@ -241,9 +243,7 @@ pub(crate) fn start_wheelchair_delegate_after_reply(
             &delegate_for_run.delegate_id,
             delegate_build_task_prompt_block(
                 &delegate_for_run.title,
-                &delegate_for_run.why,
-                &delegate_for_run.goal,
-                &delegate_for_run.todo,
+                &delegate_for_run.prompt,
             ),
             None,
             delegate_build_trigger_provider_meta(&delegate_for_run, &conversation_for_run),

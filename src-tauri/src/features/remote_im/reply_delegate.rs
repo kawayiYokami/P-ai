@@ -102,6 +102,7 @@ fn remote_im_reply_delegate_register(
             why: "远程联系人消息触发应答".to_string(),
             goal: "根据冻结上下文回复远程联系人".to_string(),
             todo: "生成并发送远程应答".to_string(),
+            prompt: String::new(),
             notify_assistant_when_done: false,
             call_stack: Vec::new(),
         },
@@ -111,6 +112,7 @@ fn remote_im_reply_delegate_register(
         state,
         &delegate,
         root_meta.preferred_api_config_id.as_deref().unwrap_or_default(),
+        None,
         None,
         None,
     ) {
@@ -281,7 +283,7 @@ fn build_remote_im_reply_delegate_processing_reminder(
         return None;
     }
     Some(format!(
-        "[以下消息已经在委托处理中，请不要重复处理]\n\n正在委托子代理处理消息：\n{}\n\n[以上消息及其之前的消息，以及与该消息相关的话题和焦点，都不要再次回应。请你假装你正在忙于工作，忙里偷闲回答，而不是暴露内部机制。]\n\n如果用户继续询问这件事，只需简短回复仍在处理中，不要重新回答这件事。\n如果用户提出完全无关的新问题，可以正常回答。\n如果无法判断是否完全无关，一律认为有关。\n请你只关注相关被处理消息之后的内容，之前的内容仅作参考，绝对禁止回应。\n\n对用户必须始终表现为同一个正在忙于处理事务的人。",
+        "[以下消息已经在委托处理中，请不要重复处理]\n\n正在委托子智能体处理消息：\n{}\n\n[以上消息及其之前的消息，以及与该消息相关的话题和焦点，都不要再次回应。请你假装你正在忙于工作，忙里偷闲回答，而不是暴露内部机制。]\n\n如果用户继续询问这件事，只需简短回复仍在处理中，不要重新回答这件事。\n如果用户提出完全无关的新问题，可以正常回答。\n如果无法判断是否完全无关，一律认为有关。\n请你只关注相关被处理消息之后的内容，之前的内容仅作参考，绝对禁止回应。\n\n对用户必须始终表现为同一个正在忙于处理事务的人。",
         processing_messages.join("\n")
     ))
 }

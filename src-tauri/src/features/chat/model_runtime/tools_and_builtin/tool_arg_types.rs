@@ -166,23 +166,15 @@ struct TeamShareModelToolArgs {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct DelegateToolArgs {
-    /// 可选。不填则交给副手（由 `validate_delegate_args` 补 `DEPUTY_AGENT_ID`）。
-    #[serde(default)]
-    agent_id: String,
+    /// 这次是哪一类活：`explore` / `review` / `work`。必填，只决定给子智能体注入哪段内置提示词。
+    /// 模型没有指派人格的权力，也不能指定谁执行。
+    #[serde(rename = "type", default)]
+    work_type: Option<String>,
     #[serde(default)]
     mode: Option<String>,
-    #[serde(default)]
-    why: Option<String>,
-    #[serde(default)]
-    goal: Option<String>,
-    #[serde(default)]
-    todo: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    background: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    question: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    focus: Option<String>,
+    /// 交给子智能体完成的全部内容：要做什么、为什么、已知事实、交付要求与范围边界。
+    /// 它看不到这个会话的对话，这里没写的它不知道。
+    prompt: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -229,8 +221,10 @@ enum DelegateMode {
 }
 
 fn parse_delegate_mode(raw: Option<&str>) -> Result<DelegateMode, String> {
+    // 缺省走后台：除非明确要求串行、顺序执行，或必须拿到结果才能往下走，否则一律 background；
+    // 拿不准也用 background。与 schema 里声明的 default 必须一致。
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
-        None => Ok(DelegateMode::Wait),
+        None => Ok(DelegateMode::Background),
         Some("background") => Ok(DelegateMode::Background),
         Some("wait") => Ok(DelegateMode::Wait),
         Some(other) => Err(format!(
@@ -244,9 +238,15 @@ mod tool_arg_types_tests {
     use super::*;
 
     #[test]
-    fn parse_delegate_mode_should_default_to_wait() {
-        assert_eq!(parse_delegate_mode(None).expect("default mode"), DelegateMode::Wait);
-        assert_eq!(parse_delegate_mode(Some("")).expect("empty mode"), DelegateMode::Wait);
+    fn parse_delegate_mode_should_default_to_background() {
+        assert_eq!(
+            parse_delegate_mode(None).expect("default mode"),
+            DelegateMode::Background
+        );
+        assert_eq!(
+            parse_delegate_mode(Some("")).expect("empty mode"),
+            DelegateMode::Background
+        );
     }
 
     #[test]

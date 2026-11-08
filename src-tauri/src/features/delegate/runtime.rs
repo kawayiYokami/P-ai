@@ -202,6 +202,7 @@ fn delegate_runtime_thread_build(
     target_api_config_id: &str,
     workspace_snapshot: Option<DelegateWorkspaceSnapshot>,
     parent_chat_session_key: Option<String>,
+    work_type: Option<DelegateWorkType>,
 ) -> DelegateRuntimeThread {
     let mut conversation = build_conversation_record(
         target_api_config_id,
@@ -226,7 +227,7 @@ fn delegate_runtime_thread_build(
             normalize_shell_work_branch_text(&workspace_snapshot.shell_work_branch);
     }
     runtime_log_info(format!(
-        "[委托工作目录] 写入子代理 delegate_id={} shell_workspace_path={} shell_workspaces={} shell_autonomous_mode={}",
+        "[委托工作目录] 写入子智能体 delegate_id={} shell_workspace_path={} shell_workspaces={} shell_autonomous_mode={}",
         delegate.delegate_id,
         conversation.shell_workspace_path.as_deref().unwrap_or(""),
         conversation
@@ -242,6 +243,7 @@ fn delegate_runtime_thread_build(
         root_conversation_id: delegate.conversation_id.clone(),
         target_agent_id: delegate.target_agent_id.clone(),
         title: delegate.title.clone(),
+        work_type: work_type.map(|value| value.as_str().to_string()),
         call_stack: delegate.call_stack.clone(),
         parent_chat_session_key,
         archived_at: None,
@@ -255,6 +257,7 @@ fn delegate_runtime_thread_create(
     target_api_config_id: &str,
     workspace_snapshot: Option<DelegateWorkspaceSnapshot>,
     parent_chat_session_key: Option<String>,
+    work_type: Option<DelegateWorkType>,
 ) -> Result<String, String> {
     if delegate_runtime_thread_is_deleted(&delegate.delegate_id)? {
         return Err(format!(
@@ -292,6 +295,7 @@ fn delegate_runtime_thread_create(
         target_api_config_id,
         workspace_snapshot,
         parent_chat_session_key,
+        work_type,
     );
     let thread_id = thread.delegate_id.clone();
     if !delegate_conversation_store_write_if_not_deleted(
@@ -325,6 +329,26 @@ fn delegate_runtime_thread_get(
         .lock()
         .map_err(|_| "Failed to lock delegate runtime threads".to_string())?;
     Ok(guard.get(delegate_id.trim()).cloned())
+}
+
+/// 子会话系统提示要追加的类型段。
+///
+/// 类型不落库：只能从委托运行线程账本里按 `delegate_id` 取，取不到就返回 None
+/// （内部入口发起的委托、以及已结束的线程都不注入）。压缩续跑时同一线程还在，
+/// 所以压缩前后系统提示一致。
+fn delegate_work_type_prompt_block_for_conversation(
+    app_state: Option<&AppState>,
+    conversation: &Conversation,
+) -> Option<String> {
+    let state = app_state?;
+    let delegate_id = conversation
+        .delegate_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let thread = delegate_runtime_thread_get(state, delegate_id).ok()??;
+    let work_type = DelegateWorkType::parse(thread.work_type.as_deref()?).ok()?;
+    Some(delegate_system_prompt_block(work_type))
 }
 
 fn delegate_runtime_thread_apply_persisted_conversation(
@@ -535,6 +559,7 @@ fn delegate_runtime_thread_get_any(
             root_conversation_id,
             target_agent_id: conversation.agent_id.clone(),
             title: conversation.title.clone(),
+            work_type: None,
             call_stack: Vec::new(),
             parent_chat_session_key: None,
             archived_at: conversation.archived_at.clone(),

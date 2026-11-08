@@ -914,6 +914,9 @@ struct DelegateRuntimeThread {
     root_conversation_id: String,
     target_agent_id: String,
     title: String,
+    /// 这次委托的三类型，只在创建子会话时决定注入哪段系统提示词。
+    /// 进程内账本，不落库、不进委托记录；取不到就是没有类型（内部入口）。
+    work_type: Option<String>,
     call_stack: Vec<String>,
     parent_chat_session_key: Option<String>,
     archived_at: Option<String>,

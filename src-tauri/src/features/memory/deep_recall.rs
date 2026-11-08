@@ -670,16 +670,21 @@ const DEEP_RECALL_WORKFLOW_WHY: &str = "这是深度回忆任务：发起者要�
 
 const DEEP_RECALL_WORKFLOW_TODO: &str = "1. 你拥有两个记忆检索工具：deeprecall_search（按关键词检索全部历史聊天正文，命中返回会话序号与消息序号）、deeprecall_context（按会话序号与起止消息序号展开那段真实对话）。\n2. 把回忆目标拆成多个检索角度，用 deeprecall_search 多轮检索：换关键词、换说法、换时间线索，命中不足就换角度继续，不要只搜一次。\n3. 对可信命中用 deeprecall_context 展开前后文，核对来龙去脉、时间顺序与结论演变，把散落的片段串成一条线。\n4. 整合成一份回忆报告：时间线、关键结论、分歧点与演变过程，并为每条结论标注来源坐标（会话 00XX / 消息 00XX）。\n5. 检索不到就如实说明搜过什么、为什么没找到，禁止虚构任何未检索到的内容。";
 
-fn deep_recall_delegate_args(source_agent_id: &str, query: &str) -> DelegateToolArgs {
+/// 深度回忆的正文：后端自己产出成品 prompt，不注入类型提示词。
+///
+/// 它是后端自身功能，正文本来就在内部产好；`why` / `todo` 两段并进正文，
+/// 不再作为独立字段传给执行层。
+fn deep_recall_delegate_args(query: &str) -> DelegateToolArgs {
+    let prompt = format!(
+        "{}\n\n深度回忆：{}\n\n建议流程：\n{}",
+        DEEP_RECALL_WORKFLOW_WHY.trim(),
+        query.trim(),
+        DEEP_RECALL_WORKFLOW_TODO.trim()
+    );
     DelegateToolArgs {
-        agent_id: source_agent_id.trim().to_string(),
+        work_type: None,
         mode: Some("wait".to_string()),
-        why: Some(DEEP_RECALL_WORKFLOW_WHY.to_string()),
-        goal: Some(format!("深度回忆：{}", query.trim())),
-        todo: Some(DEEP_RECALL_WORKFLOW_TODO.to_string()),
-        background: None,
-        question: None,
-        focus: None,
+        prompt,
     }
 }
 
@@ -718,8 +723,9 @@ async fn builtin_deep_recall(
         session_id,
         Some(source_agent_id),
         DELEGATE_TOOL_KIND_DEEP_RECALL,
-        deep_recall_delegate_args(source_agent_id, query),
+        deep_recall_delegate_args(query),
         None,
+        Some(source_agent_id),
     )
     .await;
     // 委托已结束，按本次委托会话释放它占用的内存索引；归属不明时兜底清理。
@@ -959,21 +965,18 @@ mod deep_recall_tests {
         assert_eq!(rendered.speaker_name, "agent-a");
     }
 
+    /// 深度回忆的正文由后端自己产成品 prompt，且不声明类型（内部入口）。
     #[test]
-    fn deep_recall_delegate_args_should_target_self_in_wait_mode() {
-        let args = deep_recall_delegate_args("agent-a", "上个月我们讨论过的部署方案");
-        assert_eq!(args.agent_id, "agent-a");
+    fn deep_recall_delegate_args_should_carry_query_into_prompt_in_wait_mode() {
+        let args = deep_recall_delegate_args("上个月我们讨论过的部署方案");
         assert_eq!(args.mode.as_deref(), Some("wait"));
-        assert_eq!(
-            args.goal.as_deref(),
-            Some("深度回忆：上个月我们讨论过的部署方案")
+        assert!(
+            args.work_type.is_none(),
+            "内部入口不注入类型提示词"
         );
-        assert!(args.background.is_none());
-        assert!(args
-            .todo
-            .as_deref()
-            .is_some_and(|todo| todo.contains("deeprecall_search")
-                && todo.contains("deeprecall_context")));
+        assert!(args.prompt.contains("深度回忆：上个月我们讨论过的部署方案"));
+        assert!(args.prompt.contains("deeprecall_search"));
+        assert!(args.prompt.contains("deeprecall_context"));
     }
 
     #[test]

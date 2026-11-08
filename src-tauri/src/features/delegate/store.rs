@@ -133,6 +133,7 @@ fn delegate_store_init(conn: &Connection) -> Result<(), String> {
             why TEXT NOT NULL,
             goal TEXT NOT NULL,
             todo TEXT NOT NULL,
+            prompt TEXT NOT NULL DEFAULT '',
             notify_assistant_when_done INTEGER NOT NULL,
             call_stack_json TEXT NOT NULL,
             status TEXT NOT NULL,
@@ -147,6 +148,7 @@ fn delegate_store_init(conn: &Connection) -> Result<(), String> {
     delegate_store_migrate_why_goal_todo(conn)?;
     delegate_store_migrate_relax_legacy_department_columns(conn)?;
     delegate_store_migrate_snapshot_columns(conn)?;
+    delegate_store_migrate_prompt_column(conn)?;
     Ok(())
 }
 
@@ -202,6 +204,8 @@ fn delegate_store_migrate_why_goal_todo(conn: &Connection) -> Result<(), String>
     let goal_expr = delegate_store_sql_expr_for_column(&columns, "goal", &["question", "instruction"]);
     let todo_expr =
         delegate_store_sql_expr_for_column(&columns, "todo", &["focus", "specific_goal", "deliverable_requirement"]);
+    // 重建表时也把 prompt 带上：旧库没有这列时给空串，读层再按 goal 回填。
+    let prompt_expr = delegate_store_sql_expr_for_column(&columns, "prompt", &[]);
     let sql = format!(
         "BEGIN;
         CREATE TABLE delegate_record_next (
@@ -217,6 +221,7 @@ fn delegate_store_migrate_why_goal_todo(conn: &Connection) -> Result<(), String>
             why TEXT NOT NULL,
             goal TEXT NOT NULL,
             todo TEXT NOT NULL,
+            prompt TEXT NOT NULL DEFAULT '',
             notify_assistant_when_done INTEGER NOT NULL,
             call_stack_json TEXT NOT NULL,
             status TEXT NOT NULL,
@@ -228,13 +233,13 @@ fn delegate_store_migrate_why_goal_todo(conn: &Connection) -> Result<(), String>
         INSERT INTO delegate_record_next (
             delegate_id, kind, conversation_id, parent_delegate_id,
             source_department_id, target_department_id, source_agent_id, target_agent_id,
-            title, why, goal, todo,
+            title, why, goal, todo, prompt,
             notify_assistant_when_done, call_stack_json, status, created_at, updated_at, delivered_at, completed_at
         )
         SELECT
             delegate_id, kind, conversation_id, parent_delegate_id,
             source_department_id, target_department_id, source_agent_id, target_agent_id,
-            title, {why_expr}, {goal_expr}, {todo_expr},
+            title, {why_expr}, {goal_expr}, {todo_expr}, {prompt_expr},
             notify_assistant_when_done, call_stack_json, status, created_at, updated_at, delivered_at, completed_at
         FROM delegate_record;
         DROP TABLE delegate_record;
@@ -401,6 +406,23 @@ fn delegate_store_migrate_snapshot_columns(conn: &Connection) -> Result<(), Stri
     Ok(())
 }
 
+/// 补 `prompt` 列：委托正文的落点。
+///
+/// 旧库没有这列，历史行补出来是空串；读层会用 `goal` 回填，上层只认 `prompt`。
+/// 不做数据回填：旧列原样保留，`goal` 仍是它们的事实来源。
+fn delegate_store_migrate_prompt_column(conn: &Connection) -> Result<(), String> {
+    let columns = delegate_store_table_columns(conn)?;
+    if columns.contains("prompt") {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "ALTER TABLE delegate_record ADD COLUMN prompt TEXT NOT NULL DEFAULT ''",
+    )
+    .map_err(|err| format!("扩展委托 prompt 字段失败: {err}"))?;
+    runtime_log_info("[委托] 完成，任务=扩展prompt字段".to_string());
+    Ok(())
+}
+
 fn delegate_call_stack_to_json(items: &[String]) -> Result<String, String> {
     serde_json::to_string(items).map_err(|err| format!("序列化委托调用栈失败: {err}"))
 }
@@ -420,6 +442,15 @@ fn delegate_call_stack_from_json(raw: &str) -> Vec<String> {
 }
 
 fn delegate_row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<DelegateEntry> {
+    let goal = row.get::<_, String>("goal")?;
+    // 读层归一：`prompt` 为空的行（本次改动之前建的）用 `goal` 顶上，
+    // 上层只认 `prompt`，不再判断字段来源。
+    let prompt_raw = row.get::<_, String>("prompt")?;
+    let prompt = if prompt_raw.trim().is_empty() {
+        goal.clone()
+    } else {
+        prompt_raw
+    };
     Ok(DelegateEntry {
         delegate_id: row.get("delegate_id")?,
         kind: row.get("kind")?,
@@ -429,8 +460,9 @@ fn delegate_row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<DelegateEn
         target_agent_id: row.get("target_agent_id")?,
         title: row.get("title")?,
         why: row.get("why")?,
-        goal: row.get("goal")?,
+        goal,
         todo: row.get("todo")?,
+        prompt,
         notify_assistant_when_done: row.get::<_, i64>("notify_assistant_when_done")? != 0,
         call_stack: delegate_call_stack_from_json(&row.get::<_, String>("call_stack_json")?),
         status: row.get("status")?,
@@ -1012,7 +1044,10 @@ fn delegate_store_create_delegate(
         return Err("delegate.title 不能为空".to_string());
     }
     let goal = input.goal.trim();
-    if goal.is_empty() {
+    let prompt = input.prompt.trim();
+    // 写三字段的路径（用户链等六处入口）仍要求 goal 非空；
+    // 写 prompt 的路径（模型链、深度回忆）goal 留空，由 prompt 当正文。
+    if goal.is_empty() && prompt.is_empty() {
         return Err("delegate.goal 不能为空".to_string());
     }
     let conn = delegate_store_open(data_path)?;
@@ -1022,9 +1057,9 @@ fn delegate_store_create_delegate(
         "INSERT INTO delegate_record (
             delegate_id, kind, conversation_id, parent_delegate_id,
             source_agent_id, target_agent_id,
-            title, why, goal, todo,
+            title, why, goal, todo, prompt,
             notify_assistant_when_done, call_stack_json, status, created_at, updated_at, delivered_at, completed_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, NULL)",
         params![
             delegate_id,
             input.kind.trim(),
@@ -1036,6 +1071,7 @@ fn delegate_store_create_delegate(
             input.why.trim(),
             goal,
             input.todo.trim(),
+            prompt,
             if input.notify_assistant_when_done { 1 } else { 0 },
             delegate_call_stack_to_json(&input.call_stack)?,
             DELEGATE_STATUS_DELIVERED,
@@ -1159,9 +1195,61 @@ mod delegate_store_tests {
             why: "委托原因".to_string(),
             goal: "委托目标".to_string(),
             todo: "委托待办".to_string(),
+            prompt: String::new(),
             notify_assistant_when_done: false,
             call_stack: Vec::new(),
         }
+    }
+
+    /// 读层归一：写三字段的入口 `prompt` 留空，读回来时必须等于 `goal`；
+    /// 写了 `prompt` 的行则原样返回，不被 `goal` 覆盖。
+    #[test]
+    fn delegate_store_read_should_backfill_prompt_from_goal_when_empty() {
+        let root = std::env::temp_dir().join(format!(
+            "easy-call-delegate-prompt-backfill-{}",
+            Uuid::new_v4()
+        ));
+        let data_path = root.join("config_mark");
+
+        let legacy = delegate_store_create_delegate(&data_path, &test_delegate_input())
+            .expect("create delegate");
+        let read_back = delegate_store_get_delegate(&data_path, &legacy.delegate_id)
+            .expect("read delegate");
+        assert_eq!(read_back.prompt, "委托目标");
+
+        let mut input = test_delegate_input();
+        input.goal = "旧目标".to_string();
+        input.prompt = "模型写好的正文".to_string();
+        let created = delegate_store_create_delegate(&data_path, &input).expect("create delegate");
+        let read_back = delegate_store_get_delegate(&data_path, &created.delegate_id)
+            .expect("read delegate");
+        assert_eq!(read_back.prompt, "模型写好的正文");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// 模型链只写 `prompt`，三字段留空：不能因为 `goal` 空就被拦住。
+    #[test]
+    fn delegate_store_create_should_accept_prompt_only_input() {
+        let root = std::env::temp_dir().join(format!(
+            "easy-call-delegate-prompt-only-{}",
+            Uuid::new_v4()
+        ));
+        let data_path = root.join("config_mark");
+
+        let mut input = test_delegate_input();
+        input.why = String::new();
+        input.goal = String::new();
+        input.todo = String::new();
+        input.prompt = "看清这一块并交回结论".to_string();
+        let created = delegate_store_create_delegate(&data_path, &input).expect("create delegate");
+        let read_back = delegate_store_get_delegate(&data_path, &created.delegate_id)
+            .expect("read delegate");
+
+        assert_eq!(read_back.prompt, "看清这一块并交回结论");
+        assert_eq!(read_back.goal, "");
+
+        let _ = fs::remove_dir_all(root);
     }
 
     fn test_delegate_conversation(entry: &DelegateEntry) -> Conversation {

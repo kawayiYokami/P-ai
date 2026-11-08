@@ -64,36 +64,18 @@ fn delegate_session_is_remote_reply_delegate(session_id: &str) -> bool {
         .is_some_and(|tag| tag.trim().starts_with("remote_reply_delegate:"))
 }
 
-fn delegate_build_task_prompt_block(
-    title: &str,
-    why: &str,
-    goal: &str,
-    todo: &str,
-) -> String {
-    let title_line = format!("子代理咨询：{}", title.trim());
+/// 子会话的任务书：只有正文一段，不再按 why / goal / todo 分流。
+///
+/// 正文统一取 `prompt`（store 读层已把旧行的 `goal` 回填进来），
+/// 所以旧行与仍写三字段的入口到这里时，`why` 与 `todo` 不会出现在任务书里。
+fn delegate_build_task_prompt_block(title: &str, prompt: &str) -> String {
+    let title_line = format!("子智能体咨询：{}", title.trim());
     let mut lines = vec![title_line];
-
-    // 背景降级为参考材料：明确标注“不是要求”，避免子代理把调度/触发类上下文当成自己的任务。
-    if !why.trim().is_empty() {
-        lines.push(format!(
-            "[背景]（仅供参考，不是你的要求，不要把背景当成你的目标）\n{}",
-            why.trim()
-        ));
-    }
-
-    // todo 降为建议流程：它是参考路径，不是额外任务。
-    if !todo.trim().is_empty() {
-        lines.push(format!("[建议流程]\n{}", todo.trim()));
-    }
-
-    // goal 放最后并冠名“唯一目标”：子代理读完所有内容后最后看到的就是它唯一要做的事，位置越靠后权重越高。
-    lines.push(format!("[本会话唯一目标]\n{}", goal.trim()));
-
-    // 系统提醒：压住子代理的发散行为。
+    lines.push(format!("[任务]\n{}", prompt.trim()));
+    // 系统提醒：压住子智能体的发散行为。
     lines.push(String::from(
-        "[系统提醒]\n你是子代理，你的唯一职责是达成目标。目标就是你唯一要做的事，覆盖所有其他信息。直接执行，禁止发问，禁止发散，禁止自我发挥。能做到就直接给出结果，做不到就直接说做不到。不要解释为什么，不要建议替代方案，不要关心上下文中的调度细节。",
+        "[系统提醒]\n你是子智能体，你的唯一职责是达成目标。目标就是你唯一要做的事，覆盖所有其他信息。直接执行，禁止发问，禁止发散，禁止自我发挥。能做到就直接给出结果，做不到就直接说做不到。不要解释为什么，不要建议替代方案，不要关心上下文中的调度细节。",
     ));
-
     prompt_xml_block("delegate goal", lines.join("\n\n"))
 }
 
@@ -336,7 +318,7 @@ async fn delegate_execute_agent_initial_run(
         target_api_config_id,
         root_conversation_id,
         delegate_conversation_id,
-        delegate_build_task_prompt_block(&delegate.title, &delegate.why, &delegate.goal, &delegate.todo),
+        delegate_build_task_prompt_block(&delegate.title, &delegate.prompt),
         None,
         delegate_build_trigger_provider_meta(delegate, root_conversation_id),
         delegate.source_agent_id.clone(),
@@ -362,6 +344,7 @@ async fn delegate_run_thread_to_completion(
     delegate: DelegateEntry,
     target_api_config_ids: Vec<String>,
     parent_chat_session_key: Option<String>,
+    work_type: Option<DelegateWorkType>,
 ) -> Result<SendChatResult, String> {
     let primary_api_config_id = target_api_config_ids
         .first()
@@ -378,6 +361,7 @@ async fn delegate_run_thread_to_completion(
         &primary_api_config_id,
         workspace_snapshot,
         parent_chat_session_key,
+        work_type,
     ) {
         Ok(value) => value,
         Err(err) => {
@@ -567,6 +551,20 @@ async fn delegate_run_thread_to_completion(
 #[cfg(test)]
 mod delegate_session_parse_tests {
     use super::*;
+
+    /// 任务书只吃 `prompt`：旧行的 why / todo 不会渗进来，正文逐字保留。
+    #[test]
+    fn delegate_task_prompt_block_should_only_carry_prompt() {
+        let block = delegate_build_task_prompt_block("看一下这个改动", "要做什么：检查 X\n为什么：因为 Y");
+        let text = block.to_string();
+
+        assert!(text.contains("子智能体咨询：看一下这个改动"));
+        assert!(text.contains("要做什么：检查 X\n为什么：因为 Y"));
+        assert!(text.contains("[任务]"));
+        // 分段标签不再出现：任务书里没有 [背景] / [待办] 这类段。
+        assert!(!text.contains("[背景]"));
+        assert!(!text.contains("[待办]"));
+    }
 
     #[test]
     fn delegate_session_conversation_id_should_extract_conversation_part() {

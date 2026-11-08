@@ -3344,6 +3344,9 @@ fn build_delegate_prompt_with_stage_logger(
     stage_logger: Option<&dyn Fn(&str)>,
     resolved_api: Option<&ResolvedApiConfig>,
 ) -> Result<PreparedPrompt, String> {
+    // 类型提示词不在这里拼：本函数的产物会进 `finalize_system_prompt` 的系统提示缓存，
+    // 类型段按委托逐个不同，拼进来会污染缓存。注入点在 prompt service 的 Delegate 分支，
+    // finalize 之后再追加。
     build_prompt_with_mode(
         conversation,
         agent,

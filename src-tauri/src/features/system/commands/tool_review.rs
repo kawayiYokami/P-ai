@@ -2411,15 +2411,17 @@ async fn submit_tool_review_code_internal(
             &workspace_text,
             &skill,
         );
+        // 代码审查是用户 UI 那条路：不做类型注入，正文由后端合成一段成品 prompt
+        // （背景 + 审查指令 + 交付要求）。目标人格是审查者，由这条链自己指定。
+        let delegate_prompt = format!(
+            "{}\n\n{}\n\n交付要求：\n输出符合协议的代码审查 JSON；仅返回纯 JSON，不要包 markdown。",
+            tool_review_delegate_background(&scope_owned, target_owned.as_deref()),
+            instruction,
+        );
         let delegate_args = DelegateToolArgs {
-            agent_id: target_agent_id_owned.clone(),
+            work_type: None,
             mode: Some("wait".to_string()),
-            why: Some(tool_review_delegate_background(&scope_owned, target_owned.as_deref())),
-            goal: Some(instruction),
-            todo: Some("输出符合协议的代码审查 JSON；仅返回纯 JSON，不要包 markdown。".to_string()),
-            background: None,
-            question: None,
-            focus: None,
+            prompt: delegate_prompt,
         };
         let session_id = format!("{}::{}", source_agent_id_owned, conversation_id_owned);
         runtime_log_info(format!(
@@ -2435,9 +2437,10 @@ async fn submit_tool_review_code_internal(
             &app_state,
             &session_id,
             Some(source_agent_id_owned.as_str()),
-            DELEGATE_TOOL_KIND_DELEGATE,
+            DELEGATE_TOOL_KIND_CODE_REVIEW,
             delegate_args,
             review_model_override_owned.as_deref(),
+            Some(target_agent_id_owned.as_str()),
         )
         .await
         {

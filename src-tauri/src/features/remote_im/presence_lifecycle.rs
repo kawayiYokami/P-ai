@@ -229,7 +229,7 @@ fn spawn_remote_im_departure_reflection_delegate(
         &state.data_path,
         &remote_im_departure_reflection_delegate_input(&contact, &context, &assistant),
     )?;
-    if let Err(err) = delegate_runtime_thread_create(state, &delegate, &api_config_id, None, None) {
+    if let Err(err) = delegate_runtime_thread_create(state, &delegate, &api_config_id, None, None, None) {
         let _ = delegate_store_update_status(
             &state.data_path,
             &delegate.delegate_id,
@@ -338,6 +338,7 @@ fn remote_im_departure_reflection_delegate_input(
         why: "远程群聊联系人完成本次在场过程并离场".to_string(),
         goal: "根据离场时已有上下文整理可复用记忆".to_string(),
         todo: "输出归档反思格式 JSON，并只应用记忆结果".to_string(),
+        prompt: String::new(),
         notify_assistant_when_done: false,
         call_stack: Vec::new(),
     }

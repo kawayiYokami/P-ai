@@ -2338,6 +2338,7 @@ mod storage_usage_tests {
                 why: "验证存储清理".to_string(),
                 goal: "写入委托快照".to_string(),
                 todo: "完成测试".to_string(),
+                prompt: String::new(),
                 notify_assistant_when_done: false,
                 call_stack: Vec::new(),
             },

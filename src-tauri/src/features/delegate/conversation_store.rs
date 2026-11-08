@@ -249,6 +249,7 @@ mod delegate_conversation_store_tests {
                 why: "测试委托会话存储".to_string(),
                 goal: "验证委托会话存储".to_string(),
                 todo: "写入并读取会话".to_string(),
+                prompt: String::new(),
                 notify_assistant_when_done: false,
                 call_stack: Vec::new(),
             },

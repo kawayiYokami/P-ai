@@ -1296,6 +1296,17 @@ impl ConversationPromptService {
                 if let Some(log_stage) = stage_logger {
                     log_stage("prepare_context.prompt_system_finalize_ready");
                 }
+                // 类型提示词在这里追加：必须在 finalize 之后，否则会被系统提示缓存覆盖。
+                // 类型不落库，按本会话的 delegate_id 从委托运行线程账本取；取不到就不加。
+                if let Some(block) =
+                    delegate_work_type_prompt_block_for_conversation(state, conversation)
+                {
+                    prepared.preamble.push_str("\n\n");
+                    prepared.preamble.push_str(&block);
+                    if let Some(log_stage) = stage_logger {
+                        log_stage("prepare_context.prompt_delegate_work_type_ready");
+                    }
+                }
                 let (
                     latest_user_text,
                     latest_user_meta_text,

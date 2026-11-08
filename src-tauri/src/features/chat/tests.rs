@@ -6826,6 +6826,7 @@
                 why: "验证委托会话启动".to_string(),
                 goal: "初始化助理消息".to_string(),
                 todo: "写入会话".to_string(),
+                prompt: String::new(),
                 notify_assistant_when_done: false,
                 call_stack: Vec::new(),
             },
@@ -6889,12 +6890,13 @@
                 why: "验证应答委托杂务".to_string(),
                 goal: "记录回复改写".to_string(),
                 todo: "执行改写".to_string(),
+                prompt: String::new(),
                 notify_assistant_when_done: false,
                 call_stack: Vec::new(),
             },
         )
         .expect("create delegate record");
-        delegate_runtime_thread_create(&state, &delegate, "", None, None)
+        delegate_runtime_thread_create(&state, &delegate, "", None, None, None)
             .expect("create delegate runtime thread");
         delegate_runtime_thread_conversation_append_if_absent(
             &state,
@@ -10337,6 +10339,7 @@
             root_conversation_id: "conversation-root".to_string(),
             target_agent_id: "agent-b".to_string(),
             title: "委托线程".to_string(),
+            work_type: None,
             call_stack: vec!["agent-root".to_string(), "agent-a".to_string()],
             parent_chat_session_key: Some("agent-root::conversation-root".to_string()),
             archived_at: None,
@@ -10470,6 +10473,7 @@
             why: "背景".to_string(),
             goal: "目标".to_string(),
             todo: "待办".to_string(),
+            prompt: "目标".to_string(),
             notify_assistant_when_done: false,
             call_stack: vec!["agent-root".to_string(), "agent-child".to_string()],
             created_at: now.clone(),
@@ -10489,6 +10493,7 @@
             "api-a",
             workspace_snapshot,
             Some(parent_session_key),
+            None,
         );
 
         assert_eq!(
@@ -10555,6 +10560,7 @@
             why: "背景".to_string(),
             goal: "目标".to_string(),
             todo: "待办".to_string(),
+            prompt: "目标".to_string(),
             notify_assistant_when_done: false,
             call_stack: vec!["agent-root".to_string(), "agent-child".to_string()],
             created_at: now.clone(),
@@ -10574,6 +10580,7 @@
             "api-a",
             workspace_snapshot,
             Some(parent_session_key),
+            None,
         );
 
         assert_eq!(thread.conversation.shell_workspace_path, None);
@@ -11238,6 +11245,7 @@
             root_conversation_id: "conversation-root".to_string(),
             target_agent_id: shared_agent.id.clone(),
             title: "委托线程".to_string(),
+            work_type: None,
             call_stack: vec![shared_agent.id.clone()],
             parent_chat_session_key: Some(format!("{}::conversation-root", shared_agent.id)),
             archived_at: None,
@@ -11532,7 +11540,9 @@
     fn resolve_user_async_delegate_plan_should_accept_direct_child_agent() {
         let state = test_chat_runtime_state();
         let mut selected_api = ApiConfig::default();
-        selected_api.id = "api-a".to_string();
+        // 模型 id 用 `provider::model` 形式：`resolve_chat_api_config_id` 不做 endpoint 拆分，
+        // 要求人格绑定的 id 与 api_configs 条目完全同名。
+        selected_api.id = api_endpoint_id("api-a", "api-a-model-default");
         selected_api.name = "测试模型".to_string();
         selected_api.request_format = RequestFormat::OpenAI;
         selected_api.enable_text = true;
@@ -11559,7 +11569,9 @@
             expert_api_config_id: selected_api.id.clone(),
             ..AppConfig::default()
         };
-        write_config(&state.config_path, &config).expect("write config");
+        // 直接写缓存：走 `write_config` 会被 `normalize_app_config` 的 legacy 迁移搬进 provider
+        // 并重建 api_configs，人格绑定的 endpoint id 就对不上了。
+        state_write_config_cached(&state, &config).expect("write config");
         state_write_agents_cached(
             &state,
             &[
