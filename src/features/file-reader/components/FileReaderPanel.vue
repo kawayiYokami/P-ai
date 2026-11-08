@@ -418,9 +418,10 @@
               >
                 <Virtualizer
                   v-if="virtualCodeScroller"
+                  :key="virtualCodeLayoutKey"
                   :data="activeVirtualCodeBlocks"
                   :scroll-ref="virtualCodeScroller"
-                  :item-size="(activeTab?.blockLineCount || 120) * FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX"
+                  :item-size="virtualCodeItemSize"
                   class="file-reader-code-virtual-canvas min-w-0 w-full"
                 >
                   <template #default="{ item: block }">
@@ -1160,6 +1161,24 @@ const {
   fileReaderLineWrapEnabled,
   toggleFileReaderLineWrapEnabled,
 } = useFileReaderAppearance();
+
+// 虚拟代码块的固定行高估值只在「不换行」时成立：开启软换行后块内长行会折行，真实高度
+// 可能是这个估值的好几倍，而 virtua 一旦收到 itemSize 就把未渲染项永远按它算，布局总高被
+// 封顶（实测 100 项真实 11000 而布局 4700），表现为滚动条比例失真、滚到底要反复几次、
+// 按行号跳转落点偏。所以换行模式下不传 itemSize，让 virtua 自己按中位数估算 + 实测纠正。
+// 是否换行只对代码文件生效，判据与下方预览的 wrap prop 一致，别把 markdown/plain 卷进来。
+const virtualCodeItemSize = computed(() => {
+  const tab = activeTab.value;
+  if (tab?.kind === "code" && fileReaderLineWrapEnabled.value) return undefined;
+  return (tab?.blockLineCount || 120) * FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX;
+});
+
+// virtua 只在 setup 时读一次 itemSize（源码里没有 itemSize 的 watcher），换行开关变化后
+// 不换实例的话布局会继续沿用旧估值。用 key 换实例，让新布局按新的口径重建。
+const virtualCodeLayoutKey = computed(() =>
+  activeTab.value?.kind === "code" && fileReaderLineWrapEnabled.value ? "virtual-code-wrap" : "virtual-code-nowrap",
+);
+
 const {
   imagePreviewOpen,
   imagePreviewDataUrl,
