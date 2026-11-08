@@ -6,6 +6,24 @@
       <div class="join">
         <button
           class="btn btn-xs join-item"
+          :class="sourceKey === 'doc' ? 'btn-active btn-neutral' : ''"
+          :disabled="phase === 'streaming'"
+          @click="sourceKey = 'doc'"
+        >
+          正文（表格+段落）
+        </button>
+        <button
+          class="btn btn-xs join-item"
+          :class="sourceKey === 'code' ? 'btn-active btn-neutral' : ''"
+          :disabled="phase === 'streaming'"
+          @click="sourceKey = 'code'"
+        >
+          代码块
+        </button>
+      </div>
+      <div class="join">
+        <button
+          class="btn btn-xs join-item"
           :class="alignMode === 'own_top' ? 'btn-active btn-neutral' : ''"
           @click="alignMode = 'own_top'"
         >
@@ -64,6 +82,38 @@ const SOURCE = [
   "视觉项逐页截图比对，渲染项给子组件渲染闭包加计数器。",
 ].join("\n");
 
+// 代码块流式：围栏一块一块长出来，是正文气泡最容易出问题的一类（框要跟着长、高度一次跳很多）
+const SOURCE_CODE = [
+  "下面这段是逐字吐出来的代码块，看它长高的时候框有没有跟上：",
+  "",
+  "```ts",
+  "export type ProbeSample = {",
+  "  t: number;",
+  "  boxHeight: number;",
+  "  contentHeight: number;",
+  "  distanceToBottom: number;",
+  "};",
+  "",
+  "export function summarize(samples: ProbeSample[]) {",
+  "  let maxBoxJump = 0;",
+  "  let maxContentJump = 0;",
+  "  let clippedFrames = 0;",
+  "  for (let i = 1; i < samples.length; i += 1) {",
+  "    maxBoxJump = Math.max(maxBoxJump, Math.abs(samples[i].boxHeight - samples[i - 1].boxHeight));",
+  "    maxContentJump = Math.max(maxContentJump, Math.abs(samples[i].contentHeight - samples[i - 1].contentHeight));",
+  "    if (samples[i].contentHeight > samples[i].boxHeight + 0.5) clippedFrames += 1;",
+  "  }",
+  "  return { maxBoxJump, maxContentJump, clippedFrames };",
+  "}",
+  "```",
+  "",
+  "代码块之后再来一段正文，确认块外内容也跟着一起被接管。",
+].join("\n");
+
+// 流式节奏：贴近真实模型的吐字速度（约 200 字/秒），不再是一帧塞一整段
+const STREAM_TICK_MS = 90;
+const STREAM_CHUNK = 18;
+
 function makeUserBlock(id: string, text: string): ChatMessageBlock {
   return {
     id,
@@ -87,6 +137,9 @@ function makeAssistantBlock(id: string, text: string, streaming: boolean): ChatM
   return {
     id,
     role: "assistant",
+    // speakerAgentId 必须给：isOwnMessage 见 ChatMessageItem.vue:780，
+    // 空 speakerAgentId 会被判成「自己的消息」，助理气泡根本不会渲染。
+    speakerAgentId: "demo-persona",
     text,
     isStreaming: streaming,
     images: [],
@@ -105,7 +158,9 @@ function makeAssistantBlock(id: string, text: string, streaming: boolean): ChatM
 
 const blocks = ref<ChatMessageBlock[]>([]);
 const phase = ref<"idle" | "streaming">("idle");
-const statusText = computed(() => (phase.value === "streaming" ? `流式中 ${cursor.value}/${SOURCE.length}` : "空闲"));
+const sourceKey = ref<"doc" | "code">("doc");
+const sourceText = computed(() => (sourceKey.value === "code" ? SOURCE_CODE : SOURCE));
+const statusText = computed(() => (phase.value === "streaming" ? `流式中 ${cursor.value}/${sourceText.value.length}` : "空闲"));
 const cursor = ref(0);
 const historyCount = ref(6);
 const alignMode = ref<"own_top" | "follow">("own_top");
@@ -166,10 +221,11 @@ function pump(): void {
   timer = setInterval(() => {
     const target = blocks.value.find((b) => b.id === id);
     if (!target) return;
-    const next = Math.min(SOURCE.length, cursor.value + 24);
+    const source = sourceText.value;
+    const next = Math.min(source.length, cursor.value + STREAM_CHUNK);
     cursor.value = next;
-    target.text = SOURCE.slice(0, next);
-    if (next >= SOURCE.length) {
+    target.text = source.slice(0, next);
+    if (next >= source.length) {
       target.isStreaming = false;
       target.activityRunning = false;
       target.activityStatus = "complete";
@@ -179,7 +235,7 @@ function pump(): void {
         timer = null;
       }
     }
-  }, 24);
+  }, STREAM_TICK_MS);
 }
 
 onBeforeUnmount(() => {
