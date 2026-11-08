@@ -20,6 +20,9 @@
             <option value="chat-message">消息项（队伍消息气泡）</option>
             <option value="thinking-and-tools">思考与工具（折叠块 + 300TPS 流式压测）</option>
             <option value="chat-view-stream">对话视图流式复现（ChatView 全组件）</option>
+            <option value="chat-view-margin">对话视图滚动落点（startMargin 实测）</option>
+            <option value="file-reader-wrap">文件阅读器换行模式（总高与末尾可达性）</option>
+            <option value="image-preview-dialog">图片预览百分比读数（与缩放一致性）</option>
             <option value="composer">输入面板新结构</option>
             <option value="double-deck">双层卡（DoubleDeck）</option>
             <option value="thinking-preview">思考预览 bar</option>
@@ -367,6 +370,18 @@
 
     <div v-if="demoComponentKey === 'chat-view-stream'" class="h-[720px] min-h-0 overflow-hidden rounded-box border border-base-300">
       <ChatViewStreamDemo />
+    </div>
+
+    <div v-if="demoComponentKey === 'chat-view-margin'" class="min-h-0">
+      <ChatViewDemo />
+    </div>
+
+    <div v-if="demoComponentKey === 'file-reader-wrap'" class="min-h-0">
+      <FileReaderPanelDemo />
+    </div>
+
+    <div v-if="demoComponentKey === 'image-preview-dialog'" class="min-h-0">
+      <ChatImagePreviewDialogDemo />
     </div>
 
     <div v-if="demoComponentKey === 'thinking-and-tools'" class="card border border-base-300 bg-base-100">
@@ -913,6 +928,9 @@ import ChatConversationItemDemo from "../../../chat/components/ChatConversationI
 import ChatMessageItemDemo from "../../../chat/components/ChatMessageItemDemo.vue";
 import ChatThinkingAndToolsDemo from "../../../chat/components/ChatThinkingAndToolsDemo.vue";
 import ChatViewStreamDemo from "../../../chat/views/ChatViewStreamDemo.vue";
+import ChatImagePreviewDialogDemo from "../../../chat/components/dialogs/ChatImagePreviewDialogDemo.vue";
+import ChatViewDemo from "../../../chat/views/ChatViewDemo.vue";
+import FileReaderPanelDemo from "../../../file-reader/components/FileReaderPanelDemo.vue";
 import ConfigCardsGalleryDemo from "../../components/ConfigCardsGalleryDemo.vue";
 import QuickModelUnavailableCardDemo from "../../components/QuickModelUnavailableCardDemo.vue";
 import SettingsShellGalleryDemo from "../../components/SettingsShellGalleryDemo.vue";
@@ -999,7 +1017,7 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "markdown-view" | "theme-cards" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "catalog-entry-card" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview" | "app-icons" | "app-loading">((props.initialKey as any) || "question");
+const demoComponentKey = ref<"question" | "question-tool" | "bubbles" | "delegates" | "templates" | "overview" | "home-cards" | "conversation-list" | "conversation-item" | "chat-message" | "thinking-and-tools" | "chat-view-stream" | "chat-view-margin" | "file-reader-wrap" | "image-preview-dialog" | "composer" | "double-deck" | "thinking-preview" | "rich-block-embed" | "markdown-view" | "theme-cards" | "session-float-dock" | "session-timeline" | "config-cards" | "quick-model-card" | "catalog-store" | "catalog-entry-card" | "persona-capability" | "persona-permission" | "settings-shell" | "search-engines" | "kanban-board" | "kanban-card" | "team-member-tiles" | "chat-home" | "skill-managed" | "panel-tabs" | "file-reader-preview" | "app-icons" | "app-loading">((props.initialKey as any) || "question");
 /** 图标语义名总表：直接取映射表的键，杜绝手抄漏项 */
 const appIconNames = Object.keys(APP_ICON_MAP).sort() as AppIconName[];
 const appIconFilter = ref("");
@@ -1046,6 +1064,9 @@ const demoComponentLabel = computed(() => {
   if (demoComponentKey.value === "chat-message") return "消息项（队伍消息气泡）";
   if (demoComponentKey.value === "thinking-and-tools") return "思考与工具（折叠块 + 流式压测）";
   if (demoComponentKey.value === "chat-view-stream") return "对话视图流式复现（ChatView 全组件）";
+  if (demoComponentKey.value === "chat-view-margin") return "对话视图滚动落点（startMargin 实测）";
+  if (demoComponentKey.value === "file-reader-wrap") return "文件阅读器换行模式（总高与末尾可达性）";
+  if (demoComponentKey.value === "image-preview-dialog") return "图片预览百分比读数（与缩放一致性）";
   if (demoComponentKey.value === "composer") return "输入面板新结构";
   if (demoComponentKey.value === "question") return "提问卡";
   if (demoComponentKey.value === "question-tool") return "会话提问（question 工具）";
