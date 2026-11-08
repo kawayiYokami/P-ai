@@ -521,139 +521,6 @@ fn memory_board_ids_from_current_hits(recall_ids: &[String], max_items: usize) -
     out
 }
 
-/// tantivy 的 `parse_query` 遇到畸形语法会 panic 而不是返回 Err。
-/// release 构建是 `panic = "abort"`，`catch_unwind` 兜不住，所以在进解析器之前先做一次保守预检。
-/// 只拦明显不合法的输入（括号/引号不配对、操作符位置错误、过长），判断不了的一律放过：
-/// 这条路径是给记忆检索做语法查询用的，正常语法必须原样保留。
-const TANTIVY_QUERY_MAX_CHARS: usize = 1024;
-
-fn tantivy_query_word_is_operator(word: &str) -> bool {
-    matches!(word, "AND" | "OR" | "NOT")
-}
-
-fn validate_tantivy_query_syntax(query_text: &str) -> Result<(), String> {
-    if query_text.trim().is_empty() {
-        return Ok(());
-    }
-    let char_count = query_text.chars().count();
-    if char_count > TANTIVY_QUERY_MAX_CHARS {
-        return Err(format!(
-            "检索语法预检失败：查询长度 {char_count} 字符，超过上限 {TANTIVY_QUERY_MAX_CHARS}"
-        ));
-    }
-
-    // 括号与引号配对。引号内的括号只是普通字符，不参与分组；`\` 在引号内视为转义。
-    let mut paren_depth = 0i32;
-    let mut bracket_depth = 0i32;
-    let mut in_quote = false;
-    let mut escaped = false;
-    for ch in query_text.chars() {
-        if in_quote {
-            if escaped {
-                escaped = false;
-                continue;
-            }
-            match ch {
-                '\\' => escaped = true,
-                '"' => in_quote = false,
-                _ => {}
-            }
-            continue;
-        }
-        match ch {
-            '"' => in_quote = true,
-            '(' => paren_depth += 1,
-            ')' => {
-                paren_depth -= 1;
-                if paren_depth < 0 {
-                    return Err("检索语法预检失败：右括号多于左括号".to_string());
-                }
-            }
-            '[' => bracket_depth += 1,
-            ']' => {
-                bracket_depth -= 1;
-                if bracket_depth < 0 {
-                    return Err("检索语法预检失败：右方括号多于左方括号".to_string());
-                }
-            }
-            _ => {}
-        }
-    }
-    if in_quote {
-        return Err("检索语法预检失败：双引号未闭合".to_string());
-    }
-    if paren_depth != 0 {
-        return Err(format!(
-            "检索语法预检失败：圆括号未配对，还缺 {paren_depth} 个右括号"
-        ));
-    }
-    if bracket_depth != 0 {
-        return Err(format!(
-            "检索语法预检失败：方括号未配对，还缺 {bracket_depth} 个右方括号"
-        ));
-    }
-
-    // 操作符位置。AND / OR / NOT 只有独立成词且大写时才是操作符，普通英文单词不算。
-    let mut words = Vec::<String>::new();
-    let mut current = String::new();
-    let mut in_quote = false;
-    let mut escaped = false;
-    for ch in query_text.chars() {
-        if in_quote {
-            if escaped {
-                escaped = false;
-                continue;
-            }
-            match ch {
-                '\\' => escaped = true,
-                '"' => in_quote = false,
-                _ => {}
-            }
-            continue;
-        }
-        if ch == '"' {
-            if !current.is_empty() {
-                words.push(std::mem::take(&mut current));
-            }
-            in_quote = true;
-            continue;
-        }
-        if ch.is_alphanumeric() || ch == '_' {
-            current.push(ch);
-        } else if !current.is_empty() {
-            words.push(std::mem::take(&mut current));
-        }
-    }
-    if !current.is_empty() {
-        words.push(current);
-    }
-
-    if let Some(last) = words.last() {
-        if tantivy_query_word_is_operator(last) {
-            return Err(format!("检索语法预检失败：查询不能以操作符 {last} 结尾"));
-        }
-    }
-    if let Some(first) = words.first() {
-        if matches!(first.as_str(), "AND" | "OR") {
-            return Err(format!("检索语法预检失败：查询不能以操作符 {first} 开头"));
-        }
-    }
-    // 连续两个操作符：`AND NOT` / `OR NOT` 是合法出现标记，其余组合都是语法错误。
-    for pair in words.windows(2) {
-        let (left, right) = (pair[0].as_str(), pair[1].as_str());
-        if !tantivy_query_word_is_operator(left) || !tantivy_query_word_is_operator(right) {
-            continue;
-        }
-        let allowed = matches!((left, right), ("AND" | "OR", "NOT"));
-        if !allowed {
-            return Err(format!(
-                "检索语法预检失败：操作符 {left} 与 {right} 连用不构成合法查询"
-            ));
-        }
-    }
-    Ok(())
-}
-
 fn memory_tantivy_bm25_scores(
     memories: &[MemoryEntry],
     query_text: &str,
@@ -715,8 +582,6 @@ fn memory_tantivy_bm25_scores(
         if query_text.trim().is_empty() || fetch_limit == 0 {
             return Ok(Vec::new());
         }
-        // 解析前先做保守语法预检：parse_query 对畸形输入是 panic，abort 构建下会直接带崩进程。
-        validate_tantivy_query_syntax(query_text)?;
         let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| qp.parse_query(query_text)));
         let query = match parsed {
             Ok(Ok(query)) => query,
@@ -985,8 +850,20 @@ fn memory_mixed_ranked_items(
         .map(|(idx, memory)| (memory.id.clone(), idx))
         .collect::<HashMap<_, _>>();
 
-    let bm25_hits = memory_tantivy_bm25_scores(memories, &effective_query_text, MEMORY_ROUTE_CANDIDATE_LIMIT)
-        .unwrap_or_default();
+    let bm25_hits = match memory_tantivy_bm25_scores(
+        memories,
+        &effective_query_text,
+        MEMORY_ROUTE_CANDIDATE_LIMIT,
+    ) {
+        Ok(hits) => hits,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[记忆] BM25 检索失败，本次召回不含 BM25 命中。 err={}",
+                err
+            ));
+            Vec::new()
+        }
+    };
     let mut bm25_map = HashMap::<String, f64>::new();
     let mut bm25_raw_map = HashMap::<String, f64>::new();
     let mut bm25_top_ids = Vec::<String>::new();

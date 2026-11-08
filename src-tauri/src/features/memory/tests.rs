@@ -682,81 +682,26 @@
         );
     }
 
-    // ==================== 检索语法预检 ====================
+    // ==================== 长中文查询召回 ====================
 
     #[test]
-    fn tantivy_query_precheck_should_accept_normal_queries() {
-        for query in [
-            "记忆",
-            "content:\"记忆\"",
-            "+content:\"记忆\" +content:\"回灌\"",
-            "content:\"a\" OR content:\"b\"",
-            "alpha AND beta",
-            "alpha OR beta",
-            "NOT alpha",
-            "alpha AND NOT beta",
-            "alpha OR NOT beta",
-            "(alpha OR beta) AND gamma",
-            "tag:[a TO z]",
-            "\"引号里的 AND 与 ( 只是文本\"",
-            "ANDROID 不是操作符",
-            "user_name:record_1",
-            "alpha",
-        ] {
-            assert!(
-                validate_tantivy_query_syntax(query).is_ok(),
-                "正常查询不应被拒: {query}"
-            );
-        }
-    }
-
-    #[test]
-    fn tantivy_query_precheck_should_reject_unbalanced_brackets_and_quotes() {
-        for query in ["(alpha", "alpha)", "[a TO b", "a]", "\"未闭合", "((alpha)"]
-        {
-            assert!(
-                validate_tantivy_query_syntax(query).is_err(),
-                "括号或引号不配对必须被拒: {query}"
-            );
-        }
-    }
-
-    #[test]
-    fn tantivy_query_precheck_should_reject_too_long_query() {
-        let too_long = "记".repeat(TANTIVY_QUERY_MAX_CHARS + 1);
-        let err = validate_tantivy_query_syntax(&too_long).expect_err("超长查询必须被拒");
-        assert!(err.contains("超过上限"), "错误信息应说明超长，实际: {err}");
-
-        let at_limit = "记".repeat(TANTIVY_QUERY_MAX_CHARS);
+    fn memory_long_cjk_query_should_keep_bm25_hits() {
+        // 连续中文按「每字 + 每二元组」切词，30 多字拼出的查询就会超过 1024 字符。
+        // 曾有一版语法预检按生成查询的字符数拒绝，导致长中文召回整条丢掉 BM25 命中。
+        let text = "记忆召回的老问题又出现了这次一定要把它彻底查清楚并且留下回归测试防止以后再犯同样的错误";
+        let terms = memory_tokenize_terms(text, false);
+        let built = memory_build_any_terms_query("content", &terms);
         assert!(
-            validate_tantivy_query_syntax(&at_limit).is_ok(),
-            "刚好等于上限应放行"
+            built.chars().count() > 1024,
+            "样本必须能撑破旧上限，实际 {} 字符",
+            built.chars().count()
         );
-    }
 
-    #[test]
-    fn tantivy_query_precheck_should_reject_operator_position_errors() {
-        for query in [
-            "alpha AND",
-            "alpha OR",
-            "alpha NOT",
-            "NOT",
-            "AND beta",
-            "OR beta",
-            "alpha AND OR beta",
-            "alpha NOT AND beta",
-            "alpha NOT NOT beta",
-        ] {
-            assert!(
-                validate_tantivy_query_syntax(query).is_err(),
-                "操作符位置非法必须被拒: {query}"
-            );
-        }
-        // AND NOT / OR NOT 是合法的出现标记，不能误拒。
-        for query in ["alpha AND NOT beta", "alpha OR NOT beta"] {
-            assert!(
-                validate_tantivy_query_syntax(query).is_ok(),
-                "合法的出现标记被误拒: {query}"
-            );
-        }
+        let memories = vec![test_memory_entry(
+            "long-query",
+            text,
+            vec!["记忆"],
+        )];
+        let hits = memory_tantivy_bm25_scores(&memories, text, 10).expect("bm25");
+        assert!(!hits.is_empty(), "长中文查询不应丢掉 BM25 命中");
     }
