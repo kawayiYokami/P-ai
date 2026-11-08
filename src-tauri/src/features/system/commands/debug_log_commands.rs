@@ -267,6 +267,29 @@ fn now_log_local_rfc3339() -> String {
         .unwrap_or_else(now_utc_rfc3339)
 }
 
+/// panic 路径专用：拿不到写锁就放弃这行日志，绝不等待。
+///
+/// release 用 panic = "abort" 之后没有栈展开，若 panic 恰好发生在
+/// `append_backend_log_line` 自己的持锁区内，同线程再 lock() 会永久阻塞——
+/// 表现为进程挂死而不是退出，比丢一行日志严重得多。
+fn append_backend_log_line_try(level: &str, message: &str) {
+    let Some(path) = backend_log_path().as_ref() else {
+        return;
+    };
+    let Ok(_guard) = backend_log_write_lock().try_lock() else {
+        return;
+    };
+    let line = format!(
+        "{} {:<5} {}\n",
+        now_log_local_rfc3339(),
+        level.to_uppercase(),
+        message
+    );
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = std::io::Write::write_all(&mut file, line.as_bytes());
+    }
+}
+
 fn append_backend_log_line(level: &str, message: &str) {
     let Some(path) = backend_log_path().as_ref() else {
         return;
@@ -317,7 +340,7 @@ fn install_backend_file_panic_hook() {
             .name()
             .unwrap_or("unnamed")
             .to_string();
-        append_backend_log_line(
+        append_backend_log_line_try(
             "error",
             &format!(
                 "[panic] location={} thread={} payload={}",

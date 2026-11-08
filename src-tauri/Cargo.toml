@@ -105,9 +105,10 @@ debug = 0
 [profile.release]
 opt-level = "z"
 lto = false
-codegen-units = 16
+codegen-units = 1
 strip = true
 debug = false
+panic = "abort"
 
 [dev-dependencies]
 httpmock = "0.8.3"
