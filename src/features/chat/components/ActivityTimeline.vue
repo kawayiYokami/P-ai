@@ -256,6 +256,12 @@ const props = defineProps<{
   messageId?: string;
   /** 语义标题里的人格显示名；缺省时直接用人格 id */
   agentNameMap?: Record<string, string>;
+  /**
+   * 是否接管外层面板壳的高度、把它做成渐变跟随。
+   * 只在调用方给这块盒子标了 `data-activity-panel-box` 时才生效：
+   * 委托卡等场景不需要，默认关。
+   */
+  followHeight?: boolean;
 }>();
 
 /** 条目级状态：由调用方持有并传入，面板收起重建后仍保留。 */
@@ -327,6 +333,17 @@ function handleReasoningToggle(item: ChatActivityItem, event?: Event): void {
 // 段落间距会被算漏，收起落定那一帧就会弹开（实测差 26px）。
 const FOLD_MS = 200; // 与 src/style.css 的 --duration-fold 同值
 
+/**
+ * 折叠过渡窗口：这段时间里高度由 expandFold / collapseFold（以及工具详情的 CSS 过渡）自己接管，
+ * 外层面板壳的高度跟随必须让开，交给布局跟着原生过渡走。
+ * 两处同时写高度会互相拉扯，历史上「留白双重扣减」就是这么震起来的。
+ */
+let foldReleaseUntil = 0;
+
+function markFoldTransition(): void {
+  foldReleaseUntil = performance.now() + FOLD_MS + 100;
+}
+
 /** 过渡结束清内联高度，交回布局。只认 transitionend，不用定时器。 */
 function settleHeight(el: HTMLElement): void {
   el.addEventListener("transitionend", () => {
@@ -338,6 +355,7 @@ function settleHeight(el: HTMLElement): void {
 
 /** 收起 → 展开：钉住当前高，读全文高，切到展开态，再过渡过去。 */
 function expandFold(el: HTMLElement, applyOpen: () => void): void {
+  markFoldTransition();
   const rect = el.getBoundingClientRect();
   const start = rect.height;
   // 与整体面板同一口径：长思考只展开到露出为止，超出屏幕的部分不参与过渡，
@@ -363,6 +381,7 @@ function expandFold(el: HTMLElement, applyOpen: () => void): void {
  * 但上限会把起点（当前全文高）压扁成四行，过渡就没起点——过渡期间先摘掉它，落定再交回去。
  */
 function collapseFold(el: HTMLElement, applyClosed: () => void): void {
+  markFoldTransition();
   const current = el.getBoundingClientRect().height;
   // 短思考的自然高比收起档还矮，取小的那个，落定后不会被撑到四行
   const target = Math.min(reasoningCollapsedLimit(el), el.scrollHeight);
@@ -412,10 +431,113 @@ let fadeRaf = 0;
 /** 挪到下一帧再量：挂载那一帧布局还没落定，量出来的高度不作数。 */
 function scheduleSyncFade(): void {
   if (fadeRaf) return;
-  fadeRaf = requestAnimationFrame(() => {
-    fadeRaf = 0;
-    syncReasoningFade();
-  });
+  fadeRaf = requestAnimationFrame(runFrame);
+}
+
+/**
+ * 每帧只做一件事的顺序：先把这一帧要读的量读完，再写。一帧一次强制布局是上限。
+ * 读：思考正文的 scrollHeight（判淡出）、面板壳的可见性与内容自然高。
+ * 写：dataset 标记、面板壳的 max-height。
+ */
+function runFrame(): void {
+  fadeRaf = 0;
+  syncReasoningFade();
+  const again = stepFollowHeight();
+  if (again) scheduleSyncFade();
+}
+
+// ==================== 面板高度渐变跟随 ====================
+//
+// 流式中这块高度是逐字「长」出来的：每换一行，整块就往上跳一行，虚拟列表跟着重测一次、
+// 滚动条跟着跳一次。这里把外层面板壳的高度钉在上限上，每帧向内容自然高走一部分，
+// 让高度是渐变而不是瞬跳。
+//
+// 三条边界：
+// 1. 用 max-height 而不是 height。内容比上限矮时元素自然高就是内容高，钉住也不会留空白；
+//    而钉住期间 scrollHeight 仍然返回内容真实高度，插值目标一次读数就够，不必反复量。
+// 2. 与目标差小于半像素就撤掉内联 max-height，把高度交回布局给的精确值。流式收口后不留残差，
+//    也不会出现「差几像素、最后一行被裁一半」。
+// 3. 用户手动展开/收起（思考四行档、工具详情）期间完全让开：那两处自己就有 200ms 高度过渡，
+//    外层面板壳跟着布局走就行。同一时刻只允许一处代码写这块高度。
+const FOLLOW_RATE = 0.12; // 每帧走完差额的比例：63px 的跳变首帧约 7.6px，十几帧走完，与 FOLD_MS 同量级
+const FOLLOW_MIN_STEP = 6; // 单帧最少走 6px：小增量也能在两三帧内落定，不拖成黏滞感
+const FOLLOW_MAX_STEP = 24; // 单帧最多走 24px：一次插入很大的块也不至于要一秒才跟上
+const FOLLOW_MIN_DIFF = 0.5; // 与目标差小于半像素才算收敛，收敛时交回精确高度
+
+let followPinned = false;
+let followValue = 0;
+
+/** 面板壳：调用方在 ActivityTimeline 的父级上标了 data-activity-panel-box。没标就不接管。 */
+function followHostElement(): HTMLElement | null {
+  const root = resolveTimelineRoot();
+  if (!root) return null;
+  return root.closest<HTMLElement>("[data-activity-panel-box]");
+}
+
+/** 这一块还有条目在长（思考正文或工具正在跑）？只在流式中插值。 */
+function hasLiveItem(): boolean {
+  return props.items.some((item) => (
+    item.kind === "tool" ? item.status === "doing" : item.running === true
+  ));
+}
+
+function releaseFollowHeight(host: HTMLElement): void {
+  if (!followPinned) return;
+  host.style.maxHeight = "";
+  host.style.overflow = "";
+  followPinned = false;
+}
+
+function pinFollowHeight(host: HTMLElement, value: number): void {
+  followValue = value;
+  if (!followPinned) {
+    // 钉住的起点就是当前自然高，所以这一帧本身不产生跳动
+    host.style.overflow = "hidden";
+    followPinned = true;
+  }
+  host.style.maxHeight = `${value}px`;
+}
+
+/**
+ * 走一帧。返回 true 表示还要下一帧（正在追上目标）。
+ * 读数只在本帧第一次强制布局时拿：可见性用 getBoundingClientRect，目标高用 scrollHeight
+ * （钉住期间它仍然返回内容真实高度），写完样式就收工，一帧只脏一次布局。
+ */
+function stepFollowHeight(): boolean {
+  const host = followHostElement();
+  if (!host) return false;
+  if (!props.followHeight || performance.now() < foldReleaseUntil) {
+    releaseFollowHeight(host);
+    return false;
+  }
+  const live = hasLiveItem();
+  // 流式已经结束、也没有在跟随的块，不必每帧来算
+  if (!live && !followPinned) return false;
+  const rect = host.getBoundingClientRect();
+  // 不在视口里的块直接给终值：看不见的渐变没人看，白付每帧重排的代价
+  if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
+    releaseFollowHeight(host);
+    return false;
+  }
+  const target = host.scrollHeight;
+  const current = followPinned ? followValue : rect.height;
+  const diff = target - current;
+  if (Math.abs(diff) < FOLLOW_MIN_DIFF) {
+    if (!live) {
+      // 收口：把高度交回布局给的精确值。差半像素以内才撤，撤完就是内容真实高，不留残差
+      releaseFollowHeight(host);
+      return false;
+    }
+    // 还在流式：钉在目标上等下一次增长。这里不能撤——撤了下一帧又得从自然高重新起跳，
+    // 每次增长都变成一次瞬跳
+    pinFollowHeight(host, target);
+    return false;
+  }
+  const stepSize = Math.min(FOLLOW_MAX_STEP, Math.max(FOLLOW_MIN_STEP, Math.abs(diff) * FOLLOW_RATE));
+  // 最后一帧直接落到目标上：别在几百毫秒之后还差一两像素
+  const next = Math.abs(diff) > stepSize ? current + Math.sign(diff) * stepSize : target;
+  pinFollowHeight(host, next);
+  return true;
 }
 
 onMounted(() => {
@@ -433,6 +555,9 @@ onMounted(() => {
 onUpdated(scheduleSyncFade);
 onBeforeUnmount(() => {
   if (fadeRaf) cancelAnimationFrame(fadeRaf);
+  // 卸载时把高度交回布局，别把钉住的内联 max-height 留在 DOM 上
+  const host = followHostElement();
+  if (host) releaseFollowHeight(host);
 });
 
 // ==================== 条目展开态 ====================
@@ -485,6 +610,8 @@ const toolFoldClosing = reactive<Record<string, boolean>>({});
 
 function toggleToolItem(item: ChatActivityItem): void {
   const key = activityItemKey(item);
+  // 工具详情的展开/收起走 .ecall-tool-body 自己的 CSS 高度过渡，外层面板壳让开
+  markFoldTransition();
   if (!activityItemExpanded(item)) {
     delete toolFoldClosing[key];
     applyExpandedChange(item, true);

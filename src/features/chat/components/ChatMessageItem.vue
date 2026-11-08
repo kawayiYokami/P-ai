@@ -111,7 +111,7 @@
               v-if="showActivityPanel(block) && activityPanelOpen(block)"
               class="px-0 pb-1 text-xs text-base-content"
             >
-              <div class="flex flex-col">
+              <div class="flex flex-col" data-activity-panel-box>
                 <ActivityTimeline
                   :items="presentedActivityItems"
                   :dark="markdownIsDark"
@@ -120,6 +120,7 @@
                   :conversation-id="props.activeConversationId"
                   :message-id="activityMessageId"
                   :agent-name-map="props.agentNameMap"
+                  follow-height
                   @item-expanded="onTimelineItemExpanded"
                 />
                 <button
