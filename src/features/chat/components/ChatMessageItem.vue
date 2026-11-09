@@ -158,7 +158,7 @@
             <div v-else ref="markdownContainerRef">
               <div class="ecall-assistant-segment-list">
                 <button
-                  v-if="collapsibleProcessPieceCount > 0"
+                  v-if="processFoldToggleVisible"
                   type="button"
                   class="ecall-process-fold"
                   @click.stop="toggleProcessSegments"
@@ -454,7 +454,11 @@ import { textContentSignature } from "../utils/text-signature";
 import { useChatMessageAppearance } from "../../shell/composables/use-chat-message-appearance";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
 import { normalizeLocalLinkHref } from "../utils/local-link";
-import { shouldFoldProcessSegments, type ProcessSegmentFoldIntent } from "../utils/process-segment-fold";
+import {
+  resolveVisibleProcessSegmentIndexes,
+  shouldFoldProcessSegments,
+  type ProcessSegmentFoldIntent,
+} from "../utils/process-segment-fold";
 import { createToolCallPresentation } from "../utils/tool-call-presentation";
 import { buildToolcallPreviewMap, parseToolCallResultStatus, type ToolcallPreviewEntry } from "../utils/toolcall-preview";
 import { generateShareFromMessageIds } from "../utils/share-generator";
@@ -605,9 +609,6 @@ const processSegmentFoldIntent = ref<ProcessSegmentFoldIntent>("auto");
 watch(() => props.block.id, () => {
   processSegmentFoldIntent.value = "auto";
 });
-const collapsibleProcessPieceCount = computed(() =>
-  processMessagesFolded.value ? Math.max(0, assistantMarkdownPieces.value.length - 1) : 0,
-);
 const processSegmentsFolded = computed(() => shouldFoldProcessSegments({
   foldEnabled: processMessagesFolded.value,
   pieceCount: assistantMarkdownPieces.value.length,
@@ -615,13 +616,29 @@ const processSegmentsFolded = computed(() => shouldFoldProcessSegments({
   streaming: !!props.block.isStreaming,
   intent: processSegmentFoldIntent.value,
 }));
+/** 折叠只收短段：200 字以上的长段与最后一段始终展开。 */
+const visibleProcessSegmentIndexes = computed(() => resolveVisibleProcessSegmentIndexes({
+  pieces: assistantMarkdownPieces.value,
+  folded: processSegmentsFolded.value,
+}));
+const collapsibleProcessPieceCount = computed(() => {
+  if (!processMessagesFolded.value) return 0;
+  return Math.max(0, assistantMarkdownPieces.value.length - visibleProcessSegmentIndexes.value.length);
+});
+/** 折叠开关开着、有多段、且确实折得动东西时，才给「上 N 条 / 收起」这一个切换按钮。 */
+const processFoldToggleVisible = computed(() =>
+  processMessagesFolded.value
+  && assistantMarkdownPieces.value.length > 1
+  && (!processSegmentsFolded.value || collapsibleProcessPieceCount.value > 0),
+);
 function toggleProcessSegments() {
   processSegmentFoldIntent.value = processSegmentsFolded.value ? "expanded" : "collapsed";
 }
 const visibleAssistantPieces = computed(() => {
-  const pieces = assistantMarkdownPieces.value.map((piece, index) => ({ ...piece, index }));
-  if (!processSegmentsFolded.value) return pieces;
-  return pieces.slice(-1);
+  const visible = new Set(visibleProcessSegmentIndexes.value);
+  return assistantMarkdownPieces.value
+    .map((piece, index) => ({ ...piece, index }))
+    .filter((piece) => visible.has(piece.index));
 });
 
 const teleportTheme = computed(() => {

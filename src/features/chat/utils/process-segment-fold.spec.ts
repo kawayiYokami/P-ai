@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { shouldFoldProcessSegments } from "./process-segment-fold";
+import {
+  PROCESS_SEGMENT_KEEP_VISIBLE_MIN_CHARS,
+  resolveVisibleProcessSegmentIndexes,
+  shouldFoldProcessSegments,
+} from "./process-segment-fold";
 
 const base = {
   foldEnabled: true,
@@ -66,5 +70,45 @@ describe("process segment fold", () => {
       bubbleBackground: false,
       streaming: false,
     })).toBe(false);
+  });
+});
+
+const short = (text = "跑了测试") => ({ text });
+const long = (minChars = PROCESS_SEGMENT_KEEP_VISIBLE_MIN_CHARS, mark = "长") => ({ text: mark.repeat(minChars) });
+
+describe("resolveVisibleProcessSegmentIndexes", () => {
+  it("未折叠时全部可见", () => {
+    expect(resolveVisibleProcessSegmentIndexes({
+      pieces: [short(), short(), short()],
+      folded: false,
+    })).toEqual([0, 1, 2]);
+  });
+
+  it("折叠时只露长段与最后一段，短段被折起来", () => {
+    expect(resolveVisibleProcessSegmentIndexes({
+      pieces: [short(), long(), short(), short()],
+      folded: true,
+    })).toEqual([1, 3]);
+  });
+
+  it("恰好 200 字算长段，199 字算短段", () => {
+    expect(resolveVisibleProcessSegmentIndexes({
+      pieces: [long(PROCESS_SEGMENT_KEEP_VISIBLE_MIN_CHARS - 1), long(), short()],
+      folded: true,
+    })).toEqual([1, 2]);
+  });
+
+  it("全都是长段时不折任何东西，索引仍是全量", () => {
+    expect(resolveVisibleProcessSegmentIndexes({
+      pieces: [long(), long(), long()],
+      folded: true,
+    })).toEqual([0, 1, 2]);
+  });
+
+  it("最后一段无论多短都展开", () => {
+    expect(resolveVisibleProcessSegmentIndexes({
+      pieces: [short(), short(), short("好")],
+      folded: true,
+    })).toEqual([2]);
   });
 });
