@@ -1868,7 +1868,7 @@
     "loadMore": "Load more",
     "collapseSection": "Collapse",
     "noMoreHistory": "No more messages",
-    "previousProcessMessages": "Previous {count} messages",
+    "previousProcessMessages": "{count} messages",
     "recipientMissingTitle": "This conversation needs a new owner",
     "recipientMissingHint": "The saved persona no longer exists. Choose a takeover recipient or delete this conversation.",
     "recipientMissingApply": "Assign Owner",

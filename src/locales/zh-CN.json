@@ -1868,7 +1868,7 @@
     "loadMore": "加载更多",
     "collapseSection": "收起",
     "noMoreHistory": "已经没有更多消息",
-    "previousProcessMessages": "上 {count} 条消息",
+    "previousProcessMessages": "{count} 条消息",
     "recipientMissingTitle": "当前会话接管人不可用",
     "recipientMissingHint": "保存的人格已不存在，请选择新的接管人，或删除此会话。",
     "recipientMissingApply": "设为接管人",
