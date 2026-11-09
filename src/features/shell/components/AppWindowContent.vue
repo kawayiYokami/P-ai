@@ -234,6 +234,7 @@
         @update:wheelchair-mode-enabled="updateWheelchairModeEnabled"
         @dismiss-wheelchair-suggestion="dismissWheelchairSuggestion"
         @send-chat="sendChat"
+        @question-answer-inserted="questionAnswerInserted"
         @stop-chat="stopChat"
         @clear-chat-error="clearChatError"
         @refresh-conversation-after-storage-repair="refreshConversationAfterStorageRepair"
@@ -918,6 +919,7 @@ const props = defineProps<{
   pickAttachments: () => void;
   sendChat: () => void;
   stopChat: () => void;
+  questionAnswerInserted: (payload: { conversationId: string; messageId: string; text: string }) => void;
   clearChatError: () => void;
   refreshConversationAfterStorageRepair: () => void;
   onLoadOlderChatHistory: () => void;

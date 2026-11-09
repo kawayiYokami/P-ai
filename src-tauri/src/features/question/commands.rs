@@ -20,6 +20,9 @@ struct QuestionAnswerResult {
     answered_numbers: Vec<u32>,
     remaining: Vec<ConversationQuestionView>,
     message_text: String,
+    /// 这次答复入队的那条用户消息 id：前端拿它做乐观插入，
+    /// 之后权威版本按 id 回来时原地替换，不产生第二条气泡。
+    message_id: String,
 }
 
 /// Web/IDE 侧转发用的参数形状（jsonrpc 侧与桌面端命令同构）。
@@ -184,13 +187,15 @@ fn question_answer_locked(
 
     let agent_id = task_agent_from_conversation_for_write(state, conversation_id)?
         .ok_or_else(|| format!("会话未绑定人格：{conversation_id}"))?;
+    let answer_message = build_question_answer_message(&message_text, &answered_numbers);
+    let answer_message_id = answer_message.id.clone();
     let event = ChatPendingEvent {
         id: format!("question-answer-{}", Uuid::new_v4()),
         conversation_id: conversation_id.to_string(),
         created_at: now_utc_rfc3339(),
         source: ChatEventSource::User,
         queue_mode: ChatQueueMode::Normal,
-        messages: vec![build_question_answer_message(&message_text, &answered_numbers)],
+        messages: vec![answer_message],
         activate_assistant: true,
         assistant_message_id: None,
         session_info: ChatSessionInfo { agent_id },
@@ -214,16 +219,23 @@ fn question_answer_locked(
         answered_numbers,
         remaining,
         message_text,
+        message_id: answer_message_id,
     })
 }
 
 #[tauri::command]
-fn question_answer(
+async fn question_answer(
     state: State<'_, AppState>,
     conversation_id: String,
     answers: Vec<QuestionAnswerInput>,
 ) -> Result<QuestionAnswerResult, String> {
-    question_answer_inner(state.inner(), &conversation_id, answers)
+    // 里面做会话写锁、ingress 三把锁与元数据落盘，同步跑会阻塞主线程冻结界面。
+    let app_state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        question_answer_inner(&app_state, &conversation_id, answers)
+    })
+    .await
+    .map_err(|error| format!("答题提交任务异常：{error}"))?
 }
 
 /// 拒绝回答问题：只删题，不产生任何会话消息。

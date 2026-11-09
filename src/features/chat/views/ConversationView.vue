@@ -75,6 +75,7 @@
     :workspace-access="workspaceAccess"
     @update:chat-input="updateChatInput"
     @send-chat="runtime.send"
+    @question-answer-inserted="runtime.insertQuestionAnswerMessage($event.conversationId, $event.messageId, $event.text)"
     @pick-attachments="handlePickAttachments"
     @remove-clipboard-image="runtime.removeClipboardImage"
     @remove-queued-attachment-notice="runtime.removeQueuedAttachmentNotice"

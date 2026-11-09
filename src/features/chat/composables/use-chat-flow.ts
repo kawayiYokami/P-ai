@@ -820,10 +820,28 @@ export function useChatFlow(options: UseChatFlowOptions) {
     await stopController.stopChat();
   }
 
+  /**
+   * 答题答复的乐观插入。
+   *
+   * 走的是与本端手打完全相同的路径：先插入草稿消息，再通过 onOwnUserDraftInserted
+   * 请求平滑对齐。这样用户点完选项立刻看到自己发的消息，权威版本回来后按 id 原地替换，
+   * 不产生第二条气泡，也不会退化成「整数组替换 + 无滚动指令」的闪现。
+   */
+  function insertQuestionAnswerMessage(conversationId: string, messageId: string, text: string) {
+    const cid = String(conversationId || "").trim();
+    const mid = String(messageId || "").trim();
+    if (!cid || !mid) return;
+    // gen 传 0：这条消息不来自某一次 sendChat 提交，insertUserDraft 也不使用 gen。
+    const inserted = insertUserDraft(mid, 0, String(text || ""), [], [], [], []);
+    if (!inserted) return;
+    options.onOwnUserDraftInserted?.({ conversationId: cid, messageId: inserted });
+  }
+
   return {
     bindingId: channelBinding.bindingId,
     sendChat,
     stopChat,
+    insertQuestionAnswerMessage,
     clearForegroundRoundState,
     clearForegroundRuntimeState,
     freezeForegroundRoundState,
