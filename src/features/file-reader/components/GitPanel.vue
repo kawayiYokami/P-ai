@@ -294,17 +294,18 @@
                       {{ row.node.data.entry.message }}
                       <span class="text-caption opacity-50"> {{ row.node.data.entry.author }}</span>
                     </span>
-                    <!-- 分支终点标签：颜色与图中该 ref 的线色一致；同名本地/远程分支已合并 -->
+                    <!-- 分支终点标签：颜色与图中该 ref 的线色一致；同名本地/远程分支已合并。
+                         鼠标悬停这一行时收起，方便一口气读提交消息。 -->
                     <span
                       v-for="ref in row.node.data.refs"
                       :key="ref.name"
-                      class="max-w-24 min-w-0 truncate rounded px-1 text-caption font-medium"
+                      class="max-w-24 min-w-0 truncate rounded px-1 text-caption font-medium group-hover:hidden"
                       :style="{ color: graphColor(ref.colorIndex), backgroundColor: graphColor(ref.colorIndex) + '1A' }"
                       :title="refTitle(ref)"
                     >{{ ref.name }}</span>
                     <span
                       v-if="row.node.data.hiddenRefs.length > 0"
-                      class="shrink-0 rounded bg-base-content/10 px-1 text-caption font-medium opacity-70"
+                      class="shrink-0 rounded bg-base-content/10 px-1 text-caption font-medium opacity-70 group-hover:hidden"
                       :title="row.node.data.hiddenRefs.map(refTitle).join('\n')"
                     >+{{ row.node.data.hiddenRefs.length }}</span>
                     <button
