@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-08T12:59:35.248Z",
-  "latestVersion": "v0.98.2",
+  "generatedAt": "2026-11-09T03:13:28.523Z",
+  "latestVersion": "v0.98.3",
   "releases": [
+    {
+      "version": "v0.98.3",
+      "path": "docs/changelog/releases/v0.98.3.md",
+      "summary": "**长会话触发上下文整理后，停止按钮点下去没反应、回答停不下来；现在整理完成后依然能随时中断。**"
+    },
     {
       "version": "v0.98.2",
       "path": "docs/changelog/releases/v0.98.2.md",
