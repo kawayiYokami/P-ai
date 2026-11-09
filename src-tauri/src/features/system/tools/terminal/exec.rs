@@ -10,8 +10,16 @@ const TERMINAL_EXEC_COMMITMENT_TEXT: &str = "用户已经充分理解本命令�
 
 fn terminal_commitment_approves(commitment: Option<&str>) -> bool {
     commitment
-        .map(|value| value.trim() == TERMINAL_EXEC_COMMITMENT_TEXT)
+        .map(|value| normalize_commitment_text(value) == normalize_commitment_text(TERMINAL_EXEC_COMMITMENT_TEXT))
         .unwrap_or(false)
+}
+
+/// 比对承诺文案时只认字，不认标点与空白。
+///
+/// 回执里那句承诺是给人看、给 AI 抄的：抄的时候带不带引号、末尾要不要句号、
+/// 中间用中文逗号还是顿号，都不该影响放行。丢掉标点与空白后比对，只拦「改字」这一种。
+fn normalize_commitment_text(value: &str) -> String {
+    value.chars().filter(|ch| ch.is_alphanumeric()).collect()
 }
 
 fn terminal_output_only_command_is_read_only(base_cmd: &str) -> bool {
@@ -2345,17 +2353,26 @@ mod terminal_exec_tests {
     }
 
     #[test]
-    fn commitment_approval_should_require_exact_text() {
+    fn commitment_approval_should_ignore_punctuation_but_require_same_words() {
         assert!(!terminal_commitment_approves(None));
         assert!(!terminal_commitment_approves(Some("")));
         assert!(!terminal_commitment_approves(Some("用户已批准")));
+        // 改字仍然要拦：多出来或改掉的字会留在规范化结果里。
         assert!(!terminal_commitment_approves(Some(
             "用户已经充分理解本命令的危险性并且批准本次执行（追加内容）"
         )));
+        assert!(!terminal_commitment_approves(Some("用户已经充分理解本命令的危险性并且批准")));
         assert!(terminal_commitment_approves(Some(
             "用户已经充分理解本命令的危险性并且批准本次执行"
         )));
         assert!(terminal_commitment_approves(Some("  用户已经充分理解本命令的危险性并且批准本次执行  ")));
+        // 抄的时候带引号、带标点，都算数。
+        assert!(terminal_commitment_approves(Some(
+            "「用户已经充分理解本命令的危险性并且批准本次执行。」"
+        )));
+        assert!(terminal_commitment_approves(Some(
+            "用户已经充分理解本命令的危险性，并且批准本次执行！"
+        )));
     }
 
     #[tokio::test]

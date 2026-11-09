@@ -685,8 +685,9 @@ fn provider_tool_output_from_value(tool_name: &str, value: &Value) -> String {
                         .unwrap_or("(no output)")
                         .to_string();
                     if let Some(hint) = value.get("commitmentHint").and_then(Value::as_str) {
-                        text.push_str("\n\n");
+                        text.push_str("\n\ncommitment 填入：\n「");
                         text.push_str(hint);
+                        text.push('」');
                     }
                     text
                 }
@@ -1157,8 +1158,13 @@ mod runtime_tool_result_tests {
         assert!(
             result
                 .output
-                .contains("用户已经充分理解本命令的危险性并且批准本次执行"),
-            "被拦截时 AI 必须能看到承诺文案，否则无法回填 commitment 参数：{}",
+                .contains("「用户已经充分理解本命令的危险性并且批准本次执行」"),
+            "承诺文案必须带直角引号标出来，AI 才看得出这是要填进参数的原句：{}",
+            result.output
+        );
+        assert!(
+            !result.output.contains("追加"),
+            "承诺文案按去掉标点后比对，回执不能暗示可以追加内容：{}",
             result.output
         );
         assert!(!result.output.contains("{\""));
