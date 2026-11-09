@@ -313,7 +313,6 @@
       :remove-queued-attachment-notice="removeQueuedAttachmentNotice"
       :pick-attachments="pickChatAttachments"
       :send-chat="sendChatFromCurrentWindow"
-      :question-answer-inserted="handleQuestionAnswerInserted"
       :stop-chat="chatFlow.stopChat"
       :clear-chat-error="clearChatError"
       :refresh-conversation-after-storage-repair="refreshConversationAfterStorageRepair"
@@ -646,16 +645,6 @@ export default defineComponent({
       close: closeQuickModelUnavailable,
     } = app.quickModelUnavailable;
 
-    /**
-     * 答题答复的乐观插入。
-     *
-     * 与本端手打完全同一条路径（草稿插入 + 平滑对齐），
-     * 这样点完选项消息立刻出现，且是平滑上推而不是整数组替换式闪现。
-     */
-    function handleQuestionAnswerInserted(payload: { conversationId: string; messageId: string; text: string }) {
-      app.chatFlow?.insertQuestionAnswerMessage?.(payload.conversationId, payload.messageId, payload.text);
-    }
-
     return {
       ...app,
       quickModelUnavailableState,
@@ -665,7 +654,6 @@ export default defineComponent({
       hideWindowHeader: embedded,
       openDraftConversationFromEntry,
       refreshConversationAfterStorageRepair,
-      handleQuestionAnswerInserted,
     };
   },
 });

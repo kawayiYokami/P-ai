@@ -547,7 +547,7 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
     await bindings.closeWindow();
   }
 
-  async function sendChatFromCurrentWindow(overrides?: { extraTextBlocks?: string[] }) {
+  async function sendChatFromCurrentWindow(overrides?: { text?: string; extraTextBlocks?: string[] }) {
     const conversationId = String(bindings.currentChatConversationId.value || "").trim();
     if (bindings.waitPendingConversationPreferredModelPersist) {
       const modelPersisted = await bindings.waitPendingConversationPreferredModelPersist(conversationId);

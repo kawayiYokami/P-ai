@@ -765,10 +765,8 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     loadingOlderHistory,
     currentTodos,
     planModeEnabled,
-    send: () => flow.sendChat(),
+    send: (overrides?: { text?: string; extraTextBlocks?: string[] }) => flow.sendChat(overrides),
     stop: () => flow.stopChat(),
-    insertQuestionAnswerMessage: (conversationId: string, messageId: string, text: string) =>
-      flow.insertQuestionAnswerMessage(conversationId, messageId, text),
     removeClipboardImage,
     removeQueuedAttachmentNotice,
     handleRecallTurn: rewindActions.handleRecallTurn,

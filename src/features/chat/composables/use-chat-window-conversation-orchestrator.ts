@@ -207,7 +207,7 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     await chatForeground.syncUnarchivedConversationOverviewChangedSinceWatermark(reason);
   }
 
-  async function sendChatFromCurrentWindow(overrides?: { extraTextBlocks?: string[] }) {
+  async function sendChatFromCurrentWindow(overrides?: { text?: string; extraTextBlocks?: string[] }) {
     await chatForeground.sendChatFromCurrentWindow(overrides);
   }
 

@@ -46,7 +46,7 @@ type ConversationActionsBridge = {
   freezeForegroundConversation: (reason: string) => void;
   restoreForegroundConversationProjection: (conversationId: string, reason: string) => Promise<void>;
   switchUnarchivedConversation: (conversationId: string) => Promise<void>;
-  sendChatFromCurrentWindow: (overrides?: { extraTextBlocks?: string[] }) => Promise<void>;
+  sendChatFromCurrentWindow: (overrides?: { text?: string; extraTextBlocks?: string[] }) => Promise<void>;
   deleteUnarchivedConversationFromArchives: (conversationId: string) => Promise<void>;
   applyConversationRuntimeStateUpdated: (payload: { conversationId: string; runtimeState: "idle" | "assistant_streaming" | "organizing_context" }) => void;
 };
@@ -182,7 +182,7 @@ export function useChatWindowApp() {
     conversationActions.restoreForegroundConversationProjection(conversationId, reason);
   const switchUnarchivedConversation = (conversationId: string) =>
     conversationActions.switchUnarchivedConversation(conversationId);
-  const sendChatFromCurrentWindow = (overrides?: { extraTextBlocks?: string[] }) => conversationActions.sendChatFromCurrentWindow(overrides);
+  const sendChatFromCurrentWindow = (overrides?: { text?: string; extraTextBlocks?: string[] }) => conversationActions.sendChatFromCurrentWindow(overrides);
   const deleteUnarchivedConversationFromArchives = (conversationId: string) => conversationActions.deleteUnarchivedConversationFromArchives(conversationId);
   const applyConversationRuntimeStateUpdated: ConversationActionsBridge["applyConversationRuntimeStateUpdated"] =
     (payload) => conversationActions.applyConversationRuntimeStateUpdated(payload);

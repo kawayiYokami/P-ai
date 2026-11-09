@@ -19,10 +19,9 @@ struct QuestionAnswerInput {
 struct QuestionAnswerResult {
     answered_numbers: Vec<u32>,
     remaining: Vec<ConversationQuestionView>,
+    /// 按题目拼好的答复正文。前端拿它走正常发送通道发出去；
+    /// 后端不自己入队，避免绕开用户发送的那条唯一路径。
     message_text: String,
-    /// 这次答复入队的那条用户消息 id：前端拿它做乐观插入，
-    /// 之后权威版本按 id 回来时原地替换，不产生第二条气泡。
-    message_id: String,
 }
 
 /// Web/IDE 侧转发用的参数形状（jsonrpc 侧与桌面端命令同构）。
@@ -49,30 +48,6 @@ struct QuestionRejectWebParams {
     conversation_id: String,
     #[serde(default)]
     number: u32,
-}
-
-fn build_question_answer_message(text: &str, numbers: &[u32]) -> ChatMessage {
-    ChatMessage {
-        id: Uuid::new_v4().to_string(),
-        role: "user".to_string(),
-        created_at: now_utc_rfc3339(),
-        speaker_agent_id: None,
-        parts: vec![MessagePart::Text {
-            text: text.to_string(),
-            reasoning_content: None,
-        }],
-        extra_text_blocks: Vec::new(),
-        provider_meta: Some(serde_json::json!({
-            "message_meta": {
-                "kind": "question_answer",
-                "question_number": numbers.first().copied(),
-                "question_numbers": numbers,
-            }
-        })),
-        tool_call: None,
-        mcp_call: None,
-        meme_annotations: None,
-    }
 }
 
 /// 一道题的答案来源：点给定选项换成下标，自己写就是一段文本。
@@ -110,13 +85,14 @@ fn question_answer_choice_from_input(
     }
 }
 
-/// 答题作答：题目校验通过后入队一条普通用户消息，再把已答的题从会话元数据里去掉。
+/// 答题作答：校验题目、拼出答复正文，再把已答的题从会话元数据里去掉。
 ///
-/// 顺序是「先入队、后删题」：入队失败时题目还在，用户可以再答一次；
-/// 反过来先删题，一旦入队失败，题目没了、消息也没发出去，用户无从重试。
+/// 这里**不**入队任何消息：答复必须走用户发送的那一条唯一通道（前端 `sendChat`），
+/// 由它统一生成消息、乐观插入、入队、激活轮次。后端自己造一条 `ChatPendingEvent`
+/// 等于绕开那条通道另开一条旁路，前端还得靠 id 回灌草稿去对齐，属于生造通道。
 ///
-/// 整段在会话写入门里跑：校验看到的题、入队的那条消息、删题的写入要落在同一个临界区，
-/// 否则两次并发提交都拿着同一份快照通过校验，同一道题会被答两遍。
+/// 顺序是「先删题、后交回正文」：删题与校验落在同一个写入门里，两次并发提交不会
+/// 拿同一份快照把同一道题答两遍；回给前端的正文由前端立刻发出。
 fn question_answer_inner(
     state: &AppState,
     conversation_id: &str,
@@ -185,25 +161,6 @@ fn question_answer_locked(
     let message_text = blocks.join("\n\n");
     let answered_numbers = wanted.iter().map(|(number, _)| *number).collect::<Vec<_>>();
 
-    let agent_id = task_agent_from_conversation_for_write(state, conversation_id)?
-        .ok_or_else(|| format!("会话未绑定人格：{conversation_id}"))?;
-    let answer_message = build_question_answer_message(&message_text, &answered_numbers);
-    let answer_message_id = answer_message.id.clone();
-    let event = ChatPendingEvent {
-        id: format!("question-answer-{}", Uuid::new_v4()),
-        conversation_id: conversation_id.to_string(),
-        created_at: now_utc_rfc3339(),
-        source: ChatEventSource::User,
-        queue_mode: ChatQueueMode::Normal,
-        messages: vec![answer_message],
-        activate_assistant: true,
-        assistant_message_id: None,
-        session_info: ChatSessionInfo { agent_id },
-        runtime_context: None,
-        sender_info: None,
-    };
-    let ingress = ingress_chat_event(state, event)?;
-
     let mut remaining: Vec<ConversationQuestionView> = Vec::new();
     state_update_conversation_metadata_cached(state, &conversation_id, |conversation| {
         conversation
@@ -212,14 +169,12 @@ fn question_answer_locked(
         remaining = conversation.questions.iter().map(question_view).collect();
         Ok(())
     })?;
-    trigger_chat_event_after_ingress(state, ingress);
 
     question_emit_items_updated(state, &conversation_id, &remaining);
     Ok(QuestionAnswerResult {
         answered_numbers,
         remaining,
         message_text,
-        message_id: answer_message_id,
     })
 }
 

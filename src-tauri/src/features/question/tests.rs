@@ -531,48 +531,7 @@
         assert!(listed.contains("1 question"), "{listed}");
     }
 
-    // ==================== 答题消息构造 ====================
-
-    #[test]
-    fn question_answer_message_should_carry_number_and_original_title() {
-        let message = build_question_answer_message("【要不要现在发布？】\n→ 现在发布", &[2]);
-        assert_eq!(message.role, "user");
-        let text = message
-            .parts
-            .iter()
-            .filter_map(|part| match part {
-                MessagePart::Text { text, .. } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        assert!(text.contains("【要不要现在发布？】"), "{text}");
-        assert!(text.contains("要不要现在发布？"), "正文必须带问题原文：{text}");
-        assert!(text.contains("→ 现在发布"), "{text}");
-    }
-
-    #[test]
-    fn question_answer_message_should_mark_kind_and_numbers_in_provider_meta() {
-        let message = build_question_answer_message("正文", &[3, 5]);
-        let meta = message.provider_meta.expect("provider_meta");
-        let message_meta = meta.get("message_meta").expect("message_meta");
-        assert_eq!(
-            message_meta.get("kind").and_then(|value| value.as_str()),
-            Some("question_answer")
-        );
-        assert_eq!(
-            message_meta
-                .get("question_numbers")
-                .and_then(|value| value.as_array())
-                .map(|items| items
-                    .iter()
-                    .filter_map(|item| item.as_u64())
-                    .collect::<Vec<_>>()),
-            Some(vec![3, 5])
-        );
-    }
-
-    // ==================== 答题命令：入队 + 删题 ====================
+    // ==================== 答题命令：回正文 + 删题 ====================
 
     fn question_test_answer(number: u32, option_index: usize) -> QuestionAnswerInput {
         QuestionAnswerInput {
@@ -590,8 +549,8 @@
         }
     }
 
-    /// 建立一个可答题的本地主会话，并把它按在流式中：答题事件会进队列而不是立刻被消费，
-    /// 这样测试能稳定读到事件本身（source / queue_mode / messages）。
+    /// 建立一个可答题的本地主会话。答题命令本身不入队任何消息，
+    /// 这条会话只需要能通过「本地主会话」判定与元数据读写。
     fn question_test_answerable_conversation(state: &AppState, conversation_id: &str) {
         let conversation = question_test_conversation(conversation_id, CONVERSATION_KIND_CHAT);
         state_write_conversation_cached(state, &conversation).expect("write conversation");
@@ -599,23 +558,20 @@
             .expect("set streaming state");
     }
 
-    fn question_test_last_queued_event(
-        state: &AppState,
-        conversation_id: &str,
-    ) -> ChatPendingEvent {
+    /// 当前会话待消费队列的条数：答题不允许往里塞任何东西。
+    fn question_test_pending_queue_len(state: &AppState, conversation_id: &str) -> usize {
         let slots = state
             .conversation_runtime_slots
             .lock()
             .expect("lock conversation slots");
-        let slot = slots.get(conversation_id).expect("conversation slot");
-        slot.pending_queue
-            .back()
-            .cloned()
-            .expect("queued answer event")
+        slots
+            .get(conversation_id)
+            .map(|slot| slot.pending_queue.len())
+            .unwrap_or(0)
     }
 
     #[test]
-    fn question_answer_should_remove_question_and_queue_normal_user_event() {
+    fn question_answer_should_remove_question_and_not_queue_any_event() {
         let state = question_test_state();
         question_test_answerable_conversation(&state, "conv-main");
         question_apply_tool_mutations(
@@ -637,35 +593,10 @@
         );
         assert!(result.message_text.contains("→ 现在发布"), "{}", result.message_text);
 
-        let event = question_test_last_queued_event(&state, "conv-main");
-        assert!(
-            matches!(event.source, ChatEventSource::User),
-            "答题消息必须以用户来源入队，实际来源={:?}",
-            event.source
-        );
         assert_eq!(
-            event.queue_mode,
-            ChatQueueMode::Normal,
-            "答题走普通队列，不允许用引导截断当前轮次"
-        );
-        assert!(event.activate_assistant);
-        assert_eq!(event.messages.len(), 1);
-        let message = &event.messages[0];
-        assert_eq!(message.role, "user");
-        let message_meta = message
-            .provider_meta
-            .as_ref()
-            .and_then(|meta| meta.get("message_meta"))
-            .expect("message_meta");
-        assert_eq!(
-            message_meta.get("kind").and_then(|value| value.as_str()),
-            Some("question_answer")
-        );
-        assert_eq!(
-            message_meta
-                .get("question_number")
-                .and_then(|value| value.as_u64()),
-            Some(1)
+            question_test_pending_queue_len(&state, "conv-main"),
+            0,
+            "答题命令不允许自己造一条消息入队：发送必须由前端走唯一发送通道"
         );
 
         let views = question_views_for_conversation(&state, "conv-main").expect("list");
@@ -822,7 +753,7 @@
     }
 
     #[test]
-    fn question_answer_should_queue_one_message_per_answered_question() {
+    fn question_answer_should_return_one_text_per_submit() {
         let state = question_test_state();
         question_test_answerable_conversation(&state, "conv-main");
         question_apply_tool_mutations(
@@ -835,39 +766,20 @@
         )
         .expect("create questions");
 
-        question_answer_inner(&state, "conv-main", vec![question_test_answer(1, 0)])
+        let first = question_answer_inner(&state, "conv-main", vec![question_test_answer(1, 0)])
             .expect("answer first");
-        question_answer_inner(&state, "conv-main", vec![question_test_answer(2, 0)])
+        let second = question_answer_inner(&state, "conv-main", vec![question_test_answer(2, 0)])
             .expect("answer second");
 
-        let slots = state
-            .conversation_runtime_slots
-            .lock()
-            .expect("lock conversation slots");
-        let slot = slots.get("conv-main").expect("conversation slot");
+        // 逐题提交就是逐条正文，不是攒成一包；每次都由前端各自发一次。
+        assert!(first.message_text.contains("【题一】"), "{}", first.message_text);
+        assert!(!first.message_text.contains("【题二】"), "{}", first.message_text);
+        assert!(second.message_text.contains("【题二】"), "{}", second.message_text);
         assert_eq!(
-            slot.pending_queue.len(),
-            2,
-            "逐题提交必须一题一条消息，不是攒成一包"
+            question_test_pending_queue_len(&state, "conv-main"),
+            0,
+            "两次提交都不允许往队列里塞消息"
         );
-        let texts = slot
-            .pending_queue
-            .iter()
-            .map(|event| {
-                assert_eq!(event.messages.len(), 1, "每条事件只带一道题的答复");
-                assert_eq!(event.queue_mode, ChatQueueMode::Normal);
-                event
-                    .messages
-                    .iter()
-                    .filter_map(|message| match &message.parts[0] {
-                        MessagePart::Text { text, .. } => Some(text.clone()),
-                        _ => None,
-                    })
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>();
-        assert!(texts[0].contains("【题一】"), "{:?}", texts[0]);
-        assert!(texts[1].contains("【题二】"), "{:?}", texts[1]);
     }
 
     #[test]
@@ -908,30 +820,12 @@
         let second = question_answer_inner(&state, "conv-main", vec![question_test_answer(2, 0)])
             .expect("send remaining");
         assert!(second.remaining.is_empty());
-
-        let slots = state
-            .conversation_runtime_slots
-            .lock()
-            .expect("lock conversation slots");
-        let slot = slots.get("conv-main").expect("conversation slot");
-        assert_eq!(slot.pending_queue.len(), 2, "两轮发送是两条独立事件");
-        let texts = slot
-            .pending_queue
-            .iter()
-            .map(|event| {
-                event
-                    .messages
-                    .iter()
-                    .filter_map(|message| match &message.parts[0] {
-                        MessagePart::Text { text, .. } => Some(text.clone()),
-                        _ => None,
-                    })
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>();
-        assert!(texts[0].contains("【题一】") && texts[0].contains("【题三】"), "{:?}", texts[0]);
-        assert!(!texts[0].contains("【题二】"), "第一轮不该带上没选的 #2");
-        assert!(texts[1].contains("【题二】"), "{:?}", texts[1]);
+        assert!(second.message_text.contains("【题二】"), "{}", second.message_text);
+        assert_eq!(
+            question_test_pending_queue_len(&state, "conv-main"),
+            0,
+            "两轮提交都不允许往队列里塞消息"
+        );
     }
 
     #[test]
@@ -991,20 +885,10 @@
         let views = question_views_for_conversation(&state, "conv-main").expect("list");
         assert_eq!(question_test_numbers(&views), vec![1], "被答的题必须从元数据里删掉");
 
-        let event = question_test_last_queued_event(&state, "conv-main");
-        assert!(matches!(event.source, ChatEventSource::User));
-        assert_eq!(event.queue_mode, ChatQueueMode::Normal);
-        assert_eq!(event.messages.len(), 1);
-        let message = &event.messages[0];
         assert_eq!(
-            message
-                .provider_meta
-                .as_ref()
-                .and_then(|meta| meta.get("message_meta"))
-                .and_then(|meta| meta.get("kind"))
-                .and_then(|value| value.as_str()),
-            Some("question_answer"),
-            "自定义答案与点选项必须是同一条消息通道、同一个 kind"
+            question_test_pending_queue_len(&state, "conv-main"),
+            0,
+            "自定义答案与点选项同一条链路：命令本身不入队，发送由前端走唯一通道"
         );
     }
 

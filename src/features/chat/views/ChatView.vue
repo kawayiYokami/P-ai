@@ -1141,8 +1141,7 @@ const emit = defineEmits<{
   (e: "update:planModeEnabled", value: boolean): void;
   (e: "update:wheelchairModeEnabled", value: boolean): void;
   (e: "dismissWheelchairSuggestion"): void;
-  (e: "sendChat", payload?: { extraTextBlocks?: string[] }): void;
-  (e: "questionAnswerInserted", payload: { conversationId: string; messageId: string; text: string }): void;
+  (e: "sendChat", payload?: { text?: string; extraTextBlocks?: string[] }): void;
   (e: "stopChat"): void; (e: "trimConversation"): void; (e: "openConversationList"): void; (e: "openSettings"): void;
   (e: "clearChatError"): void;
   (e: "refreshConversationAfterStorageRepair"): void;
@@ -1543,22 +1542,17 @@ function handleConversationQuestionSubmit(
   const payload = buildConversationQuestionAnswerPayload(answers);
   if (payload.length === 0) return;
   conversationQuestionSubmitting.value = true;
-  void invokeTauri<{ remaining: ConversationQuestionView[]; messageId: string; messageText: string }>("question_answer", {
+  void invokeTauri<{ remaining: ConversationQuestionView[]; messageText: string }>("question_answer", {
     conversationId,
     answers: payload,
   })
     .then((result) => {
       if (String(props.activeConversationId || "").trim() !== conversationId) return;
-      // 乐观插入：让这条答复立刻以本地草稿形态出现在列表里并走平滑对齐，
-      // 后端广播回来的权威消息会按 id 原地替换，不会产生第二条气泡。
-      if (result?.messageId) {
-        emit("questionAnswerInserted", {
-          conversationId,
-          messageId: result.messageId,
-          text: String(result.messageText || ""),
-        });
-      }
       applyConversationQuestionItems(result?.remaining, true);
+      // 答复不是「另一条发送通道」：后端只回拼好的正文，真正发出去走的是
+      // 用户发送的同一条路径（emit sendChat），由它统一生成消息与入队。
+      const text = String(result?.messageText || "");
+      if (text.trim()) emit("sendChat", { text });
     })
     .catch((error) => {
       console.error("[会话问题] 提交答复失败", error);
