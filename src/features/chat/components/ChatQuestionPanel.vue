@@ -63,6 +63,8 @@ const optionDrafts = ref<Record<string, string>>({});
 const optionInputEls = ref<Record<string, HTMLInputElement | null>>({});
 /** 「其他（自己写）」的虚拟 option id：只用于错误高亮，不参与任何选项匹配。 */
 const CUSTOM_ANSWER_OPTION_ID = "__custom__";
+/** 与后端 `QUESTION_CUSTOM_ANSWER_MAX_CHARS` 对齐：超出的答案后端会直接拒绝。 */
+const CUSTOM_ANSWER_MAX_CHARS = 1000;
 const customAnswerEditing = ref(false);
 const customAnswerDrafts = ref<Record<string, string>>({});
 const customAnswerInputEl = ref<HTMLInputElement | null>(null);
@@ -557,6 +559,7 @@ function handleReject() {
                 :ref="setCustomAnswerInputEl"
                 :value="getCustomAnswerDraft(currentItem!.id)"
                 type="text"
+                :maxlength="CUSTOM_ANSWER_MAX_CHARS"
                 :placeholder="t('chat.questionPanel.customAnswerPlaceholder')"
                 class="input input-bordered input-sm join-item min-w-0 flex-1 text-sm"
                 :class="shakeOptionId === CUSTOM_ANSWER_OPTION_ID ? 'input-error animate-[shake_0.42s_ease]' : ''"
