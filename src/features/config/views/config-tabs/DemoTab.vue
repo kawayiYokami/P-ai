@@ -1026,7 +1026,7 @@ const filteredAppIconNames = computed(() => {
   return keyword ? appIconNames.filter((name) => name.includes(keyword)) : appIconNames;
 });
 const demoLightThemes = ["light", "cupcake", "corporate", "lofi", "fantasy", "autumn"];
-const demoDarkThemes = ["dark", "halloween", "forest", "dracula", "business", "dim"];
+const demoDarkThemes = ["dark", "crimson", "forest", "dracula", "business", "dim"];
 const demoLightTokens = generateGeneratedThemeTokens(getGeneratedThemeDefaultControls("light"));
 const demoDarkTokens = generateGeneratedThemeTokens(getGeneratedThemeDefaultControls("dark"));
 

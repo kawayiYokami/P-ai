@@ -27,18 +27,18 @@ const LEGACY_THEME_STORAGE_KEY = "theme";
 const GENERATED_THEME_STYLE_ID = "easy-call-generated-theme-style";
 const LEGACY_DARK_THEME_NAMES = new Set<string>([
   "dark",
-  "halloween",
   "forest",
   "dracula",
   "business",
   "dim",
+  "crimson",
 ]);
 export const APP_THEMES = [
   "light",
   "dark",
+  "crimson",
   "cupcake",
   "corporate",
-  "halloween",
   "forest",
   "lofi",
   "fantasy",

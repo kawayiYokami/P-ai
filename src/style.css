@@ -83,7 +83,6 @@
     dark --prefersdark,
     cupcake,
     corporate,
-    halloween,
     forest,
     lofi,
     fantasy,
@@ -161,7 +160,42 @@
   --noise: 0;
 }
 
-/* 分割线两端淡出：靠近中间实，向外透明。mask 保留 DaisyUI 的颜色变量和彩色变体。 */
+/* 绯红：近黑冷紫底 + 单一强红做主角。
+   对齐深色主题的 base 顺序（100 最亮 → 300 最沉）：
+   base-100 #2D2D38 主面 → base-200 #1A1A21 次面 → base-300 #13131A 页面底，
+   neutral #393944 次级块。
+   主题色上的文字用白色：红底白字是这套配色的预期观感，深色字会显得脏。 */
+[data-theme="crimson"] {
+  color-scheme: dark;
+  --color-base-100: #2d2d38;
+  --color-base-200: #1a1a21;
+  --color-base-300: #13131a;
+  --color-base-content: #e6e6ed;
+  --color-primary: #fc3b56;
+  --color-primary-content: #ffffff;
+  --color-secondary: #46527a;
+  --color-secondary-content: #e8ebf5;
+  --color-accent: #f2b33d;
+  --color-accent-content: #1a1a21;
+  --color-neutral: #393944;
+  --color-neutral-content: #e6e6ed;
+  --color-info: #4c9bff;
+  --color-info-content: #10161f;
+  --color-success: #2ebd85;
+  --color-success-content: #10161f;
+  --color-warning: #f0b03c;
+  --color-warning-content: #10161f;
+  --color-error: #ff5c5c;
+  --color-error-content: #10161f;
+  --radius-selector: 1rem;
+  --radius-field: 1rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
 .divider {
   --divider-color: color-mix(in oklab, var(--color-base-content) 15%, transparent);
 }

@@ -59,7 +59,7 @@ export function isDarkShareTheme(themeName: string, colorScheme: string): boolea
   const theme = String(themeName || "").trim().toLowerCase();
   const scheme = String(colorScheme || "").trim().toLowerCase();
   return scheme.split(/\s+/).includes("dark")
-    || ["dark", "dracula", "business", "dim", "halloween", "forest"].includes(theme);
+    || ["dark", "dracula", "business", "dim", "crimson", "forest"].includes(theme);
 }
 
 function isDarkTheme(): boolean {
