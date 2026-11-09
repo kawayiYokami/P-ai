@@ -1002,6 +1002,7 @@ import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import { clearFileReaderContextCandidates } from "../utils/file-reader-context-tags";
 import {
   buildConversationQuestionAnswerPayload,
+  buildConversationQuestionAnswerText,
   buildConversationQuestionItems,
   pruneConversationQuestionAnswers,
   type ConversationQuestionAnswerMap,
@@ -1541,21 +1542,23 @@ function handleConversationQuestionSubmit(
   if (!conversationId || conversationQuestionSubmitting.value) return;
   const payload = buildConversationQuestionAnswerPayload(answers);
   if (payload.length === 0) return;
+  // 正文在前端拼好、消息立刻发出：不排在后端写操作的往返之后。
+  // 发出去的是一条普通用户消息，走的就是手打那条 sendChat 通道。
+  const text = buildConversationQuestionAnswerText(conversationQuestions.value, answers);
+  if (!text) return;
   conversationQuestionSubmitting.value = true;
-  void invokeTauri<{ remaining: ConversationQuestionView[]; messageText: string }>("question_answer", {
+  emit("sendChat", { text });
+  void invokeTauri<{ remaining: ConversationQuestionView[] }>("question_answer", {
     conversationId,
     answers: payload,
   })
     .then((result) => {
       if (String(props.activeConversationId || "").trim() !== conversationId) return;
       applyConversationQuestionItems(result?.remaining, true);
-      // 答复不是「另一条发送通道」：后端只回拼好的正文，真正发出去走的是
-      // 用户发送的同一条路径（emit sendChat），由它统一生成消息与入队。
-      const text = String(result?.messageText || "");
-      if (text.trim()) emit("sendChat", { text });
     })
     .catch((error) => {
-      console.error("[会话问题] 提交答复失败", error);
+      // 消息已经发出去了，这里只回滚「已答」这一侧：把题重新拉回来提示用户。
+      console.error("[会话问题] 标记已答失败", error);
       void loadConversationQuestions(conversationId);
     })
     .finally(() => {

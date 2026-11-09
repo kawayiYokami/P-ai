@@ -132,3 +132,52 @@ export function buildConversationQuestionAnswerPayload(
   }
   return payload;
 }
+
+/**
+ * 把已选的答复拼成一条用户消息的正文。
+ *
+ * 拼装放在前端、不放后端，是因为答复必须能立刻发出去：若等后端把文本回传过来，
+ * 发送就得排在一次会话写操作的往返之后。这里用的题干与选项都来自后端下发的视图，
+ * 与用户点的是同一份数据；后端仍然独立校验编号与选项下标，不信任这段文本。
+ *
+ * 题目按编号升序排列；非法或已不在列表里的答案直接跳过，全部非法时返回空串（不发送）。
+ */
+export function buildConversationQuestionAnswerText(
+  items: ConversationQuestionView[],
+  answers: Array<{ id: string; optionId: string; customText?: string }>,
+): string {
+  const byNumber = new Map<number, ConversationQuestionView>();
+  for (const item of Array.isArray(items) ? items : []) {
+    if (Number.isInteger(item?.number)) byNumber.set(item.number, item);
+  }
+  const blocks: Array<{ number: number; text: string }> = [];
+  // 空串不能当 0 号选项：`Number("")` 是 0，直接转会把「没选」误读成第一个选项。
+  const parseIndex = (raw: string | undefined): number => {
+    const text = String(raw ?? "").trim();
+    if (!text) return Number.NaN;
+    const value = Number(text);
+    return Number.isInteger(value) ? value : Number.NaN;
+  };
+  for (const answer of Array.isArray(answers) ? answers : []) {
+    const number = parseIndex(answer?.id);
+    if (!Number.isInteger(number)) continue;
+    const question = byNumber.get(number);
+    if (!question) continue;
+    const customText = String(answer.customText ?? "").trim();
+    let answerText = customText;
+    if (!answerText) {
+      const optionIndex = parseIndex(answer.optionId);
+      if (!Number.isInteger(optionIndex)) continue;
+      const label = question.options?.[optionIndex];
+      if (typeof label !== "string") continue;
+      answerText = label.trim();
+    }
+    if (!answerText) continue;
+    blocks.push({
+      number,
+      text: `【${String(question.title ?? "").trim()}】\n→ ${answerText}`,
+    });
+  }
+  blocks.sort((left, right) => left.number - right.number);
+  return blocks.map((block) => block.text).join("\n\n");
+}

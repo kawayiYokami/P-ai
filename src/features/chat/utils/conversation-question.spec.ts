@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildConversationQuestionAnswerPayload,
+  buildConversationQuestionAnswerText,
   buildConversationQuestionItems,
   conversationQuestionFingerprints,
   conversationQuestionsGotUpdates,
@@ -92,6 +93,46 @@ describe("buildConversationQuestionAnswerPayload", () => {
     expect(
       buildConversationQuestionAnswerPayload([{ id: "2", optionId: "0", customText: "   " }]),
     ).toEqual([{ number: 2, optionIndex: 0 }]);
+  });
+});
+
+describe("buildConversationQuestionAnswerText", () => {
+  const views = [
+    { number: 2, title: "用哪个分支？", options: ["main", "release"] },
+    { number: 5, title: "要不要现在发布？", options: ["现在发布", "再等等"] },
+  ];
+
+  it("按编号升序拼成一段用户消息正文", () => {
+    expect(
+      buildConversationQuestionAnswerText(views, [
+        { id: "5", optionId: "0" },
+        { id: "2", optionId: "1" },
+      ]),
+    ).toBe("【用哪个分支？】\n→ release\n\n【要不要现在发布？】\n→ 现在发布");
+  });
+
+  it("自己写的答案优先，并去掉首尾空白", () => {
+    expect(
+      buildConversationQuestionAnswerText(views, [
+        { id: "2", optionId: "0", customText: "  两个都不对，改成灰度发布  " },
+      ]),
+    ).toBe("【用哪个分支？】\n→ 两个都不对，改成灰度发布");
+  });
+
+  it("题目已不在列表、选项下标越界或整条非法时跳过，不拼半截", () => {
+    expect(
+      buildConversationQuestionAnswerText(views, [
+        { id: "9", optionId: "0" },
+        { id: "2", optionId: "7" },
+        { id: "abc", optionId: "0" },
+        { id: "5", optionId: "" },
+      ]),
+    ).toBe("");
+  });
+
+  it("一题都没有时返回空串：调用方据此不发消息", () => {
+    expect(buildConversationQuestionAnswerText([], [{ id: "1", optionId: "0" }])).toBe("");
+    expect(buildConversationQuestionAnswerText(views, [])).toBe("");
   });
 });
 

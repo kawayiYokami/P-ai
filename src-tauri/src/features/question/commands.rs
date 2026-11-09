@@ -19,9 +19,6 @@ struct QuestionAnswerInput {
 struct QuestionAnswerResult {
     answered_numbers: Vec<u32>,
     remaining: Vec<ConversationQuestionView>,
-    /// 按题目拼好的答复正文。前端拿它走正常发送通道发出去；
-    /// 后端不自己入队，避免绕开用户发送的那条唯一路径。
-    message_text: String,
 }
 
 /// Web/IDE 侧转发用的参数形状（jsonrpc 侧与桌面端命令同构）。
@@ -50,10 +47,10 @@ struct QuestionRejectWebParams {
     number: u32,
 }
 
-/// 一道题的答案来源：点给定选项换成下标，自己写就是一段文本。
+/// 一道题的答案来源：点给定选项要带下标去校验，自己写的只要长度校验过就算合法。
 enum QuestionAnswerChoice {
     Option(usize),
-    Custom(String),
+    Custom,
 }
 
 /// 把一条入参解释成答案来源。判定写死：给了选项 + 给了文本 → 歧义报错；
@@ -80,16 +77,17 @@ fn question_answer_choice_from_input(
                     answer.number, QUESTION_CUSTOM_ANSWER_MAX_CHARS
                 ));
             }
-            Ok(QuestionAnswerChoice::Custom(custom.to_string()))
+            Ok(QuestionAnswerChoice::Custom)
         }
     }
 }
 
-/// 答题作答：校验题目、拼出答复正文，再把已答的题从会话元数据里去掉。
+/// 答题作答：只校验答案合法，再把已答的题从会话元数据里去掉。
 ///
-/// 这里**不**入队任何消息：答复必须走用户发送的那一条唯一通道（前端 `sendChat`），
-/// 由它统一生成消息、乐观插入、入队、激活轮次。后端自己造一条 `ChatPendingEvent`
-/// 等于绕开那条通道另开一条旁路，前端还得靠 id 回灌草稿去对齐，属于生造通道。
+/// 这里**不**产生消息：既不入队，也不拼答复正文。答复是一条用户消息，
+/// 它的唯一产生路径是前端 `sendChat`（生成消息、乐观插入、入队、激活轮次）；
+/// 后端自己造一条 `ChatPendingEvent` 就是绕开那条通道另开旁路，
+/// 而替前端拼正文则会把发送卡在这次写操作的往返之后，两样都不做。
 ///
 /// 顺序是「先删题、后交回正文」：删题与校验落在同一个写入门里，两次并发提交不会
 /// 拿同一份快照把同一道题答两遍；回给前端的正文由前端立刻发出。
@@ -136,29 +134,24 @@ fn question_answer_locked(
     }
     wanted.sort_by_key(|(number, _)| *number);
 
-    let mut blocks = Vec::with_capacity(wanted.len());
+    // 只校验、不拼文本：答复正文由前端按同一份视图自己拼好再发，
+    // 这样发送不必等这次写操作返回。
     for (number, choice) in &wanted {
         let question = meta
             .questions
             .iter()
             .find(|entry| entry.number == *number)
             .ok_or_else(|| format!("#{number} 不存在（可能已被回答或清理）"))?;
-        let answer_text = match choice {
-            QuestionAnswerChoice::Option(option_index) => {
-                let label = question.options.get(*option_index).ok_or_else(|| {
-                    format!(
-                        "#{number} 没有第 {} 个选项（共 {} 个）",
-                        option_index + 1,
-                        question.options.len()
-                    )
-                })?;
-                label.trim().to_string()
+        if let QuestionAnswerChoice::Option(option_index) = choice {
+            if question.options.get(*option_index).is_none() {
+                return Err(format!(
+                    "#{number} 没有第 {} 个选项（共 {} 个）",
+                    option_index + 1,
+                    question.options.len()
+                ));
             }
-            QuestionAnswerChoice::Custom(text) => text.clone(),
-        };
-        blocks.push(format!("【{}】\n→ {}", question.title.trim(), answer_text));
+        }
     }
-    let message_text = blocks.join("\n\n");
     let answered_numbers = wanted.iter().map(|(number, _)| *number).collect::<Vec<_>>();
 
     let mut remaining: Vec<ConversationQuestionView> = Vec::new();
@@ -174,7 +167,6 @@ fn question_answer_locked(
     Ok(QuestionAnswerResult {
         answered_numbers,
         remaining,
-        message_text,
     })
 }
 

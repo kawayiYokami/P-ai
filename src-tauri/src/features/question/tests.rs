@@ -586,12 +586,6 @@
                 .expect("answer question");
         assert_eq!(result.answered_numbers, vec![1]);
         assert!(result.remaining.is_empty(), "答完必须从列表消失");
-        assert!(
-            result.message_text.contains("【要不要现在发布？】"),
-            "{}",
-            result.message_text
-        );
-        assert!(result.message_text.contains("→ 现在发布"), "{}", result.message_text);
 
         assert_eq!(
             question_test_pending_queue_len(&state, "conv-main"),
@@ -649,7 +643,7 @@
     }
 
     #[test]
-    fn question_answer_should_build_blocks_in_ascending_number_order() {
+    fn question_answer_should_sort_answered_numbers_ascending() {
         let state = question_test_state();
         question_test_answerable_conversation(&state, "conv-main");
         question_apply_tool_mutations(
@@ -669,13 +663,12 @@
         )
         .expect("answer both");
         assert_eq!(result.answered_numbers, vec![1, 2], "多题按编号升序答复");
-
-        let first = result.message_text.find("【题一】").expect("block 1");
-        let second = result.message_text.find("【题二】").expect("block 2");
-        assert!(first < second, "正文顺序必须是 #1 在 #2 之前");
-        assert!(result.message_text.contains("→ A1"), "{}", result.message_text);
-        assert!(result.message_text.contains("→ B2"), "{}", result.message_text);
         assert!(result.remaining.is_empty());
+        assert_eq!(
+            question_test_pending_queue_len(&state, "conv-main"),
+            0,
+            "多题一次提交也不允许入队消息"
+        );
     }
 
     #[test]
@@ -753,7 +746,7 @@
     }
 
     #[test]
-    fn question_answer_should_return_one_text_per_submit() {
+    fn question_answer_should_mark_only_submitted_numbers_per_submit() {
         let state = question_test_state();
         question_test_answerable_conversation(&state, "conv-main");
         question_apply_tool_mutations(
@@ -771,10 +764,11 @@
         let second = question_answer_inner(&state, "conv-main", vec![question_test_answer(2, 0)])
             .expect("answer second");
 
-        // 逐题提交就是逐条正文，不是攒成一包；每次都由前端各自发一次。
-        assert!(first.message_text.contains("【题一】"), "{}", first.message_text);
-        assert!(!first.message_text.contains("【题二】"), "{}", first.message_text);
-        assert!(second.message_text.contains("【题二】"), "{}", second.message_text);
+        // 逐次提交只标记自己那几题，剩下的仍留在面板上。
+        assert_eq!(first.answered_numbers, vec![1]);
+        assert_eq!(first.remaining.len(), 1, "答掉 #1 之后 #2 还在");
+        assert_eq!(second.answered_numbers, vec![2]);
+        assert!(second.remaining.is_empty());
         assert_eq!(
             question_test_pending_queue_len(&state, "conv-main"),
             0,
@@ -810,17 +804,12 @@
             vec![2],
             "没选的题不能被一起删掉"
         );
-        assert!(
-            first.message_text.contains("【题一】") && first.message_text.contains("【题三】"),
-            "{}",
-            first.message_text
-        );
 
         // 第二轮：把剩下的 #2 发出去。
         let second = question_answer_inner(&state, "conv-main", vec![question_test_answer(2, 0)])
             .expect("send remaining");
+        assert_eq!(second.answered_numbers, vec![2]);
         assert!(second.remaining.is_empty());
-        assert!(second.message_text.contains("【题二】"), "{}", second.message_text);
         assert_eq!(
             question_test_pending_queue_len(&state, "conv-main"),
             0,
@@ -840,7 +829,7 @@
     // ==================== 自定义答案：走同一条答题链路 ====================
 
     #[test]
-    fn question_answer_should_carry_custom_text_into_message() {
+    fn question_answer_should_accept_custom_text_and_remove_question() {
         let state = question_test_state();
         question_test_answerable_conversation(&state, "conv-main");
         question_apply_tool_mutations(
@@ -861,22 +850,6 @@
         .expect("answer with custom text");
 
         assert_eq!(result.answered_numbers, vec![2]);
-        assert!(
-            result.message_text.contains("【用哪个分支？】"),
-            "{}",
-            result.message_text
-        );
-        assert!(
-            result.message_text.contains("→ 两个都不对，改成灰度发布"),
-            "正文必须带用户自己写的那段，且去掉首尾空白：{}",
-            result.message_text
-        );
-        assert!(
-            !result.message_text.contains("→ main"),
-            "自己写答案不能混进给定选项：{}",
-            result.message_text
-        );
-
         assert_eq!(
             question_test_numbers(&result.remaining),
             vec![1],
