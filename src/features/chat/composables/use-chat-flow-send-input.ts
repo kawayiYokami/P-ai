@@ -81,7 +81,9 @@ export function useChatFlowSendInput(options: UseChatFlowSendInputOptions) {
       ? String(overrides.text || "").trim()
       : options.chatInput.value.trim();
     const queuedAttachments = useOverrideMessage ? [] : options.buildQueuedAttachmentPayload();
-    const selectedMentions = normalizeSelectedMentions();
+    // override 是一次「代发」：它只该发出被指定的正文，输入框里的 @提及 属于用户
+    // 正在写的那句话，一并带出去会让模型以为用户在呼叫别人。
+    const selectedMentions = useOverrideMessage ? [] : normalizeSelectedMentions();
     const extraTextBlocks = (Array.isArray(overrides?.extraTextBlocks) ? overrides.extraTextBlocks : [])
       .filter((item) => !!String(item || "").trim());
     const sentImages = useOverrideMessage ? [] : [...options.clipboardImages.value];

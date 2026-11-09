@@ -47,7 +47,8 @@ describe("useChatFlowSendInput", () => {
     expect(prepared?.sentImages).toHaveLength(1);
   });
 
-  it("adds an attachment metadata fallback for image payloads that only have savedPath", () => {    const queuedAttachmentNotices = ref<Array<{ id: string; fileName: string; path: string; mime: string }>>([]);
+  it("adds an attachment metadata fallback for image payloads that only have savedPath", () => {
+    const queuedAttachmentNotices = ref<Array<{ id: string; fileName: string; path: string; mime: string }>>([]);
     const clipboardImages = ref([
       {
         mime: "image/png",
@@ -119,6 +120,7 @@ describe("useChatFlowSendInput", () => {
     expect(prepared?.plainText).toBe("【题一】\n→ A1");
     expect(prepared?.attachments).toEqual([]);
     expect(prepared?.sentImages).toEqual([]);
+    expect(prepared?.selectedMentions).toEqual([]);
 
     sendInput.applyPreparedSendInput(prepared!);
 
