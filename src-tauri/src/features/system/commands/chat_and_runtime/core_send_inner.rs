@@ -206,7 +206,10 @@ fn restart_dispatch_round_after_context_compaction(
     conversation_id: &str,
     agent_id: &str,
     dispatch_reason: &str,
+    chat_key: &str,
 ) -> Result<String, String> {
+    // 刷新句柄身份时要核对的「当前身份」，是压缩重启之前的这一套。
+    let previous_request_id = runtime_context.request_id.clone().unwrap_or_default();
     let request_id = format!("chat-{}", Uuid::new_v4());
     let dispatch_id = Uuid::new_v4().to_string();
     runtime_context.request_id = Some(request_id.clone());
@@ -245,6 +248,20 @@ fn restart_dispatch_round_after_context_compaction(
         stream_started_at.as_str(),
         stream_started_at_ms,
     )?;
+    // 身份必须在把新一轮开始事件发出去之前就刷新：前端一收到新 id 就会拿它来停止。
+    // 刷新失败不升级成整轮失败：宁可这一轮停不住，也不能让回答因此中断。
+    if let Err(err) = refresh_inflight_chat_dispatch_identity(
+        state,
+        chat_key,
+        previous_request_id.as_str(),
+        request_id.as_str(),
+        assistant_message_id.as_str(),
+    ) {
+        runtime_log_error(format!(
+            "[聊天] 压缩重启后刷新打断句柄失败 session={} err={}",
+            chat_key, err
+        ));
+    }
     let activation_reason = resolve_activation_reason(runtime_context);
     emit_round_started_event(
         state,
@@ -2086,6 +2103,7 @@ async fn send_chat_message_inner(
                         &conversation_for_compaction.id,
                         &current_agent_id_for_compaction,
                         "after_auto_compaction",
+                        &chat_session_key,
                     )?;
                     preloaded_prepare_snapshot = None;
                     persist_user_message_on_next_prepare = false;
@@ -2207,6 +2225,7 @@ async fn send_chat_message_inner(
                         &conversation_for_compaction.id,
                         &current_agent_id_for_compaction,
                         "after_auto_compaction",
+                        &chat_session_key,
                     )?;
                     preloaded_prepare_snapshot = None;
                     persist_user_message_on_next_prepare = false;
@@ -2381,6 +2400,7 @@ async fn send_chat_message_inner(
                     &conversation_id,
                     &current_agent.id,
                     "after_tool_continue_compaction",
+                    &chat_session_key,
                 )?;
                 preloaded_prepare_snapshot = None;
                 persist_user_message_on_next_prepare = false;
@@ -3141,11 +3161,8 @@ async fn send_chat_message_inner(
             .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
         // 只摘掉属于自己的那一条：同一 key 上可能已经被更晚的一次调度接手，
         // 按 key 无脑删除会把别人的句柄一起摘掉，后面就再也停不掉那一轮了。
-        let is_ours = matches!(
-            inflight.get(&chat_key),
-            Some(InflightChatAbortEntry::Running { request_id, .. })
-                if request_id.trim() == trace_id.trim()
-        );
+        // 认自己的条目：本轮用过的任一身份（含压缩重启前的旧号）都算自己。
+        let is_ours = inflight_entry_is_ours(inflight.get(&chat_key), &trace_id);
         if is_ours {
             inflight.remove(&chat_key);
         }

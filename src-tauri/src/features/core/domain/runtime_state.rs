@@ -36,6 +36,15 @@ struct IdeContextSnapshot {
 /// - `Running`：轮次已宣布并在跑，持有可中止其生成协程的句柄；
 /// - `CancelRequested`：这一次提交还在启动途中（句柄未登记），停止落在它的请求号上；
 ///   登记句柄时按请求号精确消费一次，被消费或本轮收尾即消失，绝不跨轮次存活。
+/// 一次调度用过的身份（请求号 + 助理消息 id）。
+///
+/// 上下文压缩重启会让同一轮换一套新身份，旧的一套留在 `retired_identities` 里继续可命中。
+#[derive(Debug, Clone)]
+struct RetiredDispatchIdentity {
+    request_id: String,
+    assistant_message_id: String,
+}
+
 #[derive(Debug)]
 enum InflightChatAbortEntry {
     /// 轮次已开始，持有可中止其生成协程的句柄，并记下它属于哪个调度。
@@ -45,6 +54,13 @@ enum InflightChatAbortEntry {
         request_id: String,
         /// 本轮正在写的助理消息 id。
         assistant_message_id: String,
+        /// 本轮此前用过的身份，最新一版在 `request_id` / `assistant_message_id` 上。
+        ///
+        /// 上下文压缩重启会换一套新身份，但前端未必采纳：压缩边界的完成事件只走单发通道，
+        /// Web / VS Code 收不到，于是该端会丢弃新的轮次开始事件、继续持有旧身份。
+        /// 旧身份仍代表同一轮，必须继续能停住它，所以这里累积而不覆盖。
+        /// 只在一轮内累积，下一轮重新登记时清空。
+        retired_identities: Vec<RetiredDispatchIdentity>,
     },
     /// 这一次提交在轮次启动途中被停止：只认这个请求号，别的调度撞不上。
     CancelRequested {

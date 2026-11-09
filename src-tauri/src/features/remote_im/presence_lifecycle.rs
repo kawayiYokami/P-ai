@@ -270,6 +270,8 @@ fn spawn_remote_im_departure_reflection_delegate(
                 // 离场反思委托不是用户能停止的对象：不带身份，只供内部按 key 打断。
                 request_id: String::new(),
                 assistant_message_id: String::new(),
+                // 内部委托不会触发压缩重启，没有历史身份。
+                retired_identities: Vec::new(),
             },
         );
     tauri::async_runtime::spawn(async move {

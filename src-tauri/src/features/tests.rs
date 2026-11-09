@@ -139,6 +139,7 @@
                         handle: new_inflight_abort_handle(),
                         request_id: "req-stop-latency".to_string(),
                         assistant_message_id: "assistant-stop-latency".to_string(),
+                        retired_identities: Vec::new(),
                     },
                 );
             state
@@ -332,6 +333,130 @@
             .lock()
             .expect("lock inflight chat abort handles");
         assert!(inflight.get(chat_key).is_none(), "停止之后不得留下任何残留");
+    }
+
+    #[test]
+    fn request_stop_inflight_chat_hits_after_compaction_restart() {
+        // 压缩重启会换用新的请求号与助理消息 id，但继续跑在同一次 run 里、句柄不变。
+        // 前端采纳新身份后点停止，必须命中同一个句柄。
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+        let handle = new_inflight_abort_handle();
+        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+            .expect("register");
+
+        refresh_inflight_chat_dispatch_identity(&state, chat_key, "req-1", "req-2", "assistant-2")
+            .expect("refresh identity");
+
+        assert!(
+            request_stop_inflight_chat(&state, chat_key, &stop_identity("req-2", "assistant-2"))
+                .expect("stop with new identity"),
+            "压缩重启后的新身份必须能停住这一轮"
+        );
+        assert!(handle.is_aborted(), "新身份命中后应立即中止");
+        let inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .expect("lock inflight chat abort handles");
+        assert!(inflight.get(chat_key).is_none(), "停止之后不得留下任何残留");
+    }
+
+    #[test]
+    fn request_stop_inflight_chat_still_hits_with_retired_identity() {
+        // 压缩边界的完成事件只走单发通道，Web / VS Code 收不到，那一端会丢弃新的轮次开始
+        // 事件、一直持有压缩前的旧身份。旧号必须继续能停住同一轮，否则 Web 端会从
+        // 「能停」退化成「不能停」。
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+        let handle = new_inflight_abort_handle();
+        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+            .expect("register");
+        refresh_inflight_chat_dispatch_identity(&state, chat_key, "req-1", "req-2", "assistant-2")
+            .expect("refresh identity");
+
+        assert!(
+            request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", "assistant-1"))
+                .expect("stop with retired identity"),
+            "压缩前的旧身份仍代表同一轮，必须能停住"
+        );
+        assert!(handle.is_aborted(), "旧身份命中后也应立即中止");
+    }
+
+    #[test]
+    fn refresh_inflight_chat_dispatch_identity_skips_entry_taken_over() {
+        // 同一 key 上可能已被更晚一次调度接手：它不是我们的条目，不得改写其身份，
+        // 否则那个调度按自己的号就停不掉了。
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+        let handle = new_inflight_abort_handle();
+        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-2", "assistant-2")
+            .expect("register");
+
+        // 本轮以为表内还是 req-1，实际已是 req-2：应跳过改写。
+        refresh_inflight_chat_dispatch_identity(&state, chat_key, "req-1", "req-3", "assistant-3")
+            .expect("refresh identity");
+
+        let inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .expect("lock inflight chat abort handles");
+        assert!(matches!(
+            inflight.get(chat_key),
+            Some(InflightChatAbortEntry::Running { request_id, retired_identities, .. })
+                if request_id == "req-2" && retired_identities.is_empty()
+        ));
+    }
+
+    #[test]
+    fn inflight_entry_is_ours_accepts_retired_identity() {
+        // 收尾清理按本轮用过的任一身份认领自己；只比最初那个 trace_id 会留下残留表项，
+        // 而残留的 Running 会让下一轮提交期的停止撞上它并对不上。
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+        let handle = new_inflight_abort_handle();
+        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+            .expect("register");
+        refresh_inflight_chat_dispatch_identity(&state, chat_key, "req-1", "req-2", "assistant-2")
+            .expect("refresh identity");
+
+        let inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .expect("lock inflight chat abort handles");
+        assert!(
+            inflight_entry_is_ours(inflight.get(chat_key), "req-1"),
+            "压缩重启前的旧号必须仍能把这一轮认成自己的"
+        );
+        assert!(
+            inflight_entry_is_ours(inflight.get(chat_key), "req-2"),
+            "新号同样认得出来"
+        );
+        assert!(
+            !inflight_entry_is_ours(inflight.get(chat_key), "req-other"),
+            "别的轮次不得被认成自己"
+        );
+    }
+
+    #[test]
+    fn refresh_inflight_chat_dispatch_identity_leaves_cancel_request_untouched() {
+        // 刷新只针对已登记的运行轮次；挂着的「提交期取消」标记不属于任何一轮，不能被它改掉。
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+        let mut identity = stop_identity("req-pending", "");
+        identity.assistant_message_id.clear();
+        request_stop_inflight_chat(&state, chat_key, &identity).expect("record cancel request");
+
+        refresh_inflight_chat_dispatch_identity(&state, chat_key, "req-new", "req-newer", "assistant-newer")
+            .expect("refresh identity");
+
+        let inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .expect("lock inflight chat abort handles");
+        assert!(matches!(
+            inflight.get(chat_key),
+            Some(InflightChatAbortEntry::CancelRequested { request_id }) if request_id == "req-pending"
+        ));
     }
 
     #[test]

@@ -71,6 +71,8 @@ fn register_inflight_chat_abort_handle(
             handle,
             request_id: request_id.trim().to_string(),
             assistant_message_id: assistant_message_id.trim().to_string(),
+            // 新一轮从干净身份开始：上一轮的身份不继承，避免误伤。
+            retired_identities: Vec::new(),
         },
     ) {
         if let InflightChatAbortEntry::Running { handle, .. } = previous {
@@ -78,6 +80,82 @@ fn register_inflight_chat_abort_handle(
         }
     }
     Ok(false)
+}
+
+/// 上下文压缩后调度换新身份时，把旧身份收进历史、换成新身份。
+///
+/// 压缩重启在同一次 run 内继续跑：abort 句柄还是同一个，但请求号与助理消息 id 都换了新的。
+/// 句柄表若不跟着换，之后前端拿新身份来停止就会比对失败；但也不能只留新身份——
+/// 压缩边界的完成事件只走单发通道，Web / VS Code 收不到，那一端会丢弃新的轮次开始事件、
+/// 继续持有旧身份，只认新身份就会让那一端从「能停」退化成「不能停」。
+/// 所以旧身份推进 `retired_identities` 继续可命中，新身份成为当前身份。
+///
+/// 这里不动 handle：重新登记会把这一轮自己 abort 掉。
+/// `expected_request_id` 是调用方认为的当前身份，只有表内仍是它时才改写，
+/// 避免覆盖掉已经被更晚一次调度接手的条目。
+fn refresh_inflight_chat_dispatch_identity(
+    state: &AppState,
+    chat_key: &str,
+    expected_request_id: &str,
+    request_id: &str,
+    assistant_message_id: &str,
+) -> Result<(), String> {
+    let mut inflight = state
+        .inflight_chat_abort_handles
+        .lock()
+        .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
+    let Some(InflightChatAbortEntry::Running {
+        request_id: registered_request_id,
+        assistant_message_id: registered_message_id,
+        retired_identities,
+        ..
+    }) = inflight.get_mut(chat_key)
+    else {
+        // 压缩重启途中这一轮已被停掉（表项没了或只剩取消标记）：没有可更新的句柄。
+        runtime_log_warn(format!(
+            "[聊天] 压缩重启后刷新打断句柄落空 session={} expected_request_id={} 原因=表内无运行中轮次",
+            chat_key,
+            expected_request_id.trim()
+        ));
+        return Ok(());
+    };
+    if registered_request_id.trim() != expected_request_id.trim() {
+        // 已被更晚的一次调度接手：不是我们的条目，不碰。
+        runtime_log_warn(format!(
+            "[聊天] 压缩重启后刷新打断句柄跳过 session={} 原因=条目已被其他调度接手 expected={} actual={}",
+            chat_key,
+            expected_request_id.trim(),
+            registered_request_id.trim()
+        ));
+        return Ok(());
+    }
+    retired_identities.push(RetiredDispatchIdentity {
+        request_id: registered_request_id.trim().to_string(),
+        assistant_message_id: registered_message_id.trim().to_string(),
+    });
+    *registered_request_id = request_id.trim().to_string();
+    *registered_message_id = assistant_message_id.trim().to_string();
+    Ok(())
+}
+
+/// 表里这一条是否属于本轮。
+///
+/// 按本轮用过的**任一**身份认领：压缩重启会换号，旧号收在 `retired_identities` 里。
+/// 只比最初那个 trace_id 会把重启过的这一轮认成别人，条目就永远摘不掉——
+/// 残留的 `Running` 会让下一轮提交期的停止撞上它并对不上，等于又把停止废掉一次。
+fn inflight_entry_is_ours(entry: Option<&InflightChatAbortEntry>, trace_id: &str) -> bool {
+    let Some(InflightChatAbortEntry::Running {
+        request_id,
+        retired_identities,
+        ..
+    }) = entry
+    else {
+        return false;
+    };
+    request_id.trim() == trace_id.trim()
+        || retired_identities
+            .iter()
+            .any(|retired| retired.request_id.trim() == trace_id.trim())
 }
 
 /// 对指定会话发起停止：只终止身份对得上的那个调度。
@@ -101,8 +179,14 @@ fn request_stop_inflight_chat(
             handle,
             request_id,
             assistant_message_id,
+            retired_identities,
         }) => {
-            if identity.matches_running(&request_id, &assistant_message_id) {
+            // 当前身份与历史身份同等有效：压缩重启换过号的轮次，新旧两个号指的都是同一轮。
+            let hit = identity.matches_running(&request_id, &assistant_message_id)
+                || retired_identities.iter().any(|retired| {
+                    identity.matches_running(&retired.request_id, &retired.assistant_message_id)
+                });
+            if hit {
                 handle.abort();
                 Ok(true)
             } else {
@@ -113,6 +197,7 @@ fn request_stop_inflight_chat(
                         handle,
                         request_id,
                         assistant_message_id,
+                        retired_identities,
                     },
                 );
                 Ok(false)
