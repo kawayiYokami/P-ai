@@ -3420,12 +3420,31 @@ async function openHtmlInRightPanel(request: ChatHtmlReaderRequest) {
   await panel.openHtmlInReader({ code, title: request?.title });
 }
 
+/**
+ * 本地 html 文件（`<agent-embed src="...">`）送到右栏：按路径打开，不走内存标签。
+ * 面板会按 `kind === 'html'` 走沙箱预览，源码/预览切换是它本来就有的能力。
+ */
+async function openFileInRightPanel(path: string) {
+  const target = String(path ?? "").trim();
+  if (!target) return;
+  selectChatRightPanelMode("reader");
+  await nextTick();
+  await nextTick();
+  const panel = chatReaderPanelRef.value;
+  if (!panel) return;
+  await panel.whenSessionRestored?.();
+  await panel.openPath(target);
+}
+
 // 顶层下发「把这段 html 送到右栏」：四层链路（ChatMessageItem → AppMarkdownRenderer → CodeBlock
 // → InteractiveHtmlSandbox）逐层传 props 会让后续每加一个入口都要再穿一遍，只走 provide/inject。
 // label 用 getter 读 i18n，切换语言时卡片上的按钮文案跟着变。
 provide(CHAT_HTML_READER_KEY, {
   get label() { return t("chat.openInRightPanel"); },
   open: (request) => { void openHtmlInRightPanel(request); },
+  // `<agent-embed src="E:/...">` 是真实磁盘文件：不塞内存标签，直接让右栏按路径打开，
+  // 文件路径、面包屑、源码/预览切换都还在
+  openFile: (path) => { void openFileInRightPanel(path); },
 });
 
 /** 主页 Git 卡的「查看剩余 N 个文件」：切到阅读器面板并打开 Git 更改列表 */

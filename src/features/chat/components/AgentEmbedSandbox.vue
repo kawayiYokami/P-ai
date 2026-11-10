@@ -4,6 +4,8 @@
     :code="loadedCode"
     :is-dark="isDark"
     :title-text="displayName"
+    :open-in-reader-title="openInReaderTitle"
+    @open-in-reader="handleOpenInReader"
   />
   <div v-else-if="loadError" class="ecall-agent-embed-fallback">
     <div class="ecall-agent-embed-fallback-text">
@@ -18,10 +20,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, inject, ref, watch } from "vue";
 import InteractiveHtmlSandbox from "./InteractiveHtmlSandbox.vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link";
+import { CHAT_HTML_READER_KEY } from "../utils/chat-html-reader";
 import type { FileReaderFileBlockPayload, FileReaderFilePayload } from "../../file-reader/types";
 
 const EMBED_MAX_CHARS = 512 * 1024;
@@ -41,6 +44,19 @@ const loadedCode = ref("");
 const loadError = ref("");
 let loadSeq = 0;
 
+// 「在右栏打开」由 ChatView 顶层提供，右栏自己渲染时拿不到（面板已 provide null），
+// 那种场合标题为空、按钮自动不出现——与 ```html:interactive 代码块同一条判据。
+const chatHtmlReader = inject(CHAT_HTML_READER_KEY, null);
+const openInReaderTitle = computed(() => chatHtmlReader?.label || "");
+/** 已经校验过的绝对路径：打开右栏时直接用它，不再从原始 src 重新拼 */
+const loadedPath = ref("");
+
+function handleOpenInReader(): void {
+  const path = loadedPath.value;
+  if (!path) return;
+  chatHtmlReader?.openFile(path);
+}
+
 const rawSrc = computed(() => String(props.src || "").trim());
 
 const displayName = computed(() => {
@@ -53,6 +69,7 @@ async function load() {
   const seq = ++loadSeq;
   loadedCode.value = "";
   loadError.value = "";
+  loadedPath.value = "";
 
   const src = rawSrc.value;
   if (!src) {
@@ -97,6 +114,8 @@ async function load() {
       return;
     }
     loadedCode.value = content.length > EMBED_MAX_CHARS ? content.slice(0, EMBED_MAX_CHARS) : content;
+    // 与实际渲染的内容同批落定：卡片能显示时，这个路径就是它正在显示的那个文件
+    loadedPath.value = path;
   } catch (error) {
     if (seq !== loadSeq) return;
     loadError.value = error instanceof Error ? error.message : String(error);

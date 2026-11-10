@@ -20,6 +20,14 @@ export type ChatHtmlReader = {
   /** 按钮文案，由顶层统一取一次，避免四层各自取 i18n */
   label: string;
   open: (request: ChatHtmlReaderRequest) => void;
+  /**
+   * 打开磁盘上的真实文件（`<agent-embed src="...">` 这条路径用）。
+   *
+   * 与 `open` 的区别：`open` 收的是内存里的 html 源码、落成 `chat-html:` 伪标签；
+   * 这里是一个真实存在的本地文件，塞内存会丢掉文件路径、面包屑与源码切换，
+   * 所以直接交给右栏按路径打开，右栏按 `kind === 'html'` 自然走沙箱预览。
+   */
+  openFile: (path: string) => void;
 };
 
 export const CHAT_HTML_READER_KEY: InjectionKey<ChatHtmlReader | null> = Symbol("pai:chat-html-reader");

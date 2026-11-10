@@ -147,7 +147,7 @@ function readerButtonCount(html: string): number {
 describe("交互组件卡片「在右栏打开」入口", () => {
   it("聊天侧提供能力时，工具栏在原有按钮之外多出一个入口", async () => {
     const html = await renderMarkdownWithHtmlReader(INTERACTIVE_HTML, {
-      reader: { label: READER_LABEL, open: () => {} },
+      reader: { label: READER_LABEL, open: () => {}, openFile: () => {} },
     });
     // 原有按钮照旧
     expect(html).toContain("title=\"导出为 HTML\"");
@@ -166,7 +166,7 @@ describe("交互组件卡片「在右栏打开」入口", () => {
   it("流式期间还是骨架卡，不给入口", async () => {
     const html = await renderMarkdownWithHtmlReader(INTERACTIVE_HTML, {
       streaming: true,
-      reader: { label: READER_LABEL, open: () => {} },
+      reader: { label: READER_LABEL, open: () => {}, openFile: () => {} },
     });
     expect(html).toContain("正在编写交互组件");
     expect(html).not.toContain("ecall-sandbox-card");
