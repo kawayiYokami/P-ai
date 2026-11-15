@@ -111,8 +111,13 @@
               v-if="showActivityPanel(block) && activityPanelOpen(block)"
               class="px-0 pb-1 text-xs text-base-content"
             >
-              <div class="flex flex-col" data-activity-panel-box>
+              <!-- 按钮锚在这块盒子底部（absolute），不再 sticky 到外层滚动容器：
+                   流式期间盒子高度、贴底滚动、虚拟列表每帧都在变，sticky 的参照每帧重算，按钮就跟着跳。
+                   盒子加 relative 提供定位参照；`span` 里的变量既给时间线留出按钮高度的底部留白，
+                   也保证「留白 = 按钮实际高」只有一个数字。 -->
+              <div class="relative flex flex-col [--ecall-activity-collapse-h:2rem]" data-activity-panel-box>
                 <ActivityTimeline
+                  class="pb-[var(--ecall-activity-collapse-h)]"
                   :items="presentedActivityItems"
                   :dark="markdownIsDark"
                   :state="activityTimelineState"
@@ -125,7 +130,7 @@
                 />
                 <button
                   type="button"
-                  class="btn btn-sm mt-2 sticky bottom-0 z-10 w-full border border-base-content/15 bg-base-100 shadow-xs text-base-content/70 hover:bg-base-200 hover:text-base-content hover:border-base-content/25 transition-colors"
+                  class="btn btn-sm absolute inset-x-0 bottom-0 z-10 w-full border border-base-content/15 bg-base-100 shadow-xs text-base-content/70 hover:bg-base-200 hover:text-base-content hover:border-base-content/25 transition-colors"
                   data-selection-ignore="true"
                   @pointerdown.stop.prevent="closeActivityDetails(true)"
                   @click.stop
