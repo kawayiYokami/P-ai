@@ -63,7 +63,6 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
     let usage = base_usage;
     let (decision, decision_source) = decide_archive_before_send_from_usage(
         &usage,
-        source.last_user_at.as_deref(),
         archive_pipeline_has_assistant_reply(&source),
         conversation_current_segment_is_compaction_summary_only(&source),
     );

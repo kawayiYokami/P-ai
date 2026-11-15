@@ -142,7 +142,8 @@ async fn apply_compaction_preserved_gate_after_tool_round(
     let group_tokens = preserved.token_usage();
     let context_window = selected_api.context_window_tokens.max(1);
     let should_compact =
-        (current_tokens as f64 + group_tokens as f64) / f64::from(context_window) >= 0.82;
+        (current_tokens as f64 + group_tokens as f64) / f64::from(context_window)
+            >= FORCE_CONTEXT_USAGE_RATIO;
     runtime_log_info(format!(
         "[聊天] 工具执行完即时闸门 session={} should_compact={} current_tokens={} group_tokens={} context_window={}",
         chat_session_key,

@@ -1448,11 +1448,12 @@ fn truncate_text_to_token_limit(text: &str, token_limit: usize) -> String {
     text[..end].to_string()
 }
 
-fn build_archive_decision_from_usage_ratio(
-    usage_ratio: f64,
-    _last_user_at: Option<&str>,
-    has_assistant_reply: bool,
-) -> ArchiveDecision {
+/// 上下文压缩触发阈值：占模型上下文窗口的比例，与 codex 的 auto_compact_token_limit 对齐。
+/// 真实 usage 与估算 usage 共用这一个阈值；两者的区别由 `PromptUsageResolution.source` 承载，
+/// 不再各走一套阈值、各出一个 reason。
+pub(crate) const FORCE_CONTEXT_USAGE_RATIO: f64 = 0.90;
+
+fn build_archive_decision(usage_ratio: f64, has_assistant_reply: bool) -> ArchiveDecision {
     if !has_assistant_reply {
         return ArchiveDecision {
             should_archive: false,
@@ -1461,11 +1462,11 @@ fn build_archive_decision_from_usage_ratio(
             usage_ratio,
         };
     }
-    if usage_ratio >= 0.82 {
+    if usage_ratio >= FORCE_CONTEXT_USAGE_RATIO {
         return ArchiveDecision {
             should_archive: true,
             forced: true,
-            reason: "force_context_usage_82".to_string(),
+            reason: "force_context_usage_90".to_string(),
             usage_ratio,
         };
     }
@@ -1478,46 +1479,15 @@ fn build_archive_decision_from_usage_ratio(
     }
 }
 
-fn build_archive_decision_from_estimated_usage_ratio(
-    usage_ratio: f64,
-    _last_user_at: Option<&str>,
-    has_assistant_reply: bool,
-) -> ArchiveDecision {
-    if !has_assistant_reply {
-        return ArchiveDecision {
-            should_archive: false,
-            forced: false,
-            reason: "no_assistant_reply".to_string(),
-            usage_ratio,
-        };
-    }
-    if usage_ratio >= 0.95 {
-        return ArchiveDecision {
-            should_archive: true,
-            forced: true,
-            reason: "force_estimated_context_usage_95".to_string(),
-            usage_ratio,
-        };
-    }
-
-    ArchiveDecision {
-        should_archive: false,
-        forced: false,
-        reason: "estimated_context_usage_below_force_threshold".to_string(),
-        usage_ratio,
-    }
-}
-
 #[cfg(test)]
 fn decide_archive_before_model_request(
     estimated_prompt_tokens: u64,
     context_window_tokens: u32,
-    last_user_at: Option<&str>,
     has_assistant_reply: bool,
 ) -> ArchiveDecision {
     let max_tokens = context_window_tokens.max(1) as f64;
     let usage_ratio = (estimated_prompt_tokens as f64 / max_tokens).max(0.0);
-    build_archive_decision_from_usage_ratio(usage_ratio, last_user_at, has_assistant_reply)
+    build_archive_decision(usage_ratio, has_assistant_reply)
 }
 
 #[cfg(test)]
@@ -1526,45 +1496,27 @@ fn decide_archive_before_send_with_fallback(
     cached_usage_ratio: f64,
     estimated_prompt_tokens: Option<u64>,
     context_window_tokens: u32,
-    last_user_at: Option<&str>,
     has_assistant_reply: bool,
 ) -> (ArchiveDecision, &'static str) {
-    if cached_effective_prompt_tokens > 0 {
-        return (
-            decide_archive_before_model_request(
-                cached_effective_prompt_tokens,
-                context_window_tokens,
-                last_user_at,
-                has_assistant_reply,
-            ),
+    let window_tokens = context_window_tokens.max(1) as f64;
+    let (usage_ratio, source): (f64, &'static str) = if cached_effective_prompt_tokens > 0 {
+        (
+            (cached_effective_prompt_tokens as f64 / window_tokens).max(0.0),
             "cached_effective_prompt_tokens",
-        );
-    }
-    if cached_usage_ratio.is_finite() && cached_usage_ratio > 0.0 {
-        return (
-            build_archive_decision_from_usage_ratio(
-                cached_usage_ratio.max(0.0),
-                last_user_at,
-                has_assistant_reply,
-            ),
-            "cached_usage_ratio",
-        );
-    }
-    (
-        build_archive_decision_from_estimated_usage_ratio(
-            (estimated_prompt_tokens.unwrap_or(0) as f64
-                / context_window_tokens.max(1) as f64)
-                .max(0.0),
-            last_user_at,
-            has_assistant_reply,
-        ),
-        "estimated_prompt_tokens",
-    )
+        )
+    } else if cached_usage_ratio.is_finite() && cached_usage_ratio > 0.0 {
+        (cached_usage_ratio.max(0.0), "cached_usage_ratio")
+    } else {
+        (
+            (estimated_prompt_tokens.unwrap_or(0) as f64 / window_tokens).max(0.0),
+            "estimated_prompt_tokens",
+        )
+    };
+    (build_archive_decision(usage_ratio, has_assistant_reply), source)
 }
 
 fn decide_archive_before_send_from_usage(
     usage: &PromptUsageResolution,
-    last_user_at: Option<&str>,
     has_assistant_reply: bool,
     current_segment_is_compaction_summary_only: bool,
 ) -> (ArchiveDecision, &'static str) {
@@ -1579,25 +1531,10 @@ fn decide_archive_before_send_from_usage(
             "current_segment_compaction_summary_only",
         );
     }
-    let decision = match usage.source {
-        "cached_effective_prompt_tokens"
-        | "cached_usage_ratio"
-        | "trusted_prompt_usage"
-        | "assistant_message_effective_prompt_tokens"
-        | "assistant_message_context_usage_ratio" => {
-            build_archive_decision_from_usage_ratio(
-                usage.usage_ratio,
-                last_user_at,
-                has_assistant_reply,
-            )
-        }
-        _ => build_archive_decision_from_estimated_usage_ratio(
-            usage.usage_ratio,
-            last_user_at,
-            has_assistant_reply,
-        ),
-    };
-    (decision, usage.source)
+    (
+        build_archive_decision(usage.usage_ratio, has_assistant_reply),
+        usage.source,
+    )
 }
 
 #[cfg(test)]

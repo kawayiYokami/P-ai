@@ -2128,7 +2128,7 @@
                 created_at: now.clone(),
                 speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
                 parts: vec![MessagePart::Text {
-                    text: "[上下文整理]\n触发原因：force_context_usage_82_after_reply\n整理摘要：\n保留关键上下文。".to_string(),
+                    text: "[上下文整理]\n触发原因：force_context_usage_90_after_reply\n整理摘要：\n保留关键上下文。".to_string(),
                 reasoning_content: None,
             }],
                 extra_text_blocks: Vec::new(),
@@ -2136,7 +2136,7 @@
                     "message_meta": {
                         "kind": "context_compaction",
                         "scene": "compaction",
-                        "reason": "force_context_usage_82_after_reply"
+                        "reason": "force_context_usage_90_after_reply"
                     }
                 })),
                 tool_call: None,
@@ -3206,21 +3206,17 @@
     }
 
     #[test]
-    fn archive_decision_should_force_when_usage_reaches_82pct() {
-        let now = now_iso();
-        let d = decide_archive_before_model_request(820, 1000, Some(&now), true);
+    fn archive_decision_should_force_when_usage_reaches_90pct() {
+        let d = decide_archive_before_model_request(900, 1000, true);
         assert!(d.should_archive);
         assert!(d.forced);
-        assert!(d.usage_ratio >= 0.82);
+        assert!(d.usage_ratio >= 0.90);
+        assert_eq!(d.reason, "force_context_usage_90");
     }
 
     #[test]
-    fn archive_decision_should_not_archive_after_idle_when_usage_below_force_threshold() {
-        let now = now_utc();
-        let old = (now - time::Duration::minutes(31))
-            .format(&Rfc3339)
-            .expect("format old time");
-        let d = decide_archive_before_model_request(300, 1000, Some(&old), true);
+    fn archive_decision_should_not_archive_at_30pct() {
+        let d = decide_archive_before_model_request(300, 1000, true);
         assert!(!d.should_archive);
         assert!(!d.forced);
         assert!(d.usage_ratio >= 0.30);
@@ -3229,11 +3225,7 @@
 
     #[test]
     fn archive_decision_should_not_archive_when_usage_below_force_threshold() {
-        let now = now_utc();
-        let old = (now - time::Duration::minutes(31))
-            .format(&Rfc3339)
-            .expect("format old time");
-        let d = decide_archive_before_model_request(299, 1000, Some(&old), true);
+        let d = decide_archive_before_model_request(299, 1000, true);
         assert!(!d.should_archive);
         assert!(!d.forced);
         assert!(d.usage_ratio < 0.30);
@@ -3242,44 +3234,40 @@
 
     #[test]
     fn archive_decision_should_use_prepared_prompt_usage_before_model_request() {
-        let now = now_iso();
-        let d = decide_archive_before_model_request(166_000, 200_000, Some(&now), true);
+        let d = decide_archive_before_model_request(185_000, 200_000, true);
         assert!(d.should_archive);
         assert!(d.forced);
-        assert!(d.usage_ratio >= 0.82);
+        assert!(d.usage_ratio >= 0.90);
     }
 
     #[test]
     fn archive_decision_should_prefer_cached_effective_prompt_tokens() {
-        let now = now_iso();
         let (decision, source) =
-            decide_archive_before_send_with_fallback(820, 0.10, Some(100), 1000, Some(&now), true);
+            decide_archive_before_send_with_fallback(900, 0.10, Some(100), 1000, true);
         assert_eq!(source, "cached_effective_prompt_tokens");
         assert!(decision.should_archive);
         assert!(decision.forced);
-        assert!(decision.usage_ratio >= 0.82);
+        assert!(decision.usage_ratio >= 0.90);
     }
 
     #[test]
     fn archive_decision_should_fallback_to_estimate_only_when_cache_missing() {
-        let now = now_iso();
         let (decision, source) =
-            decide_archive_before_send_with_fallback(0, 0.0, Some(820), 1000, Some(&now), true);
+            decide_archive_before_send_with_fallback(0, 0.0, Some(800), 1000, true);
         assert_eq!(source, "estimated_prompt_tokens");
         assert!(!decision.should_archive);
         assert!(!decision.forced);
-        assert!(decision.usage_ratio >= 0.82);
+        assert!(decision.usage_ratio >= 0.80);
     }
 
     #[test]
-    fn archive_decision_should_force_only_at_95pct_when_estimate_is_used() {
-        let now = now_iso();
+    fn archive_decision_should_force_at_90pct_when_estimate_is_used() {
         let (decision, source) =
-            decide_archive_before_send_with_fallback(0, 0.0, Some(950), 1000, Some(&now), true);
+            decide_archive_before_send_with_fallback(0, 0.0, Some(900), 1000, true);
         assert_eq!(source, "estimated_prompt_tokens");
         assert!(decision.should_archive);
         assert!(decision.forced);
-        assert_eq!(decision.reason, "force_estimated_context_usage_95");
+        assert_eq!(decision.reason, "force_context_usage_90");
     }
 
     #[test]
@@ -3739,25 +3727,21 @@
     }
 
     #[test]
-    fn decide_archive_before_send_from_trusted_usage_should_use_real_threshold_branch() {
+    fn decide_archive_before_send_from_usage_should_force_at_90pct() {
         let usage = PromptUsageResolution {
-            effective_prompt_tokens: 240_845,
-            usage_ratio: 0.8854595588235294,
+            effective_prompt_tokens: 243_000,
+            usage_ratio: 0.9,
             estimated_prompt_tokens: None,
             source: "trusted_prompt_usage",
         };
 
-        let (decision, source) = decide_archive_before_send_from_usage(
-            &usage,
-            Some(&now_iso()),
-            true,
-            false,
-        );
+        let (decision, source) =
+            decide_archive_before_send_from_usage(&usage, true, false);
 
         assert_eq!(source, "trusted_prompt_usage");
         assert!(decision.should_archive);
         assert!(decision.forced);
-        assert_eq!(decision.reason, "force_context_usage_82");
+        assert_eq!(decision.reason, "force_context_usage_90");
     }
 
     pub(crate) fn test_chat_runtime_state() -> AppState {
@@ -6404,7 +6388,7 @@
         let compression_message = build_compaction_message(
             "第一轮工具检查已经完成。",
             Some("工具调度压缩"),
-            "force_context_usage_82",
+            "force_context_usage_90",
             Some("用户：连续检查两个目标\n助手：第一轮工具检查已经完成。"),
             &[],
             &[],
@@ -17984,7 +17968,7 @@
         let compression_message = build_compaction_message(
             "已整理",
             Some("压缩"),
-            "force_context_usage_82",
+            "force_context_usage_90",
             None,
             &[],
             &[],

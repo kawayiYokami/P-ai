@@ -2152,7 +2152,6 @@ async fn send_chat_message_inner(
             .filter(|usage| !usage.estimated);
         let (decision, decision_source) = decide_archive_before_send_from_usage(
             &usage_resolution,
-            conversation_for_compaction.last_user_at.as_deref(),
             archive_pipeline_has_assistant_reply(&conversation_for_compaction),
             conversation_current_segment_is_compaction_summary_only(&conversation_for_compaction),
         );
