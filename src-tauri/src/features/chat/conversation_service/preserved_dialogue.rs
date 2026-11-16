@@ -1,4 +1,8 @@
 const PRESERVED_DIALOGUE_READ_PAGE_SIZE: usize = 32;
+/// 保留对话单条消息的正文上限（字节）。行首说话人不计入这个预算。
+const PRESERVED_MESSAGE_MAX_BYTES: usize = 1024;
+/// 超限时留给前段的百分比，剩下全给后段。
+const PRESERVED_HEAD_PERCENT: usize = 30;
 const ACTIVE_COMPACTION_PRESERVED_DIALOGUE_BUDGET: PreservedDialogueBudget =
     PreservedDialogueBudget::Kib(26);
 #[allow(dead_code)]
@@ -154,6 +158,226 @@ fn resolve_preserved_assistant_speaker<'a>(
         .unwrap_or(fallback_assistant_name)
 }
 
+/// 保留对话单条消息压缩：先按来源分派，再降级 markdown 结构，最后按预算头尾保留。
+/// 纯函数：不读存储、不碰 AppState，字符串进、字符串出，便于单测。
+///
+/// 分工边界：
+/// - `task_trigger` / `goal_continue` 是系统塞进来的调度与续跑提示，整条压成一句；
+/// - 其余（普通用户与助手发言、团队汇报消息）一视同仁，只做结构降级与 1KiB 头尾保留，
+///   团队汇报正文是队员真实汇报，不特殊处理、不压成一句。
+fn compact_preserved_message(message: &ChatMessage, rendered: &str) -> String {
+    match preserved_message_kind(message) {
+        Some("task_trigger") => compact_task_trigger_message(rendered),
+        Some("goal_continue") => compact_goal_continue_message(message),
+        _ => truncate_preserved_message_head_tail(&downgrade_preserved_message_markdown(rendered)),
+    }
+}
+
+fn preserved_message_kind(message: &ChatMessage) -> Option<&str> {
+    message
+        .provider_meta
+        .as_ref()?
+        .get("messageKind")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+}
+
+/// `［定时任务触发］目标：<目标前 120 字符>`。
+/// 目标取正文里 `目标：` 那一行；取不到就退回正文前 120 字符。
+fn compact_task_trigger_message(rendered: &str) -> String {
+    let goal = rendered
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("目标："))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(take_chars)
+        .unwrap_or_else(|| take_chars(rendered.trim()));
+    format!("［定时任务触发］目标：{goal}")
+}
+
+/// `［目标续跑］目标：<objective 前 120 字符>（状态 <status>）`。
+/// 字段取不到时整段不输出，不制造空括号。
+fn compact_goal_continue_message(message: &ChatMessage) -> String {
+    let meta = message.provider_meta.as_ref();
+    let meta_field = |key: &str| {
+        meta.and_then(|value| value.get(key))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+    let mut out = String::from("［目标续跑］");
+    if let Some(objective) = meta_field("objective") {
+        out.push_str("目标：");
+        out.push_str(&take_chars(objective));
+    }
+    if let Some(status) = meta_field("status") {
+        out.push_str("（状态 ");
+        out.push_str(status);
+        out.push('）');
+    }
+    out
+}
+
+fn take_chars(text: &str) -> String {
+    text.chars().take(120).collect()
+}
+
+/// 结构降级：围栏代码块 → 表格 → 行内 code 之外的装饰标记 → 连续空行。
+/// 标题 `#`、列表 `-` / `1.`、引用 `>`、行内 code 的反引号与内容一律保留。
+fn downgrade_preserved_message_markdown(text: &str) -> String {
+    let lines = text.lines().collect::<Vec<_>>();
+    let mut out = Vec::<String>::with_capacity(lines.len());
+    let mut index = 0usize;
+    while index < lines.len() {
+        let line = lines[index];
+        if let Some(language) = line.trim_start().strip_prefix("```") {
+            let language = language.trim().to_ascii_lowercase();
+            let mut body_lines = 0usize;
+            let mut end = index + 1;
+            while end < lines.len() && !lines[end].trim_start().starts_with("```") {
+                body_lines += 1;
+                end += 1;
+            }
+            if language.starts_with("mermaid") {
+                out.push("［mermaid 图，已省略］".to_string());
+            } else {
+                out.push(format!("［代码块 {body_lines} 行，已省略］"));
+            }
+            // 未闭合的围栏吃到文末为止。
+            index = if end < lines.len() { end + 1 } else { end };
+            continue;
+        }
+        if is_preserved_table_row(line) {
+            let mut end = index;
+            while end < lines.len() && is_preserved_table_row(lines[end]) {
+                end += 1;
+            }
+            if end - index >= 2 {
+                out.push(format!("［表格 {} 行，已省略］", end - index));
+                index = end;
+                continue;
+            }
+        }
+        out.push(strip_preserved_decoration(line));
+        index += 1;
+    }
+    collapse_preserved_blank_lines(out).join("\n")
+}
+
+/// 表格行：首尾都是 `|`。只认这种形状，避免误伤普通含管道符的句子。
+fn is_preserved_table_row(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.len() >= 2 && trimmed.starts_with('|') && trimmed.ends_with('|')
+}
+
+/// 删除 `**` / `__` / `~~`，但反引号围起来的行内 code 原样保留。
+fn strip_preserved_decoration(line: &str) -> String {
+    let parts = line.split('`').collect::<Vec<_>>();
+    let mut out = String::with_capacity(line.len());
+    for (index, part) in parts.iter().enumerate() {
+        if index > 0 {
+            out.push('`');
+        }
+        if index % 2 == 1 {
+            out.push_str(part);
+        } else {
+            out.push_str(&part.replace("**", "").replace("__", "").replace("~~", ""));
+        }
+    }
+    out
+}
+
+fn collapse_preserved_blank_lines(lines: Vec<String>) -> Vec<String> {
+    let mut out = Vec::<String>::with_capacity(lines.len());
+    for line in lines {
+        let is_blank = line.trim().is_empty();
+        if is_blank && out.last().map(|prev| prev.trim().is_empty()).unwrap_or(true) {
+            continue;
+        }
+        out.push(line);
+    }
+    while out.last().map(|line| line.trim().is_empty()).unwrap_or(false) {
+        out.pop();
+    }
+    out
+}
+
+/// 超 1KiB 的头尾保留：前段固定 `PRESERVED_HEAD_PERCENT`%，后段吃掉剩余预算，
+/// 中间标记真实丢掉的字节数。切点收在 `char` 边界，且不让反引号被切一半。
+fn truncate_preserved_message_head_tail(text: &str) -> String {
+    if text.len() <= PRESERVED_MESSAGE_MAX_BYTES {
+        return text.to_string();
+    }
+    let total = text.len();
+    let head_limit = PRESERVED_MESSAGE_MAX_BYTES * PRESERVED_HEAD_PERCENT / 100;
+    let head_end = retreat_past_unclosed_inline_code(
+        text,
+        retreat_to_char_boundary(text, head_limit.min(total)),
+    );
+    let head = &text[..head_end];
+
+    // 标记里的字节数依赖后段起点，后段起点又依赖标记长度，迭代几次收敛。
+    let mut dropped = total - head_end;
+    for _ in 0..8 {
+        let marker = format!("［省略 {dropped} 字节］");
+        let tail_budget = PRESERVED_MESSAGE_MAX_BYTES.saturating_sub(head.len() + marker.len());
+        let tail_start = advance_past_unclosed_inline_code(
+            text,
+            advance_to_char_boundary(text, total.saturating_sub(tail_budget)),
+        );
+        let next_dropped = tail_start.saturating_sub(head_end);
+        if next_dropped == dropped {
+            return format!("{head}{marker}{}", &text[tail_start..]);
+        }
+        dropped = next_dropped;
+    }
+    let marker = format!("［省略 {dropped} 字节］");
+    let tail_budget = PRESERVED_MESSAGE_MAX_BYTES.saturating_sub(head.len() + marker.len());
+    let tail_start = advance_past_unclosed_inline_code(
+        text,
+        advance_to_char_boundary(text, total.saturating_sub(tail_budget)),
+    );
+    format!("{head}{marker}{}", &text[tail_start..])
+}
+
+fn retreat_to_char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
+fn advance_to_char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index < text.len() && !text.is_char_boundary(index) {
+        index += 1;
+    }
+    index
+}
+
+/// 前段若停在一段行内 code 中间（反引号个数为奇），整段回退到该反引号之前。
+fn retreat_past_unclosed_inline_code(text: &str, end: usize) -> usize {
+    let slice = &text[..end];
+    if slice.matches('`').count() % 2 == 1 {
+        if let Some(position) = slice.rfind('`') {
+            return position;
+        }
+    }
+    end
+}
+
+/// 后段若从一段行内 code 中间开始（反引号个数为奇），越过那个反引号。
+fn advance_past_unclosed_inline_code(text: &str, start: usize) -> usize {
+    let slice = &text[start..];
+    if slice.matches('`').count() % 2 == 1 {
+        if let Some(position) = slice.find('`') {
+            return start + position + 1;
+        }
+    }
+    start
+}
+
 fn preserved_dialogue_message_line(
     message: &ChatMessage,
     user_alias: &str,
@@ -163,8 +387,11 @@ fn preserved_dialogue_message_line(
     if !matches!(role, "user" | "assistant") {
         return None;
     }
-    let text = preserved_conversation_message_backend_text(message);
-    let text = clean_text(text.trim());
+    let raw_text = preserved_conversation_message_backend_text(message);
+    // 压缩必须在 `clean_text` 之前：它会把换行压成空格，围栏代码块与表格到那一步就认不出来了。
+    // 行首说话人不进 1KiB 预算，所以这里只压正文，`speaker` 后面再拼。
+    let compacted = compact_preserved_message(message, raw_text.trim());
+    let text = clean_text(&compacted);
     if text.is_empty() {
         return None;
     }
@@ -557,5 +784,169 @@ mod preserved_dialogue_tests {
             PreservedDialogueBudget::Kib(26)
         );
         assert_eq!(ACTIVE_COMPACTION_PRESERVED_DIALOGUE_BUDGET.limit(), 26 * 1024);
+    }
+}
+
+#[cfg(test)]
+mod compact_preserved_message_tests {
+    use super::*;
+
+    fn message_with_meta(role: &str, text: &str, meta: Option<serde_json::Value>) -> ChatMessage {
+        ChatMessage {
+            id: "compact-case".to_string(),
+            role: role.to_string(),
+            created_at: now_iso(),
+            speaker_agent_id: None,
+            parts: vec![MessagePart::Text {
+                text: text.to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: meta,
+            tool_call: None,
+            mcp_call: None,
+            meme_annotations: None,
+        }
+    }
+
+    fn plain_message(role: &str, text: &str) -> ChatMessage {
+        message_with_meta(role, text, None)
+    }
+
+    #[test]
+    fn short_message_should_only_drop_decoration_markers() {
+        let message = plain_message("user", "普通一句**加粗**内容");
+        let out = compact_preserved_message(&message, "普通一句**加粗**内容");
+        assert_eq!(out, "普通一句加粗内容");
+    }
+
+    #[test]
+    fn fenced_code_block_should_collapse_with_line_count() {
+        let text = "前置\n```rust\nfn main() {}\nlet a = 1;\n```\n后续";
+        let message = plain_message("assistant", text);
+        let out = compact_preserved_message(&message, text);
+        assert!(out.contains("［代码块 2 行，已省略］"), "实际: {out}");
+        assert!(!out.contains("fn main"), "代码正文应被折叠");
+        assert!(out.contains("前置") && out.contains("后续"));
+    }
+
+    #[test]
+    fn mermaid_fence_should_collapse_to_diagram_placeholder() {
+        let text = "```mermaid\ngraph TD;\nA-->B;\n```";
+        let message = plain_message("assistant", text);
+        let out = compact_preserved_message(&message, text);
+        assert_eq!(out, "［mermaid 图，已省略］");
+    }
+
+    #[test]
+    fn table_should_collapse_but_plain_pipe_sentence_should_stay() {
+        let text = "| 名字 | 值 |\n| --- | --- |\n| 甲 | 1 |\n普通一句含 | 管道符。";
+        let message = plain_message("assistant", text);
+        let out = compact_preserved_message(&message, text);
+        assert!(out.contains("［表格 3 行，已省略］"), "实际: {out}");
+        assert!(out.contains("普通一句含 | 管道符。"), "不该误伤: {out}");
+    }
+
+    #[test]
+    fn decoration_should_be_stripped_outside_inline_code_only() {
+        let text = "`a**b` 和 **加粗**";
+        let message = plain_message("user", text);
+        let out = compact_preserved_message(&message, text);
+        assert_eq!(out, "`a**b` 和 加粗");
+    }
+
+    #[test]
+    fn oversize_message_should_keep_head_and_tail_with_marker() {
+        let text = format!("开头内容{}结尾内容", "啊".repeat(600));
+        let message = plain_message("user", &text);
+        let out = compact_preserved_message(&message, &text);
+        assert!(out.contains("开头内容"), "首段必须保留");
+        assert!(out.contains("结尾内容"), "尾段必须保留");
+        assert!(out.contains("［省略 "), "必须有省略标记: {out}");
+        assert!(out.contains(" 字节］"));
+        assert!(out.len() <= PRESERVED_MESSAGE_MAX_BYTES, "不得超过上限: {}", out.len());
+        assert!(out.len() > 900, "应尽量吃满预算: {}", out.len());
+    }
+
+    #[test]
+    fn cjk_and_emoji_truncation_should_not_split_characters() {
+        let text = format!("表情开头{}{}", "😀".repeat(300), "尾部标记");
+        let message = plain_message("user", &text);
+        let out = compact_preserved_message(&message, &text);
+        assert!(!out.contains('\u{FFFD}'), "不能出现替换字符");
+        assert!(out.chars().count() > 0);
+        assert!(out.len() <= PRESERVED_MESSAGE_MAX_BYTES);
+        // 逐字符能走完就说明没有落在字符中间（&str 本身保证，但这里显式过一遍）。
+        let rebuilt = out.chars().collect::<String>();
+        assert_eq!(rebuilt, out);
+    }
+
+    #[test]
+    fn task_trigger_should_collapse_to_one_sentence_with_goal() {
+        let rendered = "<task_remind>\n背景：例行巡检\n目标：修复登录问题\n要求：跑测试\n</task_remind>";
+        let message = message_with_meta(
+            "system",
+            rendered,
+            Some(serde_json::json!({ "messageKind": "task_trigger" })),
+        );
+        let out = compact_preserved_message(&message, rendered);
+        assert_eq!(out, "［定时任务触发］目标：修复登录问题");
+        assert!(out.len() < rendered.len());
+    }
+
+    #[test]
+    fn goal_continue_should_collapse_to_one_sentence_with_status() {
+        let rendered = "继续完成目标";
+        let message = message_with_meta(
+            "assistant",
+            rendered,
+            Some(serde_json::json!({
+                "messageKind": "goal_continue",
+                "objective": "把测试跑通",
+                "status": "active"
+            })),
+        );
+        let out = compact_preserved_message(&message, rendered);
+        assert!(out.contains("［目标续跑］"));
+        assert!(out.contains("目标：把测试跑通"));
+        assert!(out.contains("（状态 active）"));
+
+        let missing = message_with_meta(
+            "assistant",
+            rendered,
+            Some(serde_json::json!({ "messageKind": "goal_continue" })),
+        );
+        let out = compact_preserved_message(&missing, rendered);
+        assert_eq!(out, "［目标续跑］", "字段缺失时不能留空括号: {out}");
+        assert!(!out.contains("（）"));
+    }
+
+    #[test]
+    fn team_report_message_should_follow_structural_path_not_sentence_collapse() {
+        let text = "**汇报**\n\n```\ncargo check\n```\n\n| 结论 | 值 |\n| --- | --- |\n完成并通过。";
+        let message = message_with_meta(
+            "user",
+            text,
+            Some(serde_json::json!({ "messageKind": "team_message" })),
+        );
+        let out = compact_preserved_message(&message, text);
+        assert!(!out.starts_with("［定时任务触发］"));
+        assert!(!out.starts_with("［目标续跑］"));
+        assert!(out.contains("［代码块 1 行，已省略］"), "实际: {out}");
+        assert!(out.contains("［表格 2 行，已省略］"), "实际: {out}");
+        assert!(out.contains("汇报"), "装饰标记去掉但正文要留");
+        assert!(out.contains("完成并通过。"));
+    }
+
+    #[test]
+    fn speaker_name_should_not_count_toward_message_budget() {
+        let body = "字".repeat(500);
+        let message = plain_message("assistant", &body);
+        let line = preserved_dialogue_message_line(&message, "用户", "纳西妲").expect("line");
+        assert!(line.starts_with("纳西妲："), "说话人必须完整保留: {line}");
+        let body_part = line.trim_start_matches("纳西妲：");
+        assert!(body_part.len() <= PRESERVED_MESSAGE_MAX_BYTES);
+        assert!(body_part.contains("［省略 "));
+        assert!(body_part.len() > 900, "正文预算应被吃满: {}", body_part.len());
     }
 }
