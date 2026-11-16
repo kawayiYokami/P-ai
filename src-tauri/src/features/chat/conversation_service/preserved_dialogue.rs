@@ -162,12 +162,14 @@ fn resolve_preserved_assistant_speaker<'a>(
 /// 纯函数：不读存储、不碰 AppState，字符串进、字符串出，便于单测。
 ///
 /// 分工边界：
-/// - `task_trigger` / `goal_continue` 是系统塞进来的调度与续跑提示，整条压成一句；
+/// - `goal_continue` 是系统塞进来的续跑提示，整条压成一句；
 /// - 其余（普通用户与助手发言、团队汇报消息）一视同仁，只做结构降级与 1KiB 头尾保留，
 ///   团队汇报正文是队员真实汇报，不特殊处理、不压成一句。
+///
+/// 定时任务触发消息（`task_trigger`）不走这里：它的 role 是 `system`，在
+/// `preserved_dialogue_message_line` 的 user/assistant 过滤处就被排除了。
 fn compact_preserved_message(message: &ChatMessage, rendered: &str) -> String {
     match preserved_message_kind(message) {
-        Some("task_trigger") => compact_task_trigger_message(rendered),
         Some("goal_continue") => compact_goal_continue_message(message),
         _ => truncate_preserved_message_head_tail(&downgrade_preserved_message_markdown(rendered)),
     }
@@ -180,19 +182,6 @@ fn preserved_message_kind(message: &ChatMessage) -> Option<&str> {
         .get("messageKind")
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
-}
-
-/// `［定时任务触发］目标：<目标前 120 字符>`。
-/// 目标取正文里 `目标：` 那一行；取不到就退回正文前 120 字符。
-fn compact_task_trigger_message(rendered: &str) -> String {
-    let goal = rendered
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("目标："))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(take_chars)
-        .unwrap_or_else(|| take_chars(rendered.trim()));
-    format!("［定时任务触发］目标：{goal}")
 }
 
 /// `［目标续跑］目标：<objective 前 120 字符>（状态 <status>）`。
@@ -879,19 +868,6 @@ mod compact_preserved_message_tests {
         // 逐字符能走完就说明没有落在字符中间（&str 本身保证，但这里显式过一遍）。
         let rebuilt = out.chars().collect::<String>();
         assert_eq!(rebuilt, out);
-    }
-
-    #[test]
-    fn task_trigger_should_collapse_to_one_sentence_with_goal() {
-        let rendered = "<task_remind>\n背景：例行巡检\n目标：修复登录问题\n要求：跑测试\n</task_remind>";
-        let message = message_with_meta(
-            "system",
-            rendered,
-            Some(serde_json::json!({ "messageKind": "task_trigger" })),
-        );
-        let out = compact_preserved_message(&message, rendered);
-        assert_eq!(out, "［定时任务触发］目标：修复登录问题");
-        assert!(out.len() < rendered.len());
     }
 
     #[test]
