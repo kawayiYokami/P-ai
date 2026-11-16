@@ -3,6 +3,9 @@ const PRESERVED_DIALOGUE_READ_PAGE_SIZE: usize = 32;
 const PRESERVED_MESSAGE_MAX_BYTES: usize = 1024;
 /// 超限时留给前段的百分比，剩下全给后段。
 const PRESERVED_HEAD_PERCENT: usize = 30;
+/// 代码块与表格折叠的体积下限（字节）：小于它就原样保留。
+/// 折叠一个只有一行命令的块省不下什么，却会把唯一有用的内容删掉。
+const PRESERVED_STRUCTURE_MIN_COLLAPSE_BYTES: usize = 200;
 const ACTIVE_COMPACTION_PRESERVED_DIALOGUE_BUDGET: PreservedDialogueBudget =
     PreservedDialogueBudget::Kib(26);
 #[allow(dead_code)]
@@ -229,10 +232,19 @@ fn downgrade_preserved_message_markdown(text: &str) -> String {
         if let Some(language) = line.trim_start().strip_prefix("```") {
             let language = language.trim().to_ascii_lowercase();
             let mut body_lines = 0usize;
+            let mut body_bytes = 0usize;
             let mut end = index + 1;
             while end < lines.len() && !lines[end].trim_start().starts_with("```") {
                 body_lines += 1;
+                body_bytes = body_bytes.saturating_add(lines[end].len());
                 end += 1;
+            }
+            let fence_end = if end < lines.len() { end + 1 } else { end };
+            // 小块原样保留：折叠一个几十字节的代码块省不下什么，却会把唯一有用的命令删掉。
+            if body_bytes < PRESERVED_STRUCTURE_MIN_COLLAPSE_BYTES {
+                out.extend(lines[index..fence_end].iter().map(|line| (*line).to_string()));
+                index = fence_end;
+                continue;
             }
             if language.starts_with("mermaid") {
                 out.push("［mermaid 图，已省略］".to_string());
@@ -240,7 +252,7 @@ fn downgrade_preserved_message_markdown(text: &str) -> String {
                 out.push(format!("［代码块 {body_lines} 行，已省略］"));
             }
             // 未闭合的围栏吃到文末为止。
-            index = if end < lines.len() { end + 1 } else { end };
+            index = fence_end;
             continue;
         }
         if is_preserved_table_row(line) {
@@ -249,7 +261,14 @@ fn downgrade_preserved_message_markdown(text: &str) -> String {
                 end += 1;
             }
             if end - index >= 2 {
-                out.push(format!("［表格 {} 行，已省略］", end - index));
+                let table_bytes = lines[index..end]
+                    .iter()
+                    .fold(0usize, |sum, line| sum.saturating_add(line.len()));
+                if table_bytes < PRESERVED_STRUCTURE_MIN_COLLAPSE_BYTES {
+                    out.extend(lines[index..end].iter().map(|line| (*line).to_string()));
+                } else {
+                    out.push(format!("［表格 {} 行，已省略］", end - index));
+                }
                 index = end;
                 continue;
             }
@@ -851,17 +870,27 @@ mod compact_preserved_message_tests {
 
     #[test]
     fn fenced_code_block_should_collapse_with_line_count() {
-        let text = "前置\n```rust\nfn main() {}\nlet a = 1;\n```\n后续";
+        let text = "前置\n```rust\nfn main() {\n    let a = 1;\n    let b = a + 2;\n    // 这是一段用来把代码块撑过 200 字节的填充注释，确保折叠规则会生效，而不是被小块例外整块放行。\n    println!(\"{}{}\", a, b);\n}\n```\n后续";
         let message = plain_message("assistant", text);
         let out = compact_preserved_message(&message, text);
-        assert!(out.contains("［代码块 2 行，已省略］"), "实际: {out}");
+        assert!(out.contains("［代码块 6 行，已省略］"), "实际: {out}");
         assert!(!out.contains("fn main"), "代码正文应被折叠");
         assert!(out.contains("前置") && out.contains("后续"));
     }
 
     #[test]
+    fn small_code_block_should_stay_verbatim() {
+        let text = "跑完了\n```\ncargo check\n```\n没有问题";
+        let message = plain_message("assistant", text);
+        let out = compact_preserved_message(&message, text);
+        assert!(out.contains("```"), "小块不折叠，围栏要留着: {out}");
+        assert!(out.contains("cargo check"), "命令必须保留: {out}");
+        assert!(!out.contains("［代码块"), "不该出现占位: {out}");
+    }
+
+    #[test]
     fn mermaid_fence_should_collapse_to_diagram_placeholder() {
-        let text = "```mermaid\ngraph TD;\nA-->B;\n```";
+        let text = "```mermaid\ngraph TD;\nA[开始] --> B{条件是否成立};\nB -->|是| C[执行分支一并记录日志];\nB -->|否| D[执行分支二并中止流程];\nC --> E[结束];\nD --> E;\nE --> F[汇总两侧结果并写回会话];\nF --> G[收尾];\n```";
         let message = plain_message("assistant", text);
         let out = compact_preserved_message(&message, text);
         assert_eq!(out, "［mermaid 图，已省略］");
@@ -869,11 +898,29 @@ mod compact_preserved_message_tests {
 
     #[test]
     fn table_should_collapse_but_plain_pipe_sentence_should_stay() {
-        let text = "| 名字 | 值 |\n| --- | --- |\n| 甲 | 1 |\n普通一句含 | 管道符。";
+        let text = "| 名字 | 值 | 说明 |\n| --- | --- | --- |\n| 甲 | 1 | 第一条记录的补充说明，用来把表格撑过两百字节阈值 |\n| 乙 | 2 | 第二条记录的补充说明，同样用于把表格体积撑大 |\n普通一句含 | 管道符。";
         let message = plain_message("assistant", text);
         let out = compact_preserved_message(&message, text);
-        assert!(out.contains("［表格 3 行，已省略］"), "实际: {out}");
+        assert!(out.contains("［表格 4 行，已省略］"), "实际: {out}");
         assert!(out.contains("普通一句含 | 管道符。"), "不该误伤: {out}");
+    }
+
+    #[test]
+    fn small_table_should_stay_verbatim() {
+        let text = "| 结论 | 值 |\n| --- | --- |\n完成并通过。";
+        let message = plain_message("assistant", text);
+        let out = compact_preserved_message(&message, text);
+        assert!(out.contains("| 结论 | 值 |"), "小表格原样保留: {out}");
+        assert!(!out.contains("［表格"), "不该出现占位: {out}");
+    }
+
+    #[test]
+    fn structure_exactly_at_min_bytes_should_collapse() {
+        let body = "a".repeat(PRESERVED_STRUCTURE_MIN_COLLAPSE_BYTES);
+        let text = format!("```\n{body}\n```");
+        let message = plain_message("assistant", &text);
+        let out = compact_preserved_message(&message, &text);
+        assert!(out.contains("［代码块 1 行，已省略］"), "到达下限就折叠: {out}");
     }
 
     #[test]
@@ -897,10 +944,10 @@ mod compact_preserved_message_tests {
 
     #[test]
     fn unclosed_fence_should_collapse_to_end_without_panic() {
-        let text = "前置行\n```rust\n第 1 行\n第 2 行";
+        let text = "前置行\n```rust\n第 1 行填充内容用来把代码块撑过两百字节，确保这里走折叠规则而不是小块保留分支\n第 2 行再补一段同样长度的说明文字，保证总字节数确实超过那个阈值\n第 3 行继续填充";
         let message = plain_message("assistant", text);
         let out = compact_preserved_message(&message, text);
-        assert!(out.contains("［代码块 2 行，已省略］"), "实际: {out}");
+        assert!(out.contains("［代码块 3 行，已省略］"), "实际: {out}");
         assert!(out.contains("前置行"), "围栏之前的行不能被吞: {out}");
         assert!(!out.contains("第 1 行"), "围栏之后到文末都算代码正文");
     }
@@ -985,7 +1032,7 @@ mod compact_preserved_message_tests {
 
     #[test]
     fn team_report_message_should_follow_structural_path_not_sentence_collapse() {
-        let text = "**汇报**\n\n```\ncargo check\n```\n\n| 结论 | 值 |\n| --- | --- |\n完成并通过。";
+        let text = "**汇报**\n\n```\ncargo check\ncargo test --manifest-path src-tauri/Cargo.toml compact_preserved_message\ncargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings 这条命令用来把代码块撑过两百字节\ncargo fmt --check 同样是为了把体积撑大\n```\n\n| 结论 | 值 | 说明 |\n| --- | --- | --- |\n| 编译 | 通过 | 把所有目标都编了一遍，没有新增警告，体积与耗时都在预期范围之内 |\n| 测试 | 通过 | 新增与既有用例全绿，没有回归，覆盖了结构与截断两条路径 |\n完成并通过。";
         let message = message_with_meta(
             "user",
             text,
@@ -994,8 +1041,8 @@ mod compact_preserved_message_tests {
         let out = compact_preserved_message(&message, text);
         assert!(!out.starts_with("［定时任务触发］"));
         assert!(!out.starts_with("［目标续跑］"));
-        assert!(out.contains("［代码块 1 行，已省略］"), "实际: {out}");
-        assert!(out.contains("［表格 2 行，已省略］"), "实际: {out}");
+        assert!(out.contains("［代码块 4 行，已省略］"), "实际: {out}");
+        assert!(out.contains("［表格 4 行，已省略］"), "实际: {out}");
         assert!(out.contains("汇报"), "装饰标记去掉但正文要留");
         assert!(out.contains("完成并通过。"));
     }
