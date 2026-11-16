@@ -170,7 +170,7 @@ fn resolve_preserved_assistant_speaker<'a>(
 /// `preserved_dialogue_message_line` 的 user/assistant 过滤处就被排除了。
 fn compact_preserved_message(message: &ChatMessage, rendered: &str) -> String {
     match preserved_message_kind(message) {
-        Some("goal_continue") => compact_goal_continue_message(message),
+        Some("goal_continue") => compact_goal_continue_message(message, rendered),
         _ => truncate_preserved_message_head_tail(&downgrade_preserved_message_markdown(rendered)),
     }
 }
@@ -185,8 +185,9 @@ fn preserved_message_kind(message: &ChatMessage) -> Option<&str> {
 }
 
 /// `［目标续跑］目标：<objective 前 120 字符>（状态 <status>）`。
-/// 字段取不到时整段不输出，不制造空括号。
-fn compact_goal_continue_message(message: &ChatMessage) -> String {
+/// 字段取不到时整段不输出，不制造空括号；两个字段都没有时退回正文前 120 字符，
+/// 不输出一个信息量为零的空标题。
+fn compact_goal_continue_message(message: &ChatMessage, rendered: &str) -> String {
     let meta = message.provider_meta.as_ref();
     let meta_field = |key: &str| {
         meta.and_then(|value| value.get(key))
@@ -194,12 +195,18 @@ fn compact_goal_continue_message(message: &ChatMessage) -> String {
             .map(str::trim)
             .filter(|value| !value.is_empty())
     };
+    let objective = meta_field("objective");
+    let status = meta_field("status");
     let mut out = String::from("［目标续跑］");
-    if let Some(objective) = meta_field("objective") {
+    if objective.is_none() && status.is_none() {
+        out.push_str(&take_chars(rendered.trim()));
+        return out;
+    }
+    if let Some(objective) = objective {
         out.push_str("目标：");
         out.push_str(&take_chars(objective));
     }
-    if let Some(status) = meta_field("status") {
+    if let Some(status) = status {
         out.push_str("（状态 ");
         out.push_str(status);
         out.push('）');
@@ -260,20 +267,51 @@ fn is_preserved_table_row(line: &str) -> bool {
 }
 
 /// 删除 `**` / `__` / `~~`，但反引号围起来的行内 code 原样保留。
+///
+/// 按反引号连续段的长度配对：长度为 N 的段开启 code 区，直到遇到长度 ≥N 的段才关闭；
+/// code 区内一切字符原样输出，未闭合的 code 区延续到行末。这样 `` ``a**b`` `` 的
+/// 双反引号内容不会被当成行外文本改掉。
 fn strip_preserved_decoration(line: &str) -> String {
-    let parts = line.split('`').collect::<Vec<_>>();
+    let chars = line.chars().collect::<Vec<_>>();
     let mut out = String::with_capacity(line.len());
-    for (index, part) in parts.iter().enumerate() {
-        if index > 0 {
-            out.push('`');
+    let mut open_run: Option<usize> = None;
+    let mut index = 0usize;
+    while index < chars.len() {
+        if chars[index] == '`' {
+            let start = index;
+            while index < chars.len() && chars[index] == '`' {
+                index += 1;
+            }
+            let run = index - start;
+            for _ in 0..run {
+                out.push('`');
+            }
+            open_run = match open_run {
+                None => Some(run),
+                Some(opened) if run >= opened => None,
+                Some(opened) => Some(opened),
+            };
+            continue;
         }
-        if index % 2 == 1 {
-            out.push_str(part);
+        let start = index;
+        while index < chars.len() && chars[index] != '`' {
+            index += 1;
+        }
+        let segment = chars[start..index].iter().collect::<String>();
+        if open_run.is_some() {
+            out.push_str(&segment);
         } else {
-            out.push_str(&part.replace("**", "").replace("__", "").replace("~~", ""));
+            out.push_str(&strip_markdown_markers(&segment));
         }
     }
     out
+}
+
+fn strip_markdown_markers(segment: &str) -> String {
+    segment
+        .replace("**", "")
+        .replace("__", "")
+        .replace("~~", "")
 }
 
 fn collapse_preserved_blank_lines(lines: Vec<String>) -> Vec<String> {
@@ -305,28 +343,27 @@ fn truncate_preserved_message_head_tail(text: &str) -> String {
     );
     let head = &text[..head_end];
 
-    // 标记里的字节数依赖后段起点，后段起点又依赖标记长度，迭代几次收敛。
-    let mut dropped = total - head_end;
-    for _ in 0..8 {
-        let marker = format!("［省略 {dropped} 字节］");
-        let tail_budget = PRESERVED_MESSAGE_MAX_BYTES.saturating_sub(head.len() + marker.len());
-        let tail_start = advance_past_unclosed_inline_code(
+    // 标记里的字节数依赖后段起点，后段起点又依赖标记长度，按标记长度做定点迭代。
+    let tail_start_for = |marker_len: usize| {
+        let tail_budget = PRESERVED_MESSAGE_MAX_BYTES.saturating_sub(head.len() + marker_len);
+        advance_past_unclosed_inline_code(
             text,
             advance_to_char_boundary(text, total.saturating_sub(tail_budget)),
-        );
-        let next_dropped = tail_start.saturating_sub(head_end);
-        if next_dropped == dropped {
-            return format!("{head}{marker}{}", &text[tail_start..]);
+        )
+    };
+    let mut marker_len = format!("［省略 {} 字节］", total - head_end).len();
+    let mut tail_start = tail_start_for(marker_len);
+    for _ in 0..8 {
+        let next_len = format!("［省略 {} 字节］", tail_start - head_end).len();
+        if next_len == marker_len {
+            break;
         }
-        dropped = next_dropped;
+        marker_len = next_len;
+        tail_start = tail_start_for(marker_len);
     }
-    let marker = format!("［省略 {dropped} 字节］");
-    let tail_budget = PRESERVED_MESSAGE_MAX_BYTES.saturating_sub(head.len() + marker.len());
-    let tail_start = advance_past_unclosed_inline_code(
-        text,
-        advance_to_char_boundary(text, total.saturating_sub(tail_budget)),
-    );
-    format!("{head}{marker}{}", &text[tail_start..])
+    // 标记里的数字一律按最终 tail_start 重算，不允许与实际丢弃字节不一致。
+    let dropped = tail_start - head_end;
+    format!("{head}［省略 {dropped} 字节］{}", &text[tail_start..])
 }
 
 fn retreat_to_char_boundary(text: &str, index: usize) -> usize {
@@ -346,14 +383,17 @@ fn advance_to_char_boundary(text: &str, index: usize) -> usize {
 }
 
 /// 前段若停在一段行内 code 中间（反引号个数为奇），整段回退到该反引号之前。
-fn retreat_past_unclosed_inline_code(text: &str, end: usize) -> usize {
-    let slice = &text[..end];
+/// 回退会吃掉整个前段时放弃回退：宁可留下一个未配对反引号，也不要把前段丢成空。
+fn retreat_past_unclosed_inline_code(text: &str, char_boundary_end: usize) -> usize {
+    let slice = &text[..char_boundary_end];
     if slice.matches('`').count() % 2 == 1 {
         if let Some(position) = slice.rfind('`') {
-            return position;
+            if position > 0 {
+                return position;
+            }
         }
     }
-    end
+    char_boundary_end
 }
 
 /// 后段若从一段行内 code 中间开始（反引号个数为奇），越过那个反引号。
@@ -845,6 +885,39 @@ mod compact_preserved_message_tests {
     }
 
     #[test]
+    fn double_backtick_inline_code_should_keep_its_content() {
+        let text = "``a**b`` 和 **加粗**";
+        let message = plain_message("user", text);
+        let out = compact_preserved_message(&message, text);
+        assert!(out.contains("``a**b``"), "双反引号内容必须原样保留: {out}");
+        assert!(out.contains("a**b"), "code 区内的 ** 不能被删: {out}");
+        assert!(!out.contains("**加粗**"), "code 区外的标记要删: {out}");
+        assert!(out.contains("加粗"));
+    }
+
+    #[test]
+    fn unclosed_fence_should_collapse_to_end_without_panic() {
+        let text = "前置行\n```rust\n第 1 行\n第 2 行";
+        let message = plain_message("assistant", text);
+        let out = compact_preserved_message(&message, text);
+        assert!(out.contains("［代码块 2 行，已省略］"), "实际: {out}");
+        assert!(out.contains("前置行"), "围栏之前的行不能被吞: {out}");
+        assert!(!out.contains("第 1 行"), "围栏之后到文末都算代码正文");
+    }
+
+    #[test]
+    fn stray_backtick_in_oversize_text_should_still_produce_valid_output() {
+        let text = format!("`{}", "字".repeat(600));
+        let message = plain_message("user", &text);
+        let out = compact_preserved_message(&message, &text);
+        assert!(out.contains("［省略 "), "实际: {out}");
+        assert!(out.len() <= PRESERVED_MESSAGE_MAX_BYTES + 8, "长度异常: {}", out.len());
+        assert_eq!(out.chars().collect::<String>(), out, "不能出现半个字符");
+        // 前段不能因为一个孤立反引号就退成空。
+        assert!(out.starts_with('`'), "前段应保留原始起始内容: {out}");
+    }
+
+    #[test]
     fn oversize_message_should_keep_head_and_tail_with_marker() {
         let text = format!("开头内容{}结尾内容", "啊".repeat(600));
         let message = plain_message("user", &text);
@@ -855,6 +928,18 @@ mod compact_preserved_message_tests {
         assert!(out.contains(" 字节］"));
         assert!(out.len() <= PRESERVED_MESSAGE_MAX_BYTES, "不得超过上限: {}", out.len());
         assert!(out.len() > 900, "应尽量吃满预算: {}", out.len());
+
+        // 标记里的字节数必须精确等于真实丢弃量，这是头尾逻辑的核心语义。
+        let (head, rest) = out.split_once("［省略 ").expect("marker 前段");
+        let (number, tail) = rest.split_once(" 字节］").expect("marker 后段");
+        let dropped = number.parse::<usize>().expect("丢弃字节数必须是整数");
+        assert_eq!(
+            dropped,
+            text.len() - head.len() - tail.len(),
+            "标记数字与真实丢弃量不符: {out}"
+        );
+        assert!(text.starts_with(head), "前段必须是原文前缀");
+        assert!(text.ends_with(tail), "后段必须是原文后缀");
     }
 
     #[test]
@@ -893,8 +978,9 @@ mod compact_preserved_message_tests {
             Some(serde_json::json!({ "messageKind": "goal_continue" })),
         );
         let out = compact_preserved_message(&missing, rendered);
-        assert_eq!(out, "［目标续跑］", "字段缺失时不能留空括号: {out}");
-        assert!(!out.contains("（）"));
+        assert!(out.starts_with("［目标续跑］"), "实际: {out}");
+        assert!(out.contains("继续完成目标"), "字段缺失要退回正文: {out}");
+        assert!(!out.contains("（）"), "不能留空括号: {out}");
     }
 
     #[test]
@@ -924,5 +1010,30 @@ mod compact_preserved_message_tests {
         assert!(body_part.len() <= PRESERVED_MESSAGE_MAX_BYTES);
         assert!(body_part.contains("［省略 "));
         assert!(body_part.len() > 900, "正文预算应被吃满: {}", body_part.len());
+    }
+
+    #[test]
+    fn inherited_preserved_section_should_not_be_compacted_again() {
+        // 继承路径拿到的已经是压缩产物，不能再压一次。
+        let long_line = format!("用户：{}", "字".repeat(1500));
+        let mut summary = plain_message(
+            "user",
+            &format!("## 摘要说明\n\n旧说明\n\n## 保留对话\n\n{long_line}"),
+        );
+        summary.provider_meta = Some(serde_json::json!({
+            "message_meta": { "kind": "context_compaction" }
+        }));
+
+        let preserved = collect_block_preserved_dialogue(
+            &[summary],
+            "用户",
+            "助手",
+            PreservedDialogueBudget::Kib(26),
+        );
+        assert!(preserved.contains(&long_line), "继承段必须原样带过来");
+        assert!(
+            !preserved.contains("［省略 "),
+            "继承段不该被二次压缩: {preserved}"
+        );
     }
 }
