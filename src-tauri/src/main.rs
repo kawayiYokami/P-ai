@@ -1150,6 +1150,10 @@ fn grok_auth_import_command(app: AppHandle, input: GrokImportInput) -> Result<Gr
 }
 
 fn main() {
+    // rustls 0.23 在 ring 与 aws-lc-rs 双 provider 编译进进程时无法自动抉择默认，
+    // 首次 TLS 建连即 panic（`Could not automatically determine the process-level CryptoProvider`）。
+    // 进程启动即固定用 ring，后续所有 reqwest / tungstenite 共用该默认，不再走自动推导分支。
+    let _ = rustls::crypto::ring::default_provider().install_default();
     // 用 args_os 兜住非 UTF-8 参数：std::env::args 在迭代时会 panic，会绕开退出码约定。
     let argv: Vec<String> = std::env::args_os()
         .map(|arg| arg.to_string_lossy().into_owned())
