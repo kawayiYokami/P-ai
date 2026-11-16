@@ -207,6 +207,18 @@
                   <span>{{ t('config.remoteIm.qqOfficialSandbox') }}</span>
                 </label>
                 <div class="text-caption opacity-60 leading-relaxed">{{ t('config.remoteIm.qqOfficialHint') }}</div>
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div class="flex flex-col gap-1 min-w-0">
+                    <span class="text-xs font-medium">{{ qqBindStatusText }}</span>
+                    <span v-if="qqBindStatusMessage" class="text-caption opacity-60 break-all">{{ qqBindStatusMessage }}</span>
+                  </div>
+                  <button class="btn btn-sm min-h-[2.25rem] btn-primary" :disabled="qqBindBusy" @click="onQqBindButtonClick">
+                    {{ qqBindBusy ? t('config.remoteIm.processing') : t('config.remoteIm.qqOfficialScanBind') }}
+                  </button>
+                </div>
+                <div v-if="qqBindQrImageSrc" class="flex flex-col items-center gap-2 pt-2">
+                  <img :src="qqBindQrImageSrc" alt="QQ 绑定二维码" class="w-48 h-48 rounded-box border border-base-300 object-contain bg-white p-2" />
+                </div>
               </div>
             </template>
 
@@ -1052,6 +1064,18 @@
                     <span>{{ t('config.remoteIm.qqOfficialSandbox') }}</span>
                   </label>
                   <span class="text-caption opacity-60 leading-relaxed">{{ t('config.remoteIm.qqOfficialHint') }}</span>
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex flex-col gap-1 min-w-0">
+                      <span class="text-xs font-medium">{{ qqBindStatusText }}</span>
+                      <span v-if="qqBindStatusMessage" class="text-caption opacity-60 break-all">{{ qqBindStatusMessage }}</span>
+                    </div>
+                    <button class="btn btn-sm min-h-[2.25rem] btn-primary" :disabled="qqBindBusy" @click="onQqBindButtonClick">
+                      {{ qqBindBusy ? t('config.remoteIm.processing') : t('config.remoteIm.qqOfficialScanBind') }}
+                    </button>
+                  </div>
+                  <div v-if="qqBindQrImageSrc" class="flex flex-col items-center gap-2 pt-2">
+                    <img :src="qqBindQrImageSrc" alt="QQ 绑定二维码" class="w-48 h-48 rounded-box border border-base-300 object-contain bg-white p-2" />
+                  </div>
                 </div>
               </template>
 
@@ -1700,7 +1724,7 @@ import ApiConfigPicker from "../../components/ApiConfigPicker.vue";
 import WorkspaceConfigCard from "../../../shared/components/WorkspaceConfigCard.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 import ChannelBehaviorSettingsModal from "./remote-im/ChannelBehaviorSettingsModal.vue";
-import type { ChannelConnectionStatus, ChannelLogEntry, WeixinLoginStatus } from "./remote-im/types";
+import type { ChannelConnectionStatus, ChannelLogEntry, QqOfficialBindPollResult, QqOfficialBindStartResult, WeixinLoginStatus } from "./remote-im/types";
 import { buildContactLogDisplayItem, type ContactLogDisplayItem } from "./remote-im/contact-log-display";
 import {
   contactCommunicationToggleClass,
@@ -2600,6 +2624,163 @@ function loadQqOfficialCredentials(channel: RemoteImChannelConfig) {
   nextTick(() => {
     suppressCredentialSync.value = false;
   });
+}
+
+// ==================== QQ 官方机器人扫码绑定 ====================
+// 与微信扫码登录同一套写法：一次 start 拿二维码 → 定时轮询 → confirmed 后回填表单。
+// 绑定任务与渠道无关（新建未保存的渠道也能扫），所以命令入参里没有 channelId。
+
+type QqBindPhase = "idle" | "starting" | "waiting" | "confirmed" | "expired" | "error";
+
+const qqBindState = ref<{ phase: QqBindPhase; taskId: string; qrImage: string; lastError: string }>({
+  phase: "idle",
+  taskId: "",
+  qrImage: "",
+  lastError: "",
+});
+let qqBindPollTimer: ReturnType<typeof setInterval> | null = null;
+
+/** 后端给的是 data URL；沿用微信那套三路兜底（data URL / http / 裸 base64） */
+const qqBindQrImageSrc = computed(() => {
+  const raw = String(qqBindState.value.qrImage || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("data:image/")) return raw;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (looksLikeBase64(raw)) return `data:image/png;base64,${raw}`;
+  return raw;
+});
+
+const qqBindBusy = computed(() => qqBindState.value.phase === "starting");
+
+const qqBindStatusText = computed(() => {
+  switch (qqBindState.value.phase) {
+    case "starting":
+      return t('config.remoteIm.qqOfficialScanStarting');
+    case "waiting":
+      return t('config.remoteIm.qqOfficialScanWaiting');
+    case "expired":
+      return t('config.remoteIm.qqOfficialScanExpired');
+    case "confirmed":
+      return t('config.remoteIm.qqOfficialScanFilled');
+    case "error":
+      return qqBindState.value.lastError || t('config.remoteIm.qqOfficialScanExpired');
+    default:
+      return "";
+  }
+});
+
+/** 失败原因只在出错时作为第二行显示，其余状态没有说明文字 */
+const qqBindStatusMessage = computed(() =>
+  qqBindState.value.phase === "error" ? qqBindState.value.lastError : "",
+);
+
+function clearQqBindPoll() {
+  if (qqBindPollTimer) {
+    clearInterval(qqBindPollTimer);
+    qqBindPollTimer = null;
+  }
+}
+
+async function cancelQqBind() {
+  clearQqBindPoll();
+  const taskId = qqBindState.value.taskId;
+  qqBindState.value = { phase: "idle", taskId: "", qrImage: "", lastError: "" };
+  if (!taskId) return;
+  try {
+    await invokeTauri<void>("qq_official_bind_cancel", { input: { taskId } });
+  } catch (error) {
+    console.warn("[QQ 官方扫码绑定] 取消任务失败", error);
+  }
+}
+
+async function startQqBind() {
+  await cancelQqBind();
+  qqBindState.value = { phase: "starting", taskId: "", qrImage: "", lastError: "" };
+  try {
+    const result = await invokeTauri<QqOfficialBindStartResult>("qq_official_bind_start", { input: {} });
+    qqBindState.value = {
+      phase: "waiting",
+      taskId: String(result.taskId || ""),
+      qrImage: String(result.qrImage || ""),
+      lastError: "",
+    };
+    if (!qqBindState.value.taskId) {
+      qqBindState.value = {
+        phase: "error",
+        taskId: "",
+        qrImage: "",
+        lastError: t('config.remoteIm.qqOfficialScanFail', { error: "empty taskId" }),
+      };
+      return;
+    }
+    clearQqBindPoll();
+    qqBindPollTimer = setInterval(() => {
+      void pollQqBindStatus();
+    }, 2000);
+  } catch (error) {
+    qqBindState.value = {
+      phase: "error",
+      taskId: "",
+      qrImage: "",
+      lastError: t('config.remoteIm.qqOfficialScanFail', { error: String(error) }),
+    };
+  }
+}
+
+async function pollQqBindStatus() {
+  const taskId = qqBindState.value.taskId;
+  if (!taskId) return;
+  try {
+    const result = await invokeTauri<QqOfficialBindPollResult>("qq_official_bind_poll", {
+      input: { taskId },
+    });
+    if (qqBindState.value.taskId !== taskId) return;
+    const status = String(result?.status || "").trim().toLowerCase();
+    if (status === "confirmed") {
+      clearQqBindPoll();
+      qqBindState.value = { phase: "confirmed", taskId: "", qrImage: "", lastError: "" };
+      onQqOfficialBound({
+        appId: String(result?.appId || "").trim(),
+        appSecret: typeof result?.appSecret === "string" ? result.appSecret : undefined,
+      });
+      return;
+    }
+    if (status === "expired") {
+      clearQqBindPoll();
+      qqBindState.value = { phase: "expired", taskId: "", qrImage: "", lastError: "" };
+      return;
+    }
+    qqBindState.value = { ...qqBindState.value, phase: "waiting" };
+  } catch (error) {
+    clearQqBindPoll();
+    qqBindState.value = {
+      phase: "error",
+      taskId: "",
+      qrImage: "",
+      lastError: t('config.remoteIm.qqOfficialScanFail', { error: String(error) }),
+    };
+  }
+}
+
+async function onQqBindButtonClick() {
+  if (qqBindBusy.value) return;
+  await startQqBind();
+}
+
+/**
+ * 扫码取到凭据后只回填表单：不保存、不触发连接，回填本身就是一次待保存改动，
+ * 用户点「保存」时按现有流程落盘。
+ */
+function onQqOfficialBound(payload: { appId: string; appSecret?: string }) {
+  const channel = selectedChannel.value;
+  if (!channel || channel.platform !== "qq_official") return;
+  qqOfficialCredentials.value = {
+    ...qqOfficialCredentials.value,
+    appId: payload.appId || qqOfficialCredentials.value.appId,
+    // 没拿到 appSecret 时保留原值，不写空覆盖已有凭据
+    appSecret: payload.appSecret ?? qqOfficialCredentials.value.appSecret,
+  };
+  props.setStatusAction(t("config.remoteIm.qqOfficialScanFilled"));
 }
 
 function loadWeixinCredentials(channel: RemoteImChannelConfig) {
@@ -4219,6 +4400,7 @@ onUnmounted(() => {
     clearInterval(weixinLoginPollTimer);
     weixinLoginPollTimer = null;
   }
+  void cancelQqBind();
 });
 // ==================== 联系人批量设置 ====================
 

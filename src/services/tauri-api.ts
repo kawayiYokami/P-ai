@@ -188,6 +188,7 @@ const WEB_BRIDGE_COMMAND_TIMEOUT_MS: Record<string, number> = {
   fetch_model_metadata: WEB_BRIDGE_LONG_TIMEOUT_MS,
   mcp_list_server_tools: WEB_BRIDGE_LONG_TIMEOUT_MS,
   preview_import_angel_memories: WEB_BRIDGE_LONG_TIMEOUT_MS,
+  qq_official_bind_start: WEB_BRIDGE_LONG_TIMEOUT_MS,
   quick_genai_chat: WEB_BRIDGE_LONG_TIMEOUT_MS,
   refresh_models: WEB_BRIDGE_LONG_TIMEOUT_MS,
   remote_im_weixin_oc_get_login_status: WEB_BRIDGE_LONG_TIMEOUT_MS,

@@ -286,6 +286,29 @@ async fn ide_chat_remote_im_weixin_oc_start_login_for_web_settings(
     ide_chat_serialize(weixin_oc_manager().start_login(state, input).await?)
 }
 
+async fn ide_chat_qq_official_bind_start_for_web_settings(
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    // 扫码只取凭据，与渠道无关：这里不查配置、不碰渠道。
+    let _input = ide_chat_parse_param_field::<QqOfficialBindStartInput>(params, "input")?;
+    ide_chat_serialize(qq_official_bind_start_inner().await?)
+}
+
+async fn ide_chat_qq_official_bind_poll_for_web_settings(
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<QqOfficialBindPollInput>(params, "input")?;
+    ide_chat_serialize(qq_official_bind_poll_inner(&input.task_id).await?)
+}
+
+fn ide_chat_qq_official_bind_cancel_for_web_settings(params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<QqOfficialBindCancelInput>(params, "input")?;
+    qq_official_bind_cancel_inner(&input.task_id)?;
+    ide_chat_serialize(())
+}
+
 async fn ide_chat_remote_im_weixin_oc_get_login_status_for_web_settings(
     state: &AppState,
     params: Value,
