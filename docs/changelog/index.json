@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-09T03:13:28.523Z",
-  "latestVersion": "v0.98.3",
+  "generatedAt": "2026-11-17T11:43:57.137Z",
+  "latestVersion": "v0.98.4",
   "releases": [
+    {
+      "version": "v0.98.4",
+      "path": "docs/changelog/releases/v0.98.4.md",
+      "summary": "QQ 官方渠道详情页多了「扫码绑定」：点一下出二维码，手机 QQ 扫完确认，AppID 和 AppSecret 自动填进表单，不用再手动复制。"
+    },
     {
       "version": "v0.98.3",
       "path": "docs/changelog/releases/v0.98.3.md",
