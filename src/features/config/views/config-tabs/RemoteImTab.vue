@@ -2354,14 +2354,18 @@ type ContactConversationModel = {
 };
 
 /**
- * 解析有效文本模型：当模型为空或丢失（不在可用文本模型列表）时，退到第一个可用的聊天文本模型。
- * 专家模型已改为隐形兜底，前端不再兜到它，避免与后端口径分叉。
+ * 解析有效文本模型：有效值直接用；为空或丢失时退到最近一次亲手选择的模型（expertApiConfigId），最后才退第一个可用的聊天文本模型。
+ * 与后端 resolve_new_remote_im_contact_model 同口径：继承 → 专家（最后选择） → 第一个可用。
  */
 function resolveAvailableModelId(modelId?: string | null): string {
   const raw = String(modelId || "").trim();
   const textConfigs = (props.config.apiConfigs || []).filter((item) => !!item.enableText);
   if (raw && textConfigs.some((item) => item.id === raw)) {
     return raw;
+  }
+  const expert = String((props.config as { expertApiConfigId?: string }).expertApiConfigId || "").trim();
+  if (expert && textConfigs.some((item) => item.id === expert)) {
+    return expert;
   }
   return textConfigs[0]?.id || "";
 }

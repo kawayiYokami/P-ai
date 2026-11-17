@@ -252,13 +252,15 @@ pub(crate) fn resolve_new_team_member_conversation_model(
         .or_else(|| first_available_chat_model(app_config))
 }
 
-/// 远程联系人会话创建时的取值：根会话模型（沿父链） → 第一个可用聊天文本模型。
+/// 远程联系人会话创建时的取值：根会话模型（沿父链） → 最近一次亲手选择的模型 → 第一个可用聊天文本模型。
+/// 根是 remote_im_contact:xxx 假键时继承恒 miss，此时必须落到专家（最后选择），不能直接掉到第一个供应商第一个模型。
 pub(crate) fn resolve_new_remote_im_contact_model(
     state: &AppState,
     app_config: &AppConfig,
     root_conversation_id: &str,
 ) -> Option<String> {
     resolve_inherited_conversation_model(state, app_config, root_conversation_id)
+        .or_else(|| expert_chat_model(app_config))
         .or_else(|| first_available_chat_model(app_config))
 }
 
