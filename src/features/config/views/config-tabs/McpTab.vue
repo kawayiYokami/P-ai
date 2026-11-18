@@ -25,7 +25,7 @@
       <template v-if="inDetailMode && selectedServer">
         <div class="flex flex-wrap items-center gap-2">
             <button
-              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
               type="button"
               :disabled="loading"
               @click="validateDefinition(selectedServer)"
@@ -35,7 +35,7 @@
             </button>
             <button
               v-if="issueList.length > 0"
-              class="btn btn-sm min-h-[2.25rem] btn-ghost text-warning gap-1.5 px-3"
+              class="btn btn-sm btn-ghost text-warning gap-1.5 px-2.5"
               type="button"
               :disabled="loading"
               @click="fixDefinition(selectedServer)"
@@ -45,7 +45,7 @@
             </button>
             <button
               v-if="selectedServer.isDirty"
-              class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
+              class="btn btn-sm btn-primary gap-1.5 px-3"
               type="button"
               :disabled="loading"
               @click="saveServer(selectedServer)"
@@ -55,7 +55,7 @@
             </button>
             <button
               v-if="selectedServer.lastStatus === 'auth_required' || (selectedServer.oauthCapable && !selectedServer.hasOauthToken)"
-              class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3"
+              class="btn btn-sm btn-primary gap-1.5 px-3"
               type="button"
               :disabled="loading || oauthStatusMap[selectedServer.id]?.status === 'authorizing'"
               @click="handleOAuthLogin(selectedServer.id)"
@@ -64,7 +64,7 @@
               <span>{{ t('config.mcp.oauthLogin') }}</span>
             </button>
             <button
-              class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3"
+              class="btn btn-sm btn-ghost gap-1.5 px-3"
               :class="selectedServer.enabled ? 'btn-warning' : 'btn-success'"
               type="button"
               :disabled="loading"
@@ -74,7 +74,7 @@
               <span>{{ selectedServer.enabled ? t('config.mcp.stop') : t('config.mcp.deploy') }}</span>
             </button>
             <button
-              class="btn btn-sm min-h-[2.25rem] btn-ghost text-error gap-1.5 px-3"
+              class="btn btn-sm btn-ghost text-error gap-1.5 px-2.5"
               type="button"
               :disabled="loading"
               @click="confirmRemoveServer(selectedServer)"
@@ -88,7 +88,7 @@
       <template v-else>
         <div class="flex flex-wrap items-center gap-2">
             <button
-              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
               type="button"
               :disabled="loading"
               @click="reloadServers"
@@ -98,7 +98,7 @@
             </button>
             <button
               v-if="localFileSystemAvailable"
-              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
               type="button"
               :disabled="loading"
               @click="openMcpDir"

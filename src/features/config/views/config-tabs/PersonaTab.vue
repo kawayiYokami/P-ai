@@ -11,7 +11,7 @@
             <!-- 放弃修改 / 还原草稿 -->
             <button
               v-if="personaDirty"
-              class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1 px-2 sm:px-3 text-xs"
+              class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
               type="button"
               :disabled="personaSaving"
               :title="t('config.persona.restoreDraft')"
@@ -23,7 +23,7 @@
 
             <!-- 保存按钮 -->
             <button
-              class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3 sm:px-3.5"
+              class="btn btn-sm btn-ghost gap-1.5 px-3"
               :class="personaDirty ? 'btn-primary shadow-sm' : 'bg-base-100'"
               type="button"
               :disabled="!selectedPersona || !personaDirty || personaSaving"

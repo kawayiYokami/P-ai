@@ -2,7 +2,7 @@
   <SettingsPageShell :tab="kind" :tabs="catalogTabs" @update:tab="switchKind">
     <template #actions>
       <button
-        class="btn btn-ghost btn-sm h-8 min-h-[2rem] gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
+        class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
         type="button"
         :disabled="loading"
         :title="t('config.catalog.refresh')"

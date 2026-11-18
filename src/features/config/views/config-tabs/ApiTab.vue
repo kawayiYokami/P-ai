@@ -12,7 +12,7 @@
       >
         <button
           v-if="searchEnginesDirty"
-          class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
+          class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
           type="button"
           :disabled="props.savingConfig"
           :title="t('config.api.restoreProviderDraft')"
@@ -22,7 +22,7 @@
           <span>{{ t("config.api.restoreProviderDraft") }}</span>
         </button>
         <button
-          class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3.5"
+          class="btn btn-sm btn-ghost gap-1.5 px-3"
           :class="searchEnginesDirty ? 'btn-primary' : 'bg-base-100'"
           type="button"
           :disabled="!searchEnginesDirty || props.savingConfig"
@@ -42,7 +42,7 @@
         <template v-if="activeTopTab !== 'imageGeneration'">
               <button
                 v-if="currentProviderDirty"
-                class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
+                class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
                 type="button"
                 :disabled="props.savingConfig"
                 :title="t('config.api.restoreProviderDraft')"
@@ -52,7 +52,7 @@
                 <span>{{ t("config.api.restoreProviderDraft") }}</span>
               </button>
               <button
-                class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3.5"
+                class="btn btn-sm btn-ghost gap-1.5 px-3"
                 :class="currentProviderDirty ? 'btn-primary' : 'bg-base-100'"
                 type="button"
                 :disabled="!currentProviderDirty || props.savingConfig"
@@ -64,7 +64,7 @@
                 <span>{{ props.savingConfig ? t("config.api.saving") : t("common.save") }}</span>
               </button>
               <button
-                class="btn btn-sm min-h-[2.25rem] btn-ghost text-error gap-1.5 px-3"
+                class="btn btn-sm btn-ghost text-error gap-1.5 px-2.5"
                 type="button"
                 :disabled="scopedProviderList.length <= 1"
                 :title="t('config.api.removeProvider')"
@@ -77,7 +77,7 @@
             <template v-else>
               <button
                 v-if="imageToolbarDirty"
-                class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
+                class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
                 type="button"
                 :disabled="imageToolbarSaving"
                 @click="restoreImageProviderConfig"
@@ -86,7 +86,7 @@
                 <span>{{ t("common.reset") }}</span>
               </button>
               <button
-                class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3.5"
+                class="btn btn-sm btn-ghost gap-1.5 px-3"
                 :class="imageToolbarDirty ? 'btn-primary' : 'bg-base-100'"
                 type="button"
                 :disabled="!imageToolbarDirty || imageToolbarSaving"
@@ -97,7 +97,7 @@
                 <span>{{ imageToolbarSaving ? t("config.api.saving") : t("common.save") }}</span>
               </button>
               <button
-                class="btn btn-sm min-h-[2.25rem] btn-ghost text-error gap-1.5 px-3"
+                class="btn btn-sm btn-ghost text-error gap-1.5 px-2.5"
                 type="button"
                 :disabled="imageToolbarRemoveDisabled"
                 @click="removeImageProvider"

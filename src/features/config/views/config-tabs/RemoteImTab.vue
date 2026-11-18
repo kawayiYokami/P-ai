@@ -12,7 +12,7 @@
         class="flex flex-wrap items-center gap-2"
       >
         <button
-          class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+          class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
           type="button"
           :title="t('config.remoteIm.viewLogs')"
           @click="openChannelLogsModalForChannel(selectedChannel.id)"
@@ -21,7 +21,7 @@
           <span>{{ t("config.remoteIm.viewLogs") }}</span>
         </button>
         <button
-          class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+          class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
           type="button"
           :title="t('common.refresh')"
           :disabled="contactsLoading"
@@ -32,7 +32,7 @@
         </button>
         <button
           v-if="channelDirty"
-          class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
+          class="btn btn-sm btn-primary gap-1.5 px-3"
           type="button"
           :disabled="saving || isChannelOperationBusy(selectedChannel.id)"
           :title="t('common.save')"

@@ -28,7 +28,7 @@
             <template v-if="!selectedSkill.isBuiltin">
               <button
                 v-if="isDirty"
-                class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
+                class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
                 type="button"
                 :disabled="savingSkill"
                 :title="t('config.skill.discardTitle')"
@@ -38,7 +38,7 @@
                 <span>{{ t("config.skill.discard") }}</span>
               </button>
               <button
-                class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3.5"
+                class="btn btn-sm btn-ghost gap-1.5 px-3"
                 :class="isDirty ? 'btn-primary' : 'bg-base-100'"
                 type="button"
                 :disabled="!isDirty || savingSkill"
@@ -52,7 +52,7 @@
             </template>
             <button
               v-if="localFileSystemAvailable"
-              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
               type="button"
               @click="openCurrentSkillDir"
               :disabled="loading"
@@ -62,7 +62,7 @@
               <span>{{ t("config.skill.openFolder") }}</span>
             </button>
             <button
-              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
               type="button"
               @click="reload"
               :disabled="loading"
@@ -73,7 +73,7 @@
             </button>
             <button
               v-if="!selectedSkill.isBuiltin"
-              class="btn btn-sm min-h-[2.25rem] btn-ghost text-error gap-1.5 px-3"
+              class="btn btn-sm btn-ghost text-error gap-1.5 px-2.5"
               type="button"
               :disabled="loading"
               @click="confirmRemoveSkill(selectedSkill)"
@@ -88,7 +88,7 @@
         <div class="flex flex-wrap items-center gap-2">
             <button
               v-if="localFileSystemAvailable"
-              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
               type="button"
               @click="openSkillsDir"
               :disabled="loading"
@@ -97,7 +97,7 @@
               <span>{{ t("config.skill.openWorkspace") }}</span>
             </button>
             <button
-              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+              class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
               type="button"
               @click="reload"
               :disabled="loading"
