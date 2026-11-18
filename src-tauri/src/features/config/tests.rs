@@ -1884,3 +1884,204 @@ definitionJson = "{\"command\":\"npx\"}"
         let second = select_and_advance_provider_api_key(provider);
         assert_eq!(second, "key-2", "进程内游标态仍在，轮换继续");
     }
+
+    // ==================== 人格文件：内置兜底 / 覆盖 / 逐条容错 ====================
+
+    fn agents_test_data_path() -> PathBuf {
+        let root = std::env::temp_dir().join(format!("eca-agents-file-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
+        root.join("config").join("config_mark")
+    }
+
+    fn write_agents_json(data_path: &PathBuf, content: &str) {
+        let path = app_layout_agents_path(data_path);
+        std::fs::create_dir_all(path.parent().expect("agents parent")).expect("agents dir");
+        std::fs::write(path, content).expect("write agents file");
+    }
+
+    fn built_in_ids(agents: &[AgentProfile]) -> Vec<String> {
+        let mut ids = agents
+            .iter()
+            .map(|agent| agent.id.trim().to_string())
+            .filter(|id| {
+                built_in_agents()
+                    .iter()
+                    .any(|built_in| built_in.id.trim() == id)
+            })
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids
+    }
+
+    #[test]
+    fn read_agents_shard_should_fall_back_to_built_in_on_syntax_error() {
+        let data_path = agents_test_data_path();
+        // 尾逗号：正是用户遇到的那种坏文件。
+        write_agents_json(
+            &data_path,
+            "{\n  \"agents\": [\n    {\"id\": \"agent-x\", \"name\": \"X\", \"systemPrompt\": \"p\"},\n  ]\n}\n",
+        );
+
+        let agents = read_agents_shard(&data_path).expect("坏文件不应阻断读取");
+        let ids = built_in_ids(&agents);
+        let expected = {
+            let mut expected = built_in_agents()
+                .iter()
+                .map(|agent| agent.id.trim().to_string())
+                .collect::<Vec<_>>();
+            expected.sort();
+            expected
+        };
+        assert_eq!(ids, expected, "文件级语法错误必须回落到全部内置人格");
+        assert!(
+            !agents.iter().any(|agent| agent.id == "agent-x"),
+            "坏文件里的自定义人格不应被加载"
+        );
+        // 兜底必须留下可见诊断（不能静默）
+        let diagnostics = agents_load_diagnostics();
+        assert!(
+            diagnostics.iter().any(|item| item.contains("尾逗号")
+                || item.contains("语法错误")
+                || item.contains("解析失败")),
+            "兜底必须留诊断：{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn read_agents_shard_should_override_built_in_by_id_and_append_custom() {
+        let data_path = agents_test_data_path();
+        let renamed = format!(
+            "{{\"id\": \"{DEFAULT_AGENT_ID}\", \"name\": \"我改过的 Pai\", \"systemPrompt\": \"改过的提示词\"}}"
+        );
+        let custom = "{\"id\": \"agent-custom\", \"name\": \"自定义\", \"systemPrompt\": \"p\"}";
+        write_agents_json(
+            &data_path,
+            &format!("{{\"agents\": [{renamed}, {custom}]}}"),
+        );
+
+        let agents = read_agents_shard(&data_path).expect("读取人格");
+        let pai = agents
+            .iter()
+            .find(|agent| agent.id == DEFAULT_AGENT_ID)
+            .expect("内置 Pai 必须在");
+        assert_eq!(pai.name, "我改过的 Pai", "同 id 文件条目应覆盖内置");
+        // 文件里没写的内置人格仍然存在
+        assert!(agents.iter().any(|agent| agent.id == DEPUTY_AGENT_ID));
+        assert!(agents.iter().any(|agent| agent.id == "reviewer"));
+        assert!(
+            agents.iter().any(|agent| agent.id == "agent-custom"),
+            "非内置 id 应追加为自定义人格"
+        );
+    }
+
+    #[test]
+    fn read_agents_shard_should_skip_only_broken_item() {
+        let data_path = agents_test_data_path();
+        // 第二条 name 写成数字：只该跳过这一条。
+        write_agents_json(
+            &data_path,
+            "{\n  \"agents\": [\n    {\"id\": \"agent-good\", \"name\": \"好的\", \"systemPrompt\": \"p\"},\n    {\"id\": \"agent-bad\", \"name\": 123, \"systemPrompt\": \"p\"}\n  ]\n}\n",
+        );
+
+        let agents = read_agents_shard(&data_path).expect("单条坏不应导致整体失败");
+        assert!(agents.iter().any(|agent| agent.id == "agent-good"));
+        assert!(!agents.iter().any(|agent| agent.id == "agent-bad"));
+        // 内置照旧齐全
+        assert!(agents.iter().any(|agent| agent.id == DEFAULT_AGENT_ID));
+        let diagnostics = agents_load_diagnostics();
+        assert!(
+            diagnostics
+                .iter()
+                .any(|item| item.contains("第 2 条") && item.contains("agent-bad")),
+            "跳过条目必须指出第几条、哪个 id：{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn read_agents_shard_should_fill_missing_created_at() {
+        let data_path = agents_test_data_path();
+        write_agents_json(
+            &data_path,
+            "{\"agents\": [{\"id\": \"agent-no-time\", \"name\": \"无时间\", \"systemPrompt\": \"p\"}]}",
+        );
+        let agents = read_agents_shard(&data_path).expect("缺时间戳不应被拒");
+        let agent = agents
+            .iter()
+            .find(|agent| agent.id == "agent-no-time")
+            .expect("缺 createdAt 的条目也要读进来");
+        assert!(
+            !agent.created_at.trim().is_empty(),
+            "createdAt 应被补齐，不能留空串"
+        );
+        assert!(!agent.updated_at.trim().is_empty());
+    }
+
+    #[test]
+    fn write_agents_shard_should_persist_only_custom_and_modified_built_in() {
+        let data_path = agents_test_data_path();
+        let mut agents = built_in_agents();
+        // 未改动的内置：不落盘
+        // 被改过的内置：落盘
+        let pai = agents
+            .iter_mut()
+            .find(|agent| agent.id == DEFAULT_AGENT_ID)
+            .expect("built-in pai");
+        pai.name = "改名后的 Pai".to_string();
+        // 自定义：落盘
+        agents.push(AgentProfile {
+            id: "agent-custom".to_string(),
+            name: "自定义".to_string(),
+            system_prompt: "p".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+            avatar_path: None,
+            avatar_updated_at: None,
+            is_built_in_user: false,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
+            scope: default_global_scope(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            include_system_rules: true,
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
+        });
+
+        write_agents_shard(&data_path, &agents).expect("写入人格");
+        let written: Value = serde_json::from_str(
+            &std::fs::read_to_string(app_layout_agents_path(&data_path)).expect("read agents file"),
+        )
+        .expect("parse agents file");
+        let written_ids = written
+            .get("agents")
+            .and_then(Value::as_array)
+            .expect("agents array")
+            .iter()
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+
+        assert!(written_ids.contains(&DEFAULT_AGENT_ID), "改过的内置要落盘");
+        assert!(written_ids.contains(&"agent-custom"), "自定义要落盘");
+        assert!(
+            !written_ids.contains(&DEPUTY_AGENT_ID),
+            "未改动的内置不该写进文件：{written_ids:?}"
+        );
+        assert!(
+            !written_ids.contains(&"reviewer"),
+            "内置组织人格没改就不该写进文件：{written_ids:?}"
+        );
+
+        // 读回仍然完整：内置由代码补齐
+        let reloaded = read_agents_shard(&data_path).expect("读回人格");
+        assert_eq!(reloaded.len(), agents.len(), "读回人格数应与写入前一致");
+        let pai_reloaded = reloaded
+            .iter()
+            .find(|agent| agent.id == DEFAULT_AGENT_ID)
+            .expect("pai");
+        assert_eq!(pai_reloaded.name, "改名后的 Pai", "改过的内置要持久生效");
+    }

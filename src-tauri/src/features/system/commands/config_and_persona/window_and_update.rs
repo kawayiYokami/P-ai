@@ -648,9 +648,6 @@ fn save_config_inner(
     let _ = ensure_default_shell_workspace_in_config(&mut config, &state);
     set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
 
-    let agents = state_read_agents_cached(&state)?;
-    let mut data = AppData::default();
-    data.agents = agents;
     let base_config = state_read_config_cached(&state)?;
     // 前端带回的密钥是掩码：能对上旧值就沿用，绝不把掩码写进配置。
     merge_masked_search_engine_keys(&base_config, &mut config);

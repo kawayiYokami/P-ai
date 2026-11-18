@@ -68,6 +68,229 @@ fn build_agents_file(agents: &[AgentProfile]) -> AgentsFile {
     }
 }
 
+// ==================== 人格文件：内置打底 + 文件覆盖，逐条容错 ====================
+
+/// 内置人格：来自代码，永远是可用基线。
+///
+/// 内置与自定义人格以前同住 `agents.json` 且文件整体取代内置，于是「用户写坏一个逗号，
+/// 连 Pai / 副手 / reviewer / support 一起消失」。现在内置只从代码取，文件只负责
+/// 「覆盖同名内置」与「追加自定义」，文件坏了也伤不到内置。
+fn built_in_agents() -> Vec<AgentProfile> {
+    let mut agents = vec![default_agent(), default_deputy_agent()];
+    agents.extend(built_in_organization_agents());
+    agents.push(default_user_persona());
+    agents.push(default_system_persona());
+    agents
+}
+
+/// 时间戳缺失补齐：缺 createdAt 用 updatedAt，两个都缺用当前时间；不留空串进排序。
+fn normalize_agent_timestamps(agent: &mut AgentProfile) {
+    let created = agent.created_at.trim().to_string();
+    let updated = agent.updated_at.trim().to_string();
+    let updated = if updated.is_empty() {
+        if created.is_empty() {
+            now_iso()
+        } else {
+            created.clone()
+        }
+    } else {
+        updated
+    };
+    let created = if created.is_empty() {
+        updated.clone()
+    } else {
+        created
+    };
+    agent.created_at = created;
+    agent.updated_at = updated;
+}
+
+/// 最近一次人格文件读取的诊断信息（兜底、坏条被跳过），给 UI 展示用。
+fn agents_load_diagnostics_store() -> &'static std::sync::Mutex<Vec<String>> {
+    static DIAGNOSTICS: OnceLock<std::sync::Mutex<Vec<String>>> = OnceLock::new();
+    DIAGNOSTICS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+fn agents_load_diagnostics() -> Vec<String> {
+    agents_load_diagnostics_store()
+        .lock()
+        .map(|items| items.clone())
+        .unwrap_or_default()
+}
+
+/// 记录一条人格文件诊断：写日志 + 存给 UI，绝不让损坏静默发生。
+fn record_agents_load_diagnostic(message: String) {
+    runtime_log_error(format!("[配置] {message}"));
+    if let Ok(mut items) = agents_load_diagnostics_store().lock() {
+        items.push(message);
+    }
+}
+
+/// 把 serde 的语法错误翻成「文件 + 行列 + 出错行原文 + 指位」的中文提示。
+fn agents_syntax_error_message(path: &PathBuf, content: &str, err: &serde_json::Error) -> String {
+    let line = err.line();
+    let column = err.column();
+    let line_text = content
+        .lines()
+        .nth(line.saturating_sub(1))
+        .unwrap_or_default();
+    let detail = match err.classify() {
+        serde_json::error::Category::Syntax if err.to_string().contains("trailing comma") => {
+            "该行末尾多了一个逗号（JSON 不允许尾逗号）".to_string()
+        }
+        serde_json::error::Category::Syntax => format!("JSON 语法错误：{err}"),
+        _ => format!("结构不匹配：{err}"),
+    };
+    let mut caret = String::new();
+    if column > 0 {
+        caret = format!("\n{}^", " ".repeat(column.saturating_sub(1)));
+    }
+    format!(
+        "人格文件 `{}` 第 {line} 行第 {column} 列解析失败：{detail}\n出错行：{}\
+{caret}\n已改用内置人格（Pai / 副手 / reviewer / support / 用户 / 系统人格），自定义人格本次未加载。修好该文件后重启即可恢复。",
+        path.display(),
+        line_text.trim_end()
+    )
+}
+
+/// 逐条解析文件里的人格数组；返回可用条目与「被跳过的第几条」说明。
+fn parse_agents_items(items: &[Value]) -> (Vec<AgentProfile>, Vec<String>) {
+    let mut agents = Vec::<AgentProfile>::new();
+    let mut skipped = Vec::<String>::new();
+    for (index, item) in items.iter().enumerate() {
+        match serde_json::from_value::<AgentProfile>(item.clone()) {
+            Ok(mut agent) => {
+                normalize_agent_timestamps(&mut agent);
+                agents.push(agent);
+            }
+            Err(err) => {
+                let label = item
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| format!("id={value}"))
+                    .or_else(|| {
+                        item.get("name")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(|value| format!("name={value}"))
+                    })
+                    .unwrap_or_else(|| "无 id/name".to_string());
+                skipped.push(format!("第 {} 条（{label}）：{err}", index + 1));
+            }
+        }
+    }
+    (agents, skipped)
+}
+
+/// 内置打底 + 文件同 id 覆盖 + 非内置 id 追加。
+fn merge_agents_with_built_in(file_agents: Vec<AgentProfile>) -> Vec<AgentProfile> {
+    let mut merged = built_in_agents();
+    for agent in file_agents {
+        let id = agent.id.trim().to_string();
+        if let Some(slot) = merged.iter_mut().find(|existing| existing.id.trim() == id) {
+            *slot = agent;
+        } else {
+            merged.push(agent);
+        }
+    }
+    merged
+}
+
+fn read_agents_shard(path: &PathBuf) -> Result<Vec<AgentProfile>, String> {
+    let agents_path = app_layout_agents_path(path);
+    if !agents_path.exists() {
+        // 文件不存在：纯内置，与历史行为一致。
+        return Ok(built_in_agents());
+    }
+    let content = fs::read_to_string(&agents_path).map_err(|err| {
+        let message = format!(
+            "读取人格文件失败（{}）：{err}。已改用内置人格，自定义人格本次未加载。",
+            agents_path.display()
+        );
+        record_agents_load_diagnostic(message.clone());
+        message
+    })?;
+
+    let raw = match serde_json::from_str::<Value>(&content) {
+        Ok(raw) => raw,
+        Err(err) => {
+            // 整体语法错（尾逗号 / 括号不闭合）：文件级兜底，内置全在。
+            record_agents_load_diagnostic(agents_syntax_error_message(
+                &agents_path, &content, &err,
+            ));
+            return Ok(built_in_agents());
+        }
+    };
+    let Some(items) = raw.get("agents").and_then(Value::as_array).cloned() else {
+        record_agents_load_diagnostic(format!(
+            "人格文件 `{}` 缺少 agents 数组（期望 {{\"agents\": [ ... ]}}），已改用内置人格，自定义人格本次未加载。",
+            agents_path.display()
+        ));
+        return Ok(built_in_agents());
+    };
+
+    let (file_agents, skipped) = parse_agents_items(&items);
+    if !skipped.is_empty() {
+        record_agents_load_diagnostic(format!(
+            "人格文件 `{}` 有 {} 条记录无法解析，已跳过（其余照常加载）：{}",
+            agents_path.display(),
+            skipped.len(),
+            skipped.join("；")
+        ));
+    }
+    Ok(merge_agents_with_built_in(file_agents))
+}
+
+/// 比较用视图：忽略时间戳，避免「只差 created_at」被当成用户改动而反复写回内置。
+fn agent_comparable_value(agent: &AgentProfile) -> Value {
+    let mut value = serde_json::to_value(agent).unwrap_or(Value::Null);
+    if let Some(object) = value.as_object_mut() {
+        object.remove("createdAt");
+        object.remove("updatedAt");
+    }
+    value
+}
+
+/// 只落盘「需要保留的部分」：自定义人格 + 被用户改过的内置人格。
+///
+/// 纯默认内置人格不再写进文件，避免文件成为内置人格的单一真相来源。
+fn agents_to_persist(agents: &[AgentProfile]) -> Vec<AgentProfile> {
+    let defaults = built_in_agents();
+    let default_ids = defaults
+        .iter()
+        .map(|agent| agent.id.trim().to_string())
+        .collect::<std::collections::HashSet<_>>();
+    agents
+        .iter()
+        .filter(|agent| {
+            let id = agent.id.trim();
+            if !default_ids.contains(id) {
+                // 自定义人格：必须落盘
+                return true;
+            }
+            match defaults.iter().find(|default| default.id.trim() == id) {
+                // 与代码默认值不同（用户改过）：落盘
+                Some(default) => agent_comparable_value(default) != agent_comparable_value(agent),
+                None => true,
+            }
+        })
+        .cloned()
+        .collect()
+}
+
+fn write_agents_shard(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, String> {
+    fs::create_dir_all(app_layout_config_dir(path))
+        .map_err(|err| format!("Create config layout dir failed: {err}"))?;
+    write_json_file_atomic_if_changed(
+        &app_layout_agents_path(path),
+        &build_agents_file(&agents_to_persist(agents)),
+        "agents file",
+    )
+}
+
 fn system_notification_conversation_shard_has_artifacts(path: &PathBuf) -> Result<bool, String> {
     let store_paths = message_store::message_store_paths(path, SYSTEM_NOTIFICATION_CONVERSATION_ID)?;
     message_store::chat_store_read_status(&store_paths).map(|status| status.is_some())
@@ -146,24 +369,6 @@ fn remove_chat_index_conversation(index: &mut ChatIndexFile, conversation_id: &s
         return;
     }
     index.conversations.retain(|item| item.id != conversation_id);
-}
-
-fn read_agents_shard(path: &PathBuf) -> Result<Vec<AgentProfile>, String> {
-    if app_layout_agents_path(path).exists() {
-        Ok(read_json_file::<AgentsFile>(&app_layout_agents_path(path), "agents file")?.agents)
-    } else {
-        Ok(AppData::default().agents)
-    }
-}
-
-fn write_agents_shard(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, String> {
-    fs::create_dir_all(app_layout_config_dir(path))
-        .map_err(|err| format!("Create config layout dir failed: {err}"))?;
-    write_json_file_atomic_if_changed(
-        &app_layout_agents_path(path),
-        &build_agents_file(agents),
-        "agents file",
-    )
 }
 
 fn read_conversation_shard(path: &PathBuf, conversation_id: &str) -> Result<Conversation, String> {

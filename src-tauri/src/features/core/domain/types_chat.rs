@@ -32,7 +32,11 @@ struct AgentProfile {
     id: String,
     name: String,
     system_prompt: String,
+    /// 时间戳可能缺失（历史文件、外部工具生成）：默认空串，读入后由
+    /// `normalize_agent_timestamps` 统一补齐，避免「少一个 createdAt 就整条读不进来」。
+    #[serde(default)]
     created_at: String,
+    #[serde(default)]
     updated_at: String,
     #[serde(default)]
     avatar_path: Option<String>,

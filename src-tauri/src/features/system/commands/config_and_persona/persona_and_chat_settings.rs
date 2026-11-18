@@ -3,6 +3,14 @@ fn load_agents(state: State<'_, AppState>) -> Result<Vec<AgentProfile>, String> 
     load_agents_inner(&state)
 }
 
+/// 人格文件最近一次读取的诊断信息（内置兜底、坏条被跳过）。
+///
+/// 界面用它给出「哪个文件、第几行、跳过了什么」的可见提示——内置兜底不能静默发生。
+#[tauri::command]
+fn load_agents_diagnostics() -> Vec<String> {
+    agents_load_diagnostics()
+}
+
 fn load_agents_inner(state: &AppState) -> Result<Vec<AgentProfile>, String> {
     let config = state_read_config_cached(&state)?;
     let agents = state_read_agents_cached(&state)?;

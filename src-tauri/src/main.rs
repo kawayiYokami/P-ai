@@ -1438,6 +1438,7 @@ fn main() {
             update_record_background_wake,
             save_config,
             load_agents,
+            load_agents_diagnostics,
             save_agents,
             get_agent_private_memory_count,
             set_agent_private_memory_enabled,

@@ -91,16 +91,7 @@ impl Default for AppData {
         Self {
             version: APP_DATA_SCHEMA_VERSION,
             data_migration_version: 0,
-            agents: {
-                let mut agents = vec![
-                    default_agent(),
-                    default_deputy_agent(),
-                ];
-                agents.extend(built_in_organization_agents());
-                agents.push(default_user_persona());
-                agents.push(default_system_persona());
-                agents
-            },
+            agents: built_in_agents(),
             user_alias: default_user_alias(),
             conversations: Vec::new(),
         }

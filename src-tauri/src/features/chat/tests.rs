@@ -3744,6 +3744,46 @@
         assert_eq!(decision.reason, "force_context_usage_90");
     }
 
+    /// 回归：agents.json 解析失败不得阻断配置保存，也不得让内置人格消失。
+    ///
+    /// 之前 save_config_inner 里有一次 agents 死读取，人格文件坏一个逗号就导致整个配置保存
+    /// 失败；读取侧更是文件整体取代内置，一个自定义人格坏了会把 Pai / 副手 / reviewer /
+    /// support 一起带走。这条同时钉住「配置保存与人格文件无关」和「内置人格永远可用」。
+    #[test]
+    fn config_save_should_not_depend_on_agents_parse() {
+        let state = test_chat_runtime_state();
+        let agents_path = app_layout_agents_path(&state.data_path);
+        std::fs::create_dir_all(agents_path.parent().expect("agents parent"))
+            .expect("create agents dir");
+        // 尾逗号：serde 会拒，正是用户遇到的那种坏文件（agents.json 期望 {"agents": [...]}）。
+        std::fs::write(
+            &agents_path,
+            "{\n  \"agents\": [\n    {\"id\": \"agent-a\"},\n  ]\n}\n",
+        )
+        .expect("write broken agents");
+
+        // 人格读取不再整体失败：内置人格兜底，且留下可见诊断。
+        let agents = state_read_agents_cached(&state).expect("坏文件不应让人格读取整体失败");
+        for id in [DEFAULT_AGENT_ID, DEPUTY_AGENT_ID, USER_PERSONA_ID, SYSTEM_PERSONA_ID] {
+            assert!(
+                agents.iter().any(|agent| agent.id == id),
+                "内置人格 {id} 必须永远可用"
+            );
+        }
+        assert!(!agents.iter().any(|agent| agent.id == "agent-a"));
+        assert!(
+            !agents_load_diagnostics().is_empty(),
+            "内置兜底必须留下可见诊断，不能静默"
+        );
+
+        // 与人格无关的配置保存链路必须照常
+        let mut config = state_read_config_cached(&state).expect("读取配置不应受人格文件影响");
+        config.hotkey = "Ctrl+Alt+P".to_string();
+        state_write_config_cached(&state, &config).expect("保存配置不应受人格文件影响");
+        let reloaded = state_read_config_cached(&state).expect("回读配置");
+        assert_eq!(reloaded.hotkey, "Ctrl+Alt+P");
+    }
+
     pub(crate) fn test_chat_runtime_state() -> AppState {
         let root = std::env::temp_dir().join(format!("eca-chat-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp test root");
