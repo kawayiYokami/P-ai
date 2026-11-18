@@ -149,6 +149,16 @@ fn mark_agents_file_untrusted(path: &PathBuf) {
     }
 }
 
+/// 解除「不许写回」的封锁：这一次真的读通了，写回能力必须恢复。
+///
+/// 不解除的话，一次临时占用（文件被别的程序抓住、用户正在编辑器里保存）就会锁死整个会话，
+/// 用户从此存不了人格——封锁只该管「当前这份读不通的文件」。
+fn unmark_agents_file_untrusted(path: &PathBuf) {
+    if let Ok(mut files) = agents_untrusted_files().lock() {
+        files.remove(path);
+    }
+}
+
 fn agents_file_is_untrusted(path: &PathBuf) -> bool {
     agents_untrusted_files()
         .lock()
@@ -326,6 +336,10 @@ fn read_agents_shard_outcome(path: &PathBuf) -> Result<AgentsReadOutcome, String
     // 结论先攒在本轮里，读完一次性发布：读取中途不能被别的读取刷掉。
     let mut diagnostics = Vec::<String>::new();
     let outcome = read_agents_file_outcome(&agents_path, &mut diagnostics);
+    if !outcome.fell_back {
+        // 这一次读通了（含「文件被移走」这种正常状态）：解除之前的「不许写回」封锁。
+        unmark_agents_file_untrusted(&agents_path);
+    }
     publish_agents_load_diagnostics(path, &diagnostics);
     Ok(outcome)
 }

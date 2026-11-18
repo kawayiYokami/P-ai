@@ -2408,6 +2408,37 @@ definitionJson = "{\"command\":\"npx\"}"
     }
 
     #[test]
+    fn untrusted_agents_file_should_be_released_after_a_successful_read() {
+        let state = config_test_state();
+        let agents_path = app_layout_agents_path(&state.data_path);
+        // 读不出来（非 UTF-8）：标不可信、写回被拒。
+        std::fs::create_dir_all(agents_path.parent().expect("agents parent")).expect("agents dir");
+        std::fs::write(&agents_path, [0xFFu8, 0xFE, 0x00, 0x41]).expect("write non utf8");
+        let failed = read_agents_shard_outcome(&state.data_path).expect("读失败不报错");
+        assert!(failed.fell_back);
+        assert!(
+            agents_file_is_untrusted(&agents_path),
+            "读失败要标不可信，否则写回等于拿兜底值覆盖一份内容未知的文件"
+        );
+        let err = crate::state_write_agents_cached(&state, &built_in_agents())
+            .expect_err("不可信时写回必须被拒");
+        assert!(err.contains("禁止写回"), "{err}");
+
+        // 文件修好：再读成功就必须解除封锁，否则一次临时占用会锁死整个会话。
+        write_agents_json(
+            &state.data_path,
+            "{\"agents\": [{\"id\": \"agent-ok\", \"name\": \"修好了\", \"systemPrompt\": \"p\"}]}",
+        );
+        let fixed = read_agents_shard_outcome(&state.data_path).expect("读取人格");
+        assert!(!fixed.fell_back);
+        assert!(
+            !agents_file_is_untrusted(&agents_path),
+            "读到合法内容后必须解除封锁"
+        );
+        crate::state_write_agents_cached(&state, &built_in_agents()).expect("修好后写回必须恢复");
+    }
+
+    #[test]
     fn write_agents_shard_should_persist_only_custom_and_modified_built_in() {
         let data_path = agents_test_data_path();
         let mut agents = built_in_agents();
