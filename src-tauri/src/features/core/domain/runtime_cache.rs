@@ -1087,7 +1087,15 @@ fn state_write_agents_cached(state: &AppState, agents: &[AgentProfile]) -> Resul
         .app_data_persist_write_lock
         .lock()
         .map_err(|_| "Failed to lock app data persist write lock".to_string())?;
-    let _ = write_agents_shard(&state.data_path, agents)?;
+    let wrote = write_agents_shard(&state.data_path, agents)?;
+    if !wrote {
+        // 写盘被拒（原文件损坏且备份失败，本次会话禁止覆盖）：绝不能把缓存改成新值再报成功，
+        // 否则界面显示已保存、重启全部回滚。
+        return Err(
+            "人格文件本次会话禁止写回（原文件损坏且备份失败），改动未保存；请先修好或移走 agents.json 再试"
+                .to_string(),
+        );
+    }
     let disk_mtime = path_modified_time(&app_layout_agents_path(&state.data_path));
     *state
         .cached_agents

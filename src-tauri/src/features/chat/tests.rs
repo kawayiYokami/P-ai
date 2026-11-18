@@ -3771,7 +3771,14 @@
             );
         }
         assert!(!agents.iter().any(|agent| agent.id == "agent-a"));
-        // 内置兜底必须留下可见诊断（诊断内容的断言在 config/tests 里串行跑，避免并行清空干扰）
+        // 内置兜底必须留下可见诊断；诊断按数据根分开存，并行跑也不会被别的用例刷掉。
+        assert!(
+            agents_load_diagnostics(&state.data_path)
+                .iter()
+                .any(|item| item.contains("解析失败") || item.contains("尾逗号")),
+            "内置兜底必须留下可见诊断：{:?}",
+            agents_load_diagnostics(&state.data_path)
+        );
 
         // 与人格无关的配置保存链路必须照常
         let mut config = state_read_config_cached(&state).expect("读取配置不应受人格文件影响");

@@ -702,19 +702,18 @@ fn migrate_departments_into_agent_organization(
 ) -> Result<DataMigrationStepStats, String> {
     let mut stats = DataMigrationStepStats::default();
     let read = read_agents_shard_outcome(&context.state.data_path)?;
-    let agents_fell_back = read.fell_back;
-    if agents_fell_back {
-        // 组织迁移会往人格列表里写节点：兜底值时写回会把用户的自定义人格从原文件抹掉。
+    if read.fell_back {
+        // 整个步骤推迟：这一步不只写人格——它还会把 assistant_agent_id 指到 legacy 部门 id、
+        // 写出部门技能文件。人才列表是兜底值，这些副作用一旦落地就是「配置指向不存在的
+        // 人格 + 一堆孤儿 skill」，而版本又记成了已完成、以后再不会重跑。
+        stats.deferred = true;
         runtime_log_warn(
-            "[应用数据迁移] 组织迁移不写回人格文件，任务=v5部门转人格，原因=人格文件损坏已用内置兜底，其余迁移照常执行".to_string(),
+            "[应用数据迁移] 部门转人格推迟，任务=v5部门转人格，原因=人格文件损坏已用内置兜底，本步骤全部副作用（人格节点、配置键、技能文件）一并推迟".to_string(),
         );
+        return Ok(stats);
     }
     let mut agents = read.agents;
-    let mut changed = if agents_fell_back {
-        false
-    } else {
-        ensure_built_in_organization_nodes(&mut agents)
-    };
+    let mut changed = ensure_built_in_organization_nodes(&mut agents);
     if carry_legacy_assistant_agent_key(context.state)? {
         stats.data_changed = true;
         runtime_log_info(
@@ -737,9 +736,7 @@ fn migrate_departments_into_agent_organization(
         department_count = legacy.departments.len();
         if !legacy.departments.is_empty() {
             plan = plan_agent_org_migration(&legacy.departments);
-            if !agents_fell_back {
-                changed |= apply_agent_org_migration_plan(&mut agents, &plan);
-            }
+            changed |= apply_agent_org_migration_plan(&mut agents, &plan);
         }
         if carry_legacy_expert_model_key(config_path, &legacy_expert_api_config_id)? {
             runtime_log_info(
@@ -749,7 +746,14 @@ fn migrate_departments_into_agent_organization(
     }
 
     if changed {
-        write_agents_shard(&context.state.data_path, &agents)?;
+        if !write_agents_shard(&context.state.data_path, &agents)? {
+            // 写盘被拒（原文件不可信）：同样算这一步没做成，版本必须停住。
+            stats.deferred = true;
+            runtime_log_warn(
+                "[应用数据迁移] 推迟，原因=人格文件不可信（坏文件备份失败），本次不写回".to_string(),
+            );
+            return Ok(stats);
+        }
         stats.data_changed = true;
     }
 
