@@ -35,7 +35,6 @@ type UseChatRewindActionsOptions = {
   sendChat: () => Promise<void>;
   setStatusError: (key: string, error: unknown) => void;
   setChatErrorText: (text: string) => void;
-  removeBinaryPlaceholders: (text: string) => string;
   messageText: (message: ChatMessage) => string;
   extractMessageImages: (message: ChatMessage) => Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   extractMessageAttachmentFiles: (message: ChatMessage) => Array<{ fileName: string; path: string; mime?: string }>;
@@ -347,7 +346,7 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
         options.setStatusError("status.rewindConversationFailed", `${message}（可查看运行日志）`);
         return;
       }
-      options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledMessage));
+      options.chatInput.value = options.messageText(recalledMessage);
       options.selectedMentions.value = extractRecallableMentions(recalledMessage);
       options.clipboardImages.value = await extractRecallableImages(recalledMessage);
       options.queuedAttachmentNotices.value = extractRecallableAttachmentNotices(recalledMessage);
@@ -398,7 +397,7 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       }
       const recalledUserMessage = await rewindConversationFromMessageId(target.targetUserMessageId, false);
       if (!recalledUserMessage) return;
-      options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
+      options.chatInput.value = options.messageText(recalledUserMessage);
       options.selectedMentions.value = extractRecallableMentions(recalledUserMessage);
       options.clipboardImages.value = await extractRecallableImages(recalledUserMessage);
       options.queuedAttachmentNotices.value = extractRecallableAttachmentNotices(recalledUserMessage);

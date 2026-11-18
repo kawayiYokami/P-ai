@@ -13,8 +13,7 @@ import {
   extractMessageAttachmentFiles,
   extractMessageAudios,
   extractMessageImages,
-  removeBinaryPlaceholders,
-  renderMessage,
+  messageText,
 } from "./chat-message";
 
 type ToolHistoryView = "display" | "prompt";
@@ -1420,7 +1419,9 @@ export function projectMessageForDisplay(
   message: ChatMessage,
   taskTriggerLabels?: TaskTriggerDisplayLabels,
 ): ChatMessageDisplayProjection {
-  const rendered = removeBinaryPlaceholders(renderMessage(message));
+  // 显示只取纯文本 parts，从源头就不拼占位符，不再“先拼再擦”。
+  // 占位符只活在发模型的提示词组装里（后端 render_message_content_for_model / build_effective_prompt_media），与显示无关。
+  const rendered = messageText(message);
   const canonicalAssistantText = message.role === "assistant"
     ? assistantTextFromStreamBlocks(assistantContentBlocksFromMessage(message))
     : "";

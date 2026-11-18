@@ -76,7 +76,6 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
       },
       t: bindings.tr,
       formatRequestFailed: (error: unknown) => bindings.formatRequestFailed(error),
-      removeBinaryPlaceholders: bindings.removeBinaryPlaceholders,
       invokeSendChatMessage,
       invokeStopChatMessage,
       refreshMessageById: async ({ conversationId, messageId }) => {
@@ -162,7 +161,6 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
       setChatErrorText: (text: string) => {
         bindings.chatErrorText.value = text;
       },
-      removeBinaryPlaceholders: bindings.removeBinaryPlaceholders,
       messageText: bindings.messageText,
       extractMessageImages: bindings.extractMessageImages,
       extractMessageAttachmentFiles: bindings.extractMessageAttachmentFiles,

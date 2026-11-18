@@ -8,7 +8,9 @@ export function useChatMessageActions() {
   let activeAudio: HTMLAudioElement | null = null;
 
   async function copyMessage(block: ChatMessageBlock): Promise<boolean> {
-    const copyText = stripToolcallMarkers(block.text || "");
+    // 纯附件消息 text 为空，回退到附件文件名，与批量复制的 attachmentList 同口径，避免点复制弹失败。
+    const copyText = stripToolcallMarkers(block.text || "").trim()
+      || (block.attachmentFiles || []).map((item) => String(item.fileName || "").trim()).filter(Boolean).join("、");
     if (!copyText) return false;
     try {
       await navigator.clipboard.writeText(copyText);

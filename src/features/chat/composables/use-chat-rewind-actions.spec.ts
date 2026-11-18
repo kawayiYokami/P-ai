@@ -44,7 +44,6 @@ function createHarness(flags: BusyFlags = {}) {
     sendChat: async () => {},
     setStatusError: () => {},
     setChatErrorText,
-    removeBinaryPlaceholders: (text: string) => text,
     messageText: () => "",
     extractMessageImages: () => [],
     extractMessageAttachmentFiles: () => [],

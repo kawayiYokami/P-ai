@@ -29,7 +29,6 @@ export type UseChatFlowOptions = {
   onStreamingAssistantBubbleInserted?: () => void;
   t: (key: string, params?: Record<string, unknown>) => string;
   formatRequestFailed: (error: unknown) => string;
-  removeBinaryPlaceholders: (text: string) => string;
   invokeSendChatMessage: (input: {
     text: string;
     displayText?: string;

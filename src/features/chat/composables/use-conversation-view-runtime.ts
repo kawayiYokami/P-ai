@@ -34,7 +34,6 @@ import {
   extractMessageAttachmentFiles,
   extractMessageImages,
   messageText,
-  removeBinaryPlaceholders,
 } from "../../../utils/chat-message";
 import { CHAT_QUEUE_OUT_OF_SYNC_EVENT } from "./use-chat-queue";
 import { probeChatFlow } from "./chat-flow-probe";
@@ -374,7 +373,6 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     allMessages,
     t: options.t,
     formatRequestFailed: (error) => String(error instanceof Error ? error.message : error || ""),
-    removeBinaryPlaceholders: (text) => text,
     invokeSendChatMessage,
     invokeStopChatMessage,
     refreshMessageById: ({ conversationId, messageId }) => refreshMessageById(conversationId, messageId),
@@ -649,7 +647,6 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     setChatErrorText: (text: string) => {
       chatErrorText.value = text;
     },
-    removeBinaryPlaceholders,
     messageText,
     extractMessageImages,
     extractMessageAttachmentFiles,

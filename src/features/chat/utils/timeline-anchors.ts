@@ -43,7 +43,8 @@ export function isTimelineAnchorBlock(block: ChatMessageBlock, sessionAgentId: s
   if (isSystemSpeakerId(block.speakerAgentId)) return false;
   const text = String(block.text || "");
   if (text.trim()) return true;
-  return (block.images?.length || 0) > 0 || (block.audios?.length || 0) > 0;
+  return (block.images?.length || 0) > 0 || (block.audios?.length || 0) > 0
+    || (block.attachmentFiles?.length || 0) > 0;
 }
 
 /** 取一段工具调用文本的最后一段可读内容，用作悬停预览里的回复尾段。 */
@@ -86,7 +87,9 @@ export function buildTimelineAnchors(
     }
     anchors.push({
       id: String(block.id || `timeline-${i}`),
-      userText: String(block.text || ""),
+      // 纯附件消息 text 为空，时间线预览与无障碍标签回退到附件文件名，避免空白节点。
+      userText: String(block.text || "").trim()
+        || (block.attachmentFiles || []).map((item) => String(item.fileName || "").trim()).filter(Boolean).join("、"),
       assistantTail,
       index,
     });

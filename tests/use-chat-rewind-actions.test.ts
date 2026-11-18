@@ -55,7 +55,6 @@ function buildRewindActions(overrides: {
     setChatErrorText: (text) => {
       chatErrorText.value = text;
     },
-    removeBinaryPlaceholders: (text) => text,
     messageText: (message) => String(message.parts?.[0]?.text || ""),
     extractMessageImages: () => [],
     requestRecallMode: vi.fn(overrides.requestRecallMode ?? (async () => "message_only")),
@@ -149,7 +148,6 @@ describe("useChatRewindActions", () => {
       sendChat: vi.fn(),
       setStatusError: vi.fn(),
       setChatErrorText: vi.fn(),
-      removeBinaryPlaceholders: (text) => text,
       messageText: (message) => String(message.parts?.[0]?.text || ""),
       extractMessageImages: () => [],
       requestRecallMode: vi.fn(async () => "message_only"),
@@ -210,7 +208,6 @@ describe("useChatRewindActions", () => {
       sendChat: vi.fn(),
       setStatusError: vi.fn(),
       setChatErrorText: vi.fn(),
-      removeBinaryPlaceholders: (text) => text,
       messageText: (message) => String(message.parts?.[0]?.text || ""),
       extractMessageImages: () => [],
       requestRecallMode: vi.fn(async () => "message_only"),

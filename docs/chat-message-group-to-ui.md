@@ -114,7 +114,7 @@
 
 关键入口：
 
-- `src/utils/chat-message.ts` 的 `renderMessage()` / `messageText()`
+- `src/utils/chat-message.ts` 的 `messageText()`（显示只取纯文本 parts；附件占位符只活在后端发模型组装里）
 - `src/utils/chat-message-semantics.ts` 的 `assistantContentBlocksFromMessage()`
 - `src/utils/chat-message-semantics.ts` 的 `assistantTextFromStreamBlocks()`
 - `src/utils/chat-message-semantics.ts` 的 `normalizeMessageToolHistoryEvents()`

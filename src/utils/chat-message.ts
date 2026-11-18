@@ -38,41 +38,12 @@ export function stripHiddenExtraBlocks(text: string): string {
     .trim();
 }
 
-export function renderMessage(msg: ChatMessage): string {
-  const merged = msg.parts
-    .map((p) => {
-      if (p.type === "text") return p.text;
-      if (p.type === "image") {
-        const mime = String((p as { mime?: string }).mime || "").trim().toLowerCase();
-        return mime === "application/pdf" ? "[pdf]" : "[image]";
-      }
-      if (p.type === "audio") return "[audio]";
-      const mime = String(p.mime || "").trim().toLowerCase();
-      if (mime.startsWith("image/")) return "[image]";
-      if (mime.startsWith("audio/")) return "[audio]";
-      if (mime === "application/pdf") return "[pdf]";
-      return "[attachment]";
-    })
-    .join("\n");
-  return stripHiddenExtraBlocks(merged);
-}
-
 export function messageText(msg: ChatMessage): string {
   const visible = msg.parts
     .filter((p) => p.type === "text")
     .map((p) => p.text)
     .join("\n");
   return stripHiddenExtraBlocks(visible);
-}
-
-export function removeBinaryPlaceholders(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => {
-      const trimmed = line.trim();
-      return trimmed !== "[image]" && trimmed !== "[pdf]" && trimmed !== "[audio]";
-    })
-    .join("\n");
 }
 
 export function extractMessageImages(

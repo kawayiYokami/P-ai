@@ -170,7 +170,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: ref(1),
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: vi.fn(async () => acceptedSendResult({ ingress: "queued" })),
       onOwnUserDraftInserted,
       onReloadMessages: vi.fn(async () => {}),
@@ -243,7 +242,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: ({ onDelta }) =>
         new Promise((resolve) => {
           capturedChannel = onDelta as unknown as ChannelLike;
@@ -344,7 +342,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: ({ onDelta }) =>
         new Promise((resolve) => {
           capturedChannel = onDelta as unknown as ChannelLike;
@@ -433,7 +430,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: ({ onDelta }) =>
         new Promise((resolve) => {
           capturedChannel = onDelta as unknown as ChannelLike;
@@ -515,7 +511,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: ({ onDelta }) =>
         new Promise((resolve) => {
           capturedChannel = onDelta as unknown as ChannelLike;
@@ -609,7 +604,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: vi.fn(async () => ({
         accepted: true,
         duplicate: false,
@@ -685,7 +679,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: ({ onDelta }) =>
         new Promise((resolve) => {
           capturedChannel = onDelta as unknown as ChannelLike;
@@ -783,7 +776,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: ({ onDelta }) =>
         new Promise((resolve) => {
           capturedChannel = onDelta as unknown as ChannelLike;
@@ -883,7 +875,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: ({ onDelta }) =>
         new Promise((resolve) => {
           capturedChannel = onDelta as unknown as ChannelLike;
@@ -989,7 +980,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: ({ onDelta }) =>
         new Promise((resolve) => {
           capturedChannel = onDelta as unknown as ChannelLike;
@@ -1071,7 +1061,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: ({ onDelta }) =>
         new Promise((resolve) => {
           capturedChannels.push(onDelta as unknown as ChannelLike);
@@ -1186,7 +1175,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: () =>
         new Promise((resolve) => {
           resolveRequest = (() => {}) as typeof resolveRequest;
@@ -1251,7 +1239,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: vi.fn(async () => acceptedSendResult()),
       invokeBindActiveChatViewStream: vi.fn(async ({ onDelta }) => {
         boundChannel = onDelta as unknown as ChannelLike;
@@ -1325,7 +1312,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: vi.fn(async () => acceptedSendResult()),
       invokeBindActiveChatViewStream: vi.fn(async ({ onDelta }) => {
         boundChannel = onDelta as unknown as ChannelLike;
@@ -1396,7 +1382,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: vi.fn(async () => acceptedSendResult()),
       invokeBindActiveChatViewStream: vi.fn(async ({ onDelta }) => {
         boundChannel = onDelta as unknown as ChannelLike;
@@ -1463,7 +1448,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: vi.fn(async () => acceptedSendResult()),
       invokeBindActiveChatViewStream: vi.fn(async ({ onDelta }) => {
         boundChannel = onDelta as unknown as ChannelLike;
@@ -1603,7 +1587,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: vi.fn(async () => acceptedSendResult()),
       invokeBindActiveChatViewStream: vi.fn(async ({ onDelta }) => {
         boundChannel = onDelta as unknown as ChannelLike;
@@ -1731,7 +1714,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: visibleTurnCount,
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: vi.fn(async () => acceptedSendResult()),
       invokeBindActiveChatViewStream: vi.fn(async ({ onDelta }) => {
         boundChannel = onDelta as unknown as ChannelLike;
@@ -1800,7 +1782,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: ref(0),
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: vi.fn(async () => acceptedSendResult()),
       onReloadMessages: vi.fn(async () => {}),
     });
@@ -1850,7 +1831,6 @@ describe("useChatFlow stream isolation", () => {
       visibleMessageBlockCount: ref(0),
       t: (key) => key,
       formatRequestFailed: (error) => String(error),
-      removeBinaryPlaceholders: (text) => text,
       invokeSendChatMessage: ({ onDelta }) => {
         capturedChannel = onDelta as unknown as ChannelLike;
         return Promise.resolve(acceptedSendResult());

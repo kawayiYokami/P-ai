@@ -1,5 +1,4 @@
 import { formatI18nError } from "../../../utils/error";
-import { removeBinaryPlaceholders } from "../../../utils/chat-message";
 import { invokeTauri } from "../../../services/tauri-api";
 import { useChatRuntimeSetup } from "./use-chat-runtime-setup";
 import { useChatServiceAssemblies } from "./use-chat-service-assemblies";
@@ -266,7 +265,6 @@ export function useChatWindowRuntimeOrchestrator(bindings: Record<string, any>) 
     bumpOwnUserDraftAlign: bindings.bumpOwnUserDraftAlign,
     tr: bindings.tr,
     formatRequestFailed: (error: unknown) => formatI18nError(bindings.tr, "status.requestFailed", error),
-    removeBinaryPlaceholders,
     reloadForegroundConversationMessages: conversationOrchestrator.reloadForegroundConversationMessages,
     refreshForegroundConversationMessageById: conversationOrchestrator.refreshForegroundConversationMessageById,
     isChatWindowActiveNow: bindings.isChatWindowActiveNow,
