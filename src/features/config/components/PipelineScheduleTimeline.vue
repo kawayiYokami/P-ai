@@ -13,7 +13,7 @@
           <span class="shrink-0 text-caption tabular-nums text-base-content/40">+{{ formatElapsedShort(item.elapsedMs) }}</span>
           <AppIcon name="chevron-right" class="h-3.5 w-3.5 shrink-0 text-base-content/25 transition-transform duration-200" :class="isCollapsed(itemKey(item, index)) ? '' : 'rotate-90'" />
         </button>
-        <Transition :css="false" @enter="animateEnter" @leave="animateLeave" @enter-cancelled="cleanupAnimation" @leave-cancelled="cleanupAnimation">
+        <Transition :css="false" @enter="animateCollapseEnter" @leave="animateCollapseLeave" @enter-cancelled="cleanupCollapseAnimation" @leave-cancelled="cleanupCollapseAnimation">
           <div v-if="!isCollapsed(itemKey(item, index))" class="mt-2 min-w-0 w-full space-y-1.5 border-t border-base-300 pt-2">
             <div v-if="eventSummaryLine(item)" class="whitespace-normal break-words text-xs leading-5 text-base-content/55">{{ eventSummaryLine(item) }}</div>
             <div v-if="eventBodyText(item)" class="whitespace-pre-wrap break-words break-all text-xs leading-5 text-base-content/70">{{ eventBodyText(item) }}</div>
@@ -31,11 +31,13 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import { useEcallCollapseAnimation } from "./useEcallCollapseAnimation";
 import { useI18n } from "vue-i18n";
 import type { LlmRoundLogStage } from "../../../types/app";
 
 const props = defineProps<{ stages: LlmRoundLogStage[] }>();
 const { t } = useI18n();
+const { animateCollapseEnter, animateCollapseLeave, cleanupCollapseAnimation } = useEcallCollapseAnimation();
 
 const collapsedIds = ref<Set<string>>(new Set());
 function itemKey(item: LlmRoundLogStage, index: number) {
@@ -144,20 +146,4 @@ function eventBodyText(item: LlmRoundLogStage) {
 }
 function eventErrorText(item: LlmRoundLogStage) { const d = normalizeDetail((item as unknown as { detail?: unknown }).detail); if (!d.error) return ""; return String(d.error).trim(); }
 function formatElapsedShort(value: number) { if (!Number.isFinite(value) || value < 0) return "0s"; if (value < 1000) return `${value}ms`; return `${(value / 1000).toFixed(1)}s`; }
-function cleanupAnimation(element: Element) { const el = element as HTMLElement; el.style.height=""; el.style.opacity=""; el.style.transform=""; el.style.overflow=""; el.style.willChange=""; el.style.transition=""; }
-function animateEnter(element: Element, done: () => void) {
-  const el = element as HTMLElement; cleanupAnimation(el); delete (el.dataset as Record<string,string>).ecallCollapseFinished; el.style.height="0px"; el.style.opacity="0"; el.style.transform="translateY(-6px)"; el.style.overflow="hidden"; el.style.willChange="height, opacity, transform"; void el.offsetHeight;
-  const onEnd = (e: TransitionEvent) => { if (e.target!==el || e.propertyName!=="height") return; finishAnimation(el,onEnd,done); };
-  el.addEventListener("transitionend", onEnd); el.style.transition=["height 180ms cubic-bezier(0.22, 1, 0.36, 1)","opacity 140ms ease-out","transform 180ms cubic-bezier(0.22, 1, 0.36, 1)"].join(", ");
-  requestAnimationFrame(()=>{ el.style.height=`${el.scrollHeight}px`; el.style.opacity="1"; el.style.transform="translateY(0)"; });
-  window.setTimeout(()=>finishAnimation(el,onEnd,done),400);
-}
-function animateLeave(element: Element, done: () => void) {
-  const el = element as HTMLElement; cleanupAnimation(el); delete (el.dataset as Record<string,string>).ecallCollapseFinished; el.style.height=`${el.scrollHeight}px`; el.style.opacity="1"; el.style.transform="translateY(0)"; el.style.overflow="hidden"; el.style.willChange="height, opacity, transform"; void el.offsetHeight;
-  const onEnd = (e: TransitionEvent) => { if (e.target!==el || e.propertyName!=="height") return; finishAnimation(el,onEnd,done); };
-  el.addEventListener("transitionend", onEnd); el.style.transition=["height 180ms cubic-bezier(0.22, 1, 0.36, 1)","opacity 140ms ease-out","transform 180ms cubic-bezier(0.22, 1, 0.36, 1)"].join(", ");
-  requestAnimationFrame(()=>{ el.style.height="0px"; el.style.opacity="0"; el.style.transform="translateY(-6px)"; });
-  window.setTimeout(()=>finishAnimation(el,onEnd,done),400);
-}
-function finishAnimation(el: HTMLElement, onEnd: (e: TransitionEvent)=>void, done: ()=>void){ if((el.dataset as Record<string,string>).ecallCollapseFinished==="1") return; (el.dataset as Record<string,string>).ecallCollapseFinished="1"; el.removeEventListener("transitionend", onEnd); cleanupAnimation(el); done(); }
 </script>

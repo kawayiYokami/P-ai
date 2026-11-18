@@ -232,3 +232,22 @@ export function formatLogTime(timestamp: string): string {
   const d = new Date(timestamp);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
 }
+
+/** 分组项上承载分组键的属性名；模板里的 `:data-contact-group-key` 必须与它一致 */
+export const CONTACT_GROUP_KEY_ATTR = "data-contact-group-key";
+
+/**
+ * 分组头右键 → 分组键。
+ * 分组头那一块挂了 `data-contact-group-key`（卡片根上），事件从分组头冒上来，
+ * 所以要从 currentTarget 往上 `closest` 取回键。取不到就返回空串，由调用方决定怎么办。
+ */
+export function contactGroupKeyFromEvent(event: Event): string {
+  const el = event.currentTarget as Element | null;
+  if (!el || typeof el.closest !== "function") return "";
+  return el.closest(`[${CONTACT_GROUP_KEY_ATTR}]`)?.getAttribute(CONTACT_GROUP_KEY_ATTR) ?? "";
+}
+
+/** 分组头右键该不该弹菜单：只有真分组才弹，「未分组」段（group 为空）不弹 */
+export function shouldOpenContactGroupMenu(group: { id?: string | null } | null | undefined): boolean {
+  return !!group && String(group.id ?? "").trim().length > 0;
+}

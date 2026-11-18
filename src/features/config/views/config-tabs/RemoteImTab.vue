@@ -1,92 +1,80 @@
 <template>
   <SettingsPageShell
     :breadcrumb="remoteImBreadcrumb"
-    :no-scroll="inDetailMode"
-    :content-class="inDetailMode ? 'mx-auto max-w-5xl h-full min-h-0' : undefined"
+    :tabs="detailTabs"
+    :tab="detailTab"
     header-class=""
+    @update:tab="onDetailTabChange"
   >
-    <template #left>
-      <!-- 详情模式页头不放按钮：渠道行为设置入口在联系人列表头部 -->
-      <div v-if="!inDetailMode" class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
-        <input
-          v-model="channelSearchQuery"
-          type="text"
-          class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
-          :placeholder="t('config.remoteIm.searchPlaceholder')"
-        />
-        <AppIcon name="search" class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+    <template #actions>
+      <!-- 渠道设置面：查看日志 / 刷新 / 保存（只在渠道有改动时出现） -->
+      <div
+        v-if="inDetailMode && selectedChannel && detailTab === 'channel'"
+        class="flex flex-wrap items-center gap-2"
+      >
         <button
-          v-if="channelSearchQuery"
+          class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
           type="button"
-          class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
-          :title="t('common.clear')"
-          @click="channelSearchQuery = ''"
+          :title="t('config.remoteIm.viewLogs')"
+          @click="openChannelLogsModalForChannel(selectedChannel.id)"
         >
-          ✕
+          <AppIcon name="scroll-text" class="h-4 w-4" />
+          <span>{{ t("config.remoteIm.viewLogs") }}</span>
         </button>
+        <button
+          class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+          type="button"
+          :title="t('common.refresh')"
+          :disabled="contactsLoading"
+          @click="refreshContacts"
+        >
+          <AppIcon name="refresh-cw" class="h-4 w-4" :class="{ 'animate-spin': contactsLoading }" />
+          <span>{{ t("common.refresh") }}</span>
+        </button>
+        <button
+          v-if="channelDirty"
+          class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
+          type="button"
+          :disabled="saving || isChannelOperationBusy(selectedChannel.id)"
+          :title="t('common.save')"
+          @click="saveChannels"
+        >
+          <span v-if="saving" class="loading loading-spinner loading-xs"></span>
+          <AppIcon name="save" v-else class="h-4 w-4" />
+          <span>{{ t("common.save") }}</span>
+        </button>
+      </div>
+
+      <!-- 联系人面页头只有群聊行为；添加分组在列表尾部，搜索已去掉 -->
+      <div
+        v-else-if="inDetailMode && selectedChannel"
+        class="flex flex-wrap items-center gap-2"
+      >
+        <ChannelBehaviorSettingsModal
+          v-if="selectedChannel"
+          :channel="selectedChannel"
+          :save-config-action="props.saveConfigAction"
+          :set-status-action="props.setStatusAction"
+        />
       </div>
     </template>
 
-    <template #actions>
-      <div v-if="inDetailMode && selectedChannel" class="flex flex-wrap items-center gap-2">
-            <button
-              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
-              type="button"
-              :title="t('config.remoteIm.viewLogs')"
-              @click="openChannelLogsModalForChannel(selectedChannel.id)"
-            >
-              <AppIcon name="scroll-text" class="h-4 w-4" />
-              <span>{{ t("config.remoteIm.viewLogs") }}</span>
-            </button>
-            <button
-              class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
-              type="button"
-              :title="t('common.refresh')"
-              :disabled="contactsLoading"
-              @click="refreshContacts"
-            >
-              <AppIcon name="refresh-cw" class="h-4 w-4" :class="{ 'animate-spin': contactsLoading }" />
-              <span>{{ t("common.refresh") }}</span>
-            </button>
-            <button
-              v-if="channelDirty"
-              class="btn btn-sm min-h-[2.25rem] btn-primary gap-1.5 px-3.5"
-              type="button"
-              :disabled="saving || isChannelOperationBusy(selectedChannel.id)"
-              :title="t('common.save')"
-              @click="saveChannels"
-            >
-              <span v-if="saving" class="loading loading-spinner loading-xs"></span>
-              <AppIcon name="save" v-else class="h-4 w-4" />
-              <span>{{ t("common.save") }}</span>
-            </button>
-          </div>
-      </template>
-
     <!-- 主体区域切换：一级卡片列表 ↔ 二级详情页 -->
     <Transition name="ecall-config-content" mode="out-in">
-      <!-- 二级菜单：渠道详情与联系人视图 -->
-      <div v-if="inDetailMode && selectedChannel" :key="'detail-body-' + selectedChannel.id" class="h-full min-h-0 flex flex-col gap-3 overflow-hidden flex-1">
-        <OverlayScrollArea class="flex-1 min-h-0 h-full overflow-hidden" scroller-class="h-full space-y-3 p-4">
-        <!-- 区块一：渠道配置折叠卡（改过一次后常驻折叠，不占核心视野） -->
-        <details class="collapse collapse-arrow border border-base-300 bg-base-100 rounded-box shrink-0">
-          <summary class="collapse-title min-h-0 py-2.5 px-4 text-xs font-semibold flex items-center justify-between cursor-pointer select-none">
-            <div class="flex items-center gap-2">
-              <AppIcon name="settings" class="h-4 w-4 opacity-70" />
-              <span>{{ t("config.remoteIm.channelSettings") }}</span>
-              <span class="text-caption opacity-50 font-normal">({{ selectedChannel.name || platformLabelText(selectedChannel.platform) }})</span>
-              <span v-if="channelDirty" class="badge badge-sm badge-warning">{{ t("config.skill.modified") }}</span>
-            </div>
-          </summary>
-          <div class="collapse-content pt-3 pb-4 px-4 space-y-4 border-t border-base-200">
+      <!-- 二级：两个设置面靠 shell 的 tabs 切换，内容整块摊开，不折叠 -->
+      <div v-if="inDetailMode && selectedChannel" :key="'detail-body-' + selectedChannel.id">
+        <!-- 渠道设置面 -->
+        <ConfigCard v-if="detailTab === 'channel'" :title="t('config.remoteIm.channelSettings')">
+          <!-- ConfigCard 内容区只有左右内边距，这里补上下留白，避免字段贴着分界线/卡片底边 -->
+          <div class="space-y-4 py-3">
             <!-- 渠道名称与平台类型 -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div class="flex flex-col gap-1.5">
-                <label class="text-caption font-semibold opacity-60 uppercase">{{ t("config.remoteIm.channelName") }}</label>
+                <label class="text-sm">{{ t("config.remoteIm.channelName") }}</label>
                 <input v-model="selectedChannel.name" class="input input-bordered input-sm h-9 w-full text-xs" :placeholder="t('config.remoteIm.channelName')" />
               </div>
               <div class="flex flex-col gap-1.5">
-                <label class="text-caption font-semibold opacity-60 uppercase">{{ t("config.remoteIm.platform") }}</label>
+                <label class="text-sm">{{ t("config.remoteIm.platform") }}</label>
                 <select v-model="selectedChannel.platform" class="select select-bordered select-sm h-9 w-full text-xs">
                   <option value="onebot_v11">{{ t("config.remoteIm.platformOptions.onebotV11") }}</option>
                   <option value="feishu">{{ t("config.remoteIm.platformOptions.feishu") }}</option>
@@ -100,8 +88,8 @@
             <!-- 过滤 Markdown：属于渠道设置，不进群聊策略弹窗 -->
             <div class="border-b-base-content/5 flex items-start justify-between gap-3 border-b border-dashed py-2">
               <div class="flex flex-col gap-1">
-                <span>{{ t("config.remoteIm.filterMarkdown") }}</span>
-                <span class="max-w-80 text-xs opacity-60">{{ t("config.remoteIm.filterMarkdownHint") }}</span>
+                <span class="text-xs font-bold">{{ t("config.remoteIm.filterMarkdown") }}</span>
+                <span class="max-w-80 text-xs text-base-content/60">{{ t("config.remoteIm.filterMarkdownHint") }}</span>
               </div>
               <input v-model="selectedChannel.filterMarkdown" type="checkbox" class="toggle toggle-primary toggle-sm mt-0.5" />
             </div>
@@ -112,15 +100,15 @@
                 <div class="text-xs font-bold">{{ t("config.remoteIm.napcatConfig") }}</div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
-                    <label class="text-caption opacity-60">{{ t("config.remoteIm.wsHost") }}</label>
+                    <label class="text-sm">{{ t("config.remoteIm.wsHost") }}</label>
                     <input v-model="napcatCredentials.wsHost" class="input input-bordered input-sm h-9 w-full text-xs" placeholder="0.0.0.0" />
                   </div>
                   <div>
-                    <label class="text-caption opacity-60">{{ t("config.remoteIm.wsPort") }}</label>
+                    <label class="text-sm">{{ t("config.remoteIm.wsPort") }}</label>
                     <input v-model.number="napcatCredentials.wsPort" type="number" class="input input-bordered input-sm h-9 w-full text-xs" placeholder="6199" />
                   </div>
                   <div>
-                    <label class="text-caption opacity-60">{{ t("config.remoteIm.wsToken") }}</label>
+                    <label class="text-sm">{{ t("config.remoteIm.wsToken") }}</label>
                     <input v-model="napcatCredentials.wsToken" class="input input-bordered input-sm h-9 w-full text-xs" :placeholder="t('config.remoteIm.wsTokenPlaceholder')" />
                   </div>
                 </div>
@@ -133,11 +121,11 @@
                 <div class="text-xs font-bold">{{ t("config.remoteIm.dingtalkCredentials") }}</div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
-                    <label class="text-caption opacity-60">{{ t("config.remoteIm.dingtalkClientId") }}</label>
+                    <label class="text-sm">{{ t("config.remoteIm.dingtalkClientId") }}</label>
                     <input v-model="dingtalkCredentials.clientId" class="input input-bordered input-sm h-9 w-full text-xs" placeholder="dingxxxxxxxxxxxx" />
                   </div>
                   <div>
-                    <label class="text-caption opacity-60">{{ t("config.remoteIm.dingtalkClientSecret") }}</label>
+                    <label class="text-sm">{{ t("config.remoteIm.dingtalkClientSecret") }}</label>
                     <div class="flex items-center gap-1.5">
                       <input
                         v-model="dingtalkCredentials.clientSecret"
@@ -165,15 +153,15 @@
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div class="flex flex-col gap-1 min-w-0">
                     <span class="text-xs font-medium">{{ weixinStatusText }}</span>
-                    <span v-if="weixinStatusMessage" class="text-caption opacity-60 break-all">{{ weixinStatusMessage }}</span>
+                    <span v-if="weixinStatusMessage" class="text-xs text-base-content/60 break-all">{{ weixinStatusMessage }}</span>
                   </div>
-                  <button class="btn btn-sm min-h-[2.25rem] btn-primary" :disabled="weixinLoginBusy" @click="onWeixinLoginButtonClick">
+                  <button class="btn btn-sm min-h-[2.25rem]" :disabled="weixinLoginBusy" @click="onWeixinLoginButtonClick">
                     {{ weixinLoginBusy ? t('config.remoteIm.processing') : (isWeixinLoggedIn ? t('config.remoteIm.logoutAndRescan') : t('config.remoteIm.scanLogin')) }}
                   </button>
                 </div>
                 <div v-if="!isWeixinLoggedIn && weixinLoginState.qrcodeImgContent" class="flex flex-col items-center gap-2 pt-2">
                   <img :src="weixinQrImageSrc" alt="weixin login qr" class="w-48 h-48 rounded-box border border-base-300 object-contain bg-white p-2" />
-                  <span class="text-caption opacity-60">{{ t('config.remoteIm.scanQrCode') }}</span>
+                  <span class="text-xs text-base-content/60">{{ t('config.remoteIm.scanQrCode') }}</span>
                 </div>
               </div>
             </template>
@@ -184,11 +172,11 @@
                 <div class="text-xs font-bold">{{ t('config.remoteIm.qqOfficialCredentials') }}</div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
-                    <label class="text-caption opacity-60">{{ t('config.remoteIm.qqOfficialAppId') }}</label>
+                    <label class="text-sm">{{ t('config.remoteIm.qqOfficialAppId') }}</label>
                     <input v-model="qqOfficialCredentials.appId" class="input input-bordered input-sm h-9 w-full text-xs" placeholder="102xxxxxxx" />
                   </div>
                   <div>
-                    <label class="text-caption opacity-60">{{ t('config.remoteIm.qqOfficialAppSecret') }}</label>
+                    <label class="text-sm">{{ t('config.remoteIm.qqOfficialAppSecret') }}</label>
                     <div class="flex items-center gap-1.5">
                       <input
                         v-model="qqOfficialCredentials.appSecret"
@@ -210,13 +198,13 @@
                   <input v-model="qqOfficialCredentials.sandbox" type="checkbox" class="checkbox checkbox-sm" />
                   <span>{{ t('config.remoteIm.qqOfficialSandbox') }}</span>
                 </label>
-                <div class="text-caption opacity-60 leading-relaxed">{{ t('config.remoteIm.qqOfficialHint') }}</div>
+                <div class="text-xs text-base-content/60 leading-relaxed">{{ t('config.remoteIm.qqOfficialHint') }}</div>
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div class="flex flex-col gap-1 min-w-0">
                     <span class="text-xs font-medium">{{ qqBindStatusText }}</span>
-                    <span v-if="qqBindStatusMessage" class="text-caption opacity-60 break-all">{{ qqBindStatusMessage }}</span>
+                    <span v-if="qqBindStatusMessage" class="text-xs text-base-content/60 break-all">{{ qqBindStatusMessage }}</span>
                   </div>
-                  <button class="btn btn-sm min-h-[2.25rem] btn-primary" :disabled="qqBindBusy" @click="onQqBindButtonClick">
+                  <button class="btn btn-sm min-h-[2.25rem]" :disabled="qqBindBusy" @click="onQqBindButtonClick">
                     {{ qqBindBusy ? t('config.remoteIm.processing') : t('config.remoteIm.qqOfficialScanBind') }}
                   </button>
                 </div>
@@ -239,7 +227,7 @@
               </div>
             </template>
 
-            <!-- 折叠卡底部：左侧删除渠道，右侧保存渠道 -->
+            <!-- 卡内底部只留删除渠道：保存统一在页头 #actions（项目惯例，一屏只留一个 btn-primary） -->
             <div class="flex items-center justify-between pt-3 border-t border-base-200">
               <button
                 class="btn btn-sm btn-ghost text-error gap-1.5 px-3 hover:bg-error/10"
@@ -250,193 +238,120 @@
                 <AppIcon name="trash" class="h-3.5 w-3.5" />
                 <span>{{ t("config.remoteIm.deleteChannel") || t("common.delete") }}</span>
               </button>
-
-              <button
-                v-if="channelDirty"
-                class="btn btn-sm btn-primary gap-1.5 px-4"
-                type="button"
-                :disabled="saving || isChannelOperationBusy(selectedChannel.id)"
-                @click="saveChannels"
-              >
-                <span v-if="saving" class="loading loading-spinner loading-xs"></span>
-                <AppIcon name="save" v-else class="h-3.5 w-3.5" />
-                <span>{{ t("common.save") }}</span>
-              </button>
             </div>
           </div>
-        </details>
+        </ConfigCard>
 
-        <!-- 区块二：联系人列表（按自定义分组分段罗列，卡片样式） -->
-        <div class="space-y-3 pt-2">
-          <div class="flex flex-col gap-3 px-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <div class="flex shrink-0 items-center gap-2">
-              <AppIcon name="users" class="h-4 w-4 opacity-70" />
-              <span class="text-xs font-semibold uppercase tracking-wider opacity-80">{{ t("config.remoteIm.contactsTitle") }}</span>
-              <span class="badge badge-sm badge-neutral">{{ currentChannelContacts.length }}</span>
-            </div>
+        <!-- 联系人设置面：分组各一张 ConfigCard，组内联系人仍是行 -->
+        <div v-else class="space-y-3">
 
-            <div class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
-              <ChannelBehaviorSettingsModal
-                v-if="selectedChannel"
-                :channel="selectedChannel"
-                :save-config-action="props.saveConfigAction"
-                :set-status-action="props.setStatusAction"
-              />
-              <button
-                type="button"
-                class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
-                :title="t('config.remoteIm.contactGroupCreateTitle')"
-                @click="startContactGroupCreate"
-              >
-                <AppIcon name="plus" class="h-4 w-4" />
-                <span>{{ t("config.remoteIm.contactGroupCreateTitle") }}</span>
-              </button>
-
-              <!-- 联系人过滤搜索框 -->
-              <div class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
-                <input
-                  v-model="contactSearchQuery"
-                  type="text"
-                  class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
-                  :placeholder="t('config.remoteIm.contactsSearchPlaceholder')"
-                />
-                <AppIcon name="search" class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
-                <button
-                  v-if="contactSearchQuery"
-                  type="button"
-                  class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1 h-7 w-7 min-h-[1.75rem] opacity-60 hover:opacity-100"
-                  @click="contactSearchQuery = ''"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 分组创建编辑行（重命名改为在分组名处就地编辑） -->
-          <div v-if="contactGroupEditMode === 'create'" class="flex items-center gap-1 px-1">
-            <input
-              v-model="contactGroupNameDraft"
-              type="text"
-              class="input input-bordered input-sm h-8 min-w-0 flex-1 text-xs"
-              :placeholder="t('config.remoteIm.contactGroupNamePlaceholder')"
-              :disabled="contactGroupBusy"
-              @keydown.enter.prevent="submitContactGroupEdit"
-              @keydown.esc.prevent="cancelContactGroupEdit"
-            />
-            <button
-              type="button"
-              class="btn btn-primary btn-sm h-8 min-h-0 px-3"
-              :disabled="contactGroupBusy"
-              @click="submitContactGroupEdit"
-            >
-              <span v-if="contactGroupBusy" class="loading loading-spinner loading-xs"></span>
-              <AppIcon name="check" v-else class="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm h-8 min-h-0 px-3"
-              :disabled="contactGroupBusy"
-              @click="cancelContactGroupEdit"
-            >
-              <AppIcon name="close" class="h-4 w-4" />
-            </button>
-          </div>
+          <!-- 分组编辑/重命名失败就地报错：放在分组列表上方，与「创建分组」的错误合用一处 -->
           <p
-            v-if="contactGroupEditMode !== 'rename' && contactGroupError"
+            v-if="contactGroupError"
             class="px-1 text-caption text-error break-all whitespace-pre-wrap"
             style="overflow-wrap:anywhere"
           >
             {{ contactGroupError }}
           </p>
 
-          <div v-if="contactsError" class="rounded-box px-4 py-3 text-xs text-error bg-error/10 border border-error/20 break-all whitespace-pre-wrap" style="overflow-wrap:anywhere">
-            {{ contactsError }}
-          </div>
-          <div v-else-if="currentChannelContacts.length === 0" class="rounded-box border border-dashed border-base-300 py-12 text-center text-xs opacity-60 italic">
-            {{ t("config.remoteIm.contactsEmpty") }}
-          </div>
-          <div v-else-if="contactListSections.length === 0" class="rounded-box border border-dashed border-base-300 py-12 text-center text-xs opacity-60 italic">
-            {{ t("config.remoteIm.contactsNoMatch") }}
-          </div>
-          <div v-else class="space-y-4">
-            <div v-for="section in contactListSections" :key="section.key" class="space-y-2">
-              <!-- 分组头：折叠按钮 + 分组名 + 组内批量设置（重命名/删除走右键菜单） -->
+          <RemoteImPageTemplate :error-text="contactsError" :empty-text="contactListEmptyText">
+            <div class="space-y-3">
+            <ConfigCard
+              v-for="section in contactListSections"
+              :key="section.key"
+              :data-contact-group-key="section.key"
+              overflow-visible
+            >
+              <template #title>
+                <!-- 右键菜单只挂分组头这一块：组内联系人行照常冒泡，不被劫持。
+                     点分组名直接进就地重命名（「未分组」不是真分组，点不动）。 -->
+                <div
+                  class="flex min-w-0 flex-1 items-center gap-2"
+                  @contextmenu="handleContactGroupHeaderContextmenu"
+                >
+                  <button
+                    type="button"
+                    class="min-w-0 truncate text-left text-sm font-semibold transition-colors"
+                    :class="section.group ? 'hover:text-primary' : 'cursor-default'"
+                    :disabled="!section.group || contactGroupBusy"
+                    :title="section.group ? t('config.remoteIm.contactGroupRenameTitle') : ''"
+                    @click="section.group && startContactGroupRename(section.group)"
+                  >
+                    {{ section.name }}
+                  </button>
+                  <span class="badge badge-sm badge-ghost">{{ section.items.length }}</span>
+                </div>
+              </template>
+              <template #actions>
+                <template v-if="isContactGroupRenaming(section)">
+                  <input
+                    :ref="focusContactGroupRenameInput"
+                    v-model="contactGroupNameDraft"
+                    type="text"
+                    class="input input-bordered input-xs h-7 min-w-0 w-32"
+                    :placeholder="t('config.remoteIm.contactGroupNamePlaceholder')"
+                    :disabled="contactGroupBusy"
+                    @keydown.enter.prevent="submitContactGroupEdit"
+                    @keydown.esc.prevent="cancelContactGroupEdit"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-xs h-7 min-h-0 px-2"
+                    :disabled="contactGroupBusy"
+                    @click="submitContactGroupEdit"
+                  >
+                    <span v-if="contactGroupBusy" class="loading loading-spinner loading-xs"></span>
+                    <AppIcon name="check" v-else class="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs h-7 min-h-0 px-2"
+                    :disabled="contactGroupBusy"
+                    @click="cancelContactGroupEdit"
+                  >
+                    <AppIcon name="close" class="h-3.5 w-3.5" />
+                  </button>
+                </template>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs gap-1 px-2"
+                  :title="t('config.remoteIm.batchSettingsTitle')"
+                  @click="openBatchSettingsWizard(section.key)"
+                >
+                  <AppIcon name="list-checks" class="h-3.5 w-3.5" />
+                  <span>{{ t("config.remoteIm.batchSettings") }}</span>
+                </button>
+              </template>
+
+              <!-- 卡内容区自带 px-3；这里再给一圈 py，行内 px-2，避免行贴着卡片边 -->
+              <!-- 空分组：给一行提示 + 就地删除入口，不用绕右键菜单 -->
               <div
-                class="flex items-center justify-between gap-2 px-1"
-                @contextmenu.prevent="openContactGroupMenu($event, section.group)"
+                v-if="section.group && section.items.length === 0"
+                class="flex items-center justify-between gap-2 px-2 py-2 text-xs text-base-content/60"
               >
-                <div class="flex min-w-0 items-center gap-1.5">
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs btn-circle h-5 w-5 min-h-0 p-0"
-                    :title="isContactSectionCollapsed(section) ? t('config.remoteIm.contactSectionExpand') : t('config.remoteIm.contactSectionCollapse')"
-                    @click="toggleContactSectionCollapse(section)"
-                  >
-                    <AppIcon name="chevron-down" v-if="!isContactSectionCollapsed(section)" class="h-3.5 w-3.5 opacity-60" />
-                    <AppIcon name="chevron-right" v-else class="h-3.5 w-3.5 opacity-60" />
-                  </button>
-                  <template v-if="isContactGroupRenaming(section)">
-                    <input
-                      :ref="focusContactGroupRenameInput"
-                      v-model="contactGroupNameDraft"
-                      type="text"
-                      class="input input-bordered input-xs h-7 min-w-0 max-w-56 flex-1 text-xs"
-                      :placeholder="t('config.remoteIm.contactGroupNamePlaceholder')"
-                      :disabled="contactGroupBusy"
-                      @contextmenu.stop.prevent
-                      @click.stop
-                      @keydown.enter.prevent="submitContactGroupEdit"
-                      @keydown.esc.prevent="cancelContactGroupEdit"
-                    />
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-xs h-7 min-h-0 px-2"
-                      :disabled="contactGroupBusy"
-                      @click.stop="submitContactGroupEdit"
-                    >
-                      <span v-if="contactGroupBusy" class="loading loading-spinner loading-xs"></span>
-                      <AppIcon name="check" v-else class="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-xs h-7 min-h-0 px-2"
-                      :disabled="contactGroupBusy"
-                      @click.stop="cancelContactGroupEdit"
-                    >
-                      <AppIcon name="close" class="h-3.5 w-3.5" />
-                    </button>
-                  </template>
-                  <span v-else class="truncate text-xs font-bold text-base-content/70">{{ section.name }}</span>
-                </div>
-                <div class="flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs gap-1 px-2"
-                    :title="t('config.remoteIm.batchSettingsTitle')"
-                    @click="openBatchSettingsWizard(section.key)"
-                  >
-                    <AppIcon name="list-checks" class="h-3.5 w-3.5" />
-                    <span>{{ t("config.remoteIm.batchSettings") }}</span>
-                  </button>
-                </div>
+                <span>{{ t("config.remoteIm.contactGroupEmpty") }}</span>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs gap-1 px-2 text-error hover:bg-error/10"
+                  :disabled="contactGroupBusy"
+                  @click="deleteContactGroup(section.group)"
+                >
+                  <AppIcon name="trash" class="h-3.5 w-3.5" />
+                  <span>{{ t("config.remoteIm.contactGroupDeleteTitle") }}</span>
+                </button>
               </div>
 
-              <p
-                v-if="isContactGroupRenaming(section) && contactGroupError"
-                class="px-1 text-caption text-error break-all whitespace-pre-wrap"
-                style="overflow-wrap:anywhere"
-              >
-                {{ contactGroupError }}
-              </p>
-
-              <div v-show="!isContactSectionCollapsed(section)" class="space-y-2">
+              <div v-if="section.items.length > 0" class="space-y-0.5 py-1.5">
+                <!-- 联系人条目是列表行：行本身不可点（只有右侧按钮和设置箭头能点），
+                     所以不给 hover 反馈，免得暗示整行可点；只保留「已展开」的状态底色。
+                     分组本身已经是一张 ConfigCard，条目再套一层就是卡片套卡片。 -->
                 <div
                   v-for="item in section.items"
                   :key="item.id"
-                  class="rounded-box border border-base-300 bg-base-100 overflow-hidden"
+                  class="rounded-lg px-2.5 py-2 transition-colors"
+                  :class="isContactExpanded(item.id) ? 'bg-base-200/40' : ''"
                 >
-                  <div class="p-3.5 flex items-start gap-3.5">
+                  <div class="flex items-start gap-3">
                   <div class="avatar placeholder shrink-0">
                     <div class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-base-300 bg-base-200 text-xs font-semibold leading-none text-base-content/70">
                       <img v-if="contactAvatarUrl(item)" :src="contactAvatarUrl(item)" :alt="contactSafeDisplayName(item)" class="block h-full w-full object-cover" />
@@ -444,16 +359,15 @@
                       <AppIcon name="user" v-else class="h-4 w-4 text-primary" />
                     </div>
                   </div>
-
-                  <div class="flex-1 min-w-0">
+                  <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-2">
-                      <div class="min-w-0 flex-1 truncate font-semibold text-sm">
-                        <span v-if="item.remoteContactType !== 'group'" class="font-normal opacity-60 text-xs">[{{ contactAgentLabel(item) }}]{{ " " }}</span>
-                        {{ contactSafeDisplayName(item) }}
-                        <span class="text-xs font-normal opacity-50">（{{ contactSecondaryText(item) }}）</span>
+                      <div class="min-w-0 flex-1">
+                        <span class="block truncate text-sm font-semibold">
+                          <span v-if="item.remoteContactType !== 'group'" class="font-normal opacity-60 text-xs">[{{ contactAgentLabel(item) }}]{{ " " }}</span>
+                          {{ contactSafeDisplayName(item) }}
+                          <span class="text-xs font-normal opacity-50">（{{ contactSecondaryText(item) }}）</span>
+                        </span>
                       </div>
-
-                      <!-- 权限与通信操作栏 -->
                       <div class="flex shrink-0 items-center gap-1.5">
                         <input
                           type="checkbox"
@@ -497,9 +411,8 @@
                         </button>
                       </div>
                     </div>
-
-                    <!-- 标签徽章栏 -->
-                    <div class="mt-2 flex flex-wrap gap-1.5 overflow-visible whitespace-nowrap text-xs">
+                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <div class="flex flex-wrap gap-1.5 overflow-visible whitespace-nowrap text-xs">
                       <span class="badge badge-sm shrink-0" :class="item.remoteContactType === 'group' ? 'badge-secondary' : 'badge-primary'">
                         {{ item.remoteContactType === "group" ? t("config.remoteIm.group") : t("config.remoteIm.private") }}
                       </span>
@@ -577,13 +490,13 @@
                         </button>
                       </div>
                     </div>
+                    </div>
                   </div>
                   </div>
-
-                  <!-- 联系人复杂设置：展开后列在卡片下方，简单设置保留在卡片上 -->
+                  <Transition :css="false" @enter="animateCollapseEnter" @leave="animateCollapseLeave" @enter-cancelled="cleanupCollapseAnimation" @leave-cancelled="cleanupCollapseAnimation">
                   <div
                     v-if="isContactExpanded(item.id)"
-                    class="border-t border-base-200 bg-base-200/20 px-3.5 py-3 space-y-3"
+                    class="mt-2 border-t border-base-200 pt-3 space-y-3"
                   >
                     <template v-if="selectedContact && contactDraft">
                       <ul class="list gap-2.5">
@@ -642,7 +555,7 @@
                           <div class="font-medium text-xs">{{ t("config.remoteIm.workspace") }}</div>
                           <span class="text-caption opacity-50">{{ t("config.remoteIm.systemWorkspaceReadonly") }}</span>
                         </div>
-                        <div class="rounded-xl border border-base-content/10 bg-base-200/20 p-3">
+                        <div class="space-y-2">
                           <WorkspaceConfigCard
                             :main-path="contactMainPath"
                             :secondary-paths="contactSecondaryPaths"
@@ -691,67 +604,78 @@
                       </div>
                     </template>
                   </div>
+                  </Transition>
                 </div>
               </div>
+            </ConfigCard>
+
+            <!-- 新分组入口放在列表尾部（页头不再放） -->
+            <button
+              type="button"
+              class="flex w-full items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 py-2.5 text-sm text-base-content/60 transition-colors hover:border-primary/50 hover:text-primary"
+              @click="openContactGroupCreateDialog"
+            >
+              <AppIcon name="plus" class="h-4 w-4" />
+              <span>{{ t("config.remoteIm.contactGroupCreateTitle") }}</span>
+            </button>
             </div>
-          </div>
+          </RemoteImPageTemplate>
         </div>
-        </OverlayScrollArea>
 
       </div>
 
-      <!-- 一级概览：渠道 2 列卡片矩阵 -->
-      <div v-else key="overview-grid" class="grid gap-4 pb-8">
+      <!-- 一级概览：渠道卡片矩阵（滚动与内边距由 SettingsPageShell 提供） -->
+      <RemoteImPageTemplate v-else key="overview-grid">
         <div class="config-grid-auto-sm">
-          <div
-            v-for="ch in filteredChannels"
+          <ConfigCard
+            v-for="ch in channels"
             :key="ch.id"
+            flush
+            interactive
             role="button"
             tabindex="0"
-            class="rounded-box border border-base-300 bg-base-100 p-4 hover:border-primary/50 transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 select-none active:scale-[0.99] group"
             @click="enterChannel(ch.id)"
             @keydown.enter.prevent="enterChannel(ch.id)"
             @keydown.space.prevent="enterChannel(ch.id)"
           >
-            <!-- 头部：平台图标 + 渠道名称 + 平台标识 + 启停开关 -->
-            <div class="flex items-start justify-between gap-2.5 min-w-0">
-              <div class="flex items-center gap-2.5 min-w-0 flex-1">
-                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-field border font-bold text-xs" :class="getPlatformIconColor(ch.platform)">
-                  {{ platformBadgeText(ch.platform) }}
-                </div>
-                <div class="min-w-0 flex-1">
-                  <div class="text-sm font-semibold text-base-content truncate group-hover:text-primary transition-colors">
-                    {{ ch.name || platformLabelText(ch.platform) }}
+            <div class="flex items-start gap-3 p-4">
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-field border font-bold text-xs" :class="getPlatformIconColor(ch.platform)">
+                {{ platformBadgeText(ch.platform) }}
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-semibold text-base-content">
+                      {{ ch.name || platformLabelText(ch.platform) }}
+                    </span>
+                    <div class="mt-0.5 truncate text-caption opacity-50">
+                      {{ platformLabelText(ch.platform) }}
+                    </div>
                   </div>
-                  <div class="text-caption opacity-50 truncate mt-0.5">
-                    {{ platformLabelText(ch.platform) }}
+                  <div class="flex shrink-0 items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      class="toggle toggle-primary toggle-sm shrink-0"
+                      :checked="ch.enabled"
+                      :disabled="saving || isChannelOperationBusy(ch.id)"
+                      @click.stop
+                      @change.stop="(e) => toggleChannelEnabled(ch, (e.target as HTMLInputElement).checked)"
+                    />
                   </div>
                 </div>
               </div>
-
-              <!-- 启用开关 -->
-              <input
-                type="checkbox"
-                class="toggle toggle-primary toggle-sm shrink-0"
-                :checked="ch.enabled"
-                :disabled="saving || isChannelOperationBusy(ch.id)"
-                @click.stop
-                @change.stop="(e) => toggleChannelEnabled(ch, (e.target as HTMLInputElement).checked)"
-              />
             </div>
-
-            <!-- 底栏：在线状态 + 联系人计数 + 进入箭头 -->
-            <div class="flex items-center justify-between border-t border-base-300 pt-2.5 text-caption">
+            <div class="flex items-center justify-between border-t border-base-200 px-4 py-2.5 text-caption">
               <div class="flex items-center gap-1.5">
                 <span class="size-2 rounded-full shrink-0" :class="getChannelStatusInfo(ch).dot"></span>
                 <span class="opacity-70">{{ getChannelStatusInfo(ch).text }}</span>
               </div>
               <div class="flex items-center gap-2">
                 <span class="font-mono opacity-60">{{ t("config.remoteIm.contactsCount", { count: getChannelContactCount(ch.id).toLocaleString() }) }}</span>
-                <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                <AppIcon name="chevron-right" class="h-3.5 w-3.5 opacity-40" />
               </div>
             </div>
-          </div>
+          </ConfigCard>
 
           <!-- 新增渠道卡：网格末位入口 -->
           <button
@@ -763,7 +687,7 @@
             <span class="text-sm font-medium">{{ t("config.remoteIm.addChannel") }}</span>
           </button>
         </div>
-      </div>
+      </RemoteImPageTemplate>
     </Transition>
 
     <Teleport to="body">
@@ -958,8 +882,8 @@
               </div>
               <div class="border-b-base-content/5 flex items-start justify-between gap-3 border-b border-dashed py-2">
                 <div class="flex flex-col gap-1">
-                  <span>{{ t("config.remoteIm.filterMarkdown") }}</span>
-                  <span class="max-w-80 text-xs opacity-60">{{ t("config.remoteIm.filterMarkdownHint") }}</span>
+                  <span class="text-xs font-bold">{{ t("config.remoteIm.filterMarkdown") }}</span>
+                  <span class="max-w-80 text-xs text-base-content/60">{{ t("config.remoteIm.filterMarkdownHint") }}</span>
                 </div>
                 <input v-model="selectedChannel.filterMarkdown" type="checkbox" class="toggle toggle-primary toggle-sm mt-0.5" />
               </div>
@@ -1047,11 +971,11 @@
                   <span class="font-semibold">{{ t('config.remoteIm.qqOfficialCredentials') }}</span>
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
-                      <label class="text-caption opacity-60">{{ t('config.remoteIm.qqOfficialAppId') }}</label>
+                      <label class="text-sm">{{ t('config.remoteIm.qqOfficialAppId') }}</label>
                       <input v-model="qqOfficialCredentials.appId" class="input input-bordered input-sm h-9 w-full text-xs" placeholder="102xxxxxxx" />
                     </div>
                     <div>
-                      <label class="text-caption opacity-60">{{ t('config.remoteIm.qqOfficialAppSecret') }}</label>
+                      <label class="text-sm">{{ t('config.remoteIm.qqOfficialAppSecret') }}</label>
                       <div class="flex items-center gap-1.5">
                         <input
                           v-model="qqOfficialCredentials.appSecret"
@@ -1073,11 +997,11 @@
                     <input v-model="qqOfficialCredentials.sandbox" type="checkbox" class="checkbox checkbox-sm" />
                     <span>{{ t('config.remoteIm.qqOfficialSandbox') }}</span>
                   </label>
-                  <span class="text-caption opacity-60 leading-relaxed">{{ t('config.remoteIm.qqOfficialHint') }}</span>
+                  <span class="text-xs text-base-content/60 leading-relaxed">{{ t('config.remoteIm.qqOfficialHint') }}</span>
                   <div class="flex flex-wrap items-center justify-between gap-3">
                     <div class="flex flex-col gap-1 min-w-0">
                       <span class="text-xs font-medium">{{ qqBindStatusText }}</span>
-                      <span v-if="qqBindStatusMessage" class="text-caption opacity-60 break-all">{{ qqBindStatusMessage }}</span>
+                      <span v-if="qqBindStatusMessage" class="text-xs text-base-content/60 break-all">{{ qqBindStatusMessage }}</span>
                     </div>
                     <button class="btn btn-sm min-h-[2.25rem] btn-primary" :disabled="qqBindBusy" @click="onQqBindButtonClick">
                       {{ qqBindBusy ? t('config.remoteIm.processing') : t('config.remoteIm.qqOfficialScanBind') }}
@@ -1500,33 +1424,18 @@
               {{ t("config.remoteIm.contactGroupEmpty") }}
             </div>
             <div v-else class="space-y-3">
-              <div
+              <ConfigCard
                 v-for="section in batchWizardContactSections"
                 :key="section.key"
-                class="rounded-box border border-base-300 bg-base-100 overflow-hidden"
+                flush
               >
-                <!-- 分组头部：点击整行折叠/展开，右边带三态勾选 Checkbox -->
-                <div
-                  class="flex items-center justify-between px-3 py-2 bg-base-200/50 cursor-pointer select-none"
-                  @click="batchWizardToggleGroupExpand(section.key)"
-                >
-                  <div class="flex items-center gap-2">
-                    <AppIcon name="chevron-down"
-                      v-if="batchWizardIsGroupExpanded(section.key)"
-                      class="h-4 w-4 opacity-50"
-                    />
-                    <AppIcon name="chevron-right"
-                      v-else
-                      class="h-4 w-4 opacity-50"
-                    />
-                    <span class="text-xs font-bold">{{ section.name }}</span>
-                  </div>
-
+                <div class="flex items-center justify-between gap-3 border-b border-base-200 px-3 py-2">
+                  <span class="truncate text-sm font-semibold">{{ section.name }}</span>
                   <!-- 分组全选/全不选切换 -->
                   <button
                     type="button"
                     class="btn btn-ghost btn-xs h-6 px-1.5"
-                    @click.stop="batchWizardToggleContactGroup(
+                    @click="batchWizardToggleContactGroup(
                       section.contacts,
                       batchWizardGroupSelectionState(section.contacts) !== 'all',
                     )"
@@ -1542,10 +1451,7 @@
                 </div>
 
                 <!-- 分组内联系人列表 -->
-                <div
-                  v-if="batchWizardIsGroupExpanded(section.key)"
-                  class="divide-y divide-base-200"
-                >
+                <div class="divide-y divide-base-200">
                   <label
                     v-for="contact in section.contacts"
                     :key="contact.id"
@@ -1573,7 +1479,7 @@
                     </span>
                   </label>
                 </div>
-              </div>
+              </ConfigCard>
             </div>
           </template>
 
@@ -1718,6 +1624,56 @@
         <button @click.prevent="closeBatchSettingsWizard">close</button>
       </form>
     </dialog>
+    <!-- 页内确认弹窗：替代浏览器原生 confirm -->
+    <dialog ref="confirmDialogRef" class="modal" @cancel.prevent="settleConfirm(false)">
+      <div class="modal-box max-w-sm border border-base-300 bg-base-100">
+        <h3 class="text-base font-semibold">{{ confirmRequest?.title }}</h3>
+        <p class="mt-2 text-sm leading-relaxed whitespace-pre-wrap text-base-content/70">
+          {{ confirmRequest?.message }}
+        </p>
+        <div class="modal-action mt-5 flex items-center justify-end gap-2">
+          <button class="btn btn-sm btn-ghost" type="button" @click="settleConfirm(false)">
+            {{ t("common.cancel") }}
+          </button>
+          <button
+            class="btn btn-sm btn-ghost text-error hover:bg-error/10"
+            type="button"
+            @click="settleConfirm(true)"
+          >
+            {{ confirmRequest?.confirmText || t("common.confirm") }}
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- 新建分组：弹窗命名（列表尾部按钮触发） -->
+    <dialog ref="contactGroupCreateDialogRef" class="modal" @cancel.prevent="cancelContactGroupCreate">
+      <div class="modal-box max-w-sm border border-base-300 bg-base-100">
+        <h3 class="text-base font-semibold">{{ t("config.remoteIm.contactGroupCreateTitle") }}</h3>
+        <input
+          v-model="contactGroupNameDraft"
+          type="text"
+          class="input input-bordered input-sm mt-4 w-full"
+          :placeholder="t('config.remoteIm.contactGroupNamePlaceholder')"
+          :disabled="contactGroupBusy"
+          @keydown.enter.prevent="submitContactGroupCreate"
+          @keydown.esc.prevent="cancelContactGroupCreate"
+        />
+        <p v-if="contactGroupError" class="mt-2 text-xs text-error break-all whitespace-pre-wrap" style="overflow-wrap:anywhere">
+          {{ contactGroupError }}
+        </p>
+        <div class="modal-action mt-5 flex items-center justify-end gap-2">
+          <button class="btn btn-sm btn-ghost" type="button" :disabled="contactGroupBusy" @click="cancelContactGroupCreate">
+            {{ t("common.cancel") }}
+          </button>
+          <button class="btn btn-sm btn-primary" type="button" :disabled="contactGroupBusy" @click="submitContactGroupCreate">
+            <span v-if="contactGroupBusy" class="loading loading-spinner loading-xs"></span>
+            <span>{{ t("common.confirm") }}</span>
+          </button>
+        </div>
+      </div>
+    </dialog>
+
   </SettingsPageShell>
 </template>
 
@@ -1734,17 +1690,24 @@ import ApiConfigPicker from "../../components/ApiConfigPicker.vue";
 import WorkspaceConfigCard from "../../../shared/components/WorkspaceConfigCard.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 import ChannelBehaviorSettingsModal from "./remote-im/ChannelBehaviorSettingsModal.vue";
+import ConfigCard from "../../components/ConfigCard.vue";
+import { useDetailTabs } from "./remote-im/detail-tabs";
+import RemoteImPageTemplate from "./remote-im/RemoteImPageTemplate.vue";
+import { useEcallCollapseAnimation } from "../../components/useEcallCollapseAnimation";
 import type { ChannelConnectionStatus, ChannelLogEntry, QqOfficialBindPollResult, QqOfficialBindStartResult, WeixinLoginStatus } from "./remote-im/types";
 import { buildContactLogDisplayItem, type ContactLogDisplayItem } from "./remote-im/contact-log-display";
 import {
+  CONTACT_GROUP_KEY_ATTR,
   contactCommunicationToggleClass,
   contactCommunicationToggleEnabled,
   cloneChannelBehaviorSettings,
+  contactGroupKeyFromEvent,
   formatLogTime,
   normalizeActivationMode,
   normalizeProcessingMode,
   normalizeResponseStrategy,
   parseActivationKeywords,
+  shouldOpenContactGroupMenu,
 } from "./remote-im/helpers";
 
 const props = defineProps<{
@@ -1756,6 +1719,8 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n();
+// 联系人展开区的折叠动画与卡片组件同一套参数
+const { animateCollapseEnter, animateCollapseLeave, cleanupCollapseAnimation } = useEcallCollapseAnimation();
 const WEIXIN_OC_BOT_TYPE = "3";
 const WEIXIN_OC_QR_POLL_INTERVAL = 1;
 const WEIXIN_OC_LONG_POLL_TIMEOUT_MS = 35000;
@@ -1858,21 +1823,12 @@ const showDingtalkSecret = ref(false);
 const showQqOfficialSecret = ref(false);
 const suppressCredentialSync = ref(false);
 const inDetailMode = ref(false);
-const channelSearchQuery = ref("");
-const contactSearchQuery = ref("");
 
 const selectedChannelId = ref<string>("");
 const channels = computed(() => props.config.remoteImChannels || []);
 
-const filteredChannels = computed(() => {
-  const q = channelSearchQuery.value.trim().toLowerCase();
-  if (!q) return channels.value;
-  return channels.value.filter(
-    (ch) =>
-      (ch.name || "").toLowerCase().includes(q) ||
-      platformLabelText(ch.platform).toLowerCase().includes(q)
-  );
-});
+
+
 
 function enterChannel(channelId: string) {
   selectedChannelId.value = channelId;
@@ -1881,12 +1837,40 @@ function enterChannel(channelId: string) {
   void refreshContactGroups();
 }
 
-function backToChannels() {
+// 页内确认弹窗：不用浏览器原生 confirm（系统弹窗风格与产品界面不一致，红豆明确不允许）
+type ConfirmRequest = { title: string; message: string; confirmText?: string };
+const confirmDialogRef = ref<HTMLDialogElement | null>(null);
+const confirmRequest = ref<ConfirmRequest | null>(null);
+let confirmResolver: ((ok: boolean) => void) | null = null;
+
+function askConfirm(request: ConfirmRequest): Promise<boolean> {
+  confirmRequest.value = request;
+  confirmDialogRef.value?.showModal();
+  return new Promise<boolean>((resolve) => {
+    confirmResolver = resolve;
+  });
+}
+
+function settleConfirm(ok: boolean) {
+  confirmDialogRef.value?.close();
+  confirmRequest.value = null;
+  confirmResolver?.(ok);
+  confirmResolver = null;
+}
+
+async function backToChannels() {
   if (channelDirty.value) {
-    const confirmLeave = window.confirm(t("config.skill.confirmLeaveUnsaved") || "当前渠道有未保存的修改，确认返回列表吗？");
+    const confirmLeave = await askConfirm({
+      title: t("config.unsavedConfirm.title"),
+      message: t("config.skill.confirmLeaveUnsaved") || "当前渠道有未保存的修改，确认返回列表吗？",
+      confirmText: t("common.confirm"),
+    });
     if (!confirmLeave) return;
   }
   inDetailMode.value = false;
+  // 不清渠道 id 的话，重进同一个渠道时 watch 不触发，会停在上一次的 tab 上
+  selectedChannelId.value = "";
+  resetDetailTab();
 }
 
 function getChannelContactCount(channelId: string): number {
@@ -2123,6 +2107,25 @@ const channelSnapshot = computed(() => {
 const lastSavedChannelSnapshot = ref(channelSnapshot.value);
 const channelDirty = computed(() => channelSnapshot.value !== lastSavedChannelSnapshot.value);
 
+/** 详情页两个设置面：渠道设置 / 联系人设置，靠 shell 的 tabs 切换（页面内存态，不落盘）。
+ *  删掉最后一个渠道后 `hasChannel` 为 false，tabs 自动为空，不会留下无反应的 tab。 */
+const { detailTab, tabs: detailTabs, selectTab: onDetailTabChange, resetTab: resetDetailTab } = useDetailTabs({
+  inDetailMode,
+  hasChannel: computed(() => !!selectedChannel.value),
+  channelDirty,
+  channelLabel: computed(() => t("config.remoteIm.channelSettingsTab")),
+  contactsLabel: computed(() => t("config.remoteIm.contactsSettingsTab")),
+});
+
+// 进入详情时按通讯录是否为空选默认面；本次进入只自动定一次，之后用户怎么切都不干预。
+const detailTabAutoResolved = ref(false);
+
+watch(selectedChannelId, () => {
+  detailTabAutoResolved.value = false;
+  // 换渠道先落在平台面，等联系人加载完再决定要不要切到通讯录
+  resetDetailTab();
+});
+
 const remoteImBreadcrumb = computed<SettingsBreadcrumbItem[]>(() => {
   const channel = selectedChannel.value;
   if (!inDetailMode.value || !channel) return [{ label: t("config.tabs.remoteIm") }];
@@ -2186,6 +2189,17 @@ const currentChannelContacts = computed(() => {
     .sort(compareContactByRemoteId);
 });
 
+// 进入详情时按通讯录是否为空选默认面；本次进入只自动定一次，之后用户怎么切都不干预。
+watch(
+  [inDetailMode, contactsLoading, () => currentChannelContacts.value.length],
+  () => {
+    if (!inDetailMode.value || contactsLoading.value || detailTabAutoResolved.value) return;
+    detailTabAutoResolved.value = true;
+    // 通讯录不为空就直接打开通讯录：进来大概率是要看联系人，不是改平台参数
+    if (currentChannelContacts.value.length > 0) onDetailTabChange("contacts");
+  },
+);
+
 /** 联系人分组：每个渠道各自一套，只属于一个分组，未分组用空 groupId 表示。 */
 const currentChannelGroups = computed(() => (
   contactGroups.value
@@ -2215,52 +2229,28 @@ type ContactListSection = {
 };
 
 const contactListSections = computed<ContactListSection[]>(() => {
-  const q = contactSearchQuery.value.trim().toLowerCase();
-  const matches = (item: RemoteImContact) => {
-    if (!q) return true;
-    const name = contactSafeDisplayName(item).toLowerCase();
-    const agent = contactAgentLabel(item).toLowerCase();
-    const sec = contactSecondaryText(item).toLowerCase();
-    return name.includes(q) || agent.includes(q) || sec.includes(q);
-  };
-  const all = currentChannelContacts.value;
   const sections: ContactListSection[] = [];
   for (const group of currentChannelGroups.value) {
-    const items = all.filter((item) => contactGroupIdOf(item) === group.id && matches(item));
-    if (items.length > 0) sections.push({ key: group.id, name: group.name, group, items });
-  }
-  const ungrouped = all.filter((item) => !contactGroupIdOf(item) && matches(item));
-  if (ungrouped.length > 0) {
     sections.push({
-      key: "ungrouped",
-      name: t("config.remoteIm.contactGroupUngrouped"),
-      group: null,
-      items: ungrouped,
+      key: group.id,
+      name: group.name,
+      group,
+      items: currentChannelContacts.value.filter((item) => contactGroupIdOf(item) === group.id),
     });
   }
+  // 未分组固定放尾部：即使暂时为空也留着，用户知道联系人还没归组时会长在这里
+  sections.push({
+    key: "ungrouped",
+    name: t("config.remoteIm.contactGroupUngrouped"),
+    group: null,
+    items: currentChannelContacts.value.filter((item) => !contactGroupIdOf(item)),
+  });
   return sections;
 });
 
-const collapsedContactSections = ref<Set<string>>(new Set());
-
-function contactSectionCollapseKey(section: ContactListSection): string {
-  return `${selectedChannelId.value}::${section.key}`;
-}
-
-function isContactSectionCollapsed(section: ContactListSection): boolean {
-  return collapsedContactSections.value.has(contactSectionCollapseKey(section));
-}
-
-function toggleContactSectionCollapse(section: ContactListSection) {
-  const key = contactSectionCollapseKey(section);
-  const next = new Set(collapsedContactSections.value);
-  if (next.has(key)) {
-    next.delete(key);
-  } else {
-    next.add(key);
-  }
-  collapsedContactSections.value = next;
-}
+const contactListEmptyText = computed(() =>
+  currentChannelContacts.value.length === 0 ? t("config.remoteIm.contactsEmpty") : "",
+);
 
 const contactActivationModeOrder: RemoteImContact["activationMode"][] = ["always", "keyword", "never"];
 
@@ -2544,7 +2534,11 @@ async function deleteSelectedChannel() {
   const channel = selectedChannel.value;
   if (!channel || saving.value || isChannelOperationBusy(channel.id)) return;
   const channelName = String(channel.name || channel.id).trim() || channel.id;
-  const confirmed = window.confirm(t("config.remoteIm.deleteChannelConfirm", { name: channelName }));
+  const confirmed = await askConfirm({
+    title: t("config.remoteIm.deleteChannel") || t("common.delete"),
+    message: t("config.remoteIm.deleteChannelConfirm", { name: channelName }),
+    confirmText: t("common.delete"),
+  });
   if (!confirmed) return;
 
   const removedIndex = props.config.remoteImChannels.findIndex((item) => item.id === channel.id);
@@ -2575,6 +2569,8 @@ async function deleteSelectedChannel() {
     }
     await nextTick();
     lastSavedChannelSnapshot.value = channelSnapshot.value;
+    // 删掉最后一个渠道后详情态没有可展示对象了：直接回列表，别让页头挂着两个没反应的 tab
+    if (channels.value.length === 0) backToChannels();
     props.setStatusAction(t("config.remoteIm.deleteChannelSuccess", { name: channelName }));
   } catch (error) {
     restoreRemovedChannel(removedIndex, removedChannel);
@@ -3095,15 +3091,30 @@ function closeContactPillMenu() {
 type ContactGroupMenuState = { left: number; top: number; groupId: string };
 const contactGroupMenu = ref<ContactGroupMenuState | null>(null);
 
+/** 分组头右键：事件来自组件透传，靠 data 键找回是哪个分组（避免在模板里内联箭头函数） */
+function handleContactGroupHeaderContextmenu(event: MouseEvent) {
+  const key = contactGroupKeyFromEvent(event);
+  if (!key && import.meta.env.DEV) {
+    console.warn(
+      `[remote-im] 分组头右键没有取到 ${CONTACT_GROUP_KEY_ATTR}：` +
+        "分组头的 data 键没挂上（或分组卡换了实现），分组右键菜单会整体失效。",
+    );
+  }
+  const section = contactListSections.value.find((item) => item.key === key) ?? null;
+  openContactGroupMenu(event, section?.group ?? null);
+}
+
 /** 分组头右键菜单：只对真实分组生效，未分组段没有菜单。 */
 function openContactGroupMenu(event: MouseEvent, group: RemoteImContactGroup | null) {
-  if (!group) return;
-  const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
-  if (!rect) return;
+  if (!shouldOpenContactGroupMenu(group)) return;
+  // 只有真要弹自己的菜单时才吃掉浏览器默认菜单；没挂监听的消费方保留原生右键
+  event.preventDefault();
+  // 用鼠标坐标而不是 currentTarget 的矩形：事件从分组头冒上来时 currentTarget 可能是整组，
+  // 菜单会跑到组底部。
   const menuWidth = 144;
-  const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.left));
-  const top = Math.min(window.innerHeight - 8, rect.bottom + 4);
-  contactGroupMenu.value = { left, top, groupId: group.id };
+  const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, event.clientX));
+  const top = Math.min(window.innerHeight - 8, event.clientY + 4);
+  contactGroupMenu.value = { left, top, groupId: String(group?.id ?? "") };
 }
 
 function closeContactGroupMenu() {
@@ -3741,7 +3752,7 @@ async function refreshContacts() {
       contactKeywordDrafts.value[item.id] = item.activationKeywords.join(", ");
     }
     if (selectedContactId.value && !contacts.value.some((item) => item.id === selectedContactId.value)) {
-      collapseContactSettings();
+      closeContactSettings();
     }
     if (contactLogsContactId.value && !contacts.value.some((item) => item.id === contactLogsContactId.value)) {
       contactLogsModalOpen.value = false;
@@ -3777,11 +3788,30 @@ async function refreshContactGroups() {
   }
 }
 
-function startContactGroupCreate() {
+const contactGroupCreateDialogRef = ref<HTMLDialogElement | null>(null);
+
+/** 新分组用弹窗命名（列表尾部按钮触发），不再在列表里插一行输入框 */
+function openContactGroupCreateDialog() {
   contactGroupEditMode.value = "create";
   contactGroupEditTargetId.value = "";
   contactGroupNameDraft.value = "";
   contactGroupError.value = "";
+  contactGroupCreateDialogRef.value?.showModal();
+}
+
+function closeContactGroupCreateDialog() {
+  contactGroupCreateDialogRef.value?.close();
+}
+
+/** 弹窗里提交：成功后 mode 会被清掉，失败则留在弹窗里显示错误 */
+async function submitContactGroupCreate() {
+  await submitContactGroupEdit();
+  if (contactGroupEditMode.value !== "create") closeContactGroupCreateDialog();
+}
+
+function cancelContactGroupCreate() {
+  cancelContactGroupEdit();
+  closeContactGroupCreateDialog();
 }
 
 function startContactGroupRename(group: RemoteImContactGroup) {
@@ -3850,10 +3880,6 @@ async function submitContactGroupEdit() {
 async function deleteContactGroup(group: RemoteImContactGroup) {
   const channelId = selectedChannelId.value;
   if (!channelId || contactGroupBusy.value) return;
-  const confirmed = window.confirm(
-    t("config.remoteIm.contactGroupDeleteConfirm", { name: group.name }),
-  );
-  if (!confirmed) return;
   contactGroupBusy.value = true;
   contactGroupError.value = "";
   try {
@@ -3933,7 +3959,11 @@ function contactSecondaryText(item: RemoteImContact): string {
 async function deleteContact(item: RemoteImContact) {
   if (contactDeleting.value) return;
   const displayName = contactSafeDisplayName(item);
-  const confirmed = window.confirm(t('config.remoteIm.deleteContactConfirm', { name: displayName }));
+  const confirmed = await askConfirm({
+    title: t("common.delete"),
+    message: t('config.remoteIm.deleteContactConfirm', { name: displayName }),
+    confirmText: t("common.delete"),
+  });
   if (!confirmed) return;
   contactDeleting.value = true;
   try {
@@ -3945,7 +3975,7 @@ async function deleteContact(item: RemoteImContact) {
       return;
     }
     if (selectedContactId.value === item.id) {
-      collapseContactSettings();
+      closeContactSettings();
     }
     await refreshContacts();
     props.setStatusAction(t('config.remoteIm.deleteContactSuccess', { name: displayName }));
@@ -4251,7 +4281,7 @@ function isContactExpanded(contactId: string): boolean {
 /** 展开联系人设置：同时只展开一个，草稿跟随展开的联系人。 */
 function toggleContactSettings(contactId: string) {
   if (selectedContactId.value === contactId) {
-    collapseContactSettings();
+    closeContactSettings();
     return;
   }
   selectedContactId.value = contactId;
@@ -4259,7 +4289,7 @@ function toggleContactSettings(contactId: string) {
   void refreshContactConversationModel(contactId);
 }
 
-function collapseContactSettings() {
+function closeContactSettings() {
   selectedContactId.value = "";
   syncSelectedContactDraft();
 }
@@ -4309,7 +4339,7 @@ watch(selectedChannelId, () => {
       channelLogs.value = [];
     }
     // 切渠道即收起联系人设置，避免残留上一个渠道的联系人草稿。
-    collapseContactSettings();
+    closeContactSettings();
   }
   lastSavedChannelSnapshot.value = channelSnapshot.value;
 });
@@ -4525,22 +4555,6 @@ function batchWizardToggleContactGroup(contacts: RemoteImContact[], selected: bo
   wizard.selectedContactIds = Array.from(selectedIds);
 }
 
-const batchWizardCollapsedGroups = ref<Set<string>>(new Set());
-
-function batchWizardIsGroupExpanded(groupKey: string): boolean {
-  return !batchWizardCollapsedGroups.value.has(groupKey);
-}
-
-function batchWizardToggleGroupExpand(groupKey: string) {
-  const next = new Set(batchWizardCollapsedGroups.value);
-  if (next.has(groupKey)) {
-    next.delete(groupKey);
-  } else {
-    next.add(groupKey);
-  }
-  batchWizardCollapsedGroups.value = next;
-}
-
 function batchWizardStateBoxClasses(state: "all" | "none" | "partial") {
   if (state === "all") return "border-primary bg-primary text-primary-content shadow-xs";
   if (state === "partial") return "border-primary/50 bg-primary/20 text-primary";
@@ -4697,7 +4711,6 @@ function openBatchSettingsWizard(defaultGroupKey: string) {
     ? all.filter((contact) => !contactGroupIdOf(contact))
     : all.filter((contact) => contactGroupIdOf(contact) === defaultGroupKey);
   if (defaultScope.length === 0) return;
-  batchWizardCollapsedGroups.value = new Set();
   batchSettingsWizard.value = {
     step: 1,
     fields: {
