@@ -108,7 +108,7 @@
 
             <!-- OneBot 凭证配置 -->
             <template v-if="selectedChannel.platform === 'onebot_v11'">
-              <div class="rounded-field border border-base-300 bg-base-200/20 p-3 space-y-3">
+              <div class="space-y-3 pt-1">
                 <div class="text-xs font-bold">{{ t("config.remoteIm.napcatConfig") }}</div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
@@ -129,7 +129,7 @@
 
             <!-- 钉钉凭证 -->
             <template v-else-if="selectedChannel.platform === 'dingtalk'">
-              <div class="rounded-field border border-base-300 bg-base-200/20 p-3 space-y-3">
+              <div class="space-y-3 pt-1">
                 <div class="text-xs font-bold">{{ t("config.remoteIm.dingtalkCredentials") }}</div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
@@ -160,7 +160,7 @@
 
             <!-- 微信扫码登录 -->
             <template v-else-if="selectedChannel.platform === 'weixin_oc'">
-              <div class="rounded-field border border-base-300 bg-base-200/20 p-3 space-y-3">
+              <div class="space-y-3 pt-1">
                 <div class="text-xs font-bold">{{ t('config.remoteIm.weixinScanLogin') }}</div>
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div class="flex flex-col gap-1 min-w-0">
@@ -180,7 +180,7 @@
 
             <!-- QQ 官方机器人凭证 -->
             <template v-else-if="selectedChannel.platform === 'qq_official'">
-              <div class="rounded-field border border-base-300 bg-base-200/20 p-3 space-y-3">
+              <div class="space-y-3 pt-1">
                 <div class="text-xs font-bold">{{ t('config.remoteIm.qqOfficialCredentials') }}</div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
@@ -228,7 +228,7 @@
 
             <!-- 飞书凭证 JSON -->
             <template v-else>
-              <div class="rounded-field border border-base-300 bg-base-200/20 p-3 space-y-2">
+              <div class="space-y-2 pt-1">
                 <div class="text-xs font-bold">{{ t("config.remoteIm.credentialsJson") }}</div>
                 <textarea
                   v-model="credentialDrafts[selectedChannel.id]"

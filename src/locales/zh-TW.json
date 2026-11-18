@@ -1092,7 +1092,7 @@
       "qqOfficialSandbox": "使用沙箱環境",
       "qqOfficialHint": "在 QQ 開放平台建立機器人後取得 AppID 與 AppSecret。正式環境需先在平台設定本機公網 IP 白名單；新機器人在上線前預設為沙箱模式。",
       "filterMarkdown": "過濾 Markdown",
-      "filterMarkdownHint": "僅在發送到該渠道時清理常見 Markdown 語法，聊天歷史仍保留模型原文。",
+      "filterMarkdownHint": "發送時去 Markdown，歷史保留原文。",
       "sendAsMarkdown": "以Markdown發送",
       "sendAsPlainText": "以純文字發送",
       "allowSendFiles": "可發檔案",

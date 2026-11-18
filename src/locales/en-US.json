@@ -1092,7 +1092,7 @@
       "qqOfficialSandbox": "Use sandbox environment",
       "qqOfficialHint": "Get AppID and AppSecret after creating the bot on the QQ Open Platform. Production requires an IP whitelist entry for your public IP; new bots stay in sandbox mode until published.",
       "filterMarkdown": "Filter Markdown",
-      "filterMarkdownHint": "Clean common Markdown syntax only when sending to this channel. Chat history still keeps the original model output.",
+      "filterMarkdownHint": "Strip Markdown on send; history keeps original.",
       "sendAsMarkdown": "Send as Markdown",
       "sendAsPlainText": "Send as Plain Text",
       "allowSendFiles": "Allow sending files",
