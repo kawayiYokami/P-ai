@@ -5,10 +5,10 @@
         <input
           v-model="searchQuery"
           type="text"
-          class="input input-bordered input-sm h-9 w-full pl-8 pr-8 text-xs"
+          class="input input-bordered input-sm h-8 w-full pl-8 pr-8 text-xs"
           :placeholder="t('config.skill.searchPlaceholder')"
         />
-        <AppIcon name="search" class="absolute left-2.5 top-2.5 h-4 w-4 opacity-50 pointer-events-none" />
+        <AppIcon name="search" class="absolute left-2.5 top-2 h-4 w-4 opacity-50 pointer-events-none" />
         <button
           v-if="searchQuery"
           type="button"

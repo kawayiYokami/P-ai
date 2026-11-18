@@ -90,10 +90,11 @@ watch(
 onBeforeUnmount(() => breadcrumbContext?.reset());
 const panelKey = computed(() => (props.tabs.length > 0 ? props.tab : ""));
 
-/** 头部内层类：有 tab 时贴合分界线，没有 tab 时留出底部空白；显式传值优先。 */
-const resolvedHeaderClass = computed(
-  () => props.headerClass ?? (props.tabs.length > 0 ? "pb-0" : "pb-4"),
-);
+/**
+ * 头部内层类：不再按"有没有 tab"改内边距——那会让有 tab 的页 40px、没 tab 的页 56px。
+ * 行高由 `SettingsStickyLayout` 固定，页面只在确有特例时显式传值。
+ */
+const resolvedHeaderClass = computed(() => props.headerClass ?? "");
 
 // 方向按 tabs 声明顺序判定，往右切的内容从右侧进、旧内容从左侧出
 const direction = ref<1 | -1>(1);

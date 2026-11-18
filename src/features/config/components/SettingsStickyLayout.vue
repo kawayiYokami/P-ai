@@ -1,8 +1,9 @@
 <template>
   <div class="relative flex h-full min-h-0 flex-col">
     <div v-if="$slots.header" class="shrink-0 border-b border-base-300">
-      <!-- 顶部不再留 16px：面包屑那一行由设置页外壳统一占位，头部直接贴它下面。 -->
-      <div class="w-full px-4 pt-1" :class="[contentClass, headerClass]">
+      <!-- 行高固定 40px：这一行放的是 tab 条或搜索框，两者的高度与上下留白必须一致，
+           不能让"有没有 tab"改变整行高度（之前 pb 随 tabs 数量变，56px 与 40px 两种行高）。 -->
+      <div class="flex h-10 w-full items-center px-4" :class="[contentClass, headerClass]">
         <slot name="header" />
       </div>
     </div>
