@@ -1914,13 +1914,11 @@ definitionJson = "{\"command\":\"npx\"}"
     }
 
     #[test]
-    fn read_agents_shard_should_fall_back_to_built_in_on_syntax_error() {
+    fn read_agents_shard_should_fall_back_to_built_in_on_unrecoverable_syntax_error() {
         let data_path = agents_test_data_path();
-        // 尾逗号：正是用户遇到的那种坏文件。
-        write_agents_json(
-            &data_path,
-            "{\n  \"agents\": [\n    {\"id\": \"agent-x\", \"name\": \"X\", \"systemPrompt\": \"p\"},\n  ]\n}\n",
-        );
+        // 连对象都没闭合、里面也没有任何完整的 {...}：一条都救不回来。
+        let original = "{\n  \"agents\": [ oops\n}\n";
+        write_agents_json(&data_path, original);
 
         let agents = read_agents_shard(&data_path).expect("坏文件不应阻断读取");
         let ids = built_in_ids(&agents);
@@ -1932,18 +1930,107 @@ definitionJson = "{\"command\":\"npx\"}"
             expected.sort();
             expected
         };
-        assert_eq!(ids, expected, "文件级语法错误必须回落到全部内置人格");
-        assert!(
-            !agents.iter().any(|agent| agent.id == "agent-x"),
-            "坏文件里的自定义人格不应被加载"
+        assert_eq!(ids, expected, "救不回来时回落到全部内置人格");
+        // 备份留档，原文件保持不动（宁可不修，也不写空文件）
+        let backups = agents_backup_files(&data_path);
+        assert_eq!(backups.len(), 1, "兜底前必须备份：{backups:?}");
+        assert_eq!(
+            std::fs::read_to_string(&backups[0]).expect("读备份"),
+            original
         );
-        // 兜底必须留下可见诊断（不能静默）
+        assert_eq!(
+            std::fs::read_to_string(app_layout_agents_path(&data_path)).expect("读原文件"),
+            original,
+            "一条都救不回来时不许改写原文件"
+        );
+        // 诊断要能指出行列与出错行
         let diagnostics = agents_load_diagnostics(&data_path);
         assert!(
-            diagnostics.iter().any(|item| item.contains("尾逗号")
-                || item.contains("语法错误")
-                || item.contains("解析失败")),
-            "兜底必须留诊断：{diagnostics:?}"
+            diagnostics.iter().any(|item| item.contains("第 ")
+                && item.contains(" 行第 ")
+                && item.contains("出错行")),
+            "兜底诊断要带行号列号与出错行：{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn read_agents_shard_should_accept_trailing_comma_and_comments() {
+        // 字段齐全的文件才会「只被读、不被改写」，因此这里都带上时间戳。
+        let stamp = "\"createdAt\": \"2026-01-01T00:00:00Z\", \"updatedAt\": \"2026-01-01T00:00:00Z\"";
+        // 尾逗号
+        let trailing = agents_test_data_path();
+        write_agents_json(
+            &trailing,
+            &format!(
+                "{{\n  \"agents\": [\n    {{\"id\": \"agent-x\", \"name\": \"X\", \"systemPrompt\": \"p\", {stamp}}},\n  ]\n}}\n"
+            ),
+        );
+        let agents = read_agents_shard(&trailing).expect("尾逗号应被接受");
+        assert!(agents.iter().any(|agent| agent.id == "agent-x"));
+
+        // 注释
+        let commented = agents_test_data_path();
+        write_agents_json(
+            &commented,
+            &format!(
+                "{{\n  // 这是行注释\n  \"agents\": [\n    /* 块注释 */ {{\"id\": \"agent-y\", \"name\": \"Y\", \"systemPrompt\": \"p\", {stamp}}}\n  ]\n}}\n"
+            ),
+        );
+        let agents = read_agents_shard(&commented).expect("注释应被接受");
+        assert!(agents.iter().any(|agent| agent.id == "agent-y"));
+
+        // 尾逗号 + 注释混合
+        let mixed = agents_test_data_path();
+        let mixed_content = format!(
+            "{{\n  // 人格配置\n  \"agents\": [\n    {{\"id\": \"agent-z\", \"name\": \"Z\", \"systemPrompt\": \"p\", {stamp}}}, // 留着方便加\n  ],\n}}\n"
+        );
+        write_agents_json(&mixed, &mixed_content);
+        let agents = read_agents_shard(&mixed).expect("尾逗号 + 注释混合也应被接受");
+        assert!(agents.iter().any(|agent| agent.id == "agent-z"));
+
+        // 合法 JSONC 不该被当成损坏：不备份、也不改写（保住用户写的注释）
+        for path in [&trailing, &commented, &mixed] {
+            assert!(
+                agents_backup_files(path).is_empty(),
+                "合法 JSONC 不该产生备份：{path:?}"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(app_layout_agents_path(&mixed)).expect("读文件"),
+            mixed_content,
+            "读得通、又没什么要补的文件不该被重写（注释是用户写的，不能抹掉）"
+        );
+    }
+
+    #[test]
+    fn read_agents_shard_should_rewrite_when_comments_file_needs_completion() {
+        // 有内容要补齐时必须写回（否则自动生成的 id 每次读都会变），
+        // 这一步是标准 JSON 重写，注释会随之消失——原文在备份里。
+        let data_path = agents_test_data_path();
+        write_agents_json(
+            &data_path,
+            "{\n  // 我的注释\n  \"agents\": [\n    {\"id\": \"agent-need-time\", \"name\": \"缺时间戳\", \"systemPrompt\": \"p\"}\n  ]\n}\n",
+        );
+        let agents = read_agents_shard(&data_path).expect("读取人格");
+        let agent = agents
+            .iter()
+            .find(|agent| agent.id == "agent-need-time")
+            .expect("缺时间戳的条目要在");
+        assert!(!agent.created_at.trim().is_empty());
+
+        let backups = agents_backup_files(&data_path);
+        assert_eq!(backups.len(), 1, "改写前必须先备份：{backups:?}");
+        let written = std::fs::read_to_string(app_layout_agents_path(&data_path)).expect("读文件");
+        assert!(
+            !written.contains("//"),
+            "补齐后写回的是标准 JSON，注释不保留：{written}"
+        );
+        // 第二次读同一份文件：已经是合法且齐全的，不该再备份、也不该再改
+        read_agents_shard(&data_path).expect("第二次读");
+        assert_eq!(
+            agents_backup_files(&data_path).len(),
+            1,
+            "幂等：第二次读不该再产生备份"
         );
     }
 
@@ -1995,6 +2082,29 @@ definitionJson = "{\"command\":\"npx\"}"
                 .any(|item| item.contains("第 2 条") && item.contains("agent-bad")),
             "跳过条目必须指出第几条、哪个 id：{diagnostics:?}"
         );
+
+        // 自修复：坏条从磁盘上消失，好条还在（内置人格由代码补，不进文件）
+        let written: Value = serde_json::from_str(
+            &std::fs::read_to_string(app_layout_agents_path(&data_path)).expect("读文件"),
+        )
+        .expect("修复后必须是合法 JSON");
+        let written_ids = written
+            .get("agents")
+            .and_then(Value::as_array)
+            .expect("agents array")
+            .iter()
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert!(written_ids.contains(&"agent-good"), "好条目必须留在文件里");
+        assert!(
+            !written_ids.contains(&"agent-bad"),
+            "坏条目应从文件里移除：{written_ids:?}"
+        );
+        assert_eq!(
+            agents_backup_files(&data_path).len(),
+            1,
+            "改写前必须先备份"
+        );
     }
 
     #[test]
@@ -2019,8 +2129,8 @@ definitionJson = "{\"command\":\"npx\"}"
     #[test]
     fn corrupt_agents_file_should_be_backed_up_before_any_write() {
         let data_path = agents_test_data_path();
-        // 只差一个尾逗号：用户手工就能修好，绝不能被写回覆盖。
-        let original = "{\n  \"agents\": [\n    {\"id\": \"agent-keep\", \"name\": \"要保住的自定义\", \"systemPrompt\": \"p\"},\n  ]\n}\n";
+        // 括号没闭合、里面也没有完整的对象：救不回来，只能兜底。
+        let original = "{\n  \"agents\": [\n    {\"id\": \"agent-keep\", \"name\": \"要保住的自定义\", \"systemPrompt\": \"p\"\n  ]\n}\n";
         write_agents_json(&data_path, original);
 
         // 读：语法坏 → 内置兜底
@@ -2072,8 +2182,8 @@ definitionJson = "{\"command\":\"npx\"}"
     #[test]
     fn agents_diagnostics_should_only_keep_latest_read() {
         let data_path = agents_test_data_path();
-        // 坏文件：读一次就留一条诊断
-        write_agents_json(&data_path, "{\n  \"agents\": [\n    {\"id\": \"a\"},\n  ]\n}\n");
+        // 救不回来的坏文件：读一次就留一条诊断
+        write_agents_json(&data_path, "{\n  \"agents\": [ oops\n}\n");
 
         read_agents_shard(&data_path).expect("第一次读");
         let first_len = agents_load_diagnostics(&data_path).len();
@@ -2088,10 +2198,10 @@ definitionJson = "{\"command\":\"npx\"}"
             agents_load_diagnostics(&data_path)
         );
 
-        // 换成一个正常文件再读：上一轮的坏消息必须被清掉
+        // 换成一个完整合法的文件再读：上一轮的坏消息必须被清掉
         write_agents_json(
             &data_path,
-            "{\"agents\": [{\"id\": \"agent-ok\", \"name\": \"正常\", \"systemPrompt\": \"p\"}]}",
+            "{\"agents\": [{\"id\": \"agent-ok\", \"name\": \"正常\", \"systemPrompt\": \"p\", \"createdAt\": \"2026-01-01T00:00:00Z\", \"updatedAt\": \"2026-01-01T00:00:00Z\"}]}",
         );
         read_agents_shard(&data_path).expect("第三次读");
         assert!(
@@ -2115,12 +2225,9 @@ definitionJson = "{\"command\":\"npx\"}"
             "首次读应带上自定义人格"
         );
 
-        // 2. 把文件改成语法错（尾逗号），等 mtime 真正变化后再读
+        // 2. 把文件改成一堆解析不了的东西（括号没闭合、里面也没有完整对象）
         std::thread::sleep(std::time::Duration::from_millis(30));
-        write_agents_json(
-            &state.data_path,
-            "{\"agents\": [{\"id\": \"agent-live\",},]}",
-        );
+        write_agents_json(&state.data_path, "{\"agents\": [ oops\n}\n");
 
         // 3. 重读：必须还是上一次那份合法人格，不能被内置兜底值盖掉
         let second = crate::state_read_agents_cached(&state).expect("重读不应报错");
@@ -2198,22 +2305,22 @@ definitionJson = "{\"command\":\"npx\"}"
     }
 
     #[test]
-    fn read_agents_shard_should_back_up_and_flag_when_only_some_items_broken() {
+    fn read_agents_shard_should_drop_only_broken_items_and_rewrite() {
         let data_path = agents_test_data_path();
-        // 好条目 + 坏条目混在一起：这是最危险的一种，结果「残缺但合法」。
+        // 好条目 + 坏条目混在一起：坏条丢弃，好条必须留下并写回。
         let original = "{\"agents\": [{\"id\": \"agent-good\", \"name\": \"好的\", \"systemPrompt\": \"p\"}, {\"id\": \"agent-bad\", \"name\": 123}]}";
         write_agents_json(&data_path, original);
 
         let outcome = read_agents_shard_outcome(&data_path).expect("读取人格");
         assert!(
-            outcome.fell_back,
-            "有坏条被跳过就必须标兜底，否则残缺内容会覆盖活缓存、再被写回磁盘，坏条永久消失"
+            !outcome.fell_back,
+            "坏条已经被修复掉、磁盘也改成合法了，这一次的结果就是磁盘现状，不算兜底"
         );
         assert!(outcome.agents.iter().any(|agent| agent.id == "agent-good"));
         assert!(outcome.agents.iter().any(|agent| agent.id == DEFAULT_AGENT_ID));
 
         let backups = agents_backup_files(&data_path);
-        assert_eq!(backups.len(), 1, "坏条跳过前必须备份，实际：{backups:?}");
+        assert_eq!(backups.len(), 1, "改写前必须备份，实际：{backups:?}");
         assert_eq!(
             std::fs::read_to_string(&backups[0]).expect("读备份"),
             original,
@@ -2226,17 +2333,24 @@ definitionJson = "{\"command\":\"npx\"}"
                 .any(|item| item.contains("agent-bad") && item.contains("corrupt-")),
             "诊断要说清哪条坏了、备份在哪：{diagnostics:?}"
         );
+
+        // 幂等：第二次读已经是干净文件，不该再备份、也不该再改
+        read_agents_shard_outcome(&data_path).expect("第二次读");
+        assert_eq!(
+            agents_backup_files(&data_path).len(),
+            1,
+            "第二次读不该再产生备份"
+        );
     }
 
     #[test]
-    fn read_agents_shard_should_flag_and_back_up_when_every_item_broken() {
+    fn read_agents_shard_should_rewrite_when_every_item_broken() {
         let data_path = agents_test_data_path();
         let original =
             "{\"agents\": [{\"id\": \"agent-a\", \"name\": 1}, {\"id\": \"agent-b\", \"name\": 2}]}";
         write_agents_json(&data_path, original);
 
         let outcome = read_agents_shard_outcome(&data_path).expect("读取人格");
-        assert!(outcome.fell_back, "每条都坏等于整份文件不可用，必须标兜底");
         assert!(
             !outcome.agents.iter().any(|agent| agent.id.starts_with("agent-")),
             "坏条目一条都不该被加载"
@@ -2246,31 +2360,111 @@ definitionJson = "{\"command\":\"npx\"}"
             1,
             "全坏时同样必须备份，否则用户的自定义人格无处可寻"
         );
+        // 文件被修成合法空列表（原来那些内容只在备份里）
+        let written = std::fs::read_to_string(app_layout_agents_path(&data_path)).expect("读文件");
+        let parsed: Value = serde_json::from_str(&written).expect("修复后必须是合法 JSON");
+        assert_eq!(
+            parsed.get("agents").and_then(Value::as_array).map(Vec::len),
+            Some(0),
+            "坏条目应被清出文件：{written}"
+        );
     }
 
     #[test]
-    fn read_agents_shard_should_flag_missing_or_wrong_agents_array() {
-        // `{}`
+    fn read_agents_shard_should_handle_handwritten_shapes() {
+        // `{}`：合法 JSON，只是没有 agents——按 0 条自定义人格处理，不备份、不写盘。
         let empty_object = agents_test_data_path();
         write_agents_json(&empty_object, "{}");
         let outcome = read_agents_shard_outcome(&empty_object).expect("读取人格");
-        assert!(outcome.fell_back, "缺 agents 数组必须标兜底");
-        assert_eq!(agents_backup_files(&empty_object).len(), 1);
+        assert!(!outcome.fell_back);
+        assert!(agents_backup_files(&empty_object).is_empty());
+        assert_eq!(
+            std::fs::read_to_string(app_layout_agents_path(&empty_object)).expect("读文件"),
+            "{}",
+            "合法文件不该被改写"
+        );
 
-        // agents 不是数组
-        let wrong_type = agents_test_data_path();
-        write_agents_json(&wrong_type, "{\"agents\": {\"id\": \"agent-x\"}}");
-        let outcome = read_agents_shard_outcome(&wrong_type).expect("读取人格");
-        assert!(outcome.fell_back, "agents 不是数组必须标兜底");
-        assert!(!outcome.agents.iter().any(|agent| agent.id == "agent-x"));
-        assert_eq!(agents_backup_files(&wrong_type).len(), 1);
+        // agents 写成了单个对象：当成一条读进来，并顺手改成数组
+        let single_object = agents_test_data_path();
+        write_agents_json(&single_object, "{\"agents\": {\"id\": \"agent-x\", \"name\": \"X\"}}");
+        let outcome = read_agents_shard_outcome(&single_object).expect("读取人格");
+        assert!(
+            outcome.agents.iter().any(|agent| agent.id == "agent-x"),
+            "agents 是对象时应当成一条人格"
+        );
+        let written: Value = serde_json::from_str(
+            &std::fs::read_to_string(app_layout_agents_path(&single_object)).expect("读文件"),
+        )
+        .expect("合法 JSON");
+        assert!(
+            written.get("agents").map(Value::is_array).unwrap_or(false),
+            "修复后 agents 必须是数组"
+        );
 
-        // 空数组是合法状态（用户把自定义人格删光了），不是兜底
+        // 顶层直接是数组（少写了外壳）：照样读成人格列表
+        let bare_array = agents_test_data_path();
+        write_agents_json(
+            &bare_array,
+            "[{\"id\": \"agent-bare\", \"name\": \"裸数组\", \"createdAt\": \"2026-01-01T00:00:00Z\", \"updatedAt\": \"2026-01-01T00:00:00Z\"}]",
+        );
+        let outcome = read_agents_shard_outcome(&bare_array).expect("读取人格");
+        assert!(outcome.agents.iter().any(|agent| agent.id == "agent-bare"));
+
+        // 空数组是合法状态（用户把自定义人格删光了）
         let empty_array = agents_test_data_path();
         write_agents_json(&empty_array, "{\"agents\": []}");
         let outcome = read_agents_shard_outcome(&empty_array).expect("读取人格");
-        assert!(!outcome.fell_back, "空 agents 数组是正常状态，不该当成损坏");
+        assert!(!outcome.fell_back);
         assert!(agents_backup_files(&empty_array).is_empty());
+    }
+
+    #[test]
+    fn read_agents_shard_should_fill_every_missing_field() {
+        // `{}` 作为一条人格：所有字段都缺，必须补齐成一条合法人格，而不是当坏条丢掉。
+        let data_path = agents_test_data_path();
+        write_agents_json(&data_path, "{\"agents\": [{}]}");
+        let agents = read_agents_shard(&data_path).expect("读取人格");
+        let agent = agents
+            .iter()
+            .find(|agent| agent.id.starts_with("agent-"))
+            .expect("自动生成 id 的人格");
+        assert!(!agent.name.trim().is_empty(), "名字要补齐");
+        assert!(!agent.created_at.trim().is_empty(), "createdAt 要补齐");
+        assert!(!agent.updated_at.trim().is_empty(), "updatedAt 要补齐");
+        // systemPrompt 空串是合法状态（人格可以没有提示词），不编内容
+        assert!(agent.system_prompt.is_empty());
+        assert!(!agents_load_diagnostics(&data_path)
+            .iter()
+            .any(|item| item.contains("无法解析")));
+    }
+
+    #[test]
+    fn generated_agent_id_should_persist_across_reads() {
+        let data_path = agents_test_data_path();
+        write_agents_json(&data_path, "{\"agents\": [{}]}");
+        let first = read_agents_shard(&data_path).expect("第一次读");
+        let first_id = first
+            .iter()
+            .find(|agent| agent.id.starts_with("agent-"))
+            .expect("自动生成 id")
+            .id
+            .clone();
+
+        // 写回之后 id 必须固定：否则每读一次都换一个人
+        let second = read_agents_shard(&data_path).expect("第二次读");
+        let second_ids = second
+            .iter()
+            .map(|agent| agent.id.clone())
+            .collect::<Vec<_>>();
+        assert!(
+            second_ids.contains(&first_id),
+            "自动生成的 id 必须持久化，第二次读不能变：{second_ids:?}"
+        );
+        assert_eq!(
+            agents_backup_files(&data_path).len(),
+            1,
+            "幂等：第二次读不该再备份"
+        );
     }
 
     #[test]
@@ -2388,8 +2582,8 @@ definitionJson = "{\"command\":\"npx\"}"
             DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES,
         )
         .expect("set migration version");
-        // 人格文件坏掉：V5 起的迁移都读它。
-        let original = "{\n  \"agents\": [\n    {\"id\": \"agent-keep\", \"name\": \"要保住的\", \"systemPrompt\": \"p\"},\n  ]\n}\n";
+        // 人格文件坏到救不回来：V5 起的迁移都读它，只能推迟。
+        let original = "{\n  \"agents\": [ oops\n}\n";
         write_agents_json(&state.data_path, original);
 
         let config = AppConfig::default();
@@ -2436,6 +2630,101 @@ definitionJson = "{\"command\":\"npx\"}"
             "读到合法内容后必须解除封锁"
         );
         crate::state_write_agents_cached(&state, &built_in_agents()).expect("修好后写回必须恢复");
+    }
+
+    #[test]
+    fn read_agents_shard_should_salvage_items_from_broken_container() {
+        let data_path = agents_test_data_path();
+        // 外面少了 `]` 和 `}`：整体解析不了，但两条人格本身是完整的。
+        let original = "{\"agents\": [\n  {\"id\": \"agent-a1\", \"name\": \"甲\"},\n  {\"id\": \"agent-a2\", \"name\": \"乙\"}\n";
+        write_agents_json(&data_path, original);
+
+        let outcome = read_agents_shard_outcome(&data_path).expect("读取人格");
+        assert!(
+            !outcome.fell_back,
+            "能救回部分条目并写回合法文件，这次结果就是磁盘现状，不算兜底"
+        );
+        for id in ["agent-a1", "agent-a2"] {
+            assert!(
+                outcome.agents.iter().any(|agent| agent.id == id),
+                "{id} 必须被救回来"
+            );
+        }
+        assert_eq!(agents_backup_files(&data_path).len(), 1, "改写前必须备份");
+        let written = std::fs::read_to_string(app_layout_agents_path(&data_path)).expect("读文件");
+        let parsed: Value = serde_json::from_str(&written).expect("修复后必须是合法 JSON");
+        assert_eq!(
+            parsed.get("agents").and_then(Value::as_array).map(Vec::len),
+            Some(2),
+            "救回的条目要留在文件里：{written}"
+        );
+
+        // 幂等：再读一次，文件已经合法，不该再备份
+        read_agents_shard_outcome(&data_path).expect("第二次读");
+        assert_eq!(
+            agents_backup_files(&data_path).len(),
+            1,
+            "第二次读不该再产生备份"
+        );
+    }
+
+    #[test]
+    fn read_agents_shard_should_fill_partial_item_and_only_skip_type_errors() {
+        // 只给了 id：名字与时间戳补齐，不算坏条
+        let partial = agents_test_data_path();
+        write_agents_json(&partial, "{\"agents\": [{\"id\": \"x\"}]}");
+        let agents = read_agents_shard(&partial).expect("读取人格");
+        let agent = agents.iter().find(|agent| agent.id == "x").expect("id=x 的人格");
+        assert!(!agent.name.trim().is_empty(), "名字要补齐");
+        assert!(
+            agent.system_prompt.is_empty(),
+            "提示词为空是合法状态，不该编内容"
+        );
+        assert!(!agent.created_at.trim().is_empty());
+
+        // 类型不对才算坏条
+        let wrong_type = agents_test_data_path();
+        write_agents_json(&wrong_type, "{\"agents\": [{\"name\": 123}]}");
+        let agents = read_agents_shard(&wrong_type).expect("读取人格");
+        assert!(
+            !agents.iter().any(|agent| agent.id == "123"),
+            "类型错的条目不该被读成一条人格"
+        );
+        assert!(
+            agents_load_diagnostics(&wrong_type)
+                .iter()
+                .any(|item| item.contains("第 1 条")),
+            "跳过要留下说明"
+        );
+
+        // 条目不是对象也算坏条
+        let not_object = agents_test_data_path();
+        write_agents_json(&not_object, "{\"agents\": [\"我不是人格\"]}");
+        let agents = read_agents_shard(&not_object).expect("读取人格");
+        assert!(agents.iter().all(|agent| agent.id != "我不是人格"));
+    }
+
+    #[test]
+    fn load_agents_should_never_return_err_for_bad_agents_file() {
+        let state = config_test_state();
+        let cases = [
+            ("尾逗号", "{\"agents\": [{\"id\": \"a\", \"name\": \"A\"},]}"),
+            ("括号不闭合", "{\"agents\": [ oops\n}\n"),
+            ("坏条", "{\"agents\": [{\"name\": 123}]}"),
+            ("全是注释", "// 只有注释\n"),
+        ];
+        for (label, content) in cases {
+            write_agents_json(&state.data_path, content);
+            let agents = crate::load_agents_inner(&state)
+                .unwrap_or_else(|err| panic!("{label} 不该让 load_agents 报错：{err}"));
+            assert!(!agents.is_empty(), "{label} 之后也要有人格可用");
+        }
+
+        // 非 UTF-8 同样不报错
+        let path = app_layout_agents_path(&state.data_path);
+        std::fs::write(&path, [0xFFu8, 0xFE, 0x00, 0x41]).expect("write non utf8");
+        let agents = crate::load_agents_inner(&state).expect("非 UTF-8 也不该报错");
+        assert!(agents.iter().any(|agent| agent.id == DEFAULT_AGENT_ID));
     }
 
     #[test]

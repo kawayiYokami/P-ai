@@ -1075,6 +1075,9 @@ fn state_read_agents_cached(state: &AppState) -> Result<Vec<AgentProfile>, Strin
         .cached_agents
         .lock()
         .map_err(|_| "Failed to lock cached agents".to_string())? = Some(agents.clone());
+    // 读取可能顺手自修复并改写了文件：mtime 要按读完之后的状态记，
+    // 否则下一次调用会看到「mtime 变了」再白读一遍。
+    let disk_mtime = path_modified_time(&app_layout_agents_path(&state.data_path));
     *state
         .cached_agents_mtime
         .lock()

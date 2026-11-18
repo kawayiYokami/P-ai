@@ -29,11 +29,17 @@ fn agent_memory_recall_enabled(agent: &AgentProfile) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AgentProfile {
+    /// 所有字段都带 default：任何字段缺失都该被 `normalize_agent` 补成合法值，
+    /// 而不是让整条被当成「坏条」丢掉。真正该跳过的只有类型不对（`name: 123`）
+    /// 与结构不对（条目不是对象）。
+    #[serde(default)]
     id: String,
+    #[serde(default)]
     name: String,
+    #[serde(default)]
     system_prompt: String,
     /// 时间戳可能缺失（历史文件、外部工具生成）：默认空串，读入后由
-    /// `normalize_agent_timestamps` 统一补齐，避免「少一个 createdAt 就整条读不进来」。
+    /// `normalize_agent` 统一补齐，避免「少一个 createdAt 就整条读不进来」。
     #[serde(default)]
     created_at: String,
     #[serde(default)]

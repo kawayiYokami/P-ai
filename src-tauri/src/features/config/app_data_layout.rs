@@ -83,8 +83,28 @@ fn built_in_agents() -> Vec<AgentProfile> {
     agents
 }
 
-/// 时间戳缺失补齐：缺 createdAt 用 updatedAt，两个都缺用当前时间；不留空串进排序。
-fn normalize_agent_timestamps(agent: &mut AgentProfile) {
+/// 补齐后没有名字时用的占位名：空串在人格列表里会变成一行看不见的东西。
+const UNNAMED_AGENT_NAME: &str = "未命名人格";
+
+/// 读入后的结构补齐：id 与时间戳。
+///
+/// 名字留到 `merge_agents_with_built_in` 之后补——先补名字会盖掉内置人格的默认名，
+/// 让「用空串覆盖内置」这种写法又变成合法覆盖。返回内容是否被改动过。
+fn normalize_agent(agent: &mut AgentProfile) -> bool {
+    let mut changed = false;
+
+    let id = agent.id.trim().to_string();
+    if id.is_empty() {
+        agent.id = format!("agent-{}", uuid::Uuid::new_v4());
+        changed = true;
+    } else if id != agent.id {
+        agent.id = id;
+        changed = true;
+    }
+    // systemPrompt 空串是合法状态（人格可以一个提示词都没有），不编内容、也不算缺失。
+    // 其余字段的 `#[serde(default)]` 已经给出合法默认值（记忆模式、系统准则、
+    // 全局 scope 都有专门 default 函数），不需要在这里再补。
+
     let created = agent.created_at.trim().to_string();
     let updated = agent.updated_at.trim().to_string();
     let updated = if updated.is_empty() {
@@ -101,8 +121,24 @@ fn normalize_agent_timestamps(agent: &mut AgentProfile) {
     } else {
         created
     };
-    agent.created_at = created;
-    agent.updated_at = updated;
+    if agent.created_at != created {
+        agent.created_at = created;
+        changed = true;
+    }
+    if agent.updated_at != updated {
+        agent.updated_at = updated;
+        changed = true;
+    }
+    changed
+}
+
+/// 还没有名字的人格给一个可读占位名（空串在列表里会变成一行看不见的东西）。
+fn apply_default_agent_name(agent: &mut AgentProfile) -> bool {
+    if !agent.name.trim().is_empty() {
+        return false;
+    }
+    agent.name = UNNAMED_AGENT_NAME.to_string();
+    true
 }
 
 /// 人格文件读取诊断：按数据根分开存。
@@ -166,17 +202,44 @@ fn agents_file_is_untrusted(path: &PathBuf) -> bool {
         .unwrap_or(false)
 }
 
+/// 已经备份过的内容（数据根 → (内容指纹, 备份路径)）。
+///
+/// 幂等靠它：同一份内容连续读多次，只该产生一份备份，不能每读一次就多一个
+/// `agents.json.corrupt-*`。
+fn agents_corrupt_backup_index(
+) -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, (u64, PathBuf)>> {
+    static INDEX: OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, (u64, PathBuf)>>> =
+        OnceLock::new();
+    INDEX.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn agents_content_fingerprint(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// 把坏掉的人格文件原样备份成 `agents.json.corrupt-<时间戳>`，返回备份路径。
 ///
 /// 兜底是「内存里用内置人格」，一旦用户接着改人格就会写回磁盘；不先备份，
-/// 用户那份「只少个逗号、手工能修」的数据就被覆盖没了。
+/// 用户那份「只多一个逗号、手工能修」的数据就被覆盖没了。
+/// 同一份内容只备份一次（见 `agents_corrupt_backup_index`）。
 fn backup_corrupt_agents_file(path: &PathBuf) -> Result<PathBuf, String> {
+    let original = fs::read(path).map_err(|err| format!("读取待备份人格文件失败: {err}"))?;
+    let fingerprint = agents_content_fingerprint(&original);
+    if let Ok(index) = agents_corrupt_backup_index().lock() {
+        if let Some((known, known_path)) = index.get(path) {
+            if *known == fingerprint && known_path.exists() {
+                return Ok(known_path.clone());
+            }
+        }
+    }
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis())
         .unwrap_or_default();
     let backup_path = path.with_extension(format!("json.corrupt-{stamp}"));
-    let original = fs::read(path).map_err(|err| format!("读取待备份人格文件失败: {err}"))?;
     fs::copy(path, &backup_path).map_err(|err| format!("备份人格文件失败: {err}"))?;
     let copied = fs::read(&backup_path).map_err(|err| format!("校验备份失败: {err}"))?;
     if copied != original {
@@ -185,6 +248,9 @@ fn backup_corrupt_agents_file(path: &PathBuf) -> Result<PathBuf, String> {
             original.len(),
             copied.len()
         ));
+    }
+    if let Ok(mut index) = agents_corrupt_backup_index().lock() {
+        index.insert(path.clone(), (fingerprint, backup_path.clone()));
     }
     Ok(backup_path)
 }
@@ -195,41 +261,121 @@ fn record_agents_load_diagnostic(messages: &mut Vec<String>, message: String) {
     messages.push(message);
 }
 
-/// 把 serde 的语法错误翻成「文件 + 行列 + 出错行原文 + 指位」的中文提示。
-fn agents_syntax_error_message(path: &PathBuf, content: &str, err: &serde_json::Error) -> String {
-    let line = err.line();
-    let column = err.column();
+/// 自修复的记录：属于「已经处理掉了」的 warn 级事件，不用 error。
+fn record_agents_repair_note(messages: &mut Vec<String>, message: String) {
+    runtime_log_warn(format!("[配置] {message}"));
+    messages.push(message);
+}
+
+/// agents.json 的宽松语法：**JSON + 注释 + 尾逗号**（JSONC）。
+///
+/// 其余扩展（单引号、裸键名、缺逗号、十六进制）一律不放宽，避免被 JSON5 的额外语法带偏：
+/// 放开得越多，真正写错时越难给出「这一行这里错了」的提示。
+fn agents_jsonc_options() -> jsonc_parser::ParseOptions {
+    jsonc_parser::ParseOptions {
+        allow_comments: true,
+        allow_trailing_commas: true,
+        allow_loose_object_property_names: false,
+        allow_missing_commas: false,
+        allow_single_quoted_strings: false,
+        allow_hexadecimal_numbers: false,
+        allow_unary_plus_numbers: false,
+        allow_bare_decimal_point_numbers: false,
+        allow_non_finite_numbers: false,
+        allow_extended_string_escapes: false,
+    }
+}
+
+/// 救援专用：能放多宽放多宽，尽量把用户的东西救回来（救回来之后我们自己重写成标准 JSON）。
+fn agents_jsonc_salvage_options() -> jsonc_parser::ParseOptions {
+    jsonc_parser::ParseOptions::default()
+}
+
+struct AgentsJsoncError {
+    line: usize,
+    column: usize,
+    detail: String,
+}
+
+fn parse_agents_jsonc(
+    content: &str,
+    options: &jsonc_parser::ParseOptions,
+) -> Result<Value, AgentsJsoncError> {
+    jsonc_parser::parse_to_serde_value::<Value>(content, options).map_err(|err| {
+        use jsonc_parser::errors::ParseErrorKind;
+        let detail = match err.kind() {
+            ParseErrorKind::UnterminatedObject => "对象没有闭合（少了一个 `}`）".to_string(),
+            ParseErrorKind::UnterminatedArray => "数组没有闭合（少了一个 `]`）".to_string(),
+            ParseErrorKind::UnterminatedCommentBlock => "注释块 `/*` 没有闭合".to_string(),
+            ParseErrorKind::ExpectedColonAfterObjectKey => "对象属性后面缺少冒号".to_string(),
+            ParseErrorKind::MultipleRootJsonValues => "文件里有多个顶层 JSON 值".to_string(),
+            other => format!("JSON 语法错误：{other}"),
+        };
+        AgentsJsoncError {
+            line: err.line_display(),
+            column: err.column_display(),
+            detail,
+        }
+    })
+}
+
+/// 把语法错翻成「文件 + 行列 + 出错行原文 + 指位」的中文提示。
+fn agents_syntax_error_message(
+    path: &PathBuf,
+    content: &str,
+    line: usize,
+    column: usize,
+    detail: &str,
+) -> String {
     let line_text = content
         .lines()
         .nth(line.saturating_sub(1))
         .unwrap_or_default();
-    let detail = match err.classify() {
-        serde_json::error::Category::Syntax if err.to_string().contains("trailing comma") => {
-            "该行末尾多了一个逗号（JSON 不允许尾逗号）".to_string()
-        }
-        serde_json::error::Category::Syntax => format!("JSON 语法错误：{err}"),
-        _ => format!("结构不匹配：{err}"),
-    };
     let mut caret = String::new();
     if column > 0 {
         caret = format!("\n{}^", " ".repeat(column.saturating_sub(1)));
     }
     format!(
         "人格文件 `{}` 第 {line} 行第 {column} 列解析失败：{detail}\n出错行：{}\
-{caret}\n已改用内置人格（Pai / 副手 / reviewer / support / 用户 / 系统人格），自定义人格本次未加载。修好该文件后重启即可恢复。",
+{caret}",
         path.display(),
         line_text.trim_end()
     )
 }
 
-/// 逐条解析文件里的人格数组；返回可用条目与「被跳过的第几条」说明。
-fn parse_agents_items(items: &[Value]) -> (Vec<AgentProfile>, Vec<String>) {
+/// 值类型的中文说明，用来写清「这条为什么救不回来」。
+fn json_value_type_label(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "空值",
+        Value::Bool(_) => "布尔值",
+        Value::Number(_) => "数字",
+        Value::String(_) => "字符串",
+        Value::Array(_) => "数组",
+        Value::Object(_) => "对象",
+    }
+}
+
+/// 逐条解析文件里的人格数组。
+///
+/// 返回：可用条目、被跳过的说明、以及是否有内容被补齐过（补齐过就必须写回）。
+/// 只有**类型不对**（`name: 123`）与**结构不对**（条目不是对象）才算跳过；
+/// 字段缺失一律由 `normalize_agent` 补齐，不再算坏条。
+fn parse_agents_items(items: &[Value]) -> (Vec<AgentProfile>, Vec<String>, bool) {
     let mut agents = Vec::<AgentProfile>::new();
     let mut skipped = Vec::<String>::new();
+    let mut normalized = false;
     for (index, item) in items.iter().enumerate() {
+        if !item.is_object() {
+            skipped.push(format!(
+                "第 {} 条是{}而不是对象",
+                index + 1,
+                json_value_type_label(item)
+            ));
+            continue;
+        }
         match serde_json::from_value::<AgentProfile>(item.clone()) {
             Ok(mut agent) => {
-                normalize_agent_timestamps(&mut agent);
+                normalized |= normalize_agent(&mut agent);
                 agents.push(agent);
             }
             Err(err) => {
@@ -247,30 +393,11 @@ fn parse_agents_items(items: &[Value]) -> (Vec<AgentProfile>, Vec<String>) {
                             .map(|value| format!("name={value}"))
                     })
                     .unwrap_or_else(|| "无 id/name".to_string());
-                skipped.push(format!("第 {} 条（{label}）：{err}", index + 1));
+                skipped.push(format!("第 {} 条（{label}）字段类型不对：{err}", index + 1));
             }
         }
     }
-    (agents, skipped)
-}
-
-/// 兜底时先把原文件备份成 `*.corrupt-*`，并把备份结果拼进诊断文案。
-///
-/// 备份失败（比如磁盘只读）时把该路径登记为「不可信」，后续 `write_agents_shard`
-/// 一律拒绝覆盖它——宁可这次改动作废，也不能把用户那份还能手工修的数据抹掉。
-fn with_agents_corrupt_backup_note(agents_path: &PathBuf, detail: String) -> String {
-    match backup_corrupt_agents_file(agents_path) {
-        Ok(backup_path) => format!(
-            "{detail}\n原文件已备份为 `{}`，修好原文件后重启即可恢复自定义人格。",
-            backup_path.display()
-        ),
-        Err(err) => {
-            mark_agents_file_untrusted(agents_path);
-            format!(
-                "{detail}\n原文件备份失败（{err}）：本次会话不会再写回该文件，避免覆盖你手工修得好的数据。"
-            )
-        }
-    }
+    (agents, skipped, normalized)
 }
 
 /// 内置打底 + 文件同 id 覆盖 + 非内置 id 追加。
@@ -297,6 +424,72 @@ fn merge_agents_with_built_in(file_agents: Vec<AgentProfile>) -> Vec<AgentProfil
         }
     }
     merged
+}
+
+/// 从一段整体解析不了的文本里，尽量把「看起来像人格」的对象单独救出来。
+///
+/// 整体语法错（括号不闭合、注释没闭合）时，用户往往只是漏了一个 `}`，
+/// 里面的条目本身都好好的。直接丢掉整份文件等于把能救的数据也一起扔了。
+fn salvage_agents_from_broken_text(content: &str) -> Vec<AgentProfile> {
+    let options = agents_jsonc_salvage_options();
+    let mut salvaged = Vec::<AgentProfile>::new();
+    let mut consumed_until = 0usize;
+    for (start, ch) in content.char_indices() {
+        if ch != '{' || start < consumed_until {
+            continue;
+        }
+        let Some(end) = matching_brace_end(content, start) else {
+            continue;
+        };
+        let slice = &content[start..=end];
+        let parsed = parse_agents_jsonc(slice, &options)
+            .ok()
+            .filter(|value| value.is_object())
+            .filter(|value| {
+                // 必须至少有一个能认出是人格的键，否则权限块、模型配置块之类也会被当成人格。
+                value.get("id").is_some()
+                    || value.get("name").is_some()
+                    || value.get("systemPrompt").is_some()
+            })
+            .and_then(|value| serde_json::from_value::<AgentProfile>(value).ok());
+        if let Some(mut agent) = parsed {
+            normalize_agent(&mut agent);
+            salvaged.push(agent);
+            consumed_until = end + 1;
+        }
+    }
+    salvaged
+}
+
+/// 从 `start`（一个 `{` 的字节位置）找配对的 `}`，跳过字符串里的括号。
+fn matching_brace_end(content: &str, start: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, ch) in content[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(start + offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// 人格文件的读取结果。
@@ -331,11 +524,14 @@ fn read_agents_shard(path: &PathBuf) -> Result<Vec<AgentProfile>, String> {
 }
 
 /// 读取人格文件，并告诉调用方这次是不是「内置兜底」。
+///
+/// 读取时会顺手自修复：能解析出来的条目一律保留、缺失字段补齐、坏条目丢弃（先进备份），
+/// 然后把修好的结果写回磁盘，让文件本身回到合法状态。
 fn read_agents_shard_outcome(path: &PathBuf) -> Result<AgentsReadOutcome, String> {
     let agents_path = app_layout_agents_path(path);
     // 结论先攒在本轮里，读完一次性发布：读取中途不能被别的读取刷掉。
     let mut diagnostics = Vec::<String>::new();
-    let outcome = read_agents_file_outcome(&agents_path, &mut diagnostics);
+    let outcome = read_agents_file_outcome(path, &agents_path, &mut diagnostics);
     if !outcome.fell_back {
         // 这一次读通了（含「文件被移走」这种正常状态）：解除之前的「不许写回」封锁。
         unmark_agents_file_untrusted(&agents_path);
@@ -344,7 +540,24 @@ fn read_agents_shard_outcome(path: &PathBuf) -> Result<AgentsReadOutcome, String
     Ok(outcome)
 }
 
+/// 从解析出来的值里取出人格条目。
+///
+/// 兼容两种常见手写形态：顶层直接是数组（少写了 `{"agents": ...}` 外壳）、
+/// `agents` 写成了单个对象。都不是致命错误，能读就读。
+fn agents_items_from_value(value: &Value) -> Option<Vec<Value>> {
+    match value {
+        Value::Array(items) => Some(items.clone()),
+        Value::Object(map) => match map.get("agents") {
+            Some(Value::Array(items)) => Some(items.clone()),
+            Some(other @ Value::Object(_)) => Some(vec![other.clone()]),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn read_agents_file_outcome(
+    data_path: &PathBuf,
     agents_path: &PathBuf,
     diagnostics: &mut Vec<String>,
 ) -> AgentsReadOutcome {
@@ -355,8 +568,8 @@ fn read_agents_file_outcome(
     let content = match fs::read_to_string(agents_path) {
         Ok(content) => content,
         Err(err) => {
-            // 读不出来（ANSI 另存导致的非 UTF-8、被占用、无权限）：同样按兜底处理，
-            // 但绝不写回——原文件内容我们连看都没看到过，写回等于凭空覆盖。
+            // 读不出来（ANSI 另存导致的非 UTF-8、被占用、无权限）：这种情况没法修，
+            // 内容都没看到过，写回等于凭空覆盖。改用内置人格并禁止本次会话写回。
             mark_agents_file_untrusted(agents_path);
             record_agents_load_diagnostic(
                 diagnostics,
@@ -369,48 +582,183 @@ fn read_agents_file_outcome(
         }
     };
 
-    let raw = match serde_json::from_str::<Value>(&content) {
-        Ok(raw) => raw,
+    let options = agents_jsonc_options();
+    let parsed = match parse_agents_jsonc(&content, &options) {
+        Ok(value) => value,
         Err(err) => {
-            // 整体语法错（尾逗号 / 括号不闭合）：先备份原文件，再用内置兜底。
-            let detail = agents_syntax_error_message(agents_path, &content, &err);
-            record_agents_load_diagnostic(
-                diagnostics,
-                with_agents_corrupt_backup_note(agents_path, detail),
+            let detail = agents_syntax_error_message(
+                agents_path,
+                &content,
+                err.line,
+                err.column,
+                &err.detail,
             );
-            return AgentsReadOutcome::fell_back(built_in_agents());
+            let salvaged = salvage_agents_from_broken_text(&content);
+            return recover_broken_agents_file(
+                data_path,
+                agents_path,
+                salvaged,
+                detail,
+                diagnostics,
+            );
         }
     };
-    let Some(items) = raw.get("agents").and_then(Value::as_array).cloned() else {
-        let detail = format!(
-            "人格文件 `{}` 缺少 agents 数组（期望 {{\"agents\": [ ... ]}}），已改用内置人格，自定义人格本次未加载。",
-            agents_path.display()
-        );
-        record_agents_load_diagnostic(
-            diagnostics,
-            with_agents_corrupt_backup_note(agents_path, detail),
-        );
-        return AgentsReadOutcome::fell_back(built_in_agents());
+
+    let items = match agents_items_from_value(&parsed) {
+        Some(items) => items,
+        None => {
+            // 语法合法但没有 agents 数组：按 0 条自定义人格处理（用户可能就是清空了文件）。
+            // 不备份、不写盘——文件本身是合法的。
+            record_agents_repair_note(
+                diagnostics,
+                format!(
+                    "人格文件 `{}` 里没有 agents 数组，本次按 0 条自定义人格处理",
+                    agents_path.display()
+                ),
+            );
+            Vec::new()
+        }
     };
 
-    let (file_agents, skipped) = parse_agents_items(&items);
+    let (file_agents, skipped, mut normalized) = parse_agents_items(&items);
+    let mut merged = merge_agents_with_built_in(file_agents);
+    for agent in merged.iter_mut() {
+        normalized |= apply_default_agent_name(agent);
+    }
+    if skipped.is_empty() && !normalized {
+        return AgentsReadOutcome::normal(merged);
+    }
+
+    // 有内容需要修复：先备份，再把修好的这份写回磁盘，让下次读就是干净的。
+    let mut reasons = Vec::<String>::new();
     if !skipped.is_empty() {
-        // 坏条被跳过时结果「残缺但合法」，最容易被当成正常读取：缓存被这份残缺内容覆盖，
-        // 用户随后任何一次保存都会把跳过的条目永久写没。所以这里同样先备份、同样标兜底，
-        // 让活缓存继续保持旧值，等用户把文件改对、mtime 变了再自动恢复。
-        let detail = format!(
-            "人格文件 `{}` 有 {} 条记录无法解析，本次未加载（其余条目与内置人格照常可用）：{}",
-            agents_path.display(),
+        reasons.push(format!(
+            "{} 条记录无法解析已丢弃：{}",
             skipped.len(),
             skipped.join("；")
-        );
-        record_agents_load_diagnostic(
-            diagnostics,
-            with_agents_corrupt_backup_note(agents_path, detail),
-        );
-        return AgentsReadOutcome::fell_back(merge_agents_with_built_in(file_agents));
+        ));
     }
-    AgentsReadOutcome::normal(merge_agents_with_built_in(file_agents))
+    if normalized {
+        reasons.push("缺失字段已自动补齐".to_string());
+    }
+    let detail = format!(
+        "人格文件 `{}` {}",
+        agents_path.display(),
+        reasons.join("；")
+    );
+    let repaired = rewrite_agents_file_after_repair(
+        data_path,
+        agents_path,
+        &merged,
+        detail,
+        diagnostics,
+    );
+    if repaired {
+        // 磁盘已经等于内存里这份：缓存照常替换，不留「磁盘变了缓存还是旧的」。
+        AgentsReadOutcome::normal(merged)
+    } else {
+        // 修不动（备份失败 / 写盘失败）：不拿内存结果覆盖活缓存。
+        AgentsReadOutcome::fell_back(merged)
+    }
+}
+
+/// 整体解析不了时的自修复：能救回几条就留几条，救不回来的只留在备份里。
+fn recover_broken_agents_file(
+    data_path: &PathBuf,
+    agents_path: &PathBuf,
+    salvaged: Vec<AgentProfile>,
+    detail: String,
+    diagnostics: &mut Vec<String>,
+) -> AgentsReadOutcome {
+    if salvaged.is_empty() {
+        // 一条都救不回来：绝不写一份空文件——那等于把用户的内容换成空，比不修更糟。
+        // 备份留档 + 内存用内置人格 + 活缓存保持旧值，等文件被改好。
+        match backup_corrupt_agents_file(agents_path) {
+            Ok(backup) => record_agents_load_diagnostic(
+                diagnostics,
+                format!(
+                    "{detail}\n一条也没能救回来，已改用内置人格；原文件保持不动，已备份为 `{}`。",
+                    backup.display()
+                ),
+            ),
+            Err(err) => {
+                mark_agents_file_untrusted(agents_path);
+                record_agents_load_diagnostic(
+                    diagnostics,
+                    format!(
+                        "{detail}\n一条也没能救回来，已改用内置人格；原文件备份失败（{err}），本次会话不会再写回该文件。"
+                    ),
+                );
+            }
+        }
+        return AgentsReadOutcome::fell_back(built_in_agents());
+    }
+    let salvaged_count = salvaged.len();
+    let mut merged = merge_agents_with_built_in(salvaged);
+    for agent in merged.iter_mut() {
+        apply_default_agent_name(agent);
+    }
+    let detail = format!(
+        "{detail}\n已从原文件里救回 {salvaged_count} 条，救不回来的条目只留在备份里"
+    );
+    let repaired =
+        rewrite_agents_file_after_repair(data_path, agents_path, &merged, detail, diagnostics);
+    if repaired {
+        AgentsReadOutcome::normal(merged)
+    } else {
+        AgentsReadOutcome::fell_back(merged)
+    }
+}
+
+/// 把修好的人格写回磁盘。
+///
+/// 硬约束：**先备份再改**，备份失败就放弃修复（原文件保持不动，宁可不修）；
+/// 写盘失败也不报错——记日志，先用内存结果继续跑。
+/// 返回磁盘是否真的变成了手里这份。
+fn rewrite_agents_file_after_repair(
+    data_path: &PathBuf,
+    agents_path: &PathBuf,
+    agents: &[AgentProfile],
+    detail: String,
+    diagnostics: &mut Vec<String>,
+) -> bool {
+    let backup = match backup_corrupt_agents_file(agents_path) {
+        Ok(backup) => backup,
+        Err(err) => {
+            mark_agents_file_untrusted(agents_path);
+            record_agents_load_diagnostic(
+                diagnostics,
+                format!(
+                    "{detail}\n原文件备份失败（{err}）：本次不改动该文件，避免覆盖你还能手工修好的数据。"
+                ),
+            );
+            return false;
+        }
+    };
+    // 内容已经读通，说明这份文件是可信的：解除可能残留的写回封锁。
+    unmark_agents_file_untrusted(agents_path);
+    match write_agents_shard(data_path, agents) {
+        Ok(_) => {
+            record_agents_repair_note(
+                diagnostics,
+                format!(
+                    "{detail}\n原文件已备份为 `{}`，人格文件已重写为合法 JSON。",
+                    backup.display()
+                ),
+            );
+            true
+        }
+        Err(err) => {
+            record_agents_load_diagnostic(
+                diagnostics,
+                format!(
+                    "{detail}\n原文件已备份为 `{}`，但重写失败（{err}）：本次先用内存里的人格继续。",
+                    backup.display()
+                ),
+            );
+            false
+        }
+    }
 }
 
 /// 比较用视图：忽略时间戳，避免「只差 created_at」被当成用户改动而反复写回内置。

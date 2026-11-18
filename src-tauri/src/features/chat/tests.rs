@@ -3755,10 +3755,10 @@
         let agents_path = app_layout_agents_path(&state.data_path);
         std::fs::create_dir_all(agents_path.parent().expect("agents parent"))
             .expect("create agents dir");
-        // 尾逗号：serde 会拒，正是用户遇到的那种坏文件（agents.json 期望 {"agents": [...]}）。
+        // 括号没闭合、里面也没有完整的对象：这种才是真坏（尾逗号现在已被宽松解析器接受）。
         std::fs::write(
             &agents_path,
-            "{\n  \"agents\": [\n    {\"id\": \"agent-a\"},\n  ]\n}\n",
+            "{\n  \"agents\": [\n    {\"id\": \"agent-a\"\n  ]\n}\n",
         )
         .expect("write broken agents");
 
