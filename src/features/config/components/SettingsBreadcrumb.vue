@@ -1,9 +1,9 @@
 <template>
   <!-- 外观交给 daisyUI 的 `breadcrumbs`：字重、颜色、分隔符、hover 下划线一律不在这里覆盖，
        两级用同一套样式（之前逐项设 text-sm/text-base/font-semibold，才出现"字体都不一样"）。
-       只留三条：`text-base` 整层统一字号（与标题栏行里其它控件同级，不逐项设置）；
-       `p-0` 去掉库给的上下 8px，让这一层能放进 40px 的标题栏行；`min-w-0` 允许截断。 -->
-  <div v-if="visible" class="breadcrumbs min-w-0 p-0 text-base">
+       尺寸跟随 `btn-sm`：整层 `text-sm` 与窗口按钮的文字同号，`p-0` 去掉库给的上下 8px，
+       让这一层能塞进与按钮同高的 32px 容器；`min-w-0` 允许截断。 -->
+  <div v-if="visible" class="breadcrumbs min-w-0 p-0 text-sm">
     <ul class="flex flex-wrap items-center">
       <li
         v-for="(item, index) in items"
