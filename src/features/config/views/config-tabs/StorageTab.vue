@@ -44,7 +44,7 @@
               <div class="opacity-70">{{ t("config.storage.categoryCount") }}：{{ visibleStorageItems.length }}</div>
             </div>
           </div>
-          <div class="grid content-center gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <div class="grid content-center gap-2 grid-cols-[repeat(auto-fill,12rem)]">
             <div
               v-for="item in storagePieLegendItems"
               :key="item.id"

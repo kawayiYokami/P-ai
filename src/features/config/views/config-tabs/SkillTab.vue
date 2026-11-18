@@ -255,7 +255,7 @@
             </div>
           </div>
           <div class="card-body p-3">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div class="grid grid-cols-[repeat(auto-fill,16rem)] gap-2.5">
               <div
                 v-for="file in selectedSkill.additionalFiles"
                 :key="file.relativePath"

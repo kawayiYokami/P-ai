@@ -84,7 +84,7 @@
               </label>
 
               <div v-if="form.scheduleMode === 'interval'" class="space-y-3">
-                <div class="grid gap-3 md:grid-cols-3">
+                <div class="grid gap-3 grid-cols-[repeat(auto-fill,10rem)]">
                   <label class="block space-y-2">
                     <span class="block text-sm font-medium">{{ t("config.task.fields.repeatWeeks") }}</span>
                     <input v-model="form.repeatWeeks" class="input input-bordered w-full" type="number" min="0" step="1" :disabled="!editable || saving" />

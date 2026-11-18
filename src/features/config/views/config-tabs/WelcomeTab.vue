@@ -31,7 +31,7 @@
     </div>
 
     <!-- 引导卡片：完整设置（主推） vs 新手向导（小白极简） -->
-    <div v-if="!hasConfiguredProviders || !hasConfiguredModels" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div v-if="!hasConfiguredProviders || !hasConfiguredModels" class="grid grid-cols-[repeat(auto-fill,20rem)] gap-3">
       <!-- 完整设置（推荐大多数用户） -->
       <div class="card bg-base-100 card-border border-base-300 hover:border-primary/40 transition-colors card-sm overflow-hidden">
         <div class="card-body gap-2.5 px-4 py-3.5">

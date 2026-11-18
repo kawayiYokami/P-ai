@@ -62,7 +62,7 @@
             <textarea v-model="selectedProvider.comfyuiWorkflowJson" class="textarea textarea-bordered min-h-64 font-mono text-caption leading-relaxed" :class="{ 'textarea-error': workflowJsonError }" :placeholder="t('config.imageGeneration.workflowPlaceholder')" />
             <span v-if="workflowJsonError" class="mt-1 text-xs text-error">{{ workflowJsonError }}</span>
           </label>
-          <div class="grid gap-3 md:grid-cols-2">
+          <div class="grid gap-3 grid-cols-[repeat(auto-fill,18rem)]">
             <div v-for="field in comfyMappingFields" :key="field.key" class="rounded-box border border-base-300 bg-base-200/30 p-3">
               <div class="text-sm font-medium">{{ t(field.labelKey) }}</div>
               <label class="mt-2 grid gap-1">

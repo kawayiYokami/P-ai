@@ -26,7 +26,7 @@
         </div>
       </ConfigCard>
 
-      <div class="grid gap-4 xl:grid-cols-2">
+      <div class="grid gap-4 grid-cols-[repeat(auto-fill,30rem)]">
         <ConfigCard :title="t('config.usage.modelTitle')">
           <div class="overflow-x-auto py-3">
             <table class="table table-sm">

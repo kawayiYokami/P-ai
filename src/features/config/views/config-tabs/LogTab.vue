@@ -230,7 +230,7 @@
           <button class="btn btn-sm btn-ghost" @click="closeRound">{{ t("common.close") }}</button>
         </div>
 
-        <div v-if="activeRoundEntry" class="grid gap-2 sm:grid-cols-3">
+        <div v-if="activeRoundEntry" class="grid gap-2 grid-cols-[repeat(auto-fill,12rem)]">
           <MetricTile
             v-for="metric in roundHeaderMetricCards(activeRoundEntry)"
             :key="metric.key"
@@ -266,7 +266,7 @@
 
         <div v-if="activeRoundEntry" class="rounded-box border border-base-300 bg-base-200/60 p-3">
           <div v-if="activeRoundTab === 'answer'" class="space-y-3">
-            <div class="grid gap-2 sm:grid-cols-3">
+            <div class="grid gap-2 grid-cols-[repeat(auto-fill,12rem)]">
               <MetricTile
                 v-for="metric in roundResponseMetricCards(activeRoundEntry)"
                 :key="metric.key"
@@ -425,7 +425,7 @@ const UsageGrid = defineComponent({
   setup(props, { attrs }) {
     return () => h("div", attrs, [
       props.metrics.length > 0
-        ? h("div", { class: "grid gap-2 sm:grid-cols-3 xl:grid-cols-6" }, props.metrics.map((metric) =>
+        ? h("div", { class: "grid gap-2 grid-cols-[repeat(auto-fill,9rem)]" }, props.metrics.map((metric) =>
           h("div", { key: metric.key, class: "rounded-box border border-base-300 bg-base-100 px-3 py-2" }, [
             h("div", { class: "text-xs opacity-60" }, metric.label),
             h("div", { class: "mt-1 text-sm font-semibold" }, metric.value),

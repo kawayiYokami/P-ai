@@ -2,7 +2,7 @@
   <div class="space-y-4">
     <section>
       <h4 class="mb-2 text-sm font-semibold text-base-content/70">{{ t("appearance.autoThemeLight") }}</h4>
-      <div class="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+      <div class="grid grid-cols-[repeat(auto-fill,9rem)] gap-2">
         <button
           v-for="card in lightCards"
           :key="card.id"
@@ -47,7 +47,7 @@
 
     <section>
       <h4 class="mb-2 text-sm font-semibold text-base-content/70">{{ t("appearance.autoThemeDark") }}</h4>
-      <div class="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+      <div class="grid grid-cols-[repeat(auto-fill,9rem)] gap-2">
         <button
           v-for="card in darkCards"
           :key="card.id"
