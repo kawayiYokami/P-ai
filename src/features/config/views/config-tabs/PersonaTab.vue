@@ -1,6 +1,5 @@
 <template>
   <SettingsPageShell
-    content-class="mx-auto max-w-5xl"
     :breadcrumb="personaBreadcrumb"
     :tabs="headerTabs"
     :tab="headerTab"

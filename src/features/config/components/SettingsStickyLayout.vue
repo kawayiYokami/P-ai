@@ -35,7 +35,10 @@ const props = withDefaults(defineProps<{
   headerClass?: string;
   noScroll?: boolean;
 }>(), {
-  contentClass: "mx-auto max-w-5xl",
+  // 内容区定宽：窗口可以拉宽，但内容宽度不变，只增加两侧留白。
+  // 之前用 `max-w-5xl`，900→1024 之间内容宽度随窗口线性变化，整行元素的比例一直在动。
+  // 43rem = 688px，正好是窗口最小宽 900 减去侧栏 176 与左右内边距 32 后的可用宽度。
+  contentClass: "mx-auto w-[43rem] max-w-full",
   headerClass: "",
   noScroll: false,
 });
