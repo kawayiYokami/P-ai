@@ -502,6 +502,19 @@ body {
   box-shadow: none !important;
 }
 
+/* 原生 select 展开下拉时匹配 `:open`，不是 `:focus`：daisyUI 的 `.select:open` 会在这里
+   画 2px outline（颜色同时提到 base-content，也就是黑的），所以上面的 focus 覆盖拦不到它。
+   单独成条，避免浏览器不支持 `:open` 时整组选择器一起失效。 */
+:where(
+  .input,
+  .textarea,
+  .select
+):open {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
 /* ecall 折叠专用 0.2s - 复刻 daisyUI collapse details */
 :root { --duration-fold: 200ms; }
 .ecall-expandable__shell {

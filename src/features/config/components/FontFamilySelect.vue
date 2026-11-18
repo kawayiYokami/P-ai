@@ -1,60 +1,21 @@
 <template>
-  <div class="min-w-0">
-    <!-- 触发按钮：popovertarget 原生切换 + anchor-name 锚定 -->
-    <button
-      type="button"
-      tabindex="0"
-      class="select select-bordered select-sm flex w-52 max-w-full shrink-0 items-center justify-between gap-2 pr-3 text-left"
-      :disabled="disabled"
-      v-bind="triggerAttrs"
-      @click="toggle"
-    >
-      <span class="min-w-0 flex-1 truncate" :class="isAuto ? 'text-base-content/50' : ''">
-        {{ displayLabel }}
-      </span>
-      <AppIcon name="chevron-down" class="h-4 w-4 shrink-0 opacity-70 transition-transform" :class="open ? 'rotate-180' : ''" />
-    </button>
-
-    <!-- 下拉面板：popover 顶层渲染（无 overflow 裁剪），anchor 定位到按钮 -->
-    <ul
-      :id="panelId"
-      ref="panelRef"
-      popover="auto"
-      tabindex="0"
-      class="dropdown dropdown-start menu z-50 max-h-[60vh] w-64 overflow-y-auto overflow-x-hidden rounded-box border border-base-300 bg-base-100 p-1 shadow-xl"
-      :style="panelStyle"
-      @toggle="onPanelToggle"
-    >
-      <li>
-        <button
-          type="button"
-          class="truncate"
-          :class="isAuto ? 'font-medium text-primary' : 'text-base-content/70'"
-          @click="selectValue('auto')"
-        >
-          {{ autoLabel }}
-        </button>
-      </li>
-      <li v-if="options.length" class="pointer-events-none my-1 h-px bg-base-200"></li>
-      <li v-for="font in options" :key="font">
-        <button
-          type="button"
-          class="truncate"
-          :class="!isAuto && modelValue === font ? 'font-medium text-primary' : ''"
-          @click="selectValue(font)"
-        >
-          {{ font }}
-        </button>
-      </li>
-    </ul>
-  </div>
+  <!-- 原生 <select> + daisyUI 的 `.select`：箭头、边框、内边距、聚焦态全部由组件库提供，
+       不需要自己的箭头、不需要 bg-none 关掉库的背景图，也不需要 popover 自己搭面板。
+       之前是 `<button class="select">` 伪装下拉 + 自画 chevron，库的箭头还在，于是两个箭头叠在一起。 -->
+  <select
+    class="select select-bordered select-sm w-52 max-w-full shrink-0"
+    :class="isAuto ? 'text-base-content/50' : ''"
+    :disabled="disabled"
+    :value="props.modelValue || 'auto'"
+    @change="onChange"
+  >
+    <option value="auto">{{ autoLabel }}</option>
+    <option v-for="font in options" :key="font" :value="font">{{ font }}</option>
+  </select>
 </template>
 
 <script setup lang="ts">
-import AppIcon from "../../shared/components/AppIcon.vue";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-
-defineOptions({ inheritAttrs: false });
+import { computed } from "vue";
 
 const props = withDefaults(defineProps<{
   modelValue?: string;
@@ -72,45 +33,10 @@ const emit = defineEmits<{
   (event: "update:modelValue", value: string): void;
 }>();
 
-const anchorName = `--font-anchor-${Math.random().toString(36).slice(2, 10)}`;
-const panelId = `font-family-select-${Math.random().toString(36).slice(2, 10)}`;
-const panelRef = ref<HTMLElement | null>(null);
-const open = ref(false);
-
 const isAuto = computed(() => !props.modelValue || props.modelValue === "auto");
-const displayLabel = computed(() => (isAuto.value ? props.autoLabel : props.modelValue));
-// popovertarget 与 anchor-name 用 v-bind 注入，避免 vue-tsc 对原生属性的严格校验
-const triggerAttrs = computed(() => (props.disabled
-  ? {}
-  : {
-      popovertarget: panelId,
-      style: { anchorName: anchorName } as Record<string, string>,
-    }));
-const panelStyle = computed(() => ({ positionAnchor: anchorName } as Record<string, string>));
 
-function toggle() {
-  // popover 原生管理显隐；箭头状态跟随 toggle 事件
-}
-
-function selectValue(value: string) {
+function onChange(event: Event) {
+  const value = (event.target as HTMLSelectElement).value;
   emit("update:modelValue", value);
-  panelRef.value?.hidePopover();
 }
-
-function onPanelToggle(event: Event) {
-  open.value = (event.target as HTMLElement | null)?.matches?.(":popover-open") ?? false;
-}
-
-function closeOnEscape(event: KeyboardEvent) {
-  if (event.key === "Escape") {
-    panelRef.value?.hidePopover();
-  }
-}
-
-onMounted(() => {
-  document.addEventListener("keydown", closeOnEscape);
-});
-onBeforeUnmount(() => {
-  document.removeEventListener("keydown", closeOnEscape);
-});
 </script>
