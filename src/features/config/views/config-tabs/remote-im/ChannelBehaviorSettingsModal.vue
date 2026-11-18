@@ -1,7 +1,7 @@
 <template>
   <button
     type="button"
-    class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
+    class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
     :title="t('config.remoteIm.channelBehaviorSettings')"
     :disabled="!channel"
     @click="openModal"

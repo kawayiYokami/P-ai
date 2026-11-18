@@ -33,7 +33,7 @@
           <div class="flex flex-wrap items-center gap-2">
             <button
               v-if="dirty"
-              class="btn btn-sm min-h-[2.25rem] btn-ghost gap-1.5 px-3"
+              class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content"
               type="button"
               @click="restoreDraft"
             >
@@ -41,7 +41,7 @@
               <span>{{ t("config.api.restoreProviderDraft") }}</span>
             </button>
             <button
-              class="btn btn-sm min-h-[2.25rem] gap-1.5 px-3.5"
+              class="btn btn-sm btn-ghost gap-1.5 px-3"
               :class="dirty ? 'btn-primary' : 'bg-base-100'"
               type="button"
               :disabled="!dirty"

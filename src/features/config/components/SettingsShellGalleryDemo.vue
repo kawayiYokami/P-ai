@@ -6,7 +6,7 @@
       :breadcrumb="demoBreadcrumb"
     >
       <template #actions>
-        <button class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3" type="button">
+        <button class="btn btn-sm btn-ghost gap-1.5 px-2.5 text-base-content/70 hover:text-base-content" type="button">
           <AppIcon name="refresh-cw" class="h-4 w-4" />
           <span>刷新</span>
         </button>
