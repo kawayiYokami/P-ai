@@ -1,11 +1,8 @@
 <template>
   <div class="window-shell text-sm ecall-frost">
-    <div v-if="!hideWindowHeader" class="relative shrink-0">
-      <div
-        class="pointer-events-none absolute inset-y-0 right-0 left-44 hidden bg-base-200 md:block"
-        aria-hidden="true"
-      ></div>
+    <div v-if="!hideWindowHeader" class="contents">
       <AppWindowHeader
+        overlay
         view-mode="config"
         :current-theme="currentTheme"
         :title-text="t('window.settingsTitle')"

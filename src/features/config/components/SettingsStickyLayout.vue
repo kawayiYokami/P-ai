@@ -1,7 +1,8 @@
 <template>
   <div class="relative flex h-full min-h-0 flex-col">
     <div v-if="$slots.header" class="shrink-0 border-b border-base-300">
-      <div class="w-full p-4" :class="[contentClass, headerClass]">
+      <!-- 顶部不再留 16px：面包屑那一行由设置页外壳统一占位，头部直接贴它下面。 -->
+      <div class="w-full px-4 pt-1" :class="[contentClass, headerClass]">
         <slot name="header" />
       </div>
     </div>

@@ -1,14 +1,14 @@
 <template>
   <div
-    class="min-h-10 h-10 shrink-0 relative z-40 overflow-visible select-none"
-    :class="viewMode === 'chat' ? 'grid items-center' : 'grid grid-cols-[1fr_auto_1fr] items-center px-2'"
+    class="min-h-10 h-10 overflow-visible select-none"
+    :class="headerRootClass"
     :style="viewMode === 'chat' ? chatHeaderGridStyle : undefined"
     data-tauri-drag-region
     @pointerdown="handleTitlebarPointerDown"
     @dblclick="handleTitlebarDoubleClick"
   >
     <div
-      v-if="viewMode !== 'chat'"
+      v-if="viewMode !== 'chat' && !overlay"
       class="absolute inset-0"
       aria-hidden="true"
       data-tauri-drag-region
@@ -190,7 +190,7 @@
       </button>
     </div>
 
-    <div v-if="viewMode !== 'chat'" class="relative z-10 min-w-0 justify-self-start flex items-center gap-2" @mousedown.stop @dblclick.stop>
+    <div v-if="viewMode !== 'chat' && !overlay" class="relative z-10 min-w-0 justify-self-start flex items-center gap-2" @mousedown.stop @dblclick.stop>
       <button
         v-if="viewMode === 'config' && !simpleSetupMode && showUpdateToLatestButton"
         class="btn btn-success btn-sm h-8 min-h-8 gap-2 px-3 relative shadow-sm"
@@ -209,7 +209,7 @@
     </div>
 
     <div
-      v-if="viewMode !== 'chat'"
+      v-if="viewMode !== 'chat' && !overlay"
       class="relative z-10 w-fit min-w-0 flex items-center justify-center justify-self-center"
       @mousedown.stop
       @dblclick.stop
@@ -220,7 +220,29 @@
       </div>
     </div>
 
-    <div v-if="viewMode !== 'chat'" class="relative z-10 flex shrink-0 flex-nowrap justify-self-end gap-1 px-2" @mousedown.stop @dblclick.stop>
+    <div
+      v-if="viewMode !== 'chat'"
+      class="relative z-10 flex shrink-0 flex-nowrap justify-self-end gap-1 px-2"
+      :class="overlay ? 'pointer-events-auto' : ''"
+      @mousedown.stop
+      @dblclick.stop
+    >
+      <button
+        v-if="overlay && !simpleSetupMode && showUpdateToLatestButton"
+        class="btn btn-success btn-sm h-8 min-h-8 gap-2 px-3 relative shadow-sm"
+        :title="updateToLatestTitle || ''"
+        @mousedown.stop
+        @click.stop="$emit('update-to-latest')"
+      >
+        <span
+          v-if="hasAvailableUpdate && !checkingUpdate"
+          class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-error"
+          aria-hidden="true"
+        ></span>
+        <span v-if="checkingUpdate" class="loading loading-spinner loading-xs"></span>
+        <AppIcon name="download" v-else class="h-3.5 w-3.5" />
+        <span>{{ updateToLatestLabel }}</span>
+      </button>
       <button
         v-if="showWindowControls"
         class="btn btn-ghost btn-sm"
@@ -294,9 +316,15 @@ const props = withDefaults(defineProps<{
   updateToLatestTitle?: string;
   windowControlsVisible?: boolean;
   pipelineStatusEnabled?: boolean;
+  /**
+   * 覆盖式标题栏：整条不占布局高度，只留右上角窗口按钮浮在内容之上，标题与左列都不渲染。
+   * 用于设置窗口——侧栏与内容直接顶到窗口上沿，面包屑自己占住标题栏那一行。
+   */
+  overlay?: boolean;
 }>(), {
   windowControlsVisible: true,
   pipelineStatusEnabled: true,
+  overlay: false,
   simpleSetupMode: false,
   hideSettings: false,
 });
@@ -332,6 +360,16 @@ const transportCapabilities = getTransportCapabilities();
 const localPathPickerAvailable = transportCapabilities.localPathPicker;
 
 const circumference = RING_CIRCUMFERENCE;
+const headerRootClass = computed(() => {
+  if (props.viewMode === "chat") return "shrink-0 relative z-40 grid items-center";
+  if (props.overlay) {
+    // 不占布局：绝对定位浮在内容之上，只有按钮组可交互，其余穿透给页面。
+    // 注意不能同时留 relative/shrink-0：定位类互斥，留下的那个会把它重新塞回布局流。
+    return "pointer-events-none absolute inset-x-0 top-0 z-50 flex items-center justify-end gap-1 px-2";
+  }
+  return "shrink-0 relative z-40 grid grid-cols-[1fr_auto_1fr] items-center px-2";
+});
+
 const showWindowControls = computed(() =>
   props.windowControlsVisible !== false && transportCapabilities.windowControls,
 );

@@ -460,6 +460,8 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
+  /* 覆盖式标题栏（设置窗口）以它为定位基准：头部绝对定位浮在内容之上，不占布局高度。 */
+  position: relative;
 }
 
 .window-content {

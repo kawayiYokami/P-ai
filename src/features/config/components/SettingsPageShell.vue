@@ -1,10 +1,6 @@
 <template>
   <SettingsStickyLayout :no-scroll="noScroll" :content-class="contentClass" :header-class="resolvedHeaderClass">
     <template #header>
-      <slot name="breadcrumb">
-        <SettingsBreadcrumb :items="breadcrumb" />
-      </slot>
-
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex min-w-0 flex-1 items-center">
           <UnderlineTabs
@@ -45,9 +41,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import SettingsStickyLayout from "./SettingsStickyLayout.vue";
-import SettingsBreadcrumb, { type SettingsBreadcrumbItem } from "./SettingsBreadcrumb.vue";
+import type { SettingsBreadcrumbItem } from "./SettingsBreadcrumb.vue";
+import { useSettingsBreadcrumbContext } from "../composables/use-settings-breadcrumb";
 import UnderlineTabs, { type UnderlineTabItem } from "../../shared/components/UnderlineTabs.vue";
 
 const props = withDefaults(defineProps<{
@@ -82,11 +79,20 @@ const emit = defineEmits<{
 }>();
 
 const activeTab = computed(() => props.tab);
+
+// 面包屑由设置页外壳统一渲染（那一层永远在）：这里只把本级层级上报过去。
+const breadcrumbContext = useSettingsBreadcrumbContext();
+watch(
+  () => props.breadcrumb,
+  (items) => breadcrumbContext?.set(items ?? []),
+  { immediate: true, deep: true },
+);
+onBeforeUnmount(() => breadcrumbContext?.reset());
 const panelKey = computed(() => (props.tabs.length > 0 ? props.tab : ""));
 
-/** 头部内层类：有 tab 贴合分界线，没有 tab 留出底部空白；显式传值优先。 */
+/** 头部内层类：有 tab 时贴合分界线，没有 tab 时留出底部空白；显式传值优先。 */
 const resolvedHeaderClass = computed(
-  () => props.headerClass ?? (props.tabs.length > 0 ? "pb-0" : ""),
+  () => props.headerClass ?? (props.tabs.length > 0 ? "pb-0" : "pb-4"),
 );
 
 // 方向按 tabs 声明顺序判定，往右切的内容从右侧进、旧内容从左侧出

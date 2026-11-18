@@ -5,7 +5,12 @@
     <SimpleSetupPanel class="h-full" @switch-to-advanced="emit('update:simpleSetupMode', false)" />
   </div>
   <div v-else key="advanced" class="config-shell flex h-full min-h-0 overflow-hidden">
-    <aside class="hidden md:flex relative h-full min-h-0 w-44 shrink-0 flex-col px-2">
+    <!-- 侧栏直接通到窗口上沿（覆盖式标题栏不占高度）。侧栏空白处兼作窗口拖动区，
+         避免没有面包屑的页面（如欢迎页）找不到可拖的地方。 -->
+    <aside
+      class="hidden md:flex relative h-full min-h-0 w-44 shrink-0 flex-col px-2"
+      data-tauri-drag-region
+    >
       <!-- 搜索框放在侧边栏顶部：标题栏中间只留「设置」，这里负责搜索并跳转 -->
       <div ref="configSearchRootRef" class="relative shrink-0 px-1 pb-1.5 pt-2">
         <label class="input input-sm flex h-8 w-full items-center gap-2 rounded-field border-none bg-base-200">
@@ -190,6 +195,12 @@
       </div>
 
       <div class="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
+      <!-- 面包屑层：永远存在。子页通过上下文补层级，子页不补（甚至不用 SettingsPageShell）
+           就用当前一级 tab 名兜底。它在左侧，右侧留给浮动的窗口按钮，所以永远不会互相遮挡；
+           这一行的空白处兼作窗口拖动区。 -->
+      <div class="flex h-10 shrink-0 items-center pr-32 pl-4" data-tauri-drag-region>
+        <SettingsBreadcrumb :items="settingsBreadcrumbItems" />
+      </div>
       <Transition name="ecall-config-content" mode="out-in">
         <div :key="props.configTab" class="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
       <div v-if="props.configTab === 'api'" class="flex-1 min-h-0">
@@ -498,6 +509,8 @@ import AppIcon from "../../shared/components/AppIcon.vue";
 import type { AppIconName } from "../../shared/icons/icon-map";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useUnsavedChangesGuard } from "../composables/use-unsaved-changes-guard";
+import SettingsBreadcrumb, { type SettingsBreadcrumbItem } from "../components/SettingsBreadcrumb.vue";
+import { provideSettingsBreadcrumb } from "../composables/use-settings-breadcrumb";
 
 type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type AvatarTarget = { agentId: string };
@@ -804,6 +817,20 @@ const activeConfigTabTitle = computed(() => {
   if (!item) return "";
   return item.labelKey ? t(item.labelKey) : (item.label || "");
 });
+
+// 面包屑那一层由本组件统一渲染，子页只往上补层级；子页不补就用一级 tab 名兜底，
+// 所以任何设置页都有面包屑，不会出现「顶部空一行」或「内容顶到窗口上沿」。
+const settingsBreadcrumbContext = provideSettingsBreadcrumb();
+const settingsBreadcrumbItems = computed<SettingsBreadcrumbItem[]>(() => {
+  const own = settingsBreadcrumbContext.items.value;
+  if (own.length > 0) return own;
+  const fallback = activeConfigTabTitle.value;
+  return fallback ? [{ label: fallback }] : [];
+});
+watch(
+  () => props.configTab,
+  () => settingsBreadcrumbContext.reset(),
+);
 
 function isConfigNavItemLocked(tab: ConfigTab): boolean {
   return memorySyncLocked.value && tab !== "memory";
