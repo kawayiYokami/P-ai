@@ -195,11 +195,14 @@
       </div>
 
       <div class="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
-      <!-- 面包屑层：永远存在。子页通过上下文补层级，子页不补（甚至不用 SettingsPageShell）
-           就用当前一级 tab 名兜底。它在左侧，右侧留给浮动的窗口按钮，所以永远不会互相遮挡；
-           这一行的空白处兼作窗口拖动区。 -->
-      <div class="flex h-10 shrink-0 items-center pr-32 pl-4" data-tauri-drag-region>
-        <SettingsBreadcrumb :items="settingsBreadcrumbItems" />
+      <!-- 标题栏行：高度与右上角窗口按钮组一致（h-10），面包屑装在这个容器里垂直居中，
+           不会被自身的外边距顶偏。子页通过上下文补层级，子页不补（甚至不用
+           SettingsPageShell）就用当前一级 tab 名兜底，所以这一行永远在。
+           它在左侧、按钮在右侧，不会互相遮挡；空白处兼作窗口拖动区。 -->
+      <div class="flex h-10 shrink-0 items-stretch pr-32 pl-4" data-tauri-drag-region>
+        <div class="flex h-full min-w-0 items-center [&>div]:mb-0">
+          <SettingsBreadcrumb :items="settingsBreadcrumbItems" />
+        </div>
       </div>
       <Transition name="ecall-config-content" mode="out-in">
         <div :key="props.configTab" class="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
