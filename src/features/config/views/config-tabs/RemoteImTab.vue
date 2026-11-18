@@ -3,7 +3,7 @@
     :breadcrumb="remoteImBreadcrumb"
     :tabs="detailTabs"
     :tab="detailTab"
-    header-class=""
+    :header-class="detailTabs.length ? 'pb-0' : ''"
     @update:tab="onDetailTabChange"
   >
     <template #actions>
@@ -2108,7 +2108,9 @@ const lastSavedChannelSnapshot = ref(channelSnapshot.value);
 const channelDirty = computed(() => channelSnapshot.value !== lastSavedChannelSnapshot.value);
 
 /** 详情页两个设置面：渠道设置 / 联系人设置，靠 shell 的 tabs 切换（页面内存态，不落盘）。
- *  删掉最后一个渠道后 `hasChannel` 为 false，tabs 自动为空，不会留下无反应的 tab。 */
+ *  删掉最后一个渠道后 `hasChannel` 为 false，tabs 自动为空，不会留下无反应的 tab。
+ *  header-class 的处理：有 tab 时用模板默认 `pb-0`（下划线贴合分界线，与人格页一致）；
+ *  列表态没有 tab、头部只剩面包屑，才需要 `p-4` 的底部留白。 */
 const { detailTab, tabs: detailTabs, selectTab: onDetailTabChange, resetTab: resetDetailTab } = useDetailTabs({
   inDetailMode,
   hasChannel: computed(() => !!selectedChannel.value),
