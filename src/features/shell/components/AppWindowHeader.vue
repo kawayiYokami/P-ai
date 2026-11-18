@@ -215,43 +215,7 @@
       @dblclick.stop
       data-tauri-drag-region
     >
-      <label
-        v-if="viewMode === 'config' && !simpleSetupMode"
-        ref="configSearchPopoverRef"
-        class="input input-bordered input-sm relative flex h-8 w-[clamp(9rem,24vw,13rem)] items-center gap-2 bg-base-100"
-      >
-        <AppIcon name="search" class="h-3.5 w-3.5 opacity-70" />
-        <input
-          ref="configSearchInputRef"
-          type="text"
-          class="w-full bg-transparent outline-none"
-          :value="configSearchQuery"
-          :placeholder="configSearchPlaceholder"
-          @focus="openSettingsSearchPopover"
-          @input="handleConfigSearchInput"
-          @keydown="handleConfigSearchKeydown"
-        />
-        <div
-          v-if="configSearchOpen && String(configSearchQuery || '').trim()"
-          class="absolute left-0 top-full mt-2 w-full overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
-        >
-          <button
-            v-for="result in configSearchResults"
-            :key="result.tab"
-            type="button"
-            class="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-base-200"
-            @click="selectConfigSearchResult(result.tab)"
-          >
-            <span class="text-sm font-medium">{{ result.title }}</span>
-            <span v-if="result.matchedTexts[0]" class="text-xs opacity-60 truncate w-full">{{ result.matchedTexts[0] }}</span>
-          </button>
-          <div v-if="(configSearchResults || []).length === 0" class="px-3 py-3 text-sm opacity-60">
-            {{ t("config.search.noResults") }}
-          </div>
-        </div>
-      </label>
-
-      <div v-else class="pointer-events-none flex items-center px-2">
+      <div class="pointer-events-none flex items-center px-2">
         <span class="font-semibold text-sm">{{ titleText }}</span>
       </div>
     </div>
@@ -295,7 +259,6 @@ import { getTransportCapabilities } from "../../../services/tauri-api";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
-import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
 import { usePipelineStatus } from "../composables/use-pipeline-status";
 
 const RING_RADIUS = 14;
@@ -323,9 +286,6 @@ const props = withDefaults(defineProps<{
   /** 隐藏标题栏设置按钮（聊天窗口由侧边栏头像菜单承担入口） */
   hideSettings?: boolean;
   closeTitle?: string;
-  configSearchQuery?: string;
-  configSearchResults?: ConfigSearchResult[];
-  configSearchPlaceholder?: string;
   simpleSetupMode?: boolean;
   showUpdateToLatestButton?: boolean;
   hasAvailableUpdate?: boolean;
@@ -363,8 +323,6 @@ const emit = defineEmits<{
   (e: "trimConversation"): void;
   (e: "startDrag"): void;
   (e: "close-window"): void;
-  (e: "update:config-search-query", value: string): void;
-  (e: "select-config-search-result", tab: ConfigSearchTab): void;
   (e: "update-to-latest"): void;
   (e: "update:simple-setup-mode", value: boolean): void;
 }>();
@@ -528,52 +486,6 @@ watch(
   (conversationId) => pipelineStatus?.markConversationRead(conversationId),
   { immediate: true },
 );
-const configSearchPopoverRef = ref<HTMLElement | null>(null);
-const configSearchInputRef = ref<HTMLInputElement | null>(null);
-const configSearchOpen = ref(false);
-
-function handleDocumentPointerDown(event: PointerEvent) {
-  const target = event.target as Node | null;
-  const searchRoot = configSearchPopoverRef.value;
-  if (configSearchOpen.value && searchRoot && target && !searchRoot.contains(target)) {
-    configSearchOpen.value = false;
-  }
-}
-
-function handleWindowKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape" && configSearchOpen.value) {
-    configSearchOpen.value = false;
-  }
-}
-
-function openSettingsSearchPopover() {
-  if (props.viewMode !== "config") return;
-  configSearchOpen.value = true;
-}
-
-function handleConfigSearchInput(event: Event) {
-  const value = (event.target as HTMLInputElement).value;
-  emit("update:config-search-query", value);
-  configSearchOpen.value = true;
-}
-
-function selectConfigSearchResult(tab: ConfigSearchTab) {
-  emit("select-config-search-result", tab);
-  configSearchOpen.value = false;
-}
-
-function handleConfigSearchKeydown(event: KeyboardEvent) {
-  if (event.key === "Enter" && props.configSearchResults && props.configSearchResults.length > 0) {
-    event.preventDefault();
-    selectConfigSearchResult(props.configSearchResults[0].tab);
-    return;
-  }
-  if (event.key === "Escape") {
-    event.preventDefault();
-    configSearchOpen.value = false;
-  }
-}
-
 function isInteractiveHeaderTarget(target: HTMLElement): boolean {
   return Boolean(
     target.closest("button, input, textarea, select, option, a, label, summary, [role='button'], [contenteditable='true'], [data-no-drag]"),
@@ -588,11 +500,9 @@ function handleOpenDraftConversationEvent(event: Event) {
 }
 
 onMounted(() => {
-  document.addEventListener("pointerdown", handleDocumentPointerDown);
   window.addEventListener("mousemove", handleWindowMouseMove);
   window.addEventListener("mouseup", clearPendingTitlebarDrag);
   window.addEventListener("blur", clearPendingTitlebarDrag);
-  window.addEventListener("keydown", handleWindowKeydown);
   // 侧栏分节 + 与 composer「新会话」按钮通过全局事件请求打开会话草稿
   window.addEventListener("easy-call:open-draft-conversation", handleOpenDraftConversationEvent);
   updateWindowWidth();
@@ -600,11 +510,9 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  document.removeEventListener("pointerdown", handleDocumentPointerDown);
   window.removeEventListener("mousemove", handleWindowMouseMove);
   window.removeEventListener("mouseup", clearPendingTitlebarDrag);
   window.removeEventListener("blur", clearPendingTitlebarDrag);
-  window.removeEventListener("keydown", handleWindowKeydown);
   window.removeEventListener("easy-call:open-draft-conversation", handleOpenDraftConversationEvent);
   window.removeEventListener("resize", updateWindowWidth);
 });

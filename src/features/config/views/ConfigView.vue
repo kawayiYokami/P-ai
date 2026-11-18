@@ -6,6 +6,39 @@
   </div>
   <div v-else key="advanced" class="config-shell flex h-full min-h-0 overflow-hidden">
     <aside class="hidden md:flex relative h-full min-h-0 w-44 shrink-0 flex-col px-2">
+      <!-- 搜索框放在侧边栏顶部：标题栏中间只留「设置」，这里负责搜索并跳转 -->
+      <div ref="configSearchRootRef" class="relative shrink-0 px-1 pb-1.5 pt-2">
+        <label class="input input-sm flex h-8 w-full items-center gap-2 rounded-field border-none bg-base-200">
+          <AppIcon name="search" class="h-3.5 w-3.5 shrink-0 opacity-60" />
+          <input
+            type="text"
+            class="w-full min-w-0 bg-transparent text-xs outline-none"
+            :value="props.configSearchQuery || ''"
+            :placeholder="props.configSearchPlaceholder || t('config.search.placeholder')"
+            @focus="configSearchOpen = true"
+            @input="onConfigSearchInput"
+            @keydown="onConfigSearchKeydown"
+          />
+        </label>
+        <div
+          v-if="configSearchOpen && String(props.configSearchQuery || '').trim()"
+          class="absolute left-1 right-1 top-full z-30 mt-1 overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
+        >
+          <button
+            v-for="result in props.configSearchResults || []"
+            :key="result.tab"
+            type="button"
+            class="flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left hover:bg-base-200"
+            @click="selectConfigSearchResult(result.tab)"
+          >
+            <span class="w-full truncate text-xs font-medium">{{ result.title }}</span>
+            <span v-if="result.matchedTexts[0]" class="w-full truncate text-caption opacity-60">{{ result.matchedTexts[0] }}</span>
+          </button>
+          <div v-if="(props.configSearchResults || []).length === 0" class="px-2.5 py-2 text-xs opacity-60">
+            {{ t("config.search.noResults") }}
+          </div>
+        </div>
+      </div>
       <OverlayScrollArea class="min-h-0 flex-1" scroller-class="pr-1 h-full">
         <ul class="menu w-full gap-0.5 p-0 pt-2 pb-6 [&>li>a]:w-full">
           <template v-for="(group, groupIndex) in visibleConfigNavGroups" :key="group.id">
@@ -432,6 +465,7 @@ import type { ApiConfigItem, ApiProviderConfigItem, AppConfig, ChatSettingsPatch
 import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind, ThemeSourceKind } from "../../shell/theme/theme-types";
 import type { StatusTone } from "../../shell/composables/use-app-core";
 import SettingsStickyLayout from "../components/SettingsStickyLayout.vue";
+import type { ConfigSearchResult, ConfigSearchTab } from "../search/config-search";
 import AvatarCropDialog from "../components/AvatarCropDialog.vue";
 import WelcomeTab from "./config-tabs/WelcomeTab.vue";
 import HotkeyTab from "./config-tabs/HotkeyTab.vue";
@@ -547,10 +581,51 @@ const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
 
 const CONFIG_NAV_ITEMS: ConfigNavItem[] = CONFIG_NAV_GROUPS.flatMap((group) => group.items);
 
+// ==================== 侧边栏搜索 ====================
+
+const configSearchRootRef = ref<HTMLElement | null>(null);
+const configSearchOpen = ref(false);
+
+function onConfigSearchInput(event: Event) {
+  emit("update:configSearchQuery", (event.target as HTMLInputElement).value);
+  configSearchOpen.value = true;
+}
+
+function selectConfigSearchResult(tab: ConfigSearchTab) {
+  emit("selectConfigSearchResult", tab);
+  configSearchOpen.value = false;
+}
+
+function onConfigSearchKeydown(event: KeyboardEvent) {
+  const results = props.configSearchResults || [];
+  if (event.key === "Enter" && results.length > 0) {
+    event.preventDefault();
+    selectConfigSearchResult(results[0].tab);
+    return;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    configSearchOpen.value = false;
+  }
+}
+
+/** 点到搜索区以外就收起结果，避免它挂在侧栏上挡着导航。 */
+function handleConfigSearchPointerDown(event: PointerEvent) {
+  const target = event.target as Node | null;
+  const root = configSearchRootRef.value;
+  if (configSearchOpen.value && root && target && !root.contains(target)) {
+    configSearchOpen.value = false;
+  }
+}
+
 const props = defineProps<{
   config: AppConfig;
   configTab: ConfigTab;
   simpleSetupMode?: boolean;
+  /** 侧边栏顶部搜索框的输入与结果，搜索并跳转到某个设置页 */
+  configSearchQuery?: string;
+  configSearchResults?: ConfigSearchResult[];
+  configSearchPlaceholder?: string;
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
   uiFont?: string;
   codeFont?: string;
@@ -614,6 +689,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:configTab", value: ConfigTab): void;
+  (e: "update:configSearchQuery", value: string): void;
+  (e: "selectConfigSearchResult", tab: ConfigSearchTab): void;
   (e: "update:simpleSetupMode", value: boolean): void;
   (e: "update:uiLanguage", value: string): void;
   (e: "update:uiFont", value: string): void;
@@ -945,9 +1022,11 @@ function handleAvatarPaste(event: ClipboardEvent) {
 
 onMounted(() => {
   window.addEventListener("paste", handleAvatarPaste);
+  document.addEventListener("pointerdown", handleConfigSearchPointerDown);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("paste", handleAvatarPaste);
+  document.removeEventListener("pointerdown", handleConfigSearchPointerDown);
 });
 </script>

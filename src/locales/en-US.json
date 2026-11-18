@@ -32,6 +32,7 @@
   },
   "window": {
     "configTitle": "P-ai - Config",
+    "settingsTitle": "Settings",
     "archivesTitle": "P-ai - Archives",
     "chatTitle": "Chat with {name}",
     "minimize": "Minimize",
@@ -114,7 +115,7 @@
       "system": "System & Maintenance"
     },
     "search": {
-      "placeholder": "Search settings...",
+      "placeholder": "Search",
       "noResults": "No matching settings"
     },
     "language": {},

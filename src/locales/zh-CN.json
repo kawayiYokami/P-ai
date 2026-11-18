@@ -32,6 +32,7 @@
   },
   "window": {
     "configTitle": "PAI - 配置窗口",
+    "settingsTitle": "设置",
     "archivesTitle": "PAI - 归档窗口",
     "chatTitle": "与 {name} 的对话",
     "minimize": "最小化",
@@ -114,7 +115,7 @@
       "system": "系统与维护"
     },
     "search": {
-      "placeholder": "搜索设置并跳转...",
+      "placeholder": "搜索",
       "noResults": "没有找到相关设置"
     },
     "language": {},

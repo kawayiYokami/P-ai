@@ -32,6 +32,7 @@
   },
   "window": {
     "configTitle": "π師傅 - 配置視窗",
+    "settingsTitle": "設定",
     "archivesTitle": "π師傅 - 歸檔視窗",
     "chatTitle": "與 {name} 的對話",
     "minimize": "最小化",
@@ -114,7 +115,7 @@
       "system": "系統與維護"
     },
     "search": {
-      "placeholder": "搜尋設定並跳轉...",
+      "placeholder": "搜尋",
       "noResults": "沒有找到相關設定"
     },
     "language": {},
