@@ -3,7 +3,6 @@
     :breadcrumb="apiBreadcrumb"
     :tab="headerTab"
     :tabs="headerTabs"
-    :header-class="inDetailMode ? '' : 'pb-0'"
     @update:tab="onHeaderTabChange"
   >
     <template #actions>

@@ -28,7 +28,6 @@
         v-model:tab="activeTab"
         :tabs="demoTabs"
         :breadcrumb="demoBreadcrumb"
-        header-class="pb-0"
       >
         <template #actions>
           <div class="flex flex-wrap items-center gap-2">

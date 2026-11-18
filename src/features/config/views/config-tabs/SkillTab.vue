@@ -1,5 +1,5 @@
 <template>
-  <SettingsPageShell :breadcrumb="skillBreadcrumb" header-class="">
+  <SettingsPageShell :breadcrumb="skillBreadcrumb">
     <template #left>
       <div v-if="!selectedSkill" class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
         <input

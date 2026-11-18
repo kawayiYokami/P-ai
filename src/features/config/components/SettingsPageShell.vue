@@ -1,5 +1,5 @@
 <template>
-  <SettingsStickyLayout :no-scroll="noScroll" :content-class="contentClass" :header-class="headerClass">
+  <SettingsStickyLayout :no-scroll="noScroll" :content-class="contentClass" :header-class="resolvedHeaderClass">
     <template #header>
       <slot name="breadcrumb">
         <SettingsBreadcrumb :items="breadcrumb" />
@@ -57,7 +57,12 @@ const props = withDefaults(defineProps<{
   tabs?: UnderlineTabItem[];
   /** 当前标签页 key，配合 tabs 使用 */
   tab?: string;
-  /** 传给 SettingsStickyLayout 的头部内层类 */
+  /**
+   * 传给 SettingsStickyLayout 的头部内层类。
+   *
+   * **一般不用传**：有下划线 tab 时用 `pb-0` 让下划线贴合分界线，没有 tab（头部只剩面包屑）
+   * 时保留 `p-4` 的底部留白。页面自己传值多半是多余的覆盖，会让同一套设置页头部高低不一。
+   */
   headerClass?: string;
   /** 传给 SettingsStickyLayout 的内容内层类 */
   contentClass?: string;
@@ -67,7 +72,7 @@ const props = withDefaults(defineProps<{
   breadcrumb: () => [],
   tabs: () => [],
   tab: "",
-  headerClass: "pb-0",
+  headerClass: undefined,
   contentClass: undefined,
   noScroll: false,
 });
@@ -78,6 +83,11 @@ const emit = defineEmits<{
 
 const activeTab = computed(() => props.tab);
 const panelKey = computed(() => (props.tabs.length > 0 ? props.tab : ""));
+
+/** 头部内层类：有 tab 贴合分界线，没有 tab 留出底部空白；显式传值优先。 */
+const resolvedHeaderClass = computed(
+  () => props.headerClass ?? (props.tabs.length > 0 ? "pb-0" : ""),
+);
 
 // 方向按 tabs 声明顺序判定，往右切的内容从右侧进、旧内容从左侧出
 const direction = ref<1 | -1>(1);

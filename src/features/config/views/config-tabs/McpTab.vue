@@ -1,5 +1,5 @@
 <template>
-  <SettingsPageShell :breadcrumb="mcpBreadcrumb" header-class="">
+  <SettingsPageShell :breadcrumb="mcpBreadcrumb">
     <template #left>
       <div v-if="!(inDetailMode && selectedServer)" class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
         <input
