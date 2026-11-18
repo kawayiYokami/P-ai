@@ -1046,7 +1046,31 @@ fn state_read_agents_cached(state: &AppState) -> Result<Vec<AgentProfile>, Strin
             }
         }
     }
-    let agents = read_agents_shard(&state.data_path)?;
+    let outcome = read_agents_shard_outcome(&state.data_path)?;
+    if outcome.fell_back {
+        // 文件坏了、本次拿到的是内置兜底值。已有缓存时保持旧值，绝不让兜底值盖掉
+        // 仍在使用的活缓存；首次加载（缓存为空）才允许用兜底值起步。
+        let cached = state
+            .cached_agents
+            .lock()
+            .map_err(|_| "Failed to lock cached agents".to_string())?;
+        if let Some(existing) = cached.as_ref() {
+            let existing = existing.clone();
+            drop(cached);
+            // 这次磁盘版本已经评估过：记下 mtime，避免同一份坏文件被反复读取、反复备份，
+            // 下次文件真的变了再重读。缓存内容仍是上一次验证通过的那份。
+            *state
+                .cached_agents_mtime
+                .lock()
+                .map_err(|_| "Failed to lock cached agents mtime".to_string())? = disk_mtime;
+            runtime_log_warn(format!(
+                "[配置] 人格文件损坏已改用内置人格兜底，本次保持缓存中的人格 {} 条不做覆盖",
+                existing.len()
+            ));
+            return Ok(existing);
+        }
+    }
+    let agents = outcome.agents;
     *state
         .cached_agents
         .lock()

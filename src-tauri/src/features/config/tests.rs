@@ -1887,6 +1887,14 @@ definitionJson = "{\"command\":\"npx\"}"
 
     // ==================== 人格文件：内置兜底 / 覆盖 / 逐条容错 ====================
 
+    /// 诊断是进程级全局态，并行跑测试会互相清空；断言诊断的用例统一串行。
+    fn agents_diagnostics_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn agents_test_data_path() -> PathBuf {
         let root = std::env::temp_dir().join(format!("eca-agents-file-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
@@ -1915,6 +1923,7 @@ definitionJson = "{\"command\":\"npx\"}"
 
     #[test]
     fn read_agents_shard_should_fall_back_to_built_in_on_syntax_error() {
+        let _guard = agents_diagnostics_test_lock();
         let data_path = agents_test_data_path();
         // 尾逗号：正是用户遇到的那种坏文件。
         write_agents_json(
@@ -1976,6 +1985,7 @@ definitionJson = "{\"command\":\"npx\"}"
 
     #[test]
     fn read_agents_shard_should_skip_only_broken_item() {
+        let _guard = agents_diagnostics_test_lock();
         let data_path = agents_test_data_path();
         // 第二条 name 写成数字：只该跳过这一条。
         write_agents_json(
@@ -2014,6 +2024,172 @@ definitionJson = "{\"command\":\"npx\"}"
             "createdAt 应被补齐，不能留空串"
         );
         assert!(!agent.updated_at.trim().is_empty());
+    }
+
+    #[test]
+    fn corrupt_agents_file_should_be_backed_up_before_any_write() {
+        let _guard = agents_diagnostics_test_lock();
+        let data_path = agents_test_data_path();
+        // 只差一个尾逗号：用户手工就能修好，绝不能被写回覆盖。
+        let original = "{\n  \"agents\": [\n    {\"id\": \"agent-keep\", \"name\": \"要保住的自定义\", \"systemPrompt\": \"p\"},\n  ]\n}\n";
+        write_agents_json(&data_path, original);
+
+        // 读：语法坏 → 内置兜底
+        let agents = read_agents_shard(&data_path).expect("坏文件不应阻断读取");
+        assert!(agents.iter().any(|agent| agent.id == DEFAULT_AGENT_ID));
+
+        // 用户这时改一下人格（触发写回）
+        let mut edited = agents.clone();
+        if let Some(pai) = edited
+            .iter_mut()
+            .find(|agent| agent.id == DEFAULT_AGENT_ID)
+        {
+            pai.name = "改名后的 Pai".to_string();
+        }
+        write_agents_shard(&data_path, &edited).expect("写回人格");
+
+        // 磁盘上必须留着一份与原始字节一致的坏文件备份
+        let agents_dir = app_layout_config_dir(&data_path);
+        let backups = std::fs::read_dir(&agents_dir)
+            .expect("list agents dir")
+            .filter_map(std::result::Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.starts_with("agents.json.corrupt-"))
+            .collect::<Vec<_>>();
+        assert!(
+            !backups.is_empty(),
+            "兜底前必须备份坏文件，实际目录：{:?}",
+            std::fs::read_dir(&agents_dir)
+                .map(|iter| iter
+                    .filter_map(std::result::Result::ok)
+                    .map(|entry| entry.file_name().to_string_lossy().to_string())
+                    .collect::<Vec<_>>())
+                .unwrap_or_default()
+        );
+        let backup_content = std::fs::read_to_string(agents_dir.join(&backups[0])).expect("读备份");
+        assert_eq!(
+            backup_content, original,
+            "备份必须是原始字节，不能是被覆盖后的内容"
+        );
+
+        // 诊断里点出备份位置
+        let diagnostics = agents_load_diagnostics();
+        assert!(
+            diagnostics.iter().any(|item| item.contains("corrupt-")),
+            "诊断应说明备份路径：{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn agents_diagnostics_should_only_keep_latest_read() {
+        let _guard = agents_diagnostics_test_lock();
+        let data_path = agents_test_data_path();
+        // 坏文件：读一次就留一条诊断
+        write_agents_json(&data_path, "{\n  \"agents\": [\n    {\"id\": \"a\"},\n  ]\n}\n");
+
+        read_agents_shard(&data_path).expect("第一次读");
+        let first_len = agents_load_diagnostics().len();
+        assert!(first_len >= 1, "坏文件那次读应留下诊断");
+
+        // 再读一次：诊断不应累积成两条以上
+        read_agents_shard(&data_path).expect("第二次读");
+        assert_eq!(
+            agents_load_diagnostics().len(),
+            first_len,
+            "重复读取不该让诊断累积：{:?}",
+            agents_load_diagnostics()
+        );
+
+        // 换成一个正常文件再读：上一轮的坏消息必须被清掉
+        write_agents_json(
+            &data_path,
+            "{\"agents\": [{\"id\": \"agent-ok\", \"name\": \"正常\", \"systemPrompt\": \"p\"}]}",
+        );
+        read_agents_shard(&data_path).expect("第三次读");
+        assert!(
+            agents_load_diagnostics().is_empty(),
+            "正常读取后不应残留上一轮的诊断：{:?}",
+            agents_load_diagnostics()
+        );
+    }
+
+    #[test]
+    fn state_read_agents_cached_should_keep_live_cache_when_file_turns_corrupt() {
+        let _guard = agents_diagnostics_test_lock();
+        let state = config_test_state();
+        // 1. 先读到一份合法人格（自定义那条必须能被记住）
+        write_agents_json(
+            &state.data_path,
+            "{\"agents\": [{\"id\": \"agent-live\", \"name\": \"活着的自定义\", \"systemPrompt\": \"p\"}]}",
+        );
+        let first = crate::state_read_agents_cached(&state).expect("首次读取人格");
+        assert!(
+            first.iter().any(|agent| agent.id == "agent-live"),
+            "首次读应带上自定义人格"
+        );
+
+        // 2. 把文件改成语法错（尾逗号），等 mtime 真正变化后再读
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        write_agents_json(
+            &state.data_path,
+            "{\"agents\": [{\"id\": \"agent-live\",},]}",
+        );
+
+        // 3. 重读：必须还是上一次那份合法人格，不能被内置兜底值盖掉
+        let second = crate::state_read_agents_cached(&state).expect("重读不应报错");
+        assert!(
+            second.iter().any(|agent| agent.id == "agent-live"),
+            "文件坏了不能丢掉活缓存里的自定义人格，实际：{:?}",
+            second
+                .iter()
+                .map(|agent| agent.id.clone())
+                .collect::<Vec<_>>()
+        );
+        // 诊断非空同时证明这次确实重读过（命中 mtime 快路径不会留下诊断）
+        assert!(
+            !agents_load_diagnostics().is_empty(),
+            "这次重读必须留下可见诊断"
+        );
+        // 缓存本体也不能被兜底值污染
+        let cached = state
+            .cached_agents
+            .lock()
+            .expect("lock cached agents")
+            .clone()
+            .expect("cached agents");
+        assert!(
+            cached.iter().any(|agent| agent.id == "agent-live"),
+            "缓存本体不能被兜底值覆盖"
+        );
+    }
+
+    #[test]
+    fn state_read_agents_cached_should_follow_deleted_file_instead_of_keeping_stale_cache() {
+        let _guard = agents_diagnostics_test_lock();
+        let state = config_test_state();
+        write_agents_json(
+            &state.data_path,
+            "{\"agents\": [{\"id\": \"agent-stale\", \"name\": \"要被删掉的\", \"systemPrompt\": \"p\"}]}",
+        );
+        let first = crate::state_read_agents_cached(&state).expect("首次读取人格");
+        assert!(first.iter().any(|agent| agent.id == "agent-stale"));
+
+        // 删掉人格文件是正常状态（不是损坏），必须立刻反映到缓存，不能继续返回旧的。
+        std::fs::remove_file(app_layout_agents_path(&state.data_path)).expect("删除人格文件");
+        let second = crate::state_read_agents_cached(&state).expect("删除后读取人格");
+        assert!(
+            !second.iter().any(|agent| agent.id == "agent-stale"),
+            "删掉人格文件后不应继续返回旧的自定义人格"
+        );
+        assert!(
+            second.iter().any(|agent| agent.id == DEFAULT_AGENT_ID),
+            "删掉人格文件后应回到纯内置人格"
+        );
+        assert!(
+            agents_load_diagnostics().is_empty(),
+            "文件不存在不是兜底，不该留诊断：{:?}",
+            agents_load_diagnostics()
+        );
     }
 
     #[test]

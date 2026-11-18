@@ -701,8 +701,20 @@ fn migrate_departments_into_agent_organization(
     context: &DataMigrationContext<'_>,
 ) -> Result<DataMigrationStepStats, String> {
     let mut stats = DataMigrationStepStats::default();
-    let mut agents = read_agents_shard(&context.state.data_path)?;
-    let mut changed = ensure_built_in_organization_nodes(&mut agents);
+    let read = read_agents_shard_outcome(&context.state.data_path)?;
+    let agents_fell_back = read.fell_back;
+    if agents_fell_back {
+        // 组织迁移会往人格列表里写节点：兜底值时写回会把用户的自定义人格从原文件抹掉。
+        runtime_log_warn(
+            "[应用数据迁移] 组织迁移不写回人格文件，任务=v5部门转人格，原因=人格文件损坏已用内置兜底，其余迁移照常执行".to_string(),
+        );
+    }
+    let mut agents = read.agents;
+    let mut changed = if agents_fell_back {
+        false
+    } else {
+        ensure_built_in_organization_nodes(&mut agents)
+    };
     if carry_legacy_assistant_agent_key(context.state)? {
         stats.data_changed = true;
         runtime_log_info(
@@ -725,7 +737,9 @@ fn migrate_departments_into_agent_organization(
         department_count = legacy.departments.len();
         if !legacy.departments.is_empty() {
             plan = plan_agent_org_migration(&legacy.departments);
-            changed |= apply_agent_org_migration_plan(&mut agents, &plan);
+            if !agents_fell_back {
+                changed |= apply_agent_org_migration_plan(&mut agents, &plan);
+            }
         }
         if carry_legacy_expert_model_key(config_path, &legacy_expert_api_config_id)? {
             runtime_log_info(

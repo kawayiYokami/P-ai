@@ -118,6 +118,57 @@ fn agents_load_diagnostics() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// 清空诊断：保证 `agents_load_diagnostics()` 返回的是「最近一次读取的结论」，
+/// 而不是历次读取累积的重复消息。
+fn clear_agents_load_diagnostics() {
+    if let Ok(mut items) = agents_load_diagnostics_store().lock() {
+        items.clear();
+    }
+}
+
+/// 已被判定「不可信」的人格文件（语法坏且备份失败）：这类路径绝不允许再次覆盖写入。
+fn agents_untrusted_files() -> &'static std::sync::Mutex<std::collections::HashSet<PathBuf>> {
+    static UNTRUSTED: OnceLock<std::sync::Mutex<std::collections::HashSet<PathBuf>>> =
+        OnceLock::new();
+    UNTRUSTED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+fn mark_agents_file_untrusted(path: &PathBuf) {
+    if let Ok(mut files) = agents_untrusted_files().lock() {
+        files.insert(path.clone());
+    }
+}
+
+fn agents_file_is_untrusted(path: &PathBuf) -> bool {
+    agents_untrusted_files()
+        .lock()
+        .map(|files| files.contains(path))
+        .unwrap_or(false)
+}
+
+/// 把坏掉的人格文件原样备份成 `agents.json.corrupt-<时间戳>`，返回备份路径。
+///
+/// 兜底是「内存里用内置人格」，一旦用户接着改人格就会写回磁盘；不先备份，
+/// 用户那份「只少个逗号、手工能修」的数据就被覆盖没了。
+fn backup_corrupt_agents_file(path: &PathBuf) -> Result<PathBuf, String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default();
+    let backup_path = path.with_extension(format!("json.corrupt-{stamp}"));
+    let original = fs::read(path).map_err(|err| format!("读取待备份人格文件失败: {err}"))?;
+    fs::copy(path, &backup_path).map_err(|err| format!("备份人格文件失败: {err}"))?;
+    let copied = fs::read(&backup_path).map_err(|err| format!("校验备份失败: {err}"))?;
+    if copied != original {
+        return Err(format!(
+            "备份校验不一致（原文件 {} 字节，备份 {} 字节）",
+            original.len(),
+            copied.len()
+        ));
+    }
+    Ok(backup_path)
+}
+
 /// 记录一条人格文件诊断：写日志 + 存给 UI，绝不让损坏静默发生。
 fn record_agents_load_diagnostic(message: String) {
     runtime_log_error(format!("[配置] {message}"));
@@ -185,6 +236,25 @@ fn parse_agents_items(items: &[Value]) -> (Vec<AgentProfile>, Vec<String>) {
     (agents, skipped)
 }
 
+/// 兜底时先把原文件备份成 `*.corrupt-*`，并把备份结果拼进诊断文案。
+///
+/// 备份失败（比如磁盘只读）时把该路径登记为「不可信」，后续 `write_agents_shard`
+/// 一律拒绝覆盖它——宁可这次改动作废，也不能把用户那份还能手工修的数据抹掉。
+fn with_agents_corrupt_backup_note(agents_path: &PathBuf, detail: String) -> String {
+    match backup_corrupt_agents_file(agents_path) {
+        Ok(backup_path) => format!(
+            "{detail}\n原文件已备份为 `{}`，修好原文件后重启即可恢复自定义人格。",
+            backup_path.display()
+        ),
+        Err(err) => {
+            mark_agents_file_untrusted(agents_path);
+            format!(
+                "{detail}\n原文件备份失败（{err}）：本次会话不会再写回该文件，避免覆盖你手工修得好的数据。"
+            )
+        }
+    }
+}
+
 /// 内置打底 + 文件同 id 覆盖 + 非内置 id 追加。
 fn merge_agents_with_built_in(file_agents: Vec<AgentProfile>) -> Vec<AgentProfile> {
     let mut merged = built_in_agents();
@@ -199,11 +269,45 @@ fn merge_agents_with_built_in(file_agents: Vec<AgentProfile>) -> Vec<AgentProfil
     merged
 }
 
+/// 人格文件的读取结果。
+///
+/// `fell_back` 为真表示这次拿到的不是文件里的内容，而是「文件坏了，改用内置人格」的兜底值。
+/// 任何由 mtime 驱动的重读都必须看这个标志：兜底值不能拿去覆盖正在使用的缓存或磁盘上的文件。
+struct AgentsReadOutcome {
+    agents: Vec<AgentProfile>,
+    fell_back: bool,
+}
+
+impl AgentsReadOutcome {
+    fn normal(agents: Vec<AgentProfile>) -> Self {
+        Self {
+            agents,
+            fell_back: false,
+        }
+    }
+
+    fn fell_back(agents: Vec<AgentProfile>) -> Self {
+        Self {
+            agents,
+            fell_back: true,
+        }
+    }
+}
+
+/// 只要人格列表、不关心这次是不是兜底的读取入口（生产代码一律走 `read_agents_shard_outcome`）。
+#[cfg(test)]
 fn read_agents_shard(path: &PathBuf) -> Result<Vec<AgentProfile>, String> {
+    read_agents_shard_outcome(path).map(|outcome| outcome.agents)
+}
+
+/// 读取人格文件，并告诉调用方这次是不是「内置兜底」。
+fn read_agents_shard_outcome(path: &PathBuf) -> Result<AgentsReadOutcome, String> {
+    // 每次读取都重置诊断：返回的必须是「这一次读出来的结论」。
+    clear_agents_load_diagnostics();
     let agents_path = app_layout_agents_path(path);
     if !agents_path.exists() {
-        // 文件不存在：纯内置，与历史行为一致。
-        return Ok(built_in_agents());
+        // 文件不存在：纯内置，与历史行为一致（这是正常状态，不是兜底）。
+        return Ok(AgentsReadOutcome::normal(built_in_agents()));
     }
     let content = fs::read_to_string(&agents_path).map_err(|err| {
         let message = format!(
@@ -217,19 +321,19 @@ fn read_agents_shard(path: &PathBuf) -> Result<Vec<AgentProfile>, String> {
     let raw = match serde_json::from_str::<Value>(&content) {
         Ok(raw) => raw,
         Err(err) => {
-            // 整体语法错（尾逗号 / 括号不闭合）：文件级兜底，内置全在。
-            record_agents_load_diagnostic(agents_syntax_error_message(
-                &agents_path, &content, &err,
-            ));
-            return Ok(built_in_agents());
+            // 整体语法错（尾逗号 / 括号不闭合）：先备份原文件，再用内置兜底。
+            let detail = agents_syntax_error_message(&agents_path, &content, &err);
+            record_agents_load_diagnostic(with_agents_corrupt_backup_note(&agents_path, detail));
+            return Ok(AgentsReadOutcome::fell_back(built_in_agents()));
         }
     };
     let Some(items) = raw.get("agents").and_then(Value::as_array).cloned() else {
-        record_agents_load_diagnostic(format!(
+        let detail = format!(
             "人格文件 `{}` 缺少 agents 数组（期望 {{\"agents\": [ ... ]}}），已改用内置人格，自定义人格本次未加载。",
             agents_path.display()
-        ));
-        return Ok(built_in_agents());
+        );
+        record_agents_load_diagnostic(with_agents_corrupt_backup_note(&agents_path, detail));
+        return Ok(AgentsReadOutcome::fell_back(built_in_agents()));
     };
 
     let (file_agents, skipped) = parse_agents_items(&items);
@@ -241,7 +345,7 @@ fn read_agents_shard(path: &PathBuf) -> Result<Vec<AgentProfile>, String> {
             skipped.join("；")
         ));
     }
-    Ok(merge_agents_with_built_in(file_agents))
+    Ok(AgentsReadOutcome::normal(merge_agents_with_built_in(file_agents)))
 }
 
 /// 比较用视图：忽略时间戳，避免「只差 created_at」被当成用户改动而反复写回内置。
@@ -282,10 +386,19 @@ fn agents_to_persist(agents: &[AgentProfile]) -> Vec<AgentProfile> {
 }
 
 fn write_agents_shard(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, String> {
+    let agents_path = app_layout_agents_path(path);
+    if agents_file_is_untrusted(&agents_path) {
+        // 原文件语法坏且备份失败：宁可这次不改盘，也不覆盖用户还能手工修的数据。
+        runtime_log_warn(format!(
+            "[配置] 人格文件 {} 本次会话不可信（坏文件备份失败），跳过写回",
+            agents_path.display()
+        ));
+        return Ok(false);
+    }
     fs::create_dir_all(app_layout_config_dir(path))
         .map_err(|err| format!("Create config layout dir failed: {err}"))?;
     write_json_file_atomic_if_changed(
-        &app_layout_agents_path(path),
+        &agents_path,
         &build_agents_file(&agents_to_persist(agents)),
         "agents file",
     )
@@ -665,7 +778,15 @@ fn migrate_avatar_paths_to_relative(
     context: &DataMigrationContext<'_>,
 ) -> Result<DataMigrationStepStats, String> {
     let mut stats = DataMigrationStepStats::default();
-    let mut agents = read_agents_shard(&context.state.data_path)?;
+    let read = read_agents_shard_outcome(&context.state.data_path)?;
+    if read.fell_back {
+        // 文件坏了、这次拿到的是内置兜底值：拿它写回会把用户的自定义人格从原文件抹掉。
+        runtime_log_warn(
+            "[应用数据迁移] 头像路径迁移跳过，任务=v6头像相对路径，原因=人格文件损坏已用内置兜底，跳过写回以保留原文件".to_string(),
+        );
+        return Ok(stats);
+    }
+    let mut agents = read.agents;
     let avatars_dir = avatar_storage_dir(context.state)?;
     let mut changed = false;
     let mut rewritten = 0usize;
@@ -720,7 +841,14 @@ fn migrate_remove_hr_persona(
     /// 已废弃的 HR 人格 id；仅本迁移使用，业务代码不再感知。
     const LEGACY_HR_AGENT_ID: &str = "hr";
     let mut stats = DataMigrationStepStats::default();
-    let mut agents = read_agents_shard(&context.state.data_path)?;
+    let read = read_agents_shard_outcome(&context.state.data_path)?;
+    if read.fell_back {
+        runtime_log_warn(
+            "[应用数据迁移] HR 人格清理跳过，任务=v7移除HR人格，原因=人格文件损坏已用内置兜底，跳过写回以保留原文件".to_string(),
+        );
+        return Ok(stats);
+    }
+    let mut agents = read.agents;
     let mut pruned_refs = 0usize;
     for agent in agents.iter_mut() {
         let before = agent.child_agent_ids.len();
@@ -752,7 +880,14 @@ fn migrate_deputy_not_system(
     context: &DataMigrationContext<'_>,
 ) -> Result<DataMigrationStepStats, String> {
     let mut stats = DataMigrationStepStats::default();
-    let mut agents = read_agents_shard(&context.state.data_path)?;
+    let read = read_agents_shard_outcome(&context.state.data_path)?;
+    if read.fell_back {
+        runtime_log_warn(
+            "[应用数据迁移] 副手人格标记纠正跳过，任务=v8副手非系统，原因=人格文件损坏已用内置兜底，跳过写回以保留原文件".to_string(),
+        );
+        return Ok(stats);
+    }
+    let mut agents = read.agents;
     let mut corrected = 0usize;
     for agent in agents.iter_mut() {
         if agent.id.trim() == DEPUTY_AGENT_ID && agent.is_built_in_system {
