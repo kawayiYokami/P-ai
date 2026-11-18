@@ -679,7 +679,7 @@
           <!-- 新增渠道卡：网格末位入口 -->
           <button
             type="button"
-            class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
+            class="flex flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-3.5 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary sm:p-4"
             @click="openAddChannelModal"
           >
             <AppIcon name="plus" class="h-5 w-5" />

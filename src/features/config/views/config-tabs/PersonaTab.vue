@@ -357,7 +357,7 @@
         <button
           v-if="activeCategoryTab === 'custom'"
           type="button"
-          class="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-4 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary"
+          class="flex flex-col items-center justify-center gap-1.5 rounded-box border border-dashed border-base-300 bg-base-100 p-4 text-base-content/50 transition-all hover:border-primary/50 hover:text-primary"
           @click="onAddPersonaClick"
         >
           <AppIcon name="plus" class="h-5 w-5" />
