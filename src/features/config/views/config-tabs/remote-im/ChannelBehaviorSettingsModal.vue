@@ -62,13 +62,6 @@
                 <input v-model.number="draft.patienceSeconds" type="number" min="0" class="input input-bordered input-sm w-full min-w-0" />
               </label>
             </div>
-            <label class="flex min-w-0 items-center justify-between gap-3 rounded-field border border-base-300 bg-base-200/30 px-3 py-2">
-              <span class="flex min-w-0 flex-col gap-0.5">
-                <span class="text-sm">{{ t('config.remoteIm.filterMarkdown') }}</span>
-                <span class="text-xs text-base-content/50 break-all" style="overflow-wrap:anywhere">{{ t('config.remoteIm.filterMarkdownHint') }}</span>
-              </span>
-              <input v-model="draft.filterMarkdown" type="checkbox" class="toggle toggle-primary toggle-sm shrink-0" />
-            </label>
           </section>
 
           <div class="divider my-0"></div>
@@ -215,10 +208,9 @@ type Draft = {
   negativeEnergyPhrasesText: string;
   focusInstructionsText: string;
   pacing: RemoteImGroupReplyPacing;
-  filterMarkdown: boolean;
 };
 
-function draftFromSettings(value?: Partial<RemoteImChannelBehaviorSettings> | null, filterMarkdown = false): Draft {
+function draftFromSettings(value?: Partial<RemoteImChannelBehaviorSettings> | null): Draft {
   const settings = cloneChannelBehaviorSettings(value);
   const pacing = normalizeGroupReplyPacing(settings.groupReplyPacing);
   return {
@@ -232,7 +224,6 @@ function draftFromSettings(value?: Partial<RemoteImChannelBehaviorSettings> | nu
     negativeEnergyPhrasesText: pacing.negativeEnergyPhrases.join(" "),
     focusInstructionsText: pacing.focusInstructions.join(" "),
     pacing,
-    filterMarkdown: !!filterMarkdown,
   };
 }
 
@@ -298,7 +289,7 @@ const validationError = computed(() => {
 
 function openModal() {
   if (!props.channel) return;
-  draft.value = draftFromSettings(props.channel.behaviorSettings, props.channel.filterMarkdown);
+  draft.value = draftFromSettings(props.channel.behaviorSettings);
   savedSnapshot.value = JSON.stringify(draft.value);
   editingChannelId.value = props.channel.id;
   error.value = "";
@@ -326,7 +317,7 @@ function restoreSaved() {
     draft.value = JSON.parse(savedSnapshot.value) as Draft;
     error.value = "";
   } catch {
-    draft.value = draftFromSettings(props.channel?.behaviorSettings, props.channel?.filterMarkdown);
+    draft.value = draftFromSettings(props.channel?.behaviorSettings);
     error.value = "";
   }
 }
@@ -344,20 +335,17 @@ async function save() {
   const previous = channel.behaviorSettings
     ? cloneChannelBehaviorSettings(channel.behaviorSettings)
     : undefined;
-  const previousFilterMarkdown = !!channel.filterMarkdown;
   const next = settingsFromDraft(draft.value);
   channel.behaviorSettings = next;
-  channel.filterMarkdown = !!draft.value.filterMarkdown;
   try {
     const saved = await Promise.resolve(props.saveConfigAction());
     if (!saved) {
       channel.behaviorSettings = previous;
-      channel.filterMarkdown = previousFilterMarkdown;
       error.value = t("config.remoteIm.channelBehaviorSaveFailed");
       return;
     }
-    savedSnapshot.value = JSON.stringify(draftFromSettings(next, channel.filterMarkdown));
-    if (draftSnapshot.value === submittedSnapshot) draft.value = draftFromSettings(next, channel.filterMarkdown);
+    savedSnapshot.value = JSON.stringify(draftFromSettings(next));
+    if (draftSnapshot.value === submittedSnapshot) draft.value = draftFromSettings(next);
     props.setStatusAction(t("config.remoteIm.channelBehaviorSaved"));
     try {
       await invokeTauri("remote_im_reconfigure_channel_behavior", { channelId: channel.id });
@@ -367,7 +355,6 @@ async function save() {
     }
   } catch (saveError) {
     channel.behaviorSettings = previous;
-    channel.filterMarkdown = previousFilterMarkdown;
     error.value = String(saveError);
   } finally {
     saving.value = false;

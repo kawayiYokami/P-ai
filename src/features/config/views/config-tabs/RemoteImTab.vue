@@ -6,13 +6,8 @@
     header-class=""
   >
     <template #left>
-      <ChannelBehaviorSettingsModal
-        v-if="inDetailMode && selectedChannel"
-        :channel="selectedChannel"
-        :save-config-action="props.saveConfigAction"
-        :set-status-action="props.setStatusAction"
-      />
-      <div v-else class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
+      <!-- 详情模式页头不放按钮：渠道行为设置入口在联系人列表头部 -->
+      <div v-if="!inDetailMode" class="relative w-full min-w-0 sm:w-60 sm:min-w-60 sm:flex-none">
         <input
           v-model="channelSearchQuery"
           type="text"
@@ -100,6 +95,15 @@
                   <option value="qq_official">{{ t('config.remoteIm.platformOptions.qqOfficial') }}</option>
                 </select>
               </div>
+            </div>
+
+            <!-- 过滤 Markdown：属于渠道设置，不进群聊策略弹窗 -->
+            <div class="border-b-base-content/5 flex items-start justify-between gap-3 border-b border-dashed py-2">
+              <div class="flex flex-col gap-1">
+                <span>{{ t("config.remoteIm.filterMarkdown") }}</span>
+                <span class="max-w-80 text-xs opacity-60">{{ t("config.remoteIm.filterMarkdownHint") }}</span>
+              </div>
+              <input v-model="selectedChannel.filterMarkdown" type="checkbox" class="toggle toggle-primary toggle-sm mt-0.5" />
             </div>
 
             <!-- OneBot 凭证配置 -->
@@ -272,6 +276,12 @@
             </div>
 
             <div class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+              <ChannelBehaviorSettingsModal
+                v-if="selectedChannel"
+                :channel="selectedChannel"
+                :save-config-action="props.saveConfigAction"
+                :set-status-action="props.setStatusAction"
+              />
               <button
                 type="button"
                 class="btn btn-sm min-h-[2.25rem] bg-base-100 gap-1.5 px-3"
