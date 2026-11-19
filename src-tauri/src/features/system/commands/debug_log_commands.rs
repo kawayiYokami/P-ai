@@ -282,7 +282,9 @@ fn init_cli_file_logger() {
         dispatch = dispatch.chain(std::io::stderr());
     }
     if let Err(err) = dispatch.apply() {
-        eprintln!("[日志] 初始化 CLI 文件日志失败，将只保留内存缓冲: {err}");
+        runtime_log_write_stderr(&format!(
+            "[日志] 初始化 CLI 文件日志失败，将只保留内存缓冲: {err}"
+        ));
     }
 }
 
@@ -328,6 +330,18 @@ fn now_log_local_rfc3339() -> String {
         .unwrap_or_else(now_utc_rfc3339)
 }
 
+/// stderr 直写：绕开 `runtime_log_*`，也绕开 `log` crate。
+///
+/// 这个编译单元里的 `eprintln!` 已被 main.rs 的宏重定义为 `runtime_log_info`，
+/// 所以「必须出现在终端上、且不许等 logger 内部锁」的告警（panic、logger 安装失败）
+/// 只能直接写 stderr，不能走 `eprintln!`。
+fn runtime_log_write_stderr(text: &str) {
+    let mut stderr = std::io::stderr();
+    let _ = std::io::Write::write_all(&mut stderr, text.as_bytes());
+    let _ = std::io::Write::write_all(&mut stderr, b"\n");
+    let _ = std::io::Write::flush(&mut stderr);
+}
+
 fn install_runtime_log_panic_hook() {
     static RUNTIME_LOG_PANIC_HOOK_INSTALLED: OnceLock<()> = OnceLock::new();
     if RUNTIME_LOG_PANIC_HOOK_INSTALLED.set(()).is_err() {
@@ -355,10 +369,12 @@ fn install_runtime_log_panic_hook() {
             thread_name.trim(),
             payload.trim()
         );
-        // 终端那行先走 eprintln：它不经过 logger 内部的锁，即使 logger 正卡在锁上也一定能出来。
-        // 落盘这一行是 best-effort：panic 若恰好发生在 logger 持锁区，`log::error!` 会等待同一把锁。
-        // 这条代价已知且已上报（旧实现用 try_lock 规避，是因为它自己持锁；logger 不给 try 接口）。
-        eprintln!("{text}");
+        // 终端那行走 stderr 直写：不经过 runtime_log_*，也不经过 log crate，
+        // 因此不会去等 logger 内部那把锁（这里的 `eprintln!` 已被宏重定义成 runtime_log_info，
+        // 用它等于绕回 log::log!，规避是假的）。
+        runtime_log_write_stderr(&text);
+        // 落盘这一行是 best-effort：panic 若恰好发生在 logger 持锁区，`log::log!` 会等同一把锁。
+        // 这条代价已知（旧实现用 try_lock 规避，是因为它自己持锁；logger 不给 try 接口）。
         log::log!(target: RUNTIME_LOG_TARGET, log::Level::Error, "{}", text);
         previous_hook(info);
     }));
