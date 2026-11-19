@@ -3,6 +3,12 @@
     <!-- 控制项：只改渲染条件，不改数据 -->
     <div class="flex flex-wrap items-center gap-3 border-b border-base-300 px-4 py-2 text-xs">
       <label class="flex items-center gap-1.5">
+        <span class="text-base-content/60">状态</span>
+        <select v-model="variantKey" class="select select-bordered select-xs">
+          <option v-for="variant in variants" :key="variant.key" :value="variant.key">{{ variant.label }}</option>
+        </select>
+      </label>
+      <label class="flex items-center gap-1.5">
         <span class="text-base-content/60">行宽</span>
         <select v-model.number="rowWidth" class="select select-bordered select-xs">
           <option :value="360">360（画廊默认）</option>
@@ -24,49 +30,39 @@
     </div>
 
     <div class="p-3">
-      <div
-        class="flex flex-col overflow-hidden rounded-box border border-base-300 bg-base-200 pb-2"
-        :style="{ width: `${rowWidth}px` }"
-      >
-        <template v-for="group in groups" :key="group.key">
-          <div class="flex items-center gap-1.5 px-3 pb-1 pt-2 text-xs font-semibold text-base-content/50">
-            <span class="truncate">{{ group.title }}</span>
-            <span class="shrink-0 text-base-content/35">{{ group.rows.length }}</span>
-          </div>
-          <div v-for="row in group.rows" :key="row.item.conversationId">
-            <ChatConversationItem
-              :item="row.item"
-              :level="resolveLevel(row)"
-              :active-conversation-id="ACTIVE_CONVERSATION_ID"
-              :user-alias="USER_ALIAS"
-              user-avatar-url=""
-              :persona-name-map="PERSONA_NAME_MAP"
-              :persona-avatar-url-map="PERSONA_AVATAR_URL_MAP"
-              :pipeline-status-by-id="EMPTY_PIPELINE_STATUS"
-              :compact-indicator="shape === 'compact'"
-              :show-source-badge="showSourceBadge"
-            />
-          </div>
-        </template>
+      <div class="overflow-hidden rounded-box border border-base-300 bg-base-200" :style="{ width: `${rowWidth}px` }">
+        <ChatConversationItem
+          :item="current.item"
+          :level="resolveLevel(current)"
+          :active-conversation-id="ACTIVE_CONVERSATION_ID"
+          :user-alias="USER_ALIAS"
+          user-avatar-url=""
+          :persona-name-map="PERSONA_NAME_MAP"
+          :persona-avatar-url-map="PERSONA_AVATAR_URL_MAP"
+          :pipeline-status-by-id="EMPTY_PIPELINE_STATUS"
+          :compact-indicator="shape === 'compact'"
+          :show-source-badge="showSourceBadge"
+        />
       </div>
     </div>
 
     <p class="border-t border-base-300 px-4 py-2 text-xs leading-5 text-base-content/60">
-      喂的是 mock 数据：会话标题、摘要、未读数、待定问题数都由本页给定，点击条目、右键菜单、改名、归档等交互一律被丢弃，不写库。
-      上半组是形态：有未读 / 无未读 / 当前选中会话 / mini 行。
-      下半组是待定问题数：只给待定、待定 + 未读、待定 0（不渲染）、100 显示 99+。
+      这一页只放一条会话条目卡，用上面的状态切换看它各种形态：未读、当前选中、mini 行、待定问题数。
+      喂的是 mock 数据，点击条目、右键菜单、改名、归档等交互一律被丢弃，不写库。
     </p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import type { ConversationPipelineStatus } from "../../shell/composables/use-pipeline-status";
 import { simpleConversationItemLevel, type ConversationItemLevel } from "../utils/conversation-item-display";
 import ChatConversationItem from "./ChatConversationItem.vue";
 
-type DemoRow = {
+type DemoVariant = {
+  key: string;
+  label: string;
   item: ChatConversationOverviewItem;
   /** 综合模式下使用的层级；精简模式忽略，统一走 simpleConversationItemLevel */
   level: ConversationItemLevel;
@@ -112,8 +108,10 @@ function makeItem(overrides: Partial<ChatConversationOverviewItem> & { conversat
   } as ChatConversationOverviewItem;
 }
 
-const rows: DemoRow[] = [
+const variants: DemoVariant[] = [
   {
+    key: "unread",
+    label: "有未读",
     level: "full",
     item: makeItem({
       conversationId: "demo-item-unset-unread",
@@ -125,6 +123,8 @@ const rows: DemoRow[] = [
     }),
   },
   {
+    key: "read",
+    label: "无未读",
     level: "full",
     item: makeItem({
       conversationId: "demo-item-unset-read",
@@ -134,6 +134,8 @@ const rows: DemoRow[] = [
     }),
   },
   {
+    key: "active",
+    label: "当前选中（未读恒不显示）",
     level: "full",
     item: makeItem({
       conversationId: ACTIVE_CONVERSATION_ID,
@@ -145,6 +147,8 @@ const rows: DemoRow[] = [
     }),
   },
   {
+    key: "mini",
+    label: "mini 行（没有第二行）",
     level: "mini",
     item: makeItem({
       conversationId: "demo-item-mini",
@@ -154,12 +158,11 @@ const rows: DemoRow[] = [
       previewMessages: [],
     }),
   },
-];
-
-// 待定问题数：与未读并列但含义不同（它数的是等你回答的问题），且后端查询尚未接上，
-// 所以这里专门做一组假数据，验证「有数才出现、0 与缺失一律不占位」这条硬门。
-const pendingRows: DemoRow[] = [
+  // 待定问题数：与未读并列但含义不同（它数的是等你回答的问题），
+  // 「有数才出现、0 与缺失一律不占位」是一条硬门，逐个形态都能切到。
   {
+    key: "pending-only",
+    label: "待定 2 + 无未读",
     level: "full",
     item: makeItem({
       conversationId: "demo-pending-only",
@@ -170,6 +173,8 @@ const pendingRows: DemoRow[] = [
     }),
   },
   {
+    key: "pending-unread",
+    label: "待定 3 + 未读 3（两个数字必须分得开）",
     level: "full",
     item: makeItem({
       conversationId: "demo-pending-unread",
@@ -181,6 +186,8 @@ const pendingRows: DemoRow[] = [
     }),
   },
   {
+    key: "pending-zero",
+    label: "待定 0 + 未读 5（0 不渲染）",
     level: "full",
     item: makeItem({
       conversationId: "demo-pending-zero",
@@ -192,6 +199,8 @@ const pendingRows: DemoRow[] = [
     }),
   },
   {
+    key: "pending-cap",
+    label: "待定 100 → 99+",
     level: "full",
     item: makeItem({
       conversationId: "demo-pending-cap",
@@ -203,15 +212,11 @@ const pendingRows: DemoRow[] = [
   },
 ];
 
-const groups: Array<{ key: string; title: string; rows: DemoRow[] }> = [
-  { key: "basic", title: "未读：有与没有", rows },
-  { key: "pending", title: "待定问题数：有数才出现，0 与缺失不占位", rows: pendingRows },
-];
+const variantKey = ref(variants[0]?.key ?? "");
+const current = computed(() => variants.find((variant) => variant.key === variantKey.value) ?? variants[0]!);
 
-function resolveLevel(row: DemoRow): ConversationItemLevel {
-  if (shape.value === "compact") return simpleConversationItemLevel(row.item);
-  return row.level;
+function resolveLevel(variant: DemoVariant): ConversationItemLevel {
+  if (shape.value === "compact") return simpleConversationItemLevel(variant.item);
+  return variant.level;
 }
 </script>
-
-
