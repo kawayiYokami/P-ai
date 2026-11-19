@@ -1091,6 +1091,51 @@ fn delegate_store_create_delegate(
     Ok(entry)
 }
 
+/// 只读：某个会话名下还有没有未到终态的委托。
+///
+/// 用于「会话真的空下来了才提醒」的判断。刻意不走 `delegate_store_open`：
+/// 那个会跑建表与迁移，而这里处在轮次收口的通知路径上。
+/// 库文件还不存在、或表还没建时，一律当作没有委托。
+///
+/// 不做「失联超时」兜底：委托有上下文长度上限，一定会结束；
+/// 进程异常退出时启动期 `delegate_store_interrupt_unfinished_remote_replies`
+/// 也会把未完成的委托收口，不存在无限期挂着的情况。
+fn delegate_store_conversation_has_unfinished(
+    data_path: &PathBuf,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(false);
+    }
+    let path = delegate_store_db_path(data_path);
+    if !path.exists() {
+        return Ok(false);
+    }
+    let conn = Connection::open(&path).map_err(|err| format!("打开委托数据库失败: {err}"))?;
+    let count = conn.query_row(
+        "SELECT COUNT(1) FROM delegate_record
+         WHERE conversation_id = ?1 AND status NOT IN (?2, ?3)",
+        params![
+            conversation_id,
+            DELEGATE_STATUS_COMPLETED,
+            DELEGATE_STATUS_FAILED
+        ],
+        |row| row.get::<_, i64>(0),
+    );
+    match count {
+        Ok(count) => Ok(count > 0),
+        Err(err) => {
+            // 表还不存在（老库/新装）时不算「有委托在跑」。
+            runtime_log_debug(format!(
+                "[委托] 查询未完成委托失败，任务=会话完成通知判断，conversation_id={}，error={}",
+                conversation_id, err
+            ));
+            Ok(false)
+        }
+    }
+}
+
 fn delegate_store_get_delegate(data_path: &PathBuf, delegate_id: &str) -> Result<DelegateEntry, String> {
     let conn = delegate_store_open(data_path)?;
     conn.query_row(

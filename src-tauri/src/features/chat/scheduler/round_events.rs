@@ -127,6 +127,54 @@ fn emit_round_completed_event(
     }
 }
 
+/// 会话相关的活（队员 / 委托）是否都收摊了。
+///
+/// 一个活可能连着响好几次：队员完成一次、委托回报一次，用户看到的就是
+/// 「主会话明明还在处理，提示却响个不停」。所以除了本会话的队列，还要看这两类。
+/// 返回第一个命中的原因用于日志；都没在跑时返回 None。
+///
+/// 刻意不看后台 shell：它是可以常驻的（dev server、监听进程），按「有 shell 在跑」
+/// 拦通知会让用户只要开着常驻 shell 就永远收不到提醒；它完成时会自己写回会话、
+/// 触发新一轮调度，那一轮收口自然会通知。
+fn conversation_related_work_busy_reason(
+    state: &AppState,
+    conversation_meta: &ConversationMetaView,
+) -> Option<&'static str> {
+    if conversation_has_busy_team_member(state, &conversation_meta.team.members) {
+        return Some("team_busy");
+    }
+    if delegate_store_conversation_has_unfinished(&state.data_path, &conversation_meta.id)
+        .unwrap_or(false)
+    {
+        return Some("delegate_running");
+    }
+    None
+}
+
+/// 队员各自是独立会话：逐个看那个会话的运行态。
+///
+/// 不能拿 `team_has_active_member` 代替——它判断的是「这个人在不在队里」，
+/// 一个常驻但闲着的队员会让它永远为真，通知就永久静音了。
+fn conversation_has_busy_team_member(
+    state: &AppState,
+    members: &[TeamMemberEntry],
+) -> bool {
+    members
+        .iter()
+        .filter(|member| member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
+        .map(|member| member.conversation_id.trim())
+        .filter(|conversation_id| !conversation_id.is_empty())
+        .any(|conversation_id| {
+            read_conversation_runtime_snapshot(state, conversation_id)
+                .map(|snapshot| {
+                    snapshot.is_processing
+                        || snapshot.has_pending_queue
+                        || snapshot.runtime_state != MainSessionState::Idle
+                })
+                .unwrap_or(false)
+        })
+}
+
 fn notify_local_chat_round_completed(
     state: &AppState,
     conversation_id: &str,
@@ -159,6 +207,14 @@ fn notify_local_chat_round_completed(
         runtime_log_debug(format!(
             "[通知] 跳过，任务=本地会话完成通知，conversation_id={}，reason=pending_queue",
             conversation_id
+        ));
+        return;
+    }
+    // 队员与委托都收摊了才算「整个会话真的空下来」：否则一个活会连响几次。
+    if let Some(reason) = conversation_related_work_busy_reason(state, &conversation_meta) {
+        runtime_log_debug(format!(
+            "[通知] 跳过，任务=本地会话完成通知，conversation_id={}，reason={}",
+            conversation_id, reason
         ));
         return;
     }
@@ -567,5 +623,116 @@ fn notify_local_chat_round_failed(state: &AppState, conversation_id: &str, error
             "[通知] 失败，任务=发送本地会话失败通知，conversation_id={}，error={}",
             conversation_id, err
         ));
+    }
+}
+
+#[cfg(test)]
+mod round_notification_busy_tests {
+    use super::*;
+
+    fn test_state() -> AppState {
+        crate::tests::test_chat_runtime_state()
+    }
+
+    fn member(conversation_id: &str, status: &str) -> TeamMemberEntry {
+        TeamMemberEntry {
+            conversation_id: conversation_id.to_string(),
+            status: status.to_string(),
+            ..Default::default()
+        }
+    }
+
+    fn delegate_input(conversation_id: &str) -> DelegateCreateInput {
+        DelegateCreateInput {
+            kind: DELEGATE_TOOL_KIND_DELEGATE.to_string(),
+            conversation_id: conversation_id.to_string(),
+            parent_delegate_id: None,
+            source_agent_id: "agent-root".to_string(),
+            target_agent_id: DEFAULT_AGENT_ID.to_string(),
+            title: "通知判断测试".to_string(),
+            why: "验证委托运行态".to_string(),
+            goal: "验证委托运行态".to_string(),
+            todo: String::new(),
+            prompt: "验证委托运行态".to_string(),
+            notify_assistant_when_done: false,
+            call_stack: Vec::new(),
+        }
+    }
+
+    /// 在队但空闲的队员不算「还在处理」：通知必须照常发，不能误杀。
+    #[test]
+    fn busy_team_member_should_ignore_active_but_idle_member() {
+        let state = test_state();
+        let members = vec![member("member-conversation-idle", TEAM_MEMBER_STATUS_ACTIVE)];
+
+        assert!(!conversation_has_busy_team_member(&state, &members));
+    }
+
+    /// 队员会话非空闲时，主会话这次不算完成，通知跳过。
+    #[test]
+    fn busy_team_member_should_detect_running_member_conversation() {
+        let state = test_state();
+        let members = vec![member(
+            "member-conversation-streaming",
+            TEAM_MEMBER_STATUS_ACTIVE,
+        )];
+        set_conversation_runtime_state(
+            &state,
+            "member-conversation-streaming",
+            MainSessionState::AssistantStreaming,
+        )
+        .expect("set member conversation state");
+
+        assert!(conversation_has_busy_team_member(&state, &members));
+    }
+
+    /// 已请离的队员哪怕会话还在跑，也不该拦住队长的通知。
+    #[test]
+    fn busy_team_member_should_ignore_dismissed_member() {
+        let state = test_state();
+        let members = vec![member(
+            "member-conversation-dismissed",
+            TEAM_MEMBER_STATUS_DISMISSED,
+        )];
+        set_conversation_runtime_state(
+            &state,
+            "member-conversation-dismissed",
+            MainSessionState::AssistantStreaming,
+        )
+        .expect("set dismissed member conversation state");
+
+        assert!(!conversation_has_busy_team_member(&state, &members));
+    }
+
+    /// 有未到终态的委托时跳过通知；委托终态后恢复。
+    #[test]
+    fn unfinished_delegate_should_block_notification_until_terminal() {
+        let state = test_state();
+        let conversation_id = "root-conversation-delegate";
+        let delegate = delegate_store_create_delegate(&state.data_path, &delegate_input(conversation_id))
+            .expect("create delegate record");
+
+        assert!(
+            delegate_store_conversation_has_unfinished(&state.data_path, conversation_id)
+                .expect("query unfinished delegates")
+        );
+
+        delegate_store_update_status(&state.data_path, &delegate.delegate_id, DELEGATE_STATUS_COMPLETED)
+            .expect("complete delegate");
+
+        assert!(
+            !delegate_store_conversation_has_unfinished(&state.data_path, conversation_id)
+                .expect("query unfinished delegates after completion")
+        );
+    }
+
+    /// 没有委托库文件时不能算「有委托在跑」（首次启动/老库场景）。
+    #[test]
+    fn unfinished_delegate_should_be_false_without_store_file() {
+        let state = test_state();
+        assert!(
+            !delegate_store_conversation_has_unfinished(&state.data_path, "conversation-without-store")
+                .expect("query without store file")
+        );
     }
 }
