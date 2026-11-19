@@ -1056,6 +1056,10 @@ function handleDirectoryTreeAsideFocusIn() {
 function handleDirectoryTreeAsideFocusOut(event: FocusEvent) {
   const next = event.relatedTarget as Node | null;
   if (next && (directoryTreeAsideRef.value?.contains(next) || directoryTreeTopButtonsRef.value?.contains(next))) return;
+  // 指针还停在侧栏上时不收：被点的按钮在执行期间变灰会把焦点强制丢回页面，
+  // 这种焦点丢失不代表用户离开，直接收会把包含该按钮的整条侧栏收掉（刷新即触发）。
+  // 真正的离开由 pointerleave 的看守路径负责。
+  if (directoryTreeAsideHovering.value) return;
   directoryTreeAsideHovering.value = false;
   collapseDirectoryTreeToRail();
 }
@@ -1069,6 +1073,8 @@ function handleDirectoryTreeKeepZoneFocusIn() {
 function handleDirectoryTreeKeepZoneFocusOut(event: FocusEvent) {
   const next = event.relatedTarget as Node | null;
   if (next && (directoryTreeTopButtonsRef.value?.contains(next) || directoryTreeAsideRef.value?.contains(next))) return;
+  // 同 Aside 版本：鼠标还在保持区内就说明用户没走，焦点丢失多半来自被点按钮变灰
+  if (directoryTreeAsideHovering.value) return;
   directoryTreeAsideHovering.value = false;
   collapseDirectoryTreeToRail();
 }
