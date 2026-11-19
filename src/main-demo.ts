@@ -11,6 +11,13 @@ installNativeSelectionGuard();
 initMarkdownAppearance();
 initUiSizeAppearance();
 
+// 组件库是独立的整页文档，靠窗口滚动。主应用给桌面窗口定的满高与隐藏溢出在这里不适用，
+// 内联样式优先级高于 style.css，不必用 !important 去抢。
+document.documentElement.style.height = "auto";
+document.body.style.height = "auto";
+document.body.style.minHeight = "100%";
+document.body.style.overflowY = "auto";
+
 const IS_DEV = import.meta.env.DEV;
 
 // 组件库只在 dev 可用：生产包里这一块永远不加载，demo.html 只是一张说明页。
