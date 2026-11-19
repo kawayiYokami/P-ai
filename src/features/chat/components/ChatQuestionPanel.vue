@@ -24,7 +24,7 @@ import {
   type QuestionSubmitPayloadItem,
 } from "../utils/question-panel-submit";
 
-// 组件对外继续导出这些类型，既有调用方（含 DemoTab）不受影响。
+// 组件对外继续导出这些类型，既有调用方不受影响。
 export type { QuestionAnswer, QuestionItem, QuestionOption, QuestionOptionKind };
 
 const props = withDefaults(

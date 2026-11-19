@@ -46,7 +46,7 @@
       </div>
       <OverlayScrollArea class="min-h-0 flex-1" scroller-class="pr-1 h-full">
         <ul class="menu w-full gap-0.5 p-0 pt-2 pb-6 [&>li>a]:w-full">
-          <template v-for="(group, groupIndex) in visibleConfigNavGroups" :key="group.id">
+          <template v-for="(group, groupIndex) in CONFIG_NAV_GROUPS" :key="group.id">
             <li class="menu-title px-1 pb-0.5" :class="groupIndex > 0 ? 'pt-2.5' : 'pt-1'">
               <div
                 v-if="group.collapsible"
@@ -120,7 +120,7 @@
       >
         <OverlayScrollArea class="min-h-0 flex-1" scroller-class="pr-1 h-full">
           <ul class="menu w-full gap-0.5 p-0 pt-2 pb-6 [&>li>a]:w-full">
-            <template v-for="(group, groupIndex) in visibleConfigNavGroups" :key="group.id">
+            <template v-for="(group, groupIndex) in CONFIG_NAV_GROUPS" :key="group.id">
               <li class="menu-title px-1 pb-0.5" :class="groupIndex > 0 ? 'pt-2.5' : 'pt-1'">
                 <div
                   v-if="group.collapsible"
@@ -261,17 +261,6 @@
           @open-avatar-editor="openAvatarEditorForSelected"
           @import-persona-memories="$emit('importPersonaMemories', $event)"
           @save-personas="$emit('savePersonas')"
-        />
-      </div>
-
-      <div v-else-if="props.configTab === 'demo' && SHOW_DEV_DEMO_TAB" class="flex-1 min-h-0">
-        <DemoTab
-          :config="config"
-          :personas="personas"
-          :persona-avatar-url-map="props.personaAvatarUrlMap"
-          :assistant-agent-id="assistantAgentId"
-          @update:config-tab="$emit('update:configTab', $event)"
-          @update:persona-editor-id="$emit('update:personaEditorId', $event)"
         />
       </div>
 
@@ -473,7 +462,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, ApiProviderConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
 import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind, ThemeSourceKind } from "../../shell/theme/theme-types";
@@ -488,13 +477,7 @@ import McpTab from "./config-tabs/McpTab.vue";
 import SkillTab from "./config-tabs/SkillTab.vue";
 import CatalogTab from "./config-tabs/CatalogTab.vue";
 import PersonaTab from "./config-tabs/PersonaTab.vue";
-/**
- * Demo Tab 是 `import.meta.env.DEV` 才显示的调试页（见 SHOW_DEV_DEMO_TAB），
- * 生产构建里它永远进不去。但静态 import 会让它整套子树留在依赖图里——
- * 它引 ChatViewStreamDemo 进而引完整 ChatView，把配置窗口拖进上百个聊天模块。
- * 改成动态 import：生产包里它自成一块，用户点不到就永远不加载。
- */
-const DemoTab = defineAsyncComponent(() => import("./config-tabs/DemoTab.vue"));
+// 组件库已从设置页移出，改为 dev 下独立访问 /demo.html（src/features/dev-gallery/）。
 import ChatSettingsTab from "./config-tabs/ChatSettingsTab.vue";
 import NotificationTab from "./config-tabs/NotificationTab.vue";
 import NetworkAccessTab from "./config-tabs/NetworkAccessTab.vue";
@@ -515,14 +498,13 @@ import { useUnsavedChangesGuard } from "../composables/use-unsaved-changes-guard
 import SettingsBreadcrumb, { type SettingsBreadcrumbItem } from "../components/SettingsBreadcrumb.vue";
 import { provideSettingsBreadcrumb } from "../composables/use-settings-breadcrumb";
 
-type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type AvatarTarget = { agentId: string };
 type ConfigNavItem = {
   tab: ConfigTab;
   icon: AppIconName;
   labelKey?: string;
   label?: string;
-  devOnly?: boolean;
 };
 type ConfigNavGroup = {
   id: string;
@@ -531,8 +513,6 @@ type ConfigNavGroup = {
   defaultCollapsed?: boolean;
   items: ConfigNavItem[];
 };
-const SHOW_DEV_DEMO_TAB = import.meta.env.DEV;
-
 const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
   {
     id: "general",
@@ -590,7 +570,6 @@ const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
       { tab: "migration", icon: "arrow-left-right", labelKey: "config.tabs.migration" },
       { tab: "logs", icon: "scroll-text", labelKey: "config.tabs.logs" },
       { tab: "about", icon: "info", labelKey: "config.tabs.about" },
-      { tab: "demo", icon: "beaker", labelKey: "config.tabs.demo", devOnly: true },
     ],
   },
 ];
@@ -667,7 +646,6 @@ const props = defineProps<{
   assistantPersonas: PersonaProfile[];
   userPersona: PersonaProfile | null;
   personaEditorId: string;
-  assistantAgentId: string;
   responseStyleOptions: ResponseStyleOption[];
   responseStyleId: string;
   pdfReadMode: "text" | "image";
@@ -800,19 +778,9 @@ watch(
   { immediate: true },
 );
 
-const visibleConfigNavGroups = computed(() =>
-  CONFIG_NAV_GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((item) => !item.devOnly || SHOW_DEV_DEMO_TAB),
-  })).filter((group) => group.items.length > 0),
-);
-
-const visibleConfigNavItems = computed(() =>
-  visibleConfigNavGroups.value.flatMap((group) => group.items),
-);
 const activeConfigNavItem = computed(() =>
-  visibleConfigNavItems.value.find((item) => item.tab === props.configTab)
-  ?? visibleConfigNavItems.value.find((item) => item.tab === "welcome")
+  CONFIG_NAV_ITEMS.find((item) => item.tab === props.configTab)
+  ?? CONFIG_NAV_ITEMS.find((item) => item.tab === "welcome")
   ?? null,
 );
 const activeConfigTabTitle = computed(() => {
@@ -994,14 +962,13 @@ async function requestTabChange(nextTab: ConfigTab) {
   if (memorySyncLocked.value && nextTab !== "memory") {
     return;
   }
-  const targetTab = (!SHOW_DEV_DEMO_TAB && nextTab === "demo") ? "hotkey" : nextTab;
-  if (targetTab === props.configTab) {
+  if (nextTab === props.configTab) {
     return;
   }
   const allow = await unsavedGuard.confirmLeaveIfDirty();
   if (!allow) return;
 
-  emit("update:configTab", targetTab);
+  emit("update:configTab", nextTab);
 }
 
 function onMemorySyncLockChange(locked: boolean) {

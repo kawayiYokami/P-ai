@@ -34,7 +34,6 @@
       :assistant-personas="assistantPersonas"
       :user-persona="userPersona"
       :persona-editor-id="personaEditorId"
-      :assistant-agent-id="assistantAgentId"
       :selected-persona="selectedPersonaEditor"
       :tool-persona="selectedPersonaEditor"
       :selected-persona-avatar-url="selectedPersonaEditorAvatarUrl"
@@ -654,7 +653,7 @@ const props = defineProps<{
   chatRightPanelMode: ChatRightPanelMode;
   chatMonitorPanelMode: ChatMonitorPanelMode;
   config: AppConfig;
-  configTab: "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+  configTab: "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   themeMode: ThemeModeKind;
@@ -675,7 +674,6 @@ const props = defineProps<{
   assistantPersonas: PersonaProfile[];
   userPersona: PersonaProfile | null;
   personaEditorId: string;
-  assistantAgentId: string;
   selectedPersonaEditor: PersonaProfile | null;
   toolPersona: PersonaProfile | null;
   selectedPersonaEditorAvatarUrl: string;
@@ -851,7 +849,7 @@ const props = defineProps<{
   setPromptPreviewDialogRef: (el: Element | null) => void;
   promptPreviewDialogOpen: boolean;
   markPromptPreviewDialogClosed: () => void;
-  updateConfigTab: (value: "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about") => void;
+  updateConfigTab: (value: "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about") => void;
   setUiLanguage: (value: string) => void;
   updatePersonaEditorId: (value: string) => void;
   updateSelectedResponseStyleId: (value: string) => void;
