@@ -78,6 +78,8 @@
           :started-at="shell.startedAt"
           :now-ms="nowMs"
           interruptible
+          :starter-avatar-url="starterAvatarUrl(shell.agentId)"
+          :starter-name="starterName(shell.agentId)"
           @interrupt="emit('interruptShell', shell.id)"
         />
         <HomeDelegateCard
@@ -89,6 +91,8 @@
           :token-count="delegate.tokenCount"
           :last-tool-name="delegate.lastToolName"
           pulsing
+          :starter-avatar-url="starterAvatarUrl(delegate.sourceAgentId)"
+          :starter-name="starterName(delegate.sourceAgentId)"
           @open="emit('openMonitorTab', 'delegate')"
         />
         <HomeDelegateCard
@@ -96,6 +100,8 @@
           :key="`finished-delegate-${latestFinishedDelegate.delegateId}`"
           :title="latestFinishedDelegate.title || latestFinishedDelegate.delegateId"
           :meta-label="finishedDelegateMeta"
+          :starter-avatar-url="starterAvatarUrl(latestFinishedDelegate.sourceAgentId)"
+          :starter-name="starterName(latestFinishedDelegate.sourceAgentId)"
           @open="emit('openMonitorTab', 'delegate')"
         />
         <HomeTaskCard
@@ -267,6 +273,24 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+/**
+ * 发起者人格头像：委托看 `sourceAgentId`，后台任务看 `agentId`。
+ * 空串、undefined、映射里没有这个 id，三种都返回空串，卡片那边按「无头像」不渲染。
+ */
+function starterAvatarUrl(agentId?: string): string {
+  const id = String(agentId || "").trim();
+  if (!id) return "";
+  const map = props.personaAvatarUrlMap || props.teamMemberAvatarUrlMap;
+  return String(map?.[id] || "").trim();
+}
+
+/** 头像的 hover 提示用角色名，取不到就留空，不拿 id 顶上。 */
+function starterName(agentId?: string): string {
+  const id = String(agentId || "").trim();
+  if (!id) return "";
+  return String(props.personaNameMap?.[id] || "").trim();
+}
 
 const runningShells = computed(() =>
   props.shells.filter((task) => String(task.status || "").trim() === "running"),

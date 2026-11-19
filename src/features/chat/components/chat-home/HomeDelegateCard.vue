@@ -10,6 +10,13 @@
     @select="emit('open')"
   >
     <template #trailing>
+      <img
+        v-if="starterAvatarUrl"
+        :src="starterAvatarUrl"
+        :alt="starterName"
+        :title="starterName"
+        class="h-5 w-5 shrink-0 rounded-full object-cover"
+      />
       <span class="ecall-home-num shrink-0 text-xs text-base-content/45">{{ elapsedText }}</span>
     </template>
     <span class="line-clamp-2 text-xs leading-snug text-base-content/85">{{ title }}</span>
@@ -37,6 +44,10 @@ const props = withDefaults(defineProps<{
   colSpan?: number;
   /** 占几行：宿主 ChatHomePanel 算好下发 */
   rowSpan?: number;
+  /** 发起这次委托的人格头像（不是被派的那位）；没有就不渲染 */
+  starterAvatarUrl?: string;
+  /** 发起者角色名，只用于头像的 hover 提示与 alt */
+  starterName?: string;
 }>(), {
   elapsedMs: 0,
   requestCount: 0,
@@ -46,6 +57,8 @@ const props = withDefaults(defineProps<{
   pulsing: false,
   colSpan: 1,
   rowSpan: 1,
+  starterAvatarUrl: "",
+  starterName: "",
 });
 
 const emit = defineEmits<{

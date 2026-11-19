@@ -8,6 +8,13 @@
     pulsing
   >
     <template #trailing>
+      <img
+        v-if="starterAvatarUrl"
+        :src="starterAvatarUrl"
+        :alt="starterName"
+        :title="starterName"
+        class="h-5 w-5 shrink-0 rounded-full object-cover"
+      />
       <button
         v-if="interruptible"
         type="button"
@@ -43,6 +50,10 @@ const props = withDefaults(defineProps<{
   colSpan?: number;
   /** 占几行：宿主 ChatHomePanel 算好下发 */
   rowSpan?: number;
+  /** 发起这条后台命令的人格头像；系统发起的任务没有，就不渲染 */
+  starterAvatarUrl?: string;
+  /** 发起者角色名，只用于头像的 hover 提示与 alt */
+  starterName?: string;
 }>(), {
   description: "",
   command: "",
@@ -51,6 +62,8 @@ const props = withDefaults(defineProps<{
   nowMs: 0,
   colSpan: 1,
   rowSpan: 1,
+  starterAvatarUrl: "",
+  starterName: "",
 });
 
 const emit = defineEmits<{
