@@ -5,12 +5,13 @@
         {{ Math.round(value * 100) }}%
       </button>
       <button type="button" class="btn btn-xs btn-primary" @click="runAll">跑读数</button>
+      <button type="button" class="btn btn-xs" @click="open = true">打开预览</button>
       <span class="text-base-content/60">{{ statusText }}</span>
     </div>
 
     <div class="relative h-[420px] overflow-hidden rounded-box border border-base-300 bg-base-200">
       <ChatImagePreviewDialog
-        :open="true"
+        :open="open"
         :data-url="DATA_URL"
         :zoom="zoom"
         :min-zoom="0.25"
@@ -19,7 +20,7 @@
         :offset-y="0"
         :rotation="0"
         :dragging="false"
-        @close="noop('close')"
+        @close="open = false"
         @zoom-in="noop('zoomIn')"
         @zoom-out="noop('zoomOut')"
         @reset="handleReset"
@@ -54,6 +55,8 @@ const DATA_URL =
   );
 
 const zoomSteps = [0.5, 1, 1.37, 1.5, 2];
+/** 弹层默认收起：组件库一项是一张卡，浮层由「打开预览」按钮唤起，关掉后页面可交互。 */
+const open = ref(false);
 const zoom = ref(1);
 const statusText = ref("待读数");
 const reportText = ref("");
@@ -88,6 +91,9 @@ async function readButton() {
 }
 
 async function runAll() {
+  // 读数要先让弹层真的挂上来，否则量不到底部百分比按钮。
+  open.value = true;
+  await nextTick();
   const lines: string[] = [];
   for (const value of [0.5, 1, 1.37, 1.5, 2]) {
     zoom.value = value;

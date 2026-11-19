@@ -38,6 +38,7 @@
           <option value="demo-fast">gpt-6-astra</option>
         </select>
       </label>
+      <button type="button" class="btn btn-xs btn-primary" @click="demoOpen = true">弹出卡片</button>
     </div>
 
     <div class="min-h-0 flex-1 space-y-3 overflow-hidden p-4 text-sm text-base-content/60">
@@ -50,7 +51,7 @@
     </p>
 
     <QuickModelUnavailableCard
-      :open="true"
+      :open="demoOpen"
       :error="demoError"
       :api-configs="demoApiConfigs"
       :model-value="demoModelId"
@@ -66,6 +67,8 @@ import type { ApiConfigItem } from "../../../types/app";
 import QuickModelUnavailableCard from "./QuickModelUnavailableCard.vue";
 
 const demoWidth = ref(560);
+/** 卡片是 dialog 浮层，默认收起；点「弹出卡片」才盖上来，关掉后还能再开。 */
+const demoOpen = ref(false);
 // 截图时用 ?host=config 指定宿主，手动点的话下拉也能切。
 const demoHost = ref<"chat" | "config">(
   new URLSearchParams(window.location.search).get("host") === "config" ? "config" : "chat",
@@ -131,6 +134,7 @@ function onDemoSelect(modelId: string) {
 }
 
 function onDemoClose() {
-  console.info("[demo] 关闭卡片");
+  // 「暂时不处理」与遮罩点击都走这里：关掉浮层，页面回到可交互状态。
+  demoOpen.value = false;
 }
 </script>
