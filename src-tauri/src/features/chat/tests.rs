@@ -4417,8 +4417,18 @@
 
         assert!(wrote);
         assert_eq!(restored.messages.len(), 1);
-        assert_eq!(restored.fast_request_turns.len(), 1);
-        assert_eq!(restored.fast_request_turns[0].id, "fast-request-a");
+        assert!(
+            restored.fast_request_turns.is_empty(),
+            "快速请求不进落盘结构，重新读盘不应带出记录"
+        );
+        assert_eq!(
+            conversation_service_v2()
+                .get_conversation_fast_request_turns(&state, &conversation.id)
+                .expect("read cached fast request turns")
+                .len(),
+            1,
+            "同一进程的内存缓存里应仍保留这条记录"
+        );
     }
 
     #[test]

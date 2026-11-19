@@ -1,5 +1,8 @@
 pub(super) const CONVERSATION_META_SCHEMA_VERSION: u32 = 1;
 
+/// 快速请求记录在内存里保留的条数上限。它只在内存中存活，落盘前会被清空。
+const FAST_REQUEST_TURNS_MEMORY_LIMIT: usize = 10;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ConversationPersistMeta {
@@ -529,6 +532,15 @@ impl ConversationShardMeta {
 
     pub(super) fn push_fast_request_turn(&mut self, turn: FastRequestTurn) {
         self.fast_request_turns.push(turn);
+        // 快速请求只在内存里留最近若干条：落盘前该字段会被清空（见 `to_persist_meta`），
+        // 这里顺手裁掉更早的，避免活着的会话在内存里无限增长。
+        let overflow = self
+            .fast_request_turns
+            .len()
+            .saturating_sub(FAST_REQUEST_TURNS_MEMORY_LIMIT);
+        if overflow > 0 {
+            self.fast_request_turns.drain(..overflow);
+        }
     }
 
     pub(super) fn retain_fast_request_turns(
@@ -1001,7 +1013,8 @@ impl ConversationShardMeta {
             issues: conversation.issues.clone(),
             issue_next_number: conversation.issue_next_number,
             loaded_mcp_tools: conversation.loaded_mcp_tools.clone(),
-            fast_request_turns: conversation.fast_request_turns.clone(),
+            // 快速请求只在内存里存活，落盘结构里恒为空。
+            fast_request_turns: Vec::new(),
             last_error: conversation.last_error.clone(),
             last_message_id: conversation.messages.last().map(|message| message.id.clone()),
             last_message_at: conversation.messages.last().map(|message| message.created_at.clone()),
@@ -1106,7 +1119,8 @@ impl ConversationShardMeta {
             issues: meta.issues.clone(),
             issue_next_number: meta.issue_next_number,
             loaded_mcp_tools: meta.loaded_mcp_tools.clone(),
-            fast_request_turns: meta.fast_request_turns.clone(),
+            // 快速请求只在内存里存活，落盘结构里恒为空。
+            fast_request_turns: Vec::new(),
             last_message_id: meta.last_message_id.clone(),
             last_message_at: meta.last_message_at.clone(),
             last_error: meta.last_error.clone(),
@@ -1162,7 +1176,9 @@ impl ConversationShardMeta {
             issues: self.issues.clone(),
             issue_next_number: self.issue_next_number,
             loaded_mcp_tools: self.loaded_mcp_tools.clone(),
-            fast_request_turns: self.fast_request_turns.clone(),
+            // 快速请求是过程日志，只在内存里保留最近若干条用于展示，不参与落盘。
+            // 历史数据留在旧文件里不会自动消失，但之后每次写盘都会把它清空。
+            fast_request_turns: Vec::new(),
             last_message_id: self.last_message_id.clone(),
             last_message_at: self.last_message_at.clone(),
             last_error: self.last_error.clone(),
@@ -1204,7 +1220,8 @@ impl ConversationShardMeta {
             shell_recorded_branch: self.shell_recorded_branch,
             archived_at: self.archived_at,
             messages,
-            fast_request_turns: self.fast_request_turns,
+            // 快速请求不落盘：盘上的旧记录一律不认，只保留本进程内存里新产生的那些。
+            fast_request_turns: Vec::new(),
             current_todos: self.current_todos,
             memory_recall_table: self.memory_recall_table,
             plan_mode_enabled: self.plan_mode_enabled,
@@ -1395,8 +1412,14 @@ mod message_store_meta_tests {
         );
         assert_eq!(restored.cumulative_usage, conversation.cumulative_usage);
         assert_eq!(restored.active_goal, conversation.active_goal);
-        assert_eq!(restored.fast_request_turns, conversation.fast_request_turns);
-        assert_eq!(persist_meta.fast_request_turns, conversation.fast_request_turns);
+        assert!(
+            restored.fast_request_turns.is_empty(),
+            "快速请求不落盘，从落盘结构读回时不应带出记录"
+        );
+        assert!(
+            persist_meta.fast_request_turns.is_empty(),
+            "快速请求不落盘，落盘结构里应为空"
+        );
         assert_eq!(restored.last_error, conversation.last_error);
         assert_eq!(persist_meta.last_error, conversation.last_error);
         assert_eq!(meta.last_error(), Some("测试轮次失败"));

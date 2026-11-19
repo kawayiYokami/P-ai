@@ -812,19 +812,18 @@ impl ConversationServiceV2 {
         if normalized_conversation_id.is_empty() {
             return Err("conversationId is required".to_string());
         }
-        match state_read_conversation_metadata_cached(state, normalized_conversation_id) {
-            Ok(meta) => Ok(meta.fast_request_turns().to_vec()),
-            Err(root_error) => match delegate_runtime_thread_conversation_get_any(
-                state,
-                normalized_conversation_id,
-            ) {
-                Ok(Some(conversation)) => Ok(conversation.fast_request_turns),
-                Ok(None) => Err(root_error),
-                Err(delegate_error) => Err(format!(
-                    "读取会话杂务失败：root_error={}，delegate_error={}",
-                    root_error, delegate_error
-                )),
-            },
+        // 快速请求只在内存里保留最近若干条，meta 缓存里没有时再看委托线程文档。
+        let cached_turns = match state_read_conversation_metadata_cached(state, normalized_conversation_id) {
+            Ok(meta) => meta.fast_request_turns().to_vec(),
+            Err(_) => Vec::new(),
+        };
+        if !cached_turns.is_empty() {
+            return Ok(cached_turns);
+        }
+        match delegate_runtime_thread_conversation_get_any(state, normalized_conversation_id) {
+            Ok(Some(conversation)) => Ok(conversation.fast_request_turns),
+            Ok(None) => Ok(cached_turns),
+            Err(delegate_error) => Err(format!("读取会话杂务失败：{delegate_error}")),
         }
     }
 

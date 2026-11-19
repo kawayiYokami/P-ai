@@ -1558,6 +1558,12 @@ fn flush_pending_persists_blocking(state: &AppState) -> Result<bool, String> {
                         )
                     })?
                     .remove(conversation_id);
+                // 写盘后把缓存记录的磁盘时间同步成新值，否则下一次读取会判定缓存过期、
+                // 从盘重建，把只活在内存里的元数据（如快速请求记录）冲掉。
+                let disk_mtime = conversation_shard_modified_time(&state.data_path, conversation_id);
+                if let Ok(mut cached_mtimes) = state.cached_conversation_mtimes.lock() {
+                    cached_mtimes.insert(conversation_id.clone(), disk_mtime);
+                }
                 wrote_anything = true;
             }
         }
@@ -1602,6 +1608,11 @@ fn flush_pending_persists_blocking(state: &AppState) -> Result<bool, String> {
                 continue;
             };
             write_conversation_meta_shard_from_meta(&state.data_path, &conversation_meta)?;
+            // 同上：写盘后同步 mtime，避免缓存被判失效后从盘重建、丢掉只在内存里的字段。
+            let disk_mtime = conversation_shard_modified_time(&state.data_path, conversation_id);
+            if let Ok(mut cached_mtimes) = state.cached_conversation_mtimes.lock() {
+                cached_mtimes.insert(conversation_id.clone(), disk_mtime);
+            }
             state.cached_conversation_dirty_ids
                 .lock()
                 .map_err(|err| {

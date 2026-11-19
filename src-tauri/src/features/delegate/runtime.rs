@@ -356,7 +356,9 @@ fn delegate_runtime_thread_apply_persisted_conversation(
     app_state: &AppState,
 ) -> Result<DelegateRuntimeThread, String> {
     match delegate_conversation_store_read(&app_state.data_path, &thread.delegate_id) {
-        Ok(Some(conversation)) => {
+        Ok(Some(mut conversation)) => {
+            // 快速请求只活在内存里，盘上该字段恒为空；覆盖内存快照前先把它带过来。
+            conversation.fast_request_turns = thread.conversation.fast_request_turns;
             thread.conversation = conversation;
         }
         Ok(None) => {}
@@ -707,12 +709,32 @@ fn delegate_runtime_thread_append_fast_request(
     }
     conversation.fast_request_turns.push(turn);
     conversation.updated_at = now_iso();
-    delegate_runtime_thread_conversation_update_unlocked(
-        app_state,
-        normalized_delegate_id,
-        conversation,
-    )?;
-    Ok(true)
+    // 快速请求只在内存里存活：只更新委托线程的内存快照，不写存储。
+    // 落盘结构里该字段恒为空，写下去也读不回来，反而每次都触发一次整份文档重写。
+    {
+        let mut active = app_state
+            .delegate_runtime_threads
+            .lock()
+            .map_err(|_| "Failed to lock delegate runtime threads".to_string())?;
+        if let Some(thread) = active.get_mut(normalized_delegate_id) {
+            thread.conversation = conversation;
+            return Ok(true);
+        }
+    }
+    {
+        let mut recent = app_state
+            .delegate_recent_threads
+            .lock()
+            .map_err(|_| "Failed to lock recent delegate runtime threads".to_string())?;
+        if let Some(thread) = recent
+            .iter_mut()
+            .find(|thread| thread.delegate_id == normalized_delegate_id)
+        {
+            thread.conversation = conversation;
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn delegate_runtime_thread_conversation_append_if_absent(
