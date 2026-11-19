@@ -38,7 +38,7 @@
             type="search"
             aria-label="筛选组件"
             placeholder="筛选组件"
-            class="h-8 grow bg-transparent text-[13px] text-base-content outline-none placeholder:text-base-content/40"
+            class="h-8 grow bg-transparent text-sm text-base-content outline-none placeholder:text-base-content/40"
           />
         </label>
         <OverlayScrollArea class="min-h-0 flex-1" scroller-class="h-full">
@@ -54,7 +54,7 @@
                   :ref="(el) => rememberItemEl(item.key, el)"
                   type="button"
                   :title="item.title"
-                  class="mb-0.5 flex min-h-9 w-full items-center rounded-field px-2.5 py-1.5 text-left text-[13px] transition-colors"
+                  class="mb-0.5 flex min-h-9 w-full items-center rounded-field px-2.5 py-1.5 text-left text-sm transition-colors"
                   :class="
                     item.key === activeKey
                       ? 'bg-neutral font-medium text-neutral-content'
