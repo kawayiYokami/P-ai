@@ -1,46 +1,44 @@
 <template>
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-3 p-4">
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="text-xs text-base-content/60">预设：</span>
-        <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'normal' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'normal'">仅委托</button>
-        <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'tasksOnly' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'tasksOnly'">仅任务</button>
-        <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'shellsOnly' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'shellsOnly'">仅终端</button>
-        <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'all' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'all'">全部运行</button>
-        <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'empty' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'empty'">空闲</button>
-      </div>
-      <div class="flex w-full max-w-2xl flex-wrap items-center gap-2">
-        <SessionControlItems
-          workspace-button-label="工作空间"
-          workspace-button-name="easy_call_ai"
-          workspace-work-mode="worktree"
-          :delegates="demoDelegateStatuses"
-          :running-task-count="demoRunningTaskCount"
-          :running-shell-count="demoRunningShellCount"
-        />
-      </div>
-      <div class="flex flex-col gap-1 py-2">
-        <DelegateCard
-          title="示例：代码审查（pending）"
-          :running="true"
-          :elapsed-ms="demoDelegateStatuses[0]?.elapsedMs"
-          :request-count="demoDelegateStatuses[0]?.requestCount"
-          :token-count="demoDelegateStatuses[0]?.tokenCount"
-          last-tool-name="apply_patch"
-        />
-        <DelegateCard
-          title="示例：委托任务（运行中）"
-          :running="true"
-          :elapsed-ms="demoDelegateStatuses[1]?.elapsedMs"
-          :request-count="demoDelegateStatuses[1]?.requestCount"
-          :token-count="demoDelegateStatuses[1]?.tokenCount"
-          last-tool-name="shell_exec"
-        />
-        <DelegateCard
-          title="示例：审查报告（完成）"
-          text="整体判定：正确，置信度 0.92"
-        />
-      </div>
+  <div class="flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-xs text-base-content/60">预设：</span>
+      <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'normal' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'normal'">仅委托</button>
+      <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'tasksOnly' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'tasksOnly'">仅任务</button>
+      <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'shellsOnly' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'shellsOnly'">仅终端</button>
+      <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'all' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'all'">全部运行</button>
+      <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'empty' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'empty'">空闲</button>
+    </div>
+    <div class="flex w-full max-w-2xl flex-wrap items-center gap-2">
+      <SessionControlItems
+        workspace-button-label="工作空间"
+        workspace-button-name="easy_call_ai"
+        workspace-work-mode="worktree"
+        :delegates="demoDelegateStatuses"
+        :running-task-count="demoRunningTaskCount"
+        :running-shell-count="demoRunningShellCount"
+      />
+    </div>
+    <div class="flex flex-col gap-1 py-2">
+      <DelegateCard
+        title="示例：代码审查（pending）"
+        :running="true"
+        :elapsed-ms="demoDelegateStatuses[0]?.elapsedMs"
+        :request-count="demoDelegateStatuses[0]?.requestCount"
+        :token-count="demoDelegateStatuses[0]?.tokenCount"
+        last-tool-name="apply_patch"
+      />
+      <DelegateCard
+        title="示例：委托任务（运行中）"
+        :running="true"
+        :elapsed-ms="demoDelegateStatuses[1]?.elapsedMs"
+        :request-count="demoDelegateStatuses[1]?.requestCount"
+        :token-count="demoDelegateStatuses[1]?.tokenCount"
+        last-tool-name="shell_exec"
+      />
+      <DelegateCard
+        title="示例：审查报告（完成）"
+        text="整体判定：正确，置信度 0.92"
+      />
     </div>
   </div>
 </template>

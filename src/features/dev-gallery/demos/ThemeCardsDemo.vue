@@ -1,18 +1,14 @@
 <template>
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-3 p-4">
-      <AutoThemeGrid
-        :light-themes="lightThemes"
-        :dark-themes="darkThemes"
-        auto-light-theme="light"
-        auto-dark-theme="dark"
-        :light-custom-tokens="lightTokens"
-        :dark-custom-tokens="darkTokens"
-        @select-light="() => {}"
-        @select-dark="() => {}"
-      />
-    </div>
-  </div>
+  <AutoThemeGrid
+    :light-themes="lightThemes"
+    :dark-themes="darkThemes"
+    auto-light-theme="light"
+    auto-dark-theme="dark"
+    :light-custom-tokens="lightTokens"
+    :dark-custom-tokens="darkTokens"
+    @select-light="() => {}"
+    @select-dark="() => {}"
+  />
 </template>
 
 <script setup lang="ts">

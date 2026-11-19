@@ -1,18 +1,14 @@
 <template>
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-3 p-3">
-      <div class="ecall-kanban-demo-flow w-full max-w-[586px]">
-        <HomeKanbanCard
-          :issues="issues"
-          :avatar-url-map="avatarMap"
-          leader-name="Claude"
-          :leader-avatar-url="avatarMap['leader']"
-        />
-        <div class="ecall-kanban-demo-filler">环境卡占位</div>
-        <div class="ecall-kanban-demo-filler">计划卡占位</div>
-        <div class="ecall-kanban-demo-filler">工作区卡占位</div>
-      </div>
-    </div>
+  <div class="ecall-kanban-demo-flow w-full max-w-[586px]">
+    <HomeKanbanCard
+      :issues="issues"
+      :avatar-url-map="avatarMap"
+      leader-name="Claude"
+      :leader-avatar-url="avatarMap['leader']"
+    />
+    <div class="ecall-kanban-demo-filler">环境卡占位</div>
+    <div class="ecall-kanban-demo-filler">计划卡占位</div>
+    <div class="ecall-kanban-demo-filler">工作区卡占位</div>
   </div>
 </template>
 

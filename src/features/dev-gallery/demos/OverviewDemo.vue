@@ -1,23 +1,21 @@
 <template>
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-3 p-4">
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="text-xs text-base-content/60">预设：</span>
-        <button type="button" class="btn btn-xs" :class="preset === 'normal' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'normal'">常规</button>
-        <button type="button" class="btn btn-xs" :class="preset === 'empty' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'empty'">空闲</button>
-        <button type="button" class="btn btn-xs" :class="preset === 'busy' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'busy'">高负载</button>
-        <button type="button" class="btn btn-xs" :class="preset === 'backgroundOnly' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'backgroundOnly'">仅后台任务</button>
-      </div>
-      <div class="flex justify-center">
-        <div class="h-[440px] w-[400px] overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm">
-          <MonitorOverview
-            class="h-full w-full"
-            :delegate-statuses="delegates"
-            :running-tasks="tasks"
-            :background-shells="backgroundShells"
-            :latest-batches="batches"
-          />
-        </div>
+  <div class="space-y-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-xs text-base-content/60">预设：</span>
+      <button type="button" class="btn btn-xs" :class="preset === 'normal' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'normal'">常规</button>
+      <button type="button" class="btn btn-xs" :class="preset === 'empty' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'empty'">空闲</button>
+      <button type="button" class="btn btn-xs" :class="preset === 'busy' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'busy'">高负载</button>
+      <button type="button" class="btn btn-xs" :class="preset === 'backgroundOnly' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'backgroundOnly'">仅后台任务</button>
+    </div>
+    <div class="flex justify-center">
+      <div class="h-[440px] w-[400px] overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm">
+        <MonitorOverview
+          class="h-full w-full"
+          :delegate-statuses="delegates"
+          :running-tasks="tasks"
+          :background-shells="backgroundShells"
+          :latest-batches="batches"
+        />
       </div>
     </div>
   </div>

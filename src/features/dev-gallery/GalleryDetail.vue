@@ -1,26 +1,20 @@
 <template>
   <div class="min-w-0">
-    <component :is="impl" v-if="impl" :key="props.entry?.key" />
+    <component :is="impl" v-if="impl" :key="props.entry?.key" v-bind="props.entry?.props ?? {}" />
     <p v-else class="text-sm text-base-content/50">左侧选一个组件。</p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, h, shallowRef, watch, type Component } from "vue";
+import { computed, defineAsyncComponent, h, shallowRef, type Component } from "vue";
 import type { GalleryEntry } from "./types";
 
 const props = defineProps<{ entry?: GalleryEntry | null }>();
 
-/** 已加载过的组件实例缓存：来回切换不重复构建，也不重复跑挂载逻辑。 */
+/** 已加载过的组件实例缓存：整页平铺时每项只构建一次，滚动来回不重复跑挂载逻辑。 */
 const cache = new Map<string, Component>();
 
 const failed = shallowRef("");
-watch(
-  () => props.entry?.key,
-  () => {
-    failed.value = "";
-  },
-);
 
 const impl = computed<Component | null>(() => {
   const entry = props.entry;
@@ -32,19 +26,14 @@ const impl = computed<Component | null>(() => {
     delay: 0,
     timeout: 30000,
     loadingComponent: {
-      render: () =>
-        h("p", { class: "text-sm text-base-content/50" }, "加载中…"),
+      render: () => h("p", { class: "text-sm text-base-content/50" }, "加载中…"),
     },
     errorComponent: {
       render: () =>
-        h(
-          "p",
-          { class: "text-sm text-error" },
-          failed.value || `内容加载失败：demos/${entry.key}`,
-        ),
+        h("p", { class: "text-sm text-error" }, failed.value || `内容加载失败：${entry.name}`),
     },
     onError: (_error, _retry, fail) => {
-      failed.value = `内容加载失败：demos/${entry.key}`;
+      failed.value = `内容加载失败：${entry.name}`;
       fail();
     },
   });

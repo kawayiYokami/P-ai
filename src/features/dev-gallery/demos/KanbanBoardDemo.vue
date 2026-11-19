@@ -1,18 +1,14 @@
 <template>
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-2 p-3">
-      <div class="h-[660px] w-[586px] overflow-hidden rounded-box border border-base-300">
-        <KanbanBoardPanel
-          :issues="issues"
-          :loading="false"
-          :error-text="''"
-          :approving-number="null"
-          leader-name="Claude"
-          :leader-avatar-url="avatarMap['leader']"
-          :avatar-url-map="avatarMap"
-        />
-      </div>
-    </div>
+  <div class="h-[660px] w-[586px] overflow-hidden rounded-box border border-base-300">
+    <KanbanBoardPanel
+      :issues="issues"
+      :loading="false"
+      :error-text="''"
+      :approving-number="null"
+      leader-name="Claude"
+      :leader-avatar-url="avatarMap['leader']"
+      :avatar-url-map="avatarMap"
+    />
   </div>
 </template>
 

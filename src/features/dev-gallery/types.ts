@@ -15,6 +15,8 @@ export type GalleryEntry = {
   file: string;
   /** 内容懒加载：只有被选中时，那一棵子树才进内存 */
   loader: () => Promise<{ default: Component }>;
+  /** 传给内容组件的参数；同一组件要出两种形态时用它区分（例如人格主页 / 人格权限页） */
+  props?: Record<string, unknown>;
 };
 
 export type GalleryGroup = {

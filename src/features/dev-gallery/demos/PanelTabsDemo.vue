@@ -1,64 +1,61 @@
 <template>
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-4 p-4">
+  <div class="space-y-4">
+    <div class="flex flex-wrap items-center gap-3">
+      <span class="text-xs text-base-content/70">容器宽度调节：</span>
+      <input
+        v-model.number="containerWidth"
+        type="range"
+        min="200"
+        max="700"
+        step="10"
+        class="range range-xs range-primary w-64"
+      />
+      <span class="font-mono text-xs">{{ containerWidth }}px</span>
+      <button type="button" class="btn btn-ghost btn-xs" @click="containerWidth = 360">默认 (360px)</button>
+      <button type="button" class="btn btn-ghost btn-xs" @click="containerWidth = 240">窄视口 (240px)</button>
+      <button type="button" class="btn btn-ghost btn-xs" @click="containerWidth = 560">宽视口 (560px)</button>
+      <button type="button" class="btn btn-ghost btn-xs text-primary" @click="resetTabs">重置标签列表</button>
+    </div>
 
-      <div class="flex flex-wrap items-center gap-3">
-        <span class="text-xs text-base-content/70">容器宽度调节：</span>
-        <input
-          v-model.number="containerWidth"
-          type="range"
-          min="200"
-          max="700"
-          step="10"
-          class="range range-xs range-primary w-64"
-        />
-        <span class="font-mono text-xs">{{ containerWidth }}px</span>
-        <button type="button" class="btn btn-ghost btn-xs" @click="containerWidth = 360">默认 (360px)</button>
-        <button type="button" class="btn btn-ghost btn-xs" @click="containerWidth = 240">窄视口 (240px)</button>
-        <button type="button" class="btn btn-ghost btn-xs" @click="containerWidth = 560">宽视口 (560px)</button>
-        <button type="button" class="btn btn-ghost btn-xs text-primary" @click="resetTabs">重置标签列表</button>
+    <div class="space-y-4">
+      <div>
+        <div class="mb-1.5 flex items-center justify-between text-xs font-medium text-base-content/70">
+          <span>会话风格 (variant="default")</span>
+          <span class="text-micro text-base-content/50">当前激活：{{ activeKey }}</span>
+        </div>
+        <div
+          class="overflow-hidden rounded-box border border-base-300 bg-base-200"
+          :style="{ width: `${containerWidth}px`, maxWidth: '100%' }"
+        >
+          <PanelTabStrip
+            :tabs="tabs"
+            :active-key="activeKey"
+            aria-label="Demo Tabs"
+            close-title="关闭"
+            @select-tab="(k) => (activeKey = k)"
+            @close-tab="onCloseTab"
+          />
+        </div>
       </div>
 
-      <div class="space-y-4">
-        <div>
-          <div class="mb-1.5 flex items-center justify-between text-xs font-medium text-base-content/70">
-            <span>会话风格 (variant="default")</span>
-            <span class="text-micro text-base-content/50">当前激活：{{ activeKey }}</span>
-          </div>
-          <div
-            class="overflow-hidden rounded-box border border-base-300 bg-base-200"
-            :style="{ width: `${containerWidth}px`, maxWidth: '100%' }"
-          >
-            <PanelTabStrip
-              :tabs="tabs"
-              :active-key="activeKey"
-              aria-label="Demo Tabs"
-              close-title="关闭"
-              @select-tab="(k) => (activeKey = k)"
-              @close-tab="onCloseTab"
-            />
-          </div>
+      <div>
+        <div class="mb-1.5 flex items-center justify-between text-xs font-medium text-base-content/70">
+          <span>文件风格 (variant="file")</span>
+          <span class="text-micro text-base-content/50">当前激活：{{ fileActiveKey }}</span>
         </div>
-
-        <div>
-          <div class="mb-1.5 flex items-center justify-between text-xs font-medium text-base-content/70">
-            <span>文件风格 (variant="file")</span>
-            <span class="text-micro text-base-content/50">当前激活：{{ fileActiveKey }}</span>
-          </div>
-          <div
-            class="overflow-hidden rounded-box border border-base-300 bg-base-200"
-            :style="{ width: `${containerWidth}px`, maxWidth: '100%' }"
-          >
-            <PanelTabStrip
-              variant="file"
-              :tabs="fileTabs"
-              :active-key="fileActiveKey"
-              aria-label="Demo File Tabs"
-              close-title="关闭"
-              @select-tab="(k) => (fileActiveKey = k)"
-              @close-tab="onCloseFileTab"
-            />
-          </div>
+        <div
+          class="overflow-hidden rounded-box border border-base-300 bg-base-200"
+          :style="{ width: `${containerWidth}px`, maxWidth: '100%' }"
+        >
+          <PanelTabStrip
+            variant="file"
+            :tabs="fileTabs"
+            :active-key="fileActiveKey"
+            aria-label="Demo File Tabs"
+            close-title="关闭"
+            @select-tab="(k) => (fileActiveKey = k)"
+            @close-tab="onCloseFileTab"
+          />
         </div>
       </div>
     </div>

@@ -1,109 +1,105 @@
 <template>
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-3 p-4">
-      <div class="overflow-hidden rounded-[1.75rem] border border-base-300 bg-base-200/70 p-4 shadow-inner">
-        <div class="flex flex-col gap-4 rounded-[1.35rem] border border-base-300 bg-base-100/30 px-3 py-4">
-          <ChatBubbleShell
-            v-for="message in bubbleDemoDisplayMessages"
-            :key="message.id"
-            :tone="message.tone"
-            :name="message.name"
-            :meta="message.meta"
-            :avatar-url="message.avatarUrl"
-            :streaming="!!message.streaming"
-            :streaming-text="message.streamingText"
-            :separated="message.separated"
-          >
-            <template v-if="message.reasoning?.length || message.tools?.length" #activity>
-              <div class="flex flex-col opacity-90">
-                <div class="flex min-w-0 flex-wrap items-center gap-1.5 py-0.5 text-sm font-normal text-base-content/42">
-                  <span class="shrink-0">思考与工具</span>
-                  <span v-if="message.tools?.length" class="inline-flex h-3 items-center text-base-content/30">·</span>
-                  <span v-if="message.tools?.length" class="min-w-0 truncate text-base-content/42">
-                    {{ message.tools.length }} 个工具
-                  </span>
-                </div>
-                <div class="flex flex-col pt-1 text-xs text-base-content/70">
-                  <div
-                    v-if="message.reasoning?.length"
-                    class="flex gap-1.5 border-l border-base-content/15 py-1 pr-1 pl-2"
-                  >
-                    <span class="inline-flex w-3 shrink-0 items-center justify-center font-mono text-xs leading-none text-info">•</span>
-                    <ExpandableText
-                      class="min-w-0 flex-1"
-                      :text="message.reasoning.join('\n')"
-                      text-class="text-base-content/70"
-                    />
-                  </div>
-                  <details
-                    v-for="(tool, toolIndex) in message.tools || []"
-                    :key="`${tool.name}-${toolIndex}`"
-                    class="collapse rounded-none border-l border-base-content/15 pl-2"
-                    :open="bubbleDemoActivityItemOpen(message.id, bubbleDemoToolItemKey(tool, toolIndex))"
-                    @toggle="onBubbleDemoActivityItemToggle(message.id, bubbleDemoToolItemKey(tool, toolIndex), $event)"
-                  >
-                    <summary class="collapse-title flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
-                      <span class="inline-flex w-3 shrink-0 items-center justify-center leading-none text-success">
-                        <AppIcon name="file-text" v-if="tool.icon === 'file'" class="size-3" aria-hidden="true" />
-                        <AppIcon name="square-terminal" v-else-if="tool.icon === 'terminal'" class="size-3" aria-hidden="true" />
-                        <AppIcon name="wrench" v-else class="size-3" aria-hidden="true" />
-                      </span>
-                      <span class="min-w-0 flex-1 truncate text-base-content/75">
-                        {{ tool.name }}
-                        <span class="ml-1 text-success">✓</span>
-                      </span>
-                    </summary>
-                    <div v-if="bubbleDemoActivityItemOpen(message.id, bubbleDemoToolItemKey(tool, toolIndex))" class="collapse-content px-1 pb-2 pt-1">
-                      <div class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-base-content/70">
-                        {{ tool.detail }}
-                      </div>
-                    </div>
-                  </details>
-                </div>
-              </div>
-            </template>
-            <div class="space-y-2 text-sm leading-relaxed">
-              <p v-for="line in message.lines" :key="line" class="m-0 whitespace-pre-wrap break-words">
-                {{ line }}
-              </p>
-              <div
-                v-if="message.chips?.length"
-                :class="[
-                  'flex flex-wrap gap-1.5 pt-1',
-                  message.tone === 'user' ? 'justify-end' : 'justify-start',
-                ]"
-              >
-                <span
-                  v-for="chip in message.chips"
-                  :key="chip"
-                  class="rounded-lg bg-base-100/35 px-2 py-1 text-xs text-base-content/60 backdrop-blur-sm"
-                >
-                  {{ chip }}
-                </span>
-              </div>
-              <ChatAttachmentList
-                v-if="message.attachments?.length"
-                :attachments="message.attachments"
-                :align="message.tone === 'user' ? 'end' : 'start'"
-                :interactive-kinds="['audio']"
-                :playing-id="playingBubbleDemoAudioId"
-                @activate="handleBubbleDemoAttachmentActivate"
-              />
+  <div class="overflow-hidden rounded-[1.75rem] border border-base-300 bg-base-200/70 p-4 shadow-inner">
+    <div class="flex flex-col gap-4 rounded-[1.35rem] border border-base-300 bg-base-100/30 px-3 py-4">
+      <ChatBubbleShell
+        v-for="message in bubbleDemoDisplayMessages"
+        :key="message.id"
+        :tone="message.tone"
+        :name="message.name"
+        :meta="message.meta"
+        :avatar-url="message.avatarUrl"
+        :streaming="!!message.streaming"
+        :streaming-text="message.streamingText"
+        :separated="message.separated"
+      >
+        <template v-if="message.reasoning?.length || message.tools?.length" #activity>
+          <div class="flex flex-col opacity-90">
+            <div class="flex min-w-0 flex-wrap items-center gap-1.5 py-0.5 text-sm font-normal text-base-content/42">
+              <span class="shrink-0">思考与工具</span>
+              <span v-if="message.tools?.length" class="inline-flex h-3 items-center text-base-content/30">·</span>
+              <span v-if="message.tools?.length" class="min-w-0 truncate text-base-content/42">
+                {{ message.tools.length }} 个工具
+              </span>
             </div>
-            <template #footer>
-              <span v-if="message.footer">{{ message.footer }}</span>
-              <span v-if="!message.streaming" class="inline-flex items-center gap-1">
-                <AppIcon name="copy" class="size-3" aria-hidden="true" />
-                复制
-              </span>
-              <span v-if="!message.streaming && message.canRecall" class="inline-flex items-center gap-1">
-                <AppIcon name="undo" class="size-3" aria-hidden="true" />
-                撤回
-              </span>
-            </template>
-          </ChatBubbleShell>
+            <div class="flex flex-col pt-1 text-xs text-base-content/70">
+              <div
+                v-if="message.reasoning?.length"
+                class="flex gap-1.5 border-l border-base-content/15 py-1 pr-1 pl-2"
+              >
+                <span class="inline-flex w-3 shrink-0 items-center justify-center font-mono text-xs leading-none text-info">•</span>
+                <ExpandableText
+                  class="min-w-0 flex-1"
+                  :text="message.reasoning.join('\n')"
+                  text-class="text-base-content/70"
+                />
+              </div>
+              <details
+                v-for="(tool, toolIndex) in message.tools || []"
+                :key="`${tool.name}-${toolIndex}`"
+                class="collapse rounded-none border-l border-base-content/15 pl-2"
+                :open="bubbleDemoActivityItemOpen(message.id, bubbleDemoToolItemKey(tool, toolIndex))"
+                @toggle="onBubbleDemoActivityItemToggle(message.id, bubbleDemoToolItemKey(tool, toolIndex), $event)"
+              >
+                <summary class="collapse-title flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
+                  <span class="inline-flex w-3 shrink-0 items-center justify-center leading-none text-success">
+                    <AppIcon name="file-text" v-if="tool.icon === 'file'" class="size-3" aria-hidden="true" />
+                    <AppIcon name="square-terminal" v-else-if="tool.icon === 'terminal'" class="size-3" aria-hidden="true" />
+                    <AppIcon name="wrench" v-else class="size-3" aria-hidden="true" />
+                  </span>
+                  <span class="min-w-0 flex-1 truncate text-base-content/75">
+                    {{ tool.name }}
+                    <span class="ml-1 text-success">✓</span>
+                  </span>
+                </summary>
+                <div v-if="bubbleDemoActivityItemOpen(message.id, bubbleDemoToolItemKey(tool, toolIndex))" class="collapse-content px-1 pb-2 pt-1">
+                  <div class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-base-content/70">
+                    {{ tool.detail }}
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
+        </template>
+        <div class="space-y-2 text-sm leading-relaxed">
+          <p v-for="line in message.lines" :key="line" class="m-0 whitespace-pre-wrap break-words">
+            {{ line }}
+          </p>
+          <div
+            v-if="message.chips?.length"
+            :class="[
+              'flex flex-wrap gap-1.5 pt-1',
+              message.tone === 'user' ? 'justify-end' : 'justify-start',
+            ]"
+          >
+            <span
+              v-for="chip in message.chips"
+              :key="chip"
+              class="rounded-lg bg-base-100/35 px-2 py-1 text-xs text-base-content/60 backdrop-blur-sm"
+            >
+              {{ chip }}
+            </span>
+          </div>
+          <ChatAttachmentList
+            v-if="message.attachments?.length"
+            :attachments="message.attachments"
+            :align="message.tone === 'user' ? 'end' : 'start'"
+            :interactive-kinds="['audio']"
+            :playing-id="playingBubbleDemoAudioId"
+            @activate="handleBubbleDemoAttachmentActivate"
+          />
         </div>
-      </div>
+        <template #footer>
+          <span v-if="message.footer">{{ message.footer }}</span>
+          <span v-if="!message.streaming" class="inline-flex items-center gap-1">
+            <AppIcon name="copy" class="size-3" aria-hidden="true" />
+            复制
+          </span>
+          <span v-if="!message.streaming && message.canRecall" class="inline-flex items-center gap-1">
+            <AppIcon name="undo" class="size-3" aria-hidden="true" />
+            撤回
+          </span>
+        </template>
+      </ChatBubbleShell>
     </div>
   </div>
 </template>
