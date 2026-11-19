@@ -83,7 +83,7 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
     id: "chat",
     title: "聊天",
     entries: [
-      entry("bubbles", "ChatBubbleShell", "自研气泡", "demos/BubblesDemo.vue", () =>
+      entry("bubbles", "ChatBubbleShell", "气泡", "demos/BubblesDemo.vue", () =>
         import("./demos/BubblesDemo.vue"),
       ),
       entry("chat-message", "ChatMessageItem", "消息项", "chat/components/ChatMessageItemDemo.vue", () =>

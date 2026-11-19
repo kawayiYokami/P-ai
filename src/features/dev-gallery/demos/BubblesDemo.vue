@@ -242,7 +242,7 @@ const bubbleDemoMessages: BubbleDemoMessage[] = [
       "The final answer below should remain independent from activity, so future rendering can lazy-load details.",
     ],
     tools: [
-      { name: "apply_patch", detail: "更新 DemoTab.vue 的自研气泡样张内容", icon: "tool" },
+      { name: "apply_patch", detail: "更新 DemoTab.vue 的气泡样张内容", icon: "tool" },
       { name: "exec", detail: "pnpm typecheck", icon: "terminal" },
     ],
     lines: [
