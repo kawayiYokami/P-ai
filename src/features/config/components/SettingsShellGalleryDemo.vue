@@ -41,7 +41,7 @@ const demoTabs: UnderlineTabItem[] = [
   { key: "remote", label: "联系人", badge: 12 },
 ];
 
-const demoBreadcrumb = [{ label: "能力商店" }];
+const demoBreadcrumb = [{ label: "能力商店", onClick: () => {} }, { label: "技能" }];
 
 const activeLabel = computed(() => demoTabs.find((tab) => tab.key === activeTab.value)?.label || "");
 </script>

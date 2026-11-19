@@ -1,10 +1,10 @@
 <template>
   <div class="relative flex h-full min-h-0 flex-col">
     <div v-if="$slots.header" class="shrink-0 border-b border-base-300">
-      <!-- 行高固定 40px：这一行放的是 tab 条或搜索框，两者的高度与上下留白必须一致，
+      <!-- 行高固定 56px：这一行放的是 tab 条或搜索框，两者的高度与上下留白必须一致，
            不能让"有没有 tab"改变整行高度（之前 pb 随 tabs 数量变，56px 与 40px 两种行高）。 -->
       <!-- 宽度只由 contentClass 决定：这里再写 `w-full` 会和定宽类打架，谁生效看样式生成顺序。 -->
-      <div class="flex h-10 items-center px-4" :class="[contentClass, headerClass]">
+      <div class="flex h-14 items-center px-4" :class="[contentClass, headerClass]">
         <slot name="header" />
       </div>
     </div>
@@ -36,10 +36,8 @@ const props = withDefaults(defineProps<{
   headerClass?: string;
   noScroll?: boolean;
 }>(), {
-  // 内容区不靠"锁总宽"或"居中留白"来冻结布局：宽度铺满可用空间，元素尺寸由各自的固定列宽决定，
-  // 窗口拉宽只增加列数，不把已有元素拉伸。之前这里用 `mx-auto max-w-[80rem]`，
-  // 最大化时内容被居中、左右各留几百 px 空白，跟左侧贴边的面包屑完全对不上一条线。
-  contentClass: "w-full",
+  // 内容区限一个上限宽度，超宽屏时居中，不让一行拉成超长行。
+  contentClass: "mx-auto w-full max-w-[80rem]",
   headerClass: "",
   noScroll: false,
 });

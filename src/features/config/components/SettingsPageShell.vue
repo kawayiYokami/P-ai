@@ -1,17 +1,34 @@
 <template>
   <SettingsStickyLayout :no-scroll="noScroll" :content-class="contentClass" :header-class="resolvedHeaderClass">
     <template #header>
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex min-w-0 flex-1 items-center">
+      <!-- w-full 必须有：这一行在 SettingsStickyLayout 里是 flex 子项，默认宽度只按内容撑，
+           不写满就撑不到 1280，三列全挤在左边。 -->
+      <div class="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <div class="flex min-w-0 items-center">
+          <!-- 左列：返回按钮（iOS 风格，主题色，带上一级名字）；无标签页的页面额外用左侧插槽 -->
+          <button
+            v-if="backItem"
+            type="button"
+            class="btn btn-ghost btn-sm min-w-0 shrink-0 gap-0.5 pl-1 pr-1.5 text-primary hover:bg-primary/10"
+            :title="backItem.title || backItem.label"
+            @click="backItem.onClick?.()"
+          >
+            <AppIcon name="chevron-left" class="h-4 w-4 shrink-0" />
+            <span class="min-w-0 max-w-40 truncate">{{ backItem.label }}</span>
+          </button>
+          <slot v-if="!tabs.length" name="left" />
+        </div>
+        <!-- 中列：标签页居中 -->
+        <div class="flex min-w-0 items-center justify-center">
           <UnderlineTabs
             v-if="tabs.length"
             :tabs="tabs"
             :active-key="activeTab"
             @update:active-key="selectTab"
           />
-          <slot v-else name="left" />
         </div>
-        <div class="flex flex-wrap items-center gap-2">
+        <!-- 右列：操作按钮贴右 -->
+        <div class="flex min-w-0 items-center justify-end gap-2">
           <slot name="actions" />
         </div>
       </div>
@@ -46,6 +63,7 @@ import SettingsStickyLayout from "./SettingsStickyLayout.vue";
 import type { SettingsBreadcrumbItem } from "./SettingsBreadcrumb.vue";
 import { useSettingsBreadcrumbContext } from "../composables/use-settings-breadcrumb";
 import UnderlineTabs, { type UnderlineTabItem } from "../../shared/components/UnderlineTabs.vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 
 const props = withDefaults(defineProps<{
   /** 面包屑项，末项为当前层，前面带 onClick 的项可点返回 */
@@ -79,6 +97,15 @@ const emit = defineEmits<{
 }>();
 
 const activeTab = computed(() => props.tab);
+
+/** 最近一个可点层级，返回按钮就回到它；停在顶层时没有可返回项，按钮不渲染。 */
+const backItem = computed(() => {
+  for (let index = props.breadcrumb.length - 1; index >= 0; index -= 1) {
+    const item = props.breadcrumb[index];
+    if (item?.onClick) return item;
+  }
+  return null;
+});
 
 // 面包屑由设置页外壳统一渲染（那一层永远在）：这里只把本级层级上报过去。
 const breadcrumbContext = useSettingsBreadcrumbContext();

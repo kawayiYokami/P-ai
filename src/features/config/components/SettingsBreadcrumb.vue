@@ -4,20 +4,8 @@
        1. 第一层是一枚设置图标，当作「设置」这个根目录，后面接层级，分隔符由 daisyUI 的
           `li + li` 自己给，所以图标必须是一个 <li>，不能放在 ul 外面；
        2. 可点层级去掉 daisyUI 默认的 hover 下划线，换成 hover 底色（负 margin 抵消内边距的位移）。 -->
-  <div v-if="visible" class="flex min-w-0 items-center gap-1">
-    <!-- 返回：回到最近一个可点层级。没有上级时不渲染，避免留一个点了没反应的按钮。
-         它不在 .breadcrumbs 里，所以不会吃到 `li + li` 的分隔符。 -->
-    <button
-      v-if="backItem"
-      type="button"
-      class="btn btn-square btn-ghost btn-sm shrink-0"
-      :title="backItem.title || backItem.label"
-      @click="backItem.onClick?.()"
-    >
-      <AppIcon name="chevron-left" class="h-4 w-4" />
-    </button>
-    <div class="breadcrumbs min-w-0 p-0 text-sm">
-      <ul class="flex flex-wrap items-center">
+  <div v-if="visible" class="breadcrumbs min-w-0 p-0 text-sm">
+    <ul class="flex flex-wrap items-center">
       <li class="flex min-w-0 items-center">
         <!-- pointer-events-none：daisyUI 的 `li > *` 会给子元素加 cursor:pointer，
              图标不可点，让鼠标事件穿过去，光标就不会变成手型。 -->
@@ -49,8 +37,7 @@
           <span>{{ badge.text }}</span>
         </span>
       </li>
-      </ul>
-    </div>
+    </ul>
   </div>
 </template>
 
@@ -93,15 +80,6 @@ const props = defineProps<{
  * 后面的内容就会顶到窗口上沿。
  */
 const visible = computed(() => props.items.length > 0);
-
-/** 最近一个可点层级，返回按钮就回到它；停在顶层时没有可返回项，按钮不渲染。 */
-const backItem = computed(() => {
-  for (let index = props.items.length - 1; index >= 0; index -= 1) {
-    const item = props.items[index];
-    if (item?.onClick) return item;
-  }
-  return null;
-});
 
 function itemBadges(item: SettingsBreadcrumbItem): SettingsBreadcrumbBadge[] {
   if (item.badges && item.badges.length > 0) return item.badges;

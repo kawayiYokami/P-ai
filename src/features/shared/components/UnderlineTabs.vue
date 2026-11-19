@@ -13,7 +13,7 @@
       role="tab"
       class="tab min-w-0 gap-1.5"
       :class="[
-        size === 'sm' ? 'h-7 whitespace-nowrap px-1 text-xs' : 'h-10 px-3 text-base',
+        size === 'sm' ? 'h-7 whitespace-nowrap px-1 text-xs' : 'h-14 px-3 text-base',
         tab.key === activeKey
           ? ['font-semibold', tab.accentClass || 'text-base-content']
           : 'text-base-content/60 hover:text-base-content',
