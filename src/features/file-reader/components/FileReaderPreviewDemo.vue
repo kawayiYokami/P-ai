@@ -1,6 +1,6 @@
 <template>
   <div class="grid gap-3">
-    <div class="file-reader-preview-demo-switch flex flex-wrap items-center gap-2">
+    <GalleryControls class="file-reader-preview-demo-switch">
       <span class="text-xs text-base-content/60">视图：</span>
       <button
         type="button"
@@ -20,7 +20,7 @@
         :class="view === 'image' ? 'btn-primary' : 'btn-ghost'"
         @click="view = 'image'"
       >聊天图片</button>
-    </div>
+    </GalleryControls>
 
     <div class="file-reader-preview-stage h-[520px] overflow-hidden rounded-lg border border-base-content/10 bg-base-100">
       <FileReaderHtmlPreview
@@ -49,6 +49,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import FileReaderHtmlPreview from "./FileReaderHtmlPreview.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 import FileReaderMediaPreview from "./FileReaderMediaPreview.vue";
 import FileReaderRawPreview from "./FileReaderRawPreview.vue";
 

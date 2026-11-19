@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col gap-2 p-2">
-    <div class="flex flex-wrap items-center gap-2 text-xs">
+    <GalleryControls>
       <label class="flex items-center gap-1">
         <input :checked="wrapEnabled" type="checkbox" class="checkbox checkbox-xs" @change="toggleWrap" />
         软换行
@@ -11,7 +11,7 @@
       </select>
       <button type="button" class="btn btn-xs btn-primary" @click="runAll">跑测量</button>
       <span class="text-base-content/60">{{ statusText }}</span>
-    </div>
+    </GalleryControls>
 
     <div
       class="relative flex flex-col overflow-hidden rounded-box border border-base-300 bg-base-100"
@@ -40,6 +40,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import FileReaderPanel from "./FileReaderPanel.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
 
 const DEMO_PATH = "E:/demo/workspace/src/long-lines.ts";
