@@ -107,7 +107,7 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
       entry("chat-view-margin", "ChatViewMargin", "滚动落点", "chat/views/ChatViewDemo.vue", () =>
         import("../chat/views/ChatViewDemo.vue"),
       ),
-      entry("conversation-list", "ChatConversationList", "列表卡", "chat/components/ChatConversationListGalleryDemo.vue", () =>
+      entry("conversation-list", "ChatConversationList", "会话列表", "chat/components/ChatConversationListGalleryDemo.vue", () =>
         import("../chat/components/ChatConversationListGalleryDemo.vue"),
       ),
       entry("conversation-item", "ChatConversationItem", "会话条目", "chat/components/ChatConversationItemDemo.vue", () =>
