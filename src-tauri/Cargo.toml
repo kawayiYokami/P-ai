@@ -29,6 +29,11 @@ tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2.6"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
+# 日志写入层交给 tauri-plugin-log；CLI（headless / ACP）没有 Tauri app，
+# 复用插件 re-export 的 fern 自己装 logger，date-based 让 CLI 日志按天分文件。
+fern = { version = "0.7", features = ["date-based"] }
+log = "0.4"
+tauri-plugin-log = "2.10"
 time = { version = "0.3.53", features = ["local-offset"] }
 rmcp = { version = "3.0.1", features = ["auth", "client", "macros", "transport-child-process", "transport-io", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 async-trait = "0.1"

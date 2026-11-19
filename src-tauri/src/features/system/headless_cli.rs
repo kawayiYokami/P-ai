@@ -120,7 +120,8 @@ fn parse_headless_cli_args(args: &[String]) -> Result<HeadlessCliArgs, String> {
 
 /// CLI 入口：返回进程退出码。正常结束 0，否则 1。
 fn run_headless_cli(parsed: HeadlessCliArgs) -> i32 {
-    init_backend_file_logging();
+    runtime_log_switch_to_cli_file_logger();
+    runtime_log_write_startup_banner();
     let runtime = match install_tauri_async_runtime() {
         Ok(runtime) => runtime,
         Err(err) => return headless_cli_fail(&err),

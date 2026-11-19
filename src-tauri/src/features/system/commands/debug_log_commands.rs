@@ -1,8 +1,22 @@
+/// 内存环形缓冲上限（前端日志窗口读的是它，与落盘文件无关）。
 const RUNTIME_LOG_MAX_BYTES: usize = 10 * 1024 * 1024;
-const BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
-const BACKEND_LOG_MAX_FILES: usize = 20;
-const BACKEND_LOG_ARCHIVE_MAX_BYTES: u64 = 25 * 1024 * 1024;
-const BACKEND_LOG_FILE_NAME: &str = "backend.log";
+/// 落盘日志的单文件上限：与旧实现一致（5MB 触发轮转）。
+const RUNTIME_LOG_FILE_MAX_BYTES: u64 = 5 * 1024 * 1024;
+/// 保留的轮转文件个数（插件按个数保留，没有总量上限）。
+///
+/// 20 × 5MB = 100MB 归档上界，加上当前文件共约 105MB；旧实现是「保留 20 个 + 归档总量 25MB」。
+/// 按裁定取 20：保留份数与旧实现一致，总量上界因此从 25MB 抬到 100MB —— 这个数字要在回执里写明。
+const RUNTIME_LOG_FILE_KEEP: usize = 20;
+/// 日志文件名（不含扩展名）：插件按 `<dir>/<name>.log` 落地，轮转文件为 `<name>_<date>.log`。
+const RUNTIME_LOG_FILE_NAME: &str = "backend";
+/// 日志目录名，相对应用根（便携版即 `data/logs`）。
+const RUNTIME_LOG_DIR_NAME: &str = "logs";
+/// 统一 target：便于按 target 过滤与排障。
+const RUNTIME_LOG_TARGET: &str = "p_ai";
+/// 启动分隔线：区分两次启动的判据，不许丢。
+const RUNTIME_LOG_STARTUP_BANNER: &str = "========== 本次启动开始 ==========";
+/// logger 就绪前缓存待落盘条目的上限，避免启动期异常刷屏撑爆内存。
+const RUNTIME_LOG_PENDING_MAX: usize = 5000;
 const DEFAULT_LLM_ROUND_LOG_CAPACITY: usize = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,110 +163,157 @@ fn runtime_log_buffer() -> &'static Mutex<RuntimeLogBuffer> {
     RUNTIME_LOGS.get_or_init(|| Mutex::new(RuntimeLogBuffer::default()))
 }
 
-fn backend_log_write_lock() -> &'static Mutex<()> {
-    static BACKEND_LOG_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    BACKEND_LOG_WRITE_LOCK.get_or_init(|| Mutex::new(()))
-}
-
-fn backend_log_path() -> &'static Option<PathBuf> {
-    static BACKEND_LOG_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
-    BACKEND_LOG_PATH.get_or_init(resolve_backend_log_path)
-}
-
-fn resolve_backend_log_path() -> Option<PathBuf> {
+/// 日志目录：与旧实现同一口径，桌面与 CLI 共用。
+///
+/// 便携版取 exe 同级 `data/logs`；标准安装取 `ProjectDirs` 的 config 目录下 `logs`；
+/// 再退到 exe 同级 `logs`，最后退到临时目录。
+fn resolve_runtime_log_dir() -> Option<PathBuf> {
     let log_dir = detect_portable_runtime_root()
         .or_else(|| {
             ProjectDirs::from("ai", "easycall", "p-ai")
                 .map(|dirs| dirs.config_dir().to_path_buf())
         })
-        .or_else(|| current_exe_dir())
+        .or_else(current_exe_dir)
         .unwrap_or_else(std::env::temp_dir)
-        .join("logs");
+        .join(RUNTIME_LOG_DIR_NAME);
     if fs::create_dir_all(&log_dir).is_err() {
         return None;
     }
-    Some(log_dir.join(BACKEND_LOG_FILE_NAME))
+    Some(log_dir)
 }
 
-fn backend_log_archive_path(path: &PathBuf) -> PathBuf {
-    let ts = now_utc().unix_timestamp();
-    let pid = std::process::id();
-    for index in 0..100_u32 {
-        let suffix = if index == 0 {
-            String::new()
-        } else {
-            format!(".{index}")
-        };
-        let candidate = path.with_file_name(format!("backend.{ts}.{pid}{suffix}.log"));
-        if !candidate.exists() {
-            return candidate;
-        }
+fn runtime_log_pending() -> &'static Mutex<Vec<(log::Level, String)>> {
+    static RUNTIME_LOG_PENDING: OnceLock<Mutex<Vec<(log::Level, String)>>> = OnceLock::new();
+    RUNTIME_LOG_PENDING.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn runtime_log_logger_ready_flag() -> &'static std::sync::atomic::AtomicBool {
+    static RUNTIME_LOG_LOGGER_READY: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    &RUNTIME_LOG_LOGGER_READY
+}
+
+/// logger 是否已经装好。
+///
+/// `log` 在没装 logger 时 `max_level` 是 `Off`，装好之后由 logger 自己设置；
+/// 用这个判据而不是自己记「初始化函数被调用过」，桌面插件的 logger 在 app 构建期才安装，
+/// 初始化函数先调用也说明不了什么。
+fn runtime_log_logger_ready() -> bool {
+    let flag = runtime_log_logger_ready_flag();
+    if flag.load(std::sync::atomic::Ordering::Relaxed) {
+        return true;
     }
-    path.with_file_name(format!("backend.{ts}.{pid}.fallback.log"))
+    let ready = log::max_level() != log::LevelFilter::Off;
+    if ready {
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    ready
 }
 
-fn is_backend_log_archive(path: &PathBuf) -> bool {
-    let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
-        return false;
+fn runtime_log_level(level: &str) -> log::Level {
+    match level.trim().to_ascii_lowercase().as_str() {
+        "error" => log::Level::Error,
+        "warn" | "warning" => log::Level::Warn,
+        "debug" => log::Level::Debug,
+        "trace" => log::Level::Trace,
+        _ => log::Level::Info,
+    }
+}
+
+/// 桌面插件的日志配置：`backend.log` 落在应用日志目录，同时回显到 stderr。
+///
+/// 不用插件的 `LogDir`：那会固定落到系统用户目录，破坏便携版「数据跟着 exe 走」的语义。
+fn runtime_log_plugin_builder() -> tauri_plugin_log::Builder {
+    let mut builder = tauri_plugin_log::Builder::new()
+        .clear_targets()
+        .level(log::LevelFilter::Trace)
+        // 只收本应用自己的记录：全局 logger 会把所有依赖库的 log 也接进来，
+        // 那些噪音会把 5MB 的轮转窗口瞬间打满，排障时反而找不到自己要的那几行。
+        .filter(|metadata: &log::Metadata| metadata.target() == RUNTIME_LOG_TARGET)
+        .max_file_size(RUNTIME_LOG_FILE_MAX_BYTES as u128)
+        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(
+            RUNTIME_LOG_FILE_KEEP,
+        ))
+        .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
+        .target(tauri_plugin_log::Target::new(
+            tauri_plugin_log::TargetKind::Stderr,
+        ));
+    if let Some(dir) = resolve_runtime_log_dir() {
+        builder = builder.target(tauri_plugin_log::Target::new(
+            tauri_plugin_log::TargetKind::Folder {
+                path: dir,
+                file_name: Some(RUNTIME_LOG_FILE_NAME.to_string()),
+            },
+        ));
+    }
+    builder
+}
+
+/// 桌面路径不要调用：插件会自己装全局 logger，先装会冲突。
+///
+/// headless CLI 与 ACP 不构建 Tauri app，装不上插件，用插件 re-export 的 fern 自装一份，
+/// 配置与桌面共用同一组常量：同一日志目录、同一 5MB 触发点、同一时区（本地）。
+fn init_cli_file_logger() {
+    static CLI_LOGGER_INSTALLED: OnceLock<()> = OnceLock::new();
+    if CLI_LOGGER_INSTALLED.set(()).is_err() {
+        return;
+    }
+    let mut dispatch = fern::Dispatch::new()
+        .level(log::LevelFilter::Trace)
+        // 与桌面插件同一口径：只写本应用自己的记录，不接依赖库的 log。
+        .filter(|metadata: &log::Metadata| metadata.target() == RUNTIME_LOG_TARGET)
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{} {:<5} {}",
+                now_log_local_rfc3339(),
+                record.level().as_str().to_uppercase(),
+                message
+            ))
+        });
+    if let Some(dir) = resolve_runtime_log_dir() {
+        // 按天分文件（`backend.2026-11-19.log`）：CLI 没有插件的按大小轮转，
+        // 用 fern 自带能力把单文件增长框在一个自然日内。
+        dispatch = dispatch.chain(fern::DateBased::new(
+            dir.join(format!("{RUNTIME_LOG_FILE_NAME}.")),
+            ".%Y-%m-%d.log",
+        ));
+    }
+    if !headless_cli_console_logging_suppressed() {
+        dispatch = dispatch.chain(std::io::stderr());
+    }
+    if let Err(err) = dispatch.apply() {
+        eprintln!("[日志] 初始化 CLI 文件日志失败，将只保留内存缓冲: {err}");
+    }
+}
+
+/// 启动分隔线：区分两次启动的判据，不许丢。
+fn runtime_log_write_startup_banner() {
+    runtime_log_info(RUNTIME_LOG_STARTUP_BANNER.to_string());
+}
+
+/// 无 Tauri app 的路径（headless CLI / ACP / 桌面进程里提前退出的分支）用这个：
+/// 先装 CLI logger，再把 logger 就绪前积压的启动日志补写出去。
+///
+/// 逻辑：logger 已就绪时 `runtime_log_push` 会先把 pending 冲干净，所以上一条日志就够。
+fn runtime_log_switch_to_cli_file_logger() {
+    init_cli_file_logger();
+    runtime_log_flush_pending();
+}
+
+/// 把 logger 就绪前缓存的条目补写到 logger。
+///
+/// 先整体取走再逐条写：写的过程中不持有 pending 锁，避免 logger 内部锁与它互相嵌套。
+fn runtime_log_flush_pending() {
+    if !runtime_log_logger_ready() {
+        return;
+    }
+    let drained = match runtime_log_pending().lock() {
+        Ok(mut pending) => std::mem::take(&mut *pending),
+        Err(_) => return,
     };
-    name.starts_with("backend.") && name.ends_with(".log") && name != BACKEND_LOG_FILE_NAME
-}
-
-fn prune_backend_log_archives(path: &PathBuf) {
-    let Some(dir) = path.parent() else {
-        return;
-    };
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    let mut archives = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(is_backend_log_archive)
-        .filter_map(|archive_path| {
-            let metadata = fs::metadata(&archive_path).ok()?;
-            let modified = metadata.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            Some((archive_path, modified, metadata.len()))
-        })
-        .collect::<Vec<_>>();
-    archives.sort_by(|a, b| b.1.cmp(&a.1));
-
-    let mut kept_files = 0_usize;
-    let mut kept_bytes = 0_u64;
-    for (archive_path, _, bytes) in archives {
-        let next_files = kept_files.saturating_add(1);
-        let next_bytes = kept_bytes.saturating_add(bytes);
-        if next_files > BACKEND_LOG_MAX_FILES || next_bytes > BACKEND_LOG_ARCHIVE_MAX_BYTES {
-            let _ = fs::remove_file(archive_path);
-        } else {
-            kept_files = next_files;
-            kept_bytes = next_bytes;
-        }
+    for (level, message) in drained {
+        log::log!(target: RUNTIME_LOG_TARGET, level, "{}", message);
     }
-}
-
-fn archive_backend_log(path: &PathBuf) {
-    let Ok(metadata) = fs::metadata(path) else {
-        return;
-    };
-    if metadata.len() == 0 {
-        return;
-    }
-    let target = backend_log_archive_path(path);
-    if fs::rename(path, &target).is_err() {
-        if fs::copy(path, &target).is_ok() {
-            let _ = fs::remove_file(path);
-        }
-    }
-    prune_backend_log_archives(path);
-}
-
-fn rotate_backend_log_if_needed(path: &PathBuf, pending_bytes: u64) {
-    let current_bytes = fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
-    if current_bytes.saturating_add(pending_bytes) <= BACKEND_LOG_MAX_BYTES {
-        return;
-    }
-    archive_backend_log(path);
 }
 
 fn now_log_local_rfc3339() -> String {
@@ -267,61 +328,9 @@ fn now_log_local_rfc3339() -> String {
         .unwrap_or_else(now_utc_rfc3339)
 }
 
-/// panic 路径专用：拿不到写锁就放弃这行日志，绝不等待。
-///
-/// release 用 panic = "abort" 之后没有栈展开，若 panic 恰好发生在
-/// `append_backend_log_line` 自己的持锁区内，同线程再 lock() 会永久阻塞——
-/// 表现为进程挂死而不是退出，比丢一行日志严重得多。
-fn append_backend_log_line_try(level: &str, message: &str) {
-    let Some(path) = backend_log_path().as_ref() else {
-        return;
-    };
-    let Ok(_guard) = backend_log_write_lock().try_lock() else {
-        return;
-    };
-    let line = format!(
-        "{} {:<5} {}\n",
-        now_log_local_rfc3339(),
-        level.to_uppercase(),
-        message
-    );
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = std::io::Write::write_all(&mut file, line.as_bytes());
-    }
-}
-
-fn append_backend_log_line(level: &str, message: &str) {
-    let Some(path) = backend_log_path().as_ref() else {
-        return;
-    };
-    let Ok(_guard) = backend_log_write_lock().lock() else {
-        return;
-    };
-    let line = format!(
-        "{} {:<5} {}\n",
-        now_log_local_rfc3339(),
-        level.to_uppercase(),
-        message
-    );
-    rotate_backend_log_if_needed(path, line.len() as u64);
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = std::io::Write::write_all(&mut file, line.as_bytes());
-    }
-}
-
-fn init_backend_file_logging() {
-    let Some(path) = backend_log_path().as_ref() else {
-        return;
-    };
-    if let Ok(_guard) = backend_log_write_lock().lock() {
-        archive_backend_log(path);
-    }
-    append_backend_log_line("info", "========== 本次启动开始 ==========");
-}
-
-fn install_backend_file_panic_hook() {
-    static BACKEND_FILE_PANIC_HOOK_INSTALLED: OnceLock<()> = OnceLock::new();
-    if BACKEND_FILE_PANIC_HOOK_INSTALLED.set(()).is_err() {
+fn install_runtime_log_panic_hook() {
+    static RUNTIME_LOG_PANIC_HOOK_INSTALLED: OnceLock<()> = OnceLock::new();
+    if RUNTIME_LOG_PANIC_HOOK_INSTALLED.set(()).is_err() {
         return;
     }
     let previous_hook = std::panic::take_hook();
@@ -340,15 +349,17 @@ fn install_backend_file_panic_hook() {
             .name()
             .unwrap_or("unnamed")
             .to_string();
-        append_backend_log_line_try(
-            "error",
-            &format!(
-                "[panic] location={} thread={} payload={}",
-                location.trim(),
-                thread_name.trim(),
-                payload.trim()
-            ),
+        let text = format!(
+            "[panic] location={} thread={} payload={}",
+            location.trim(),
+            thread_name.trim(),
+            payload.trim()
         );
+        // 终端那行先走 eprintln：它不经过 logger 内部的锁，即使 logger 正卡在锁上也一定能出来。
+        // 落盘这一行是 best-effort：panic 若恰好发生在 logger 持锁区，`log::error!` 会等待同一把锁。
+        // 这条代价已知且已上报（旧实现用 try_lock 规避，是因为它自己持锁；logger 不给 try 接口）。
+        eprintln!("{text}");
+        log::log!(target: RUNTIME_LOG_TARGET, log::Level::Error, "{}", text);
         previous_hook(info);
     }));
 }
@@ -452,11 +463,23 @@ fn normalize_runtime_log(level: &str, message: String) -> (String, String) {
 
 fn runtime_log_push(level: &str, message: String) {
     let message = shorten_uuids_in_log(&message);
-    if !headless_cli_console_logging_suppressed() {
-        let _ = std::io::Write::write_all(&mut std::io::stderr(), format!("{message}\n").as_bytes());
-    }
     let (normalized_level, normalized_message) = normalize_runtime_log(level, message);
-    append_backend_log_line(&normalized_level, &normalized_message);
+    // 落盘与终端输出：logger 就绪前只排队，等插件（桌面）或 fern（CLI）装好再补写。
+    // 终端落点由 logger 的 target 决定（桌面 Stderr，CLI 仅在不抑制控制台时才挂 stderr）。
+    let log_level = runtime_log_level(&normalized_level);
+    if runtime_log_logger_ready() {
+        runtime_log_flush_pending();
+        log::log!(
+            target: RUNTIME_LOG_TARGET,
+            log_level,
+            "{}",
+            normalized_message
+        );
+    } else if let Ok(mut pending) = runtime_log_pending().lock() {
+        if pending.len() < RUNTIME_LOG_PENDING_MAX {
+            pending.push((log_level, normalized_message.clone()));
+        }
+    }
     let created_at = now_log_local_rfc3339();
     let Ok(mut buf) = runtime_log_buffer().lock() else {
         return;
@@ -1694,5 +1717,46 @@ mod debug_log_tests {
         assert_eq!(available.len(), 2);
         let called = tools_map.get("toolCallNames").expect("toolCallNames must exist").as_array().expect("array");
         assert_eq!(called.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod runtime_log_pipeline_tests {
+    use super::*;
+
+    /// 级别归一化必须保留：前缀决定级别，正文去掉前缀。
+    #[test]
+    fn normalize_runtime_log_should_lift_prefixed_level() {
+        assert_eq!(
+            normalize_runtime_log("info", "[ERROR] 出错了".to_string()),
+            ("error".to_string(), "出错了".to_string())
+        );
+        assert_eq!(
+            normalize_runtime_log("debug", "[WARN] 慢".to_string()),
+            ("warn".to_string(), "慢".to_string())
+        );
+        // 无前缀时保留传入级别与正文（这里是「换前换后级别与正文一致」的自查基线）。
+        assert_eq!(
+            normalize_runtime_log("info", "普通消息".to_string()),
+            ("info".to_string(), "普通消息".to_string())
+        );
+    }
+
+    /// 前端探针必须仍能进内存缓冲（logger 未就绪时也不许丢），四个读取命令照旧可用。
+    #[test]
+    fn append_runtime_log_probe_should_land_in_buffer_with_declared_level() {
+        if let Ok(mut logs) = runtime_log_buffer().lock() {
+            logs.entries.clear();
+            logs.total_bytes = 0;
+        }
+        append_runtime_log_probe(
+            Some("日志窗口探针".to_string()),
+            Some("warn".to_string()),
+        )
+        .expect("probe");
+        let logs = list_recent_runtime_logs().expect("list recent runtime logs");
+        assert!(logs
+            .iter()
+            .any(|entry| entry.level == "warn" && entry.message.contains("日志窗口探针")));
     }
 }

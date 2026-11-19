@@ -1174,21 +1174,28 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     windows_set_process_app_user_model_id();
-    init_backend_file_logging();
-    install_backend_file_panic_hook();
+    // 日志写入层是 tauri-plugin-log：桌面路径的 logger 在 app 构建期安装，
+    // 这里只装 panic hook。启动期日志先进内存队列，setup 里 flush 并画启动分隔线。
+    install_runtime_log_panic_hook();
     unix_extend_process_path_from_login_shell();
 
     if argv.iter().any(|arg| arg.as_str() == MCP_SCREENSHOT_SERVER_FLAG) {
+        // 这条分支不构建 Tauri app，插件装不上：先用 CLI logger 把积压日志落盘。
+        runtime_log_switch_to_cli_file_logger();
         if let Err(err) = run_desktop_screenshot_mcp_server() {
             runtime_log_info(format!("{err}"));
         }
         return;
     }
     match maybe_run_portable_update_helper_from_args() {
-        Ok(true) => return,
+        Ok(true) => {
+            runtime_log_switch_to_cli_file_logger();
+            return;
+        }
         Ok(false) => {}
         Err(err) => {
             runtime_log_error(format!("[自动更新] 便携版 helper 启动失败: {err}"));
+            runtime_log_switch_to_cli_file_logger();
             return;
         }
     }
@@ -1197,6 +1204,7 @@ fn main() {
         Ok(runtime) => runtime,
         Err(err) => {
             runtime_log_error(format!("[启动] 初始化 Tokio 运行时失败: {err}"));
+            runtime_log_switch_to_cli_file_logger();
             return;
         }
     };
@@ -1205,6 +1213,7 @@ fn main() {
         Ok(state) => state,
         Err(err) => {
             runtime_log_error(format!("[启动] 初始化应用状态失败: {err}"));
+            runtime_log_switch_to_cli_file_logger();
             return;
         }
     };
@@ -1293,6 +1302,7 @@ fn main() {
     let launched_by_autostart = argv.iter().any(|arg| arg.as_str() == AUTOSTART_LAUNCH_FLAG);
 
     builder
+        .plugin(runtime_log_plugin_builder().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
@@ -1311,6 +1321,10 @@ fn main() {
         .manage(ide_context_runtime)
         .setup(move |app| {
             let app_handle = app.handle().clone();
+            // 日志插件的 logger 在插件 setup 阶段已装好：先把启动期积压的日志补写出去，
+            // 再画启动分隔线（它是区分两次启动的判据）。
+            runtime_log_flush_pending();
+            runtime_log_write_startup_banner();
             match app_handle.state::<AppState>().app_handle.lock() {
                 Ok(mut handle_slot) => {
                     *handle_slot = Some(app_handle.clone());

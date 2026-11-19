@@ -195,7 +195,8 @@ fn run_acp_agent_cli() -> i32 {
     // 工具预设与 `p-ai run` 保持一致（禁用委托）；但不抑制 stderr——
     // ACP 要求日志只能走 stderr，stdout 留给协议帧。
     headless_cli_enter_tool_preset(false);
-    init_backend_file_logging();
+    runtime_log_switch_to_cli_file_logger();
+    runtime_log_write_startup_banner();
     let runtime = match install_tauri_async_runtime() {
         Ok(runtime) => runtime,
         Err(err) => return acp_cli_fail(&err),
