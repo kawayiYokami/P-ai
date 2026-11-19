@@ -36,9 +36,10 @@ const props = withDefaults(defineProps<{
   headerClass?: string;
   noScroll?: boolean;
 }>(), {
-  // 内容区不靠"锁总宽"来冻结布局：元素尺寸由各自的固定列宽决定，
-  // 窗口拉宽只增加列数，不把已有元素拉伸。这里只给一个很宽的上限，防超宽屏一行排太多。
-  contentClass: "mx-auto w-full max-w-[80rem]",
+  // 内容区不靠"锁总宽"或"居中留白"来冻结布局：宽度铺满可用空间，元素尺寸由各自的固定列宽决定，
+  // 窗口拉宽只增加列数，不把已有元素拉伸。之前这里用 `mx-auto max-w-[80rem]`，
+  // 最大化时内容被居中、左右各留几百 px 空白，跟左侧贴边的面包屑完全对不上一条线。
+  contentClass: "w-full",
   headerClass: "",
   noScroll: false,
 });
