@@ -1,40 +1,41 @@
 <template>
   <div class="space-y-3">
-    <div class="flex flex-wrap items-center gap-2">
-      <span class="text-xs text-base-content/60">视图：</span>
-      <button
-        type="button"
-        class="btn btn-xs"
-        :class="viewMode === 'composite' ? 'btn-primary' : 'btn-ghost'"
-        @click="viewMode = 'composite'"
-      >
-        综合
-      </button>
-      <button
-        type="button"
-        class="btn btn-xs"
-        :class="viewMode === 'compact' ? 'btn-primary' : 'btn-ghost'"
-        @click="viewMode = 'compact'"
-      >
-        精简
-      </button>
+    <GalleryControls>
+      <span class="text-base-content/60">视图</span>
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          class="btn btn-xs"
+          :class="viewMode === 'composite' ? 'btn-primary' : 'btn-ghost'"
+          @click="viewMode = 'composite'"
+        >
+          综合
+        </button>
+        <button
+          type="button"
+          class="btn btn-xs"
+          :class="viewMode === 'compact' ? 'btn-primary' : 'btn-ghost'"
+          @click="viewMode = 'compact'"
+        >
+          精简
+        </button>
+      </div>
 
-      <span class="ml-3 text-xs text-base-content/60">预设：</span>
-      <button
-        v-for="preset in presetOptions"
-        :key="preset.key"
-        type="button"
-        class="btn btn-xs"
-        :class="activePreset === preset.key ? 'btn-primary' : 'btn-ghost'"
-        @click="activePreset = preset.key"
-      >
-        {{ preset.label }}
-      </button>
-    </div>
-
-    <p class="text-xs text-base-content/50">
-      综合模式按 mock 指定的层级渲染（full / sim / mini 混合）；精简模式全部转简单条目且左侧收窄。点击条目不会产生副作用。
-    </p>
+      <span class="text-base-content/60">预设</span>
+      <div class="flex items-center gap-1">
+        <button
+          v-for="preset in presetOptions"
+          :key="preset.key"
+          type="button"
+          class="btn btn-xs"
+          :class="activePreset === preset.key ? 'btn-primary' : 'btn-ghost'"
+          @click="activePreset = preset.key"
+        >
+          {{ preset.label }}
+        </button>
+      </div>
+      <template #hint>综合模式按 mock 指定的层级渲染（full / sim / mini 混合）；精简模式全部转简单条目且左侧收窄。点击条目不会产生副作用。</template>
+    </GalleryControls>
 
     <div class="flex gap-3">
       <div class="flex w-[360px] max-w-full flex-col overflow-hidden rounded-box border border-base-300 bg-base-200 pb-2">
@@ -74,6 +75,7 @@ import type { ChatConversationOverviewItem, ConversationPreviewMessage } from ".
 import type { ConversationPipelineStatus } from "../../shell/composables/use-pipeline-status";
 import { simpleConversationItemLevel, type ConversationItemLevel } from "../utils/conversation-item-display";
 import ChatConversationItem from "./ChatConversationItem.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 
 type DemoEntry = {
   item: ChatConversationOverviewItem;

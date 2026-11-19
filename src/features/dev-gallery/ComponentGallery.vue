@@ -10,15 +10,9 @@
       </div>
       <div class="px-6 pb-16 pt-6">
         <div class="max-w-4xl">
-          <header class="border-b border-base-content/10 pb-4">
-            <div class="min-w-0">
-              <h2 class="truncate text-2xl font-bold tracking-tight">{{ currentEntry?.title }}</h2>
-              <p v-if="currentEntry?.name" class="mt-1.5 font-mono text-xs text-base-content/45">{{ currentEntry.name }}</p>
-            </div>
-          </header>
-          <div class="pt-6">
+          <GallerySection :title="currentEntry?.title ?? ''" :subtitle="currentEntry?.name">
             <GalleryDetail :entry="currentEntry" />
-          </div>
+          </GallerySection>
         </div>
       </div>
     </div>
@@ -80,6 +74,7 @@ import { computed, onMounted, ref } from "vue";
 import OverlayScrollArea from "../shared/components/OverlayScrollArea.vue";
 import AppIcon from "../shared/components/AppIcon.vue";
 import GalleryDetail from "./GalleryDetail.vue";
+import GallerySection from "./GallerySection.vue";
 import { DEFAULT_GALLERY_KEY, GALLERY_ENTRIES, GALLERY_GROUPS, findGalleryEntry } from "./gallery-registry";
 
 const activeKey = ref(findGalleryEntry(readKeyFromUrl())?.key ?? DEFAULT_GALLERY_KEY);
