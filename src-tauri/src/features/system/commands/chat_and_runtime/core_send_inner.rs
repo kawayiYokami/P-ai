@@ -16,16 +16,15 @@ fn trim_conversation_for_prompt_request(conversation: &Conversation) -> Conversa
     trimmed
 }
 
-fn conversation_current_segment_is_compaction_summary_only(conversation: &Conversation) -> bool {
-    let Some(segment_start) = conversation.messages.iter().rposition(|message| {
-        is_context_compaction_message(message, message.role.trim())
-    }) else {
-        return false;
-    };
-
+/// 这一轮是不是「刚压缩完、被重开的那一轮」。
+///
+/// 压缩重开的轮次本身就是压缩的产物，它看到的大概率还是压缩前的用量与尾部形态，
+/// 再判一次压缩只会连着压第二遍。这是这一轮的属性，调度发起时就已经定下，
+/// 不需要从消息形态去反推。
+fn round_started_by_context_compaction(dispatch_reason: Option<&str>) -> bool {
     matches!(
-        &conversation.messages[segment_start..],
-        [message] if is_context_compaction_message(message, message.role.trim())
+        dispatch_reason.map(str::trim).unwrap_or_default(),
+        "context_compaction_followup" | "after_auto_compaction" | "after_tool_continue_compaction"
     )
 }
 
@@ -1950,6 +1949,9 @@ async fn send_chat_message_inner(
                 ui_language: app_config.ui_language.clone(),
                 chat_overrides: chat_overrides.clone(),
                 trusted_prompt_usage: std::sync::Arc::new(std::sync::Mutex::new(None)),
+                round_after_context_compaction: round_started_by_context_compaction(
+                    runtime_context.dispatch_reason.as_deref(),
+                ),
                 compaction_preserved_messages: std::sync::Arc::new(std::sync::Mutex::new(None)),
             })
         };
@@ -2153,7 +2155,7 @@ async fn send_chat_message_inner(
         let (decision, decision_source) = decide_archive_before_send_from_usage(
             &usage_resolution,
             archive_pipeline_has_assistant_reply(&conversation_for_compaction),
-            conversation_current_segment_is_compaction_summary_only(&conversation_for_compaction),
+            round_started_by_context_compaction(runtime_context.dispatch_reason.as_deref()),
         );
         runtime_log_info(format!(
             "[归档] 发送前检查: should_archive={}, forced={}, reason={}, usage_ratio={:.4}, source={}, latest_real_effective_prompt_tokens={:?}, latest_real_usage_ratio={:?}, estimated_prompt_tokens={:?}, context_window_tokens={}",
@@ -3663,24 +3665,51 @@ mod core_send_inner_tests {
     }
 
     #[test]
-    fn current_segment_compaction_summary_only_should_ignore_preceding_history() {
-        let now = now_iso();
-        let mut messages = vec![
-            test_message_at("old-user", "user", &now),
-            test_message_at("old-assistant", "assistant", &now),
-            test_compaction_message_at("summary", &now),
-        ];
-        let conversation = test_remote_im_conversation_with_messages(messages.clone());
+    fn round_started_by_context_compaction_should_only_match_compaction_reasons() {
+        for reason in [
+            "context_compaction_followup",
+            "after_auto_compaction",
+            "after_tool_continue_compaction",
+        ] {
+            assert!(round_started_by_context_compaction(Some(reason)), "{reason}");
+        }
+        for reason in ["user_send", "queue_dispatch", "guided_queue", "task_due", ""] {
+            assert!(!round_started_by_context_compaction(Some(reason)), "{reason}");
+        }
+        assert!(!round_started_by_context_compaction(None));
+    }
 
-        assert!(conversation_current_segment_is_compaction_summary_only(
-            &conversation
-        ));
+    /// 回归：压缩重开的那一轮不得再触发一次压缩。
+    ///
+    /// 20:01 线上事故：第一次压缩刚完成、调度重开新一轮，重开轮次的发送前检查
+    /// 仍拿到压缩前的真实用量（231110 / 90.28%），21 秒内又压了第二遍，
+    /// 第二次只读到 2 条消息。旧守卫靠「尾部只剩一条压缩消息」反推，而重开会先
+    /// bootstrap 一条空 assistant 消息落库，那份推断必然为假。
+    #[test]
+    fn round_after_context_compaction_should_never_compress_again() {
+        let usage = PromptUsageResolution {
+            effective_prompt_tokens: 231110,
+            usage_ratio: 0.9028,
+            estimated_prompt_tokens: None,
+            source: "assistant_tool_event_prompt_tokens",
+        };
 
-        messages.push(test_message_at("new-user", "user", &now));
-        let conversation = test_remote_im_conversation_with_messages(messages);
-        assert!(!conversation_current_segment_is_compaction_summary_only(
-            &conversation
-        ));
+        let (decision, source) =
+            decide_archive_before_send_from_usage(&usage, true, round_started_by_context_compaction(
+                Some("context_compaction_followup"),
+            ));
+        assert!(!decision.should_archive);
+        assert!(!decision.forced);
+        assert_eq!(decision.reason, "round_after_context_compaction");
+        assert_eq!(source, "round_after_context_compaction");
+
+        // 普通轮次同样 90.28%，该压就必须压，不能被这条豁免顺手抹掉。
+        let (decision, _) =
+            decide_archive_before_send_from_usage(&usage, true, round_started_by_context_compaction(
+                Some("user_send"),
+            ));
+        assert!(decision.should_archive);
+        assert_eq!(decision.reason, "force_context_usage_90");
     }
 
     fn test_remote_im_conversation_with_messages(messages: Vec<ChatMessage>) -> Conversation {

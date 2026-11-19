@@ -1518,17 +1518,17 @@ fn decide_archive_before_send_with_fallback(
 fn decide_archive_before_send_from_usage(
     usage: &PromptUsageResolution,
     has_assistant_reply: bool,
-    current_segment_is_compaction_summary_only: bool,
+    round_after_context_compaction: bool,
 ) -> (ArchiveDecision, &'static str) {
-    if current_segment_is_compaction_summary_only {
+    if round_after_context_compaction {
         return (
             ArchiveDecision {
                 should_archive: false,
                 forced: false,
-                reason: "current_segment_compaction_summary_only".to_string(),
+                reason: "round_after_context_compaction".to_string(),
                 usage_ratio: usage.usage_ratio,
             },
-            "current_segment_compaction_summary_only",
+            "round_after_context_compaction",
         );
     }
     (

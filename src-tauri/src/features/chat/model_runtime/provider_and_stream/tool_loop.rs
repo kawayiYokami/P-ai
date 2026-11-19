@@ -375,6 +375,8 @@ struct ToolLoopAutoCompactionContext {
     ui_language: String,
     chat_overrides: Option<ChatPromptOverrides>,
     trusted_prompt_usage: std::sync::Arc<std::sync::Mutex<Option<TrustedPromptUsage>>>,
+    /// 本轮的发起原因是不是「刚压缩完、被重开」。
+    round_after_context_compaction: bool,
     /// 写入前闸门命中压缩时，把压缩保留消息交回外层调度。
     compaction_preserved_messages:
         std::sync::Arc<std::sync::Mutex<Option<CompactionPreservedMessages>>>,

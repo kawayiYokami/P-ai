@@ -64,7 +64,7 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
     let (decision, decision_source) = decide_archive_before_send_from_usage(
         &usage,
         archive_pipeline_has_assistant_reply(&source),
-        conversation_current_segment_is_compaction_summary_only(&source),
+        context.round_after_context_compaction,
     );
     runtime_log_info(format!(
         "[聊天] 工具续调前上下文整理检查 conversation_id={} should_archive={} forced={} usage_ratio={:.4} source={} reason={} effective_prompt_tokens={} context_window_tokens={} estimated={}",
