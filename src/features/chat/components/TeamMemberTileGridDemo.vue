@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col gap-3">
-    <div class="demo-controls flex flex-wrap items-center gap-3">
+    <GalleryControls>
       <label class="flex items-center gap-2 text-xs text-base-content/70">
         磁贴墙宽度
         <select v-model.number="demoWidth" class="select select-bordered select-xs">
@@ -18,7 +18,7 @@
           <option value="no-issue">没有议题（徽章显忙碌 / 空闲 / 出错）</option>
         </select>
       </label>
-    </div>
+    </GalleryControls>
 
     <!-- 直接复用首页的磁贴墙与队员状态表组件：跨列、行高、滚动高度都来自真实实现，
          手抄一份样式只会在改参数时两边不一致 -->
@@ -43,6 +43,7 @@ import { computed, ref } from "vue";
 import type { TeamMemberTileItem } from "./team-member-tile";
 import HomeTileFlow from "./chat-home/HomeTileFlow.vue";
 import HomeTeamMemberBlock from "./chat-home/HomeTeamMemberBlock.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 
 const demoWidth = ref(586);
 const demoPreset = ref<"full" | "remote" | "with-issue" | "no-issue">("full");

@@ -1,13 +1,13 @@
 <template>
   <div class="flex justify-center">
     <div class="w-full max-w-2xl">
-      <div class="mb-2 flex flex-wrap items-center gap-2">
+      <GalleryControls>
         <span class="text-xs text-base-content/60">形态：</span>
         <button type="button" class="btn btn-xs" :class="isFilled ? 'btn-primary' : 'btn-ghost'" @click="isFilled = !isFilled">{{ isFilled ? '灌满' : '悬浮' }}</button>
         <button type="button" class="btn btn-xs" :class="hasExtra ? 'btn-primary' : 'btn-ghost'" @click="hasExtra = !hasExtra">{{ hasExtra ? '[[abc]def]' : '[[abc]]' }}</button>
         <button type="button" class="btn btn-xs btn-primary" @click="cycleWindowBg">{{ windowBgLabel }}</button>
-      </div>
-      <p class="mb-2 text-xs text-base-content/40">双层卡 · 底卡包面卡 · 露头在面卡上方 · 窗口底色{{ windowBgLabel }}（100→200→300循环，底卡固定base200）</p>
+        <template #hint>双层卡 · 底卡包面卡 · 露头在面卡上方 · 窗口底色{{ windowBgLabel }}（100→200→300循环，底卡固定base200）</template>
+      </GalleryControls>
       <!-- 模拟窗口：矩形容器，只管衬底色 -->
       <div class="p-3 transition-all duration-300 ease-in-out" :class="windowBgClass">
         <DoubleDeckCard :extra-visible="hasExtra" :is-rounded="!isFilled" bg="base-200">
@@ -42,6 +42,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import DoubleDeckCard from "./input-panel/DoubleDeckCard.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 
 const isFilled = ref(true);
 const hasExtra = ref(false);

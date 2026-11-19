@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col gap-2 p-2">
-    <div class="flex items-center gap-3">
+    <GalleryControls>
       <select v-model.number="demoWidth" class="select select-bordered select-xs">
         <option :value="586">586（两列贴墙）</option>
         <option :value="420">420</option>
@@ -16,7 +16,7 @@
         <option value="idle">全部空闲</option>
       </select>
       <span class="text-xs text-base-content/60">{{ members.length }} 名队员</span>
-    </div>
+    </GalleryControls>
     <div
       class="relative flex h-[640px] flex-col overflow-hidden rounded-box border border-base-300 bg-base-100"
       :style="{ width: `min(${demoWidth}px, 100%)` }"

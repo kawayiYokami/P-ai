@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col gap-3">
-    <div class="flex flex-wrap items-center gap-2">
+    <GalleryControls>
       <button type="button" class="btn btn-xs btn-primary" @click="togglePlay">
         {{ playing ? "暂停" : "播放" }}
       </button>
@@ -19,7 +19,7 @@
       <span class="badge badge-sm" :class="streaming ? 'badge-primary' : 'badge-ghost'">
         {{ streaming ? "流式中" : "已结束" }}
       </span>
-    </div>
+    </GalleryControls>
 
     <div class="relative rounded-box border border-base-300 bg-base-200/60 px-4 pb-4 pt-32">
       <div class="absolute inset-x-0 top-0 px-2">
@@ -50,6 +50,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
 import ChatThinkingPreviewBar from "./ChatThinkingPreviewBar.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 
 type DemoNode = { reasoning: string; text: string };
 

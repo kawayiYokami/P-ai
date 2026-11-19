@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { AppMarkdownRenderer, initKatex } from "./index";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 
 // 数学渲染依赖 window.__ecall_katex，使用方必须在 setup 顶层初始化一次（与 ChatMessageItem 一致）
 initKatex();
@@ -193,7 +194,7 @@ const toolcallPreviewMap = {
 
 <template>
   <div class="flex flex-col gap-3">
-    <div class="flex flex-wrap items-center gap-3">
+    <GalleryControls>
       <select v-model="layout" class="select select-bordered select-xs" @change="applyLayoutClass(layout)">
         <option value="compact">紧凑</option>
         <option value="comfortable">适中</option>
@@ -220,7 +221,7 @@ const toolcallPreviewMap = {
         <input v-model.number="demoWidth" type="range" min="360" max="980" step="20" class="range range-xs w-40" />
         <span class="tabular-nums text-base-content/60">{{ demoWidth }}px</span>
       </label>
-    </div>
+    </GalleryControls>
 
     <div
       class="relative flex flex-col overflow-hidden rounded-box border border-base-300 bg-base-100"

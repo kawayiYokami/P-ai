@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col gap-3">
     <!-- 状态开关：直接驱动下排真实组件的 props -->
-    <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+    <GalleryControls>
       <label class="flex cursor-pointer items-center gap-1">
         <input v-model="showPreviewRow" type="checkbox" class="checkbox checkbox-xs" />
         上排预览条
@@ -87,7 +87,7 @@
           <option :value="400">400 · 压测</option>
         </select>
       </label>
-    </div>
+    </GalleryControls>
 
     <!-- 模拟聊天区 + 输入区，悬浮区贴在输入框上沿 -->
     <div
@@ -174,6 +174,7 @@
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 import type { ChatMentionEntry, ChatMentionTarget, ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
 import ChatThinkingPreviewBar from "./ChatThinkingPreviewBar.vue";
 import ChatWorkspaceToolbar from "./ChatWorkspaceToolbar.vue";

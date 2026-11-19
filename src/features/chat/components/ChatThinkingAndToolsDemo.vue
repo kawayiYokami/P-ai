@@ -1,11 +1,11 @@
 <template>
   <div class="flex flex-col gap-4">
-    <div class="flex flex-wrap items-center gap-2">
+    <GalleryControls>
       <span class="text-xs text-base-content/60">宽度</span>
       <input v-model.number="demoWidth" type="range" min="320" max="900" step="20" class="range range-xs w-28" />
       <span class="text-xs text-base-content/50">{{ demoWidth }}px</span>
-      <span class="text-xs text-base-content/40">整页宽度只影响这一栏；气泡里的折叠块、工具时间线、思维链吸顶全部是真实组件。</span>
-    </div>
+      <template #hint>整页宽度只影响这一栏；气泡里的折叠块、工具时间线、思维链吸顶全部是真实组件。</template>
+    </GalleryControls>
 
     <!-- ==================== 样本集 ==================== -->
     <section class="flex flex-col gap-5">
@@ -102,6 +102,7 @@
 import { computed, onBeforeUnmount, onMounted, shallowRef, ref, type ShallowRef } from "vue";
 import type { AssistantStreamBlock, ChatMessage, ChatMessageBlock } from "../../../types/app";
 import ChatMessageItem from "./ChatMessageItem.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useChatMessageBlocks } from "../composables/use-chat-turns";
 import { isDarkAppTheme } from "../../shell/composables/use-app-theme";

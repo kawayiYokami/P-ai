@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-full min-h-0 flex-col bg-base-200">
-    <div class="flex items-center gap-2 border-b border-base-300 bg-base-100 px-3 py-2 text-xs">
+    <GalleryControls>
       <button class="btn btn-xs btn-primary" :disabled="phase === 'streaming'" @click="pump">开始流式</button>
       <button class="btn btn-xs" @click="reset">重置</button>
       <div class="join">
@@ -38,7 +38,7 @@
         </button>
       </div>
       <span class="text-base-content/60">{{ statusText }}</span>
-    </div>
+    </GalleryControls>
     <div class="min-h-0 flex-1">
       <ChatView v-bind="demoProps" />
     </div>
@@ -50,6 +50,7 @@
 // 只有数据源是假的。用来复现「流式时内容跳动」，不碰任何真实会话。
 import { computed, onBeforeUnmount, ref } from "vue";
 import ChatView from "./ChatView.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 import type { ChatMessageBlock } from "../../../types/app";
 
 type ChatViewProps = InstanceType<typeof ChatView>["$props"];

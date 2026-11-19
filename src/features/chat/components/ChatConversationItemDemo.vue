@@ -1,7 +1,7 @@
 <template>
   <div class="relative flex flex-col overflow-hidden rounded-box border border-base-300 bg-base-100">
     <!-- 控制项：只改渲染条件，不改数据 -->
-    <div class="flex flex-wrap items-center gap-3 border-b border-base-300 px-4 py-2 text-xs">
+    <GalleryControls>
       <label class="flex items-center gap-1.5">
         <span class="text-base-content/60">状态</span>
         <select v-model="variantKey" class="select select-bordered select-xs">
@@ -27,7 +27,7 @@
         <input v-model="showSourceBadge" type="checkbox" class="checkbox checkbox-xs" />
         <span class="text-base-content/60">来源徽章</span>
       </label>
-    </div>
+    </GalleryControls>
 
     <div class="p-3">
       <div class="overflow-hidden rounded-box border border-base-300 bg-base-200" :style="{ width: `${rowWidth}px` }">
@@ -59,6 +59,7 @@ import type { ChatConversationOverviewItem, ConversationPreviewMessage } from ".
 import type { ConversationPipelineStatus } from "../../shell/composables/use-pipeline-status";
 import { simpleConversationItemLevel, type ConversationItemLevel } from "../utils/conversation-item-display";
 import ChatConversationItem from "./ChatConversationItem.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 
 type DemoVariant = {
   key: string;

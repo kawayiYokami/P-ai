@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-3">
-    <div class="flex flex-wrap items-center gap-2">
+    <GalleryControls>
       <span class="text-sm font-medium">画布宽度</span>
       <div class="join">
         <button
@@ -20,7 +20,7 @@
         <input v-model="showEmptyState" type="checkbox" class="checkbox checkbox-xs" />
         空态看板
       </label>
-    </div>
+    </GalleryControls>
     <div class="ecall-gallery-wall" :style="{ width: currentPreset.width + 'px' }">
       <ChatHomePanel v-bind="activeWallCards" />
     </div>
@@ -33,6 +33,7 @@ import type { BackgroundShellTaskSummary, ConversationDelegateStatusSummary } fr
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review";
 import ChatHomePanel from "./ChatHomePanel.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 
 const MOCK_WORKSPACE = "E:/github/easy_call_ai";
 

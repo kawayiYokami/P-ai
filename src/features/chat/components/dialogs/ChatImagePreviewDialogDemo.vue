@@ -1,13 +1,13 @@
 <template>
   <div class="flex flex-col gap-2 p-2">
-    <div class="flex flex-wrap items-center gap-2 text-xs">
+    <GalleryControls>
       <button v-for="value in zoomSteps" :key="value" type="button" class="btn btn-xs" @click="setZoom(value)">
         {{ Math.round(value * 100) }}%
       </button>
       <button type="button" class="btn btn-xs btn-primary" @click="runAll">跑读数</button>
       <button type="button" class="btn btn-xs" @click="open = true">打开预览</button>
       <span class="text-base-content/60">{{ statusText }}</span>
-    </div>
+    </GalleryControls>
 
     <div class="relative h-[420px] overflow-hidden rounded-box border border-base-300 bg-base-200">
       <ChatImagePreviewDialog
@@ -47,6 +47,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from "vue";
 import ChatImagePreviewDialog from "./ChatImagePreviewDialog.vue";
+import GalleryControls from "../../../dev-gallery/GalleryControls.vue";
 
 const DATA_URL =
   "data:image/svg+xml;utf8," +

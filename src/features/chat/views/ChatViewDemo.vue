@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col gap-2 p-2">
-    <div class="flex flex-wrap items-center gap-2 text-xs">
+    <GalleryControls>
       <label class="flex items-center gap-1">
         <input v-model="draft" type="checkbox" class="checkbox checkbox-xs" />
         草稿会话（带收件人卡片）
@@ -12,7 +12,7 @@
       </select>
       <button type="button" class="btn btn-xs btn-primary" @click="runAll">跑分组测量</button>
       <span class="text-base-content/60">{{ statusText }}</span>
-    </div>
+    </GalleryControls>
 
     <div
       ref="stageRef"
@@ -35,6 +35,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from "vue";
 import ChatView from "./ChatView.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 import type { ChatMessageBlock } from "../../../types/app";
 
 type ChatViewProps = InstanceType<typeof ChatView>["$props"];

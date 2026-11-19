@@ -1,10 +1,10 @@
 <template>
   <div class="relative flex h-[900px] flex-col overflow-hidden rounded-box border border-base-300 bg-base-100">
-    <div class="flex flex-wrap items-center gap-2 border-b border-base-300 px-3 py-2">
+    <GalleryControls>
       <span class="text-xs text-base-content/60">宽度</span>
       <input v-model.number="demoWidth" type="range" min="320" max="720" step="20" class="range range-xs w-28" />
       <span class="text-xs text-base-content/50">{{ demoWidth }}px</span>
-    </div>
+    </GalleryControls>
 
     <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
       <div :style="{ width: `min(${demoWidth}px, 100%)` }">
@@ -64,6 +64,7 @@
 import { computed, ref } from "vue";
 import type { ChatMessageBlock } from "../../../types/app";
 import ChatMessageItem from "./ChatMessageItem.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 
 const demoWidth = ref(560);
 

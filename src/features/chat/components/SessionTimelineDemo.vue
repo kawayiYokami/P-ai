@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col gap-3">
-    <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+    <GalleryControls>
       <label class="flex items-center gap-1">
         演示宽度
         <select v-model.number="demoWidth" class="select select-bordered select-xs">
@@ -19,7 +19,7 @@
         截断到 100 字
       </label>
       <span class="text-base-content/45">时间线按钮（图标 + 「会话时间线」常驻），点击展开覆盖整个聊天区的垂直时间线</span>
-    </div>
+    </GalleryControls>
 
     <!-- 模拟聊天区：时间线按钮钉在右上角，展开面板几乎盖满整个区域 -->
     <div
@@ -121,6 +121,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import InlineMarkdownText from "../markdown/InlineMarkdownText.vue";
 import { FROST_GLASS, FROST_SURFACE } from "./session-float-styles";

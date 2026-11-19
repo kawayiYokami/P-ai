@@ -1,13 +1,14 @@
 <template>
   <div class="flex justify-center">
     <div class="w-full max-w-2xl">
-      <div class="mb-2 flex flex-wrap items-center gap-2">
+      <div class="mb-2 space-y-2">
+      <GalleryControls>
         <span class="text-xs text-base-content/60">容器：</span>
         <button type="button" class="btn btn-xs" :class="isFilled ? 'btn-primary' : 'btn-ghost'" @click="isFilled = !isFilled">{{ isFilled ? '灌满' : '悬浮' }}</button>
         <button type="button" class="btn btn-xs btn-primary" @click="cycleDemoContainerBg">{{ demoContainerBgLabel }}</button>
         <span class="text-xs text-base-content/40">模拟窗口矩形容器 · 底色 {{ demoContainerBgLabel }}（100→200→300 循环，底盘固定 base200）</span>
-      </div>
-      <div class="mb-2 flex flex-wrap items-center gap-2">
+      </GalleryControls>
+      <GalleryControls>
         <span class="text-xs text-base-content/60">队列：</span>
         <button type="button" class="btn btn-xs" :class="showQueue ? 'btn-primary' : 'btn-ghost'" @click="showQueue ? (showQueue = false) : (resetDemoQueue(), showQueue = true)">显隐</button>
         <button type="button" class="btn btn-xs btn-ghost" @click="addDemoQueueMessage">加入消息</button>
@@ -18,13 +19,14 @@
         <button type="button" class="btn btn-xs" :class="showBridges ? 'btn-primary' : 'btn-ghost'" @click="showBridges ? (showBridges = false) : (resetDemoBridges(), showBridges = true)">桥显隐</button>
         <button type="button" class="btn btn-xs btn-ghost" @click="addDemoBridge">加入桥</button>
         <button type="button" class="btn btn-xs" :class="demoBusy ? 'btn-primary' : 'btn-ghost'" @click="demoBusy = !demoBusy">忙碌态</button>
-      </div>
-      <div class="mb-2 flex flex-wrap items-center gap-2">
+      </GalleryControls>
+      <GalleryControls>
         <span class="text-xs text-base-content/60">功能：</span>
         <button type="button" class="btn btn-xs" :class="demoMentions.length > 0 ? 'btn-primary' : 'btn-ghost'" @click="demoMentions.length > 0 ? (demoMentions = []) : resetDemoMentions()">提及</button>
         <button type="button" class="btn btn-xs" :class="goalActive ? 'btn-primary' : 'btn-ghost'" @click="goalActive = !goalActive">目标</button>
         <button type="button" class="btn btn-xs" :class="planModeEnabled ? 'btn-primary' : 'btn-ghost'" @click="planModeEnabled = !planModeEnabled">计划模式</button>
         <button type="button" class="btn btn-xs" :class="demoWheelchairSuggestionKind !== 'off' ? 'btn-primary' : 'btn-ghost'" @click="cycleDemoWheelchairSuggestion">建议：{{ demoWheelchairSuggestionLabel }}</button>
+      </GalleryControls>
       </div>
 
       <div class="mb-3 rounded-box border border-base-300 bg-base-100 p-3">
@@ -124,6 +126,7 @@ import { computed, ref } from "vue";
 import ChatComposerPanel from "./ChatComposerPanel.vue";
 import HomeKanbanCard from "./chat-home/HomeKanbanCard.vue";
 import InputPanelCanvas from "./input-panel/InputPanelCanvas.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 import { useKanbanIssueReferences } from "../composables/use-kanban-issue-references";
 import type { KanbanIssue } from "../composables/use-kanban-board";
 import type {
