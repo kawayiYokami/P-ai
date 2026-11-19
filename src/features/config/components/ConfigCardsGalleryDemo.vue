@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-4 p-1">
     <!-- 控制栏：分类切换 + 宽度切换 + 主题切换 -->
-    <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-base-300 bg-base-100 p-3 shadow-2xs">
+    <GalleryControls class="justify-between">
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-xs font-semibold text-base-content/70">分类：</span>
         <SegmentedControl
@@ -35,7 +35,7 @@
           </select>
         </div>
       </div>
-    </div>
+    </GalleryControls>
 
     <!-- 画布容器 -->
     <div
@@ -344,6 +344,7 @@ import { computed, ref } from "vue";
 import AppIcon from "../../shared/components/AppIcon.vue";
 
 import SegmentedControl from "./SegmentedControl.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 import { formatEndpointDisplay } from "../utils/api-config-display";
 
 const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;

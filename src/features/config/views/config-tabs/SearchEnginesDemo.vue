@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col gap-2">
-    <div class="flex flex-wrap items-center gap-2 text-xs" data-demo-chrome>
+    <GalleryControls>
       <label class="flex items-center gap-1">
         <span class="opacity-70">宽度</span>
         <select v-model.number="demoWidth" class="select select-bordered select-xs">
@@ -18,7 +18,7 @@
         </select>
       </label>
       <span class="opacity-60">脏态：{{ dirty ? "有改动" : "干净" }}</span>
-    </div>
+    </GalleryControls>
 
     <div
       class="overflow-hidden rounded-box border border-base-300"
@@ -72,6 +72,7 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../../shared/components/AppIcon.vue";
+import GalleryControls from "../../../dev-gallery/GalleryControls.vue";
 import type { AppConfig, SearchEngineConfigItem, SearchMode } from "../../../../types/app";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
 import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";

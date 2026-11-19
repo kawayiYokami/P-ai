@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import type { CatalogEntry } from "../../../types/app";
 import CatalogEntryCard from "../views/config-tabs/CatalogEntryCard.vue";
+import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 
 // 喂的是商店里真实存在的条目形态：有图标的、没图标的、已装的、装不了的。
 const entries = computed<CatalogEntry[]>(() => [
@@ -81,7 +82,7 @@ function record(text: string) {
 
 <template>
   <div class="flex flex-col gap-4">
-    <div class="flex flex-wrap items-center gap-3 text-xs">
+    <GalleryControls>
       <label class="flex items-center gap-1.5">
         <span class="whitespace-nowrap opacity-60">卡宽</span>
         <select v-model.number="cardWidth" class="select select-bordered select-xs">
@@ -91,7 +92,7 @@ function record(text: string) {
         </select>
       </label>
       <span class="opacity-50">交互回调只记录，不落库</span>
-    </div>
+    </GalleryControls>
 
     <div
       class="grid gap-3"
