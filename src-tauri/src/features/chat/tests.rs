@@ -4847,6 +4847,59 @@
     }
 
     #[test]
+    fn state_schedule_conversation_persist_should_not_revive_answered_questions() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let conversation =
+            test_chat_conversation("conversation-question-no-revive", "active", &now);
+        state_schedule_conversation_persist(&state, &conversation)
+            .expect("schedule initial persist");
+
+        // 提问工具落下两道待答题
+        let seeded = serde_json::json!([
+            {
+                "number": 1, "title": "第一题", "background": "",
+                "options": ["A", "B"], "createdAt": now.clone(), "updatedAt": now.clone()
+            },
+            {
+                "number": 2, "title": "第二题", "background": "",
+                "options": ["A", "B"], "createdAt": now.clone(), "updatedAt": now.clone()
+            }
+        ]);
+        state_update_conversation_metadata_cached(&state, &conversation.id, |conversation| {
+            conversation.questions = serde_json::from_value(seeded.clone())
+                .map_err(|err| format!("构造问题失败: {err}"))?;
+            conversation.question_next_number = 3;
+            Ok(())
+        })
+        .expect("seed questions");
+
+        // 调度在答题之前拿到的快照，里面仍是两道题
+        let scheduling_snapshot =
+            state_read_conversation_cached(&state, &conversation.id).expect("read snapshot");
+        assert_eq!(scheduling_snapshot.questions.len(), 2);
+
+        // 调度进行中，用户答掉第一题（题目按编号升序，首条即 #1）
+        state_update_conversation_metadata_cached(&state, &conversation.id, |conversation| {
+            conversation.questions.remove(0);
+            Ok(())
+        })
+        .expect("answer question");
+
+        // 调度收尾，用那份旧快照落盘
+        state_schedule_conversation_persist(&state, &scheduling_snapshot)
+            .expect("schedule stale persist");
+
+        let cached =
+            state_read_conversation_cached(&state, &conversation.id).expect("read back cached");
+        assert_eq!(cached.questions.len(), 1, "已答的问题不能被调度旧快照写回");
+        assert_eq!(
+            cached.question_next_number, 3,
+            "问题编号游标不应被旧快照回退"
+        );
+    }
+
+    #[test]
     fn state_schedule_conversation_persist_should_preserve_metadata_newer_than_pending_full() {
         let state = test_chat_runtime_state();
         let now = now_iso();

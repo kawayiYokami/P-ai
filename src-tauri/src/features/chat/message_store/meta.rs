@@ -610,6 +610,15 @@ impl ConversationShardMeta {
         target.last_error = self.last_error.clone();
     }
 
+    /// 只把问题列表覆盖到目标会话。
+    ///
+    /// questions / question_next_number 只由提问工具写入。调度等后台路径持有的会话
+    /// 快照可能早于答题完成，落盘前必须用缓存里的当前值覆盖，否则会把已答写回未答。
+    pub(crate) fn apply_questions_to_conversation(&self, target: &mut Conversation) {
+        target.questions = self.questions.clone();
+        target.question_next_number = self.question_next_number;
+    }
+
     pub(super) fn apply_metadata_fields_from_conversation(&mut self, source: &Conversation) {
         self.title = source.title.clone();
         self.agent_id = source.agent_id.clone();

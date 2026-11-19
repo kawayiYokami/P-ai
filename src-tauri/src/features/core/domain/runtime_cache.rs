@@ -331,6 +331,20 @@ fn apply_cached_conversation_metadata(
     Ok(())
 }
 
+fn apply_cached_conversation_questions(
+    state: &AppState,
+    conversation: &mut Conversation,
+) -> Result<(), String> {
+    let metadata = state
+        .cached_conversation_metadata
+        .lock()
+        .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
+    if let Some(source) = metadata.get(&conversation.id) {
+        source.apply_questions_to_conversation(conversation);
+    }
+    Ok(())
+}
+
 fn state_read_conversation_metadata_cached(
     state: &AppState,
     conversation_id: &str,
@@ -1353,6 +1367,9 @@ fn state_schedule_conversation_persist(
         // messages 仍来自传入快照；完整快照若要修改 metadata，应改走字段级 API。
         apply_cached_conversation_metadata(state, &mut conversation_for_cache)?;
     }
+    // questions / question_next_number 只由提问工具写入。调度是「开头拿快照、跑完整轮才落盘」，
+    // 用户在调度中答题时，收尾若照搬快照就会把已答写回未答。这里不看权威标记、无条件取缓存当前值。
+    apply_cached_conversation_questions(state, &mut conversation_for_cache)?;
     if let Some(current) = pending_conversation {
         conversation_for_cache
             .cumulative_usage
