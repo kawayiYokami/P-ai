@@ -917,9 +917,40 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
         min_width as f64,
         min_height as f64,
     ))));
+    // 已经最大化的窗口不要再 set_size / set_position。
+    // 对 maximized 窗口调 SetWindowPos 只是把窗口尺寸临时改掉再被最大化覆盖，
+    // WebView2 会照着那个被请求的旧尺寸重排一次；随后的 maximize 因为「已最大化」不产生新的
+    // WM_SIZE，视口就停在错误尺寸上——表现是最大化状态下重开设置窗，内容边缘错位、右侧空一块，
+    // 手动拖一下窗口才恢复。尺寸恢复本来就该只在非最大化状态下做。
+    if matches!(window.is_maximized(), Ok(true)) {
+        runtime_log_info(format!(
+            "[窗口布局] 跳过尺寸恢复：label={label} 当前已最大化"
+        ));
+        return Ok(());
+    }
     let layouts = window_layouts_snapshot()?;
     let saved = layouts.windows.get(label);
     let fallback_monitor = preferred_window_monitor(&window);
+    match saved {
+        Some(saved) => runtime_log_info(format!(
+            "[窗口布局] 快照: label={label} width={:?} height={:?} x={:?} y={:?} maximized={} monitor={:?}",
+            saved.width,
+            saved.height,
+            saved.x,
+            saved.y,
+            saved.maximized,
+            fallback_monitor
+                .as_ref()
+                .map(|monitor| format!(
+                    "{}x{}@{:.2}",
+                    monitor.size().width,
+                    monitor.size().height,
+                    monitor.scale_factor()
+                ))
+                .unwrap_or_else(|| "none".to_string()),
+        )),
+        None => runtime_log_info(format!("[窗口布局] 无快照：label={label}")),
+    }
 
     if let Some(saved) = saved {
         if let Some(monitor) = fallback_monitor.as_ref() {
@@ -927,10 +958,25 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
             let preferred_height = saved.height;
             let (resolved_width, resolved_height) =
                 resolved_window_size_for_monitor(label, monitor, preferred_width, preferred_height);
+            // 历史快照可能把最大化尺寸当成普通尺寸存了下来（无边框窗口上 is_maximized() 不可靠）。
+            // 这种尺寸按普通窗口 set_size 会让 outer 带边框扩张、比屏幕可用区还大，
+            // 所以直接走最大化：不溢出屏幕，并且下次保存会被记成 maximized。
+            if !saved.maximized
+                && window_size_is_near_fullscreen(resolved_width, resolved_height, monitor)
+            {
+                runtime_log_info(format!(
+                    "[窗口布局] 快照尺寸接近全屏，改为最大化而不是 set_size: label={label} size={resolved_width}x{resolved_height}"
+                ));
+                let _ = window.maximize();
+                return Ok(());
+            }
             let resolved_width_physical =
                 logical_to_physical_px(resolved_width, monitor.scale_factor()) as u32;
             let resolved_height_physical =
                 logical_to_physical_px(resolved_height, monitor.scale_factor()) as u32;
+            runtime_log_info(format!(
+                "[窗口布局] 解析后 set_size: label={label} 请求={resolved_width}x{resolved_height}(逻辑) 物理={resolved_width_physical}x{resolved_height_physical}"
+            ));
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
                 resolved_width as f64,
                 resolved_height as f64,
@@ -981,6 +1027,7 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
             }
         }
         if saved.maximized {
+            runtime_log_info(format!("[窗口布局] 快照要求最大化：label={label}"));
             let _ = window.maximize();
         }
         return Ok(());
@@ -1037,9 +1084,23 @@ fn persist_window_layout_snapshot_with_reason(
     let window = app
         .get_webview_window(label)
         .ok_or_else(|| format!("Window '{label}' not found"))?;
-    let maximized = window
-        .is_maximized()
-        .map_err(|err| format!("Read window maximized state failed: {err}"))?;
+    let maximized = {
+        let reported = window
+            .is_maximized()
+            .map_err(|err| format!("Read window maximized state failed: {err}"))?;
+        // 无边框窗口调 maximize() 之后 is_maximized() 可能仍返回 false，而尺寸已经等于
+        // 显示器可用区。这种尺寸绝不能当普通尺寸存：它比最大化区域还大一圈时
+        // （outer 带边框扩张，会溢出屏幕），下次 show 前 set_size 会把窗口撑到比最大化还大。
+        let near_fullscreen = preferred_window_monitor(&window)
+            .map(|monitor| current_window_size_is_near_fullscreen(&window, &monitor))
+            .unwrap_or(false);
+        if !reported && near_fullscreen {
+            runtime_log_info(format!(
+                "[窗口布局] is_maximized=false 但尺寸接近全屏，按最大化记账：label={label}"
+            ));
+        }
+        reported || near_fullscreen
+    };
     let size_and_position = if maximized {
         None
     } else {
@@ -1071,7 +1132,7 @@ fn persist_window_layout_snapshot_with_reason(
         Some((width, height, x, y))
     };
 
-    upsert_window_layout(label, |entry| {
+    let upsert_result = upsert_window_layout(label, |entry| {
         if let Some((width, height, x, y)) = size_and_position {
             entry.width = Some(width);
             entry.height = Some(height);
@@ -1079,7 +1140,11 @@ fn persist_window_layout_snapshot_with_reason(
             entry.y = Some(y);
         }
         entry.maximized = maximized;
-    })
+    });
+    runtime_log_info(format!(
+        "[窗口布局] 保存快照: label={label} reason={_reason} maximized={maximized} size_and_position={size_and_position:?}"
+    ));
+    upsert_result
 }
 
 /// 为单个窗口注册布局持久化监听（大小/位置/关闭/销毁时写快照）
@@ -1158,22 +1223,56 @@ fn sync_default_tray_icon(app: &AppHandle) -> Result<(), String> {
         .map_err(|err| format!("Set tray icon failed: {err}"))
 }
 
+/// 排查「窗口重新打开后尺寸不对」用：把某一刻的窗口几何状态整条打出来。
+/// 覆盖最大化标记、外层/内层尺寸、坐标、缩放因子与所在显示器，缺一项都判断不了是
+/// 布局恢复算错了，还是 WebView 视口没跟上。
+fn log_window_geometry(stage: &str, label: &str, window: &tauri::WebviewWindow) {
+    let maximized = window.is_maximized().unwrap_or(false);
+    let (outer_w, outer_h) = window
+        .outer_size()
+        .map(|size| (size.width, size.height))
+        .unwrap_or((0, 0));
+    let (inner_w, inner_h) = window
+        .inner_size()
+        .map(|size| (size.width, size.height))
+        .unwrap_or((0, 0));
+    let (pos_x, pos_y) = window
+        .outer_position()
+        .map(|pos| (pos.x, pos.y))
+        .unwrap_or((0, 0));
+    let scale = window.scale_factor().unwrap_or(0.0);
+    let (monitor_w, monitor_h, monitor_scale) = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| (monitor.size().width, monitor.size().height, monitor.scale_factor()))
+        .unwrap_or((0, 0, 0.0));
+    runtime_log_info(format!(
+        "[窗口几何] {stage}: label={label} maximized={maximized} outer={outer_w}x{outer_h} inner={inner_w}x{inner_h} pos=({pos_x}, {pos_y}) scale={scale:.2} monitor={monitor_w}x{monitor_h}@{monitor_scale:.2}"
+    ));
+}
+
 fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
     let chat_side_expanded = label == "chat"
         && read_chat_window_side_expansion()
             .map(|state| state.left_physical > 0 || state.right_physical > 0)
             .unwrap_or(false);
+    if let Some(window) = app.get_webview_window(label) {
+        log_window_geometry("显示前", label, &window);
+    }
     if !chat_side_expanded {
         apply_window_layout_before_show(app, label)?;
     }
     let window = app
         .get_webview_window(label)
         .ok_or_else(|| format!("Window '{label}' not found"))?;
+    log_window_geometry("布局恢复后-show前", label, &window);
 
     let _ = window.unminimize();
     let _ = window.show();
     ensure_window_visible_after_show(app, label);
     let _ = window.set_focus();
+    log_window_geometry("show后", label, &window);
     Ok(())
 }
 
