@@ -5,17 +5,16 @@
     <!-- 右：当前组件 + 效果 -->
     <div class="drawer-content">
       <div class="flex items-center gap-2 border-b border-base-content/10 px-6 py-2 lg:hidden">
-        <label for="gallery-drawer" class="btn btn-ghost btn-sm drawer-button">菜单</label>
+        <label for="gallery-drawer" class="btn btn-ghost btn-sm drawer-button">选组件</label>
         <span class="truncate text-sm font-medium">{{ currentEntry?.title }}</span>
       </div>
       <div class="px-6 pb-16 pt-6">
         <div class="max-w-4xl">
-          <header class="flex items-end justify-between gap-6 border-b border-base-content/10 pb-4">
+          <header class="border-b border-base-content/10 pb-4">
             <div class="min-w-0">
               <h2 class="truncate text-2xl font-bold tracking-tight">{{ currentEntry?.name }}</h2>
               <p class="mt-1.5 text-sm text-base-content/55">{{ currentEntry?.title }}</p>
             </div>
-            <code class="shrink-0 whitespace-nowrap rounded-field bg-base-200 px-2 py-1 font-mono text-xs text-base-content/45">?key={{ activeKey }}</code>
           </header>
           <div class="pt-6">
             <GalleryDetail :entry="currentEntry" />
@@ -26,17 +25,18 @@
 
     <!-- 左：分组 + 组件 -->
     <div class="drawer-side">
-      <label for="gallery-drawer" aria-label="关闭菜单" class="drawer-overlay"></label>
+      <label for="gallery-drawer" aria-label="关闭组件列表" class="drawer-overlay"></label>
       <aside class="flex h-full w-80 flex-col bg-base-100">
         <div class="px-5 pb-3 pt-5">
           <h1 class="text-base font-semibold tracking-tight">组件库</h1>
-          <p class="mt-1 text-xs text-base-content/45">{{ GALLERY_ENTRIES.length }} 个组件 · 仅开发模式</p>
+          <p class="mt-1 text-xs text-base-content/45">共 {{ GALLERY_ENTRIES.length }} 个，只在开发模式可见</p>
         </div>
         <label class="mx-3 mb-2 flex items-center gap-1.5 rounded-field bg-base-200 px-2.5 text-base-content/50">
           <AppIcon name="search" class="h-3.5 w-3.5 shrink-0" />
           <input
             v-model="keyword"
             type="search"
+            aria-label="筛选组件"
             placeholder="筛选组件"
             class="h-8 grow bg-transparent text-[13px] text-base-content outline-none placeholder:text-base-content/40"
           />
@@ -53,7 +53,7 @@
                 <button
                   :ref="(el) => rememberItemEl(item.key, el)"
                   type="button"
-                  :title="`${item.name} · ${item.title}`"
+                  :title="item.title"
                   class="mb-0.5 flex min-h-9 w-full items-center rounded-field px-2.5 py-1.5 text-left text-[13px] transition-colors"
                   :class="
                     item.key === activeKey
@@ -67,7 +67,7 @@
               </li>
             </ul>
           </div>
-          <p v-if="!filteredGroups.length" class="px-2.5 py-6 text-xs text-base-content/40">没有匹配的组件。</p>
+          <p v-if="!filteredGroups.length" class="px-2.5 py-6 text-xs text-base-content/40">没有匹配的组件，换个词试试。</p>
           </nav>
         </OverlayScrollArea>
       </aside>
