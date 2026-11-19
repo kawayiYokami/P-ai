@@ -12,6 +12,35 @@ static CHAT_WINDOW_SIDE_EXPANSION: OnceLock<Mutex<ChatWindowSideExpansion>> = On
 static WINDOW_LAYOUT_STORE: OnceLock<Arc<Mutex<WindowLayoutStore>>> = OnceLock::new();
 static WINDOW_LAYOUT_SAVE_SENDER: OnceLock<std::sync::mpsc::Sender<PersistedWindowLayouts>> =
     OnceLock::new();
+/// 本进程内已经应用过快照的窗口。官方 window-state 插件的口径是「状态恢复只在创建后、
+/// show 前做一次」，不是每次显示都重设尺寸——反复 set_size 会把窗口从最大化状态里拽出来、
+/// 让 WebView 按被请求的旧尺寸重排，最后表现为重开窗口时内容错位。
+static WINDOW_LAYOUT_RESTORED_LABELS: OnceLock<Mutex<std::collections::HashSet<String>>> =
+    OnceLock::new();
+
+fn window_layout_restored_labels() -> &'static Mutex<std::collections::HashSet<String>> {
+    WINDOW_LAYOUT_RESTORED_LABELS.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+fn window_layout_already_restored(label: &str) -> bool {
+    window_layout_restored_labels()
+        .lock()
+        .map(|labels| labels.contains(label))
+        .unwrap_or(false)
+}
+
+fn mark_window_layout_restored(label: &str) {
+    if let Ok(mut labels) = window_layout_restored_labels().lock() {
+        labels.insert(label.to_string());
+    }
+}
+
+/// 窗口重建后要重新走一次恢复：新窗口的初始尺寸是配置里的默认值，不是上一次的布局。
+fn clear_window_layout_restored(label: &str) {
+    if let Ok(mut labels) = window_layout_restored_labels().lock() {
+        labels.remove(label);
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct ChatWindowSideExpansion {
@@ -909,6 +938,21 @@ fn ensure_window_visible_after_show(app: &AppHandle, label: &str) {
 }
 
 fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), String> {
+    // 官方 window-state 的做法是「创建后、show 前恢复一次」，之后不再动窗口尺寸。
+    // 我们这里是 hide/show 复用窗口，早期实现每次 show 都重设一遍，等于每开一次窗口就把
+    // 最大化状态拽掉一次；现在对齐成进程内只恢复一次，后续 show 只负责 unminimize + show。
+    if window_layout_already_restored(label) {
+        runtime_log_info(format!("[窗口布局] 本进程已恢复过，跳过尺寸恢复：label={label}"));
+        return Ok(());
+    }
+    let result = apply_window_layout_once(app, label);
+    if result.is_ok() {
+        mark_window_layout_restored(label);
+    }
+    result
+}
+
+fn apply_window_layout_once(app: &AppHandle, label: &str) -> Result<(), String> {
     let window = app
         .get_webview_window(label)
         .ok_or_else(|| format!("Window '{label}' not found"))?;
@@ -1322,6 +1366,8 @@ fn rebuild_window(app: &AppHandle, label: &str) -> Result<(), String> {
     install_hide_on_close(&window, app);
     webview_health::attach_webview_process_failed_monitor(&window, app);
 
+    // 重建出来的是全新窗口，初始尺寸来自配置而不是上次布局，所以要重新走一次恢复。
+    clear_window_layout_restored(label);
     apply_window_layout_before_show(app, label)?;
     let _ = window.unminimize();
     let _ = window.show();
