@@ -134,8 +134,8 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
     ],
   },
   {
-    id: "team",
-    title: "队伍与磁贴",
+    id: "tile",
+    title: "磁贴",
     entries: [
       entry("team-member-tiles", "TeamMemberTiles", "队员磁贴", "chat/components/TeamMemberTileGridDemo.vue", () =>
         import("../chat/components/TeamMemberTileGridDemo.vue"),
@@ -143,8 +143,8 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
       entry("chat-home", "ChatHomePanel", "首页磁贴", "chat/components/ChatHomePanelDemo.vue", () =>
         import("../chat/components/ChatHomePanelDemo.vue"),
       ),
-      entry("delegates", "DelegateProgressLine", "委派进度条", "demos/DelegatesDemo.vue", () =>
-        import("./demos/DelegatesDemo.vue"),
+      entry("kanban-card", "HomeKanbanCard", "看板磁贴", "demos/KanbanCardDemo.vue", () =>
+        import("./demos/KanbanCardDemo.vue"),
       ),
     ],
   },
@@ -155,8 +155,8 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
       entry("kanban-board", "KanbanBoardPanel", "议题看板", "demos/KanbanBoardDemo.vue", () =>
         import("./demos/KanbanBoardDemo.vue"),
       ),
-      entry("kanban-card", "HomeKanbanCard", "看板磁贴", "demos/KanbanCardDemo.vue", () =>
-        import("./demos/KanbanCardDemo.vue"),
+      entry("delegates", "DelegateProgressLine", "委派进度条", "demos/DelegatesDemo.vue", () =>
+        import("./demos/DelegatesDemo.vue"),
       ),
       entry("overview", "MonitorOverview", "监控概览", "demos/OverviewDemo.vue", () =>
         import("./demos/OverviewDemo.vue"),
