@@ -49,7 +49,7 @@
     <!-- 右：当前组件 + 效果 -->
     <main class="flex min-w-0 flex-1 flex-col">
       <OverlayScrollArea class="min-h-0 flex-1" scroller-class="h-full">
-        <div class="mx-auto w-full max-w-[1180px] px-10 py-9">
+        <div class="mx-auto w-full max-w-5xl px-10 py-9">
           <header class="flex items-end justify-between gap-6 border-b border-base-content/10 pb-4">
             <div class="min-w-0">
               <h2 class="truncate text-2xl font-bold tracking-tight">{{ currentEntry?.name }}</h2>
