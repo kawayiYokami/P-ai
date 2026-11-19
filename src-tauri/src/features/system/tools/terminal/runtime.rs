@@ -127,6 +127,8 @@ struct TerminalBackgroundShellTask {
     id: String,
     _session_id: String,
     conversation_id: String,
+    /// 发起这条后台命令的人格：磁贴上用它显示「谁在跑」的小头像。
+    agent_id: String,
     command: String,
     cwd: String,
     description: String,
@@ -144,6 +146,15 @@ struct TerminalBackgroundShellTask {
 }
 
 type TerminalBackgroundShellTaskHandle = std::sync::Arc<TerminalBackgroundShellTask>;
+
+/// 会话键形如 `<agentId>::<conversationId>`，前一段就是发起这个后台任务的人格。
+fn terminal_background_session_agent_id(session_id: &str) -> String {
+    session_id
+        .rsplit_once("::")
+        .map(|(agent_id, _)| agent_id.trim().to_string())
+        .filter(|agent_id| !agent_id.is_empty())
+        .unwrap_or_default()
+}
 
 /// 后台 shell 的 id 用进程内递增序号：一串 uuid 既不好读也不好敲，会话内序号就够唯一。
 static TERMINAL_BACKGROUND_SHELL_SEQ: std::sync::atomic::AtomicUsize =
@@ -241,6 +252,7 @@ async fn terminal_background_shell_monitor_summaries(
             "description": terminal_background_shell_display_description(&task),
             "command": task.command,
             "cwd": task.cwd,
+            "agentId": task.agent_id,
             "startedAt": task.started_at,
             "timeoutMs": task.timeout_ms,
             "log": terminal_path_for_user(&task.log_path),
@@ -344,6 +356,7 @@ async fn terminal_background_shell_list(state: &AppState, conversation_id: &str)
             "description": terminal_background_shell_display_description(&task),
             "command": task.command,
             "cwd": task.cwd,
+            "agentId": task.agent_id,
             "startedAt": task.started_at,
             "timeoutMs": task.timeout_ms,
             "log": terminal_path_for_user(&task.log_path),
@@ -746,6 +759,7 @@ async fn terminal_background_shell_spawn_and_register(
         id: id.clone(),
         _session_id: session_id.to_string(),
         conversation_id: conversation_id.to_string(),
+        agent_id: terminal_background_session_agent_id(session_id),
         command: command.clone(),
         cwd: cwd.to_string_lossy().to_string(),
         description,

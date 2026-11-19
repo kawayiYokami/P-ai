@@ -2640,6 +2640,9 @@ struct ConversationDelegateStatusSummary {
     cache_write_token_count: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     target_agent_id: Option<String>,
+    /// 发起委托的人格：磁贴卡片用它显示「谁派的」的小头像。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_agent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2792,6 +2795,13 @@ fn conversation_delegate_stats_from_conversation(
     stats
 }
 
+fn conversation_delegate_source_agent_id(app_state: &AppState, delegate_id: &str) -> Option<String> {
+    delegate_store_get_delegate(&app_state.data_path, delegate_id)
+        .ok()
+        .map(|entry| entry.source_agent_id.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn conversation_delegate_status_from_entry(
     app_state: &AppState,
     delegate_id: &str,
@@ -2891,6 +2901,7 @@ fn conversation_delegate_summary_from_thread(
         cache_read_token_count: stats.cumulative_usage.cache_read_tokens,
         cache_write_token_count: stats.cumulative_usage.cache_write_tokens,
         target_agent_id: Some(snapshot.target_agent_id.clone()),
+        source_agent_id: conversation_delegate_source_agent_id(app_state, &delegate_id),
     })
 }
 
@@ -2928,6 +2939,7 @@ fn conversation_delegate_summary_from_snapshot(
         cache_read_token_count: snapshot.cumulative_usage.cache_read_tokens,
         cache_write_token_count: snapshot.cumulative_usage.cache_write_tokens,
         target_agent_id: Some(snapshot.target_agent_id.clone()),
+        source_agent_id: conversation_delegate_source_agent_id(app_state, &snapshot.delegate_id),
     })
 }
 

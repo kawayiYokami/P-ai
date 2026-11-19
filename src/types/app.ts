@@ -1253,6 +1253,8 @@ export type ConversationDelegateStatusSummary = {
   cacheReadTokenCount?: number;
   cacheWriteTokenCount?: number;
   targetAgentId?: string;
+  /** 发起委托的人格：磁贴卡片用它显示「谁派的」小头像 */
+  sourceAgentId?: string;
 };
 
 export type BackgroundShellTaskSummary = {
@@ -1263,6 +1265,8 @@ export type BackgroundShellTaskSummary = {
   description: string;
   command: string;
   cwd: string;
+  /** 发起这条后台命令的人格：磁贴卡片用它显示小头像 */
+  agentId?: string;
   startedAt: string;
   timeoutMs: number | null;
   log: string;
