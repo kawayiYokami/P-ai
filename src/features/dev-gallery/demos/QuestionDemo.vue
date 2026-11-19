@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-3 pt-2">
-    <div class="flex flex-wrap items-center gap-2">
+    <GalleryControls>
       <span class="text-xs text-base-content/60">预设：</span>
       <button type="button" class="btn btn-xs" :class="demoQuestionPreset === 'single' ? 'btn-primary' : 'btn-ghost'" @click="demoQuestionPreset = 'single'">shell单行</button>
       <button type="button" class="btn btn-xs" :class="demoQuestionPreset === 'singleLong' ? 'btn-primary' : 'btn-ghost'" @click="demoQuestionPreset = 'singleLong'">shell 10 行</button>
@@ -9,14 +9,12 @@
       <button type="button" class="btn btn-xs" :class="demoQuestionPreset === 'custom' ? 'btn-primary' : 'btn-ghost'" @click="demoQuestionPreset = 'custom'">多选项</button>
       <button type="button" class="btn btn-xs btn-ghost" @click="resetDemoQuestionAnswers">重置</button>
       <span v-if="demoQuestionLastSubmit" class="text-xs text-success">已提交 {{ demoQuestionLastSubmit.length }} 题</span>
-    </div>
-    <div class="flex flex-wrap items-center gap-2">
       <label class="flex cursor-pointer items-center gap-1.5 text-xs">
         <input type="checkbox" class="checkbox checkbox-xs" v-model="demoWithWorkspace">
         <span>演示目录全权（可记忆工作区）</span>
       </label>
       <span v-if="demoWithWorkspace" class="text-xs text-base-content/50">右上角会出现“目录全权”</span>
-    </div>
+    </GalleryControls>
     <div class="flex justify-center">
       <ChatQuestionPanel
         :key="demoQuestionPreset + String(demoWithWorkspace)"
@@ -38,6 +36,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import GalleryControls from "../GalleryControls.vue";
 import ChatQuestionPanel from "../../chat/components/ChatQuestionPanel.vue";
 import type { QuestionItem as ChatQuestionItem } from "../../chat/components/ChatQuestionPanel.vue";
 

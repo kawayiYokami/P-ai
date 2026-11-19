@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-4">
-    <div class="flex flex-wrap items-center gap-3">
+    <GalleryControls>
       <span class="text-xs text-base-content/70">容器宽度调节：</span>
       <input
         v-model.number="containerWidth"
@@ -15,7 +15,7 @@
       <button type="button" class="btn btn-ghost btn-xs" @click="containerWidth = 240">窄视口 (240px)</button>
       <button type="button" class="btn btn-ghost btn-xs" @click="containerWidth = 560">宽视口 (560px)</button>
       <button type="button" class="btn btn-ghost btn-xs text-primary" @click="resetTabs">重置标签列表</button>
-    </div>
+    </GalleryControls>
 
     <div class="space-y-4">
       <div>
@@ -64,6 +64,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import GalleryControls from "../GalleryControls.vue";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
 import type { PanelTabStripItem } from "../../shared/components/panel-tab-strip.types";
 

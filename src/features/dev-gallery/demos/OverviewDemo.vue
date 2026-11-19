@@ -1,12 +1,12 @@
 <template>
   <div class="space-y-3">
-    <div class="flex flex-wrap items-center gap-2">
+    <GalleryControls>
       <span class="text-xs text-base-content/60">预设：</span>
       <button type="button" class="btn btn-xs" :class="preset === 'normal' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'normal'">常规</button>
       <button type="button" class="btn btn-xs" :class="preset === 'empty' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'empty'">空闲</button>
       <button type="button" class="btn btn-xs" :class="preset === 'busy' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'busy'">高负载</button>
       <button type="button" class="btn btn-xs" :class="preset === 'backgroundOnly' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'backgroundOnly'">仅后台任务</button>
-    </div>
+    </GalleryControls>
     <div class="flex justify-center">
       <div class="h-[440px] w-[400px] overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm">
         <MonitorOverview
@@ -23,6 +23,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import GalleryControls from "../GalleryControls.vue";
 import MonitorOverview from "../../chat/components/MonitorOverview.vue";
 import type {
   BackgroundShellTaskSummary,

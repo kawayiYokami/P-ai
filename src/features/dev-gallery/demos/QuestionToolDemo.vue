@@ -1,12 +1,12 @@
 <template>
   <div class="space-y-3 pt-2">
-    <div class="flex flex-wrap items-center gap-2">
+    <GalleryControls>
       <span class="text-xs text-base-content/60">预设：</span>
       <button type="button" class="btn btn-xs" :class="demoQuestionToolItems.length > 0 ? 'btn-primary' : 'btn-ghost'" @click="setDemoQuestionToolPreset('pending')">3 题待答（#2/#5/#7）</button>
       <button type="button" class="btn btn-xs" :class="demoQuestionToolItems.length === 0 ? 'btn-primary' : 'btn-ghost'" @click="setDemoQuestionToolPreset('empty')">全部发完（空态）</button>
       <button type="button" class="btn btn-xs btn-ghost" @click="resetDemoQuestionTool">重置</button>
       <span v-if="demoQuestionToolLastSubmit" class="text-xs text-success">已发送 {{ demoQuestionToolLastSubmitLabel }}<template v-if="demoQuestionToolItems.length > 0">，还剩 {{ demoQuestionToolItems.length }} 题</template></span>
-    </div>
+    </GalleryControls>
     <div v-if="demoQuestionToolPanelItems.length > 0" class="flex justify-center">
       <ChatQuestionPanel
         key="demo-question-tool"
@@ -30,6 +30,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import ChatQuestionPanel from "../../chat/components/ChatQuestionPanel.vue";
+import GalleryControls from "../GalleryControls.vue";
 import {
   buildConversationQuestionItems,
   pruneConversationQuestionAnswers,

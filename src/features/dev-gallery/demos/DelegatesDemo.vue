@@ -1,13 +1,13 @@
 <template>
   <div class="flex flex-col gap-3">
-    <div class="flex flex-wrap items-center gap-2">
+    <GalleryControls>
       <span class="text-xs text-base-content/60">预设：</span>
       <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'normal' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'normal'">仅委托</button>
       <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'tasksOnly' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'tasksOnly'">仅任务</button>
       <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'shellsOnly' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'shellsOnly'">仅终端</button>
       <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'all' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'all'">全部运行</button>
       <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'empty' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'empty'">空闲</button>
-    </div>
+    </GalleryControls>
     <div class="flex w-full max-w-2xl flex-wrap items-center gap-2">
       <SessionControlItems
         workspace-button-label="工作空间"
@@ -47,6 +47,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import SessionControlItems from "../../chat/components/SessionControlItems.vue";
 import DelegateCard from "../../chat/components/DelegateCard.vue";
+import GalleryControls from "../GalleryControls.vue";
 import type { ConversationDelegateStatusSummary } from "../../../types/app";
 
 const demoDelegateStatuses = ref<ConversationDelegateStatusSummary[]>([
