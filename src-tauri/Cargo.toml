@@ -119,7 +119,10 @@ opt-level = "z"
 lto = false
 codegen-units = 1
 strip = true
-debug = false
+# 行号表只进 pdb、不进 exe：exe 体积基本不变，崩溃偏移能解析到函数与源码行。
+# 产物名是 p_ai.pdb（下划线，取自 crate 名），不是 p-ai.pdb。
+# 发布时该文件必须归档（不进安装包），否则崩溃地址仍然只能解到函数、到不了行。
+debug = "line-tables-only"
 panic = "abort"
 
 [dev-dependencies]
