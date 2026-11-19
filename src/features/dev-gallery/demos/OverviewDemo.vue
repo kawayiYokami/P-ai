@@ -1,10 +1,6 @@
 <template>
   <div class="card border border-base-300 bg-base-100">
     <div class="card-body gap-3 p-4">
-      <div class="space-y-1">
-        <h3 class="card-title text-base">监控概览（MonitorOverview）</h3>
-        <p class="text-sm text-base-content/70">一键切换典型状态；卡片跳转与终止事件在 demo 中不生效。</p>
-      </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-xs text-base-content/60">预设：</span>
         <button type="button" class="btn btn-xs" :class="preset === 'normal' ? 'btn-primary' : 'btn-ghost'" @click="preset = 'normal'">常规</button>

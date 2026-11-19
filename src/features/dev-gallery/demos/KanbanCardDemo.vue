@@ -1,9 +1,6 @@
 <template>
   <div class="card border border-base-300 bg-base-100">
     <div class="card-body gap-3 p-3">
-      <p class="text-xs text-base-content/60">
-        网格宽 586px（默认窗口右栏内容区），auto-fill 出 3 列，磁贴占满整行跨三行。
-      </p>
       <div class="ecall-kanban-demo-flow w-full max-w-[586px]">
         <HomeKanbanCard
           :issues="issues"

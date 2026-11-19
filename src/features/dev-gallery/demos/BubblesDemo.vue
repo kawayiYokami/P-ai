@@ -1,13 +1,6 @@
 <template>
   <div class="card border border-base-300 bg-base-100">
     <div class="card-body gap-3 p-4">
-      <div class="space-y-1">
-        <h3 class="card-title text-base">自研气泡组件 Demo</h3>
-        <p class="text-sm text-base-content/70">
-          不使用 DaisyUI 原生 chat/chat-bubble。助理消息无气泡，用户消息使用半透明圆角矩形气泡，单独验证多助理、左右布局、头像避让和名称对齐。
-        </p>
-      </div>
-
       <div class="overflow-hidden rounded-[1.75rem] border border-base-300 bg-base-200/70 p-4 shadow-inner">
         <div class="flex flex-col gap-4 rounded-[1.35rem] border border-base-300 bg-base-100/30 px-3 py-4">
           <ChatBubbleShell

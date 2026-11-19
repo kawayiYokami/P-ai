@@ -1,12 +1,6 @@
 <template>
   <div class="card border border-base-300 bg-base-100">
     <div class="card-body gap-3 p-4">
-      <div>
-        <h4 class="card-title text-base">AppIcon 语义名总表（{{ iconNames.length }} 个）</h4>
-        <p class="text-xs text-base-content/60">
-          全部取自 icon-map.ts，格子里就是 AppIcon 按该语义名渲染的真实结果，换图标库时先在这里逐名核对。
-        </p>
-      </div>
       <label class="input input-bordered input-sm flex items-center gap-2">
         <AppIcon name="search" class="h-3.5 w-3.5 opacity-50" />
         <input v-model="filter" class="grow bg-transparent outline-none" placeholder="按语义名过滤" />

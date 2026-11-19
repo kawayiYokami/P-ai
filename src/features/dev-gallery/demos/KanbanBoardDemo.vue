@@ -1,7 +1,6 @@
 <template>
   <div class="card border border-base-300 bg-base-100">
     <div class="card-body gap-2 p-3">
-      <p class="text-xs text-base-content/60">容器宽 586px，对应默认 618px 窗口下的右栏内容区。</p>
       <div class="h-[660px] w-[586px] overflow-hidden rounded-box border border-base-300">
         <KanbanBoardPanel
           :issues="issues"

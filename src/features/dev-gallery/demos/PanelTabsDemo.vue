@@ -1,12 +1,6 @@
 <template>
   <div class="card border border-base-300 bg-base-100">
     <div class="card-body gap-4 p-4">
-      <div>
-        <h4 class="card-title text-base">自适应标签栏 (PanelTabStrip)</h4>
-        <p class="text-xs text-base-content/60">
-          当宽度不足时自动折叠多余标签至“...”更多菜单（默认鼠标悬停即可直接展开），每张卡片保留最小保护宽度（默认 104px / 文件 92px），当前激活标签优先保留在可见区。
-        </p>
-      </div>
 
       <div class="flex flex-wrap items-center gap-3">
         <span class="text-xs text-base-content/70">容器宽度调节：</span>

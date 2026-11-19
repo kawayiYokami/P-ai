@@ -1,10 +1,6 @@
 <template>
   <div class="card border border-base-300 bg-base-100">
     <div class="card-body gap-3 p-4">
-      <div class="space-y-1">
-        <h3 class="card-title text-base">DelegateProgressLine 预览</h3>
-        <p class="text-sm text-base-content/70">折叠卡片第二行的实时进度组件样本。</p>
-      </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-xs text-base-content/60">预设：</span>
         <button type="button" class="btn btn-xs" :class="demoMonitorPreset === 'normal' ? 'btn-primary' : 'btn-ghost'" @click="demoMonitorPreset = 'normal'">仅委托</button>

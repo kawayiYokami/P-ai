@@ -7,13 +7,6 @@
       <button type="button" class="btn btn-xs btn-ghost" @click="resetDemoQuestionTool">重置</button>
       <span v-if="demoQuestionToolLastSubmit" class="text-xs text-success">已发送 {{ demoQuestionToolLastSubmitLabel }}<template v-if="demoQuestionToolItems.length > 0">，还剩 {{ demoQuestionToolItems.length }} 题</template></span>
     </div>
-    <p class="text-xs text-base-content/60">
-      数据走真实映射 <code class="text-xs">buildConversationQuestionItems</code>，
-      节奏 <code class="text-xs">submit-mode="manual"</code>：编号原样显示，点选项只是勾选，
-      点右下角「发送 N 题」才把这批已选题一起发出去，发出的题从列表消失。
-      选项末尾「其他（自己写）」可以自己写一段，写下的内容就是这一题的答案。
-      点题干右侧「拒绝回答」只把这一题移除，不发送任何内容、不产生消息，其余题的勾选保留。
-    </p>
     <div v-if="demoQuestionToolPanelItems.length > 0" class="flex justify-center">
       <ChatQuestionPanel
         key="demo-question-tool"
