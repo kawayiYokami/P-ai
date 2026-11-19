@@ -12,6 +12,8 @@ import type { GalleryEntry, GalleryGroup } from "./types";
  * - `file` 只给人看，写下内容实际所在，不参与加载。
  * - `title` 是侧栏与标题栏唯一露出的文字：只写用户认得的短名，
  *   折叠块、startMargin、禁用态这类实现术语不进导航。
+ * - 分组按**功能域**划分（设置页归设置、磁贴归队伍），不按组件形态混装：
+ *   同一组里的东西是「用户在同一处会一起遇到」的，不是「长得都像卡片」。
  * - key 与旧 demo 页保持一致，`?key=xxx` 直达与截图流程不用改。
  */
 
@@ -44,17 +46,17 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
       entry("theme-cards", "AutoThemeGrid", "主题卡片", "demos/ThemeCardsDemo.vue", () =>
         import("./demos/ThemeCardsDemo.vue"),
       ),
+      entry("panel-tabs", "PanelTabStrip", "标签栏", "demos/PanelTabsDemo.vue", () =>
+        import("./demos/PanelTabsDemo.vue"),
+      ),
     ],
   },
   {
-    id: "layout",
-    title: "布局与外壳",
+    id: "settings",
+    title: "设置页",
     entries: [
       entry("settings-shell", "SettingsShell", "设置页头部", "config/components/SettingsShellGalleryDemo.vue", () =>
         import("../config/components/SettingsShellGalleryDemo.vue"),
-      ),
-      entry("panel-tabs", "PanelTabStrip", "标签栏", "demos/PanelTabsDemo.vue", () =>
-        import("./demos/PanelTabsDemo.vue"),
       ),
       entry("config-cards", "ConfigCards", "配置卡片", "config/components/ConfigCardsGalleryDemo.vue", () =>
         import("../config/components/ConfigCardsGalleryDemo.vue"),
@@ -65,24 +67,16 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
       entry("templates", "ConfigTemplate", "配置模板", "demos/ConfigTemplateDemo.vue", () =>
         import("./demos/ConfigTemplateDemo.vue"),
       ),
-    ],
-  },
-  {
-    id: "form",
-    title: "表单与输入",
-    entries: [
-      entry("composer", "ChatComposer", "输入面板", "chat/components/ChatComposerStructureDemo.vue", () =>
-        import("../chat/components/ChatComposerStructureDemo.vue"),
-      ),
-      entry("question", "ChatQuestionPanel", "提问卡", "demos/QuestionDemo.vue", () =>
-        import("./demos/QuestionDemo.vue"),
-      ),
-      entry("question-tool", "ConversationQuestion", "会话提问", "demos/QuestionToolDemo.vue", () =>
-        import("./demos/QuestionToolDemo.vue"),
-      ),
-      entry("search-engines", "SearchEngines", "搜索设置", "config/views/config-tabs/SearchEnginesDemo.vue", () =>
+      entry("search-engines", "SearchEngines", "搜索供应商", "config/views/config-tabs/SearchEnginesDemo.vue", () =>
         import("../config/views/config-tabs/SearchEnginesDemo.vue"),
       ),
+      entry("skill-managed", "SkillPanel", "技能面板", "config/components/SkillTabDemo.vue", () =>
+        import("../config/components/SkillTabDemo.vue"),
+      ),
+      entry("persona-capability", "PersonaTab", "人格主页", "config/components/PersonaTabDemo.vue", () =>
+        import("../config/components/PersonaTabDemo.vue"), { view: "profile" }),
+      entry("persona-permission", "PersonaPermission", "人格权限页", "config/components/PersonaTabDemo.vue", () =>
+        import("../config/components/PersonaTabDemo.vue"), { view: "permission" }),
     ],
   },
   {
@@ -128,27 +122,29 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
       entry("session-float-dock", "SessionFloatDock", "悬浮操作区", "chat/components/SessionFloatDockDemo.vue", () =>
         import("../chat/components/SessionFloatDockDemo.vue"),
       ),
+      entry("question", "ChatQuestionPanel", "提问卡", "demos/QuestionDemo.vue", () =>
+        import("./demos/QuestionDemo.vue"),
+      ),
+      entry("question-tool", "ConversationQuestion", "会话提问", "demos/QuestionToolDemo.vue", () =>
+        import("./demos/QuestionToolDemo.vue"),
+      ),
+      entry("composer", "ChatComposer", "输入面板", "chat/components/ChatComposerStructureDemo.vue", () =>
+        import("../chat/components/ChatComposerStructureDemo.vue"),
+      ),
     ],
   },
   {
-    id: "persona",
-    title: "人格与队伍",
+    id: "team",
+    title: "队伍与磁贴",
     entries: [
-      entry("persona-capability", "PersonaTab", "人格主页", "config/components/PersonaTabDemo.vue", () =>
-        import("../config/components/PersonaTabDemo.vue"), { view: "profile" }),
-      entry("persona-permission", "PersonaPermission", "人格权限页", "config/components/PersonaTabDemo.vue", () =>
-        import("../config/components/PersonaTabDemo.vue"), { view: "permission" }),
       entry("team-member-tiles", "TeamMemberTiles", "队员磁贴", "chat/components/TeamMemberTileGridDemo.vue", () =>
         import("../chat/components/TeamMemberTileGridDemo.vue"),
-      ),
-      entry("delegates", "DelegateProgressLine", "委派进度条", "demos/DelegatesDemo.vue", () =>
-        import("./demos/DelegatesDemo.vue"),
       ),
       entry("chat-home", "ChatHomePanel", "首页磁贴", "chat/components/ChatHomePanelDemo.vue", () =>
         import("../chat/components/ChatHomePanelDemo.vue"),
       ),
-      entry("skill-managed", "SkillPanel", "技能面板", "config/components/SkillTabDemo.vue", () =>
-        import("../config/components/SkillTabDemo.vue"),
+      entry("delegates", "DelegateProgressLine", "委派进度条", "demos/DelegatesDemo.vue", () =>
+        import("./demos/DelegatesDemo.vue"),
       ),
     ],
   },

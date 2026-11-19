@@ -12,8 +12,8 @@
         <div class="max-w-4xl">
           <header class="border-b border-base-content/10 pb-4">
             <div class="min-w-0">
-              <h2 class="truncate text-2xl font-bold tracking-tight">{{ currentEntry?.name }}</h2>
-              <p class="mt-1.5 text-sm text-base-content/55">{{ currentEntry?.title }}</p>
+              <h2 class="truncate text-2xl font-bold tracking-tight">{{ currentEntry?.title }}</h2>
+              <p v-if="currentEntry?.name" class="mt-1.5 font-mono text-xs text-base-content/45">{{ currentEntry.name }}</p>
             </div>
           </header>
           <div class="pt-6">
