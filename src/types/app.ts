@@ -1267,6 +1267,8 @@ export type BackgroundShellTaskSummary = {
   cwd: string;
   /** 发起这条后台命令的人格：磁贴卡片用它显示小头像 */
   agentId?: string;
+  /** 该后台任务所属会话：磁贴聚合多会话时用它回指，打断也按它路由 */
+  conversationId?: string;
   startedAt: string;
   timeoutMs: number | null;
   log: string;

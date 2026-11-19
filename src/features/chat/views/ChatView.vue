@@ -3648,6 +3648,8 @@ const {
   activeConversationId: toRef(props, "activeConversationId"),
   // 后台任务：工作区监控 bar 常驻展示运行数量，靠事件广播驱动刷新
   active: computed(() => true),
+  // 磁贴与监控 bar 都按「本会话名下所有会话」看：队员/委托在跑的后台命令也要能看见。
+  includeSubConversations: computed(() => true),
 });
 
 const runningShellCount = computed(() =>

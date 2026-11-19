@@ -6,6 +6,11 @@ interface UseBackgroundShellOptions {
   activeConversationId: Ref<string>;
   /** 监控页「后台任务」tab 是否处于激活状态；只有激活时才拉取，事件到达且激活时才刷新 */
   active: Ref<boolean>;
+  /**
+   * 是否连名下的追问会话、队员会话、委托会话一起查。
+   * 首页磁贴要看到「这个主会话手底下谁在跑后台命令」，监控面板只看当前会话。
+   */
+  includeSubConversations?: Ref<boolean>;
 }
 
 type MonitorChangedPayload = {
@@ -16,7 +21,7 @@ type MonitorChangedPayload = {
 };
 
 export function useBackgroundShell(options: UseBackgroundShellOptions) {
-  const { activeConversationId, active } = options;
+  const { activeConversationId, active, includeSubConversations } = options;
 
   const backgroundShells = ref<BackgroundShellTaskSummary[]>([]);
   const backgroundShellsErrorText = ref("");
@@ -29,6 +34,11 @@ export function useBackgroundShell(options: UseBackgroundShellOptions) {
     (payload) => {
       if (disposed || !active.value) return;
       if (String(payload?.domain || "").trim() !== "backgroundShell") return;
+      // 聚合模式（磁贴）看的是整棵会话树，子会话的事件也要刷新。
+      if (includeSubConversations?.value === true) {
+        void refreshBackgroundShells();
+        return;
+      }
       const payloadConversationId = String(payload?.conversationId || "").trim();
       const activeId = String(activeConversationId.value || "").trim();
       if (!activeId || (payloadConversationId && payloadConversationId !== activeId)) return;
@@ -43,7 +53,10 @@ export function useBackgroundShell(options: UseBackgroundShellOptions) {
     try {
       const tasks = await invokeTauri<BackgroundShellTaskSummary[]>(
         "backgroundShell.list",
-        { conversationId },
+        {
+          conversationId,
+          includeSubConversations: includeSubConversations?.value === true,
+        },
         10000,
       );
       if (seq !== refreshRequestSeq) return;
@@ -57,9 +70,16 @@ export function useBackgroundShell(options: UseBackgroundShellOptions) {
 
   /** 磁贴打断入口：复用监控面板的 terminate 语义；终态写回由后端负责（Killed=用户打断） */
   async function interruptShell(taskId: string) {
-    const conversationId = String(activeConversationId.value || "").trim();
     const id = String(taskId || "").trim();
-    if (!conversationId || !id) return;
+    if (!id) return;
+    // 聚合模式下任务可能属于某个队员/委托会话：按任务自带的会话回指，否则退到当前会话。
+    const owner = backgroundShells.value.find(
+      (task) => String(task.id || "").trim() === id,
+    );
+    const conversationId =
+      String(owner?.conversationId || "").trim() ||
+      String(activeConversationId.value || "").trim();
+    if (!conversationId) return;
     try {
       await invokeTauri("backgroundShell.terminate", { conversationId, taskId: id }, 10000);
     } catch (error) {
