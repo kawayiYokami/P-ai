@@ -949,19 +949,7 @@
       "homepage": "首頁網址",
       "homepagePlaceholder": "https://example.com",
       "browserNote": "瀏覽器說明",
-      "browserNotePlaceholder": "輸入一段多行說明，驗證文字區塊佈局。",
-      "nativeNotificationTitle": "Windows 原生通知測試",
-      "nativeNotificationSummary": "點擊下面按鈕後，會透過 Tauri 後端觸發一次系統原生通知，方便先驗證基礎能力。",
-      "nativeNotificationDevHint": "說明：開發模式下，Windows 可能顯示 PowerShell 名稱或預設圖示，這不代表正式安裝版最終效果。",
-      "sending": "發送中...",
-      "sendNativeNotification": "彈出原生通知",
-      "backgroundHint": "建議先把應用最小化或切到背景再測試。",
-      "nativeNotificationSent": "已嘗試發送原生通知。",
-      "restartTitle": "應用重啟測試",
-      "restartSummary": "觸發普通應用重啟流程，方便驗證背景服務關閉與重啟鏈路。",
-      "restartApp": "重啟 PAI",
-      "restarting": "正在重啟...",
-      "restartRequested": "已發起重啟請求。"
+      "browserNotePlaceholder": "輸入一段多行說明，驗證文字區塊佈局。"
     },
     "modelRoles": {
       "expert": "專家模型",

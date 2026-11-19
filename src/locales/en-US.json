@@ -949,19 +949,7 @@
       "homepage": "Homepage URL",
       "homepagePlaceholder": "https://example.com",
       "browserNote": "Browser Note",
-      "browserNotePlaceholder": "Enter multi-line text to validate text-block layout.",
-      "nativeNotificationTitle": "Windows Native Notification Test",
-      "nativeNotificationSummary": "Click the button below to trigger a system-native notification via the Tauri backend.",
-      "nativeNotificationDevHint": "Note: in dev mode, Windows may show a PowerShell name or default icon. That does not represent the final installed app.",
-      "sending": "Sending...",
-      "sendNativeNotification": "Show Native Notification",
-      "backgroundHint": "Minimize the app or move it to the background before testing.",
-      "nativeNotificationSent": "Attempted to send a native notification.",
-      "restartTitle": "App Restart Test",
-      "restartSummary": "Trigger the normal app restart flow to test background-service shutdown and relaunch.",
-      "restartApp": "Restart PAI",
-      "restarting": "Restarting...",
-      "restartRequested": "Restart requested."
+      "browserNotePlaceholder": "Enter multi-line text to validate text-block layout."
     },
     "modelRoles": {
       "expert": "Expert Model",

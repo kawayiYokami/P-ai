@@ -1202,14 +1202,6 @@ export function captureTransportDesktop<T>(): Promise<T> {
   });
 }
 
-export function sendTransportNativeNotificationDemo<T>(): Promise<T> {
-  return invokeRequiredNativeTransport<T>("本机通知演示", "demo_send_native_notification");
-}
-
-export function restartTransportApplicationDemo(): Promise<void> {
-  return invokeRequiredNativeTransport<void>("应用重启演示", "demo_restart_app");
-}
-
 export function getTransportGithubUpdateState<T>(): Promise<T> {
   return invokeRequiredNativeTransport<T>("应用更新状态", "get_github_update_state");
 }
