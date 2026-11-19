@@ -1,10 +1,16 @@
 <template>
-  <!-- 外观交给 daisyUI 的 `breadcrumbs`：字重、颜色、分隔符、hover 下划线一律不在这里覆盖，
-       两级用同一套样式（之前逐项设 text-sm/text-base/font-semibold，才出现"字体都不一样"）。
-       尺寸跟随 `btn-sm`：整层 `text-sm` 与窗口按钮的文字同号，`p-0` 去掉库给的上下 8px，
-       让这一层能塞进与按钮同高的 32px 容器；`min-w-0` 允许截断。 -->
+  <!-- 结构照 daisyUI 官方 `breadcrumbs`：div.breadcrumbs > ul > li。外观（字号、分隔符、
+       层级颜色）一律不在这里逐项覆盖，只做两处产品化调整：
+       1. 第一层是一枚设置图标，当作「设置」这个根目录，后面接层级，分隔符由 daisyUI 的
+          `li + li` 自己给，所以图标必须是一个 <li>，不能放在 ul 外面；
+       2. 可点层级去掉 daisyUI 默认的 hover 下划线，换成 hover 底色（负 margin 抵消内边距的位移）。 -->
   <div v-if="visible" class="breadcrumbs min-w-0 p-0 text-sm">
     <ul class="flex flex-wrap items-center">
+      <li class="flex min-w-0 items-center">
+        <!-- pointer-events-none：daisyUI 的 `li > *` 会给子元素加 cursor:pointer，
+             图标不可点，让鼠标事件穿过去，光标就不会变成手型。 -->
+        <AppIcon name="settings" class="pointer-events-none h-4 w-4 shrink-0 opacity-60" />
+      </li>
       <li
         v-for="(item, index) in items"
         :key="`${index}-${item.label}`"
@@ -12,6 +18,7 @@
       >
         <a
           v-if="item.onClick"
+          class="-mx-1.5 rounded px-1.5 py-0.5 no-underline! hover:bg-base-200 hover:no-underline!"
           :title="item.title || item.label"
           @click="item.onClick()"
         >
@@ -36,6 +43,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 
 export type SettingsBreadcrumbBadge = {
   text: string;
