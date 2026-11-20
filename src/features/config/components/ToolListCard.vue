@@ -1,25 +1,22 @@
 <template>
-  <div v-if="items.length > 0" class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
-    <div class="flex items-center gap-2 px-3 py-2 border-b border-base-300">
-      <div class="font-medium">{{ title }}<span v-if="showCount">（{{ items.length }}）</span></div>
-      <div class="ml-auto flex items-center gap-2">
-        <span v-if="typeof elapsedMs === 'number'" class="text-xs opacity-70">{{ elapsedLabel }}: {{ elapsedMs }}ms</span>
-        <button
-          v-if="refreshable"
-          type="button"
-          class="btn btn-sm"
-          :disabled="disabled"
-          @click="emit('refresh')"
-        >
-          {{ refreshLabel }}
-        </button>
-      </div>
-    </div>
-    <div class="divide-y divide-base-300/60">
+  <ConfigCard v-if="items.length > 0" :title="cardTitle">
+    <template #actions>
+      <span v-if="typeof elapsedMs === 'number'" class="text-xs opacity-70">{{ elapsedLabel }}: {{ elapsedMs }}ms</span>
+      <button
+        v-if="refreshable"
+        type="button"
+        class="btn btn-sm"
+        :disabled="disabled"
+        @click="emit('refresh')"
+      >
+        {{ refreshLabel }}
+      </button>
+    </template>
+    <div class="divide-y divide-base-300">
       <div
         v-for="item in items"
         :key="item.id"
-        class="px-3 py-2"
+        class="py-2.5"
       >
         <div class="flex items-start gap-3">
           <input
@@ -45,10 +42,13 @@
         </div>
       </div>
     </div>
-  </div>
+  </ConfigCard>
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
+import ConfigCard from "./ConfigCard.vue";
+
 export type ToolListItem = {
   id: string;
   name: string;
@@ -84,6 +84,10 @@ const emit = defineEmits<{
   (e: "toggleItem", payload: { id: string; enabled: boolean }): void;
   (e: "refresh"): void;
 }>();
+
+const cardTitle = computed(() =>
+  props.showCount ? `${props.title}（${props.items.length}）` : props.title,
+);
 
 function onToggle(event: Event, id: string) {
   const target = event.target as HTMLInputElement | null;
