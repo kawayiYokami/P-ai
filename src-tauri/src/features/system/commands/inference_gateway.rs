@@ -403,7 +403,7 @@ async fn invoke_model_by_format(
 ) -> Result<ModelReply, String> {
     if resolved_api.request_format.is_genai_chat() || resolved_api.request_format.is_auto() {
         if tool_definitions.is_empty() {
-            return call_model_genai_stream(resolved_api, model_name, prepared, app_state, None)
+            return call_model_genai_stream(resolved_api, model_name, prepared, app_state, None, 1)
                 .await;
         }
         return call_model_genai_stream_with_tools(
@@ -413,6 +413,7 @@ async fn invoke_model_by_format(
             tool_definitions,
             app_state,
             None,
+            1,
         )
         .await;
     }
@@ -431,7 +432,7 @@ async fn invoke_model_non_stream_by_format(
 ) -> Result<ModelReply, String> {
     if resolved_api.request_format.is_genai_chat() || resolved_api.request_format.is_auto() {
         if tool_definitions.is_empty() {
-            return call_model_genai_non_stream(resolved_api, model_name, prepared, app_state, None)
+            return call_model_genai_non_stream(resolved_api, model_name, prepared, app_state, None, 1)
                 .await;
         }
         return call_model_genai_non_stream_with_definitions(
@@ -441,6 +442,7 @@ async fn invoke_model_non_stream_by_format(
             tool_definitions,
             app_state,
             None,
+            1,
         )
         .await;
     }
@@ -879,6 +881,8 @@ async fn invoke_quick_model_reply_with_prepared_prompt(
             .await
             .map_err(|err| format!("快速模型流式请求失败：{err}"))?
             .stream;
+        // 快速模型不走主调度重试：on_delta 为空不可能推送，这里只为满足签名。
+        let mut no_delta_pushed = false;
         collect_streaming_model_reply_genai(
             &mut stream,
             None,
@@ -887,6 +891,7 @@ async fn invoke_quick_model_reply_with_prepared_prompt(
             None,
             None,
             Some(&stream_guard),
+            &mut no_delta_pushed,
         )
         .await
     };

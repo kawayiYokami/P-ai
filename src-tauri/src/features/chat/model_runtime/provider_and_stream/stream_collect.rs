@@ -48,6 +48,9 @@ async fn collect_streaming_model_reply_genai<S>(
     usage_provider_key: Option<&str>,
     usage_model_name: Option<&str>,
     stream_guard: Option<&StreamFailureGuard>,
+    // 零 delta 门禁的上报口：只要向 on_delta 推送过任何事件（含空文本块）就置 true。
+    // collect 复用方（provider_calls 的流式入口）把它透给 retry_request_once。
+    pushed_any: &mut bool,
 ) -> Result<ModelReply, String>
 where
     S: futures_util::Stream<Item = Result<genai::chat::ChatStreamEvent, genai::Error>> + Unpin,
@@ -64,6 +67,8 @@ where
             Ok(genai::chat::ChatStreamEvent::Chunk(text)) => {
                 assistant_text.push_str(&text.content);
                 if let Some(channel) = on_delta {
+                    // 文本块不过滤空内容：只要 send 过就算推过（零 delta 门禁看推送动作本身）。
+                    *pushed_any = true;
                     let _ = channel.send(AssistantDeltaEvent {
                         delta: text.content,
                         kind: None,
@@ -84,6 +89,7 @@ where
                 if !reasoning.content.is_empty() {
                     activity_reasoning_text.push_str(&reasoning.content);
                     if let Some(channel) = on_delta {
+                        *pushed_any = true;
                         send_reasoning_delta_event(channel, &reasoning.content);
                     }
                 }
@@ -101,6 +107,7 @@ where
                         let joined = join_model_text_blocks(captured_texts);
                         assistant_text = joined.clone();
                         if let Some(channel) = on_delta {
+                            *pushed_any = true;
                             let _ = channel.send(AssistantDeltaEvent {
                                 delta: joined,
                                 kind: None,
@@ -127,6 +134,7 @@ where
                     {
                         activity_reasoning_text = captured_reasoning.to_string();
                         if let Some(channel) = on_delta {
+                            *pushed_any = true;
                             send_reasoning_delta_event(channel, captured_reasoning);
                         }
                     }
@@ -222,6 +230,7 @@ mod stream_collect_tests {
             },
         ))]);
 
+        let mut pushed_any = false;
         let reply = collect_streaming_model_reply_genai(
             stream,
             Some(&channel),
@@ -230,6 +239,7 @@ mod stream_collect_tests {
             None,
             None,
             None,
+            &mut pushed_any,
         )
             .await
             .expect("stream collection should succeed");

@@ -145,6 +145,7 @@ async fn retry_openai_responses_with_system_message_user_fallback(
     tool_manifest_for_log: &mut Option<Value>,
     allow_tools: bool,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
     if let Err(mark_err) =
         provider_mark_system_message_user_fallback(app_state, &api_config.base_url)
@@ -188,6 +189,7 @@ async fn retry_openai_responses_with_system_message_user_fallback(
             auto_compaction_context,
             chat_session_key,
             usage_conversation_id,
+            request_max_attempts,
         )
         .await
     } else {
@@ -198,6 +200,7 @@ async fn retry_openai_responses_with_system_message_user_fallback(
             Some(on_delta),
             app_state,
             usage_conversation_id,
+            request_max_attempts,
         )
         .await
     }
@@ -217,6 +220,7 @@ async fn dispatch_openai_style_call(
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
     if matches!(selected_api.request_format, RequestFormat::DeepSeek | RequestFormat::DeepSeekKimi) {
         call_model_deepseek_kimi_with_tools(
@@ -233,6 +237,7 @@ async fn dispatch_openai_style_call(
             auto_compaction_context,
             chat_session_key,
             usage_conversation_id,
+            request_max_attempts,
         )
         .await
     } else if selected_api.request_format.is_openai_responses_family() {
@@ -250,6 +255,7 @@ async fn dispatch_openai_style_call(
             auto_compaction_context,
             chat_session_key,
             usage_conversation_id,
+            request_max_attempts,
         )
         .await
     } else {
@@ -267,6 +273,7 @@ async fn dispatch_openai_style_call(
             auto_compaction_context,
             chat_session_key,
             usage_conversation_id,
+            request_max_attempts,
         )
         .await
     }
@@ -315,6 +322,7 @@ async fn execute_openai_style_request(
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
     match tool_assembly {
         Some(tool_assembly) if !tool_assembly.tools.is_empty() => {
@@ -335,6 +343,7 @@ async fn execute_openai_style_request(
                             auto_compaction_context,
                             chat_session_key,
                             usage_conversation_id,
+                            request_max_attempts,
                         )
                         .await
                     }
@@ -353,6 +362,7 @@ async fn execute_openai_style_request(
                             auto_compaction_context,
                             chat_session_key,
                             usage_conversation_id,
+                            request_max_attempts,
                         )
                         .await
                     }
@@ -376,6 +386,7 @@ async fn execute_openai_style_request(
                     auto_compaction_context,
                     chat_session_key,
                     usage_conversation_id,
+                    request_max_attempts,
                 )
                 .await
             }
@@ -389,6 +400,7 @@ async fn execute_openai_style_request(
                     Some(on_delta),
                     app_state,
                     usage_conversation_id,
+                    request_max_attempts,
                 )
                 .await
             } else if prefer_non_stream {
@@ -398,6 +410,7 @@ async fn execute_openai_style_request(
                     prepared,
                     app_state,
                     usage_conversation_id,
+                    request_max_attempts,
                 )
                 .await
             } else {
@@ -407,6 +420,7 @@ async fn execute_openai_style_request(
                     prepared,
                     app_state,
                     usage_conversation_id,
+                    request_max_attempts,
                 )
                 .await
             }
@@ -428,6 +442,7 @@ async fn call_openai_style_non_stream_fallback(
     chat_session_key: &str,
     tool_manifest_for_log: &mut Option<Value>,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
     let tool_assembly = prepare_openai_style_tool_assembly(
         app_config,
@@ -454,6 +469,7 @@ async fn call_openai_style_non_stream_fallback(
         auto_compaction_context,
         chat_session_key,
         usage_conversation_id,
+        request_max_attempts,
     )
     .await
 }
@@ -471,6 +487,7 @@ async fn call_model_dispatch(
     max_tool_iterations: usize,
     chat_session_key: &str,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> ModelCallExecutionResult {
     let mut prepared = prepared;
     let _ = replace_disabled_multimodal_with_text(
@@ -522,6 +539,7 @@ async fn call_model_dispatch(
                     prepared,
                     app_state,
                     usage_conversation_id,
+                    request_max_attempts,
                 )
                 .await
             } else {
@@ -540,6 +558,7 @@ async fn call_model_dispatch(
                     auto_compaction_context,
                     chat_session_key,
                     usage_conversation_id,
+                    request_max_attempts,
                 )
                 .await
             }
@@ -550,6 +569,7 @@ async fn call_model_dispatch(
                 prepared,
                 app_state,
                 usage_conversation_id,
+                request_max_attempts,
             )
             .await
         }
@@ -577,6 +597,7 @@ async fn call_model_dispatch(
                     prepared,
                     app_state,
                     usage_conversation_id,
+                    request_max_attempts,
                 )
                 .await
             } else {
@@ -595,6 +616,7 @@ async fn call_model_dispatch(
                     auto_compaction_context,
                     chat_session_key,
                     usage_conversation_id,
+                    request_max_attempts,
                 )
                 .await
             }
@@ -605,6 +627,7 @@ async fn call_model_dispatch(
                 prepared,
                 app_state,
                 usage_conversation_id,
+                request_max_attempts,
             )
             .await
         }
@@ -630,6 +653,7 @@ async fn call_model_dispatch(
                 chat_session_key,
                 &mut tool_manifest_for_log,
                 usage_conversation_id,
+                request_max_attempts,
             )
             .await
         } else {
@@ -658,6 +682,7 @@ async fn call_model_dispatch(
                 auto_compaction_context,
                 chat_session_key,
                 usage_conversation_id,
+                request_max_attempts,
             )
             .await;
             match stream_result {
@@ -697,6 +722,7 @@ async fn call_model_dispatch(
                         &mut tool_manifest_for_log,
                         true,
                         usage_conversation_id,
+                        request_max_attempts,
                     )
                     .await
                 }
@@ -742,6 +768,7 @@ async fn call_model_dispatch(
                         chat_session_key,
                         &mut tool_manifest_for_log,
                         usage_conversation_id,
+                        request_max_attempts,
                     )
                     .await
                 }
@@ -780,6 +807,7 @@ async fn call_model_dispatch(
                         auto_compaction_context,
                         chat_session_key,
                         usage_conversation_id,
+                        request_max_attempts,
                     )
                     .await
                 }
