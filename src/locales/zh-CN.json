@@ -573,6 +573,7 @@
       "codexApiProviderMissing": "请选择已登录的 Codex 供应商",
       "codexApiProviderHint": "复用 API 设置中的 Codex 登录态、Token 刷新和账号信息，不需要重复填写 API Key。",
       "codexCredentialHint": "凭证由上面选择的 Codex API 供应商提供。请先在 API 设置中完成 Codex 登录。",
+      "codexModelFixed": "由 ChatGPT 决定（固定 gpt-image-2，不可选）",
       "grokApiProvider": "Grok 登录",
       "grokApiProviderMissing": "使用 API Key",
       "grokApiProviderHint": "选择已登录的 Grok 供应商，凭证与地址都从它取。留空则使用本供应商的 API Key。",

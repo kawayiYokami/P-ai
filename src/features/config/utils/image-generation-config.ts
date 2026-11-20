@@ -8,7 +8,7 @@ import type {
   ImageGenerationProviderKind,
 } from "../../../types/app";
 
-export const CODEX_IMAGE_MAIN_MODEL = "gpt-5.6-luna";
+export const CODEX_IMAGE_MODEL = "gpt-image-2";
 
 type ProviderTemplate = {
   name: string;
@@ -32,8 +32,7 @@ const PROVIDER_TEMPLATES: Record<ImageGenerationProviderKind, ProviderTemplate> 
     baseUrl: "https://chatgpt.com/backend-api/codex",
     model: {
       name: "Codex Image Generation",
-      model: CODEX_IMAGE_MAIN_MODEL,
-      defaultSize: "512x512",
+      model: CODEX_IMAGE_MODEL,
       defaultAspectRatio: "1:1",
       defaultQuality: "medium",
     },
@@ -261,7 +260,7 @@ function normalizeModel(
   const id = String(model.id ?? fallbackId).trim();
   if (!id || id.includes("::")) return null;
   const modelValue = providerType === "codex"
-    ? CODEX_IMAGE_MAIN_MODEL
+    ? CODEX_IMAGE_MODEL
     : String(model.model ?? "").trim();
   const fallbackName = modelValue || id;
   return {

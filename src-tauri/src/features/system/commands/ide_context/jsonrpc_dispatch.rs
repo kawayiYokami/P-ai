@@ -533,7 +533,9 @@ async fn ide_chat_handle_jsonrpc_request(
         "grok_auth_refresh" => ide_chat_grok_auth_refresh_for_web_settings(app, request.params).await,
         "grok_auth_logout" => ide_chat_grok_auth_logout_for_web_settings(app, request.params),
         "grok_auth_import" => ide_chat_grok_auth_import_for_web_settings(app, request.params),
-        "codex_get_builtin_models" => ide_chat_serialize(codex_get_builtin_models()),
+        "codex_get_builtin_models" => {
+            ide_chat_codex_get_builtin_models_for_web_settings(&state, request.params).await
+        }
         "generate_image" => ide_chat_generate_image_for_web_settings(state, request.params).await,
         "test_image_to_video" => ide_chat_test_image_to_video_for_web_settings(state, request.params).await,
         "list_memories" => ide_chat_list_memories_for_web_settings(state),

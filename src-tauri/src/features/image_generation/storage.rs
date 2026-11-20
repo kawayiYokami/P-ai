@@ -124,6 +124,17 @@ async fn download_generated_image(
     {
         request = request.bearer_auth(api_key.trim());
     }
+    // 原生端点可能回 url 且需鉴权（magpie 录制样本是 b64，但 readImagesAnswer 两分支都认）。
+    // 同源才带 Codex token；解析失败就按无鉴权继续，原有报错行为不变。
+    if matches!(provider.provider_type, ImageGenerationProviderKind::Codex)
+        && same_origin_url(&provider.base_url, url)
+    {
+        if let Ok(auth) = resolve_codex_image_auth(state, provider).await {
+            if !auth.access_token.trim().is_empty() {
+                request = request.bearer_auth(auth.access_token.trim());
+            }
+        }
+    }
     let response = request
         .send()
         .await

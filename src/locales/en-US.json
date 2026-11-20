@@ -573,6 +573,7 @@
       "codexApiProviderMissing": "Select a logged-in Codex provider",
       "codexApiProviderHint": "Reuses the Codex login, token refresh, and account identity from API settings. No API key is duplicated.",
       "codexCredentialHint": "Credentials come from the selected Codex API provider. Log in to Codex in API settings first.",
+      "codexModelFixed": "Decided by ChatGPT (fixed to gpt-image-2, not selectable)",
       "grokApiProvider": "Grok login",
       "grokApiProviderMissing": "Use API key",
       "grokApiProviderHint": "Pick a logged-in Grok provider; both credentials and endpoint come from it. Leave empty to use this provider's API key.",

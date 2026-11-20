@@ -10,8 +10,7 @@ enum ImageGenerationProviderKind {
     Sensenova,
 }
 
-const CODEX_IMAGE_MAIN_MODEL: &str = "gpt-5.6-luna";
-const CODEX_IMAGE_TOOL_MODEL: &str = "gpt-image-2";
+const CODEX_IMAGE_MODEL: &str = "gpt-image-2";
 
 impl Default for ImageGenerationProviderKind {
     fn default() -> Self {
