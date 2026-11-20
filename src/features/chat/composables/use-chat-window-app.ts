@@ -541,7 +541,6 @@ export function useChatWindowApp() {
   const {
     updatePersonaEditorIdWithNotice,
     updateAssistantAgentId,
-    updateForegroundAgentPrimaryApiConfig,
     updateConversationPreferredApiConfigId,
     updateSelectedResponseStyleId,
     updateSelectedPdfReadMode,

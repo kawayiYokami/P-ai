@@ -1200,20 +1200,22 @@ async fn acp_run_prompt_turn(
     }
 }
 
-/// 会话模型：沿用配置里当前选中的聊天模型；不可用时退到第一条可用的聊天配置。
+/// 会话模型：用用户最后使用的模型（`expert_api_config_id` 承载，由用户亲手选模型时跟随写入）；
+/// 解析不出可用聊天文本模型时退到第一条可用的聊天配置。
+///
+/// 不读 `selected_api_config_id`：它的唯一后端写入点 `set_agent_primary_api_config`
+/// 的前端调用方是死代码（无任何模板绑定与调用方），界面换模型永远不会更新它，
+/// 读它等于读一个停在历史值的僵尸字段。
 ///
 /// 判据与下拉、切换校验一致（`is_text_chat_api`）。少这一道过滤，全局恰好选中语音或
 /// 嵌入配置时，新会话会被锁到非聊天模型——`currentValue` 落在 `options` 之外违反协议，
 /// 首轮 prompt 也必然失败。
 fn acp_pick_session_model_config_id(config: &AppConfig) -> Result<String, String> {
-    let selected = config.selected_api_config_id.trim();
-    if !selected.is_empty()
-        && config
-            .api_configs
-            .iter()
-            .any(|api| api.id.trim() == selected && is_text_chat_api(api))
+    // 空值、角色哨兵（role:*）、模型不存在、非聊天文本模型，一律落到兜底；
+    // 哨兵必须拒绝而不是展开，见 resolve_concrete_chat_model 的注释。
+    if let Some(expert) = resolve_concrete_chat_model(config, Some(&config.expert_api_config_id))
     {
-        return Ok(selected.to_string());
+        return Ok(expert);
     }
     config
         .api_configs
@@ -2650,6 +2652,76 @@ mod acp_agent_cli_tests {
         assert!(
             configs[0].id.starts_with("acp-"),
             "会话级服务器 id 要有独立前缀，避免撞上磁盘上的服务器"
+        );
+    }
+
+    fn acp_test_chat_api(id: &str) -> ApiConfig {
+        ApiConfig {
+            id: id.to_string(),
+            ..ApiConfig::default()
+        }
+    }
+
+    fn acp_test_non_chat_api(id: &str) -> ApiConfig {
+        ApiConfig {
+            id: id.to_string(),
+            request_format: RequestFormat::OpenAIStt,
+            ..ApiConfig::default()
+        }
+    }
+
+    /// expert 指向可用文本聊天模型时，ACP 选出来的就是它（即使它不是第一个）。
+    #[test]
+    fn acp_session_model_should_follow_expert_when_usable() {
+        let mut config = AppConfig::default();
+        config.api_configs = vec![
+            acp_test_chat_api("first-chat"),
+            acp_test_chat_api("expert-chat"),
+        ];
+        config.expert_api_config_id = "expert-chat".to_string();
+        assert_eq!(
+            acp_pick_session_model_config_id(&config).expect("应有可用模型"),
+            "expert-chat"
+        );
+    }
+
+    /// expert 指向不存在/非文本/哨兵时，退到第一个可用聊天模型，且不报错。
+    #[test]
+    fn acp_session_model_should_fall_back_when_expert_unusable() {
+        let mut config = AppConfig::default();
+        config.api_configs = vec![
+            acp_test_chat_api("first-chat"),
+            acp_test_non_chat_api("voice-only"),
+            acp_test_chat_api("second-chat"),
+        ];
+        for expert in ["missing-id", "voice-only", "role:expert", "role:session", ""] {
+            config.expert_api_config_id = expert.to_string();
+            assert_eq!(
+                acp_pick_session_model_config_id(&config).expect("兜底不应报错"),
+                "first-chat",
+                "expert={expert} 时应退到第一个可用聊天模型"
+            );
+        }
+    }
+
+    /// expert 为空时，退到第一个可用聊天模型。
+    #[test]
+    fn acp_session_model_should_fall_back_when_expert_empty() {
+        let mut config = AppConfig::default();
+        config.api_configs = vec![
+            acp_test_non_chat_api("voice-only"),
+            acp_test_chat_api("first-chat"),
+        ];
+        config.expert_api_config_id = String::new();
+        assert_eq!(
+            acp_pick_session_model_config_id(&config).expect("兜底不应报错"),
+            "first-chat"
+        );
+        // 一个可用聊天模型都没有时才报错。
+        config.api_configs = vec![acp_test_non_chat_api("voice-only")];
+        assert!(
+            acp_pick_session_model_config_id(&config).is_err(),
+            "无可用聊天模型时应报错"
         );
     }
 }

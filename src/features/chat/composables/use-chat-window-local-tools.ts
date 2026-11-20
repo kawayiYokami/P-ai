@@ -2,7 +2,6 @@ import { i18n } from "../../../i18n";
 import {
   captureTransportDesktop,
   captureTransportFocusedWindow,
-  invokeTauri,
 } from "../../../services/tauri-api";
 import {
   attachmentPreviewBase64,
@@ -32,7 +31,6 @@ type ChatWindowLocalToolsBindings = Record<string, any> & {
   instructionPresets: Ref<any[]>;
   currentForegroundApiConfig: Ref<any>;
   config: AppConfig;
-  applyAgentPrimaryApiConfigLocally: (agent: any, apiConfigId: string) => boolean;
 };
 
 export function useChatWindowLocalTools(bindings: ChatWindowLocalToolsBindings) {
@@ -49,45 +47,6 @@ export function useChatWindowLocalTools(bindings: ChatWindowLocalToolsBindings) 
 
   function updateAssistantAgentId(value: string) {
     bindings.assistantAgentId.value = value;
-  }
-
-  async function updateForegroundAgentPrimaryApiConfig(value: string) {
-    const nextId = String(value || "").trim();
-    if (!nextId) return;
-    if (!bindings.config.apiConfigs.some((item: any) => String(item.id || "").trim() === nextId)) {
-      console.warn("[聊天模型] 选择的模型不存在，忽略更新", { nextId });
-      return;
-    }
-    const currentAgentId = String(bindings.currentForegroundAgentId.value || "").trim();
-    const currentAgent = bindings.personas.value.find(
-      (item: any) => String(item.id || "").trim() === currentAgentId,
-    );
-    if (!currentAgent) {
-      console.warn("[聊天模型] 当前前台人格不存在，忽略更新", { currentAgentId, nextId });
-      return;
-    }
-    const previousAgent = {
-      apiConfigId: String(currentAgent.apiConfigId || "").trim(),
-      apiConfigIds: [...(currentAgent.apiConfigIds || [])],
-      updatedAt: String(currentAgent.updatedAt || ""),
-    };
-    const previousSelectedApiConfigId = String(bindings.config.selectedApiConfigId || "").trim();
-    const changed = bindings.applyAgentPrimaryApiConfigLocally(currentAgent, nextId);
-    if (!changed) return;
-    try {
-      await invokeTauri("set_agent_primary_api_config", {
-        input: {
-          agentId: currentAgentId,
-          apiConfigId: nextId,
-        },
-      });
-    } catch (error) {
-      currentAgent.apiConfigId = previousAgent.apiConfigId;
-      currentAgent.apiConfigIds = previousAgent.apiConfigIds;
-      currentAgent.updatedAt = previousAgent.updatedAt;
-      bindings.config.selectedApiConfigId = previousSelectedApiConfigId;
-      bindings.setStatusError("status.saveConfigFailed", error);
-    }
   }
 
   function updateSelectedResponseStyleId(value: string) {
@@ -235,7 +194,6 @@ export function useChatWindowLocalTools(bindings: ChatWindowLocalToolsBindings) 
   return {
     updatePersonaEditorIdWithNotice,
     updateAssistantAgentId,
-    updateForegroundAgentPrimaryApiConfig,
     updateSelectedResponseStyleId,
     updateSelectedPdfReadMode,
     updateBackgroundVoiceScreenshotKeywords,
