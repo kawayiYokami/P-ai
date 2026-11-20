@@ -1818,6 +1818,8 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {
+            // 插件 setup 没跑，pending 里的启动日志和这句错误本来都会随进程退出蒸发。
+            runtime_log_switch_to_cli_file_logger();
             runtime_log_error(format!("[启动] 运行 Tauri 应用失败: {err}"));
         });
 }

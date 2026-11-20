@@ -239,12 +239,29 @@ fn runtime_log_plugin_builder() -> tauri_plugin_log::Builder {
             tauri_plugin_log::TargetKind::Stderr,
         ));
     if let Some(dir) = resolve_runtime_log_dir() {
-        builder = builder.target(tauri_plugin_log::Target::new(
-            tauri_plugin_log::TargetKind::Folder {
-                path: dir,
-                file_name: Some(RUNTIME_LOG_FILE_NAME.to_string()),
-            },
-        ));
+        let log_file = dir.join(format!("{RUNTIME_LOG_FILE_NAME}.log"));
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_file)
+        {
+            Ok(probe) => {
+                // 立刻释放句柄，插件自己会重新打开；探一次是为了文件不可用时只降级、不阻止启动。
+                drop(probe);
+                builder = builder.target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Folder {
+                        path: dir,
+                        file_name: Some(RUNTIME_LOG_FILE_NAME.to_string()),
+                    },
+                ));
+            }
+            Err(err) => {
+                runtime_log_write_stderr(&format!(
+                    "[日志] 日志文件不可写，本次只输出到 stderr path={} err={err}",
+                    log_file.display()
+                ));
+            }
+        }
     }
     builder
 }
@@ -271,11 +288,12 @@ fn init_cli_file_logger() {
             ))
         });
     if let Some(dir) = resolve_runtime_log_dir() {
-        // 按天分文件（`backend.2026-11-19.log`）：CLI 没有插件的按大小轮转，
-        // 用 fern 自带能力把单文件增长框在一个自然日内。
+        cleanup_stale_cli_log_files(&dir);
+        // 按天分文件（backend_2026-11-20.log）：下划线前缀、单点，与桌面侧 rotate 命名一致。
+        // DateBased 没有字节上限，真正的上界是「一个自然日内这个进程写了多少」。
         dispatch = dispatch.chain(fern::DateBased::new(
-            dir.join(format!("{RUNTIME_LOG_FILE_NAME}.")),
-            ".%Y-%m-%d.log",
+            dir.join(format!("{RUNTIME_LOG_FILE_NAME}_")),
+            "%Y-%m-%d.log",
         ));
     }
     if !headless_cli_console_logging_suppressed() {
@@ -285,6 +303,59 @@ fn init_cli_file_logger() {
         runtime_log_write_stderr(&format!(
             "[日志] 初始化 CLI 文件日志失败，将只保留内存缓冲: {err}"
         ));
+    }
+}
+
+/// 清理 CLI 按天日志：与桌面侧 keep=20 同口径，按个数保留最近 RUNTIME_LOG_FILE_KEEP 个。
+/// 不再按天数删：桌面 rotate 的文件也叫 backend_日期.log，与 CLI 共用目录和命名，
+/// 按天数删会单方面缩短桌面的日志历史。
+/// 旧版本双点命名一律删除；其它文件不碰；失败只 warn，不影响 logger 初始化。
+fn cleanup_stale_cli_log_files(dir: &std::path::Path) {
+    let mut dated: Vec<(String, PathBuf)> = Vec::new();
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) => {
+            runtime_log_warn(format!("[日志] 扫描日志目录失败 dir={} err={err}", dir.display()));
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Some((date, legacy)) = name
+            .strip_prefix(&format!("{RUNTIME_LOG_FILE_NAME}_"))
+            .and_then(|rest| rest.strip_suffix(".log"))
+            .map(|date| (date, false))
+            .or_else(|| {
+                name.strip_prefix(&format!("{RUNTIME_LOG_FILE_NAME}."))
+                    .and_then(|rest| rest.strip_suffix(".log"))
+                    .map(|date| (date, true))
+            })
+        else {
+            continue;
+        };
+        // 只认 YYYY-MM-DD，避免误删同名前缀的其它文件。
+        let bytes = date.as_bytes();
+        if date.len() != 10 || bytes.get(4) != Some(&b'-') || bytes.get(7) != Some(&b'-') {
+            continue;
+        }
+        if legacy {
+            // 双点那批不会再产生，也没有人会读，一律删。
+            if let Err(err) = fs::remove_file(&path) {
+                runtime_log_warn(format!("[日志] 清理旧日志失败 path={} err={err}", path.display()));
+            }
+            continue;
+        }
+        dated.push((date.to_string(), path));
+    }
+    // 日期倒序，保留最新 KEEP 个，其余删；与桌面插件的 KeepSome(KEEP) 对齐。
+    dated.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, path) in dated.into_iter().skip(RUNTIME_LOG_FILE_KEEP) {
+        if let Err(err) = fs::remove_file(&path) {
+            runtime_log_warn(format!("[日志] 清理旧日志失败 path={} err={err}", path.display()));
+        }
     }
 }
 
@@ -298,6 +369,11 @@ fn runtime_log_write_startup_banner() {
 ///
 /// 逻辑：logger 已就绪时 `runtime_log_push` 会先把 pending 冲干净，所以上一条日志就够。
 fn runtime_log_switch_to_cli_file_logger() {
+    // logger 已就绪时只 flush：此时再 apply 会返回 Err，反而多打一条误报。
+    if runtime_log_logger_ready() {
+        runtime_log_flush_pending();
+        return;
+    }
     init_cli_file_logger();
     runtime_log_flush_pending();
 }
@@ -305,14 +381,24 @@ fn runtime_log_switch_to_cli_file_logger() {
 /// 把 logger 就绪前缓存的条目补写到 logger。
 ///
 /// 先整体取走再逐条写：写的过程中不持有 pending 锁，避免 logger 内部锁与它互相嵌套。
+fn runtime_log_pending_flush_done() -> &'static std::sync::atomic::AtomicBool {
+    static FLUSH_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    &FLUSH_DONE
+}
+
 fn runtime_log_flush_pending() {
     if !runtime_log_logger_ready() {
+        return;
+    }
+    // 全局 pending 只需冲一次；就绪后的每条日志直接走 log::log!，不再重复加锁空转。
+    if runtime_log_pending_flush_done().load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
     let drained = match runtime_log_pending().lock() {
         Ok(mut pending) => std::mem::take(&mut *pending),
         Err(_) => return,
     };
+    runtime_log_pending_flush_done().store(true, std::sync::atomic::Ordering::Relaxed);
     for (level, message) in drained {
         log::log!(target: RUNTIME_LOG_TARGET, level, "{}", message);
     }
@@ -492,9 +578,11 @@ fn runtime_log_push(level: &str, message: String) {
             normalized_message
         );
     } else if let Ok(mut pending) = runtime_log_pending().lock() {
-        if pending.len() < RUNTIME_LOG_PENDING_MAX {
-            pending.push((log_level, normalized_message.clone()));
+        // 满了丢最旧的：保留靠近失败点的最新条目，它们才是排障最需要的。
+        if pending.len() >= RUNTIME_LOG_PENDING_MAX {
+            pending.remove(0);
         }
+        pending.push((log_level, normalized_message.clone()));
     }
     let created_at = now_log_local_rfc3339();
     let Ok(mut buf) = runtime_log_buffer().lock() else {
@@ -1774,5 +1862,61 @@ mod runtime_log_pipeline_tests {
         assert!(logs
             .iter()
             .any(|entry| entry.level == "warn" && entry.message.contains("日志窗口探针")));
+    }
+
+    /// CLI 清理：超过 KEEP 个时删最旧、留最新 KEEP 个；双点旧命名一律删，无关文件不动。
+    #[test]
+    fn cleanup_stale_cli_log_files_should_keep_newest_k_and_drop_older() {
+        let now = time::OffsetDateTime::now_utc();
+        let dir = std::env::temp_dir().join(format!("pai-log-cleanup-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+
+        // 按日期从新到旧造 KEEP+5 个，前 KEEP 个应保留、其余应删除。
+        let mut paths = Vec::new();
+        for i in 0..(RUNTIME_LOG_FILE_KEEP + 5) as i64 {
+            let date = (now.date() - time::Duration::days(i)).to_string();
+            let path = dir.join(format!("{RUNTIME_LOG_FILE_NAME}_{date}.log"));
+            fs::write(&path, "x").expect("write fixture");
+            paths.push(path);
+        }
+        let legacy = dir.join(format!("{RUNTIME_LOG_FILE_NAME}.{}.log", now.date()));
+        let unrelated = dir.join("other.log");
+        fs::write(&legacy, "x").expect("write legacy fixture");
+        fs::write(&unrelated, "x").expect("write unrelated fixture");
+
+        cleanup_stale_cli_log_files(&dir);
+
+        for (i, path) in paths.iter().enumerate() {
+            assert_eq!(
+                path.exists(),
+                i < RUNTIME_LOG_FILE_KEEP,
+                "第 {i} 新的文件保留状态不符"
+            );
+        }
+        assert!(!legacy.exists(), "旧版双点命名应一律删除");
+        assert!(unrelated.exists(), "无关文件不应被删");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 不足 KEEP 个时一个都不删。
+    #[test]
+    fn cleanup_stale_cli_log_files_should_keep_all_when_under_limit() {
+        let now = time::OffsetDateTime::now_utc();
+        let dir = std::env::temp_dir().join(format!("pai-log-cleanup-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+
+        let mut paths = Vec::new();
+        for i in 0..3i64 {
+            let date = (now.date() - time::Duration::days(i)).to_string();
+            let path = dir.join(format!("{RUNTIME_LOG_FILE_NAME}_{date}.log"));
+            fs::write(&path, "x").expect("write fixture");
+            paths.push(path);
+        }
+
+        cleanup_stale_cli_log_files(&dir);
+        for path in &paths {
+            assert!(path.exists(), "不足 KEEP 个时不应删除任何文件");
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }
