@@ -33,7 +33,7 @@
                 <span class="text-sm font-medium">{{ t("config.imageGeneration.modelName") }}</span>
                 <input v-model="model.name" class="input input-bordered input-sm w-full" :placeholder="t('config.imageGeneration.modelName')" />
               </label>
-              <label class="mt-3 grid gap-1">
+              <label v-if="selectedProvider.providerType !== 'codex'" class="mt-3 grid gap-1">
                 <span class="text-sm font-medium">{{ t("config.api.model") }}</span>
                   <div class="join w-full">
                     <input v-model="model.model" class="input input-bordered input-sm join-item flex-1 font-mono" :placeholder="model.id" @blur="syncImageModelIdentifier(model)" @keydown.enter.prevent="syncImageModelIdentifier(model)" />
@@ -47,6 +47,11 @@
                     </div>
                   </div>
               </label>
+              <div v-else class="mt-3 grid gap-1">
+                <span class="text-sm font-medium">{{ t("config.api.model") }}</span>
+                <div class="text-sm font-mono">gpt-image-2</div>
+                <div class="text-xs text-base-content/60">{{ t("config.imageGeneration.codexModelFixed") }}</div>
+              </div>
               <div class="mt-2 text-xs text-base-content/60">{{ t("config.api.matchedProtocol", { protocol: providerTypeLabel(selectedProvider.providerType) }) }}</div>
             </article>
           </div>
@@ -283,6 +288,7 @@ import ApiKeyListCard from "../../components/ApiKeyListCard.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import {
   appendImageGenerationProvider,
+  CODEX_IMAGE_MODEL,
   createImageGenerationModel,
   createImageGenerationProvider,
   imageGenerationEndpointId,
@@ -746,15 +752,8 @@ function syncImageModelIdentifier(target: ImageGenerationModelConfigItem) {
   const provider = selectedProvider.value;
   if (!provider || !target) return;
   if (provider.providerType === "codex") {
-    const forced = "gpt-5.6-luna";
-    const prevEndpointForced = imageGenerationEndpointId(provider.id, target.id);
-    target.model = forced;
-    if (target.id !== forced && !provider.models.some((m) => m !== target && m.id.toLowerCase() === forced.toLowerCase())) {
-      target.id = forced;
-      if (props.config.imageGenerationModelId === prevEndpointForced) {
-        props.config.imageGenerationModelId = imageGenerationEndpointId(provider.id, forced);
-      }
-    }
+    // 生图模型不可选：请求固定 gpt-image-2，只改 model，不动 id（端点 id 关联已选端点）。
+    target.model = CODEX_IMAGE_MODEL;
     return;
   }
   const raw = String(target.model || "").trim();

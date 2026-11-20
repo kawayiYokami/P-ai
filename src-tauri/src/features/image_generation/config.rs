@@ -94,7 +94,8 @@ fn normalize_image_generation_models(provider: &mut ImageGenerationProviderConfi
         model.name = model.name.trim().to_string();
         model.model = model.model.trim().to_string();
         if provider.provider_type == ImageGenerationProviderKind::Codex {
-            model.model = CODEX_IMAGE_MAIN_MODEL.to_string();
+            // 生图模型不可选：存量 gpt-5.6-luna / gpt-image-* 一律归到 gpt-image-2，幂等。
+            model.model = CODEX_IMAGE_MODEL.to_string();
         }
         if model.name.is_empty() {
             model.name = if model.model.is_empty() {

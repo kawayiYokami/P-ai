@@ -186,8 +186,161 @@ fn codex_builtin_models() -> Vec<String> {
 }
 
 #[tauri::command]
-fn codex_get_builtin_models() -> Vec<String> {
-    codex_builtin_models()
+async fn codex_get_builtin_models(
+    state: State<'_, AppState>,
+    input: CodexBuiltinModelsInput,
+) -> Result<Vec<String>, String> {
+    codex_get_builtin_models_inner(&state, input).await
+}
+
+/// 面板下拉用的 Codex 模型清单：官方账号走网络实调，失败回内置。
+/// custom_url / 非 Codex / 无可用供应商直接回内置（不发请求）。
+async fn codex_get_builtin_models_inner(
+    state: &AppState,
+    input: CodexBuiltinModelsInput,
+) -> Result<Vec<String>, String> {
+    let fallback = || codex_builtin_models();
+    let auth = match resolve_codex_api_auth_by_id(state, input.provider_id.as_deref()).await {
+        Ok(auth) => auth,
+        Err(err) => {
+            runtime_log_warn(format!("[Codex模型清单] 凭证不可用，回落内置名单：{err}"));
+            return Ok(fallback());
+        }
+    };
+    if auth.is_custom_url {
+        return Ok(fallback());
+    }
+    let models = match fetch_codex_backend_models_with_auth(&state.shared_http_client, &auth).await {
+        Ok(models) => models,
+        Err(err) => {
+            runtime_log_warn(format!("[Codex模型清单] 实调失败，回落：{err}"));
+            let cached = codex_backend_models_cache_read(&codex_backend_models_cache_key(&auth));
+            return Ok(cached.unwrap_or_else(fallback));
+        }
+    };
+    codex_backend_models_cache_write(&codex_backend_models_cache_key(&auth), models.clone());
+    Ok(models)
+}
+
+/// 带账号维度的内存缓存键：account_id 优先，否则 token 指纹（Plus/Pro 模型集不同）。
+fn codex_backend_models_cache_key(auth: &CodexImageAuth) -> String {
+    auth.account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| {
+            use base64::Engine as _;
+            use sha2::Digest;
+            let digest = sha2::Sha256::digest(auth.access_token.as_bytes());
+            format!(
+                "tok:{}",
+                base64::engine::general_purpose::STANDARD.encode(digest)
+            )
+        })
+}
+
+/// 纯网络层：GET {base}/models?client_version + 解析。缓存命中直接返回，不发请求。
+/// 不碰 AppState/config，测试用本地假服务器直调。
+async fn fetch_codex_backend_models_with_auth(
+    client: &reqwest::Client,
+    auth: &CodexImageAuth,
+) -> Result<Vec<String>, String> {
+    let cache_key = codex_backend_models_cache_key(auth);
+    if let Some(hit) = codex_backend_models_cache_read(&cache_key) {
+        return Ok(hit);
+    }
+    let base = auth.base_url.trim().trim_end_matches('/');
+    let url = format!("{base}/models?client_version={CODEX_PRESET_VERSION}");
+    let mut request = client
+        .get(&url)
+        .bearer_auth(auth.access_token.trim())
+        .timeout(std::time::Duration::from_secs(20));
+    for (name, value) in codex_backend_identity_headers(auth)
+        .map_err(|err| format!("请求头构造失败：{err}"))?
+    {
+        request = request.header(name, value);
+    }
+    let resp = request
+        .send()
+        .await
+        .map_err(|err| format!("网络失败：{err}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let snippet = resp.text().await.unwrap_or_default().chars().take(300).collect::<String>();
+        return Err(format!("后端返回 {status}：{snippet}"));
+    }
+    let value = resp
+        .json::<Value>()
+        .await
+        .map_err(|err| format!("响应解析失败：{err}"))?;
+    let models = parse_codex_backend_models(&value);
+    if models.is_empty() {
+        return Err("后端返回空清单".to_string());
+    }
+    codex_backend_models_cache_write(&cache_key, models.clone());
+    Ok(models)
+}
+
+/// 解析 magpie parseCodexModels 结构（codex_models.go:185）：
+/// visibility=="hide" 跳过，按 priority 排序，取 slug；spark 模型按既有口径丢弃。
+fn parse_codex_backend_models(value: &Value) -> Vec<String> {
+    let mut scored = value
+        .get("models")
+        .and_then(Value::as_array)
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(|item| {
+                    let slug = item.get("slug").and_then(Value::as_str)?.trim().to_string();
+                    if slug.is_empty() {
+                        return None;
+                    }
+                    if item
+                        .get("visibility")
+                        .and_then(Value::as_str)
+                        .map(|visibility| visibility.trim().eq_ignore_ascii_case("hide"))
+                        .unwrap_or(false)
+                    {
+                        return None;
+                    }
+                    if is_codex_spark_model(&slug) {
+                        return None;
+                    }
+                    let priority = item.get("priority").and_then(Value::as_i64).unwrap_or(i64::MAX);
+                    Some((priority, slug))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    scored.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
+    scored.into_iter().map(|(_, slug)| slug).collect()
+}
+
+fn codex_backend_models_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, Vec<String>>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Vec<String>>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn codex_backend_models_cache_read(key: &str) -> Option<Vec<String>> {
+    codex_backend_models_cache()
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(key).cloned())
+}
+
+fn codex_backend_models_cache_write(key: &str, models: Vec<String>) {
+    if let Ok(mut cache) = codex_backend_models_cache().lock() {
+        cache.insert(key.to_string(), models);
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexBuiltinModelsInput {
+    #[serde(default)]
+    provider_id: Option<String>,
 }
 
 fn push_unique_refresh_strategy(
@@ -910,6 +1063,191 @@ mod model_adapter_kind_tests {
             ),
             "MiniMax"
         );
+    }
+}
+
+#[cfg(test)]
+mod codex_backend_models_tests {
+    use super::*;
+    use crate::tests::test_chat_runtime_state;
+    use httpmock::Method::GET;
+
+    fn test_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime")
+    }
+
+    #[test]
+    fn parse_should_skip_hide_and_sort_by_priority() {
+        let value = serde_json::json!({
+            "models": [
+                {"slug": "gpt-6-sol", "display_name": "Sol", "visibility": "show", "priority": 20},
+                {"slug": "gpt-6-hidden", "display_name": "H", "visibility": "hide", "priority": 1},
+                {"slug": "gpt-6-astra", "display_name": "Astra", "visibility": "show", "priority": 5},
+                {"slug": "", "display_name": "Empty", "visibility": "show", "priority": 0},
+                {"slug": "gpt-5.3-codex-spark", "display_name": "Spark", "visibility": "show", "priority": 0}
+            ]
+        });
+        assert_eq!(
+            parse_codex_backend_models(&value),
+            vec!["gpt-6-astra".to_string(), "gpt-6-sol".to_string()]
+        );
+    }
+
+    fn write_test_state_with_codex_provider(
+        base_url: &str,
+        provider_id: &str,
+        auth_file: &std::path::Path,
+    ) -> AppState {
+        let state = test_chat_runtime_state();
+        let config = AppConfig {
+            api_providers: vec![ApiProviderConfig {
+                id: provider_id.to_string(),
+                name: "codex-test".to_string(),
+                deprecated: false,
+                request_format: RequestFormat::Codex,
+                allow_concurrent_requests: true,
+                max_concurrent_requests: None,
+                enable_text: true,
+                enable_image: true,
+                enable_audio: false,
+                enable_video: false,
+                enable_tools: true,
+                base_url: base_url.to_string(),
+                login_provider: String::new(),
+                codex_auth_mode: "read_local".to_string(),
+                codex_local_auth_path: auth_file.to_string_lossy().to_string(),
+                codex_custom_url: None,
+                codex_custom_api_key: None,
+                codex_originator: default_codex_originator(),
+                codex_residency_requirement: None,
+                api_keys: Vec::new(),
+                key_cursor: 0,
+                cached_model_options: Vec::new(),
+                models: Vec::new(),
+                client_user_agent: None,
+                failure_retry_count: 0,
+            }],
+            ..AppConfig::default()
+        };
+        state_write_config_cached(&state, &config).expect("write test config");
+        state
+    }
+
+    fn write_test_auth_file(account_id: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("eca-codex-auth-{}.json", Uuid::new_v4()));
+        std::fs::write(
+            &path,
+            serde_json::json!({
+                "tokens": {
+                    "access_token": "test-access-token",
+                    "account_id": account_id,
+                    "expires_at_ms": 9_999_999_999_999i64
+                }
+            })
+            .to_string(),
+        )
+        .expect("write test auth file");
+        path
+    }
+
+    fn codex_input(provider_id: &str) -> CodexBuiltinModelsInput {
+        CodexBuiltinModelsInput {
+            provider_id: Some(provider_id.to_string()),
+        }
+    }
+
+    #[test]
+    fn fetch_should_sort_and_cache() {
+        use httpmock::MockServer;
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/models")
+                .query_param("client_version", CODEX_PRESET_VERSION)
+                .header("originator", "codex_cli_rs");
+            then.status(200).json_body(serde_json::json!({
+                "models": [
+                    {"slug": "gpt-6-sol", "visibility": "show", "priority": 20},
+                    {"slug": "gpt-6-hidden", "visibility": "hide", "priority": 1},
+                    {"slug": "gpt-6-astra", "visibility": "show", "priority": 5}
+                ]
+            }));
+        });
+        let auth = CodexImageAuth {
+            access_token: "test-token-cache".to_string(),
+            account_id: Some("acct-fetch-cache".to_string()),
+            base_url: server.base_url(),
+            is_custom_url: false,
+        };
+        let client = reqwest::Client::new();
+        let models = test_runtime()
+            .block_on(fetch_codex_backend_models_with_auth(&client, &auth))
+            .expect("fetch should succeed");
+        mock.assert();
+        assert_eq!(models, vec!["gpt-6-astra".to_string(), "gpt-6-sol".to_string()]);
+
+        // 第二次命中内存缓存，不再发请求。
+        let cached = test_runtime()
+            .block_on(fetch_codex_backend_models_with_auth(&client, &auth))
+            .expect("cache should hit");
+        assert_eq!(cached, models);
+        mock.assert_hits(1);
+    }
+
+    #[test]
+    fn fetch_should_error_on_backend_failure() {
+        use httpmock::MockServer;
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/models");
+            then.status(500).body("boom");
+        });
+        let auth = CodexImageAuth {
+            access_token: "test-token-error".to_string(),
+            account_id: Some("acct-fetch-error".to_string()),
+            base_url: server.base_url(),
+            is_custom_url: false,
+        };
+        let result = test_runtime()
+            .block_on(fetch_codex_backend_models_with_auth(&reqwest::Client::new(), &auth));
+        mock.assert();
+        assert!(result.is_err(), "后端失败必须返回 Err，交由上层回落");
+    }
+
+    #[test]
+    fn inner_should_fallback_without_request_for_custom_url() {
+        // custom_url 中转只代理 /responses，模型清单不发请求，直接回内置。
+        let auth_file = write_test_auth_file("acct-custom-url");
+        let state = write_test_state_with_codex_provider(
+            "https://relay.example/v1",
+            "codex-p-custom",
+            &auth_file,
+        );
+        let mut config = state_read_config_cached(&state).expect("read config");
+        if let Some(provider) = config.api_providers.first_mut() {
+            provider.codex_auth_mode = "custom_url".to_string();
+            provider.codex_custom_url = Some("https://relay.example/v1".to_string());
+            provider.codex_custom_api_key = Some("relay-key".to_string());
+        }
+        state_write_config_cached(&state, &config).expect("write config");
+        let models = test_runtime()
+            .block_on(codex_get_builtin_models_inner(&state, codex_input("codex-p-custom")))
+            .expect("custom_url should not fail");
+        assert_eq!(models, codex_builtin_models());
+        std::fs::remove_file(&auth_file).ok();
+    }
+
+    #[test]
+    fn inner_should_fallback_without_request_when_provider_missing() {
+        // 没有任何可用 Codex 供应商：不发请求，直接回内置。
+        let state = test_chat_runtime_state();
+        let models = test_runtime()
+            .block_on(codex_get_builtin_models_inner(&state, codex_input("missing-provider")))
+            .expect("missing provider should not fail");
+        assert_eq!(models, codex_builtin_models());
     }
 }
 

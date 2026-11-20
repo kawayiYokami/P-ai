@@ -601,6 +601,14 @@ fn ide_chat_codex_logout_for_web_settings(params: Value) -> Result<Value, String
     ide_chat_serialize(codex_logout(input)?)
 }
 
+async fn ide_chat_codex_get_builtin_models_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<CodexBuiltinModelsInput>(params, "input")?;
+    ide_chat_serialize(codex_get_builtin_models_inner(state, input).await?)
+}
+
 fn ide_chat_grok_auth_status_for_web_settings(app: &AppHandle, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<GrokProviderInput>(params, "input")?;
     ide_chat_serialize(grok_auth_status(app.clone(), input)?)

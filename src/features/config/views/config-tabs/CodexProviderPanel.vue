@@ -653,7 +653,9 @@ const allCodexModelsEnabled = computed(() => candidateModels.value.length === 0)
 
 async function loadBuiltinCodexModels() {
   try {
-    builtinCodexModels.value = await invokeTauri<string[]>("codex_get_builtin_models");
+    builtinCodexModels.value = await invokeTauri<string[]>("codex_get_builtin_models", {
+      input: { providerId: props.provider.id },
+    });
   } catch (error) {
     console.warn("[codex] 获取内置模型清单失败", error);
   } finally {
