@@ -1283,25 +1283,6 @@ fn materialize_chat_message_parts_from_media_refs(messages: &mut [ChatMessage], 
 
 // app data layout + migration logic moved to features/config/app_data_layout.rs
 
-fn candidate_debug_config_paths() -> Vec<PathBuf> {
-    vec![PathBuf::from(".debug").join("api-key.json")]
-}
-
-fn read_debug_api_config() -> Result<Option<DebugApiConfig>, String> {
-    for path in candidate_debug_config_paths() {
-        if !path.exists() {
-            continue;
-        }
-
-        let content = fs::read_to_string(&path)
-            .map_err(|err| format!("Read debug config failed ({}): {err}", path.display()))?;
-        let parsed = serde_json::from_str::<DebugApiConfig>(&content)
-            .map_err(|err| format!("Parse debug config failed ({}): {err}", path.display()))?;
-        return Ok(Some(parsed));
-    }
-    Ok(None)
-}
-
 fn resolve_selected_api_config(
     app_config: &AppConfig,
     requested_id: Option<&str>,
@@ -1351,42 +1332,6 @@ fn resolve_api_config_with_data_path(
     requested_id: Option<&str>,
     data_path: &Path,
 ) -> Result<ResolvedApiConfig, String> {
-    if let Some(debug_cfg) = read_debug_api_config()? {
-        let enabled = debug_cfg.enabled.unwrap_or(true);
-        let request_format_ok = debug_cfg
-            .request_format
-            .unwrap_or(RequestFormat::OpenAI)
-            .is_openai_style();
-
-        if enabled && request_format_ok {
-            if debug_cfg.api_key.trim().is_empty() {
-                return Err(".debug/api-key.json exists but apiKey is empty.".to_string());
-            }
-            return Ok(ResolvedApiConfig {
-                login_provider: String::new(),
-                provider_id: None,
-                provider_api_keys: Vec::new(),
-                provider_key_cursor: 0,
-                request_format: RequestFormat::OpenAI,
-                allow_concurrent_requests: false,
-                max_concurrent_requests: None,
-                base_url: debug_cfg.base_url.trim().to_string(),
-                api_key: debug_cfg.api_key.trim().to_string(),
-                model: debug_cfg.model.trim().to_string(),
-                reasoning_effort: None,
-                temperature: debug_cfg.temperature.map(|value| value.clamp(0.0, 2.0)),
-                max_output_tokens: None,
-                prompt_cache_key: None,
-                extra_headers: Vec::new(),
-                client_user_agent: None,
-                codex_auth: None,
-                codex_custom_api_key: None,
-                codex_originator: None,
-                codex_residency_requirement: None,
-            });
-        }
-    }
-
     let selected = resolve_selected_api_config(app_config, requested_id).ok_or_else(|| {
         "No API config configured. Please add at least one API config.".to_string()
     })?;

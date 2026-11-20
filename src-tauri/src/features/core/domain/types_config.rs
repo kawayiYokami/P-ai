@@ -1220,17 +1220,6 @@ impl Default for AppConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DebugApiConfig {
-    request_format: Option<RequestFormat>,
-    base_url: String,
-    api_key: String,
-    model: String,
-    temperature: Option<f64>,
-    enabled: Option<bool>,
-}
-
 #[cfg(test)]
 mod codex_context_window_tests {
     use super::*;
