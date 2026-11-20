@@ -1,5 +1,5 @@
 import { inject, provide, ref, type InjectionKey, type Ref } from "vue";
-import type { SettingsBreadcrumbItem } from "../components/SettingsBreadcrumb.vue";
+import type { SettingsBreadcrumbItem } from "../components/settings-breadcrumb-types";
 
 /**
  * 设置页面包屑上下文。

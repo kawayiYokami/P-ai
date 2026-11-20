@@ -1,5 +1,5 @@
 import { computed, ref, type ComputedRef, type Ref } from "vue";
-import type { UnderlineTabItem } from "../../../../shared/components/UnderlineTabs.vue";
+import type { UnderlineTabItem } from "../../../../shared/components/underline-tabs-types";
 
 export type DetailTabKey = "channel" | "contacts";
 

@@ -233,6 +233,18 @@ struct RuntimeContext {
     tool_round_limit: Option<usize>,
 }
 
+/// 剥掉工具事件里的 usage：压缩前那次请求的用量不属于新会话，
+/// 保留下来会被新调度当成当前占用读回来。
+fn strip_history_event_usage(event: Value) -> Value {
+    match event {
+        Value::Object(mut map) => {
+            map.remove("usage");
+            Value::Object(map)
+        }
+        other => other,
+    }
+}
+
 /// 压缩保留消息：一轮已完成但未写入旧段的 assistant 正文/思维链/工具事件。
 #[derive(Debug, Clone, PartialEq)]
 struct CompactionPreservedMessages {
@@ -250,7 +262,12 @@ impl CompactionPreservedMessages {
         Self {
             assistant_text: assistant_text.into(),
             activity_reasoning_text: activity_reasoning_text.into(),
-            tool_history_events,
+            // 继承到新调度的工具事件只作历史记录。事件里的 usage 属于压缩前那次请求，
+            // 留着会被新调度当成当前上下文占用读回来，刚压完就立刻再判一次超限。
+            tool_history_events: tool_history_events
+                .into_iter()
+                .map(strip_history_event_usage)
+                .collect(),
         }
     }
 
