@@ -340,7 +340,8 @@ fn acp_invalid_params(message: impl Into<String>) -> agent_client_protocol::Erro
 const ACP_MODEL_CONFIG_ID: &str = "model";
 
 /// 选项显示名：优先配置名，为空退到模型标识，再退到配置 id。
-fn acp_model_option_label(api: &ApiConfig) -> String {
+/// 显示名本身不含思考等级；调用方按需用 `acp_model_option_label` 拼后缀。
+fn acp_model_base_name(api: &ApiConfig) -> String {
     let name = api.name.trim();
     if !name.is_empty() {
         return name.to_string();
@@ -350,6 +351,18 @@ fn acp_model_option_label(api: &ApiConfig) -> String {
         return model.to_string();
     }
     api.id.trim().to_string()
+}
+
+/// 选项显示名：`供应商名/模型名 (思考等级)`，例如 `wb/global:deepseek-v4.1-flash (low)`。
+/// 没有思考等级（`reasoning_effort` 为空）时不加括号后缀。
+fn acp_model_option_label(api: &ApiConfig) -> String {
+    let base = acp_model_base_name(api);
+    let effort = api.reasoning_effort.trim();
+    if effort.is_empty() {
+        base
+    } else {
+        format!("{base} ({effort})")
+    }
 }
 
 /// 把配置里可用的聊天模型列成 ACP 的 `Model` 分类下拉。
@@ -397,23 +410,111 @@ fn acp_model_config_options(
     Ok(vec![option])
 }
 
-/// 校验切换请求：只接受配置里真实存在、且是文本聊天模型的 `api_config_id`。
+/// 校验切换请求，按顺序接受三种写法：
+/// 1. 传 id → 精确匹配（兼容已有客户端）。
+/// 2. 传 `供应商名/模型名 (思考等级)` → 按名字+等级匹配。
+/// 3. 只传 `供应商名/模型名`：匹配到一个直接用，匹配到多个时不猜、报错返回清单。
+/// 一个都没匹配上 → 报错，列出当前可用的模型。
+/// 清单里只列可读名，不列 id。
 fn acp_resolve_model_switch(config: &AppConfig, requested: &str) -> Result<String, String> {
     let requested = requested.trim();
     if requested.is_empty() {
         return Err("模型 id 不能为空".to_string());
     }
-    let Some(api) = config
+    // 1. id 精确匹配：兼容已有客户端；非聊天模型仍按原来口径拒绝。
+    if let Some(api) = config
         .api_configs
         .iter()
         .find(|api| api.id.trim() == requested)
-    else {
-        return Err(format!("模型配置不存在: {requested}"));
-    };
-    if !is_text_chat_api(api) {
-        return Err(format!("不是文本聊天模型，不能用于会话: {requested}"));
+    {
+        if !is_text_chat_api(api) {
+            return Err(format!("不是文本聊天模型，不能用于会话: {requested}"));
+        }
+        return Ok(api.id.trim().to_string());
     }
-    Ok(api.id.trim().to_string())
+    let chats: Vec<&ApiConfig> = config
+        .api_configs
+        .iter()
+        .filter(|api| !api.id.trim().is_empty() && is_text_chat_api(api))
+        .collect();
+    // 2. `名字 (等级)`：按名字+等级匹配。
+    if let Some((name_part, effort_part)) = acp_split_name_effort(requested) {
+        let effort_lower = effort_part.to_ascii_lowercase();
+        if let Some(api) = chats.iter().find(|api| {
+            acp_model_base_name(api) == name_part
+                && api.reasoning_effort.trim().to_ascii_lowercase() == effort_lower
+        }) {
+            return Ok(api.id.trim().to_string());
+        }
+        return Err(format!(
+            "模型配置不存在: {requested}，可用模型：{}",
+            acp_readable_model_list(&chats)
+        ));
+    }
+    // 3. 只传名字：一个直接用，多个报错返回清单。
+    let matched: Vec<&ApiConfig> = chats
+        .iter()
+        .filter(|api| acp_model_base_name(api) == requested)
+        .copied()
+        .collect();
+    if matched.len() == 1 {
+        return Ok(matched[0].id.trim().to_string());
+    }
+    if matched.len() > 1 {
+        return Err(format!(
+            "{requested} 有多个思考等级，请指定其一：{}",
+            acp_readable_effort_list(&matched)
+        ));
+    }
+    // 4. 都没匹配上：只列可读名，不列 id。
+    Err(format!(
+        "模型配置不存在: {requested}，可用模型：{}",
+        acp_readable_model_list(&chats)
+    ))
+}
+
+/// 把 `名字 (等级)` 拆成两部分；形状不对返回 None。
+/// 用最后一个 ` (` 做分隔，名字里自带括号时仍能拆对。
+fn acp_split_name_effort(requested: &str) -> Option<(String, String)> {
+    let trimmed = requested.trim();
+    if !trimmed.ends_with(')') {
+        return None;
+    }
+    let open = trimmed.rfind(" (")?;
+    let name = trimmed[..open].trim();
+    let effort = trimmed[open + 2..trimmed.len() - 1].trim();
+    if name.is_empty() || effort.is_empty() {
+        return None;
+    }
+    Some((name.to_string(), effort.to_string()))
+}
+
+/// 可读模型清单：`名字 (等级)` 逐项，配置顺序，不含 id。
+fn acp_readable_model_list(chats: &[&ApiConfig]) -> String {
+    chats
+        .iter()
+        .map(|api| acp_model_option_label(api))
+        .collect::<Vec<_>>()
+        .join("、")
+}
+
+/// 可读思考等级清单：只列等级不列 id，配置顺序、去重。
+/// 等级为空的条目记为「默认」，避免清单里出现空项。
+fn acp_readable_effort_list(matched: &[&ApiConfig]) -> String {
+    let mut seen = std::collections::HashSet::<String>::new();
+    let mut out = Vec::<String>::new();
+    for api in matched {
+        let effort = api.reasoning_effort.trim();
+        let display = if effort.is_empty() {
+            "默认".to_string()
+        } else {
+            effort.to_string()
+        };
+        if seen.insert(display.clone()) {
+            out.push(display);
+        }
+    }
+    out.join(" / ")
 }
 
 /// 纯决策：算出切换后的模型与新选项集。
@@ -2149,12 +2250,12 @@ mod acp_agent_cli_tests {
         );
         assert_eq!(acp_test_selected_value(option), "b", "当前值应指向会话所用模型");
 
-        // 配置名为空时退到模型标识，不留空显示名。
+        // 配置名为空时退到模型标识，不留空显示名；思考等级拼在名字后面。
         match &option.kind {
             SessionConfigKind::Select(select) => match &select.options {
                 SessionConfigSelectOptions::Ungrouped(items) => {
-                    assert_eq!(items[0].name, "配置甲");
-                    assert_eq!(items[2].name, "m-c");
+                    assert_eq!(items[0].name, "配置甲 (medium)");
+                    assert_eq!(items[2].name, "m-c (medium)");
                 }
                 other => panic!("模型选项应是不分组列表，实际 {other:?}"),
             },
@@ -2205,6 +2306,122 @@ mod acp_agent_cli_tests {
 
         let err = acp_apply_model_switch(&config, "stt-1").expect_err("语音配置不能当聊天模型");
         assert!(err.contains("文本聊天"), "错误要说明原因，实际 {err}");
+    }
+
+    /// 构造带思考等级的测试配置：同一供应商名/模型名挂多个端点，只有等级不同。
+    fn acp_test_config_with_effort(entries: &[(&str, &str, &str)]) -> AppConfig {
+        let mut config = AppConfig::default();
+        config.api_configs = entries
+            .iter()
+            .map(|(id, name, effort)| ApiConfig {
+                id: (*id).to_string(),
+                name: (*name).to_string(),
+                model: (*name).to_string(),
+                reasoning_effort: (*effort).to_string(),
+                request_format: RequestFormat::OpenAI,
+                ..Default::default()
+            })
+            .collect();
+        config
+    }
+
+    /// 标签带思考等级：`供应商名/模型名 (等级)`；没有等级时不加后缀。
+    #[test]
+    fn model_option_label_should_include_reasoning_effort() {
+        let config = acp_test_config_with_effort(&[
+            ("e-high", "wb/global:deepseek-v4.1-flash", "high"),
+            ("e-low", "wb/global:deepseek-v4.1-flash", "low"),
+            ("e-max", "wb/global:deepseek-v4.1-flash", "max"),
+        ]);
+        let options =
+            acp_model_config_options(&config, "e-high").expect("应能列举选项");
+        match &options[0].kind {
+            SessionConfigKind::Select(select) => match &select.options {
+                SessionConfigSelectOptions::Ungrouped(items) => {
+                    let names: Vec<&str> =
+                        items.iter().map(|item| item.name.as_str()).collect();
+                    assert_eq!(
+                        names,
+                        vec![
+                            "wb/global:deepseek-v4.1-flash (high)",
+                            "wb/global:deepseek-v4.1-flash (low)",
+                            "wb/global:deepseek-v4.1-flash (max)",
+                        ],
+                        "三个同名端点必须靠等级区分"
+                    );
+                }
+                other => panic!("模型选项应是不分组列表，实际 {other:?}"),
+            },
+            other => panic!("模型选项应是下拉，实际 {other:?}"),
+        }
+
+        // 等级为空时不加括号后缀。
+        let config = acp_test_config_with_effort(&[("e-plain", "普通模型", "")]);
+        assert_eq!(
+            acp_model_option_label(&config.api_configs[0]),
+            "普通模型",
+            "无等级时标签就是名字本身"
+        );
+    }
+
+    /// 按 `名字 (等级)` 能切到对应端点；只传名字且只匹配到一个时直接用。
+    #[test]
+    fn model_switch_should_accept_readable_name() {
+        let config = acp_test_config_with_effort(&[
+            ("e-high", "wb/global:deepseek-v4.1-flash", "high"),
+            ("e-low", "wb/global:deepseek-v4.1-flash", "low"),
+            ("solo", "another/model", "low"),
+        ]);
+        let (next, _) =
+            acp_apply_model_switch(&config, "wb/global:deepseek-v4.1-flash (low)")
+                .expect("名字+等级应能切过去");
+        assert_eq!(next, "e-low");
+        // id 精确匹配保留：兼容已有客户端。
+        let (next, _) = acp_apply_model_switch(&config, "e-high").expect("id 应仍可用");
+        assert_eq!(next, "e-high");
+        // 只传名字、只匹配到一个时直接用。
+        let (next, _) =
+            acp_apply_model_switch(&config, "another/model").expect("单匹配应直接用");
+        assert_eq!(next, "solo");
+    }
+
+    /// 只传名字、匹配到多个时不猜：报错列出等级清单，清单里不许出现 id。
+    #[test]
+    fn model_switch_should_list_efforts_when_name_matches_many() {
+        let config = acp_test_config_with_effort(&[
+            ("e-high", "wb/global:deepseek-v4.1-flash", "high"),
+            ("e-low", "wb/global:deepseek-v4.1-flash", "low"),
+            ("e-max", "wb/global:deepseek-v4.1-flash", "max"),
+        ]);
+        let err = acp_apply_model_switch(&config, "wb/global:deepseek-v4.1-flash")
+            .expect_err("多匹配时必须报错");
+        assert!(
+            err.contains("有多个思考等级"),
+            "错误要说明有多个等级，实际 {err}"
+        );
+        for effort in ["high", "low", "max"] {
+            assert!(err.contains(effort), "清单要列出 {effort}，实际 {err}");
+        }
+        for id in ["e-high", "e-low", "e-max"] {
+            assert!(!err.contains(id), "清单里不许出现 id {id}，实际 {err}");
+        }
+    }
+
+    /// 一个都没匹配上：报错列出可读名清单，同样不列 id。
+    #[test]
+    fn model_switch_should_list_readable_names_when_nothing_matches() {
+        let config = acp_test_config_with_effort(&[
+            ("e-high", "wb/global:deepseek-v4.1-flash", "high"),
+            ("e-low", "wb/global:deepseek-v4.1-flash", "low"),
+        ]);
+        let err = acp_apply_model_switch(&config, "not-a-model")
+            .expect_err("不存在的模型必须被拒");
+        assert!(err.contains("not-a-model"), "错误要带出请求值，实际 {err}");
+        assert!(
+            err.contains("wb/global:deepseek-v4.1-flash (high)"),
+            "清单要列可读名，实际 {err}"
+        );
+        assert!(!err.contains("e-high"), "清单里不许出现 id，实际 {err}");
     }
 
     /// cwd 用例的临时目录：名字带进程 id 与标签，避免并行测试相互踩踏。
