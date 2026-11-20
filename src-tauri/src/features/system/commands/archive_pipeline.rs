@@ -634,17 +634,10 @@ async fn summarize_archived_conversation_with_model_v2(
             reply.assistant_text
         ))
     })?;
-    let open_loops = parsed
-        .open_loops
-        .iter()
-        .map(|item| clean_text(item.trim()))
-        .filter(|item| !item.is_empty())
-        .take(7)
-        .collect::<Vec<_>>();
     let summary = if matches!(scene, SummaryContextScene::Archive) {
         String::new()
     } else {
-        compose_summary_context_summary(&parsed.summary, &open_loops, scene)
+        compose_summary_context_summary(&parsed.summary)
     };
     if !matches!(scene, SummaryContextScene::Archive) && summary.is_empty() {
         return Err(SummaryContextModelError::NonRetryable(
@@ -659,11 +652,6 @@ async fn summarize_archived_conversation_with_model_v2(
             normalize_summary_context_title(&parsed.title).unwrap_or_default()
         },
         summary,
-        open_loops: if matches!(scene, SummaryContextScene::Archive) {
-            Vec::new()
-        } else {
-            open_loops
-        },
         useful_memory_ids: resolve_memory_curation_ids(&parsed.useful_memory_ids, &id_alias_map),
         memory_actions: resolve_memory_action_drafts(&parsed.memory_actions, &id_alias_map),
     })
@@ -851,28 +839,8 @@ fn resolve_memory_action_drafts(
         .collect::<Vec<_>>()
 }
 
-fn compose_summary_context_summary(
-    summary: &str,
-    open_loops: &[String],
-    scene: SummaryContextScene,
-) -> String {
-    let summary = normalize_markdown_block(summary);
-    if open_loops.is_empty() {
-        return summary;
-    }
-    let open_loop_lines = open_loops
-        .iter()
-        .enumerate()
-        .map(|(idx, item)| format!("{}. {}", idx + 1, item))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let _ = scene;
-    let section_title = "## 未完事项";
-    if summary.is_empty() {
-        format!("{}\n\n{}", section_title, open_loop_lines)
-    } else {
-        format!("{}\n\n{}\n\n{}", summary, section_title, open_loop_lines)
-    }
+fn compose_summary_context_summary(summary: &str) -> String {
+    normalize_markdown_block(summary)
 }
 
 #[allow(dead_code)]
@@ -1268,7 +1236,6 @@ async fn summarize_archive_summary_with_fallback(
             Ok(mut draft) => {
                 draft.title.clear();
                 draft.summary.clear();
-                draft.open_loops.clear();
                 return (draft, None);
             }
             Err(err) => {
@@ -1278,7 +1245,6 @@ async fn summarize_archive_summary_with_fallback(
                         MemoryCurationDraft {
                             title: String::new(),
                             summary: String::new(),
-                            open_loops: Vec::new(),
                             useful_memory_ids: Vec::new(),
                             memory_actions: Vec::new(),
                         },
@@ -1331,7 +1297,6 @@ fn empty_memory_curation_draft() -> MemoryCurationDraft {
     MemoryCurationDraft {
         title: String::new(),
         summary: String::new(),
-        open_loops: Vec::new(),
         useful_memory_ids: Vec::new(),
         memory_actions: Vec::new(),
     }
@@ -2053,16 +2018,12 @@ mod archive_pipeline_tests {
     }
 
     #[test]
-    fn compose_summary_context_summary_should_append_open_loops() {
+    fn compose_summary_context_summary_should_keep_summary_as_is() {
         let summary = compose_summary_context_summary(
             "## 当前进展\n\n- 已完成前端任务编辑器重构",
-            &vec!["继续改 archive pipeline".to_string(), "补充 JSON 契约测试".to_string()],
-            SummaryContextScene::Compaction,
         );
         assert!(summary.contains("已完成前端任务编辑器重构"));
-        assert!(summary.contains("## 未完事项"));
-        assert!(summary.contains("1. 继续改 archive pipeline"));
-        assert!(summary.contains("2. 补充 JSON 契约测试"));
+        assert!(!summary.contains("## 未完事项"));
     }
 
     #[test]
@@ -2273,7 +2234,6 @@ mod archive_pipeline_tests {
         let draft = MemoryCurationDraft {
             title: String::new(),
             summary: String::new(),
-            open_loops: Vec::new(),
             useful_memory_ids: Vec::new(),
             memory_actions: vec![ArchiveMemoryActionDraft {
                 action: ArchiveMemoryActionKind::Create,

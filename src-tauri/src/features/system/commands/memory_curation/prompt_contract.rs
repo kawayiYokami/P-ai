@@ -12,7 +12,6 @@ fn memory_curation_example_output_block() -> &'static str {
     r###"{
   "title": "string",
   "summary": "string",
-  "openLoops": ["string"],
   "usefulMemoryIds": ["12"],
   "memoryActions": [
     {

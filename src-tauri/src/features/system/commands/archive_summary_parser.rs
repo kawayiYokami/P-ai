@@ -44,33 +44,6 @@ where
         .collect::<Vec<_>>())
 }
 
-/// openLoops 兼容两种模型输出形态：纯字符串数组 ["..."] 或带 loop 键的对象数组 [{"loop": "..."}]。
-/// 对象形态缺少 loop 键或 loop 不是字符串时跳过该元素；最终统一为裁剪后的非空字符串列表。
-fn deserialize_open_loops<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let raw = Vec::<serde_json::Value>::deserialize(deserializer)?;
-    let mut out = Vec::new();
-    for item in raw {
-        let text = match item {
-            serde_json::Value::String(s) => Some(s),
-            serde_json::Value::Object(map) => map
-                .get("loop")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string),
-            _ => None,
-        };
-        if let Some(text) = text {
-            let trimmed = text.trim();
-            if !trimmed.is_empty() {
-                out.push(trimmed.to_string());
-            }
-        }
-    }
-    Ok(out)
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, rmcp::schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct ArchiveMemoryDraft {
@@ -108,8 +81,6 @@ struct MemoryCurationDraft {
     title: String,
     #[serde(default)]
     summary: String,
-    #[serde(default, deserialize_with = "deserialize_open_loops")]
-    open_loops: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_stringish_ids")]
     useful_memory_ids: Vec<String>,
     #[serde(default)]
@@ -125,7 +96,6 @@ fn parse_memory_curation_draft_from_value(value: serde_json::Value) -> Option<Me
     let has_any_useful_key = obj.contains_key("usefulMemoryIds")
         || obj.contains_key("title")
         || obj.contains_key("summary")
-        || obj.contains_key("openLoops")
         || obj.contains_key("memoryActions");
     if !has_any_useful_key {
         return None;
@@ -167,7 +137,6 @@ fn parse_memory_curation_draft(raw: &str) -> Option<MemoryCurationDraft> {
         &[
             "title",
             "summary",
-            "openLoops",
             "usefulMemoryIds",
             "memoryActions",
         ],
@@ -189,7 +158,7 @@ mod archive_summary_parser_tests {
             .expect("schema properties");
         assert!(properties.contains_key("title"));
         assert!(properties.contains_key("summary"));
-        assert!(properties.contains_key("openLoops"));
+        assert!(!properties.contains_key("openLoops"));
         assert!(properties.contains_key("usefulMemoryIds"));
         assert!(properties.contains_key("memoryActions"));
     }
@@ -224,7 +193,6 @@ mod archive_summary_parser_tests {
         }"#;
         let parsed = parse_memory_curation_draft(raw).expect("parse canonical actions");
         assert_eq!(parsed.summary, "归档摘要".to_string());
-        assert_eq!(parsed.open_loops, vec!["继续改 archive pipeline".to_string()]);
         assert_eq!(parsed.useful_memory_ids, vec!["mem-1".to_string()]);
         assert_eq!(parsed.memory_actions.len(), 2);
         assert_eq!(
@@ -242,7 +210,6 @@ mod archive_summary_parser_tests {
         let parsed = parse_memory_curation_draft(raw).expect("parse archive reflection");
         assert_eq!(parsed.title, "");
         assert_eq!(parsed.summary, "");
-        assert!(parsed.open_loops.is_empty());
         assert_eq!(parsed.useful_memory_ids, vec!["mem-1".to_string()]);
     }
 
@@ -258,7 +225,6 @@ mod archive_summary_parser_tests {
         let parsed = parse_memory_curation_draft(raw).expect("parse compatible archive reflection");
         assert_eq!(parsed.title, "旧格式标题");
         assert_eq!(parsed.summary, "旧格式摘要");
-        assert_eq!(parsed.open_loops, vec!["旧格式待办".to_string()]);
         assert_eq!(parsed.useful_memory_ids, vec!["mem-1".to_string()]);
     }
 
@@ -368,7 +334,6 @@ mod archive_summary_parser_tests {
 请查收。"#, fence, fence);
         let parsed = parse_memory_curation_draft(&raw).expect("extract wrapped json");
         assert_eq!(parsed.summary, "归档摘要".to_string());
-        assert_eq!(parsed.open_loops, vec!["补 archive 测试".to_string()]);
         assert_eq!(parsed.useful_memory_ids, vec!["12".to_string()]);
     }
 
@@ -388,7 +353,6 @@ mod archive_summary_parser_tests {
 }"#;
         let parsed = parse_memory_curation_draft(raw).expect("extract last json");
         assert_eq!(parsed.summary, "真实摘要".to_string());
-        assert_eq!(parsed.open_loops, vec!["继续修解析".to_string()]);
     }
 
     #[test]
@@ -402,7 +366,6 @@ mod archive_summary_parser_tests {
 }
 尾注"#;
         let parsed = parse_memory_curation_draft(raw).expect("trim salvaged json");
-        assert_eq!(parsed.open_loops, vec!["继续推进".to_string()]);
         assert_eq!(parsed.useful_memory_ids, vec!["12".to_string()]);
     }
 
@@ -426,46 +389,4 @@ mod archive_summary_parser_tests {
         assert!(parse_memory_curation_draft(raw).is_none());
     }
 
-    #[test]
-    fn parse_memory_curation_should_accept_open_loops_as_plain_strings() {
-        // 钉死：openLoops 契约形态是字符串数组，正常解析并保留顺序
-        let raw = r#"{
-          "summary": "摘要",
-          "openLoops": ["继续排查日志", "补测试"],
-          "memoryActions": []
-        }"#;
-        let parsed = parse_memory_curation_draft(raw).expect("parse string open_loops");
-        assert_eq!(
-            parsed.open_loops,
-            vec!["继续排查日志".to_string(), "补测试".to_string()]
-        );
-    }
-
-    #[test]
-    fn parse_memory_curation_should_accept_legacy_loop_object_form_of_open_loops() {
-        // 钉死：模型曾输出 [{"loop": "..."}] 对象形态导致 from_value 报 invalid type: map 而整段解析失败；
-        // 解析器必须兼容对象形态并提取 loop 字段值，保证旧输出不再失败
-        let raw = r#"{
-          "summary": "摘要",
-          "openLoops": [{"loop": "继续排查日志"}, {"loop": "补测试"}],
-          "memoryActions": []
-        }"#;
-        let parsed = parse_memory_curation_draft(raw).expect("parse object open_loops");
-        assert_eq!(
-            parsed.open_loops,
-            vec!["继续排查日志".to_string(), "补测试".to_string()]
-        );
-    }
-
-    #[test]
-    fn parse_memory_curation_should_skip_open_loop_items_without_usable_text() {
-        // 钉死：对象形态缺 loop 键、loop 非字符串、或元素本身不是字符串/对象时，跳过该元素且不中断整体解析
-        let raw = r#"{
-          "summary": "摘要",
-          "openLoops": [{"loop": "保留"}, {"other": "无 loop 键"}, 42],
-          "memoryActions": []
-        }"#;
-        let parsed = parse_memory_curation_draft(raw).expect("parse mixed open_loops");
-        assert_eq!(parsed.open_loops, vec!["保留".to_string()]);
-    }
 }
