@@ -1,4 +1,5 @@
 import { defineComponent, h, onBeforeUnmount, ref, watch } from "vue";
+import { writeTransportClipboardText } from "../../../services/tauri-api";
 import AppIcon from "../../shared/components/AppIcon.vue";
 
 export function normalizeMermaidCodeForRender(code: string): string {
@@ -96,7 +97,7 @@ const MermaidBlock = defineComponent({
 
     async function copyMermaidCode() {
       try {
-        await navigator.clipboard.writeText(mermaidProps.code || "");
+        await writeTransportClipboardText(mermaidProps.code || "");
         copied.value = true;
         if (copyTimer) clearTimeout(copyTimer);
         copyTimer = window.setTimeout(() => {

@@ -699,37 +699,68 @@ async fn read_local_chat_image_original_inner(
     .map_err(|err| format!("读取本地图片原图任务异常：{err}"))?
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardWriteImageInput {
+    path: Option<String>,
+    base64: Option<String>,
+}
+
+/// 写文本到剪贴板桌面命令。
+///
+/// 走 clipboard-manager 插件，替代前端直接调用浏览器 `navigator.clipboard.writeText`：
+/// 后者只在安全上下文可用，Webview 里剪贴板权限表现不稳定，插件是跨宿主统一路径。
 #[tauri::command]
-async fn copy_local_chat_image_to_clipboard(
-    input: ReadLocalChatImageThumbnailInput,
+async fn clipboard_write_text(text: String, app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt as _;
+    tokio::task::spawn_blocking(move || {
+        app.clipboard()
+            .write_text(text)
+            .map_err(|err| format!("写入剪贴板失败：{err}"))
+    })
+    .await
+    .map_err(|err| format!("写入剪贴板任务异常：{err}"))?
+}
+
+/// 写图片到剪贴板桌面命令。
+///
+/// 来源二选一：`path` 是应用内本地图片路径（用户消息里的图片），
+/// `base64` 是前端从 Web 侧 data URL / paste 事件拿到的图片数据。
+/// 两条路统一解码成 RGBA 位图交给 clipboard-manager 插件——gif / webp
+/// 因此会变成静态首帧；原文件由预览工具栏的下载按钮提供，复制不承担给原文件的职责。
+#[tauri::command]
+async fn clipboard_write_image(
+    input: ClipboardWriteImageInput,
+    app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<(), String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt as _;
     let app_state = state.inner().clone();
     tokio::task::spawn_blocking(move || {
-        let path = resolve_local_chat_image_path(&app_state, &input.path)?;
-        let raw = local_image_read_raw(&path)?;
-        let (_, mime) = local_image_detect_format(&raw, &path)?;
-        let mut clipboard = arboard::Clipboard::new()
-            .map_err(|err| format!("初始化剪贴板失败: {err}"))?;
-
-        if matches!(mime.as_str(), "image/gif" | "image/webp") {
-            clipboard
-                .set()
-                .file_list(&[path.as_path()])
-                .map_err(|err| format!("复制图片文件到剪贴板失败: {err}"))?;
-            return Ok(serde_json::json!({ "ok": true, "mode": "file" }));
-        }
-
-        let (dynamic, _) = local_image_decode_dynamic(&raw, &path)?;
-        let rgba = dynamic.to_rgba8();
-        let image_data = arboard::ImageData {
-            width: rgba.width() as usize,
-            height: rgba.height() as usize,
-            bytes: rgba.as_raw().clone().into(),
+        let raw = match (input.path.as_deref(), input.base64.as_deref()) {
+            (Some(path), _) => {
+                let resolved = resolve_local_chat_image_path(&app_state, path)?;
+                local_image_read_raw(&resolved)?
+            }
+            (None, Some(base64)) => {
+                use base64::Engine as _;
+                base64::engine::general_purpose::STANDARD
+                    .decode(base64)
+                    .map_err(|err| format!("解码图片数据失败：{err}"))?
+            }
+            (None, None) => return Err("图片来源不能为空".to_string()),
         };
-        clipboard.set_image(image_data)
-            .map_err(|err| format!("复制图片到剪贴板失败: {err}"))?;
-        Ok(serde_json::json!({ "ok": true, "mode": "bitmap" }))
+        let dynamic = image::load_from_memory(&raw)
+            .map_err(|err| format!("解码图片失败：{err}"))?;
+        let rgba = dynamic.to_rgba8();
+        let owned = tauri::image::Image::new_owned(
+            rgba.as_raw().to_vec(),
+            rgba.width(),
+            rgba.height(),
+        );
+        app.clipboard()
+            .write_image(&owned)
+            .map_err(|err| format!("复制图片到剪贴板失败: {err}"))
     })
     .await
     .map_err(|err| format!("复制本地图片任务异常：{err}"))?

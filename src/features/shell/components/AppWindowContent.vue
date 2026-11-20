@@ -623,6 +623,7 @@ import {
   invokeTauri,
   saveTransportFileDialog,
   writeTransportBase64File,
+  writeTransportClipboardImage,
   writeTransportUtf8TextFile,
 } from "../../../services/tauri-api";
 
@@ -1524,19 +1525,12 @@ async function copySelectionAsImage() {
     messageIdCount: resolveShareMessageIds(payload).length,
   });
   try {
-    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-      throw new Error(props.t("chat.copyFailed"));
-    }
     showChatNotice(props.t("chat.shareImageGenerating"), "info");
     const { dataUrl } = await generateSelectionSharePng(payload, "selection_share_copy_image");
-    const response = await fetch(dataUrl);
-    const blob = await response.blob();
-    if (blob.type !== "image/png") {
-      throw new Error(`unsupported clipboard image type: ${blob.type || "unknown"}`);
+    const copied = await writeTransportClipboardImage({ base64: dataUrl, mime: "image/png" });
+    if (!copied) {
+      throw new Error(props.t("chat.copyFailed"));
     }
-    await navigator.clipboard.write([
-      new ClipboardItem({ "image/png": blob }),
-    ]);
     showChatNotice(props.t("chat.shareImageCopied"), "info");
     selectionShareDialogOpen.value = false;
   } catch (error) {

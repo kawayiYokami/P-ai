@@ -152,7 +152,7 @@ import { useI18n } from "vue-i18n";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
-import { invokeTauri, openTransportExternalUrl } from "../../../../services/tauri-api";
+import { invokeTauri, openTransportExternalUrl, writeTransportClipboardText } from "../../../../services/tauri-api";
 import type { AppConfig } from "../../../../types/app";
 
 type WebAccessInfo = {
@@ -342,7 +342,7 @@ async function copyText(text: string) {
   const value = text.trim();
   if (!value) return;
   try {
-    await navigator.clipboard.writeText(value);
+    await writeTransportClipboardText(value);
     statusError.value = false;
     statusText.value = t("config.networkAccess.copied");
   } catch (error) {

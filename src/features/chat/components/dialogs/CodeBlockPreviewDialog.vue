@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { writeTransportClipboardText } from "../../../../services/tauri-api";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import ToolReviewCodePreview from "../ToolReviewCodePreview.vue";
 
@@ -39,7 +40,7 @@ const languageLabel = computed(() => String(props.lang || "").trim() || "text");
 
 async function copyCode() {
   try {
-    await navigator.clipboard.writeText(String(props.code || ""));
+    await writeTransportClipboardText(String(props.code || ""));
     copied.value = true;
     if (copiedTimer) window.clearTimeout(copiedTimer);
     copiedTimer = window.setTimeout(() => {

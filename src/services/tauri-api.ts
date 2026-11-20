@@ -900,12 +900,104 @@ export async function readTransportChatImage(input: {
   );
 }
 
-/** 本机图片操作也只保留在适配器内；Web 端由能力显隐，不抛协议错误。 */
-export async function copyTransportChatImageToClipboard(path: string): Promise<boolean> {
-  const normalizedPath = String(path || "").trim();
-  if (!normalizedPath || !isTauriRuntimeAvailable()) return false;
-  await invokeTauri("copy_local_chat_image_to_clipboard", { input: { path: normalizedPath } });
+/**
+ * 写文本到剪贴板的唯一入口。
+ *
+ * 桌面端走 clipboard-manager 插件命令，Web / VS Code 侧边栏保留浏览器原生
+ * `navigator.clipboard.writeText`：它要求 transient user activation。
+ * 因此 Web 分支必须让 `writeText` 成为本函数第一个 await——不能先 await
+ * 任何东西（枚举能力、读数据、取配置），否则用户手势在异步边界上丢失，
+ * 调用会直接被浏览器拒绝。宿主判断 `isTauriRuntimeAvailable()` 是同步的，
+ * 不消耗手势。
+ */
+export async function writeTransportClipboardText(text: string): Promise<boolean> {
+  const normalized = String(text || "");
+  if (!normalized) return false;
+  if (isTauriRuntimeAvailable()) {
+    await invokeTauri("clipboard_write_text", { text: normalized });
+    return true;
+  }
+  await navigator.clipboard.writeText(normalized);
   return true;
+}
+
+/**
+ * 写图片到剪贴板的唯一入口。`path` 与 `base64` 二选一。
+ *
+ * 桌面端与 Web 端统一写位图：gif / webp 会变成静态首帧，原文件由
+ * 预览工具栏的下载按钮提供，复制不承担给出原文件的职责。
+ * Web 分支里 base64 → Blob 的转换全部同步完成（atob），
+ * `navigator.clipboard.write` 是该分支第一个 await。
+ */
+export async function writeTransportClipboardImage(input: {
+  path?: string;
+  base64?: string;
+  mime?: string;
+}): Promise<boolean> {
+  let path = String(input.path || "").trim();
+  let base64 = String(input.base64 || "").trim();
+  let mime = String(input.mime || "image/png").trim() || "image/png";
+  // 调用方拿到的是 data URL（data:image/png;base64,...），这里统一拆成
+  // mime + 纯 base64 payload，桌面命令与 Web ClipboardItem 都只认纯 payload。
+  const dataUrlMatch = base64.match(/^data:([^;,]+);base64,([\s\S]*)$/);
+  if (dataUrlMatch) {
+    mime = dataUrlMatch[1];
+    base64 = dataUrlMatch[2];
+  }
+  if (!path && !base64) return false;
+  if (isTauriRuntimeAvailable()) {
+    await invokeTauri("clipboard_write_image", {
+      input: { ...(path ? { path } : {}), ...(base64 ? { base64 } : {}) },
+    });
+    return true;
+  }
+  if (!base64) return false;
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  await navigator.clipboard.write([
+    new ClipboardItem({ [mime]: new Blob([bytes], { type: mime }) }),
+  ]);
+  return true;
+}
+
+/** 浏览器剪贴板只保证 png/jpeg；拆 data URL 并校验 mime，不合格返回 null。 */
+function clipboardImageMimeFromDataUrl(dataUrl: string): string | null {
+  const match = String(dataUrl || "").trim().match(/^data:([^;,]+);base64,([\s\S]*)$/);
+  if (!match) return null;
+  const mime = match[1].toLowerCase();
+  return mime === "image/png" || mime === "image/jpeg" ? mime : null;
+}
+
+/**
+ * 复制聊天图片。
+ *
+ * 桌面端直接传本机路径。Web 端优先用调用方手里现成的 dataUrl——那张图已经
+ * 渲染在页面上，直接用它可以让 `navigator.clipboard.write` 成为从点击到写入
+ * 之间唯一的 await，用户手势完整；没传 dataUrl 时才退回跨 bridge 读图，
+ * 那条路径会先 await 一次读取，手势不保证有效，属于兜底。
+ * 非 png/jpeg 一律返回 false（动图请用下载按钮），不在这里偷偷触发下载。
+ */
+export async function copyTransportChatImageToClipboard(
+  path: string,
+  dataUrl?: string,
+): Promise<boolean> {
+  const normalizedPath = String(path || "").trim();
+  if (!normalizedPath) return false;
+  if (isTauriRuntimeAvailable()) {
+    return writeTransportClipboardImage({ path: normalizedPath });
+  }
+  const provided = String(dataUrl || "").trim();
+  if (provided) {
+    const mime = clipboardImageMimeFromDataUrl(provided);
+    if (!mime) return false;
+    return writeTransportClipboardImage({ base64: provided, mime });
+  }
+  // 兜底：read_local_chat_image_original 在 Web bridge 白名单内，但这一跳
+  // 会让用户手势跨过异步边界，浏览器可能拒绝随后的 clipboard.write。
+  const image = await readTransportChatImage({ path: normalizedPath, original: true });
+  const fallback = String(image?.dataUrl || "");
+  const mime = clipboardImageMimeFromDataUrl(fallback);
+  if (!mime) return false;
+  return writeTransportClipboardImage({ base64: fallback, mime });
 }
 
 export async function saveTransportChatImageAs(path: string): Promise<boolean> {
@@ -1639,7 +1731,8 @@ const WEB_BRIDGE_NATIVE_ONLY_COMMANDS = new Set([
   "mcp_open_workspace_dir",
   "skill_open_workspace_dir",
   "skill_open_item_dir",
-  "copy_local_chat_image_to_clipboard",
+  "clipboard_write_text",
+  "clipboard_write_image",
   "save_local_chat_image_as",
   "export_archive_to_file",
   "archives.export",

@@ -7,6 +7,7 @@ import {
   openTransportFileInVscode,
   revealTransportLocalFile,
   saveTransportLocalFileAs,
+  writeTransportClipboardText,
 } from "../../../services/tauri-api";
 import type { FileLinkMenuState } from "../composables/use-file-link-context-menu";
 
@@ -61,13 +62,18 @@ function urlState() {
   return state && state.kind === "url" ? state : null;
 }
 
-function copyText(text: string) {
-  navigator.clipboard
-    .writeText(text)
-    .then(() => close())
-    .catch((err) => {
-      error.value = t("chat.fileLinkMenu.actionFailed", { err: String(err) });
-    });
+async function copyText(text: string) {
+  try {
+    // transport 返回 boolean：失败不抛异常，false 要按原来的 catch 分支报错。
+    const copied = await writeTransportClipboardText(text);
+    if (!copied) {
+      error.value = t("chat.fileLinkMenu.actionFailed", { err: "clipboard write returned false" });
+      return;
+    }
+    close();
+  } catch (err) {
+    error.value = t("chat.fileLinkMenu.actionFailed", { err: String(err) });
+  }
 }
 
 function openInSidebar() {

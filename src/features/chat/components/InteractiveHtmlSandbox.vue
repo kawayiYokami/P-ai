@@ -149,7 +149,7 @@ import {
   collectThemeVariables,
   normalizeSandboxUrl,
 } from "../utils/sandbox-html-builder";
-import { saveTransportTextFileAs } from "../../../services/tauri-api";
+import { saveTransportTextFileAs, writeTransportClipboardText } from "../../../services/tauri-api";
 
 const props = withDefaults(defineProps<{
   code: string;
@@ -371,7 +371,7 @@ function toggleViewMode() {
 
 async function copyCode() {
   try {
-    await navigator.clipboard.writeText(props.code || "");
+    await writeTransportClipboardText(props.code || "");
     copied.value = true;
     if (copyTimer) window.clearTimeout(copyTimer);
     copyTimer = window.setTimeout(() => {

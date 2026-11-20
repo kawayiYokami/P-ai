@@ -45,6 +45,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { writeTransportClipboardText } from "../../../services/tauri-api";
 import type { RuntimeLogEntry } from "../../../types/app";
 
 const props = defineProps<{
@@ -137,7 +138,7 @@ async function copyVisibleLogs() {
     return;
   }
   try {
-    await navigator.clipboard.writeText(text);
+    await writeTransportClipboardText(text);
     copyStatus.value = t("runtimeLogs.copied", { count: filteredLogs.value.length });
   } catch {
     copyStatus.value = t("runtimeLogs.copyFailed");

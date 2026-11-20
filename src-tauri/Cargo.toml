@@ -30,6 +30,7 @@ tauri-plugin-autostart = "2.6"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-clipboard-manager = "2"
 # 日志写入层交给 tauri-plugin-log；CLI（headless / ACP）没有 Tauri app，
 # 复用插件 re-export 的 fern 自己装 logger，date-based 让 CLI 日志按天分文件。
 fern = { version = "0.7", features = ["date-based"] }
@@ -73,7 +74,6 @@ pdf_oxide = { version = "0.3.78", default-features = false }
 hayro = "0.7.1"
 aho-corasick = "1.1"
 enigo = "0.6"
-arboard = "3"
 webp = "0.3"
 rayon = "1.10"
 tiktoken-rs = "0.12.0"

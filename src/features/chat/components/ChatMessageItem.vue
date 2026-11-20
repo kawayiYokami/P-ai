@@ -446,7 +446,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, reactive, re
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import AppLoading from "../../shared/components/AppLoading.vue";
-import { invokeTauri, openTransportWorkspaceFile, readTransportChatImage } from "../../../services/tauri-api";
+import { invokeTauri, openTransportWorkspaceFile, readTransportChatImage, writeTransportClipboardImage, writeTransportClipboardText } from "../../../services/tauri-api";
 import type { ChatActivityItem, ChatMessageBlock } from "../../../types/app";
 import {
   normalizeAssistantStreamBlocks,
@@ -1405,7 +1405,7 @@ function closeRawMessageData() {
 async function copyTextToClipboard(text: string) {
   if (!String(text || "").trim()) return;
   try {
-    await navigator.clipboard.writeText(text);
+    await writeTransportClipboardText(text);
   } catch {}
 }
 
@@ -1447,10 +1447,6 @@ async function copyCurrentMessageAsImage() {
   if (!messageBlock) return;
   copyMessageImageBusy.value = true;
   try {
-    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-      emit("copyMessageImageFailed");
-      return;
-    }
     const generated = await generateShareFromMessageIds({
       conversationId: String(props.activeConversationId || "").trim(),
       messageIds: [String(messageBlock.sourceMessageId || messageBlock.id || "").trim()].filter(Boolean),
@@ -1468,12 +1464,11 @@ async function copyCurrentMessageAsImage() {
       emit("copyMessageImageFailed");
       return;
     }
-    const blob = await (await fetch(dataUrl)).blob();
-    if (blob.type !== "image/png") {
+    const copied = await writeTransportClipboardImage({ base64: dataUrl, mime: "image/png" });
+    if (!copied) {
       emit("copyMessageImageFailed");
       return;
     }
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
     emit("copyMessageImageDone");
   } catch (error) {
     console.warn("[消息复制图片] 失败", error);

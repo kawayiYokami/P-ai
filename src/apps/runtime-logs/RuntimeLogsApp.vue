@@ -76,6 +76,7 @@ import {
   invokeTauri,
   minimizeCurrentTransportWindow,
   onTransportNotification,
+  writeTransportClipboardText,
 } from "../../services/tauri-api";
 import { useAppTheme } from "../../features/shell/composables/use-app-theme";
 import FloatingScrollbar from "../../features/shell/components/FloatingScrollbar.vue";
@@ -249,7 +250,7 @@ async function copyLogs() {
   const text = filteredLogs.value.map(formatLine).join("\n");
   if (!text) return;
   try {
-    await navigator.clipboard.writeText(text);
+    await writeTransportClipboardText(text);
   } catch {
     errorText.value = "复制失败";
   }

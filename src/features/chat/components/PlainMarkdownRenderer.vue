@@ -77,6 +77,7 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, onBeforeUnmount, ref, type VNodeChild } from "vue";
 import { useI18n } from "vue-i18n";
+import { writeTransportClipboardText } from "../../../services/tauri-api";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import CodeBlockPreviewDialog from "./dialogs/CodeBlockPreviewDialog.vue";
 import { findNextMarkdownAutoLink } from "../markdown/markdown-auto-link";
@@ -113,7 +114,7 @@ let copiedCodeTimer = 0;
 
 async function copyCodeBlock(key: string, text: string) {
   try {
-    await navigator.clipboard.writeText(String(text || ""));
+    await writeTransportClipboardText(String(text || ""));
     copiedCodeKey.value = key;
     if (copiedCodeTimer) window.clearTimeout(copiedCodeTimer);
     copiedCodeTimer = window.setTimeout(() => {

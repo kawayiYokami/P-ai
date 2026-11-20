@@ -942,6 +942,7 @@ import {
   readTransportChatImage,
   resolveLocalFileUrl,
   saveTransportChatImageAs,
+  writeTransportClipboardText,
 } from "../../../services/tauri-api";
 import type { ApiConfigItem, AssistantStreamBlock, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, ConversationDelegateStatusSummary, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption, ShellWorkspace, ShellWorkMode } from "../../../types/app";
 import ChatMessageItem from "../components/ChatMessageItem.vue";
@@ -1367,7 +1368,7 @@ async function copyStatusText(text: string) {
   const content = String(text || "").trim();
   if (!content) return;
   try {
-    await navigator.clipboard.writeText(content);
+    await writeTransportClipboardText(content);
   } catch (error) {
     console.warn("[状态提示] 复制失败", error);
   }
@@ -4184,7 +4185,7 @@ const imagePreviewSaveStatus = ref<string>('idle');
 async function handleCopyLocalImage(path: string) {
   imagePreviewCopyStatus.value = 'doing';
   try {
-    await copyTransportChatImageToClipboard(path);
+    await copyTransportChatImageToClipboard(path, imagePreviewDataUrl.value);
   } catch (error) {
     console.warn('[预览] 复制图片失败', error);
   } finally {

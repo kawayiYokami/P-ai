@@ -617,6 +617,7 @@ import {
   type GitPanelStashEntry,
   type GitPanelWatchEventPayload,
   type GitPanelWorktreeEntry,
+  writeTransportClipboardText,
 } from "../../../services/tauri-api";
 import { decideGitPanelRefreshTargets } from "../git-panel-watch-refresh";
 import { formatRecentRelativeTime } from "../../shared/utils/relative-time";
@@ -1783,7 +1784,7 @@ async function copyCommitHash() {
   const hash = commitCard.value.entry?.hash || "";
   if (!hash) return;
   try {
-    await navigator.clipboard.writeText(hash);
+    await writeTransportClipboardText(hash);
     closeCommitCard();
   } catch {
     appendOutput("copy hash", null, new Error("复制哈希失败"));
@@ -1794,7 +1795,7 @@ async function copyCommitMessage() {
   const message = commitCard.value.entry?.message || "";
   if (!message) return;
   try {
-    await navigator.clipboard.writeText(message);
+    await writeTransportClipboardText(message);
     closeCommitCard();
   } catch {
     appendOutput("copy message", null, new Error("复制提交消息失败"));

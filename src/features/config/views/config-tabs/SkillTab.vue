@@ -631,6 +631,7 @@ import {
   removeTransportSkill,
   saveTransportSkill,
   setTransportSkillEnabled,
+  writeTransportClipboardText,
 } from "../../../../services/tauri-api";
 import type { SkillFileItem, SkillListResult, SkillSummaryItem } from "../../../../types/app";
 import { toErrorMessage } from "../../../../utils/error";
@@ -1010,7 +1011,7 @@ function closeFilePreview() {
 async function copyFilePreviewContent() {
   if (!previewFileContent.value) return;
   try {
-    await navigator.clipboard.writeText(previewFileContent.value);
+    await writeTransportClipboardText(previewFileContent.value);
     previewFileCopied.value = true;
     setTimeout(() => {
       previewFileCopied.value = false;
@@ -1030,7 +1031,7 @@ async function copySkillContent() {
   const text = editingContent.value || selectedSkill.value?.content || "";
   if (!text) return;
   try {
-    await navigator.clipboard.writeText(text);
+    await writeTransportClipboardText(text);
     copiedContent.value = true;
     setTimeout(() => {
       copiedContent.value = false;
@@ -1043,7 +1044,7 @@ async function copySkillContent() {
 async function copySkillPath(path: string) {
   if (!path) return;
   try {
-    await navigator.clipboard.writeText(path);
+    await writeTransportClipboardText(path);
     copiedPath.value = true;
     setTimeout(() => {
       copiedPath.value = false;

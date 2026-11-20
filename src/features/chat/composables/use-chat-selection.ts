@@ -1,4 +1,5 @@
 import { computed, watch, type Ref } from "vue";
+import { writeTransportClipboardText } from "../../../services/tauri-api";
 import type { ChatMessageBlock, ConversationForwardTarget } from "../../../types/app";
 import { stripToolcallMarkers } from "../../../utils/chat-message-semantics";
 
@@ -115,7 +116,7 @@ export function useChatSelection(options: UseChatSelectionOptions) {
       .join("\n\n");
     if (!text.trim()) return;
     try {
-      await navigator.clipboard.writeText(text);
+      await writeTransportClipboardText(text);
       onEmit.selectionActionCopy(payload);
     } catch (error) {
       onEmit.selectionActionCopyError({ ...payload, error: error instanceof Error ? error.message : String(error) });

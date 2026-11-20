@@ -708,6 +708,7 @@ import {
   resolveLocalFileUrl,
   saveTransportChatImageAs,
   updateTransportFileReaderWatchTargets,
+  writeTransportClipboardText,
 } from "../../../services/tauri-api";
 import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
 import ChatImagePreviewDialog from "../../chat/components/dialogs/ChatImagePreviewDialog.vue";
@@ -1850,7 +1851,7 @@ async function copyTextToClipboard(text: string) {
   const value = String(text || "");
   if (!value) return;
   try {
-    await navigator.clipboard.writeText(value);
+    await writeTransportClipboardText(value);
   } catch (error) {
     reportFileReaderActionFailure(t('fileReader.actionCopy'), value, error);
   }
@@ -2625,7 +2626,7 @@ async function openMarkdownImagePreview(payload: { src?: string; localPath?: str
 async function handleCopyMarkdownImage(path: string) {
   imagePreviewCopyStatus.value = "doing";
   try {
-    await copyTransportChatImageToClipboard(path);
+    await copyTransportChatImageToClipboard(path, imagePreviewDataUrl.value);
   } catch (error) {
     console.warn("[文件浏览器预览] 复制图片失败", error);
   } finally {

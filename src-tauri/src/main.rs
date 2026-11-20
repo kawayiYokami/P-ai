@@ -1310,6 +1310,7 @@ fn main() {
             Some(vec![AUTOSTART_LAUNCH_FLAG]),
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -1614,7 +1615,8 @@ fn main() {
             attachment_ingest_local_path,
             read_local_chat_image_thumbnail,
             read_local_chat_image_original,
-            copy_local_chat_image_to_clipboard,
+            clipboard_write_text,
+            clipboard_write_image,
             save_local_chat_image_as,
             stt_transcribe,
             archive_conversation,

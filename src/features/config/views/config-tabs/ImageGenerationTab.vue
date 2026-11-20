@@ -275,6 +275,7 @@ import {
   pickTransportAttachmentSources,
   readTransportChatImage,
   resolveLocalVideoUrl,
+  writeTransportClipboardText,
 } from "../../../../services/tauri-api";
 import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
@@ -950,7 +951,7 @@ async function copyGeneratedMarkdown(markdown: string) {
   const value = String(markdown || "").trim();
   if (!value) return;
   try {
-    await navigator.clipboard.writeText(value);
+    await writeTransportClipboardText(value);
     props.setStatusAction(t("config.imageGeneration.markdownCopied"));
   } catch (error) {
     testError.value = String(error instanceof Error ? error.message : error || t("config.imageGeneration.copyFailed"));
@@ -962,7 +963,7 @@ async function copyGeneratedImage(relativePath: string) {
   if (!value || copyingImage.value) return;
   copyingImage.value = true;
   try {
-    await copyTransportChatImageToClipboard(`{Assistant Space}/${value}`);
+    await copyTransportChatImageToClipboard(`{Assistant Space}/${value}`, testPreviewDataUrl.value);
     props.setStatusAction(t("config.imageGeneration.imageCopied"));
   } catch (error) {
     testError.value = String(error instanceof Error ? error.message : error || t("config.imageGeneration.copyFailed"));

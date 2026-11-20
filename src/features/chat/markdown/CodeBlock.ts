@@ -1,4 +1,5 @@
 import { computed, defineComponent, h, inject, onBeforeUnmount, ref, watch } from "vue";
+import { writeTransportClipboardText } from "../../../services/tauri-api";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import CodeBlockPreviewDialog from "../components/dialogs/CodeBlockPreviewDialog.vue";
 import InteractiveHtmlSandbox from "../components/InteractiveHtmlSandbox.vue";
@@ -205,7 +206,7 @@ const CodeBlock = defineComponent({
 
     async function copyCode() {
       try {
-        await navigator.clipboard.writeText(codeProps.code || "");
+        await writeTransportClipboardText(codeProps.code || "");
         copied.value = true;
         if (copyTimer) clearTimeout(copyTimer);
         copyTimer = window.setTimeout(() => {

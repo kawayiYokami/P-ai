@@ -104,7 +104,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import AppLoading from "../../shared/components/AppLoading.vue";
-import { invokeTauri } from "../../../services/tauri-api";
+import { invokeTauri, writeTransportClipboardText } from "../../../services/tauri-api";
 import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
 import type { ArchiveBlockPage, ChatActivityItem, ConversationDelegateStatusSummary, ScheduleEvent, ScheduleRun } from "../../../types/app";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
@@ -232,7 +232,7 @@ function formatRunRange(startValue?: string | null, endValue?: string | null) {
 async function copyFinalText() {
   if (!finalText.value) return;
   try {
-    await navigator.clipboard.writeText(finalText.value);
+    await writeTransportClipboardText(finalText.value);
     copied.value = true;
     if (copyResetTimer) clearTimeout(copyResetTimer);
     copyResetTimer = setTimeout(() => {

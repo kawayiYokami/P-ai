@@ -1,7 +1,7 @@
 import { ref } from "vue";
 import type { ChatMessageBlock } from "../../../types/app";
 import { stripToolcallMarkers } from "../../../utils/chat-message-semantics";
-import { readTransportLocalBinaryFile, resolveLocalFileUrl } from "../../../services/tauri-api";
+import { readTransportLocalBinaryFile, resolveLocalFileUrl, writeTransportClipboardText } from "../../../services/tauri-api";
 
 export function useChatMessageActions() {
   const playingAudioId = ref("");
@@ -13,7 +13,7 @@ export function useChatMessageActions() {
       || (block.attachmentFiles || []).map((item) => String(item.fileName || "").trim()).filter(Boolean).join("、");
     if (!copyText) return false;
     try {
-      await navigator.clipboard.writeText(copyText);
+      await writeTransportClipboardText(copyText);
       return true;
     } catch {
       // Ignore clipboard failures to avoid interrupting chat flow.
