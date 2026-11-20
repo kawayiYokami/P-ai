@@ -1,42 +1,41 @@
 <template>
   <div class="space-y-4">
     <!-- 基本信息 -->
-    <div class="card card-sm card-border border-base-300 bg-base-100">
-      <div class="card-body gap-3 p-4">
-        <div class="flex items-center justify-between">
-          <span class="text-sm font-semibold">{{ t('config.mcp.basicSection') }}</span>
-          <div class="flex items-center gap-2">
-            <span class="text-xs opacity-70">{{ t('config.mcp.statusLabel') }}</span>
-            <span v-if="draft.lastStatus === 'ready' || draft.lastStatus === 'deployed'" class="badge badge-sm badge-success">
-              {{ t('config.mcp.statusReady') }}
-            </span>
-            <span v-else-if="draft.lastStatus === 'stopped'" class="badge badge-sm badge-neutral">
-              {{ t('config.mcp.statusStopped') }}
-            </span>
-            <span v-else-if="draft.lastStatus === 'starting' || draft.lastStatus === 'deploying'" class="badge badge-sm badge-warning">
-              {{ t('config.mcp.statusStarting') }}
-            </span>
-            <span v-else-if="draft.lastStatus === 'stale'" class="badge badge-sm badge-warning">
-              {{ t('config.mcp.statusStale') }}
-            </span>
-            <span v-else-if="draft.lastStatus === 'timeout'" class="badge badge-sm badge-error">
-              {{ t('config.mcp.statusTimeout') }}
-            </span>
-            <span v-else-if="draft.lastStatus === 'disabled'" class="badge badge-sm badge-neutral">
-              {{ t('config.mcp.statusDisabled') }}
-            </span>
-            <span v-else-if="draft.lastStatus === 'auth_required'" class="badge badge-sm badge-warning">
-              {{ t('config.mcp.statusAuthRequired') }}
-            </span>
-            <span v-else-if="draft.lastStatus === 'failed'" class="badge badge-sm badge-error">
-              {{ t('config.mcp.statusFailed') }}
-            </span>
-            <span v-else class="badge badge-sm badge-ghost">
-              {{ draft.lastStatus || t('config.mcp.statusUnknown') }}
-            </span>
-          </div>
+    <ConfigCard :title="t('config.mcp.basicSection')">
+      <template #actions>
+        <div class="flex items-center gap-2">
+          <span class="text-xs opacity-70">{{ t('config.mcp.statusLabel') }}</span>
+          <span v-if="draft.lastStatus === 'ready' || draft.lastStatus === 'deployed'" class="badge badge-sm badge-success">
+            {{ t('config.mcp.statusReady') }}
+          </span>
+          <span v-else-if="draft.lastStatus === 'stopped'" class="badge badge-sm badge-neutral">
+            {{ t('config.mcp.statusStopped') }}
+          </span>
+          <span v-else-if="draft.lastStatus === 'starting' || draft.lastStatus === 'deploying'" class="badge badge-sm badge-warning">
+            {{ t('config.mcp.statusStarting') }}
+          </span>
+          <span v-else-if="draft.lastStatus === 'stale'" class="badge badge-sm badge-warning">
+            {{ t('config.mcp.statusStale') }}
+          </span>
+          <span v-else-if="draft.lastStatus === 'timeout'" class="badge badge-sm badge-error">
+            {{ t('config.mcp.statusTimeout') }}
+          </span>
+          <span v-else-if="draft.lastStatus === 'disabled'" class="badge badge-sm badge-neutral">
+            {{ t('config.mcp.statusDisabled') }}
+          </span>
+          <span v-else-if="draft.lastStatus === 'auth_required'" class="badge badge-sm badge-warning">
+            {{ t('config.mcp.statusAuthRequired') }}
+          </span>
+          <span v-else-if="draft.lastStatus === 'failed'" class="badge badge-sm badge-error">
+            {{ t('config.mcp.statusFailed') }}
+          </span>
+          <span v-else class="badge badge-sm badge-ghost">
+            {{ draft.lastStatus || t('config.mcp.statusUnknown') }}
+          </span>
         </div>
+      </template>
 
+      <div class="space-y-3 py-3">
         <div class="space-y-1">
           <label class="text-xs font-medium opacity-70">{{ t('config.mcp.serverName') }}</label>
           <input
@@ -118,44 +117,48 @@
           </div>
         </div>
       </div>
-    </div>
+    </ConfigCard>
 
     <!-- 组内成员（仅当多于 1 个成员时展示，单体服务不占位不复读） -->
-    <div v-if="members.length > 1" class="card card-sm card-border border-base-300 bg-base-100">
-      <div class="card-body gap-2.5 p-4">
-        <div class="flex items-center justify-between">
-          <span class="text-sm font-semibold">{{ t('config.mcp.membersSection') }}</span>
-          <span class="badge badge-sm badge-neutral">{{ t('config.mcp.memberCount', { count: members.length }) }}</span>
-        </div>
-        <div class="divide-y divide-base-200">
-          <div v-for="m in members" :key="m.name" class="flex items-center justify-between gap-2 py-2 text-xs">
-            <div class="flex items-center gap-2 min-w-0">
-              <span class="font-mono font-medium truncate">{{ m.name }}</span>
-            </div>
-            <div class="flex items-center gap-2 shrink-0">
-              <span v-if="m.toolCount > 0" class="opacity-70">{{ t('config.mcp.toolCount', { count: m.toolCount }) }}</span>
-              <span class="badge badge-sm badge-ghost font-mono">{{ m.transport }}</span>
-            </div>
+    <ConfigCard v-if="members.length > 1" :title="t('config.mcp.membersSection')">
+      <template #actions>
+        <span class="badge badge-sm badge-neutral">{{ t('config.mcp.memberCount', { count: members.length }) }}</span>
+      </template>
+      <div class="divide-y divide-base-300 py-1">
+        <div v-for="m in members" :key="m.name" class="flex items-center justify-between gap-2 py-2 text-xs">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="font-mono font-medium truncate">{{ m.name }}</span>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <span v-if="m.toolCount > 0" class="opacity-70">{{ t('config.mcp.toolCount', { count: m.toolCount }) }}</span>
+            <span class="badge badge-sm badge-ghost font-mono">{{ m.transport }}</span>
           </div>
         </div>
       </div>
-    </div>
+    </ConfigCard>
 
-    <!-- 配置定义 JSON -->
-    <div class="card card-sm card-border border-base-300 bg-base-100">
-      <div class="card-body gap-2 p-4">
-        <div class="flex items-center justify-between">
-          <span class="text-sm font-semibold">{{ t('config.mcp.configSection') }}</span>
-        </div>
-        <textarea
-          v-model="draft.definitionJson"
-          class="textarea textarea-bordered textarea-sm font-mono min-h-48 w-full bg-base-200/30 text-xs leading-relaxed"
-          :placeholder="t('config.mcpServerCard.configPlaceholder')"
+    <!-- 配置定义：表单与 JSON 双模式，definitionJson 仍是唯一数据源 -->
+    <ConfigCard :title="t('config.mcp.configSection')">
+      <template #actions>
+        <SegmentedControl
+          :model-value="definitionMode"
+          :options="definitionModeOptions"
+          size="xs"
+          :full-width="false"
+          surface-class="bg-base-200"
+          @update:model-value="definitionMode = $event"
+        />
+      </template>
+      <div class="p-3">
+        <McpServerDefinitionEditor
+          :definition-json="draft.definitionJson"
+          :mode="definitionMode"
           :disabled="disabled"
-          @input="emitChange"
-        ></textarea>
+          @update:definition-json="onDefinitionChanged"
+          @update:mode="definitionMode = $event"
+        />
       </div>
-    </div>
+    </ConfigCard>
 
     <!-- 工具列表 -->
     <McpToolList
@@ -169,11 +172,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../../../shared/components/AppIcon.vue";
+import ConfigCard from "../../../components/ConfigCard.vue";
 import type { McpOAuthStatusResult, McpServerConfig, McpToolDescriptor } from "../../../../../types/app";
 import McpToolList from "./McpToolList.vue";
+import McpServerDefinitionEditor from "./McpServerDefinitionEditor.vue";
+import SegmentedControl from "../../../components/SegmentedControl.vue";
 import { renameFirstMcpServerMember } from "../../../utils/mcp-definition";
 
 const { t } = useI18n();
@@ -212,6 +218,13 @@ const emit = defineEmits<{
 }>();
 
 const draft = reactive<McpServerView>({ ...props.server });
+
+/** 定义编辑器的视图模式；切换按钮在卡片标题行，不占正文一行 */
+const definitionMode = ref<"form" | "json">("form");
+const definitionModeOptions = [
+  { value: "form" as const, label: "表单" },
+  { value: "json" as const, label: "JSON" },
+];
 
 watch(
   () => props.server,
@@ -284,6 +297,12 @@ const members = computed<McpMemberView[]>(() => {
 function emitChange() {
   draft.isDirty = true;
   emit("change", { ...draft });
+}
+
+/** 编辑器每次改动都回写 definitionJson 并立刻标脏——外层靠 change 判定脏值与保存，不能等到失焦。 */
+function onDefinitionChanged(value: string) {
+  draft.definitionJson = value;
+  emitChange();
 }
 
 // 显示名与定义里的成员名是同一份数据：改名时直接改写定义 JSON，下面文本框立刻同步，

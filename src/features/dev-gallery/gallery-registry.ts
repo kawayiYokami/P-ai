@@ -67,6 +67,9 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
       entry("templates", "ConfigTemplate", "配置模板", "demos/ConfigTemplateDemo.vue", () =>
         import("./demos/ConfigTemplateDemo.vue"),
       ),
+      entry("mcp-definition-editor", "McpServerDefinitionEditor", "MCP 定义编辑器", "demos/McpDefinitionEditorDemo.vue", () =>
+        import("./demos/McpDefinitionEditorDemo.vue"),
+      ),
       entry("search-engines", "SearchEngines", "搜索供应商", "config/views/config-tabs/SearchEnginesDemo.vue", () =>
         import("../config/views/config-tabs/SearchEnginesDemo.vue"),
       ),

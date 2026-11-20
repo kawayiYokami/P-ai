@@ -1570,7 +1570,7 @@
       "noMatches": "No matching connectors",
       "basicSection": "Basic Information",
       "membersSection": "Group Members",
-      "configSection": "Configuration (JSON)",
+      "configSection": "Definition",
       "toolsSection": "Tool List",
       "serverId": "Connector ID",
       "serverName": "Name",
@@ -1665,7 +1665,12 @@
       "status": "Status:",
       "validate": "Validate",
       "stop": "Disable and Stop",
-      "deploy": "Enable and Deploy"
+      "deploy": "Enable and Deploy",
+      "argsPlaceholder": "Type an argument and press Enter",
+      "envKeyPlaceholder": "Variable",
+      "envValuePlaceholder": "Value",
+      "headerKeyPlaceholder": "Header",
+      "headerValuePlaceholder": "Value"
     },
     "mcpToolList": {
       "toolList": "Tool List",

@@ -1570,7 +1570,7 @@
       "noMatches": "未找到匹配的连接器",
       "basicSection": "基本信息",
       "membersSection": "组内成员",
-      "configSection": "配置定义 (JSON)",
+      "configSection": "配置定义",
       "toolsSection": "工具列表",
       "serverId": "连接器 ID",
       "serverName": "名称",
@@ -1665,7 +1665,12 @@
       "status": "状态:",
       "validate": "校验",
       "stop": "停用并停止",
-      "deploy": "启用并部署"
+      "deploy": "启用并部署",
+      "argsPlaceholder": "输入参数后按回车添加",
+      "envKeyPlaceholder": "变量名",
+      "envValuePlaceholder": "值",
+      "headerKeyPlaceholder": "请求头名",
+      "headerValuePlaceholder": "值"
     },
     "mcpToolList": {
       "toolList": "工具列表",

@@ -1570,7 +1570,7 @@
       "noMatches": "未找到相符的連接器",
       "basicSection": "基本資訊",
       "membersSection": "組內成員",
-      "configSection": "配置定義 (JSON)",
+      "configSection": "定義",
       "toolsSection": "工具列表",
       "serverId": "連接器 ID",
       "serverName": "名稱",
@@ -1665,7 +1665,12 @@
       "status": "狀態:",
       "validate": "校驗",
       "stop": "停用並停止",
-      "deploy": "啟用並部署"
+      "deploy": "啟用並部署",
+      "argsPlaceholder": "輸入參數後按 Enter 新增",
+      "envKeyPlaceholder": "變數名",
+      "envValuePlaceholder": "值",
+      "headerKeyPlaceholder": "請求標頭",
+      "headerValuePlaceholder": "值"
     },
     "mcpToolList": {
       "toolList": "工具列表",
