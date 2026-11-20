@@ -108,7 +108,6 @@ export function applyConfigBootstrapUpdate(bindings: {
     bindings.config.minRecordSeconds = normalized.minRecordSeconds;
     bindings.config.maxRecordSeconds = normalized.maxRecordSeconds;
   }
-  if ("selectedApiConfigId" in payload) bindings.config.selectedApiConfigId = String(payload.selectedApiConfigId ?? "").trim();
   if ("expertApiConfigId" in payload) bindings.config.expertApiConfigId = String(payload.expertApiConfigId ?? "").trim();
   if ("visionApiConfigId" in payload) bindings.config.visionApiConfigId = payload.visionApiConfigId as string | undefined;
   if ("imageProviders" in payload) {

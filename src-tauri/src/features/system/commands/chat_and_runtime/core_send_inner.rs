@@ -1247,9 +1247,9 @@ async fn send_chat_message_inner(
             .ok_or_else(|| format!("执行人格已经消失：agent_id={effective_agent_id}"))?
             .clone();
         let agent_model_fallback_enabled = agent_model_failure_fallback_enabled(&effective_agent);
-        // 会话模型统一走生效链：自身 → 父链 → 专家模型 → 第一个可用聊天文本模型。
-        // 不接这条链的后果是：会话模型被删后候选队列为空，报「请在输入面板选择模型」——
-        // 而远程 IM 私聊用户根本没有输入面板。远程联系人同样尊重会话模型，只是在失效时要有兜底。
+        // 会话模型口径：字段为空（没选过）→ 走生效链找默认，这不是偷；
+        // 字段有值 → 只认它，不可用就报错，不许换成别的模型。
+        // 远程 IM 私聊同样尊重会话模型：失效时报错而不是兜底，用户在原客户端重选即可。
         let target_conversation_id = requested_conversation_id_for_prepare
             .as_deref()
             .map(str::trim)
@@ -1260,10 +1260,24 @@ async fn send_chat_message_inner(
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
             });
-        let conversation_preferred_api_config_id = target_conversation_id
-            .and_then(|conversation_id| {
-                resolve_effective_conversation_model(&state, &app_config, conversation_id)
-            });
+        let conversation_stored_api_config_id = target_conversation_id.and_then(|conversation_id| {
+            conversation_service_v2()
+                .get_conversation_meta(&state, conversation_id)
+                .ok()
+                .and_then(|meta| meta.preferred_api_config_id)
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        });
+        let conversation_preferred_api_config_id = match resolve_send_conversation_model_id(
+            &app_config,
+            conversation_stored_api_config_id.as_deref(),
+        )? {
+            Some(id) => Some(id),
+            None => target_conversation_id
+                .and_then(|conversation_id| {
+                    resolve_effective_conversation_model(&state, &app_config, conversation_id)
+                }),
+        };
         let requested_api_config_id_snapshot = requested_api_config_id
             .as_deref()
             .map(str::trim)

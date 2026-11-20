@@ -209,7 +209,6 @@ const config = reactive<AppConfig>({
   messageNotificationSoundEnabled: false,
   desktopOperationNoticeEnabled: true,
   desktopOperateEnabled: true,
-  selectedApiConfigId: "",
   expertApiConfigId: "",
   visionApiConfigId: undefined,
   imageGenerationModelId: undefined,

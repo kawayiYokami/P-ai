@@ -7,7 +7,7 @@ type UseChatConfigUiDerivedStateOptions = {
   config: AppConfig;
   apiModelOptions: Ref<Record<string, string[]>>;
   modelRefreshOkFlags: Ref<Record<string, boolean>>;
-  selectedApiConfig: Ref<{ requestFormat?: string } | null>;
+  selectedApiConfig: Ref<{ id?: string; requestFormat?: string } | null>;
   personas: Ref<PersonaProfile[]>;
   lastSavedConfigJson: Ref<string>;
   lastSavedPersonasJson: Ref<string>;
@@ -17,7 +17,7 @@ type UseChatConfigUiDerivedStateOptions = {
 
 export function useChatConfigUiDerivedState(options: UseChatConfigUiDerivedStateOptions) {
   const selectedModelOptions = computed(() => {
-    const id = options.config.selectedApiConfigId;
+    const id = String(options.selectedApiConfig.value?.id || "").trim();
     if (!id) return [];
     const fromApiOptions = options.apiModelOptions.value[id] ?? [];
     const [providerId] = id.split("::");
@@ -26,7 +26,7 @@ export function useChatConfigUiDerivedState(options: UseChatConfigUiDerivedState
     return Array.from(new Set([...fromApiOptions, ...fromCache].map((item) => String(item || "").trim()).filter(Boolean)));
   });
   const selectedModelRefreshOk = computed(() => {
-    const id = options.config.selectedApiConfigId;
+    const id = String(options.selectedApiConfig.value?.id || "").trim();
     if (!id) return false;
     const fromCache = selectedModelOptions.value.length > 0;
     return fromCache;

@@ -282,9 +282,6 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.config.messageNotificationSoundEnabled = (cfg as { messageNotificationSoundEnabled?: unknown }).messageNotificationSoundEnabled === true;
     options.config.desktopOperationNoticeEnabled = (cfg as { desktopOperationNoticeEnabled?: unknown }).desktopOperationNoticeEnabled !== false;
     options.config.desktopOperateEnabled = (cfg as { desktopOperateEnabled?: unknown }).desktopOperateEnabled !== false;
-    options.config.selectedApiConfigId = cfg.selectedApiConfigId == null
-      ? String(options.config.selectedApiConfigId ?? "")
-      : String(cfg.selectedApiConfigId);
     options.config.expertApiConfigId = cfg.expertApiConfigId;
     options.config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
     options.config.imageProviders = normalizeImageGenerationProviders(
@@ -542,7 +539,6 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.messageNotificationSoundEnabled = (saved as { messageNotificationSoundEnabled?: unknown }).messageNotificationSoundEnabled === true;
       options.config.desktopOperationNoticeEnabled = (saved as { desktopOperationNoticeEnabled?: unknown }).desktopOperationNoticeEnabled !== false;
       options.config.desktopOperateEnabled = (saved as { desktopOperateEnabled?: unknown }).desktopOperateEnabled !== false;
-      options.config.selectedApiConfigId = String(saved.selectedApiConfigId ?? "");
       options.config.expertApiConfigId = saved.expertApiConfigId;
       options.config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
       options.config.imageProviders = normalizeImageGenerationProviders(

@@ -267,7 +267,6 @@
       :update-record-background-wake-enabled="updateRecordBackgroundWakeEnabled"
       :restore-config="restoreLastSavedConfigSnapshot"
       :add-api-config="addApiConfig"
-      :remove-selected-api-config="removeSelectedApiConfig"
       :add-persona="addPersona"
       :remove-selected-persona="removeSelectedPersona"
       :reset-personas="loadPersonas"

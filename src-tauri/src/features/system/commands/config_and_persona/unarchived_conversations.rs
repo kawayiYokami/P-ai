@@ -29,11 +29,24 @@ fn repair_conversation_preferred_model_for_snapshot(
     )
 }
 
-fn repair_conversation_preferred_model_for_snapshot_meta(
+pub(crate) fn repair_conversation_preferred_model_for_snapshot_meta(
     state: &AppState,
     conversation_id: &str,
     preferred_api_config_id: Option<&str>,
 ) -> Result<Option<String>, String> {
+    // 空值（用户没选过）→ 走兜底链修一个可用值并写回，这不是偷。
+    // 有值 → 原样返回，不校验、不替换、不写回；失效了由发送时报错让用户自己重选。
+    // 上一版在这里对有值也做替换并写回，等于把降级从发送时挪到打开会话时。
+    let has_value = preferred_api_config_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some();
+    if has_value {
+        return Ok(preferred_api_config_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string));
+    }
     let runtime_snapshot = load_runtime_organization_snapshot(state)?;
     // 修复走统一兜底链：会话自身 → 父链 → 主会话 → 专家模型 → 第一个可用聊天文本模型。
     // 写回的永远是具体模型 id，不写 role:* 哨兵，也不触发专家模型同步。

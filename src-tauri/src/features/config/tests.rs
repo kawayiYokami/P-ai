@@ -187,7 +187,6 @@
             message_notification_sound_enabled: default_message_notification_sound_enabled(),
             desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             desktop_operate_enabled: default_desktop_operate_enabled(),
-            selected_api_config_id: "a1".to_string(),
             expert_api_config_id: "a1".to_string(),
             simple_setup_mode: false,
             vision_api_config_id: None,
@@ -297,7 +296,6 @@
             message_notification_sound_enabled: default_message_notification_sound_enabled(),
             desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             desktop_operate_enabled: default_desktop_operate_enabled(),
-            selected_api_config_id: "edit-b".to_string(),
             expert_api_config_id: "chat-a".to_string(),
             vision_api_config_id: None,
             image_generation_model_id: None,
@@ -375,7 +373,6 @@
             tool_review_api_config_id: None,
         };
         normalize_app_config(&mut cfg);
-        assert_eq!(cfg.selected_api_config_id, "edit-b::edit-b-model-default".to_string());
         assert_eq!(
             cfg.expert_api_config_id,
             "chat-a::chat-a-model-default".to_string()
@@ -383,12 +380,9 @@
     }
 
     #[test]
-    fn normalize_app_config_should_not_switch_selected_api_config_id() {
+    fn normalize_app_config_should_keep_provider_without_models() {
         let provider_id = "provider-without-models".to_string();
-        // selected 指向一个不存在的端点，归一化不得把它改指到任何已存在的端点。
-        let endpoint = "ghost-provider::ghost-model".to_string();
         let mut cfg = AppConfig {
-            selected_api_config_id: endpoint.clone(),
             expert_api_config_id: String::new(),
             api_providers: vec![ApiProviderConfig {
                 id: provider_id.clone(),
@@ -425,7 +419,6 @@
         normalize_app_config(&mut cfg);
 
         // 已有供应商（即使没有模型）必须原样保留，不得被默认供应商覆盖。
-        assert_eq!(cfg.selected_api_config_id, endpoint);
         assert_eq!(cfg.api_providers.len(), 1);
         assert_eq!(cfg.api_providers[0].id, provider_id);
     }
@@ -453,7 +446,7 @@
         let api = cfg
             .api_configs
             .iter_mut()
-            .find(|item| item.id == cfg.selected_api_config_id)
+            .find(|item| item.id == cfg.expert_api_config_id)
             .expect("default api exists");
         api.request_format = RequestFormat::OpenAI;
         api.base_url = "https://api.deepseek.com/v1".to_string();
@@ -463,7 +456,7 @@
 
         normalize_app_config(&mut cfg);
 
-        let resolved = resolve_api_config(&cfg, Some(&cfg.selected_api_config_id))
+        let resolved = resolve_api_config(&cfg, Some(&cfg.expert_api_config_id))
             .expect("resolved api config");
 
         assert_eq!(resolved.reasoning_effort, Some("none".to_string()));
@@ -517,7 +510,6 @@
     #[test]
     fn normalize_app_config_should_migrate_legacy_api_configs_into_providers() {
         let mut cfg = AppConfig {
-            selected_api_config_id: "legacy-openai".to_string(),
             expert_api_config_id: "legacy-openai".to_string(),
             api_providers: Vec::new(),
             tool_review_api_config_id: None,
@@ -558,12 +550,8 @@
         assert_eq!(cfg.api_providers[0].api_keys, vec!["legacy-key".to_string()]);
         assert_eq!(cfg.api_providers[0].models.len(), 1);
         assert_eq!(cfg.api_providers[0].models[0].model, "gpt-4.1".to_string());
-        assert_eq!(
-            cfg.selected_api_config_id,
-            "legacy-openai::legacy-openai-model-default".to_string()
-        );
         assert_eq!(cfg.api_configs.len(), 1);
-        assert_eq!(cfg.api_configs[0].id, cfg.selected_api_config_id);
+        assert_eq!(cfg.api_configs[0].id, cfg.expert_api_config_id);
     }
 
     #[test]
@@ -571,7 +559,6 @@
         let mut cfg: AppConfig = toml::from_str(
             r#"
 hotkey = "Alt+·"
-selectedApiConfigId = "legacy-openai"
 assistantDepartmentApiConfigId = "legacy-openai"
 
 [[apiConfigs]]
@@ -599,10 +586,6 @@ maxOutputTokens = 8192
         assert_eq!(cfg.api_providers[0].api_keys, vec!["legacy-key".to_string()]);
         assert_eq!(cfg.api_providers[0].models.len(), 1);
         assert_eq!(cfg.api_providers[0].models[0].model, "gpt-4.1".to_string());
-        assert_eq!(
-            cfg.selected_api_config_id,
-            "legacy-openai::legacy-openai-model-default".to_string()
-        );
     }
 
     #[test]
@@ -657,10 +640,12 @@ maxOutputTokens = 8192
     }
 
     #[test]
-    fn app_config_should_accept_save_payload_without_selected_api_config_id() {
-        let cfg: AppConfig = serde_json::from_str(r#"{"hotkey":"Alt+·"}"#)
-            .expect("缺少 selectedApiConfigId 时仍应能反序列化");
-        assert_eq!(cfg.selected_api_config_id, "");
+    fn app_config_should_ignore_legacy_selected_api_config_id_in_save_payload() {
+        let cfg: AppConfig = serde_json::from_str(
+            r#"{"hotkey":"Alt+·","selectedApiConfigId":"legacy-openai"}"#,
+        )
+        .expect("旧字段 selectedApiConfigId 应被忽略");
+        assert_eq!(cfg.expert_api_config_id, "");
     }
 
     #[test]
@@ -672,7 +657,6 @@ maxOutputTokens = 8192
             &config_path,
             r#"
 hotkey = "Alt+·"
-selectedApiConfigId = "provider-a::model-a"
 assistantDepartmentApiConfigId = "provider-a::model-a"
 
 [[apiProviders]]
@@ -742,7 +726,6 @@ enableTools = true
         let model_a = "model-a".to_string();
         let model_b = "model-b".to_string();
         let mut cfg = AppConfig {
-            selected_api_config_id: api_endpoint_id(&provider_id, &model_a),
             expert_api_config_id: api_endpoint_id(&provider_id, &model_a),
             api_providers: vec![ApiProviderConfig {
                 id: provider_id.clone(),
@@ -834,7 +817,6 @@ enableTools = true
         let provider_id = "codex-custom-provider".to_string();
         let model_id = "codex-model".to_string();
         let mut cfg = AppConfig {
-            selected_api_config_id: api_endpoint_id(&provider_id, &model_id),
             expert_api_config_id: api_endpoint_id(&provider_id, &model_id),
             api_providers: vec![ApiProviderConfig {
                 id: provider_id.clone(),
@@ -902,7 +884,6 @@ enableTools = true
         let provider_id = "codex-custom-originator".to_string();
         let model_id = "codex-model".to_string();
         let mut cfg = AppConfig {
-            selected_api_config_id: api_endpoint_id(&provider_id, &model_id),
             api_providers: vec![ApiProviderConfig {
                 id: provider_id.clone(),
                 name: "SharedChat".to_string(),
@@ -1715,7 +1696,6 @@ enableTools = true
         std::fs::write(
             &path,
             r#"hotkey = "Alt+·"
-selectedApiConfigId = "provider-a::model-a"
 
 [[mcpServers]]
 id = "embedded-mcp"
@@ -1798,7 +1778,6 @@ enableAudio = false
         std::fs::write(
             &path,
             r#"hotkey = "Alt+·"
-selectedApiConfigId = "provider-a::model-b"
 
 [[apiProviders]]
 id = "provider-a"
@@ -1827,7 +1806,6 @@ enableAudio = false
             .collect::<Vec<_>>();
         assert_eq!(ids, vec!["provider-a::model-a", "provider-a::model-b"]);
         assert_eq!(config.api_configs[0].name, "Provider A/gpt-4.1");
-        assert_eq!(config.selected_api_config_id, "provider-a::model-b");
     }
 
     /// MCP 定义的来源是 workspace 目录，app_config 里的内嵌 mcpServers 已不是来源。

@@ -115,7 +115,6 @@ fn config_provider_domain_changed(old_config: &AppConfig, new_config: &AppConfig
         || old_config.expert_api_config_id
             != new_config.expert_api_config_id
         || old_config.tool_review_api_config_id != new_config.tool_review_api_config_id
-        || old_config.selected_api_config_id != new_config.selected_api_config_id
 }
 
 fn ide_chat_broadcast_simple_notification(method: &str) {

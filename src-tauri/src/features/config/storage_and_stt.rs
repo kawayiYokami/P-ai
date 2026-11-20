@@ -868,6 +868,11 @@ fn chat_api_has_required_auth(api: &ApiConfig) -> bool {
     {
         return true;
     }
+    // 本地模型不需要 key：Ollama 的请求层走无鉴权通道（provider_resolution 的
+    // ProviderAuthScheme::None），空 api_key 是合法配置，不能在这里判死。
+    if api.request_format == RequestFormat::Ollama {
+        return true;
+    }
     !api.api_key.trim().is_empty()
 }
 
@@ -905,8 +910,6 @@ fn normalize_app_config(config: &mut AppConfig) {
     migrate_legacy_api_configs_into_providers(config);
     normalize_unlimited_concurrency_default(config);
     expand_api_configs_from_providers(config);
-    config.selected_api_config_id =
-        remap_legacy_api_config_id_to_endpoint(config, &config.selected_api_config_id);
     config.expert_api_config_id =
         remap_legacy_api_config_id_to_endpoint(config, &config.expert_api_config_id);
     config.vision_api_config_id = config

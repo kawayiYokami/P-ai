@@ -194,8 +194,6 @@ struct AppConfigProbe {
     desktop_operation_notice_enabled: bool,
     #[serde(default)]
     desktop_operate_enabled: bool,
-    #[serde(default)]
-    selected_api_config_id: String,
     #[serde(default, alias = "chatApiConfigId")]
     expert_api_config_id: String,
     #[serde(default)]
@@ -597,7 +595,6 @@ const APP_FIELDS: &[FieldSpec] = &[
     FieldSpec { name: "messageNotificationSoundEnabled", ty: "boolean", required: false, desc: "消息通知声音开关。" },
     FieldSpec { name: "desktopOperationNoticeEnabled", ty: "boolean", required: false, desc: "桌面操作提示开关。" },
     FieldSpec { name: "desktopOperateEnabled", ty: "boolean", required: false, desc: "桌面操作能力开关。" },
-    FieldSpec { name: "selectedApiConfigId", ty: "string", required: false, desc: "默认对话模型 id（取自 apiConfigs 的 id）。" },
     FieldSpec { name: "expertApiConfigId", ty: "string", required: false, desc: "专家模型 id（旧键 chatApiConfigId，取自 apiConfigs 的 id）。" },
     FieldSpec { name: "visionApiConfigId", ty: "string | null", required: false, desc: "视觉模型 id（取自 apiConfigs 的 id），null 表示不配。" },
     FieldSpec { name: "toolReviewApiConfigId", ty: "string | null", required: false, desc: "工具审查模型 id。" },
@@ -733,8 +730,8 @@ fn render_topic(ctx: &CliContext, request: &TopicRequest) -> Result<String, Stri
             out.push_str("\n模型配置怎么改：主体是 apiProviders，apiConfigs 是它展开出来的派生数据。\n");
             out.push_str("  · 加供应商 / 加模型 —— 改 apiProviders（provider 一层 + 它下面的 models 列表）。\n");
             out.push_str("  · apiConfigs 每次读配置都会按 apiProviders 重算覆盖，别手改它，改了也会被冲掉。\n");
-            out.push_str("  · 那 7 个 *ApiConfigId / *ModelId 字段里填的 id，就是 apiConfigs 里的 id。\n");
-            out.push_str("    模型绑定共 7 个，在字段表里是挨着的：selectedApiConfigId / expertApiConfigId /\n");
+            out.push_str("  · 那 6 个 *ApiConfigId / *ModelId 字段里填的 id，就是 apiConfigs 里的 id。\n");
+            out.push_str("    模型绑定共 6 个，在字段表里是挨着的：expertApiConfigId /\n");
             out.push_str("    visionApiConfigId / toolReviewApiConfigId / sttApiConfigId / imageGenerationModelId /\n");
             out.push_str("    imageToVideoModelId。\n");
             out.push_str("apiProviders 元素结构：\n");
@@ -1638,7 +1635,6 @@ messageNotificationEnabled = true
 messageNotificationSoundEnabled = true
 desktopOperationNoticeEnabled = true
 desktopOperateEnabled = false
-selectedApiConfigId = "provider-a::model-a"
 expertApiConfigId = "provider-a::model-a"
 visionApiConfigId = "provider-a::model-a"
 toolReviewApiConfigId = "provider-a::model-a"

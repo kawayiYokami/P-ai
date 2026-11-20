@@ -319,7 +319,7 @@ async fn confirm_plan_and_continue_inner(
             .filter(|agent| !agent.is_built_in_user)
             .ok_or_else(|| format!("计划继续执行的人格不存在或不可用: agent_id={agent_id}"))?;
         // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
-        // 但会话首选失效时有兜底：两级分别是专家模型与第一个可用聊天文本模型，
+        // 会话首选为空时走兜底找默认；有值但不可用时报错，不许替换。
         // 所以这里取的是本轮真正会用的模型；取不到才算「一个可用聊天模型都没有」。
         let api_config_id =
             resolve_and_persist_dispatch_model(state, app_config, &conversation_meta)?;
@@ -1460,7 +1460,7 @@ async fn submit_chat_message_inner(
         // 队员会话以自己的身份运行：前台 agent 是主会话的人格
         let agent_id = resolve_dispatch_agent_id(&conversation_meta, &agent_id);
         // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
-        // 但会话首选失效时有兜底：两级分别是专家模型与第一个可用聊天文本模型，
+        // 会话首选为空时走兜底找默认；有值但不可用时报错，不许替换。
         // 所以这里取的是本轮真正会用的模型；取不到才算「一个可用聊天模型都没有」。
         let api_config_id =
             resolve_and_persist_dispatch_model(state, &app_config, &conversation_meta)?;
@@ -1714,7 +1714,7 @@ async fn send_chat_message(
         // 队员会话以自己的身份运行：前台 agent 是主会话的人格
         let agent_id = resolve_dispatch_agent_id(&conversation_meta, &agent_id);
         // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
-        // 但会话首选失效时有兜底：两级分别是专家模型与第一个可用聊天文本模型，
+        // 会话首选为空时走兜底找默认；有值但不可用时报错，不许替换。
         // 所以这里取的是本轮真正会用的模型；取不到才算「一个可用聊天模型都没有」。
         let api_config_id =
             resolve_and_persist_dispatch_model(&state, &app_config, &conversation_meta)?;
@@ -1928,7 +1928,7 @@ async fn send_user_mention_message_inner(
         // 队员会话以自己的身份运行：前台 agent 是主会话的人格
         let agent_id = resolve_dispatch_agent_id(&conversation_meta, &agent_id);
         // 主会话模型只看会话首选：人格 apiConfigIds 是委托专用配置，不参与聊天。
-        // 但会话首选失效时有兜底：两级分别是专家模型与第一个可用聊天文本模型，
+        // 会话首选为空时走兜底找默认；有值但不可用时报错，不许替换。
         // 所以这里取的是本轮真正会用的模型；取不到才算「一个可用聊天模型都没有」。
         let api_config_id =
             resolve_and_persist_dispatch_model(state, &app_config, &conversation_meta)?;

@@ -63,7 +63,7 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
   );
 
   watch(
-    () => options.config.selectedApiConfigId,
+    () => options.selectedApiConfig.value?.id ?? "",
     () => {
       options.modelRefreshError.value = "";
     },

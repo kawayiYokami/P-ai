@@ -994,8 +994,7 @@ fn acp_replay_update(
 
 /// `session/set_config_option`：切换本会话使用的模型。
 ///
-/// 模型是会话属性，落到 `conversation.api_config_id`；全局 `selected_api_config_id`
-/// 是桌面端默认值，这里不动。
+/// 模型是会话属性，落到 `conversation.api_config_id`；全局模型默认值这里不动。
 async fn acp_handle_set_config_option(
     state: AppState,
     sessions: AcpSessionRegistry,
@@ -2656,21 +2655,21 @@ mod acp_agent_cli_tests {
         );
     }
 
-    /// 全局选中语音/嵌入配置时，新会话要退到第一条聊天配置。
+    /// 全局专家模型选中语音/嵌入配置时，新会话要退到第一条聊天配置。
     #[test]
     fn session_model_should_skip_non_chat_selected_config() {
         let mut config = acp_test_config(&[
             ("stt-1", "语音", "m-stt", RequestFormat::OpenAIStt),
             ("chat-1", "聊天", "m-chat", RequestFormat::OpenAI),
         ]);
-        config.selected_api_config_id = "stt-1".to_string();
+        config.expert_api_config_id = "stt-1".to_string();
         assert_eq!(
             acp_pick_session_model_config_id(&config).expect("应能选出聊天模型"),
             "chat-1",
-            "全局选到非聊天配置时，新会话不能锁到它上面"
+            "全局专家模型选到非聊天配置时，新会话不能锁到它上面"
         );
 
-        config.selected_api_config_id = "chat-1".to_string();
+        config.expert_api_config_id = "chat-1".to_string();
         assert_eq!(
             acp_pick_session_model_config_id(&config).expect("当前就是聊天配置"),
             "chat-1"

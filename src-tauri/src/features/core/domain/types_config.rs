@@ -1129,8 +1129,6 @@ struct AppConfig {
     desktop_operation_notice_enabled: bool,
     #[serde(default = "default_desktop_operate_enabled")]
     desktop_operate_enabled: bool,
-    #[serde(default)]
-    selected_api_config_id: String,
     #[serde(default, alias = "chatApiConfigId")]
     expert_api_config_id: String,
     #[serde(default)]
@@ -1197,7 +1195,6 @@ impl Default for AppConfig {
             message_notification_sound_enabled: default_message_notification_sound_enabled(),
             desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             desktop_operate_enabled: default_desktop_operate_enabled(),
-            selected_api_config_id: api_config.id.clone(),
             expert_api_config_id: api_config.id.clone(),
             vision_api_config_id: None,
             tool_review_api_config_id: None,

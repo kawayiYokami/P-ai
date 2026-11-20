@@ -4,7 +4,7 @@ import { useChatConfigDerivedState } from "./use-chat-config-derived-state";
 import { useChatConfigUiDerivedState } from "./use-chat-config-ui-derived-state";
 
 export function useChatWindowConfigOrchestrator(bindings: Record<string, any>) {
-  const configDerived = useChatConfigDerivedState(bindings.config);
+  const configDerived = useChatConfigDerivedState(bindings.config, bindings.currentChatPreferredApiConfigId);
   const configCore = useConfigCore({
     config: bindings.config,
     textCapableApiConfigs: configDerived.textCapableApiConfigs,
