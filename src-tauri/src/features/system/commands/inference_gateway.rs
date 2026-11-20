@@ -867,7 +867,7 @@ async fn invoke_quick_model_reply_with_prepared_prompt(
         let request = build_provider_genai_request(&prepared)?;
         let stream_guard = StreamFailureGuard::new(Some(state.data_path.clone()), None);
         let options = stream_guard
-            .attach(build_provider_genai_chat_options(&resolved_api, adapter_kind, true, false, None));
+            .attach(build_provider_genai_chat_options(&resolved_api, adapter_kind, true, false, None, true));
         let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
             &resolved_api,
             &model_name,

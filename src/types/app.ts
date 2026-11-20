@@ -160,6 +160,14 @@ export type ApiProviderConfigItem = {
   cachedModelOptions: string[];
   models: ApiModelConfigItem[];
   failureRetryCount?: number;
+  /** 客户端 User-Agent 预设 id；空值表示沿用默认 P-ai。 */
+  clientUserAgent?: string | null;
+};
+
+export type ClientUserAgentPreset = {
+  id: string;
+  name: string;
+  headers: Array<[string, string]>;
 };
 
 export type ImageGenerationProviderKind = "comfyui" | "codex" | "openai" | "xai" | "seedream" | "gemini" | "sensenova";

@@ -42,8 +42,13 @@ struct ResolvedApiConfig {
     max_output_tokens: Option<u32>,
     prompt_cache_key: Option<String>,
     extra_headers: Vec<(String, String)>,
+    /// 供应商选中的客户端预设 id；None 表示沿用默认 P-ai。
+    client_user_agent: Option<String>,
     codex_auth: Option<CodexRuntimeAuth>,
     codex_custom_api_key: Option<String>,
+    /// 保留兼容旧配置读取；header 里的 originator 现在一律走客户端预设（codex_cli_rs），
+    /// 这个字段不再参与请求头组装。
+    #[allow(dead_code)]
     codex_originator: Option<String>,
     codex_residency_requirement: Option<String>,
 }

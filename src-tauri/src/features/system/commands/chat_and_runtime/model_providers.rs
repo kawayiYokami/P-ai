@@ -775,6 +775,17 @@ async fn quick_genai_chat_inner(
     input: QuickGenaiChatInput,
 ) -> Result<String, String> {
     let uses_grok_login = input.login_provider.trim() == "grok";
+    // 连接测试也带真实预设：按 providerId 查配置里选中的客户端标识，
+    // 与正式对话走同一套注入逻辑，否则测出来的头与真实请求不一致。
+    let client_user_agent = input.provider_id.as_deref().and_then(|provider_id| {
+        state_read_config_cached(state).ok().and_then(|config| {
+            config
+                .api_providers
+                .into_iter()
+                .find(|provider| provider.id == provider_id)
+                .and_then(|provider| provider.client_user_agent)
+        })
+    });
     let base_url = input.base_url.trim();
     let api_key = input.api_key.trim();
     let model = input.model.trim();
@@ -814,6 +825,7 @@ async fn quick_genai_chat_inner(
         max_output_tokens: Some(16),
         prompt_cache_key: None,
         extra_headers: Vec::new(),
+        client_user_agent,
         codex_auth: None,
         codex_custom_api_key: None,
         codex_originator: None,

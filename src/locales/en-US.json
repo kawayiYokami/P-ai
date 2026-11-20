@@ -307,6 +307,8 @@
       "currentProvider": "Current Provider",
       "configName": "Config Name",
       "requestFormat": "Protocol",
+      "clientUserAgent": "Client Identity (User-Agent)",
+      "clientUserAgentDefault": "P-ai (default)",
       "allowConcurrentRequests": "Concurrency",
       "concurrentUnlimited": "Unlimited",
       "concurrentSerial": "Serial",

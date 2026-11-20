@@ -1449,6 +1449,7 @@ fn main() {
             is_backend_ready,
             list_system_fonts,
             list_genai_chat_adapters,
+            list_client_user_agents,
             update_record_hotkey,
             update_record_background_wake,
             save_config,

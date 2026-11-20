@@ -416,6 +416,7 @@
                 // 供应商可以没有模型
                 models: Vec::new(),
                 failure_retry_count: 0,
+                client_user_agent: None,
             }],
             api_configs: Vec::new(),
             ..AppConfig::default()
@@ -801,6 +802,7 @@ enableTools = true
                     },
                 ],
                 failure_retry_count: 0,
+                client_user_agent: None,
             }],
             api_configs: Vec::new(),
             ..AppConfig::default()
@@ -874,6 +876,7 @@ enableTools = true
                     custom_max_output_tokens_enabled: false,
                 }],
                 failure_retry_count: 0,
+                client_user_agent: None,
             }],
             api_configs: Vec::new(),
             ..AppConfig::default()
@@ -929,6 +932,7 @@ enableTools = true
                     ..ApiModelConfig::default()
                 }],
                 failure_retry_count: 0,
+                client_user_agent: None,
             }],
             ..AppConfig::default()
         };
@@ -1680,6 +1684,7 @@ enableTools = true
                 })
                 .collect(),
             failure_retry_count: default_failure_retry_count(),
+            client_user_agent: None,
         }
     }
 

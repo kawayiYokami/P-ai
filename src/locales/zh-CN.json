@@ -307,6 +307,8 @@
       "currentProvider": "当前供应商",
       "configName": "配置名称",
       "requestFormat": "协议",
+      "clientUserAgent": "客户端标识（User-Agent）",
+      "clientUserAgentDefault": "P-ai（默认）",
       "allowConcurrentRequests": "并发数量",
       "concurrentUnlimited": "不限",
       "concurrentSerial": "串行",
