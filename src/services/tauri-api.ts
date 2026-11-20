@@ -917,100 +917,158 @@ export async function writeTransportClipboardText(text: string): Promise<boolean
     await invokeTauri("clipboard_write_text", { text: normalized });
     return true;
   }
-  await navigator.clipboard.writeText(normalized);
-  return true;
+  // Web 优先走异步 Clipboard API；它只在安全上下文存在，局域网 http:// 下
+  // 会缺失或被拒，此时降级到隐藏 textarea + execCommand。
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(normalized);
+      return true;
+    } catch {
+      // 权限拒绝 / 文档未聚焦 / 非安全上下文，落到下面的兜底。
+    }
+  }
+  if (typeof document === "undefined") return false;
+  const textarea = document.createElement("textarea");
+  textarea.value = normalized;
+  textarea.setAttribute("readonly", "");
+  // 视觉隐藏且不进布局/滚动流。
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "0";
+  textarea.style.width = "1px";
+  textarea.style.height = "1px";
+  textarea.style.padding = "0";
+  textarea.style.border = "none";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  // 保住原焦点，避免临时 selection 打断打开着的菜单 / popover。
+  const previouslyFocused =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  document.body.appendChild(textarea);
+  try {
+    textarea.focus();
+    textarea.select();
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+    previouslyFocused?.focus();
+  }
 }
 
-export type TransportClipboardImageDataUrl = { mime: string; base64: string };
+export type TransportClipboardImageDataUrl = {
+  mime: string;
+  base64: string;
+  isDataUrl: boolean;
+};
 
 /**
  * 解析剪贴板图片数据 URL。
  *
- * 聊天图片默认是 webp，且 data URL 可能带 `;charset=utf-8` 这类中间参数，
- * 正则要能吃掉它们。裸 base64 按 fallbackMime 处理；`data:` 形态但缺
- * `;base64` 段时抛明确错误，避免下游误报成「解码失败」。
+ * data URL 可能带 `;charset=utf-8` 这类中间参数，也允许大写 `DATA:`。
+ * 裸 base64 没有 mime 标记（isDataUrl=false）：调用方必须走转码，
+ * 不能凭猜测的 mime 直写——webp/jpeg 裸 base64 直写会得到坏图。
  */
-export function parseClipboardImageDataUrl(
-  dataUrl: string,
-  fallbackMime = "image/png",
-): TransportClipboardImageDataUrl {
+export function parseClipboardImageDataUrl(dataUrl: string): TransportClipboardImageDataUrl {
   const text = String(dataUrl || "").trim();
-  if (!text.startsWith("data:")) {
-    return { mime: fallbackMime.toLowerCase(), base64: text.replace(/\s+/g, "") };
+  if (!text) throw new Error("图片数据为空");
+  if (!/^data:/i.test(text)) {
+    return { mime: "", base64: text.replace(/\s+/g, ""), isDataUrl: false };
   }
-  const match = text.match(/^data:([^;,]+)((?:;[^;,]+)*);base64,([\s\S]*)$/);
+  const hasBase64Marker = /;base64,/i.test(text);
+  const match = text.match(/^data:([^;,]*)((?:;[^;,]+)*);base64,([\s\S]*)$/i);
   if (!match) {
-    throw new Error("图片数据不是 base64 data URL：缺少 ;base64 段");
+    throw new Error(hasBase64Marker
+      ? "图片 data URL 缺少 mime 类型"
+      : "图片数据不是 base64 data URL：缺少 ;base64 段");
   }
+  if (!match[1]) throw new Error("图片 data URL 缺少 mime 类型");
   return {
     mime: match[1].toLowerCase(),
     base64: match[3].replace(/\s+/g, ""),
+    isDataUrl: true,
   };
 }
 
 /** 浏览器只保证写 image/png；非 png 先经 OffscreenCanvas 转码再写。 */
 export async function toPngBlob(blob: Blob): Promise<Blob> {
   const bitmap = await createImageBitmap(blob);
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("无法创建 2D 画布上下文");
-  context.drawImage(bitmap, 0, 0);
-  return canvas.convertToBlob({ type: "image/png" });
+  try {
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("无法创建 2D 画布上下文");
+    context.drawImage(bitmap, 0, 0);
+    return await canvas.convertToBlob({ type: "image/png" });
+  } finally {
+    bitmap.close();
+  }
 }
 
 /**
  * 写图片到剪贴板的唯一入口。`path` 与 `base64` 二选一。
  *
- * 桌面端走插件命令；Web 端无论源格式是什么，最终都写 image/png——
- * 聊天图片默认 webp，而 navigator.clipboard.write 只保证 png。
- * png 直写省一次解码，其余经 OffscreenCanvas 转码；转码失败返回 false。
+ * 桌面端走插件命令；Web 端最终都写 image/png。只有带可靠 mime 的
+ * `data:image/png` 才直写，裸 base64 一律转码——否则 webp/jpeg 会被
+ * 当成 png 写进去。任何一步失败（解析、atob、转码、write 被拒）都
+ * 打到 console.warn 并返回 false，维持 boolean 契约。
  */
 export async function writeTransportClipboardImage(input: {
   path?: string;
   base64?: string;
   mime?: string;
 }): Promise<boolean> {
-  let path = String(input.path || "").trim();
-  let base64 = String(input.base64 || "").trim();
-  let mime = String(input.mime || "image/png").trim() || "image/png";
-  if (base64) {
+  const path = String(input.path || "").trim();
+  const raw = String(input.base64 || "").trim();
+  let encoded = raw;
+  let mime = "";
+  let isDataUrl = false;
+  if (raw) {
     try {
-      const parsed = parseClipboardImageDataUrl(base64, mime);
+      const parsed = parseClipboardImageDataUrl(raw);
+      encoded = parsed.base64;
       mime = parsed.mime;
-      base64 = parsed.base64;
+      isDataUrl = parsed.isDataUrl;
     } catch (error) {
       console.warn("[剪贴板图片] 解析图片数据失败", error);
       return false;
     }
   }
-  if (!path && !base64) return false;
+  if (!path && !encoded) return false;
   if (isTauriRuntimeAvailable()) {
-    await invokeTauri("clipboard_write_image", {
-      input: { ...(path ? { path } : {}), ...(base64 ? { base64 } : {}) },
-    });
-    return true;
+    try {
+      await invokeTauri("clipboard_write_image", {
+        input: { ...(path ? { path } : {}), ...(encoded ? { base64: encoded } : {}) },
+      });
+      return true;
+    } catch (error) {
+      console.warn("[剪贴板图片] 桌面写入失败", error);
+      return false;
+    }
   }
-  if (!base64) return false;
-  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-  const source = new Blob([bytes], { type: mime });
-  let payload: Blob;
+  if (!encoded) return false;
   try {
-    payload = mime === "image/png" ? source : await toPngBlob(source);
+    const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+    const source = new Blob([bytes], { type: mime || "application/octet-stream" });
+    const pngPromise = isDataUrl && mime === "image/png"
+      ? Promise.resolve(source)
+      : toPngBlob(source);
+    // 把尚未完成的 Promise 交给 ClipboardItem：write 调用本身同步发起，
+    // 浏览器内部等 blob 就绪；Safari 会拒绝任何发生在 await 之后的写入。
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": pngPromise })]);
+    return true;
   } catch (error) {
-    console.warn("[剪贴板图片] 转 PNG 失败", error);
+    console.warn("[剪贴板图片] Web 写入失败", error);
     return false;
   }
-  await navigator.clipboard.write([new ClipboardItem({ "image/png": payload })]);
-  return true;
 }
 
 /**
  * 复制聊天图片。
  *
- * 桌面端直接传本机路径。Web 端优先用调用方手里现成的 dataUrl——那张图已经
- * 渲染在页面上，可以直接写；没传 dataUrl 时才退回跨 bridge 读图，
- * 那条路径会先 await 一次读取，手势不保证有效，属于兜底。
- * 源格式不在此处限制：webp / jpeg 等在 transport 层统一转成 png 再写。
+ * 桌面端直接传本机路径。Web 端优先用调用方手里现成的 dataUrl，省掉跨
+ * bridge 读图那一跳；但 webp/jpeg 仍要在 transport 层转成 png，会经过
+ * 两次 await，手势不保证有效。没传 dataUrl 时才退回读 bridge（兜底）。
  */
 export async function copyTransportChatImageToClipboard(
   path: string,

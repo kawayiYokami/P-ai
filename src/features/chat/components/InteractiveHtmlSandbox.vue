@@ -47,7 +47,7 @@
           <button
             type="button"
             class="ecall-sandbox-action"
-            :title="copied ? copiedText : copyTitle"
+            :title="copyFailed ? copyFailedText : (copied ? copiedText : copyTitle)"
             @click="copyCode"
           >
             <AppIcon name="check" v-if="copied" class="ecall-sandbox-action-icon" />
@@ -161,6 +161,7 @@ const props = withDefaults(defineProps<{
   previewTitle?: string;
   copyTitle?: string;
   copiedText?: string;
+  copyFailedText?: string;
   exportTitle?: string;
   /** 非空时显示「退出预览、回到代码」按钮 */
   exitTitle?: string;
@@ -183,6 +184,7 @@ const props = withDefaults(defineProps<{
   previewTitle: "返回预览",
   copyTitle: "复制代码",
   copiedText: "已复制",
+  copyFailedText: "复制失败",
   exportTitle: "导出为 HTML",
   openInReaderTitle: "",
   bare: false,
@@ -200,6 +202,7 @@ const frameReady = ref(false);
 const frameError = ref("");
 const heightOverflow = ref(false);
 const copied = ref(false);
+const copyFailed = ref(false);
 const reloadSeq = ref(0);
 // ==================== 网址模式 ====================
 // inline：渲染 props.code（srcdoc + 注入 CSP）；url：加载本机地址（src，目标页自己的策略）。
@@ -369,18 +372,22 @@ function toggleViewMode() {
   viewMode.value = viewMode.value === "preview" ? "code" : "preview";
 }
 
+function flashCopyState(failed: boolean) {
+  if (copyTimer) window.clearTimeout(copyTimer);
+  copied.value = !failed;
+  copyFailed.value = failed;
+  copyTimer = window.setTimeout(() => {
+    copied.value = false;
+    copyFailed.value = false;
+    copyTimer = 0;
+  }, 1500);
+}
+
 async function copyCode() {
   try {
-    const written = await writeTransportClipboardText(props.code || "");
-    if (!written) return;
-    copied.value = true;
-    if (copyTimer) window.clearTimeout(copyTimer);
-    copyTimer = window.setTimeout(() => {
-      copied.value = false;
-      copyTimer = 0;
-    }, 1500);
+    flashCopyState(!(await writeTransportClipboardText(props.code || "")));
   } catch {
-    copied.value = false;
+    flashCopyState(true);
   }
 }
 

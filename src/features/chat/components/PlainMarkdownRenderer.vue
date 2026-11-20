@@ -52,10 +52,10 @@
           <button
             type="button"
             class="ecall-plain-markdown-copy"
-            :title="copiedCodeKey === block.key ? '已复制' : '复制代码'"
+            :title="copyFailedCodeKey === block.key ? t('chat.copyFailed') : (copiedCodeKey === block.key ? '已复制' : '复制代码')"
             @click="copyCodeBlock(block.key, block.text)"
           >
-            {{ copiedCodeKey === block.key ? "已复制" : "复制" }}
+            {{ copyFailedCodeKey === block.key ? t("chat.copyFailed") : (copiedCodeKey === block.key ? "已复制" : "复制") }}
           </button>
         </div>
         <pre class="ecall-plain-markdown-code"><code>{{ block.text }}</code></pre>
@@ -107,23 +107,28 @@ const props = defineProps<{
 const { t } = useI18n();
 const MARKDOWN_LINK_PATTERN = /!?\[([^\]\n]+)\]\(([^)\n]+)\)/g;
 const copiedCodeKey = ref("");
+const copyFailedCodeKey = ref("");
 const previewDialogOpen = ref(false);
 const previewDialogLang = ref("");
 const previewDialogCode = ref("");
 let copiedCodeTimer = 0;
 
+function flashCopyState(key: string, failed: boolean) {
+  if (copiedCodeTimer) window.clearTimeout(copiedCodeTimer);
+  copiedCodeKey.value = failed ? "" : key;
+  copyFailedCodeKey.value = failed ? key : "";
+  copiedCodeTimer = window.setTimeout(() => {
+    copiedCodeKey.value = "";
+    copyFailedCodeKey.value = "";
+    copiedCodeTimer = 0;
+  }, 1200);
+}
+
 async function copyCodeBlock(key: string, text: string) {
   try {
-    const written = await writeTransportClipboardText(String(text || ""));
-    if (!written) return;
-    copiedCodeKey.value = key;
-    if (copiedCodeTimer) window.clearTimeout(copiedCodeTimer);
-    copiedCodeTimer = window.setTimeout(() => {
-      copiedCodeKey.value = "";
-      copiedCodeTimer = 0;
-    }, 1200);
+    flashCopyState(key, !(await writeTransportClipboardText(String(text || ""))));
   } catch {
-    copiedCodeKey.value = "";
+    flashCopyState(key, true);
   }
 }
 

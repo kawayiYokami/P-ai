@@ -2623,22 +2623,15 @@ async function openMarkdownImagePreview(payload: { src?: string; localPath?: str
   }
 }
 
-function reportImageCopyFailure(error?: unknown) {
-  if (error) console.warn("[文件浏览器预览] 复制图片失败", error);
-  const message = t("chat.copyFailed");
-  actionErrorMessage.value = message;
-  window.setTimeout(() => {
-    if (actionErrorMessage.value === message) actionErrorMessage.value = "";
-  }, 4500);
-}
-
 async function handleCopyMarkdownImage(path: string) {
   imagePreviewCopyStatus.value = "doing";
   try {
     const copied = await copyTransportChatImageToClipboard(path, imagePreviewDataUrl.value);
-    if (!copied) reportImageCopyFailure();
+    if (!copied) {
+      reportFileReaderActionFailure("图片复制", path, new Error("剪贴板写入失败"));
+    }
   } catch (error) {
-    reportImageCopyFailure(error);
+    reportFileReaderActionFailure("图片复制", path, error);
   } finally {
     imagePreviewCopyStatus.value = "idle";
   }

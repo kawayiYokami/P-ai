@@ -755,16 +755,9 @@ async fn clipboard_write_image(
                         estimated, CLIPBOARD_IMAGE_BASE64_MAX_BYTES
                     ));
                 }
-                let decoded = base64::engine::general_purpose::STANDARD
+                base64::engine::general_purpose::STANDARD
                     .decode(base64)
-                    .map_err(|err| format!("解码图片数据失败：{err}"))?;
-                if decoded.len() > CLIPBOARD_IMAGE_BASE64_MAX_BYTES {
-                    return Err(format!(
-                        "图片数据过大：解码后 {} 字节，上限 {} 字节",
-                        decoded.len(), CLIPBOARD_IMAGE_BASE64_MAX_BYTES
-                    ));
-                }
-                decoded
+                    .map_err(|err| format!("解码图片数据失败：{err}"))?
             }
             (None, None) => return Err("图片来源不能为空".to_string()),
         };

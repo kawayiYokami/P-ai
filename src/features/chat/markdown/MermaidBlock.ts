@@ -24,12 +24,14 @@ const MermaidBlock = defineComponent({
     streaming: { type: Boolean, default: false },
     copyText: { type: String, default: "Copy" },
     copiedText: { type: String, default: "Copied" },
+    copyFailedText: { type: String, default: "Copy failed" },
     preparingText: { type: String, default: "" },
   },
   setup(mermaidProps) {
     const svgHtml = ref("");
     const error = ref("");
     const copied = ref(false);
+    const copyFailed = ref(false);
     const renderPending = ref(false);
     const containerRef = ref<HTMLElement | null>(null);
     const instanceId = ++mermaidInstanceSeq;
@@ -95,18 +97,22 @@ const MermaidBlock = defineComponent({
       }, delay);
     }
 
+    function flashCopyState(failed: boolean) {
+      if (copyTimer) clearTimeout(copyTimer);
+      copied.value = !failed;
+      copyFailed.value = failed;
+      copyTimer = window.setTimeout(() => {
+        copied.value = false;
+        copyFailed.value = false;
+        copyTimer = 0;
+      }, 1500);
+    }
+
     async function copyMermaidCode() {
       try {
-        const written = await writeTransportClipboardText(mermaidProps.code || "");
-        if (!written) return;
-        copied.value = true;
-        if (copyTimer) clearTimeout(copyTimer);
-        copyTimer = window.setTimeout(() => {
-          copied.value = false;
-          copyTimer = 0;
-        }, 1500);
+        flashCopyState(!(await writeTransportClipboardText(mermaidProps.code || "")));
       } catch {
-        copied.value = false;
+        flashCopyState(true);
       }
     }
 
@@ -132,8 +138,8 @@ const MermaidBlock = defineComponent({
         ? h("button", {
           type: "button",
           class: "ecall-md-mermaid-copy ecall-md-code-action",
-          title: copied.value ? mermaidProps.copiedText : mermaidProps.copyText,
-          "aria-label": copied.value ? mermaidProps.copiedText : mermaidProps.copyText,
+          title: copyFailed.value ? mermaidProps.copyFailedText : (copied.value ? mermaidProps.copiedText : mermaidProps.copyText),
+          "aria-label": copyFailed.value ? mermaidProps.copyFailedText : (copied.value ? mermaidProps.copiedText : mermaidProps.copyText),
           onClick: copyMermaidCode,
         }, [h(AppIcon, { name: copied.value ? "check" : "copy", class: "ecall-md-code-action-icon" })])
         : null;

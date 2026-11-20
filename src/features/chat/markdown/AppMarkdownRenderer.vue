@@ -879,6 +879,7 @@ const BlockRenderer = defineComponent({
           streaming: blockProps.streaming,
           copyText: t("common.copy"),
           copiedText: "已复制",
+          copyFailedText: t("chat.copyFailed"),
           expandText: t("common.expand"),
           preparingText: t("chat.statusPreparingMessage"),
         });

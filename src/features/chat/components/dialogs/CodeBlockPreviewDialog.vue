@@ -19,6 +19,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const dialogRef = ref<HTMLDialogElement | null>(null);
 const copied = ref(false);
+const copyFailed = ref(false);
 let copiedTimer = 0;
 
 function onDialogClose() {
@@ -38,18 +39,22 @@ watch(dialogRef, syncDialog);
 
 const languageLabel = computed(() => String(props.lang || "").trim() || "text");
 
+function flashCopyState(failed: boolean) {
+  if (copiedTimer) window.clearTimeout(copiedTimer);
+  copied.value = !failed;
+  copyFailed.value = failed;
+  copiedTimer = window.setTimeout(() => {
+    copied.value = false;
+    copyFailed.value = false;
+    copiedTimer = 0;
+  }, 1200);
+}
+
 async function copyCode() {
   try {
-    const written = await writeTransportClipboardText(String(props.code || ""));
-    if (!written) return;
-    copied.value = true;
-    if (copiedTimer) window.clearTimeout(copiedTimer);
-    copiedTimer = window.setTimeout(() => {
-      copied.value = false;
-      copiedTimer = 0;
-    }, 1200);
+    flashCopyState(!(await writeTransportClipboardText(String(props.code || ""))));
   } catch {
-    copied.value = false;
+    flashCopyState(true);
   }
 }
 
@@ -70,11 +75,11 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="btn btn-ghost btn-xs gap-1"
-            :title="copied ? '已复制' : t('common.copy')"
+            :title="copyFailed ? t('chat.copyFailed') : (copied ? '已复制' : t('common.copy'))"
             @click="copyCode"
           >
             <AppIcon name="copy" class="h-3.5 w-3.5" />
-            <span>{{ copied ? "已复制" : t("common.copy") }}</span>
+            <span>{{ copyFailed ? t("chat.copyFailed") : (copied ? "已复制" : t("common.copy")) }}</span>
           </button>
           <button
             type="button"

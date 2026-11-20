@@ -27,12 +27,14 @@ const CodeBlock = defineComponent({
     streaming: { type: Boolean, default: false },
     copyText: { type: String, default: "Copy" },
     copiedText: { type: String, default: "Copied" },
+    copyFailedText: { type: String, default: "Copy failed" },
     expandText: { type: String, default: "Expand" },
     preparingText: { type: String, default: "" },
   },
   setup(codeProps) {
     const highlightedHtml = ref("");
     const copied = ref(false);
+    const copyFailed = ref(false);
     const previewOpen = ref(false);
     let copyTimer = 0;
     let highlightAbort: AbortController | null = null;
@@ -204,18 +206,22 @@ const CodeBlock = defineComponent({
       { immediate: true },
     );
 
+    function flashCopyState(failed: boolean) {
+      if (copyTimer) clearTimeout(copyTimer);
+      copied.value = !failed;
+      copyFailed.value = failed;
+      copyTimer = window.setTimeout(() => {
+        copied.value = false;
+        copyFailed.value = false;
+        copyTimer = 0;
+      }, 1500);
+    }
+
     async function copyCode() {
       try {
-        const written = await writeTransportClipboardText(codeProps.code || "");
-        if (!written) return;
-        copied.value = true;
-        if (copyTimer) clearTimeout(copyTimer);
-        copyTimer = window.setTimeout(() => {
-          copied.value = false;
-          copyTimer = 0;
-        }, 1500);
+        flashCopyState(!(await writeTransportClipboardText(codeProps.code || "")));
       } catch {
-        copied.value = false;
+        flashCopyState(true);
       }
     }
 
@@ -252,6 +258,7 @@ const CodeBlock = defineComponent({
           streaming: codeProps.streaming,
           copyText: codeProps.copyText,
           copiedText: codeProps.copiedText,
+          copyFailedText: codeProps.copyFailedText,
           preparingText: codeProps.preparingText,
         });
       }
@@ -300,8 +307,8 @@ const CodeBlock = defineComponent({
           h("button", {
             type: "button",
             class: "ecall-md-code-action ecall-md-code-copy",
-            title: copied.value ? codeProps.copiedText : codeProps.copyText,
-            "aria-label": copied.value ? codeProps.copiedText : codeProps.copyText,
+            title: copyFailed.value ? codeProps.copyFailedText : (copied.value ? codeProps.copiedText : codeProps.copyText),
+            "aria-label": copyFailed.value ? codeProps.copyFailedText : (copied.value ? codeProps.copiedText : codeProps.copyText),
             onClick: copyCode,
           }, [h(AppIcon, { name: copied.value ? "check" : "copy", class: "ecall-md-code-action-icon" })]),
         ]),
