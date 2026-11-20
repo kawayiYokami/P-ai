@@ -340,7 +340,7 @@ fn acp_invalid_params(message: impl Into<String>) -> agent_client_protocol::Erro
 const ACP_MODEL_CONFIG_ID: &str = "model";
 
 /// 选项显示名：优先配置名，为空退到模型标识，再退到配置 id。
-/// 显示名本身不含思考等级；调用方按需用 `acp_model_option_label` 拼后缀。
+/// 只是裸名，不含思考等级；同名多次时加不加后缀由 `acp_model_display_labels` 决定。
 fn acp_model_base_name(api: &ApiConfig) -> String {
     let name = api.name.trim();
     if !name.is_empty() {
@@ -353,16 +353,30 @@ fn acp_model_base_name(api: &ApiConfig) -> String {
     api.id.trim().to_string()
 }
 
-/// 选项显示名：`供应商名/模型名 (思考等级)`，例如 `wb/global:deepseek-v4.1-flash (low)`。
-/// 没有思考等级（`reasoning_effort` 为空）时不加括号后缀。
-fn acp_model_option_label(api: &ApiConfig) -> String {
-    let base = acp_model_base_name(api);
-    let effort = api.reasoning_effort.trim();
-    if effort.is_empty() {
-        base
-    } else {
-        format!("{base} ({effort})")
+/// 按整份配置算展示标签：同一个裸名只出现一次 → 裸名；出现多次 → 才拼 `(等级)`。
+/// 无等级的条目记为「默认」，避免同名 naked 条目之间无法区分。
+/// 返回与 `chats` 同序的标签。
+fn acp_model_display_labels(chats: &[&ApiConfig]) -> Vec<String> {
+    use std::collections::HashMap;
+    let mut counts = HashMap::<String, usize>::new();
+    for api in chats {
+        *counts.entry(acp_model_base_name(api)).or_insert(0) += 1;
     }
+    chats
+        .iter()
+        .map(|api| {
+            let base = acp_model_base_name(api);
+            if counts.get(&base).copied().unwrap_or(0) <= 1 {
+                return base;
+            }
+            let effort = api.reasoning_effort.trim();
+            if effort.is_empty() {
+                format!("{base} (默认)")
+            } else {
+                format!("{base} ({effort})")
+            }
+        })
+        .collect()
 }
 
 /// 把配置里可用的聊天模型列成 ACP 的 `Model` 分类下拉。
@@ -374,14 +388,19 @@ fn acp_model_config_options(
     config: &AppConfig,
     current_model_config_id: &str,
 ) -> Result<Vec<SessionConfigOption>, String> {
-    let options: Vec<SessionConfigSelectOption> = config
+    let chats: Vec<&ApiConfig> = config
         .api_configs
         .iter()
         .filter(|api| !api.id.trim().is_empty() && is_text_chat_api(api))
-        .map(|api| {
+        .collect();
+    let labels = acp_model_display_labels(&chats);
+    let options: Vec<SessionConfigSelectOption> = chats
+        .iter()
+        .zip(labels.iter())
+        .map(|(api, label)| {
             SessionConfigSelectOption::new(
                 SessionConfigValueId::new(api.id.trim().to_string()),
-                acp_model_option_label(api),
+                label.clone(),
             )
         })
         .collect();
@@ -489,13 +508,9 @@ fn acp_split_name_effort(requested: &str) -> Option<(String, String)> {
     Some((name.to_string(), effort.to_string()))
 }
 
-/// 可读模型清单：`名字 (等级)` 逐项，配置顺序，不含 id。
+/// 可读模型清单：与下拉标签同一口径（同名多次才拼等级），配置顺序，不含 id。
 fn acp_readable_model_list(chats: &[&ApiConfig]) -> String {
-    chats
-        .iter()
-        .map(|api| acp_model_option_label(api))
-        .collect::<Vec<_>>()
-        .join("、")
+    acp_model_display_labels(chats).join("、")
 }
 
 /// 可读思考等级清单：只列等级不列 id，配置顺序、去重。
@@ -2250,12 +2265,12 @@ mod acp_agent_cli_tests {
         );
         assert_eq!(acp_test_selected_value(option), "b", "当前值应指向会话所用模型");
 
-        // 配置名为空时退到模型标识，不留空显示名；思考等级拼在名字后面。
+        // 配置名为空时退到模型标识，不留空显示名；同名唯一时不加后缀。
         match &option.kind {
             SessionConfigKind::Select(select) => match &select.options {
                 SessionConfigSelectOptions::Ungrouped(items) => {
-                    assert_eq!(items[0].name, "配置甲 (medium)");
-                    assert_eq!(items[2].name, "m-c (medium)");
+                    assert_eq!(items[0].name, "配置甲");
+                    assert_eq!(items[2].name, "m-c");
                 }
                 other => panic!("模型选项应是不分组列表，实际 {other:?}"),
             },
@@ -2325,7 +2340,7 @@ mod acp_agent_cli_tests {
         config
     }
 
-    /// 标签带思考等级：`供应商名/模型名 (等级)`；没有等级时不加后缀。
+    /// 同名多次才拼等级后缀：同名唯一时标签就是裸名。
     #[test]
     fn model_option_label_should_include_reasoning_effort() {
         let config = acp_test_config_with_effort(&[
@@ -2355,12 +2370,35 @@ mod acp_agent_cli_tests {
             other => panic!("模型选项应是下拉，实际 {other:?}"),
         }
 
-        // 等级为空时不加括号后缀。
-        let config = acp_test_config_with_effort(&[("e-plain", "普通模型", "")]);
+        // 同名唯一时不加后缀；再加一个同名端点才拼等级。
+        let mut solo = acp_test_config_with_effort(&[("e-plain", "普通模型", "")]);
         assert_eq!(
-            acp_model_option_label(&config.api_configs[0]),
+            acp_model_base_name(&solo.api_configs[0]),
             "普通模型",
-            "无等级时标签就是名字本身"
+            "裸名函数只返回名字"
+        );
+        let solo_chats: Vec<&ApiConfig> = solo.api_configs.iter().collect();
+        assert_eq!(
+            acp_model_display_labels(&solo_chats),
+            vec!["普通模型".to_string()],
+            "同名唯一时展示标签不加后缀"
+        );
+        solo.api_configs.push(ApiConfig {
+            id: "e-dup".to_string(),
+            name: "普通模型".to_string(),
+            model: "普通模型".to_string(),
+            reasoning_effort: "low".to_string(),
+            request_format: RequestFormat::OpenAI,
+            ..Default::default()
+        });
+        let dup_chats: Vec<&ApiConfig> = solo.api_configs.iter().collect();
+        assert_eq!(
+            acp_model_display_labels(&dup_chats),
+            vec![
+                "普通模型 (默认)".to_string(),
+                "普通模型 (low)".to_string()
+            ],
+            "同名多次时才拼等级，无等级记默认"
         );
     }
 
