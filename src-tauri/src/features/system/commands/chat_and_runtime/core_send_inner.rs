@@ -447,9 +447,9 @@ fn retry_kind_is_retryable(kind: RetryKind) -> bool {
 enum AttemptRetryDecision {
     /// 等待退避后重跑同一候选模型。
     Retry,
-    /// 到达重试额度上限，或本就不是可重试失败：按候选模型失败收口，允许切下一个候选。
+    /// 到达重试额度上限，或本就不是可重试失败：收口，不再重试。
     Stop,
-    /// 本轮已经真正执行过工具：既不重试也不切换候选模型。
+    /// 本轮已经真正执行过工具：不再重试。
     StopBecauseToolsExecuted,
 }
 
@@ -2588,7 +2588,7 @@ async fn send_chat_message_inner(
                     // 已经产生副作用的重跑会把工具执行两遍，用户界面只看得到「正在重试」。
                     // 与数据层致命错误同路：立刻收口，不重试也不换模型。
                     runtime_log_error(format!(
-                        "[聊天] 本轮已执行过工具，终止重试与候选模型切换: conversation_id={}，api_config_id={}，model={}，attempt={}，tools_executed={}，kind={:?}",
+                        "[聊天] 本轮已执行过工具，终止重试: conversation_id={}，api_config_id={}，model={}，attempt={}，tools_executed={}，kind={:?}",
                         conversation_id,
                         candidate_selected_api.id,
                         candidate_selected_api.model,
@@ -2597,7 +2597,7 @@ async fn send_chat_message_inner(
                         retry_kind
                     ));
                     fatal_error = Some(format!(
-                        "{final_error_text} 本轮已执行过 {tools_executed_in_attempt} 次工具调用；为避免同一批工具副作用重复执行，已停止重试与模型切换。(attempted {attempt} times)"
+                        "{final_error_text} (attempted {attempt} times)"
                     ));
                     break;
                 }
