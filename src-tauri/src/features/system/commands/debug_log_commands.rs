@@ -319,9 +319,10 @@ fn init_cli_file_logger() {
         dispatch = dispatch.chain(std::io::stderr());
     }
     if let Err(err) = dispatch.apply() {
-        let message = format!("[日志] 初始化 CLI 文件日志失败，将只保留内存缓冲: {err}");
-        runtime_log_write_stderr(&message);
-        runtime_log_warn(message);
+        // 此后没有 logger：runtime_log_warn 只会进永不冲出的 pending，这里只能写 stderr。
+        runtime_log_write_stderr(&format!(
+            "[日志] 初始化 CLI 文件日志失败，将只保留内存缓冲: {err}"
+        ));
     }
 }
 
@@ -331,7 +332,38 @@ fn init_cli_file_logger() {
 /// 其它文件不碰；失败只 warn，不影响 logger 初始化。
 fn is_iso_date(value: &str) -> bool {
     let bytes = value.as_bytes();
-    value.len() == 10 && bytes.get(4) == Some(&b'-') && bytes.get(7) == Some(&b'-')
+    if value.len() != 10 || bytes.get(4) != Some(&b'-') || bytes.get(7) != Some(&b'-') {
+        return false;
+    }
+    if !bytes
+        .iter()
+        .enumerate()
+        .all(|(i, byte)| i == 4 || i == 7 || byte.is_ascii_digit())
+    {
+        return false;
+    }
+    let month = (bytes[5] - b'0') * 10 + (bytes[6] - b'0');
+    let day = (bytes[8] - b'0') * 10 + (bytes[9] - b'0');
+    (1..=12).contains(&month) && (1..=31).contains(&day)
+}
+
+/// v0.98.4 及更早的自研归档名：`backend.<unix_ts>.<pid>.log` 与
+/// `backend.<unix_ts>.<pid>.idx.log`。这批孤儿文件在用户机器上真实存在，
+/// 我们与插件两边的新清理都不认、只增不减，只能在这里删。
+fn is_legacy_archive_name(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('.').collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    // 末段之前必须全是纯数字段（时间戳、pid）。
+    if !parts[..parts.len() - 1]
+        .iter()
+        .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return false;
+    }
+    let tail = parts[parts.len() - 1];
+    !tail.is_empty() && (tail.bytes().all(|byte| byte.is_ascii_digit()) || tail == "idx")
 }
 
 fn cleanup_stale_cli_log_files(dir: &std::path::Path) {
@@ -358,6 +390,19 @@ fn cleanup_stale_cli_log_files(dir: &std::path::Path) {
                 dated.push((date.to_string(), path));
             }
             continue;
+        }
+
+        // v0.98.4 及更早的自研归档：backend.<unix_ts>.<pid>[.idx].log，直接删除。
+        if let Some(rest) = name
+            .strip_prefix(&format!("{RUNTIME_LOG_FILE_NAME}."))
+            .and_then(|rest| rest.strip_suffix(".log"))
+        {
+            if is_legacy_archive_name(rest) {
+                if let Err(err) = fs::remove_file(&path) {
+                    runtime_log_warn(format!("[日志] 清理旧日志失败 path={} err={err}", path.display()));
+                }
+                continue;
+            }
         }
 
         // 废弃命名：先剥前缀与 .log；双点名剩下的部分还带一个前导点，再剥一次。
@@ -413,23 +458,19 @@ fn runtime_log_flush_pending() {
     if runtime_log_pending_count().load(std::sync::atomic::Ordering::Relaxed) == 0 {
         return;
     }
-    let drained = match runtime_log_pending().lock() {
-        Ok(mut pending) => {
-            runtime_log_pending_count().store(0, std::sync::atomic::Ordering::Relaxed);
-            std::mem::take(&mut *pending)
-        }
-        Err(_) => return,
+    let drained = match runtime_log_pending_drain() {
+        Some(drained) => drained,
+        None => return,
     };
-    let dropped = runtime_log_pending_dropped().swap(0, std::sync::atomic::Ordering::Relaxed);
-    if dropped > 0 {
-        log::log!(
-            target: RUNTIME_LOG_TARGET,
-            log::Level::Warn,
-            "[日志] 启动期溢出丢弃 {dropped} 条"
-        );
-    }
     for (level, message) in drained {
         log::log!(target: RUNTIME_LOG_TARGET, level, "{}", message);
+    }
+    // 放在 drain 之后：先看到被缓存的日志，再看到「此前溢出丢弃 N 条」的合计。
+    let dropped = runtime_log_pending_dropped().swap(0, std::sync::atomic::Ordering::Relaxed);
+    if dropped > 0 {
+        // logger 已 ready：这条 warn 会直接落盘并进内存缓冲；push 里再次调 flush 时
+        // 计数已是 0，快速路径立即返回，不成环。
+        runtime_log_warn(format!("[日志] 启动期溢出丢弃 {dropped} 条"));
     }
 }
 
@@ -592,6 +633,51 @@ fn normalize_runtime_log(level: &str, message: String) -> (String, String) {
     (current_level, text)
 }
 
+/// 入队并同步计数：满时丢最旧，计数与 deque 长度在锁内一起更新。
+/// 入队的可测内核：满时丢最旧并累加 dropped，计数与 deque 长度同步。
+fn pending_push_apply(
+    pending: &mut std::collections::VecDeque<(log::Level, String)>,
+    count: &std::sync::atomic::AtomicUsize,
+    dropped: &std::sync::atomic::AtomicUsize,
+    level: log::Level,
+    message: String,
+) {
+    if pending.len() >= RUNTIME_LOG_PENDING_MAX {
+        pending.pop_front();
+        dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    pending.push_back((level, message));
+    count.store(pending.len(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// 清空的可测内核：计数与 take 同步。
+fn pending_drain_apply(
+    pending: &mut std::collections::VecDeque<(log::Level, String)>,
+    count: &std::sync::atomic::AtomicUsize,
+) -> std::collections::VecDeque<(log::Level, String)> {
+    count.store(0, std::sync::atomic::Ordering::Relaxed);
+    std::mem::take(pending)
+}
+
+fn runtime_log_pending_push(level: log::Level, message: String) {
+    let Ok(mut pending) = runtime_log_pending().lock() else {
+        return;
+    };
+    pending_push_apply(
+        &mut pending,
+        runtime_log_pending_count(),
+        runtime_log_pending_dropped(),
+        level,
+        message,
+    );
+}
+
+/// 整体取走并清零计数：计数在锁内与 take 同步，供 flush 与单测共用。
+fn runtime_log_pending_drain() -> Option<std::collections::VecDeque<(log::Level, String)>> {
+    let mut pending = runtime_log_pending().lock().ok()?;
+    Some(pending_drain_apply(&mut pending, runtime_log_pending_count()))
+}
+
 fn runtime_log_push(level: &str, message: String) {
     let message = shorten_uuids_in_log(&message);
     let (normalized_level, normalized_message) = normalize_runtime_log(level, message);
@@ -606,14 +692,8 @@ fn runtime_log_push(level: &str, message: String) {
             "{}",
             normalized_message
         );
-    } else if let Ok(mut pending) = runtime_log_pending().lock() {
-        // 满了丢最旧的：保留靠近失败点的最新条目，它们才是排障最需要的。
-        if pending.len() >= RUNTIME_LOG_PENDING_MAX {
-            pending.pop_front();
-            runtime_log_pending_dropped().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
-        pending.push_back((log_level, normalized_message.clone()));
-        runtime_log_pending_count().store(pending.len(), std::sync::atomic::Ordering::Relaxed);
+    } else {
+        runtime_log_pending_push(log_level, normalized_message.clone());
     }
     let created_at = now_log_local_rfc3339();
     let Ok(mut buf) = runtime_log_buffer().lock() else {
@@ -1975,5 +2055,75 @@ mod runtime_log_pipeline_tests {
             assert!(path.exists(), "不足 KEEP 个时不应删除任何文件");
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// v0.98.4 及更早的自研归档（含 .idx 分片）必须删掉。
+    #[test]
+    fn cleanup_stale_cli_log_files_should_drop_v0984_archives() {
+        let dir = std::env::temp_dir().join(format!("pai-log-cleanup-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let archives = [
+            format!("{RUNTIME_LOG_FILE_NAME}.1763000000.12345.log"),
+            format!("{RUNTIME_LOG_FILE_NAME}.1763000000.12345.idx.log"),
+        ];
+        for name in &archives {
+            fs::write(dir.join(name), "x").expect("write fixture");
+        }
+
+        cleanup_stale_cli_log_files(&dir);
+        for name in &archives {
+            assert!(!dir.join(name).exists(), "v0.98.4 归档 {name} 应删除");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 日期校验：非法月日不能通过，否则占保留名额或被误删。
+    #[test]
+    fn is_iso_date_should_reject_invalid_month_and_day() {
+        assert!(is_iso_date("2026-11-20"));
+        assert!(!is_iso_date("2026-aa-bb"));
+        assert!(!is_iso_date("2026-13-01"));
+        assert!(!is_iso_date("2026-00-01"));
+        assert!(!is_iso_date("2026-11-00"));
+        assert!(!is_iso_date("2026-11-32"));
+    }
+
+    /// 计数与长度一致、满时丢最旧并留痕：用局部内核测，避开全局 pending 的并发干扰。
+    #[test]
+    fn pending_push_apply_should_track_count_and_drop_oldest() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let mut queue = std::collections::VecDeque::new();
+        let count = AtomicUsize::new(0);
+        let dropped = AtomicUsize::new(0);
+
+        for i in 0..RUNTIME_LOG_PENDING_MAX {
+            pending_push_apply(
+                &mut queue,
+                &count,
+                &dropped,
+                log::Level::Info,
+                format!("msg-{i}"),
+            );
+        }
+        assert_eq!(queue.len(), RUNTIME_LOG_PENDING_MAX);
+        assert_eq!(count.load(Ordering::Relaxed), RUNTIME_LOG_PENDING_MAX);
+        assert_eq!(dropped.load(Ordering::Relaxed), 0);
+
+        pending_push_apply(
+            &mut queue,
+            &count,
+            &dropped,
+            log::Level::Info,
+            "newest".to_string(),
+        );
+        assert_eq!(queue.len(), RUNTIME_LOG_PENDING_MAX);
+        assert_eq!(count.load(Ordering::Relaxed), RUNTIME_LOG_PENDING_MAX);
+        assert_eq!(dropped.load(Ordering::Relaxed), 1);
+        assert_eq!(queue.front().expect("oldest").1, "msg-1");
+        assert_eq!(queue.back().expect("newest").1, "newest");
+
+        let drained = pending_drain_apply(&mut queue, &count);
+        assert_eq!(drained.len(), RUNTIME_LOG_PENDING_MAX);
+        assert_eq!(count.load(Ordering::Relaxed), 0);
     }
 }
