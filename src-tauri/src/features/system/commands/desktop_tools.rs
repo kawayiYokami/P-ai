@@ -1140,34 +1140,7 @@ fn build_chat_shell_workspace_output(
 }
 
 fn open_shell_path_in_file_manager(path: &Path) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        let explorer_path = resolved.to_string_lossy().replace('/', "\\");
-        std::process::Command::new("explorer")
-            .arg(explorer_path.as_str())
-            .status()
-            .map_err(|err| format!("Open in explorer failed: {err}"))?;
-        return Ok(());
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(path)
-            .status()
-            .map_err(|err| format!("Open in Finder failed: {err}"))?;
-        return Ok(());
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(path)
-            .status()
-            .map_err(|err| format!("Open in file manager failed: {err}"))?;
-        return Ok(());
-    }
-    #[allow(unreachable_code)]
-    Err("Open in file manager is not supported on this platform".to_string())
+    tauri_plugin_opener::open_path(path, None::<&str>).map_err(|err| format!("打开目录失败：{err}"))
 }
 
 #[cfg(target_os = "windows")]
@@ -3036,39 +3009,18 @@ fn open_local_file_directory(path: String) -> Result<(), String> {
     let file_path = PathBuf::from(raw_path);
 
     if file_path.is_file() {
-        #[cfg(target_os = "windows")]
-        {
-            let resolved_path = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
-            let explorer_target = resolved_path.to_string_lossy().replace('/', "\\");
-            std::process::Command::new("explorer")
-                .args(["/select,", explorer_target.as_str()])
-                .status()
-                .map_err(|err| format!("Failed to open explorer: {err}"))?;
-            return Ok(());
-        }
-        #[cfg(target_os = "macos")]
-        {
-            std::process::Command::new("open")
-                .args(["-R", raw_path])
-                .status()
-                .map_err(|err| format!("Failed to open Finder: {err}"))?;
-            return Ok(());
-        }
-        #[cfg(all(unix, not(target_os = "macos")))]
-        {
+        // 这里是「定位并选中文件」，不是打开文件：必须用 reveal_item_in_dir。
+        if let Err(err) = tauri_plugin_opener::reveal_item_in_dir(&file_path) {
+            runtime_log_warn(format!(
+                "[opener] 定位文件失败，退回打开父目录 path={} err={err}",
+                file_path.display()
+            ));
             if let Some(parent) = file_path.parent() {
-                std::process::Command::new("xdg-open")
-                    .arg(parent)
-                    .status()
-                    .map_err(|err| format!("Failed to open file manager: {err}"))?;
-            } else {
-                std::process::Command::new("xdg-open")
-                    .arg(&file_path)
-                    .status()
-                    .map_err(|err| format!("Failed to open file manager: {err}"))?;
+                tauri_plugin_opener::open_path(parent, None::<&str>)
+                    .map_err(|err| format!("打开目录失败：{err}"))?;
             }
-            return Ok(());
         }
+        return Ok(());
     }
 
     open_shell_path_in_file_manager(&file_path)?;
@@ -3085,37 +3037,39 @@ fn open_file_with_default_program(path: String) -> Result<(), String> {
     if !file_path.exists() {
         return Err(format!("File not found: {raw_path}"));
     }
-    #[cfg(target_os = "windows")]
-    {
-        let mut command = std::process::Command::new("cmd");
-        command.args(["/C", "start", "", raw_path]);
-        // cmd 只是启动器，自身不能弹多余控制台；文件由默认程序正常打开。
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt as _;
-            command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    tauri_plugin_opener::open_path(raw_path, None::<&str>)
+        .map_err(|err| format!("Failed to open file: {err}"))
+}
+
+#[cfg(test)]
+mod opener_source_guard_tests {
+    // 源码级守卫：钉住「文件分支必须 reveal、不能退化成 open_path」。
+    // 不选「抽纯函数返回枚举」：那只能钉住文件→Reveal 的决策，钉不住审查点名的
+    // 具体回归——把调用名换成 open_path 时编译、类型、决策测试仍全绿，行为却静默变了。
+    const SOURCE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/features/system/commands/desktop_tools.rs"
+    ));
+
+    #[test]
+    fn file_branch_must_call_reveal_item_in_dir() {
+        let start = SOURCE
+            .find("fn open_local_file_directory")
+            .expect("open_local_file_directory 存在");
+        let tail = &SOURCE[start..];
+        let end = tail
+            .find("\n#[tauri::command]\nfn open_file_with_default_program")
+            .expect("下一命令边界存在");
+        let body = &tail[..end];
+
+        let reveal = body
+            .find("tauri_plugin_opener::reveal_item_in_dir(&file_path)")
+            .expect("文件分支必须调用 reveal_item_in_dir(&file_path)");
+        if let Some(open) = body.find("tauri_plugin_opener::open_path(parent") {
+            assert!(
+                open > reveal,
+                "open_path 只能作为 reveal 失败后的父目录兜底出现，不能取代 reveal"
+            );
         }
-        command
-            .status()
-            .map_err(|err| format!("Failed to open file: {err}"))?;
-        return Ok(());
     }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(raw_path)
-            .status()
-            .map_err(|err| format!("Failed to open file: {err}"))?;
-        return Ok(());
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(raw_path)
-            .status()
-            .map_err(|err| format!("Failed to open file: {err}"))?;
-        return Ok(());
-    }
-    #[allow(unreachable_code)]
-    Err("Open file is not supported on this platform".to_string())
 }

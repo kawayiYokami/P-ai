@@ -435,32 +435,7 @@ fn remove_workspace_mcp_server(state: &AppState, server_id: &str) -> Result<bool
 }
 
 fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(path)
-            .status()
-            .map_err(|err| format!("Open in explorer failed: {err}"))?;
-        return Ok(());
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(path)
-            .status()
-            .map_err(|err| format!("Open in Finder failed: {err}"))?;
-        return Ok(());
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(path)
-            .status()
-            .map_err(|err| format!("Open in file manager failed: {err}"))?;
-        return Ok(());
-    }
-    #[allow(unreachable_code)]
-    Err("Open in file manager is not supported on this platform".to_string())
+    tauri_plugin_opener::open_path(path, None::<&str>).map_err(|err| format!("打开目录失败：{err}"))
 }
 
 fn open_mcp_workspace_dir(state: &AppState) -> Result<String, String> {

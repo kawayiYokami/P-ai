@@ -2322,13 +2322,12 @@ async fn open_portable_pending_dir(kind: String) -> Result<(), String> {
     // 只提供一个目录入口：打开更新暂存目录，便于用户手动替换
     let _ = pending;
     let target: StdPathBuf = temp_root.to_path_buf();
-    #[cfg(target_os = "windows")]
-    {
-        let _ = std::process::Command::new("explorer").arg(&target).spawn();
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = std::process::Command::new("xdg-open").arg(&target).spawn();
+    // 对外恒为 Ok：这里只是「打不开就算了」的顺手动作，前端是裸 invoke，不能冒未处理的 rejection。
+    if let Err(err) = tauri_plugin_opener::open_path(&target, None::<&str>) {
+        runtime_log_warn(format!(
+            "[自动更新] 打开更新暂存目录失败 path={} err={err}",
+            target.display()
+        ));
     }
     let _ = kind;
     Ok(())
