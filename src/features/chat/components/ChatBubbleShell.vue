@@ -194,20 +194,14 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
     "body";
 }
 
-/* 宽屏：正文与 footer 让开头像列、对齐名字左缘；窄屏（手机 / 侧栏）仍贴头像左缘用满整宽 */
-@container (min-width: 800px) {
-  .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user):not(.ecall-chat-bubble-no-avatar) {
-    grid-template-areas:
-      "avatar main"
-      ". activity-panel"
-      ". body";
-  }
-
-  /* 右侧补上与头像列等宽的空当，正文与思考 / 工具面板左右留白对称 */
-  .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user):not(.ecall-chat-bubble-no-avatar) .ecall-chat-bubble-body,
-  .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user):not(.ecall-chat-bubble-no-avatar) .ecall-chat-bubble-activity-panel {
-    padding-right: calc(var(--ecall-bubble-avatar-size) + var(--ecall-bubble-gap));
-  }
+/* 留白随容器宽度线性增长，不再用断点切换：
+   560px（640 − 80）时两边各 0，640px 时长满到「头像列宽 + 间距」，中间按比例插值。
+   上限取头像列宽 + 间距而不是写死像素，正文左缘才能和名字对齐成一条线。
+   用 cqw 读容器宽度（.ecall-elastic-item-shell 上开了 container-type: inline-size）。 */
+.ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-body,
+.ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-activity-panel {
+  padding-left: clamp(0px, calc((100cqw - 560px) * 0.5), calc(var(--ecall-bubble-avatar-size) + var(--ecall-bubble-gap)));
+  padding-right: clamp(0px, calc((100cqw - 560px) * 0.5), calc(var(--ecall-bubble-avatar-size) + var(--ecall-bubble-gap)));
 }
 
 /* ---------- user：右对齐，无头像 ---------- */
