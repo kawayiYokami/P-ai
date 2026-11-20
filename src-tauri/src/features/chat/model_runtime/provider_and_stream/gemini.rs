@@ -12,6 +12,7 @@ async fn call_model_gemini_with_tools(
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
     let adapter_kind = resolve_provider_genai_adapter_kind(api_config, model_name, genai::adapter::AdapterKind::Gemini);
     run_genai_tool_loop(
@@ -30,6 +31,7 @@ async fn call_model_gemini_with_tools(
         tool_abort_state,
         chat_session_key,
         usage_conversation_id,
+        request_max_attempts,
     )
     .await
 }

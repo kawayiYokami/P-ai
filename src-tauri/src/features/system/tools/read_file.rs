@@ -1160,6 +1160,7 @@ async fn describe_media_with_multimodal_api(
                 prepared,
                 Some(state),
                 None,
+                1,
             )
             .await?
         } else {
@@ -1169,6 +1170,7 @@ async fn describe_media_with_multimodal_api(
                 prepared.clone(),
                 Some(state),
                 None,
+                1,
             )
             .await
             {
@@ -1183,6 +1185,7 @@ async fn describe_media_with_multimodal_api(
                         prepared,
                         Some(state),
                         None,
+                        1,
                     )
                     .await?
                 }

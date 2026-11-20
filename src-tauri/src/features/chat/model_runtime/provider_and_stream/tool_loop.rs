@@ -79,6 +79,23 @@ struct GenaiToolLoopRoundOutput {
     assistant_provider_meta: Option<Value>,
 }
 
+/// 工具轮次内的请求层 Ok 重试判定：纯空轮次（无文本、无推理、无工具调用）才重发
+/// 同一请求。有文本直接走后续流程；仅推理不重试（与 ModelReply 层的
+/// ReasoningOnly 口径一致：推理 delta 会补发给前端，重来一遍就是重复）；
+/// 带工具调用的轮次直接走执行。
+fn genai_tool_loop_round_should_retry(round: &GenaiToolLoopRoundOutput) -> bool {
+    round.turn_text.trim().is_empty()
+        && round.turn_reasoning.trim().is_empty()
+        && round.turn_tool_calls.is_empty()
+}
+
+/// 工具轮次内的零 delta 门禁上报：本轮只要向前端推送过任何文本或推理 delta，
+/// 就不再重发。调用处的 send_*_delta_event 内部会过滤空内容，因此这里用
+/// turn 非空或推理已推送派生，结果精确。
+fn tool_loop_round_pushed_any(turn_text: &str, reasoning_delta_emitted: bool) -> bool {
+    !turn_text.is_empty() || reasoning_delta_emitted
+}
+
 #[derive(Debug, Clone)]
 struct PreparedToolCall {
     tool_call_id: String,
@@ -547,6 +564,8 @@ async fn run_genai_tool_loop(
     tool_abort_state: Option<&AppState>,
     chat_session_key: &str,
     usage_conversation_id: Option<&str>,
+    // 主调度按 failure_retry_count 折算后传入；其它调用方保持单次请传 1。
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
     // 本轮调度内桌面操作提醒最多一次：局部变量随调度结束销毁，无全局状态。
     let mut desktop_notice_sent = false;
@@ -558,7 +577,9 @@ async fn run_genai_tool_loop(
         model_name,
         request_api_key.clone(),
     );
-    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+    // 运行级 model_spec 已不再直接使用：每次尝试用当次 key 重建（见轮次闭包）。
+    // client 本身不带 key，全轮次共用。
+    let (client, _model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
         request_api_key,
@@ -615,7 +636,9 @@ async fn run_genai_tool_loop(
             tool_assembly_stale = false;
         }
         let round_started_at = std::time::Instant::now();
-        let mut emit_text_boundary_before_next_chunk = !full_assistant_text.trim().is_empty();
+        // 每轮是否需要在首个文本块前补边界换行：只读一次传入闭包，
+        // 闭包内用局部量推进，避免可变借用逃逸。
+        let prefix_text_boundary = !full_assistant_text.trim().is_empty();
         if round_index > 0 && !auto_compaction_applied {
             auto_compaction_applied = maybe_apply_auto_compaction_before_tool_continue_genai(
                 tool_abort_state,
@@ -651,26 +674,54 @@ async fn run_genai_tool_loop(
                 runtime_tool_names_for_log(&tool_assembly)
             },
         );
-        let round_output = async {
-            let _provider_concurrency_guard = maybe_acquire_provider_concurrency_guard(
-                tool_abort_state,
-                &api_config,
-                model_name,
-            )
-            .await?;
-            let mut turn_text = String::new();
-            let mut turn_reasoning = String::new();
-            let mut reasoning_delta_emitted = false;
-            let mut turn_tool_calls = Vec::<genai::chat::ToolCall>::new();
-            let mut round_trusted_input_tokens = None;
-            let mut round_usage = None;
-            let mut round_assistant_provider_meta = None::<Value>;
+        // 并发闸门在外层持有，重试退避期间保持占用、不释放：
+        // 一次模型调用（含重试等待）占用一个名额。
+        let _provider_concurrency_guard = maybe_acquire_provider_concurrency_guard(
+            tool_abort_state,
+            &api_config,
+            model_name,
+        )
+        .await?;
+        // 零 delta 门禁 + 空轮次重发同一请求：推过任何 delta（文本/推理）就不再重试；
+        // 有工具调用的轮次直接走执行；纯空轮次原样重发，不重跑之前轮次的工具。
+        let round_output = retry_request_once(
+            request_max_attempts,
+            genai_tool_loop_round_should_retry,
+            || async {
+                let mut pushed_any = false;
+                // 内层块即原来的单轮请求体：所有 `?` 与 `return Err` 都收敛到内层，
+                // 门禁量只在闭包局部维护，随元组返回，不借用外部。
+                let outcome = async {
+                let mut emit_text_boundary_before_next_chunk = prefix_text_boundary;
+                let mut turn_text = String::new();
+                let mut turn_reasoning = String::new();
+                let mut reasoning_delta_emitted = false;
+                let mut turn_tool_calls = Vec::<genai::chat::ToolCall>::new();
+                let mut round_trusted_input_tokens = None;
+                let mut round_usage = None;
+                let mut round_assistant_provider_meta = None::<Value>;
 
-            let stream_guard = StreamFailureGuard::new(
-                tool_abort_state.map(|state| state.data_path.clone()),
-                usage_conversation_id.map(str::to_string),
-            );
-            let round_options = stream_guard.attach(options.clone());
+                // 每次尝试换下一个 key：key 在 target/spec 里。复用现有构造
+                // 只取 spec（顺带产出的 client 丢弃，client 本身不带 key）。
+                let attempt_api_key = consume_api_key_for_request(&api_config);
+                let attempt_service_target = build_provider_genai_service_target(
+                    &api_config,
+                    adapter_kind,
+                    model_name,
+                    attempt_api_key.clone(),
+                );
+                let (_, attempt_model_spec) =
+                    build_provider_genai_client_and_model_spec_from_target(
+                        &api_config,
+                        model_name,
+                        attempt_api_key,
+                        attempt_service_target,
+                    )?;
+                let stream_guard = StreamFailureGuard::new(
+                    tool_abort_state.map(|state| state.data_path.clone()),
+                    usage_conversation_id.map(str::to_string),
+                );
+                let round_options = stream_guard.attach(options.clone());
             let mut stream = {
                 let mut request = genai::chat::ChatRequest::from_messages(
                     sanitize_genai_messages_before_request(messages.clone(), "genai_tool_loop_stream"),
@@ -686,7 +737,7 @@ async fn run_genai_tool_loop(
                     request = request.with_tools(genai_tools.clone());
                 }
                 client
-                    .exec_chat_stream(model_spec.clone(), request, Some(&round_options))
+                    .exec_chat_stream(attempt_model_spec.clone(), request, Some(&round_options))
                     .await
                     .map_err(|err| format!("GenAI 流式请求构建失败：{err}"))?
                     .stream
@@ -707,7 +758,6 @@ async fn run_genai_tool_loop(
                     Ok(genai::chat::ChatStreamEvent::ReasoningChunk(reasoning)) => {
                         if !reasoning.content.is_empty() {
                             turn_reasoning.push_str(&reasoning.content);
-                            full_activity_reasoning_text.push_str(&reasoning.content);
                             send_reasoning_delta_event(on_delta, &reasoning.content);
                             reasoning_delta_emitted = true;
                         }
@@ -758,11 +808,6 @@ async fn run_genai_tool_loop(
                                 .filter(|value| !value.is_empty())
                             {
                                 turn_reasoning = captured_reasoning.to_string();
-                                if full_activity_reasoning_text.is_empty() {
-                                    full_activity_reasoning_text = captured_reasoning.to_string();
-                                } else {
-                                    full_activity_reasoning_text.push_str(captured_reasoning);
-                                }
                                 send_reasoning_delta_event(on_delta, captured_reasoning);
                                 reasoning_delta_emitted = true;
                             }
@@ -777,10 +822,14 @@ async fn run_genai_tool_loop(
                     }
                     Err(err) => {
                         stream_guard.note_stream_error(&err);
+                        // 零 delta 门禁上报：本闭包只在 turn 非空或推理已推时才真正
+                        // send 过（send_*_delta_event 内部过滤空内容），派生值精确。
+                        pushed_any = tool_loop_round_pushed_any(&turn_text, reasoning_delta_emitted);
                         return Err(format!("GenAI 流式处理失败：{err}"));
                     }
                 }
             }
+            pushed_any = tool_loop_round_pushed_any(&turn_text, reasoning_delta_emitted);
             Ok::<GenaiToolLoopRoundOutput, String>(GenaiToolLoopRoundOutput {
                 turn_text,
                 turn_reasoning,
@@ -790,7 +839,11 @@ async fn run_genai_tool_loop(
                 usage: round_usage,
                 assistant_provider_meta: round_assistant_provider_meta,
             })
-        }
+            }
+            .await;
+            (outcome, pushed_any)
+            },
+        )
         .await;
         runtime_log_info(format!(
             "[聊天] 阶段=tool_loop.round_model_request.finish，模式=stream，session={}，轮次={}，模型={}，api_id={}，状态={}，耗时={}ms",
@@ -811,6 +864,9 @@ async fn run_genai_tool_loop(
             usage: round_usage,
             assistant_provider_meta: round_assistant_provider_meta,
         } = round_output;
+        // 推理累积改在整轮成功后一次性合入：重试闭包内只维护本轮局部量，
+        // 失败尝试的内容不污染跨轮累积。
+        full_activity_reasoning_text.push_str(&turn_reasoning);
         let round_elapsed_ms = round_started_at
             .elapsed()
             .as_millis()
@@ -1381,6 +1437,8 @@ async fn run_genai_tool_loop_non_stream(
     tool_abort_state: Option<&AppState>,
     chat_session_key: &str,
     usage_conversation_id: Option<&str>,
+    // 主调度按 failure_retry_count 折算后传入；其它调用方保持单次请传 1。
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
     // 本轮调度内桌面操作提醒最多一次：局部变量随调度结束销毁，无全局状态。
     let mut desktop_notice_sent = false;
@@ -1392,7 +1450,9 @@ async fn run_genai_tool_loop_non_stream(
         model_name,
         request_api_key.clone(),
     );
-    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+    // 运行级 model_spec 已不再直接使用：每次尝试用当次 key 重建（见轮次闭包）。
+    // client 本身不带 key，全轮次共用。
+    let (client, _model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
         request_api_key,
@@ -1484,40 +1544,76 @@ async fn run_genai_tool_loop_non_stream(
                 runtime_tool_names_for_log(&tool_assembly)
             },
         );
-        let round = {
-            let mut request = genai::chat::ChatRequest::from_messages(
-                sanitize_genai_messages_before_request(messages.clone(), "genai_tool_loop_non_stream"),
-            );
-            if let Some(system) = system_prompt
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                request = request.with_system(system.to_string());
-            }
-            if !tools_disabled_for_context_exhaustion && !genai_tools.is_empty() {
-                request = request.with_tools(genai_tools.clone());
-            }
-            let _provider_concurrency_guard = maybe_acquire_provider_concurrency_guard(
-                tool_abort_state,
-                &api_config,
-                model_name,
-            )
-            .await?;
-            execute_genai_non_stream_round(
-                &api_config,
-                model_name,
-                &client,
-                &model_spec,
-                request,
-                &options,
-                on_delta,
-                !full_assistant_text.trim().is_empty(),
-                tool_abort_state,
-                usage_conversation_id,
-            )
-            .await
-        };
+        // 并发闸门在外层持有，重试退避期间保持占用、不释放：
+        // 一次模型调用（含重试等待）占用一个名额。
+        let _provider_concurrency_guard = maybe_acquire_provider_concurrency_guard(
+            tool_abort_state,
+            &api_config,
+            model_name,
+        )
+        .await?;
+        // 零 delta 门禁 + 空轮次重发同一请求：非流式轮次只在成功且非空时才推过 delta，
+        // 失败或空轮次都可原样重发，不重跑之前轮次的工具。
+        let round = retry_request_once(
+            request_max_attempts,
+            genai_tool_loop_round_should_retry,
+            || async {
+                let mut pushed_any = false;
+                // 内层块即原来的单轮请求体：所有 `?` 与 `return Err` 都收敛到内层，
+                // 门禁量只在闭包局部维护，随元组返回，不借用外部。
+                let outcome = async {
+                let mut request = genai::chat::ChatRequest::from_messages(
+                    sanitize_genai_messages_before_request(messages.clone(), "genai_tool_loop_non_stream"),
+                );
+                if let Some(system) = system_prompt
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    request = request.with_system(system.to_string());
+                }
+                if !tools_disabled_for_context_exhaustion && !genai_tools.is_empty() {
+                    request = request.with_tools(genai_tools.clone());
+                }
+                // 每次尝试换下一个 key：key 在 target/spec 里。复用现有构造
+                // 只取 spec（顺带产出的 client 丢弃，client 本身不带 key）。
+                let attempt_api_key = consume_api_key_for_request(&api_config);
+                let attempt_service_target = build_provider_genai_service_target(
+                    &api_config,
+                    adapter_kind,
+                    model_name,
+                    attempt_api_key.clone(),
+                );
+                let (_, attempt_model_spec) =
+                    build_provider_genai_client_and_model_spec_from_target(
+                        &api_config,
+                        model_name,
+                        attempt_api_key,
+                        attempt_service_target,
+                    )?;
+                let round = execute_genai_non_stream_round(
+                    &api_config,
+                    model_name,
+                    &client,
+                    &attempt_model_spec,
+                    request,
+                    &options,
+                    on_delta,
+                    !full_assistant_text.trim().is_empty(),
+                    tool_abort_state,
+                    usage_conversation_id,
+                )
+                .await?;
+                // 非流式轮次只在成功且文本/推理非空时才推过 delta，派生值精确。
+                pushed_any =
+                    tool_loop_round_pushed_any(&round.turn_text, round.reasoning_delta_emitted);
+                Ok(round)
+                }
+                .await;
+                (outcome, pushed_any)
+            },
+        )
+        .await;
         runtime_log_info(format!(
             "[聊天] 阶段=tool_loop.round_model_request.finish，模式=non_stream，session={}，轮次={}，模型={}，api_id={}，状态={}，耗时={}ms",
             chat_session_key,
@@ -2063,6 +2159,73 @@ mod tool_loop_tests {
                 is_error: false,
             },
         }
+    }
+
+    fn empty_round_output() -> GenaiToolLoopRoundOutput {
+        GenaiToolLoopRoundOutput {
+            turn_text: String::new(),
+            turn_reasoning: String::new(),
+            reasoning_delta_emitted: false,
+            turn_tool_calls: Vec::new(),
+            trusted_input_tokens: None,
+            usage: None,
+            assistant_provider_meta: None,
+        }
+    }
+
+    fn tool_call_round_output() -> GenaiToolLoopRoundOutput {
+        GenaiToolLoopRoundOutput {
+            turn_text: String::new(),
+            turn_reasoning: String::new(),
+            reasoning_delta_emitted: false,
+            turn_tool_calls: vec![genai::chat::ToolCall {
+                call_id: "call-1".to_string(),
+                fn_name: "read_file".to_string(),
+                fn_arguments: serde_json::json!({}),
+                thought_signatures: None,
+            }],
+            trusted_input_tokens: None,
+            usage: None,
+            assistant_provider_meta: None,
+        }
+    }
+
+    // 纯空轮次才重发同一请求（验收 4 的轮次层判定）。
+    #[test]
+    fn empty_round_should_retry_same_request() {
+        assert!(genai_tool_loop_round_should_retry(&empty_round_output()));
+    }
+
+    // 有文本的轮次直接走后续流程，不重发。
+    #[test]
+    fn round_with_text_should_not_retry() {
+        let mut round = empty_round_output();
+        round.turn_text = "结论".to_string();
+        assert!(!genai_tool_loop_round_should_retry(&round));
+    }
+
+    // 仅推理的轮次不重试：推理 delta 已经推给前端，重来一遍就是重复。
+    #[test]
+    fn reasoning_only_round_should_not_retry() {
+        let mut round = empty_round_output();
+        round.turn_reasoning = "先想一步".to_string();
+        round.reasoning_delta_emitted = true;
+        assert!(!genai_tool_loop_round_should_retry(&round));
+    }
+
+    // 带工具调用的轮次直接走执行，不重发。
+    #[test]
+    fn round_with_tool_calls_should_not_retry() {
+        assert!(!genai_tool_loop_round_should_retry(&tool_call_round_output()));
+    }
+
+    // 零 delta 门禁上报：推过文本或推理 delta 才为 true，空内容不算推送。
+    #[test]
+    fn pushed_gate_reports_only_real_deltas() {
+        assert!(!tool_loop_round_pushed_any("", false));
+        assert!(tool_loop_round_pushed_any("半截", false));
+        assert!(tool_loop_round_pushed_any("", true));
+        assert!(tool_loop_round_pushed_any("半截", true));
     }
 
     #[test]

@@ -470,6 +470,58 @@ fn model_reply_content_state(reply: &ModelReply) -> ModelReplyContentState {
     ModelReplyContentState::Empty
 }
 
+// ========== 请求层重试（重试下沉） ==========
+// 把模型请求的重试从「重跑整个 attempt」下沉为「重发同一次请求」：请求体已构造好，
+// 失败就原样再发一次，不重新组装上下文、不重跑工具。
+// 口径见计划 20261121_模型请求重试下沉：
+// - 零 delta 门禁：调用方在每次发送时通过 `pushed_any` 上报是否向前端推送过任何
+//   delta（文本与 reasoning 都计入）。推过就不再重试，原样上抛。
+// - 空回（Ok 但内容为空）可重试、仅思维链不重试，由调用方的 `should_retry_ok`
+//   判定，本函数只执行判定结果。
+// - 并发闸门由调用方在外层持有，重试退避期间保持占用、不释放：一次模型调用
+//   （含重试等待）占用一个名额。供应商刚失败时正不健康，此时放别的请求进去只会更糟。
+// - 每次尝试重取 API key 由调用方在闭包内完成（resolve + consume），429 换到
+//   下一个 key 正是想要的。
+// - 退避沿用 core_send_inner 的 retry_delay（含 Retry-After 与抖动），调用方
+//   只传 max_attempts，不反向依赖退避常量。
+async fn retry_request_once<T, F, Fut>(
+    request_max_attempts: u32,
+    should_retry_ok: impl Fn(&T) -> bool,
+    mut send_once: F,
+) -> Result<T, String>
+where
+    // 闭包返回 (结果, 本次是否推过 delta)：门禁状态随值返回，不借用外部，
+    // 避免 future 逃逸出 FnMut 闭包时的借用冲突。
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = (Result<T, String>, bool)>,
+{
+    let max_attempts = request_max_attempts.max(1);
+    let mut attempt: u32 = 0;
+    loop {
+        attempt += 1;
+        let (outcome, pushed_any) = send_once().await;
+        let retryable = match &outcome {
+            Ok(value) => should_retry_ok(value) && !pushed_any,
+            Err(err) => {
+                !pushed_any && retry_kind_is_retryable(classify_retry_kind_for_error_text(err))
+            }
+        };
+        if !retryable || attempt >= max_attempts {
+            return outcome;
+        }
+        let retry_after_ms = match &outcome {
+            Err(err) => parse_retry_after_ms(err),
+            Ok(_) => None,
+        };
+        let wait = retry_delay(attempt, retry_after_ms);
+        runtime_log_warn(format!(
+            "[聊天] 请求层重试：任务=request_retry，attempt={attempt}/{max_attempts}，delay_ms={}，pushed_any={pushed_any}",
+            wait.as_millis()
+        ));
+        tokio::time::sleep(wait).await;
+    }
+}
+
 fn effective_prompt_tokens_from_provider(
     estimated_prompt_tokens: u64,
     trusted_input_tokens: Option<u64>,
@@ -483,4 +535,202 @@ fn effective_prompt_tokens_from_provider(
         return (provider.max(estimated_prompt_tokens), "max_large_gap");
     }
     (provider, "provider")
+}
+
+#[cfg(test)]
+mod request_retry_tests {
+    use super::*;
+
+    fn empty_reply() -> ModelReply {
+        ModelReply {
+            assistant_text: String::new(),
+            final_response_text: String::new(),
+            activity_reasoning_text: String::new(),
+            assistant_provider_meta: None,
+            tool_history_events: Vec::new(),
+            suppress_assistant_message: false,
+            trusted_input_tokens: None,
+            usage: None,
+            round_logs_recorded_internally: false,
+        }
+    }
+
+    fn is_empty_retryable(reply: &ModelReply) -> bool {
+        matches!(
+            model_reply_content_state(reply),
+            ModelReplyContentState::Empty
+        )
+    }
+
+    // 429 后第二次成功：同一闭包重发，调用 2 次（验收 1 的 helper 层面）。
+    #[tokio::test]
+    async fn retryable_error_resends_until_success() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(0_usize));
+        let bodies = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let calls_for_send = calls.clone();
+        let bodies_for_send = bodies.clone();
+        let outcome = retry_request_once(
+            3,
+            is_empty_retryable,
+            move || {
+                let calls = calls_for_send.clone();
+                let bodies = bodies_for_send.clone();
+                async move {
+                    let mut locked = calls.lock().expect("calls lock");
+                    *locked += 1;
+                    let attempt = *locked;
+                    drop(locked);
+                    bodies
+                        .lock()
+                        .expect("bodies lock")
+                        .push("same-request-body".to_string());
+                    if attempt == 1 {
+                        (Err("upstream 429 Too Many Requests".to_string()), false)
+                    } else {
+                        (
+                            Ok(ModelReply {
+                                assistant_text: "pong".to_string(),
+                                ..empty_reply()
+                            }),
+                            false,
+                        )
+                    }
+                }
+            },
+        )
+        .await;
+        assert_eq!(outcome.unwrap().assistant_text, "pong");
+        assert_eq!(*calls.lock().expect("calls lock"), 2);
+        let bodies = bodies.lock().expect("bodies lock");
+        assert_eq!(bodies.len(), 2);
+        assert_eq!(bodies[0], bodies[1]);
+    }
+
+    // 推过 delta 就不再发第二次（验收 3 的 helper 层面：后端断言请求次数）。
+    #[tokio::test]
+    async fn pushed_delta_blocks_second_request() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(0_usize));
+        let calls_for_send = calls.clone();
+        let outcome: Result<String, String> = retry_request_once(
+            5,
+            |_: &String| true,
+            move || {
+                let calls = calls_for_send.clone();
+                async move {
+                    *calls.lock().expect("calls lock") += 1;
+                    (Err("connection reset by peer".to_string()), true)
+                }
+            },
+        )
+        .await;
+        assert!(outcome.is_err());
+        assert_eq!(*calls.lock().expect("calls lock"), 1);
+    }
+
+    // 空回可重试、仅思维链不重试（验收 4 的 helper 层面）。
+    #[tokio::test]
+    async fn empty_ok_retries_but_reasoning_only_does_not() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(0_usize));
+        let calls_for_send = calls.clone();
+        let outcome = retry_request_once(
+            3,
+            is_empty_retryable,
+            move || {
+                let calls = calls_for_send.clone();
+                async move {
+                    *calls.lock().expect("calls lock") += 1;
+                    if *calls.lock().expect("calls lock") == 1 {
+                        (Ok(empty_reply()), false)
+                    } else {
+                        (
+                            Ok(ModelReply {
+                                assistant_text: "recovered".to_string(),
+                                ..empty_reply()
+                            }),
+                            false,
+                        )
+                    }
+                }
+            },
+        )
+        .await;
+        assert_eq!(outcome.unwrap().assistant_text, "recovered");
+        assert_eq!(*calls.lock().expect("calls lock"), 2);
+
+        let reasoning_only = ModelReply {
+            activity_reasoning_text: "先想一步".to_string(),
+            ..empty_reply()
+        };
+        let outcome = retry_request_once(3, is_empty_retryable, || async {
+            (Ok(reasoning_only.clone()), false)
+        })
+        .await;
+        assert!(outcome.unwrap().assistant_text.is_empty());
+    }
+
+    // 工具执行史不参与判定：调用方见证了工具执行，重试照样发生（验收 2 的结构保证）。
+    #[tokio::test]
+    async fn tools_executed_does_not_block_request_retry() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(0_usize));
+        let calls_for_send = calls.clone();
+        let outcome: Result<String, String> = retry_request_once(
+            2,
+            |_: &String| false,
+            move || {
+                let calls = calls_for_send.clone();
+                async move {
+                    // 模拟“已经执行过 3 次工具的一轮”：该事实只存在于调用方，
+                    // helper 的签名里根本没有工具次数这一项。
+                    let _tools_executed_in_attempt = 3_usize;
+                    *calls.lock().expect("calls lock") += 1;
+                    if *calls.lock().expect("calls lock") == 1 {
+                        (Err("upstream 503 Service Unavailable".to_string()), false)
+                    } else {
+                        (Ok("recovered".to_string()), false)
+                    }
+                }
+            },
+        )
+        .await;
+        assert_eq!(outcome.unwrap(), "recovered");
+        assert_eq!(*calls.lock().expect("calls lock"), 2);
+    }
+
+    // 不可重试错误与预算耗尽：一次都不多发。
+    #[tokio::test]
+    async fn non_retryable_or_exhausted_sends_once() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(0_usize));
+        let calls_for_send = calls.clone();
+        let outcome: Result<String, String> = retry_request_once(
+            5,
+            |_: &String| false,
+            move || {
+                let calls = calls_for_send.clone();
+                async move {
+                    *calls.lock().expect("calls lock") += 1;
+                    (Err("invalid api key".to_string()), false)
+                }
+            },
+        )
+        .await;
+        assert!(outcome.is_err());
+        assert_eq!(*calls.lock().expect("calls lock"), 1);
+
+        let calls_for_send = calls.clone();
+        *calls.lock().expect("calls lock") = 0;
+        let outcome: Result<String, String> = retry_request_once(
+            1,
+            |_: &String| false,
+            move || {
+                let calls = calls_for_send.clone();
+                async move {
+                    *calls.lock().expect("calls lock") += 1;
+                    (Err("upstream 429 Too Many Requests".to_string()), false)
+                }
+            },
+        )
+        .await;
+        assert!(outcome.is_err());
+        assert_eq!(*calls.lock().expect("calls lock"), 1);
+    }
 }

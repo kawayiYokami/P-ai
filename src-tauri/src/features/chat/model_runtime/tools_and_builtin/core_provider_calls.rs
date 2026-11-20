@@ -870,6 +870,15 @@ async fn resolve_request_api_config(
     Ok(next)
 }
 
+/// 请求层 Ok 重试判定（5 个 genai 入口共用）：只有空回可重试。
+/// 仅思维链不重试——collect 已把 reasoning delta 推给前端，重来一遍会重复。
+fn model_reply_is_empty_retryable(reply: &ModelReply) -> bool {
+    matches!(
+        model_reply_content_state(reply),
+        ModelReplyContentState::Empty
+    )
+}
+
 async fn call_model_genai_stream_internal(
     api_config: &ResolvedApiConfig,
     model_name: &str,
@@ -879,64 +888,90 @@ async fn call_model_genai_stream_internal(
     app_state: Option<&AppState>,
     usage_conversation_id: Option<&str>,
     tool_definitions: Option<&[ProviderToolDefinition]>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
-    let api_config = resolve_request_api_config(api_config).await?;
+    // 并发闸门在外层持有，重试退避期间保持占用、不释放：
+    // 一次模型调用（含重试等待）占用一个名额。
     let _provider_concurrency_guard =
-        maybe_acquire_provider_concurrency_guard(app_state, &api_config, model_name).await?;
-    let request_api_key = consume_api_key_for_request(&api_config);
-    let adapter_kind = match kind {
-        OpenAiApiKind::ChatCompletions => resolve_provider_genai_adapter_kind(
-            &api_config,
-            model_name,
-            provider_openai_chat_adapter_kind(&api_config, model_name),
-        ),
-        OpenAiApiKind::Responses => resolve_provider_genai_adapter_kind(
-            &api_config,
-            model_name,
-            genai::adapter::AdapterKind::OpenAIResp,
-        ),
-    };
-    let mut request = build_provider_genai_request(&prepared)?;
-    if let Some(definitions) = tool_definitions {
-        if !definitions.is_empty() {
-            let genai_tools =
-                runtime_tool_definitions_for_genai(definitions, adapter_kind).await?;
-            request = request.with_tools(genai_tools);
-        }
-    }
-    let service_target = build_provider_genai_service_target(
-        &api_config,
-        adapter_kind,
-        model_name,
-        request_api_key.clone(),
-    );
-    let stream_guard = StreamFailureGuard::new(
-        app_state.map(|state| state.data_path.clone()),
-        usage_conversation_id.map(str::to_string),
-    );
-    let options = stream_guard
-        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, true));
+        maybe_acquire_provider_concurrency_guard(app_state, api_config, model_name).await?;
+    retry_request_once(
+        request_max_attempts,
+        model_reply_is_empty_retryable,
+        || async {
+            let mut pushed_any = false;
+            // 内层块即原来的单次请求体：所有 `?` 与 `return Err` 都收敛到内层，
+            // 门禁量只在闭包局部维护，随元组返回，不借用外部。
+            let outcome = async {
+            // 每次尝试重取 API key：resolve 刷新 codex/grok 令牌，consume 推进 key 游标，
+            // 429 时下一次尝试会换到下一个 key。
+            let api_config = resolve_request_api_config(api_config).await?;
+            let request_api_key = consume_api_key_for_request(&api_config);
+            let adapter_kind = match kind {
+                OpenAiApiKind::ChatCompletions => resolve_provider_genai_adapter_kind(
+                    &api_config,
+                    model_name,
+                    provider_openai_chat_adapter_kind(&api_config, model_name),
+                ),
+                OpenAiApiKind::Responses => resolve_provider_genai_adapter_kind(
+                    &api_config,
+                    model_name,
+                    genai::adapter::AdapterKind::OpenAIResp,
+                ),
+            };
+            let mut request = build_provider_genai_request(&prepared)?;
+            if let Some(definitions) = tool_definitions {
+                if !definitions.is_empty() {
+                    let genai_tools =
+                        runtime_tool_definitions_for_genai(definitions, adapter_kind).await?;
+                    request = request.with_tools(genai_tools);
+                }
+            }
+            let service_target = build_provider_genai_service_target(
+                &api_config,
+                adapter_kind,
+                model_name,
+                request_api_key.clone(),
+            );
+            let stream_guard = StreamFailureGuard::new(
+                app_state.map(|state| state.data_path.clone()),
+                usage_conversation_id.map(str::to_string),
+            );
+            let options = stream_guard.attach(build_provider_genai_chat_options(
+                &api_config,
+                adapter_kind,
+                true,
+                false,
+                usage_conversation_id,
+                true,
+            ));
 
-    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
-        &api_config,
-        model_name,
-        request_api_key,
-        service_target,
-    )?;
-    let mut stream = client
-        .exec_chat_stream(model_spec, request, Some(&options))
-        .await
-        .map_err(|err| format!("genai openai stream build failed: {err}"))?
-        .stream;
-    let usage_provider_key = usage_provider_key_from_api_config(&api_config);
-    collect_streaming_model_reply_genai(
-        &mut stream,
-        on_delta,
-        app_state,
-        usage_conversation_id,
-        Some(usage_provider_key.as_str()),
-        Some(model_name),
-        Some(&stream_guard),
+            let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+                &api_config,
+                model_name,
+                request_api_key,
+                service_target,
+            )?;
+            let mut stream = client
+                .exec_chat_stream(model_spec, request, Some(&options))
+                .await
+                .map_err(|err| format!("genai openai stream build failed: {err}"))?
+                .stream;
+            let usage_provider_key = usage_provider_key_from_api_config(&api_config);
+            collect_streaming_model_reply_genai(
+                &mut stream,
+                on_delta,
+                app_state,
+                usage_conversation_id,
+                Some(usage_provider_key.as_str()),
+                Some(model_name),
+                Some(&stream_guard),
+                &mut pushed_any,
+            )
+            .await
+            }
+            .await;
+            (outcome, pushed_any)
+        },
     )
     .await
 }
@@ -947,6 +982,7 @@ async fn call_model_genai_stream(
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
     call_model_genai_stream_internal(
         api_config,
@@ -957,6 +993,7 @@ async fn call_model_genai_stream(
         app_state,
         usage_conversation_id,
         None,
+        request_max_attempts,
     )
     .await
 }
@@ -968,6 +1005,7 @@ async fn call_model_genai_stream_with_tools(
     tool_definitions: Vec<ProviderToolDefinition>,
     app_state: Option<&AppState>,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
     call_model_genai_stream_internal(
         api_config,
@@ -978,6 +1016,7 @@ async fn call_model_genai_stream_with_tools(
         app_state,
         usage_conversation_id,
         Some(&tool_definitions),
+        request_max_attempts,
     )
     .await
 }
@@ -988,6 +1027,7 @@ async fn call_model_genai_non_stream(
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
     call_model_genai_non_stream_with_definitions(
         api_config,
@@ -996,6 +1036,7 @@ async fn call_model_genai_non_stream(
         Vec::new(),
         app_state,
         usage_conversation_id,
+        request_max_attempts,
     )
     .await
 }
@@ -1007,69 +1048,89 @@ async fn call_model_genai_non_stream_with_definitions(
     tool_definitions: Vec<ProviderToolDefinition>,
     app_state: Option<&AppState>,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
-    let api_config = resolve_request_api_config(api_config).await?;
+    // 并发闸门在外层持有，重试退避期间保持占用、不释放：
+    // 一次模型调用（含重试等待）占用一个名额。
     let _provider_concurrency_guard =
-        maybe_acquire_provider_concurrency_guard(app_state, &api_config, model_name).await?;
-    let request_api_key = consume_api_key_for_request(&api_config);
-    let adapter_kind = resolve_provider_genai_adapter_kind(
-        &api_config,
-        model_name,
-        provider_openai_chat_adapter_kind(&api_config, model_name),
-    );
-    let service_target = build_provider_genai_service_target(
-        &api_config,
-        adapter_kind,
-        model_name,
-        request_api_key.clone(),
-    );
-    let mut request = build_genai_chat_request(&prepared)?;
-    if !tool_definitions.is_empty() {
-        let genai_tools = runtime_tool_definitions_for_genai(&tool_definitions, adapter_kind).await?;
-        request = request.with_tools(genai_tools);
-    }
-    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, false);
-    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
-        &api_config,
-        model_name,
-        request_api_key,
-        service_target,
-    )?;
-    let response = client
-        .exec_chat(model_spec, request, Some(&options))
-        .await
-        .map_err(|err| format!("genai openai non-stream failed: {err}"))?;
-    let usage = genai_usage_to_log_value(&response.usage);
-    let usage_provider_key = usage_provider_key_from_api_config(&api_config);
-    if let Some(usage) = usage.as_ref() {
-        add_provider_usage_delta_to_conversation(
-            app_state,
-            usage_conversation_id,
-            Some(usage_provider_key.as_str()),
-            Some(model_name),
-            usage,
-        );
-    }
-    let response_texts = response.content.into_texts();
-    let assistant_text = join_model_text_blocks(response_texts.iter().map(String::as_str));
-    let activity_reasoning_text = response.reasoning_content.unwrap_or_default();
-    let assistant_provider_meta = genai_response_id_provider_meta(response.response_id.as_deref());
-    let trusted_input_tokens = response
-        .usage
-        .prompt_tokens
-        .and_then(|value| u64::try_from(value).ok())
-        .filter(|value| *value > 0);
-    Ok(ModelReply {
-        assistant_text: assistant_text.clone(),
-        final_response_text: assistant_text,
-        activity_reasoning_text,
-        assistant_provider_meta,
-        tool_history_events: Vec::new(),
-        suppress_assistant_message: false,
-        trusted_input_tokens,
-        usage,
-        round_logs_recorded_internally: false,
-    })
+        maybe_acquire_provider_concurrency_guard(app_state, api_config, model_name).await?;
+    retry_request_once(
+        request_max_attempts,
+        model_reply_is_empty_retryable,
+        // 非流式入口不向前端推送 delta，门禁恒为 false。
+        || async {
+            let pushed_any = false;
+            // 内层块即原来的单次请求体：所有 `?` 与 `return Err` 都收敛到内层，
+            // 门禁量只在闭包局部维护，随元组返回，不借用外部。
+            let outcome = async {
+            // 每次尝试重取 API key：resolve 刷新 codex/grok 令牌，consume 推进 key 游标，
+            // 429 时下一次尝试会换到下一个 key。
+            let api_config = resolve_request_api_config(api_config).await?;
+            let request_api_key = consume_api_key_for_request(&api_config);
+            let adapter_kind = resolve_provider_genai_adapter_kind(
+                &api_config,
+                model_name,
+                provider_openai_chat_adapter_kind(&api_config, model_name),
+            );
+            let service_target = build_provider_genai_service_target(
+                &api_config,
+                adapter_kind,
+                model_name,
+                request_api_key.clone(),
+            );
+            let mut request = build_genai_chat_request(&prepared)?;
+            if !tool_definitions.is_empty() {
+                let genai_tools = runtime_tool_definitions_for_genai(&tool_definitions, adapter_kind).await?;
+                request = request.with_tools(genai_tools);
+            }
+            let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, false);
+            let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+                &api_config,
+                model_name,
+                request_api_key,
+                service_target,
+            )?;
+            let response = client
+                .exec_chat(model_spec, request, Some(&options))
+                .await
+                .map_err(|err| format!("genai openai non-stream failed: {err}"))?;
+            let usage = genai_usage_to_log_value(&response.usage);
+            let usage_provider_key = usage_provider_key_from_api_config(&api_config);
+            if let Some(usage) = usage.as_ref() {
+                add_provider_usage_delta_to_conversation(
+                    app_state,
+                    usage_conversation_id,
+                    Some(usage_provider_key.as_str()),
+                    Some(model_name),
+                    usage,
+                );
+            }
+            let response_texts = response.content.into_texts();
+            let assistant_text = join_model_text_blocks(response_texts.iter().map(String::as_str));
+            let activity_reasoning_text = response.reasoning_content.unwrap_or_default();
+            let assistant_provider_meta = genai_response_id_provider_meta(response.response_id.as_deref());
+            let trusted_input_tokens = response
+                .usage
+                .prompt_tokens
+                .and_then(|value| u64::try_from(value).ok())
+                .filter(|value| *value > 0);
+            Ok(ModelReply {
+                assistant_text: assistant_text.clone(),
+                final_response_text: assistant_text,
+                activity_reasoning_text,
+                assistant_provider_meta,
+                tool_history_events: Vec::new(),
+                suppress_assistant_message: false,
+                trusted_input_tokens,
+                usage,
+                round_logs_recorded_internally: false,
+            })
+            }
+            .await;
+            (outcome, pushed_any)
+        },
+    )
+    .await
 }
 
 async fn call_model_openai_responses(
@@ -1079,49 +1140,69 @@ async fn call_model_openai_responses(
     on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
     app_state: Option<&AppState>,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
-    let api_config = resolve_request_api_config(api_config).await?;
+    // 并发闸门在外层持有，重试退避期间保持占用、不释放：
+    // 一次模型调用（含重试等待）占用一个名额。
     let _provider_concurrency_guard =
-        maybe_acquire_provider_concurrency_guard(app_state, &api_config, model_name).await?;
-    let request_api_key = consume_api_key_for_request(&api_config);
-    let adapter_kind = resolve_provider_genai_adapter_kind(
-        &api_config,
-        model_name,
-        genai::adapter::AdapterKind::OpenAIResp,
-    );
-    let service_target = build_provider_genai_service_target(
-        &api_config,
-        adapter_kind,
-        model_name,
-        request_api_key.clone(),
-    );
-    let request = build_genai_chat_request(&prepared)?;
-    let stream_guard = StreamFailureGuard::new(
-        app_state.map(|state| state.data_path.clone()),
-        usage_conversation_id.map(str::to_string),
-    );
-    let options = stream_guard
-        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, true));
-    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
-        &api_config,
-        model_name,
-        request_api_key,
-        service_target,
-    )?;
-    let mut stream = client
-        .exec_chat_stream(model_spec, request, Some(&options))
-        .await
-        .map_err(|err| format!("genai responses stream build failed: {err}"))?
-        .stream;
-    let usage_provider_key = usage_provider_key_from_api_config(&api_config);
-    collect_streaming_model_reply_genai(
-        &mut stream,
-        on_delta,
-        app_state,
-        usage_conversation_id,
-        Some(usage_provider_key.as_str()),
-        Some(model_name),
-        Some(&stream_guard),
+        maybe_acquire_provider_concurrency_guard(app_state, api_config, model_name).await?;
+    retry_request_once(
+        request_max_attempts,
+        model_reply_is_empty_retryable,
+        || async {
+            let mut pushed_any = false;
+            // 内层块即原来的单次请求体：所有 `?` 与 `return Err` 都收敛到内层，
+            // 门禁量只在闭包局部维护，随元组返回，不借用外部。
+            let outcome = async {
+            // 每次尝试重取 API key：resolve 刷新 codex/grok 令牌，consume 推进 key 游标，
+            // 429 时下一次尝试会换到下一个 key。
+            let api_config = resolve_request_api_config(api_config).await?;
+            let request_api_key = consume_api_key_for_request(&api_config);
+            let adapter_kind = resolve_provider_genai_adapter_kind(
+                &api_config,
+                model_name,
+                genai::adapter::AdapterKind::OpenAIResp,
+            );
+            let service_target = build_provider_genai_service_target(
+                &api_config,
+                adapter_kind,
+                model_name,
+                request_api_key.clone(),
+            );
+            let request = build_genai_chat_request(&prepared)?;
+            let stream_guard = StreamFailureGuard::new(
+                app_state.map(|state| state.data_path.clone()),
+                usage_conversation_id.map(str::to_string),
+            );
+            let options = stream_guard
+                .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, true));
+            let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+                &api_config,
+                model_name,
+                request_api_key,
+                service_target,
+            )?;
+            let mut stream = client
+                .exec_chat_stream(model_spec, request, Some(&options))
+                .await
+                .map_err(|err| format!("genai responses stream build failed: {err}"))?
+                .stream;
+            let usage_provider_key = usage_provider_key_from_api_config(&api_config);
+            collect_streaming_model_reply_genai(
+                &mut stream,
+                on_delta,
+                app_state,
+                usage_conversation_id,
+                Some(usage_provider_key.as_str()),
+                Some(model_name),
+                Some(&stream_guard),
+                &mut pushed_any,
+            )
+            .await
+            }
+            .await;
+            (outcome, pushed_any)
+        },
     )
     .await
 }
@@ -1132,63 +1213,83 @@ async fn call_model_gemini(
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
-    let request = build_genai_chat_request(&prepared)?;
-    let api_config = resolve_request_api_config(api_config).await?;
+    // 并发闸门在外层持有，重试退避期间保持占用、不释放：
+    // 一次模型调用（含重试等待）占用一个名额。
     let _provider_concurrency_guard =
-        maybe_acquire_provider_concurrency_guard(app_state, &api_config, model_name).await?;
-    let request_api_key = consume_api_key_for_request(&api_config);
-    let adapter_kind = resolve_provider_genai_adapter_kind(
-        &api_config,
-        model_name,
-        genai::adapter::AdapterKind::Gemini,
-    );
-    let service_target = build_provider_genai_service_target(
-        &api_config,
-        adapter_kind,
-        model_name,
-        request_api_key.clone(),
-    );
-    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, false);
-    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
-        &api_config,
-        model_name,
-        request_api_key,
-        service_target,
-    )?;
-    let response = client
-        .exec_chat(model_spec, request, Some(&options))
-        .await
-        .map_err(|err| format!("genai gemini non-stream failed: {err}"))?;
-    let usage = genai_usage_to_log_value(&response.usage);
-    let usage_provider_key = usage_provider_key_from_api_config(&api_config);
-    if let Some(usage) = usage.as_ref() {
-        add_provider_usage_delta_to_conversation(
-            app_state,
-            usage_conversation_id,
-            Some(usage_provider_key.as_str()),
-            Some(model_name),
-            usage,
-        );
-    }
-    let response_texts = response.content.into_texts();
-    let assistant_text = join_model_text_blocks(response_texts.iter().map(String::as_str));
-    let assistant_provider_meta = genai_response_id_provider_meta(response.response_id.as_deref());
-    Ok(ModelReply {
-        assistant_text: assistant_text.clone(),
-        final_response_text: assistant_text,
-        activity_reasoning_text: response.reasoning_content.unwrap_or_default(),
-        assistant_provider_meta,
-        tool_history_events: Vec::new(),
-        suppress_assistant_message: false,
-        trusted_input_tokens: response
-            .usage
-            .prompt_tokens
-            .and_then(|value| u64::try_from(value).ok())
-            .filter(|value| *value > 0),
-        usage,
-        round_logs_recorded_internally: false,
-    })
+        maybe_acquire_provider_concurrency_guard(app_state, api_config, model_name).await?;
+    retry_request_once(
+        request_max_attempts,
+        model_reply_is_empty_retryable,
+        // 非流式入口不向前端推送 delta，门禁恒为 false。
+        || async {
+            let pushed_any = false;
+            // 内层块即原来的单次请求体：所有 `?` 与 `return Err` 都收敛到内层，
+            // 门禁量只在闭包局部维护，随元组返回，不借用外部。
+            let outcome = async {
+            // 每次尝试重取 API key：resolve 刷新 codex/grok 令牌，consume 推进 key 游标，
+            // 429 时下一次尝试会换到下一个 key。
+            let request = build_genai_chat_request(&prepared)?;
+            let api_config = resolve_request_api_config(api_config).await?;
+            let request_api_key = consume_api_key_for_request(&api_config);
+            let adapter_kind = resolve_provider_genai_adapter_kind(
+                &api_config,
+                model_name,
+                genai::adapter::AdapterKind::Gemini,
+            );
+            let service_target = build_provider_genai_service_target(
+                &api_config,
+                adapter_kind,
+                model_name,
+                request_api_key.clone(),
+            );
+            let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, false);
+            let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+                &api_config,
+                model_name,
+                request_api_key,
+                service_target,
+            )?;
+            let response = client
+                .exec_chat(model_spec, request, Some(&options))
+                .await
+                .map_err(|err| format!("genai gemini non-stream failed: {err}"))?;
+            let usage = genai_usage_to_log_value(&response.usage);
+            let usage_provider_key = usage_provider_key_from_api_config(&api_config);
+            if let Some(usage) = usage.as_ref() {
+                add_provider_usage_delta_to_conversation(
+                    app_state,
+                    usage_conversation_id,
+                    Some(usage_provider_key.as_str()),
+                    Some(model_name),
+                    usage,
+                );
+            }
+            let response_texts = response.content.into_texts();
+            let assistant_text = join_model_text_blocks(response_texts.iter().map(String::as_str));
+            let assistant_provider_meta = genai_response_id_provider_meta(response.response_id.as_deref());
+            Ok(ModelReply {
+                assistant_text: assistant_text.clone(),
+                final_response_text: assistant_text,
+                activity_reasoning_text: response.reasoning_content.unwrap_or_default(),
+                assistant_provider_meta,
+                tool_history_events: Vec::new(),
+                suppress_assistant_message: false,
+                trusted_input_tokens: response
+                    .usage
+                    .prompt_tokens
+                    .and_then(|value| u64::try_from(value).ok())
+                    .filter(|value| *value > 0),
+                usage,
+                round_logs_recorded_internally: false,
+            })
+            }
+            .await;
+            (outcome, pushed_any)
+        },
+    )
+    .await
 }
 
 async fn call_model_anthropic(
@@ -1197,49 +1298,70 @@ async fn call_model_anthropic(
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
     usage_conversation_id: Option<&str>,
+    request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
-    let api_config = resolve_request_api_config(api_config).await?;
+    // 并发闸门在外层持有，重试退避期间保持占用、不释放：
+    // 一次模型调用（含重试等待）占用一个名额。
     let _provider_concurrency_guard =
-        maybe_acquire_provider_concurrency_guard(app_state, &api_config, model_name).await?;
-    let request_api_key = consume_api_key_for_request(&api_config);
-    let adapter_kind = resolve_provider_genai_adapter_kind(
-        &api_config,
-        model_name,
-        genai::adapter::AdapterKind::Anthropic,
-    );
-    let service_target = build_provider_genai_service_target(
-        &api_config,
-        adapter_kind,
-        model_name,
-        request_api_key.clone(),
-    );
-    let request = build_genai_chat_request(&prepared)?;
-    let stream_guard = StreamFailureGuard::new(
-        app_state.map(|state| state.data_path.clone()),
-        usage_conversation_id.map(str::to_string),
-    );
-    let options = stream_guard
-        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, true));
-    let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
-        &api_config,
-        model_name,
-        request_api_key,
-        service_target,
-    )?;
-    let mut stream = client
-        .exec_chat_stream(model_spec, request, Some(&options))
-        .await
-        .map_err(|err| format!("genai anthropic stream build failed: {err}"))?
-        .stream;
-    let usage_provider_key = usage_provider_key_from_api_config(&api_config);
-    collect_streaming_model_reply_genai(
-        &mut stream,
-        None,
-        app_state,
-        usage_conversation_id,
-        Some(usage_provider_key.as_str()),
-        Some(model_name),
-        Some(&stream_guard),
+        maybe_acquire_provider_concurrency_guard(app_state, api_config, model_name).await?;
+    retry_request_once(
+        request_max_attempts,
+        model_reply_is_empty_retryable,
+        // anthropic 入口不接前端 channel（传 None），门禁恒为 false。
+        || async {
+            let mut pushed_any = false;
+            // 内层块即原来的单次请求体：所有 `?` 与 `return Err` 都收敛到内层，
+            // 门禁量只在闭包局部维护，随元组返回，不借用外部。
+            let outcome = async {
+            // 每次尝试重取 API key：resolve 刷新 codex/grok 令牌，consume 推进 key 游标，
+            // 429 时下一次尝试会换到下一个 key。
+            let api_config = resolve_request_api_config(api_config).await?;
+            let request_api_key = consume_api_key_for_request(&api_config);
+            let adapter_kind = resolve_provider_genai_adapter_kind(
+                &api_config,
+                model_name,
+                genai::adapter::AdapterKind::Anthropic,
+            );
+            let service_target = build_provider_genai_service_target(
+                &api_config,
+                adapter_kind,
+                model_name,
+                request_api_key.clone(),
+            );
+            let request = build_genai_chat_request(&prepared)?;
+            let stream_guard = StreamFailureGuard::new(
+                app_state.map(|state| state.data_path.clone()),
+                usage_conversation_id.map(str::to_string),
+            );
+            let options = stream_guard
+                .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, true));
+            let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+                &api_config,
+                model_name,
+                request_api_key,
+                service_target,
+            )?;
+            let mut stream = client
+                .exec_chat_stream(model_spec, request, Some(&options))
+                .await
+                .map_err(|err| format!("genai anthropic stream build failed: {err}"))?
+                .stream;
+            let usage_provider_key = usage_provider_key_from_api_config(&api_config);
+            collect_streaming_model_reply_genai(
+                &mut stream,
+                None,
+                app_state,
+                usage_conversation_id,
+                Some(usage_provider_key.as_str()),
+                Some(model_name),
+                Some(&stream_guard),
+                &mut pushed_any,
+            )
+            .await
+            }
+            .await;
+            (outcome, pushed_any)
+        },
     )
     .await
 }
@@ -2798,5 +2920,160 @@ mod openai_responses_genai_request_tests {
             normalize_minimax_genai_base_url("https://api.minimax.io/anthropic/v1/messages"),
             "https://api.minimax.io/anthropic/v1/"
         );
+    }
+}
+
+// ========== 非流式请求层重试集成测试（本地 axum mock） ==========
+//
+// 验收 1 落在真实 provider 路径：第一次返回 429，第二次返回正常 OpenAI
+// chat.completions 响应。断言：恢复出内容、只发了 2 次请求、两次请求体
+// 完全相同（同一请求体重发，不重新组装上下文）。
+#[cfg(test)]
+mod non_stream_request_retry_mock_tests {
+    use super::*;
+    use axum::response::IntoResponse;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct RetryMockState {
+        hits: AtomicUsize,
+        bodies: std::sync::Mutex<Vec<String>>,
+    }
+
+    async fn mock_chat_completions(
+        axum::extract::State(state): axum::extract::State<Arc<RetryMockState>>,
+        body: String,
+    ) -> impl axum::response::IntoResponse {
+        let hit = state.hits.fetch_add(1, Ordering::SeqCst);
+        state
+            .bodies
+            .lock()
+            .expect("mock bodies lock")
+            .push(body);
+        if hit == 0 {
+            return (
+                axum::http::StatusCode::TOO_MANY_REQUESTS,
+                axum::Json(serde_json::json!({
+                    "error": {
+                        "message": "Rate limit reached, please retry",
+                        "type": "rate_limit_error"
+                    }
+                })),
+            )
+                .into_response();
+        }
+        axum::Json(serde_json::json!({
+            "id": "chatcmpl-mock-retry",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "mock-model",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "recovered"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+        }))
+        .into_response()
+    }
+
+    fn mock_resolved_api(base_url: &str) -> ResolvedApiConfig {
+        ResolvedApiConfig {
+            login_provider: String::new(),
+            provider_id: None,
+            provider_api_keys: Vec::new(),
+            provider_key_cursor: 0,
+            request_format: RequestFormat::OpenAI,
+            allow_concurrent_requests: true,
+            max_concurrent_requests: None,
+            base_url: base_url.to_string(),
+            api_key: "test-key".to_string(),
+            model: "mock-model".to_string(),
+            reasoning_effort: None,
+            temperature: None,
+            max_output_tokens: None,
+            prompt_cache_key: None,
+            extra_headers: Vec::new(),
+            client_user_agent: None,
+            codex_auth: None,
+            codex_custom_api_key: None,
+            codex_originator: None,
+            codex_residency_requirement: None,
+        }
+    }
+
+    fn mock_prepared_prompt() -> PreparedPrompt {
+        PreparedPrompt {
+            preamble: "sys".to_string(),
+            history_messages: Vec::new(),
+            latest_user_text: "ping".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_user_trailing_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        }
+    }
+
+    // 429 后同一请求体重发一次并恢复：请求 2 次、体相同、内容恢复。
+    #[tokio::test]
+    async fn non_stream_openai_retries_same_body_after_429() {
+        let state = Arc::new(RetryMockState {
+            hits: AtomicUsize::new(0),
+            bodies: std::sync::Mutex::new(Vec::new()),
+        });
+        let app = axum::Router::new()
+            .route(
+                "/v1/chat/completions",
+                axum::routing::post(mock_chat_completions),
+            )
+            .with_state(state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind mock provider server");
+        let addr = listener.local_addr().expect("mock provider addr");
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve mock");
+        });
+        let resolved = mock_resolved_api(&format!("http://127.0.0.1:{}/v1/", addr.port()));
+
+        let reply = call_model_genai_non_stream(&resolved, "mock-model", mock_prepared_prompt(), None, None, 2)
+            .await
+            .expect("429 后第二次应成功");
+        assert_eq!(reply.assistant_text, "recovered");
+        assert_eq!(state.hits.load(Ordering::SeqCst), 2);
+        let bodies = state.bodies.lock().expect("mock bodies lock");
+        assert_eq!(bodies.len(), 2);
+        assert_eq!(bodies[0], bodies[1]);
+    }
+
+    // 预算只有 1 次时不重发：429 直接上抛，只发 1 次请求。
+    #[tokio::test]
+    async fn non_stream_openai_sends_once_without_retry_budget() {
+        let state = Arc::new(RetryMockState {
+            hits: AtomicUsize::new(0),
+            bodies: std::sync::Mutex::new(Vec::new()),
+        });
+        let app = axum::Router::new()
+            .route(
+                "/v1/chat/completions",
+                axum::routing::post(mock_chat_completions),
+            )
+            .with_state(state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind mock provider server");
+        let addr = listener.local_addr().expect("mock provider addr");
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve mock");
+        });
+        let resolved = mock_resolved_api(&format!("http://127.0.0.1:{}/v1/", addr.port()));
+
+        let err = call_model_genai_non_stream(&resolved, "mock-model", mock_prepared_prompt(), None, None, 1)
+            .await
+            .expect_err("无预算时 429 应直接失败");
+        assert!(err.contains("429"), "错误应携带状态码，实际: {err}");
+        assert_eq!(state.hits.load(Ordering::SeqCst), 1);
     }
 }

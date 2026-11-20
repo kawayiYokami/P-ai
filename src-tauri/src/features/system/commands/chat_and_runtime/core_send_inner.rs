@@ -445,28 +445,27 @@ fn retry_kind_is_retryable(kind: RetryKind) -> bool {
 /// 一次 attempt 失败后怎么走。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AttemptRetryDecision {
-    /// 等待退避后重跑同一候选模型。
+    /// 可重试失败且预算未用完：按候选模型失败收口（不再重跑 attempt，
+    /// 重试已下沉到请求层；不断言重跑，只标记失败性质）。
     Retry,
     /// 到达重试额度上限，或本就不是可重试失败：收口，不再重试。
     Stop,
-    /// 本轮已经真正执行过工具：不再重试。
+    /// 已退役：工具执行史不再参与重试决策。请求层用零 delta 门禁保证不重跑工具，
+    /// 执行过工具的一轮也可在零 delta 阶段重试。保留变体避免重构枚举。
+    #[allow(dead_code)]
     StopBecauseToolsExecuted,
 }
 
 /// 重试决策。
 ///
-/// 关键判据是这一 attempt 有没有执行过工具：`call_model_dispatch` 一次跑完整个工具循环，
-/// 重试拿的是同一份 prompt 快照，重跑会把同一批工具副作用再执行一遍。反过来，一次工具都
-/// 没执行过的失败（比如首轮就 429）没有副作用可重复，必须照旧重试。
+/// 请求层重试下沉后，attempt 层不再重跑：工具执行史不再是判据（`call_model_dispatch`
+/// 内的每次请求自带零 delta 门禁，重发同一请求不会把同一批工具副作用再执行一遍）。
+/// 这里只区分失败性质，调用方对 Retry 与 Stop 一律按候选模型失败收口。
 fn decide_attempt_retry(
     retry_kind: RetryKind,
     retry_used: u32,
     max_attempts: u32,
-    tools_executed: usize,
 ) -> AttemptRetryDecision {
-    if tools_executed > 0 {
-        return AttemptRetryDecision::StopBecauseToolsExecuted;
-    }
     if retry_kind_is_retryable(retry_kind) && retry_used < max_attempts {
         AttemptRetryDecision::Retry
     } else {
@@ -2336,7 +2335,9 @@ async fn send_chat_message_inner(
             ));
             continue;
         }
-        let mut retry_budget = RetryBudget::default();
+        let retry_budget = RetryBudget::default();
+        // 请求层重试预算：attempt 层只计算一次，向下透传，不再自己重跑 attempt。
+        let max_attempts = effective_retry_count(candidate_selected_api.failure_retry_count);
         let mut attempt: usize = 0;
         let mut candidate_final_error: Option<String> = None;
         loop {
@@ -2347,8 +2348,9 @@ async fn send_chat_message_inner(
             );
             log_run_stage(&request_start_stage);
             // 调度事件：模型轮次改由工具循环逐轮打点（tool_loop），此处不再产生聚合轮次。
-            // 计数作用域：dispatch 里真正执行过的工具次数会随作用域带回来，作为重试决策依据。
-            let (chat_round_execution, tools_executed_in_attempt) =
+            // 计数作用域：dispatch 里真正执行过的工具次数会随作用域带回来，
+            // 请求层重试不再看它（零 delta 门禁保证不重跑工具），这里仅保留透传。
+            let (chat_round_execution, _tools_executed_in_attempt) =
                 scoped_runtime_tool_execution_count(call_model_dispatch(
                     &candidate_resolved_api,
                     &app_config,
@@ -2362,6 +2364,7 @@ async fn send_chat_message_inner(
                     tool_round_limit,
                     &chat_session_key,
                     Some(&conversation_id),
+                    max_attempts,
                 ))
                 .await;
             // 调度事件：模型轮次改由工具循环逐轮打点，这里只保留本轮 usage 供收口使用。
@@ -2458,7 +2461,7 @@ async fn send_chat_message_inner(
                     break;
                 }
             }
-            let (reason_text, final_error_text) = match &chat_round_execution.result {
+            let (_reason_text, final_error_text) = match &chat_round_execution.result {
                 Ok(reply) => match model_reply_content_state(reply) {
                     ModelReplyContentState::ReasoningOnly => {
                         runtime_log_warn(format!(
@@ -2531,76 +2534,24 @@ async fn send_chat_message_inner(
                 }
             };
 
-            let max_attempts = effective_retry_count(candidate_selected_api.failure_retry_count);
             match decide_attempt_retry(
                 retry_kind,
                 retry_budget.used,
                 max_attempts,
-                tools_executed_in_attempt,
             ) {
-                AttemptRetryDecision::Retry => {
-                    let retry_index = retry_budget.used + 1;
-                    let retry_after_ms = match &chat_round_execution.result {
-                        Err(error) => parse_retry_after_ms(error),
-                        Ok(_) => None,
-                    };
-                    let wait = retry_delay(retry_index, retry_after_ms);
-                    retry_budget.used += 1;
-                    let retry_event = AssistantDeltaEvent {
-                        delta: "".to_string(),
-                        kind: Some("tool_status".to_string()),
-                        request_id: None,
-                        activation_id: runtime_context.request_id.clone(),
-                        phase_id: None,
-                        reason: None,
-                        tool_name: None,
-                        tool_call_id: None,
-                        tool_status: Some("running".to_string()),
-                        tool_args: None,
-                        message: Some(format!(
-                            "{reason_text}，正在重试 ({retry_index}/{max_attempts})..."
-                        )),
-                        stream_cache: None,
-                    };
-                    runtime_log_info(format!(
-                        "[聊天] 瞬态失败，按重试策略等待: conversation_id={}，api_config_id={}，kind={:?}，attempt={}/{}，delay_ms={}",
-                        conversation_id,
-                        candidate_selected_api.id,
-                        retry_kind,
-                        retry_index,
-                        max_attempts,
-                        wait.as_millis()
-                    ));
-                    let _ = update_conversation_stream_runtime_cache(&state, &conversation_id, &retry_event);
-                    let _ = on_delta.send(retry_event.clone());
-                    emit_assistant_delta_app_event(&state, &conversation_id, &assistant_delta_broadcast_event(&retry_event));
-                    tokio::time::sleep(wait).await;
-                    continue;
-                }
-                AttemptRetryDecision::Stop => {
+                // 重试已下沉到请求层：attempt 层不再重跑。Retry 与 Stop 一律按候选模型
+                // 失败收口（记录一次失败，允许切下一个候选；单候选时直接结束）。
+                // StopBecauseToolsExecuted 已退役：走到这里只为穷举，行为与收口一致。
+                AttemptRetryDecision::Retry
+                | AttemptRetryDecision::Stop
+                | AttemptRetryDecision::StopBecauseToolsExecuted => {
                     let total_attempts = attempt;
                     candidate_final_error = Some(format!(
                         "{final_error_text} (attempted {total_attempts} times)"
                     ));
                     break;
                 }
-                AttemptRetryDecision::StopBecauseToolsExecuted => {
-                    // 已经产生副作用的重跑会把工具执行两遍，用户界面只看得到「正在重试」。
-                    // 与数据层致命错误同路：立刻收口，不重试也不换模型。
-                    runtime_log_error(format!(
-                        "[聊天] 本轮已执行过工具，终止重试: conversation_id={}，api_config_id={}，model={}，attempt={}，tools_executed={}，kind={:?}",
-                        conversation_id,
-                        candidate_selected_api.id,
-                        candidate_selected_api.model,
-                        attempt,
-                        tools_executed_in_attempt,
-                        retry_kind
-                    ));
-                    fatal_error = Some(format!(
-                        "{final_error_text} (attempted {attempt} times)"
-                    ));
-                    break;
-                }
+
             }
         }
         if fatal_error.is_some() {
@@ -5187,41 +5138,31 @@ mod core_send_inner_tests {
     }
 
     #[test]
-    fn attempt_retry_must_stop_once_tools_have_executed() {
-        // 本轮已经真正执行过工具：重跑会把同一批副作用再执行一遍，
-        // 因此不论失败类型看起来多可重试、额度还剩多少，都必须收口。
+    fn attempt_retry_classifies_by_kind_and_budget_only() {
+        // 请求层重试下沉后，工具执行史不再参与 attempt 决策（decide 的签名里
+        // 已经没有工具次数这一项）：只看失败性质与预算。执行过工具的一轮，
+        // 请求层在零 delta 阶段照样重试，attempt 层一律收口不再重跑。
+        // 可重试失败且预算未用完：标记为 Retry（调用方与 Stop 同路收口，
+        // 不再重跑 attempt；真正的重试由请求层完成）。
         assert_eq!(
-            decide_attempt_retry(RetryKind::RateLimited, 0, 5, 1),
-            AttemptRetryDecision::StopBecauseToolsExecuted
-        );
-        assert_eq!(
-            decide_attempt_retry(RetryKind::Empty, 0, 5, 3),
-            AttemptRetryDecision::StopBecauseToolsExecuted
-        );
-        assert_eq!(
-            decide_attempt_retry(RetryKind::ServerError, 0, 5, 1),
-            AttemptRetryDecision::StopBecauseToolsExecuted
-        );
-    }
-
-    #[test]
-    fn attempt_retry_still_applies_when_no_tool_ran() {
-        // 一次工具都没执行过的失败没有副作用可重复，正常重试必须保留。
-        assert_eq!(
-            decide_attempt_retry(RetryKind::RateLimited, 0, 5, 0),
+            decide_attempt_retry(RetryKind::RateLimited, 0, 5),
             AttemptRetryDecision::Retry
         );
         assert_eq!(
-            decide_attempt_retry(RetryKind::Transport, 4, 5, 0),
+            decide_attempt_retry(RetryKind::Empty, 0, 5),
+            AttemptRetryDecision::Retry
+        );
+        assert_eq!(
+            decide_attempt_retry(RetryKind::Transport, 4, 5),
             AttemptRetryDecision::Retry
         );
         // 额度用尽或本就不可重试：按候选模型失败收口，允许切下一个候选。
         assert_eq!(
-            decide_attempt_retry(RetryKind::ServerError, 5, 5, 0),
+            decide_attempt_retry(RetryKind::ServerError, 5, 5),
             AttemptRetryDecision::Stop
         );
         assert_eq!(
-            decide_attempt_retry(RetryKind::NonRetryable, 0, 5, 0),
+            decide_attempt_retry(RetryKind::NonRetryable, 0, 5),
             AttemptRetryDecision::Stop
         );
     }
