@@ -21,7 +21,6 @@ fn seed_app(root: &Path) {
 
 fn sample_config_toml() -> &'static str {
     r#"
-selectedApiConfigId = "provider-a::model-a"
 assistantDepartmentApiConfigId = "provider-a::model-a"
 
 [[departments]]

@@ -86,7 +86,6 @@
       @reset-generated-theme="resetGeneratedTheme"
       @refresh-models="refreshModels"
       @add-api-config="addApiConfig"
-      @remove-selected-api-config="removeSelectedApiConfig"
       @add-persona="addPersona"
       @remove-selected-persona="removeSelectedPersona"
       @reset-personas="resetPersonas"
@@ -875,7 +874,6 @@ const props = defineProps<{
   lastSavedConfigJson: string;
   onToolsChanged: () => void;
   addApiConfig: () => void;
-  removeSelectedApiConfig: () => void;
   addPersona: () => void;
   removeSelectedPersona: () => void;
   resetPersonas: () => Promise<unknown> | unknown;

@@ -868,6 +868,11 @@ fn chat_api_has_required_auth(api: &ApiConfig) -> bool {
     {
         return true;
     }
+    // 本地模型不需要 key：Ollama 的请求层走无鉴权通道（provider_resolution 的
+    // ProviderAuthScheme::None），空 api_key 是合法配置，不能在这里判死。
+    if api.request_format == RequestFormat::Ollama {
+        return true;
+    }
     !api.api_key.trim().is_empty()
 }
 

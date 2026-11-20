@@ -1171,7 +1171,7 @@ fn set_agent_primary_api_config_inner(
 
         let mut next_ids = merge_api_config_ids(&target_agent.api_config_ids, &target_agent.api_config_id);
         if next_ids.first().map(|item| item.trim()) == Some(api_config_id) {
-            // 保持当前顺序，只同步全局选中模型即可。
+            // 顺序已正确，保持不动。
         } else {
             next_ids.retain(|item| !item.trim().eq_ignore_ascii_case(api_config_id));
             if next_ids.is_empty() {
@@ -1195,7 +1195,9 @@ fn set_agent_primary_api_config_inner(
             .unwrap_or_default();
         target_agent.updated_at = now_iso();
     }
-    state_write_config_cached(state, &config)?;
+    // 配置本体没动过，不写盘：全局端点字段删除后 config 已是只读原样，
+    // 再写一次等于空转。agents 写盘是真实变更，
+    // 下面的 config-updated 广播沿用旧契约（调用方刷新用），不跟着删。
     state_write_agents_cached(state, &agents)?;
     let runtime_config = runtime_config_for_transport(&config);
 

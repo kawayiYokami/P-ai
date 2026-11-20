@@ -870,8 +870,21 @@ const activeProviderList = computed(() => providerList.value.filter((provider) =
 // 进入无模型 provider 详情时不能写端点（它是 providerId::modelId 的语义，
 // 写空模型 id 会污染真实模型选择），用 browsingProviderId 单独记住用户正在查看的 provider。
 // 端点只作为本页 UI 状态：初值取用户当前专家模型，不再回填到 AppConfig。
-const initialExpertEndpoint = String(props.config.expertApiConfigId || "");
-const selectedEndpointId = ref(initialExpertEndpoint.includes("::") ? initialExpertEndpoint : "");
+// expert 在页外变化（聊天里换了模型）时跟进：本地值若还停在上一个 expert 上
+// （用户没在本页点过），就同步到新的；用户已在本页点选则以用户选择为准。
+const normalizeEndpoint = (value: unknown) => {
+  const text = String(value || "");
+  return text.includes("::") ? text : "";
+};
+const selectedEndpointId = ref(normalizeEndpoint(props.config.expertApiConfigId));
+watch(
+  () => props.config.expertApiConfigId,
+  (next, prev) => {
+    if (selectedEndpointId.value === normalizeEndpoint(prev)) {
+      selectedEndpointId.value = normalizeEndpoint(next);
+    }
+  },
+);
 const browsingProviderId = ref("");
 const selectedProviderId = computed(() => {
   if (browsingProviderId.value) return browsingProviderId.value;

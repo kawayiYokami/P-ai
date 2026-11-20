@@ -17442,11 +17442,11 @@
             .expect_err("会话模型不可用且没有其它模型时必须报错");
         assert!(
             err.contains(NO_USABLE_CHAT_MODEL_MESSAGE),
-            "沿用全仓唯一的「可用」判据文案，不另造一套"
+            "一个可用模型都没有时，下一步只能是去设置里配，不另造一套"
         );
         assert!(
-            !err.contains("输入面板"),
-            "旧文案让用户去面板选模型，而面板此时是空的，等于死路"
+            !err.contains("选择器"),
+            "没有可用模型时选择器里是空的，指过去等于死路"
         );
 
         let unchanged = conversation_service_v2()
@@ -17493,7 +17493,7 @@
     }
 
     #[test]
-    fn dispatch_model_should_error_when_conversation_model_empty() {
+    fn dispatch_model_should_fall_back_when_conversation_model_empty() {
         let state = team_test_state();
         state_write_config_cached(
             &state,
@@ -17511,10 +17511,130 @@
             .get_conversation_meta(&state, &conversation.id)
             .expect("meta");
 
+        // 为空（用户没选过）→ 找一个可用的默认并写回，用它发送，这不是偷。
+        assert_eq!(
+            resolve_and_persist_dispatch_model(&state, &config, &conversation_meta)
+                .expect("空会话要能找到默认模型"),
+            "provider-a::solo",
+            "空字段不得报错，必须落到可用默认"
+        );
+        assert_eq!(
+            stored_conversation_model(&state, &conversation.id).as_deref(),
+            Some("provider-a::solo"),
+            "兜底值要写回会话字段，下次打开不再走兜底"
+        );
+    }
+
+    #[test]
+    fn dispatch_model_should_send_keyless_ollama_model() {
+        let state = team_test_state();
+        let mut ollama = test_model_api_config("ollama-local::qwen");
+        ollama.request_format = RequestFormat::Ollama;
+        ollama.base_url = "http://localhost:11434/v1".to_string();
+        ollama.api_key = String::new();
+        state_write_config_cached(&state, &test_model_config(vec![ollama], ""))
+            .expect("write config");
+        let conversation = persist_session_with_model(
+            &state,
+            "conversation-send-ollama-keyless",
+            CONVERSATION_KIND_CHAT,
+            "ollama-local::qwen",
+        );
+        let config = state_read_config_cached(&state).expect("config");
+        let conversation_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &conversation.id)
+            .expect("meta");
+
+        // 本地模型不需要 key：空 api_key 是合法配置，发送口径不得以「缺少鉴权」拦掉。
+        assert_eq!(
+            resolve_and_persist_dispatch_model(&state, &config, &conversation_meta)
+                .expect("无 key 的 Ollama 模型必须能发送"),
+            "ollama-local::qwen",
+        );
+        assert_eq!(
+            resolve_effective_conversation_model(&state, &config, &conversation.id).as_deref(),
+            Some("ollama-local::qwen"),
+            "兜底链也不能跳过无 key 的本地模型"
+        );
+    }
+
+    #[test]
+    fn snapshot_repair_should_keep_deleted_model_unchanged() {
+        let state = team_test_state();
+        state_write_config_cached(
+            &state,
+            &test_model_config(vec![test_model_api_config("provider-a::solo")], "provider-a::solo"),
+        )
+        .expect("write config");
+        // 会话选过的模型被删了：字段里仍留着已失效的 id。
+        let conversation = persist_session_with_model(
+            &state,
+            "conversation-snapshot-deleted-model",
+            CONVERSATION_KIND_CHAT,
+            "provider-a::deleted",
+        );
+
+        // 打开会话走快照修复：有值但不可用 → 原样返回，不替换、不写回。
+        let repaired = repair_conversation_preferred_model_for_snapshot_meta(
+            &state,
+            &conversation.id,
+            Some("provider-a::deleted"),
+        )
+        .expect("repair deleted model");
+        assert_eq!(
+            repaired.as_deref(),
+            Some("provider-a::deleted"),
+            "失效值必须原样保留，不能静默换成别的模型"
+        );
+        assert_eq!(
+            stored_conversation_model(&state, &conversation.id).as_deref(),
+            Some("provider-a::deleted"),
+            "打开会话不许改写会话字段"
+        );
+
+        // 该状态下发送必须报错，且不会用别的模型发出去。
+        let config = state_read_config_cached(&state).expect("config");
+        let conversation_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &conversation.id)
+            .expect("meta");
         let err = resolve_and_persist_dispatch_model(&state, &config, &conversation_meta)
-            .expect_err("会话未选模型必须报错，不能拿 expert 顶上");
-        assert!(err.contains("会话还没有选择模型"), "要分清「没选」与「选了但失效」");
+            .expect_err("失效模型必须报错");
+        assert!(err.contains("会话选定的模型已不可用"), "错误要分清失效情形");
         assert!(!err.contains("provider-a::solo"), "报错里不能带出兜底模型");
+    }
+
+    #[test]
+    fn snapshot_repair_should_fill_empty_model_with_default() {
+        let state = team_test_state();
+        state_write_config_cached(
+            &state,
+            &test_model_config(vec![test_model_api_config("provider-a::solo")], "provider-a::solo"),
+        )
+        .expect("write config");
+        let conversation = persist_session_with_model(
+            &state,
+            "conversation-snapshot-empty-model",
+            CONVERSATION_KIND_CHAT,
+            "",
+        );
+
+        // 为空（用户没选过）→ 修一个可用值并写回，这不是偷。
+        let repaired = repair_conversation_preferred_model_for_snapshot_meta(
+            &state,
+            &conversation.id,
+            Some(""),
+        )
+        .expect("repair empty model");
+        assert_eq!(
+            repaired.as_deref(),
+            Some("provider-a::solo"),
+            "空字段要能修出可用默认"
+        );
+        assert_eq!(
+            stored_conversation_model(&state, &conversation.id).as_deref(),
+            Some("provider-a::solo"),
+            "修出的默认值要写回，下次打开不再走兜底"
+        );
     }
 
     #[test]

@@ -132,7 +132,6 @@
         @reset-generated-theme="resetGeneratedTheme"
         @refresh-models="refreshModels"
         @add-api-config="addApiConfig"
-        @remove-selected-api-config="removeSelectedApiConfig"
         @add-persona="addPersona"
         @remove-selected-persona="removeSelectedPersona"
         @reset-personas="loadPersonas"
@@ -775,7 +774,6 @@ const {
 
 const {
   addApiConfig,
-  removeSelectedApiConfig,
   addPersona,
   removeSelectedPersona,
 } = useConfigEditors({

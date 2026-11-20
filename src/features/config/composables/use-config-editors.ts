@@ -26,51 +26,6 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     options.normalizeApiBindingsLocal();
   }
 
-  function removeSelectedApiConfig() {
-    const [providerId, modelId] = String(options.config.expertApiConfigId || "").split("::");
-    if (!providerId) return;
-    const providerIdx = options.config.apiProviders.findIndex((item) => item.id === providerId);
-    if (providerIdx < 0) return;
-    const provider = options.config.apiProviders[providerIdx];
-    const removedId = String(options.config.expertApiConfigId || "").trim();
-    const activeProviders = (options.config.apiProviders || []).filter((item) => !item.deprecated);
-    const activeModels = (provider.models || []).filter((item) => !item.deprecated);
-    if (!provider.deprecated && activeProviders.length <= 1 && activeModels.length <= 1) return;
-    if (modelId) {
-      const model = (provider.models || []).find((item) => item.id === modelId);
-      if (!model) return;
-      if (!provider.deprecated && activeModels.length <= 1) {
-        provider.deprecated = true;
-        provider.models = (provider.models || []).map((item) => ({ ...item, deprecated: true }));
-      } else {
-        model.deprecated = true;
-      }
-    } else {
-      provider.deprecated = true;
-      provider.models = (provider.models || []).map((item) => ({ ...item, deprecated: true }));
-    }
-    for (const persona of options.personas.value || []) {
-      if (!Array.isArray(persona.apiConfigIds)) continue;
-      persona.apiConfigIds = persona.apiConfigIds
-        .map((id) => String(id || "").trim())
-        .filter((id) => !!id && id !== removedId);
-    }
-    if (options.config.expertApiConfigId === removedId) {
-      options.config.expertApiConfigId = "";
-    }
-    if (options.config.sttApiConfigId === removedId) {
-      options.config.sttApiConfigId = undefined;
-      options.config.sttAutoSend = false;
-    }
-    if (options.config.visionApiConfigId === removedId) {
-      options.config.visionApiConfigId = undefined;
-    }
-    if (options.config.toolReviewApiConfigId === removedId) {
-      options.config.toolReviewApiConfigId = undefined;
-    }
-    options.normalizeApiBindingsLocal();
-  }
-
   async function addPersona() {
     const previousPersonas = options.personas.value.map((persona) => ({ ...persona }));
     const previousPersonaEditorId = options.personaEditorId.value;
@@ -127,7 +82,6 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
 
   return {
     addApiConfig,
-    removeSelectedApiConfig,
     addPersona,
     removeSelectedPersona,
   };

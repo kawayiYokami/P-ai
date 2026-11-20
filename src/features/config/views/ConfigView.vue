@@ -707,7 +707,6 @@ const emit = defineEmits<{
   (e: "refreshModels", provider: ApiProviderConfigItem | null): void;
   (e: "openMemoryViewer"): void;
   (e: "addApiConfig"): void;
-  (e: "removeSelectedApiConfig"): void;
   (e: "addPersona"): void;
   (e: "removeSelectedPersona"): void;
   (e: "resetPersonas"): void;

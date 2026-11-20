@@ -4,7 +4,9 @@
 //
 // 两条链刻意分开：
 //   - 继承链（inherit）：会话自身 → 父链，只读会话字段，不碰专家模型。
-//   - 生效链（effective）：继承链 → 专家模型 → 第一个可用聊天文本模型，用于模型丢失后的兜底。
+//   - 生效链（effective）：继承链 → 专家模型 → 第一个可用聊天文本模型。
+// 生效链只用在「会话字段为空」的兜底（没选过，找一个默认不是偷）与新建会话；
+// 字段有值但不可用时不许走这条链替换，发送口径见 resolve_send_conversation_model_id。
 // 创建会话时走「创建链」，终点是「第一个可用聊天文本模型」，绝不落在专家模型上。
 //
 // 不读 main_conversation_id：那个指针在存储层恒指向系统通知会话（conversation.rs 的
@@ -137,6 +139,8 @@ fn resolve_inherited_conversation_model(
 
 /// 当前生效模型：这一轮调度真正会用的那个。
 /// 继承链 → 专家模型 → 第一个可用聊天文本模型。
+/// 只给「字段为空找默认」与新建场景用；字段有值时的发送口径不走这里，
+/// 见 resolve_send_conversation_model_id。
 pub(crate) fn resolve_effective_conversation_model(
     state: &AppState,
     app_config: &AppConfig,
@@ -187,46 +191,65 @@ fn persist_conversation_model_when_changed(
     Ok(true)
 }
 
-/// 发送路径的失败提示：分清「会话没选模型」与「选了但已不可用」两种情形。
+/// 发送口径的失败提示：调用方保证 raw 非空（空值走兜底链，不到这里）。
 ///
-/// 沿用 NO_USABLE_CHAT_MODEL_MESSAGE 的口径（说清「可用」的判据），不另造一套；
-/// 但把下一步指回会话模型选择器——模型被删时用户要在会话里重选，不是去设置里配新模型。
-fn dispatch_model_unavailable_message(app_config: &AppConfig, stored: Option<&str>) -> String {
-    let Some(raw_id) = stored.map(str::trim).filter(|value| !value.is_empty()) else {
-        return format!(
-            "会话还没有选择模型：请在会话模型选择器里选定模型后再发送。{NO_USABLE_CHAT_MODEL_MESSAGE}"
-        );
-    };
-    let reason = if is_model_role_api_config_id(raw_id) {
-        "存的是内部模型角色标记，不是具体模型".to_string()
-    } else if !app_config.api_configs.iter().any(|api| api.id == raw_id) {
-        "该模型已被删除".to_string()
+/// 下一步只给一个：还有别的可用模型 → 去会话模型选择器里重选；
+/// 一个可用模型都没有 → 去设置里配。两个都写等于互相冲突。
+/// raw 原样不展示：它可能是内部模型角色标记一类的术语，用户看不懂。
+fn dispatch_model_unavailable_message(app_config: &AppConfig, raw_id: &str) -> String {
+    let reason = if !app_config.api_configs.iter().any(|api| api.id == raw_id) {
+        "该模型已被删除"
     } else {
-        "该模型未启用文本聊天，或缺少接口地址、模型名、鉴权".to_string()
+        "该模型当前不可用（未启用文本聊天，或缺少接口地址、模型名、鉴权）"
     };
-    format!(
-        "会话选定的模型已不可用（{reason}）：请在会话模型选择器里重新选定后再发送。{NO_USABLE_CHAT_MODEL_MESSAGE}"
-    )
+    if app_config.api_configs.iter().any(is_usable_text_llm_api) {
+        return format!(
+            "会话选定的模型已不可用（{reason}）：请在会话模型选择器里重新选定后再发送。"
+        );
+    }
+    format!("会话选定的模型已不可用（{reason}）。{NO_USABLE_CHAT_MODEL_MESSAGE}")
 }
 
-/// 发送与继续执行前的取模型口径：只用会话自己选定的模型，不可用就报错。
+/// 发送口径的纯判定：只认会话字段，不读专家、不读父链、不读第一个可用。
 ///
-/// 不读 expert、不读父链、不读第一个可用——用户看到的是会话选定的模型，
-/// 偷偷换成别的等同让人为另一个模型付费。写回只在解析成功且与存量不同时发生。
-pub(crate) fn resolve_and_persist_dispatch_model(
-    state: &AppState,
+/// - 字段为空 → Ok(None)：用户没选过，调用方走兜底链找默认，这不是偷。
+/// - 字段有值且可用 → Ok(Some)：直接用。
+/// - 字段有值但不可用 → Err：不许替换成别的模型，报错让用户自己重选。
+pub(crate) fn resolve_send_conversation_model_id(
     app_config: &AppConfig,
-    conversation_meta: &ConversationMetaView,
-) -> Result<String, String> {
-    let stored = conversation_meta.preferred_api_config_id.as_deref();
-    let resolved = resolve_concrete_chat_model(app_config, stored)
+    stored: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(raw) = stored.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let resolved = resolve_concrete_chat_model(app_config, Some(raw))
         .filter(|id| {
             app_config
                 .api_configs
                 .iter()
                 .any(|api| api.id == *id && is_usable_text_llm_api(api))
         })
-        .ok_or_else(|| dispatch_model_unavailable_message(app_config, stored))?;
+        .ok_or_else(|| dispatch_model_unavailable_message(app_config, raw))?;
+    Ok(Some(resolved))
+}
+
+/// 发送与继续执行前的取模型口径：空值找默认，有值只认会话字段。
+///
+/// 为空（用户没选过）→ 走生效链找一个可用的并写回，用它发送，这不是偷。
+/// 有值但不可用 → 报错，不读 expert、不读父链、不读第一个可用；
+/// 用户看到的是会话选定的模型，偷偷换成别的等同让人为另一个模型付费。
+/// 写回只在解析成功且与存量不同时发生，失败时存量原样保留。
+pub(crate) fn resolve_and_persist_dispatch_model(
+    state: &AppState,
+    app_config: &AppConfig,
+    conversation_meta: &ConversationMetaView,
+) -> Result<String, String> {
+    let stored = conversation_meta.preferred_api_config_id.as_deref();
+    let resolved = match resolve_send_conversation_model_id(app_config, stored)? {
+        Some(id) => id,
+        None => resolve_effective_conversation_model(state, app_config, &conversation_meta.id)
+            .ok_or_else(|| NO_USABLE_CHAT_MODEL_MESSAGE.to_string())?,
+    };
     if let Err(err) = persist_conversation_model_when_changed(
         state,
         &conversation_meta.id,
