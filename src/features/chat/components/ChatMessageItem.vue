@@ -118,6 +118,7 @@
               <div class="relative flex flex-col [--ecall-activity-collapse-h:2rem]" data-activity-panel-box>
                 <ActivityTimeline
                   class="pb-[var(--ecall-activity-collapse-h)]"
+                  :style="activityMaskStyle"
                   :items="presentedActivityItems"
                   :dark="markdownIsDark"
                   :state="activityTimelineState"
@@ -128,15 +129,17 @@
                   :follow-height="props.block.isStreaming === true"
                   @item-expanded="onTimelineItemExpanded"
                 />
-                <button
-                  type="button"
-                  class="btn btn-sm absolute inset-x-0 bottom-0 z-10 w-full border border-base-content/15 bg-base-100 shadow-xs text-base-content/70 hover:bg-base-200 hover:text-base-content hover:border-base-content/25 transition-colors"
-                  data-selection-ignore="true"
-                  @pointerdown.stop.prevent="closeActivityDetails(true)"
-                  @click.stop
-                >
-                  {{ t("common.collapse") }}
-                </button>
+                <div class="absolute inset-x-0 bottom-0 z-10 px-1">
+                  <button
+                    type="button"
+                    class="flex h-7 w-full items-center justify-center rounded-full border border-base-content/10 bg-base-200 text-xs text-base-content/60 transition-colors hover:border-base-content/20 hover:bg-base-300 hover:text-base-content"
+                    data-selection-ignore="true"
+                    @pointerdown.stop.prevent="closeActivityDetails(true)"
+                    @click.stop
+                  >
+                    {{ t("common.collapse") }}
+                  </button>
+                </div>
               </div>
             </div>
           </Transition>
@@ -1640,7 +1643,14 @@ watchPostEffect(() => {
 // 与思考块的唯一差别是步长上限：正文被裁就是读不到，一次撑开很大的块（代码块、表格、图片）
 // 必须几帧内补齐，不能让「文字已经渲染、框还没撑开」拖上半秒。
 const assistantBubbleRef = ref<HTMLElement | null>(null);
-const bubbleFollow = createGradualHeight({ maxStep: 64, framesBudget: 5 });
+/** 底部渐隐只吃掉按钮那一条（与 pb 的 2rem 一致），不压到正文。
+ *  用内联样式而不是 Tailwind 任意值：任意值里嵌 calc 与 CSS 变量在 JIT 下不一定生成。 */
+const activityMaskStyle = {
+  maskImage: "linear-gradient(to bottom, #000 calc(100% - 2rem), transparent)",
+  WebkitMaskImage: "linear-gradient(to bottom, #000 calc(100% - 2rem), transparent)",
+};
+
+const bubbleFollow = createGradualHeight({ transitionMs: 120 });
 
 let bubbleFollowRaf = 0;
 

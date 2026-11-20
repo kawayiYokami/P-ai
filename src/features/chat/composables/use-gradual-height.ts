@@ -3,7 +3,12 @@
  *
  * 流式正文与思考/工具块在流式期间都没有高度上限，内容每长一行，容器就整体上跳一行：
  * 虚拟列表跟着重测一次、滚动条跟着跳一次，观感就是「瞬跳」。这里把容器的高度钉在上限上，
- * 每帧朝内容真实高走一部分，让高度是渐变而不是一次到位。
+ * 让高度朝内容真实高平滑走过去。
+ *
+ * 做法：交给 CSS transition，不再逐帧算步长写 max-height。
+ * 自己每帧写一次 max-height，等于每帧逼浏览器重排一次；而且步长按像素给（minStep 6 / maxStep 24），
+ * 一行文字约 20px，一帧就走到位，看起来和瞬跳没区别。改成写目标值 + transition，
+ * 浏览器按时间插值，不管 60Hz 还是 144Hz 观感一致，也有可感知的过渡。
  *
  * 三条边界（踩过的坑，不要改）：
  * 1. 用 max-height 而不是 height。内容比上限矮时元素自然高就是内容高，钉住不会留空白；
@@ -15,14 +20,8 @@
  * 每帧的读写顺序由调用方保证：先读完这一帧需要的所有量，再调用 step 写样式。
  */
 export type GradualHeightOptions = {
-  /** 每帧走完差额的比例，越小越慢越好追不上；默认 0.12 */
-  rate?: number;
-  /** 单帧最少走多少像素，避免小差额拖成黏滞感；默认 6 */
-  minStep?: number;
-  /** 单帧最多走多少像素 */
-  maxStep?: number;
-  /** 差额大时希望用几帧走完；默认 10 */
-  framesBudget?: number;
+  /** 高度过渡时长（毫秒）。交给 CSS transition，不逐帧步进；默认 180 */
+  transitionMs?: number;
   /** 判定收敛的像素差；默认 0.5 */
   tolerance?: number;
   /**
@@ -37,19 +36,16 @@ export type GradualHeightOptions = {
 export type GradualHeight = {
   /** 走一帧。返回 true 表示还需要下一帧。live=false 时只做收尾（追上目标后交回精确高度）。 */
   step(host: HTMLElement, live: boolean): boolean;
-  /** 交回布局：撤掉内联 max-height / contain */
+  /** 交回布局：撤掉内联 max-height / transition / contain */
   release(host: HTMLElement): void;
   /** 当前是否钉着高度 */
   readonly pinned: boolean;
-  /** 当前钉住的高度值 */
+  /** 当前钉住的目标高度值 */
   readonly value: number;
 };
 
 export function createGradualHeight(options: GradualHeightOptions = {}): GradualHeight {
-  const rate = options.rate ?? 0.12;
-  const minStep = options.minStep ?? 6;
-  const maxStep = options.maxStep ?? 24;
-  const framesBudget = options.framesBudget ?? 10;
+  const transitionMs = options.transitionMs ?? 180;
   const tolerance = options.tolerance ?? 0.5;
   const settleGraceMs = options.settleGraceMs ?? 160;
 
@@ -62,6 +58,7 @@ export function createGradualHeight(options: GradualHeightOptions = {}): Gradual
 
   function release(host: HTMLElement): void {
     if (!pinned) return;
+    host.style.transition = "";
     host.style.maxHeight = "";
     host.style.contain = "";
     pinned = false;
@@ -74,6 +71,8 @@ export function createGradualHeight(options: GradualHeightOptions = {}): Gradual
       // 用 contain: paint 裁掉超出上限的部分，而不是 overflow: hidden：后者会把这块盒子
       // 变成滚动容器，里面 sticky 的按钮在钉住期间会失效（它会贴着这个不滚动的盒子）。
       host.style.contain = "paint";
+      // 过渡交给浏览器：我们只写目标值，插值由 CSS 做，不必每帧插一脚。
+      host.style.transition = `max-height ${transitionMs}ms cubic-bezier(0.4, 0, 0.2, 1)`;
       pinned = true;
     }
     host.style.maxHeight = `${next}px`;
@@ -101,25 +100,24 @@ export function createGradualHeight(options: GradualHeightOptions = {}): Gradual
       return false;
     }
     const target = host.scrollHeight;
-    const current = pinned ? value : rect.height;
-    const diff = target - current;
-    if (Math.abs(diff) < tolerance) {
+    // 目标没变就不用写：流式期间内容不是每帧都在长，多余的样式写入只会换一次样式重算。
+    if (pinned && Math.abs(target - value) < tolerance) {
       if (!live) {
         // 收口：把高度交回布局给的精确值，不留残差、末行不会被裁半行
         release(host);
         return false;
       }
+      return false;
+    }
+    if (!pinned && Math.abs(target - rect.height) < tolerance) {
+      if (!live) return false;
       // 还在流式：钉在目标上等下一次增长（理由见文件头第 2 条）
       pin(host, target);
       return false;
     }
-    // 差额很大时按「framesBudget 帧走完」给一个步长下限，避免大块内容框跟不上、长时间被裁
-    const budgetStep = Math.abs(diff) / framesBudget;
-    const stepSize = Math.min(maxStep, Math.max(minStep, Math.max(Math.abs(diff) * rate, budgetStep)));
-    // 最后一帧直接落到目标上：别在几百毫秒之后还差一两像素
-    const next = Math.abs(diff) > stepSize ? current + Math.sign(diff) * stepSize : target;
-    pin(host, next);
-    return true;
+    pin(host, target);
+    // 过渡由 CSS 负责，但收口判定还要看下一帧的目标有没有继续变
+    return live;
   }
 
   return {
