@@ -30,7 +30,7 @@
                 @click.stop="startEditTitle"
               >
                 <span :class="embedded ? 'text-base font-semibold truncate' : 'card-title text-base mb-0 truncate'">{{ displayTitle }}</span>
-                <AppIcon name="pencil" class="h-3.5 w-3.5 shrink-0 opacity-50" />
+                <AppIcon name="pencil-line" class="h-3.5 w-3.5 shrink-0 opacity-50" />
               </button>
               <span v-if="hint" class="min-w-0 truncate text-xs font-normal opacity-60">{{ hint }}</span>
             </div>

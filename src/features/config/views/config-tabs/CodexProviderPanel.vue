@@ -43,7 +43,8 @@
           </div>
         </div>
 
-        <div v-if="provider.codexAuthMode !== 'custom_url'" class="rounded-box border border-base-300 bg-base-200/50 p-3 text-sm">
+        <ConfigCard v-if="provider.codexAuthMode !== 'custom_url'" :title="t('config.api.codexLogin')">
+          <div class="py-3 text-sm">
           <div class="font-medium">{{ t("config.api.codexStatus", { status: currentCodexAuthStatus?.status || "unknown" }) }}</div>
           <div class="mt-1 opacity-80">{{ currentCodexAuthStatus?.message || t("config.api.codexStatusUnchecked") }}</div>
           <div class="mt-2 text-xs opacity-70">{{ t("config.api.codexResolvedPath", { path: currentCodexAuthStatus?.localAuthPath || provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH }) }}</div>
@@ -53,7 +54,9 @@
           <div v-if="currentCodexAuthStatus?.managedAuthPath && provider.codexAuthMode === 'managed_oauth'" class="text-xs opacity-70">
             {{ t("config.api.codexManagedAuthPath", { path: currentCodexAuthStatus.managedAuthPath }) }}
           </div>
-          <div v-if="showCodexRateLimits" class="mt-3 rounded-box border border-base-300 bg-base-100/70 p-3">
+        </div>
+
+        <div v-if="showCodexRateLimits" class="mt-4 border-t border-base-300/60 pt-3 pb-3 text-sm">
             <div class="flex items-center justify-between gap-2">
               <div>
                 <div class="text-xs font-medium uppercase tracking-wide opacity-70">Rate Limits</div>
@@ -146,43 +149,49 @@
               {{ codexRateLimitPlaceholder }}
             </div>
           </div>
-        </div>
+        </ConfigCard>
       </div>
     </section>
 
     <ConfigCard :title="t('config.api.codexModels')">
       <template #actions>
-        <select
-          class="select select-bordered select-sm w-36 shrink-0"
-          :disabled="!builtinCodexModelsLoaded || allCodexModelsEnabled"
-          :value="''"
-          @change="onAddModelSelect"
+        <button
+          class="btn btn-sm"
+          type="button"
+          :class="{ loading: refreshingCodexModels }"
+          :disabled="refreshingCodexModels"
+          @click="refreshCodexModels"
         >
-          <option value="" disabled>{{ t("config.api.addModel") }}</option>
-          <option v-for="name in candidateModels" :key="name" :value="name">{{ name }}</option>
-        </select>
+          <AppIcon name="refresh-cw" class="h-3.5 w-3.5" />
+          <span>{{ t("config.api.refreshModels") }}</span>
+        </button>
+        <button class="btn btn-sm" type="button" @click="addModelCard('')">
+          <AppIcon name="plus" class="h-3.5 w-3.5" />
+          <span>{{ t("config.api.addModel") }}</span>
+        </button>
       </template>
 
       <div class="divide-y divide-base-200/60">
         <div v-if="props.draftGroups.length === 0" class="py-8 text-center text-xs text-base-content/50">
           {{ t("config.api.noModelCards") }}
         </div>
-        <div v-for="group in props.draftGroups" :key="group.primary.id" class="py-3">
-          <div class="flex items-start justify-between gap-2">
-            <label class="min-w-0 flex-1">
-              <span class="text-sm font-medium">{{ t("config.api.model") }}</span>
-              <input
-                v-model="group.primary.model"
-                type="text"
-                class="input input-bordered input-sm mt-1 w-full"
-                :placeholder="t('config.api.unnamedModel')"
-              />
-            </label>
-            <button class="btn btn-sm btn-square btn-ghost text-error" type="button" @click="removeModelCard(group.primary.id)">
-              <AppIcon name="trash" class="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
+        <ApiModelCard
+          v-for="group in props.draftGroups"
+          :key="group.primary.id"
+          :card="group.primary"
+          :model-options="builtinCodexModels"
+          :default-open="false"
+          :show-delete="true"
+          :show-capability-toggles="false"
+          :show-context-window="false"
+          :show-reasoning="false"
+          :show-temperature="false"
+          :show-max-output-tokens="false"
+          :delete-disabled="false"
+          embedded
+          @remove="removeModelCard(group.primary.id)"
+          @select-option="(option: string) => selectCodexModelOption(group, option)"
+        />
       </div>
     </ConfigCard>
   </div>
@@ -192,6 +201,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../../shared/components/AppIcon.vue";
+import ApiModelCard from "../../components/ApiModelCard.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
@@ -217,7 +227,7 @@ const DEFAULT_CODEX_AUTH_MODE: CodexAuthMode = "read_local";
 const DEFAULT_CODEX_LOCAL_AUTH_PATH = "~/.codex/auth.json";
 const DEFAULT_CODEX_ORIGINATOR = "codex-tui";
 const DEFAULT_REASONING_EFFORT = "medium";
-const DEFAULT_CODEX_CONTEXT_WINDOW_TOKENS = 262144;
+const DEFAULT_CODEX_CONTEXT_WINDOW_TOKENS = 278528;
 const CODEX_SPARK_CONTEXT_WINDOW_TOKENS = 131072;
 
 function codexContextWindowTokens(modelName: string): number {
@@ -644,13 +654,6 @@ function createModel(seed: string, modelName: string): ApiModelConfigItem {
   };
 }
 
-const candidateModels = computed(() =>
-  builtinCodexModels.value.filter(
-    (name) => !props.draftGroups.some((group) => String(group.primary.model || "").trim() === name),
-  ),
-);
-const allCodexModelsEnabled = computed(() => candidateModels.value.length === 0);
-
 async function loadBuiltinCodexModels() {
   try {
     builtinCodexModels.value = await invokeTauri<string[]>("codex_get_builtin_models", {
@@ -663,12 +666,16 @@ async function loadBuiltinCodexModels() {
   }
 }
 
-function onAddModelSelect(event: Event) {
-  const target = event.target as HTMLSelectElement;
-  const name = String(target.value || "").trim();
-  target.value = "";
-  if (!name) return;
-  addModelCard(name);
+const refreshingCodexModels = ref(false);
+
+async function refreshCodexModels() {
+  if (refreshingCodexModels.value) return;
+  refreshingCodexModels.value = true;
+  try {
+    await loadBuiltinCodexModels();
+  } finally {
+    refreshingCodexModels.value = false;
+  }
 }
 
 function addModelCard(modelName: string) {
@@ -687,6 +694,11 @@ function addModelCard(modelName: string) {
     variantIdByEffort,
   });
   emit("selectModel", model.id);
+}
+
+function selectCodexModelOption(group: DraftModelGroup, option: string) {
+  group.primary.model = option;
+  group.primary.contextWindowTokens = codexContextWindowTokens(option);
 }
 
 function removeModelCard(modelId: string) {
