@@ -28,11 +28,13 @@ async function renderStatic(
 }
 
 describe("ConfigCard 的容器与扩展", () => {
-  it("默认形态：卡片边框 + 白底，带标题栏与内容内边距", async () => {
+  it("默认形态：标题外置 + 卡片边框容器，带内容内边距", async () => {
     const html = await renderStatic(ConfigCard, { title: "渠道配置" }, { default: () => text("内容") });
     expect(html).toContain("rounded-box border border-base-300 bg-base-100");
     expect(html).toContain("渠道配置");
     expect(html).toContain("内容");
+    // 标题在卡片外部 header 中渲染
+    expect(html).toMatch(/<header[^>]*>[\s\S]*渠道配置[\s\S]*<\/header>[\s\S]*rounded-box/);
     // 内容区默认带内边距
     expect(html).toContain("px-3");
   });

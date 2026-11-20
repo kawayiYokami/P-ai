@@ -111,7 +111,7 @@
 
     <Transition name="ecall-config-content" mode="out-in">
     <div v-if="inDetailMode" key="detail">
-      <div v-if="activeTopTab !== 'imageGeneration' && selectedProvider" class="grid gap-3">
+      <div v-if="activeTopTab !== 'imageGeneration' && selectedProvider" class="grid gap-4">
       <ConfigTemplate v-model="providerTemplateValues" :groups="providerTemplateGroups">
         <template #field-baseUrl="{ field, value, update }">
           <label class="grid min-w-0 gap-2">

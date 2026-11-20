@@ -12,7 +12,7 @@
           :group="group"
         />
       </template>
-      <div class="divide-y divide-base-200/60">
+      <div class="divide-y divide-base-300">
         <div
           v-for="(row, rowIndex) in group.rows"
           :key="`${group.key ?? group.title}-${row.key ?? rowIndex}`"
