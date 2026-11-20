@@ -221,6 +221,7 @@ fn consume_api_key_for_request(resolved_api: &ResolvedApiConfig) -> String {
         cached_model_options: Vec::new(),
         models: Vec::new(),
         failure_retry_count: 0,
+        client_user_agent: resolved_api.client_user_agent.clone(),
     };
     let selected = select_and_advance_provider_api_key(&provider);
     if selected.trim().is_empty() {
@@ -307,6 +308,7 @@ fn migrate_legacy_api_configs_into_providers(config: &mut AppConfig) {
                     custom_max_output_tokens_enabled: legacy.custom_max_output_tokens_enabled,
                 }],
                 failure_retry_count: legacy.failure_retry_count,
+                client_user_agent: None,
             }
         })
         .collect();
@@ -1376,6 +1378,7 @@ fn resolve_api_config_with_data_path(
                 max_output_tokens: None,
                 prompt_cache_key: None,
                 extra_headers: Vec::new(),
+                client_user_agent: None,
                 codex_auth: None,
                 codex_custom_api_key: None,
                 codex_originator: None,
@@ -1513,6 +1516,8 @@ fn resolve_api_config_with_data_path(
             .filter(|_| !selected.request_format.is_codex()),
         prompt_cache_key: None,
         extra_headers,
+        client_user_agent: selected_provider
+            .and_then(|provider| provider.client_user_agent.clone()),
         codex_auth,
         codex_custom_api_key: selected.codex_custom_api_key.clone(),
         // originator 按 auth_mode 分档：custom_url 中转不需要伪装官方客户端，

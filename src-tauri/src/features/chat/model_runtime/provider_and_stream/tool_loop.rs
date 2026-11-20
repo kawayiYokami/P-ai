@@ -570,6 +570,7 @@ async fn run_genai_tool_loop(
         true,
         true,
         usage_conversation_id,
+        true,
     );
 
     let mut tool_assembly = tool_assembly;
@@ -1403,6 +1404,7 @@ async fn run_genai_tool_loop_non_stream(
         true,
         true,
         usage_conversation_id,
+        false,
     );
 
     let mut tool_assembly = tool_assembly;
@@ -2373,6 +2375,7 @@ mod tool_loop_tests {
             max_output_tokens: None,
             prompt_cache_key: None,
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,

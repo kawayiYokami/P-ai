@@ -451,6 +451,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "get_web_access_info" => ide_chat_web_access_info_for_web_settings(app, state, ide_context_runtime).await,
         "transport.accessInfo" => ide_chat_web_access_info_for_web_settings(app, state, ide_context_runtime).await,
         "list_recent_runtime_logs" => list_recent_runtime_logs().and_then(ide_chat_serialize),
+        "list_client_user_agents" => ide_chat_serialize(list_client_user_agents()),
         "list_runtime_logs_since" => {
             let since_created_at = request
                 .params

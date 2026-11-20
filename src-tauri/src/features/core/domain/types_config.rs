@@ -680,6 +680,9 @@ struct ApiProviderConfig {
     models: Vec<ApiModelConfig>,
     #[serde(default = "default_failure_retry_count")]
     failure_retry_count: u32,
+    /// 供应商要伪装的客户端预设 id；空值/None 表示用默认 P-ai User-Agent。
+    #[serde(default)]
+    client_user_agent: Option<String>,
 }
 
 impl Default for ApiProviderConfig {
@@ -709,6 +712,7 @@ impl Default for ApiProviderConfig {
             cached_model_options: vec!["gpt-4o-mini".to_string()],
             models: vec![ApiModelConfig::default()],
             failure_retry_count: default_failure_retry_count(),
+            client_user_agent: None,
         }
     }
 }

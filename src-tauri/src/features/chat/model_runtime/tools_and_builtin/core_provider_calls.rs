@@ -521,50 +521,91 @@ fn normalize_provider_genai_base_url(
     }
 }
 
-fn provider_genai_headers(api_config: &ResolvedApiConfig) -> genai::Headers {
-    match api_config.request_format {
-        RequestFormat::Codex => {
-            let mut headers = app_identity_genai_headers();
-            // codex 通道使用 provider 配置的 originator（默认 codex-tui），
-            // 对齐 opencode/cline 的 originator=<产品名> 口径。
-            if let Some(originator) = api_config
-                .codex_originator
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                headers.merge(vec![("originator".to_string(), originator.to_string())]);
-            }
-            headers.merge(api_config.extra_headers.clone());
-            // 对齐 opencode：codex 端点需要 ChatGPT compute residency 头。
-            // 优先 provider 配置的显式值，否则从 access_token JWT claim 提取；
-            // no_constraint / 无值均不下发。
-            let residency = api_config
-                .codex_residency_requirement
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-                .or_else(|| {
-                    api_config
-                        .codex_auth
-                        .as_ref()
-                        .and_then(|auth| codex_extract_residency_from_token(&auth.access_token))
-                });
-            if let Some(residency) = residency {
-                headers.merge(vec![(
-                    "x-openai-internal-codex-residency".to_string(),
-                    residency,
-                )]);
-            }
-            headers
+fn effective_client_preset_id(api_config: &ResolvedApiConfig) -> Option<&'static str> {
+    let selected = api_config
+        .client_user_agent
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    match selected {
+        Some(id) if client_user_agent_preset_exists(id) => {
+            // 选中的 id 一定在静态表里，返回表里的 &'static str。
+            client_user_agent_presets()
+                .into_iter()
+                .find(|preset| preset.id == id)
+                .map(|preset| preset.id)
         }
-        _ => {
-            let mut headers = app_identity_genai_headers();
-            headers.merge(api_config.extra_headers.clone());
+        // Codex 供应商本来就是 Codex 客户端：没选或选了未知 id 时自动走 codex 预设。
+        _ if api_config.request_format == RequestFormat::Codex => Some("codex"),
+        _ => None,
+    }
+}
+
+fn provider_genai_headers(api_config: &ResolvedApiConfig) -> genai::Headers {
+    let preset_headers = effective_client_preset_id(api_config)
+        .and_then(|id| resolve_client_preset_headers(Some(id)));
+    // originator 是 Codex 专属身份头（magpie 只有 codexSign 设它）；选了别的预设时
+    // 去掉默认 P-ai 的 originator，避免 UA=claude-cli、originator=p_ai_desktop。
+    // 没选预设时维持默认 P-ai 的原样行为。
+    let preset_has_originator = preset_headers
+        .as_ref()
+        .map(|headers| {
             headers
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("originator"))
+        })
+        .unwrap_or(false);
+    let mut headers = if preset_headers.is_some() && !preset_has_originator {
+        genai::Headers::from(vec![("user-agent".to_string(), app_http_user_agent())])
+    } else {
+        app_identity_genai_headers()
+    };
+    headers.merge(api_config.extra_headers.clone());
+
+    if api_config.request_format == RequestFormat::Codex {
+        // 只保留账号/端点头；身份头（version / User-Agent / originator）
+        // 由下面的预设统一注入，避免两处各写一份、身份自相矛盾。
+        // 对齐 magpie/internal/provider/codex_request.go:41-52 的 codexSign。
+        //
+        // 对齐 opencode：codex 端点需要 ChatGPT compute residency 头。
+        // 优先 provider 配置的显式值，否则从 access_token JWT claim 提取；
+        // no_constraint / 无值均不下发。
+        let residency = api_config
+            .codex_residency_requirement
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                api_config
+                    .codex_auth
+                    .as_ref()
+                    .and_then(|auth| codex_extract_residency_from_token(&auth.access_token))
+            });
+        if let Some(residency) = residency {
+            headers.merge(vec![(
+                "x-openai-internal-codex-residency".to_string(),
+                residency,
+            )]);
         }
     }
+
+    // 单一事实源：预设 id 决定整组头。Codex 没选/选了未知 id 时回落到 codex 预设；
+    // 用户显式选了别的预设则以用户选择为准，codex 身份头一并被替换。
+    if let Some(preset_headers) = preset_headers {
+        if api_config.login_provider.trim() == "grok" {
+            // grok OAuth 的 workspace 令牌配 workspace UA（grok_oauth_chat_headers
+            // 写进 extra_headers），预设不得覆盖它；其余随行头照常生效。
+            let without_user_agent: Vec<_> = preset_headers
+                .into_iter()
+                .filter(|(name, _)| !name.eq_ignore_ascii_case("user-agent"))
+                .collect();
+            headers.merge(without_user_agent);
+        } else {
+            headers.merge(preset_headers);
+        }
+    }
+    headers
 }
 
 fn provider_genai_reasoning_effort(
@@ -707,18 +748,35 @@ fn build_provider_genai_chat_options(
     capture_reasoning_content: bool,
     capture_tool_calls: bool,
     session_id: Option<&str>,
+    streaming: bool,
 ) -> genai::chat::ChatOptions {
     let capture_reasoning_content = capture_reasoning_content
         && !provider_genai_model_disables_reasoning(&api_config.model)
         && !provider_genai_reasoning_explicitly_disabled(api_config);
     let mut headers = provider_genai_headers(api_config);
-    // 会话标识统一由 provider_session_headers 决定注入哪些头，
-    // 判定看协议与宿主，不再只看 base_url 是否指向官方域名——指向中转时也要带上。
+    // 会话标识由 provider_session_headers 按协议与宿主决定，指向中转时也要带上。
+    // 选中预设的运行期头（opencode 的 ses_/msg_ id、kilo 的 task id 等）随后覆盖同名项。
+    let session_key = session_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(PROVIDER_SESSION_FALLBACK_ID)
+        .to_string();
+    // 会话标识统一由 provider_session_headers 决定注入哪些头，判定看协议与宿主。
+    // 先合并它，再让选中预设的运行期头覆盖同名项：magpie 的 ses_/msg_ id 形状必须赢过
+    // provider_session_headers 下发的原始会话值。
     headers.merge(provider_session_headers(
         session_id,
         &api_config.base_url,
         api_config.request_format,
     ));
+    headers.merge(client_preset_runtime_headers(
+        effective_client_preset_id(api_config),
+        &session_key,
+    ));
+    // codexSign 在 body == nil 时直接返回，不发 SSE Accept；只对真正的流式请求下发。
+    if streaming && effective_client_preset_id(api_config) == Some("codex") {
+        headers.merge(vec![client_ua_header("Accept", "text/event-stream")]);
+    }
     let mut options = genai::chat::ChatOptions::default()
         .with_capture_usage(true)
         .with_capture_content(true)
@@ -857,7 +915,7 @@ async fn call_model_genai_stream_internal(
         usage_conversation_id.map(str::to_string),
     );
     let options = stream_guard
-        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id));
+        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, true));
 
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
@@ -970,7 +1028,7 @@ async fn call_model_genai_non_stream_with_definitions(
         let genai_tools = runtime_tool_definitions_for_genai(&tool_definitions, adapter_kind).await?;
         request = request.with_tools(genai_tools);
     }
-    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id);
+    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, false);
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
@@ -1043,7 +1101,7 @@ async fn call_model_openai_responses(
         usage_conversation_id.map(str::to_string),
     );
     let options = stream_guard
-        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id));
+        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, true));
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
@@ -1091,7 +1149,7 @@ async fn call_model_gemini(
         model_name,
         request_api_key.clone(),
     );
-    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id);
+    let options = build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, false);
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
@@ -1161,7 +1219,7 @@ async fn call_model_anthropic(
         usage_conversation_id.map(str::to_string),
     );
     let options = stream_guard
-        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id));
+        .attach(build_provider_genai_chat_options(&api_config, adapter_kind, true, false, usage_conversation_id, true));
     let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
         &api_config,
         model_name,
@@ -1783,6 +1841,7 @@ mod openai_responses_genai_request_tests {
             max_output_tokens: None,
             prompt_cache_key: None,
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,
@@ -1800,19 +1859,182 @@ mod openai_responses_genai_request_tests {
     }
 
     #[test]
+    fn client_user_agent_default_should_stay_pai() {
+        let api_config = session_header_test_fixture();
+        let headers = provider_genai_headers(&api_config);
+        let expected = app_http_user_agent();
+        assert_eq!(
+            header_value_of(&headers, "user-agent").as_deref(),
+            Some(expected.as_str())
+        );
+    }
+
+    #[test]
+    fn codex_headers_should_match_magpie_codex_sign() {
+        let mut api_config = session_header_test_fixture();
+        api_config.request_format = RequestFormat::Codex;
+        // Codex 供应商自动走 codex 预设，不需要用户手动选。
+        let headers = provider_genai_headers(&api_config);
+        assert_eq!(
+            header_value_of(&headers, "OpenAI-Beta").as_deref(),
+            Some("responses=experimental")
+        );
+        assert_eq!(
+            header_value_of(&headers, "version").as_deref(),
+            Some(CODEX_PRESET_VERSION)
+        );
+        assert_eq!(
+            header_value_of(&headers, "user-agent").as_deref(),
+            Some(CODEX_PRESET_USER_AGENT)
+        );
+        assert_eq!(header_value_of(&headers, "originator").as_deref(), Some("codex_cli_rs"));
+        // codexSign 的 body == nil 分支不发 Accept；静态预设与连接测试都不带。
+        assert!(header_value_of(&headers, "Accept").is_none());
+
+        let non_stream = build_provider_genai_chat_options(
+            &api_config,
+            genai::adapter::AdapterKind::OpenAIResp,
+            true,
+            false,
+            Some("conv-123"),
+            false,
+        );
+        let non_stream_headers = non_stream.extra_headers.as_ref().expect("headers should exist");
+        assert!(header_value_of(non_stream_headers, "Accept").is_none());
+
+        let stream = build_provider_genai_chat_options(
+            &api_config,
+            genai::adapter::AdapterKind::OpenAIResp,
+            true,
+            false,
+            Some("conv-123"),
+            true,
+        );
+        let stream_headers = stream.extra_headers.as_ref().expect("headers should exist");
+        assert_eq!(
+            header_value_of(stream_headers, "Accept").as_deref(),
+            Some("text/event-stream")
+        );
+    }
+
+    #[test]
+    fn codex_preset_explicit_override_and_unknown_fallback() {
+        let mut api_config = session_header_test_fixture();
+        api_config.request_format = RequestFormat::Codex;
+        api_config.client_user_agent = Some("claude-code".to_string());
+        let headers = provider_genai_headers(&api_config);
+        assert_eq!(
+            header_value_of(&headers, "user-agent").as_deref(),
+            Some("claude-cli/2.1.0 (external, cli)")
+        );
+        assert!(header_value_of(&headers, "originator").is_none());
+
+        api_config.client_user_agent = Some("not-a-real-client".to_string());
+        let headers = provider_genai_headers(&api_config);
+        assert_eq!(
+            header_value_of(&headers, "user-agent").as_deref(),
+            Some(CODEX_PRESET_USER_AGENT)
+        );
+        assert_eq!(header_value_of(&headers, "originator").as_deref(), Some("codex_cli_rs"));
+    }
+
+    #[test]
+    fn preset_runtime_headers_should_use_magpie_id_shapes() {
+        let mut api_config = session_header_test_fixture();
+        api_config.client_user_agent = Some("opencode".to_string());
+        let options = build_provider_genai_chat_options(
+            &api_config,
+            genai::adapter::AdapterKind::OpenAI,
+            true,
+            false,
+            Some("conv-123"),
+            true,
+        );
+        let headers = options.extra_headers.as_ref().expect("headers should exist");
+        let session = header_value_of(headers, "x-opencode-session").expect("session id");
+        assert!(session.starts_with("ses_"), "实际={session}");
+        assert_eq!(session.len(), 30, "实际={session}");
+        assert!(session.as_bytes()[13..16].iter().all(|b| *b == b'f'), "实际={session}");
+        assert_eq!(session, header_value_of(headers, "x-opencode-session-id").as_deref().expect("session id"));
+        let request = header_value_of(headers, "x-opencode-request").expect("request id");
+        assert!(request.starts_with("msg_"), "实际={request}");
+        assert_eq!(request.len(), 30, "实际={request}");
+
+        api_config.client_user_agent = Some("kilo".to_string());
+        let options = build_provider_genai_chat_options(
+            &api_config,
+            genai::adapter::AdapterKind::OpenAI,
+            true,
+            false,
+            Some("conv-123"),
+            true,
+        );
+        let headers = options.extra_headers.as_ref().expect("headers should exist");
+        let task = header_value_of(headers, "X-KILOCODE-TASKID").expect("task id");
+        assert!(task.starts_with("ses_"), "实际={task}");
+        assert_eq!(task.len(), 30, "实际={task}");
+        assert_eq!(header_value_of(headers, "x-session-affinity").as_deref(), Some(task.as_str()));
+        assert_eq!(header_value_of(headers, "X-Session-Id").as_deref(), Some(task.as_str()));
+    }
+
+    #[test]
+    fn grok_login_should_keep_workspace_user_agent() {
+        let mut api_config = session_header_test_fixture();
+        api_config.login_provider = "grok".to_string();
+        api_config.client_user_agent = Some("grok".to_string());
+        api_config.extra_headers = vec![(
+            "user-agent".to_string(),
+            "xai-grok-workspace/1.0.41".to_string(),
+        )];
+        let headers = provider_genai_headers(&api_config);
+        assert_eq!(
+            header_value_of(&headers, "user-agent").as_deref(),
+            Some("xai-grok-workspace/1.0.41")
+        );
+        assert_eq!(
+            header_value_of(&headers, "x-grok-client-mode").as_deref(),
+            Some("headless")
+        );
+    }
+
+    #[test]
+    fn selected_client_user_agent_should_override_default_and_extra_headers() {
+        let mut api_config = session_header_test_fixture();
+        api_config.extra_headers = vec![("user-agent".to_string(), "from-extra".to_string())];
+        api_config.client_user_agent = Some("cline".to_string());
+        let headers = provider_genai_headers(&api_config);
+        assert_eq!(
+            header_value_of(&headers, "user-agent").as_deref(),
+            Some("Cline/3.5.54")
+        );
+        assert_eq!(
+            header_value_of(&headers, "HTTP-Referer").as_deref(),
+            Some("https://cline.bot")
+        );
+
+        // 未知 id 一律不打补丁，保持调用前的头不变
+        api_config.client_user_agent = Some("not-a-real-client".to_string());
+        let headers = provider_genai_headers(&api_config);
+        assert_eq!(
+            header_value_of(&headers, "user-agent").as_deref(),
+            Some("from-extra")
+        );
+    }
+
+    #[test]
     fn opencode_endpoint_should_inject_session_header() {
         let mut api_config = session_header_test_fixture();
         api_config.base_url = "https://opencode.ai/zen/go/v1".to_string();
 
         // 有会话标识：注入会话值
         let options =
-            build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenCodeGo, true, true, Some("conv-123"));
+            build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenCodeGo, true, true, Some("conv-123"), false);
         let headers = options.extra_headers.as_ref().expect("headers should exist");
         assert_eq!(header_value_of(headers, "x-opencode-session").as_deref(), Some("conv-123"));
 
         // 无会话标识：回退全局稳定值
         let options =
-            build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenCodeGo, true, true, None);
+            build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenCodeGo, true, true, None, false);
         let headers = options.extra_headers.as_ref().expect("headers should exist");
         assert_eq!(
             header_value_of(headers, "x-opencode-session").as_deref(),
@@ -1825,7 +2047,7 @@ mod openai_responses_genai_request_tests {
         let api_config = session_header_test_fixture();
 
         let options =
-            build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAI, true, true, Some("conv-123"));
+            build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAI, true, true, Some("conv-123"), false);
         let headers = options.extra_headers.as_ref().expect("headers should exist");
         assert!(header_value_of(headers, "x-opencode-session").is_none());
     }
@@ -1848,13 +2070,14 @@ mod openai_responses_genai_request_tests {
             max_output_tokens: None,
             prompt_cache_key: Some("conversation-1".to_string()),
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,
             codex_residency_requirement: None,
         };
 
-        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAI, false, false, None);
+        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAI, false, false, None, false);
 
         assert_eq!(options.prompt_cache_key, None);
         assert_eq!(options.cache_control, None);
@@ -1878,13 +2101,14 @@ mod openai_responses_genai_request_tests {
             max_output_tokens: None,
             prompt_cache_key: Some("conversation-responses".to_string()),
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,
             codex_residency_requirement: None,
         };
 
-        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAIResp, true, true, None);
+        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAIResp, true, true, None, false);
 
         assert_eq!(
             options.prompt_cache_key.as_deref(),
@@ -1911,13 +2135,14 @@ mod openai_responses_genai_request_tests {
             max_output_tokens: None,
             prompt_cache_key: Some("conversation-codex".to_string()),
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,
             codex_residency_requirement: None,
         };
 
-        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAIResp, true, true, None);
+        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAIResp, true, true, None, false);
 
         assert_eq!(options.prompt_cache_key.as_deref(), Some("conversation-codex"));
         assert_eq!(options.cache_control, None);
@@ -1941,13 +2166,14 @@ mod openai_responses_genai_request_tests {
             max_output_tokens: None,
             prompt_cache_key: None,
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,
             codex_residency_requirement: None,
         };
 
-        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAIResp, true, true, None);
+        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAIResp, true, true, None, false);
 
         assert_eq!(
             options.extra_body,
@@ -1990,13 +2216,14 @@ mod openai_responses_genai_request_tests {
             max_output_tokens: None,
             prompt_cache_key: Some("conversation-codex".to_string()),
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,
             codex_residency_requirement: None,
         };
 
-        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAIResp, true, true, None);
+        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAIResp, true, true, None, false);
 
         assert_eq!(options.capture_reasoning_content, Some(false));
         assert!(options.reasoning_effort.is_none());
@@ -2020,13 +2247,14 @@ mod openai_responses_genai_request_tests {
             max_output_tokens: None,
             prompt_cache_key: None,
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,
             codex_residency_requirement: None,
         };
 
-        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::DeepSeek, true, true, None);
+        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::DeepSeek, true, true, None, false);
 
         assert_eq!(options.capture_reasoning_content, Some(false));
         // DeepSeek 已由 genai managed_body_thinking 管理：none 透传为 Zero，
@@ -2056,6 +2284,7 @@ mod openai_responses_genai_request_tests {
             max_output_tokens: None,
             prompt_cache_key: None,
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,
@@ -2068,6 +2297,7 @@ mod openai_responses_genai_request_tests {
             true,
             true,
             None,
+            false,
         );
 
         // Responses 协议：none 透传为 Zero，由 genai 生成 reasoning.effort=none；
@@ -2097,13 +2327,14 @@ mod openai_responses_genai_request_tests {
             max_output_tokens: None,
             prompt_cache_key: None,
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,
             codex_residency_requirement: None,
         };
 
-        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAI, true, true, None);
+        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAI, true, true, None, false);
 
         assert!(options.reasoning_effort.is_none());
         assert_eq!(
@@ -2134,13 +2365,14 @@ mod openai_responses_genai_request_tests {
             max_output_tokens: None,
             prompt_cache_key: None,
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,
             codex_residency_requirement: None,
         };
 
-        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAI, true, true, None);
+        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAI, true, true, None, false);
 
         assert!(options.reasoning_effort.is_none());
         assert_eq!(
@@ -2171,13 +2403,14 @@ mod openai_responses_genai_request_tests {
             max_output_tokens: None,
             prompt_cache_key: None,
             extra_headers: Vec::new(),
+            client_user_agent: None,
             codex_auth: None,
             codex_custom_api_key: None,
             codex_originator: None,
             codex_residency_requirement: None,
         };
 
-        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAI, true, true, None);
+        let options = build_provider_genai_chat_options(&api_config, genai::adapter::AdapterKind::OpenAI, true, true, None, false);
 
         assert_eq!(options.extra_body, None);
     }
@@ -2475,6 +2708,7 @@ mod openai_responses_genai_request_tests {
                 max_output_tokens: None,
                 prompt_cache_key: None,
                 extra_headers: Vec::new(),
+                client_user_agent: None,
                 codex_auth: None,
                 codex_custom_api_key: None,
                 codex_originator: None,
@@ -2512,6 +2746,7 @@ mod openai_responses_genai_request_tests {
                 max_output_tokens: None,
                 prompt_cache_key: None,
                 extra_headers: Vec::new(),
+                client_user_agent: None,
                 codex_auth: None,
                 codex_custom_api_key: None,
                 codex_originator: None,

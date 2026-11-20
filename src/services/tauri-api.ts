@@ -1032,6 +1032,11 @@ export function listTransportGenaiChatAdapters<T>(): Promise<T> {
   return invokeRequiredNativeTransport<T>("genai 内置聊天适配器清单", "list_genai_chat_adapters");
 }
 
+/** 供应商 User-Agent 预设清单；纯静态表，Web 端经桥接同样可用。 */
+export function listClientUserAgents<T>(): Promise<T> {
+  return invokeTauri<T>("list_client_user_agents");
+}
+
 /** 开机自启仅桌面宿主可设置，Web/VS Code 无此能力。 */
 export function getTransportAutostartEnabled(): Promise<boolean> {
   return invokeRequiredNativeTransport<boolean>("开机自启", "get_autostart_enabled");

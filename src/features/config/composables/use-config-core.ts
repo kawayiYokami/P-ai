@@ -113,6 +113,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       cachedModelOptions: modelName ? [modelName] : [],
       models: modelName ? [createApiModel(seed, modelName)] : [],
       failureRetryCount: 5,
+      clientUserAgent: null,
     };
   }
 
@@ -192,6 +193,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
             maxOutputTokens: toFiniteMaxOutputTokens(api.maxOutputTokens),
           }],
           failureRetryCount: 5,
+          clientUserAgent: null,
         }));
       } else {
         options.config.apiProviders = [createApiProvider()];
@@ -413,6 +415,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           maxOutputTokens: toFiniteMaxOutputTokens(model.maxOutputTokens),
         })),
         failureRetryCount: Math.max(0, Math.round(Number(provider.failureRetryCount ?? 0))),
+        clientUserAgent: String(provider.clientUserAgent || "").trim() || null,
       })),
       imageProviders,
       apiConfigs: options.config.apiConfigs.map((a) => ({

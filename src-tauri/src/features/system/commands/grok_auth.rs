@@ -676,9 +676,12 @@ pub(crate) fn grok_oauth_chat_headers(base_url: &str) -> Vec<(String, String)> {
             "x-grok-client-identifier".to_string(),
             "grok-shell".to_string(),
         ),
+        // plugins/packages/grok/index.mjs:309-311 的 sign()：这两个头原来只在
+        // 中转域名上补，真实 Grok CLI 每次都发，移到公共集合里。
+        ("x-xai-token-auth".to_string(), "xai-grok-cli".to_string()),
+        ("x-grok-client-mode".to_string(), "headless".to_string()),
     ];
     if base_url.contains("cli-chat-proxy") || base_url.contains("chat-proxy") {
-        headers.push(("X-XAI-Token-Auth".to_string(), "xai-grok-cli".to_string()));
         headers.push((
             "x-authenticateresponse".to_string(),
             "authenticate-response".to_string(),
@@ -796,7 +799,8 @@ mod grok_auth_tests {
         );
         let headers = grok_oauth_chat_headers("https://cli-chat-proxy.grok.com/v1");
         assert!(headers.iter().any(|(key, value)| key == "x-grok-client-version" && !value.is_empty()));
-        assert!(headers.iter().any(|(key, _)| key == "X-XAI-Token-Auth"));
+        assert!(headers.iter().any(|(key, value)| key == "x-xai-token-auth" && value == "xai-grok-cli"));
+        assert!(headers.iter().any(|(key, value)| key == "x-grok-client-mode" && value == "headless"));
     }
 
     #[test]

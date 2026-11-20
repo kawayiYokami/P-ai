@@ -412,7 +412,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../../shared/components/AppIcon.vue";
-import type { ApiModelConfigItem, ApiProviderConfigItem, ApiRequestFormat, AppConfig, CodexAuthMode, CodexAuthStatus, ImageGenerationProviderConfigItem } from "../../../../types/app";
+import type { ApiModelConfigItem, ApiProviderConfigItem, ApiRequestFormat, AppConfig, ClientUserAgentPreset, CodexAuthMode, CodexAuthStatus, ImageGenerationProviderConfigItem } from "../../../../types/app";
 import ApiKeyListCard, { type ApiKeyConnectionStatus } from "../../components/ApiKeyListCard.vue";
 import ApiModelCard from "../../components/ApiModelCard.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
@@ -420,7 +420,7 @@ import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
 import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
 import type { UnderlineTabItem } from "../../../shared/components/UnderlineTabs.vue";
-import { canUseTransportGenaiChatAdapters, invokeTauri, listTransportGenaiChatAdapters, openTransportExternalUrl } from "../../../../services/tauri-api";
+import { canUseTransportGenaiChatAdapters, invokeTauri, listClientUserAgents, listTransportGenaiChatAdapters, openTransportExternalUrl } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import GrokProviderPanel from "./GrokProviderPanel.vue";
 import ImageGenerationTab from "./ImageGenerationTab.vue";
@@ -736,6 +736,7 @@ const localProtocolOptionsByCapability: Record<ApiCapability, ProtocolOption[]> 
 
 // genai 内置 chat 适配器清单（后端权威源）；未加载时为 null，text 候选仅显示本地项。
 const genaiChatAdapters = ref<Array<{ id: string; label: string; supported: boolean }> | null>(null);
+const clientUserAgentOptions = ref<ClientUserAgentPreset[]>([]);
 
 function protocolOptionsByCapability(): Record<ApiCapability, ProtocolOption[]> {
   const adapters = genaiChatAdapters.value;
@@ -1128,12 +1129,16 @@ const providerTemplateValues = computed<Record<string, unknown>>({
       name: provider.name,
       requestFormat: provider.requestFormat,
       baseUrl: provider.baseUrl,
+      clientUserAgent: provider.clientUserAgent || "",
     };
   },
   set: (values) => {
     const provider = selectedProvider.value;
     if (!provider) return;
     if (typeof values.name === "string") provider.name = values.name;
+    if (typeof values.clientUserAgent === "string") {
+      provider.clientUserAgent = values.clientUserAgent.trim() || null;
+    }
     if (typeof values.baseUrl === "string") {
       provider.baseUrl = values.baseUrl;
       // 地址是用户显式编辑，失焦或切换后按需拉取元数据，不再逐字监听
@@ -1183,6 +1188,17 @@ const providerTemplateGroups = computed<ConfigTemplateGroup[]>(() => {
         label: t("config.api.requestFormat"),
         type: "select",
         options: protocolOptions.value.map((item) => ({ value: item.value, label: item.label })),
+      }],
+    },
+    {
+      items: [{
+        key: "clientUserAgent",
+        label: t("config.api.clientUserAgent"),
+        type: "select",
+        options: [
+          { value: "", label: t("config.api.clientUserAgentDefault") },
+          ...clientUserAgentOptions.value.map((preset) => ({ value: preset.id, label: preset.name })),
+        ],
       }],
     },
   ];
@@ -1604,6 +1620,7 @@ function normalizeProviderForCompare(provider: ApiProviderConfigItem) {
         }))
         : [],
     failureRetryCount: Math.max(0, Math.round(Number(provider.failureRetryCount ?? 5))),
+    clientUserAgent: String(provider.clientUserAgent || "").trim() || null,
   };
 }
 
@@ -1741,6 +1758,7 @@ function createProvider(seed: string, capability: ApiCapability = selectedCapabi
     cachedModelOptions: [],
     models: [],
     failureRetryCount: 5,
+    clientUserAgent: null,
   };
 }
 
@@ -2539,6 +2557,13 @@ watch(
 onMounted(() => {
   // 一次性归一历史协议写法，不再用 watch 反复原地修改
   normalizeProviderRequestFormats();
+  void listClientUserAgents<ClientUserAgentPreset[]>()
+    .then((presets) => {
+      if (Array.isArray(presets)) clientUserAgentOptions.value = presets;
+    })
+    .catch((error) => {
+      console.warn("[API] list_client_user_agents failed:", error);
+    });
   if (!canUseTransportGenaiChatAdapters()) return;
   void listTransportGenaiChatAdapters<Array<{ id: string; label: string; supported: boolean }>>()
     .then((adapters) => {

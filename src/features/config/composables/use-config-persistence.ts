@@ -396,6 +396,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
               }))
             : [],
           failureRetryCount: Math.max(0, Number((provider as { failureRetryCount?: unknown }).failureRetryCount ?? 5)),
+          clientUserAgent: String((provider as { clientUserAgent?: unknown }).clientUserAgent || "").trim() || null,
         }))
       : [];
     // apiConfigs 是派生数据，后端在为空时整个键都不下发，这里必须自己兜住。
