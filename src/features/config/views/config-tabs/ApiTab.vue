@@ -531,7 +531,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  // 携带详情页认定的当前供应商：刷新只认它，不依赖 selectedApiConfigId，
+  // 携带详情页认定的当前供应商：刷新只认它，不依赖配置里的全局模型字段，
   // 否则供应商删光模型（端点被置空）后刷新会误判「未选中供应商」。
   (e: "refreshModels", provider: ApiProviderConfigItem | null): void;
 }>();
@@ -866,13 +866,16 @@ function modelDisplayLabel(
 
 const providerList = computed(() => props.config.apiProviders || []);
 const activeProviderList = computed(() => providerList.value.filter((provider) => !isProviderDeprecated(provider)));
-// 「正在浏览的 provider」独立于「当前使用的端点（selectedApiConfigId）」：
-// 进入无模型 provider 详情时不能写 selectedApiConfigId（它是 providerId::modelId 的端点语义，
+// 「正在浏览的 provider」独立于「当前使用的端点」：
+// 进入无模型 provider 详情时不能写端点（它是 providerId::modelId 的语义，
 // 写空模型 id 会污染真实模型选择），用 browsingProviderId 单独记住用户正在查看的 provider。
+// 端点只作为本页 UI 状态：初值取用户当前专家模型，不再回填到 AppConfig。
+const initialExpertEndpoint = String(props.config.expertApiConfigId || "");
+const selectedEndpointId = ref(initialExpertEndpoint.includes("::") ? initialExpertEndpoint : "");
 const browsingProviderId = ref("");
 const selectedProviderId = computed(() => {
   if (browsingProviderId.value) return browsingProviderId.value;
-  const [providerId] = String(props.config.selectedApiConfigId || "").split("::");
+  const [providerId] = selectedEndpointId.value.split("::");
   return providerId || activeProviderList.value[0]?.id || "";
 });
 
@@ -884,7 +887,7 @@ const selectedProvider = computed(() => {
     const hit = activeProviderList.value.find((provider) => provider.id === browsingProviderId.value);
     if (hit) return hit;
   }
-  const [providerId] = String(props.config.selectedApiConfigId || "").split("::");
+  const [providerId] = selectedEndpointId.value.split("::");
   return activeProviderList.value.find((provider) => provider.id === providerId) ?? null;
 });
 
@@ -1779,10 +1782,10 @@ async function selectProvider(providerId: string) {
   const model = firstActiveModel(provider);
   if (model) {
     // 有可用模型时同步更新当前端点
-    props.config.selectedApiConfigId = `${provider.id}::${model.id}`;
+    selectedEndpointId.value = `${provider.id}::${model.id}`;
     browsingProviderId.value = "";
   } else {
-    // 无模型 provider：不写 selectedApiConfigId（它是端点语义），
+    // 无模型 provider：不写端点（它是端点语义），
     // 只用 browsingProviderId 标记「正在浏览」，让 enterProvider 能进入详情。
     browsingProviderId.value = provider.id;
   }
@@ -1815,11 +1818,11 @@ function selectModelCard(modelId: string) {
   const provider = selectedProvider.value;
   if (!provider) return;
   if (!modelId) {
-    props.config.selectedApiConfigId = "";
+    selectedEndpointId.value = "";
     browsingProviderId.value = provider.id;
     return;
   }
-  props.config.selectedApiConfigId = `${provider.id}::${modelId}`;
+  selectedEndpointId.value = `${provider.id}::${modelId}`;
   browsingProviderId.value = "";
 }
 
@@ -1861,8 +1864,8 @@ function clearRemovedApiConfigReferences(removedIds: string[]) {
   if (removedSet.has(String(props.config.toolReviewApiConfigId || "").trim())) {
     props.config.toolReviewApiConfigId = undefined;
   }
-  if (removedSet.has(String(props.config.selectedApiConfigId || "").trim())) {
-    props.config.selectedApiConfigId = firstActiveApiConfigIdExcluding(removedSet);
+  if (removedSet.has(selectedEndpointId.value.trim())) {
+    selectedEndpointId.value = firstActiveApiConfigIdExcluding(removedSet);
   }
 }
 
@@ -1905,9 +1908,9 @@ async function confirmDeleteProvider() {
   const fallbackProvider = scopedProviderList.value.find((provider) => provider.id !== providerId) ?? activeProviderList.value.find((provider) => provider.id !== providerId) ?? null;
   const fallbackModel = firstActiveModel(fallbackProvider);
   if (fallbackProvider && fallbackModel) {
-    props.config.selectedApiConfigId = `${fallbackProvider.id}::${fallbackModel.id}`;
+    selectedEndpointId.value = `${fallbackProvider.id}::${fallbackModel.id}`;
   } else {
-    props.config.selectedApiConfigId = "";
+    selectedEndpointId.value = "";
   }
   closeDeleteProviderDialog();
   inDetailMode.value = false;
@@ -1973,7 +1976,7 @@ function addModelCard() {
     variantIdByEffort: new Map([[normalizedModelReasoningEffortFor(model), model.id]]),
   };
   draftModelGroups.value.unshift(group);
-  props.config.selectedApiConfigId = `${provider.id}::${model.id}`;
+  selectedEndpointId.value = `${provider.id}::${model.id}`;
   browsingProviderId.value = "";
 }
 
@@ -1981,14 +1984,14 @@ function removeModelGroup(group: DraftModelGroup) {
   const provider = selectedProvider.value;
   if (!provider) return;
   draftModelGroups.value = draftModelGroups.value.filter((item) => item !== group);
-  const [, selectedModelId] = String(props.config.selectedApiConfigId || "").split("::");
+  const [, selectedModelId] = selectedEndpointId.value.split("::");
   if (selectedModelId === group.primary.id) {
     const nextGroup = draftModelGroups.value[0];
     if (nextGroup) {
-      props.config.selectedApiConfigId = `${provider.id}::${nextGroup.primary.id}`;
+      selectedEndpointId.value = `${provider.id}::${nextGroup.primary.id}`;
       browsingProviderId.value = "";
     } else {
-      props.config.selectedApiConfigId = "";
+      selectedEndpointId.value = "";
       browsingProviderId.value = provider.id;
     }
   }

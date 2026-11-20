@@ -42,7 +42,6 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
     messageNotificationSoundEnabled: false,
     desktopOperationNoticeEnabled: true,
     desktopOperateEnabled: true,
-    selectedApiConfigId: "",
     expertApiConfigId: "",
     visionApiConfigId: undefined,
     imageGenerationModelId: undefined,

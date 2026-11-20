@@ -429,7 +429,6 @@ const config = reactive<AppConfig>({
   messageNotificationSoundEnabled: false,
   desktopOperationNoticeEnabled: true,
   desktopOperateEnabled: true,
-  selectedApiConfigId: "",
   expertApiConfigId: "",
   visionApiConfigId: undefined,
   imageGenerationModelId: undefined,
@@ -974,14 +973,14 @@ async function openConversationList() {
 }
 
 async function openPromptPreviewFromConfig() {
-  const apiConfigId = String(config.expertApiConfigId || config.selectedApiConfigId || "").trim();
+  const apiConfigId = String(config.expertApiConfigId || "").trim();
   const agentId = String(assistantAgentId.value || "").trim();
   if (!apiConfigId || !agentId) return;
   await openPromptPreview(apiConfigId, agentId);
 }
 
 async function openSystemPromptPreviewFromConfig() {
-  const apiConfigId = String(config.expertApiConfigId || config.selectedApiConfigId || "").trim();
+  const apiConfigId = String(config.expertApiConfigId || "").trim();
   const agentId = String(assistantAgentId.value || "").trim();
   if (!apiConfigId || !agentId) return;
   await openSystemPromptPreview(apiConfigId, agentId);

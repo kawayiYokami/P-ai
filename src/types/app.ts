@@ -405,11 +405,6 @@ export type AppConfig = {
   messageNotificationSoundEnabled: boolean;
   desktopOperationNoticeEnabled: boolean;
   desktopOperateEnabled: boolean;
-  /**
-   * 上次操作的 API 端点（providerId::modelId）。推理请求链路不读它，不表示默认或当前生效的供应商；
-   * 配置界面的 ApiTab.vue 读取它来恢复选中的供应商。
-   */
-  selectedApiConfigId: string;
   // Active chat LLM provider config id (kept as legacy key name for storage compatibility).
   expertApiConfigId: string;
   visionApiConfigId?: string;

@@ -1150,7 +1150,7 @@ fn set_agent_primary_api_config_inner(
         return Err("API config ID is required.".to_string());
     }
 
-    let mut config = state_read_config_cached(state)?;
+    let config = state_read_config_cached(state)?;
     let selected_api = config
         .api_configs
         .iter()
@@ -1195,8 +1195,6 @@ fn set_agent_primary_api_config_inner(
             .unwrap_or_default();
         target_agent.updated_at = now_iso();
     }
-    config.selected_api_config_id = api_config_id.to_string();
-
     state_write_config_cached(state, &config)?;
     state_write_agents_cached(state, &agents)?;
     let runtime_config = runtime_config_for_transport(&config);

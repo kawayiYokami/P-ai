@@ -1,8 +1,16 @@
-import { computed } from "vue";
+import { computed, type Ref } from "vue";
 import type { ApiRequestFormat, AppConfig } from "../../../types/app";
 import { MODEL_ROLE_EXPERT_API_CONFIG_ID, resolveModelRoleApiConfigId } from "../../config/utils/model-role-options";
 
-export function useChatConfigDerivedState(config: AppConfig) {
+export function useChatConfigDerivedState(config: AppConfig, conversationApiConfigId?: Ref<string>) {
+  // 当前生效端点：会话字段优先，空值回落到专家模型角色（角色哨兵一并解析成真实 id）。
+  // 全局配置里不再有「上次选中端点」字段，界面展示不能靠它兜底。
+  const effectiveApiConfigId = computed(() =>
+    resolveModelRoleApiConfigId(
+      String(conversationApiConfigId?.value || "").trim() || MODEL_ROLE_EXPERT_API_CONFIG_ID,
+      config,
+    ),
+  );
   const TEXT_REQUEST_FORMATS = new Set<ApiRequestFormat>([
     "auto",
     "openai",
@@ -37,9 +45,9 @@ export function useChatConfigDerivedState(config: AppConfig) {
     return normalized === "deepseek/kimi" || TEXT_REQUEST_FORMATS.has(normalized as ApiRequestFormat);
   }
 
-  const selectedApiConfig = computed(() => config.apiConfigs.find((a) => a.id === config.selectedApiConfigId) ?? null);
+  const selectedApiConfig = computed(() => config.apiConfigs.find((a) => a.id === effectiveApiConfigId.value) ?? null);
   const selectedApiProvider = computed(() => {
-    const [providerId] = String(config.selectedApiConfigId || "").split("::");
+    const [providerId] = effectiveApiConfigId.value.split("::");
     return config.apiProviders.find((provider) => provider.id === providerId) ?? null;
   });
   const textCapableApiConfigs = computed(() =>

@@ -265,7 +265,6 @@ export function useSimpleSetup() {
       messageNotificationSoundEnabled: false,
       desktopOperationNoticeEnabled: true,
       desktopOperateEnabled: true,
-      selectedApiConfigId: "",
       expertApiConfigId: "",
       toolReviewApiConfigId: "",
       sttApiConfigId: "",
@@ -646,7 +645,6 @@ export function useSimpleSetup() {
       ...(config.apiConfigs || []).filter((item) => !item.id.startsWith(`${SIMPLE_SETUP_PROVIDER_ID}::`)),
       ...endpoints,
     ];
-    config.selectedApiConfigId = SIMPLE_SETUP_ENDPOINT_IDS.expert;
     config.expertApiConfigId = SIMPLE_SETUP_ENDPOINT_IDS.expert;
     config.toolReviewApiConfigId = SIMPLE_SETUP_ENDPOINT_IDS.quick;
     const includeVision = draft.providerId === "custom" || !!selectedProvider.value.visionModel;

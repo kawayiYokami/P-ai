@@ -187,18 +187,46 @@ fn persist_conversation_model_when_changed(
     Ok(true)
 }
 
-/// 发送与继续执行前的取模型口径：解析出生效模型，并把它写回会话字段。
+/// 发送路径的失败提示：分清「会话没选模型」与「选了但已不可用」两种情形。
 ///
-/// 写回只在真的解析出可用模型、且与存量不同时发生；写回失败只记 warn，不阻断发送。
-/// 不弹提示：模型已经被删了，用户当场处理不了，每次发消息弹一次是噪音；
-/// 写回本身是自愈，前端下次拿快照看到的就是真实值，不再出现「显示未选择、实际在跑兜底模型」。
+/// 沿用 NO_USABLE_CHAT_MODEL_MESSAGE 的口径（说清「可用」的判据），不另造一套；
+/// 但把下一步指回会话模型选择器——模型被删时用户要在会话里重选，不是去设置里配新模型。
+fn dispatch_model_unavailable_message(app_config: &AppConfig, stored: Option<&str>) -> String {
+    let Some(raw_id) = stored.map(str::trim).filter(|value| !value.is_empty()) else {
+        return format!(
+            "会话还没有选择模型：请在会话模型选择器里选定模型后再发送。{NO_USABLE_CHAT_MODEL_MESSAGE}"
+        );
+    };
+    let reason = if is_model_role_api_config_id(raw_id) {
+        "存的是内部模型角色标记，不是具体模型".to_string()
+    } else if !app_config.api_configs.iter().any(|api| api.id == raw_id) {
+        "该模型已被删除".to_string()
+    } else {
+        "该模型未启用文本聊天，或缺少接口地址、模型名、鉴权".to_string()
+    };
+    format!(
+        "会话选定的模型已不可用（{reason}）：请在会话模型选择器里重新选定后再发送。{NO_USABLE_CHAT_MODEL_MESSAGE}"
+    )
+}
+
+/// 发送与继续执行前的取模型口径：只用会话自己选定的模型，不可用就报错。
+///
+/// 不读 expert、不读父链、不读第一个可用——用户看到的是会话选定的模型，
+/// 偷偷换成别的等同让人为另一个模型付费。写回只在解析成功且与存量不同时发生。
 pub(crate) fn resolve_and_persist_dispatch_model(
     state: &AppState,
     app_config: &AppConfig,
     conversation_meta: &ConversationMetaView,
 ) -> Result<String, String> {
-    let resolved = resolve_effective_conversation_model(state, app_config, &conversation_meta.id)
-        .ok_or_else(|| NO_USABLE_CHAT_MODEL_MESSAGE.to_string())?;
+    let stored = conversation_meta.preferred_api_config_id.as_deref();
+    let resolved = resolve_concrete_chat_model(app_config, stored)
+        .filter(|id| {
+            app_config
+                .api_configs
+                .iter()
+                .any(|api| api.id == *id && is_usable_text_llm_api(api))
+        })
+        .ok_or_else(|| dispatch_model_unavailable_message(app_config, stored))?;
     if let Err(err) = persist_conversation_model_when_changed(
         state,
         &conversation_meta.id,

@@ -360,6 +360,7 @@ export function useChatWindowApp() {
     modelRefreshOkFlags,
     lastSavedConfigJson,
     lastSavedPersonasJson,
+    currentChatPreferredApiConfigId,
     normalizeLocale,
     applyUiLanguage,
     refreshToolsStatus: () => refreshToolsStatus(),

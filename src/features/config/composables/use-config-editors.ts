@@ -27,12 +27,12 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
   }
 
   function removeSelectedApiConfig() {
-    const [providerId, modelId] = String(options.config.selectedApiConfigId || "").split("::");
+    const [providerId, modelId] = String(options.config.expertApiConfigId || "").split("::");
     if (!providerId) return;
     const providerIdx = options.config.apiProviders.findIndex((item) => item.id === providerId);
     if (providerIdx < 0) return;
     const provider = options.config.apiProviders[providerIdx];
-    const removedId = String(options.config.selectedApiConfigId || "").trim();
+    const removedId = String(options.config.expertApiConfigId || "").trim();
     const activeProviders = (options.config.apiProviders || []).filter((item) => !item.deprecated);
     const activeModels = (provider.models || []).filter((item) => !item.deprecated);
     if (!provider.deprecated && activeProviders.length <= 1 && activeModels.length <= 1) return;

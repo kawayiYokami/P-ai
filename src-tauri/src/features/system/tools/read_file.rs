@@ -2588,7 +2588,6 @@ fn builtin_read_file_should_redirect_image_input_to_read_media() {
         std::fs::write(&file, b"fake-png").expect("write sample image");
         let state = test_read_file_state();
         let config = AppConfig {
-            selected_api_config_id: "vision-a".to_string(),
             expert_api_config_id: "vision-a".to_string(),
             api_configs: vec![ApiConfig {
                 id: "vision-a".to_string(),
@@ -2695,7 +2694,6 @@ fn builtin_read_media_should_fail_when_audio_capability_is_disabled() {
         std::fs::write(&file, b"fake-mp3").expect("write audio");
         let state = test_read_file_state();
         let config = AppConfig {
-            selected_api_config_id: "vision-a".to_string(),
             expert_api_config_id: "vision-a".to_string(),
             vision_api_config_id: Some("vision-a".to_string()),
             api_configs: vec![ApiConfig {
@@ -2840,7 +2838,6 @@ fn builtin_read_media_should_not_return_original_audio_or_video() {
         std::fs::write(&video, b"fake-mp4").expect("write video");
         let state = test_read_file_state();
         let config = AppConfig {
-            selected_api_config_id: "vision-a".to_string(),
             vision_api_config_id: Some("vision-a".to_string()),
             api_configs: vec![ApiConfig {
                 id: "vision-a".to_string(),

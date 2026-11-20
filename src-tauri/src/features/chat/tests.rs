@@ -11656,7 +11656,6 @@
         let config = AppConfig {
             api_configs: vec![selected_api.clone()],
             api_providers: Vec::new(),
-            selected_api_config_id: selected_api.id.clone(),
             expert_api_config_id: selected_api.id.clone(),
             ..AppConfig::default()
         };
@@ -17386,7 +17385,7 @@
     }
 
     #[test]
-    fn dispatch_model_should_fall_back_and_write_back_when_conversation_model_deleted() {
+    fn dispatch_model_should_error_when_conversation_model_deleted() {
         let state = team_test_state();
         state_write_config_cached(
             &state,
@@ -17405,20 +17404,19 @@
             .get_conversation_meta(&state, &conversation.id)
             .expect("meta");
 
-        assert_eq!(
-            resolve_and_persist_dispatch_model(&state, &config, &conversation_meta)
-                .expect("模型被删后从输入面板发消息必须落到兜底模型，不能报「未指定会话模型」"),
-            "provider-a::solo",
-            "发送前取模型必须走完整生效链"
-        );
+        let err = resolve_and_persist_dispatch_model(&state, &config, &conversation_meta)
+            .expect_err("会话模型被删必须报错，不能偷偷换成别的模型");
+        assert!(err.contains("会话选定的模型已不可用"), "错误信息要分清失效情形");
+        assert!(err.contains("该模型已被删除"), "要写明是哪一种不可用");
+        assert!(!err.contains("provider-a::solo"), "错误信息不能顺便推荐兜底模型");
 
-        let repaired = conversation_service_v2()
+        let unchanged = conversation_service_v2()
             .get_conversation_meta(&state, &conversation.id)
-            .expect("meta after write back");
+            .expect("meta after failed resolve");
         assert_eq!(
-            repaired.preferred_api_config_id.as_deref(),
-            Some("provider-a::solo"),
-            "发送前要把实际模型写回会话字段，否则前端显示「未选择」而实际在跑兜底模型"
+            unchanged.preferred_api_config_id.as_deref(),
+            Some("provider-a::deleted"),
+            "解析失败时不要写回会话字段"
         );
     }
 
@@ -17441,10 +17439,10 @@
             .expect("meta");
 
         let err = resolve_and_persist_dispatch_model(&state, &config, &conversation_meta)
-            .expect_err("一个可用聊天模型都没有时必须报错");
-        assert_eq!(
-            err, NO_USABLE_CHAT_MODEL_MESSAGE,
-            "提示不能再说「请在输入面板选择模型」——模型被删后那个面板上没有可选项"
+            .expect_err("会话模型不可用且没有其它模型时必须报错");
+        assert!(
+            err.contains(NO_USABLE_CHAT_MODEL_MESSAGE),
+            "沿用全仓唯一的「可用」判据文案，不另造一套"
         );
         assert!(
             !err.contains("输入面板"),
@@ -17458,6 +17456,94 @@
             unchanged.preferred_api_config_id.as_deref(),
             Some("provider-a::deleted"),
             "解析不出可用模型时不要写回，存量值保持原样"
+        );
+    }
+
+    #[test]
+    fn dispatch_model_should_use_only_conversation_model() {
+        let state = team_test_state();
+        state_write_config_cached(
+            &state,
+            &test_model_config(
+                vec![
+                    test_model_api_config("provider-a::chosen"),
+                    test_model_api_config("provider-a::expert"),
+                ],
+                "provider-a::expert",
+            ),
+        )
+        .expect("write config");
+        let conversation = persist_session_with_model(
+            &state,
+            "conversation-send-chosen-model",
+            CONVERSATION_KIND_CHAT,
+            "provider-a::chosen",
+        );
+        let config = state_read_config_cached(&state).expect("config");
+        let conversation_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &conversation.id)
+            .expect("meta");
+
+        assert_eq!(
+            resolve_and_persist_dispatch_model(&state, &config, &conversation_meta)
+                .expect("会话选定模型可用时直接发送"),
+            "provider-a::chosen",
+            "不得退到 expert 或第一个可用模型"
+        );
+    }
+
+    #[test]
+    fn dispatch_model_should_error_when_conversation_model_empty() {
+        let state = team_test_state();
+        state_write_config_cached(
+            &state,
+            &test_model_config(vec![test_model_api_config("provider-a::solo")], "provider-a::solo"),
+        )
+        .expect("write config");
+        let conversation = persist_session_with_model(
+            &state,
+            "conversation-send-empty-model",
+            CONVERSATION_KIND_CHAT,
+            "",
+        );
+        let config = state_read_config_cached(&state).expect("config");
+        let conversation_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &conversation.id)
+            .expect("meta");
+
+        let err = resolve_and_persist_dispatch_model(&state, &config, &conversation_meta)
+            .expect_err("会话未选模型必须报错，不能拿 expert 顶上");
+        assert!(err.contains("会话还没有选择模型"), "要分清「没选」与「选了但失效」");
+        assert!(!err.contains("provider-a::solo"), "报错里不能带出兜底模型");
+    }
+
+    #[test]
+    fn dispatch_model_should_error_when_conversation_model_has_no_key() {
+        let state = team_test_state();
+        let mut keyless = test_model_api_config("provider-a::keyless");
+        keyless.api_key = String::new();
+        state_write_config_cached(
+            &state,
+            &test_model_config(vec![keyless, test_model_api_config("provider-a::solo")], ""),
+        )
+        .expect("write config");
+        let conversation = persist_session_with_model(
+            &state,
+            "conversation-send-keyless-model",
+            CONVERSATION_KIND_CHAT,
+            "provider-a::keyless",
+        );
+        let config = state_read_config_cached(&state).expect("config");
+        let conversation_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &conversation.id)
+            .expect("meta");
+
+        let err = resolve_and_persist_dispatch_model(&state, &config, &conversation_meta)
+            .expect_err("没 key 的模型不可用，必须报错");
+        assert!(err.contains("会话选定的模型已不可用"), "要分清失效情形");
+        assert!(
+            err.contains("缺少接口地址、模型名、鉴权"),
+            "要写明是哪一种不可用"
         );
     }
 

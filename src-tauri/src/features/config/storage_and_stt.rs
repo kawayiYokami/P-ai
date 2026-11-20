@@ -905,8 +905,6 @@ fn normalize_app_config(config: &mut AppConfig) {
     migrate_legacy_api_configs_into_providers(config);
     normalize_unlimited_concurrency_default(config);
     expand_api_configs_from_providers(config);
-    config.selected_api_config_id =
-        remap_legacy_api_config_id_to_endpoint(config, &config.selected_api_config_id);
     config.expert_api_config_id =
         remap_legacy_api_config_id_to_endpoint(config, &config.expert_api_config_id);
     config.vision_api_config_id = config
