@@ -63,11 +63,16 @@ function urlState() {
 }
 
 async function copyText(text: string) {
+  // 空文本是静默成功（原 writeText("") 的行为），不该报 actionFailed。
+  if (!String(text || "").trim()) {
+    close();
+    return;
+  }
   try {
     // transport 返回 boolean：失败不抛异常，false 要按原来的 catch 分支报错。
     const copied = await writeTransportClipboardText(text);
     if (!copied) {
-      error.value = t("chat.fileLinkMenu.actionFailed", { err: "clipboard write returned false" });
+      error.value = t("chat.fileLinkMenu.actionFailed", { err: t("chat.copyFailed") });
       return;
     }
     close();

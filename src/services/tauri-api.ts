@@ -921,13 +921,49 @@ export async function writeTransportClipboardText(text: string): Promise<boolean
   return true;
 }
 
+export type TransportClipboardImageDataUrl = { mime: string; base64: string };
+
+/**
+ * 解析剪贴板图片数据 URL。
+ *
+ * 聊天图片默认是 webp，且 data URL 可能带 `;charset=utf-8` 这类中间参数，
+ * 正则要能吃掉它们。裸 base64 按 fallbackMime 处理；`data:` 形态但缺
+ * `;base64` 段时抛明确错误，避免下游误报成「解码失败」。
+ */
+export function parseClipboardImageDataUrl(
+  dataUrl: string,
+  fallbackMime = "image/png",
+): TransportClipboardImageDataUrl {
+  const text = String(dataUrl || "").trim();
+  if (!text.startsWith("data:")) {
+    return { mime: fallbackMime.toLowerCase(), base64: text.replace(/\s+/g, "") };
+  }
+  const match = text.match(/^data:([^;,]+)((?:;[^;,]+)*);base64,([\s\S]*)$/);
+  if (!match) {
+    throw new Error("图片数据不是 base64 data URL：缺少 ;base64 段");
+  }
+  return {
+    mime: match[1].toLowerCase(),
+    base64: match[3].replace(/\s+/g, ""),
+  };
+}
+
+/** 浏览器只保证写 image/png；非 png 先经 OffscreenCanvas 转码再写。 */
+export async function toPngBlob(blob: Blob): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob);
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("无法创建 2D 画布上下文");
+  context.drawImage(bitmap, 0, 0);
+  return canvas.convertToBlob({ type: "image/png" });
+}
+
 /**
  * 写图片到剪贴板的唯一入口。`path` 与 `base64` 二选一。
  *
- * 桌面端与 Web 端统一写位图：gif / webp 会变成静态首帧，原文件由
- * 预览工具栏的下载按钮提供，复制不承担给出原文件的职责。
- * Web 分支里 base64 → Blob 的转换全部同步完成（atob），
- * `navigator.clipboard.write` 是该分支第一个 await。
+ * 桌面端走插件命令；Web 端无论源格式是什么，最终都写 image/png——
+ * 聊天图片默认 webp，而 navigator.clipboard.write 只保证 png。
+ * png 直写省一次解码，其余经 OffscreenCanvas 转码；转码失败返回 false。
  */
 export async function writeTransportClipboardImage(input: {
   path?: string;
@@ -937,12 +973,15 @@ export async function writeTransportClipboardImage(input: {
   let path = String(input.path || "").trim();
   let base64 = String(input.base64 || "").trim();
   let mime = String(input.mime || "image/png").trim() || "image/png";
-  // 调用方拿到的是 data URL（data:image/png;base64,...），这里统一拆成
-  // mime + 纯 base64 payload，桌面命令与 Web ClipboardItem 都只认纯 payload。
-  const dataUrlMatch = base64.match(/^data:([^;,]+);base64,([\s\S]*)$/);
-  if (dataUrlMatch) {
-    mime = dataUrlMatch[1];
-    base64 = dataUrlMatch[2];
+  if (base64) {
+    try {
+      const parsed = parseClipboardImageDataUrl(base64, mime);
+      mime = parsed.mime;
+      base64 = parsed.base64;
+    } catch (error) {
+      console.warn("[剪贴板图片] 解析图片数据失败", error);
+      return false;
+    }
   }
   if (!path && !base64) return false;
   if (isTauriRuntimeAvailable()) {
@@ -953,28 +992,25 @@ export async function writeTransportClipboardImage(input: {
   }
   if (!base64) return false;
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-  await navigator.clipboard.write([
-    new ClipboardItem({ [mime]: new Blob([bytes], { type: mime }) }),
-  ]);
+  const source = new Blob([bytes], { type: mime });
+  let payload: Blob;
+  try {
+    payload = mime === "image/png" ? source : await toPngBlob(source);
+  } catch (error) {
+    console.warn("[剪贴板图片] 转 PNG 失败", error);
+    return false;
+  }
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": payload })]);
   return true;
-}
-
-/** 浏览器剪贴板只保证 png/jpeg；拆 data URL 并校验 mime，不合格返回 null。 */
-function clipboardImageMimeFromDataUrl(dataUrl: string): string | null {
-  const match = String(dataUrl || "").trim().match(/^data:([^;,]+);base64,([\s\S]*)$/);
-  if (!match) return null;
-  const mime = match[1].toLowerCase();
-  return mime === "image/png" || mime === "image/jpeg" ? mime : null;
 }
 
 /**
  * 复制聊天图片。
  *
  * 桌面端直接传本机路径。Web 端优先用调用方手里现成的 dataUrl——那张图已经
- * 渲染在页面上，直接用它可以让 `navigator.clipboard.write` 成为从点击到写入
- * 之间唯一的 await，用户手势完整；没传 dataUrl 时才退回跨 bridge 读图，
+ * 渲染在页面上，可以直接写；没传 dataUrl 时才退回跨 bridge 读图，
  * 那条路径会先 await 一次读取，手势不保证有效，属于兜底。
- * 非 png/jpeg 一律返回 false（动图请用下载按钮），不在这里偷偷触发下载。
+ * 源格式不在此处限制：webp / jpeg 等在 transport 层统一转成 png 再写。
  */
 export async function copyTransportChatImageToClipboard(
   path: string,
@@ -987,17 +1023,12 @@ export async function copyTransportChatImageToClipboard(
   }
   const provided = String(dataUrl || "").trim();
   if (provided) {
-    const mime = clipboardImageMimeFromDataUrl(provided);
-    if (!mime) return false;
-    return writeTransportClipboardImage({ base64: provided, mime });
+    return writeTransportClipboardImage({ base64: provided });
   }
   // 兜底：read_local_chat_image_original 在 Web bridge 白名单内，但这一跳
   // 会让用户手势跨过异步边界，浏览器可能拒绝随后的 clipboard.write。
   const image = await readTransportChatImage({ path: normalizedPath, original: true });
-  const fallback = String(image?.dataUrl || "");
-  const mime = clipboardImageMimeFromDataUrl(fallback);
-  if (!mime) return false;
-  return writeTransportClipboardImage({ base64: fallback, mime });
+  return writeTransportClipboardImage({ base64: String(image?.dataUrl || "") });
 }
 
 export async function saveTransportChatImageAs(path: string): Promise<boolean> {

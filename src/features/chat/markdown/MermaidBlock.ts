@@ -97,7 +97,8 @@ const MermaidBlock = defineComponent({
 
     async function copyMermaidCode() {
       try {
-        await writeTransportClipboardText(mermaidProps.code || "");
+        const written = await writeTransportClipboardText(mermaidProps.code || "");
+        if (!written) return;
         copied.value = true;
         if (copyTimer) clearTimeout(copyTimer);
         copyTimer = window.setTimeout(() => {

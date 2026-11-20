@@ -114,7 +114,8 @@ let copiedCodeTimer = 0;
 
 async function copyCodeBlock(key: string, text: string) {
   try {
-    await writeTransportClipboardText(String(text || ""));
+    const written = await writeTransportClipboardText(String(text || ""));
+    if (!written) return;
     copiedCodeKey.value = key;
     if (copiedCodeTimer) window.clearTimeout(copiedCodeTimer);
     copiedCodeTimer = window.setTimeout(() => {

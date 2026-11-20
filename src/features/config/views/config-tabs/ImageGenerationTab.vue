@@ -963,7 +963,11 @@ async function copyGeneratedImage(relativePath: string) {
   if (!value || copyingImage.value) return;
   copyingImage.value = true;
   try {
-    await copyTransportChatImageToClipboard(`{Assistant Space}/${value}`, testPreviewDataUrl.value);
+    const copied = await copyTransportChatImageToClipboard(`{Assistant Space}/${value}`, testPreviewDataUrl.value);
+    if (!copied) {
+      props.setStatusAction(t("config.imageGeneration.copyFailed"));
+      return;
+    }
     props.setStatusAction(t("config.imageGeneration.imageCopied"));
   } catch (error) {
     testError.value = String(error instanceof Error ? error.message : error || t("config.imageGeneration.copyFailed"));

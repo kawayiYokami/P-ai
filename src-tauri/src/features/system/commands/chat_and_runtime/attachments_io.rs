@@ -699,6 +699,9 @@ async fn read_local_chat_image_original_inner(
     .map_err(|err| format!("读取本地图片原图任务异常：{err}"))?
 }
 
+/// base64 图片解码后的大小上限：避免先整体 decode 再 load_from_memory 造成峰值叠加。
+const CLIPBOARD_IMAGE_BASE64_MAX_BYTES: usize = 64 * 1024 * 1024;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipboardWriteImageInput {
@@ -744,9 +747,24 @@ async fn clipboard_write_image(
             }
             (None, Some(base64)) => {
                 use base64::Engine as _;
-                base64::engine::general_purpose::STANDARD
+                // 解码前按字符串长度预估，超限就不做 decode，避免大分配。
+                let estimated = base64.len().saturating_mul(3) / 4;
+                if estimated > CLIPBOARD_IMAGE_BASE64_MAX_BYTES {
+                    return Err(format!(
+                        "图片数据过大：预计 {} 字节，上限 {} 字节",
+                        estimated, CLIPBOARD_IMAGE_BASE64_MAX_BYTES
+                    ));
+                }
+                let decoded = base64::engine::general_purpose::STANDARD
                     .decode(base64)
-                    .map_err(|err| format!("解码图片数据失败：{err}"))?
+                    .map_err(|err| format!("解码图片数据失败：{err}"))?;
+                if decoded.len() > CLIPBOARD_IMAGE_BASE64_MAX_BYTES {
+                    return Err(format!(
+                        "图片数据过大：解码后 {} 字节，上限 {} 字节",
+                        decoded.len(), CLIPBOARD_IMAGE_BASE64_MAX_BYTES
+                    ));
+                }
+                decoded
             }
             (None, None) => return Err("图片来源不能为空".to_string()),
         };

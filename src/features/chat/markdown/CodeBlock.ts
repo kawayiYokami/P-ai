@@ -206,7 +206,8 @@ const CodeBlock = defineComponent({
 
     async function copyCode() {
       try {
-        await writeTransportClipboardText(codeProps.code || "");
+        const written = await writeTransportClipboardText(codeProps.code || "");
+        if (!written) return;
         copied.value = true;
         if (copyTimer) clearTimeout(copyTimer);
         copyTimer = window.setTimeout(() => {

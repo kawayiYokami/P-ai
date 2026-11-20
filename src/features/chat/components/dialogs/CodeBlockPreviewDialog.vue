@@ -40,7 +40,8 @@ const languageLabel = computed(() => String(props.lang || "").trim() || "text");
 
 async function copyCode() {
   try {
-    await writeTransportClipboardText(String(props.code || ""));
+    const written = await writeTransportClipboardText(String(props.code || ""));
+    if (!written) return;
     copied.value = true;
     if (copiedTimer) window.clearTimeout(copiedTimer);
     copiedTimer = window.setTimeout(() => {

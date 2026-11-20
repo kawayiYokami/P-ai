@@ -4185,9 +4185,13 @@ const imagePreviewSaveStatus = ref<string>('idle');
 async function handleCopyLocalImage(path: string) {
   imagePreviewCopyStatus.value = 'doing';
   try {
-    await copyTransportChatImageToClipboard(path, imagePreviewDataUrl.value);
+    const copied = await copyTransportChatImageToClipboard(path, imagePreviewDataUrl.value);
+    if (!copied) {
+      showTransientNotice(t("chat.copyFailed"), "error");
+    }
   } catch (error) {
     console.warn('[预览] 复制图片失败', error);
+    showTransientNotice(t("chat.copyFailed"), "error");
   } finally {
     imagePreviewCopyStatus.value = 'idle';
   }

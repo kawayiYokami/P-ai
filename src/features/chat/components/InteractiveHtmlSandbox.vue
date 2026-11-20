@@ -371,7 +371,8 @@ function toggleViewMode() {
 
 async function copyCode() {
   try {
-    await writeTransportClipboardText(props.code || "");
+    const written = await writeTransportClipboardText(props.code || "");
+    if (!written) return;
     copied.value = true;
     if (copyTimer) window.clearTimeout(copyTimer);
     copyTimer = window.setTimeout(() => {
