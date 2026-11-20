@@ -1650,7 +1650,7 @@ const activityMaskStyle = {
   WebkitMaskImage: "linear-gradient(to bottom, #000 calc(100% - 2rem), transparent)",
 };
 
-const bubbleFollow = createGradualHeight({ transitionMs: 120 });
+const bubbleFollow = createGradualHeight();
 
 let bubbleFollowRaf = 0;
 
