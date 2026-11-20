@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-17T11:43:57.137Z",
-  "latestVersion": "v0.98.4",
+  "generatedAt": "2026-11-20T22:18:43.827Z",
+  "latestVersion": "v0.98.5",
   "releases": [
+    {
+      "version": "v0.98.5",
+      "path": "docs/changelog/releases/v0.98.5.md",
+      "summary": "Codex 供应商现在能直接生图和改图：走它自己的图片接口，不再绕道对话接口。图片模型由 ChatGPT 决定，界面上不再给一个假的版本下拉；可添加的模型清单也从接口实时拉取，拉不到才回落到内置名单。"
+    },
     {
       "version": "v0.98.4",
       "path": "docs/changelog/releases/v0.98.4.md",
