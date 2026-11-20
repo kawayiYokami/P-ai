@@ -34,10 +34,10 @@ const emit = defineEmits<{
 }>();
 
 const SAFE = 12;
-const MAX_GAP = 31;
+// 点阵间距固定，宽度放不下时换行而不是压缩间距；MIN_GAP 只用于判断可用空间是否小到画不下
+const DOT_GAP = 31;
 const MIN_GAP = 21;
 const PADDING = 21;
-const DOT_HIT = 23;
 const DOT_SMALL = 8;
 const DOT_FOCUSED = 14;
 const PREVIEW_MAX_W = 440;
@@ -210,32 +210,13 @@ const layout = computed(() => {
   const availW = vp.width - SAFE * 2;
   const availH = ar ? Math.max(32, ar.bottom - vp.top - SAFE) : vp.height - SAFE * 2;
   if (N === 0 || availW < MIN_GAP || availH < MIN_GAP) return null;
-  let gap = MAX_GAP;
-  let cols = 1;
-  let rows = 1;
-  let previewCols = 0;
-  let fits = false;
-  for (; gap >= MIN_GAP; gap -= 2) {
-    const cc = previewColsFor();
-    const maxCols = Math.max(1, Math.floor(availW / gap));
-    const maxRows = Math.max(1, Math.floor(availH / gap));
-    // 底行要铺满全部锚点，预览点另占一格；列数不超过可用宽度
-    const wantCols = Math.min(maxCols, Math.max(cc + 1, N + cc));
-    const wantRows = rowsForCols(N, wantCols, cc);
-    if (wantRows <= maxRows) {
-      cols = wantCols;
-      rows = wantRows;
-      previewCols = cc;
-      fits = true;
-      break;
-    }
-  }
-  if (!fits) {
-    gap = MIN_GAP;
-    previewCols = previewColsFor();
-    cols = Math.max(previewCols + 1, Math.floor(availW / gap));
-    rows = rowsForCols(N, cols, previewCols);
-  }
+  // 间距固定：宽度放不下就换行，不压缩间距。行数由列数与锚点数决定，
+  // 可用高度只约束卡片高度上限，不反过来挤压间距。
+  const gap = DOT_GAP;
+  const previewCols = previewColsFor();
+  const maxCols = Math.max(1, Math.floor(availW / gap));
+  const cols = Math.min(maxCols, Math.max(previewCols + 1, N + previewCols));
+  const rows = rowsForCols(N, cols, previewCols);
   const cardW = Math.max(Math.min((cols - 1) * gap + PADDING * 2, availW), 32);
   const cardH = Math.max(Math.min((rows - 1) * gap + PADDING * 2, availH), 32);
   const posByIndex = new Map<number, { x: number; y: number }>();
@@ -267,8 +248,8 @@ const previewDotStyle = computed(() => {
     position: "absolute",
     left: `${PADDING + (l.cols - 1) * l.gap}px`,
     top: `${PADDING + (l.rows - 1) * l.gap}px`,
-    width: `${DOT_HIT}px`,
-    height: `${DOT_HIT}px`,
+    width: `${l.gap}px`,
+    height: `${l.gap}px`,
     transform: "translate(-50%, -50%)",
   } as Record<string, string>;
 });
@@ -405,11 +386,14 @@ function isActive(index: number) {
 function dotStyle(anchor: TimelineAnchor): Record<string, string> {
   const p = layout.value?.posByIndex.get(anchor.index);
   if (!p) return { display: "none" };
+  // 命中格边长取间距本身，相邻格边缘相接、不留缝：鼠标落在任意位置都属于某一格，
+  // 不会出现「停在两格之间什么都不触发」的死区。
+  const hit = layout.value?.gap ?? MIN_GAP;
   return {
     left: `${p.x}px`,
     top: `${p.y}px`,
-    width: `${DOT_HIT}px`,
-    height: `${DOT_HIT}px`,
+    width: `${hit}px`,
+    height: `${hit}px`,
     transform: "translate(-50%, -50%)",
   };
 }
@@ -571,17 +555,17 @@ defineExpose({ containsNode });
               :d="smoothSnakePath"
               fill="none"
               stroke="var(--color-base-300)"
-              stroke-width="2.5"
+              stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
-              class="opacity-70"
+              class="opacity-50"
             />
-                    </svg>
+          </svg>
           <button
             v-for="anchor in anchors"
             :key="anchor.id"
             type="button"
-            class="absolute flex items-center justify-center rounded-full"
+            class="absolute flex items-center justify-center"
             :style="dotStyle(anchor)"
             :aria-label="anchor.userText.slice(0, 30)"
             @mouseenter="emit('hover', anchor.index)"
@@ -622,7 +606,7 @@ defineExpose({ containsNode });
         >
           <button
             type="button"
-            class="ecall-snake-preview-dot group flex items-center justify-center rounded-full"
+            class="ecall-snake-preview-dot group flex items-center justify-center"
             :aria-label="previewLabel"
             @mouseenter="handlePreviewDotEnter"
             @mouseleave="handlePreviewDotLeave"
