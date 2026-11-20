@@ -182,9 +182,22 @@ fn resolve_runtime_log_dir() -> Option<PathBuf> {
     Some(log_dir)
 }
 
-fn runtime_log_pending() -> &'static Mutex<Vec<(log::Level, String)>> {
-    static RUNTIME_LOG_PENDING: OnceLock<Mutex<Vec<(log::Level, String)>>> = OnceLock::new();
-    RUNTIME_LOG_PENDING.get_or_init(|| Mutex::new(Vec::new()))
+fn runtime_log_pending() -> &'static Mutex<std::collections::VecDeque<(log::Level, String)>> {
+    type Pending = Mutex<std::collections::VecDeque<(log::Level, String)>>;
+    static RUNTIME_LOG_PENDING: OnceLock<Pending> = OnceLock::new();
+    RUNTIME_LOG_PENDING.get_or_init(|| Mutex::new(std::collections::VecDeque::new()))
+}
+
+/// pending 当前条数：flush 的快速路径用它避开无谓的全局锁，由 push/drain 在锁内维护。
+fn runtime_log_pending_count() -> &'static std::sync::atomic::AtomicUsize {
+    static COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    &COUNT
+}
+
+/// 启动期 pending 满后被丢弃的条数，flush 时随日志一起报出来。
+fn runtime_log_pending_dropped() -> &'static std::sync::atomic::AtomicUsize {
+    static DROPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    &DROPPED
 }
 
 fn runtime_log_logger_ready_flag() -> &'static std::sync::atomic::AtomicBool {
@@ -256,10 +269,13 @@ fn runtime_log_plugin_builder() -> tauri_plugin_log::Builder {
                 ));
             }
             Err(err) => {
-                runtime_log_write_stderr(&format!(
+                let message = format!(
                     "[日志] 日志文件不可写，本次只输出到 stderr path={} err={err}",
                     log_file.display()
-                ));
+                );
+                runtime_log_write_stderr(&message);
+                // release 没有控制台，stderr 那句看不见；再进内存缓冲让前端日志窗口能看到。
+                runtime_log_warn(message);
             }
         }
     }
@@ -289,10 +305,13 @@ fn init_cli_file_logger() {
         });
     if let Some(dir) = resolve_runtime_log_dir() {
         cleanup_stale_cli_log_files(&dir);
-        // 按天分文件（backend_2026-11-20.log）：下划线前缀、单点，与桌面侧 rotate 命名一致。
+        // 按天分文件（backend-cli_2026-11-20.log）。文件名必须避开 backend_ 前缀：
+        // 插件 remove_old_files 用 strip_prefix("backend") + strip_prefix("_") 认归档，
+        // 用 backend_<日期>.log 会被它当成归档删掉；CLI 正持有时 Windows 上删除失败，
+        // 那个 ? 冒到插件 setup，最终让 build 失败、窗口都出不来。
         // DateBased 没有字节上限，真正的上界是「一个自然日内这个进程写了多少」。
         dispatch = dispatch.chain(fern::DateBased::new(
-            dir.join(format!("{RUNTIME_LOG_FILE_NAME}_")),
+            dir.join(format!("{RUNTIME_LOG_FILE_NAME}-cli_")),
             "%Y-%m-%d.log",
         ));
     }
@@ -300,16 +319,21 @@ fn init_cli_file_logger() {
         dispatch = dispatch.chain(std::io::stderr());
     }
     if let Err(err) = dispatch.apply() {
-        runtime_log_write_stderr(&format!(
-            "[日志] 初始化 CLI 文件日志失败，将只保留内存缓冲: {err}"
-        ));
+        let message = format!("[日志] 初始化 CLI 文件日志失败，将只保留内存缓冲: {err}");
+        runtime_log_write_stderr(&message);
+        runtime_log_warn(message);
     }
 }
 
-/// 清理 CLI 按天日志：与桌面侧 keep=20 同口径，按个数保留最近 RUNTIME_LOG_FILE_KEEP 个。
-/// 不再按天数删：桌面 rotate 的文件也叫 backend_日期.log，与 CLI 共用目录和命名，
-/// 按天数删会单方面缩短桌面的日志历史。
-/// 旧版本双点命名一律删除；其它文件不碰；失败只 warn，不影响 logger 初始化。
+/// 清理 CLI 按天日志：当前命名 backend-cli_<日期>.log 按个数保留最近 KEEP 个，
+/// 与桌面侧 keep=20 同口径；桌面归档名不碰、也不占保留名额。
+/// 废弃命名（backend..<日期>.log / backend.<日期>.log / backend_<日期>.log）一律删除。
+/// 其它文件不碰；失败只 warn，不影响 logger 初始化。
+fn is_iso_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    value.len() == 10 && bytes.get(4) == Some(&b'-') && bytes.get(7) == Some(&b'-')
+}
+
 fn cleanup_stale_cli_log_files(dir: &std::path::Path) {
     let mut dated: Vec<(String, PathBuf)> = Vec::new();
     let entries = match fs::read_dir(dir) {
@@ -324,31 +348,31 @@ fn cleanup_stale_cli_log_files(dir: &std::path::Path) {
         let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
             continue;
         };
-        let Some((date, legacy)) = name
-            .strip_prefix(&format!("{RUNTIME_LOG_FILE_NAME}_"))
+
+        // 当前 CLI 命名，进保留名单。
+        if let Some(date) = name
+            .strip_prefix(&format!("{RUNTIME_LOG_FILE_NAME}-cli_"))
             .and_then(|rest| rest.strip_suffix(".log"))
-            .map(|date| (date, false))
-            .or_else(|| {
-                name.strip_prefix(&format!("{RUNTIME_LOG_FILE_NAME}."))
-                    .and_then(|rest| rest.strip_suffix(".log"))
-                    .map(|date| (date, true))
-            })
-        else {
-            continue;
-        };
-        // 只认 YYYY-MM-DD，避免误删同名前缀的其它文件。
-        let bytes = date.as_bytes();
-        if date.len() != 10 || bytes.get(4) != Some(&b'-') || bytes.get(7) != Some(&b'-') {
-            continue;
-        }
-        if legacy {
-            // 双点那批不会再产生，也没有人会读，一律删。
-            if let Err(err) = fs::remove_file(&path) {
-                runtime_log_warn(format!("[日志] 清理旧日志失败 path={} err={err}", path.display()));
+        {
+            if is_iso_date(date) {
+                dated.push((date.to_string(), path));
             }
             continue;
         }
-        dated.push((date.to_string(), path));
+
+        // 废弃命名：先剥前缀与 .log；双点名剩下的部分还带一个前导点，再剥一次。
+        let legacy_date = name
+            .strip_prefix(&format!("{RUNTIME_LOG_FILE_NAME}_"))
+            .or_else(|| name.strip_prefix(&format!("{RUNTIME_LOG_FILE_NAME}.")))
+            .and_then(|rest| rest.strip_suffix(".log"))
+            .map(|rest| rest.strip_prefix('.').unwrap_or(rest));
+        if let Some(date) = legacy_date {
+            if is_iso_date(date) {
+                if let Err(err) = fs::remove_file(&path) {
+                    runtime_log_warn(format!("[日志] 清理旧日志失败 path={} err={err}", path.display()));
+                }
+            }
+        }
     }
     // 日期倒序，保留最新 KEEP 个，其余删；与桌面插件的 KeepSome(KEEP) 对齐。
     dated.sort_by(|a, b| b.0.cmp(&a.0));
@@ -381,24 +405,29 @@ fn runtime_log_switch_to_cli_file_logger() {
 /// 把 logger 就绪前缓存的条目补写到 logger。
 ///
 /// 先整体取走再逐条写：写的过程中不持有 pending 锁，避免 logger 内部锁与它互相嵌套。
-fn runtime_log_pending_flush_done() -> &'static std::sync::atomic::AtomicBool {
-    static FLUSH_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    &FLUSH_DONE
-}
-
 fn runtime_log_flush_pending() {
     if !runtime_log_logger_ready() {
         return;
     }
-    // 全局 pending 只需冲一次；就绪后的每条日志直接走 log::log!，不再重复加锁空转。
-    if runtime_log_pending_flush_done().load(std::sync::atomic::Ordering::Relaxed) {
+    // 快速路径：pending 为空时直接返回，不抢全局锁；计数由 push/drain 在锁内维护。
+    if runtime_log_pending_count().load(std::sync::atomic::Ordering::Relaxed) == 0 {
         return;
     }
     let drained = match runtime_log_pending().lock() {
-        Ok(mut pending) => std::mem::take(&mut *pending),
+        Ok(mut pending) => {
+            runtime_log_pending_count().store(0, std::sync::atomic::Ordering::Relaxed);
+            std::mem::take(&mut *pending)
+        }
         Err(_) => return,
     };
-    runtime_log_pending_flush_done().store(true, std::sync::atomic::Ordering::Relaxed);
+    let dropped = runtime_log_pending_dropped().swap(0, std::sync::atomic::Ordering::Relaxed);
+    if dropped > 0 {
+        log::log!(
+            target: RUNTIME_LOG_TARGET,
+            log::Level::Warn,
+            "[日志] 启动期溢出丢弃 {dropped} 条"
+        );
+    }
     for (level, message) in drained {
         log::log!(target: RUNTIME_LOG_TARGET, level, "{}", message);
     }
@@ -580,9 +609,11 @@ fn runtime_log_push(level: &str, message: String) {
     } else if let Ok(mut pending) = runtime_log_pending().lock() {
         // 满了丢最旧的：保留靠近失败点的最新条目，它们才是排障最需要的。
         if pending.len() >= RUNTIME_LOG_PENDING_MAX {
-            pending.remove(0);
+            pending.pop_front();
+            runtime_log_pending_dropped().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-        pending.push((log_level, normalized_message.clone()));
+        pending.push_back((log_level, normalized_message.clone()));
+        runtime_log_pending_count().store(pending.len(), std::sync::atomic::Ordering::Relaxed);
     }
     let created_at = now_log_local_rfc3339();
     let Ok(mut buf) = runtime_log_buffer().lock() else {
@@ -1864,7 +1895,37 @@ mod runtime_log_pipeline_tests {
             .any(|entry| entry.level == "warn" && entry.message.contains("日志窗口探针")));
     }
 
-    /// CLI 清理：超过 KEEP 个时删最旧、留最新 KEEP 个；双点旧命名一律删，无关文件不动。
+    /// 废弃命名（真实双点 / 单点 / date-only）一律删除；活动文件与桌面归档不碰。
+    #[test]
+    fn cleanup_stale_cli_log_files_should_drop_legacy_names_and_keep_active_and_archives() {
+        let dir = std::env::temp_dir().join(format!("pai-log-cleanup-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+
+        let legacy = [
+            format!("{RUNTIME_LOG_FILE_NAME}..2026-11-19.log"),
+            format!("{RUNTIME_LOG_FILE_NAME}.2026-11-19.log"),
+            format!("{RUNTIME_LOG_FILE_NAME}_2026-11-19.log"),
+        ];
+        let keep = [
+            format!("{RUNTIME_LOG_FILE_NAME}.log"),
+            format!("{RUNTIME_LOG_FILE_NAME}_2026-11-20_14-07-33.log"),
+            "other.log".to_string(),
+        ];
+        for name in legacy.iter().chain(keep.iter()) {
+            fs::write(dir.join(name), "x").expect("write fixture");
+        }
+
+        cleanup_stale_cli_log_files(&dir);
+        for name in &legacy {
+            assert!(!dir.join(name).exists(), "废弃命名 {name} 应删除");
+        }
+        for name in &keep {
+            assert!(dir.join(name).exists(), "{name} 不应被删");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// CLI 清理：超过 KEEP 个时删最旧、留最新 KEEP 个；桌面归档不删也不占名额。
     #[test]
     fn cleanup_stale_cli_log_files_should_keep_newest_k_and_drop_older() {
         let now = time::OffsetDateTime::now_utc();
@@ -1875,17 +1936,14 @@ mod runtime_log_pipeline_tests {
         let mut paths = Vec::new();
         for i in 0..(RUNTIME_LOG_FILE_KEEP + 5) as i64 {
             let date = (now.date() - time::Duration::days(i)).to_string();
-            let path = dir.join(format!("{RUNTIME_LOG_FILE_NAME}_{date}.log"));
+            let path = dir.join(format!("{RUNTIME_LOG_FILE_NAME}-cli_{date}.log"));
             fs::write(&path, "x").expect("write fixture");
             paths.push(path);
         }
-        let legacy = dir.join(format!("{RUNTIME_LOG_FILE_NAME}.{}.log", now.date()));
-        let unrelated = dir.join("other.log");
-        fs::write(&legacy, "x").expect("write legacy fixture");
-        fs::write(&unrelated, "x").expect("write unrelated fixture");
+        let archive = dir.join(format!("{RUNTIME_LOG_FILE_NAME}_2026-11-20_14-07-33.log"));
+        fs::write(&archive, "x").expect("write archive fixture");
 
         cleanup_stale_cli_log_files(&dir);
-
         for (i, path) in paths.iter().enumerate() {
             assert_eq!(
                 path.exists(),
@@ -1893,8 +1951,7 @@ mod runtime_log_pipeline_tests {
                 "第 {i} 新的文件保留状态不符"
             );
         }
-        assert!(!legacy.exists(), "旧版双点命名应一律删除");
-        assert!(unrelated.exists(), "无关文件不应被删");
+        assert!(archive.exists(), "桌面归档不应被删，也不应占用保留名额");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1908,7 +1965,7 @@ mod runtime_log_pipeline_tests {
         let mut paths = Vec::new();
         for i in 0..3i64 {
             let date = (now.date() - time::Duration::days(i)).to_string();
-            let path = dir.join(format!("{RUNTIME_LOG_FILE_NAME}_{date}.log"));
+            let path = dir.join(format!("{RUNTIME_LOG_FILE_NAME}-cli_{date}.log"));
             fs::write(&path, "x").expect("write fixture");
             paths.push(path);
         }
