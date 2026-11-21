@@ -31,8 +31,7 @@ if (-not (Test-Path -LiteralPath $vsixPath)) {
   throw "VSIX package not found: $vsixPath"
 }
 
-Write-Host "[vscode-sidebar] Publishing to Visual Studio Marketplace using Entra ID (--azure-credential)..."
-Write-Host "[vscode-sidebar] A browser window will open for Microsoft account login if needed."
+Write-Host "[vscode-sidebar] Publishing to Visual Studio Marketplace with the local vsce login..."
 
 Push-Location $extensionDir
 try {
@@ -42,7 +41,6 @@ try {
     "publish",
     "--packagePath",
     $vsixPath,
-    "--azure-credential",
     "--allow-missing-repository",
     "--skip-license"
   )
