@@ -20,49 +20,8 @@ fn build_agents_file(agents: &[AgentProfile]) -> AgentsFile {
 
 // ==================== 人格文件：内置打底 + 文件覆盖，逐条容错 ====================
 
-fn agents_corrupt_backup_index(
-) -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, (u64, PathBuf)>> {
-    static INDEX: OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, (u64, PathBuf)>>> =
-        OnceLock::new();
-    INDEX.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
 
-fn agents_content_fingerprint(bytes: &[u8]) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    hasher.finish()
-}
 
-fn backup_corrupt_agents_file(path: &PathBuf) -> Result<PathBuf, String> {
-    let original = fs::read(path).map_err(|err| format!("读取待备份人格文件失败: {err}"))?;
-    let fingerprint = agents_content_fingerprint(&original);
-    if let Ok(index) = agents_corrupt_backup_index().lock() {
-        if let Some((known, known_path)) = index.get(path) {
-            if *known == fingerprint && known_path.exists() {
-                return Ok(known_path.clone());
-            }
-        }
-    }
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis())
-        .unwrap_or_default();
-    let backup_path = path.with_extension(format!("json.corrupt-{stamp}"));
-    fs::copy(path, &backup_path).map_err(|err| format!("备份人格文件失败: {err}"))?;
-    let copied = fs::read(&backup_path).map_err(|err| format!("校验备份失败: {err}"))?;
-    if copied != original {
-        return Err(format!(
-            "备份校验不一致（原文件 {} 字节，备份 {} 字节）",
-            original.len(),
-            copied.len()
-        ));
-    }
-    if let Ok(mut index) = agents_corrupt_backup_index().lock() {
-        index.insert(path.clone(), (fingerprint, backup_path.clone()));
-    }
-    Ok(backup_path)
-}
 
 fn record_agents_repair_note(messages: &mut Vec<String>, message: String) {
     runtime_log_warn(format!("[配置] {message}"));
@@ -92,295 +51,40 @@ fn agents_syntax_error_message(
     )
 }
 
-fn salvage_agents_from_broken_text(content: &str) -> Vec<AgentProfile> {
-    let options = agents_jsonc_salvage_options();
-    let mut salvaged = Vec::<AgentProfile>::new();
-    let mut consumed_until = 0usize;
-    for (start, ch) in content.char_indices() {
-        if ch != '{' || start < consumed_until {
-            continue;
-        }
-        let Some(end) = matching_brace_end(content, start) else {
-            continue;
-        };
-        let slice = &content[start..=end];
-        let parsed = parse_agents_jsonc(slice, &options)
-            .ok()
-            .filter(|value| value.is_object())
-            .filter(|value| {
-                // 必须至少有一个能认出是人格的键，否则权限块、模型配置块之类也会被当成人格。
-                value.get("id").is_some()
-                    || value.get("name").is_some()
-                    || value.get("systemPrompt").is_some()
-            })
-            .and_then(|value| serde_json::from_value::<AgentProfile>(value).ok());
-        if let Some(mut agent) = parsed {
-            normalize_agent(&mut agent);
-            salvaged.push(agent);
-            consumed_until = end + 1;
-        }
-    }
-    salvaged
-}
-
-fn matching_brace_end(content: &str, start: usize) -> Option<usize> {
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    for (offset, ch) in content[start..].char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match ch {
-            '"' => in_string = true,
-            '{' => depth += 1,
-            '}' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some(start + offset);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-struct AgentsReadOutcome {
-    agents: Vec<AgentProfile>,
-    fell_back: bool,
-}
-
-impl AgentsReadOutcome {
-    fn normal(agents: Vec<AgentProfile>) -> Self {
-        Self {
-            agents,
-            fell_back: false,
-        }
-    }
-
-    fn fell_back(agents: Vec<AgentProfile>) -> Self {
-        Self {
-            agents,
-            fell_back: true,
-        }
-    }
-}
-
 #[cfg(test)]
 fn read_agents_shard(path: &PathBuf) -> Result<Vec<AgentProfile>, String> {
-    read_agents_shard_outcome(path).map(|outcome| outcome.agents)
+    read_agents_shard_outcome(path)
 }
 
-fn read_agents_shard_outcome(path: &PathBuf) -> Result<AgentsReadOutcome, String> {
+/// 读旧单文件人格库：只读，不修复、不备份、不写回。
+///
+/// 读不到或解析不了就返回 Err，由各步迁移入口记日志并跳过这一步——
+/// 迁移不允许失败，但也不需要假装读到了东西。
+fn read_agents_shard_outcome(path: &PathBuf) -> Result<Vec<AgentProfile>, String> {
     let agents_path = app_layout_agents_path(path);
-    // 结论先攒在本轮里，读完一次性发布：读取中途不能被别的读取刷掉。
-    let mut diagnostics = Vec::<String>::new();
-    let outcome = read_agents_file_outcome(path, &agents_path, &mut diagnostics);
-    publish_agents_load_diagnostics(path, &diagnostics);
-    Ok(outcome)
-}
-
-fn read_agents_file_outcome(
-    data_path: &PathBuf,
-    agents_path: &PathBuf,
-    diagnostics: &mut Vec<String>,
-) -> AgentsReadOutcome {
     if !agents_path.exists() {
-        // 文件不存在：纯内置，与历史行为一致（这是正常状态，不是兜底）。
-        return AgentsReadOutcome::normal(built_in_agents());
+        return Ok(built_in_agents());
     }
-    let content = match fs::read_to_string(agents_path) {
-        Ok(content) => content,
-        Err(err) => {
-            // 读不出来（ANSI 另存导致的非 UTF-8、被占用、无权限）：这种情况没法修，
-            // 内容都没看到过，写回等于凭空覆盖。改用内置人格并禁止本次会话写回。
-            record_agents_load_diagnostic(
-                diagnostics,
-                format!(
-                    "读取人格文件失败（{}）：{err}。已改用内置人格，自定义人格本次未加载。\n为避免覆盖尚未读通的原文件，原文件保持不动。",
-                    agents_path.display()
-                ),
-            );
-            return AgentsReadOutcome::fell_back(built_in_agents());
-        }
-    };
-
-    let options = agents_jsonc_options();
-    let parsed = match parse_agents_jsonc(&content, &options) {
-        Ok(value) => value,
-        Err(err) => {
-            let detail = agents_syntax_error_message(
-                agents_path,
-                &content,
-                err.line,
-                err.column,
-                &err.detail,
-            );
-            let salvaged = salvage_agents_from_broken_text(&content);
-            return recover_broken_agents_file(
-                data_path,
-                agents_path,
-                salvaged,
-                detail,
-                diagnostics,
-            );
-        }
-    };
-
-    let items = match agents_items_from_value(&parsed) {
-        Some(items) => items,
-        None => {
-            // 语法合法但没有 agents 数组：按 0 条自定义人格处理（用户可能就是清空了文件）。
-            // 不备份、不写盘——文件本身是合法的。
-            record_agents_repair_note(
-                diagnostics,
-                format!(
-                    "人格文件 `{}` 里没有 agents 数组，本次按 0 条自定义人格处理",
-                    agents_path.display()
-                ),
-            );
-            Vec::new()
-        }
-    };
-
-    let (file_agents, skipped, mut normalized) = parse_agents_items(&items);
+    let content = fs::read_to_string(&agents_path)
+        .map_err(|err| format!("读取旧人格文件失败（{}）：{err}", agents_path.display()))?;
+    let parsed = parse_agents_jsonc(&content, &agents_jsonc_options()).map_err(|err| {
+        format!(
+            "旧人格文件 JSON 无效（{}）：{}",
+            agents_path.display(),
+            err.detail
+        )
+    })?;
+    let items = agents_items_from_value(&parsed).unwrap_or_default();
+    let (file_agents, _skipped, _normalized) = parse_agents_items(&items);
     let mut merged = merge_agents_with_built_in(file_agents);
-    for agent in merged.iter_mut() {
-        normalized |= apply_default_agent_name(agent);
-    }
-    if skipped.is_empty() && !normalized {
-        return AgentsReadOutcome::normal(merged);
-    }
-
-    // 有内容需要修复：先备份，再把修好的这份写回磁盘，让下次读就是干净的。
-    let mut reasons = Vec::<String>::new();
-    if !skipped.is_empty() {
-        reasons.push(format!(
-            "{} 条记录无法解析已丢弃：{}",
-            skipped.len(),
-            skipped.join("；")
-        ));
-    }
-    if normalized {
-        reasons.push("缺失字段已自动补齐".to_string());
-    }
-    let detail = format!(
-        "人格文件 `{}` {}",
-        agents_path.display(),
-        reasons.join("；")
-    );
-    let repaired = rewrite_agents_file_after_repair(
-        data_path,
-        agents_path,
-        &merged,
-        detail,
-        diagnostics,
-    );
-    if repaired {
-        // 磁盘已经等于内存里这份：缓存照常替换，不留「磁盘变了缓存还是旧的」。
-        AgentsReadOutcome::normal(merged)
-    } else {
-        // 修不动（备份失败 / 写盘失败）：不拿内存结果覆盖活缓存。
-        AgentsReadOutcome::fell_back(merged)
-    }
-}
-
-fn recover_broken_agents_file(
-    data_path: &PathBuf,
-    agents_path: &PathBuf,
-    salvaged: Vec<AgentProfile>,
-    detail: String,
-    diagnostics: &mut Vec<String>,
-) -> AgentsReadOutcome {
-    if salvaged.is_empty() {
-        // 一条都救不回来：绝不写一份空文件——那等于把用户的内容换成空，比不修更糟。
-        // 备份留档 + 内存用内置人格 + 活缓存保持旧值，等文件被改好。
-        match backup_corrupt_agents_file(agents_path) {
-            Ok(backup) => record_agents_load_diagnostic(
-                diagnostics,
-                format!(
-                    "{detail}\n一条也没能救回来，已改用内置人格；原文件保持不动，已备份为 `{}`。",
-                    backup.display()
-                ),
-            ),
-            Err(err) => {
-                record_agents_load_diagnostic(
-                    diagnostics,
-                    format!(
-                        "{detail}\n一条也没能救回来，已改用内置人格；原文件备份失败（{err}），原文件保持不动。"
-                    ),
-                );
-            }
-        }
-        return AgentsReadOutcome::fell_back(built_in_agents());
-    }
-    let salvaged_count = salvaged.len();
-    let mut merged = merge_agents_with_built_in(salvaged);
     for agent in merged.iter_mut() {
         apply_default_agent_name(agent);
     }
-    let detail = format!(
-        "{detail}\n已从原文件里救回 {salvaged_count} 条，救不回来的条目只留在备份里"
-    );
-    let repaired =
-        rewrite_agents_file_after_repair(data_path, agents_path, &merged, detail, diagnostics);
-    if repaired {
-        AgentsReadOutcome::normal(merged)
-    } else {
-        AgentsReadOutcome::fell_back(merged)
-    }
+    Ok(merged)
 }
 
-fn rewrite_agents_file_after_repair(
-    data_path: &PathBuf,
-    agents_path: &PathBuf,
-    agents: &[AgentProfile],
-    detail: String,
-    diagnostics: &mut Vec<String>,
-) -> bool {
-    let backup = match backup_corrupt_agents_file(agents_path) {
-        Ok(backup) => backup,
-        Err(err) => {
-            record_agents_load_diagnostic(
-                diagnostics,
-                format!(
-                    "{detail}\n原文件备份失败（{err}）：本次不改动该文件，避免覆盖你还能手工修好的数据。"
-                ),
-            );
-            return false;
-        }
-    };
-    match write_agents_shard(data_path, agents) {
-        Ok(_) => {
-            record_agents_repair_note(
-                diagnostics,
-                format!(
-                    "{detail}\n原文件已备份为 `{}`，人格文件已重写为合法 JSON。",
-                    backup.display()
-                ),
-            );
-            true
-        }
-        Err(err) => {
-            record_agents_load_diagnostic(
-                diagnostics,
-                format!(
-                    "{detail}\n原文件已备份为 `{}`，但重写失败（{err}）：本次先用内存里的人格继续。",
-                    backup.display()
-                ),
-            );
-            false
-        }
-    }
-}
+
+
 
 fn write_agents_shard(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, String> {
     let agents_path = app_layout_agents_path(path);
@@ -417,15 +121,7 @@ fn migrate_v5_to_v6(context: &DataMigrationContext<'_>) -> bool {
 }
 
 fn migrate_v5_to_v6_inner(context: &DataMigrationContext<'_>) -> Result<bool, String> {
-    let read = read_agents_shard_outcome(&context.state.data_path)?;
-    if read.fell_back {
-        // 文件坏了、这次拿到的是内置兜底值：拿它写回会把用户的自定义人格从原文件抹掉。
-        // 这一步没做成，版本不推进，下次启动从这一步重来。
-        return Err(
-            "头像路径迁移失败：人格文件损坏，本次读到的是内置兜底值，不写回".to_string(),
-        );
-    }
-    let mut agents = read.agents;
+    let mut agents = read_agents_shard_outcome(&context.state.data_path)?;
     let avatars_dir = avatar_storage_dir(context.state)?;
     let mut changed = false;
     let mut rewritten = 0usize;
@@ -488,13 +184,7 @@ fn migrate_v6_to_v7(context: &DataMigrationContext<'_>) -> bool {
 fn migrate_v6_to_v7_inner(context: &DataMigrationContext<'_>) -> Result<bool, String> {
     /// 已废弃的 HR 人格 id；仅本迁移使用，业务代码不再感知。
     const LEGACY_HR_AGENT_ID: &str = "hr";
-    let read = read_agents_shard_outcome(&context.state.data_path)?;
-    if read.fell_back {
-        return Err(
-            "HR 人格清理失败：人格文件损坏，本次读到的是内置兜底值，不写回".to_string(),
-        );
-    }
-    let mut agents = read.agents;
+    let mut agents = read_agents_shard_outcome(&context.state.data_path)?;
     let mut pruned_refs = 0usize;
     for agent in agents.iter_mut() {
         let before = agent.child_agent_ids.len();
@@ -536,13 +226,7 @@ fn migrate_v7_to_v8(context: &DataMigrationContext<'_>) -> bool {
 }
 
 fn migrate_v7_to_v8_inner(context: &DataMigrationContext<'_>) -> Result<bool, String> {
-    let read = read_agents_shard_outcome(&context.state.data_path)?;
-    if read.fell_back {
-        return Err(
-            "副手人格标记纠正失败：人格文件损坏，本次读到的是内置兜底值，不写回".to_string(),
-        );
-    }
-    let mut agents = read.agents;
+    let mut agents = read_agents_shard_outcome(&context.state.data_path)?;
     let mut corrected = 0usize;
     for agent in agents.iter_mut() {
         if agent.id.trim() == DEPUTY_AGENT_ID && agent.is_built_in_system {
@@ -1580,17 +1264,7 @@ fn migrate_v2_to_v5(context: &DataMigrationContext<'_>) -> bool {
 }
 
 fn migrate_v2_to_v5_inner(context: &DataMigrationContext<'_>) -> Result<bool, String> {
-    let read = read_agents_shard_outcome(&context.state.data_path)?;
-    if read.fell_back {
-        // 这一步不只写人格——它还会把 assistant_agent_id 指到 legacy 部门 id、写出部门技能文件。
-        // 人才列表是兜底值，这些副作用一旦落地就是「配置指向不存在的人格 + 一堆孤儿 skill」，
-        // 所以整步失败：版本不推进，下次启动从这一步重来。
-        return Err(
-            "部门转人格失败：人格文件损坏，本次读到的是内置兜底值，本步骤全部副作用一并跳过"
-                .to_string(),
-        );
-    }
-    let mut agents = read.agents;
+    let mut agents = read_agents_shard_outcome(&context.state.data_path)?;
     let mut changed = ensure_built_in_organization_nodes(&mut agents);
     if carry_legacy_assistant_agent_key(context.state)? {
         changed = true;

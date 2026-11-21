@@ -204,7 +204,7 @@ fn record_agents_load_diagnostic(messages: &mut Vec<String>, message: String) {
     messages.push(message);
 }
 
-/// agents.json 的宽松语法：**JSON + 注释 + 尾逗号**（JSONC）。
+/// 人格文件的宽松语法：**JSON + 注释 + 尾逗号**（JSONC）。
 ///
 /// 其余扩展（单引号、裸键名、缺逗号、十六进制）一律不放宽，避免被 JSON5 的额外语法带偏：
 /// 放开得越多，真正写错时越难给出「这一行这里错了」的提示。
@@ -713,6 +713,7 @@ fn file_metadata_signature(path: &PathBuf) -> (u64, Option<std::time::SystemTime
 fn app_data_cache_signature(path: &PathBuf) -> AppDataCacheSignature {
     let runtime_path = app_layout_runtime_state_path(path);
     // 人格是目录：目录自身与其中每个文件的 mtime 取最新那个，覆盖写单个文件也能感知。
+    // 条数不参与签名——目录没有长度，只看 mtime 就够，新增/删除/改写都会刷新它。
     let agents_len = 0u64;
     let agents_modified = app_layout_agents_dir_modified_time(path);
     let (runtime_len, runtime_modified) = file_metadata_signature(&runtime_path);

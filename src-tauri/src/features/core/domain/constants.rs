@@ -4,7 +4,7 @@ const APP_DATA_SCHEMA_VERSION: u32 = 1;
 //
 // 版本语义：
 //   - DATA_MIGRATION_CURRENT_VERSION：当前数据迁移版本，启动期写回 runtime_state。
-//   - V2/V3：data_migration_steps() 注册的版本化迁移步骤，按版本号递增执行。
+//   - V2 起：data_migration.rs 的 loop 按版本号逐级执行迁移步骤。
 //
 // 新增迁移（v2+）的接入流程：
 //   1. 在 data_migration.rs 的迁移入口里加一档 match 分支；
@@ -15,7 +15,7 @@ const DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES: 
 /// 否则任何一次纯应用数据迁移（如 V5 部门转人格）都会把已完成消息存储迁移的老用户重新拦在门闩外。
 const MESSAGE_STORE_MIGRATION_CURRENT_VERSION: u32 = 4;
 /// V5：把「部门」承载的权责（模型/权限/提示词/下级）迁到人格身上，部门退场。
-/// 旧结构 `AppConfig.departments` 只允许在 `agent_org_migration.rs` 内读取。
+/// 旧结构 `AppConfig.departments` 只允许在 `data_migration.rs` 内读取。
 const DATA_MIGRATION_VERSION_V5_DEPARTMENTS_TO_AGENT_ORGANIZATION: u32 = 5;
 /// V6：头像路径从绝对路径改为相对数据根的相对路径，让数据根搬迁 / 导入导出后仍可解析。
 const DATA_MIGRATION_VERSION_V6_AVATAR_PATH_RELATIVE: u32 = 6;

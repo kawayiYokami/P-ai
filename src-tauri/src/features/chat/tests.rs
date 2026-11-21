@@ -3744,7 +3744,7 @@
         assert_eq!(decision.reason, "force_context_usage_90");
     }
 
-    /// 回归：agents.json 解析失败不得阻断配置保存，也不得让内置人格消失。
+    /// 回归：人格文件读不通不得阻断配置保存，也不得让内置人格消失。
     ///
     /// 之前 save_config_inner 里有一次 agents 死读取，人格文件坏一个逗号就导致整个配置保存
     /// 失败；读取侧更是文件整体取代内置，一个自定义人格坏了会把 Pai / 副手 / reviewer /

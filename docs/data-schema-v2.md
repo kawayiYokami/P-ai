@@ -72,7 +72,7 @@
 
 已删除的历史字段：`apiConfigs[].tools`、`apiProviders[].tools`（`ApiToolConfig` 结构体保留，人格侧 `AgentProfile.tools` 仍在用）。旧文件里若还带这些键，读取时忽略。
 
-> 旧配置里的 `departments[]` 已不是本应用的字段，只在 V5 数据迁移里被读取一次（`agent_org_migration.rs`）。
+> 旧配置里的 `departments[]` 已不是本应用的字段，只在 V5 数据迁移里被读取一次（`data_migration.rs`）。
 
 ## 2. config/agents/
 
