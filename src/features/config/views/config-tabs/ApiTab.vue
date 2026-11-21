@@ -1794,14 +1794,13 @@ async function selectProvider(providerId: string) {
   if (!provider) return;
   const model = firstActiveModel(provider);
   if (model) {
-    // 有可用模型时同步更新当前端点
+    // 有可用模型时同步更新当前端点（端点只表示「当前用哪个模型」）
     selectedEndpointId.value = `${provider.id}::${model.id}`;
-    browsingProviderId.value = "";
-  } else {
-    // 无模型 provider：不写端点（它是端点语义），
-    // 只用 browsingProviderId 标记「正在浏览」，让 enterProvider 能进入详情。
-    browsingProviderId.value = provider.id;
   }
+  // 「正在浏览谁」一律记在 browsingProviderId 上，有没有模型都记：
+  // 若只靠端点段记，保存时 expert 变动会改写端点，选中项就跟着跳到别的供应商。
+  // 无模型 provider 本来就不能写端点（会污染真实模型选择）。
+  browsingProviderId.value = provider.id;
 }
 
 function addImageProvider() {
@@ -1835,8 +1834,8 @@ function selectModelCard(modelId: string) {
     browsingProviderId.value = provider.id;
     return;
   }
+  // 详情内切模型只改端点，不动「正在浏览谁」
   selectedEndpointId.value = `${provider.id}::${modelId}`;
-  browsingProviderId.value = "";
 }
 
 async function addProvider() {
@@ -1990,7 +1989,6 @@ function addModelCard() {
   };
   draftModelGroups.value.unshift(group);
   selectedEndpointId.value = `${provider.id}::${model.id}`;
-  browsingProviderId.value = "";
 }
 
 function removeModelGroup(group: DraftModelGroup) {

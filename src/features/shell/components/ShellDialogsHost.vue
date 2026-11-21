@@ -2,6 +2,7 @@
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
 import type { RuntimeLogEntry } from "../../../types/app";
 import RuntimeLogsDialog from "./RuntimeLogsDialog.vue";
@@ -343,15 +344,18 @@ function canShowUpdateSecondaryActions() {
   </dialog>
 
   <dialog ref="configSaveErrorDialogRef" class="modal" @close="onConfigSaveErrorDialogClose" @cancel.prevent="onConfigSaveErrorDialogClose">
-    <div class="modal-box max-w-md">
-      <h3 class="font-semibold text-base">
+    <!-- 错误体可能是一整段 API 响应：限高 + 内部滚动，关闭按钮固定不随内容滚走 -->
+    <div class="modal-box flex max-h-[85dvh] max-w-md flex-col overflow-hidden">
+      <h3 class="shrink-0 font-semibold text-base">
         {{ configSaveErrorDialogTitle }}
       </h3>
-      <pre
-        class="mt-2 whitespace-pre-wrap text-sm"
-        :class="configSaveErrorDialogKind === 'warning' ? 'text-warning' : 'text-error'"
-      >{{ configSaveErrorDialogBody }}</pre>
-      <div class="modal-action">
+      <OverlayScrollArea class="mt-2 min-h-0 flex-1" scroller-class="max-h-full">
+        <pre
+          class="whitespace-pre-wrap text-sm"
+          :class="configSaveErrorDialogKind === 'warning' ? 'text-warning' : 'text-error'"
+        >{{ configSaveErrorDialogBody }}</pre>
+      </OverlayScrollArea>
+      <div class="modal-action mt-3 shrink-0">
         <button class="btn btn-sm btn-primary" @click="emit('closeSettingsSaveErrorDialog')">{{ t("common.close") }}</button>
       </div>
     </div>
