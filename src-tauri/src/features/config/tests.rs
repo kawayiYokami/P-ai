@@ -2351,6 +2351,52 @@ definitionJson = "{\"command\":\"npx\"}"
         assert_eq!(first, list_names(), "重跑必须拆出同一批文件名");
     }
 
+    /// 单条目非对象文件要清掉；单条目里字段类型坏的条目要保留原始 JSON。
+    #[test]
+    fn agent_file_is_expired_should_handle_single_item_edges() {
+        let state = config_test_state();
+        let agents_dir = crate::app_layout_agents_dir(&state.data_path);
+        std::fs::create_dir_all(&agents_dir).expect("create agents dir");
+        let keep_ids = std::collections::HashSet::<String>::new();
+
+        // 顶层就是一个非对象值：不是人格，应判过期。
+        let scalar = agents_dir.join("scalar.json");
+        std::fs::write(&scalar, "123").expect("写标量文件");
+        assert!(
+            crate::agent_file_is_expired(&scalar, &keep_ids),
+            "顶层非对象文件应被清掉"
+        );
+
+        // 单条目、字段类型坏：原始 JSON 只在这里存在，必须保留。
+        let broken_field = agents_dir.join("broken-field.json");
+        std::fs::write(&broken_field, "{\"id\":\"b\",\"name\":123}").expect("写坏字段文件");
+        assert!(
+            !crate::agent_file_is_expired(&broken_field, &keep_ids),
+            "字段类型坏的单条目文件必须保留"
+        );
+
+        // 多条目、里面有坏条目：同样必须保留。
+        let multi_broken = agents_dir.join("multi-broken.json");
+        std::fs::write(
+            &multi_broken,
+            "{\"agents\":[{\"id\":\"c\"},{\"name\":123}]}",
+        )
+        .expect("写多条目坏文件");
+        assert!(
+            !crate::agent_file_is_expired(&multi_broken, &keep_ids),
+            "多条目文件里有坏条目时必须保留原始 JSON"
+        );
+
+        // 多条目、全部可解析：应清掉（活的人格会被写成单条目文件）。
+        let multi_ok = agents_dir.join("multi-ok.json");
+        std::fs::write(&multi_ok, "{\"agents\":[{\"id\":\"d\"},{\"id\":\"e\"}]}")
+            .expect("写多条目文件");
+        assert!(
+            crate::agent_file_is_expired(&multi_ok, &keep_ids),
+            "全部可解析的多条目文件应被清掉"
+        );
+    }
+
     #[test]
     fn write_agents_dir_should_delete_files_of_removed_agents() {
         let state = config_test_state();

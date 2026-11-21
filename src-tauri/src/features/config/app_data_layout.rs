@@ -511,25 +511,28 @@ fn agent_file_is_expired(
     let Ok(parsed) = parse_agents_jsonc(&content, &agents_jsonc_options()) else {
         return false;
     };
-    let Some(items) = agents_items_from_value(&parsed).or_else(|| {
-        // 单个人格对象没有 `agents` 外壳，这是最常规的形态，不能当成「判断不了」。
-        if parsed.is_object() {
-            Some(vec![parsed.clone()])
-        } else {
-            None
-        }
-    }) else {
-        return false;
-    };
-    // 一个文件装多条：业务写盘永远只写单条目文件，留着它只会在读取时用旧副本盖掉
-    // 刚写好的新副本（读侧按文件名排序，后读的胜出）。里面的活人格会按规范名重写。
+    let items = agents_items_from_value(&parsed).unwrap_or_else(|| {
+        // 顶层既不是数组也不是 `{"agents": [...]}`：把它当成「一条待判定的条目」往下走，
+        // 非对象的顶层值会落到下面的删除分支，不会因为「结构不认识」被永久留着。
+        vec![parsed.clone()]
+    });
+    // 单条目且不是对象：不是人格，连同这个文件一起清掉。
+    if items.len() == 1 && !items[0].is_object() {
+        return true;
+    }
+    let (file_agents, skipped, _) = parse_agents_items(&items);
     if items.len() > 1 {
+        // 多条目文件里有解析不了的条目：那份原始 JSON 只在这里存在，删了就没了，保留。
+        if !skipped.is_empty() {
+            return false;
+        }
+        // 全部条目都能解析：业务写盘永远只写单条目文件，留着它读取时按文件名排序、
+        // 旧副本胜出，会把刚写好的新副本盖掉。活的人格已经按规范名重写过了。
         return true;
     }
     let Some(item) = items.first() else {
         return false;
     };
-    // 非对象条目不是人格，连同这个文件一起清掉；它本来也不会被读成人格。
     if !item.is_object() {
         return true;
     }
@@ -543,7 +546,6 @@ fn agent_file_is_expired(
     {
         return false;
     }
-    let (file_agents, skipped, _) = parse_agents_items(&items);
     // 字段类型坏掉的条目会被跳过，文件里那份原始 JSON 只在这里存在，删了就没了。
     if !skipped.is_empty() {
         return false;
