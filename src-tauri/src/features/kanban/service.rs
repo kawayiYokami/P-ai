@@ -183,50 +183,6 @@ fn kanban_validate_member_assignees(
     ))
 }
 
-/// 本批写入后每条议题的最终状态与最终负责人。
-/// 校验必须看最终态：本次没传 status / assignee 时，最终值来自现状，
-/// 否则校验看到的就不是这条议题真正会变成的样子。
-#[derive(Debug, Clone)]
-struct KanbanFinalAssignee {
-    /// 改的那条带编号；新建的没有，编号要等落盘时才分配。
-    number: Option<u32>,
-    status: String,
-    assignee: KanbanAssigneeRef,
-}
-
-impl KanbanFinalAssignee {
-    fn member_number(&self) -> Option<u32> {
-        if self.assignee.kind.trim() != KANBAN_ASSIGNEE_MEMBER {
-            return None;
-        }
-        self.assignee.member_number
-    }
-
-    fn has_assignee(&self) -> bool {
-        self.assignee.kind.trim() != KANBAN_ASSIGNEE_NONE
-    }
-
-    /// 报错时指代这条议题：「议题 #7」或「这条新议题」。
-    fn display(&self) -> String {
-        match self.number {
-            Some(number) => format!("议题 #{number}"),
-            None => "这条新议题".to_string(),
-        }
-    }
-
-    /// 报错时怎么称呼负责人。编号翻不出名字就退回编号本身——报错文案宁可生硬，
-    /// 也不能说「不能指派给「」」。
-    fn assignee_label(&self, roster: &KanbanBoardRoster) -> String {
-        match self.assignee.kind.trim() {
-            KANBAN_ASSIGNEE_LEADER => "队长".to_string(),
-            KANBAN_ASSIGNEE_MEMBER => self
-                .member_number()
-                .map(|number| roster.member_label(number))
-                .unwrap_or_default(),
-            _ => String::new(),
-        }
-    }
-}
 
 // ==================== 写入 ====================
 

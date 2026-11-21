@@ -112,6 +112,7 @@ impl KanbanBoardRoster {
 
     /// 名册编号对应的角色名。含已请离的队员，所以历史议题也翻得出来。
     /// 翻不出来时退回编号本身：报错文案宁可生硬，也不能说「不能指派给「」」。
+    #[cfg(test)]
     pub(crate) fn member_label(&self, number: u32) -> String {
         self.roles_by_number
             .get(&number)

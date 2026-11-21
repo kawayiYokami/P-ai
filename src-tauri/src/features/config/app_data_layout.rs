@@ -1045,8 +1045,6 @@ fn agents_jsonc_options() -> jsonc_parser::ParseOptions {
 
 
 struct AgentsJsoncError {
-    line: usize,
-    column: usize,
     detail: String,
 }
 
@@ -1065,9 +1063,12 @@ fn parse_agents_jsonc(
             other => format!("JSON 语法错误：{other}"),
         };
         AgentsJsoncError {
-            line: err.line_display(),
-            column: err.column_display(),
-            detail,
+            // 位置直接写进错误文案：结构里不再单独留字段，用户看到的仍然是「第几行第几列」。
+            detail: format!(
+                "{detail}（第 {} 行第 {} 列）",
+                err.line_display(),
+                err.column_display()
+            ),
         }
     })
 }

@@ -2063,19 +2063,6 @@ definitionJson = "{\"command\":\"npx\"}"
         std::fs::write(path, content).expect("write agents file");
     }
 
-    fn built_in_ids(agents: &[AgentProfile]) -> Vec<String> {
-        let mut ids = agents
-            .iter()
-            .map(|agent| agent.id.trim().to_string())
-            .filter(|id| {
-                built_in_agents()
-                    .iter()
-                    .any(|built_in| built_in.id.trim() == id)
-            })
-            .collect::<Vec<_>>();
-        ids.sort();
-        ids
-    }
 
     #[test]
     fn read_agents_shard_should_accept_trailing_comma_and_comments() {
@@ -2553,6 +2540,8 @@ definitionJson = "{\"command\":\"npx\"}"
         assert!(first.iter().any(|agent| agent.id == "agent-stale"));
 
         // 删掉一个人格文件是正常状态（不是损坏），必须立刻反映到缓存，不能继续返回旧的。
+        // 等一下再删：文件系统 mtime 精度有限，同一次时间片内删除可能让目录 mtime 看起来没变。
+        std::thread::sleep(std::time::Duration::from_millis(30));
         std::fs::remove_file(&file_path).expect("删除人格文件");
         let second = crate::state_read_agents_cached(&state).expect("删除后读取人格");
         assert!(
