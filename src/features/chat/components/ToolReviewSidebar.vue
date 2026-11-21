@@ -761,9 +761,9 @@ function isDelegateRunning(delegate: ConversationDelegateStatusSummary) {
 }
 
 function canShowDelegateResult(delegate: ConversationDelegateStatusSummary) {
-  const status = String(delegate.status || "").trim();
-  if (status === "running" || status === "delivered") return false;
-  return true;
+  // 运行中也能点开：弹窗里的时间线自己会在运行期刷新，这正是「委托跑到哪一步」的入口。
+  const conversationId = String(delegate?.conversationId || delegate?.delegateId || "").trim();
+  return !!conversationId;
 }
 
 let unlistenTaskChanged: (() => void) | null = null;

@@ -1119,6 +1119,29 @@ pub(super) fn delegate_directory_store_read_block_page(
     }))
 }
 
+/// 从某条消息之后精准读后续消息：前端拿着当前最后一条消息的 id 来问「这条之后还有哪些」，
+/// 只返回新增的那几条。读的时候内部怎么读都行，出口只给后续的。
+pub(super) fn delegate_directory_store_read_messages_after(
+    paths: &MessageStorePaths,
+    after_message_id: &str,
+) -> Result<Vec<ChatMessage>, String> {
+    let Some(manifest) = read_message_store_manifest(&paths.manifest_file)? else {
+        return Ok(Vec::new());
+    };
+    if !manifest.should_read_jsonl() {
+        return Ok(Vec::new());
+    }
+    validate_ready_message_store_snapshot_integrity(paths, &manifest)?;
+    if !paths.index_file.exists() {
+        return Ok(Vec::new());
+    }
+    JsonlSnapshotMessageStore::with_index(
+        paths.messages_file.clone(),
+        paths.index_file.clone(),
+    )
+    .read_messages_after_all(after_message_id)
+}
+
 pub(super) fn delegate_directory_store_read_conversation(
     paths: &MessageStorePaths,
 ) -> Result<Option<Conversation>, String> {
@@ -1831,6 +1854,11 @@ fn read_messages_after_all_from_index(
     index: &MessageStoreIndexFile,
     after_message_id: &str,
 ) -> Result<Vec<ChatMessage>, String> {
+    // 空锚点表示「还没有任何消息」：从第 0 条开始。读的还是这一条 index 路径，
+    // 与整块读共用同一个读取函数，区别只在裁剪范围。
+    if after_message_id.trim().is_empty() {
+        return read_jsonl_snapshot_messages_by_index_items(path, &index.items);
+    }
     let after_idx = find_index_item_position(index, after_message_id)
         .ok_or_else(|| format!("Message not found: {}", after_message_id.trim()))?;
     let start = after_idx.saturating_add(1);
@@ -2101,6 +2129,9 @@ fn read_messages_after_all_from_slice(
     messages: &[ChatMessage],
     after_message_id: &str,
 ) -> Result<Vec<ChatMessage>, String> {
+    if after_message_id.trim().is_empty() {
+        return Ok(messages.to_vec());
+    }
     let after_idx = find_message_index(messages, after_message_id)
         .ok_or_else(|| format!("Message not found: {}", after_message_id.trim()))?;
     Ok(messages[(after_idx + 1)..].to_vec())

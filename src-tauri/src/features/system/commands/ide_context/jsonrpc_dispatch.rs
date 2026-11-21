@@ -731,6 +731,8 @@ async fn ide_chat_handle_jsonrpc_request(
         "list_conversation_delegate_statuses" => ide_chat_delegate_statuses_command(state, request.params),
         "abort_delegate_conversation" => ide_chat_delegate_abort_command(state, request.params),
         "get_delegate_conversation_block_page" => ide_chat_delegate_block_page_command(state, request.params),
+        "read_delegate_messages_after" => ide_chat_delegate_messages_after_command(state, request.params),
+        "delegate.messagesAfter" => ide_chat_delegate_messages_after_command(state, request.params),
         "delete_delegate_conversation" => ide_chat_delete_delegate_command(state, request.params),
         "branch_unarchived_conversation_from_selection" => ide_chat_branch_selection_command(state, request.params).await,
         "create_conversation_branch_from_message" => ide_chat_branch_message_command(state, request.params).await,

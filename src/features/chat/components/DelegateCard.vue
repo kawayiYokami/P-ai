@@ -5,7 +5,7 @@
         type="button"
         class="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default"
         :disabled="!showResult"
-        :title="showResult ? '查看结果' : undefined"
+        :title="showResult ? (running ? '查看进度' : '查看结果') : undefined"
         @click="showResult && emit('openDetail')"
       >
         <img v-if="avatarUrl" :src="avatarUrl" class="h-10 w-10 shrink-0 rounded-full object-cover" />

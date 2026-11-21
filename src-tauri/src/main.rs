@@ -1524,6 +1524,7 @@ fn main() {
             get_unarchived_conversation_message_by_id,
             get_tool_result_content,
             list_delegate_conversations,
+            read_delegate_messages_after,
             list_conversation_delegate_statuses,
             list_conversation_background_shell_tasks,
             terminate_conversation_background_shell_task,

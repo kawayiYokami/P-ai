@@ -527,8 +527,12 @@ fn ide_chat_delegate_block_page_command(state: &AppState, params: Value) -> Resu
     ide_chat_serialize(get_delegate_conversation_block_page_inner(input, state)?)
 }
 
-fn ide_chat_delete_delegate_command(state: &AppState, params: Value) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<DeleteDelegateConversationInput>(params, "input")?;
+fn ide_chat_delegate_messages_after_command(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<DelegateMessagesAfterInput>(params, "input")?;
+    ide_chat_serialize(read_delegate_messages_after_inner(input, state)?)
+}
+
+fn ide_chat_delete_delegate_command(state: &AppState, params: Value) -> Result<Value, String> {    let input = ide_chat_parse_param_field::<DeleteDelegateConversationInput>(params, "input")?;
     ide_chat_serialize(delete_delegate_conversation_inner(input, state)?)
 }
 

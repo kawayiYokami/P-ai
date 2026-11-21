@@ -3415,6 +3415,43 @@ fn get_delegate_conversation_block_page_inner(
     Ok(conversation_block_page_output_from_message_store_page(page))
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DelegateMessagesAfterInput {
+    conversation_id: String,
+    after_message_id: String,
+}
+
+/// 拿「当前最后一条消息 id」问后端要后续消息。
+///
+/// 委托每轮都把整份会话写回磁盘，读到的就是最新状态；出口只返回那条之后新增的，
+/// 前端收到工具执行推送后调一次，把新消息并进列表即可，不轮询、不整块重拉。
+#[tauri::command]
+fn read_delegate_messages_after(
+    input: DelegateMessagesAfterInput,
+    state: State<'_, AppState>,
+) -> Result<Vec<ChatMessage>, String> {
+    read_delegate_messages_after_inner(input, state.inner())
+}
+
+fn read_delegate_messages_after_inner(
+    input: DelegateMessagesAfterInput,
+    state: &AppState,
+) -> Result<Vec<ChatMessage>, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    let mut messages = delegate_conversation_store_read_messages_after(
+        &state.data_path,
+        conversation_id,
+        &input.after_message_id,
+    )?;
+    materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
+    messages.retain(|message| !remote_im_delegate_message_is_internal(message));
+    Ok(project_messages_for_frontend_display_only(messages))
+}
+
 #[tauri::command]
 fn delete_delegate_conversation(
     input: DeleteDelegateConversationInput,

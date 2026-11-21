@@ -360,3 +360,23 @@ mod delegate_conversation_store_tests {
         let _ = fs::remove_dir_all(root);
     }
 }
+
+/// 拿「当前最后一条消息 id」问后端要后续：委托还在跑时，前端收到工具执行推送就调这个。
+fn delegate_conversation_store_read_messages_after(
+    data_path: &PathBuf,
+    conversation_id: &str,
+    after_message_id: &str,
+) -> Result<Vec<ChatMessage>, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    // 锚点允许为空：首次拉取时还没有任何消息，空锚点表示从第 0 条开始。
+    let after_message_id = after_message_id.trim();
+    let paths = delegate_conversation_message_store_paths(data_path, conversation_id)?;
+    if delegate_conversation_store_read_meta(&paths, conversation_id)?.is_none() {
+        return Ok(Vec::new());
+    }
+    message_store::delegate_directory_store_read_messages_after(&paths, after_message_id)
+}
+

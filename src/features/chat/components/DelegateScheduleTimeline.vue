@@ -106,7 +106,7 @@ import AppIcon from "../../shared/components/AppIcon.vue";
 import AppLoading from "../../shared/components/AppLoading.vue";
 import { invokeTauri, writeTransportClipboardText } from "../../../services/tauri-api";
 import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
-import type { ArchiveBlockPage, ChatActivityItem, ConversationDelegateStatusSummary, ScheduleEvent, ScheduleRun } from "../../../types/app";
+import type { ArchiveBlockPage, ChatActivityItem, ChatMessage, ConversationDelegateStatusSummary, ScheduleEvent, ScheduleRun } from "../../../types/app";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
 import { projectChatActivityForDisplay } from "../../../utils/chat-message-semantics";
 import ActivityTimeline from "./ActivityTimeline.vue";
@@ -313,7 +313,7 @@ function buildActivityFromRunEvents(events: ScheduleEvent[]): ChatActivityItem[]
   return items;
 }
 
-function applyData(runsResult: ScheduleRun[], blockPageResult: ArchiveBlockPage | null) {
+function applyData(runsResult: ScheduleRun[], blockPageResult: { messages?: ChatMessage[] } | null) {
   runs.value = Array.isArray(runsResult) ? runsResult : [];
 
   const messages = Array.isArray(blockPageResult?.messages) ? blockPageResult.messages : [];
@@ -359,6 +359,11 @@ if (props.initialRuns || props.initialBlockPage) {
   applyData(props.initialRuns || [], props.initialBlockPage || null);
 }
 
+/// 通讯层的本地消息副本：首次拉全部，之后只补新增。加工层始终拿这份完整列表，
+/// 所以投影结果与整块读完全一致。
+let allMessages: ChatMessage[] = [];
+let lastMessageId = "";
+
 async function fetchData(silent = false) {
   const conversationId = props.conversationId.trim();
   const token = ++fetchToken;
@@ -371,24 +376,44 @@ async function fetchData(silent = false) {
     return;
   }
 
-  if (!silent) loading.value = true;
+  if (!silent) {
+    loading.value = true;
+    // 重新打开或切换会话：本地消息清空，第一次拉的就是全部。
+    allMessages = [];
+    lastMessageId = "";
+  }
   if (token === fetchToken) errorText.value = "";
 
   try {
-    const [runsResult, blockPageResult] = await Promise.all([
+    const [runsResult, freshMessages] = await Promise.all([
       invokeTauri<ScheduleRun[]>("list_schedule_runs", { conversationId }).catch((err) => {
         console.warn("[DelegateScheduleTimeline] list_schedule_runs 失败:", err);
         return [] as ScheduleRun[];
       }),
-      invokeTauri<ArchiveBlockPage>("delegate.blockPage", { input: { conversationId } }, 10000).catch((err) => {
-        console.warn("[DelegateScheduleTimeline] delegate.blockPage 失败:", err);
-        return null;
+      invokeTauri<ChatMessage[]>(
+        "delegate.messagesAfter",
+        { input: { conversationId, afterMessageId: lastMessageId } },
+        10000,
+      ).catch((err) => {
+        console.warn("[DelegateScheduleTimeline] delegate.messagesAfter 失败:", err);
+        return null as ChatMessage[] | null;
       }),
     ]);
 
     if (token !== fetchToken || conversationId !== props.conversationId.trim()) return;
 
-    applyData(runsResult, blockPageResult);
+    if (freshMessages === null) {
+      // 游标已经不在存储里（会话被压缩重写）：清空重来，下一次从第 0 条拉。
+      allMessages = [];
+      lastMessageId = "";
+      return;
+    }
+    if (freshMessages.length > 0) {
+      allMessages = [...allMessages, ...freshMessages];
+      lastMessageId = String(freshMessages[freshMessages.length - 1]?.id || "").trim();
+    }
+
+    applyData(runsResult, { messages: allMessages });
   } catch (err) {
     if (token !== fetchToken || conversationId !== props.conversationId.trim()) return;
     if (!silent) errorText.value = String(err);
