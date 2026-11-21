@@ -437,12 +437,23 @@ fn write_agents_dir(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, Str
     fs::create_dir_all(&agents_dir)
         .map_err(|err| format!("Create agents layout dir failed: {err}"))?;
     let to_persist = agents_to_persist(agents);
-    let keep = to_persist
+    let keep_ids = to_persist
         .iter()
-        .map(|agent| format!("{}.json", sanitize_agent_file_stem(&agent.id)))
+        .map(|agent| agent.id.trim().to_string())
         .collect::<std::collections::HashSet<_>>();
     let mut changed = false;
-    if let Ok(entries) = fs::read_dir(&agents_dir) {
+    let entries = match fs::read_dir(&agents_dir) {
+        Ok(entries) => Some(entries),
+        Err(err) => {
+            // 目录列举失败只影响「清理过期文件」，不影响下面的写入，记一条日志继续。
+            runtime_log_warn(format!(
+                "[配置] 列举人格目录失败，本次跳过过期文件清理，路径={}，error={err}",
+                agents_dir.display()
+            ));
+            None
+        }
+    };
+    if let Some(entries) = entries {
         for entry in entries.flatten() {
             let file_path = entry.path();
             if !file_path.is_file() {
@@ -455,18 +466,16 @@ fn write_agents_dir(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, Str
             if !is_json {
                 continue;
             }
-            let file_name = file_path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or_default()
-                .to_string();
-            if keep.contains(&file_name) {
+            // 只有「读得出来、id 明确、且不在本次名单里」的文件才算过期，才删。
+            //
+            // 读不通的文件必须留着：它可能是用户刚手改坏一个逗号、也可能只是被别的程序
+            // 短暂占用。这时候删掉，用户那份数据就真没了——判断依据必须是磁盘上有什么，
+            // 不是「这次读到了什么」。
+            if !agent_file_is_expired(&file_path, &keep_ids) {
                 continue;
             }
-            // 目录里这一份已经不在人格列表里：删掉它，否则下次读取会把它带回来。
-            //
-            // 删除失败只记日志、不中断保存——文件被别的程序短暂占用时，
-            // 「这次没删掉」不该让用户整次保存失败。下次保存会再试一次。
+            // 删除失败只记日志、不中断保存：文件被占用时这次没删掉，下次保存会再试，
+            // 但用户这次编辑不能因此整次失败。
             if let Err(err) = fs::remove_file(&file_path) {
                 runtime_log_warn(format!(
                     "[配置] 删除过期人格文件失败，路径={}，error={err}",
@@ -482,6 +491,39 @@ fn write_agents_dir(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, Str
         changed |= write_json_file_atomic_if_changed(&file_path, &agent, "agent file")?;
     }
     Ok(changed)
+}
+
+/// 这个文件是不是「已经不在人格列表里的旧文件」。
+///
+/// 只有一种情况返回 true：文件读得出来、能解析出人格条目、而且每一条的 id 都不在名单里。
+/// 读不通、解析不了、一条都解析不出来，一律返回 false——那说明判断不了，宁可留着。
+fn agent_file_is_expired(
+    file_path: &std::path::Path,
+    keep_ids: &std::collections::HashSet<String>,
+) -> bool {
+    let Ok(content) = fs::read_to_string(file_path) else {
+        return false;
+    };
+    let Ok(parsed) = parse_agents_jsonc(&content, &agents_jsonc_options()) else {
+        return false;
+    };
+    let Some(items) = agents_items_from_value(&parsed).or_else(|| {
+        // 单个人格对象没有 `agents` 外壳，这是最常规的形态，不能当成「判断不了」。
+        if parsed.is_object() {
+            Some(vec![parsed.clone()])
+        } else {
+            None
+        }
+    }) else {
+        return false;
+    };
+    let (file_agents, _, _) = parse_agents_items(&items);
+    if file_agents.is_empty() {
+        return false;
+    }
+    file_agents
+        .iter()
+        .all(|agent| !keep_ids.contains(agent.id.trim()))
 }
 
 /// 人格目录的内容时间戳：目录自身与其中每个文件的 mtime 里取最新那个。
@@ -959,9 +1001,6 @@ fn agents_jsonc_options() -> jsonc_parser::ParseOptions {
     }
 }
 
-fn agents_jsonc_salvage_options() -> jsonc_parser::ParseOptions {
-    jsonc_parser::ParseOptions::default()
-}
 
 struct AgentsJsoncError {
     line: usize,

@@ -1292,6 +1292,59 @@ enableTools = true
     /// 以真实本机快照数据独立驱动 V5 组织迁移（不依赖运行态、不依赖 AppConfig 解析结果）。
     /// 标记 `#[ignore]`：输入位于未被 git 跟踪的 `.pai/temp/`，CI 与全新克隆环境必然缺失，
     /// 不能进常驻测试集（否则整仓测试变红）。手动执行：
+    /// V9 拆缺 id 的条目时必须把 id 写进文件：只换文件名不写 id 的话，
+    /// 每次读取都会生成新 uuid，人格身份在重启之间漂移。
+    #[test]
+    fn migrate_v8_to_v9_should_inject_stable_id_for_items_without_id() {
+        let state = config_test_state();
+        write_agents_json(&state.data_path, "{\"agents\":[{},{}]}");
+        let config = AppConfig::default();
+        let context = crate::DataMigrationContext {
+            state: &state,
+            config: &config,
+        };
+        assert!(crate::migrate_v8_to_v9(&context), "两条缺 id 条目应该被拆出去");
+
+        let agents_dir = crate::app_layout_agents_dir(&state.data_path);
+        let files = std::fs::read_dir(&agents_dir)
+            .expect("list agents dir")
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(files.len(), 2, "两条缺 id 的条目要各占一个文件，不能塌成一个");
+
+        let mut ids = Vec::new();
+        for entry in files {
+            let text = std::fs::read_to_string(entry.path()).expect("读拆出来的文件");
+            let value: Value = serde_json::from_str(&text).expect("拆出来的必须是合法 JSON");
+            let id = value
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            assert!(
+                !id.trim().is_empty(),
+                "拆出来的文件必须带 id，否则每次读都会换一个新身份"
+            );
+            ids.push(id);
+        }
+        assert_ne!(ids[0], ids[1], "两条不能拿到同一个 id");
+
+        // 再读一遍：id 必须原样还在，不能又变一个
+        let read_back = crate::read_agents_dir_outcome(&state.data_path).expect("读回人格");
+        for id in &ids {
+            assert!(
+                read_back.iter().any(|agent| &agent.id == id),
+                "拆出来的 id 在读取后必须保持不变：{id}"
+            );
+        }
+    }
+
     #[test]
     fn migrate_v1_to_v2_should_fill_assistant_workspace_for_empty_conversations() {
         let state = config_test_state();
@@ -2117,6 +2170,53 @@ definitionJson = "{\"command\":\"npx\"}"
             "createdAt 应被补齐，不能留空串"
         );
         assert!(!agent.updated_at.trim().is_empty());
+    }
+
+    /// 读不通的文件不能被当成「过期文件」删掉——判断依据必须是磁盘上有什么，
+    /// 不是「这次读到了什么」。用户手改坏一个逗号时，下一次无关保存不能把它抹掉。
+    #[test]
+    fn write_agents_dir_should_keep_unreadable_files() {
+        let state = config_test_state();
+        let broken_path = crate::app_layout_agent_file_path(&state.data_path, "broken");
+        std::fs::create_dir_all(broken_path.parent().expect("agents dir"))
+            .expect("create agents dir");
+        std::fs::write(&broken_path, "{\"id\": \"broken\",").expect("写坏文件");
+
+        let make_agent = |id: &str| AgentProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            system_prompt: "test".to_string(),
+            created_at: "2026-04-15T00:00:00Z".to_string(),
+            updated_at: "2026-04-15T00:00:00Z".to_string(),
+            avatar_path: None,
+            avatar_updated_at: None,
+            is_built_in_user: false,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
+            scope: default_global_scope(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            include_system_rules: true,
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
+        };
+
+        // 一次与那个坏文件完全无关的保存
+        crate::write_agents_dir(&state.data_path, &[make_agent("keep-me")]).expect("写盘");
+
+        assert!(
+            broken_path.exists(),
+            "读不通的文件不能被当成过期文件删掉"
+        );
+        assert!(
+            crate::app_layout_agent_file_path(&state.data_path, "keep-me").exists(),
+            "正常人格要照常写入"
+        );
     }
 
     #[test]

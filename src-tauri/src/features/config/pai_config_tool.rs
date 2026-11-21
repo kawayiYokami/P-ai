@@ -1013,11 +1013,6 @@ fn check_agents(ctx: &CliContext, report: &mut CheckReport) {
             Err(err) => report.errors.push(format!("{}: {err}", path.display())),
         }
     }
-    // 父子边跨文件：所有文件都读完之后再核对一次，报错仍落到出错的那一个文件上。
-    let known_ids = parsed
-        .iter()
-        .map(|(_, agent)| agent.id.trim().to_string())
-        .collect::<HashSet<_>>();
     // 同一个 id 出现在两个文件里：运行时按 id 合并，后一个会静默覆盖前一个。
     let mut seen_ids = HashMap::<String, &Path>::new();
     for (path, agent) in &parsed {
@@ -1036,16 +1031,10 @@ fn check_agents(ctx: &CliContext, report: &mut CheckReport) {
             }
         }
     }
-    for (path, agent) in &parsed {
-        for child_id in &agent.child_agent_ids {
-            if !known_ids.contains(child_id.trim()) {
-                report.errors.push(format!(
-                    "{}: childAgentIds 指向不存在的人格: {child_id}",
-                    path.display()
-                ));
-            }
-        }
-    }
+    // 不再校验 `childAgentIds` 是否都能在目录里找到：内置人格只从代码取、不落盘，
+    // 它们天然不在目录里，按文件集合核对会把「改过 Pai 之后它指向副手/reviewer/support」
+    // 这类完全正常的情况报成错误，check 失败、reload 被拦。
+    // 这个工具跑在 lib 侧，看不到 bin 侧的内置人格名单，也没有可靠办法补上。
 }
 
 fn read_agent_file(path: &Path) -> Result<AgentProfile, String> {

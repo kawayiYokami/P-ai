@@ -23,33 +23,7 @@ fn build_agents_file(agents: &[AgentProfile]) -> AgentsFile {
 
 
 
-fn record_agents_repair_note(messages: &mut Vec<String>, message: String) {
-    runtime_log_warn(format!("[配置] {message}"));
-    messages.push(message);
-}
 
-fn agents_syntax_error_message(
-    path: &PathBuf,
-    content: &str,
-    line: usize,
-    column: usize,
-    detail: &str,
-) -> String {
-    let line_text = content
-        .lines()
-        .nth(line.saturating_sub(1))
-        .unwrap_or_default();
-    let mut caret = String::new();
-    if column > 0 {
-        caret = format!("\n{}^", " ".repeat(column.saturating_sub(1)));
-    }
-    format!(
-        "人格文件 `{}` 第 {line} 行第 {column} 列解析失败：{detail}\n出错行：{}\
-{caret}",
-        path.display(),
-        line_text.trim_end()
-    )
-}
 
 #[cfg(test)]
 fn read_agents_shard(path: &PathBuf) -> Result<Vec<AgentProfile>, String> {
@@ -278,14 +252,23 @@ fn migrate_v8_to_v9_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
         .map_err(|err| format!("Create agents layout dir failed: {err}"))?;
     let mut written = 0usize;
     let mut skipped = 0usize;
-    for (index, item) in items.into_iter().enumerate() {
-        let id = item.get("id").and_then(Value::as_str).unwrap_or_default();
-        let file_path = if id.trim().is_empty() {
-            // 缺 id 的条目：按序号兜底，否则多条会塌到同一个文件名、只保住第一条。
-            agents_dir.join(format!("agent-{}.json", index + 1))
+    for mut item in items {
+        let existing_id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        // 缺 id 的条目要就地补一个，再写文件：只换文件名不写 id 的话，每次读取都会
+        // 生成一个新 uuid，人格身份在重启之间漂移，组织边和会话上记的 agent id 全部指空。
+        let id = if existing_id.is_empty() {
+            let generated = format!("agent-{}", uuid::Uuid::new_v4());
+            item["id"] = Value::String(generated.clone());
+            generated
         } else {
-            app_layout_agent_file_path(&context.state.data_path, id)
+            existing_id
         };
+        let file_path = app_layout_agent_file_path(&context.state.data_path, &id);
         if file_path.exists() {
             // 目录里已经有这一份：不覆盖，已经写好的就是当前值。
             skipped += 1;
@@ -467,8 +450,8 @@ fn migration_assistant_workspace_source(context: &DataMigrationContext<'_>) -> (
 
 /// 应用数据迁移入口：按版本逐级推进，每升一级立刻把版本写回。
 ///
-/// 某一步失败就是 `Err` 冒泡出去，版本停在它之前；下次启动从这一步重来。
-/// 「重试」的全部含义就是这个版本门闩，不需要额外的推迟标志。
+/// 某一步读不到数据就记一条日志跳过，版本照常推进——迁移不允许失败，
+/// 所以这里没有「版本停在它之前、下次重来」这回事。
 fn run_app_data_migrations_with_state(
     state: &AppState,
     config: &AppConfig,
