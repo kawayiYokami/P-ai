@@ -143,6 +143,18 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
       bindings.applyConversationOverviewItemUpdated(payload);
     });
 
+    subscribe<any>("chatQuestionItemsUpdated", "question.itemsUpdated", (payload) => {
+      const conversationId = String((payload as any)?.conversationId || "").trim();
+      const count = Array.isArray((payload as any)?.items) ? (payload as any).items.length : 0;
+      if (!conversationId) return;
+      const target = bindings.unarchivedConversations.value.find(
+        (item: any) => String(item?.conversationId || "").trim() === conversationId,
+      );
+      if (target && target.questionCount !== count) {
+        target.questionCount = count;
+      }
+    });
+
     subscribe<any>("chatConversationMessagesAfterSynced", "conversation.messagesAfterSynced", (payload) => {
       const conversationId = bindings.readConversationIdFromPayload(payload);
       for (const flow of flowsForConversation(conversationId)) {

@@ -28,6 +28,7 @@ fn question_emit_items_updated(
     if let Err(err) = app_handle.emit("easy-call:conversation-question-updated", payload) {
         runtime_log_error(format!("[会话问题] 推送失败：错误={}", err));
     }
+    let _ = emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id);
 }
 
 fn question_views_for_conversation(
