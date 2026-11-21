@@ -464,8 +464,16 @@ fn write_agents_dir(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, Str
                 continue;
             }
             // 目录里这一份已经不在人格列表里：删掉它，否则下次读取会把它带回来。
-            fs::remove_file(&file_path)
-                .map_err(|err| format!("删除过期人格文件失败（{}）：{err}", file_path.display()))?;
+            //
+            // 删除失败只记日志、不中断保存——文件被别的程序短暂占用时，
+            // 「这次没删掉」不该让用户整次保存失败。下次保存会再试一次。
+            if let Err(err) = fs::remove_file(&file_path) {
+                runtime_log_warn(format!(
+                    "[配置] 删除过期人格文件失败，路径={}，error={err}",
+                    file_path.display()
+                ));
+                continue;
+            }
             changed = true;
         }
     }
