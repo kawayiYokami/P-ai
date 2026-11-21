@@ -252,7 +252,18 @@ fn migrate_v8_to_v9_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
         .map_err(|err| format!("Create agents layout dir failed: {err}"))?;
     let mut written = 0usize;
     let mut skipped = 0usize;
-    for mut item in items {
+    for (index, mut item) in items.into_iter().enumerate() {
+        // 非对象条目（字符串、数字、数组）写不出人格，也不能去碰它的键：
+        // `item["id"] = ...` 对非对象会直接 panic，而 panic 不是 Err，
+        // 迁移入口的兜底抓不到，启动期加载配置就崩。
+        if !item.is_object() {
+            runtime_log_warn(format!(
+                "[应用数据迁移] 跳过，任务=v9人格按文件拆分，第 {} 条不是人格对象，值={}",
+                index + 1,
+                item
+            ));
+            continue;
+        }
         let existing_id = item
             .get("id")
             .and_then(Value::as_str)
@@ -261,8 +272,15 @@ fn migrate_v8_to_v9_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
             .to_string();
         // 缺 id 的条目要就地补一个，再写文件：只换文件名不写 id 的话，每次读取都会
         // 生成一个新 uuid，人格身份在重启之间漂移，组织边和会话上记的 agent id 全部指空。
+        //
+        // 补的 id 由「条目内容 + 位置」派生，不是随机 uuid：版本写回失败导致这一步
+        // 重跑时，同一份旧数据要拆出同一批 id，否则会凭空多出一批重复人格。
         let id = if existing_id.is_empty() {
-            let generated = format!("agent-{}", uuid::Uuid::new_v4());
+            let generated = format!(
+                "agent-{:08x}-{}",
+                short_id_hash(&format!("{index}:{item}")),
+                index + 1
+            );
             item["id"] = Value::String(generated.clone());
             generated
         } else {

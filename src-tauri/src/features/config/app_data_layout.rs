@@ -441,11 +441,17 @@ fn write_agents_dir(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, Str
         .iter()
         .map(|agent| agent.id.trim().to_string())
         .collect::<std::collections::HashSet<_>>();
+    // 先写、后清。反过来的话，写到一半失败（磁盘满、只读）会把用户那份旧文件删掉、
+    // 新文件又没写成功，一次失败就丢一个人格。
     let mut changed = false;
+    for agent in to_persist {
+        let file_path = app_layout_agent_file_path(path, &agent.id);
+        changed |= write_json_file_atomic_if_changed(&file_path, &agent, "agent file")?;
+    }
     let entries = match fs::read_dir(&agents_dir) {
         Ok(entries) => Some(entries),
         Err(err) => {
-            // 目录列举失败只影响「清理过期文件」，不影响下面的写入，记一条日志继续。
+            // 目录列举失败只影响「清理过期文件」，不影响已经写完的内容，记一条日志即可。
             runtime_log_warn(format!(
                 "[配置] 列举人格目录失败，本次跳过过期文件清理，路径={}，error={err}",
                 agents_dir.display()
@@ -466,11 +472,8 @@ fn write_agents_dir(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, Str
             if !is_json {
                 continue;
             }
-            // 只有「读得出来、id 明确、且不在本次名单里」的文件才算过期，才删。
-            //
-            // 读不通的文件必须留着：它可能是用户刚手改坏一个逗号、也可能只是被别的程序
-            // 短暂占用。这时候删掉，用户那份数据就真没了——判断依据必须是磁盘上有什么，
-            // 不是「这次读到了什么」。
+            // 判断依据必须是磁盘上有什么，不是「这次读到了什么」：读不通的文件要留着，
+            // 它可能是用户刚手改坏一个逗号、也可能只是被别的程序短暂占用。
             if !agent_file_is_expired(&file_path, &keep_ids) {
                 continue;
             }
@@ -486,17 +489,18 @@ fn write_agents_dir(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, Str
             changed = true;
         }
     }
-    for agent in to_persist {
-        let file_path = app_layout_agent_file_path(path, &agent.id);
-        changed |= write_json_file_atomic_if_changed(&file_path, &agent, "agent file")?;
-    }
     Ok(changed)
 }
 
-/// 这个文件是不是「已经不在人格列表里的旧文件」。
+/// 这个文件是不是「已经不需要留在目录里」。
 ///
-/// 只有一种情况返回 true：文件读得出来、能解析出人格条目、而且每一条的 id 都不在名单里。
-/// 读不通、解析不了、一条都解析不出来，一律返回 false——那说明判断不了，宁可留着。
+/// 三种情况返回 true：
+/// - 文件里每一条人格的 id 都不在本次名单里（人格被删了）；
+/// - 文件里有活的人格，但文件名不是其中任何一个的规范名（手写文件名、或一个文件装了多条，
+///   这两种都会在下面按规范名重写出一份，留着就是同 id 的重复副本）；
+/// - 一个文件装了多条、只有一部分还在名单里（活的那部分会被重写成独立文件）。
+///
+/// 读不通、解析不了、有任意一条缺 id，一律返回 false——那说明判断不了，宁可留着。
 fn agent_file_is_expired(
     file_path: &std::path::Path,
     keep_ids: &std::collections::HashSet<String>,
@@ -517,13 +521,34 @@ fn agent_file_is_expired(
     }) else {
         return false;
     };
+    // 缺 id 的条目读出来会被补一个当场生成的 id，跟内存里那份对不上号，判断不了。
+    if items.iter().any(|item| {
+        item.get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+    }) {
+        return false;
+    }
     let (file_agents, _, _) = parse_agents_items(&items);
     if file_agents.is_empty() {
         return false;
     }
-    file_agents
+    if file_agents
         .iter()
         .all(|agent| !keep_ids.contains(agent.id.trim()))
+    {
+        return true;
+    }
+    let file_name = file_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let name_matches_any = file_agents.iter().any(|agent| {
+        format!("{}.json", sanitize_agent_file_stem(&agent.id)) == file_name
+    });
+    !name_matches_any
 }
 
 /// 人格目录的内容时间戳：目录自身与其中每个文件的 mtime 里取最新那个。

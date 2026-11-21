@@ -2219,6 +2219,49 @@ definitionJson = "{\"command\":\"npx\"}"
         );
     }
 
+    /// 读失败（不是 JSON 坏，是根本读不出字符串）同样不能被当成过期文件删掉。
+    #[test]
+    fn write_agents_dir_should_keep_file_that_cannot_be_read() {
+        let state = config_test_state();
+        let unreadable = crate::app_layout_agent_file_path(&state.data_path, "unreadable");
+        std::fs::create_dir_all(unreadable.parent().expect("agents dir"))
+            .expect("create agents dir");
+        // 非 UTF-8 字节：read_to_string 必然失败，和「JSON 坏」是两条不同分支。
+        std::fs::write(&unreadable, [0xff, 0xfe, 0x00, 0x01]).expect("写非 UTF-8 文件");
+
+        crate::write_agents_dir(&state.data_path, &[]).expect("写盘");
+
+        assert!(
+            unreadable.exists(),
+            "读失败的文件必须保留，不能当成过期文件删掉"
+        );
+    }
+
+    /// V9 遇到非对象条目要跳过，不能 panic——panic 不是 Err，迁移入口的兜底抓不到。
+    #[test]
+    fn migrate_v8_to_v9_should_skip_non_object_items_without_panic() {
+        let state = config_test_state();
+        write_agents_json(
+            &state.data_path,
+            "{\"agents\":[{\"id\":\"agent-a\"},\"b\",123,[1,2]]}",
+        );
+        let config = AppConfig::default();
+        let context = crate::DataMigrationContext {
+            state: &state,
+            config: &config,
+        };
+        assert!(
+            crate::migrate_v8_to_v9(&context),
+            "对象条目应该被正常拆出去"
+        );
+        assert!(
+            crate::app_layout_agent_file_path(&state.data_path, "agent-a").exists(),
+            "合法条目必须落盘"
+        );
+        let read_back = crate::read_agents_dir_outcome(&state.data_path).expect("读回人格");
+        assert!(read_back.iter().any(|agent| agent.id == "agent-a"));
+    }
+
     #[test]
     fn write_agents_dir_should_delete_files_of_removed_agents() {
         let state = config_test_state();
