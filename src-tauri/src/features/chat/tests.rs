@@ -3752,17 +3752,13 @@
     #[test]
     fn config_save_should_not_depend_on_agents_parse() {
         let state = test_chat_runtime_state();
-        let agents_path = app_layout_agents_path(&state.data_path);
-        std::fs::create_dir_all(agents_path.parent().expect("agents parent"))
-            .expect("create agents dir");
-        // 括号没闭合、里面也没有完整的对象：这种才是真坏（尾逗号现在已被宽松解析器接受）。
-        std::fs::write(
-            &agents_path,
-            "{\n  \"agents\": [\n    {\"id\": \"agent-a\"\n  ]\n}\n",
-        )
-        .expect("write broken agents");
+        let agents_dir = app_layout_agents_dir(&state.data_path);
+        std::fs::create_dir_all(&agents_dir).expect("create agents dir");
+        // 括号没闭合：这个文件读不通，但只该丢它自己，不该影响内置人格与配置保存。
+        std::fs::write(agents_dir.join("agent-a.json"), "{\n  \"id\": \"agent-a\"\n")
+            .expect("write broken agent file");
 
-        // 人格读取不再整体失败：内置人格兜底，且留下可见诊断。
+        // 人格读取不再整体失败：内置人格打底，坏文件跳过并留下可见诊断。
         let agents = state_read_agents_cached(&state).expect("坏文件不应让人格读取整体失败");
         for id in [DEFAULT_AGENT_ID, DEPUTY_AGENT_ID, USER_PERSONA_ID, SYSTEM_PERSONA_ID] {
             assert!(
@@ -3771,12 +3767,12 @@
             );
         }
         assert!(!agents.iter().any(|agent| agent.id == "agent-a"));
-        // 内置兜底必须留下可见诊断；诊断按数据根分开存，并行跑也不会被别的用例刷掉。
+        // 跳过的坏文件必须留下可见诊断；诊断按数据根分开存，并行跑也不会被别的用例刷掉。
         assert!(
             agents_load_diagnostics(&state.data_path)
                 .iter()
-                .any(|item| item.contains("解析失败") || item.contains("尾逗号")),
-            "内置兜底必须留下可见诊断：{:?}",
+                .any(|item| item.contains("agent-a.json")),
+            "坏人格文件必须留下可见诊断：{:?}",
             agents_load_diagnostics(&state.data_path)
         );
 

@@ -7,8 +7,8 @@ const APP_DATA_SCHEMA_VERSION: u32 = 1;
 //   - V2/V3：data_migration_steps() 注册的版本化迁移步骤，按版本号递增执行。
 //
 // 新增迁移（v2+）的接入流程：
-//   1. 在 app_data_layout.rs 的 data_migration_steps() 注册一个 DataMigrationStep；
-//   2. 在此处新增 DATA_MIGRATION_VERSION_V2 常量，并把 CURRENT_VERSION 提到它。
+//   1. 在 data_migration.rs 的迁移入口里加一档 match 分支；
+//   2. 在此处新增版本常量，并把 CURRENT_VERSION 提到它。
 const DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES: u32 = 2;
 /// 消息存储迁移（会话分片 V2→V3→V4）自己的版本。
 /// 它记在独立的 kv `message_store_migration_version`，**不得**与全局 `DATA_MIGRATION_CURRENT_VERSION` 共用一个常量：
@@ -24,7 +24,10 @@ const DATA_MIGRATION_VERSION_V7_REMOVE_HR_PERSONA: u32 = 7;
 /// V8：把内置副手人格（`deputy-agent`）被错标的「系统人格」标记纠正为 false。
 /// 副手是内置组织成员，不是系统播报人格；错标会让它被当作隐藏人格，误拦委托模型配置等处。
 const DATA_MIGRATION_VERSION_V8_DEPUTY_NOT_SYSTEM: u32 = 8;
-const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V8_DEPUTY_NOT_SYSTEM;
+/// V9：人格从单文件 `config/agents.json` 拆成 `config/agents/<id>.json`，一人格一文件。
+/// 拆分后业务代码只读目录；旧单文件留在原地，不再被业务读写。
+const DATA_MIGRATION_VERSION_V9_AGENTS_PER_FILE: u32 = 9;
+const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V9_AGENTS_PER_FILE;
 const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
 const DEFAULT_AGENT_ID: &str = "default-agent";
 const DEPUTY_AGENT_ID: &str = "deputy-agent";

@@ -323,15 +323,44 @@ fn copy_file_if_exists(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// 把目录里的文件逐个复制到目标目录（目录不存在就跳过）。
+fn copy_dir_files_if_exists(src_dir: &PathBuf, dst_dir: &PathBuf) -> Result<(), String> {
+    let Ok(entries) = fs::read_dir(src_dir) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        let src = entry.path();
+        if !src.is_file() {
+            continue;
+        }
+        fs::create_dir_all(dst_dir).map_err(|err| {
+            format!("创建备份目录失败 ({}): {err}", dst_dir.display())
+        })?;
+        let Some(name) = src.file_name() else {
+            continue;
+        };
+        let dst = dst_dir.join(name);
+        fs::copy(&src, &dst).map_err(|err| {
+            format!(
+                "复制文件失败 ({} -> {}): {err}",
+                src.display(),
+                dst.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
 fn backup_current_migration_targets(state: &AppState) -> Result<PathBuf, String> {
     let backup_dir = migration_backup_dir(state);
     fs::create_dir_all(&backup_dir)
         .map_err(|err| format!("创建迁移备份目录失败 ({}): {err}", backup_dir.display()))?;
 
     copy_file_if_exists(&state.config_path, &backup_dir.join("app_config.toml"))?;
-    copy_file_if_exists(
-        &app_layout_agents_path(&state.data_path),
-        &backup_dir.join("layout").join("config").join("agents.json"),
+    // 人格是一人一文件的目录：整个目录逐个文件备份。
+    copy_dir_files_if_exists(
+        &app_layout_agents_dir(&state.data_path),
+        &backup_dir.join("layout").join("config").join("agents"),
     )?;
     copy_file_if_exists(
         &app_layout_runtime_state_path(&state.data_path),

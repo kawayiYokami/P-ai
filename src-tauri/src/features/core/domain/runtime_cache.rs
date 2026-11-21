@@ -1042,7 +1042,7 @@ fn state_delete_conversation_cached(
 }
 
 fn state_read_agents_cached(state: &AppState) -> Result<Vec<AgentProfile>, String> {
-    let disk_mtime = path_modified_time(&app_layout_agents_path(&state.data_path));
+    let disk_mtime = app_layout_agents_dir_modified_time(&state.data_path);
     {
         let cached = state
             .cached_agents
@@ -1060,38 +1060,13 @@ fn state_read_agents_cached(state: &AppState) -> Result<Vec<AgentProfile>, Strin
             }
         }
     }
-    let outcome = read_agents_shard_outcome(&state.data_path)?;
-    if outcome.fell_back {
-        // 文件坏了、本次拿到的是内置兜底值。已有缓存时保持旧值，绝不让兜底值盖掉
-        // 仍在使用的活缓存；首次加载（缓存为空）才允许用兜底值起步。
-        let cached = state
-            .cached_agents
-            .lock()
-            .map_err(|_| "Failed to lock cached agents".to_string())?;
-        if let Some(existing) = cached.as_ref() {
-            let existing = existing.clone();
-            drop(cached);
-            // 这次磁盘版本已经评估过：记下 mtime，避免同一份坏文件被反复读取、反复备份，
-            // 下次文件真的变了再重读。缓存内容仍是上一次验证通过的那份。
-            *state
-                .cached_agents_mtime
-                .lock()
-                .map_err(|_| "Failed to lock cached agents mtime".to_string())? = disk_mtime;
-            runtime_log_warn(format!(
-                "[配置] 人格文件损坏已改用内置人格兜底，本次保持缓存中的人格 {} 条不做覆盖",
-                existing.len()
-            ));
-            return Ok(existing);
-        }
-    }
-    let agents = outcome.agents;
+    let agents = read_agents_dir_outcome(&state.data_path)?;
     *state
         .cached_agents
         .lock()
         .map_err(|_| "Failed to lock cached agents".to_string())? = Some(agents.clone());
-    // 读取可能顺手自修复并改写了文件：mtime 要按读完之后的状态记，
-    // 否则下一次调用会看到「mtime 变了」再白读一遍。
-    let disk_mtime = path_modified_time(&app_layout_agents_path(&state.data_path));
+    // mtime 要按读完之后的状态记，否则下一次调用会再白读一遍。
+    let disk_mtime = app_layout_agents_dir_modified_time(&state.data_path);
     *state
         .cached_agents_mtime
         .lock()
@@ -1104,16 +1079,8 @@ fn state_write_agents_cached(state: &AppState, agents: &[AgentProfile]) -> Resul
         .app_data_persist_write_lock
         .lock()
         .map_err(|_| "Failed to lock app data persist write lock".to_string())?;
-    let wrote = write_agents_shard(&state.data_path, agents)?;
-    if !wrote {
-        // 写盘被拒（原文件损坏且备份失败，本次会话禁止覆盖）：绝不能把缓存改成新值再报成功，
-        // 否则界面显示已保存、重启全部回滚。
-        return Err(
-            "人格文件本次会话禁止写回（原文件损坏且备份失败），改动未保存；请先修好或移走 agents.json 再试"
-                .to_string(),
-        );
-    }
-    let disk_mtime = path_modified_time(&app_layout_agents_path(&state.data_path));
+    write_agents_dir(&state.data_path, agents)?;
+    let disk_mtime = app_layout_agents_dir_modified_time(&state.data_path);
     *state
         .cached_agents
         .lock()
@@ -1309,7 +1276,7 @@ fn state_write_app_data_cached(state: &AppState, data: &AppData) -> Result<(), S
         .app_data_persist_write_lock
         .lock()
         .map_err(|_| "Failed to lock app data persist write lock".to_string())?;
-    write_agents_shard(&state.data_path, &data.agents)?;
+    write_agents_dir(&state.data_path, &data.agents)?;
     if data.data_migration_version > 0 {
         state_db_upsert_kv(
             &state.data_path,

@@ -1,3 +1,845 @@
+const LAYOUT_FILE_AGENTS: &str = "agents.json";
+
+/// 旧单文件人格库的结构：`{"agents": [...]}`。只在本模块读写。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct AgentsFile {
+    #[serde(default)]
+    agents: Vec<AgentProfile>,
+}
+
+fn app_layout_agents_path(path: &PathBuf) -> PathBuf {
+    app_layout_config_dir(path).join(LAYOUT_FILE_AGENTS)
+}
+
+fn build_agents_file(agents: &[AgentProfile]) -> AgentsFile {
+    AgentsFile {
+        agents: agents.to_vec(),
+    }
+}
+
+// ==================== 人格文件：内置打底 + 文件覆盖，逐条容错 ====================
+
+fn agents_corrupt_backup_index(
+) -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, (u64, PathBuf)>> {
+    static INDEX: OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, (u64, PathBuf)>>> =
+        OnceLock::new();
+    INDEX.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn agents_content_fingerprint(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn backup_corrupt_agents_file(path: &PathBuf) -> Result<PathBuf, String> {
+    let original = fs::read(path).map_err(|err| format!("读取待备份人格文件失败: {err}"))?;
+    let fingerprint = agents_content_fingerprint(&original);
+    if let Ok(index) = agents_corrupt_backup_index().lock() {
+        if let Some((known, known_path)) = index.get(path) {
+            if *known == fingerprint && known_path.exists() {
+                return Ok(known_path.clone());
+            }
+        }
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default();
+    let backup_path = path.with_extension(format!("json.corrupt-{stamp}"));
+    fs::copy(path, &backup_path).map_err(|err| format!("备份人格文件失败: {err}"))?;
+    let copied = fs::read(&backup_path).map_err(|err| format!("校验备份失败: {err}"))?;
+    if copied != original {
+        return Err(format!(
+            "备份校验不一致（原文件 {} 字节，备份 {} 字节）",
+            original.len(),
+            copied.len()
+        ));
+    }
+    if let Ok(mut index) = agents_corrupt_backup_index().lock() {
+        index.insert(path.clone(), (fingerprint, backup_path.clone()));
+    }
+    Ok(backup_path)
+}
+
+fn record_agents_repair_note(messages: &mut Vec<String>, message: String) {
+    runtime_log_warn(format!("[配置] {message}"));
+    messages.push(message);
+}
+
+fn agents_syntax_error_message(
+    path: &PathBuf,
+    content: &str,
+    line: usize,
+    column: usize,
+    detail: &str,
+) -> String {
+    let line_text = content
+        .lines()
+        .nth(line.saturating_sub(1))
+        .unwrap_or_default();
+    let mut caret = String::new();
+    if column > 0 {
+        caret = format!("\n{}^", " ".repeat(column.saturating_sub(1)));
+    }
+    format!(
+        "人格文件 `{}` 第 {line} 行第 {column} 列解析失败：{detail}\n出错行：{}\
+{caret}",
+        path.display(),
+        line_text.trim_end()
+    )
+}
+
+fn salvage_agents_from_broken_text(content: &str) -> Vec<AgentProfile> {
+    let options = agents_jsonc_salvage_options();
+    let mut salvaged = Vec::<AgentProfile>::new();
+    let mut consumed_until = 0usize;
+    for (start, ch) in content.char_indices() {
+        if ch != '{' || start < consumed_until {
+            continue;
+        }
+        let Some(end) = matching_brace_end(content, start) else {
+            continue;
+        };
+        let slice = &content[start..=end];
+        let parsed = parse_agents_jsonc(slice, &options)
+            .ok()
+            .filter(|value| value.is_object())
+            .filter(|value| {
+                // 必须至少有一个能认出是人格的键，否则权限块、模型配置块之类也会被当成人格。
+                value.get("id").is_some()
+                    || value.get("name").is_some()
+                    || value.get("systemPrompt").is_some()
+            })
+            .and_then(|value| serde_json::from_value::<AgentProfile>(value).ok());
+        if let Some(mut agent) = parsed {
+            normalize_agent(&mut agent);
+            salvaged.push(agent);
+            consumed_until = end + 1;
+        }
+    }
+    salvaged
+}
+
+fn matching_brace_end(content: &str, start: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, ch) in content[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(start + offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+struct AgentsReadOutcome {
+    agents: Vec<AgentProfile>,
+    fell_back: bool,
+}
+
+impl AgentsReadOutcome {
+    fn normal(agents: Vec<AgentProfile>) -> Self {
+        Self {
+            agents,
+            fell_back: false,
+        }
+    }
+
+    fn fell_back(agents: Vec<AgentProfile>) -> Self {
+        Self {
+            agents,
+            fell_back: true,
+        }
+    }
+}
+
+#[cfg(test)]
+fn read_agents_shard(path: &PathBuf) -> Result<Vec<AgentProfile>, String> {
+    read_agents_shard_outcome(path).map(|outcome| outcome.agents)
+}
+
+fn read_agents_shard_outcome(path: &PathBuf) -> Result<AgentsReadOutcome, String> {
+    let agents_path = app_layout_agents_path(path);
+    // 结论先攒在本轮里，读完一次性发布：读取中途不能被别的读取刷掉。
+    let mut diagnostics = Vec::<String>::new();
+    let outcome = read_agents_file_outcome(path, &agents_path, &mut diagnostics);
+    publish_agents_load_diagnostics(path, &diagnostics);
+    Ok(outcome)
+}
+
+fn read_agents_file_outcome(
+    data_path: &PathBuf,
+    agents_path: &PathBuf,
+    diagnostics: &mut Vec<String>,
+) -> AgentsReadOutcome {
+    if !agents_path.exists() {
+        // 文件不存在：纯内置，与历史行为一致（这是正常状态，不是兜底）。
+        return AgentsReadOutcome::normal(built_in_agents());
+    }
+    let content = match fs::read_to_string(agents_path) {
+        Ok(content) => content,
+        Err(err) => {
+            // 读不出来（ANSI 另存导致的非 UTF-8、被占用、无权限）：这种情况没法修，
+            // 内容都没看到过，写回等于凭空覆盖。改用内置人格并禁止本次会话写回。
+            record_agents_load_diagnostic(
+                diagnostics,
+                format!(
+                    "读取人格文件失败（{}）：{err}。已改用内置人格，自定义人格本次未加载。\n为避免覆盖尚未读通的原文件，原文件保持不动。",
+                    agents_path.display()
+                ),
+            );
+            return AgentsReadOutcome::fell_back(built_in_agents());
+        }
+    };
+
+    let options = agents_jsonc_options();
+    let parsed = match parse_agents_jsonc(&content, &options) {
+        Ok(value) => value,
+        Err(err) => {
+            let detail = agents_syntax_error_message(
+                agents_path,
+                &content,
+                err.line,
+                err.column,
+                &err.detail,
+            );
+            let salvaged = salvage_agents_from_broken_text(&content);
+            return recover_broken_agents_file(
+                data_path,
+                agents_path,
+                salvaged,
+                detail,
+                diagnostics,
+            );
+        }
+    };
+
+    let items = match agents_items_from_value(&parsed) {
+        Some(items) => items,
+        None => {
+            // 语法合法但没有 agents 数组：按 0 条自定义人格处理（用户可能就是清空了文件）。
+            // 不备份、不写盘——文件本身是合法的。
+            record_agents_repair_note(
+                diagnostics,
+                format!(
+                    "人格文件 `{}` 里没有 agents 数组，本次按 0 条自定义人格处理",
+                    agents_path.display()
+                ),
+            );
+            Vec::new()
+        }
+    };
+
+    let (file_agents, skipped, mut normalized) = parse_agents_items(&items);
+    let mut merged = merge_agents_with_built_in(file_agents);
+    for agent in merged.iter_mut() {
+        normalized |= apply_default_agent_name(agent);
+    }
+    if skipped.is_empty() && !normalized {
+        return AgentsReadOutcome::normal(merged);
+    }
+
+    // 有内容需要修复：先备份，再把修好的这份写回磁盘，让下次读就是干净的。
+    let mut reasons = Vec::<String>::new();
+    if !skipped.is_empty() {
+        reasons.push(format!(
+            "{} 条记录无法解析已丢弃：{}",
+            skipped.len(),
+            skipped.join("；")
+        ));
+    }
+    if normalized {
+        reasons.push("缺失字段已自动补齐".to_string());
+    }
+    let detail = format!(
+        "人格文件 `{}` {}",
+        agents_path.display(),
+        reasons.join("；")
+    );
+    let repaired = rewrite_agents_file_after_repair(
+        data_path,
+        agents_path,
+        &merged,
+        detail,
+        diagnostics,
+    );
+    if repaired {
+        // 磁盘已经等于内存里这份：缓存照常替换，不留「磁盘变了缓存还是旧的」。
+        AgentsReadOutcome::normal(merged)
+    } else {
+        // 修不动（备份失败 / 写盘失败）：不拿内存结果覆盖活缓存。
+        AgentsReadOutcome::fell_back(merged)
+    }
+}
+
+fn recover_broken_agents_file(
+    data_path: &PathBuf,
+    agents_path: &PathBuf,
+    salvaged: Vec<AgentProfile>,
+    detail: String,
+    diagnostics: &mut Vec<String>,
+) -> AgentsReadOutcome {
+    if salvaged.is_empty() {
+        // 一条都救不回来：绝不写一份空文件——那等于把用户的内容换成空，比不修更糟。
+        // 备份留档 + 内存用内置人格 + 活缓存保持旧值，等文件被改好。
+        match backup_corrupt_agents_file(agents_path) {
+            Ok(backup) => record_agents_load_diagnostic(
+                diagnostics,
+                format!(
+                    "{detail}\n一条也没能救回来，已改用内置人格；原文件保持不动，已备份为 `{}`。",
+                    backup.display()
+                ),
+            ),
+            Err(err) => {
+                record_agents_load_diagnostic(
+                    diagnostics,
+                    format!(
+                        "{detail}\n一条也没能救回来，已改用内置人格；原文件备份失败（{err}），原文件保持不动。"
+                    ),
+                );
+            }
+        }
+        return AgentsReadOutcome::fell_back(built_in_agents());
+    }
+    let salvaged_count = salvaged.len();
+    let mut merged = merge_agents_with_built_in(salvaged);
+    for agent in merged.iter_mut() {
+        apply_default_agent_name(agent);
+    }
+    let detail = format!(
+        "{detail}\n已从原文件里救回 {salvaged_count} 条，救不回来的条目只留在备份里"
+    );
+    let repaired =
+        rewrite_agents_file_after_repair(data_path, agents_path, &merged, detail, diagnostics);
+    if repaired {
+        AgentsReadOutcome::normal(merged)
+    } else {
+        AgentsReadOutcome::fell_back(merged)
+    }
+}
+
+fn rewrite_agents_file_after_repair(
+    data_path: &PathBuf,
+    agents_path: &PathBuf,
+    agents: &[AgentProfile],
+    detail: String,
+    diagnostics: &mut Vec<String>,
+) -> bool {
+    let backup = match backup_corrupt_agents_file(agents_path) {
+        Ok(backup) => backup,
+        Err(err) => {
+            record_agents_load_diagnostic(
+                diagnostics,
+                format!(
+                    "{detail}\n原文件备份失败（{err}）：本次不改动该文件，避免覆盖你还能手工修好的数据。"
+                ),
+            );
+            return false;
+        }
+    };
+    match write_agents_shard(data_path, agents) {
+        Ok(_) => {
+            record_agents_repair_note(
+                diagnostics,
+                format!(
+                    "{detail}\n原文件已备份为 `{}`，人格文件已重写为合法 JSON。",
+                    backup.display()
+                ),
+            );
+            true
+        }
+        Err(err) => {
+            record_agents_load_diagnostic(
+                diagnostics,
+                format!(
+                    "{detail}\n原文件已备份为 `{}`，但重写失败（{err}）：本次先用内存里的人格继续。",
+                    backup.display()
+                ),
+            );
+            false
+        }
+    }
+}
+
+fn write_agents_shard(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, String> {
+    let agents_path = app_layout_agents_path(path);
+    fs::create_dir_all(app_layout_config_dir(path))
+        .map_err(|err| format!("Create config layout dir failed: {err}"))?;
+    write_json_file_atomic_if_changed(
+        &agents_path,
+        &build_agents_file(&agents_to_persist(agents)),
+        "agents file",
+    )
+}
+
+struct DataMigrationContext<'a> {
+    state: &'a AppState,
+    config: &'a AppConfig,
+}
+
+/// V6 迁移步骤：把 `agents.json` 里的绝对头像路径归一为相对数据根的相对路径。
+/// - 已是相对路径：跳过（幂等）。
+/// - 绝对路径且当前 avatars 目录存在同名文件：改写为 `avatars/<文件名>`。
+/// - 找不到同名文件：保留原值并告警，不做无声抹除。
+/// 迁移入口：迁移不允许失败——任何数据问题都只记日志并当作「这一步没改动」，
+/// 版本照常推进，绝不让用户每次启动都撞同一堵墙。
+fn migrate_v5_to_v6(context: &DataMigrationContext<'_>) -> bool {
+    match migrate_v5_to_v6_inner(context) {
+        Ok(changed) => changed,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[应用数据迁移] 跳过，任务=v6头像相对路径，原因=这一步无法完成，error={err}"
+            ));
+            false
+        }
+    }
+}
+
+fn migrate_v5_to_v6_inner(context: &DataMigrationContext<'_>) -> Result<bool, String> {
+    let read = read_agents_shard_outcome(&context.state.data_path)?;
+    if read.fell_back {
+        // 文件坏了、这次拿到的是内置兜底值：拿它写回会把用户的自定义人格从原文件抹掉。
+        // 这一步没做成，版本不推进，下次启动从这一步重来。
+        return Err(
+            "头像路径迁移失败：人格文件损坏，本次读到的是内置兜底值，不写回".to_string(),
+        );
+    }
+    let mut agents = read.agents;
+    let avatars_dir = avatar_storage_dir(context.state)?;
+    let mut changed = false;
+    let mut rewritten = 0usize;
+    let mut kept = 0usize;
+    for agent in agents.iter_mut() {
+        let Some(raw) = agent
+            .avatar_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let candidate = PathBuf::from(raw);
+        if !candidate.is_absolute() {
+            continue;
+        }
+        let file_name = candidate
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if !file_name.is_empty() && avatars_dir.join(file_name).is_file() {
+            agent.avatar_path = Some(avatar_relative_path(file_name));
+            changed = true;
+            rewritten += 1;
+        } else {
+            kept += 1;
+            runtime_log_warn(format!(
+                "[应用数据迁移] 头像路径无法归一，任务=v6头像相对路径，人格={}，原值={}，原因=当前头像目录未找到同名文件",
+                agent.id, raw
+            ));
+        }
+    }
+    if changed {
+        write_agents_shard(&context.state.data_path, &agents)?;
+    }
+    runtime_log_info(format!(
+        "[应用数据迁移] 头像路径迁移完成，任务=v6头像相对路径，改写={rewritten}，保留={kept}"
+    ));
+    Ok(changed)
+}
+
+/// V7 迁移步骤：移除已废弃的 HR 人格，并从各人格的下级列表里摘除对它的引用。
+/// HR 机制已整体下线，但历史数据里可能已经落下一个 `hr` 人格节点，且主助理的下级列表里含 `hr`。
+/// 幂等：既无 `hr` 节点、也无对它的引用时不写盘。
+/// 迁移入口：迁移不允许失败——任何数据问题都只记日志并当作「这一步没改动」，
+/// 版本照常推进，绝不让用户每次启动都撞同一堵墙。
+fn migrate_v6_to_v7(context: &DataMigrationContext<'_>) -> bool {
+    match migrate_v6_to_v7_inner(context) {
+        Ok(changed) => changed,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[应用数据迁移] 跳过，任务=v7移除HR人格，原因=这一步无法完成，error={err}"
+            ));
+            false
+        }
+    }
+}
+
+fn migrate_v6_to_v7_inner(context: &DataMigrationContext<'_>) -> Result<bool, String> {
+    /// 已废弃的 HR 人格 id；仅本迁移使用，业务代码不再感知。
+    const LEGACY_HR_AGENT_ID: &str = "hr";
+    let read = read_agents_shard_outcome(&context.state.data_path)?;
+    if read.fell_back {
+        return Err(
+            "HR 人格清理失败：人格文件损坏，本次读到的是内置兜底值，不写回".to_string(),
+        );
+    }
+    let mut agents = read.agents;
+    let mut pruned_refs = 0usize;
+    for agent in agents.iter_mut() {
+        let before = agent.child_agent_ids.len();
+        agent
+            .child_agent_ids
+            .retain(|child| child.trim() != LEGACY_HR_AGENT_ID);
+        pruned_refs += before - agent.child_agent_ids.len();
+    }
+    let removed_nodes = agents
+        .iter()
+        .filter(|agent| agent.id == LEGACY_HR_AGENT_ID)
+        .count();
+    agents.retain(|agent| agent.id != LEGACY_HR_AGENT_ID);
+    let changed = removed_nodes > 0 || pruned_refs > 0;
+    if changed {
+        write_agents_shard(&context.state.data_path, &agents)?;
+        runtime_log_info(format!(
+            "[应用数据迁移] HR 人格清理完成，任务=v7移除HR人格，删除节点={removed_nodes}，摘除下级引用={pruned_refs}"
+        ));
+    }
+    Ok(changed)
+}
+
+/// V8 迁移步骤：把内置副手人格的 `is_built_in_system` 从 true 纠正为 false。
+/// 副手是内置组织成员，不是「只做系统播报、不在选择器出现」的系统人格。
+/// 幂等：副手已是 false 时不写盘。
+/// 迁移入口：迁移不允许失败——任何数据问题都只记日志并当作「这一步没改动」，
+/// 版本照常推进，绝不让用户每次启动都撞同一堵墙。
+fn migrate_v7_to_v8(context: &DataMigrationContext<'_>) -> bool {
+    match migrate_v7_to_v8_inner(context) {
+        Ok(changed) => changed,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[应用数据迁移] 跳过，任务=v8副手非系统，原因=这一步无法完成，error={err}"
+            ));
+            false
+        }
+    }
+}
+
+fn migrate_v7_to_v8_inner(context: &DataMigrationContext<'_>) -> Result<bool, String> {
+    let read = read_agents_shard_outcome(&context.state.data_path)?;
+    if read.fell_back {
+        return Err(
+            "副手人格标记纠正失败：人格文件损坏，本次读到的是内置兜底值，不写回".to_string(),
+        );
+    }
+    let mut agents = read.agents;
+    let mut corrected = 0usize;
+    for agent in agents.iter_mut() {
+        if agent.id.trim() == DEPUTY_AGENT_ID && agent.is_built_in_system {
+            agent.is_built_in_system = false;
+            corrected += 1;
+        }
+    }
+    let changed = corrected > 0;
+    if changed {
+        write_agents_shard(&context.state.data_path, &agents)?;
+        runtime_log_info(format!(
+            "[应用数据迁移] 副手人格标记纠正完成，任务=v8副手非系统，agent_id={DEPUTY_AGENT_ID}，is_built_in_system=true→false，纠正节点={corrected}"
+        ));
+    }
+    Ok(changed)
+}
+
+/// V9：人格从单文件 `config/agents.json` 拆成 `config/agents/<id>.json`，一人格一文件。
+///
+/// 只做拆分：旧文件读一次（只读，不写、不删、不改名），在 `Value` 层按 `id` 原样落盘，
+/// 不反序列化成人格、不校验字段、不读回比对、不备份、不修复。目录里已有同名文件就跳过。
+/// 迁移入口：迁移不允许失败——任何数据问题都只记日志并当作「这一步没改动」，
+/// 版本照常推进，绝不让用户每次启动都撞同一堵墙。
+fn migrate_v8_to_v9(context: &DataMigrationContext<'_>) -> bool {
+    match migrate_v8_to_v9_inner(context) {
+        Ok(changed) => changed,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[应用数据迁移] 跳过，任务=v9人格按文件拆分，原因=这一步无法完成，error={err}"
+            ));
+            false
+        }
+    }
+}
+
+fn migrate_v8_to_v9_inner(context: &DataMigrationContext<'_>) -> Result<bool, String> {
+    let legacy_path = app_layout_agents_path(&context.state.data_path);
+    if !legacy_path.exists() {
+        // 从来没有过单文件人格库：没有要拆的东西，这一步直接算完成。
+        return Ok(false);
+    }
+    let content = fs::read_to_string(&legacy_path)
+        .map_err(|err| format!("读取旧人格文件失败（{}）：{err}", legacy_path.display()))?;
+    let parsed = parse_agents_jsonc(&content, &agents_jsonc_options())
+        .map_err(|err| format!("旧人格文件 JSON 无效（{}）：{}", legacy_path.display(), err.detail))?;
+    let items = agents_items_from_value(&parsed).unwrap_or_default();
+    let agents_dir = app_layout_agents_dir(&context.state.data_path);
+    fs::create_dir_all(&agents_dir)
+        .map_err(|err| format!("Create agents layout dir failed: {err}"))?;
+    let mut written = 0usize;
+    let mut skipped = 0usize;
+    for item in items {
+        let id = item.get("id").and_then(Value::as_str).unwrap_or_default();
+        let file_path = app_layout_agent_file_path(&context.state.data_path, id);
+        if file_path.exists() {
+            // 目录里已经有这一份：不覆盖，已经写好的就是当前值。
+            skipped += 1;
+            continue;
+        }
+        write_json_file_atomic_if_changed(&file_path, &item, "agent file")?;
+        written += 1;
+    }
+    runtime_log_info(format!(
+        "[应用数据迁移] 人格按文件拆分完成，任务=v9人格按文件拆分，写入={written}，已存在跳过={skipped}"
+    ));
+    Ok(written > 0)
+}
+
+/// V2：空壳工作区补齐为 assistant 工作区。
+/// 迁移入口：迁移不允许失败——任何数据问题都只记日志并当作「这一步没改动」，
+/// 版本照常推进，绝不让用户每次启动都撞同一堵墙。
+fn migrate_v1_to_v2(context: &DataMigrationContext<'_>) -> bool {
+    match migrate_v1_to_v2_inner(context) {
+        Ok(changed) => changed,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[应用数据迁移] 跳过，任务=v2补齐会话工作区，原因=这一步无法完成，error={err}"
+            ));
+            false
+        }
+    }
+}
+
+fn migrate_v1_to_v2_inner(context: &DataMigrationContext<'_>) -> Result<bool, String> {
+    let db_path = app_layout_chat_dir(&context.state.data_path).join("chat_metadata.sqlite");
+    if !db_path.exists() {
+        // 还没有会话元数据库：没有要补的会话。
+        return Ok(false);
+    }
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|err| format!("打开会话元数据库失败: {err}"))?;
+    let rows = {
+        let mut statement = conn
+            .prepare("SELECT conversation_id, metadata_json FROM conversation_metadata")
+            .map_err(|err| format!("准备会话元数据查询失败: {err}"))?;
+        let mapped = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|err| format!("查询会话元数据失败: {err}"))?;
+        mapped.filter_map(Result::ok).collect::<Vec<_>>()
+    };
+    let mut conversation_writes = 0usize;
+    for (conversation_id, raw) in rows {
+        let Ok(mut value) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        let Some(shell_workspaces) = migration_empty_workspace_fill(context, &value) else {
+            continue;
+        };
+        value["shellWorkspaces"] = serde_json::to_value(&shell_workspaces)
+            .map_err(|err| format!("序列化工作区失败: {err}"))?;
+        value["shellWorkspacePath"] = Value::Null;
+        let updated = serde_json::to_string(&value)
+            .map_err(|err| format!("序列化会话元数据失败: {err}"))?;
+        conn.execute(
+            "UPDATE conversation_metadata SET metadata_json=?1 WHERE conversation_id=?2",
+            rusqlite::params![updated, conversation_id],
+        )
+        .map_err(|err| format!("写回会话元数据失败: {err}"))?;
+        conversation_writes += 1;
+    }
+    if conversation_writes > 0 {
+        runtime_log_info(format!(
+            "[应用数据迁移] 工作区补齐完成，任务=v2补齐会话工作区，写入会话={conversation_writes}"
+        ));
+    }
+    Ok(conversation_writes > 0)
+}
+
+/// 空壳会话要补的工作区；不需要补就返回 `None`。
+///
+/// 判定全部落在元数据字段上，不构造完整会话快照：可见性、本地普通会话、未归档
+/// 这三条本来只读 `conversationKind` / `id` / `status` / `archivedAt`。
+fn migration_empty_workspace_fill(
+    context: &DataMigrationContext<'_>,
+    value: &Value,
+) -> Option<Vec<ShellWorkspaceConfig>> {
+    let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or("").trim();
+    let kind = text("conversationKind");
+    // 追问、委托、远程联系人都不在会话前台列表里，也就不该被补工作区。
+    if matches!(
+        kind,
+        CONVERSATION_KIND_DELEGATE | CONVERSATION_KIND_REMOTE_IM_CONTACT | CONVERSATION_KIND_SIDE_CHAT
+    ) {
+        return None;
+    }
+    if kind != CONVERSATION_KIND_CHAT {
+        return None;
+    }
+    if text("id") == SYSTEM_NOTIFICATION_CONVERSATION_ID
+        || kind == CONVERSATION_KIND_SYSTEM_NOTIFICATION
+    {
+        return None;
+    }
+    if text("status") == "archived" || !text("archivedAt").is_empty() {
+        return None;
+    }
+    if value
+        .get("shellWorkspaces")
+        .and_then(Value::as_array)
+        .is_some_and(|items| !items.is_empty())
+    {
+        return None;
+    }
+    // 旧字段里有主工作区路径就沿用它，否则补一个 assistant 主工作区。
+    let legacy_path = text("shellWorkspacePath");
+    if !legacy_path.is_empty() {
+        return Some(vec![migration_main_workspace(
+            legacy_path.to_string(),
+            legacy_path.to_string(),
+        )]);
+    }
+    let (path, name) = migration_assistant_workspace_source(context);
+    Some(vec![migration_main_workspace(path, name)])
+}
+
+fn migration_main_workspace(path: String, name: String) -> ShellWorkspaceConfig {
+    ShellWorkspaceConfig {
+        id: "assistant-main-workspace".to_string(),
+        name,
+        path,
+        level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+        access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+        built_in: false,
+    }
+}
+
+/// assistant 主工作区的路径与显示名：取配置里 system 级工作区，没有就用 llm workspace 根。
+fn migration_assistant_workspace_source(context: &DataMigrationContext<'_>) -> (String, String) {
+    let system_workspace = context
+        .config
+        .shell_workspaces
+        .iter()
+        .find(|workspace| workspace.level.trim() == SHELL_WORKSPACE_LEVEL_SYSTEM);
+    let path = system_workspace
+        .map(|workspace| workspace.path.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            context
+                .state
+                .llm_workspace_path
+                .to_string_lossy()
+                .to_string()
+        });
+    let name = system_workspace
+        .map(|workspace| workspace.name.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| path.clone());
+    (path, name)
+}
+
+/// 应用数据迁移入口：按版本逐级推进，每升一级立刻把版本写回。
+///
+/// 某一步失败就是 `Err` 冒泡出去，版本停在它之前；下次启动从这一步重来。
+/// 「重试」的全部含义就是这个版本门闩，不需要额外的推迟标志。
+fn run_app_data_migrations_with_state(
+    state: &AppState,
+    config: &AppConfig,
+) -> bool {
+    // 迁移不允许失败：门闩不满足、版本读不出来、版本写不进去，都只记日志。
+    if let Err(err) = require_message_store_migration_completed_for_runtime(state, "执行应用数据迁移") {
+        runtime_log_warn(format!(
+            "[应用数据迁移] 跳过整轮，原因=消息存储迁移未完成，error={err}"
+        ));
+        return false;
+    }
+    let version_before = match state_service_get_data_migration_version(state) {
+        Ok(version) => version,
+        Err(err) => {
+            runtime_log_error(format!(
+                "[应用数据迁移] 跳过整轮，原因=读取迁移版本失败，error={err}"
+            ));
+            return false;
+        }
+    };
+    let mut version = version_before;
+    let mut changed = false;
+    loop {
+        if version >= DATA_MIGRATION_CURRENT_VERSION {
+            break;
+        }
+        let context = DataMigrationContext { state, config };
+        let started = std::time::Instant::now();
+        // 迁移只能从 A 到 B：起点版本精确匹配，不在表里就直接退出，不做任何猜测。
+        // 版本 0（全新安装）等价于「还没走过任何一步」，从 v1_to_v2 起走。
+        let step_version = if version == 0 { 1 } else { version };
+        let (name, next_version, step_changed) = match step_version {
+            1 => (
+                "v1_to_v2",
+                DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES,
+                migrate_v1_to_v2(&context),
+            ),
+            2 => (
+                "v2_to_v5",
+                DATA_MIGRATION_VERSION_V5_DEPARTMENTS_TO_AGENT_ORGANIZATION,
+                migrate_v2_to_v5(&context),
+            ),
+            5 => (
+                "v5_to_v6",
+                DATA_MIGRATION_VERSION_V6_AVATAR_PATH_RELATIVE,
+                migrate_v5_to_v6(&context),
+            ),
+            6 => (
+                "v6_to_v7",
+                DATA_MIGRATION_VERSION_V7_REMOVE_HR_PERSONA,
+                migrate_v6_to_v7(&context),
+            ),
+            7 => (
+                "v7_to_v8",
+                DATA_MIGRATION_VERSION_V8_DEPUTY_NOT_SYSTEM,
+                migrate_v7_to_v8(&context),
+            ),
+            8 => (
+                "v8_to_v9",
+                DATA_MIGRATION_VERSION_V9_AGENTS_PER_FILE,
+                migrate_v8_to_v9(&context),
+            ),
+            // 不在表里的版本＝数据异常，直接退出，不做任何猜测。
+            _ => break,
+        };
+        version = next_version;
+        // 每升一级立刻落盘；写不进去只记日志，不阻断启动。
+        if let Err(err) = state_service_set_data_migration_version(state, version) {
+            runtime_log_error(format!(
+                "[应用数据迁移] 版本写回失败，任务={name}，migration_version={version}，error={err}"
+            ));
+        }
+        changed |= step_changed;
+        runtime_log_info(format!(
+            "[应用数据迁移] 完成，任务={name}，migration_version_after={version}，data_changed={step_changed}，duration_ms={}",
+            started.elapsed().as_millis()
+        ));
+    }
+    changed || version_before != version
+}
+
 // ==================== 组织迁移：部门 → 人格 ====================
 // V5：把「部门」承载的权责（模型 / 权限 / 提示词 / 下级）迁到人格身上，部门这一中间实体退场。
 //
@@ -697,25 +1539,35 @@ fn carry_legacy_assistant_agent_key(state: &AppState) -> Result<bool, String> {
 }
 
 /// V5 迁移步骤：读取旧 `departments`，转写为人格组织。
-fn migrate_departments_into_agent_organization(
-    context: &DataMigrationContext<'_>,
-) -> Result<DataMigrationStepStats, String> {
-    let mut stats = DataMigrationStepStats::default();
+/// 迁移入口：迁移不允许失败——任何数据问题都只记日志并当作「这一步没改动」，
+/// 版本照常推进，绝不让用户每次启动都撞同一堵墙。
+fn migrate_v2_to_v5(context: &DataMigrationContext<'_>) -> bool {
+    match migrate_v2_to_v5_inner(context) {
+        Ok(changed) => changed,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[应用数据迁移] 跳过，任务=v5部门转人格，原因=这一步无法完成，error={err}"
+            ));
+            false
+        }
+    }
+}
+
+fn migrate_v2_to_v5_inner(context: &DataMigrationContext<'_>) -> Result<bool, String> {
     let read = read_agents_shard_outcome(&context.state.data_path)?;
     if read.fell_back {
-        // 整个步骤推迟：这一步不只写人格——它还会把 assistant_agent_id 指到 legacy 部门 id、
-        // 写出部门技能文件。人才列表是兜底值，这些副作用一旦落地就是「配置指向不存在的
-        // 人格 + 一堆孤儿 skill」，而版本又记成了已完成、以后再不会重跑。
-        stats.deferred = true;
-        runtime_log_warn(
-            "[应用数据迁移] 部门转人格推迟，任务=v5部门转人格，原因=人格文件损坏已用内置兜底，本步骤全部副作用（人格节点、配置键、技能文件）一并推迟".to_string(),
+        // 这一步不只写人格——它还会把 assistant_agent_id 指到 legacy 部门 id、写出部门技能文件。
+        // 人才列表是兜底值，这些副作用一旦落地就是「配置指向不存在的人格 + 一堆孤儿 skill」，
+        // 所以整步失败：版本不推进，下次启动从这一步重来。
+        return Err(
+            "部门转人格失败：人格文件损坏，本次读到的是内置兜底值，本步骤全部副作用一并跳过"
+                .to_string(),
         );
-        return Ok(stats);
     }
     let mut agents = read.agents;
     let mut changed = ensure_built_in_organization_nodes(&mut agents);
     if carry_legacy_assistant_agent_key(context.state)? {
-        stats.data_changed = true;
+        changed = true;
         runtime_log_info(
             "[应用数据迁移] 主助理人格键迁移完成，任务=v5部门转人格，assistant_department_agent_id → assistant_agent_id".to_string(),
         );
@@ -746,15 +1598,7 @@ fn migrate_departments_into_agent_organization(
     }
 
     if changed {
-        if !write_agents_shard(&context.state.data_path, &agents)? {
-            // 写盘被拒（原文件不可信）：同样算这一步没做成，版本必须停住。
-            stats.deferred = true;
-            runtime_log_warn(
-                "[应用数据迁移] 推迟，原因=人格文件不可信（坏文件备份失败），本次不写回".to_string(),
-            );
-            return Ok(stats);
-        }
-        stats.data_changed = true;
+        write_agents_shard(&context.state.data_path, &agents)?;
     }
 
     // skill 必须落在配置的工作区（可能已被用户改为助理空间等），不能假定默认工作区目录。
@@ -772,7 +1616,7 @@ fn migrate_departments_into_agent_organization(
         skills_written,
         plan.warnings.len()
     ));
-    Ok(stats)
+    Ok(changed)
 }
 
 #[cfg(test)]

@@ -25,7 +25,7 @@
 | 路径 | 形态 | 说明 |
 |---|---|---|
 | `config/app_config.toml`（Windows 标准 / 便携）或 `app_config.toml`（Linux / macOS 标准，位于业务根直下） | TOML | 顶层配置（热键、供应商、工具开关等）。实际路径始终是 `config_dir/app_config.toml` |
-| `config/agents.json` | JSON | 代理配置 |
+| `config/agents/` | 目录 | 人格定义，一人格一文件（`<id>.json`） |
 | `state/state.sqlite` | SQLite | 全局状态总库（V4，runtime_state 表为现役落点） |
 | `chat/chat_metadata.sqlite` | SQLite | 聊天元数据、消息定位索引、用量统计 |
 | `chat/conversations/<id>/` | 分片目录 | 会话正文（见下文） |
@@ -74,13 +74,16 @@
 
 > 旧配置里的 `departments[]` 已不是本应用的字段，只在 V5 数据迁移里被读取一次（`agent_org_migration.rs`）。
 
-## 2. config/agents.json
+## 2. config/agents/
 
-`AgentsFile { agents: [AgentProfile] }`（`app_data_layout.rs`）。
+一人格一文件：`config/agents/<id>.json`，每个文件就是一个 `AgentProfile` 对象，字段直接写在顶层。
+V9 之前是单文件 `config/agents.json`（`AgentsFile { agents: [AgentProfile] }`），V9 迁移把它按 id 拆过来，旧文件留在原地不再被读写。
+
+文件名由人格 id 安全化而来（只保留字母、数字、`-`、`_`，其余换成 `_`）。
 
 `AgentProfile` 字段（`types_chat.rs`）：`id`、`name`、`systemPrompt`、`tools[]`（ApiToolConfig）、`createdAt`、`updatedAt`、`avatarPath`、`avatarUpdatedAt`、`isBuiltInUser`、`isBuiltInSystem`、`privateMemoryEnabled`、`memoryRecallMode`、`source`、`scope`、`summary`、`residentSkillNames`、`optionalSkillNames`、`includeSystemRules`、`apiConfigIds`、`apiConfigId`、`modelFailureFallbackEnabled`、`permissionControl`、`childAgentIds`。
 
-读写入口：`read_agents_shard` / `write_agents_shard`（`app_data_layout.rs`）。
+读写入口：`read_agents_dir_outcome` / `write_agents_dir`（`app_data_layout.rs`）。只落盘「自定义人格 + 用户改过的内置人格」，纯默认内置不写文件；单个文件坏掉只跳过它，其余人格照常。
 
 ## 3. state/state.sqlite
 

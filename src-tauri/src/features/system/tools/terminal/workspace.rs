@@ -1479,7 +1479,7 @@ mod terminal_workspace_tests {
         .expect("mark message store migration complete");
 
         let changed =
-            run_app_data_migrations_with_state(&state, &config).expect("run migrations");
+            run_app_data_migrations_with_state(&state, &config);
 
         assert!(changed);
         let migrated = read_conversation_shard(&state.data_path, "conv-empty-workspace")

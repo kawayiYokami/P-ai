@@ -1292,6 +1292,122 @@ enableTools = true
     /// 以真实本机快照数据独立驱动 V5 组织迁移（不依赖运行态、不依赖 AppConfig 解析结果）。
     /// 标记 `#[ignore]`：输入位于未被 git 跟踪的 `.pai/temp/`，CI 与全新克隆环境必然缺失，
     /// 不能进常驻测试集（否则整仓测试变红）。手动执行：
+    #[test]
+    fn migrate_v1_to_v2_should_fill_assistant_workspace_for_empty_conversations() {
+        let state = config_test_state();
+        let chat_dir = crate::app_layout_chat_dir(&state.data_path);
+        std::fs::create_dir_all(&chat_dir).expect("create chat dir");
+        let db_path = chat_dir.join("chat_metadata.sqlite");
+        {
+            let conn = rusqlite::Connection::open(&db_path).expect("open metadata db");
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS conversation_metadata (
+                   conversation_id TEXT PRIMARY KEY,
+                   metadata_json TEXT NOT NULL,
+                   storage_revision INTEGER NOT NULL DEFAULT 0,
+                   updated_at TEXT NOT NULL
+                 );",
+            )
+            .expect("create metadata table");
+            let insert = |id: &str, meta: serde_json::Value| {
+                conn.execute(
+                    "INSERT INTO conversation_metadata (conversation_id, metadata_json, updated_at) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![id, serde_json::to_string(&meta).expect("serialize meta"), "2026-01-01T00:00:00Z"],
+                )
+                .expect("insert metadata row");
+            };
+            // 空壳普通会话：该补工作区。
+            insert(
+                "c-empty",
+                serde_json::json!({
+                    "id": "c-empty",
+                    "conversationKind": "chat",
+                    "status": "active",
+                    "shellWorkspaces": [],
+                }),
+            );
+            // 归档会话：不补。
+            insert(
+                "c-archived",
+                serde_json::json!({
+                    "id": "c-archived",
+                    "conversationKind": "chat",
+                    "status": "archived",
+                    "shellWorkspaces": [],
+                }),
+            );
+            // 已有工作区的会话：不动。
+            insert(
+                "c-has-workspace",
+                serde_json::json!({
+                    "id": "c-has-workspace",
+                    "conversationKind": "chat",
+                    "status": "active",
+                    "shellWorkspaces": [{
+                        "id": "keep-me",
+                        "name": "已有",
+                        "path": "/tmp/keep",
+                        "level": "main",
+                        "access": "full_access",
+                        "builtIn": false
+                    }],
+                }),
+            );
+        }
+
+        let config = AppConfig::default();
+        let context = crate::DataMigrationContext {
+            state: &state,
+            config: &config,
+        };
+        assert!(
+            crate::migrate_v1_to_v2(&context),
+            "空壳会话应被补上工作区"
+        );
+
+        let conn = rusqlite::Connection::open(&db_path).expect("reopen metadata db");
+        let read_meta = |id: &str| -> serde_json::Value {
+            let raw: String = conn
+                .query_row(
+                    "SELECT metadata_json FROM conversation_metadata WHERE conversation_id=?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .expect("read metadata row");
+            serde_json::from_str(&raw).expect("parse metadata json")
+        };
+
+        let filled = read_meta("c-empty");
+        let workspaces = filled["shellWorkspaces"]
+            .as_array()
+            .expect("shellWorkspaces array");
+        assert_eq!(workspaces.len(), 1, "空壳会话应补一个主工作区");
+        assert_eq!(workspaces[0]["level"], "main");
+        assert!(
+            !workspaces[0]["path"].as_str().unwrap_or("").trim().is_empty(),
+            "补出来的工作区必须有路径"
+        );
+        assert!(
+            filled["shellWorkspacePath"].is_null(),
+            "补完之后旧字段要清空"
+        );
+
+        assert!(
+            read_meta("c-archived")["shellWorkspaces"]
+                .as_array()
+                .expect("archived workspaces")
+                .is_empty(),
+            "归档会话不该被补工作区"
+        );
+        assert_eq!(
+            read_meta("c-has-workspace")["shellWorkspaces"]
+                .as_array()
+                .expect("existing workspaces")[0]["id"],
+            "keep-me",
+            "已有工作区的会话不能被改动"
+        );
+    }
+
     /// `cargo test migration_should_convert_snapshot -- --ignored`
     #[test]
     #[ignore = "依赖本机未跟踪快照 .pai/temp/local-data-snapshot-20260915，需手动 --ignored 运行"]
@@ -1324,9 +1440,8 @@ enableTools = true
             state: &state,
             config: &config,
         };
-        let stats = crate::migrate_departments_into_agent_organization(&context)
-            .expect("run v5 organization migration");
-        assert!(stats.data_changed, "迁移应产生人格数据变化");
+        let stats = crate::migrate_v2_to_v5(&context);
+        assert!(stats, "迁移应产生人格数据变化");
 
         let agents = crate::read_agents_shard(&state.data_path).expect("read migrated agents");
         let by_id = |id: &str| {
@@ -1403,9 +1518,8 @@ enableTools = true
         assert!(skills_root.join("文本整理员/SKILL.md").exists());
 
         // 幂等：重复迁移不再产生变化。
-        let second = crate::migrate_departments_into_agent_organization(&context)
-            .expect("rerun v5 organization migration");
-        assert!(!second.data_changed, "重复迁移应幂等");
+        let second = crate::migrate_v2_to_v5(&context);
+        assert!(!second, "重复迁移应幂等");
     }
 
     #[test]
@@ -1483,8 +1597,8 @@ enableTools = true
             state: &state,
             config: &config,
         };
-        let stats = migrate_avatar_paths_to_relative(&context).expect("run v6 avatar migration");
-        assert!(stats.data_changed);
+        let stats = migrate_v5_to_v6(&context);
+        assert!(stats);
 
         let after = read_agents_shard(&state.data_path).expect("read agents shard");
         let avatar_of = |id: &str| {
@@ -1498,8 +1612,8 @@ enableTools = true
         assert_eq!(avatar_of("agent-missing").as_deref(), Some(missing_absolute.as_str()));
 
         // 幂等：已是相对路径的不会被再次改写。
-        let second = migrate_avatar_paths_to_relative(&context).expect("rerun v6 migration");
-        assert!(!second.data_changed, "重复迁移应幂等");
+        let second = migrate_v5_to_v6(&context);
+        assert!(!second, "重复迁移应幂等");
     }
 
     #[test]
@@ -1542,8 +1656,8 @@ enableTools = true
             state: &state,
             config: &config,
         };
-        let stats = migrate_remove_hr_persona(&context).expect("run v7 hr migration");
-        assert!(stats.data_changed);
+        let stats = migrate_v6_to_v7(&context);
+        assert!(stats);
 
         let after = read_agents_shard(&state.data_path).expect("read agents shard");
         assert!(
@@ -1564,8 +1678,8 @@ enableTools = true
         );
 
         // 幂等：再次执行不再产生变化。
-        let second = migrate_remove_hr_persona(&context).expect("rerun v7 migration");
-        assert!(!second.data_changed, "重复迁移应幂等");
+        let second = migrate_v6_to_v7(&context);
+        assert!(!second, "重复迁移应幂等");
     }
 
     #[test]
@@ -1585,8 +1699,8 @@ enableTools = true
             state: &state,
             config: &config,
         };
-        let stats = migrate_deputy_not_system(&context).expect("run v8 deputy migration");
-        assert!(stats.data_changed);
+        let stats = migrate_v7_to_v8(&context);
+        assert!(stats);
 
         let after = read_agents_shard(&state.data_path).expect("read agents shard");
         let deputy = after
@@ -1596,8 +1710,8 @@ enableTools = true
         assert!(!deputy.is_built_in_system, "副手不应再被标为系统人格");
 
         // 幂等：再次执行不再产生变化。
-        let second = migrate_deputy_not_system(&context).expect("rerun v8 migration");
-        assert!(!second.data_changed, "重复迁移应幂等");
+        let second = migrate_v7_to_v8(&context);
+        assert!(!second, "重复迁移应幂等");
     }
 
     #[test]
@@ -1874,6 +1988,20 @@ definitionJson = "{\"command\":\"npx\"}"
         let root = std::env::temp_dir().join(format!("eca-agents-file-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
         root.join("config").join("config_mark")
+    }
+
+    /// 往人格目录里写一个文件。`id` 决定文件名（与业务同一条安全化规则）。
+    fn write_agent_file(data_path: &PathBuf, id: &str, content: &str) -> PathBuf {
+        let path = app_layout_agent_file_path(data_path, id);
+        std::fs::create_dir_all(path.parent().expect("agents dir")).expect("create agents dir");
+        std::fs::write(&path, content).expect("write agent file");
+        path
+    }
+
+    fn agent_file_json(id: &str, name: &str) -> String {
+        format!(
+            "{{\"id\":\"{id}\",\"name\":\"{name}\",\"systemPrompt\":\"p\",\"createdAt\":\"2026-01-01T00:00:00Z\",\"updatedAt\":\"2026-01-01T00:00:00Z\"}}"
+        )
     }
 
     fn write_agents_json(data_path: &PathBuf, content: &str) {
@@ -2195,63 +2323,57 @@ definitionJson = "{\"command\":\"npx\"}"
     }
 
     #[test]
-    fn state_read_agents_cached_should_keep_live_cache_when_file_turns_corrupt() {
+    fn state_read_agents_cached_should_keep_other_agents_when_one_file_turns_corrupt() {
         let state = config_test_state();
-        // 1. 先读到一份合法人格（自定义那条必须能被记住）
-        write_agents_json(
+        write_agent_file(
             &state.data_path,
-            "{\"agents\": [{\"id\": \"agent-live\", \"name\": \"活着的自定义\", \"systemPrompt\": \"p\"}]}",
+            "agent-live",
+            &agent_file_json("agent-live", "活着的自定义"),
+        );
+        write_agent_file(
+            &state.data_path,
+            "agent-keep",
+            &agent_file_json("agent-keep", "旁边那条"),
         );
         let first = crate::state_read_agents_cached(&state).expect("首次读取人格");
-        assert!(
-            first.iter().any(|agent| agent.id == "agent-live"),
-            "首次读应带上自定义人格"
-        );
+        assert!(first.iter().any(|agent| agent.id == "agent-live"));
 
-        // 2. 把文件改成一堆解析不了的东西（括号没闭合、里面也没有完整对象）
+        // 把其中一个文件写成一堆解析不了的东西：只丢它自己，旁边那条照常。
         std::thread::sleep(std::time::Duration::from_millis(30));
-        write_agents_json(&state.data_path, "{\"agents\": [ oops\n}\n");
+        write_agent_file(&state.data_path, "agent-live", "{\"id\": \"agent-live\",");
 
-        // 3. 重读：必须还是上一次那份合法人格，不能被内置兜底值盖掉
-        let second = crate::state_read_agents_cached(&state).expect("重读不应报错");
+        let second = crate::state_read_agents_cached(&state).expect("坏文件不应让读取失败");
         assert!(
-            second.iter().any(|agent| agent.id == "agent-live"),
-            "文件坏了不能丢掉活缓存里的自定义人格，实际：{:?}",
-            second
-                .iter()
-                .map(|agent| agent.id.clone())
-                .collect::<Vec<_>>()
+            !second.iter().any(|agent| agent.id == "agent-live"),
+            "坏掉的那个文件只能丢它自己"
         );
-        // 诊断非空同时证明这次确实重读过（命中 mtime 快路径不会留下诊断）
+        assert!(
+            second.iter().any(|agent| agent.id == "agent-keep"),
+            "旁边的人格必须照常加载"
+        );
+        assert!(
+            second.iter().any(|agent| agent.id == DEFAULT_AGENT_ID),
+            "内置人格必须照常打底"
+        );
         assert!(
             !agents_load_diagnostics(&state.data_path).is_empty(),
-            "这次重读必须留下可见诊断"
-        );
-        // 缓存本体也不能被兜底值污染
-        let cached = state
-            .cached_agents
-            .lock()
-            .expect("lock cached agents")
-            .clone()
-            .expect("cached agents");
-        assert!(
-            cached.iter().any(|agent| agent.id == "agent-live"),
-            "缓存本体不能被兜底值覆盖"
+            "跳过坏文件要留下诊断"
         );
     }
 
     #[test]
     fn state_read_agents_cached_should_follow_deleted_file_instead_of_keeping_stale_cache() {
         let state = config_test_state();
-        write_agents_json(
+        let file_path = write_agent_file(
             &state.data_path,
-            "{\"agents\": [{\"id\": \"agent-stale\", \"name\": \"要被删掉的\", \"systemPrompt\": \"p\"}]}",
+            "agent-stale",
+            &agent_file_json("agent-stale", "要被删掉的"),
         );
         let first = crate::state_read_agents_cached(&state).expect("首次读取人格");
         assert!(first.iter().any(|agent| agent.id == "agent-stale"));
 
-        // 删掉人格文件是正常状态（不是损坏），必须立刻反映到缓存，不能继续返回旧的。
-        std::fs::remove_file(app_layout_agents_path(&state.data_path)).expect("删除人格文件");
+        // 删掉一个人格文件是正常状态（不是损坏），必须立刻反映到缓存，不能继续返回旧的。
+        std::fs::remove_file(&file_path).expect("删除人格文件");
         let second = crate::state_read_agents_cached(&state).expect("删除后读取人格");
         assert!(
             !second.iter().any(|agent| agent.id == "agent-stale"),
@@ -2263,7 +2385,7 @@ definitionJson = "{\"command\":\"npx\"}"
         );
         assert!(
             agents_load_diagnostics(&state.data_path).is_empty(),
-            "文件不存在不是兜底，不该留诊断：{:?}",
+            "文件不存在不是损坏，不该留诊断：{:?}",
             agents_load_diagnostics(&state.data_path)
         );
     }
@@ -2503,57 +2625,40 @@ definitionJson = "{\"command\":\"npx\"}"
     #[test]
     fn state_read_agents_cached_should_recover_after_file_fixed() {
         let state = config_test_state();
-        write_agents_json(
+        let file_path = write_agent_file(
             &state.data_path,
-            "{\"agents\": [{\"id\": \"agent-live\", \"name\": \"旧的\", \"systemPrompt\": \"p\"}]}",
+            "agent-live",
+            &agent_file_json("agent-live", "旧的"),
         );
         let first = crate::state_read_agents_cached(&state).expect("首次读取");
         assert!(first.iter().any(|agent| agent.id == "agent-live"));
 
-        // 改坏
+        // 改坏：这个文件丢掉，读仍然成功
         std::thread::sleep(std::time::Duration::from_millis(30));
-        write_agents_json(&state.data_path, "{\"agents\": [{\"id\": \"agent-live\",},]}");
+        write_agent_file(&state.data_path, "agent-live", "{\"id\": \"agent-live\",");
         let during = crate::state_read_agents_cached(&state).expect("坏文件期间读取");
         assert!(
-            during.iter().any(|agent| agent.id == "agent-live"),
-            "坏文件期间要继续用上一次的合法内容"
+            !during.iter().any(|agent| agent.id == "agent-live"),
+            "坏掉的文件必须被跳过"
         );
 
-        // 修好：mtime 变了就必须立刻换成新内容，不能一直停在旧缓存
+        // 修好：mtime 变了就必须读到新内容，不能一直停在旧缓存
         std::thread::sleep(std::time::Duration::from_millis(30));
-        write_agents_json(
-            &state.data_path,
-            "{\"agents\": [{\"id\": \"agent-fixed\", \"name\": \"新的\", \"systemPrompt\": \"p\"}]}",
-        );
+        std::fs::write(&file_path, agent_file_json("agent-live", "新的")).expect("写回人格文件");
         let after = crate::state_read_agents_cached(&state).expect("修好后读取");
+        let live = after
+            .iter()
+            .find(|agent| agent.id == "agent-live")
+            .expect("修好后必须能读到");
+        assert_eq!(live.name, "新的", "修好后必须换成磁盘上的新内容");
         assert!(
-            after.iter().any(|agent| agent.id == "agent-fixed"),
-            "修好文件后必须读出新内容"
-        );
-        assert!(
-            !after.iter().any(|agent| agent.id == "agent-live"),
-            "旧缓存必须被替换，不能一直滞留在内存里"
-        );
-    }
-
-    #[test]
-    fn state_write_agents_cached_should_report_error_when_write_is_refused() {
-        let state = config_test_state();
-        mark_agents_file_untrusted(&app_layout_agents_path(&state.data_path));
-        let err = crate::state_write_agents_cached(&state, &built_in_agents())
-            .expect_err("写盘被拒时必须报错，不能假装保存成功");
-        assert!(
-            err.contains("禁止写回"),
-            "错误信息要说清为什么没保存：{err}"
-        );
-        assert!(
-            state.cached_agents.lock().expect("lock cached").is_none(),
-            "写盘被拒时不能把缓存改成新值"
+            agents_load_diagnostics(&state.data_path).is_empty(),
+            "修好之后不该再留诊断"
         );
     }
 
-    #[test]
-    fn app_data_migration_should_defer_instead_of_advancing_version() {
+        #[test]
+    fn app_data_migration_should_advance_version_even_when_agents_file_is_corrupt() {
         let state = config_test_state();
         state_service_set_message_store_migration_version(
             &state,
@@ -2565,57 +2670,29 @@ definitionJson = "{\"command\":\"npx\"}"
             DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES,
         )
         .expect("set migration version");
-        // 人格文件坏到救不回来：V5 起的迁移都读它，只能推迟。
-        let original = "{\n  \"agents\": [ oops\n}\n";
+        // 人格文件坏到读不出来：迁移不许因此失败，只跳过这一档、照常推进版本。
+        let original = "{
+  \"agents\": [ oops
+}
+";
         write_agents_json(&state.data_path, original);
 
         let config = AppConfig::default();
-        run_app_data_migrations_with_state(&state, &config).expect("迁移不应整体报错");
+        run_app_data_migrations_with_state(&state, &config);
 
         assert_eq!(
             state_service_get_data_migration_version(&state).expect("读迁移版本"),
-            DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES,
-            "这一步没做成，版本必须停住等下次重跑，不能记成已完成"
+            DATA_MIGRATION_CURRENT_VERSION,
+            "坏数据不许把用户卡在旧版本上，版本必须推进到当前"
         );
         assert_eq!(
             std::fs::read_to_string(app_layout_agents_path(&state.data_path)).expect("读人格文件"),
             original,
-            "推迟时不许写回人格文件"
+            "跳过时不许改写旧人格文件"
         );
     }
 
-    #[test]
-    fn untrusted_agents_file_should_be_released_after_a_successful_read() {
-        let state = config_test_state();
-        let agents_path = app_layout_agents_path(&state.data_path);
-        // 读不出来（非 UTF-8）：标不可信、写回被拒。
-        std::fs::create_dir_all(agents_path.parent().expect("agents parent")).expect("agents dir");
-        std::fs::write(&agents_path, [0xFFu8, 0xFE, 0x00, 0x41]).expect("write non utf8");
-        let failed = read_agents_shard_outcome(&state.data_path).expect("读失败不报错");
-        assert!(failed.fell_back);
-        assert!(
-            agents_file_is_untrusted(&agents_path),
-            "读失败要标不可信，否则写回等于拿兜底值覆盖一份内容未知的文件"
-        );
-        let err = crate::state_write_agents_cached(&state, &built_in_agents())
-            .expect_err("不可信时写回必须被拒");
-        assert!(err.contains("禁止写回"), "{err}");
-
-        // 文件修好：再读成功就必须解除封锁，否则一次临时占用会锁死整个会话。
-        write_agents_json(
-            &state.data_path,
-            "{\"agents\": [{\"id\": \"agent-ok\", \"name\": \"修好了\", \"systemPrompt\": \"p\"}]}",
-        );
-        let fixed = read_agents_shard_outcome(&state.data_path).expect("读取人格");
-        assert!(!fixed.fell_back);
-        assert!(
-            !agents_file_is_untrusted(&agents_path),
-            "读到合法内容后必须解除封锁"
-        );
-        crate::state_write_agents_cached(&state, &built_in_agents()).expect("修好后写回必须恢复");
-    }
-
-    #[test]
+        #[test]
     fn read_agents_shard_should_salvage_items_from_broken_container() {
         let data_path = agents_test_data_path();
         // 外面少了 `]` 和 `}`：整体解析不了，但两条人格本身是完整的。

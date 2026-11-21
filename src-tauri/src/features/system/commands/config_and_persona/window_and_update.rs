@@ -336,7 +336,7 @@ fn load_config_inner(state: &AppState) -> Result<AppConfig, String> {
     // 而任何一次配置落盘都会丢掉这些旧结构。因此迁移必须先于下面的补齐写盘执行；
     // 这一步的补齐只改内存，仅作为迁移的上下文，落盘放到迁移之后。
     let _ = ensure_default_shell_workspace_in_config(&mut result, &state);
-    let _ = run_app_data_migrations_with_state(&state, &result)?;
+    let _ = run_app_data_migrations_with_state(&state, &result);
     // 迁移可能已改写磁盘配置，按 mtime 重新读取，避免把迁移前的旧快照回写覆盖。
     let mut result = state_read_config_cached(&state)?;
     normalize_app_config(&mut result);
@@ -361,7 +361,7 @@ fn read_app_bootstrap_snapshot(state: &AppState) -> Result<AppBootstrapSnapshot,
     normalize_app_config(&mut config);
     // 同 load_config_inner：迁移必须早于任何配置落盘，否则旧键与旧 departments 会被新快照抹掉。
     let _ = ensure_default_shell_workspace_in_config(&mut config, state);
-    let _ = run_app_data_migrations_with_state(state, &config)?;
+    let _ = run_app_data_migrations_with_state(state, &config);
     let mut config = state_read_config_cached(state)?;
     normalize_app_config(&mut config);
     let workspace_changed = ensure_default_shell_workspace_in_config(&mut config, state);

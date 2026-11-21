@@ -51,7 +51,7 @@ include!("features/core/time_semantics.rs");
 // ==================== 配置与存储 ====================
 include!("features/config/storage_and_stt.rs");
 include!("features/config/app_data_layout.rs");
-include!("features/config/agent_org_migration.rs");
+include!("features/config/data_migration.rs");
 include!("features/state/mod.rs");
 include!("features/chat/message_store/mod.rs");
 use easy_call_ai::pai_config_tool;

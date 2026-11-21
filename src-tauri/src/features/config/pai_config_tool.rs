@@ -72,13 +72,6 @@ struct AgentProfile {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-struct AgentsFile {
-    #[serde(default)]
-    agents: Vec<AgentProfile>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 struct ShellWorkspaceConfigFile {
     #[serde(default)]
     name: String,
@@ -334,8 +327,8 @@ fn removed_command_hint(command: &str) -> Option<String> {
     let hint = match command {
         "agent" => {
             "agent 系列命令已废除。人格定义现在直接改文件：\n\
-             1. config \"help\" -agent 看 config/agents.json 的字段清单；\n\
-             2. 按字段直接编辑 config/agents.json；\n\
+             1. config \"help\" -agent 看 config/agents/<id>.json 的字段清单；\n\
+             2. 按字段直接编辑 config/agents/<id>.json，一人格一个文件；\n\
              3. config \"check\" -agent 校验，通过后 config \"reload\" 生效。"
         }
         "mcp" => {
@@ -388,8 +381,8 @@ const LAYOUT: &[LayoutEntry] = &[
         desc: "应用主配置：模型供应商、界面、搜索引擎、记忆与工具开关。含明文密钥。",
     },
     LayoutEntry {
-        path: "config/agents.json",
-        desc: "人格定义与组织关系，父子边写在 childAgentIds 里。",
+        path: "config/agents/",
+        desc: "人格定义与组织关系，一人格一文件（<id>.json），父子边写在 childAgentIds 里。",
     },
     LayoutEntry {
         path: "config/llm-workspace/",
@@ -487,7 +480,7 @@ fn render_directory_map(ctx: &CliContext) -> String {
     out.push_str("其余目录（state/runtime_state.json、avatars/ media/ exports/ auth/ indexes/ remote-im/\n");
     out.push_str("web-access/ temp/ tool-review-reports/ delegate-conversations/）是运行时产物，与改配置无关，\n");
     out.push_str("不在地图里，完整清单见 docs/data-schema-v2.md。\n");
-    out.push_str("\n核心文件：config/app_config.toml、config/agents.json\n");
+    out.push_str("\n核心文件：config/app_config.toml、config/agents/<id>.json\n");
     out.push_str(
         "改法：直接编辑上面的文件，改完 config \"check\" 校验，再 config \"reload\" 让运行中的应用重新加载内存态。\n",
     );
@@ -511,7 +504,7 @@ fn layout_entry_exists(app_root: &Path, entry_path: &str) -> bool {
 }
 
 fn available_topics_line() -> String {
-    "主题参数（可一次给多个）：\n  -app    app_config.toml\n  -agent  config/agents.json\n  -mcp    llm-workspace/mcp/servers/<id>.json 与 policies/<id>.json\n  -skill  llm-workspace/skills/<name>/SKILL.md 的 frontmatter".to_string()
+    "主题参数（可一次给多个）：\n  -app    app_config.toml\n  -agent  config/agents/<id>.json\n  -mcp    llm-workspace/mcp/servers/<id>.json 与 policies/<id>.json\n  -skill  llm-workspace/skills/<name>/SKILL.md 的 frontmatter".to_string()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -741,12 +734,12 @@ fn render_topic(ctx: &CliContext, request: &TopicRequest) -> Result<String, Stri
             out.push_str("\nMCP 不在这里配：顶层 mcpServers 是旧版内嵌列表，运行时不读它，定义只认工作区 mcp/servers/。\n");
         }
         Topic::Agent => {
-            out.push_str("agents.json — 人格定义与组织父子边。\n");
+            out.push_str("config/agents/<id>.json — 人格定义与组织父子边，一人格一文件。\n");
             out.push_str(&format!(
-                "路径: {}\n",
-                ctx.app_root().join("config").join("agents.json").display()
+                "目录: {}\n",
+                ctx.app_root().join("config").join("agents").display()
             ));
-            out.push_str("顶层结构: { \"agents\": [ <人格>, ... ] }\n");
+            out.push_str("每个 *.json 文件就是一个人格对象，字段直接写在顶层。\n");
             out.push_str("人格字段（JSON，camelCase）：\n");
             let editable = AGENT_FIELDS
                 .iter()
@@ -999,46 +992,62 @@ fn validate_app_config_probe(probe: &AppConfigProbe) -> Result<(), String> {
 }
 
 fn check_agents(ctx: &CliContext, report: &mut CheckReport) {
-    let path = ctx.app_root().join("config").join("agents.json");
-    if !path.exists() {
+    let dir = ctx.app_root().join("config").join("agents");
+    if !dir.is_dir() {
         return;
     }
-    report.record("agents", &path, validate_agents_file(&path));
-}
-
-fn validate_agents_file(path: &Path) -> Result<(), String> {
-    let text = fs::read_to_string(path).map_err(|err| format!("读取失败: {err}"))?;
-    let file: AgentsFile =
-        serde_json::from_str(&text).map_err(|err| format!("JSON 解析失败: {err}"))?;
-    let mut seen_ids = HashSet::new();
-    for (index, agent) in file.agents.iter().enumerate() {
-        let label = format!("agents[{index}]");
-        if agent.id.trim().is_empty() {
-            return Err(format!("{label}.id 不能为空"));
+    let paths = match json_files(&dir) {
+        Ok(paths) => paths,
+        Err(err) => {
+            report.errors.push(format!("{}: {err}", dir.display()));
+            return;
         }
-        if !seen_ids.insert(agent.id.clone()) {
-            return Err(format!("{label}.id 重复: {}", agent.id));
-        }
-        if agent.name.trim().is_empty() {
-            return Err(format!("{label}.name 不能为空（id: {}）", agent.id));
-        }
-        if agent.system_prompt.trim().is_empty() {
-            return Err(format!("{label}.systemPrompt 不能为空（id: {}）", agent.id));
+    };
+    let mut parsed = Vec::<(PathBuf, AgentProfile)>::new();
+    for path in paths {
+        match read_agent_file(&path) {
+            Ok(agent) => {
+                report.record("agent", &path, validate_agent_fields(&agent));
+                parsed.push((path, agent));
+            }
+            Err(err) => report.errors.push(format!("{}: {err}", path.display())),
         }
     }
-    for (index, agent) in file.agents.iter().enumerate() {
+    // 父子边跨文件：所有文件都读完之后再核对一次，报错仍落到出错的那一个文件上。
+    let known_ids = parsed
+        .iter()
+        .map(|(_, agent)| agent.id.trim().to_string())
+        .collect::<HashSet<_>>();
+    for (path, agent) in &parsed {
         for child_id in &agent.child_agent_ids {
-            if !seen_ids.contains(child_id) {
-                return Err(format!(
-                    "agents[{index}].childAgentIds 指向不存在的人格: {child_id}"
-                ));
-            }
-            if child_id == &agent.id {
-                return Err(format!(
-                    "agents[{index}].childAgentIds 指向自己: {child_id}"
+            if !known_ids.contains(child_id.trim()) {
+                report.errors.push(format!(
+                    "{}: childAgentIds 指向不存在的人格: {child_id}",
+                    path.display()
                 ));
             }
         }
+    }
+}
+
+fn read_agent_file(path: &Path) -> Result<AgentProfile, String> {
+    let text = fs::read_to_string(path).map_err(|err| format!("读取失败: {err}"))?;
+    serde_json::from_str::<AgentProfile>(&text).map_err(|err| format!("JSON 解析失败: {err}"))
+}
+
+/// 单个文件的字段校验。一个文件就是一个人格，所以不再有 `agents[i]` 这种下标。
+fn validate_agent_fields(agent: &AgentProfile) -> Result<(), String> {
+    if agent.id.trim().is_empty() {
+        return Err("id 不能为空".to_string());
+    }
+    if agent.name.trim().is_empty() {
+        return Err(format!("name 不能为空（id: {}）", agent.id));
+    }
+    if agent.system_prompt.trim().is_empty() {
+        return Err(format!("systemPrompt 不能为空（id: {}）", agent.id));
+    }
+    if agent.child_agent_ids.iter().any(|child| child == &agent.id) {
+        return Err(format!("childAgentIds 指向自己: {}", agent.id));
     }
     Ok(())
 }
@@ -1699,11 +1708,13 @@ modelId = "model-a"
             valid_app_config(&root.join("llm-workspace")),
         )
         .expect("write app config");
+        let agents_dir = root.join("config").join("agents");
+        fs::create_dir_all(&agents_dir).expect("create agents dir");
         fs::write(
-            root.join("config").join("agents.json"),
-            "{\"agents\":[{\"id\":\"a\",\"name\":\"A\",\"systemPrompt\":\"p\"}]}",
+            agents_dir.join("a.json"),
+            "{\"id\":\"a\",\"name\":\"A\",\"systemPrompt\":\"p\"}",
         )
-        .expect("write agents");
+        .expect("write agent file");
     }
 
     /// 商店安装写出来的 MCP 文件（`catalog/install.rs`）：name + definitionJson，
@@ -1783,7 +1794,7 @@ modelId = "model-a"
         let output = run(&root, "help").expect("run help");
         assert!(output.contains("config/app_config.toml") || output.contains("app_config.toml"), "{output}");
         // config/ 已建、state/ 未建：只有后者带「尚未创建」。
-        assert!(output.contains("agents.json"), "{output}");
+        assert!(output.contains("config/agents/"), "{output}");
         assert!(output.contains("state.sqlite"), "{output}");
         assert!(output.contains("尚未创建"), "{output}");
         assert!(output.contains("-app") && output.contains("-skill"), "{output}");
@@ -2224,7 +2235,7 @@ mode = \"fixed\"",
         let output = run(&root, "check").expect("check should pass");
         assert!(output.contains("校验通过"), "{output}");
         assert!(output.contains("app_config.toml"), "{output}");
-        assert!(output.contains("agents.json"), "{output}");
+        assert!(output.contains("config/agents/"), "{output}");
     }
 
     #[test]
