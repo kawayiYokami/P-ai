@@ -70,8 +70,9 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     "windows",
     "wait",
     "get_tool",
-    "kanban",
+    "kanban_list",
     "kanban_set_plan",
+    "kanban_upsert",
     "team_info",
     "team_recruit",
     "team_send",
@@ -979,12 +980,11 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       };
     }
 
-    // 25b. 队伍议题看板 (kanban / kanban_set_plan)
-    if (toolName === "kanban") {
-      const act = safeStringValue(obj, "action").toLowerCase();
+    // 25b. 队伍议题看板 (kanban_upsert / kanban_list / kanban_set_plan)
+    if (toolName === "kanban_upsert") {
       const issues = Array.isArray(obj.issues) ? obj.issues : [];
 
-      if (act === "upsert" && issues.length > 0) {
+      if (issues.length > 0) {
         const entries = issues.map((raw) => {
           const issue = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
           const number = issue.number;
@@ -1011,7 +1011,19 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
         };
       }
 
+      // 没给议题等于没做任何事，不假装成一次列表查询
+      const action = toolTimelineText("actionKanban");
+      const target = toolTimelineText("missingArgs");
+      return {
+        action,
+        summary: target,
+        text: formatFullText(action, target),
+      };
+    }
+
+    if (toolName === "kanban_list") {
       const action = toolTimelineText("actionKanbanList");
+      // status 必填；缺了按「全部」说，不显示空
       const status = kanbanStatusText(safeStringValue(obj, "status"));
       const assignee = compactText(safeStringValue(obj, "assignee"), 24);
       const target = status || toolTimelineText("kanbanAllStatuses");
@@ -1103,8 +1115,9 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     if (raw === "operate") return toolTimelineText("actionOperate");
     if (raw === "windows") return toolTimelineText("actionWindows");
     if (raw === "get_tool") return toolTimelineText("actionGetTool");
-    if (raw === "kanban") return toolTimelineText("actionKanban");
+    if (raw === "kanban_list") return toolTimelineText("actionKanbanList");
     if (raw === "kanban_set_plan") return toolTimelineText("actionKanbanSetPlan");
+    if (raw === "kanban_upsert") return toolTimelineText("actionKanban");
     if (raw === "contact_reply") return toolTimelineText("actionContactReply");
     if (raw === "contact_no_reply") return toolTimelineText("actionContactNoReply");
     if (raw === "wait") return toolTimelineText("actionWait");

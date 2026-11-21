@@ -699,7 +699,8 @@ const TOOL_ICON_BY_NAME: Record<string, AppIconName> = {
   // 计划、待办与看板
   plan: "clipboard-list",
   todo: "list-todo",
-  kanban: "layout-grid",
+  kanban_list: "layout-grid",
+  kanban_upsert: "layout-grid",
   kanban_set_plan: "layout-grid",
   create_goal: "target",
   update_goal: "target",

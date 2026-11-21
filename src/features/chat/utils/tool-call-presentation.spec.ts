@@ -521,38 +521,45 @@ describe("createToolCallPresentation", () => {
     const presentation = createPresentation();
 
     const listFiltered = presentation.toolCallSemanticPresentation({
-      name: "kanban",
-      argsText: JSON.stringify({ action: "list", status: "in_review" }),
+      name: "kanban_list",
+      argsText: JSON.stringify({ status: "in_review" }),
     });
     expect(listFiltered.action).toBe("查看议题看板");
     expect(listFiltered.summary).toBe("待审");
     expect(listFiltered.text).toBe("查看议题看板 待审");
 
+    const listAssigned = presentation.toolCallSemanticPresentation({
+      name: "kanban_list",
+      argsText: JSON.stringify({ status: "blocked", assignee: "红豆" }),
+    });
+    expect(listAssigned.summary).toBe("阻塞");
+    expect(listAssigned.extra).toBe("红豆");
+    expect(listAssigned.text).toBe("查看议题看板 阻塞 红豆");
+
     const listAll = presentation.toolCallSemanticPresentation({
-      name: "kanban",
-      argsText: JSON.stringify({ action: "list" }),
+      name: "kanban_list",
+      argsText: JSON.stringify({}),
     });
     expect(listAll.summary).toBe("全部");
 
     const updateIssue = presentation.toolCallSemanticPresentation({
-      name: "kanban",
-      argsText: JSON.stringify({ action: "upsert", issues: [{ number: 3, status: "in_progress" }] }),
+      name: "kanban_upsert",
+      argsText: JSON.stringify({ issues: [{ number: 3, status: "in_progress" }] }),
     });
     expect(updateIssue.action).toBe("更新议题");
     expect(updateIssue.summary).toBe("#3 → 解决中");
     expect(updateIssue.text).toBe("更新议题 #3 → 解决中");
 
     const createIssue = presentation.toolCallSemanticPresentation({
-      name: "kanban",
-      argsText: JSON.stringify({ action: "upsert", issues: [{ title: "补齐工具文案" }] }),
+      name: "kanban_upsert",
+      argsText: JSON.stringify({ issues: [{ title: "补齐工具文案" }] }),
     });
     expect(createIssue.action).toBe("创建议题");
     expect(createIssue.summary).toBe("「补齐工具文案」");
 
     const batchIssues = presentation.toolCallSemanticPresentation({
-      name: "kanban",
+      name: "kanban_upsert",
       argsText: JSON.stringify({
-        action: "upsert",
         issues: [{ number: 3, status: "done" }, { title: "新的一条" }],
       }),
     });
@@ -612,7 +619,7 @@ describe("createToolCallPresentation", () => {
     expect(multiWindows.summary).toBe("列举窗口 · 激活窗口 42 · 另 1 步");
 
     // 六个工具都不该再落到 MCP 兜底
-    for (const toolName of ["kanban", "kanban_set_plan", "get_tool", "contact_reply", "contact_no_reply", "windows", "todo", "question"]) {
+    for (const toolName of ["kanban_list", "kanban_upsert", "kanban_set_plan", "get_tool", "contact_reply", "contact_no_reply", "windows", "todo", "question"]) {
       expect(presentation.toolCallSemanticPresentation({ name: toolName, argsText: "{}" }).action).not.toBe("链接到");
       expect(presentation.toolCallDisplayName(toolName)).not.toContain("链接到");
     }
