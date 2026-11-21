@@ -331,30 +331,24 @@ mod kanban_tests {
     // ---------- 新建与修改的状态约束 ----------
 
     #[test]
-    fn kanban_create_should_reject_status_param() {
-        // 新建是新建：不接受指定状态，一律从待议开始。
+    fn kanban_create_should_accept_status_param() {
+        // 新建可以直接指定状态，不必先建一条再带编号改。
         let roster = test_roster(&[]);
         let mut issues: Vec<KanbanIssueEntry> = Vec::new();
         let mut next_number = 0u32;
-        let err = kanban_apply_upsert_in(
+        kanban_apply_upsert_in(
             &mut issues,
             &mut next_number,
             &roster,
             &[upsert_item(
                 None,
-                Some("想直接建成已完成"),
+                Some("直接建成已完成"),
                 Some(KANBAN_STATUS_DONE),
                 Some("用户同意了"),
             )],
         )
-        .expect_err("新建不能指定状态");
-        assert!(err.contains("不接受 status"), "实际：{err}");
-        assert!(
-            err.contains(KANBAN_STATUS_DISCUSSING),
-            "要告诉它固定从哪开始：{err}"
-        );
-        assert!(issues.is_empty(), "被拒之后不能留下半条议题");
-        assert_eq!(next_number, 0, "被拒之后不能消耗编号");
+        .expect("新建应能指定状态");
+        assert_eq!(issues[0].status, KANBAN_STATUS_DONE);
     }
 
     #[test]
@@ -772,7 +766,8 @@ mod kanban_tests {
     }
 
     #[test]
-    fn kanban_finishing_issue_should_require_unbinding_first() {
+    fn kanban_finishing_issue_should_not_require_unbinding() {
+        // 收口不该被「先摘人」挡住：一次调用直接把状态改成已完成就行。
         let roster = test_roster(&[(1, "李工")]);
         let mut issues = vec![issue_of_member(
             1,
@@ -781,7 +776,7 @@ mod kanban_tests {
             1,
         )];
         let mut next_number = 2u32;
-        let err = kanban_apply_upsert_in(
+        kanban_apply_upsert_in(
             &mut issues,
             &mut next_number,
             &roster,
@@ -792,26 +787,8 @@ mod kanban_tests {
                 Some("做完了"),
             )],
         )
-        .expect_err("已完成不归任何人办，必须先摘人");
-        assert!(err.contains("不归任何人办"), "要说清这个状态不该有人：{err}");
-        assert!(err.contains("李工"), "要点出还挂着谁：{err}");
-        assert!(err.contains("none"), "要告诉它改成什么：{err}");
-
-        // 同一次里把 assignee 写成 none 就放行。
-        kanban_apply_upsert_in(
-            &mut issues,
-            &mut next_number,
-            &roster,
-            &[upsert_item_with_assignee(
-                Some(1),
-                None,
-                Some(KANBAN_STATUS_DONE),
-                Some("none"),
-                Some("做完了"),
-            )],
-        )
-        .expect("先摘人再收口应当放行");
-        assert_eq!(issues[0].assignee.kind, KANBAN_ASSIGNEE_NONE);
+        .expect("改到已完成应直接成功");
+        assert_eq!(issues[0].status, KANBAN_STATUS_DONE);
     }
 
     #[test]
@@ -835,27 +812,20 @@ mod kanban_tests {
     }
 
     #[test]
-    fn kanban_assignee_blacklist_should_reject_discussing_done() {
+    fn kanban_assignee_blacklist_should_not_reject_status_change() {
+        // 改到待议或已完成不该被「先摘人」挡住：一次调用直接改完。
         for status in [KANBAN_STATUS_DISCUSSING, KANBAN_STATUS_DONE] {
             let roster = test_roster(&[(1, "李工")]);
             let mut issues = vec![issue_of_member(1, "议题", KANBAN_STATUS_TODO, 1)];
             let mut next_number = 2u32;
-            let err = kanban_apply_upsert_in(
+            kanban_apply_upsert_in(
                 &mut issues,
                 &mut next_number,
                 &roster,
                 &[upsert_item(Some(1), None, Some(status), Some("改状态"))],
             )
-            .expect_err("这两态不允许挂负责人");
-            assert!(
-                err.contains("不归任何人办"),
-                "{status} 的报错要说清原因：{err}"
-            );
-            assert!(err.contains("李工"), "{status} 的报错要点出还挂着谁：{err}");
-            assert_eq!(
-                issues[0].status, KANBAN_STATUS_TODO,
-                "{status} 被拒后状态原样不动"
-            );
+            .expect("改状态应直接成功");
+            assert_eq!(issues[0].status, status);
         }
     }
 
@@ -878,34 +848,26 @@ mod kanban_tests {
     }
 
     #[test]
-    fn kanban_create_should_reject_assignee() {
-        // 新建固定落待议，而待议不挂人：只能先建、下一次再改状态顺带派人。
+    fn kanban_create_should_accept_assignee() {
+        // 新建时可以直接派人，不必先建一条再带编号改。
         let roster = test_roster(&[(1, "李工")]);
         for assignee in ["member:李工", "leader"] {
             let mut issues: Vec<KanbanIssueEntry> = Vec::new();
             let mut next_number = 0u32;
-            let err = kanban_apply_upsert_in(
+            kanban_apply_upsert_in(
                 &mut issues,
                 &mut next_number,
                 &roster,
                 &[upsert_item_with_assignee(
                     None,
-                    Some("想建了就派人"),
+                    Some("建了就派人"),
                     None,
                     Some(assignee),
                     Some("用户提了一句"),
                 )],
             )
-            .expect_err("新建不接受负责人");
-            assert!(
-                err.contains("不挂负责人"),
-                "{assignee} 的报错要说清原因：{err}"
-            );
-            assert!(
-                err.contains("再带编号"),
-                "{assignee} 的报错要引导成两步：{err}"
-            );
-            assert!(issues.is_empty(), "被拒之后不能留下半条议题");
+            .expect("新建应能直接派人");
+            assert_eq!(issues.len(), 1, "{assignee} 应建出一条");
         }
     }
 

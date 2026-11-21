@@ -73,11 +73,11 @@ pub(crate) fn kanban_upsert_provider_tool_definition() -> ProviderToolDefinition
                             "status": {
                                 "type": "string",
                                 "enum": KANBAN_STATUSES,
-                                "description": "目标状态。新建时留空"
+                                "description": "目标状态。新建时不传就从 discussing 开始"
                             },
                             "assignee": {
                                 "type": "string",
-                                "description": "谁在做：leader / member:<角色名> / none。留空表示不改"
+                                "description": "谁在做：leader / member:<角色名> / none。新建时不传就是 leader"
                             },
                             "note": {
                                 "type": "string",

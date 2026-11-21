@@ -228,80 +228,6 @@ impl KanbanFinalAssignee {
     }
 }
 
-/// 整批算出每条议题的最终状态与最终负责人。
-/// 逐条边算边判会把「同一批里先改状态再改负责人」判成错，
-/// 所以校验一律基于这份结果，不与落盘混在一起。
-fn kanban_final_assignees(
-    issues: &[KanbanIssueEntry],
-    roster: &KanbanBoardRoster,
-    items: &[KanbanIssueUpsertItem],
-) -> Result<Vec<KanbanFinalAssignee>, String> {
-    let mut finals = Vec::with_capacity(items.len());
-    for item in items {
-        // 没带编号就是新建，新建一律从待议开始。
-        let mut status = KANBAN_STATUS_DISCUSSING.to_string();
-        let mut assignee = KanbanAssigneeRef {
-            kind: KANBAN_ASSIGNEE_NONE.to_string(),
-            member_number: None,
-        };
-        if let Some(number) = item.issue_number {
-            let issue = kanban_find_issue(issues, number)
-                .ok_or_else(|| format!("议题 #{number} 不存在"))?;
-            status = issue.status.clone();
-            assignee = issue.assignee.clone();
-            // 新建不收 status，那条会在落盘时直接报错；这里也不把它算进最终态，
-            // 免得先报出「这下不能挂人」这种隔了一层的错。
-            if let Some(raw) = item.status.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
-                if let Some(next) = kanban_status_normalized(raw) {
-                    status = next.to_string();
-                }
-            }
-        }
-        if let Some(raw) = item.assignee.as_deref() {
-            assignee = roster.resolve_assignee(raw)?;
-        }
-        finals.push(KanbanFinalAssignee {
-            number: item.issue_number,
-            status,
-            assignee,
-        });
-    }
-    Ok(finals)
-}
-
-/// 一条绑定约束：待议 / 已完成 / 已关闭三态不挂人。
-/// 必须整批算完最终态再判——逐条判会漏掉同批内的互相影响，也会误伤「先解绑再绑新的」。
-fn kanban_validate_assignee_constraints(
-    issues: &[KanbanIssueEntry],
-    roster: &KanbanBoardRoster,
-    items: &[KanbanIssueUpsertItem],
-) -> Result<(), String> {
-    let finals = kanban_final_assignees(issues, roster, items)?;
-
-    // 一、不归任何人办的两态。
-    for final_state in &finals {
-        if kanban_status_allows_assignee(&final_state.status) || !final_state.has_assignee() {
-            continue;
-        }
-        if final_state.number.is_none() {
-            return Err(format!(
-                "新建议题一律从「{discussing}」开始，这个状态不挂负责人（收到 assignee）。\
-                 先建这条议题，定了方向（改成 todo / in_progress）之后，再带编号把它派出去。",
-                discussing = kanban_status_label(KANBAN_STATUS_DISCUSSING),
-            ));
-        }
-        return Err(format!(
-            "{} 不能停在「{label}」还挂着负责人「{who}」：这个状态不归任何人办，\
-             先把 assignee 写成 none，再改状态。",
-            final_state.display(),
-            label = kanban_status_label(&final_state.status),
-            who = final_state.assignee_label(roster),
-        ));
-    }
-
-    Ok(())
-}
-
 // ==================== 写入 ====================
 
 /// 批量写入。编号不存在一律报错，绝不静默新建——
@@ -337,9 +263,6 @@ fn kanban_apply_upsert_in(
                 .join("、")
         ));
     }
-
-    // 绑定约束在改动之前判：整批算完最终态再判，失败时板上一行都没动。
-    kanban_validate_assignee_constraints(draft.as_slice(), roster, items)?;
 
     let mut created = Vec::new();
     let mut updated = Vec::new();
@@ -397,21 +320,24 @@ fn kanban_apply_upsert_in(
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                     .ok_or_else(|| "新建议题必须提供 title".to_string())?;
-                // 新建不收 status：新建议题一律从待议开始。这里选择拒绝而不是静默忽略——
-                // 忽略会让模型以为建成了它想要的那一格，下一轮才发现对不上；直接报错当轮就能改对。
-                if let Some(raw) = item
+                // 新建可以指定状态：不传就落在待议。
+                let status = match item
                     .status
                     .as_deref()
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                 {
-                    return Err(format!(
-                        "新建议题不接受 status 参数（收到「{raw}」）：新建议题一律从 {discussing}\
-                         （待议）开始，建好之后再带 number 改状态",
-                        discussing = KANBAN_STATUS_DISCUSSING,
-                    ));
-                }
-                // 理由必填同样适用于新建：建出来就落在待议这一格，为什么记它得说清楚。
+                    Some(raw) => kanban_status_normalized(raw)
+                        .ok_or_else(|| {
+                            format!(
+                                "kanban.status 非法：{raw}；可选 {}",
+                                KANBAN_STATUSES.join(" / ")
+                            )
+                        })?
+                        .to_string(),
+                    None => KANBAN_STATUS_DISCUSSING.to_string(),
+                };
+                // 理由必填同样适用于新建：为什么把这件事记进看板得说清楚。
                 let note = item
                     .note
                     .as_deref()
@@ -423,8 +349,9 @@ fn kanban_apply_upsert_in(
                     .to_string();
                 let assignee = match item.assignee.as_deref() {
                     Some(raw) => roster.resolve_assignee(raw)?,
+                    // 没写负责人就是队长自己：新建出来没人认领的活，默认落回派活的人身上。
                     None => KanbanAssigneeRef {
-                        kind: KANBAN_ASSIGNEE_NONE.to_string(),
+                        kind: KANBAN_ASSIGNEE_LEADER.to_string(),
                         member_number: None,
                     },
                 };
@@ -432,7 +359,7 @@ fn kanban_apply_upsert_in(
                 let issue = KanbanIssueEntry {
                     number,
                     title: title.to_string(),
-                    status: KANBAN_STATUS_DISCUSSING.to_string(),
+                    status,
                     assignee,
                     note,
                     plan_path: String::new(),

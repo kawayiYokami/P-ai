@@ -200,35 +200,12 @@ fn kanban_status_normalized(raw: &str) -> Option<&'static str> {
     KANBAN_STATUSES.into_iter().find(|key| *key == trimmed)
 }
 
-/// 状态 key 的中文标签。给工具报错与界面文案共用，别在两处各写一份。
-fn kanban_status_label(status: &str) -> &'static str {
-    match status.trim() {
-        KANBAN_STATUS_DISCUSSING => "待议",
-        KANBAN_STATUS_TODO => "待办",
-        KANBAN_STATUS_IN_PROGRESS => "解决中",
-        KANBAN_STATUS_IN_REVIEW => "待审",
-        KANBAN_STATUS_BLOCKED => "阻塞",
-        KANBAN_STATUS_DONE => "已完成",
-        _ => "未知",
-    }
-}
-
 /// 这个状态算不算「在办」，也就是占不占着负责人。
 /// 只有已完成不占人：已完成的那一刻负责人就被摘掉，人自然腾出手可以接新活。
 /// 待议也算在办——方向没定不等于没派给人。
 fn kanban_status_occupies_member(status: &str) -> bool {
     let trimmed = status.trim();
     trimmed != KANBAN_STATUS_DONE
-}
-
-/// 这个状态允不允许挂负责人。待议、已完成两态不归任何人办。
-/// 待审与阻塞刻意保留：待审是等用户点头、人还在名下，审出问题还找得到人；
-/// 阻塞是卡住了，责任人更该留在上面。
-fn kanban_status_allows_assignee(status: &str) -> bool {
-    !matches!(
-        status.trim(),
-        KANBAN_STATUS_DISCUSSING | KANBAN_STATUS_DONE
-    )
 }
 
 // ==================== 归属编解码 ====================
