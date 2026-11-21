@@ -2322,6 +2322,112 @@ definitionJson = "{\"command\":\"npx\"}"
         );
     }
 
+    /// 分文件写必须配删除路径：删掉的人格不能留在目录里等下次读取复活。
+    #[test]
+    fn write_agents_dir_should_delete_files_of_removed_agents() {
+        let state = config_test_state();
+        let make_agent = |id: &str| AgentProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            system_prompt: "test".to_string(),
+            created_at: "2026-04-15T00:00:00Z".to_string(),
+            updated_at: "2026-04-15T00:00:00Z".to_string(),
+            avatar_path: None,
+            avatar_updated_at: None,
+            is_built_in_user: false,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
+            scope: default_global_scope(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            include_system_rules: true,
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
+        };
+        let keep = make_agent("keep-me");
+        let removed = make_agent("remove-me");
+
+        crate::write_agents_dir(&state.data_path, &[keep.clone(), removed.clone()])
+            .expect("首次写入两个人格");
+        assert!(
+            crate::app_layout_agent_file_path(&state.data_path, "remove-me").exists(),
+            "两个人都该落盘"
+        );
+
+        crate::write_agents_dir(&state.data_path, &[keep.clone()]).expect("写入一个人格");
+        assert!(
+            crate::app_layout_agent_file_path(&state.data_path, "keep-me").exists(),
+            "留下的人格必须还在"
+        );
+        assert!(
+            !crate::app_layout_agent_file_path(&state.data_path, "remove-me").exists(),
+            "删掉的人格文件必须一并删除，否则重启会复活"
+        );
+
+        let read_back = crate::read_agents_dir_outcome(&state.data_path).expect("读回人格");
+        assert!(
+            read_back.iter().any(|agent| agent.id == "keep-me"),
+            "留下的人格必须读得回来"
+        );
+        assert!(
+            !read_back.iter().any(|agent| agent.id == "remove-me"),
+            "删掉的人格不能再被读回来"
+        );
+    }
+
+    /// 机械验收：没有新数据时，旧单文件在不在，读取结果必须相同。
+    #[test]
+    fn agents_read_should_not_depend_on_legacy_single_file() {
+        let state = config_test_state();
+        let legacy = r#"{"agents":[{"id":"legacy-only","name":"旧单文件里的人格","systemPrompt":"p"}]}"#;
+        // 只有旧单文件、没有目录：读出来必须等于纯内置，旧人格一条都不许进来。
+        write_agents_json(&state.data_path, legacy);
+        let with_legacy = crate::read_agents_dir_outcome(&state.data_path).expect("读取人格");
+        assert!(
+            !with_legacy.iter().any(|agent| agent.id == "legacy-only"),
+            "旧单文件里的人格不该被读进来"
+        );
+        let ids_with_legacy = with_legacy
+            .iter()
+            .map(|agent| agent.id.clone())
+            .collect::<Vec<_>>();
+
+        // 删掉旧单文件：结果必须一字不差。
+        std::fs::remove_file(crate::app_layout_agents_path(&state.data_path))
+            .expect("删除旧单文件");
+        let without_legacy = crate::read_agents_dir_outcome(&state.data_path).expect("读取人格");
+        assert_eq!(
+            without_legacy
+                .iter()
+                .map(|agent| agent.id.clone())
+                .collect::<Vec<_>>(),
+            ids_with_legacy,
+            "旧单文件在不在，读取结果必须相同"
+        );
+
+        // 目录里有人格时，旧单文件同样不该被读进来。
+        write_agent_file(
+            &state.data_path,
+            "dir-only",
+            &agent_file_json("dir-only", "目录里的人格"),
+        );
+        write_agents_json(&state.data_path, legacy);
+        let mixed = crate::read_agents_dir_outcome(&state.data_path).expect("读取人格");
+        assert!(
+            mixed.iter().any(|agent| agent.id == "dir-only"),
+            "目录里的人格必须读到"
+        );
+        assert!(
+            !mixed.iter().any(|agent| agent.id == "legacy-only"),
+            "旧单文件里的人格不该被读进来"
+        );
+    }
+
     #[test]
     fn state_read_agents_cached_should_keep_other_agents_when_one_file_turns_corrupt() {
         let state = config_test_state();

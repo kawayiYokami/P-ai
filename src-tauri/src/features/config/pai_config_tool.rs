@@ -3,7 +3,7 @@
 //! 工具面只有三个命令：`help` / `check` / `reload`。改配置的路径统一为
 //! 「看地图 → 直接编辑文件 → check → reload」，不再提供逐字段的读写命令。
 
-use std::{cell::RefCell, collections::HashSet, fs, path::{Path, PathBuf}};
+use std::{cell::RefCell, collections::{HashMap, HashSet}, fs, path::{Path, PathBuf}};
 
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
@@ -1018,6 +1018,24 @@ fn check_agents(ctx: &CliContext, report: &mut CheckReport) {
         .iter()
         .map(|(_, agent)| agent.id.trim().to_string())
         .collect::<HashSet<_>>();
+    // 同一个 id 出现在两个文件里：运行时按 id 合并，后一个会静默覆盖前一个。
+    let mut seen_ids = HashMap::<String, &Path>::new();
+    for (path, agent) in &parsed {
+        let id = agent.id.trim();
+        if id.is_empty() {
+            continue;
+        }
+        match seen_ids.get(id) {
+            Some(first_path) => report.errors.push(format!(
+                "{}: 人格 id `{id}` 与 {} 重复，运行时只会保留其中一个",
+                path.display(),
+                first_path.display()
+            )),
+            None => {
+                seen_ids.insert(id.to_string(), path);
+            }
+        }
+    }
     for (path, agent) in &parsed {
         for child_id in &agent.child_agent_ids {
             if !known_ids.contains(child_id.trim()) {

@@ -594,9 +594,14 @@ fn migrate_v8_to_v9_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
         .map_err(|err| format!("Create agents layout dir failed: {err}"))?;
     let mut written = 0usize;
     let mut skipped = 0usize;
-    for item in items {
+    for (index, item) in items.into_iter().enumerate() {
         let id = item.get("id").and_then(Value::as_str).unwrap_or_default();
-        let file_path = app_layout_agent_file_path(&context.state.data_path, id);
+        let file_path = if id.trim().is_empty() {
+            // 缺 id 的条目：按序号兜底，否则多条会塌到同一个文件名、只保住第一条。
+            agents_dir.join(format!("agent-{}.json", index + 1))
+        } else {
+            app_layout_agent_file_path(&context.state.data_path, id)
+        };
         if file_path.exists() {
             // 目录里已经有这一份：不覆盖，已经写好的就是当前值。
             skipped += 1;
@@ -704,13 +709,21 @@ fn migration_empty_workspace_fill(
     if value
         .get("shellWorkspaces")
         .and_then(Value::as_array)
-        .is_some_and(|items| !items.is_empty())
+        .is_some_and(|items| {
+            // 原逻辑判的是「规范化后还剩几项」，而规范化只看路径能不能解析出候选，
+            // 候选解析的唯一条件是 path 非空——所以「有没有一项 path 非空」就是等价判据。
+            items.iter().any(|item| {
+                item.get("path")
+                    .and_then(Value::as_str)
+                    .is_some_and(|path| !path.trim().is_empty())
+            })
+        })
     {
         return None;
     }
-    // 旧字段里有主工作区路径就沿用它，否则补一个 assistant 主工作区。
+    // 旧字段里有主工作区路径就沿用它，但和原来一样要求目录真实存在，否则退回 assistant 工作区。
     let legacy_path = text("shellWorkspacePath");
-    if !legacy_path.is_empty() {
+    if !legacy_path.is_empty() && std::path::Path::new(legacy_path).is_dir() {
         return Some(vec![migration_main_workspace(
             legacy_path.to_string(),
             legacy_path.to_string(),
@@ -732,13 +745,15 @@ fn migration_main_workspace(path: String, name: String) -> ShellWorkspaceConfig 
 }
 
 /// assistant 主工作区的路径与显示名：取配置里 system 级工作区，没有就用 llm workspace 根。
+///
+/// 相对路径按 llm workspace 根解析，与原逻辑的候选解析一致。
 fn migration_assistant_workspace_source(context: &DataMigrationContext<'_>) -> (String, String) {
     let system_workspace = context
         .config
         .shell_workspaces
         .iter()
         .find(|workspace| workspace.level.trim() == SHELL_WORKSPACE_LEVEL_SYSTEM);
-    let path = system_workspace
+    let raw_path = system_workspace
         .map(|workspace| workspace.path.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| {
@@ -748,6 +763,17 @@ fn migration_assistant_workspace_source(context: &DataMigrationContext<'_>) -> (
                 .to_string_lossy()
                 .to_string()
         });
+    let resolved = std::path::PathBuf::from(&raw_path);
+    let path = if resolved.is_absolute() {
+        raw_path
+    } else {
+        context
+            .state
+            .llm_workspace_path
+            .join(resolved)
+            .to_string_lossy()
+            .to_string()
+    };
     let name = system_workspace
         .map(|workspace| workspace.name.trim().to_string())
         .filter(|value| !value.is_empty())

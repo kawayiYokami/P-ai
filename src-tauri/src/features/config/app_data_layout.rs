@@ -58,9 +58,12 @@ fn app_layout_agents_dir(path: &PathBuf) -> PathBuf {
 
 /// 人格 id → 文件名主干：只保留字母数字与 `-` / `_`，其余一律替换成 `_`。
 /// 人格 id 来自用户输入，直接当文件名会拼出目录穿越或非法字符。
+///
+/// 有字符被替换时追加一段 id 哈希：`a:b` 与 `a_b` 清洗后都会变成 `a_b`，
+/// 不区分的话两个人格会写到同一个文件，后写的把先写的覆盖掉、静默丢一个。
 fn sanitize_agent_file_stem(id: &str) -> String {
-    let stem = id
-        .trim()
+    let trimmed = id.trim();
+    let stem = trimmed
         .chars()
         .map(|ch| {
             if ch.is_alphanumeric() || ch == '-' || ch == '_' {
@@ -71,10 +74,21 @@ fn sanitize_agent_file_stem(id: &str) -> String {
         })
         .collect::<String>();
     if stem.is_empty() {
-        "agent".to_string()
-    } else {
-        stem
+        return "agent".to_string();
     }
+    if stem == trimmed {
+        stem
+    } else {
+        format!("{stem}-{:08x}", short_id_hash(trimmed))
+    }
+}
+
+/// 人格 id 的稳定短哈希，只用于消解清洗后的文件名冲突。
+fn short_id_hash(id: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    id.hash(&mut hasher);
+    hasher.finish() & 0xffff_ffff
 }
 
 /// 某个人格在目录里的文件路径。
@@ -415,12 +429,47 @@ fn read_agents_dir_outcome(path: &PathBuf) -> Result<Vec<AgentProfile>, String> 
 ///
 /// 每次只动真正变了的那一个文件（内容相同就不写），不整目录重写：
 /// 改一个人格不该连带刷新其他所有人格的 mtime。
+///
+/// 同时删掉目录里不该再存在的人格文件——分文件写没有整文件覆盖那种天然删除，
+/// 不补这一步的话，删掉的人格会在下次读取时复活，改回默认的内置人格也改不回去。
 fn write_agents_dir(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, String> {
     let agents_dir = app_layout_agents_dir(path);
     fs::create_dir_all(&agents_dir)
         .map_err(|err| format!("Create agents layout dir failed: {err}"))?;
+    let to_persist = agents_to_persist(agents);
+    let keep = to_persist
+        .iter()
+        .map(|agent| format!("{}.json", sanitize_agent_file_stem(&agent.id)))
+        .collect::<std::collections::HashSet<_>>();
     let mut changed = false;
-    for agent in agents_to_persist(agents) {
+    if let Ok(entries) = fs::read_dir(&agents_dir) {
+        for entry in entries.flatten() {
+            let file_path = entry.path();
+            if !file_path.is_file() {
+                continue;
+            }
+            let is_json = file_path
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
+            if !is_json {
+                continue;
+            }
+            let file_name = file_path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if keep.contains(&file_name) {
+                continue;
+            }
+            // 目录里这一份已经不在人格列表里：删掉它，否则下次读取会把它带回来。
+            fs::remove_file(&file_path)
+                .map_err(|err| format!("删除过期人格文件失败（{}）：{err}", file_path.display()))?;
+            changed = true;
+        }
+    }
+    for agent in to_persist {
         let file_path = app_layout_agent_file_path(path, &agent.id);
         changed |= write_json_file_atomic_if_changed(&file_path, &agent, "agent file")?;
     }
