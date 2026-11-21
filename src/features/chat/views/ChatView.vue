@@ -2427,11 +2427,27 @@ function alignLatestOwnMessageToTop() {
     }
     // 目标回合要每帧重读：数据与 DOM 都可能比这次调用更晚就绪，
     // 在函数入口算一次就固定住的话，晚到的那一轮永远对不上。
+    const list = chatRenderItems.value;
+    if (list.length === 0) {
+      if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
+      else fallbackToBottom();
+      return;
+    }
+
     const turns = turnContainers.value;
-    const targetTurnId = String(turns[turns.length - 1]?.id || "");
-    const turnEl = targetTurnId
-      ? (el.querySelector(`[data-turn-id="${targetTurnId}"]`) as HTMLElement | null)
-      : null;
+    const targetTurn = turns[turns.length - 1];
+    const targetTurnId = String(targetTurn?.id || "");
+    const firstItem = targetTurn?.items?.[0];
+    const isUserTurn = !!(firstItem && firstItem.kind === "message" && firstItem.block && isUserBlock(firstItem.block));
+
+    // 如果当前列表中没有用户消息（没有用户回合，或者唯一回合是 turn-intro）：
+    // 绝不能把视口对齐到顶部（否则 scrollTop=0 会导致误判触顶并疯狂向上加载历史），直接落位到底部最新消息。
+    if (!targetTurn || !isUserTurn || targetTurnId === "turn-intro") {
+      fallbackToBottom();
+      return;
+    }
+
+    const turnEl = (el.querySelector(`[data-turn-id="${targetTurnId}"]`) as HTMLElement | null);
     if (!turnEl) {
       if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
       else fallbackToBottom();
