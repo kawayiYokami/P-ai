@@ -521,34 +521,49 @@ fn agent_file_is_expired(
     }) else {
         return false;
     };
-    // 缺 id 的条目读出来会被补一个当场生成的 id，跟内存里那份对不上号，判断不了。
-    if items.iter().any(|item| {
-        item.get("id")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .trim()
-            .is_empty()
-    }) {
-        return false;
-    }
-    let (file_agents, _, _) = parse_agents_items(&items);
-    if file_agents.is_empty() {
-        return false;
-    }
-    if file_agents
-        .iter()
-        .all(|agent| !keep_ids.contains(agent.id.trim()))
-    {
+    // 一个文件装多条：业务写盘永远只写单条目文件，留着它只会在读取时用旧副本盖掉
+    // 刚写好的新副本（读侧按文件名排序，后读的胜出）。里面的活人格会按规范名重写。
+    if items.len() > 1 {
         return true;
     }
+    let Some(item) = items.first() else {
+        return false;
+    };
+    // 非对象条目不是人格，连同这个文件一起清掉；它本来也不会被读成人格。
+    if !item.is_object() {
+        return true;
+    }
+    // 缺 id：读出来会被补一个当场生成的 id，跟内存里那份对不上号，判断不了。
+    if item
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+    {
+        return false;
+    }
+    let (file_agents, skipped, _) = parse_agents_items(&items);
+    // 字段类型坏掉的条目会被跳过，文件里那份原始 JSON 只在这里存在，删了就没了。
+    if !skipped.is_empty() {
+        return false;
+    }
+    let Some(agent) = file_agents.first() else {
+        return false;
+    };
+    if !keep_ids.contains(agent.id.trim()) {
+        return true;
+    }
+    // 有活的人格、但文件名不是它的规范名：手写文件名或历史命名，按规范名重写后会重复。
+    //
+    // 比较必须忽略大小写：Windows 与 macOS 的文件系统大小写不敏感，`A.JSON` 与 `a.json`
+    // 是同一个文件，精确比较会把刚写好的文件判成「名字不对」当场删掉。
+    let expected = format!("{}.json", sanitize_agent_file_stem(&agent.id));
     let file_name = file_path
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or_default();
-    let name_matches_any = file_agents.iter().any(|agent| {
-        format!("{}.json", sanitize_agent_file_stem(&agent.id)) == file_name
-    });
-    !name_matches_any
+    !file_name.eq_ignore_ascii_case(&expected)
 }
 
 /// 人格目录的内容时间戳：目录自身与其中每个文件的 mtime 里取最新那个。

@@ -2262,6 +2262,95 @@ definitionJson = "{\"command\":\"npx\"}"
         assert!(read_back.iter().any(|agent| agent.id == "agent-a"));
     }
 
+    /// 手写文件名与多条目文件都要清掉，规范名那份必须留着。
+    #[test]
+    fn write_agents_dir_should_clean_stale_and_duplicate_files() {
+        let state = config_test_state();
+        let make_agent = |id: &str| AgentProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            system_prompt: "test".to_string(),
+            created_at: "2026-04-15T00:00:00Z".to_string(),
+            updated_at: "2026-04-15T00:00:00Z".to_string(),
+            avatar_path: None,
+            avatar_updated_at: None,
+            is_built_in_user: false,
+            is_built_in_system: false,
+            private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
+            scope: default_global_scope(),
+            summary: String::new(),
+            resident_skill_names: Vec::new(),
+            optional_skill_names: Vec::new(),
+            include_system_rules: true,
+            api_config_ids: Vec::new(),
+            api_config_id: String::new(),
+            model_failure_fallback_enabled: false,
+            permission_control: AgentPermissionControl::default(),
+            child_agent_ids: Vec::new(),
+        };
+        let keep = make_agent("keep-me");
+        let serialized = serde_json::to_string(&keep).expect("序列化人格");
+        let agents_dir = crate::app_layout_agents_dir(&state.data_path);
+
+        crate::write_agents_dir(&state.data_path, &[keep.clone()]).expect("首次写盘");
+
+        // 手写文件名，内容还是同一个 id：规范名那份已经写好，这份是重复副本。
+        let handwritten = agents_dir.join("我的助手.json");
+        std::fs::write(&handwritten, &serialized).expect("写手写文件名");
+        // 一个文件装多条：读侧按文件名排序、后读胜出，留着会盖掉新副本。
+        let multi = agents_dir.join("multi.json");
+        std::fs::write(
+            &multi,
+            format!("{{\"agents\":[{serialized},{serialized}]}}"),
+        )
+        .expect("写多条目文件");
+
+        crate::write_agents_dir(&state.data_path, &[keep.clone()]).expect("再写一次");
+
+        assert!(
+            crate::app_layout_agent_file_path(&state.data_path, "keep-me").exists(),
+            "规范名那份必须保留"
+        );
+        assert!(!handwritten.exists(), "手写文件名那份应被清掉");
+        assert!(!multi.exists(), "多条目文件应被清掉");
+
+        let read_back = crate::read_agents_dir_outcome(&state.data_path).expect("读回人格");
+        let same_id_count = read_back.iter().filter(|a| a.id == "keep-me").count();
+        assert_eq!(same_id_count, 1, "同一个 id 不能出现两份");
+    }
+
+    /// V9 注入的 id 必须由内容派生：删掉目录重跑，拆出来的文件名要一模一样。
+    #[test]
+    fn migrate_v8_to_v9_should_be_idempotent_for_items_without_id() {
+        let state = config_test_state();
+        write_agents_json(&state.data_path, "{\"agents\":[{},{}]}");
+        let config = AppConfig::default();
+        let context = crate::DataMigrationContext {
+            state: &state,
+            config: &config,
+        };
+        let list_names = || {
+            let dir = crate::app_layout_agents_dir(&state.data_path);
+            let mut names = std::fs::read_dir(&dir)
+                .expect("list agents dir")
+                .filter_map(std::result::Result::ok)
+                .map(|entry| entry.file_name().to_string_lossy().to_string())
+                .collect::<Vec<_>>();
+            names.sort();
+            names
+        };
+
+        crate::migrate_v8_to_v9(&context);
+        let first = list_names();
+        assert_eq!(first.len(), 2, "两条缺 id 条目要各占一个文件");
+
+        std::fs::remove_dir_all(crate::app_layout_agents_dir(&state.data_path))
+            .expect("清空目录");
+        crate::migrate_v8_to_v9(&context);
+        assert_eq!(first, list_names(), "重跑必须拆出同一批文件名");
+    }
+
     #[test]
     fn write_agents_dir_should_delete_files_of_removed_agents() {
         let state = config_test_state();
