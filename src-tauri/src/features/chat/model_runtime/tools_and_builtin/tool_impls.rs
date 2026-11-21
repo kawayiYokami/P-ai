@@ -1058,7 +1058,13 @@ struct BuiltinTodoTool {
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinKanbanTool {
+struct BuiltinKanbanListTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinKanbanUpsertTool {
     app_state: AppState,
     session_id: String,
 }
@@ -1182,34 +1188,69 @@ impl RuntimeToolDyn for BuiltinQuestionTool {
     }
 }
 
-impl RuntimeToolMetadata for BuiltinKanbanTool {
+impl RuntimeToolMetadata for BuiltinKanbanListTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
-        kanban::kanban_provider_tool_definition()
+        kanban::kanban_list_provider_tool_definition()
     }
 }
 
-impl RuntimeToolDyn for BuiltinKanbanTool {
+impl RuntimeToolDyn for BuiltinKanbanListTool {
     fn name(&self) -> String {
-        kanban::KANBAN_TOOL_NAME.to_string()
+        kanban::KANBAN_LIST_TOOL_NAME.to_string()
     }
 
     fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
         Box::pin(async move {
-            let args = parse_runtime_tool_args::<kanban::KanbanToolRequest>(&args_json)?;
+            let args = parse_runtime_tool_args::<kanban::KanbanListRequest>(&args_json)?;
             let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
             runtime_log_debug(format!(
-                "[工具调试] 内置工具执行开始 name=kanban args={}",
+                "[工具调试] 内置工具执行开始 name=kanban_list args={}",
                 debug_value_snippet(&args_value, 240)
             ));
-            let result = kanban::builtin_kanban(&self.app_state, &self.session_id, args)
+            let result = kanban::builtin_kanban_list(&self.app_state, &self.session_id, args)
                 .map(ProviderToolResult::text);
             match &result {
                 Ok(v) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行完成 name=kanban result={}",
+                    "[工具调试] 内置工具执行完成 name=kanban_list result={}",
                     debug_text_snippet(&v.output, 240)
                 )),
                 Err(err) => runtime_log_error(format!(
-                    "[工具执行] 内置工具 kanban 执行失败: 错误={err}"
+                    "[工具执行] 内置工具 kanban_list 执行失败: 错误={err}"
+                )),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinKanbanUpsertTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        kanban::kanban_upsert_provider_tool_definition()
+    }
+}
+
+impl RuntimeToolDyn for BuiltinKanbanUpsertTool {
+    fn name(&self) -> String {
+        kanban::KANBAN_UPSERT_TOOL_NAME.to_string()
+    }
+
+    fn call_json(&self, args_json: String) -> RuntimeToolCallFuture<'_> {
+        Box::pin(async move {
+            let args = parse_runtime_tool_args::<kanban::KanbanUpsertRequest>(&args_json)?;
+            let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
+            runtime_log_debug(format!(
+                "[工具调试] 内置工具执行开始 name=kanban_upsert args={}",
+                debug_value_snippet(&args_value, 240)
+            ));
+            let result = kanban::builtin_kanban_upsert(&self.app_state, &self.session_id, args)
+                .map(ProviderToolResult::text);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[工具调试] 内置工具执行完成 name=kanban_upsert result={}",
+                    debug_text_snippet(&v.output, 240)
+                )),
+                Err(err) => runtime_log_error(format!(
+                    "[工具执行] 内置工具 kanban_upsert 执行失败: 错误={err}"
                 )),
             }
             result

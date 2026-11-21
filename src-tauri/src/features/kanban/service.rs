@@ -537,7 +537,7 @@ fn kanban_approve_in(
 fn kanban_board_list(
     state: &AppState,
     leader_conversation_id: &str,
-    status: Option<&str>,
+    statuses: &[&str],
     assignee_kind: Option<&str>,
     assignee_role: Option<&str>,
 ) -> Result<Vec<KanbanIssueView>, String> {
@@ -546,7 +546,7 @@ fn kanban_board_list(
     Ok(kanban_board_list_in(
         &issues,
         &roster,
-        status,
+        statuses,
         assignee_kind,
         assignee_role,
     ))
@@ -555,7 +555,7 @@ fn kanban_board_list(
 fn kanban_board_list_in(
     issues: &[KanbanIssueEntry],
     roster: &KanbanBoardRoster,
-    status: Option<&str>,
+    statuses: &[&str],
     assignee_kind: Option<&str>,
     assignee_role: Option<&str>,
 ) -> Vec<KanbanIssueView> {
@@ -573,10 +573,12 @@ fn kanban_board_list_in(
     };
     let mut views = Vec::new();
     for issue in issues {
-        if let Some(wanted) = status {
-            if issue.status.trim() != wanted.trim() {
-                continue;
-            }
+        if !statuses.is_empty()
+            && !statuses
+                .iter()
+                .any(|wanted| issue.status.trim() == wanted.trim())
+        {
+            continue;
         }
         if let Some(kind) = assignee_kind {
             if issue.assignee.kind.trim() != kind.trim() {

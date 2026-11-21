@@ -193,8 +193,16 @@ const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
     },
     // 队伍议题看板：队长专属，编译期不可关；挂载与否由装配期的队伍角色二次筛选
     // （见 team_session_allows_kanban），权限层不再单独控制。
+    // 查询与写入两个工具共用同一份规则块（prompt_rule_id 相同），规则只装载一次。
     BuiltinToolPolicy {
-        id: "kanban",
+        id: "kanban_list",
+        permission_class: BuiltinToolPermissionClass::SystemExempt,
+        runtime_scope: BuiltinToolRuntimeScope::Any,
+        prompt_rule_id: Some("kanban"),
+        visible_in_permission_lists: false,
+    },
+    BuiltinToolPolicy {
+        id: "kanban_upsert",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
         runtime_scope: BuiltinToolRuntimeScope::Any,
         prompt_rule_id: Some("kanban"),

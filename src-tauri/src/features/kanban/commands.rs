@@ -59,7 +59,7 @@ pub(crate) fn kanban_get_board_inner(
     state: &AppState,
 ) -> Result<KanbanBoardView, String> {
     let conversation_id = kanban_leader_conversation_id(state, &input.conversation_id)?;
-    let issues = kanban_board_list(state, &conversation_id, None, None, None)?;
+    let issues = kanban_board_list(state, &conversation_id, &[], None, None)?;
     Ok(KanbanBoardView {
         conversation_id,
         issues,

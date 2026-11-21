@@ -6,13 +6,14 @@
 // 名册落队长会话的 team 字段，成员身份落队员会话自己的 team 字段；两处同写、以队长为准。
 // 通讯一律以系统身份投递到目标会话：引导或排队由发信方选择。
 
-const TEAM_LEADER_TOOL_NAMES: [&str; 7] = [
+const TEAM_LEADER_TOOL_NAMES: [&str; 8] = [
     "team_info",
     "team_recruit",
     "team_send",
     "team_read",
     "team_share_model",
-    "kanban",
+    "kanban_list",
+    "kanban_upsert",
     "kanban_set_plan",
 ];
 const TEAM_MEMBER_TOOL_NAME: &str = "team_report";
@@ -1348,7 +1349,7 @@ fn builtin_team_send(
     if team_session_allows_kanban(state, session_id) {
         if issue_number == 0 {
             return Err(
-                "派活必须挂议题：先在 kanban 新建一条，把编号填进 issue".to_string(),
+                "派活必须挂议题：先用 kanban_upsert 新建一条，把编号填进 issue".to_string(),
             );
         }
         if !kanban::kanban_issue_exists(state, &leader.id, issue_number)? {

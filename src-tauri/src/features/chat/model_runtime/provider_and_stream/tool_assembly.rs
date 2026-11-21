@@ -333,7 +333,12 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
             session_id: preview_session_id.clone(),
         }
         .provider_tool_definition(),
-        BuiltinKanbanTool {
+        BuiltinKanbanListTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
+        BuiltinKanbanUpsertTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
         }
@@ -990,7 +995,8 @@ fn discoverable_runtime_tools_for_session(
             if let Some(flags) = team_leader_mount_flags(state, tool_session_id) {
                 discoverable_tools.retain(|tool| {
                     let name = tool.definition.name.trim();
-                    if name.eq_ignore_ascii_case(kanban::KANBAN_TOOL_NAME)
+                    if name.eq_ignore_ascii_case(kanban::KANBAN_LIST_TOOL_NAME)
+                        || name.eq_ignore_ascii_case(kanban::KANBAN_UPSERT_TOOL_NAME)
                         || name.eq_ignore_ascii_case(kanban::KANBAN_SET_PLAN_TOOL_NAME)
                     {
                         return kanban_allowed;
@@ -1292,7 +1298,11 @@ fn build_builtin_runtime_tool_executor(
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
         }),
-        "kanban" => Box::new(BuiltinKanbanTool {
+        "kanban_list" => Box::new(BuiltinKanbanListTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
+        "kanban_upsert" => Box::new(BuiltinKanbanUpsertTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
         }),

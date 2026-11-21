@@ -971,11 +971,11 @@ mod kanban_tests {
         ];
 
         assert_eq!(
-            kanban_board_list_in(&issues, &roster, None, None, None).len(),
+            kanban_board_list_in(&issues, &roster, &[], None, None).len(),
             2
         );
         assert_eq!(
-            kanban_board_list_in(&issues, &roster, Some(KANBAN_STATUS_IN_REVIEW), None, None).len(),
+            kanban_board_list_in(&issues, &roster, &[KANBAN_STATUS_IN_REVIEW], None, None).len(),
             1
         );
         // 只按归属过滤：参数位不能错位，写反了就会串味
@@ -983,7 +983,7 @@ mod kanban_tests {
             kanban_board_list_in(
                 &issues,
                 &roster,
-                None,
+                &[],
                 Some(KANBAN_ASSIGNEE_MEMBER),
                 Some("李工")
             )
@@ -995,7 +995,7 @@ mod kanban_tests {
             kanban_board_list_in(
                 &issues,
                 &roster,
-                None,
+                &[],
                 Some(KANBAN_ASSIGNEE_MEMBER),
                 Some("王工")
             )
@@ -1006,7 +1006,7 @@ mod kanban_tests {
             kanban_board_list_in(
                 &issues,
                 &roster,
-                Some(KANBAN_STATUS_IN_REVIEW),
+                &[KANBAN_STATUS_IN_REVIEW],
                 Some(KANBAN_ASSIGNEE_MEMBER),
                 Some("李工")
             )
@@ -1014,7 +1014,7 @@ mod kanban_tests {
             1
         );
         assert_eq!(
-            kanban_board_list_in(&issues, &roster, Some(KANBAN_STATUS_DONE), None, None).len(),
+            kanban_board_list_in(&issues, &roster, &[KANBAN_STATUS_DONE], None, None).len(),
             0
         );
     }
@@ -1032,7 +1032,7 @@ mod kanban_tests {
             kanban_board_list_in(
                 &issues,
                 &roster,
-                None,
+                &[],
                 Some(KANBAN_ASSIGNEE_MEMBER),
                 Some("查无此人")
             )
@@ -1040,11 +1040,11 @@ mod kanban_tests {
             "名册外的角色必须过滤成空列表，不能把别人的议题当成他的返回"
         );
         assert!(
-            kanban_board_list_in(&issues, &roster, None, None, Some("查无此人")).is_empty(),
+            kanban_board_list_in(&issues, &roster, &[], None, Some("查无此人")).is_empty(),
             "只给角色不给 kind 时，同样不能漏出整块板"
         );
         assert_eq!(
-            kanban_board_list_in(&issues, &roster, None, None, Some("李工")).len(),
+            kanban_board_list_in(&issues, &roster, &[], None, Some("李工")).len(),
             1,
             "名册内的人照旧查得到，别把过滤条件写没了"
         );

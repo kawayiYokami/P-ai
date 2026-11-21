@@ -14459,11 +14459,8 @@
         title: Option<&str>,
         issue_number: Option<u32>,
         status: Option<&str>,
-    ) -> kanban::KanbanToolRequest {
-        kanban::KanbanToolRequest {
-            action: "upsert".to_string(),
-            status: None,
-            assignee: None,
+    ) -> kanban::KanbanUpsertRequest {
+        kanban::KanbanUpsertRequest {
             issues: vec![kanban::KanbanIssueUpsertItem {
                 issue_number,
                 title: title.map(str::to_string),
@@ -14475,12 +14472,10 @@
         }
     }
 
-    fn kanban_list_request() -> kanban::KanbanToolRequest {
-        kanban::KanbanToolRequest {
-            action: "list".to_string(),
-            status: None,
+    fn kanban_list_request(status: &str) -> kanban::KanbanListRequest {
+        kanban::KanbanListRequest {
+            status: vec![status.to_string()],
             assignee: None,
-            issues: Vec::new(),
         }
     }
 
@@ -14489,7 +14484,7 @@
     /// 本地 chat 会话的 `team_session_allows_kanban` 为真，派活必须带存在的议题编号，
     /// 所以需要过校验的用例先建议题，而不是把校验绕空。
     fn seed_kanban_issue(state: &AppState, leader_id: &str, title: &str) -> u32 {
-        let output = kanban::builtin_kanban(
+        let output = kanban::builtin_kanban_upsert(
             state,
             &team_session_id(leader_id),
             kanban_upsert_request(Some(title), None, None),
@@ -14508,7 +14503,7 @@
     fn kanban_should_accept_leader_session_and_reject_member_session() {
         let state = team_test_state();
         let leader = persist_team_leader(&state, "conversation-kanban-leader");
-        let output = kanban::builtin_kanban(
+        let output = kanban::builtin_kanban_upsert(
             &state,
             &team_session_id(&leader.id),
             kanban_upsert_request(Some("接看板磁贴"), None, None),
@@ -14521,7 +14516,7 @@
             .as_str()
             .expect("member id")
             .to_string();
-        let err = kanban::builtin_kanban(
+        let err = kanban::builtin_kanban_upsert(
             &state,
             &team_session_id(&member_id),
             kanban_upsert_request(Some("队员偷偷建一条"), None, None),
@@ -14534,24 +14529,73 @@
     }
 
     #[test]
-    fn kanban_should_reject_the_removed_action() {
-        // 议题只增不删：remove 动作整个撤掉，报错里也不能再把它列为可选。
+    fn kanban_list_should_require_status() {
+        // status 是必填：空着查会得到一个「全板」的假象，模型分不清是没数据还是没过滤。
         let state = team_test_state();
-        let leader = persist_team_leader(&state, "conversation-kanban-remove-action");
-        let err = kanban::builtin_kanban(
+        let leader = persist_team_leader(&state, "conversation-kanban-list-status");
+        let err = kanban::builtin_kanban_list(
             &state,
             &team_session_id(&leader.id),
-            kanban::KanbanToolRequest {
-                action: "remove".to_string(),
-                status: None,
+            kanban::KanbanListRequest {
+                status: vec!["   ".to_string()],
                 assignee: None,
-                issues: Vec::new(),
             },
         )
-        .expect_err("删除能力已撤掉");
+        .expect_err("缺 status 必须报错");
+        assert!(err.contains("必填"), "报错要点明 status 必填：{err}");
+    }
+
+    #[test]
+    fn kanban_list_should_reject_unknown_status() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-kanban-list-bad-status");
+        let err = kanban::builtin_kanban_list(
+            &state,
+            &team_session_id(&leader.id),
+            kanban_list_request("不存在"),
+        )
+        .expect_err("非法状态必须报错");
+        assert!(err.contains("非法"), "{err}");
+        assert!(err.contains("discussing"), "报错要列出可选状态：{err}");
+    }
+
+    /// 多选状态：一次查两类，两边都要回来；单选仍然只回一类。
+    #[test]
+    fn kanban_list_should_accept_multiple_statuses() {
+        let state = team_test_state();
+        let leader = persist_team_leader(&state, "conversation-kanban-list-multi-status");
+        let session = team_session_id(&leader.id);
+        let first = seed_kanban_issue(&state, &leader.id, "待议的一条");
+        let second = seed_kanban_issue(&state, &leader.id, "解决中的一条");
+        kanban::builtin_kanban_upsert(
+            &state,
+            &session,
+            kanban_upsert_request(None, Some(second), Some("in_progress")),
+        )
+        .expect("把第二条推到解决中");
+
+        let multi = kanban::builtin_kanban_list(
+            &state,
+            &session,
+            kanban::KanbanListRequest {
+                status: vec!["discussing".to_string(), "in_progress".to_string()],
+                assignee: None,
+            },
+        )
+        .expect("多选查询");
+        assert!(multi.contains(&format!("#{first}")), "待议那条要在：{multi}");
         assert!(
-            err.contains("可选 list / upsert"),
-            "可选动作只剩两个：{err}"
+            multi.contains(&format!("#{second}")),
+            "解决中那条也要在：{multi}"
+        );
+
+        let single =
+            kanban::builtin_kanban_list(&state, &session, kanban_list_request("in_progress"))
+                .expect("单选查询");
+        assert!(single.contains(&format!("#{second}")), "{single}");
+        assert!(
+            !single.contains(&format!("#{first}")),
+            "单选不该带出别的状态：{single}"
         );
     }
 
@@ -14562,7 +14606,14 @@
         let has = |tools: &[String], name: &str| tools.iter().any(|item| item == name);
 
         let leader_tools = mounted_all_tools(&team_assembly(&state, &team_session_id(&leader.id)));
-        assert!(has(&leader_tools, "kanban"), "队长会话应挂 kanban：{leader_tools:?}");
+        assert!(
+            has(&leader_tools, "kanban_list"),
+            "队长会话应挂 kanban_list：{leader_tools:?}"
+        );
+        assert!(
+            has(&leader_tools, "kanban_upsert"),
+            "队长会话应挂 kanban_upsert：{leader_tools:?}"
+        );
         assert!(
             has(&leader_tools, "kanban_set_plan"),
             "队长会话应挂 kanban_set_plan：{leader_tools:?}"
@@ -14574,7 +14625,14 @@
             .expect("member id")
             .to_string();
         let member_tools = mounted_all_tools(&team_assembly(&state, &team_session_id(&member_id)));
-        assert!(!has(&member_tools, "kanban"), "队员会话不该挂 kanban：{member_tools:?}");
+        assert!(
+            !has(&member_tools, "kanban_list"),
+            "队员会话不该挂 kanban_list：{member_tools:?}"
+        );
+        assert!(
+            !has(&member_tools, "kanban_upsert"),
+            "队员会话不该挂 kanban_upsert：{member_tools:?}"
+        );
         assert!(
             !has(&member_tools, "kanban_set_plan"),
             "队员会话不该挂 kanban_set_plan：{member_tools:?}"
@@ -14586,7 +14644,7 @@
         let state = team_test_state();
         let leader = persist_team_leader(&state, "conversation-kanban-plan-tool");
         let session = team_session_id(&leader.id);
-        kanban::builtin_kanban(&state, &session, kanban_upsert_request(Some("设计划"), None, None))
+        kanban::builtin_kanban_upsert(&state, &session, kanban_upsert_request(Some("设计划"), None, None))
             .expect("create issue");
 
         let first = std::env::temp_dir().join("kanban-set-plan-tool-first.md");
@@ -14636,7 +14694,7 @@
         recruit_member(&state, &leader.id, "李工");
         let session = team_session_id(&leader.id);
 
-        kanban::builtin_kanban(
+        kanban::builtin_kanban_upsert(
             &state,
             &session,
             kanban_upsert_request(Some("派给不存在的人"), None, None),
@@ -14645,17 +14703,17 @@
 
         let mut request = kanban_upsert_request(Some("派给不存在的人"), Some(1), Some("todo"));
         request.issues[0].assignee = Some("member:不存在的人".to_string());
-        let err = kanban::builtin_kanban(&state, &session, request)
+        let err = kanban::builtin_kanban_upsert(&state, &session, request)
             .expect_err("名册外的角色必须被拒绝");
         assert!(err.contains("不存在的人"), "报错要点明是哪个角色：{err}");
         // 模型只看「不存在」会继续猜名字：必须把可选角色列给它。
         assert!(err.contains("李工"), "报错要列出当前在队角色：{err}");
 
         // 被拒绝的写入不能落库，更不能建出一条挂着无效负责人的议题。
-        let listed = kanban::builtin_kanban(&state, &session, kanban_list_request())
+        let listed = kanban::builtin_kanban_list(&state, &session, kanban_list_request("discussing"))
             .expect("list after rejection");
         assert!(
-            !listed.contains("member:不存在的人"),
+            !listed.contains("· 不存在的人"),
             "被拒绝的指派不得落库：{listed}"
         );
     }
@@ -14667,7 +14725,7 @@
         let leader = persist_team_leader(&state, "conversation-kanban-empty-roster");
         let session = team_session_id(&leader.id);
 
-        kanban::builtin_kanban(
+        kanban::builtin_kanban_upsert(
             &state,
             &session,
             kanban_upsert_request(Some("空名册派活"), None, None),
@@ -14676,7 +14734,7 @@
 
         let mut request = kanban_upsert_request(Some("空名册派活"), Some(1), Some("todo"));
         request.issues[0].assignee = Some("member:李工".to_string());
-        let err = kanban::builtin_kanban(&state, &session, request)
+        let err = kanban::builtin_kanban_upsert(&state, &session, request)
             .expect_err("名册为空时不该接受任何队员指派");
         assert!(err.contains("没有在队队员"), "报错要说明名册为空：{err}");
     }
@@ -14689,7 +14747,7 @@
         let leader = persist_team_leader(&state, "conversation-kanban-leader-none");
         let session = team_session_id(&leader.id);
 
-        kanban::builtin_kanban(
+        kanban::builtin_kanban_upsert(
             &state,
             &session,
             kanban_upsert_request(Some("派给队长自己"), None, None),
@@ -14697,10 +14755,10 @@
         .expect("create leader issue");
         let mut leader_request = kanban_upsert_request(Some("派给队长自己"), Some(1), Some("in_progress"));
         leader_request.issues[0].assignee = Some("leader".to_string());
-        let output = kanban::builtin_kanban(&state, &session, leader_request).expect("leader 不受名册影响");
+        let output = kanban::builtin_kanban_upsert(&state, &session, leader_request).expect("leader 不受名册影响");
         assert!(output.contains("· leader"), "{output}");
 
-        kanban::builtin_kanban(
+        kanban::builtin_kanban_upsert(
             &state,
             &session,
             kanban_upsert_request(Some("不分配"), None, None),
@@ -14708,7 +14766,7 @@
         .expect("create unassigned issue");
         let mut none_request = kanban_upsert_request(Some("不分配"), Some(2), Some("todo"));
         none_request.issues[0].assignee = Some("none".to_string());
-        let output = kanban::builtin_kanban(&state, &session, none_request).expect("none 不受名册影响");
+        let output = kanban::builtin_kanban_upsert(&state, &session, none_request).expect("none 不受名册影响");
         assert!(output.contains("· none"), "{output}");
     }
 
@@ -14717,13 +14775,13 @@
         let state = team_test_state();
         let a = persist_team_leader(&state, "conversation-kanban-a");
         let b = persist_team_leader(&state, "conversation-kanban-b");
-        let out_a = kanban::builtin_kanban(
+        let out_a = kanban::builtin_kanban_upsert(
             &state,
             &team_session_id(&a.id),
             kanban_upsert_request(Some("A 的议题"), None, None),
         )
         .expect("a upsert");
-        let out_b = kanban::builtin_kanban(
+        let out_b = kanban::builtin_kanban_upsert(
             &state,
             &team_session_id(&b.id),
             kanban_upsert_request(Some("B 的议题"), None, None),
@@ -14737,14 +14795,14 @@
     fn kanban_should_reject_unknown_number_without_creating_issue() {
         let state = team_test_state();
         let leader = persist_team_leader(&state, "conversation-kanban-unknown");
-        kanban::builtin_kanban(
+        kanban::builtin_kanban_upsert(
             &state,
             &team_session_id(&leader.id),
             kanban_upsert_request(Some("一"), None, None),
         )
         .expect("create #1");
 
-        let err = kanban::builtin_kanban(
+        let err = kanban::builtin_kanban_upsert(
             &state,
             &team_session_id(&leader.id),
             kanban_upsert_request(Some("改一个不存在的号"), Some(9), None),
@@ -14753,7 +14811,7 @@
         assert!(err.contains("不存在"), "{err}");
 
         // 关键：报错之后看板上不能多出一条。悄悄新建比报错严重得多。
-        let listed = kanban::builtin_kanban(&state, &team_session_id(&leader.id), kanban_list_request())
+        let listed = kanban::builtin_kanban_list(&state, &team_session_id(&leader.id), kanban_list_request("discussing"))
             .expect("list");
         assert!(listed.contains("#1 "), "{listed}");
         assert!(!listed.contains("#9 "), "不能凭空建出 9 号：{listed}");
@@ -18367,7 +18425,8 @@
             ("remember", json!({"ok": true, "action": "create", "saved": true, "id": "m1", "tags": ["t"], "updatedAt": "t", "reason": null, "sourceMemoryIds": [], "deletedSourceIds": [], "failedDeleteIds": [], "totalMemories": 1})),
             ("recall", json!({"memories": "[id:m1] 记忆板", "count": 1, "total": 1, "offset": 0, "limit": 7})),
             ("todo", json!("## Current Todo List\n\n✓ 已完成")),
-            ("kanban", json!({"issues": [{"number": 1, "title": "t", "status": "todo", "assignee": "leader", "note": "", "planPath": null}]})),
+            ("kanban_list", json!({"issues": [{"number": 1, "title": "t", "status": "todo", "assignee": "leader", "note": "", "planPath": null}]})),
+            ("kanban_upsert", json!({"issues": [{"number": 1, "title": "t", "status": "todo", "assignee": "李工", "note": "改理由", "planPath": null}]})),
             ("kanban_set_plan", json!({"number": 1, "planPath": ".pai/plan/x.md"})),
             ("question", json!("当前会话问题（共 1 条）：\n\n#1 t")),
             ("get_tool", json!("已记录：read，下轮可用")),

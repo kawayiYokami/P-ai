@@ -1,63 +1,70 @@
 // ==================== 队伍议题看板工具 ====================
 // 队长专属。工具对外只用 number 定位，id 不出现在入参、返回值与错误文案里。
-pub(crate) const KANBAN_TOOL_NAME: &str = "kanban";
+// 查与改拆成两个工具：看板查询与议题写入是两种不同的动作，各自只带自己的参数，
+// 模型不必再先选 action 再记哪些字段属于哪一支。
+pub(crate) const KANBAN_LIST_TOOL_NAME: &str = "kanban_list";
+pub(crate) const KANBAN_UPSERT_TOOL_NAME: &str = "kanban_upsert";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct KanbanToolRequest {
-    /// list / upsert。
-    pub(crate) action: String,
-    /// list 时可选：按状态过滤。
+pub(crate) struct KanbanListRequest {
+    /// 必填：按状态过滤，可多选。
     #[serde(default)]
-    pub(crate) status: Option<String>,
-    /// list 时可选：按归属过滤（leader / member:<角色名> / none）。
+    pub(crate) status: Vec<String>,
+    /// 可选：按谁在做过滤。
     #[serde(default)]
     pub(crate) assignee: Option<String>,
-    /// upsert 时必填：带 number 是改，不带是新建。
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct KanbanUpsertRequest {
+    /// 必填：带 number 是改，不带是新建。
     #[serde(default)]
     pub(crate) issues: Vec<KanbanIssueUpsertItem>,
 }
 
-pub(crate) fn kanban_provider_tool_definition() -> ProviderToolDefinition {
+pub(crate) fn kanban_list_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
-        KANBAN_TOOL_NAME,
-        "队伍议题看板工具（队长专属）。用编号维护队伍级议题：list 查、upsert 增改。\
-         议题只增不删：没有删除动作，一条议题被记下来就永久留在板上。\
-         状态六态：discussing（待议）/ todo（待办）/ in_progress（解决中）/ in_review（待审）/ \
-         blocked（阻塞）/ done（已完成）。不做了、作废了就是 blocked，没有单独的放弃态。\
-         任何状态都可以切到任何状态，没有顺序限制：已完成能改回解决中。\
-         每次改状态都必须在 note 里写清这次为什么改；note 任何时候都不能为空。\
-         同一个人可以同时挂多条在办议题（未完成的都算在办），不必等旧的收口；\
-         队员概览只显示他名下编号最小的那条。\
-         待议、已完成这两态不挂负责人，改成它们前先把 assignee 写成 none。\
-         新建的议题一律从 discussing（待议）开始，不接受指定状态，也不能顺手挂负责人。\
-         编号单调递增且不回收，编号不存在会报错、不会自动新建。",
+        KANBAN_LIST_TOOL_NAME,
+        "查队伍议题看板。",
         serde_json::json!({
             "type": "object",
             "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["list", "upsert"],
-                    "description": "list=查询看板；upsert=新建或修改议题"
-                },
                 "status": {
-                    "type": "string",
-                    "description": "仅 list 使用：按状态过滤，留空返回全部",
-                    "enum": KANBAN_STATUSES
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": KANBAN_STATUSES
+                    },
+                    "description": "按状态过滤，可多选"
                 },
                 "assignee": {
                     "type": "string",
-                    "description": "仅 list 使用：按归属过滤，写法同 issues[].assignee"
-                },
+                    "description": "按归属过滤：leader / member:<角色名> / none"
+                }
+            },
+            "required": ["status"]
+        }),
+    )
+}
+
+pub(crate) fn kanban_upsert_provider_tool_definition() -> ProviderToolDefinition {
+    ProviderToolDefinition::new(
+        KANBAN_UPSERT_TOOL_NAME,
+        "新建或修改队伍议题。",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
                 "issues": {
                     "type": "array",
-                    "description": "仅 upsert 使用：要新建或修改的议题列表",
+                    "description": "要新建或修改的议题",
                     "items": {
                         "type": "object",
                         "properties": {
                             "number": {
                                 "type": "integer",
-                                "description": "改哪一条议题。留空表示新建一条（新议题的编号由系统分配）"
+                                "description": "改哪一条议题。留空表示新建"
                             },
                             "title": {
                                 "type": "string",
@@ -66,21 +73,21 @@ pub(crate) fn kanban_provider_tool_definition() -> ProviderToolDefinition {
                             "status": {
                                 "type": "string",
                                 "enum": KANBAN_STATUSES,
-                                "description": "目标状态。仅修改已有议题时使用：新建不接受 status，一律从 discussing（待议）开始"
+                                "description": "目标状态。新建时留空"
                             },
                             "assignee": {
                                 "type": "string",
-                                "description": "谁在做：leader=队长自己；member:<队员角色>=某个队员（角色就是人格名，与 team_info 里的 role 一致）；none=未分配。留空表示不改"
+                                "description": "谁在做：leader / member:<角色名> / none。留空表示不改"
                             },
                             "note": {
                                 "type": "string",
-                                "description": "本次变更的理由。改状态时必填；新建时必填；任何时候都不能为空，也不能用空值把已有的理由清掉"
+                                "description": "本次变更的理由"
                             }
                         }
                     }
                 }
             },
-            "required": ["action"]
+            "required": ["issues"]
         }),
     )
 }
@@ -116,14 +123,6 @@ fn kanban_tool_issue_lines(views: &[KanbanIssueView]) -> String {
         .map(|view| format!("- {}", kanban_tool_issue_line(view)))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn kanban_tool_action_normalized(raw: &str) -> Option<&'static str> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "list" => Some("list"),
-        "upsert" => Some("upsert"),
-        _ => None,
-    }
 }
 
 // ==================== 待审反思提示 ====================
@@ -167,94 +166,96 @@ fn kanban_in_progress_plan_hint() -> String {
     "如果有计划，请确保挂上对应计划之后再派活".to_string()
 }
 
-pub(crate) fn builtin_kanban(
+pub(crate) fn builtin_kanban_list(
     app_state: &AppState,
     session_id: &str,
-    args: KanbanToolRequest,
+    args: KanbanListRequest,
 ) -> Result<String, String> {
     let leader_conversation_id = kanban_leader_conversation_id(app_state, session_id)?;
-    let action = kanban_tool_action_normalized(&args.action).ok_or_else(|| {
-        format!(
-            "kanban.action 非法：{}；可选 list / upsert",
-            args.action.trim()
-        )
-    })?;
-
-    let text = match action {
-        "list" => {
-            let status = match args.status.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
-                Some(raw) => {
-                    let normalized = kanban_status_normalized(raw).ok_or_else(|| {
-                        format!(
-                            "kanban.status 非法：{raw}；可选 {}",
-                            KANBAN_STATUSES.join(" / ")
-                        )
-                    })?;
-                    Some(normalized)
-                }
-                None => None,
-            };
-            let assignee = match args
-                .assignee
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-            {
-                Some(raw) => Some(kanban_assignee_from_wire(raw)?),
-                None => None,
-            };
-            let issues = kanban_board_list(
-                app_state,
-                &leader_conversation_id,
-                status,
-                assignee.as_ref().map(|(kind, _)| kind.as_str()),
-                assignee.as_ref().and_then(|(_, role)| role.as_deref()),
-            )?;
-            if issues.is_empty() {
-                "no issues".to_string()
-            } else {
-                format!(
-                    "{} issue{}\n{}",
-                    issues.len(),
-                    if issues.len() == 1 { "" } else { "s" },
-                    kanban_tool_issue_lines(&issues)
-                )
-            }
+    let mut statuses = Vec::<&str>::new();
+    for raw in &args.status {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            continue;
         }
-        "upsert" => {
-            let review_numbers = kanban_pending_review_numbers(&args.issues);
-            let result = kanban_apply_upsert(app_state, &leader_conversation_id, &args.issues)?;
-            kanban_emit_updated(app_state, &leader_conversation_id);
-            // 只回这次的变更：整张看板要看得用 action=list。
-            let mut lines = Vec::<String>::new();
-            let mut unplanned_in_progress = Vec::<u32>::new();
-            for issue in &result.created {
-                lines.push(format!("created {}", kanban_tool_issue_line(issue)));
-                if kanban_in_progress_without_plan(issue) {
-                    unplanned_in_progress.push(issue.number);
-                }
-            }
-            for issue in &result.updated {
-                lines.push(format!("updated {}", kanban_tool_issue_line(issue)));
-                if kanban_in_progress_without_plan(issue) {
-                    unplanned_in_progress.push(issue.number);
-                }
-            }
-            if lines.is_empty() {
-                lines.push("nothing changed".to_string());
-            }
-            if !unplanned_in_progress.is_empty() {
-                lines.push(String::new());
-                lines.push(kanban_in_progress_plan_hint());
-            }
-            if !review_numbers.is_empty() {
-                lines.push(String::new());
-                lines.push(kanban_review_reflection_hint(&review_numbers));
-            }
-            lines.join("\n")
+        let normalized = kanban_status_normalized(raw).ok_or_else(|| {
+            format!(
+                "kanban_list.status 非法：{raw}；可选 {}",
+                KANBAN_STATUSES.join(" / ")
+            )
+        })?;
+        if !statuses.contains(&normalized) {
+            statuses.push(normalized);
         }
-        _ => return Err(format!("kanban.action 不支持：{action}")),
+    }
+    if statuses.is_empty() {
+        return Err(format!(
+            "kanban_list.status 必填；可选 {}",
+            KANBAN_STATUSES.join(" / ")
+        ));
+    }
+    let assignee = match args
+        .assignee
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        Some(raw) => Some(kanban_assignee_from_wire(raw)?),
+        None => None,
     };
+    let issues = kanban_board_list(
+        app_state,
+        &leader_conversation_id,
+        &statuses,
+        assignee.as_ref().map(|(kind, _)| kind.as_str()),
+        assignee.as_ref().and_then(|(_, role)| role.as_deref()),
+    )?;
+    Ok(if issues.is_empty() {
+        "no issues".to_string()
+    } else {
+        format!(
+            "{} issue{}\n{}",
+            issues.len(),
+            if issues.len() == 1 { "" } else { "s" },
+            kanban_tool_issue_lines(&issues)
+        )
+    })
+}
 
-    Ok(text)
+pub(crate) fn builtin_kanban_upsert(
+    app_state: &AppState,
+    session_id: &str,
+    args: KanbanUpsertRequest,
+) -> Result<String, String> {
+    let leader_conversation_id = kanban_leader_conversation_id(app_state, session_id)?;
+    let review_numbers = kanban_pending_review_numbers(&args.issues);
+    let result = kanban_apply_upsert(app_state, &leader_conversation_id, &args.issues)?;
+    kanban_emit_updated(app_state, &leader_conversation_id);
+    // 只回这次的变更：整张看板要看得用 kanban_list。
+    let mut lines = Vec::<String>::new();
+    let mut unplanned_in_progress = Vec::<u32>::new();
+    for issue in &result.created {
+        lines.push(format!("created {}", kanban_tool_issue_line(issue)));
+        if kanban_in_progress_without_plan(issue) {
+            unplanned_in_progress.push(issue.number);
+        }
+    }
+    for issue in &result.updated {
+        lines.push(format!("updated {}", kanban_tool_issue_line(issue)));
+        if kanban_in_progress_without_plan(issue) {
+            unplanned_in_progress.push(issue.number);
+        }
+    }
+    if lines.is_empty() {
+        lines.push("nothing changed".to_string());
+    }
+    if !unplanned_in_progress.is_empty() {
+        lines.push(String::new());
+        lines.push(kanban_in_progress_plan_hint());
+    }
+    if !review_numbers.is_empty() {
+        lines.push(String::new());
+        lines.push(kanban_review_reflection_hint(&review_numbers));
+    }
+    Ok(lines.join("\n"))
 }
