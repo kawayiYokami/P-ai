@@ -88,6 +88,7 @@
           :title="delegate.title || delegate.delegateId"
           :elapsed-ms="delegate.elapsedMs"
           :request-count="delegate.requestCount"
+          :tool-call-count="delegate.toolCallCount"
           :token-count="delegate.tokenCount"
           :last-tool-name="delegate.lastToolName"
           pulsing
@@ -100,6 +101,9 @@
           :key="`finished-delegate-${latestFinishedDelegate.delegateId}`"
           :title="latestFinishedDelegate.title || latestFinishedDelegate.delegateId"
           :meta-label="finishedDelegateMeta"
+          :elapsed-ms="latestFinishedDelegate.elapsedMs"
+          :tool-call-count="latestFinishedDelegate.toolCallCount"
+          :token-count="latestFinishedDelegate.tokenCount"
           :starter-avatar-url="starterAvatarUrl(latestFinishedDelegate.sourceAgentId)"
           :starter-name="starterName(latestFinishedDelegate.sourceAgentId)"
           @open="emit('openMonitorTab', 'delegate')"
