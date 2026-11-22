@@ -1193,7 +1193,7 @@ const displayedContactSections = computed<DisplayConversationSection[]>(() => {
   return rawContactSections.value
     .map((s) => (query ? filterSectionBySearch(s, query) : s))
     .filter((s): s is ConversationSection => s !== null)
-    .map((s) => buildDisplayedConversationSection(s));
+    .map((s) => buildDisplayedConversationSection(s, { aggregate: false }));
 });
 
 /** 联系人页顶层层级标题：IM 渠道段 / ACP 工作目录段。同一组只在首行输出一次。 */
@@ -1429,7 +1429,10 @@ function conversationSectionAvatarUrl(section: ConversationSection): string | un
   return String(props.personaAvatarUrlMap?.[personaId] || "").trim() || undefined;
 }
 
-function buildDisplayedConversationSection(section: ConversationSection): DisplayConversationSection {
+function buildDisplayedConversationSection(
+  section: ConversationSection,
+  options?: { aggregate?: boolean },
+): DisplayConversationSection {
   const items = Array.isArray(section.items) ? section.items : [];
   const stateKey = conversationSectionLoadMoreKey(section.key);
   const baseVisibleCount = defaultVisibleConversationCount(section);
@@ -1437,19 +1440,13 @@ function buildDisplayedConversationSection(section: ConversationSection): Displa
   const visibleCount = Math.min(items.length, baseVisibleCount + extraVisibleCount);
   const sliced = items.slice(0, visibleCount);
 
-  // 精简模式：不做 full 聚合，条目统一为简单行，但仍按同样规则截断并支持「加载更多」
-  if (isSimpleConversationRows.value) {
-    return {
-      ...section,
-      visibleItems: sliced,
-      simpleFollowers: {},
-      visibleCount: visibleCount,
-      hiddenItemCount: Math.max(0, items.length - visibleCount),
-      totalItemCount: items.length,
-    };
-  }
+  // 精简模式与联系人页都不做 full 聚合，条目统一为简单行，但仍按同样规则截断并支持「加载更多」。
+  // 联系人页（IM 渠道段 / ACP 工作目录段）每一行是一个联系人或一个会话；按 agentId 聚合会把
+  // 同一人格接管的联系人折叠进 simpleFollowers，而联系人页模板不渲染 followers，
+  // 折叠掉的联系人既不可见，也放不出来——「加载更多」点了只会变「收起」。
   const { reorderedItems, simpleFollowers } = aggregateConversationItems(sliced, {
     searchActive: !!normalizedConversationSearchQuery.value,
+    aggregate: options?.aggregate !== false && !isSimpleConversationRows.value,
   });
   return {
     ...section,

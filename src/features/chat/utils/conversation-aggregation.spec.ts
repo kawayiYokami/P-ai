@@ -110,6 +110,22 @@ describe("aggregateConversationItems", () => {
     expect(simpleFollowers["c2"].map((entry) => entry.conversationId)).toEqual(["c1"]);
     expect(simpleFollowers["c3"]).toBeUndefined();
   });
+
+  it("aggregate=false 时同 agentId 的联系人各自成行，一个都不折叠", () => {
+    const items = [
+      item("contact-a", "agent-x", "2026-08-05T10:00:00+08:00"),
+      item("contact-b", "agent-x", "2026-08-05T12:00:00+08:00"),
+      item("contact-c", "agent-x", "2026-08-05T11:00:00+08:00"),
+    ];
+
+    const { reorderedItems, simpleFollowers } = aggregateConversationItems(items, {
+      searchActive: false,
+      aggregate: false,
+    });
+
+    expect(reorderedItems.map((entry) => entry.conversationId)).toEqual(["contact-a", "contact-b", "contact-c"]);
+    expect(simpleFollowers).toEqual({});
+  });
 });
 
 describe("conversationLastUsedMs", () => {

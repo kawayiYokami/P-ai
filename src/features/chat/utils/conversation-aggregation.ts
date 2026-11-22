@@ -77,16 +77,18 @@ export function groupRecentItemsBySource(
  * 其余同目录同 agentId 会话转为简单条目（按更新时间倒序）紧跟其后。agentId 为空时不聚合。
  * 目录以 workspaceRootPath 判定（空路径视为默认目录）。
  * 搜索模式下不聚合，保持原顺序原形态。
+ * aggregate 传 false 时整段不聚合：联系人页每一行是一个联系人或一个会话，它不是「同一实体的一批会话」，
+ * 折叠后这些条目没有渲染位置，等于把人藏起来。
  */
 export function aggregateConversationItems(
   items: ChatConversationOverviewItem[],
-  options: { searchActive: boolean },
+  options: { searchActive: boolean; aggregate?: boolean },
 ): AggregatedConversationItems {
   const noAggregation: AggregatedConversationItems = {
     reorderedItems: items,
     simpleFollowers: {},
   };
-  if (options.searchActive) return noAggregation;
+  if (options.searchActive || options.aggregate === false) return noAggregation;
 
   const indexOf = new Map<string, number>();
   const groups = new Map<string, ChatConversationOverviewItem[]>();
