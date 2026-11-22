@@ -714,14 +714,13 @@ fn remote_im_apply_contact_runtime_state<F>(
     // 只描述一次：这条日志本身就会写进唯一日志，窗口按 contact_id 过滤得到。
     let expire_contact_log = expire_at
         .as_deref()
-        .map(|at| format!(", 预计离场={at}"))
+        .map(|at| format!("，预计 {at} 离场"))
         .unwrap_or_default();
     remote_im_append_contact_log(
         contact,
         "info",
         format!(
-            "[在场切换] contact={}, presence={} -> {}{}, 原因={}",
-            remote_im_contact_log_label(contact),
+            "[在场切换] {} → {}{}（{}）",
             remote_im_presence_state_label(before),
             remote_im_presence_state_label(after),
             expire_contact_log,

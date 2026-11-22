@@ -13,7 +13,6 @@ fn remote_im_contact_display_name(contact: &RemoteImContact) -> String {
 #[derive(Debug, Clone)]
 struct RemoteImOutboundContentDigest {
     text_preview: String,
-    text_count: usize,
     image_count: usize,
     file_count: usize,
     other_count: usize,
@@ -101,7 +100,6 @@ fn remote_im_activation_source_log_label(source: &RemoteImActivationSource) -> S
 }
 
 fn remote_im_outbound_content_digest(content: &[Value]) -> RemoteImOutboundContentDigest {
-    let mut text_count = 0usize;
     let mut image_count = 0usize;
     let mut file_count = 0usize;
     let mut other_count = 0usize;
@@ -110,7 +108,6 @@ fn remote_im_outbound_content_digest(content: &[Value]) -> RemoteImOutboundConte
     for item in content {
         match item.get("type").and_then(Value::as_str).unwrap_or("") {
             "text" => {
-                text_count += 1;
                 let text = item
                     .get("text")
                     .and_then(Value::as_str)
@@ -159,7 +156,6 @@ fn remote_im_outbound_content_digest(content: &[Value]) -> RemoteImOutboundConte
     };
     RemoteImOutboundContentDigest {
         text_preview: remote_im_preview_text(&preview_source, 100),
-        text_count,
         image_count,
         file_count,
         other_count,

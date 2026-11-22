@@ -1083,15 +1083,14 @@ async fn process_conversation_batch(
                         false,
                         None,
                     ) {
-                        Ok(delegate_id) => {
+                        Ok(_delegate_id) => {
                             should_activate = false;
                             remote_im_skip_decision = Some("remote_reply_delegate".to_string());
-                            runtime_log_info(format!(
-                                "[应答委托] 开始：delegate_id={}，联系人={}，触发消息={}",
-                                delegate_id,
-                                remote_im_contact_log_label(&contact),
-                                trigger_message_id
-                            ));
+                            remote_im_append_contact_log(
+                                &contact,
+                                "info",
+                                "[应答委托] 已转交应答".to_string(),
+                            );
                         }
                         Err(err) => {
                             should_activate = false;

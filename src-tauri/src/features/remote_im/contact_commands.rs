@@ -2094,18 +2094,34 @@ async fn remote_im_enqueue_message_direct(
     let total_attachment_count = attachments.len() + validated.parts_attachment_count;
 
     // 只留一条「收到」日志：窗口已经限定在某个渠道的某个联系人上，
-    // 不必每条再重复渠道信息；append 会补 contact_id 供过滤。
+    // 正文只写「谁说了什么」，附件信息有值时才补一句。
+    let received_preview = remote_im_preview_text(&text, 100);
+    let extras_text = [
+        (total_image_count, "图片"),
+        (total_audio_count, "音频"),
+        (total_attachment_count, "附件"),
+    ]
+    .iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, label)| format!("{label}{count}"))
+    .collect::<Vec<_>>();
+    let extras_text = if extras_text.is_empty() {
+        String::new()
+    } else {
+        format!("（{}）", extras_text.join("，"))
+    };
     remote_im_append_contact_log(
         &contact_for_log,
         "info",
         format!(
-            "[联系人消息] 收到: contact={}, sender={}, image_count={}, audio_count={}, attachment_count={}, preview={}",
-            remote_im_contact_log_label(&contact_for_log),
+            "[联系人消息] 收到: {} : {}{}",
             sender_label,
-            total_image_count,
-            total_audio_count,
-            total_attachment_count,
-            remote_im_preview_text(&text, 100)
+            if received_preview.trim().is_empty() {
+                "（无文字）"
+            } else {
+                received_preview.as_str()
+            },
+            extras_text
         ),
     );
     let message = build_chat_message_from_input(
@@ -2154,12 +2170,11 @@ async fn remote_im_enqueue_message_direct(
             .append_remote_im_user_message(state, &conversation_id, &persisted_message)
             .await?;
         // 入库完成要留痕：消息到底进没进来，这是排查整条链的第一个锚点。
-        runtime_log_info(format!(
-            "[远程IM] 入库完成：联系人={}，conversation_id={}，message_id={}，处理=交给巡检判定",
-            remote_im_contact_log_label(&contact_for_log),
-            conversation_id,
-            persisted_message.id
-        ));
+        remote_im_append_contact_log(
+            &contact_for_log,
+            "info",
+            "[远程IM] 入库完成，交给巡检判定".to_string(),
+        );
         if let Err(err) = (|| -> Result<(), String> {
             let mut checkpoint = state_service_get_remote_im_contact_checkpoint(
                 state,

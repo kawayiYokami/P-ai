@@ -368,14 +368,13 @@ async fn process_persisted_remote_im_events_individually_now(
             force_memory_prompt_snapshot,
             dispatch_policy,
         ) {
-            Ok(delegate_id) => {
+            Ok(_delegate_id) => {
                 outcome = RemoteImReplyDispatchOutcome::DispatchStarted;
-                runtime_log_info(format!(
-                    "[应答委托] 开始：delegate_id={}，联系人={}，触发消息={}",
-                    delegate_id,
-                    remote_im_contact_log_label(&contact),
-                    trigger_message.id
-                ));
+                remote_im_append_contact_log(
+                    &contact,
+                    "info",
+                    "[应答委托] 已转交应答".to_string(),
+                );
             }
             Err(err) => return Err(format!(
                 "创建远程应答委托失败，conversation_id={}，contact_id={}，event_id={}，error={}",

@@ -221,13 +221,16 @@ fn remote_im_apply_group_energy_for_messages(
         before
     };
     state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
-    runtime_log_info(format!(
-        "[能量] 联系人={}，{:.2} → {:.2}，原因=巡检区间群友用词（{:+.2}）",
-        remote_im_contact_log_label(contact),
-        before,
-        (before + delta).clamp(-pacing.maximum_energy, pacing.maximum_energy),
-        delta
-    ));
+    remote_im_append_contact_log(
+        contact,
+        "info",
+        format!(
+            "[能量] {:.2} → {:.2}（群友用词 {:+.2}）",
+            before,
+            (before + delta).clamp(-pacing.maximum_energy, pacing.maximum_energy),
+            delta
+        ),
+    );
     remote_im_emit_contact_dashboard_snapshot(state, &contact.id);
     Ok(())
 }
@@ -281,14 +284,14 @@ fn remote_im_apply_group_reply_energy_cost(
     remote_im_bump_checkpoint_atomic_revision(&mut checkpoint);
     checkpoint.updated_at = Some(now_iso());
     state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
-    runtime_log_info(format!(
-        "[能量] 联系人={}，{:.2} → {:.2}，原因=外发 {} 字（-{:.2}）",
-        remote_im_contact_log_label(contact),
-        before,
-        after,
-        char_count as usize,
-        cost
-    ));
+    remote_im_append_contact_log(
+        contact,
+        "info",
+        format!(
+            "[能量] {:.2} → {:.2}（外发 {} 字 -{:.2}）",
+            before, after, char_count as usize, cost
+        ),
+    );
     remote_im_emit_contact_dashboard_snapshot(state, &contact.id);
     Ok(())
 }

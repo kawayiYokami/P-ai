@@ -418,14 +418,20 @@ async fn remote_im_send_content_payload(
         contact,
         "info",
         format!(
-            "[外发] 完成: contact={}, action={}, 文字={}, preview={}, 图片={}, 文件={}, 其他={}",
-            remote_im_contact_log_label(contact),
-            action.trim(),
-            content_digest.text_count,
+            "[外发] 完成: {}{}",
             content_digest.text_preview,
-            content_digest.image_count,
-            content_digest.file_count,
-            content_digest.other_count
+            if content_digest.image_count + content_digest.file_count + content_digest.other_count
+                == 0
+            {
+                String::new()
+            } else {
+                format!(
+                    "（图片{}，文件{}，其他{}）",
+                    content_digest.image_count,
+                    content_digest.file_count,
+                    content_digest.other_count
+                )
+            }
         ),
     )
     .await;

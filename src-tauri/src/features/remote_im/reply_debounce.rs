@@ -119,13 +119,21 @@ fn remote_im_group_reply_schedule_action(
 ///
 /// 定时器链就是「什么时候看下一轮」的唯一载体：每次排期都覆盖上一条，
 /// 定时器醒来时按到期时刻认领，被覆盖的那一枪自动作废（不需要版本号）。
+/// 巡检路径的中文说法：日志给人看，不写枚举名。
+fn remote_im_timer_kind_label(kind: RemoteImGroupReplyTimerKind) -> &'static str {
+    match kind {
+        RemoteImGroupReplyTimerKind::Mention => "点名",
+        RemoteImGroupReplyTimerKind::NonMention => "常规巡检",
+    }
+}
+
 fn remote_im_group_reply_schedule_inspection(
     state: &AppState,
     contact: &RemoteImContact,
     kind: RemoteImGroupReplyTimerKind,
     anchor_message_id: &str,
     event: ChatPendingEvent,
-    reason: &str,
+    _reason: &str,
 ) {
     let pacing = effective_remote_im_group_reply_pacing(state, contact);
     let key = remote_im_group_reply_state_key(state, &contact.id);
@@ -176,13 +184,12 @@ fn remote_im_group_reply_schedule_inspection(
         contact,
         "info",
         format!(
-            "[巡检] {}：路径={:?}，等待={:.1}秒，预计看群={}{}，原因={}",
+            "[巡检] {}：{}，{:.1} 秒后看群（预计 {}）{}",
             action_label,
-            kind,
+            remote_im_timer_kind_label(kind),
             delay.as_secs_f64(),
             format_local_time_after_seconds(delay.as_secs()),
-            previous_text,
-            reason
+            previous_text
         ),
     );
     remote_im_group_reply_schedule_action(
@@ -430,7 +437,10 @@ async fn remote_im_group_reply_handle_timer(
     remote_im_append_contact_log(
         &contact,
         "info",
-        format!("[巡检] 开始：路径={:?}", action.kind),
+        format!(
+            "[巡检] 开始看群：{}",
+            remote_im_timer_kind_label(action.kind)
+        ),
     );
     match remote_im_contact_is_muted(state, &contact.id) {
         Ok(true) => {
@@ -654,16 +664,14 @@ async fn remote_im_group_reply_handle_timer(
         .map(render_message_content_for_model)
         .map(|text| remote_im_preview_text(&text, 100))
         .unwrap_or_else(|| "（无文本）".to_string());
-    // 巡检确实看到了什么：区间条数、能量、路径、回复上限。这是「有没有在跑」的直接证据。
+    // 巡检确实看到了什么：区间条数、能量、最新一条。这是「有没有在跑」的直接证据。
     remote_im_append_contact_log(
         &contact,
         "info",
         format!(
-            "[巡检] 区间：路径={:?}，区间消息数={}，能量={}，回复上限={}字，最新内容={}",
-            action.kind,
+            "[巡检] 区间：{} 条消息，能量 {}，最新「{}」",
             range.len(),
             energy_label,
-            max_chars,
             batch_preview
         ),
     );
