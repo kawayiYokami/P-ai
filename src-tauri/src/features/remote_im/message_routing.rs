@@ -182,7 +182,6 @@ fn remote_im_append_channel_log(channel_id: &str, level: &str, message: String) 
     let _ = (channel_id, level, message);
 }
 
-#[cfg(not(test))]
 /// 按消息前缀判定业务角色：库房（入库/压缩）、前台（在场/巡检）、秘书（判断）、
 /// 专家（应答委托/外发/能量）。调用点不必逐个传，规则集中在这一处。
 fn remote_im_log_role(message: &str) -> Option<&'static str> {
@@ -203,6 +202,7 @@ fn remote_im_log_role(message: &str) -> Option<&'static str> {
         .map(|(_, role)| *role)
 }
 
+#[cfg(not(test))]
 fn remote_im_append_contact_log(contact: &RemoteImContact, level: &str, message: String) {
     remote_im_append_contact_log_as(contact, level, "", message);
 }

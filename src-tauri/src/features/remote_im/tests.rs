@@ -335,32 +335,17 @@
     }
 
     #[test]
-    fn remote_im_filter_channel_logs_for_contact_should_only_keep_matching_contact() {
-        let logs = vec![
-            ChannelLogEntry {
-                timestamp: chrono::Utc::now(),
-                level: "info".to_string(),
-                message: "[联系人消息] 收到: contact=甲, preview=hello".to_string(),
-                contact_record_id: Some("contact-a".to_string()),
-            },
-            ChannelLogEntry {
-                timestamp: chrono::Utc::now(),
-                level: "info".to_string(),
-                message: "[联系人消息] 收到: contact=甲乙, preview=world".to_string(),
-                contact_record_id: Some("contact-b".to_string()),
-            },
-            ChannelLogEntry {
-                timestamp: chrono::Utc::now(),
-                level: "info".to_string(),
-                message: "事件消费器已启动".to_string(),
-                contact_record_id: None,
-            },
-        ];
-
-        let filtered = remote_im_filter_channel_logs_for_contact(logs, "contact-a");
-
-        assert_eq!(filtered.len(), 1);
-        assert!(filtered[0].message.contains("contact=甲"));
+    fn remote_im_channel_log_should_carry_contact_attribution() {
+        // 渠道日志收进唯一日志之后，按联系人过滤由「归属字段」承担，
+        // 原来的 remote_im_filter_channel_logs_for_contact 已删除，这里只钉归属字段本身。
+        let entry = ChannelLogEntry {
+            timestamp: chrono::Utc::now(),
+            level: "info".to_string(),
+            role: None,
+            message: "[联系人消息] 收到: contact=甲, preview=hello".to_string(),
+            contact_record_id: Some("contact-a".to_string()),
+        };
+        assert_eq!(entry.contact_record_id.as_deref(), Some("contact-a"));
     }
 
     #[test]
