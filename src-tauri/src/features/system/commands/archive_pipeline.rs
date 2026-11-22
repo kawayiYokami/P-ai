@@ -1026,16 +1026,19 @@ fn build_compaction_message(
             reason
         )
     };
-    let preserved_dialogue_text = preserved_dialogue
+    // 保留对话节只在真的有保留对话时出现：三段式之后它已被搬进独立 block，
+    // 摘要里不该再写一个空的「（暂无保留对话）」占位。
+    let preserved_dialogue_section = preserved_dialogue
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(normalize_multiline_block)
-        .unwrap_or_else(|| "（暂无保留对话）".to_string());
+        .map(|value| format!("## 保留对话\n\n{}", normalize_multiline_block(value)));
     let mut sections = vec![
         format!("## 摘要说明\n\n{}", normalize_markdown_block(&summary_note)),
         format!("## 摘要正文\n\n{}", clean_compaction_summary_text(summary)),
-        format!("## 保留对话\n\n{}", preserved_dialogue_text),
     ];
+    if let Some(section) = preserved_dialogue_section {
+        sections.push(section);
+    }
     if !background_shell_lines.is_empty() {
         sections.push(format!(
             "## 运行中的后台任务\n\n{}",
@@ -2122,10 +2125,27 @@ mod archive_pipeline_tests {
 
         assert!(text.contains("## 摘要说明"));
         assert!(text.contains("## 摘要正文"));
-        assert!(text.contains("## 保留对话"));
+        // 没有保留对话时不写这一节：三段式之后它已经被搬进新 block 了。
+        assert!(!text.contains("## 保留对话"));
         assert!(text.contains("## 运行中的后台任务"));
         assert!(text.contains("## 当前可用队友"));
         assert!(text.ends_with("- 副手"));
+    }
+
+    #[test]
+    fn compaction_message_should_render_preserved_dialogue_section_when_present() {
+        let message = build_compaction_message(
+            "## 当前进展\n\n- 完成",
+            Some("标题"),
+            "",
+            Some("红豆：在吗\n助手：在"),
+            &[],
+            &[],
+        );
+        let text = render_message_content_for_model(&message);
+
+        assert!(text.contains("## 保留对话"));
+        assert!(text.contains("红豆：在吗"));
     }
 
     #[test]

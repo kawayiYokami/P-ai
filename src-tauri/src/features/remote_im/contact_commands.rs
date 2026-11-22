@@ -2159,7 +2159,11 @@ async fn remote_im_enqueue_message_direct(
     {
         let mut persisted_message = message.clone();
         if let Err(err) =
-            externalize_message_parts_to_media_refs(&mut persisted_message.parts, &state.data_path)
+            externalize_message_parts_to_media_refs(
+                &mut persisted_message.parts,
+                &state.data_path,
+                &conversation_id,
+            )
         {
             runtime_log_warn(format!(
                 "[远程IM] 入站附件外部化降级，contact_id={}，conversation_id={}，message_id={}，error={}",

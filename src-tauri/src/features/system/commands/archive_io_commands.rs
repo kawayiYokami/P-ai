@@ -198,7 +198,11 @@ fn normalize_archive_for_import(archive: &mut ConversationArchive, data_path: &P
                 }
             }
         }
-        canonicalize_message_parts_for_persistence(&mut message.parts, data_path);
+        canonicalize_message_parts_for_persistence(
+            &mut message.parts,
+            data_path,
+            &conversation.id,
+        );
         message.provider_meta =
             provider_meta_without_legacy_attachments(message.provider_meta.take());
         message

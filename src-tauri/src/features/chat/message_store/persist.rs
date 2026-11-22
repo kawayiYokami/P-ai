@@ -85,7 +85,11 @@ fn normalize_conversation_media_refs_for_message_store(
 ) -> Conversation {
     let mut next = conversation.clone();
     for message in &mut next.messages {
-        canonicalize_message_parts_for_persistence(&mut message.parts, &paths.data_path);
+        canonicalize_message_parts_for_persistence(
+            &mut message.parts,
+            &paths.data_path,
+            &paths.conversation_id,
+        );
         message.provider_meta = provider_meta_without_legacy_attachments(message.provider_meta.take());
     }
     next

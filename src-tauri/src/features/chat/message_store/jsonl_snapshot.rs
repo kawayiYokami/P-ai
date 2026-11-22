@@ -465,7 +465,7 @@ fn build_jsonl_snapshot_conversation_block_tail_v4(
     })
 }
 
-fn slim_older_conversation_block_message(message: &ChatMessage) -> ChatMessage {
+pub(super) fn slim_older_conversation_block_message(message: &ChatMessage) -> ChatMessage {
     let mut next = message.clone();
     next.parts = message
         .parts
@@ -473,7 +473,6 @@ fn slim_older_conversation_block_message(message: &ChatMessage) -> ChatMessage {
         .filter_map(slim_older_conversation_block_part)
         .collect();
     next.extra_text_blocks.clear();
-    next.provider_meta = slim_older_conversation_block_provider_meta(message);
     next.tool_call = None;
     next.mcp_call = None;
     next
@@ -538,25 +537,6 @@ fn slim_older_conversation_block_part(part: &MessagePart) -> Option<MessagePart>
     }
 }
 
-fn slim_older_conversation_block_provider_meta(message: &ChatMessage) -> Option<Value> {
-    let mut meta = serde_json::Map::new();
-    if let Some(kind) = message_store_compaction_kind(message) {
-        meta.insert(
-            "message_meta".to_string(),
-            serde_json::json!({
-                "kind": kind,
-            }),
-        );
-    }
-    if let Some(origin) = remote_im_origin_from_message(message) {
-        meta.insert("origin".to_string(), origin.clone());
-    }
-    if meta.is_empty() {
-        None
-    } else {
-        Some(Value::Object(meta))
-    }
-}
 
 fn write_jsonl_snapshot_atomic(path: &PathBuf, content: &str) -> Result<(), String> {
     write_message_store_text_atomic(path, "jsonl.tmp", content, "JSONL 快照")
@@ -683,7 +663,7 @@ mod jsonl_snapshot_conversation_block_tests {
     }
 
     #[test]
-    fn slim_older_conversation_block_message_should_keep_remote_origin_only() {
+    fn slim_older_conversation_block_message_should_keep_provider_meta_intact() {
         let mut message = text_message("remote-user", "user", "旧消息");
         message.parts.push(MessagePart::Image {
             mime: "image/png".to_string(),
@@ -722,7 +702,11 @@ mod jsonl_snapshot_conversation_block_tests {
             meta.pointer("/origin/channel_id").and_then(Value::as_str),
             Some("channel-a")
         );
-        assert!(meta.get("runtime").is_none());
+        // provider_meta 不再走白名单：除工具与 base64 外一律保留。
+        assert_eq!(
+            meta.pointer("/runtime/temporary").and_then(Value::as_bool),
+            Some(true)
+        );
     }
 
     #[test]

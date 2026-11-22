@@ -626,6 +626,7 @@ async fn process_conversation_batch(
     fn defer_image_parts_for_history_flushed(
         message: &ChatMessage,
         data_path: &PathBuf,
+        conversation_id: &str,
     ) -> (ChatMessage, usize, usize) {
         let mut deferred_message = message.clone();
         let mut deferred_image_count = 0usize;
@@ -642,6 +643,7 @@ async fn process_conversation_batch(
                 } => {
                     let (attachment, warning) = legacy_binary_message_part_to_attachment(
                         data_path,
+                        conversation_id,
                         &mime,
                         &bytes_base64,
                         name.as_deref(),
@@ -750,7 +752,7 @@ async fn process_conversation_batch(
             Vec::<(ChatMessage, Vec<String>)>::with_capacity(event.messages.len());
         for message in &event.messages {
             let mut persisted = message.clone();
-            externalize_message_parts_to_media_refs(&mut persisted.parts, &state.data_path)?;
+            externalize_message_parts_to_media_refs(&mut persisted.parts, &state.data_path, conversation_id)?;
             persisted.created_at = history_flush_time.clone();
             let recall_payload = if persisted.role.trim() == "user"
                 && !matches!(event.source, ChatEventSource::RemoteIm)
@@ -1144,7 +1146,7 @@ async fn process_conversation_batch(
         Vec::<ChatMessage>::with_capacity(persisted_batch_messages.len());
     for message in &persisted_batch_messages {
         let (deferred_message, _, _) =
-            defer_image_parts_for_history_flushed(message, &state.data_path);
+            defer_image_parts_for_history_flushed(message, &state.data_path, conversation_id);
         history_flushed_messages.push(project_message_for_frontend_display_only(deferred_message));
     }
     let history_flushed_payload = serde_json::json!({

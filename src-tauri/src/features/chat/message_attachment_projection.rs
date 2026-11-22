@@ -721,6 +721,7 @@ fn canonical_attachment_path_for_persistence(
 
 fn legacy_binary_message_part_to_attachment(
     data_path: &PathBuf,
+    conversation_id: &str,
     mime: &str,
     stored: &str,
     name: Option<&str>,
@@ -755,22 +756,29 @@ fn legacy_binary_message_part_to_attachment(
         )
     } else {
         match B64.decode(trimmed) {
-            Ok(raw) if !raw.is_empty() => match persist_media_bytes(data_path, &normalized_mime, &raw) {
-                Ok(media_id) => (
-                    media_storage_dir_from_data_path(data_path)
-                        .unwrap_or_else(|_| app_root_from_data_path(data_path).join("media"))
-                        .join(media_id),
-                    Some("旧内联媒体已迁移为 canonical 绝对路径".to_string()),
-                ),
-                Err(err) => (
-                    legacy_attachment_unavailable_candidate_path(
-                        data_path,
-                        &normalized_mime,
-                        trimmed,
+            Ok(raw) if !raw.is_empty() => {
+                // 新附件落在会话自己的 downloads 目录；目录推不出来时退回全局 media，
+                // 不让一条附件因为路径问题整条丢掉。
+                let dir = conversation_downloads_dir_from_data_path(data_path, conversation_id)
+                    .unwrap_or_else(|_| {
+                        media_storage_dir_from_data_path(data_path)
+                            .unwrap_or_else(|_| app_root_from_data_path(data_path).join("media"))
+                    });
+                match persist_binary_bytes_into_dir(&dir, &normalized_mime, &raw) {
+                    Ok(media_id) => (
+                        dir.join(media_id),
+                        Some("内联媒体已落盘到会话附件目录".to_string()),
                     ),
-                    Some(format!("旧媒体落盘失败，保留不可用绝对候选路径：{err}")),
-                ),
-            },
+                    Err(err) => (
+                        legacy_attachment_unavailable_candidate_path(
+                            data_path,
+                            &normalized_mime,
+                            trimmed,
+                        ),
+                        Some(format!("旧媒体落盘失败，保留不可用绝对候选路径：{err}")),
+                    ),
+                }
+            }
             Ok(_) => (
                 legacy_attachment_unavailable_candidate_path(
                     data_path,
@@ -812,6 +820,7 @@ fn legacy_binary_message_part_to_attachment(
 fn canonicalize_message_parts_for_persistence(
     parts: &mut Vec<MessagePart>,
     data_path: &PathBuf,
+    conversation_id: &str,
 ) -> bool {
     let mut changed = false;
     let mut next = Vec::<MessagePart>::with_capacity(parts.len());
@@ -831,6 +840,7 @@ fn canonicalize_message_parts_for_persistence(
             } => {
                 let (attachment, warning) = legacy_binary_message_part_to_attachment(
                     data_path,
+                    conversation_id,
                     &mime,
                     &bytes_base64,
                     name.as_deref(),
@@ -1044,7 +1054,11 @@ mod message_attachment_projection_tests {
             },
         ];
 
-        assert!(canonicalize_message_parts_for_persistence(&mut parts, &data_path));
+        assert!(canonicalize_message_parts_for_persistence(
+            &mut parts,
+            &data_path,
+            "conversation-canonical-test"
+        ));
         for part in &parts {
             let MessagePart::Attachment { path, .. } = part else {
                 panic!("expected attachment");

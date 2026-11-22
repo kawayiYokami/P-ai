@@ -1091,6 +1091,57 @@ fn downloads_storage_dir_from_data_path(data_path: &PathBuf) -> Result<PathBuf, 
         .join("downloads"))
 }
 
+/// 会话自己的附件目录：`<app_root>/chat/conversations/<conversation_id>/downloads`。
+/// 附件按会话隔离，压缩时按会话清理才可能做干净。
+fn conversation_downloads_dir_from_data_path(
+    data_path: &PathBuf,
+    conversation_id: &str,
+) -> Result<PathBuf, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversation id is empty".to_string());
+    }
+    // 这个 id 会直接拼进写盘、删盘路径，且来源包含导入 JSON 里的 conversation.id，
+    // 必须拒绝路径分隔符与 `..`，跟 message_store_paths 的口径对齐。
+    if conversation_id.contains('/')
+        || conversation_id.contains('\\')
+        || conversation_id.contains("..")
+    {
+        return Err(format!(
+            "conversation id contains path separators: {conversation_id}"
+        ));
+    }
+    Ok(app_root_from_data_path(data_path)
+        .join("chat")
+        .join("conversations")
+        .join(conversation_id)
+        .join("downloads"))
+}
+
+/// 按 sha256 内容寻址落盘到指定目录，返回文件名。同一目录内同内容只存一份。
+fn persist_binary_bytes_into_dir(
+    dir: &PathBuf,
+    mime: &str,
+    raw: &[u8],
+) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+
+    if raw.is_empty() {
+        return Err("media payload is empty".to_string());
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(raw);
+    let hash = bytes_to_lower_hex(hasher.finalize());
+    let ext = media_extension_from_mime(mime);
+    let media_id = format!("{hash}.{ext}");
+    fs::create_dir_all(dir).map_err(|err| format!("Create media directory failed: {err}"))?;
+    let path = dir.join(&media_id);
+    if !path.exists() {
+        fs::write(&path, raw).map_err(|err| format!("Write media file failed: {err}"))?;
+    }
+    Ok(media_id)
+}
+
 fn media_extension_from_mime(mime: &str) -> &'static str {
     match mime.trim().to_ascii_lowercase().as_str() {
         "image/webp" => "webp",
@@ -1146,26 +1197,6 @@ fn stored_binary_ref_from_marker(value: &str) -> Option<(StoredBinaryRefKind, &s
     None
 }
 
-fn persist_media_bytes(data_path: &PathBuf, mime: &str, raw: &[u8]) -> Result<String, String> {
-    use sha2::{Digest, Sha256};
-
-    if raw.is_empty() {
-        return Err("media payload is empty".to_string());
-    }
-    let mut hasher = Sha256::new();
-    hasher.update(raw);
-    let hash = bytes_to_lower_hex(hasher.finalize());
-    let ext = media_extension_from_mime(mime);
-    let media_id = format!("{hash}.{ext}");
-    let dir = media_storage_dir_from_data_path(data_path)?;
-    fs::create_dir_all(&dir).map_err(|err| format!("Create media directory failed: {err}"))?;
-    let path = dir.join(&media_id);
-    if !path.exists() {
-        fs::write(&path, raw).map_err(|err| format!("Write media file failed: {err}"))?;
-    }
-    Ok(media_id)
-}
-
 fn resolve_stored_binary_base64(data_path: &PathBuf, stored: &str) -> Result<String, String> {
     let trimmed = stored.trim();
     if trimmed.is_empty() {
@@ -1218,6 +1249,7 @@ fn sanitize_storage_subdir(value: &str) -> Result<String, String> {
 fn externalize_message_parts_to_media_refs(
     parts: &mut [MessagePart],
     data_path: &PathBuf,
+    conversation_id: &str,
 ) -> Result<bool, String> {
     let mut changed = false;
     for part in parts {
@@ -1236,6 +1268,7 @@ fn externalize_message_parts_to_media_refs(
             } => {
                 let (attachment, warning) = legacy_binary_message_part_to_attachment(
                     data_path,
+                    conversation_id,
                     mime,
                     bytes_base64,
                     name.as_deref(),

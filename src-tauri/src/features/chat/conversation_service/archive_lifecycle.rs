@@ -1,4 +1,7 @@
 const REMOTE_IM_WAKE_COMPACTION_MIN_BLOCK_MESSAGE_COUNT: usize = 14;
+/// 压缩收尾清附件时，最近这么多秒内改动过的文件一律不删。
+/// 入站附件先落盘、消息后入库，窗口期内文件还没进任何 block，删了就是丢附件。
+const REMOTE_IM_ATTACHMENT_PRUNE_MIN_AGE_SECONDS: u64 = 60;
 
 #[derive(Debug, Clone)]
 enum RemoteImDynamicWakeCompactionOutcome {
@@ -8,6 +11,149 @@ enum RemoteImDynamicWakeCompactionOutcome {
 
 fn remote_im_wake_compaction_should_skip_for_low_frequency(block_message_count: usize) -> bool {
     block_message_count < REMOTE_IM_WAKE_COMPACTION_MIN_BLOCK_MESSAGE_COUNT
+}
+
+/// 压缩收尾：清掉本会话附件目录里不再被新 block 引用的文件。
+///
+/// 只碰 `chat/conversations/<id>/downloads/`，旧 `media/` 与 `llm-workspace/downloads/`
+/// 一个文件都不动。任何一步失败只记 warn——压缩本身已经成功，清附件只是收尾。
+fn remote_im_prune_conversation_attachments_after_compaction(
+    state: &AppState,
+    conversation_id: &str,
+    store_paths: &message_store::MessageStorePaths,
+) {
+    let dir = match conversation_downloads_dir_from_data_path(&state.data_path, conversation_id) {
+        Ok(dir) => dir,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=会话附件目录不可用，error={}",
+                conversation_id, err
+            ));
+            return;
+        }
+    };
+    if !dir.is_dir() {
+        return;
+    }
+    // splice 之后新 block 就是末尾那一块。
+    let block_id = match message_store::chat_store_read_block_page(store_paths, None) {
+        Ok(Some(page)) => page.selected_block_id,
+        Ok(None) => return,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=读取末尾 block 失败，error={}",
+                conversation_id, err
+            ));
+            return;
+        }
+    };
+    // 扫新 block 全部消息引用的附件。比对用文件名，不做字符串包含判断。
+    let mut referenced_names = std::collections::HashSet::<String>::new();
+    let mut scanned_message_count = 0usize;
+    let mut before_message_id: Option<String> = None;
+    loop {
+        let page = match message_store::chat_store_read_block_messages_before(
+            store_paths,
+            Some(block_id),
+            before_message_id.as_deref(),
+            PRESERVED_DIALOGUE_READ_PAGE_SIZE,
+        ) {
+            Ok(Some(page)) => page,
+            Ok(None) => break,
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=读取新 block 消息失败，error={}",
+                    conversation_id, err
+                ));
+                return;
+            }
+        };
+        let Some(oldest) = page.messages.first() else {
+            break;
+        };
+        before_message_id = Some(oldest.id.clone());
+        scanned_message_count = scanned_message_count.saturating_add(page.messages.len());
+        for message in &page.messages {
+            for part in &message.parts {
+                if let MessagePart::Attachment { path, .. } = part {
+                    if let Some(name) = std::path::Path::new(path.trim()).file_name() {
+                        if let Some(name) = name.to_str() {
+                            referenced_names.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if !page.has_more {
+            break;
+        }
+    }
+    // 一条消息都没扫到，说明 block 行在、消息却读不出来——这时清单为空是异常，
+    // 不能当成「全都没被引用」去删。消息都在但都没附件是正常的，继续删。
+    if scanned_message_count == 0 {
+        runtime_log_warn(format!(
+            "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=新 block 读不到任何消息，保留全部附件",
+            conversation_id
+        ));
+        return;
+    }
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=读取会话附件目录失败，error={}",
+                conversation_id, err
+            ));
+            return;
+        }
+    };
+    let mut removed_count = 0usize;
+    let mut skipped_recent_count = 0usize;
+    let mut skipped_unknown_age_count = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if referenced_names.contains(&file_name) {
+            continue;
+        }
+        // 入站附件先落盘、消息后入库：刚写下的文件可能还没进任何 block，
+        // 当成孤儿删掉就是丢附件。最近一分钟内动过的文件一律不删。
+        let modified_age_seconds = std::fs::metadata(&path)
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| std::time::SystemTime::now().duration_since(modified).ok())
+            .map(|age| age.as_secs());
+        match modified_age_seconds {
+            Some(age) if age >= REMOTE_IM_ATTACHMENT_PRUNE_MIN_AGE_SECONDS => {}
+            Some(_) => {
+                skipped_recent_count = skipped_recent_count.saturating_add(1);
+                continue;
+            }
+            // 时间戳读不出来时同样不删——删除不可逆，这里一律保守。
+            None => {
+                skipped_unknown_age_count = skipped_unknown_age_count.saturating_add(1);
+                continue;
+            }
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => removed_count = removed_count.saturating_add(1),
+            Err(err) => runtime_log_warn(format!(
+                "[远程唤醒压缩] 降级，任务=清理附件，conversation_id={}，file={}，error={}",
+                conversation_id, file_name, err
+            )),
+        }
+    }
+    runtime_log_info(format!(
+        "[远程唤醒压缩] 完成，任务=清理附件，conversation_id={}，referenced={}，removed={}，skipped_recent={}，skipped_unknown_age={}",
+        conversation_id,
+        referenced_names.len(),
+        removed_count,
+        skipped_recent_count,
+        skipped_unknown_age_count
+    ));
 }
 
 impl ConversationServiceV2 {
@@ -397,7 +543,7 @@ impl ConversationServiceV2 {
         if conversation_id.is_empty() || trigger_message_id.is_empty() {
             return Err("远程唤醒压缩失败：缺少会话或触发消息 ID".to_string());
         }
-        with_conversation_mutation(
+        let outcome = with_conversation_mutation(
             state,
             conversation_id,
             "remote_im_apply_dynamic_wake_compaction",
@@ -476,26 +622,80 @@ impl ConversationServiceV2 {
                 )),
             }
         }
-        let assistant_name = state_read_agents_cached(state)?
-            .into_iter()
-            .find(|agent| agent.id.trim() == conversation_meta.agent_id.trim())
-            .map(|agent| agent.name.trim().to_string())
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| "助手".to_string());
-        let preserved_dialogue = if include_history {
-            // 边界消息作为结束锚点但不纳入保留对话；边界之后的新鲜消息留在当前 block。
-            self.read_block_preserved_dialogue(
-                state,
-                conversation_id,
-                None,
-                Some(boundary_message_id),
-                "远程联系人",
-                &assistant_name,
-                ACTIVE_COMPACTION_PRESERVED_DIALOGUE_BUDGET,
-            )?
-        } else {
-            String::new()
+        // 第二段：游标之前最后 26 KiB 的原文。压缩后它跟着第三段一起进新 block，
+        // 旧 block 只剩第一段。计费口径是整条消息 render_prompt_message_text 的字节数，
+        // 不做单条截断、不加说话人前缀；这一条与原 PreservedDialogueAccumulator
+        // 的行计费口径不同，两者不要混用。
+        // 读到更早的摘要就停：一个 block 只许有一个摘要头，旧摘要不能被搬进新 block。
+        let mut keep_messages: Vec<ChatMessage> = Vec::new();
+        let mut keep_dialogue_bytes = 0usize;
+        if include_history {
+            let budget_bytes = ACTIVE_COMPACTION_PRESERVED_DIALOGUE_BUDGET.limit();
+            let mut requested_block_id: Option<u32> = None;
+            let mut before_message_id: Option<String> = Some(boundary_message_id.to_string());
+            'read_keep: loop {
+                let page = message_store::chat_store_read_block_messages_before(
+                    &store_paths,
+                    requested_block_id,
+                    before_message_id.as_deref(),
+                    PRESERVED_DIALOGUE_READ_PAGE_SIZE,
+                )?
+                .ok_or_else(|| {
+                    format!(
+                        "远程唤醒压缩失败：消息存储未就绪，conversation_id={conversation_id}"
+                    )
+                })?;
+                // 第一页之后锁死在同一个 block：第二段不许跨到上一个 block，
+                // 否则 splice 会重写两个块，「旧 block 只剩第一段」就不成立了。
+                requested_block_id = Some(page.selected_block_id);
+                let Some(oldest) = page.messages.first() else {
+                    break;
+                };
+                before_message_id = Some(oldest.id.clone());
+                // 页内是时间正序，从新往旧累加。
+                for message in page.messages.iter().rev() {
+                    if is_context_compaction_message(message, message.role.trim()) {
+                        break 'read_keep;
+                    }
+                    let message_bytes = render_prompt_message_text(message).len();
+                    if keep_dialogue_bytes.saturating_add(message_bytes) > budget_bytes {
+                        break 'read_keep;
+                    }
+                    keep_dialogue_bytes = keep_dialogue_bytes.saturating_add(message_bytes);
+                    keep_messages.push(message.clone());
+                }
+                if !page.has_more {
+                    break;
+                }
+            }
+            keep_messages.reverse();
+        }
+        let keep_start_sequence = match keep_messages.first() {
+            Some(first) => message_store::chat_store_read_message_sequence(&store_paths, &first.id)?
+                .ok_or_else(|| {
+                    format!(
+                        "远程唤醒压缩失败：第二段首条缺少序号，message_id={}",
+                        first.id
+                    )
+                })?,
+            None => boundary_index,
         };
+        // 摘要正文只放元信息：压缩后摘要就是新 block 的开头，读者要知道这是哪个联系人/群。
+        let contact_summary = state_service_list_remote_im_contacts(state, None)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|contact| {
+                contact.bound_conversation_id.as_deref().map(str::trim) == Some(conversation_id)
+            })
+            .map(|contact| {
+                format!(
+                    "当前联系人：{}（{}，{}）",
+                    contact.remote_contact_name.trim(),
+                    contact.remote_contact_type.trim(),
+                    contact.remote_contact_id.trim()
+                )
+            })
+            .unwrap_or_default();
         let background_shell_lines =
             terminal_background_shell_running_summary_lines(state, conversation_id);
         let teammate_names = available_delegate_teammate_names(
@@ -503,32 +703,69 @@ impl ConversationServiceV2 {
             &conversation_meta.agent_id,
         );
         let summary = build_compaction_message(
-            "",
+            &contact_summary,
             Some("远程唤醒上下文"),
             if include_history {
                 "remote_im_wake_dynamic"
             } else {
                 "remote_im_wake_empty_fallback"
             },
-            (!preserved_dialogue.trim().is_empty()).then_some(preserved_dialogue.as_str()),
+            None,
             &background_shell_lines,
             &teammate_names,
         );
         let mut persisted_conversation = self.build_conversation_record_from_meta_view(&conversation_meta);
         persisted_conversation.updated_at = now_iso();
         let cached_metadata = state_read_conversation_metadata_cached(state, conversation_id)?;
+        // 三段式：第二段原位换成「摘要 + 第二段」，第三段（边界及之后）原封不动，
+        // 旧 block 只剩第一段。第二段为空时退回原来的「边界原位换成摘要 + 边界」。
+        let (splice_start, splice_delete, removed_messages, inserted_messages) =
+            if keep_messages.is_empty() {
+                (
+                    boundary_index,
+                    1usize,
+                    vec![boundary.clone()],
+                    vec![summary.clone(), boundary.clone()],
+                )
+            } else {
+                let delete_count = boundary_index.saturating_sub(keep_start_sequence);
+                if delete_count != keep_messages.len() {
+                    return Err(format!(
+                        "远程唤醒压缩失败：第二段与边界不连续，conversation_id={}，keep_start_sequence={}，keep_count={}，boundary_index={}",
+                        conversation_id,
+                        keep_start_sequence,
+                        keep_messages.len(),
+                        boundary_index
+                    ));
+                }
+                let mut inserted = Vec::with_capacity(keep_messages.len() + 1);
+                inserted.push(summary.clone());
+                // 第二段进新 block 前瘦身：工具、内联 base64、extraTextBlocks 去掉，
+                // providerMeta 与思维链原样带。removed 仍传原始消息（它们才是被替换掉的那批）。
+                inserted.extend(
+                    keep_messages
+                        .iter()
+                        .map(message_store::slim_older_conversation_block_message),
+                );
+                (
+                    keep_start_sequence,
+                    delete_count,
+                    keep_messages.clone(),
+                    inserted,
+                )
+            };
         let persist_meta = message_store::ConversationPersistMeta::from_conversation_with_spliced_messages(
             &persisted_conversation,
             &cached_metadata,
-            std::slice::from_ref(&boundary),
-            &[summary.clone(), boundary.clone()],
+            &removed_messages,
+            &inserted_messages,
         );
         message_store::chat_store_splice_messages(
             &store_paths,
             &persist_meta,
-            boundary_index,
-            1,
-            &[summary.clone(), boundary.clone()],
+            splice_start,
+            splice_delete,
+            &inserted_messages,
         )?;
         state_mark_conversation_metadata_direct_persisted(state, conversation_id)?;
         let next_messages = message_store::chat_store_read_messages_after(
@@ -538,21 +775,48 @@ impl ConversationServiceV2 {
         )?
         .map(|page| page.messages)
         .unwrap_or_default();
-        if next_messages.first().map(|message| message.id.as_str()) != Some(boundary_message_id) {
+        // 摘要后面第一条：第二段非空时是它自己的首条，否则是边界消息。
+        let expected_first_after_summary = keep_messages
+            .first()
+            .map(|message| message.id.as_str())
+            .unwrap_or(boundary_message_id);
+        if next_messages.first().map(|message| message.id.as_str())
+            != Some(expected_first_after_summary)
+        {
             return Err(format!(
-                "远程唤醒压缩写入校验失败：摘要和边界消息顺序错误，conversation_id={conversation_id}"
+                "远程唤醒压缩写入校验失败：摘要后的第一条消息顺序错误，conversation_id={conversation_id}，expected={expected_first_after_summary}"
             ));
         }
         runtime_log_info(format!(
-            "[远程唤醒压缩] 完成，任务=写入摘要，conversation_id={}，summary_message_id={}，trigger_message_id={}，include_history={}",
+            "[远程唤醒压缩] 完成，任务=写入摘要，conversation_id={}，summary_message_id={}，trigger_message_id={}，include_history={}，keep_message_count={}，keep_bytes={}",
             conversation_id,
             summary.id,
             trigger_message_id,
-            include_history
+            include_history,
+            keep_messages.len(),
+            keep_dialogue_bytes
         ));
         Ok(RemoteImDynamicWakeCompactionOutcome::Applied)
             },
-        )
+        )?;
+        // 附件清理放在会话锁外：分页读新 block + 目录遍历 + 逐文件删除都很慢，
+        // 不该挡着同会话的其他写操作。压缩本身已经成功，这里失败只记 warn。
+        if matches!(outcome, RemoteImDynamicWakeCompactionOutcome::Applied) {
+            match message_store::message_store_paths(&state.data_path, conversation_id) {
+                Ok(store_paths) => {
+                    remote_im_prune_conversation_attachments_after_compaction(
+                        state,
+                        conversation_id,
+                        &store_paths,
+                    );
+                }
+                Err(err) => runtime_log_warn(format!(
+                    "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=消息存储路径不可用，error={}",
+                    conversation_id, err
+                )),
+            }
+        }
+        Ok(outcome)
     }
 
     fn persist_compaction_message(
