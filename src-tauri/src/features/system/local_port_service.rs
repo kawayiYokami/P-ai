@@ -157,11 +157,10 @@ impl LocalPortServiceCore {
         if channel_id.is_empty() {
             return Vec::new();
         }
-        let needle = format!("channel_id={channel_id}");
-        runtime_log_entries_containing(
-            &needle,
-        )
-        .into_iter()
+        // 用裸 channel_id 过滤，不挑字段名：日志里它可能出现在 channel_id=…、
+        // 也可能出现在「联系人=名字(id@会话)」这类文本里。
+        runtime_log_entries_containing(channel_id)
+            .into_iter()
         .map(|(created_at, level, message)| LocalPortServiceLogEntry {
             timestamp: chrono::DateTime::parse_from_rfc3339(&created_at)
                 .map(|value| value.with_timezone(&Utc))

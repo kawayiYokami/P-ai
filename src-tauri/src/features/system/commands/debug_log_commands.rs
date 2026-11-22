@@ -1424,8 +1424,10 @@ fn list_recent_runtime_logs() -> Result<Vec<RuntimeLogEntry>, String> {
 }
 
 /// 唯一日志里带某个标识的条目：联系人日志窗按 contact_id 过滤这一份，不再另存一套缓冲。
+///
+/// 存储时 UUID 已被缩成前 8 位，这里对查询串做同样处理，否则完整 id 永远匹配不上。
 pub(crate) fn runtime_log_entries_containing(needle: &str) -> Vec<(String, String, String)> {
-    let needle = needle.trim();
+    let needle = shorten_uuids_in_log(needle.trim());
     if needle.is_empty() {
         return Vec::new();
     }
@@ -1434,7 +1436,7 @@ pub(crate) fn runtime_log_entries_containing(needle: &str) -> Vec<(String, Strin
     };
     logs.entries
         .iter()
-        .filter(|entry| entry.message.contains(needle))
+        .filter(|entry| entry.message.contains(needle.as_str()))
         .map(|entry| {
             (
                 entry.created_at.clone(),
