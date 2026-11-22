@@ -121,18 +121,6 @@ impl QqOfficialManager {
     }
 
     #[cfg_attr(test, allow(dead_code))]
-    pub(crate) async fn add_contact_log(
-        &self,
-        channel_id: &str,
-        level: &str,
-        message: &str,
-        contact_record_id: &str,
-    ) {
-        self.port_service
-            .add_log_for_contact(channel_id, level, message, Some(contact_record_id))
-            .await;
-    }
-
     async fn cached_access_token(&self, cache_key: &str) -> Option<String> {
         let tokens = self.tokens.read().await;
         let cache = tokens.get(cache_key)?;

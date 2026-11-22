@@ -32,7 +32,6 @@ pub struct LocalPortServiceCore {
     listen_addrs: Arc<RwLock<HashMap<String, String>>>,
     status_texts: Arc<RwLock<HashMap<String, String>>>,
     last_errors: Arc<RwLock<HashMap<String, String>>>,
-    logs: Arc<RwLock<HashMap<String, Vec<LocalPortServiceLogEntry>>>>,
     lifecycle_locks: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
@@ -42,7 +41,6 @@ impl LocalPortServiceCore {
             listen_addrs: Arc::new(RwLock::new(HashMap::new())),
             status_texts: Arc::new(RwLock::new(HashMap::new())),
             last_errors: Arc::new(RwLock::new(HashMap::new())),
-            logs: Arc::new(RwLock::new(HashMap::new())),
             lifecycle_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
@@ -123,6 +121,7 @@ impl LocalPortServiceCore {
         self.add_log_for_contact(service_id, level, message, None).await;
     }
 
+    /// 渠道日志也只有一套：格式化后写唯一日志，渠道日志窗按 channel_id 过滤。
     pub async fn add_log_for_contact(
         &self,
         service_id: &str,
@@ -130,33 +129,48 @@ impl LocalPortServiceCore {
         message: &str,
         contact_record_id: Option<&str>,
     ) {
-        let entry = LocalPortServiceLogEntry {
-            timestamp: Utc::now(),
-            level: level.to_string(),
-            message: message.to_string(),
-            contact_record_id: contact_record_id
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned),
-        };
-        let mut logs = self.logs.write().await;
-        let service_logs = logs
-            .entry(service_id.to_string())
-            .or_insert_with(Vec::new);
-        service_logs.push(entry);
-        if service_logs.len() > 300 {
-            let start = service_logs.len() - 300;
-            service_logs.drain(0..start);
+        let channel_id = service_id.trim();
+        let level = level.trim();
+        let message = message.trim();
+        if channel_id.is_empty() || level.is_empty() || message.is_empty() {
+            return;
+        }
+        let contact_text = contact_record_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("，contact_id={value}"))
+            .unwrap_or_default();
+        let line =
+            format!("[渠道日志][{level}] channel_id={channel_id}{contact_text}，{message}");
+        match level {
+            "warn" => runtime_log_warn(line),
+            "error" => {
+                runtime_log_error(line)
+            }
+            _ => runtime_log_info(line),
         }
     }
 
     pub async fn get_logs(&self, service_id: &str) -> Vec<LocalPortServiceLogEntry> {
-        self.logs
-            .read()
-            .await
-            .get(service_id)
-            .cloned()
-            .unwrap_or_default()
+        // 从唯一日志按 channel_id 过滤：不再为每个渠道单独存一份缓冲。
+        let channel_id = service_id.trim();
+        if channel_id.is_empty() {
+            return Vec::new();
+        }
+        let needle = format!("channel_id={channel_id}");
+        runtime_log_entries_containing(
+            &needle,
+        )
+        .into_iter()
+        .map(|(created_at, level, message)| LocalPortServiceLogEntry {
+            timestamp: chrono::DateTime::parse_from_rfc3339(&created_at)
+                .map(|value| value.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+            level,
+            message,
+            contact_record_id: None,
+        })
+        .collect()
     }
 
     pub async fn set_listen_addr(&self, service_id: &str, listen_addr: Option<String>) {

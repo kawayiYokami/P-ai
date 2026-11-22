@@ -230,35 +230,8 @@ async fn remote_im_append_contact_log_async(
     level: &str,
     message: String,
 ) {
-    let channel_id = contact.channel_id.trim();
-    let contact_record_id = contact.id.trim();
-    let level = level.trim();
-    let message = message.trim();
-    if channel_id.is_empty() || contact_record_id.is_empty() || level.is_empty() || message.is_empty() {
-        return;
-    }
-    match &contact.platform {
-        RemoteImPlatform::Dingtalk => {
-            dingtalk_stream_manager()
-                .add_contact_log(channel_id, level, message, contact_record_id)
-                .await;
-        }
-        RemoteImPlatform::WeixinOc => {
-            weixin_oc_manager()
-                .add_contact_log(channel_id, level, message, contact_record_id)
-                .await;
-        }
-        RemoteImPlatform::QqOfficial => {
-            qq_official_manager()
-                .add_contact_log(channel_id, level, message, contact_record_id)
-                .await;
-        }
-        _ => {
-            onebot_v11_ws_manager()
-                .add_contact_log(channel_id, level, message, contact_record_id)
-                .await;
-        }
-    }
+    // 异步入口同样只有一套日志：直接转同步版，不再分平台写渠道缓冲。
+    remote_im_append_contact_log(contact, level, message);
 }
 
 #[cfg(test)]

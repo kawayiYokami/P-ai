@@ -179,7 +179,12 @@ async fn remote_im_get_contact_logs_inner(
     // 联系人日志就是唯一日志里带这个 contact_id 的那些行。
     // 不另存缓冲、不按渠道分片：日志只有一套，这个窗口只是过滤视图。
     let contact_id = input.contact_id.trim();
-    Ok(runtime_log_entries_containing(contact_id)
+    if contact_id.is_empty() {
+        return Err("contact_id 为必填项。".to_string());
+    }
+    // 过滤标记要带上字段名，否则 id 撞上别的数字会串行。
+    let needle = format!("contact_id={contact_id}");
+    Ok(runtime_log_entries_containing(&needle)
         .into_iter()
         .map(|(created_at, level, message)| ChannelLogEntry {
             timestamp: chrono::DateTime::parse_from_rfc3339(&created_at)

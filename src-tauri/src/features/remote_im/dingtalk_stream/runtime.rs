@@ -97,18 +97,6 @@ impl DingtalkStreamManager {
     }
 
     #[cfg_attr(test, allow(dead_code))]
-    pub(crate) async fn add_contact_log(
-        &self,
-        channel_id: &str,
-        level: &str,
-        message: &str,
-        contact_record_id: &str,
-    ) {
-        self.port_service
-            .add_log_for_contact(channel_id, level, message, Some(contact_record_id))
-            .await;
-    }
-
     async fn stop_channel_inner(&self, channel_id: &str) {
         self.add_log(channel_id, "info", "[钉钉生命周期] 开始停止渠道").await;
         if let Some(tx) = self.stop_senders.write().await.remove(channel_id) {
