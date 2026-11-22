@@ -716,6 +716,10 @@ async fn remote_im_auto_send_and_record_decision(
         }
         Ok(None) => Ok(RemoteImAutoSendExecutionOutcome::SkippedEmptyReply),
         Err(err) if remote_im_auto_send_error_is_muted_gate(&err) => {
+            runtime_log_warn(format!(
+                "[远程IM][自动发送] 跳过，任务=外发，reason=闭嘴拦截，conversation_id={}，error={err}",
+                conversation_id
+            ));
             if let Err(update_err) = update_remote_im_reply_decision_for_message(
                 state,
                 conversation_id,
@@ -730,6 +734,11 @@ async fn remote_im_auto_send_and_record_decision(
             Ok(RemoteImAutoSendExecutionOutcome::SkippedMuted)
         }
         Err(err) => {
+            // 外发失败必须留痕：不发出去的原因就在这里，吞掉就只剩「什么都没发生」。
+            runtime_log_warn(format!(
+                "[远程IM][自动发送] 失败，任务=外发，conversation_id={}，reason={err}",
+                conversation_id
+            ));
             if let Err(update_err) = update_remote_im_reply_decision_for_message(
                 state,
                 conversation_id,

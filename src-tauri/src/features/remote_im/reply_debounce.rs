@@ -390,9 +390,17 @@ async fn remote_im_group_reply_handle_timer(
     let entry = {
         let mut store = lock_remote_im_inspection_schedule_store();
         let Some(current) = store.next_inspection.get(&action.state_key) else {
+            runtime_log_warn(format!(
+                "[巡检] 跳过，任务=闹钟到点，contact_id={}，state_key={}，reason=排期表里没有这一项（已被新排期顶掉或已消费），kind={:?}",
+                action.contact_id, action.state_key, action.kind
+            ));
             return;
         };
         if current.due_at != action.due_at {
+            runtime_log_warn(format!(
+                "[巡检] 跳过，任务=闹钟到点，contact_id={}，reason=不是最新一轮（旧闹钟醒来），闹钟due_at={:?}，排期due_at={:?}",
+                action.contact_id, action.due_at, current.due_at
+            ));
             return;
         }
         let current = current.clone();
@@ -694,11 +702,25 @@ fn observe_remote_im_persisted_event(
     contact: &RemoteImContact,
     event: &ChatPendingEvent,
 ) {
+    let message_count = event.messages.len();
     let Some(message) = remote_im_event_latest_user_message(event) else {
+        runtime_log_warn(format!(
+            "[群聊巡检] 跳过，任务=落库通知，contact_id={}，conversation_id={}，reason=没有用户消息，message_count={message_count}",
+            contact.id, event.conversation_id
+        ));
         return;
     };
+    let hits_mention = remote_im_event_hits_wake(contact, event);
+    runtime_log_info(format!(
+        "[群聊巡检] 开始，任务=落库通知，contact_id={}，conversation_id={}，message_id={}，message_count={}，命中唤醒={}",
+        contact.id, event.conversation_id, message.id, message_count, hits_mention
+    ));
     match remote_im_contact_is_muted(state, &contact.id) {
         Ok(true) => {
+            runtime_log_info(format!(
+                "[群聊巡检] 跳过，任务=落库通知，contact_id={}，reason=联系人处于闭嘴状态",
+                contact.id
+            ));
             let _ = clear_remote_im_debounces_for_contact(state, &contact.id);
             return;
         }
@@ -710,7 +732,6 @@ fn observe_remote_im_persisted_event(
             ));
         }
     }
-    let hits_mention = remote_im_event_hits_wake(contact, event);
     let key = remote_im_group_reply_state_key(state, &contact.id);
     let mut reference = event.clone();
     reference.messages.clear();
@@ -725,15 +746,28 @@ fn observe_remote_im_persisted_event(
                 } else {
                     RemoteImGroupReplyTimerKind::NonMention
                 };
+                runtime_log_info(format!(
+                    "[群聊巡检] 排期，任务=首轮巡检，contact_id={}，anchor_message_id={}，kind={:?}",
+                    contact.id, message.id, kind
+                ));
                 schedule = Some((kind, message.id.clone(), reference));
             }
             Some(current) => {
                 if hits_mention && current.kind == RemoteImGroupReplyTimerKind::NonMention {
                     // 等常规周期时突然被点名：把这一轮升级成点名，提前看。
+                    runtime_log_info(format!(
+                        "[群聊巡检] 升级，任务=点名提前，contact_id={}，anchor_message_id={}，原kind={:?}",
+                        contact.id, current.anchor_message_id, current.kind
+                    ));
                     schedule = Some((
                         RemoteImGroupReplyTimerKind::Mention,
                         current.anchor_message_id.clone(),
                         current.event.clone(),
+                    ));
+                } else {
+                    runtime_log_info(format!(
+                        "[群聊巡检] 静默，任务=已有排期不重置，contact_id={}，anchor_message_id={}，kind={:?}",
+                        contact.id, current.anchor_message_id, current.kind
                     ));
                 }
                 // 其余情况（常规周期已排、点名已排）：静默入库，绝不重置闹钟。
