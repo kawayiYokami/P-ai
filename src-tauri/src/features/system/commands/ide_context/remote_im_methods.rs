@@ -173,13 +173,23 @@ async fn ide_chat_remote_im_get_contact_logs_for_web_settings(
 }
 
 async fn remote_im_get_contact_logs_inner(
-    state: &AppState,
+    _state: &AppState,
     input: RemoteImContactLogsInput,
 ) -> Result<Vec<ChannelLogEntry>, String> {
-    let (channel_id, contact_marker) =
-        remote_im_resolve_contact_log_query(state, &input.contact_id)?;
-    let logs = get_remote_im_channel_logs(state, channel_id).await?;
-    Ok(remote_im_filter_channel_logs_for_contact(logs, &contact_marker))
+    // 联系人日志就是唯一日志里带这个 contact_id 的那些行。
+    // 不另存缓冲、不按渠道分片：日志只有一套，这个窗口只是过滤视图。
+    let contact_id = input.contact_id.trim();
+    Ok(runtime_log_entries_containing(contact_id)
+        .into_iter()
+        .map(|(created_at, level, message)| ChannelLogEntry {
+            timestamp: chrono::DateTime::parse_from_rfc3339(&created_at)
+                .map(|value| value.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|_| chrono::Utc::now()),
+            level,
+            message,
+            contact_record_id: None,
+        })
+        .collect())
 }
 
 async fn get_remote_im_channel_logs(

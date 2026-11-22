@@ -1423,6 +1423,28 @@ fn list_recent_runtime_logs() -> Result<Vec<RuntimeLogEntry>, String> {
     Ok(logs.entries.iter().cloned().collect::<Vec<_>>())
 }
 
+/// 唯一日志里带某个标识的条目：联系人日志窗按 contact_id 过滤这一份，不再另存一套缓冲。
+pub(crate) fn runtime_log_entries_containing(needle: &str) -> Vec<(String, String, String)> {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let Ok(logs) = runtime_log_buffer().lock() else {
+        return Vec::new();
+    };
+    logs.entries
+        .iter()
+        .filter(|entry| entry.message.contains(needle))
+        .map(|entry| {
+            (
+                entry.created_at.clone(),
+                entry.level.clone(),
+                entry.message.clone(),
+            )
+        })
+        .collect()
+}
+
 #[tauri::command]
 fn list_runtime_logs_since(since_created_at: Option<String>) -> Result<Vec<RuntimeLogEntry>, String> {
     let logs = runtime_log_buffer()

@@ -52,11 +52,21 @@ fn remote_im_preview_text(text: &str, max_chars: usize) -> String {
 }
 
 fn remote_im_contact_log_label(contact: &RemoteImContact) -> String {
-    remote_im_contact_display_name(contact)
-}
-
-fn remote_im_contact_log_marker(contact: &RemoteImContact) -> String {
-    contact.id.trim().to_string()
+    // 日志只有一套，联系人日志窗按 contact_id 过滤：标签里必须带 id，
+    // 只写名字会让这些日志在窗口里彻底看不见。
+    let name = remote_im_contact_display_name(contact);
+    let id = contact.id.trim();
+    let conversation_id = contact
+        .bound_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("");
+    match (id.is_empty(), conversation_id.is_empty()) {
+        (true, _) => name,
+        (false, true) => format!("{name}({id})"),
+        (false, false) => format!("{name}({id}@{conversation_id})"),
+    }
 }
 
 fn remote_im_contact_downloads_segment(value: &str, fallback: &str) -> String {
@@ -191,42 +201,22 @@ fn remote_im_append_channel_log(channel_id: &str, level: &str, message: String) 
 
 #[cfg(not(test))]
 fn remote_im_append_contact_log(contact: &RemoteImContact, level: &str, message: String) {
-    let channel_id = contact.channel_id.trim().to_string();
-    let contact_record_id = contact.id.trim().to_string();
-    let level = level.trim().to_string();
-    let message = message.trim().to_string();
-    if channel_id.is_empty()
-        || contact_record_id.is_empty()
-        || level.is_empty()
-        || message.is_empty()
-    {
+    // 日志只有一套：格式化后写唯一日志，联系人日志窗按 contact_id 过滤这一个标记。
+    // 不再按渠道各存一份缓冲——同一个联系人会有四五套互不一致的日志，窗口读到哪套全凭运气。
+    let channel_id = contact.channel_id.trim();
+    let contact_id = contact.id.trim();
+    let level = level.trim();
+    let message = message.trim();
+    if channel_id.is_empty() || contact_id.is_empty() || level.is_empty() || message.is_empty() {
         return;
     }
-    let platform = contact.platform.clone();
-    tauri::async_runtime::spawn(async move {
-        match platform {
-            RemoteImPlatform::Dingtalk => {
-                dingtalk_stream_manager()
-                    .add_contact_log(&channel_id, &level, &message, &contact_record_id)
-                    .await;
-            }
-            RemoteImPlatform::WeixinOc => {
-                weixin_oc_manager()
-                    .add_contact_log(&channel_id, &level, &message, &contact_record_id)
-                    .await;
-            }
-            RemoteImPlatform::QqOfficial => {
-                qq_official_manager()
-                    .add_contact_log(&channel_id, &level, &message, &contact_record_id)
-                    .await;
-            }
-            _ => {
-                onebot_v11_ws_manager()
-                    .add_contact_log(&channel_id, &level, &message, &contact_record_id)
-                    .await;
-            }
-        }
-    });
+    let line =
+        format!("[联系人日志][{level}] contact_id={contact_id}，channel_id={channel_id}，{message}");
+    match level {
+        "warn" => runtime_log_warn(line),
+        "error" => runtime_log_error(line),
+        _ => runtime_log_info(line),
+    }
 }
 
 #[cfg(test)]
@@ -278,37 +268,6 @@ async fn remote_im_append_contact_log_async(
     message: String,
 ) {
     let _ = (contact, level, message);
-}
-
-fn remote_im_resolve_contact_log_query(
-    state: &AppState,
-    contact_id: &str,
-) -> Result<(String, String), String> {
-    let normalized_contact_id = contact_id.trim();
-    if normalized_contact_id.is_empty() {
-        return Err("contact_id 为必填项。".to_string());
-    }
-    let contact = state_service_get_remote_im_contact(state, normalized_contact_id)?
-        .ok_or_else(|| format!("未找到远程联系人：{normalized_contact_id}"))?;
-    Ok((
-        contact.channel_id.trim().to_string(),
-        remote_im_contact_log_marker(&contact),
-    ))
-}
-
-fn remote_im_filter_channel_logs_for_contact(
-    logs: Vec<ChannelLogEntry>,
-    contact_record_id: &str,
-) -> Vec<ChannelLogEntry> {
-    let normalized_contact_record_id = contact_record_id.trim();
-    if normalized_contact_record_id.is_empty() {
-        return Vec::new();
-    }
-    logs.into_iter()
-        .filter(|entry| {
-            entry.contact_record_id.as_deref() == Some(normalized_contact_record_id)
-        })
-        .collect()
 }
 
 fn remote_im_resolve_effective_route_mode(

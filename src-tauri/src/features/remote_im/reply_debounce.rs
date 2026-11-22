@@ -715,22 +715,12 @@ fn observe_remote_im_persisted_event(
         "[群聊巡检] 开始，任务=落库通知，contact_id={}，conversation_id={}，message_id={}，message_count={}，命中唤醒={}",
         contact.id, event.conversation_id, message.id, message_count, hits_mention
     ));
-    // 联系人日志是本轮排查唯一看得见的地方：每一项决策都往这里写一行。
-    remote_im_append_contact_log(
-        contact,
-        "info",
-        format!(
-            "[巡检通知] 收到落库消息，条数={}，命中唤醒={}",
-            message_count, hits_mention
-        ),
-    );
     match remote_im_contact_is_muted(state, &contact.id) {
         Ok(true) => {
             runtime_log_info(format!(
                 "[群聊巡检] 跳过，任务=落库通知，contact_id={}，reason=联系人处于闭嘴状态",
                 contact.id
             ));
-            remote_im_append_contact_log(contact, "warn", "跳过：联系人处于闭嘴状态".to_string());
             let _ = clear_remote_im_debounces_for_contact(state, &contact.id);
             return;
         }
