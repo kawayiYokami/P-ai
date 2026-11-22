@@ -1554,20 +1554,6 @@ fn remote_im_payload_with_channel_markdown_filtered(
 }
 
 #[cfg(test)]
-static REMOTE_IM_MOCK_SEND_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-
-#[cfg(test)]
-fn remote_im_mock_send_count() -> usize {
-    REMOTE_IM_MOCK_SEND_COUNT.load(std::sync::atomic::Ordering::SeqCst)
-}
-
-#[cfg(test)]
-fn remote_im_reset_mock_send_count() {
-    REMOTE_IM_MOCK_SEND_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
-}
-
-#[cfg(test)]
 fn remote_im_mock_send_via_sdk(
     channel: &RemoteImChannelConfig,
     contact: &RemoteImContact,
@@ -1606,7 +1592,6 @@ fn remote_im_mock_send_via_sdk(
     }
 
     let text_len = remote_im_payload_text(payload).chars().count();
-    REMOTE_IM_MOCK_SEND_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     Some(Ok(format!(
         "mock:{}:{}:{}",
         channel.id, contact.remote_contact_id, text_len

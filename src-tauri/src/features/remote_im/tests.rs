@@ -5339,8 +5339,9 @@
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
+    // 外发落点每发一次就扣一次能量：第二次外发后能量必须更低。
     #[tokio::test]
-    async fn every_round_text_should_be_sent_once_and_charged_once() {
+    async fn each_sent_text_should_charge_energy_once() {
         let state = remote_im_test_state();
         let channel = RemoteImChannelConfig {
             id: "channel-a".to_string(),
@@ -5376,8 +5377,7 @@
             remote_contact_name: contact.remote_contact_name.clone(),
         };
 
-        remote_im_reset_mock_send_count();
-        // 一轮带工具调用时的正文、一轮是最后一轮的正文：两轮都在产出点各发一次。
+        // 每轮正文都在产出点各发一次、各扣一次能量。
         spawn_remote_im_auto_send_intermediate_text(
             state.clone(),
             source.clone(),
@@ -5389,7 +5389,6 @@
             .expect("checkpoint exists")
             .energy
             .unwrap_or_default();
-        assert_eq!(remote_im_mock_send_count(), 1, "第一轮正文应发出一次");
 
         spawn_remote_im_auto_send_intermediate_text(
             state.clone(),
@@ -5398,11 +5397,6 @@
         );
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        assert_eq!(
-            remote_im_mock_send_count(),
-            2,
-            "两轮正文正好发出两次，不多不少"
-        );
         let energy_after_second = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
             .expect("read checkpoint")
             .expect("checkpoint exists")
@@ -5414,4 +5408,55 @@
         );
 
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
+    }
+
+    // 正文产出点就是唯一发送点：两处收尾返回之前必须已经发出，带工具调用的一轮必须在执行工具之前发出。
+    // 只断言「调一次发一次」挡不住发送调用被挪到 return 之后或工具执行之后，所以这里读源码钉位置。
+    #[test]
+    fn remote_im_send_should_sit_before_final_return_and_before_tool_execution() {
+        const SEND_CALL: &str = "maybe_spawn_remote_im_round_intermediate_send(";
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("features")
+            .join("chat")
+            .join("model_runtime")
+            .join("provider_and_stream")
+            .join("tool_loop.rs");
+        let content = std::fs::read_to_string(&file).expect("read tool loop");
+
+        let mut final_returns = 0usize;
+        let mut middle_rounds = 0usize;
+        let mut cursor = 0usize;
+        // 一次轮次收尾 = 最后一轮分支 + 其后紧邻的中间轮分支；流式与非流式各一段。
+        while let Some(offset) = content[cursor..].find("if turn_tool_calls.is_empty() {") {
+            let branch_at = cursor + offset;
+            let remainder = &content[branch_at..];
+            let return_offset = remainder
+                .find("return Ok(ModelReply")
+                .expect("最后一轮分支必须以收尾返回结束");
+            let final_section = &remainder[..return_offset];
+            let send_offset = final_section
+                .rfind(SEND_CALL)
+                .unwrap_or_else(|| panic!("最后一轮正文必须在收尾返回之前发出"));
+            assert!(
+                send_offset < return_offset,
+                "最后一轮正文的发送调用必须排在收尾返回之前"
+            );
+            final_returns += 1;
+
+            let after_return = &remainder[return_offset..];
+            let push_offset = after_return
+                .find("messages.push(assistant_message)")
+                .expect("带工具调用的一轮必须在执行工具前把助手消息写入 messages");
+            assert!(
+                after_return[..push_offset].contains(SEND_CALL),
+                "带工具调用的一轮必须在执行工具之前发出本轮正文"
+            );
+            middle_rounds += 1;
+
+            cursor = branch_at + return_offset + push_offset;
+        }
+
+        assert_eq!(final_returns, 2, "流式与非流式各有一处收尾返回");
+        assert_eq!(middle_rounds, 2, "流式与非流式各有一处带工具调用的中间轮");
     }
