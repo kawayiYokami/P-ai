@@ -210,8 +210,15 @@ fn remote_im_append_contact_log(contact: &RemoteImContact, level: &str, message:
     if channel_id.is_empty() || contact_id.is_empty() || level.is_empty() || message.is_empty() {
         return;
     }
-    let line =
-        format!("[联系人日志][{level}] contact_id={contact_id}，channel_id={channel_id}，{message}");
+    // 只留一个角色前缀，缺什么补什么：窗口本身会显示时间与等级，
+    // 不在这里再叠一层 [联系人日志][info] + contact_id= + channel_id=。
+    let mut line = format!("[远程IM] {message}");
+    if !line.contains(contact_id) {
+        line.push_str(&format!("，contact_id={contact_id}"));
+    }
+    if !line.contains(channel_id) {
+        line.push_str(&format!("，channel_id={channel_id}"));
+    }
     match level {
         "warn" => runtime_log_warn(line),
         "error" => runtime_log_error(line),

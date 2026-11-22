@@ -108,6 +108,13 @@ fn remote_im_group_reply_schedule_action(
     if action.delay >= std::time::Duration::from_secs(300) {
         return;
     }
+    // 闹钟真的起来了没有：只有这一行能证明定时器已挂上。
+    runtime_log_info(format!(
+        "[巡检] 闹钟已起，contact_id={}，路径={:?}，等待={:.1}秒",
+        action.contact_id,
+        action.kind,
+        action.delay.as_secs_f64()
+    ));
     let state = state.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(action.delay).await;
@@ -385,6 +392,11 @@ async fn remote_im_group_reply_handle_timer(
     state: &AppState,
     action: RemoteImGroupReplyTimerAction,
 ) {
+    // 到点第一件事就留痕：后面无论走了哪条分支，至少能确定闹钟确实醒了。
+    runtime_log_info(format!(
+        "[巡检] 闹钟到点，contact_id={}，路径={:?}，state_key={}",
+        action.contact_id, action.kind, action.state_key
+    ));
     // 巡检只有一次：闹钟响了，这一项当场消失，没有「下一轮巡检」，下一次由新消息入库重新起。
     // 判断、委托、外发都不属于巡检——期间入库的新消息看到没有闹钟会起新一轮，正确性由游标保证。
     let entry = {
