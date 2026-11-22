@@ -2095,6 +2095,12 @@ fn build_prompt_speaker_block(
     user_name: &str,
     _ui_language: &str,
 ) -> String {
+    // 助理自己的消息不注入任何发送者名字：它不是「某个人说的」，它就是助理说的。
+    // 之前这里会落到下面的 origin 分支，把持久化下来的旧昵称（例如渠道账号的旧名）
+    // 当成发送者标上去，助理在历史里就看到了一个自己都不认识的名字。
+    if message.role.trim().eq_ignore_ascii_case("assistant") {
+        return String::new();
+    }
     if let Some(origin) = remote_im_origin_from_message(message) {
         let speaker_name = remote_im_origin_string(origin, "sender_name")
             .or_else(|| remote_im_origin_string(origin, "contact_name"))
