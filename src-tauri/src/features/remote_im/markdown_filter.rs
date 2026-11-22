@@ -133,7 +133,11 @@ fn strip_markdown_inline(line: &str) -> String {
                 out.push(' ');
                 i += 1;
             }
+            // 到这一步拿到的是 JSON 解析后的纯文本，`\` 就是字面反斜杠，
+            // 不存在转义序列。原样输出它和后面那个字符，不让后面的字符再被当语法处理——
+            // 否则 Windows 路径（E:\github\...）会被整条吃掉。
             '\\' => {
+                out.push('\\');
                 if i + 1 < chars.len() {
                     out.push(chars[i + 1]);
                     i += 2;
@@ -286,6 +290,24 @@ console.log(result);
         assert_eq!(remote_im_strip_simple_markdown("3.0"), "3.0");
         assert_eq!(remote_im_strip_simple_markdown("收到."), "收到.");
         assert_eq!(remote_im_strip_simple_markdown("Wait..."), "Wait...");
+    }
+
+    #[test]
+    fn strip_simple_markdown_should_keep_windows_path_backslash() {
+        // JSON 解析后拿到的是纯文本，`\` 是字面反斜杠，不是转义序列。
+        // 清理只去语法标记，不能碰它，否则 Windows 路径会被整条吃掉。
+        assert_eq!(
+            remote_im_strip_simple_markdown(r"E:\github\paimonhome\remote"),
+            r"E:\github\paimonhome\remote"
+        );
+        assert_eq!(
+            remote_im_strip_simple_markdown(r"当前工作区是 E:\github\paimonhome\remote"),
+            r"当前工作区是 E:\github\paimonhome\remote"
+        );
+        // 语法标记照旧清掉。
+        assert_eq!(remote_im_strip_simple_markdown(r"**加粗**"), "加粗");
+        // 反斜杠后面的字符不再被当语法处理，两边都留着，不丢内容。
+        assert_eq!(remote_im_strip_simple_markdown(r"a \* b"), r"a \* b");
     }
 
     #[test]
