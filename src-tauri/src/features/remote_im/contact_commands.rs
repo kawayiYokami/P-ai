@@ -2084,8 +2084,7 @@ async fn remote_im_enqueue_message_direct(
         input.sender_name.trim().to_string()
     };
     runtime_log_info(format!(
-        "[远程IM] 入站路由完成：渠道={}，联系人={}，处理模式={}，应答策略={}",
-        channel_label,
+        "[远程IM] 入站路由完成：联系人={}，处理模式={}，应答策略={}",
         remote_im_contact_log_label(&contact_for_log),
         contact_for_log.route_mode,
         contact_for_log.response_strategy
@@ -2094,14 +2093,13 @@ async fn remote_im_enqueue_message_direct(
     let total_audio_count = audios.len() + validated.parts_audio_count;
     let total_attachment_count = attachments.len() + validated.parts_attachment_count;
 
-    // 只留一条：下面 remote_im_append_contact_log 已经写了同样内容的「收到」日志，
-    // 而且它会自动补 contact_id / channel_id，窗口能按联系人过滤到。
+    // 只留一条「收到」日志：窗口已经限定在某个渠道的某个联系人上，
+    // 不必每条再重复渠道信息；append 会补 contact_id 供过滤。
     remote_im_append_contact_log(
         &contact_for_log,
         "info",
         format!(
-            "[联系人消息] 收到: channel={}, contact={}, sender={}, image_count={}, audio_count={}, attachment_count={}, preview={}",
-            channel_label,
+            "[联系人消息] 收到: contact={}, sender={}, image_count={}, audio_count={}, attachment_count={}, preview={}",
             remote_im_contact_log_label(&contact_for_log),
             sender_label,
             total_image_count,
@@ -2157,8 +2155,7 @@ async fn remote_im_enqueue_message_direct(
             .await?;
         // 入库完成要留痕：消息到底进没进来，这是排查整条链的第一个锚点。
         runtime_log_info(format!(
-            "[远程IM] 入库完成：渠道={}，联系人={}，conversation_id={}，message_id={}，处理=交给巡检判定",
-            channel_label,
+            "[远程IM] 入库完成：联系人={}，conversation_id={}，message_id={}，处理=交给巡检判定",
             remote_im_contact_log_label(&contact_for_log),
             conversation_id,
             persisted_message.id
