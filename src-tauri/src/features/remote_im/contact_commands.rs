@@ -2094,16 +2094,8 @@ async fn remote_im_enqueue_message_direct(
     let total_audio_count = audios.len() + validated.parts_audio_count;
     let total_attachment_count = attachments.len() + validated.parts_attachment_count;
 
-    runtime_log_info(format!(
-        "[远程IM] 收到消息：渠道={}，联系人={}，发送人={}，内容={}，图片={}，音频={}，附件={}",
-        channel_label,
-        remote_im_contact_log_label(&contact_for_log),
-        sender_label,
-        remote_im_preview_text(&text, 100),
-        total_image_count,
-        total_audio_count,
-        total_attachment_count
-    ));
+    // 只留一条：下面 remote_im_append_contact_log 已经写了同样内容的「收到」日志，
+    // 而且它会自动补 contact_id / channel_id，窗口能按联系人过滤到。
     remote_im_append_contact_log(
         &contact_for_log,
         "info",

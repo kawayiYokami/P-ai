@@ -108,13 +108,6 @@ fn remote_im_group_reply_schedule_action(
     if action.delay >= std::time::Duration::from_secs(300) {
         return;
     }
-    // 闹钟真的起来了没有：只有这一行能证明定时器已挂上。
-    runtime_log_info(format!(
-        "[巡检] 闹钟已起，contact_id={}，路径={:?}，等待={:.1}秒",
-        action.contact_id,
-        action.kind,
-        action.delay.as_secs_f64()
-    ));
     let state = state.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(action.delay).await;
@@ -372,16 +365,17 @@ fn remote_im_finish_inspection(
     let label = contact
         .map(remote_im_contact_log_label)
         .unwrap_or_else(|| contact_id.to_string());
-    runtime_log_info(format!(
-        "[巡检] 结束：联系人={}，处理={}",
-        label, outcome
-    ));
-    if let Some(contact) = contact {
-        remote_im_append_contact_log(
+    match contact {
+        Some(contact) => remote_im_append_contact_log(
             contact,
             "info",
-            format!("[巡检] 结束: contact={}, 处理={}", label, outcome),
-        );
+            format!("[巡检] 结束：处理={outcome}"),
+        ),
+        // 联系人已删除时没有 contact 可用，直接写唯一日志。
+        None => runtime_log_info(format!(
+            "[巡检] 结束：联系人={}，处理={}",
+            label, outcome
+        )),
     }
 }
 
@@ -392,11 +386,6 @@ async fn remote_im_group_reply_handle_timer(
     state: &AppState,
     action: RemoteImGroupReplyTimerAction,
 ) {
-    // 到点第一件事就留痕：后面无论走了哪条分支，至少能确定闹钟确实醒了。
-    runtime_log_info(format!(
-        "[巡检] 闹钟到点，contact_id={}，路径={:?}，state_key={}",
-        action.contact_id, action.kind, action.state_key
-    ));
     // 巡检只有一次：闹钟响了，这一项当场消失，没有「下一轮巡检」，下一次由新消息入库重新起。
     // 判断、委托、外发都不属于巡检——期间入库的新消息看到没有闹钟会起新一轮，正确性由游标保证。
     let entry = {
@@ -419,10 +408,6 @@ async fn remote_im_group_reply_handle_timer(
         store.next_inspection.remove(&action.state_key);
         current
     };
-    runtime_log_info(format!(
-        "[巡检] 开始，contact_id={}，路径={:?}",
-        action.contact_id, action.kind
-    ));
     let contact = match remote_im_group_reply_contact_latest(state, &action.contact_id) {
         Ok(contact) => contact,
         Err(err) => {
@@ -717,33 +702,30 @@ fn observe_remote_im_persisted_event(
 ) {
     let message_count = event.messages.len();
     let Some(message) = remote_im_event_latest_user_message(event) else {
-        runtime_log_warn(format!(
-            "[群聊巡检] 跳过，任务=落库通知，contact_id={}，conversation_id={}，reason=没有用户消息，message_count={message_count}",
-            contact.id, event.conversation_id
-        ));
+        remote_im_append_contact_log(
+            contact,
+            "warn",
+            format!("[巡检通知] 跳过：区间里没有用户消息（消息数={message_count}）"),
+        );
         return;
     };
     let hits_mention = remote_im_event_hits_wake(contact, event);
-    runtime_log_info(format!(
-        "[群聊巡检] 开始，任务=落库通知，contact_id={}，conversation_id={}，message_id={}，message_count={}，命中唤醒={}",
-        contact.id, event.conversation_id, message.id, message_count, hits_mention
-    ));
     match remote_im_contact_is_muted(state, &contact.id) {
         Ok(true) => {
-            runtime_log_info(format!(
-                "[群聊巡检] 跳过，任务=落库通知，contact_id={}，reason=联系人处于闭嘴状态",
-                contact.id
-            ));
+            remote_im_append_contact_log(
+                contact,
+                "info",
+                "[巡检通知] 跳过：联系人处于闭嘴状态".to_string(),
+            );
             let _ = clear_remote_im_debounces_for_contact(state, &contact.id);
             return;
         }
         Ok(false) => {}
-        Err(err) => {
-            runtime_log_warn(format!(
-                "[群聊巡检] 闭嘴状态读取失败，已保留排期并在发送前再次校验，contact_id={}，message_id={}，error={}",
-                contact.id, message.id, err
-            ));
-        }
+        Err(err) => remote_im_append_contact_log(
+            contact,
+            "warn",
+            format!("[巡检通知] 闭嘴状态读取失败，发送前再校验：{err}"),
+        ),
     }
     let key = remote_im_group_reply_state_key(state, &contact.id);
     let mut reference = event.clone();
@@ -759,28 +741,19 @@ fn observe_remote_im_persisted_event(
                 } else {
                     RemoteImGroupReplyTimerKind::NonMention
                 };
-                runtime_log_info(format!(
-                    "[群聊巡检] 排期，任务=首轮巡检，contact_id={}，anchor_message_id={}，kind={:?}",
-                    contact.id, message.id, kind
-                ));
-                remote_im_append_contact_log(
-                    contact,
-                    "info",
-                    format!("[巡检通知] 排期 首轮 kind={:?}", kind),
-                );
+                // 排期结果由 schedule_inspection 打一条「已安排，等待 N 秒」，这里不重复写。
                 schedule = Some((kind, message.id.clone(), reference));
             }
             Some(current) => {
                 if hits_mention && current.kind == RemoteImGroupReplyTimerKind::NonMention {
                     // 等常规周期时突然被点名：把这一轮升级成点名，提前看。
-                    runtime_log_info(format!(
-                        "[群聊巡检] 升级，任务=点名提前，contact_id={}，anchor_message_id={}，原kind={:?}",
-                        contact.id, current.anchor_message_id, current.kind
-                    ));
                     remote_im_append_contact_log(
                         contact,
                         "info",
-                        format!("[巡检通知] 升级为点名提前，原kind={:?}", current.kind),
+                        format!(
+                            "[巡检通知] 升级：常规巡检改为点名，提前看群（原={:?}）",
+                            current.kind
+                        ),
                     );
                     schedule = Some((
                         RemoteImGroupReplyTimerKind::Mention,
@@ -788,15 +761,11 @@ fn observe_remote_im_persisted_event(
                         current.event.clone(),
                     ));
                 } else {
-                    runtime_log_info(format!(
-                        "[群聊巡检] 静默，任务=已有排期不重置，contact_id={}，anchor_message_id={}，kind={:?}",
-                        contact.id, current.anchor_message_id, current.kind
-                    ));
                     remote_im_append_contact_log(
                         contact,
                         "info",
                         format!(
-                            "[巡检通知] 静默 已有排期不重置 kind={:?}",
+                            "[巡检通知] 静默：已有 {:?} 排期，不重置闹钟（本次消息数={message_count}）",
                             current.kind
                         ),
                     );

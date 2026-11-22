@@ -711,22 +711,11 @@ fn remote_im_apply_contact_runtime_state<F>(
         }
         _ => None,
     };
-    let expire_runtime = expire_at
-        .as_deref()
-        .map(|at| format!("，预计离场={at}"))
-        .unwrap_or_default();
+    // 只描述一次：这条日志本身就会写进唯一日志，窗口按 contact_id 过滤得到。
     let expire_contact_log = expire_at
         .as_deref()
         .map(|at| format!(", 预计离场={at}"))
         .unwrap_or_default();
-    runtime_log_info(format!(
-        "[在场] 联系人={}，{} → {}，原因={}{}",
-        remote_im_contact_log_label(contact),
-        remote_im_presence_state_label(before),
-        remote_im_presence_state_label(after),
-        reason,
-        expire_runtime
-    ));
     remote_im_append_contact_log(
         contact,
         "info",
