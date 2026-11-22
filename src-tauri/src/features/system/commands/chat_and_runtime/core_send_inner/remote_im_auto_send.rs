@@ -895,10 +895,6 @@ fn spawn_remote_im_auto_send_intermediate_text(
         let (channel_label, contact_label) =
             remote_im_auto_send_log_labels(&state, &activation_source);
         let reply_preview = remote_im_preview_text(&assistant_text, 100);
-        runtime_log_info(format!(
-            "[远程IM][中间外发] 开始：渠道={}，联系人={}，内容={}",
-            channel_label, contact_label, reply_preview
-        ));
         match remote_im_auto_send_assistant_reply_to_source(
             &state,
             &activation_source,
@@ -907,12 +903,8 @@ fn spawn_remote_im_auto_send_intermediate_text(
         )
         .await
         {
-            Ok(Some(_)) => {
-                runtime_log_info(format!(
-                    "[远程IM][中间外发] 完成：渠道={}，联系人={}，内容={}",
-                    channel_label, contact_label, reply_preview
-                ));
-            }
+            // 发送成功由外发函数自己写「[外发] 完成」，这里不重复记一行。
+            Ok(Some(_)) => {}
             Ok(None) => {
                 runtime_log_warn(format!(
                     "[远程IM][中间外发] 跳过：渠道={}，联系人={}，原因=空回复",
