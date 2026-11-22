@@ -5338,3 +5338,80 @@
         );
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
+
+    #[tokio::test]
+    async fn every_round_text_should_be_sent_once_and_charged_once() {
+        let state = remote_im_test_state();
+        let channel = RemoteImChannelConfig {
+            id: "channel-a".to_string(),
+            name: "测试渠道".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            enabled: true,
+            credentials: serde_json::json!({ "mockSend": true }),
+            receive_files: false,
+            streaming_send: false,
+            show_tool_calls: false,
+            filter_markdown: false,
+            allow_send_files: false,
+            behavior_settings: RemoteImChannelBehaviorSettings::default(),
+        };
+        state_write_config_cached(
+            &state,
+            &AppConfig {
+                remote_im_channels: vec![channel],
+                ..AppConfig::default()
+            },
+        )
+        .expect("write channel config");
+        let mut contact =
+            remote_im_test_contact("contact-round-send", "conversation-round-send");
+        contact.remote_contact_type = "group".to_string();
+        contact.remote_contact_id = "group-round-send".to_string();
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        let source = RemoteImActivationSource {
+            channel_id: contact.channel_id.clone(),
+            platform: contact.platform.clone(),
+            remote_contact_type: contact.remote_contact_type.clone(),
+            remote_contact_id: contact.remote_contact_id.clone(),
+            remote_contact_name: contact.remote_contact_name.clone(),
+        };
+
+        remote_im_reset_mock_send_count();
+        // 一轮带工具调用时的正文、一轮是最后一轮的正文：两轮都在产出点各发一次。
+        spawn_remote_im_auto_send_intermediate_text(
+            state.clone(),
+            source.clone(),
+            "第一轮正文".to_string(),
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let energy_after_first = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read checkpoint")
+            .expect("checkpoint exists")
+            .energy
+            .unwrap_or_default();
+        assert_eq!(remote_im_mock_send_count(), 1, "第一轮正文应发出一次");
+
+        spawn_remote_im_auto_send_intermediate_text(
+            state.clone(),
+            source.clone(),
+            "第二轮正文".to_string(),
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        assert_eq!(
+            remote_im_mock_send_count(),
+            2,
+            "两轮正文正好发出两次，不多不少"
+        );
+        let energy_after_second = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read checkpoint")
+            .expect("checkpoint exists")
+            .energy
+            .unwrap_or_default();
+        assert!(
+            energy_after_second < energy_after_first,
+            "每条发出的正文各扣一次能量：first={energy_after_first}，second={energy_after_second}"
+        );
+
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
+    }
