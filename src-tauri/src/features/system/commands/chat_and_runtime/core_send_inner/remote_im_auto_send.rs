@@ -834,7 +834,6 @@ fn spawn_remote_im_auto_send_contact_assistant_reply(
                     &activation_source,
                     true,
                     &now_iso(),
-                    None,
                 );
                 runtime_log_info(format!(
                     "[远程IM][自动发送] 完成：渠道={}，联系人={}，内容={}，动作={}，耗时毫秒={}",
@@ -885,7 +884,6 @@ fn spawn_remote_im_auto_send_contact_assistant_reply(
                     &activation_source,
                     false,
                     &now_iso(),
-                    Some(&err),
                 );
                 runtime_log_error(format!(
                     "[远程IM][自动发送] 失败：渠道={}，联系人={}，内容={}，异常={}，耗时毫秒={}",

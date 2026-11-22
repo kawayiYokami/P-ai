@@ -2187,7 +2187,7 @@ async fn remote_im_enqueue_message_direct(
                 err
             ));
         }
-        let (activate_assistant, state_reason) = match remote_im_prepare_enqueue_runtime_state(
+        let (activate_assistant, _entry_reason) = match remote_im_prepare_enqueue_runtime_state(
             state,
             &contact_for_log,
             &text,
@@ -2201,15 +2201,8 @@ async fn remote_im_enqueue_message_direct(
                 (false, "入场判定失败，仅保留已入库消息".to_string())
             }
         };
-        runtime_log_info(format!(
-            "[远程联系人状态机] 入站判定完成：渠道={}，联系人={}，发送人={}，内容={}，入场={}，原因={}",
-            channel_label,
-            remote_im_contact_log_label(&contact_for_log),
-            sender_label,
-            remote_im_preview_text(&text, 100),
-            remote_im_yes_no(activate_assistant),
-            state_reason
-        ));
+        // 环节 2：巡检判定。入场判定只回答「这条消息要不要交给观察员」，
+        // 观察员自己决定起新一轮还是静默入库，并把自己的当前状态写进联系人日志。
         if activate_assistant {
             let event = create_pending_event(
                 event_id.clone(),
@@ -2221,18 +2214,6 @@ async fn remote_im_enqueue_message_direct(
             );
             observe_remote_im_persisted_event(state, &contact_for_log, &event);
         }
-        remote_im_append_contact_log(
-            &contact_for_log,
-            "info",
-            format!(
-                "[联系人状态] 已交接: action=交给观察员排看群闹钟, channel={}, contact={}, message={}, activate={}, reason={}",
-                channel_label,
-                remote_im_contact_log_label(&contact_for_log),
-                remote_im_preview_text(&text, 100),
-                remote_im_yes_no(activate_assistant),
-                state_reason
-            ),
-        );
         return Ok(RemoteImEnqueueResult {
             event_id,
             conversation_id,

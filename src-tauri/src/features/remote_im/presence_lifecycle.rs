@@ -3,15 +3,14 @@ fn remote_im_mark_contact_present(
     contact_id: &str,
     reason: &str,
 ) -> Result<(), String> {
+    let contact = state_service_get_remote_im_contact(state, contact_id)?
+        .ok_or_else(|| format!("远程联系人不存在：{contact_id}"))?;
     let mut states = lock_remote_im_contact_runtime_states(state)?;
-    let runtime = remote_im_contact_runtime_state_mut(&mut states, contact_id);
-    runtime.presence_state = RemoteImPresenceState::Present;
-    runtime.last_presence_at = Some(now_iso());
-    runtime.consecutive_no_reply_count = 0;
-    runtime_log_info(format!(
-        "[远程联系人在场] 完成，contact_id={}，reason={}",
-        contact_id, reason
-    ));
+    remote_im_apply_contact_runtime_state(&mut states, &contact, reason, |runtime| {
+        runtime.presence_state = RemoteImPresenceState::Present;
+        runtime.last_presence_at = Some(now_iso());
+        runtime.consecutive_no_reply_count = 0;
+    });
     drop(states);
     remote_im_emit_contact_dashboard_snapshot(state, contact_id);
     Ok(())
@@ -115,7 +114,7 @@ fn remote_im_schedule_presence_timeout(
         match remote_im_reply_delegate_active_ids_for_contact(&state_clone, &contact_id) {
             Ok(active_delegate_ids) if !active_delegate_ids.is_empty() => {
                 runtime_log_info(format!(
-                    "[远程联系人在场] 跳过，任务=耐心超时离场，contact_id={}，原因=仍有活跃应答委托，active_delegate_count={}",
+                    "[离场] 跳过，contact_id={}，原因=仍有活跃应答委托，active_delegate_count={}",
                     contact_id,
                     active_delegate_ids.len()
                 ));
@@ -123,43 +122,45 @@ fn remote_im_schedule_presence_timeout(
             }
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[远程联系人在场] 降级，任务=耐心超时离场，contact_id={}，原因=读取活跃应答委托失败，继续执行原离场判断，error={}",
+                    "[离场] 降级，contact_id={}，原因=读取活跃应答委托失败，继续执行原离场判断，error={}",
                     contact_id, err
                 ));
             }
             _ => {}
         }
-        let departed = {
+        {
             let Ok(mut states) = lock_remote_im_contact_runtime_states(&state_clone) else {
                 return;
             };
-            let Some(runtime) = states.get_mut(&contact_id) else {
+            let Some(contact) = state_service_get_remote_im_contact(&state_clone, &contact_id)
+                .ok()
+                .flatten()
+            else {
                 return;
             };
-            if runtime.presence_state == RemoteImPresenceState::Present
-                && runtime.last_presence_at.as_deref() == Some(expected_presence_at.as_str())
-            {
+            let still_present = states
+                .get(&contact_id)
+                .map(|runtime| {
+                    runtime.presence_state == RemoteImPresenceState::Present
+                        && runtime.last_presence_at.as_deref() == Some(expected_presence_at.as_str())
+                })
+                .unwrap_or(false);
+            if !still_present {
+                return;
+            }
+            remote_im_apply_contact_runtime_state(&mut states, &contact, "耐心超时", |runtime| {
                 runtime.presence_state = RemoteImPresenceState::Away;
-                true
-            } else {
-                false
-            }
-        };
-        if departed {
-            runtime_log_error(format!(
-                "[远程联系人在场] 完成，任务=耐心超时离场，contact_id={}，patience_seconds={}",
-                contact_id, patience_seconds
+            });
+        }
+        remote_im_emit_contact_dashboard_snapshot(&state_clone, &contact_id);
+        if let Err(err) = spawn_remote_im_departure_reflection_delegate(
+            &state_clone,
+            &contact_id,
+        ) {
+            runtime_log_warn(format!(
+                "[离场反思] 跳过，contact_id={}，error={}",
+                contact_id, err
             ));
-            remote_im_emit_contact_dashboard_snapshot(&state_clone, &contact_id);
-            if let Err(err) = spawn_remote_im_departure_reflection_delegate(
-                &state_clone,
-                &contact_id,
-            ) {
-                runtime_log_warn(format!(
-                    "[群聊离场反思] 跳过，contact_id={}，error={}",
-                    contact_id, err
-                ));
-            }
         }
     });
     Ok(())

@@ -321,7 +321,6 @@ fn remote_im_finalize_async_send_result(
     source: &RemoteImActivationSource,
     send_ok: bool,
     now: &str,
-    error: Option<&str>,
 ) -> Result<(), String> {
     let Some(contact) = state_service_find_remote_im_contact_by_identity(
         state,
@@ -333,42 +332,15 @@ fn remote_im_finalize_async_send_result(
         return Ok(());
     };
     let mut runtime_states = lock_remote_im_contact_runtime_states(state)?;
-    let runtime = remote_im_contact_runtime_state_mut(&mut runtime_states, &contact.id);
-    let previous_presence = runtime.presence_state;
-    let previous_no_reply_count = runtime.consecutive_no_reply_count;
-    runtime.presence_state = RemoteImPresenceState::Present;
-    runtime.last_presence_at = Some(now.to_string());
-    runtime.consecutive_no_reply_count = 0;
-    if send_ok {
-        runtime.last_success_reply_at = Some(now.to_string());
-    }
-    let send_log = format!(
-        "[远程联系人状态机] 异步发送{}：联系人={}，最近成功回复时间={}，异常={}",
-        if send_ok { "完成" } else { "失败" },
-        remote_im_contact_log_label(&contact),
-        runtime.last_success_reply_at.as_deref().unwrap_or(""),
-        error.unwrap_or("")
-    );
-    if send_ok {
-        runtime_log_info(send_log);
-    } else {
-        runtime_log_error(send_log);
-    }
-    remote_im_append_contact_log(
-        &contact,
-        if send_ok { "info" } else { "warn" },
-        format!(
-            "[联系人状态] 异步发送收尾: contact={}, result={}, presence={} -> {}, no_reply_count={} -> {}, last_success_reply_at={}, error={}",
-            remote_im_contact_log_label(&contact),
-            if send_ok { "成功" } else { "失败" },
-            remote_im_presence_state_label(previous_presence),
-            remote_im_presence_state_label(runtime.presence_state),
-            previous_no_reply_count,
-            runtime.consecutive_no_reply_count,
-            runtime.last_success_reply_at.as_deref().unwrap_or(""),
-            error.unwrap_or("")
-        ),
-    );
+    // 外发成功或失败都算「刚活跃过」：刷新耐心时间，在场状态没变就不产生在场日志。
+    remote_im_apply_contact_runtime_state(&mut runtime_states, &contact, "应答外发完成", |runtime| {
+        runtime.presence_state = RemoteImPresenceState::Present;
+        runtime.last_presence_at = Some(now.to_string());
+        runtime.consecutive_no_reply_count = 0;
+        if send_ok {
+            runtime.last_success_reply_at = Some(now.to_string());
+        }
+    });
     drop(runtime_states);
     remote_im_emit_contact_dashboard_snapshot(state, &contact.id);
     remote_im_schedule_presence_timeout(

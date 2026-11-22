@@ -683,6 +683,45 @@ fn remote_im_contact_runtime_state_mut<'a>(
         .or_insert_with(RemoteImContactRuntimeState::default)
 }
 
+/// 内存运行时的唯一写入口。
+///
+/// 状态是模块自己的私有信息，变化也由模块自己记录：调用方只交出「要改什么」和一句原因，
+/// 这里比对新旧值、写状态、把真正的变化写进日志。调用点不再保留 before 快照，
+/// 也不再自己拼在场日志——同一份状态只在这一处被描述。没变化就不打日志。
+fn remote_im_apply_contact_runtime_state<F>(
+    states: &mut std::collections::HashMap<String, RemoteImContactRuntimeState>,
+    contact: &RemoteImContact,
+    reason: &str,
+    apply: F,
+) where
+    F: FnOnce(&mut RemoteImContactRuntimeState),
+{
+    let runtime = remote_im_contact_runtime_state_mut(states, &contact.id);
+    let before = runtime.presence_state;
+    apply(runtime);
+    if before == runtime.presence_state {
+        return;
+    }
+    runtime_log_info(format!(
+        "[在场] 联系人={}，{} → {}，原因={}",
+        remote_im_contact_log_label(contact),
+        remote_im_presence_state_label(before),
+        remote_im_presence_state_label(runtime.presence_state),
+        reason
+    ));
+    remote_im_append_contact_log(
+        contact,
+        "info",
+        format!(
+            "[在场切换] contact={}, {} -> {}, 原因={}",
+            remote_im_contact_log_label(contact),
+            remote_im_presence_state_label(before),
+            remote_im_presence_state_label(runtime.presence_state),
+            reason
+        ),
+    );
+}
+
 fn remote_im_contact_checkpoint_mut_in_list<'a>(
     checkpoints: &'a mut Vec<RemoteImContactCheckpoint>,
     contact_id: &str,
@@ -753,16 +792,16 @@ fn remote_im_should_enter_group_inspection(
     message_text: &str,
 ) -> (bool, String) {
     match contact.activation_mode.trim().to_ascii_lowercase().as_str() {
-        "always" => (true, "始终入场，放行进看群排期".to_string()),
+        "always" => (true, "始终入场，进场".to_string()),
         "keyword" => {
             let matched = remote_im_keyword_matched(contact, message_text);
             if matched {
-                (true, "命中点名词，进场，放行进看群排期".to_string())
+                (true, "命中点名词，进场".to_string())
             } else {
-                (false, "未命中点名词，仅记录消息".to_string())
+                (false, "未命中点名词，只入库".to_string())
             }
         }
-        _ => (false, "不入场，仅记录消息".to_string()),
+        _ => (false, "不入场，只入库".to_string()),
     }
 }
 
@@ -782,159 +821,90 @@ fn remote_im_prepare_enqueue_runtime_state(
         ));
     }
     let behavior = remote_im_channel_behavior_settings_for_contact(state, contact);
-    let mut runtime_states = lock_remote_im_contact_runtime_states(state)?;
-    let runtime = remote_im_contact_runtime_state_mut(&mut runtime_states, &contact.id);
-    let previous_presence = runtime.presence_state;
-    let previous_work = runtime.work_state;
-    let previous_pending = runtime.has_pending;
     let now = now_utc();
     let mut mute_prefix = String::new();
     let supports_mute = contact
         .remote_contact_type
         .trim()
         .eq_ignore_ascii_case("group");
-    if !supports_mute {
-        runtime.mute_until = None;
-    }
-    if supports_mute {
-        if let Some(mute_until) = runtime.mute_until.clone() {
-        if remote_im_is_mute_expired(&mute_until, now) {
+    let mut runtime_states = lock_remote_im_contact_runtime_states(state)?;
+
+    // 闭嘴：只动 mute_until 这一个状态位，读写都在这一段内完成，出去时已经知道要不要拦截。
+    let mut blocked_reason: Option<String> = None;
+    {
+        let runtime = remote_im_contact_runtime_state_mut(&mut runtime_states, &contact.id);
+        if !supports_mute {
             runtime.mute_until = None;
-            mute_prefix = format!("闭嘴超时自动解除(截止={mute_until})；");
         }
+        if supports_mute {
+            if let Some(mute_until) = runtime.mute_until.clone() {
+                if remote_im_is_mute_expired(&mute_until, now) {
+                    runtime.mute_until = None;
+                    mute_prefix = format!("闭嘴超时自动解除(截止={mute_until})；");
+                }
+            }
         }
-    }
-    if supports_mute {
-        if let Some(keyword) = remote_im_find_matched_keyword(message_text, &behavior.mute_keywords) {
-            let mute_until = remote_im_resolve_mute_until(now, behavior.mute_duration_seconds);
-            runtime.mute_until = Some(mute_until.clone());
-            let reason = format!(
-                "{}命中闭嘴词“{}”，进入闭嘴直到 {}，直接拦截后续判定",
-                mute_prefix, keyword, mute_until
-            );
-            runtime_log_info(format!(
-                "[远程联系人状态机] 入站判定完成：联系人={}，内容={}，在场={:?}，工作={:?}，待办={}，入场={}，原因={}",
-                remote_im_contact_log_label(contact),
-                remote_im_preview_text(message_text, 100),
-                runtime.presence_state,
-                runtime.work_state,
-                runtime.has_pending,
-                false,
-                reason
-            ));
-            remote_im_append_contact_log(
-                contact,
-                "info",
-                format!(
-                    "[联系人状态] 入站判定: contact={}, message={}, presence={} -> {}, work={} -> {}, pending={} -> {}, activate={}, reason={}",
-                    remote_im_contact_log_label(contact),
-                    remote_im_preview_text(message_text, 100),
-                    remote_im_presence_state_label(previous_presence),
-                    remote_im_presence_state_label(runtime.presence_state),
-                    remote_im_work_state_label(previous_work),
-                    remote_im_work_state_label(runtime.work_state),
-                    remote_im_yes_no(previous_pending),
-                    remote_im_yes_no(runtime.has_pending),
-                    remote_im_yes_no(false),
-                    reason
-                ),
-            );
-            drop(runtime_states);
-            remote_im_enforce_mute_side_effects(
-                state,
-                &contact.id,
-                "命中闭嘴词，中止在途应答并拦截外发",
-            );
-            return Ok((false, reason));
+        if supports_mute {
+            if let Some(keyword) = remote_im_find_matched_keyword(message_text, &behavior.mute_keywords) {
+                let mute_until = remote_im_resolve_mute_until(now, behavior.mute_duration_seconds);
+                runtime.mute_until = Some(mute_until.clone());
+                blocked_reason = Some(format!(
+                    "{}命中闭嘴词“{}”，进入闭嘴直到 {}，直接拦截后续判定",
+                    mute_prefix, keyword, mute_until
+                ));
+            }
+        }
+        if blocked_reason.is_none() && supports_mute && runtime.mute_until.is_some() {
+            if let Some(keyword) = remote_im_find_matched_keyword(message_text, &behavior.unmute_keywords) {
+                runtime.mute_until = None;
+                mute_prefix.push_str(&format!("命中张嘴词“{}”，解除闭嘴；", keyword));
+            } else {
+                let mute_until = runtime.mute_until.clone().unwrap_or_default();
+                blocked_reason = Some(format!(
+                    "{}当前仍处于闭嘴期(截止={})，未命中张嘴词，直接拦截后续判定",
+                    mute_prefix, mute_until
+                ));
+            }
         }
     }
-    if supports_mute && runtime.mute_until.is_some() {
-        if let Some(keyword) = remote_im_find_matched_keyword(message_text, &behavior.unmute_keywords) {
-            runtime.mute_until = None;
-            mute_prefix.push_str(&format!("命中张嘴词“{}”，解除闭嘴；", keyword));
-        } else {
-            let mute_until = runtime.mute_until.clone().unwrap_or_default();
-            let reason = format!(
-                "{}当前仍处于闭嘴期(截止={})，未命中张嘴词，直接拦截后续判定",
-                mute_prefix, mute_until
-            );
-            runtime_log_info(format!(
-                "[远程联系人状态机] 入站判定完成：联系人={}，内容={}，在场={:?}，工作={:?}，待办={}，入场={}，原因={}",
-                remote_im_contact_log_label(contact),
-                remote_im_preview_text(message_text, 100),
-                runtime.presence_state,
-                runtime.work_state,
-                runtime.has_pending,
-                false,
-                reason
-            ));
-            remote_im_append_contact_log(
-                contact,
-                "info",
-                format!(
-                    "[联系人状态] 入站判定: contact={}, message={}, presence={} -> {}, work={} -> {}, pending={} -> {}, activate={}, reason={}",
-                    remote_im_contact_log_label(contact),
-                    remote_im_preview_text(message_text, 100),
-                    remote_im_presence_state_label(previous_presence),
-                    remote_im_presence_state_label(runtime.presence_state),
-                    remote_im_work_state_label(previous_work),
-                    remote_im_work_state_label(runtime.work_state),
-                    remote_im_yes_no(previous_pending),
-                    remote_im_yes_no(runtime.has_pending),
-                    remote_im_yes_no(false),
-                    reason
-                ),
-            );
-            drop(runtime_states);
-            remote_im_enforce_mute_side_effects(
-                state,
-                &contact.id,
-                "闭嘴期内重复拦截，继续中止在途应答",
-            );
-            return Ok((false, reason));
-        }
-    }
-    // 入场模式只决定 Away 状态怎么重新进场。已在场时，普通消息直接放行进看群排期，
-    // 不再要求命中点名词。排不排看群闹钟是观察员的私有状态，入场判定不看它。
-    let (activate_assistant, entry_reason) =
-        if runtime.presence_state == RemoteImPresenceState::Present {
-            (true, "已在场，直接放行进看群排期".to_string())
-        } else {
-            remote_im_should_enter_group_inspection(contact, message_text)
-        };
-    if activate_assistant {
-        runtime.presence_state = RemoteImPresenceState::Present;
-        runtime.last_presence_at = Some(now_iso());
-        runtime.consecutive_no_reply_count = 0;
-    }
-    let reason = format!("{mute_prefix}{entry_reason}");
-    runtime_log_info(format!(
-        "[远程联系人状态机] 入站判定完成：联系人={}，内容={}，在场={:?}，工作={:?}，待办={}，入场={}，原因={}",
-        remote_im_contact_log_label(contact),
-        remote_im_preview_text(message_text, 100),
-        runtime.presence_state,
-        runtime.work_state,
-        runtime.has_pending,
-        activate_assistant,
-        reason
-    ));
-    remote_im_append_contact_log(
-        contact,
-        "info",
-        format!(
-            "[联系人状态] 入站判定: contact={}, message={}, presence={} -> {}, work={} -> {}, pending={} -> {}, activate={}, reason={}",
+    if let Some(reason) = blocked_reason {
+        drop(runtime_states);
+        runtime_log_info(format!(
+            "[闭嘴] 联系人={}，原因={}",
             remote_im_contact_log_label(contact),
-            remote_im_preview_text(message_text, 100),
-            remote_im_presence_state_label(previous_presence),
-            remote_im_presence_state_label(runtime.presence_state),
-            remote_im_work_state_label(previous_work),
-            remote_im_work_state_label(runtime.work_state),
-            remote_im_yes_no(previous_pending),
-            remote_im_yes_no(runtime.has_pending),
-            remote_im_yes_no(activate_assistant),
             reason
-        ),
-    );
+        ));
+        remote_im_append_contact_log(
+            contact,
+            "info",
+            format!(
+                "[闭嘴] contact={}, 原因={}",
+                remote_im_contact_log_label(contact),
+                reason
+            ),
+        );
+        remote_im_enforce_mute_side_effects(state, &contact.id, &reason);
+        return Ok((false, reason));
+    }
+
+    // 在场/离场切换：走运行时唯一写入口，日志由运行时自己记录。已在场时状态不变，不产生日志。
+    let currently_present = runtime_states
+        .get(&contact.id)
+        .map(|runtime| runtime.presence_state == RemoteImPresenceState::Present)
+        .unwrap_or(false);
+    let (activate_assistant, entry_reason) = if currently_present {
+        (true, "已在场".to_string())
+    } else {
+        remote_im_should_enter_group_inspection(contact, message_text)
+    };
+    let reason = format!("{mute_prefix}{entry_reason}");
+    if activate_assistant {
+        remote_im_apply_contact_runtime_state(&mut runtime_states, contact, &reason, |runtime| {
+            runtime.presence_state = RemoteImPresenceState::Present;
+            runtime.last_presence_at = Some(now_iso());
+            runtime.consecutive_no_reply_count = 0;
+        });
+    }
     drop(runtime_states);
     if activate_assistant {
         if let Err(err) = remote_im_schedule_presence_timeout(
@@ -943,7 +913,7 @@ fn remote_im_prepare_enqueue_runtime_state(
             behavior.patience_seconds,
         ) {
             runtime_log_warn(format!(
-                "[远程联系人在场] 计时刷新失败，contact_id={}，error={}",
+                "[在场] 计时刷新失败，contact_id={}，error={}",
                 contact.id, err
             ));
         }
