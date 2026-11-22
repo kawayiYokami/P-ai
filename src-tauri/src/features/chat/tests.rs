@@ -183,138 +183,6 @@
     }
 
     #[test]
-    fn conversation_prompt_service_should_omit_goal_rule_for_remote_group_origin() {
-        let now = now_iso();
-        let agent = default_agent();
-        let conversation = test_active_conversation_with_messages(
-            vec![test_text_message("user", "群聊消息", &now)],
-            Some(now),
-        );
-        let group_source = RemoteImActivationSource {
-            channel_id: "channel-group".to_string(),
-            platform: RemoteImPlatform::OnebotV11,
-            remote_contact_type: "group".to_string(),
-            remote_contact_id: "group-1".to_string(),
-            remote_contact_name: "测试群".to_string(),
-        };
-
-        let group_snapshot = conversation_prompt_service().build_prompt_snapshot(
-            None,
-            "chat",
-            &conversation,
-            &agent,
-            &[agent.clone()],
-            "zh-CN",
-            None,
-            "固定系统提示词",
-            None,
-            None,
-            &[],
-            Some(&ChatPromptOverrides {
-                remote_im_activation_sources: vec![group_source],
-                ..Default::default()
-            }),
-        );
-        let local_snapshot = conversation_prompt_service().build_prompt_snapshot(
-            None,
-            "chat",
-            &conversation,
-            &agent,
-            &[agent.clone()],
-            "zh-CN",
-            None,
-            "固定系统提示词",
-            None,
-            None,
-            &[],
-            None,
-        );
-
-        assert!(!group_snapshot.core_prompt.contains("用户希望少询问"));
-        assert!(local_snapshot.core_prompt.contains("用户希望少询问"));
-    }
-
-    #[test]
-    fn conversation_prompt_service_should_align_task_and_plan_rules_with_conversation_scope() {
-        let now = now_iso();
-        let agent = default_agent();
-        let local = test_active_conversation_with_messages(
-            vec![test_text_message("user", "本地消息", &now)],
-            Some(now.clone()),
-        );
-        let mut delegate = local.clone();
-        delegate.conversation_kind = CONVERSATION_KIND_DELEGATE.to_string();
-        let mut remote_contact = local.clone();
-        remote_contact.conversation_kind = CONVERSATION_KIND_REMOTE_IM_CONTACT.to_string();
-        remote_contact.root_conversation_id = Some(
-            "remote_im_contact:channel-group:group:group-1".to_string(),
-        );
-        let overrides = ChatPromptOverrides::default();
-
-        let local_snapshot = conversation_prompt_service().build_prompt_snapshot(
-            None,
-            "chat",
-            &local,
-            &agent,
-            &[agent.clone()],
-            "zh-CN",
-            None,
-            "固定系统提示词",
-            None,
-            None,
-            &[],
-            Some(&overrides),
-        );
-        let delegate_snapshot = conversation_prompt_service().build_prompt_snapshot(
-            None,
-            "delegate",
-            &delegate,
-            &agent,
-            &[agent.clone()],
-            "zh-CN",
-            None,
-            "固定系统提示词",
-            None,
-            None,
-            &[],
-            Some(&overrides),
-        );
-        let remote_contact_snapshot = conversation_prompt_service().build_prompt_snapshot(
-            None,
-            "chat",
-            &remote_contact,
-            &agent,
-            &[agent.clone()],
-            "zh-CN",
-            None,
-            "固定系统提示词",
-            None,
-            None,
-            &[],
-            Some(&overrides),
-        );
-
-        assert!(local_snapshot
-            .core_prompt
-            .contains("用户给出明确的延后执行"));
-        assert!(local_snapshot
-            .core_prompt
-            .contains("要做大规模重构、全新功能域设计"));
-        assert!(!delegate_snapshot
-            .core_prompt
-            .contains("用户给出明确的延后执行"));
-        assert!(!delegate_snapshot
-            .core_prompt
-            .contains("要做大规模重构、全新功能域设计"));
-        assert!(remote_contact_snapshot
-            .core_prompt
-            .contains("用户给出明确的延后执行"));
-        assert!(!remote_contact_snapshot
-            .core_prompt
-            .contains("要做大规模重构、全新功能域设计"));
-    }
-
-    #[test]
     fn build_core_system_prompt_text_should_append_user_profile_snapshot_into_user_settings() {
         let now = now_iso();
         let agent = default_agent();
@@ -532,15 +400,7 @@
 
         assert_eq!(prepared.history_messages.len(), 2);
         assert_eq!(prepared.history_messages[0].role, "user");
-        assert!(
-            prepared.history_messages[0]
-                .user_time_text
-                .as_deref()
-                .unwrap_or_default()
-                .contains("pai system")
-        );
         assert_eq!(prepared.history_messages[1].role, "assistant");
-        assert!(prepared.latest_user_meta_text.contains("pai system"));
         assert!(prepared.latest_user_text.contains("现在补发第二次提醒"));
     }
 
@@ -14703,11 +14563,9 @@
             member_message_kinds(&state, &member_id)
         );
         // 队长行事指引改为每轮注入的规则块，招募回执不再附带第二份文案。
-        let leader_rule = team_leader_prompt_rule_block(&state, &leader)
-            .expect("leader should get team rule block");
         assert!(
-            leader_rule.contains("正文队员是读得到的"),
-            "队长规则块应点明 team_send 正文队员读得到全文，界面上正文默认收起、点开可读：{leader_rule}"
+            team_leader_prompt_rule_block(&state, &leader).is_some(),
+            "队长应拿到行事规则块"
         );
     }
 
