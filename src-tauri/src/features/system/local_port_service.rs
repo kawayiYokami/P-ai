@@ -4,6 +4,9 @@ pub struct LocalPortServiceLogEntry {
     pub timestamp: DateTime<Utc>,
     pub level: String,
     pub message: String,
+    /// 业务角色（库房/前台/秘书/专家）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
     /// 仅用于联系人日志的内部筛选，不展示给用户。
     #[serde(default, skip_serializing)]
     pub contact_record_id: Option<String>,
@@ -167,6 +170,7 @@ impl LocalPortServiceCore {
                 .unwrap_or_else(|_| Utc::now()),
             level,
             message,
+            role: None,
             contact_record_id: None,
         })
         .collect()

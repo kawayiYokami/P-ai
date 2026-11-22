@@ -16,6 +16,8 @@ export type ChannelLogEntry = {
   timestamp: string;
   level: string;
   message: string;
+  /** 业务角色：库房 / 前台 / 秘书 / 专家。 */
+  role?: string;
 };
 
 /** QQ 官方机器人扫码绑定：start 返回二维码与有效期。二维码由后端直出、不落文件。

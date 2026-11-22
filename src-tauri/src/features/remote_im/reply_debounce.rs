@@ -172,16 +172,19 @@ fn remote_im_group_reply_schedule_inspection(
     let previous_text = previous_remaining
         .map(|remaining| format!("，原剩={:.1}秒", remaining.as_secs_f64()))
         .unwrap_or_default();
-    runtime_log_info(format!(
-        "[巡检] {}：联系人={}，路径={:?}，等待={:.1}秒，预计看群={}{}，原因={}",
-        action_label,
-        remote_im_contact_log_label(contact),
-        kind,
-        delay.as_secs_f64(),
-        format_local_time_after_seconds(delay.as_secs()),
-        previous_text,
-        reason
-    ));
+    remote_im_append_contact_log(
+        contact,
+        "info",
+        format!(
+            "[巡检] {}：路径={:?}，等待={:.1}秒，预计看群={}{}，原因={}",
+            action_label,
+            kind,
+            delay.as_secs_f64(),
+            format_local_time_after_seconds(delay.as_secs()),
+            previous_text,
+            reason
+        ),
+    );
     remote_im_group_reply_schedule_action(
         state,
         RemoteImGroupReplyTimerAction {
@@ -427,11 +430,7 @@ async fn remote_im_group_reply_handle_timer(
     remote_im_append_contact_log(
         &contact,
         "info",
-        format!(
-            "[巡检] 开始: contact={}, 路径={:?}",
-            remote_im_contact_log_label(&contact),
-            action.kind
-        ),
+        format!("[巡检] 开始：路径={:?}", action.kind),
     );
     match remote_im_contact_is_muted(state, &contact.id) {
         Ok(true) => {
@@ -656,15 +655,18 @@ async fn remote_im_group_reply_handle_timer(
         .map(|text| remote_im_preview_text(&text, 100))
         .unwrap_or_else(|| "（无文本）".to_string());
     // 巡检确实看到了什么：区间条数、能量、路径、回复上限。这是「有没有在跑」的直接证据。
-    runtime_log_info(format!(
-        "[巡检] 区间：联系人={}，路径={:?}，区间消息数={}，能量={}，回复上限={}字，最新内容={}",
-        remote_im_contact_log_label(&contact),
-        action.kind,
-        range.len(),
-        energy_label,
-        max_chars,
-        batch_preview
-    ));
+    remote_im_append_contact_log(
+        &contact,
+        "info",
+        format!(
+            "[巡检] 区间：路径={:?}，区间消息数={}，能量={}，回复上限={}字，最新内容={}",
+            action.kind,
+            range.len(),
+            energy_label,
+            max_chars,
+            batch_preview
+        ),
+    );
     let ready = RemoteImReplyDebounceReady {
         start_message_id,
         end_message_id,

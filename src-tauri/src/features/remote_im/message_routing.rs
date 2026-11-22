@@ -52,21 +52,8 @@ fn remote_im_preview_text(text: &str, max_chars: usize) -> String {
 }
 
 fn remote_im_contact_log_label(contact: &RemoteImContact) -> String {
-    // 日志只有一套，联系人日志窗按 contact_id 过滤：标签里必须带 id，
-    // 只写名字会让这些日志在窗口里彻底看不见。
-    let name = remote_im_contact_display_name(contact);
-    let id = contact.id.trim();
-    let conversation_id = contact
-        .bound_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("");
-    match (id.is_empty(), conversation_id.is_empty()) {
-        (true, _) => name,
-        (false, true) => format!("{name}({id})"),
-        (false, false) => format!("{name}({id}@{conversation_id})"),
-    }
+    // 只写名字：联系人日志窗按条目的 contact_id 字段过滤，正文里不出现 id。
+    remote_im_contact_display_name(contact)
 }
 
 fn remote_im_contact_downloads_segment(value: &str, fallback: &str) -> String {
@@ -200,27 +187,56 @@ fn remote_im_append_channel_log(channel_id: &str, level: &str, message: String) 
 }
 
 #[cfg(not(test))]
+/// 按消息前缀判定业务角色：库房（入库/压缩）、前台（在场/巡检）、秘书（判断）、
+/// 专家（应答委托/外发/能量）。调用点不必逐个传，规则集中在这一处。
+fn remote_im_log_role(message: &str) -> Option<&'static str> {
+    const RULES: &[(&str, &str)] = &[
+        ("[联系人消息]", "库房"),
+        ("[库房]", "库房"),
+        ("[在场", "前台"),
+        ("[巡检", "前台"),
+        ("[应答判断]", "秘书"),
+        ("[秘书", "秘书"),
+        ("[应答委托]", "专家"),
+        ("[外发]", "专家"),
+        ("[能量]", "专家"),
+    ];
+    RULES
+        .iter()
+        .find(|(prefix, _)| message.starts_with(prefix))
+        .map(|(_, role)| *role)
+}
+
 fn remote_im_append_contact_log(contact: &RemoteImContact, level: &str, message: String) {
-    // 日志只有一套：格式化后写唯一日志，联系人日志窗按 contact_id 过滤这一个标记。
-    // 不再按渠道各存一份缓冲——同一个联系人会有四五套互不一致的日志，窗口读到哪套全凭运气。
-    let channel_id = contact.channel_id.trim();
+    remote_im_append_contact_log_as(contact, level, "", message);
+}
+
+/// 带业务角色的联系人日志：role 不传就按前缀自动判定，
+/// 归属与角色都作为条目字段，正文只写人话。
+fn remote_im_append_contact_log_as(
+    contact: &RemoteImContact,
+    level: &str,
+    role: &str,
+    message: String,
+) {
     let contact_id = contact.id.trim();
     let level = level.trim();
+    let explicit_role = role.trim();
     let message = message.trim();
-    if channel_id.is_empty() || contact_id.is_empty() || level.is_empty() || message.is_empty() {
+    if contact_id.is_empty() || level.is_empty() || message.is_empty() {
         return;
     }
-    // 只补 contact_id：联系人日志窗靠它过滤。
-    // channel_id 不往正文里塞——渠道日志窗有自己的写入路径，联系人日志不需要这个尾巴。
-    let mut line = format!("[远程IM] {message}");
-    if !line.contains(contact_id) {
-        line.push_str(&format!("，contact_id={contact_id}"));
-    }
-    match level {
-        "warn" => runtime_log_warn(line),
-        "error" => runtime_log_error(line),
-        _ => runtime_log_info(line),
-    }
+    let role = if explicit_role.is_empty() {
+        remote_im_log_role(message)
+    } else {
+        Some(explicit_role)
+    };
+    runtime_log_push_roles(
+        level,
+        message.to_string(),
+        Some(contact_id.to_string()),
+        role.map(ToOwned::to_owned),
+    );
 }
 
 #[cfg(test)]

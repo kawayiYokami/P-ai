@@ -72,6 +72,12 @@ struct RuntimeLogEntry {
     level: String,
     message: String,
     repeat: usize,
+    /// 这条日志属于哪个联系人（按字段过滤，不写在正文里）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    contact_id: Option<String>,
+    /// 业务角色：库房 / 前台 / 秘书 / 专家。窗口按它分组显示。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    role: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -679,6 +685,16 @@ fn runtime_log_pending_drain() -> Option<std::collections::VecDeque<(log::Level,
 }
 
 fn runtime_log_push(level: &str, message: String) {
+    runtime_log_push_roles(level, message, None, None);
+}
+
+/// 带联系人归属与角色的日志：两者都走条目字段，不进正文。
+pub(crate) fn runtime_log_push_roles(
+    level: &str,
+    message: String,
+    contact_id: Option<String>,
+    role: Option<String>,
+) {
     let message = shorten_uuids_in_log(&message);
     let (normalized_level, normalized_message) = normalize_runtime_log(level, message);
     // 落盘与终端输出：logger 就绪前只排队，等插件（桌面）或 fern（CLI）装好再补写。
@@ -700,7 +716,11 @@ fn runtime_log_push(level: &str, message: String) {
         return;
     };
     if let Some(last) = buf.entries.back_mut() {
-        if last.level == normalized_level && last.message == normalized_message {
+        if last.level == normalized_level
+            && last.message == normalized_message
+            && last.contact_id == contact_id
+            && last.role == role
+        {
             last.repeat = last.repeat.saturating_add(1);
             last.created_at = created_at;
             return;
@@ -712,6 +732,8 @@ fn runtime_log_push(level: &str, message: String) {
         level: normalized_level,
         message: normalized_message,
         repeat: 1,
+        contact_id,
+        role,
     };
     let entry_bytes = entry.created_at.len() + entry.level.len() + entry.message.len();
     buf.total_bytes = buf.total_bytes.saturating_add(entry_bytes);
@@ -1423,7 +1445,32 @@ fn list_recent_runtime_logs() -> Result<Vec<RuntimeLogEntry>, String> {
     Ok(logs.entries.iter().cloned().collect::<Vec<_>>())
 }
 
-/// 唯一日志里带某个标识的条目：联系人日志窗按 contact_id 过滤这一份，不再另存一套缓冲。
+/// 某个联系人的全部日志：按条目上的 contact_id 字段过滤，不靠正文里出现 id。
+pub(crate) fn runtime_log_entries_for_contact(
+    contact_id: &str,
+) -> Vec<(String, String, String, Option<String>)> {
+    let contact_id = contact_id.trim();
+    if contact_id.is_empty() {
+        return Vec::new();
+    }
+    let Ok(logs) = runtime_log_buffer().lock() else {
+        return Vec::new();
+    };
+    logs.entries
+        .iter()
+        .filter(|entry| entry.contact_id.as_deref() == Some(contact_id))
+        .map(|entry| {
+            (
+                entry.created_at.clone(),
+                entry.level.clone(),
+                entry.message.clone(),
+                entry.role.clone(),
+            )
+        })
+        .collect()
+}
+
+/// 唯一日志里带某个标识的条目（渠道日志窗用）。
 ///
 /// 存储时 UUID 已被缩成前 8 位，这里对查询串做同样处理，否则完整 id 永远匹配不上。
 pub(crate) fn runtime_log_entries_containing(needle: &str) -> Vec<(String, String, String)> {

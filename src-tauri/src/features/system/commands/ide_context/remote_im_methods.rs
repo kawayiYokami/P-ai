@@ -182,17 +182,20 @@ async fn remote_im_get_contact_logs_inner(
     if contact_id.is_empty() {
         return Err("contact_id 为必填项。".to_string());
     }
-    // 用裸 id 做过滤：日志里 id 会以 contact_id=…、名字(id@会话) 等多种形态出现，
-    // 只认一种形态会漏掉大半（巡检、外发这些用显示名打的日志全在别的形态里）。
-    let needle = contact_id.to_string();
-    Ok(runtime_log_entries_containing(&needle)
+    // 按条目上的 contact_id 字段过滤：正文里不出现任何 id。
+    let contact_id = input.contact_id.trim();
+    if contact_id.is_empty() {
+        return Err("contact_id 为必填项。".to_string());
+    }
+    Ok(runtime_log_entries_for_contact(contact_id)
         .into_iter()
-        .map(|(created_at, level, message)| ChannelLogEntry {
+        .map(|(created_at, level, message, role)| ChannelLogEntry {
             timestamp: chrono::DateTime::parse_from_rfc3339(&created_at)
                 .map(|value| value.with_timezone(&chrono::Utc))
                 .unwrap_or_else(|_| chrono::Utc::now()),
             level,
             message,
+            role,
             contact_record_id: None,
         })
         .collect())

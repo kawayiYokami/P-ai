@@ -2286,7 +2286,13 @@ const contactDraftDirty = computed(() =>
 );
 const contactLogDisplayItems = computed<ContactLogDisplayItem[]>(() =>
   contactLogs.value
-    .map((log) => buildContactLogDisplayItem(log, t))
+    .map((log) => {
+      const item = buildContactLogDisplayItem(log, t);
+      if (!item) return null;
+      // 角色（库房/前台/秘书/专家）替代通用类别显示，日志按业务分组才看得出来谁在说话。
+      const role = String(log.role || "").trim();
+      return role ? { ...item, kind: role } : item;
+    })
     .filter((item): item is ContactLogDisplayItem => item !== null),
 );
 const contactLogDisplayLines = computed(() =>
