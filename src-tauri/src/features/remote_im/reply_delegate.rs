@@ -730,6 +730,22 @@ fn spawn_remote_im_reply_delegate(
         force_memory_prompt_snapshot,
         dispatch_policy,
     )?;
+    // 发起委托时顺手戳一下触发者：失败只记日志，不影响委托。
+    {
+        let poke_state = state.clone();
+        let poke_contact_id = contact_id.to_string();
+        let poke_member_id = remote_im_origin_from_message(trigger_message)
+            .and_then(|origin| remote_im_origin_string(origin, "sender_id"))
+            .unwrap_or("")
+            .to_string();
+        tauri::async_runtime::spawn(async move {
+            if let Err(err) =
+                remote_im_poke_contact_member(&poke_state, &poke_contact_id, &poke_member_id).await
+            {
+                runtime_log_warn(format!("[应答委托] 戳一戳失败，不影响回复，原因：{err}"));
+            }
+        });
+    }
     let state_clone = state.clone();
     let delegate_id_for_task = delegate_id.clone();
     let conversation_id = conversation_id.to_string();

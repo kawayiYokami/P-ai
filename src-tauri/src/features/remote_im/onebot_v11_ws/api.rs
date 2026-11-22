@@ -1,4 +1,36 @@
 impl OnebotV11WsManager {
+    /// 戳一戳群成员。
+    ///
+    /// action 名是 OneBot v11 各实现约定的 `group_poke`（SnowLuma / NapCat /
+    /// Lagrange 一致），参数 `group_id` + `user_id`。失败只由调用方记日志，
+    /// 不阻断任何业务流程。
+    pub async fn send_group_poke(
+        &self,
+        channel_id: &str,
+        group_id: &str,
+        user_id: &str,
+    ) -> Result<(), String> {
+        let group_id = group_id
+            .trim()
+            .parse::<i64>()
+            .map_err(|_| format!("群号不是数字：{group_id}"))?;
+        let user_id = user_id
+            .trim()
+            .parse::<i64>()
+            .map_err(|_| format!("群友号不是数字：{user_id}"))?;
+        self.call_api(
+            channel_id,
+            "group_poke",
+            serde_json::json!({
+                "group_id": group_id,
+                "user_id": user_id,
+            }),
+            5000,
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// 调用 OneBot API 并等待响应
     pub async fn call_api(
         &self,

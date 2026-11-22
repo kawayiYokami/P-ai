@@ -262,6 +262,36 @@ fn remote_im_is_group_contact(contact: &RemoteImContact) -> bool {
     contact.remote_contact_type.trim().eq_ignore_ascii_case("group")
 }
 
+/// 戳一下联系人里的某个成员。
+///
+/// 抽象层只做平台分派：不是 OneBot v11 群聊就跳过，什么都没发生。
+/// 戳一戳只是社交动作，任何一步不成就当没做成，不往上抛致命错误。
+async fn remote_im_poke_contact_member(
+    state: &AppState,
+    contact_id: &str,
+    member_id: &str,
+) -> Result<(), String> {
+    let member_id = member_id.trim();
+    if member_id.is_empty() {
+        return Ok(());
+    }
+    let contact = remote_im_get_contact_by_id(state, contact_id)?;
+    if !matches!(contact.platform, RemoteImPlatform::OnebotV11) {
+        return Ok(());
+    }
+    // 只有群聊才有「戳群成员」这个动作，私聊联系人的 id 不能当群号用。
+    if !remote_im_is_group_contact(&contact) {
+        return Ok(());
+    }
+    let manager = onebot_v11_ws_manager();
+    if !manager.is_connected(&contact.channel_id).await {
+        return Ok(());
+    }
+    manager
+        .send_group_poke(&contact.channel_id, &contact.remote_contact_id, member_id)
+        .await
+}
+
 fn remote_im_json_or_text(response_text: &str) -> Value {
     serde_json::from_str::<Value>(response_text).unwrap_or_else(|_| {
         serde_json::json!({
