@@ -401,17 +401,24 @@ async fn remote_im_group_reply_handle_timer(
     let entry = {
         let mut store = lock_remote_im_inspection_schedule_store();
         let Some(current) = store.next_inspection.get(&action.state_key) else {
-            runtime_log_warn(format!(
-                "[巡检] 跳过，任务=闹钟到点，contact_id={}，state_key={}，reason=排期表里没有这一项（已被新排期顶掉或已消费），kind={:?}",
-                action.contact_id, action.state_key, action.kind
-            ));
+            runtime_log_push_roles(
+                "warn",
+                format!(
+                    "[巡检] 跳过：到点时排期表里已经没有这一轮（已被新排期顶掉或已消费），路径={}",
+                    remote_im_timer_kind_label(action.kind)
+                ),
+                Some(action.contact_id.clone()),
+                Some("前台".to_string()),
+            );
             return;
         };
         if current.due_at != action.due_at {
-            runtime_log_warn(format!(
-                "[巡检] 跳过，任务=闹钟到点，contact_id={}，reason=不是最新一轮（旧闹钟醒来），闹钟due_at={:?}，排期due_at={:?}",
-                action.contact_id, action.due_at, current.due_at
-            ));
+            runtime_log_push_roles(
+                "warn",
+                "[巡检] 跳过：这是被覆盖的旧闹钟（醒来时已不是最新一轮）".to_string(),
+                Some(action.contact_id.clone()),
+                Some("前台".to_string()),
+            );
             return;
         }
         let current = current.clone();
@@ -761,8 +768,8 @@ fn observe_remote_im_persisted_event(
                         contact,
                         "info",
                         format!(
-                            "[巡检通知] 升级：常规巡检改为点名，提前看群（原={:?}）",
-                            current.kind
+                            "[巡检通知] 升级：{}改为点名，提前看群",
+                            remote_im_timer_kind_label(current.kind)
                         ),
                     );
                     schedule = Some((
@@ -775,8 +782,8 @@ fn observe_remote_im_persisted_event(
                         contact,
                         "info",
                         format!(
-                            "[巡检通知] 静默：已有 {:?} 排期，不重置闹钟（本次消息数={message_count}）",
-                            current.kind
+                            "[巡检通知] 静默：已有{}排期，不重置闹钟（本次消息数={message_count}）",
+                            remote_im_timer_kind_label(current.kind)
                         ),
                     );
                 }
