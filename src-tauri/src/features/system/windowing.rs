@@ -782,7 +782,7 @@ fn set_chat_window_side_expanded(
             let _ = write_chat_window_side_expansion(|state| *state = previous_state);
             return Err(err);
         }
-        persist_window_layout_snapshot_with_reason(&app, "chat", "side_panel_expanded")?;
+        persist_window_layout_snapshot(&app, "chat")?;
         return Ok(true);
     }
 
@@ -808,7 +808,7 @@ fn set_chat_window_side_expanded(
         let _ = write_chat_window_side_expansion(|state| *state = previous_state);
         return Err(err);
     }
-    persist_window_layout_snapshot_with_reason(&app, "chat", "side_panel_collapsed")?;
+    persist_window_layout_snapshot(&app, "chat")?;
     Ok(true)
 }
 
@@ -1120,11 +1120,7 @@ fn fallback_visible_position(
     (center_x.max(monitor_x), center_y.max(monitor_y))
 }
 
-fn persist_window_layout_snapshot_with_reason(
-    app: &AppHandle,
-    label: &str,
-    _reason: &str,
-) -> Result<(), String> {
+fn persist_window_layout_snapshot(app: &AppHandle, label: &str) -> Result<(), String> {
     let window = app
         .get_webview_window(label)
         .ok_or_else(|| format!("Window '{label}' not found"))?;
@@ -1185,9 +1181,6 @@ fn persist_window_layout_snapshot_with_reason(
         }
         entry.maximized = maximized;
     });
-    runtime_log_info(format!(
-        "[窗口布局] 保存快照: label={label} reason={_reason} maximized={maximized} size_and_position={size_and_position:?}"
-    ));
     upsert_result
 }
 
@@ -1201,8 +1194,7 @@ fn attach_window_layout_persistence_for(
     let label = label.to_string();
     let _ = window.on_window_event(move |event| match event {
         tauri::WindowEvent::Resized(_) => {
-            if let Err(err) = persist_window_layout_snapshot_with_reason(&app_handle, &label, "resized")
-            {
+            if let Err(err) = persist_window_layout_snapshot(&app_handle, &label) {
                 runtime_log_error(format!(
                     "[窗口] 持久化窗口布局失败: label={}, error={}",
                     label.trim(),
@@ -1211,8 +1203,7 @@ fn attach_window_layout_persistence_for(
             }
         }
         tauri::WindowEvent::Moved(_) => {
-            if let Err(err) = persist_window_layout_snapshot_with_reason(&app_handle, &label, "moved")
-            {
+            if let Err(err) = persist_window_layout_snapshot(&app_handle, &label) {
                 runtime_log_error(format!(
                     "[窗口] 持久化窗口布局失败: label={}, error={}",
                     label.trim(),
@@ -1221,11 +1212,7 @@ fn attach_window_layout_persistence_for(
             }
         }
         tauri::WindowEvent::CloseRequested { .. } => {
-            if let Err(err) = persist_window_layout_snapshot_with_reason(
-                &app_handle,
-                &label,
-                "close_requested",
-            ) {
+            if let Err(err) = persist_window_layout_snapshot(&app_handle, &label) {
                 runtime_log_error(format!(
                     "[窗口] 持久化窗口布局失败: label={}, error={}",
                     label.trim(),
@@ -1234,9 +1221,7 @@ fn attach_window_layout_persistence_for(
             }
         }
         tauri::WindowEvent::Destroyed => {
-            if let Err(err) =
-                persist_window_layout_snapshot_with_reason(&app_handle, &label, "destroyed")
-            {
+            if let Err(err) = persist_window_layout_snapshot(&app_handle, &label) {
                 runtime_log_error(format!(
                     "[窗口] 持久化窗口布局失败: label={}, error={}",
                     label.trim(),
@@ -1411,11 +1396,7 @@ fn toggle_window_maximize_with_default_restore(
     if saved_layout_near_fullscreen || restored_near_fullscreen {
         if let Some(monitor) = restore_monitor.as_ref() {
             position_window_on_monitor(&window, label, monitor, None, None);
-            let _ = persist_window_layout_snapshot_with_reason(
-                app,
-                label,
-                "restore_near_fullscreen_to_default",
-            );
+            let _ = persist_window_layout_snapshot(app, label);
         }
     }
     let maximized = window
@@ -1449,8 +1430,7 @@ fn start_window_drag_with_default_restore(app: &AppHandle, label: &str) -> Resul
         }
         if let Some(monitor) = restore_monitor.as_ref() {
             restore_window_to_default_drag_size(&window, label, monitor)?;
-            let _ =
-                persist_window_layout_snapshot_with_reason(app, label, "drag_restore_to_default");
+            let _ = persist_window_layout_snapshot(app, label);
         }
     }
 
