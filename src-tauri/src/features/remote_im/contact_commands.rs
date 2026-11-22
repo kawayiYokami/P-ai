@@ -2225,7 +2225,7 @@ async fn remote_im_enqueue_message_direct(
             &contact_for_log,
             "info",
             format!(
-                "[联系人状态] 已交接: action=群聊巡检, channel={}, contact={}, message={}, activate={}, reason={}",
+                "[联系人状态] 已交接: action=交给观察员排看群闹钟, channel={}, contact={}, message={}, activate={}, reason={}",
                 channel_label,
                 remote_im_contact_log_label(&contact_for_log),
                 remote_im_preview_text(&text, 100),

@@ -753,16 +753,16 @@ fn remote_im_should_enter_group_inspection(
     message_text: &str,
 ) -> (bool, String) {
     match contact.activation_mode.trim().to_ascii_lowercase().as_str() {
-        "always" => (true, "始终入场，允许开始本次巡检".to_string()),
+        "always" => (true, "始终入场，放行进看群排期".to_string()),
         "keyword" => {
             let matched = remote_im_keyword_matched(contact, message_text);
             if matched {
-                (true, "命中点名词，允许开始本次巡检".to_string())
+                (true, "命中点名词，进场，放行进看群排期".to_string())
             } else {
-                (false, "未命中点名词，仅记录消息，不开始巡检".to_string())
+                (false, "未命中点名词，仅记录消息".to_string())
             }
         }
-        _ => (false, "不入场，仅记录消息，不开始巡检".to_string()),
+        _ => (false, "不入场，仅记录消息".to_string()),
     }
 }
 
@@ -894,14 +894,11 @@ fn remote_im_prepare_enqueue_runtime_state(
             return Ok((false, reason));
         }
     }
-    // 入场模式只决定 Away 状态如何重新进入群聊；Present 期间由耐心计时器
-    // 维持持续巡检，普通消息不应再次要求命中点名词。
-    // 已经入场的批次只追加消息，后续消息也不再改变本批巡检等级。
+    // 入场模式只决定 Away 状态怎么重新进场。已在场时，普通消息直接放行进看群排期，
+    // 不再要求命中点名词。排不排看群闹钟是观察员的私有状态，入场判定不看它。
     let (activate_assistant, entry_reason) =
-        if remote_im_group_reply_has_active_inspection(state, &contact.id) {
-            (true, "当前巡检链已入场，追加消息且保持原巡检等级".to_string())
-        } else if runtime.presence_state == RemoteImPresenceState::Present {
-            (true, "联系人仍在场，进入下一轮巡检".to_string())
+        if runtime.presence_state == RemoteImPresenceState::Present {
+            (true, "已在场，直接放行进看群排期".to_string())
         } else {
             remote_im_should_enter_group_inspection(contact, message_text)
         };

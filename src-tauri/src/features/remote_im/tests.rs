@@ -3631,7 +3631,7 @@
                 .expect("prepare runtime state");
 
         assert!(activate_assistant);
-        assert!(reason.contains("联系人仍在场"));
+        assert!(reason.contains("已在场"));
         let runtime_states =
             lock_remote_im_contact_runtime_states(&state).expect("lock runtime states");
         let runtime = runtime_states.get("contact-a").expect("runtime exists");
@@ -3938,7 +3938,7 @@
             },
         );
 
-        // 联系人未写入 state 数据库（已删除）：定时器醒来应清理排期，巡检链不再继续
+        // 联系人未写入 state 数据库（已删除）：定时器醒来应清理排期，看群闹钟不再重排
         test_runtime().block_on(remote_im_group_reply_handle_timer(
             &state,
             RemoteImGroupReplyTimerAction {
@@ -5058,7 +5058,7 @@
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
-    // ==================== 巡检链是否继续 ====================
+    // ==================== 看群闹钟是否重排 ====================
 
     fn chain_test_event(
         event_id: &str,

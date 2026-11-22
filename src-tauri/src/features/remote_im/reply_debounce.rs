@@ -244,14 +244,6 @@ fn remote_im_enforce_mute_side_effects(
     ));
 }
 
-/// 排期存在 = 该联系人已经入场、巡检链还在跑。
-fn remote_im_group_reply_has_active_inspection(state: &AppState, contact_id: &str) -> bool {
-    let key = remote_im_group_reply_state_key(state, contact_id);
-    lock_remote_im_inspection_schedule_store()
-        .next_inspection
-        .contains_key(&key)
-}
-
 fn remote_im_group_reply_contact_latest(    state: &AppState,
     contact_id: &str,
 ) -> Result<RemoteImContact, String> {
