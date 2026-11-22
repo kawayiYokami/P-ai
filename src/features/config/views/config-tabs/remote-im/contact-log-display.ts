@@ -179,7 +179,7 @@ export function buildContactLogDisplayItem(log: ChannelLogEntry, t: TranslateFn)
   if (message.startsWith("[联系人状态] 历史落地:")) {
     return log.level === "warn" || log.level === "error"
       ? { timestamp: log.timestamp, level: log.level, kind: t("config.remoteIm.logKindSystem"), title: t("config.remoteIm.logHistoryWriteFailed"), summary: logField(message, "reason") || t("config.remoteIm.logHistoryWriteFailedSummary") }
-      : null;
+      : { timestamp: log.timestamp, level: log.level, kind: t("config.remoteIm.logKindStatus"), title: "", summary: message };
   }
   if (message.startsWith("[联系人状态] 轮次结束:")) {
     const summary = stateSummary(message, t);
@@ -189,7 +189,13 @@ export function buildContactLogDisplayItem(log: ChannelLogEntry, t: TranslateFn)
     const summary = stateSummary(message, t);
     return { timestamp: log.timestamp, level: log.level, kind: t("config.remoteIm.logKindStatus"), title: summary, summary, detail: logField(message, "error") || undefined };
   }
-  return log.level === "warn" || log.level === "error"
-    ? { timestamp: log.timestamp, level: log.level, kind: t("config.remoteIm.logKindSystem"), title: t("config.remoteIm.logAbnormalTitle"), summary: t("config.remoteIm.logAbnormalSummary") }
-    : null;
+  // 未识别的日志原样显示：窗口是唯一日志的过滤视图，不该在这里做二次筛选。
+  // 只显示 warn/error 会让所有正常流程的日志凭空消失，排查时完全瞎眼。
+  return {
+    timestamp: log.timestamp,
+    level: log.level,
+    kind: t("config.remoteIm.logKindSystem"),
+    title: "",
+    summary: message,
+  };
 }

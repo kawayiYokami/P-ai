@@ -2163,6 +2163,14 @@ async fn remote_im_enqueue_message_direct(
         let persisted_message = conversation_service_v2()
             .append_remote_im_user_message(state, &conversation_id, &persisted_message)
             .await?;
+        // 入库完成要留痕：消息到底进没进来，这是排查整条链的第一个锚点。
+        runtime_log_info(format!(
+            "[远程IM] 入库完成：渠道={}，联系人={}，conversation_id={}，message_id={}，处理=交给巡检判定",
+            channel_label,
+            remote_im_contact_log_label(&contact_for_log),
+            conversation_id,
+            persisted_message.id
+        ));
         if let Err(err) = (|| -> Result<(), String> {
             let mut checkpoint = state_service_get_remote_im_contact_checkpoint(
                 state,

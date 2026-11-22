@@ -658,14 +658,15 @@ async fn remote_im_group_reply_handle_timer(
         .map(render_message_content_for_model)
         .map(|text| remote_im_preview_text(&text, 100))
         .unwrap_or_else(|| "（无文本）".to_string());
-    runtime_log_debug(format!(
-        "[巡检] 区间：联系人={}，内容={}，路径={:?}，能量={}，回复上限={}字，区间消息数={}",
+    // 巡检确实看到了什么：区间条数、能量、路径、回复上限。这是「有没有在跑」的直接证据。
+    runtime_log_info(format!(
+        "[巡检] 区间：联系人={}，路径={:?}，区间消息数={}，能量={}，回复上限={}字，最新内容={}",
         remote_im_contact_log_label(&contact),
-        batch_preview,
         action.kind,
+        range.len(),
         energy_label,
         max_chars,
-        range.len()
+        batch_preview
     ));
     let ready = RemoteImReplyDebounceReady {
         start_message_id,
