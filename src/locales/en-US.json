@@ -3260,6 +3260,7 @@
       "hint": "Choose what this rewind should affect:",
       "withPatch": "Rewind message and revert changes",
       "messageOnly": "Rewind message only",
+      "messageOnlySolo": "Rewind message",
       "failedMissingAgentId": "Rewind failed: Missing session info",
       "failedNoTarget": "Rewind failed: No rewoundable user message found",
       "failedBackendError": "Rewind failed: {error} (check runtime logs)",

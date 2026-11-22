@@ -385,6 +385,7 @@
       :runtime-logs-error="runtimeLogsError"
       :rewind-confirm-dialog-open="rewindConfirmDialogOpen"
       :rewind-confirm-can-undo-patch="rewindConfirmCanUndoPatch"
+      :rewind-confirm-undo-hint="rewindConfirmUndoHint"
       :branch-from-message-confirm-dialog-open="branchFromMessageConfirmDialogOpen"
       :config-save-error-dialog-open="configSaveErrorDialogOpen"
       :config-save-error-dialog-title="configSaveErrorDialogTitle"

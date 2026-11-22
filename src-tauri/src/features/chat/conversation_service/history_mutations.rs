@@ -379,10 +379,12 @@ impl ConversationServiceV2 {
                 hint: String::new(),
             });
         }
+        // 没有工具修改是正常情况（这一轮本来就没改文件），不提示。
+        // 只有「检测到修改却撤不回来」才是用户需要知道的异常。
         let hint = if backup_record_ids.is_empty() {
-            "该范围内没有检测到可撤回的工具修改。"
+            String::new()
         } else {
-            "检测到工具修改记录，但对应备份已不存在，无法撤回文件修改。"
+            "检测到工具修改记录，但对应备份已不存在，无法撤回文件修改。".to_string()
         };
         Ok(RewindConversationPreviewResult {
             conversation_id,

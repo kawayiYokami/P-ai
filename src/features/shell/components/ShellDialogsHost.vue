@@ -49,6 +49,7 @@ const props = defineProps<{
   runtimeLogsError: string;
   rewindConfirmDialogOpen: boolean;
   rewindConfirmCanUndoPatch: boolean;
+  rewindConfirmUndoHint?: string;
   branchFromMessageConfirmDialogOpen: boolean;
   configSaveErrorDialogOpen: boolean;
   configSaveErrorDialogTitle: string;
@@ -309,7 +310,9 @@ function canShowUpdateSecondaryActions() {
   <dialog ref="rewindConfirmDialogRef" class="modal" @close="onRewindConfirmDialogClose" @cancel.prevent="onRewindConfirmDialogClose">
     <div class="modal-box max-w-md">
       <h3 class="font-semibold text-base">{{ t("dialogs.rewind.title") }}</h3>
-      <div class="mt-2 text-sm opacity-80">{{ t("dialogs.rewind.hint") }}</div>
+      <div v-if="rewindConfirmUndoHint" class="mt-2 text-xs opacity-60">
+        {{ rewindConfirmUndoHint }}
+      </div>
       <div class="mt-4 flex flex-col items-center gap-2">
         <button
           v-if="rewindConfirmCanUndoPatch"
@@ -319,7 +322,7 @@ function canShowUpdateSecondaryActions() {
           {{ t("dialogs.rewind.withPatch") }}
         </button>
         <button class="btn btn-sm w-full" @click="emit('confirmRewindMessageOnly')">
-          {{ t("dialogs.rewind.messageOnly") }}
+          {{ rewindConfirmCanUndoPatch ? t("dialogs.rewind.messageOnly") : t("dialogs.rewind.messageOnlySolo") }}
         </button>
         <button class="btn btn-sm btn-primary w-full" @click="emit('cancelRewindConfirm')">{{ t("common.cancel") }}</button>
       </div>

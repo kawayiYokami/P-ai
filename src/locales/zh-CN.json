@@ -3260,6 +3260,7 @@
       "hint": "请选择本次撤回要执行的范围：",
       "withPatch": "撤回消息并撤回修改",
       "messageOnly": "仅撤回消息",
+      "messageOnlySolo": "撤回消息",
       "failedMissingAgentId": "撤回失败：缺少会话信息",
       "failedNoTarget": "撤回失败：未找到可撤回的用户消息",
       "failedBackendError": "撤回失败：{error}（可查看运行日志）",
