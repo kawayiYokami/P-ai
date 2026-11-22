@@ -1,4 +1,5 @@
 import { defineComponent, h, onBeforeUnmount, ref, watch } from "vue";
+import { renderMermaidSVG } from "beautiful-mermaid";
 import { writeTransportClipboardText } from "../../../services/tauri-api";
 import AppIcon from "../../shared/components/AppIcon.vue";
 
@@ -6,13 +7,14 @@ export function normalizeMermaidCodeForRender(code: string): string {
   return code.replace(/\\n/gi, "<br/>");
 }
 
-// mermaid 渲染时会先移除文档里同 id 的元素；blockKey 是块在全文中的起始偏移（#0、#12…），
-// 两处内容相同的图会算出同一个 id 并互相顶掉，所以 id 里必须带实例序号。
-// 另外 blockKey 带 #，不能直接进 CSS 选择器，落到 id 之前要先洗成合法片段。
-let mermaidInstanceSeq = 0;
-
-function sanitizeIdPart(value: string): string {
-  return String(value || "").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+export function patchSvgToUsePaiFontSystem(svg: string): string {
+  // 1. 移除 beautiful-mermaid 自带的 Google Fonts @import 外网请求，避免离线/弱网超时与请求失败
+  // 2. 将 text 统一对齐 PAI 界面字体系统 --app-font-family
+  // 3. 将 .mono 代码/字段统一对齐 PAI 内置代码字体系统 --app-code-font-family ("Easy Call JetBrains Mono")
+  return svg
+    .replace(/@import\s+url\([^)]+\);\s*/gi, "")
+    .replace(/text\s*\{\s*font-family:\s*[^;]+;/gi, "text { font-family: var(--app-font-family, system-ui, sans-serif);")
+    .replace(/\.mono\s*\{\s*font-family:\s*[^;]+;/gi, ".mono { font-family: var(--app-code-font-family); }");
 }
 
 const MermaidBlock = defineComponent({
@@ -34,14 +36,13 @@ const MermaidBlock = defineComponent({
     const copyFailed = ref(false);
     const renderPending = ref(false);
     const containerRef = ref<HTMLElement | null>(null);
-    const instanceId = ++mermaidInstanceSeq;
     let renderCount = 0;
     let renderTimer = 0;
     let copyTimer = 0;
 
-    async function renderMermaid() {
-      const code = mermaidProps.code.trim();
-      if (!code) {
+    function renderMermaid() {
+      const rawCode = mermaidProps.code.trim();
+      if (!rawCode) {
         svgHtml.value = "";
         error.value = "";
         renderPending.value = false;
@@ -50,17 +51,25 @@ const MermaidBlock = defineComponent({
       renderPending.value = true;
       renderCount += 1;
       const currentRender = renderCount;
+
+      const normalizedCode = normalizeMermaidCodeForRender(rawCode);
+
       try {
-        const mermaid = (await import("mermaid")).default;
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: mermaidProps.isDark ? "dark" : "default",
-          securityLevel: "strict",
+        const rawSvg = renderMermaidSVG(normalizedCode, {
+          transparent: true,
+          // 纯粹取 PAI 当前生效的主题变量，严格分为两档文字颜色体系：
+          // 1. 主文字色 (fg): 100% --color-base-content（主视线高亮）
+          // 2. 次级文字色 (muted): 60% base-content 混底色（连线分支“是/否”、属性类型、坐标刻度）
+          bg: "var(--color-base-100)",
+          fg: "var(--color-base-content)",
+          surface: "color-mix(in srgb, var(--color-primary) 8%, var(--color-base-100))",
+          border: "color-mix(in srgb, var(--color-primary) 30%, var(--color-base-300))",
+          line: "color-mix(in srgb, var(--color-primary) 35%, color-mix(in srgb, var(--color-base-content) 35%, var(--color-base-100)))",
+          accent: "var(--color-primary)",
+          muted: "color-mix(in srgb, var(--color-base-content) 60%, var(--color-base-100))",
         });
-        const id = `ecall-mermaid-${sanitizeIdPart(mermaidProps.blockKey) || "b"}-i${instanceId}-${currentRender}`;
-        const { svg } = await mermaid.render(id, normalizeMermaidCodeForRender(code));
         if (currentRender !== renderCount) return;
-        svgHtml.value = svg;
+        svgHtml.value = patchSvgToUsePaiFontSystem(rawSvg);
         error.value = "";
       } catch (e: any) {
         if (currentRender !== renderCount) return;
@@ -68,7 +77,7 @@ const MermaidBlock = defineComponent({
           error.value = String(e?.message || "Mermaid render error");
         } else {
           error.value = "";
-          console.warn("[Mermaid] 增量渲染失败，保留上一版图表", e);
+          console.warn("[Mermaid] 增量解析失败，保留上一版图表", e);
         }
       } finally {
         if (currentRender === renderCount) {
@@ -90,10 +99,10 @@ const MermaidBlock = defineComponent({
         return;
       }
       renderPending.value = true;
-      const delay = mermaidProps.streaming ? 280 : 40;
+      const delay = mermaidProps.streaming ? 240 : 20;
       renderTimer = window.setTimeout(() => {
         renderTimer = 0;
-        void renderMermaid();
+        renderMermaid();
       }, delay);
     }
 
@@ -169,4 +178,3 @@ const MermaidBlock = defineComponent({
 });
 
 export default MermaidBlock;
-
