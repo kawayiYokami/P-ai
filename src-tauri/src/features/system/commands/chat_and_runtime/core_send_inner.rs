@@ -1932,6 +1932,18 @@ async fn send_chat_message_inner(
             &runtime_context,
             &remote_im_activation_sources,
         )?;
+        // 逐轮中间外发只服务远程应答委托：delegate_id 与激活来源齐了才有发送目标。
+        // 单独构造、不挂压缩上下文：动态边界下压缩被禁用，正文仍要每轮发出。
+        let remote_im_round_send_target = remote_im_auto_send_source
+            .clone()
+            .and_then(|activation_source| {
+                runtime_context
+                    .remote_im_reply_delegate_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|_| RemoteImRoundSendTarget { activation_source })
+            });
         let tool_loop_auto_compaction_context = if snapshot.is_runtime_conversation
             || runtime_context.remote_im_dynamic_boundary
         {
@@ -2008,6 +2020,7 @@ async fn send_chat_message_inner(
             tool_loop_auto_compaction_context,
             conversation,
             snapshot.is_runtime_conversation,
+            remote_im_round_send_target,
         ))
     };
     let mut prepared_context = prepare_request_context(persist_user_message_on_next_prepare)?;
@@ -2266,6 +2279,7 @@ async fn send_chat_message_inner(
         tool_loop_auto_compaction_context,
         conversation_for_request,
         is_runtime_conversation,
+        remote_im_round_send_target,
     ) = prepared_context;
     if let Some(context) = tool_loop_auto_compaction_context.as_ref() {
         let mut guard = cache_lock_recover(
@@ -2360,6 +2374,7 @@ async fn send_chat_message_inner(
                     candidate_prepared_prompt.clone(),
                     Some(&state),
                     tool_loop_auto_compaction_context.as_ref(),
+                    remote_im_round_send_target.as_ref(),
                     on_delta,
                     tool_round_limit,
                     &chat_session_key,

@@ -119,16 +119,11 @@ fn tool_loop_is_first_tool_result_in_group(
 
 fn maybe_spawn_remote_im_round_intermediate_send(
     state: &AppState,
-    context: &ToolLoopAutoCompactionContext,
+    target: &RemoteImRoundSendTarget,
     turn_text: &str,
 ) {
     // 只服务远程应答委托：私聊自动推送由工具持久化路径负责，这里不能重复发。
-    if context.remote_im_reply_delegate_id.is_none() {
-        return;
-    }
-    let Some(activation_source) = context.remote_im_auto_send_source.clone() else {
-        return;
-    };
+    // 「是不是委托」由调用方构造 target 时就定了，这里不再查上下文。
     let text = turn_text.trim();
     if text.is_empty() {
         return;
@@ -137,7 +132,7 @@ fn maybe_spawn_remote_im_round_intermediate_send(
     // 发送是 fire-and-forget，失败只记日志，调度不等结果。
     spawn_remote_im_auto_send_intermediate_text(
         state.clone(),
-        activation_source,
+        target.activation_source.clone(),
         text.to_string(),
     );
 }

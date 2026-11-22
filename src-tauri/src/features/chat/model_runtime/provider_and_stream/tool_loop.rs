@@ -382,6 +382,7 @@ struct ToolLoopAutoCompactionContext {
     /// 不能从会话级流缓存回读：远程应答委托允许同会话并发。
     assistant_message_id: Option<String>,
     remote_im_reply_delegate_id: Option<String>,
+    /// 只服务工具持久化路径的自动推送（非委托场景）。委托的逐轮外发走 RemoteImRoundSendTarget。
     remote_im_auto_send_source: Option<RemoteImActivationSource>,
     prompt_mode: PromptBuildMode,
     agent: AgentProfile,
@@ -397,6 +398,13 @@ struct ToolLoopAutoCompactionContext {
     /// 写入前闸门命中压缩时，把压缩保留消息交回外层调度。
     compaction_preserved_messages:
         std::sync::Arc<std::sync::Mutex<Option<CompactionPreservedMessages>>>,
+}
+
+/// 逐轮中间外发所需的最小信息。单独一个参数，不走压缩上下文：
+/// smart_judge 这类动态边界的轮次压缩是禁用的（上下文为 None），正文照样要每轮发出。
+#[derive(Clone)]
+struct RemoteImRoundSendTarget {
+    activation_source: RemoteImActivationSource,
 }
 
 fn tool_loop_transient_tool_history_message(events: &[Value]) -> Option<ChatMessage> {
@@ -559,6 +567,7 @@ async fn run_genai_tool_loop(
     selected_api: &ApiConfig,
     resolved_api: &ResolvedApiConfig,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
+    round_send_target: Option<&RemoteImRoundSendTarget>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     _max_tool_iterations: usize,
     tool_abort_state: Option<&AppState>,
@@ -955,10 +964,10 @@ async fn run_genai_tool_loop(
                 full_assistant_text.push_str(&turn_text);
             }
             // 正文产出即发：最后一轮走的是和中间轮同一个发送点，收口处不再补发。
-            if let (Some(send_state), Some(send_context)) =
-                (tool_abort_state, auto_compaction_context)
+            if let (Some(send_state), Some(send_target)) =
+                (tool_abort_state, round_send_target)
             {
-                maybe_spawn_remote_im_round_intermediate_send(send_state, send_context, &turn_text);
+                maybe_spawn_remote_im_round_intermediate_send(send_state, send_target, &turn_text);
             }
             return Ok(ModelReply {
                 assistant_text: full_assistant_text,
@@ -973,10 +982,10 @@ async fn run_genai_tool_loop(
             });
         }
 
-        if let (Some(send_state), Some(send_context)) =
-            (tool_abort_state, auto_compaction_context)
+        if let (Some(send_state), Some(send_target)) =
+            (tool_abort_state, round_send_target)
         {
-            maybe_spawn_remote_im_round_intermediate_send(send_state, send_context, &turn_text);
+            maybe_spawn_remote_im_round_intermediate_send(send_state, send_target, &turn_text);
         }
         let assistant_message =
             tool_loop_assistant_message(&turn_text, &turn_tool_calls, &turn_reasoning);
@@ -1113,7 +1122,7 @@ async fn run_genai_tool_loop(
             // 判定前不写临时账本；仅内存累积本轮事件。
             round_completed_tool_result_events.push(tool_result_event);
 
-            if tool_loop_should_close_for_guided_queue(tool_abort_state, auto_compaction_context) {
+            if tool_loop_should_close_for_guided_queue(tool_abort_state, usage_conversation_id) {
                 runtime_log_info(format!(
                     "[引导投送] 工具轮次完成后闭合当前调度: session={}, tool_name={}",
                     chat_session_key, tool_name
@@ -1443,6 +1452,7 @@ async fn run_genai_tool_loop_non_stream(
     selected_api: &ApiConfig,
     resolved_api: &ResolvedApiConfig,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
+    round_send_target: Option<&RemoteImRoundSendTarget>,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     _max_tool_iterations: usize,
     tool_abort_state: Option<&AppState>,
@@ -1733,10 +1743,10 @@ async fn run_genai_tool_loop_non_stream(
                 full_assistant_text.push_str(&turn_text);
             }
             // 正文产出即发：最后一轮走的是和中间轮同一个发送点，收口处不再补发。
-            if let (Some(send_state), Some(send_context)) =
-                (tool_abort_state, auto_compaction_context)
+            if let (Some(send_state), Some(send_target)) =
+                (tool_abort_state, round_send_target)
             {
-                maybe_spawn_remote_im_round_intermediate_send(send_state, send_context, &turn_text);
+                maybe_spawn_remote_im_round_intermediate_send(send_state, send_target, &turn_text);
             }
             return Ok(ModelReply {
                 assistant_text: full_assistant_text,
@@ -1751,10 +1761,10 @@ async fn run_genai_tool_loop_non_stream(
             });
         }
 
-        if let (Some(send_state), Some(send_context)) =
-            (tool_abort_state, auto_compaction_context)
+        if let (Some(send_state), Some(send_target)) =
+            (tool_abort_state, round_send_target)
         {
-            maybe_spawn_remote_im_round_intermediate_send(send_state, send_context, &turn_text);
+            maybe_spawn_remote_im_round_intermediate_send(send_state, send_target, &turn_text);
         }
         let mut assistant_parts = Vec::<genai::chat::ContentPart>::new();
         if !turn_text.is_empty() {
@@ -1902,7 +1912,7 @@ async fn run_genai_tool_loop_non_stream(
             // 判定前不写临时账本；仅内存累积本轮事件。
             round_completed_tool_result_events.push(tool_result_event);
 
-            if tool_loop_should_close_for_guided_queue(tool_abort_state, auto_compaction_context) {
+            if tool_loop_should_close_for_guided_queue(tool_abort_state, usage_conversation_id) {
                 runtime_log_info(format!(
                     "[引导投送] 工具轮次完成后闭合当前非流式调度: session={}, tool_name={}",
                     chat_session_key, tool_name

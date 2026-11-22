@@ -444,18 +444,22 @@ pub(crate) fn clear_goal_continue_suppression(
 
 fn tool_loop_should_close_for_guided_queue(
     state: Option<&AppState>,
-    context: Option<&ToolLoopAutoCompactionContext>,
+    conversation_id: Option<&str>,
 ) -> bool {
     // 注意：这里判断的不是“当前轮次是否已经完整结束”，
     // 而是“在一次工具执行完成之后，是否存在待插入的引导消息”。
     // 一旦为 true，当前调度应在这个工具切点收口，并把后续回复让位给引导重启的新轮次。
+    // 会话 id 单独传：动态边界下压缩上下文是 None，引导投送不能跟着一起失效。
     let Some(state) = state else {
         return false;
     };
-    let Some(context) = context else {
+    let Some(conversation_id) = conversation_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
         return false;
     };
-    conversation_has_guided_queue_events(state, &context.conversation_id).unwrap_or(false)
+    conversation_has_guided_queue_events(state, conversation_id).unwrap_or(false)
 }
 
 // ==================== 队列管理函数 ====================

@@ -5460,3 +5460,61 @@
         assert_eq!(final_returns, 2, "流式与非流式各有一处收尾返回");
         assert_eq!(middle_rounds, 2, "流式与非流式各有一处带工具调用的中间轮");
     }
+
+    // smart_judge 走动态边界时压缩被禁用，tool_loop 上下文为 None；逐轮外发不能再搭它的车，
+    // 否则整轮零发送。这条钉住两件事：发送目标在动态边界判断之前构造、发送点只用发送目标。
+    #[test]
+    fn round_send_target_should_not_depend_on_compaction_context() {
+        let tool_loop = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("features")
+            .join("chat")
+            .join("model_runtime")
+            .join("provider_and_stream")
+            .join("tool_loop.rs");
+        let content = std::fs::read_to_string(&tool_loop).expect("read tool loop");
+        assert_eq!(
+            content
+                .matches(
+                    "maybe_spawn_remote_im_round_intermediate_send(send_state, send_target, &turn_text)"
+                )
+                .count(),
+            4,
+            "流式与非流式的四个发送点都应只依赖发送目标"
+        );
+        assert!(
+            !content.contains(
+                "maybe_spawn_remote_im_round_intermediate_send(send_state, send_context"
+            ),
+            "发送点不得再依赖压缩上下文：动态边界下它是 None，外发会整轮丢失"
+        );
+        assert!(
+            !content.contains("(tool_abort_state, auto_compaction_context)"),
+            "引导切点与逐轮外发都不能挂在压缩上下文上，动态边界下它整轮是 None"
+        );
+
+        let core_send_inner = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("features")
+            .join("system")
+            .join("commands")
+            .join("chat_and_runtime")
+            .join("core_send_inner.rs");
+        let inner = std::fs::read_to_string(&core_send_inner).expect("read core send inner");
+        let target_at = inner
+            .find("let remote_im_round_send_target")
+            .expect("发送目标构造存在");
+        let target_block_end = inner[target_at..]
+            .find("let tool_loop_auto_compaction_context")
+            .map(|offset| target_at + offset)
+            .unwrap_or(inner.len());
+        let target_block = &inner[target_at..target_block_end];
+        assert!(
+            !target_block.contains("remote_im_dynamic_boundary"),
+            "发送目标不得受动态边界影响：smart_judge 那条链正是被它整轮关掉的"
+        );
+        assert!(
+            !target_block.contains("is_runtime_conversation"),
+            "发送目标不得跟随运行时会话一起置空"
+        );
+    }
