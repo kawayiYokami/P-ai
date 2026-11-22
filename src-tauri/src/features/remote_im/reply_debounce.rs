@@ -715,12 +715,22 @@ fn observe_remote_im_persisted_event(
         "[群聊巡检] 开始，任务=落库通知，contact_id={}，conversation_id={}，message_id={}，message_count={}，命中唤醒={}",
         contact.id, event.conversation_id, message.id, message_count, hits_mention
     ));
+    // 联系人日志是本轮排查唯一看得见的地方：每一项决策都往这里写一行。
+    remote_im_append_contact_log(
+        contact,
+        "info",
+        format!(
+            "[巡检通知] 收到落库消息，条数={}，命中唤醒={}",
+            message_count, hits_mention
+        ),
+    );
     match remote_im_contact_is_muted(state, &contact.id) {
         Ok(true) => {
             runtime_log_info(format!(
                 "[群聊巡检] 跳过，任务=落库通知，contact_id={}，reason=联系人处于闭嘴状态",
                 contact.id
             ));
+            remote_im_append_contact_log(contact, "warn", "跳过：联系人处于闭嘴状态".to_string());
             let _ = clear_remote_im_debounces_for_contact(state, &contact.id);
             return;
         }
@@ -750,6 +760,11 @@ fn observe_remote_im_persisted_event(
                     "[群聊巡检] 排期，任务=首轮巡检，contact_id={}，anchor_message_id={}，kind={:?}",
                     contact.id, message.id, kind
                 ));
+                remote_im_append_contact_log(
+                    contact,
+                    "info",
+                    format!("[巡检通知] 排期 首轮 kind={:?}", kind),
+                );
                 schedule = Some((kind, message.id.clone(), reference));
             }
             Some(current) => {
@@ -759,6 +774,11 @@ fn observe_remote_im_persisted_event(
                         "[群聊巡检] 升级，任务=点名提前，contact_id={}，anchor_message_id={}，原kind={:?}",
                         contact.id, current.anchor_message_id, current.kind
                     ));
+                    remote_im_append_contact_log(
+                        contact,
+                        "info",
+                        format!("[巡检通知] 升级为点名提前，原kind={:?}", current.kind),
+                    );
                     schedule = Some((
                         RemoteImGroupReplyTimerKind::Mention,
                         current.anchor_message_id.clone(),
@@ -769,6 +789,14 @@ fn observe_remote_im_persisted_event(
                         "[群聊巡检] 静默，任务=已有排期不重置，contact_id={}，anchor_message_id={}，kind={:?}",
                         contact.id, current.anchor_message_id, current.kind
                     ));
+                    remote_im_append_contact_log(
+                        contact,
+                        "info",
+                        format!(
+                            "[巡检通知] 静默 已有排期不重置 kind={:?}",
+                            current.kind
+                        ),
+                    );
                 }
                 // 其余情况（常规周期已排、点名已排）：静默入库，绝不重置闹钟。
             }

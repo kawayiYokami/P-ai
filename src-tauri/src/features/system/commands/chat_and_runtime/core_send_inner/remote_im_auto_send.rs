@@ -736,7 +736,9 @@ async fn remote_im_auto_send_and_record_decision(
         Err(err) => {
             // 外发失败必须留痕：不发出去的原因就在这里，吞掉就只剩「什么都没发生」。
             runtime_log_warn(format!(
-                "[远程IM][自动发送] 失败，任务=外发，conversation_id={}，reason={err}",
+                "[远程IM][自动发送] 失败，任务=外发，contact_id={}，channel_id={}，conversation_id={}，reason={err}",
+                activation_source.remote_contact_id,
+                activation_source.channel_id,
                 conversation_id
             ));
             if let Err(update_err) = update_remote_im_reply_decision_for_message(
