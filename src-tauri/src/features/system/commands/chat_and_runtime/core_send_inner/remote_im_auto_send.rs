@@ -811,7 +811,6 @@ fn spawn_remote_im_auto_send_contact_assistant_reply(
     assistant_message_id: Option<String>,
 ) {
     tauri::async_runtime::spawn(async move {
-        let started = std::time::Instant::now();
         let (channel_label, contact_label) = remote_im_auto_send_log_labels(&state, &activation_source);
         let reply_preview = remote_im_preview_text(&assistant_text, 100);
         runtime_log_info(format!(
@@ -828,52 +827,32 @@ fn spawn_remote_im_auto_send_contact_assistant_reply(
         )
         .await
         {
-            Ok(RemoteImAutoSendExecutionOutcome::Sent { action }) => {
+            Ok(RemoteImAutoSendExecutionOutcome::Sent { .. }) => {
                 let _ = remote_im_finalize_async_send_result(
                     &state,
                     &activation_source,
                     true,
                     &now_iso(),
                 );
-                runtime_log_info(format!(
-                    "[远程IM][自动发送] 完成：渠道={}，联系人={}，内容={}，动作={}，耗时毫秒={}",
-                    channel_label,
-                    contact_label,
-                    reply_preview,
-                    action,
-                    started.elapsed().as_millis()
-                ));
             }
             Ok(RemoteImAutoSendExecutionOutcome::SkippedEmptyReply) => {
-                runtime_log_warn(format!(
-                    "[远程IM][自动发送] 跳过：渠道={}，联系人={}，原因=模型返回空回复，耗时毫秒={}",
-                    channel_label,
-                    contact_label,
-                    started.elapsed().as_millis()
-                ));
                 remote_im_append_contact_log_for_activation_source(
                     &state,
                     &activation_source,
                     "info",
                     format!(
-                        "[联系人消息] 发出跳过: contact={}, action=reply_async, reason=empty_reply",
+                        "[外发] 跳过: contact={}, action=reply_async, 原因=模型返回空回复",
                         remote_im_activation_source_log_label(&activation_source),
                     ),
                 );
             }
             Ok(RemoteImAutoSendExecutionOutcome::SkippedMuted) => {
-                runtime_log_warn(format!(
-                    "[远程IM][自动发送] 跳过：渠道={}，联系人={}，原因=联系人处于闭嘴状态，耗时毫秒={}",
-                    channel_label,
-                    contact_label,
-                    started.elapsed().as_millis()
-                ));
                 remote_im_append_contact_log_for_activation_source(
                     &state,
                     &activation_source,
                     "info",
                     format!(
-                        "[联系人消息] 发出跳过: contact={}, action=reply_async, reason=muted",
+                        "[外发] 跳过: contact={}, action=reply_async, 原因=联系人处于闭嘴状态",
                         remote_im_activation_source_log_label(&activation_source),
                     ),
                 );
@@ -885,13 +864,9 @@ fn spawn_remote_im_auto_send_contact_assistant_reply(
                     false,
                     &now_iso(),
                 );
-                runtime_log_error(format!(
-                    "[远程IM][自动发送] 失败：渠道={}，联系人={}，内容={}，异常={}，耗时毫秒={}",
-                    channel_label,
-                    contact_label,
-                    reply_preview,
-                    err,
-                    started.elapsed().as_millis()
+                runtime_log_warn(format!(
+                    "[外发] 失败：渠道={}，联系人={}，内容={}，异常={}",
+                    channel_label, contact_label, reply_preview, err
                 ));
             }
         }

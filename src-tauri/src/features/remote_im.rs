@@ -704,31 +704,39 @@ fn remote_im_apply_contact_runtime_state<F>(
         return;
     }
     let after = runtime.presence_state;
-    let expire_text = match (after, patience_seconds) {
-        (RemoteImPresenceState::Present, Some(seconds)) => format!(
-            "，预计离场={}",
-            format_local_time_after_seconds(seconds)
-        ),
-        _ => String::new(),
+    // 预计离场只在「变成在场」时有意义：离场之后没有倒计时可说。
+    let expire_at = match (after, patience_seconds) {
+        (RemoteImPresenceState::Present, Some(seconds)) => {
+            Some(format_local_time_after_seconds(seconds))
+        }
+        _ => None,
     };
+    let expire_runtime = expire_at
+        .as_deref()
+        .map(|at| format!("，预计离场={at}"))
+        .unwrap_or_default();
+    let expire_contact_log = expire_at
+        .as_deref()
+        .map(|at| format!(", 预计离场={at}"))
+        .unwrap_or_default();
     runtime_log_info(format!(
         "[在场] 联系人={}，{} → {}，原因={}{}",
         remote_im_contact_log_label(contact),
         remote_im_presence_state_label(before),
         remote_im_presence_state_label(after),
         reason,
-        expire_text
+        expire_runtime
     ));
     remote_im_append_contact_log(
         contact,
         "info",
         format!(
-            "[在场切换] contact={}, {} -> {}, 原因={}{}",
+            "[在场切换] contact={}, presence={} -> {}{}, 原因={}",
             remote_im_contact_log_label(contact),
             remote_im_presence_state_label(before),
             remote_im_presence_state_label(after),
-            reason,
-            expire_text
+            expire_contact_log,
+            reason
         ),
     );
 }

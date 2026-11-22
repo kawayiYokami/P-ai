@@ -375,7 +375,7 @@ async fn remote_im_send_content_payload(
             contact,
             "info",
             format!(
-                "[联系人消息] 发出跳过: contact={}, action={}, reason=muted",
+                "[外发] 跳过: contact={}, action={}, 原因=联系人处于闭嘴状态",
                 remote_im_contact_log_label(contact),
                 action.trim()
             ),
@@ -403,13 +403,9 @@ async fn remote_im_send_content_payload(
                 contact,
                 "warn",
                 format!(
-                    "[联系人消息] 发出失败: contact={}, action={}, text_count={}, image_count={}, file_count={}, other_count={}, preview={}, error={}",
+                    "[外发] 失败: contact={}, action={}, preview={}, 错误={}",
                     remote_im_contact_log_label(contact),
                     action.trim(),
-                    content_digest.text_count,
-                    content_digest.image_count,
-                    content_digest.file_count,
-                    content_digest.other_count,
                     content_digest.text_preview,
                     err.message
                 ),
@@ -422,14 +418,14 @@ async fn remote_im_send_content_payload(
         contact,
         "info",
         format!(
-            "[联系人消息] 发出: contact={}, action={}, text_count={}, image_count={}, file_count={}, other_count={}, preview={}",
+            "[外发] 完成: contact={}, action={}, 文字={}, preview={}, 图片={}, 文件={}, 其他={}",
             remote_im_contact_log_label(contact),
             action.trim(),
             content_digest.text_count,
+            content_digest.text_preview,
             content_digest.image_count,
             content_digest.file_count,
-            content_digest.other_count,
-            content_digest.text_preview
+            content_digest.other_count
         ),
     )
     .await;

@@ -12,7 +12,11 @@ export type ContactLogDisplayItem = {
 };
 
 function logField(message: string, key: string): string {
-  const match = message.match(new RegExp(`${key}=([\\s\\S]*?)(?=, [a-z_]+=|$)`));
+  // 联系人日志是 key=value 串，字段之间既可能用英文逗号也可能用中文逗号，
+  // 键名有英文（contact）也有中文（原因、预计离场），两种都要能切开。
+  const match = message.match(
+    new RegExp(`${key}=([\\s\\S]*?)(?=[,，]\\s*[A-Za-z_\\u4e00-\\u9fa5]+=|$)`),
+  );
   return String(match?.[1] || "").trim();
 }
 
@@ -32,6 +36,22 @@ function decisionLabel(value: string, t: TranslateFn): string {
   if (value === "no_reply") return t("config.remoteIm.logDecisionNoReply");
   if (value === "send_async") return t("config.remoteIm.logDecisionSendAsync");
   return value || t("common.done");
+}
+
+function presenceLabel(value: string, t: TranslateFn): string {
+  const state = currentStateLabel(value);
+  if (state === "Present") return t("config.remoteIm.logPresencePresent");
+  if (state === "Away") return t("config.remoteIm.logPresenceAway");
+  return state;
+}
+
+function presenceTransitionLabel(value: string, t: TranslateFn): string {
+  const parts = String(value || "")
+    .split("->")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return presenceLabel(value, t);
+  return `${presenceLabel(parts[0], t)} → ${presenceLabel(parts[parts.length - 1], t)}`;
 }
 
 function stateSummary(message: string, t: TranslateFn): string {
@@ -88,40 +108,78 @@ export function buildContactLogDisplayItem(log: ChannelLogEntry, t: TranslateFn)
       ? { timestamp: log.timestamp, level: log.level, kind: t("config.remoteIm.logKindSystem"), title: t("config.remoteIm.logEnqueueFailed"), summary: logField(message, "reason") || t("config.remoteIm.logEnqueueFailedSummary") }
       : null;
   }
-  if (message.startsWith("[联系人状态] 入站判定:")) {
-    const reason = logField(message, "reason");
+  if (message.startsWith("[在场切换]")) {
+    const expireAt = logField(message, "预计离场");
     return {
       timestamp: log.timestamp,
       level: log.level,
       kind: t("config.remoteIm.logKindStatus"),
-      title: stateSummary(message, t),
-      summary: logField(message, "message") || (reason ? t("config.remoteIm.logReason", { reason }) : ""),
-      detail: reason ? t("config.remoteIm.logReason", { reason }) : undefined,
+      title: presenceTransitionLabel(logField(message, "presence"), t),
+      summary: logField(message, "原因") || t("config.remoteIm.logPresenceChanged"),
+      detail: expireAt ? t("config.remoteIm.logPresenceExpireAt", { time: expireAt }) : undefined,
     };
   }
-  if (message.startsWith("[联系人状态] 已交接:")) {
+  if (message.startsWith("[巡检]")) {
+    const head = message.replace(/^\[巡检\]\s*/, "");
+    const separator = head.search(/[:：]/);
     return {
       timestamp: log.timestamp,
       level: log.level,
       kind: t("config.remoteIm.logKindStatus"),
-      title: logField(message, "action"),
-      summary: logField(message, "message"),
-      detail: logField(message, "reason") || undefined,
+      title: (separator === -1 ? head : head.slice(0, separator)).trim(),
+      summary:
+        logField(message, "处理") ||
+        logField(message, "路径") ||
+        logField(message, "原因") ||
+        logField(message, "内容"),
+      detail: undefined,
+    };
+  }
+  if (message.startsWith("[闭嘴]")) {
+    return {
+      timestamp: log.timestamp,
+      level: log.level,
+      kind: t("config.remoteIm.logKindStatus"),
+      title: t("config.remoteIm.logMutedTitle"),
+      summary: logField(message, "原因"),
+    };
+  }
+  if (message.startsWith("[外发]")) {
+    const head = message.replace(/^\[外发\]\s*/, "");
+    const separator = head.search(/[:：]/);
+    return {
+      timestamp: log.timestamp,
+      level: log.level,
+      kind: t("config.remoteIm.logKindSend"),
+      title: (separator === -1 ? head : head.slice(0, separator)).trim(),
+      summary: logField(message, "preview") || logField(message, "原因") || logField(message, "错误"),
+      detail: undefined,
+    };
+  }
+  if (message.startsWith("[应答判断]")) {
+    const head = message.replace(/^\[应答判断\]\s*/, "");
+    const separator = head.search(/[:：]/);
+    const model = logField(message, "模型");
+    return {
+      timestamp: log.timestamp,
+      level: log.level,
+      kind: t("config.remoteIm.logKindStatus"),
+      title: (separator === -1 ? head : head.slice(0, separator)).trim(),
+      summary: logField(message, "原因") || logField(message, "错误"),
+      detail: [
+        logField(message, "应回")
+          ? t("config.remoteIm.logAnswerShouldReply", { value: logField(message, "应回") })
+          : "",
+        model ? t("config.remoteIm.logAnswerModel", { model }) : "",
+      ]
+        .filter(Boolean)
+        .join("；") || undefined,
     };
   }
   if (message.startsWith("[联系人状态] 历史落地:")) {
     return log.level === "warn" || log.level === "error"
       ? { timestamp: log.timestamp, level: log.level, kind: t("config.remoteIm.logKindSystem"), title: t("config.remoteIm.logHistoryWriteFailed"), summary: logField(message, "reason") || t("config.remoteIm.logHistoryWriteFailedSummary") }
       : null;
-  }
-  if (message.startsWith("[联系人消息] 发出失败:")) {
-    return { timestamp: log.timestamp, level: log.level, kind: t("config.remoteIm.logKindSend"), title: t("config.remoteIm.logSendFailed"), summary: logField(message, "preview") || t("config.remoteIm.logSendContentOmitted"), detail: logField(message, "error") || undefined };
-  }
-  if (message.startsWith("[联系人消息] 发出跳过:")) {
-    return { timestamp: log.timestamp, level: log.level, kind: t("config.remoteIm.logKindSend"), title: t("config.remoteIm.logSendSkipped"), summary: logField(message, "reason") || t("config.remoteIm.logSendSkippedSummary") };
-  }
-  if (message.startsWith("[联系人消息] 发出:")) {
-    return { timestamp: log.timestamp, level: log.level, kind: t("config.remoteIm.logKindSend"), title: "", summary: t("config.remoteIm.logSentMessage", { preview: logField(message, "preview") || t("config.remoteIm.logSendContentOmitted") }) };
   }
   if (message.startsWith("[联系人状态] 轮次结束:")) {
     const summary = stateSummary(message, t);
@@ -131,7 +189,6 @@ export function buildContactLogDisplayItem(log: ChannelLogEntry, t: TranslateFn)
     const summary = stateSummary(message, t);
     return { timestamp: log.timestamp, level: log.level, kind: t("config.remoteIm.logKindStatus"), title: summary, summary, detail: logField(message, "error") || undefined };
   }
-  if (message.startsWith("[联系人状态] 异步发送收尾:")) return null;
   return log.level === "warn" || log.level === "error"
     ? { timestamp: log.timestamp, level: log.level, kind: t("config.remoteIm.logKindSystem"), title: t("config.remoteIm.logAbnormalTitle"), summary: t("config.remoteIm.logAbnormalSummary") }
     : null;

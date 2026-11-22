@@ -39,4 +39,36 @@ describe("buildContactLogDisplayItem", () => {
     expect(item?.kind).toBe("config.remoteIm.logKindSystem");
     expect(item?.title).toBe("config.remoteIm.logAbnormalTitle");
   });
+
+  it("在场切换解析出状态转换、原因与预计离场", () => {
+    const item = buildContactLogDisplayItem({
+      timestamp: "now",
+      level: "info",
+      message: "[在场切换] contact=小明, presence=Away -> Present, 预计离场=10:05:00, 原因=命中群昵称",
+    }, t);
+
+    expect(item?.title).toBe(
+      "config.remoteIm.logPresenceAway → config.remoteIm.logPresencePresent",
+    );
+    expect(item?.summary).toBe("命中群昵称");
+    expect(item?.detail).toContain("10:05:00");
+  });
+
+  it("巡检日志用中英文冒号都能切出动作名", () => {
+    const start = buildContactLogDisplayItem({
+      timestamp: "now",
+      level: "info",
+      message: "[巡检] 开始: contact=小明, 路径=Mention",
+    }, t);
+    const finish = buildContactLogDisplayItem({
+      timestamp: "now",
+      level: "info",
+      message: "[巡检] 结束：联系人=小明，处理=已回复",
+    }, t);
+
+    expect(start?.title).toBe("开始");
+    expect(start?.summary).toBe("Mention");
+    expect(finish?.title).toBe("结束");
+    expect(finish?.summary).toBe("已回复");
+  });
 });

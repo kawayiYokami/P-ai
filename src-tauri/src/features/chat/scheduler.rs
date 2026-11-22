@@ -847,8 +847,8 @@ async fn process_conversation_batch(
                     remote_im_skip_decision = Some("no_reply".to_string());
                     set_conversation_remote_im_assistant_context(state, conversation_id, None)?;
                     runtime_log_warn(format!(
-                        "[远程联系人入场] 当前助理上下文非法，跳过本轮激活: conversation_id={}, contact_id={}, error={}",
-                        conversation_id, contact.id, err
+                        "[入场] 跳过：当前助理上下文非法，contact_id={}，error={}",
+                        contact.id, err
                     ));
                     remote_im_append_contact_log(
                         &contact,
@@ -869,8 +869,8 @@ async fn process_conversation_batch(
                     )?;
                     if !follow_up_sources.is_empty() {
                         runtime_log_warn(format!(
-                            "[远程联系人入场] 跳过激活后仍出现待办续跑，当前先跳过: conversation_id={}, source_count={}",
-                            conversation_id,
+                            "[入场] 跳过：激活被跳过但仍有待办续跑，当前先不续，contact_id={}，待办数={}",
+                            contact.id,
                             follow_up_sources.len()
                         ));
                     }
@@ -904,13 +904,18 @@ async fn process_conversation_batch(
                 )
                 .unwrap_or_else(|err| {
                     runtime_log_warn(format!(
-                        "[助理工作账本] 降级，任务=秘书批次判断，contact_id={}，error={}",
+                        "[应答判断] 降级：工作账本读取失败，contact_id={}，error={}",
                         contact.id, err
                     ));
                     "（无）".to_string()
                 });
                 let active_remote_reply_delegate_ids =
                     remote_im_reply_delegate_active_ids_for_contact(state, &contact.id)?;
+                // 环节 3：应答判断。本批消息交给快速模型；开始与结束各一条，结论不在这里展开。
+                runtime_log_info(format!(
+                    "[应答判断] 开始：联系人={}，方式=快速模型",
+                    remote_im_contact_log_label(&contact)
+                ));
                 let decision = match run_remote_im_secretary_decision(
                     state,
                     &contact,
@@ -925,14 +930,14 @@ async fn process_conversation_batch(
                     Ok(result) => result,
                     Err(err) => {
                         runtime_log_warn(format!(
-                            "[远程联系人秘书] 判断失败，降级为不回复: conversation_id={}, contact_id={}, error={}",
-                            conversation_id, contact.id, err
+                            "[应答判断] 降级：快速模型失败，按不回处理，contact_id={}，error={}",
+                            contact.id, err
                         ));
                         remote_im_append_contact_log(
                             &contact,
                             "warn",
                             format!(
-                                "[联系人秘书] 智能判断失败: contact={}, strategy=smart_judge, fallback=no_reply, error={}",
+                                "[应答判断] 失败: contact={}, 原因=快速模型调用失败, error={}",
                                 remote_im_contact_log_label(&contact),
                                 err
                             ),
@@ -947,13 +952,12 @@ async fn process_conversation_batch(
                     }
                 };
                 if decision.emit_log {
-                    runtime_log_warn(format!(
-                        "[远程联系人秘书] 决策完成: conversation_id={}, contact_id={}, should_reply={}, model={}, reason={}",
-                        conversation_id,
-                        contact.id,
-                        decision.should_reply,
+                    runtime_log_info(format!(
+                        "[应答判断] 结束：联系人={}，应回={}，模型={}，原因={}",
+                        remote_im_contact_log_label(&contact),
+                        remote_im_yes_no(decision.should_reply),
                         if decision.model_name.trim().is_empty() {
-                            "fallback"
+                            "未调用"
                         } else {
                             decision.model_name.as_str()
                         },
@@ -963,16 +967,14 @@ async fn process_conversation_batch(
                         &contact,
                         "info",
                         format!(
-                            "[联系人秘书] 智能判断: contact={}, result={}, model={}, history_count={}, new_count={}, reason={}",
+                            "[应答判断] 结束: contact={}, 应回={}, 模型={}, 原因={}",
                             remote_im_contact_log_label(&contact),
-                            if decision.should_reply { "回复" } else { "不回复" },
+                            remote_im_yes_no(decision.should_reply),
                             if decision.model_name.trim().is_empty() {
-                                "fallback"
+                                "未调用"
                             } else {
                                 decision.model_name.as_str()
                             },
-                            secretary_recent_history.len(),
-                            secretary_new_batch_messages.len(),
                             decision.reason
                         ),
                     );
@@ -990,8 +992,8 @@ async fn process_conversation_batch(
                     )?;
                     if !follow_up_sources.is_empty() {
                         runtime_log_warn(format!(
-                            "[远程联系人秘书] 判定不回复后仍出现待办续跑，当前先跳过: conversation_id={}, source_count={}",
-                            conversation_id,
+                            "[应答判断] 跳过：判定不回复后仍有待办续跑，当前先不续，contact_id={}，待办数={}",
+                            contact.id,
                             follow_up_sources.len()
                         ));
                     }
@@ -1014,13 +1016,14 @@ async fn process_conversation_batch(
                             remote_im_skip_decision =
                                 Some("remote_reply_delegate_guidance".to_string());
                             runtime_log_info(format!(
-                                "[远程应答委托] 完成，任务=投递引导，conversation_id={}，contact_id={}，delegate_id={}",
-                                conversation_id, contact.id, target_delegate_id
+                                "[应答委托] 引导已投递：delegate_id={}，联系人={}",
+                                target_delegate_id,
+                                remote_im_contact_log_label(&contact)
                             ));
                         }
                         Err(err) => runtime_log_warn(format!(
-                            "[远程应答委托] 引导投递竞态降级，保留当前批次走新委托，conversation_id={}，contact_id={}，delegate_id={}，error={}",
-                            conversation_id, contact.id, target_delegate_id, err
+                            "[应答委托] 引导投递降级：保留当前批次改走新委托，delegate_id={}，error={}",
+                            target_delegate_id, err
                         )),
                     }
                 } else if let (Some(source), Some(trigger_message_id)) = (
@@ -1042,11 +1045,11 @@ async fn process_conversation_batch(
                             conversation_id,
                             &trigger_message_id,
                             patience_seconds,
-                            "秘书决定通知远程应答委托",
+                            "应答判断决定发起答复",
                         ) {
                             runtime_log_warn(format!(
-                                "[群聊秘书] 在场状态、压缩或计时刷新降级，conversation_id={}，contact_id={}，error={}",
-                                conversation_id, contact.id, err
+                                "[在场] 降级：应答判断后刷新在场状态、压缩或计时失败，contact_id={}，error={}",
+                                contact.id, err
                             ));
                         }
                     } else {
@@ -1054,7 +1057,7 @@ async fn process_conversation_batch(
                             state,
                             &contact.id,
                             patience_seconds,
-                            "秘书决定通知远程应答委托",
+                            "应答判断决定发起答复",
                         )?;
                     }
                     // 未来的自己请停手：这里会把触发消息塞进远程应答委托，
@@ -1084,16 +1087,18 @@ async fn process_conversation_batch(
                             should_activate = false;
                             remote_im_skip_decision = Some("remote_reply_delegate".to_string());
                             runtime_log_info(format!(
-                                "[远程应答委托] 开始，delegate_id={}，conversation_id={}，contact_id={}，trigger_message_id={}",
-                                delegate_id, conversation_id, contact.id, trigger_message_id
+                                "[应答委托] 开始：delegate_id={}，联系人={}，触发消息={}",
+                                delegate_id,
+                                remote_im_contact_log_label(&contact),
+                                trigger_message_id
                             ));
                         }
                         Err(err) => {
                             should_activate = false;
                             remote_im_skip_decision = Some("remote_reply_delegate_start_failed".to_string());
                             runtime_log_error(format!(
-                                "[远程应答委托] 失败，任务=创建，conversation_id={}，contact_id={}，error={}",
-                                conversation_id, contact.id, err
+                                "[应答委托] 失败：创建失败，contact_id={}，error={}",
+                                contact.id, err
                             ));
                         }
                     }
@@ -1227,7 +1232,7 @@ async fn process_conversation_batch(
                             "queue",
                         );
                         runtime_log_info(format!(
-                            "[远程联系人状态机] 待办续跑 开始: conversation_id={}, source_count={}",
+                            "[续跑] 开始：conversation_id={}，待办数={}",
                             conversation_id,
                             follow_up_sources.len()
                         ));

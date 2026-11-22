@@ -221,9 +221,12 @@ fn remote_im_apply_group_energy_for_messages(
         before
     };
     state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
-    runtime_log_debug(format!(
-        "[群聊能量] 巡检范围词库结算：联系人={}，结算前={:.2}，变化={:.2}",
-        remote_im_contact_log_label(contact), before, delta
+    runtime_log_info(format!(
+        "[能量] 联系人={}，{:.2} → {:.2}，原因=巡检区间群友用词（{:+.2}）",
+        remote_im_contact_log_label(contact),
+        before,
+        (before + delta).clamp(-pacing.maximum_energy, pacing.maximum_energy),
+        delta
     ));
     remote_im_emit_contact_dashboard_snapshot(state, &contact.id);
     Ok(())
@@ -279,12 +282,12 @@ fn remote_im_apply_group_reply_energy_cost(
     checkpoint.updated_at = Some(now_iso());
     state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
     runtime_log_info(format!(
-        "[群聊能量] 外发扣能：contact_id={}，before={:.2}，cost={:.2}，after={:.2}，chars={}",
-        contact.id,
+        "[能量] 联系人={}，{:.2} → {:.2}，原因=外发 {} 字（-{:.2}）",
+        remote_im_contact_log_label(contact),
         before,
-        cost,
         after,
-        char_count as usize
+        char_count as usize,
+        cost
     ));
     remote_im_emit_contact_dashboard_snapshot(state, &contact.id);
     Ok(())

@@ -572,7 +572,7 @@ fn remote_im_reply_delegate_finalize(
         status,
     );
     runtime_log_info(format!(
-        "[远程应答委托] 完成，任务=终结，delegate_id={}，status={}，reason={}",
+        "[应答委托] 结束：delegate_id={}，状态={}，原因={}",
         runtime.delegate_id, status, reason
     ));
     if let Err(err) = remote_im_reschedule_presence_timeout_after_delegate(
@@ -580,7 +580,7 @@ fn remote_im_reply_delegate_finalize(
         &runtime.contact_id,
     ) {
         runtime_log_warn(format!(
-            "[远程联系人在场] 降级，任务=应答委托结束后重新计时，contact_id={}，error={}",
+            "[在场] 降级：应答委托结束后重新计时失败，contact_id={}，error={}",
             runtime.contact_id, err
         ));
     }

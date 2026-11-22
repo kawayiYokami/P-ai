@@ -221,6 +221,12 @@ async fn process_persisted_remote_im_events_individually_now(
             });
         let active_delegate_ids =
             remote_im_reply_delegate_active_ids_for_contact(state, &contact.id)?;
+        // 环节 3：应答判断。点名直接放行，其余交给快速模型；开始与结束各一条，结论不在这里展开。
+        runtime_log_info(format!(
+            "[应答判断] 开始：联系人={}，方式={}",
+            remote_im_contact_log_label(&contact),
+            if must_reply_override { "点名，跳过" } else { "快速模型" }
+        ));
         let decision = if must_reply_override {
             RemoteImSecretaryDecision {
                 should_reply: true,
@@ -249,8 +255,8 @@ async fn process_persisted_remote_im_events_individually_now(
                 }
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[远程联系人秘书] 失败，任务=单事件判断降级为不回复，conversation_id={}，contact_id={}，event_id={}，error={}",
-                        conversation_id, contact.id, event.id, err
+                        "[应答判断] 降级：快速模型失败，按不回处理，contact_id={}，error={}",
+                        contact.id, err
                     ));
                     RemoteImSecretaryDecision {
                         should_reply: false,
@@ -262,17 +268,17 @@ async fn process_persisted_remote_im_events_individually_now(
                 }
             }
         };
-        if decision.emit_log {
-            runtime_log_warn(format!(
-                "[远程联系人秘书] 完成，任务=单事件判断，conversation_id={}，contact_id={}，event_id={}，should_reply={}，model={}，reason={}",
-                conversation_id,
-                contact.id,
-                event.id,
-                decision.should_reply,
-                if decision.model_name.trim().is_empty() { "fallback" } else { decision.model_name.as_str() },
-                decision.reason
-            ));
-        }
+        runtime_log_info(format!(
+            "[应答判断] 结束：联系人={}，应回={}，模型={}，原因={}",
+            remote_im_contact_log_label(&contact),
+            remote_im_yes_no(decision.should_reply),
+            if decision.model_name.trim().is_empty() {
+                "未调用"
+            } else {
+                decision.model_name.as_str()
+            },
+            decision.reason
+        ));
         // 秘书结论属于它判定的那段消息，不再按批次编号丢弃：
         // 编号只用于状态写入自检，不参与业务结论是否采纳。
         if !decision.should_reply {
@@ -301,14 +307,14 @@ async fn process_persisted_remote_im_events_individually_now(
                 Ok(()) => {
                     outcome = RemoteImReplyDispatchOutcome::DispatchStarted;
                     runtime_log_info(format!(
-                        "[远程应答委托] 完成，任务=投递单事件引导，conversation_id={}，contact_id={}，delegate_id={}，event_id={}",
-                        conversation_id, contact.id, target_delegate_id, event.id
+                        "[应答委托] 引导已投递：delegate_id={}，contact_id={}，event_id={}",
+                        target_delegate_id, contact.id, event.id
                     ));
                     continue;
                 }
                 Err(err) => runtime_log_warn(format!(
-                    "[远程应答委托] 跳过，任务=目标委托已结束，改为新建委托，conversation_id={}，contact_id={}，delegate_id={}，event_id={}，error={}",
-                    conversation_id, contact.id, target_delegate_id, event.id, err
+                    "[应答委托] 跳过：目标委托已结束，改为新建委托，delegate_id={}，contact_id={}，event_id={}，error={}",
+                    target_delegate_id, contact.id, event.id, err
                 )),
             }
         }
@@ -365,8 +371,10 @@ async fn process_persisted_remote_im_events_individually_now(
             Ok(delegate_id) => {
                 outcome = RemoteImReplyDispatchOutcome::DispatchStarted;
                 runtime_log_info(format!(
-                    "[远程应答委托] 开始，delegate_id={}，conversation_id={}，contact_id={}，trigger_message_id={}，event_id={}",
-                    delegate_id, conversation_id, contact.id, trigger_message.id, event.id
+                    "[应答委托] 开始：delegate_id={}，联系人={}，触发消息={}",
+                    delegate_id,
+                    remote_im_contact_log_label(&contact),
+                    trigger_message.id
                 ));
             }
             Err(err) => return Err(format!(
