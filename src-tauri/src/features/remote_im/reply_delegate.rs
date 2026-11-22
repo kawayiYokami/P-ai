@@ -817,8 +817,8 @@ fn spawn_remote_im_reply_delegate(
                 }),
                 trigger_only: true,
             };
-            let send_result = match send_chat_message_inner(request, &state_clone, &channel).await {
-                Ok(result) => {
+            match send_chat_message_inner(request, &state_clone, &channel).await {
+                Ok(_) => {
                     let _ = remote_im_mark_contact_present_and_schedule(
                         &state_clone,
                         &contact_id_for_task,
@@ -829,7 +829,6 @@ fn spawn_remote_im_reply_delegate(
                         "[远程应答委托] 完成一轮，delegate_id={}，conversation_id={}",
                         delegate_id_for_task, conversation_id
                     ));
-                    result
                 }
                 Err(err) => {
                     runtime_log_error(format!(
@@ -844,18 +843,7 @@ fn spawn_remote_im_reply_delegate(
             match remote_im_reply_delegate_take_guidance_or_finish(&state_clone, &delegate_id_for_task) {
                 Ok(RemoteImReplyDelegateNext::Ended) => break,
                 Ok(RemoteImReplyDelegateNext::Completed(runtime)) => {
-                    let assistant_message_id = send_result
-                        .assistant_message
-                        .as_ref()
-                        .map(|message| message.id.clone());
-                    spawn_remote_im_auto_send_contact_assistant_reply(
-                        state_clone.clone(),
-                        source.clone(),
-                        conversation_id.clone(),
-                        send_result.final_response_text.clone(),
-                        send_result.assistant_message,
-                        assistant_message_id,
-                    );
+                    // 正文在每轮产出时就已发出，委托完成这里不再补发。
                     if let Err(err) = remote_im_reply_delegate_finalize(
                         &state_clone,
                         runtime,

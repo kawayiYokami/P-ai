@@ -3021,30 +3021,6 @@ async fn send_chat_message_inner(
         }
     }
 
-    if remote_im_should_auto_send_after_core_round(&runtime_context) {
-        if let Some(activation_source) = pending_remote_im_auto_send_target {
-            let final_auto_send_message = persisted_assistant_message.clone().filter(|message| {
-                message
-                    .parts
-                    .iter()
-                    .find_map(|part| match part {
-                        MessagePart::Text { text, .. } => Some(text.trim()),
-                        _ => None,
-                    })
-                    .map(|text| text == final_response_text.trim())
-                    .unwrap_or(false)
-            });
-            spawn_remote_im_auto_send_contact_assistant_reply(
-                state.clone(),
-                activation_source,
-                conversation_id.clone(),
-                final_response_text.clone(),
-                final_auto_send_message.clone(),
-                persisted_assistant_message.as_ref().map(|message| message.id.clone()),
-            );
-        }
-    }
-
         break Ok(SendChatResult {
             conversation_id,
             latest_user_text,

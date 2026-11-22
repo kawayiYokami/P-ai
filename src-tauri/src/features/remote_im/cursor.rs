@@ -26,14 +26,45 @@ fn remote_im_cursor_checkpoint(state: &AppState, contact_id: &str) -> Result<Rem
     ))
 }
 
+/// 把游标重置到一个已知存在的锚点（压缩后定位到最新摘要）。
+///
+/// 与「推进」的区别：推进要求区间覆盖目标、用于正常看完一轮；重置只用于旧游标已失效的重定位，
+/// 不做区间校验。两者写的是同一个字段，游标仍然只有 `cursor.rs` 内部这一处所有权。
+fn remote_im_reset_contact_cursor(
+    state: &AppState,
+    contact: &RemoteImContact,
+    target_message_id: &str,
+) -> Result<(), String> {
+    let target = target_message_id.trim();
+    if target.is_empty() {
+        return Ok(());
+    }
+    let mut checkpoint = remote_im_cursor_checkpoint(state, &contact.id)?;
+    if checkpoint.processed_cursor_message_id.as_deref().map(str::trim) == Some(target) {
+        return Ok(());
+    }
+    checkpoint.processed_cursor_message_id = Some(target.to_string());
+    checkpoint.processed_cursor_updated_at = Some(now_iso());
+    remote_im_bump_checkpoint_atomic_revision(&mut checkpoint);
+    checkpoint.updated_at = Some(now_iso());
+    state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
+    runtime_log_info(format!(
+        "[群聊巡检][游标] 重置到最新摘要，contact_id={}，cursor={}",
+        contact.id, target
+    ));
+    Ok(())
+}
+
 /// 确定本次巡检的读取起点：返回「从哪个 sequence 之后开始读」，`None` 表示从会话第一条开始。
 ///
 /// 口径：
 /// - 游标消息存在 → 从该消息之后读，原语义不变。
 /// - 游标消息不存在（被压缩或清理）→ 从最新压缩摘要之后的第一条开始，摘要本身不算区间、
-///   不参与正负词；没有摘要时从会话第一条开始。旧游标本身不修复，也不停在原地。
+///   不参与正负词；没有摘要时从会话第一条开始。
+/// - 定位到摘要时顺带把游标重置成那条摘要消息：下一轮直接从摘要之后读，不再每轮重新定位、不再每轮告警。
 fn remote_im_cursor_read_origin_sequence(
     state: &AppState,
+    contact: &RemoteImContact,
     conversation_id: &str,
     previous_cursor: Option<&str>,
 ) -> Result<Option<i64>, String> {
@@ -46,9 +77,15 @@ fn remote_im_cursor_read_origin_sequence(
             "[群聊巡检][游标] 原游标消息已不存在，改为从最新摘要之后重新读，cursor={cursor}"
         ));
     }
+    // 游标为空只发生在刚压缩完那一刻：入场消息自己就是游标，起点必然是摘要之后；
+    // 从会话开头兜底是给旧数据用的（旧库没有游标字段）。
     let summary_sequence = match message_store::chat_store_read_latest_compaction_message(&paths)? {
-        Some(summary) => message_store::chat_store_read_message_sequence(&paths, &summary.id)?
-            .map(|sequence| sequence as i64),
+        Some(summary) => {
+            // 真正重置游标：下一轮直接从摘要之后读，不再每轮重新定位。
+            remote_im_reset_contact_cursor(state, contact, &summary.id)?;
+            message_store::chat_store_read_message_sequence(&paths, &summary.id)?
+                .map(|sequence| sequence as i64)
+        }
         None => None,
     };
     Ok(summary_sequence)
@@ -134,8 +171,12 @@ fn remote_im_advance_contact_cursor(
         return Ok(false);
     }
     // 起点统一走「游标存在用游标、不存在从最新摘要之后（无摘要则会话开头）」。
-    let origin =
-        remote_im_cursor_read_origin_sequence(state, conversation_id, previous_cursor.as_deref())?;
+    let origin = remote_im_cursor_read_origin_sequence(
+        state,
+        contact,
+        conversation_id,
+        previous_cursor.as_deref(),
+    )?;
     let range =
         remote_im_read_cursor_range(state, conversation_id, origin, new_cursor_message_id)?;
     let reached_target = range

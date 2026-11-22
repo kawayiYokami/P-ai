@@ -482,34 +482,19 @@ async fn process_remote_im_reply_debounce(
         return Ok(RemoteImReplyDispatchOutcome::NoReply);
     }
     let conversation_id = entry.event.conversation_id.clone();
-    let active_delegate_ids =
-        remote_im_reply_delegate_active_ids_for_contact(state, &contact.id)?;
-    let mention_only_read = entry.path == RemoteImReplyInspectionPath::Mention
-        && active_delegate_ids.is_empty();
     let (history, batch) = {
         let state_for_blocking = state.clone();
         let conversation_id_for_blocking = conversation_id.clone();
         let start_message_id = entry.start_message_id.clone();
         let end_message_id = entry.end_message_id.clone();
         tokio::task::spawn_blocking(move || {
-            if mention_only_read {
-                // 未来的自己请停手：这里的 batch 会继续交给秘书/远程应答调度，
-                // 属于后端生成链路。绝对不能读取 frontend_display_only，
-                // 否则工具历史会被展示投影污染后继续进模型/持久化流程。
-                let message = conversation_service_v2().get_raw_message_by_id(
-                    &state_for_blocking,
-                    &conversation_id_for_blocking,
-                    &end_message_id,
-                )?;
-                Ok::<_, String>((Vec::new(), vec![message]))
-            } else {
-                read_remote_im_debounce_secretary_messages(
-                    &state_for_blocking,
-                    &conversation_id_for_blocking,
-                    &start_message_id,
-                    &end_message_id,
-                )
-            }
+            // 点名与非点名读同一个完整区间：严禁只读最后一条点名消息。
+            read_remote_im_debounce_secretary_messages(
+                &state_for_blocking,
+                &conversation_id_for_blocking,
+                &start_message_id,
+                &end_message_id,
+            )
         })
         .await
         .map_err(|err| format!("防抖消息读取任务失败：{err}"))?

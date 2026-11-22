@@ -684,11 +684,6 @@ fn remote_im_auto_send_error_is_muted_gate(error: &str) -> bool {
     error.contains("联系人处于闭嘴状态")
 }
 
-fn remote_im_should_auto_send_after_core_round(_runtime_context: &RuntimeContext) -> bool {
-    // 逐轮外发：本轮正文产出后立即外发，不再有"延后到收口统一发"的开关。
-    true
-}
-
 async fn remote_im_auto_send_and_record_decision(
     state: &AppState,
     activation_source: &RemoteImActivationSource,

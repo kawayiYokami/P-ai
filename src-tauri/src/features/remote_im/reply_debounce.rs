@@ -421,6 +421,8 @@ async fn remote_im_group_reply_handle_timer(
         };
         match gate {
             Ok(gate) if !gate.allowed => {
+                // 能走到这里的失败只有非点名的能量不足：点名的准入在 gate 里跳过能量与回复冷却，
+                // 而收发许可、渠道停用会让消息根本不进来，不会有点名轮走到这里。
                 runtime_log_info(format!(
                     "[群聊巡检] 跳过，contact_id={}，reason={}，处理=只重置巡检时间，游标不动",
                     contact.id, gate.reason
@@ -488,10 +490,11 @@ async fn remote_im_group_reply_handle_timer(
             }
         }
     }
-    // 读取起点：游标消息存在就用它；已被压缩/清理时从最新摘要之后读（无摘要则从会话开头）。
-    // 不修复旧游标，也不在读取失败时停在原地。
+    // 读取起点：游标消息存在就用它；已被压缩/清掉时定位到最新摘要并把游标重置过去。
+    // 读不出来就走「摘要之后 / 会话开头」，不在原地停住。
     let origin = match remote_im_cursor_read_origin_sequence(
         state,
+        &contact,
         &conversation_id,
         previous.as_deref(),
     ) {
@@ -533,6 +536,8 @@ async fn remote_im_group_reply_handle_timer(
                 return;
             }
         };
+    // 巡检只由群友消息入库触发，区间里必然有群友消息；走到这里说明游标已经越过那条触发消息，
+    // 此时没有要推进的东西。
     let Some(end_message_id) = end_message_id else {
         runtime_log_info(format!(
             "[群聊巡检] 跳过，contact_id={}，reason=区间内没有新的联系人消息",

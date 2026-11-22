@@ -4927,6 +4927,7 @@
 
         let origin = remote_im_cursor_read_origin_sequence(
             &state,
+            &contact,
             conversation_id,
             Some("cursor-message-gone"),
         )
@@ -4994,6 +4995,7 @@
 
         let origin = remote_im_cursor_read_origin_sequence(
             &state,
+            &contact,
             conversation_id,
             Some("cursor-message-gone"),
         )
@@ -5039,6 +5041,7 @@
 
         let origin = remote_im_cursor_read_origin_sequence(
             &state,
+            &contact,
             conversation_id,
             Some("cursor-kept-1"),
         )

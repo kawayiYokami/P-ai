@@ -954,6 +954,12 @@ async fn run_genai_tool_loop(
                 }
                 full_assistant_text.push_str(&turn_text);
             }
+            // 正文产出即发：最后一轮走的是和中间轮同一个发送点，收口处不再补发。
+            if let (Some(send_state), Some(send_context)) =
+                (tool_abort_state, auto_compaction_context)
+            {
+                maybe_spawn_remote_im_round_intermediate_send(send_state, send_context, &turn_text);
+            }
             return Ok(ModelReply {
                 assistant_text: full_assistant_text,
                 final_response_text: turn_text,
@@ -1725,6 +1731,12 @@ async fn run_genai_tool_loop_non_stream(
                     full_assistant_text.push_str("\n\n");
                 }
                 full_assistant_text.push_str(&turn_text);
+            }
+            // 正文产出即发：最后一轮走的是和中间轮同一个发送点，收口处不再补发。
+            if let (Some(send_state), Some(send_context)) =
+                (tool_abort_state, auto_compaction_context)
+            {
+                maybe_spawn_remote_im_round_intermediate_send(send_state, send_context, &turn_text);
             }
             return Ok(ModelReply {
                 assistant_text: full_assistant_text,
