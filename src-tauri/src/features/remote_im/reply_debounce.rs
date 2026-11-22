@@ -130,13 +130,13 @@ fn remote_im_group_reply_schedule_inspection(
     let pacing = effective_remote_im_group_reply_pacing(state, contact);
     let key = remote_im_group_reply_state_key(state, &contact.id);
     // 剩余时间与排期写入在同一把锁内取与写：点名加速要看到「当前这一轮还要等多久」。
-    let (delay, due_at) = {
+    let (delay, due_at, previous_kind, previous_remaining) = {
         let mut store = lock_remote_im_inspection_schedule_store();
-        let remaining = store.next_inspection.get(&key).map(|current| {
-            current
-                .due_at
-                .saturating_duration_since(std::time::Instant::now())
-        });
+        let previous = store
+            .next_inspection
+            .get(&key)
+            .map(|current| (current.kind, current.due_at.saturating_duration_since(std::time::Instant::now())));
+        let remaining = previous.map(|(_, remaining)| remaining);
         let delay = remote_im_group_reply_timer_delay(&pacing, kind, remaining);
         let due_at = std::time::Instant::now() + delay;
         store.next_inspection.insert(
@@ -148,13 +148,38 @@ fn remote_im_group_reply_schedule_inspection(
                 event,
             },
         );
-        (delay, due_at)
+        (
+            delay,
+            due_at,
+            previous.map(|(kind, _)| kind),
+            remaining,
+        )
     };
+    // 巡检时间要么首次定下，要么被改写：点名加速会把常规周期提前，重排会整体推后。
+    // 日志写清「原来还剩多久、现在改成什么时候」，否则只看一个等待毫秒数无从判断是不是加速。
+    let action_label = match (previous_kind, previous_remaining) {
+        (Some(before_kind), Some(_)) => {
+            if kind == RemoteImGroupReplyTimerKind::Mention
+                && before_kind == RemoteImGroupReplyTimerKind::NonMention
+            {
+                "加速"
+            } else {
+                "时间变更"
+            }
+        }
+        _ => "已安排",
+    };
+    let previous_text = previous_remaining
+        .map(|remaining| format!("，原剩={:.1}秒", remaining.as_secs_f64()))
+        .unwrap_or_default();
     runtime_log_info(format!(
-        "[群聊巡检] 已安排：联系人={}，路径={:?}，等待毫秒={}，reason={}",
+        "[巡检] {}：联系人={}，路径={:?}，等待={:.1}秒，预计看群={}{}，原因={}",
+        action_label,
         remote_im_contact_log_label(contact),
         kind,
-        delay.as_millis(),
+        delay.as_secs_f64(),
+        format_local_time_after_seconds(delay.as_secs()),
+        previous_text,
         reason
     ));
     remote_im_group_reply_schedule_action(
@@ -328,6 +353,31 @@ fn read_remote_im_group_reply_range_to_latest(
     Ok((range, end_message_id, focus))
 }
 
+/// 巡检结束的唯一出口。
+///
+/// 巡检是一个有始有终的动作：闹钟响了算开始，读完区间并交给判断（或中途放弃）算结束。
+/// 每条路径都在这里落一条，说明这一轮到底做成了什么，不在各分支自己拼措辞。
+fn remote_im_finish_inspection(
+    contact: Option<&RemoteImContact>,
+    contact_id: &str,
+    outcome: &str,
+) {
+    let label = contact
+        .map(remote_im_contact_log_label)
+        .unwrap_or_else(|| contact_id.to_string());
+    runtime_log_info(format!(
+        "[巡检] 结束：联系人={}，处理={}",
+        label, outcome
+    ));
+    if let Some(contact) = contact {
+        remote_im_append_contact_log(
+            contact,
+            "info",
+            format!("[巡检] 结束: contact={}, 处理={}", label, outcome),
+        );
+    }
+}
+
 /// 巡检到点：取游标 → 读区间 → 推进游标 → 交给判断 → 排下一轮。
 ///
 /// 能量门在读范围之前：非点名能量不足只重置巡检时间，游标与消息都不动。
@@ -335,7 +385,7 @@ async fn remote_im_group_reply_handle_timer(
     state: &AppState,
     action: RemoteImGroupReplyTimerAction,
 ) {
-    // 到点即结束这一次观察：闹钟项在这里就消失，观察员休眠。
+    // 巡检只有一次：闹钟响了，这一项当场消失，没有「下一轮巡检」，下一次由新消息入库重新起。
     // 判断、委托、外发都不属于巡检——期间入库的新消息看到没有闹钟会起新一轮，正确性由游标保证。
     let entry = {
         let mut store = lock_remote_im_inspection_schedule_store();
@@ -349,30 +399,38 @@ async fn remote_im_group_reply_handle_timer(
         store.next_inspection.remove(&action.state_key);
         current
     };
+    runtime_log_info(format!(
+        "[巡检] 开始，contact_id={}，路径={:?}",
+        action.contact_id, action.kind
+    ));
     let contact = match remote_im_group_reply_contact_latest(state, &action.contact_id) {
         Ok(contact) => contact,
         Err(err) => {
             if err.starts_with("群聊联系人已不存在") {
-                runtime_log_info(format!(
-                    "[群聊巡检] 联系人已删除，清理巡检排期，contact_id={}",
-                    action.contact_id
-                ));
+                remote_im_finish_inspection(None, &action.contact_id, "联系人已删除");
                 let _ = clear_remote_im_debounces_for_contact(state, &action.contact_id);
                 return;
             }
-            runtime_log_warn(format!(
-                "[群聊巡检] 跳过，contact_id={}，reason=读取联系人失败，游标未动，等新消息入库起下一轮，error={}",
-                action.contact_id, err
-            ));
+            remote_im_finish_inspection(
+                None,
+                &action.contact_id,
+                &format!("读取联系人失败：{err}"),
+            );
             return;
         }
     };
+    remote_im_append_contact_log(
+        &contact,
+        "info",
+        format!(
+            "[巡检] 开始: contact={}, 路径={:?}",
+            remote_im_contact_log_label(&contact),
+            action.kind
+        ),
+    );
     match remote_im_contact_is_muted(state, &contact.id) {
         Ok(true) => {
-            runtime_log_info(format!(
-                "[群聊巡检] 跳过，contact_id={}，reason=联系人处于闭嘴状态",
-                contact.id
-            ));
+            remote_im_finish_inspection(Some(&contact), &contact.id, "联系人处于闭嘴状态");
             let _ = clear_remote_im_debounces_for_contact(state, &contact.id);
             return;
         }
@@ -400,6 +458,11 @@ async fn remote_im_group_reply_handle_timer(
         {
             Ok(result) => result,
             Err(err) => {
+                remote_im_finish_inspection(
+                    Some(&contact),
+                    &contact.id,
+                    &format!("能量门控任务失败：{err}"),
+                );
                 remote_im_group_reply_reset_countdown(
                     state,
                     &contact,
@@ -415,10 +478,11 @@ async fn remote_im_group_reply_handle_timer(
             Ok(gate) if !gate.allowed => {
                 // 能走到这里的失败只有非点名的能量不足：点名的准入在 gate 里跳过能量与回复冷却，
                 // 而收发许可、渠道停用会让消息根本不进来，不会有点名轮走到这里。
-                runtime_log_info(format!(
-                    "[群聊巡检] 跳过，contact_id={}，reason={}，处理=只重置巡检时间，游标不动",
-                    contact.id, gate.reason
-                ));
+                remote_im_finish_inspection(
+                    Some(&contact),
+                    &contact.id,
+                    &format!("{}，只重置巡检时间，游标不动", gate.reason),
+                );
                 remote_im_group_reply_reset_countdown(
                     state,
                     &contact,
@@ -438,6 +502,11 @@ async fn remote_im_group_reply_handle_timer(
                 },
             ),
             Err(err) => {
+                remote_im_finish_inspection(
+                    Some(&contact),
+                    &contact.id,
+                    &format!("读取能量或冷却状态失败：{err}"),
+                );
                 remote_im_group_reply_reset_countdown(
                     state,
                     &contact,
@@ -455,6 +524,11 @@ async fn remote_im_group_reply_handle_timer(
     let mut previous = match remote_im_contact_processed_cursor(state, &contact.id) {
         Ok(value) => value,
         Err(err) => {
+            remote_im_finish_inspection(
+                Some(&contact),
+                &contact.id,
+                &format!("读取已处理游标失败：{err}"),
+            );
             remote_im_group_reply_reset_countdown(
                 state,
                 &contact,
@@ -476,7 +550,7 @@ async fn remote_im_group_reply_handle_timer(
             Ok(_) => previous = Some(entry.anchor_message_id.clone()),
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[群聊巡检] 跳过，contact_id={}，reason=入场起点无法成为游标起点，error={}",
+                    "[巡检] 降级：入场起点无法成为游标起点，contact_id={}，error={}",
                     contact.id, err
                 ));
             }
@@ -492,10 +566,11 @@ async fn remote_im_group_reply_handle_timer(
     ) {
         Ok(value) => value,
         Err(err) => {
-            runtime_log_warn(format!(
-                "[群聊巡检] 跳过，contact_id={}，reason=读取巡检起点失败，处理=重排下一轮，error={}",
-                contact.id, err
-            ));
+            remote_im_finish_inspection(
+                Some(&contact),
+                &contact.id,
+                &format!("读取巡检起点失败，重排下一次看群：{err}"),
+            );
             remote_im_group_reply_reset_countdown(
                 state,
                 &contact,
@@ -511,12 +586,14 @@ async fn remote_im_group_reply_handle_timer(
         match read_remote_im_group_reply_range_to_latest(state, &contact, &conversation_id, origin) {
             Ok(value) => value,
             Err(err) => {
-                runtime_log_warn(format!(
-                    "[群聊巡检] 跳过，contact_id={}，reason=区间读取失败，处理=重排下一轮，previous={}，error={}",
-                    contact.id,
-                    previous.as_deref().unwrap_or(""),
-                    err
-                ));
+                remote_im_finish_inspection(
+                    Some(&contact),
+                    &contact.id,
+                    &format!(
+                        "区间读取失败，重排下一次看群，previous={}，{err}",
+                        previous.as_deref().unwrap_or("")
+                    ),
+                );
                 remote_im_group_reply_reset_countdown(
                     state,
                     &contact,
@@ -531,36 +608,39 @@ async fn remote_im_group_reply_handle_timer(
     // 巡检只由群友消息入库触发，区间里必然有群友消息；走到这里说明游标已经越过那条触发消息，
     // 此时没有要推进的东西。
     let Some(end_message_id) = end_message_id else {
-        runtime_log_info(format!(
-            "[群聊巡检] 跳过，contact_id={}，reason=区间内没有新的联系人消息",
-            contact.id
-        ));
+        remote_im_finish_inspection(Some(&contact), &contact.id, "区间内没有新的联系人消息");
         return;
     };
     // 推进游标：内部扫区间结算正负词，外部看不到也不参与。
     match remote_im_advance_contact_cursor(state, &contact, &conversation_id, &end_message_id) {
         Ok(true) => {}
         Ok(false) => {
-            runtime_log_warn(format!(
-                "[群聊巡检] 跳过，contact_id={}，reason=游标未推进（幂等或条件不满足），previous={}，target={}",
-                contact.id,
-                previous.as_deref().unwrap_or(""),
-                end_message_id
-            ));
+            remote_im_finish_inspection(
+                Some(&contact),
+                &contact.id,
+                &format!(
+                    "游标未推进（幂等或条件不满足），previous={}，target={}",
+                    previous.as_deref().unwrap_or(""),
+                    end_message_id
+                ),
+            );
             return;
         }
         Err(err) => {
-            runtime_log_warn(format!(
-                "[群聊巡检] 跳过，contact_id={}，reason=推进游标失败，previous={}，target={}，error={}",
-                contact.id,
-                previous.as_deref().unwrap_or(""),
-                end_message_id,
-                err
-            ));
+            remote_im_finish_inspection(
+                Some(&contact),
+                &contact.id,
+                &format!(
+                    "推进游标失败，previous={}，target={}，{err}",
+                    previous.as_deref().unwrap_or(""),
+                    end_message_id
+                ),
+            );
             return;
         }
     }
     let Some(start_message_id) = range.first().map(|message| message.id.clone()) else {
+        remote_im_finish_inspection(Some(&contact), &contact.id, "区间为空");
         return;
     };
     let batch_preview = range
@@ -570,8 +650,8 @@ async fn remote_im_group_reply_handle_timer(
         .map(render_message_content_for_model)
         .map(|text| remote_im_preview_text(&text, 100))
         .unwrap_or_else(|| "（无文本）".to_string());
-    runtime_log_info(format!(
-        "[群聊巡检] 开始：联系人={}，内容={}，路径={:?}，能量={}，回复上限={}字，区间消息数={}",
+    runtime_log_debug(format!(
+        "[巡检] 区间：联系人={}，内容={}，路径={:?}，能量={}，回复上限={}字，区间消息数={}",
         remote_im_contact_log_label(&contact),
         batch_preview,
         action.kind,
@@ -590,14 +670,23 @@ async fn remote_im_group_reply_handle_timer(
         },
         event: entry.event,
     };
-    // 判断结果不决定巡检是否继续：这一轮在推进游标、交付判断之后已经结束，观察员休眠。
+    // 判断结果不决定巡检是否继续：这一轮在推进游标、交付判断之后已经结束。
+    let mut handed_off = true;
     match process_remote_im_reply_debounce(state, ready).await {
         Ok(_) => {}
-        Err(err) => runtime_log_warn(format!(
-            "[群聊巡检] 降级，contact_id={}，reason=判断失败但巡检已结束，error={}",
-            contact.id, err
-        )),
+        Err(err) => {
+            handed_off = false;
+            runtime_log_warn(format!(
+                "[巡检] 降级：判断环节失败，contact_id={}，error={}",
+                contact.id, err
+            ));
+        }
     }
+    remote_im_finish_inspection(
+        Some(&contact),
+        &contact.id,
+        if handed_off { "已交付判断" } else { "已交付判断（判断环节失败）" },
+    );
 }
 
 fn observe_remote_im_persisted_event(
@@ -652,12 +741,6 @@ fn observe_remote_im_persisted_event(
         }
     }
     if let Some((kind, anchor_message_id, event)) = schedule {
-        runtime_log_info(format!(
-            "[群聊巡检] 已安排：联系人={}，内容={}，路径={:?}",
-            remote_im_contact_log_label(contact),
-            remote_im_preview_text(&render_message_content_for_model(message), 100),
-            kind
-        ));
         remote_im_group_reply_schedule_inspection(
             state,
             contact,

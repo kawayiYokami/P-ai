@@ -1,16 +1,23 @@
 fn remote_im_mark_contact_present(
     state: &AppState,
     contact_id: &str,
+    patience_seconds: u64,
     reason: &str,
 ) -> Result<(), String> {
     let contact = state_service_get_remote_im_contact(state, contact_id)?
         .ok_or_else(|| format!("远程联系人不存在：{contact_id}"))?;
     let mut states = lock_remote_im_contact_runtime_states(state)?;
-    remote_im_apply_contact_runtime_state(&mut states, &contact, reason, |runtime| {
-        runtime.presence_state = RemoteImPresenceState::Present;
-        runtime.last_presence_at = Some(now_iso());
-        runtime.consecutive_no_reply_count = 0;
-    });
+    remote_im_apply_contact_runtime_state(
+        &mut states,
+        &contact,
+        reason,
+        Some(patience_seconds),
+        |runtime| {
+            runtime.presence_state = RemoteImPresenceState::Present;
+            runtime.last_presence_at = Some(now_iso());
+            runtime.consecutive_no_reply_count = 0;
+        },
+    );
     drop(states);
     remote_im_emit_contact_dashboard_snapshot(state, contact_id);
     Ok(())
@@ -22,7 +29,7 @@ fn remote_im_mark_contact_present_and_schedule(
     patience_seconds: u64,
     reason: &str,
 ) -> Result<(), String> {
-    remote_im_mark_contact_present(state, contact_id, reason)?;
+    remote_im_mark_contact_present(state, contact_id, patience_seconds, reason)?;
     remote_im_schedule_presence_timeout(state, contact_id, patience_seconds)
 }
 
@@ -34,7 +41,7 @@ fn remote_im_mark_contact_present_and_schedule_after_entry_compaction(
     patience_seconds: u64,
     reason: &str,
 ) -> Result<bool, String> {
-    remote_im_mark_contact_present(state, contact_id, reason)?;
+    remote_im_mark_contact_present(state, contact_id, patience_seconds, reason)?;
     runtime_log_info(format!(
         "[远程唤醒压缩] 开始，任务=入场原子压缩，conversation_id={}，contact_id={}，trigger_message_id={}",
         conversation_id, contact_id, trigger_message_id
@@ -148,9 +155,15 @@ fn remote_im_schedule_presence_timeout(
             if !still_present {
                 return;
             }
-            remote_im_apply_contact_runtime_state(&mut states, &contact, "耐心超时", |runtime| {
-                runtime.presence_state = RemoteImPresenceState::Away;
-            });
+            remote_im_apply_contact_runtime_state(
+                &mut states,
+                &contact,
+                "耐心超时",
+                None,
+                |runtime| {
+                    runtime.presence_state = RemoteImPresenceState::Away;
+                },
+            );
         }
         remote_im_emit_contact_dashboard_snapshot(&state_clone, &contact_id);
         if let Err(err) = spawn_remote_im_departure_reflection_delegate(

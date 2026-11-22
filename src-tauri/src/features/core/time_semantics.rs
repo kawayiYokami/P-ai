@@ -55,8 +55,7 @@ fn to_local_datetime(dt: OffsetDateTime) -> OffsetDateTime {
     }
 }
 
-fn format_offset_datetime_to_local_text(dt: OffsetDateTime) -> String {
-    let local = to_local_datetime(dt);
+fn format_offset_datetime_to_local_text(dt: OffsetDateTime) -> String {    let local = to_local_datetime(dt);
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
         local.year(),
@@ -79,6 +78,16 @@ fn format_offset_datetime_to_local_rfc3339(dt: OffsetDateTime) -> String {
 fn now_local_rfc3339() -> String {
     format_offset_datetime_to_local_rfc3339(now_utc())
 }
+
+/// 从现在起 `seconds` 秒后的本地时间文本（`YYYY-MM-DD HH:MM:SS`）。
+///
+/// 用在日志里写「预计几点到」：在场耐心超时的预计离场时刻、看群闹钟的预计到点时刻。
+fn format_local_time_after_seconds(seconds: u64) -> String {
+    format_offset_datetime_to_local_text(
+        now_utc() + time::Duration::seconds(seconds.min(i64::MAX as u64) as i64),
+    )
+}
+
 
 fn format_utc_storage_time_to_local_rfc3339(raw: &str) -> String {
     let trimmed = raw.trim();

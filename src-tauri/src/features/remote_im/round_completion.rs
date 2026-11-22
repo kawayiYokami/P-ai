@@ -333,14 +333,22 @@ fn remote_im_finalize_async_send_result(
     };
     let mut runtime_states = lock_remote_im_contact_runtime_states(state)?;
     // 外发成功或失败都算「刚活跃过」：刷新耐心时间，在场状态没变就不产生在场日志。
-    remote_im_apply_contact_runtime_state(&mut runtime_states, &contact, "应答外发完成", |runtime| {
-        runtime.presence_state = RemoteImPresenceState::Present;
-        runtime.last_presence_at = Some(now.to_string());
-        runtime.consecutive_no_reply_count = 0;
-        if send_ok {
-            runtime.last_success_reply_at = Some(now.to_string());
-        }
-    });
+    let patience_seconds =
+        remote_im_channel_behavior_settings_for_contact(state, &contact).patience_seconds;
+    remote_im_apply_contact_runtime_state(
+        &mut runtime_states,
+        &contact,
+        "应答外发完成",
+        Some(patience_seconds),
+        |runtime| {
+            runtime.presence_state = RemoteImPresenceState::Present;
+            runtime.last_presence_at = Some(now.to_string());
+            runtime.consecutive_no_reply_count = 0;
+            if send_ok {
+                runtime.last_success_reply_at = Some(now.to_string());
+            }
+        },
+    );
     drop(runtime_states);
     remote_im_emit_contact_dashboard_snapshot(state, &contact.id);
     remote_im_schedule_presence_timeout(

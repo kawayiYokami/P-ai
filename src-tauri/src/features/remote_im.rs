@@ -692,6 +692,7 @@ fn remote_im_apply_contact_runtime_state<F>(
     states: &mut std::collections::HashMap<String, RemoteImContactRuntimeState>,
     contact: &RemoteImContact,
     reason: &str,
+    patience_seconds: Option<u64>,
     apply: F,
 ) where
     F: FnOnce(&mut RemoteImContactRuntimeState),
@@ -702,22 +703,32 @@ fn remote_im_apply_contact_runtime_state<F>(
     if before == runtime.presence_state {
         return;
     }
+    let after = runtime.presence_state;
+    let expire_text = match (after, patience_seconds) {
+        (RemoteImPresenceState::Present, Some(seconds)) => format!(
+            "，预计离场={}",
+            format_local_time_after_seconds(seconds)
+        ),
+        _ => String::new(),
+    };
     runtime_log_info(format!(
-        "[在场] 联系人={}，{} → {}，原因={}",
+        "[在场] 联系人={}，{} → {}，原因={}{}",
         remote_im_contact_log_label(contact),
         remote_im_presence_state_label(before),
-        remote_im_presence_state_label(runtime.presence_state),
-        reason
+        remote_im_presence_state_label(after),
+        reason,
+        expire_text
     ));
     remote_im_append_contact_log(
         contact,
         "info",
         format!(
-            "[在场切换] contact={}, {} -> {}, 原因={}",
+            "[在场切换] contact={}, {} -> {}, 原因={}{}",
             remote_im_contact_log_label(contact),
             remote_im_presence_state_label(before),
-            remote_im_presence_state_label(runtime.presence_state),
-            reason
+            remote_im_presence_state_label(after),
+            reason,
+            expire_text
         ),
     );
 }
@@ -899,11 +910,17 @@ fn remote_im_prepare_enqueue_runtime_state(
     };
     let reason = format!("{mute_prefix}{entry_reason}");
     if activate_assistant {
-        remote_im_apply_contact_runtime_state(&mut runtime_states, contact, &reason, |runtime| {
-            runtime.presence_state = RemoteImPresenceState::Present;
-            runtime.last_presence_at = Some(now_iso());
-            runtime.consecutive_no_reply_count = 0;
-        });
+        remote_im_apply_contact_runtime_state(
+            &mut runtime_states,
+            contact,
+            &reason,
+            Some(behavior.patience_seconds),
+            |runtime| {
+                runtime.presence_state = RemoteImPresenceState::Present;
+                runtime.last_presence_at = Some(now_iso());
+                runtime.consecutive_no_reply_count = 0;
+            },
+        );
     }
     drop(runtime_states);
     if activate_assistant {
