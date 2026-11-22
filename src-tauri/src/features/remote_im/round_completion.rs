@@ -17,6 +17,9 @@ fn remote_im_update_checkpoint_latest_seen_in_checkpoint(
     message_id: Option<&str>,
     now: &str,
 ) {
+    // 只记「最后看到哪条」，入站即写，不参与巡检判定。
+    // 巡检游标是另一个字段（processed_cursor_message_id），只能由推进游标方法写；
+    // 两者绝不能合并：合并等于每次入站都把游标推到最新，巡检永远读到空区间。
     checkpoint.latest_seen_message_id = message_id
         .map(str::trim)
         .filter(|value| !value.is_empty())

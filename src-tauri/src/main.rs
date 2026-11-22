@@ -487,37 +487,6 @@ async fn run_deferred_setup(app_handle: AppHandle) {
         Ok(result) => log_workspace_load_result("[工作区加载]", &result),
         Err(err) => runtime_log_error(format!("[工作区加载] 状态=失败，error={err}")),
     }
-    let recovery_state = app_state.inner().clone();
-    tauri::async_runtime::spawn(async move {
-        for attempt in 0..6u8 {
-            match remote_im_recover_all_group_reply_delivery_markers(&recovery_state) {
-                Ok((recovered, 0)) => {
-                    if recovered > 0 {
-                        runtime_log_info(format!(
-                            "[群聊巡检] 启动恢复完成，recovered_count={}",
-                            recovered
-                        ));
-                    }
-                    break;
-                }
-                Ok((recovered, failed)) => runtime_log_warn(format!(
-                    "[群聊巡检] 启动恢复部分失败，attempt={}，recovered_count={}，failed_count={}",
-                    attempt.saturating_add(1),
-                    recovered,
-                    failed
-                )),
-                Err(err) => runtime_log_warn(format!(
-                    "[群聊巡检] 启动恢复读取失败，attempt={}，error={}",
-                    attempt.saturating_add(1),
-                    err
-                )),
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(
-                5u64.saturating_mul(1u64 << attempt.min(3)),
-            ))
-            .await;
-        }
-    });
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
         let wayland_only =

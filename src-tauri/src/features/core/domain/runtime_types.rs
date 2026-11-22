@@ -160,7 +160,6 @@ struct RemoteImReplyDelegateRuntime {
     /// 已开始终结，不再接收秘书引导。
     terminal: bool,
     session_agent_id: String,
-    inspection_generation: Option<u64>,
     group_reply_focus: bool,
     group_reply_max_chars: Option<u32>,
 }

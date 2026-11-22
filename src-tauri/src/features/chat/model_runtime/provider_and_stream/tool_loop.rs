@@ -967,6 +967,11 @@ async fn run_genai_tool_loop(
             });
         }
 
+        if let (Some(send_state), Some(send_context)) =
+            (tool_abort_state, auto_compaction_context)
+        {
+            maybe_spawn_remote_im_round_intermediate_send(send_state, send_context, &turn_text);
+        }
         let assistant_message =
             tool_loop_assistant_message(&turn_text, &turn_tool_calls, &turn_reasoning);
         messages.push(assistant_message);
@@ -1734,6 +1739,11 @@ async fn run_genai_tool_loop_non_stream(
             });
         }
 
+        if let (Some(send_state), Some(send_context)) =
+            (tool_abort_state, auto_compaction_context)
+        {
+            maybe_spawn_remote_im_round_intermediate_send(send_state, send_context, &turn_text);
+        }
         let mut assistant_parts = Vec::<genai::chat::ContentPart>::new();
         if !turn_text.is_empty() {
             assistant_parts.push(genai::chat::ContentPart::from_text(turn_text.clone()));

@@ -2901,7 +2901,6 @@
                 &assistant_text,
                 Some(&assistant_message),
                 Some(&assistant_message_id),
-                None,
             ))
             .expect("auto send should succeed");
 
@@ -2934,19 +2933,6 @@
     }
 
     #[test]
-    fn remote_im_delegate_core_round_should_defer_auto_send_until_final_iteration() {
-        let runtime_context = RuntimeContext {
-            remote_im_reply_delegate_id: Some("delegate-a".to_string()),
-            remote_im_defer_auto_send: true,
-            ..RuntimeContext::default()
-        };
-        assert!(!remote_im_should_auto_send_after_core_round(&runtime_context));
-        assert!(remote_im_should_auto_send_after_core_round(
-            &RuntimeContext::default()
-        ));
-    }
-
-    #[test]
     fn remote_im_auto_send_and_record_decision_should_mark_send_failed_after_mock_error() {
         let (state, activation_source, conversation_id, assistant_message_id, assistant_text) =
             seed_remote_im_auto_send_test_state(serde_json::json!({
@@ -2968,7 +2954,6 @@
                 &assistant_text,
                 Some(&assistant_message),
                 Some(&assistant_message_id),
-                None,
             ))
             .expect_err("auto send should fail");
 
@@ -2999,11 +2984,10 @@
     }
 
     #[test]
-    fn remote_im_group_auto_send_uncertain_result_should_not_schedule_body_retry() {
+    fn remote_im_group_auto_send_should_charge_energy_even_when_send_fails() {
         let (state, mut activation_source, conversation_id, assistant_message_id, assistant_text) =
             seed_remote_im_auto_send_test_state(serde_json::json!({
-                "mockSendError": "mock delivery timeout",
-                "mockSendErrorKind": "uncertain"
+                "mockSendError": "mock delivery timeout"
             }));
         activation_source.remote_contact_type = "group".to_string();
         let mut contact = state_service_get_remote_im_contact(&state, "contact-record-a")
@@ -3011,47 +2995,16 @@
             .expect("contact");
         contact.remote_contact_type = "group".to_string();
         state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
-        let mut trigger = remote_im_test_group_user_message("user-a");
-        trigger.id = "group-trigger-a".to_string();
-        let event = create_pending_event(
-            "group-event-a".to_string(),
-            conversation_id.clone(),
-            vec![trigger],
-            true,
-            ChatSessionInfo {
-                agent_id: "agent-a".to_string(),
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(10.0),
+                energy_updated_at: Some(now_iso()),
+                ..RemoteImContactCheckpoint::default()
             },
-            RemoteImMessageSource {
-                channel_id: activation_source.channel_id.clone(),
-                platform: activation_source.platform.clone(),
-                im_name: "QQ".to_string(),
-                remote_contact_type: "group".to_string(),
-                remote_contact_id: activation_source.remote_contact_id.clone(),
-                remote_contact_name: activation_source.remote_contact_name.clone(),
-                sender_id: "user-a".to_string(),
-                sender_name: "user-a".to_string(),
-                sender_avatar_url: None,
-                platform_message_id: None,
-            },
-        );
-        let generation = 7001;
-        let state_key = remote_im_group_reply_state_key(&state, &contact.id);
-        lock_remote_im_group_reply_state_store().by_contact.insert(
-            state_key.clone(),
-            RemoteImGroupReplyState {
-                generation,
-                phase: RemoteImGroupReplyPhase::AssistantDispatching,
-                start_message_id: "group-trigger-a".to_string(),
-                decision_end_message_id: Some("group-trigger-a".to_string()),
-                focus: false,
-                energy_settled: false,
-                next_round_mention: false,
-                event,
-                due_at: std::time::Instant::now(),
-                inspection_kind: RemoteImGroupReplyTimerKind::Mention,
-                pending_settlement: None,
-            },
-        );
+        )
+        .expect("write contact energy");
         let assistant_message = state_read_conversation_cached(&state, &conversation_id)
             .expect("read conversation")
             .messages
@@ -3060,149 +3013,23 @@
             .cloned()
             .expect("assistant message");
 
-        let outcome = test_runtime()
-            .block_on(remote_im_auto_send_and_record_decision(
-                &state,
-                &activation_source,
-                &conversation_id,
-                &assistant_text,
-                Some(&assistant_message),
-                Some(&assistant_message_id),
-                Some(RemoteImGroupReplyDispatchPolicy {
-                    generation,
-                    focus: false,
-                    max_chars: 200,
-                }),
-            ))
-            .expect("uncertain result should be handled without body retry");
-        assert!(matches!(
-            outcome,
-            RemoteImAutoSendExecutionOutcome::DeliveryUncertain { .. }
+        let _ = test_runtime().block_on(remote_im_auto_send_and_record_decision(
+            &state,
+            &activation_source,
+            &conversation_id,
+            &assistant_text,
+            Some(&assistant_message),
+            Some(&assistant_message_id),
         ));
-        assert!(!lock_remote_im_group_reply_state_store()
-            .by_contact
-            .contains_key(&state_key));
+
+        // 外发即扣能量：发送失败也照扣；外发不再写任何发送标记。
         let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
             .expect("read checkpoint")
             .expect("checkpoint");
-        assert_eq!(
-            checkpoint.group_reply_delivery.as_ref().map(|marker| marker.status.as_str()),
-            Some("uncertain")
-        );
-        assert_eq!(
-            checkpoint.last_boundary_covers_message_id.as_deref(),
-            Some("group-trigger-a")
-        );
+        let energy = checkpoint.energy.expect("energy recorded");
+        assert!(energy < 10.0, "外发失败也必须扣能量，actual={energy}");
+        assert!(checkpoint.group_reply_delivery.is_none());
         assert_eq!(checkpoint.last_success_reply_at, None);
-        assert!(checkpoint
-            .group_reply_delivery
-            .as_ref()
-            .map(|marker| marker.energy_applied)
-            .unwrap_or(false));
-        let decision =
-            read_remote_im_decision_for_message(&state, &conversation_id, &assistant_message_id);
-        assert_eq!(
-            decision.get("action").and_then(Value::as_str),
-            Some("delivery_uncertain")
-        );
-    }
-
-    #[test]
-    fn remote_im_group_auto_send_definite_preflight_failure_should_keep_batch_without_energy_cost() {
-        let (state, mut source, conversation_id, assistant_message_id, assistant_text) =
-            seed_remote_im_auto_send_test_state(serde_json::json!({
-                "mockSendError": "mock request rejected before send"
-            }));
-        source.remote_contact_type = "group".to_string();
-        let mut contact = state_service_get_remote_im_contact(&state, "contact-record-a")
-            .expect("read contact")
-            .expect("contact");
-        contact.remote_contact_type = "group".to_string();
-        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
-        let generation = {
-            let mut store = lock_remote_im_group_reply_state_store();
-            let generation = remote_im_group_reply_next_generation(&mut store);
-            store.by_contact.insert(
-                remote_im_group_reply_state_key(&state, &contact.id),
-                RemoteImGroupReplyState {
-                    generation,
-                    phase: RemoteImGroupReplyPhase::AssistantDispatching,
-                    start_message_id: "group-preflight-a".to_string(),
-                    decision_end_message_id: Some("group-preflight-a".to_string()),
-                    focus: false,
-                    energy_settled: false,
-                    next_round_mention: false,
-                    event: create_pending_event(
-                        "group-preflight-event".to_string(),
-                        conversation_id.clone(),
-                        vec![remote_im_test_group_user_message("user-a")],
-                        true,
-                        ChatSessionInfo {
-                            agent_id: "agent-a".to_string(),
-                        },
-                        RemoteImMessageSource {
-                            channel_id: source.channel_id.clone(),
-                            platform: source.platform.clone(),
-                            im_name: "QQ".to_string(),
-                            remote_contact_type: "group".to_string(),
-                            remote_contact_id: source.remote_contact_id.clone(),
-                            remote_contact_name: source.remote_contact_name.clone(),
-                            sender_id: "user-a".to_string(),
-                            sender_name: "user-a".to_string(),
-                            sender_avatar_url: None,
-                            platform_message_id: None,
-                        },
-                    ),
-                    due_at: std::time::Instant::now(),
-                    inspection_kind: RemoteImGroupReplyTimerKind::Mention,
-                    pending_settlement: None,
-                },
-            );
-            generation
-        };
-        let assistant_message = state_read_conversation_cached(&state, &conversation_id)
-            .expect("read conversation")
-            .messages
-            .iter()
-            .find(|message| message.id == assistant_message_id)
-            .cloned()
-            .expect("assistant message");
-
-        let outcome = test_runtime()
-            .block_on(remote_im_auto_send_and_record_decision(
-                &state,
-                &source,
-                &conversation_id,
-                &assistant_text,
-                Some(&assistant_message),
-                Some(&assistant_message_id),
-                Some(RemoteImGroupReplyDispatchPolicy {
-                    generation,
-                    focus: false,
-                    max_chars: 200,
-                }),
-            ))
-            .expect("definite preflight failure should be deferred");
-        assert!(matches!(
-            outcome,
-            RemoteImAutoSendExecutionOutcome::PreflightDeferred { .. }
-        ));
-        let state_key = remote_im_group_reply_state_key(&state, &contact.id);
-        let mut store = lock_remote_im_group_reply_state_store();
-        let retry = store.by_contact.get(&state_key).expect("batch retained");
-        assert!(retry.generation > generation);
-        assert_eq!(retry.phase, RemoteImGroupReplyPhase::MentionScheduled);
-        store.by_contact.remove(&state_key);
-        drop(store);
-        let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
-            .expect("read checkpoint")
-            .expect("checkpoint");
-        assert_eq!(checkpoint.energy, None);
-        assert_eq!(checkpoint.last_success_reply_at, None);
-        assert_eq!(
-            checkpoint.group_reply_delivery.as_ref().map(|marker| marker.status.as_str()),
-            Some("preflight_failed")
-        );
     }
 
     #[test]

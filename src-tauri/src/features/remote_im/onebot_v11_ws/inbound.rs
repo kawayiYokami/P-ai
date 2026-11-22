@@ -195,6 +195,12 @@ async fn parse_and_enqueue_onebot_event(
     }
 
     let platform_message_id = onebot_read_id_as_string(event, "message_id");
+    // 群成员缓存只依赖群身份，入队入参会把联系人字段 move 走，这里先留下群号。
+    let group_identity = if remote_contact_type.trim() == "group" {
+        Some(remote_contact_id.clone())
+    } else {
+        None
+    };
     let input = build_remote_im_enqueue_input(
         channel_id,
         sender_name,
@@ -208,14 +214,15 @@ async fn parse_and_enqueue_onebot_event(
         ordered_parts,
     );
     let result = remote_im_enqueue_message_internal(input, state).await?;
-    if !result.conversation_id.trim().is_empty() {
+    // 群成员缓存不依赖入队返回值：入站走缓冲后入队不再返回联系人 ID。
+    if let Some(group_id) = group_identity {
         let group_members = group_member_cache.into_values().collect::<Vec<_>>();
         if let Err(err) =
-            onebot_persist_group_member_cache(state, &result.contact_id, group_members)
+            onebot_persist_group_member_cache(state, channel_id, &group_id, group_members)
         {
             runtime_log_warn(format!(
-                "[群聊入站] 群成员缓存更新失败，不影响消息入队，contact_id={}，error={}",
-                result.contact_id, err
+                "[群聊入站] 群成员缓存更新失败，不影响消息入队，channel_id={}，group_id={}，error={}",
+                channel_id, group_id, err
             ));
         }
     }

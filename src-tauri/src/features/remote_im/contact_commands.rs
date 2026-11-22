@@ -1741,8 +1741,141 @@ fn remote_im_stale_cached_config_best_effort(state: &AppState) -> Option<AppConf
     }
 }
 
-/// 内部入队函数，供事件消费循环调用
+// ========== 入站缓冲：去重 + 多段消息合并 ==========
+//
+// 口径：入站先进缓冲、不落库；每来一条就重置窗口；1 秒内没有新消息才把缓冲里的
+// 消息按平台消息 ID 去重后一次性入库。
+// 代价：缓冲是内存态，进程在窗口内崩溃会丢这 1 秒内的消息。
+
+/// 入站缓冲静默窗口：窗口内没有新消息才统一入库。
+#[cfg(not(test))]
+const REMOTE_IM_INBOUND_BUFFER_QUIET_MS: u64 = 1_000;
+
+#[derive(Default)]
+#[cfg(not(test))]
+struct RemoteImInboundBucket {
+    entries: Vec<RemoteImEnqueueInput>,
+    seen_platform_message_ids: std::collections::HashSet<String>,
+    /// 每次入缓冲自增；窗口到期时与当前值不一致说明被后来的消息顺延了。
+    window: u64,
+}
+
+#[cfg(not(test))]
+static REMOTE_IM_INBOUND_BUFFERS: OnceLock<
+    Mutex<std::collections::HashMap<String, RemoteImInboundBucket>>,
+> = OnceLock::new();
+
+#[cfg(not(test))]
+fn remote_im_inbound_buffers(
+) -> &'static Mutex<std::collections::HashMap<String, RemoteImInboundBucket>> {
+    REMOTE_IM_INBOUND_BUFFERS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(not(test))]
+fn remote_im_inbound_buffer_key(input: &RemoteImEnqueueInput) -> String {
+    format!(
+        "{}::{}::{}",
+        input.channel_id.trim(),
+        input.remote_contact_type.trim().to_ascii_lowercase(),
+        input.remote_contact_id.trim()
+    )
+}
+
+#[cfg(not(test))]
+fn remote_im_empty_enqueue_result() -> RemoteImEnqueueResult {
+    RemoteImEnqueueResult {
+        event_id: String::new(),
+        conversation_id: String::new(),
+        activate_assistant: false,
+        contact_id: String::new(),
+    }
+}
+
+/// 入站入口：先进缓冲，窗口安静后再统一入库。
+///
+/// 测试直接走落库实现，避免 1 秒窗口让测试变慢或引入时序抖动。
 pub(crate) async fn remote_im_enqueue_message_internal(
+    input: RemoteImEnqueueInput,
+    state: &AppState,
+) -> Result<RemoteImEnqueueResult, String> {
+    #[cfg(test)]
+    {
+        return remote_im_enqueue_message_direct(input, state).await;
+    }
+
+    #[cfg(not(test))]
+    {
+        let key = remote_im_inbound_buffer_key(&input);
+        let platform_message_id = input
+            .platform_message_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let window = {
+            let mut buffers = remote_im_inbound_buffers()
+                .lock()
+                .map_err(|_| "远程IM入站缓冲不可用".to_string())?;
+            let bucket = buffers.entry(key.clone()).or_default();
+            if let Some(platform_message_id) = platform_message_id.as_deref() {
+                // 窗口内重推按平台消息 ID 去重；重推只发生在同一窗口内。
+                if !bucket.seen_platform_message_ids.insert(platform_message_id.to_string()) {
+                    runtime_log_info(format!(
+                        "[远程IM][入站缓冲] 窗口内重复消息已丢弃: key={}，platform_message_id={}",
+                        key, platform_message_id
+                    ));
+                    return Ok(remote_im_empty_enqueue_result());
+                }
+            }
+            bucket.entries.push(input);
+            bucket.window = bucket.window.saturating_add(1);
+            bucket.window
+        };
+        let state_for_window = state.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(
+                REMOTE_IM_INBOUND_BUFFER_QUIET_MS,
+            ))
+            .await;
+            let entries = {
+                let Ok(mut buffers) = remote_im_inbound_buffers().lock() else {
+                    runtime_log_warn(
+                        "[远程IM][入站缓冲] 缓冲锁不可用，窗口内消息未能入库".to_string(),
+                    );
+                    return;
+                };
+                let Some(bucket) = buffers.get_mut(&key) else {
+                    return;
+                };
+                // 窗口被后来的消息顺延：交给更晚的那次窗口收口。
+                if bucket.window != window {
+                    return;
+                }
+                let entries = std::mem::take(&mut bucket.entries);
+                bucket.seen_platform_message_ids.clear();
+                buffers.remove(&key);
+                entries
+            };
+            runtime_log_info(format!(
+                "[远程IM][入站缓冲] 窗口安静，开始入库: key={}，count={}",
+                key,
+                entries.len()
+            ));
+            for entry in entries {
+                if let Err(err) = remote_im_enqueue_message_direct(entry, &state_for_window).await {
+                    runtime_log_error(format!(
+                        "[远程IM][入站缓冲] 入库失败: key={}，error={}",
+                        key, err
+                    ));
+                }
+            }
+        });
+        Ok(remote_im_empty_enqueue_result())
+    }
+}
+
+/// 内部入队实现（真正落库）。
+async fn remote_im_enqueue_message_direct(
     input: RemoteImEnqueueInput,
     state: &AppState,
 ) -> Result<RemoteImEnqueueResult, String> {

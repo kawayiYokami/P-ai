@@ -230,7 +230,6 @@
                     cancelled: false,
                     terminal,
                     session_agent_id: "agent-a".to_string(),
-                    inspection_generation: None,
                     group_reply_focus: false,
                     group_reply_max_chars: None,
                 },
@@ -2300,13 +2299,13 @@
 
         assert!(result.activate_assistant);
         let key = remote_im_group_reply_state_key(&state, &contact.id);
-        let batch = lock_remote_im_group_reply_state_store()
-            .by_contact
+        let scheduled = lock_remote_im_inspection_schedule_store()
+            .next_inspection
             .get(&key)
             .cloned()
             .expect("group inspection scheduled");
-        assert_eq!(batch.phase, RemoteImGroupReplyPhase::MentionScheduled);
-        assert_eq!(batch.event.conversation_id, result.conversation_id);
+        assert_eq!(scheduled.kind, RemoteImGroupReplyTimerKind::Mention);
+        assert_eq!(scheduled.event.conversation_id, result.conversation_id);
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
@@ -2782,13 +2781,14 @@
         assert!(updated.allow_send_files);
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
-
     #[test]
-    fn group_reply_settlement_should_be_idempotent_after_partial_write_result() {
+    fn group_reply_energy_cost_should_charge_every_send_and_allow_negative() {
         let state = remote_im_test_state();
         let mut behavior = RemoteImChannelBehaviorSettings::default();
         behavior.group_reply_pacing.base_reply_energy_cost = 100.0;
-        behavior.group_reply_pacing.energy_cost_per_character = 1.0;
+        behavior.group_reply_pacing.energy_cost_per_character = 0.0;
+        behavior.group_reply_pacing.energy_recovery_per_second = 0.0;
+        behavior.group_reply_pacing.maximum_energy = 100.0;
         state_write_config_cached(
             &state,
             &AppConfig {
@@ -2797,143 +2797,42 @@
             },
         )
         .expect("write channel behavior config");
-        let mut contact = remote_im_test_contact("contact-settlement", "conversation-settlement");
+        let mut contact = remote_im_test_contact("contact-energy-cost", "conversation-energy-cost");
         contact.remote_contact_type = "group".to_string();
-        let outbound_key = "group-reply::contact-settlement::7::message-9".to_string();
         state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
         state_service_set_remote_im_contact_checkpoint(
             &state,
             &RemoteImContactCheckpoint {
                 contact_id: contact.id.clone(),
-                energy: Some(1.0),
+                energy: Some(50.0),
                 energy_updated_at: Some(now_iso()),
-                group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
-                    generation: 7,
-                    boundary_message_id: "message-9".to_string(),
-                    outbound_key: outbound_key.clone(),
-                    final_text: "你好".to_string(),
-                    status: "dispatching".to_string(),
-                    platform_message_id: None,
-                    energy_applied: false,
-                    updated_at: Some(now_iso()),
-                }),
-                ..RemoteImContactCheckpoint::default()
-            },
-        )
-        .expect("write checkpoint");
-        let settlement = RemoteImGroupReplySettlement {
-            boundary_message_id: "message-9".to_string(),
-            final_text: Some("你好".to_string()),
-            outbound_key: Some(outbound_key),
-            platform_message_id: Some("platform-1".to_string()),
-            status: RemoteImGroupReplySettlementStatus::Delivered,
-        };
-
-        remote_im_persist_group_reply_settlement(&state, &contact, &settlement)
-            .expect("first settlement");
-        let first = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
-            .expect("read first checkpoint")
-            .expect("checkpoint exists");
-        remote_im_persist_group_reply_settlement(&state, &contact, &settlement)
-            .expect("retry settlement");
-        let second = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
-            .expect("read second checkpoint")
-            .expect("checkpoint exists");
-        assert_eq!(first.energy, Some(-100.0));
-        assert_eq!(first.energy, second.energy);
-        assert_eq!(second.last_boundary_covers_message_id.as_deref(), Some("message-9"));
-        assert_eq!(
-            second.group_reply_delivery.as_ref().map(|marker| marker.status.as_str()),
-            Some("committed")
-        );
-    }
-
-    #[test]
-    fn uncertain_group_reply_should_charge_once_without_marking_success_then_allow_late_commit() {
-        let state = remote_im_test_state();
-        let mut contact = remote_im_test_contact(
-            "contact-uncertain-settlement",
-            "conversation-uncertain-settlement",
-        );
-        contact.remote_contact_type = "group".to_string();
-        let outbound_key =
-            "group-reply::contact-uncertain-settlement::8::message-10".to_string();
-        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
-        state_service_set_remote_im_contact_checkpoint(
-            &state,
-            &RemoteImContactCheckpoint {
-                contact_id: contact.id.clone(),
-                energy: Some(100.0),
-                energy_updated_at: Some(now_iso()),
-                group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
-                    generation: 8,
-                    boundary_message_id: "message-10".to_string(),
-                    outbound_key: outbound_key.clone(),
-                    final_text: "可能已经送达".to_string(),
-                    status: "dispatching".to_string(),
-                    platform_message_id: None,
-                    energy_applied: false,
-                    updated_at: Some(now_iso()),
-                }),
                 ..RemoteImContactCheckpoint::default()
             },
         )
         .expect("write checkpoint");
 
-        remote_im_persist_group_reply_settlement(
-            &state,
-            &contact,
-            &RemoteImGroupReplySettlement {
-                boundary_message_id: "message-10".to_string(),
-                final_text: Some("可能已经送达".to_string()),
-                outbound_key: Some(outbound_key.clone()),
-                platform_message_id: None,
-                status: RemoteImGroupReplySettlementStatus::Uncertain,
-            },
-        )
-        .expect("persist uncertain settlement");
-        let uncertain = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
-            .expect("read uncertain checkpoint")
-            .expect("checkpoint exists");
-        assert!(uncertain.energy.unwrap_or_default() < 100.0);
-        assert_eq!(uncertain.last_success_reply_at, None);
-        assert_eq!(
-            uncertain
-                .group_reply_delivery
-                .as_ref()
-                .map(|marker| (marker.status.as_str(), marker.energy_applied)),
-            Some(("uncertain", true))
-        );
-        let charged_energy = uncertain.energy;
+        remote_im_apply_group_reply_energy_cost(&state, &contact, "第一条").expect("first charge");
+        let after_first = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read checkpoint")
+            .expect("checkpoint")
+            .energy
+            .unwrap_or_default();
+        assert!((after_first + 50.0).abs() < 0.01, "actual={after_first}");
 
-        remote_im_persist_group_reply_settlement(
-            &state,
-            &contact,
-            &RemoteImGroupReplySettlement {
-                boundary_message_id: "message-10".to_string(),
-                final_text: Some("可能已经送达".to_string()),
-                outbound_key: Some(outbound_key),
-                platform_message_id: Some("platform-late-commit".to_string()),
-                status: RemoteImGroupReplySettlementStatus::Delivered,
-            },
-        )
-        .expect("persist late delivered settlement");
-        let delivered = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
-            .expect("read delivered checkpoint")
-            .expect("checkpoint exists");
-        assert_eq!(delivered.energy, charged_energy);
-        assert!(delivered.last_success_reply_at.is_some());
-        assert_eq!(
-            delivered
-                .group_reply_delivery
-                .as_ref()
-                .map(|marker| (marker.status.as_str(), marker.energy_applied)),
-            Some(("committed", true))
-        );
+        // 每次外发都扣一次，没有任何「这条已经扣过」的判断；扣成负数也照扣。
+        remote_im_apply_group_reply_energy_cost(&state, &contact, "第一条").expect("second charge");
+        let after_second = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read checkpoint")
+            .expect("checkpoint")
+            .energy
+            .unwrap_or_default();
+        assert!((after_second + 100.0).abs() < 0.01, "actual={after_second}");
+
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
     #[test]
-    fn atomic_runtime_mutation_should_preserve_parallel_group_delivery_markers() {
+    fn atomic_runtime_mutation_should_preserve_parallel_group_checkpoint_boundaries() {
         let state = remote_im_test_state();
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
         let mut workers = Vec::new();
@@ -2942,22 +2841,13 @@
             let barrier = barrier.clone();
             workers.push(std::thread::spawn(move || {
                 let contact_id = format!("contact-parallel-{index}");
-                let outbound_key = format!("group-reply::{contact_id}::{index}");
                 barrier.wait();
                 state_service_set_remote_im_contact_checkpoint(
                     &state,
                     &RemoteImContactCheckpoint {
                         contact_id: contact_id.clone(),
-                        group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
-                            generation: index,
-                            boundary_message_id: format!("message-{index}"),
-                            outbound_key,
-                            final_text: format!("reply-{index}"),
-                            status: "dispatching".to_string(),
-                            platform_message_id: None,
-                            energy_applied: false,
-                            updated_at: Some(now_iso()),
-                        }),
+                        last_boundary_message_id: Some(format!("boundary-{index}")),
+                        last_boundary_covers_message_id: Some(format!("boundary-{index}")),
                         ..RemoteImContactCheckpoint::default()
                     },
                 )
@@ -2971,16 +2861,13 @@
 
         for index in 0..2_u64 {
             let contact_id = format!("contact-parallel-{index}");
-            let expected_key = format!("group-reply::{contact_id}::{index}");
+            let expected_boundary = format!("boundary-{index}");
             let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact_id)
                 .expect("read checkpoint")
                 .expect("checkpoint exists");
             assert_eq!(
-                checkpoint
-                    .group_reply_delivery
-                    .as_ref()
-                    .map(|marker| marker.outbound_key.as_str()),
-                Some(expected_key.as_str())
+                checkpoint.last_boundary_message_id.as_deref(),
+                Some(expected_boundary.as_str())
             );
         }
     }
@@ -3012,16 +2899,6 @@
         merged.energy_updated_at = Some(now_iso());
         merged.last_boundary_message_id = Some("message-settled".to_string());
         merged.last_boundary_covers_message_id = Some("message-settled".to_string());
-        merged.group_reply_delivery = Some(RemoteImGroupReplyDeliveryMarker {
-            generation: 21,
-            boundary_message_id: "message-settled".to_string(),
-            outbound_key: "group-reply::atomic".to_string(),
-            final_text: "已发送".to_string(),
-            status: "committed".to_string(),
-            platform_message_id: Some("platform-atomic".to_string()),
-            energy_applied: true,
-            updated_at: Some(now_iso()),
-        });
         merged.updated_at = Some(now_iso());
         state_service_set_remote_im_contact_checkpoint(&state, &merged)
             .expect("write merged checkpoint");
@@ -3035,15 +2912,12 @@
         );
         assert_eq!(checkpoint.energy, Some(82.0));
         assert_eq!(
-            checkpoint.last_boundary_covers_message_id.as_deref(),
+            checkpoint.last_boundary_message_id.as_deref(),
             Some("message-settled")
         );
         assert_eq!(
-            checkpoint
-                .group_reply_delivery
-                .as_ref()
-                .map(|marker| (marker.outbound_key.as_str(), marker.status.as_str())),
-            Some(("group-reply::atomic", "committed"))
+            checkpoint.last_boundary_covers_message_id.as_deref(),
+            Some("message-settled")
         );
     }
 
@@ -3061,16 +2935,8 @@
                 contact_id: contact.id.clone(),
                 atomic_revision: 1,
                 energy: Some(55.0),
-                group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
-                    generation: 2,
-                    boundary_message_id: "message-old".to_string(),
-                    outbound_key: "group-reply::reset".to_string(),
-                    final_text: "旧回复".to_string(),
-                    status: "committed".to_string(),
-                    platform_message_id: Some("platform-old".to_string()),
-                    energy_applied: true,
-                    updated_at: Some(now_iso()),
-                }),
+                last_boundary_message_id: Some("message-old".to_string()),
+                last_boundary_covers_message_id: Some("message-old".to_string()),
                 ..RemoteImContactCheckpoint::default()
             },
         )
@@ -3559,211 +3425,6 @@
     }
 
     #[test]
-    fn stale_group_settlement_should_not_overwrite_newer_delivery_marker() {
-        let state = remote_im_test_state();
-        let mut contact = remote_im_test_contact(
-            "contact-stale-settlement",
-            "conversation-stale-settlement",
-        );
-        contact.remote_contact_type = "group".to_string();
-        let newer_marker = RemoteImGroupReplyDeliveryMarker {
-            generation: 12,
-            boundary_message_id: "message-new".to_string(),
-            outbound_key: "group-reply::new".to_string(),
-            final_text: "新批次".to_string(),
-            status: "dispatching".to_string(),
-            platform_message_id: None,
-            energy_applied: false,
-            updated_at: Some(now_iso()),
-        };
-        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
-        state_service_set_remote_im_contact_checkpoint(
-            &state,
-            &RemoteImContactCheckpoint {
-                contact_id: contact.id.clone(),
-                energy: Some(100.0),
-                energy_updated_at: Some(now_iso()),
-                group_reply_delivery: Some(newer_marker.clone()),
-                ..RemoteImContactCheckpoint::default()
-            },
-        )
-        .expect("write checkpoint");
-
-        remote_im_persist_group_reply_settlement(
-            &state,
-            &contact,
-            &RemoteImGroupReplySettlement {
-                boundary_message_id: "message-old".to_string(),
-                final_text: Some("旧批次迟到".to_string()),
-                outbound_key: Some("group-reply::old".to_string()),
-                platform_message_id: Some("platform-old".to_string()),
-                status: RemoteImGroupReplySettlementStatus::Delivered,
-            },
-        )
-        .expect("stale settlement should degrade without failure");
-
-        let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
-            .expect("read checkpoint")
-            .expect("checkpoint exists");
-        assert_eq!(checkpoint.energy, Some(100.0));
-        assert_eq!(checkpoint.last_success_reply_at, None);
-        let persisted_marker = checkpoint.group_reply_delivery.expect("newer marker");
-        assert_eq!(persisted_marker.outbound_key, newer_marker.outbound_key);
-        assert_eq!(persisted_marker.generation, newer_marker.generation);
-        assert_eq!(persisted_marker.status, "dispatching");
-    }
-
-    #[test]
-    fn active_group_delivery_should_not_be_recovered_as_uncertain_on_new_inbound() {
-        let state = remote_im_test_state();
-        let mut contact = remote_im_test_contact("contact-active-delivery", "conversation-active-delivery");
-        contact.remote_contact_type = "group".to_string();
-        let outbound_key =
-            "group-reply::contact-active-delivery::9::message-active".to_string();
-        let marker = RemoteImGroupReplyDeliveryMarker {
-            generation: 9,
-            boundary_message_id: "message-active".to_string(),
-            outbound_key: outbound_key.clone(),
-            final_text: "正在发送".to_string(),
-            status: "dispatching".to_string(),
-            platform_message_id: None,
-            energy_applied: false,
-            updated_at: Some(now_iso()),
-        };
-        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
-        state_service_set_remote_im_contact_checkpoint(
-            &state,
-            &RemoteImContactCheckpoint {
-                contact_id: contact.id.clone(),
-                energy: Some(100.0),
-                energy_updated_at: Some(now_iso()),
-                group_reply_delivery: Some(marker.clone()),
-                ..RemoteImContactCheckpoint::default()
-            },
-        )
-        .expect("write checkpoint");
-        let event = create_pending_event(
-            "event-active-delivery".to_string(),
-            "conversation-active-delivery".to_string(),
-            vec![remote_im_test_group_user_message("user-a")],
-            true,
-            ChatSessionInfo {
-                agent_id: "agent-a".to_string(),
-            },
-            RemoteImMessageSource {
-                channel_id: "channel-a".to_string(),
-                platform: RemoteImPlatform::OnebotV11,
-                im_name: "QQ".to_string(),
-                remote_contact_type: "group".to_string(),
-                remote_contact_id: "group-active".to_string(),
-                remote_contact_name: "活跃发送群".to_string(),
-                sender_id: "user-a".to_string(),
-                sender_name: "user-a".to_string(),
-                sender_avatar_url: None,
-                platform_message_id: None,
-            },
-        );
-        let state_key = remote_im_group_reply_state_key(&state, &contact.id);
-        lock_remote_im_group_reply_state_store().by_contact.insert(
-            state_key.clone(),
-            RemoteImGroupReplyState {
-                generation: 9,
-                phase: RemoteImGroupReplyPhase::AssistantDispatching,
-                start_message_id: "message-active".to_string(),
-                decision_end_message_id: Some("message-active".to_string()),
-                focus: false,
-                energy_settled: false,
-                next_round_mention: false,
-                event,
-                due_at: std::time::Instant::now(),
-                inspection_kind: RemoteImGroupReplyTimerKind::Mention,
-                pending_settlement: None,
-            },
-        );
-
-        remote_im_recover_group_reply_delivery_marker(&state, &contact)
-            .expect("active delivery should be ignored by recovery");
-        let before_success = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
-            .expect("read checkpoint")
-            .expect("checkpoint exists");
-        assert_eq!(before_success.energy, Some(100.0));
-        assert_eq!(
-            before_success.group_reply_delivery.as_ref().map(|item| item.status.as_str()),
-            Some("dispatching")
-        );
-
-        remote_im_group_reply_complete_after_send(
-            &state,
-            &contact,
-            9,
-            marker,
-            Some("platform-active".to_string()),
-            RemoteImGroupReplySettlementStatus::Delivered,
-        );
-        let after_success = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
-            .expect("read checkpoint")
-            .expect("checkpoint exists");
-        assert!(after_success.energy.unwrap_or_default() < 100.0);
-        assert_eq!(
-            after_success.group_reply_delivery.as_ref().map(|item| item.status.as_str()),
-            Some("committed")
-        );
-        assert!(after_success
-            .group_reply_delivery
-            .as_ref()
-            .map(|item| item.energy_applied)
-            .unwrap_or(false));
-        lock_remote_im_group_reply_state_store()
-            .by_contact
-            .remove(&state_key);
-    }
-
-    #[test]
-    fn startup_group_delivery_recovery_should_not_wait_for_new_inbound() {
-        let state = remote_im_test_state();
-        let mut contact = remote_im_test_contact("contact-startup-recovery", "conversation-startup-recovery");
-        contact.remote_contact_type = "group".to_string();
-        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
-        state_service_set_remote_im_contact_checkpoint(
-            &state,
-            &RemoteImContactCheckpoint {
-                contact_id: contact.id.clone(),
-                energy: Some(100.0),
-                energy_updated_at: Some(now_iso()),
-                group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
-                    generation: 19,
-                    boundary_message_id: "message-startup".to_string(),
-                    outbound_key: "group-reply::startup::19".to_string(),
-                    final_text: "启动恢复".to_string(),
-                    status: "dispatching".to_string(),
-                    platform_message_id: None,
-                    energy_applied: false,
-                    updated_at: Some(now_iso()),
-                }),
-                ..RemoteImContactCheckpoint::default()
-            },
-        )
-        .expect("write checkpoint");
-
-        assert_eq!(
-            remote_im_recover_all_group_reply_delivery_markers(&state)
-                .expect("startup recovery"),
-            (1, 0)
-        );
-        let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
-            .expect("read checkpoint")
-            .expect("checkpoint exists");
-        assert_eq!(
-            checkpoint.group_reply_delivery.as_ref().map(|marker| marker.status.as_str()),
-            Some("uncertain")
-        );
-        assert_eq!(
-            checkpoint.last_boundary_covers_message_id.as_deref(),
-            Some("message-startup")
-        );
-    }
-
-    #[test]
     fn contact_runtime_state_lock_should_recover_after_poison() {
         let state = remote_im_test_state();
         let shared = state.remote_im_contact_runtime_states.clone();
@@ -3908,7 +3569,6 @@
                     cancelled: false,
                     terminal: false,
                     session_agent_id: "agent-a".to_string(),
-                    inspection_generation: None,
                     group_reply_focus: false,
                     group_reply_max_chars: None,
                 },
@@ -4051,7 +3711,6 @@
                         cancelled: false,
                         terminal: false,
                         session_agent_id: "agent-a".to_string(),
-                        inspection_generation: None,
                         group_reply_focus: false,
                         group_reply_max_chars: None,
                     },
@@ -4087,7 +3746,6 @@
             &next_delegate_id,
             remote_im_test_group_user_message("user-b"),
             Some(RemoteImGroupReplyDispatchPolicy {
-                generation: 42,
                 focus: false,
                 max_chars: 33,
             }),
@@ -4106,10 +3764,11 @@
             .map(|block| block.contains("33"))
             .unwrap_or(false));
         assert!(guidance[0].extra_text_blocks.len() >= 2);
-        let (_, policy_snapshot) = remote_im_reply_delegate_group_policy(&state, &next_delegate_id)
-            .expect("group policy snapshot");
-        assert_eq!(policy_snapshot.generation, 42);
-        assert_eq!(policy_snapshot.max_chars, 33);
+        let policy_max_chars = lock_remote_im_reply_delegate_runtimes(&state)
+            .expect("lock runtimes")
+            .get(&next_delegate_id)
+            .and_then(|runtime| runtime.group_reply_max_chars);
+        assert_eq!(policy_max_chars, Some(33));
         assert_eq!(
             remote_im_reply_delegate_prompt_messages(&state, &next_delegate_id)
                 .expect("read prompt with consumed guidance")
@@ -4153,7 +3812,6 @@
                     cancelled: false,
                     terminal: false,
                     session_agent_id: "agent-a".to_string(),
-                    inspection_generation: None,
                     group_reply_focus: false,
                     group_reply_max_chars: None,
                 },
@@ -4207,51 +3865,42 @@
 
         observe_remote_im_persisted_event(&state, &contact, &event("normal", "user-a", "普通消息"));
         let key = remote_im_group_reply_state_key(&state, &contact.id);
-        let (initial_generation, initial_due_at) = {
-            let store = remote_im_group_reply_state_store().lock().expect("lock group state");
-            let entry = store.by_contact.get(&key).expect("non mention scheduled");
-            assert_eq!(entry.phase, RemoteImGroupReplyPhase::NonMentionScheduled);
-            assert_eq!(entry.start_message_id, "message-normal");
+        let (initial_due_at, initial_anchor) = {
+            let store = lock_remote_im_inspection_schedule_store();
+            let entry = store.next_inspection.get(&key).expect("non mention scheduled");
+            assert_eq!(entry.kind, RemoteImGroupReplyTimerKind::NonMention);
+            assert_eq!(entry.anchor_message_id, "message-normal");
             assert!(entry.event.messages.is_empty());
-            (entry.generation, entry.due_at)
+            (entry.due_at, entry.anchor_message_id.clone())
         };
         let (activate_assistant, reason) =
             remote_im_prepare_enqueue_runtime_state(&state, &contact, "未点名的后续消息")
-                .expect("prepare active batch");
+                .expect("prepare active inspection");
         assert!(activate_assistant);
-        assert!(reason.contains("当前批次已入场"), "reason={reason}");
+        assert!(reason.contains("已入场"), "reason={reason}");
+        // 等常规周期时群里继续刷：周期不重置，起点不动。
         observe_remote_im_persisted_event(&state, &contact, &event("normal-2", "user-b", "普通跟话"));
         {
-            let store = remote_im_group_reply_state_store().lock().expect("lock group state");
-            let entry = store.by_contact.get(&key).expect("same inspection");
-            assert_eq!(entry.generation, initial_generation);
+            let store = lock_remote_im_inspection_schedule_store();
+            let entry = store.next_inspection.get(&key).expect("same inspection");
+            assert_eq!(entry.kind, RemoteImGroupReplyTimerKind::NonMention);
             assert_eq!(entry.due_at, initial_due_at);
-            assert!(entry.decision_end_message_id.is_none());
+            assert_eq!(entry.anchor_message_id, initial_anchor);
         }
+        // 等周期时突然被点名：升级成本轮点名，提前看，起点仍不动。
         observe_remote_im_persisted_event(&state, &contact, &event("wake", "user-b", "@助理 看这里"));
         {
-            let store = remote_im_group_reply_state_store().lock().expect("lock group state");
-            let entry = store.by_contact.get(&key).expect("same inspection");
-            assert_eq!(entry.phase, RemoteImGroupReplyPhase::MentionScheduled);
-            assert!(entry.generation > initial_generation);
+            let store = lock_remote_im_inspection_schedule_store();
+            let entry = store.next_inspection.get(&key).expect("same inspection");
+            assert_eq!(entry.kind, RemoteImGroupReplyTimerKind::Mention);
             assert_ne!(entry.due_at, initial_due_at);
-            assert_eq!(entry.start_message_id, "message-normal");
-            assert!(entry.decision_end_message_id.is_none());
+            assert_eq!(entry.anchor_message_id, initial_anchor);
         }
-        let current_generation = lock_remote_im_group_reply_state_store()
-            .by_contact
-            .get(&key)
-            .map(|entry| entry.generation)
-            .expect("current generation");
-        assert!(remote_im_group_reply_generation_is_current(
-            &state,
-            &contact.id,
-            current_generation,
-        ));
+        clear_remote_im_debounces_for_contact(&state, &contact.id).expect("clear schedule");
     }
 
     #[test]
-    fn group_reply_missing_contact_should_stop_batch_retry() {
+    fn group_reply_missing_contact_should_stop_inspection_chain() {
         let state = remote_im_test_state();
         let contact = remote_im_test_contact("contact-retry", "conversation-retry");
         let mut message = remote_im_test_group_user_message("user-a");
@@ -4278,39 +3927,34 @@
             },
         );
         let key = remote_im_group_reply_state_key(&state, &contact.id);
-        let generation = {
-            let mut store = lock_remote_im_group_reply_state_store();
-            let generation = remote_im_group_reply_next_generation(&mut store);
-            store.by_contact.insert(
-                key.clone(),
-                RemoteImGroupReplyState {
-                generation,
-                phase: RemoteImGroupReplyPhase::AssistantDispatching,
-                start_message_id: "message-retry-start".to_string(),
-                decision_end_message_id: Some("message-retry-start".to_string()),
-                focus: false,
-                energy_settled: false,
-                next_round_mention: false,
+        let due_at = std::time::Instant::now();
+        lock_remote_im_inspection_schedule_store().next_inspection.insert(
+            key.clone(),
+            RemoteImInspectionSchedule {
+                kind: RemoteImGroupReplyTimerKind::NonMention,
+                due_at,
+                anchor_message_id: "message-retry-start".to_string(),
                 event,
-                due_at: std::time::Instant::now(),
-                inspection_kind: RemoteImGroupReplyTimerKind::Mention,
-                pending_settlement: None,
-                },
-            );
-            generation
-        };
-
-        // 联系人未写入 state 数据库（已删除）：重试应立即停止并清理批次
-        remote_im_group_reply_retry_after_dispatch_failure(
-            &state,
-            &contact.id,
-            generation,
-            "联系人已删除",
+            },
         );
-        let store = lock_remote_im_group_reply_state_store();
+
+        // 联系人未写入 state 数据库（已删除）：定时器醒来应清理排期，巡检链不再继续
+        test_runtime().block_on(remote_im_group_reply_handle_timer(
+            &state,
+            RemoteImGroupReplyTimerAction {
+                state_key: key.clone(),
+                contact_id: contact.id.clone(),
+                kind: RemoteImGroupReplyTimerKind::NonMention,
+                due_at,
+                delay: std::time::Duration::from_secs(0),
+            },
+        ));
         assert!(
-            store.by_contact.get(&key).is_none(),
-            "batch should be cleared when contact is gone"
+            lock_remote_im_inspection_schedule_store()
+                .next_inspection
+                .get(&key)
+                .is_none(),
+            "schedule should be cleared when contact is gone"
         );
     }
 
@@ -4355,8 +3999,8 @@
         }
         observe_remote_im_persisted_event(&state, &contact, &event);
         let key = remote_im_group_reply_state_key(&state, &contact.id);
-        let store = remote_im_group_reply_state_store().lock().expect("lock group state");
-        assert!(!store.by_contact.contains_key(&key));
+        let store = lock_remote_im_inspection_schedule_store();
+        assert!(!store.next_inspection.contains_key(&key));
     }
 
     #[test]
@@ -4454,6 +4098,55 @@
     }
 
     #[test]
+    fn group_reply_gate_should_skip_energy_and_cooldown_for_mention_but_keep_permission_checks() {
+        let state = remote_im_test_state();
+        let mut behavior = RemoteImChannelBehaviorSettings::default();
+        behavior.group_reply_pacing.energy_recovery_per_second = 0.0;
+        state_write_config_cached(
+            &state,
+            &AppConfig {
+                remote_im_channels: vec![remote_im_test_channel("channel-a", behavior)],
+                ..AppConfig::default()
+            },
+        )
+        .expect("write channel behavior config");
+        let mut contact = remote_im_test_contact("contact-energy-mention", "conversation-energy-mention");
+        contact.remote_contact_type = "group".to_string();
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(0.0),
+                energy_updated_at: Some(now_iso()),
+                last_success_reply_at: Some(now_iso()),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("write contact energy");
+
+        // 非点名：能量为 0 且刚回复过，拒绝。
+        let blocked = remote_im_group_reply_gate(&state, &contact, false, false)
+            .expect("read non-mention gate");
+        assert!(!blocked.allowed);
+
+        // 点名：跳过能量与回复冷却，放行。
+        let mention = remote_im_group_reply_gate(&state, &contact, true, true)
+            .expect("read mention gate");
+        assert!(mention.allowed);
+        assert_eq!(mention.max_chars, 20);
+
+        // 点名也不能绕过收发许可。
+        let mut denied_contact = contact.clone();
+        denied_contact.allow_send = false;
+        let denied = remote_im_group_reply_gate(&state, &denied_contact, true, true)
+            .expect("read denied mention gate");
+        assert!(!denied.allowed);
+
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
+    }
+
+    #[test]
     fn group_reply_gate_should_not_estimate_reply_cost_before_generation() {
         let state = remote_im_test_state();
         let mut behavior = RemoteImChannelBehaviorSettings::default();
@@ -4482,7 +4175,8 @@
         )
         .expect("write contact energy");
 
-        let gate = remote_im_group_reply_gate(&state, &contact, false).expect("read reply gate");
+        let gate = remote_im_group_reply_gate(&state, &contact, false, false)
+            .expect("read reply gate");
         assert!(gate.allowed);
         assert_eq!(gate.max_chars, 20);
         assert!((gate.energy - 0.01).abs() < 0.01);
@@ -4654,7 +4348,7 @@
     }
 
     #[test]
-    fn remote_im_channel_behavior_save_should_invalidate_scheduled_group_generation() {
+    fn remote_im_channel_behavior_save_should_reschedule_next_inspection() {
         let state = remote_im_test_state();
         let mut behavior = RemoteImChannelBehaviorSettings::default();
         behavior.group_reply_pacing.assistant_debounce_seconds = 3600;
@@ -4695,20 +4389,21 @@
         );
         observe_remote_im_persisted_event(&state, &contact, &event);
         let key = remote_im_group_reply_state_key(&state, &contact.id);
-        let previous_generation = lock_remote_im_group_reply_state_store()
-            .by_contact
-            .get(&key)
-            .map(|entry| entry.generation)
-            .expect("scheduled group state");
+        let (previous_due_at, previous_anchor) = {
+            let store = lock_remote_im_inspection_schedule_store();
+            let entry = store.next_inspection.get(&key).expect("scheduled group state");
+            (entry.due_at, entry.anchor_message_id.clone())
+        };
 
         let result = remote_im_reconfigure_channel_behavior_inner(&state, "channel-a");
         assert_eq!(result.reconfigured_contacts, 1);
         assert_eq!(result.skipped_contacts, 0);
-        let mut store = lock_remote_im_group_reply_state_store();
-        let reconfigured = store.by_contact.get(&key).expect("reconfigured group state");
-        assert!(reconfigured.generation > previous_generation);
-        assert_eq!(reconfigured.phase, RemoteImGroupReplyPhase::NonMentionScheduled);
-        store.by_contact.remove(&key);
+        let mut store = lock_remote_im_inspection_schedule_store();
+        let reconfigured = store.next_inspection.get(&key).expect("reconfigured group state");
+        assert_ne!(reconfigured.due_at, previous_due_at);
+        assert_eq!(reconfigured.anchor_message_id, previous_anchor);
+        assert_eq!(reconfigured.kind, RemoteImGroupReplyTimerKind::NonMention);
+        store.next_inspection.remove(&key);
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
@@ -5100,4 +4795,543 @@
         assert!(contact.group_id.is_none());
         assert_eq!(contact.activation_mode, "never");
         assert_eq!(contact.remote_contact_name, "旧记录");
+    }
+
+    // ==================== 巡检游标读取起点 ====================
+
+    fn cursor_test_conversation(conversation_id: &str, messages: Vec<ChatMessage>) -> Conversation {
+        Conversation {
+            questions: Vec::new(),
+            question_next_number: 0,
+            issues: Vec::new(),
+            issue_next_number: 0,
+            loaded_mcp_tools: Vec::new(),
+            id: conversation_id.to_string(),
+            title: "巡检游标测试".to_string(),
+            agent_id: DEFAULT_AGENT_ID.to_string(),
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
+            unread_count: 0,
+            conversation_kind: CONVERSATION_KIND_REMOTE_IM_CONTACT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: now_iso(),
+            updated_at: now_iso(),
+            last_user_at: None,
+            last_assistant_at: None,
+            status: "inactive".to_string(),
+            user_profile_snapshot: String::new(),
+            shell_workspace_path: None,
+            shell_workspaces: Vec::new(),
+            shell_autonomous_mode: false,
+            shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
+            shell_worktree_path: String::new(),
+            shell_recorded_branch: String::new(),
+            archived_at: None,
+            messages,
+            fast_request_turns: Vec::new(),
+            current_todos: Vec::new(),
+            memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
+            preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
+            active_goal: None,
+            team: TeamState::default(),
+            last_error: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
+        }
+    }
+
+    fn cursor_test_contact_message(
+        message_id: &str,
+        text: &str,
+        contact: &RemoteImContact,
+    ) -> ChatMessage {
+        ChatMessage {
+            id: message_id.to_string(),
+            role: "user".to_string(),
+            created_at: now_iso(),
+            speaker_agent_id: None,
+            parts: vec![MessagePart::Text {
+                text: text.to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: Some(serde_json::json!({
+                "origin": {
+                    "kind": "remote_im",
+                    "channel_id": contact.channel_id,
+                    "contact_type": contact.remote_contact_type,
+                    "contact_id": contact.remote_contact_id,
+                    "platform_message_id": message_id
+                }
+            })),
+            tool_call: None,
+            mcp_call: None,
+            meme_annotations: None,
+        }
+    }
+
+    fn cursor_test_compaction_message(message_id: &str) -> ChatMessage {
+        ChatMessage {
+            id: message_id.to_string(),
+            role: "user".to_string(),
+            created_at: now_iso(),
+            speaker_agent_id: None,
+            parts: vec![MessagePart::Text {
+                text: "历史压缩摘要".to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: Some(serde_json::json!({
+                "messageMeta": { "kind": "context_compaction" }
+            })),
+            tool_call: None,
+            mcp_call: None,
+            meme_annotations: None,
+        }
+    }
+
+    #[test]
+    fn cursor_missing_message_should_read_from_after_latest_compaction_summary() {
+        let state = remote_im_test_state();
+        let mut contact =
+            remote_im_test_contact("contact-cursor-gone", "conversation-cursor-gone");
+        contact.remote_contact_type = "group".to_string();
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        let conversation_id = "conversation-cursor-gone";
+        let conversation = cursor_test_conversation(
+            conversation_id,
+            vec![
+                cursor_test_contact_message("cursor-before-summary", "摘要之前", &contact),
+                cursor_test_compaction_message("cursor-summary"),
+                cursor_test_contact_message("cursor-after-summary", "厉害", &contact),
+            ],
+        );
+        let paths = message_store::message_store_paths(&state.data_path, conversation_id)
+            .expect("message store paths");
+        message_store::chat_store_write_snapshot(&paths, &conversation).expect("write snapshot");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                processed_cursor_message_id: Some("cursor-message-gone".to_string()),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("write cursor");
+
+        let origin = remote_im_cursor_read_origin_sequence(
+            &state,
+            conversation_id,
+            Some("cursor-message-gone"),
+        )
+        .expect("read origin");
+        assert!(origin.is_some(), "应从摘要之后开始，而不是会话开头");
+
+        let range =
+            remote_im_read_cursor_range(&state, conversation_id, origin, "cursor-after-summary")
+                .expect("read range");
+        assert_eq!(range.len(), 1, "区间只应包含摘要之后那条消息");
+        assert_eq!(range[0].id, "cursor-after-summary");
+
+        let advanced = remote_im_advance_contact_cursor(
+            &state,
+            &contact,
+            conversation_id,
+            "cursor-after-summary",
+        )
+        .expect("advance cursor");
+        assert!(advanced, "游标应推进到最新一条");
+        let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read checkpoint")
+            .expect("checkpoint exists");
+        assert_eq!(
+            checkpoint.processed_cursor_message_id.as_deref(),
+            Some("cursor-after-summary")
+        );
+        // 正负词只结算一次：摘要里没有正向词，只算摘要之后那条。
+        assert!(
+            checkpoint.energy.unwrap_or_default() > 0.0,
+            "摘要之后那条的正向词应已结算，energy={:?}",
+            checkpoint.energy
+        );
+
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
+    }
+
+    #[test]
+    fn cursor_missing_without_summary_should_read_from_conversation_start() {
+        let state = remote_im_test_state();
+        let mut contact =
+            remote_im_test_contact("contact-cursor-nosummary", "conversation-cursor-nosummary");
+        contact.remote_contact_type = "group".to_string();
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        let conversation_id = "conversation-cursor-nosummary";
+        let conversation = cursor_test_conversation(
+            conversation_id,
+            vec![
+                cursor_test_contact_message("cursor-first", "第一条", &contact),
+                cursor_test_contact_message("cursor-second", "第二条", &contact),
+            ],
+        );
+        let paths = message_store::message_store_paths(&state.data_path, conversation_id)
+            .expect("message store paths");
+        message_store::chat_store_write_snapshot(&paths, &conversation).expect("write snapshot");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                processed_cursor_message_id: Some("cursor-message-gone".to_string()),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("write cursor");
+
+        let origin = remote_im_cursor_read_origin_sequence(
+            &state,
+            conversation_id,
+            Some("cursor-message-gone"),
+        )
+        .expect("read origin");
+        assert!(origin.is_none(), "没有摘要时应从会话第一条开始");
+
+        let range = remote_im_read_cursor_range(&state, conversation_id, origin, "cursor-second")
+            .expect("read range");
+        assert_eq!(
+            range.iter().map(|message| message.id.as_str()).collect::<Vec<_>>(),
+            vec!["cursor-first", "cursor-second"]
+        );
+
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
+    }
+
+    #[test]
+    fn cursor_existing_message_should_keep_reading_after_cursor_only() {
+        let state = remote_im_test_state();
+        let mut contact = remote_im_test_contact("contact-cursor-ok", "conversation-cursor-ok");
+        contact.remote_contact_type = "group".to_string();
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        let conversation_id = "conversation-cursor-ok";
+        let conversation = cursor_test_conversation(
+            conversation_id,
+            vec![
+                cursor_test_contact_message("cursor-kept-1", "旧消息", &contact),
+                cursor_test_contact_message("cursor-kept-2", "新消息", &contact),
+            ],
+        );
+        let paths = message_store::message_store_paths(&state.data_path, conversation_id)
+            .expect("message store paths");
+        message_store::chat_store_write_snapshot(&paths, &conversation).expect("write snapshot");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                processed_cursor_message_id: Some("cursor-kept-1".to_string()),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("write cursor");
+
+        let origin = remote_im_cursor_read_origin_sequence(
+            &state,
+            conversation_id,
+            Some("cursor-kept-1"),
+        )
+        .expect("read origin");
+        assert!(origin.is_some(), "游标消息存在时应从它之后读");
+        let range = remote_im_read_cursor_range(&state, conversation_id, origin, "cursor-kept-2")
+            .expect("read range");
+        assert_eq!(
+            range.iter().map(|message| message.id.as_str()).collect::<Vec<_>>(),
+            vec!["cursor-kept-2"],
+            "游标消息本身不应再进区间"
+        );
+
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
+    }
+
+    // ==================== 巡检链是否继续 ====================
+
+    fn chain_test_event(
+        event_id: &str,
+        conversation_id: &str,
+        contact: &RemoteImContact,
+        message_id: &str,
+    ) -> ChatPendingEvent {
+        let mut message = remote_im_test_group_user_message("user-a");
+        message.id = message_id.to_string();
+        create_pending_event(
+            event_id.to_string(),
+            conversation_id.to_string(),
+            vec![message],
+            true,
+            ChatSessionInfo {
+                agent_id: "agent-a".to_string(),
+            },
+            RemoteImMessageSource {
+                channel_id: contact.channel_id.clone(),
+                platform: RemoteImPlatform::OnebotV11,
+                im_name: "QQ".to_string(),
+                remote_contact_type: contact.remote_contact_type.clone(),
+                remote_contact_id: contact.remote_contact_id.clone(),
+                remote_contact_name: contact.remote_contact_name.clone(),
+                sender_id: "user-a".to_string(),
+                sender_name: "user-a".to_string(),
+                sender_avatar_url: None,
+                platform_message_id: None,
+            },
+        )
+    }
+
+    #[test]
+    fn alarm_should_disappear_right_after_the_watch_starts() {
+        let state = remote_im_test_state();
+        // 渠道要存在且启用，否则准入会拦住这一轮，走不到「到点看群」。
+        state_write_config_cached(
+            &state,
+            &AppConfig {
+                remote_im_channels: vec![remote_im_test_channel(
+                    "channel-a",
+                    RemoteImChannelBehaviorSettings::default(),
+                )],
+                ..AppConfig::default()
+            },
+        )
+        .expect("write channel config");
+        let mut contact = remote_im_test_contact("contact-alarm", "conversation-alarm");
+        contact.remote_contact_type = "group".to_string();
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        let key = remote_im_group_reply_state_key(&state, &contact.id);
+        let due_at = std::time::Instant::now();
+        lock_remote_im_inspection_schedule_store().next_inspection.insert(
+            key.clone(),
+            RemoteImInspectionSchedule {
+                // 用点名路径：跳过能量门，直接走到点看群，避免能量不足的重置干扰本测试。
+                kind: RemoteImGroupReplyTimerKind::Mention,
+                due_at,
+                anchor_message_id: "alarm-1".to_string(),
+                event: chain_test_event("alarm-event", "conversation-alarm", &contact, "alarm-1"),
+            },
+        );
+
+        test_runtime().block_on(remote_im_group_reply_handle_timer(
+            &state,
+            RemoteImGroupReplyTimerAction {
+                state_key: key.clone(),
+                contact_id: contact.id.clone(),
+                kind: RemoteImGroupReplyTimerKind::Mention,
+                due_at,
+                delay: std::time::Duration::ZERO,
+            },
+        ));
+
+        assert!(
+            lock_remote_im_inspection_schedule_store()
+                .next_inspection
+                .get(&key)
+                .is_none(),
+            "到点看群之后不应留下闹钟项"
+        );
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
+    }
+
+    #[test]
+    fn inspection_chain_should_restart_from_new_inbound_after_stop() {
+        let state = remote_im_test_state();
+        let mut contact =
+            remote_im_test_contact("contact-chain-restart", "conversation-chain-restart");
+        contact.remote_contact_type = "group".to_string();
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        let event = chain_test_event(
+            "chain-restart-event",
+            "conversation-chain-restart",
+            &contact,
+            "chain-restart-1",
+        );
+
+        // 停链后没有排期项：新消息入库应重新排第一轮。
+        let key = remote_im_group_reply_state_key(&state, &contact.id);
+        assert!(!lock_remote_im_inspection_schedule_store()
+            .next_inspection
+            .contains_key(&key));
+
+        observe_remote_im_persisted_event(&state, &contact, &event);
+
+        assert!(
+            lock_remote_im_inspection_schedule_store()
+                .next_inspection
+                .contains_key(&key),
+            "新消息入库后应重新排第一轮"
+        );
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
+    }
+
+    #[test]
+    fn mention_delay_should_shorten_remaining_without_extending_it() {
+        let mut pacing = RemoteImGroupReplyPacing::default();
+        pacing.assistant_debounce_seconds = 3;
+        let mention = RemoteImGroupReplyTimerKind::Mention;
+        // 常规周期还剩 20 秒：用点名加速秒数 3 秒。
+        assert_eq!(
+            remote_im_group_reply_timer_delay(
+                &pacing,
+                mention,
+                Some(std::time::Duration::from_secs(20))
+            ),
+            std::time::Duration::from_secs(3)
+        );
+        // 只剩 1 秒：保持 1 秒，绝不被拉长。
+        assert_eq!(
+            remote_im_group_reply_timer_delay(
+                &pacing,
+                mention,
+                Some(std::time::Duration::from_secs(1))
+            ),
+            std::time::Duration::from_secs(1)
+        );
+        // 只剩 100 毫秒：保留毫秒精度，不退化成整秒。
+        assert_eq!(
+            remote_im_group_reply_timer_delay(
+                &pacing,
+                mention,
+                Some(std::time::Duration::from_millis(100))
+            ),
+            std::time::Duration::from_millis(100)
+        );
+        // 没有排期项（第一条消息就是点名）：直接用点名加速秒数。
+        assert_eq!(
+            remote_im_group_reply_timer_delay(&pacing, mention, None),
+            std::time::Duration::from_secs(3)
+        );
+        // 点名秒数与剩余都为 0：结果就是 0。
+        pacing.assistant_debounce_seconds = 0;
+        assert_eq!(
+            remote_im_group_reply_timer_delay(&pacing, mention, Some(std::time::Duration::ZERO)),
+            std::time::Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn onebot_group_member_cache_should_be_written_by_group_identity() {
+        let state = remote_im_test_state();
+        let mut contact =
+            remote_im_test_contact("contact-member-cache", "conversation-member-cache");
+        contact.remote_contact_type = "group".to_string();
+        contact.remote_contact_id = "group-member-cache".to_string();
+        contact.channel_id = "channel-a".to_string();
+        contact.onebot_group_members = Vec::new();
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+
+        let member = RemoteImGroupMemberInfo {
+            user_id: "user-1".to_string(),
+            nickname: "甲".to_string(),
+            card: String::new(),
+            display_name: "甲".to_string(),
+            updated_at: Some(now_iso()),
+            raw: None,
+        };
+        // 入站走缓冲后入队不再返回联系人 ID：按群身份自己查，能查到就写。
+        onebot_persist_group_member_cache(
+            &state,
+            "channel-a",
+            "group-member-cache",
+            vec![member.clone()],
+        )
+        .expect("persist group member cache");
+
+        let stored = state_service_get_remote_im_contact(&state, &contact.id)
+            .expect("read contact")
+            .expect("contact exists");
+        assert!(
+            stored
+                .onebot_group_members
+                .iter()
+                .any(|item| item.user_id == "user-1"),
+            "群成员应写入联系人：{:?}",
+            stored.onebot_group_members
+        );
+
+        // 联系人尚未建立（群第一条消息）：跳过且不报错。
+        onebot_persist_group_member_cache(
+            &state,
+            "channel-a",
+            "group-not-created",
+            vec![member],
+        )
+        .expect("skip when contact is missing");
+
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
+    }
+
+    #[test]
+    fn inbound_message_should_not_reset_countdown_while_sleeping() {
+        let state = remote_im_test_state();
+        let mut contact =
+            remote_im_test_contact("contact-countdown", "conversation-countdown");
+        contact.remote_contact_type = "group".to_string();
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        let key = remote_im_group_reply_state_key(&state, &contact.id);
+
+        observe_remote_im_persisted_event(
+            &state,
+            &contact,
+            &chain_test_event("countdown-event-1", "conversation-countdown", &contact, "countdown-1"),
+        );
+        let before = lock_remote_im_inspection_schedule_store()
+            .next_inspection
+            .get(&key)
+            .expect("scheduled")
+            .due_at;
+
+        // 等待期间又来一条普通消息：周期不重置。
+        observe_remote_im_persisted_event(
+            &state,
+            &contact,
+            &chain_test_event("countdown-event-2", "conversation-countdown", &contact, "countdown-2"),
+        );
+        let after = lock_remote_im_inspection_schedule_store()
+            .next_inspection
+            .get(&key)
+            .expect("still scheduled")
+            .due_at;
+        assert_eq!(before, after, "等待期间来消息不应重置倒计时");
+
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
+    }
+
+    #[test]
+    fn reset_countdown_should_start_new_alarm_after_the_watch_ended() {
+        // 一轮看群结束后闹钟项消失：此后入库的消息会重新起一轮。
+        let state = remote_im_test_state();
+        let mut contact = remote_im_test_contact("contact-after-watch", "conversation-after-watch");
+        contact.remote_contact_type = "group".to_string();
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        let key = remote_im_group_reply_state_key(&state, &contact.id);
+        assert!(!lock_remote_im_inspection_schedule_store()
+            .next_inspection
+            .contains_key(&key));
+
+        observe_remote_im_persisted_event(
+            &state,
+            &contact,
+            &chain_test_event(
+                "after-watch-event",
+                "conversation-after-watch",
+                &contact,
+                "after-watch-1",
+            ),
+        );
+
+        assert!(
+            lock_remote_im_inspection_schedule_store()
+                .next_inspection
+                .contains_key(&key),
+            "没有闹钟时新消息应起新一轮"
+        );
+        let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }

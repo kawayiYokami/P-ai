@@ -1084,18 +1084,26 @@ fn onebot_merge_group_member_cache_entry(
     }
 }
 
+/// 写群成员缓存。
+///
+/// 按群身份自己查联系人：入站走缓冲后入队不再返回联系人 ID，调用方也拿不到，
+/// 不能再依赖入队返回值。联系人尚未建立（群第一条消息）时跳过，属正常情况。
 fn onebot_persist_group_member_cache(
     state: &AppState,
-    contact_id: &str,
+    channel_id: &str,
+    group_id: &str,
     members: Vec<RemoteImGroupMemberInfo>,
 ) -> Result<(), String> {
     if members.is_empty() {
         return Ok(());
     }
-    // 联系人不存在时保持 Ok(())，读取失败则传播原始错误
-    match state_service_get_remote_im_contact(state, contact_id)? {
-        Some(_) => {}
-        None => return Ok(()),
+    let contact =
+        state_service_find_remote_im_contact_by_identity(state, channel_id, "group", group_id)?;
+    let Some(contact) = contact else {
+        runtime_log_debug(format!(
+            "[群聊入站] 群成员缓存跳过，任务=写群成员，channel_id={channel_id}，group_id={group_id}，reason=联系人尚未建立"
+        ));
+        return Ok(());
     };
     let members = members
         .into_iter()
@@ -1104,7 +1112,7 @@ fn onebot_persist_group_member_cache(
     if members.is_empty() {
         return Ok(());
     }
-    state_service_upsert_remote_im_group_members(state, contact_id, &members)
+    state_service_upsert_remote_im_group_members(state, &contact.id, &members)
 }
 
 fn onebot_format_mention_quote(qq: &str, display_name: Option<&str>) -> String {

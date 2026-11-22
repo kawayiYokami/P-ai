@@ -588,6 +588,24 @@ fn chat_metadata_store_read_messages_after(
     })
 }
 
+/// 从「某个 sequence 之后」按 sequence 升序分页读；`after_sequence = None` 表示从会话第一条开始。
+///
+/// 用于锚点消息已经不存在（被压缩/清理）时重建读取区间：调用方不需要锚点本身，只需要一个位置。
+fn chat_metadata_store_read_messages_from_sequence(
+    paths: &MessageStorePaths,
+    after_sequence: Option<i64>,
+    limit: usize,
+) -> Result<MessageStoreLimitPage, String> {
+    chat_metadata_store_with_read_snapshot(paths, || {
+        let (locators, has_more) =
+            chat_metadata_store_read_locator_page(paths, after_sequence, None, false, limit)?;
+        Ok(MessageStoreLimitPage {
+            messages: chat_metadata_store_read_messages_for_locators(paths, &locators, false)?,
+            has_more,
+        })
+    })
+}
+
 fn chat_metadata_store_read_messages_after_all(
     paths: &MessageStorePaths,
     message_id: &str,

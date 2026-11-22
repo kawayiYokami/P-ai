@@ -153,7 +153,6 @@ fn remote_im_reply_delegate_register(
         cancelled: false,
         terminal: false,
         session_agent_id: session_info.agent_id.clone(),
-        inspection_generation: dispatch_policy.map(|policy| policy.generation),
         group_reply_focus: dispatch_policy.map(|policy| policy.focus).unwrap_or(false),
         group_reply_max_chars: dispatch_policy.map(|policy| policy.max_chars),
     };
@@ -170,25 +169,6 @@ fn remote_im_reply_delegate_register(
         ));
     }
     Ok(delegate_id)
-}
-
-fn remote_im_reply_delegate_group_policy(
-    state: &AppState,
-    delegate_id: &str,
-) -> Option<(String, RemoteImGroupReplyDispatchPolicy)> {
-    lock_remote_im_reply_delegate_runtimes(state)
-        .ok()
-        .and_then(|runtimes| {
-            let runtime = runtimes.get(delegate_id)?;
-            Some((
-                runtime.contact_id.clone(),
-                RemoteImGroupReplyDispatchPolicy {
-                    generation: runtime.inspection_generation?,
-                    focus: runtime.group_reply_focus,
-                    max_chars: runtime.group_reply_max_chars?,
-                },
-            ))
-        })
 }
 
 fn remote_im_reply_delegate_prepend_system_reminder(
@@ -393,7 +373,6 @@ fn remote_im_reply_delegate_enqueue_guidance(
             return Err(format!("远程应答委托已结束，delegate_id={delegate_id}"));
         }
         if let Some(policy) = policy {
-            runtime.inspection_generation = Some(policy.generation);
             runtime.group_reply_focus = policy.focus;
             runtime.group_reply_max_chars = Some(policy.max_chars);
         }
@@ -803,8 +782,6 @@ fn spawn_remote_im_reply_delegate(
                     break;
                 }
             };
-            let iteration_group_dispatch =
-                remote_im_reply_delegate_group_policy(&state_clone, &delegate_id_for_task);
             let request = SendChatRequest {
                 payload: ChatInputPayload {
                     text: None,
@@ -836,7 +813,6 @@ fn spawn_remote_im_reply_delegate(
                     remote_im_reply_trigger_message_id: Some(trigger_message_id.to_string()),
                     remote_im_reply_prompt_snapshot_messages: Some(prompt_snapshot_messages),
                     remote_im_dynamic_boundary: dynamic_boundary,
-                    remote_im_defer_auto_send: true,
                     ..RuntimeContext::default()
                 }),
                 trigger_only: true,
@@ -879,7 +855,6 @@ fn spawn_remote_im_reply_delegate(
                         send_result.final_response_text.clone(),
                         send_result.assistant_message,
                         assistant_message_id,
-                        iteration_group_dispatch,
                     );
                     if let Err(err) = remote_im_reply_delegate_finalize(
                         &state_clone,
@@ -922,21 +897,12 @@ fn spawn_remote_im_reply_delegate(
                 delegate_id_for_task, err
             ));
         }
+        // 委托失败只影响本轮；下一轮巡检由定时器链自己排，不按编号重排。
         if terminal_status == DELEGATE_STATUS_FAILED {
-            if let Some(policy) = dispatch_policy {
-                let state = state_clone.clone();
-                let contact_id = contact_id_for_task.clone();
-                let reason = terminal_reason.to_string();
-                let _ = tokio::task::spawn_blocking(move || {
-                    remote_im_group_reply_retry_after_dispatch_failure(
-                        &state,
-                        &contact_id,
-                        policy.generation,
-                        &reason,
-                    )
-                })
-                .await;
-            }
+            runtime_log_warn(format!(
+                "[群聊巡检] 降级，任务=委托终结失败，contact_id={}，reason={}",
+                contact_id_for_task, terminal_reason
+            ));
         }
     });
     Ok(delegate_id)

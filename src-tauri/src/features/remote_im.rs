@@ -664,6 +664,8 @@ include!("remote_im/multilingual_text_units.rs");
 
 include!("remote_im/group_reply_energy.rs");
 
+include!("remote_im/cursor.rs");
+
 include!("remote_im/group_reply_state.rs");
 
 include!("remote_im/reply_debounce.rs");
@@ -896,8 +898,8 @@ fn remote_im_prepare_enqueue_runtime_state(
     // 维持持续巡检，普通消息不应再次要求命中点名词。
     // 已经入场的批次只追加消息，后续消息也不再改变本批巡检等级。
     let (activate_assistant, entry_reason) =
-        if remote_im_group_reply_has_active_batch(state, &contact.id) {
-            (true, "当前批次已入场，追加消息且保持原巡检等级".to_string())
+        if remote_im_group_reply_has_active_inspection(state, &contact.id) {
+            (true, "当前巡检链已入场，追加消息且保持原巡检等级".to_string())
         } else if runtime.presence_state == RemoteImPresenceState::Present {
             (true, "联系人仍在场，进入下一轮巡检".to_string())
         } else {

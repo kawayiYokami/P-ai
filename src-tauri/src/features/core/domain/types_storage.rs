@@ -288,11 +288,13 @@ impl Default for RemoteImChannelBehaviorSettings {
     }
 }
 
+/// 旧版外发发送标记：**代码不再写入**，只为读历史数据保留字段，避免旧库反序列化失败。
+///
+/// 外发路径上不存在任何幂等键、批次身份或发送标记：游标只跟巡检有关，
+/// 一次巡检可以发任意多条消息，外发就是发出去就走。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct RemoteImGroupReplyDeliveryMarker {
-    #[serde(default)]
-    generation: u64,
     #[serde(default)]
     boundary_message_id: String,
     #[serde(default)]
@@ -315,8 +317,14 @@ struct RemoteImContactCheckpoint {
     contact_id: String,
     #[serde(default)]
     atomic_revision: u64,
+    /// 已处理游标：巡检读到哪条消息。只有一个写入口（推进游标），单调推进。
+    #[serde(default)]
+    processed_cursor_message_id: Option<String>,
+    #[serde(default)]
+    processed_cursor_updated_at: Option<String>,
     #[serde(default)]
     latest_seen_message_id: Option<String>,
+    /// 旧版外发边界字段：不再写入，只为读旧数据保留。
     #[serde(default)]
     last_boundary_message_id: Option<String>,
     #[serde(default)]
@@ -329,6 +337,7 @@ struct RemoteImContactCheckpoint {
     energy_updated_at: Option<String>,
     #[serde(default)]
     last_success_reply_at: Option<String>,
+    /// 旧版外发发送标记：不再写入，只为读旧数据保留。
     #[serde(default)]
     group_reply_delivery: Option<RemoteImGroupReplyDeliveryMarker>,
 }

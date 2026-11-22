@@ -2841,45 +2841,7 @@ async fn send_chat_message_inner(
                 .auto_push_remote_contact_id
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty());
-            if let (Some(delegate_id), Some(_trigger_message_id)) = (
-                runtime_context
-                    .remote_im_reply_delegate_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty()),
-                runtime_context
-                    .remote_im_reply_trigger_message_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty()),
-            ) {
-                if remote_im_reply_delegate_is_active(&state, delegate_id) {
-                    let visible_texts = remote_im_reply_delegate_visible_texts(&assistant_request_messages);
-                    for (index, text) in visible_texts
-                    .iter()
-                    .take(visible_texts.len().saturating_sub(1))
-                    .enumerate()
-                {
-                    // 中间正文只做中途直接外发：纯发送、不更新 decision、不缓存、不镜像、
-                    // 不写入任何会话历史（委托线程会话也不镜像）。发完即止；
-                    // 中间正文作为消息本身不丢，最终随完整一组落账时自然带上。
-                    if let Some(activation_source) = effective_bound_remote_im_activation_source(
-                        Some(&runtime_context),
-                        &remote_im_activation_sources,
-                    ) {
-                        spawn_remote_im_auto_send_intermediate_text(
-                            state.clone(),
-                            activation_source,
-                            text.clone(),
-                        );
-                    }
-                    runtime_log_debug(format!(
-                        "[远程应答委托] 中间正文已中途直接外发，不落账不镜像，delegate_id={}，intermediate_index={}",
-                        delegate_id, index + 1
-                    ));
-                    }
-                }
-            }
+            // 中间正文不再在收口补发：每轮正文在工具执行之前就已发出（见 tool_loop）。
             if !suppress_assistant_message {
                 let (final_text, reasoning_text) =
                     extract_final_assistant_text_and_meta(&assistant_request_messages);
@@ -3079,7 +3041,6 @@ async fn send_chat_message_inner(
                 final_response_text.clone(),
                 final_auto_send_message.clone(),
                 persisted_assistant_message.as_ref().map(|message| message.id.clone()),
-                None,
             );
         }
     }
@@ -5118,23 +5079,6 @@ mod core_send_inner_tests {
         assert!(!(exhausted.used < RETRY_DEFAULT_MAX_ATTEMPTS));
         let fresh = RetryBudget::default();
         assert!(fresh.used < RETRY_DEFAULT_MAX_ATTEMPTS);
-    }
-
-    #[test]
-    fn remote_reply_delegate_should_extract_each_visible_assistant_round() {
-        let messages = vec![
-            serde_json::json!({
-                "role": "assistant",
-                "content": "先查一下。",
-                "tool_calls": [{"id": "tool-1"}]
-            }),
-            serde_json::json!({"role": "tool", "content": "工具结果"}),
-            serde_json::json!({"role": "assistant", "content": "查到了，最终答复。"}),
-        ];
-        assert_eq!(
-            remote_im_reply_delegate_visible_texts(&messages),
-            vec!["先查一下。".to_string(), "查到了，最终答复。".to_string()]
-        );
     }
 
     #[test]

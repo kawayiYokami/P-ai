@@ -358,38 +358,18 @@ async fn remote_im_build_text_content_items(
     })])
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RemoteImSendContentErrorStage {
-    Preflight,
-    DeliveryAttempted,
-}
-
-#[derive(Debug, Clone)]
-struct RemoteImSendContentError {
-    stage: RemoteImSendContentErrorStage,
-    message: String,
-}
-
-async fn remote_im_send_content_payload_with_stage(
+async fn remote_im_send_content_payload(
     state: &AppState,
     channel: &RemoteImChannelConfig,
     contact: &RemoteImContact,
     content: Vec<Value>,
     stop_tool_loop: bool,
     action: &str,
-) -> Result<Value, RemoteImSendContentError> {
+) -> Result<Value, String> {
     if content.is_empty() {
-        return Err(RemoteImSendContentError {
-            stage: RemoteImSendContentErrorStage::Preflight,
-            message: "发送内容不能为空".to_string(),
-        });
+        return Err("发送内容不能为空".to_string());
     }
-    let muted = remote_im_contact_is_muted(state, &contact.id).map_err(|message| {
-        RemoteImSendContentError {
-            stage: RemoteImSendContentErrorStage::Preflight,
-            message,
-        }
-    })?;
+    let muted = remote_im_contact_is_muted(state, &contact.id)?;
     if muted {
         remote_im_append_contact_log_async(
             contact,
@@ -401,13 +381,10 @@ async fn remote_im_send_content_payload_with_stage(
             ),
         )
         .await;
-        return Err(RemoteImSendContentError {
-            stage: RemoteImSendContentErrorStage::Preflight,
-            message: format!(
-                "联系人“{}”处于闭嘴状态，已拦截外发",
-                remote_im_contact_log_label(contact)
-            ),
-        });
+        return Err(format!(
+            "联系人“{}”处于闭嘴状态，已拦截外发",
+            remote_im_contact_log_label(contact)
+        ));
     }
     let content_digest = remote_im_outbound_content_digest(&content);
     let payload = serde_json::json!({
@@ -418,12 +395,7 @@ async fn remote_im_send_content_payload_with_stage(
         "contact_id": contact.remote_contact_id,
         "content": content,
     });
-    let send_channel = remote_im_channel_with_effective_credentials(state, channel).map_err(
-        |message| RemoteImSendContentError {
-            stage: RemoteImSendContentErrorStage::Preflight,
-            message,
-        },
-    )?;
+    let send_channel = remote_im_channel_with_effective_credentials(state, channel)?;
     let platform_message_id = match remote_im_send_via_sdk(&send_channel, contact, &payload).await {
         Ok(value) => value,
         Err(err) => {
@@ -443,17 +415,7 @@ async fn remote_im_send_content_payload_with_stage(
                 ),
             )
             .await;
-            return Err(RemoteImSendContentError {
-                stage: match err.kind {
-                    RemoteImSdkSendErrorKind::DefinitelyNotSent => {
-                        RemoteImSendContentErrorStage::Preflight
-                    }
-                    RemoteImSdkSendErrorKind::Uncertain => {
-                        RemoteImSendContentErrorStage::DeliveryAttempted
-                    }
-                },
-                message: err.message,
-            });
+            return Err(err.message);
         }
     };
     remote_im_append_contact_log_async(
@@ -485,26 +447,6 @@ async fn remote_im_send_content_payload_with_stage(
     }))
 }
 
-
-async fn remote_im_send_content_payload(
-    state: &AppState,
-    channel: &RemoteImChannelConfig,
-    contact: &RemoteImContact,
-    content: Vec<Value>,
-    stop_tool_loop: bool,
-    action: &str,
-) -> Result<Value, String> {
-    remote_im_send_content_payload_with_stage(
-        state,
-        channel,
-        contact,
-        content,
-        stop_tool_loop,
-        action,
-    )
-    .await
-    .map_err(|err| err.message)
-}
 
 fn contact_tool_target_conversation_id(session_id: &str) -> Result<String, String> {
     delegate_session_conversation_id(session_id)

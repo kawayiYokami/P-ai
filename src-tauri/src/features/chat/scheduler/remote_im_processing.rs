@@ -273,19 +273,8 @@ async fn process_persisted_remote_im_events_individually_now(
                 decision.reason
             ));
         }
-        if let Some(inspection) = inspection {
-            if !remote_im_group_reply_generation_is_current(
-                state,
-                &inspection.contact_id,
-                inspection.generation,
-            ) {
-                runtime_log_warn(format!(
-                    "[群聊巡检] 异步结果过期，contact_id={}，generation={}，stage=secretary_finished",
-                    inspection.contact_id, inspection.generation
-                ));
-                return Ok(RemoteImReplyDispatchOutcome::NoReply);
-            }
-        }
+        // 秘书结论属于它判定的那段消息，不再按批次编号丢弃：
+        // 编号只用于状态写入自检，不参与业务结论是否采纳。
         if !decision.should_reply {
             continue;
         }
@@ -300,7 +289,6 @@ async fn process_persisted_remote_im_events_individually_now(
 
         if let Some(target_delegate_id) = decision.target_delegate_id.as_deref() {
             let policy = inspection.map(|entry| RemoteImGroupReplyDispatchPolicy {
-                generation: entry.generation,
                 focus: entry.focus,
                 max_chars: entry.max_chars,
             });
@@ -357,7 +345,6 @@ async fn process_persisted_remote_im_events_individually_now(
             ));
         }
         let dispatch_policy = inspection.map(|entry| RemoteImGroupReplyDispatchPolicy {
-            generation: entry.generation,
             focus: entry.focus,
             max_chars: entry.max_chars,
         });

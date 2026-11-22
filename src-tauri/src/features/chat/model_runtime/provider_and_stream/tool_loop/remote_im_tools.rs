@@ -117,6 +117,31 @@ fn tool_loop_is_first_tool_result_in_group(
         .unwrap_or(false)
 }
 
+fn maybe_spawn_remote_im_round_intermediate_send(
+    state: &AppState,
+    context: &ToolLoopAutoCompactionContext,
+    turn_text: &str,
+) {
+    // 只服务远程应答委托：私聊自动推送由工具持久化路径负责，这里不能重复发。
+    if context.remote_im_reply_delegate_id.is_none() {
+        return;
+    }
+    let Some(activation_source) = context.remote_im_auto_send_source.clone() else {
+        return;
+    };
+    let text = turn_text.trim();
+    if text.is_empty() {
+        return;
+    }
+    // 逐轮外发：本轮正文一产出就先发出去，发完再执行这一轮的工具调用。
+    // 发送是 fire-and-forget，失败只记日志，调度不等结果。
+    spawn_remote_im_auto_send_intermediate_text(
+        state.clone(),
+        activation_source,
+        text.to_string(),
+    );
+}
+
 fn maybe_spawn_remote_im_tool_persist_auto_send(
     state: &AppState,
     context: &ToolLoopAutoCompactionContext,
@@ -160,6 +185,5 @@ fn maybe_spawn_remote_im_tool_persist_auto_send(
         assistant_text,
         None,
         Some(assistant_message_id.to_string()),
-        None,
     );
 }

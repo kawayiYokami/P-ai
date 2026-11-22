@@ -81,6 +81,7 @@ fn remote_im_group_reply_gate(
     state: &AppState,
     contact: &RemoteImContact,
     focus: bool,
+    skip_energy_and_cooldown: bool,
 ) -> Result<RemoteImGroupReplyGate, String> {
     if !contact.allow_receive || !contact.allow_send {
         return Ok(RemoteImGroupReplyGate {
@@ -119,31 +120,34 @@ fn remote_im_group_reply_gate(
     let pacing = effective_remote_im_group_reply_pacing(state, contact);
     let now = now_utc();
     let energy = remote_im_group_energy_at(checkpoint.as_ref(), &pacing, now);
-    if let Some(last_success_at) = checkpoint
-        .as_ref()
-        .and_then(|item| item.last_success_reply_at.as_deref())
-        .and_then(parse_iso)
-    {
-        let elapsed = (now - last_success_at).whole_seconds().max(0) as u64;
-        if elapsed < pacing.reply_cooldown_seconds {
+    // 点名不受能量与回复冷却约束：只跳过这两项，收发许可、渠道、闭嘴照旧判定。
+    if !skip_energy_and_cooldown {
+        if let Some(last_success_at) = checkpoint
+            .as_ref()
+            .and_then(|item| item.last_success_reply_at.as_deref())
+            .and_then(parse_iso)
+        {
+            let elapsed = (now - last_success_at).whole_seconds().max(0) as u64;
+            if elapsed < pacing.reply_cooldown_seconds {
+                return Ok(RemoteImGroupReplyGate {
+                    allowed: false,
+                    max_chars: 0,
+                    energy,
+                    reason: format!(
+                        "回复冷却中，剩余约 {} 秒",
+                        pacing.reply_cooldown_seconds.saturating_sub(elapsed)
+                    ),
+                });
+            }
+        }
+        if !remote_im_group_energy_can_reply(energy) {
             return Ok(RemoteImGroupReplyGate {
                 allowed: false,
                 max_chars: 0,
                 energy,
-                reason: format!(
-                    "回复冷却中，剩余约 {} 秒",
-                    pacing.reply_cooldown_seconds.saturating_sub(elapsed)
-                ),
+                reason: "当前能量小于或等于 0".to_string(),
             });
         }
-    }
-    if !remote_im_group_energy_can_reply(energy) {
-        return Ok(RemoteImGroupReplyGate {
-            allowed: false,
-            max_chars: 0,
-            energy,
-            reason: "当前能量小于或等于 0".to_string(),
-        });
     }
     let configured_limit = if focus {
         pacing.focus_reply_max_chars
@@ -250,329 +254,58 @@ fn remote_im_apply_inbound_group_energy(
     remote_im_apply_group_energy_for_messages(state, contact, std::slice::from_ref(&message))
 }
 
-fn remote_im_prepare_group_reply_delivery(
+/// 外发即扣能量：不看发送结果，扣成负数也照扣，负数只影响下一轮非点名巡检。
+///
+/// 调用点只有两处：最终正文外发前、中间正文外发时。
+fn remote_im_apply_group_reply_energy_cost(
     state: &AppState,
     contact: &RemoteImContact,
-    generation: u64,
-    final_text: &str,
-) -> Result<RemoteImGroupReplyDeliveryMarker, String> {
-    let key = remote_im_group_reply_state_key(state, &contact.id);
-    let boundary_message_id = {
-        let store = lock_remote_im_group_reply_state_store();
-        let current = store
-            .by_contact
-            .get(&key)
-            .ok_or_else(|| format!("群聊巡检批次已结束：{}", contact.id))?;
-        if current.generation != generation
-            || current.phase != RemoteImGroupReplyPhase::AssistantDispatching
-        {
-            return Err(format!(
-                "群聊巡检批次已失效：contact_id={}，generation={generation}",
-                contact.id
-            ));
-        }
-        current
-            .decision_end_message_id
-            .clone()
-            .ok_or_else(|| {
-                format!(
-                    "群聊巡检尚未冻结边界：contact_id={}，generation={generation}",
-                    contact.id
-                )
-            })?
-    };
-    let outbound_key = format!(
-        "group-reply::{}::{}::{}",
-        contact.id, generation, boundary_message_id
-    );
-    let mut checkpoint = state_service_get_remote_im_contact_checkpoint(state, &contact.id)?.unwrap_or(
-        RemoteImContactCheckpoint {
+    text: &str,
+) -> Result<(), String> {
+    let pacing = effective_remote_im_group_reply_pacing(state, contact);
+    let now = now_utc();
+    let mut checkpoint = state_service_get_remote_im_contact_checkpoint(state, &contact.id)?
+        .unwrap_or(RemoteImContactCheckpoint {
             contact_id: contact.id.clone(),
             ..RemoteImContactCheckpoint::default()
-        },
-    );
-    if checkpoint
-        .group_reply_delivery
-        .as_ref()
-        .map(|marker| {
-            marker.outbound_key == outbound_key && marker.status != "preflight_failed"
-        })
-        .unwrap_or(false)
-    {
-        return Err(format!("群聊外发批次已有持久标记：{outbound_key}"));
-    }
-    let marker = RemoteImGroupReplyDeliveryMarker {
-        generation,
-        boundary_message_id,
-        outbound_key,
-        final_text: final_text.to_string(),
-        status: "dispatching".to_string(),
-        platform_message_id: None,
-        energy_applied: false,
-        updated_at: Some(now_iso()),
-    };
-    checkpoint.group_reply_delivery = Some(marker.clone());
+        });
+    let before = remote_im_group_energy_at(Some(&checkpoint), &pacing, now);
+    let char_count = effective_remote_im_group_reply_char_count(text) as f64;
+    let cost = pacing.base_reply_energy_cost + char_count * pacing.energy_cost_per_character;
+    let after = (before - cost).max(-pacing.maximum_energy);
+    checkpoint.energy = Some(after);
+    checkpoint.energy_updated_at = Some(now_iso());
     remote_im_bump_checkpoint_atomic_revision(&mut checkpoint);
     checkpoint.updated_at = Some(now_iso());
     state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
-    Ok(marker)
-}
-
-fn remote_im_cancel_prepared_group_reply_delivery(
-    state: &AppState,
-    contact_id: &str,
-    marker: &RemoteImGroupReplyDeliveryMarker,
-    reason: &str,
-) -> Result<(), String> {
-    let mut checkpoint = state_service_get_remote_im_contact_checkpoint(state, contact_id)?.unwrap_or(
-        RemoteImContactCheckpoint {
-            contact_id: contact_id.to_string(),
-            ..RemoteImContactCheckpoint::default()
-        },
-    );
-    let changed = {
-        let checkpoint = &mut checkpoint;
-        let Some(current) = checkpoint.group_reply_delivery.as_mut() else {
-            return Ok(());
-        };
-        if current.outbound_key != marker.outbound_key || current.status != "dispatching" {
-            false
-        } else {
-            current.status = "preflight_failed".to_string();
-            current.updated_at = Some(now_iso());
-            remote_im_bump_checkpoint_atomic_revision(checkpoint);
-            checkpoint.updated_at = Some(now_iso());
-            true
-        }
-    };
-    if changed {
-        state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
-    }
-    if !changed {
-        return Ok(());
-    }
-    runtime_log_warn(format!(
-        "[群聊巡检] 外发前置检查失败，已撤销发送标记并保留批次，contact_id={}，outbound_key={}，reason={}",
-        contact_id, marker.outbound_key, reason
+    runtime_log_info(format!(
+        "[群聊能量] 外发扣能：contact_id={}，before={:.2}，cost={:.2}，after={:.2}，chars={}",
+        contact.id,
+        before,
+        cost,
+        after,
+        char_count as usize
     ));
+    remote_im_emit_contact_dashboard_snapshot(state, &contact.id);
     Ok(())
 }
 
-fn remote_im_persist_group_reply_settlement(
+/// 发送成功后只记时间戳，供回复冷却使用；扣能量已经在外发时完成。
+fn remote_im_mark_group_reply_success(
     state: &AppState,
     contact: &RemoteImContact,
-    settlement: &RemoteImGroupReplySettlement,
 ) -> Result<(), String> {
-    let now = now_utc();
-    let settlement_status = match settlement.status {
-        RemoteImGroupReplySettlementStatus::Delivered => "committed",
-        RemoteImGroupReplySettlementStatus::Uncertain => "uncertain",
-    };
-    let mut checkpoint = state_service_get_remote_im_contact_checkpoint(state, &contact.id)?.unwrap_or(
-        RemoteImContactCheckpoint {
+    let mut checkpoint = state_service_get_remote_im_contact_checkpoint(state, &contact.id)?
+        .unwrap_or(RemoteImContactCheckpoint {
             contact_id: contact.id.clone(),
             ..RemoteImContactCheckpoint::default()
-        },
-    );
-    let applied = {
-        let checkpoint = &mut checkpoint;
-        if settlement.outbound_key.as_ref().is_some_and(|outbound_key| {
-            checkpoint
-                .group_reply_delivery
-                .as_ref()
-                .is_some_and(|marker| marker.outbound_key != *outbound_key)
-        }) {
-            false
-        } else {
-            let existing_marker = settlement
-                .outbound_key
-                .as_deref()
-                .zip(checkpoint.group_reply_delivery.as_ref())
-                .and_then(|(outbound_key, marker)| {
-                    (marker.outbound_key == outbound_key).then(|| marker.clone())
-                });
-        let energy_already_applied = existing_marker
-            .as_ref()
-            .map(|marker| marker.energy_applied)
-            .unwrap_or(false);
-        let previous_status = existing_marker
-            .as_ref()
-            .map(|marker| marker.status.as_str())
-            .unwrap_or_default();
-        let mut energy_applied = energy_already_applied;
-        if !energy_already_applied {
-            if let Some(final_text) = settlement.final_text.as_deref() {
-                let pacing = effective_remote_im_group_reply_pacing(state, contact);
-                let before = remote_im_group_energy_at(Some(checkpoint), &pacing, now);
-                let char_count = effective_remote_im_group_reply_char_count(final_text) as f64;
-                let cost = pacing.base_reply_energy_cost
-                    + char_count * pacing.energy_cost_per_character;
-                let after = (before - cost).max(-pacing.maximum_energy);
-                checkpoint.energy = Some(after);
-                checkpoint.energy_updated_at = Some(now_iso());
-                energy_applied = true;
-                runtime_log_info(format!(
-                    "[群聊能量] 完成，contact_id={}，before={:.2}，cost={:.2}，after={:.2}，chars={}，delivery_status={}",
-                    contact.id,
-                    before,
-                    cost,
-                    after,
-                    char_count as usize,
-                    settlement_status
-                ));
-            }
-        }
-        if settlement.status == RemoteImGroupReplySettlementStatus::Delivered
-            && previous_status != "committed"
-        {
-            checkpoint.last_success_reply_at = Some(now_iso());
-        }
-        checkpoint.last_boundary_message_id = Some(settlement.boundary_message_id.clone());
-        checkpoint.last_boundary_covers_message_id = Some(settlement.boundary_message_id.clone());
-        checkpoint.updated_at = Some(now_iso());
-        if let Some(outbound_key) = settlement.outbound_key.as_ref() {
-            checkpoint.group_reply_delivery = Some(RemoteImGroupReplyDeliveryMarker {
-                generation: existing_marker
-                    .as_ref()
-                    .map(|marker| marker.generation)
-                    .unwrap_or_default(),
-                boundary_message_id: settlement.boundary_message_id.clone(),
-                outbound_key: outbound_key.clone(),
-                final_text: settlement
-                    .final_text
-                    .clone()
-                    .or_else(|| existing_marker.as_ref().map(|marker| marker.final_text.clone()))
-                    .unwrap_or_default(),
-                status: settlement_status.to_string(),
-                platform_message_id: settlement
-                    .platform_message_id
-                    .clone()
-                    .or_else(|| {
-                        existing_marker
-                            .as_ref()
-                            .and_then(|marker| marker.platform_message_id.clone())
-                    }),
-                energy_applied,
-                updated_at: Some(now_iso()),
-            });
-        }
-        remote_im_bump_checkpoint_atomic_revision(checkpoint);
-        true
-        }
-    };
-    if applied {
-        state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
-    }
-    if !applied {
-        runtime_log_warn(format!(
-            "[群聊巡检] 跳过过期外发结算，避免覆盖较新的发送标记，contact_id={}，outbound_key={}",
-            contact.id,
-            settlement.outbound_key.as_deref().unwrap_or("")
-        ));
-    } else {
-        remote_im_emit_contact_dashboard_snapshot(state, &contact.id);
-    }
+        });
+    checkpoint.last_success_reply_at = Some(now_iso());
+    remote_im_bump_checkpoint_atomic_revision(&mut checkpoint);
+    checkpoint.updated_at = Some(now_iso());
+    state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
+    remote_im_emit_contact_dashboard_snapshot(state, &contact.id);
     Ok(())
-}
-
-fn remote_im_recover_group_reply_delivery_marker(
-    state: &AppState,
-    contact: &RemoteImContact,
-) -> Result<(), String> {
-    let marker = state_service_get_remote_im_contact_checkpoint(state, &contact.id)?
-        .and_then(|checkpoint| checkpoint.group_reply_delivery)
-        .filter(|marker| marker.status == "dispatching");
-    let Some(marker) = marker else {
-        return Ok(());
-    };
-    let state_key = remote_im_group_reply_state_key(state, &contact.id);
-    let current_runtime = lock_remote_im_group_reply_state_store()
-        .by_contact
-        .get(&state_key)
-        .map(|current| (current.generation, current.phase));
-    if current_runtime
-        .map(|(generation, _)| generation > marker.generation)
-        .unwrap_or(false)
-    {
-        if let Err(err) = remote_im_cancel_prepared_group_reply_delivery(
-            state,
-            &contact.id,
-            &marker,
-            "内存状态已进入更新 generation，旧发送标记判定为前置失败遗留",
-        ) {
-            runtime_log_warn(format!(
-                "[群聊巡检] 旧发送标记清理降级，暂不按不确定结果扣能，contact_id={}，outbound_key={}，error={}",
-                contact.id, marker.outbound_key, err
-            ));
-        }
-        return Ok(());
-    }
-    let active_delivery = current_runtime
-        .map(|(generation, phase)| {
-            generation == marker.generation
-                && matches!(
-                    phase,
-                    RemoteImGroupReplyPhase::AssistantDispatching
-                        | RemoteImGroupReplyPhase::CommitPending
-                )
-        })
-        .unwrap_or(false);
-    if active_delivery {
-        return Ok(());
-    }
-    runtime_log_warn(format!(
-        "[群聊巡检] 恢复未确认外发，contact_id={}，outbound_key={}，处理=按结果不确定消费批次且禁止重发",
-        contact.id, marker.outbound_key
-    ));
-    remote_im_persist_group_reply_settlement(
-        state,
-        contact,
-        &RemoteImGroupReplySettlement {
-            boundary_message_id: marker.boundary_message_id,
-            final_text: Some(marker.final_text),
-            outbound_key: Some(marker.outbound_key),
-            platform_message_id: marker.platform_message_id,
-            status: RemoteImGroupReplySettlementStatus::Uncertain,
-        },
-    )
-}
-
-fn remote_im_recover_all_group_reply_delivery_markers(
-    state: &AppState,
-) -> Result<(usize, usize), String> {
-    let pending_contact_ids = state_service_list_remote_im_contact_checkpoints(state)?
-        .into_iter()
-        .filter_map(|checkpoint| {
-            checkpoint
-                .group_reply_delivery
-                .as_ref()
-                .filter(|marker| marker.status == "dispatching")
-                .map(|_| checkpoint.contact_id.clone())
-        })
-        .collect::<Vec<_>>();
-    let mut recovered = 0usize;
-    let mut failed = 0usize;
-    for contact_id in &pending_contact_ids {
-        let Some(contact) = state_service_get_remote_im_contact(state, contact_id)?
-        else {
-            runtime_log_warn(format!(
-                "[群聊巡检] 启动恢复跳过孤立发送标记，contact_id={}，reason=联系人已不存在",
-                contact_id
-            ));
-            continue;
-        };
-        match remote_im_recover_group_reply_delivery_marker(state, &contact) {
-            Ok(()) => recovered = recovered.saturating_add(1),
-            Err(err) => {
-                failed = failed.saturating_add(1);
-                runtime_log_warn(format!(
-                    "[群聊巡检] 启动恢复失败，contact_id={}，error={}",
-                    contact_id, err
-                ));
-            }
-        }
-    }
-    Ok((recovered, failed))
 }
 
 #[cfg(test)]

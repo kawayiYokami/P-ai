@@ -581,6 +581,24 @@ pub(super) fn chat_store_read_messages_after(
     )?))
 }
 
+/// 从「某个 sequence 之后」分页读；`after_sequence = None` 表示从会话第一条开始。
+///
+/// 锚点消息已不存在时用这个入口：调用方只关心「从哪里往后读」，不关心那条消息本身。
+pub(super) fn chat_store_read_messages_from_sequence(
+    paths: &MessageStorePaths,
+    after_sequence: Option<i64>,
+    limit: usize,
+) -> Result<Option<MessageStoreLimitPage>, String> {
+    if !chat_store_exists(paths)? {
+        return Ok(None);
+    }
+    Ok(Some(chat_metadata_store_read_messages_from_sequence(
+        paths,
+        after_sequence,
+        limit,
+    )?))
+}
+
 pub(super) fn chat_store_read_current_compaction_segment(
     paths: &MessageStorePaths,
 ) -> Result<Option<MessageStoreCompactionSegment>, String> {
